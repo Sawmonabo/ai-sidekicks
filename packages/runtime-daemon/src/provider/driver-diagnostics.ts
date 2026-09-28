@@ -9,13 +9,11 @@
 // producer lives beside the surface it reports through rather than minting a
 // fourth provider-level module Files census does not name).
 //
-// Nothing here mints a `session_events` envelope, and no record kind is
-// spelled `runtime_node.*` — that prefix is event namespace and these records
-// are operator diagnostics by design. A frame that
-// reaches this surface is never silently dropped and never forced into an
-// envelope: it becomes a structured log line plus a counter increment,
-// queryable through the diagnostics surfaces rather than through the event
-// timeline.
+// Nothing here mints a `session_events` envelope: these records are operator
+// diagnostics by design. A frame that reaches this surface is never silently
+// dropped and never forced into an envelope: it becomes a structured log line
+// plus a counter increment, queryable through the diagnostics surfaces rather
+// than through the event timeline.
 //
 // Metrics: the counter NAMES below are the OpenTelemetry instrument names
 // (`driver.reorder_buffer.overflow` is pinned verbatim).
@@ -328,7 +326,7 @@ export interface DriverDiagnosticCounterSink {
  * subsystems establish the idiom), and the single-line JSON body is what makes
  * the stream machine-parseable when a real logger replaces the sink.
  */
-export class ConsoleDriverDiagnosticLogSink implements DriverDiagnosticLogSink {
+class ConsoleDriverDiagnosticLogSink implements DriverDiagnosticLogSink {
   record(record: DriverDiagnosticRecord): void {
     console.warn(`driver-diagnostic ${JSON.stringify(record)}`);
   }

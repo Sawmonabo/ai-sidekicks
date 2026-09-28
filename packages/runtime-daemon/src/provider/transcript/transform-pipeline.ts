@@ -159,7 +159,7 @@ export class ToolCallIdentityMap {
  * not on the other, which is exactly the failure the closed set exists to
  * prevent.
  */
-export type RenderedFrameOrigin = OutboundFrameOrigin;
+type RenderedFrameOrigin = OutboundFrameOrigin;
 
 /**
  * One provider-neutral outbound frame. Drivers map these into their own target

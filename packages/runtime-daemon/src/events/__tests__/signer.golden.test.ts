@@ -536,7 +536,7 @@ describe("verifyRow — the zero-fill placeholder verdict", () => {
   });
 
   it("is scoped to exactly 64 bytes — a wrong-width all-zero signature is never the placeholder", () => {
-    // `0001-initial.ts` declares `CHECK(length(daemon_signature) = 64)`, so a
+    // `daemon-schema.ts` declares `CHECK(length(daemon_signature) = 64)`, so a
     // 63-byte value never came through the INSERT: it is corruption, not a
     // placeholder, and keeps the verdict every other wrong-shaped stored
     // signature gets.

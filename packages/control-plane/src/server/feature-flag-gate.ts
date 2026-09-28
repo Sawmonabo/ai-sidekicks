@@ -5,15 +5,18 @@
 // the bootstrap unreachable on any deploy that doesn't explicitly set it.
 //
 
+/** The Worker environment key gate #1 reads. */
 export interface FeatureFlagEnv {
   readonly CONTROL_PLANE_BOOTSTRAP_ENABLED?: string;
 }
 
+/** A gate's verdict; a refusal carries the operator-facing reason. */
 export type GateResult = { readonly ok: true } | { readonly ok: false; readonly reason: string };
 
-export const FEATURE_FLAG_KEY = "CONTROL_PLANE_BOOTSTRAP_ENABLED";
-export const FEATURE_FLAG_PASS_VALUE = "1";
+const FEATURE_FLAG_KEY = "CONTROL_PLANE_BOOTSTRAP_ENABLED";
+const FEATURE_FLAG_PASS_VALUE = "1";
 
+/** Passes only when `CONTROL_PLANE_BOOTSTRAP_ENABLED` is exactly `'1'`. */
 export function checkFeatureFlag(env: FeatureFlagEnv): GateResult {
   if (env.CONTROL_PLANE_BOOTSTRAP_ENABLED === FEATURE_FLAG_PASS_VALUE) {
     return { ok: true };

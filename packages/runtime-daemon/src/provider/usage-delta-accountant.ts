@@ -443,10 +443,10 @@ export class UsageDeltaAccountant {
 // --------------------------------------------------------------------------
 
 /** The `` cost-status enum. */
-export type UsageCostStatus = "priced" | "unpriced";
+type UsageCostStatus = "priced" | "unpriced";
 
 /** The full four-value `` cost-provenance enum. */
-export type UsageCostSource =
+type UsageCostSource =
   | "provider_reported"
   | "derived_exact"
   | "derived_family_prefix"

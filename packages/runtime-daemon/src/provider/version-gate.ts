@@ -147,10 +147,10 @@ export class ProviderExecutableUnresolvableError extends Error {
 }
 
 /** `fs.promises.realpath` seam. Rejects with a Node `ErrnoException`. */
-export type ExecutableRealpathResolver = (candidate: string) => Promise<string>;
+type ExecutableRealpathResolver = (candidate: string) => Promise<string>;
 
 /** "Is this path a file this process may execute?" — never rejects. */
-export type ExecutableFileProbe = (candidate: string) => Promise<boolean>;
+type ExecutableFileProbe = (candidate: string) => Promise<boolean>;
 
 /**
  * The filesystem and platform seams resolution depends on. Injected for the
@@ -179,7 +179,7 @@ export interface ProviderExecutableResolverDependencies {
  * missing, or non-executable candidate is simply not a candidate, and the
  * refusal belongs to the caller once every candidate is exhausted.
  */
-export const DEFAULT_IS_EXECUTABLE_FILE: ExecutableFileProbe = async (candidate) => {
+const DEFAULT_IS_EXECUTABLE_FILE: ExecutableFileProbe = async (candidate) => {
   try {
     const stats = await stat(candidate);
     if (!stats.isFile()) {
@@ -197,10 +197,10 @@ export const DEFAULT_IS_EXECUTABLE_FILE: ExecutableFileProbe = async (candidate)
  * semantics of `fs.realpath.native()` — the dereference that turns a launcher
  * symlink into the exact build path this module spawns and records.
  */
-export const DEFAULT_EXECUTABLE_REALPATH: ExecutableRealpathResolver = realpathFromFilesystem;
+const DEFAULT_EXECUTABLE_REALPATH: ExecutableRealpathResolver = realpathFromFilesystem;
 
 /** Production defaults; every member is overridable for tests. */
-export function resolveExecutableResolverDependencies(
+function resolveExecutableResolverDependencies(
   partial: Partial<ProviderExecutableResolverDependencies> = {},
 ): ProviderExecutableResolverDependencies {
   return {
@@ -373,9 +373,7 @@ export interface ProviderVersionHandshakeRequest {
  * (`driver.timeout`), and MUST spawn `request.resolvedExecutablePath` with
  * `request.environment`.
  */
-export type ProviderVersionHandshake = (
-  request: ProviderVersionHandshakeRequest,
-) => Promise<unknown>;
+type ProviderVersionHandshake = (request: ProviderVersionHandshakeRequest) => Promise<unknown>;
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
   return typeof value === "object" && value !== null && !Array.isArray(value)

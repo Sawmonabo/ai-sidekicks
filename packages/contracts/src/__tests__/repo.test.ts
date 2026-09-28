@@ -4,14 +4,12 @@
 //
 // Backstops and the invariant this contract carries:
 //   • `VcsTypeSchema` is the discriminator's contract carrier, so the
-//     tests pin it CLOSED at two values: no third member, no tolerant
-//     passthrough arm. A widened discriminator is what would let a non-git
-//     path be presented as a git mount.
+//     tests pin it CLOSED at `git`: no second member, no tolerant
+//     passthrough arm. Attach refuses a path that is not a git repository.
 //
 // Coverage shape:
-//   • Every member of every enum parses, INCLUDING the space-containing
-//     `"ephemeral clone"` wire literal; out-of-set values are rejected (a 5th
-//     mode, a 6th workspace state, a 4th mount state, a 3rd vcs type), so
+//   • Every member of every enum parses; out-of-set values are rejected (a 3rd
+//     mode, a 6th workspace state, a 4th mount state, a 2nd vcs type), so
 //     each pin is a real accept/reject boundary rather than a one-sided
 //     smoke test.
 //   • Branded ids reject a non-UUID, and the brand is nominal at compile
@@ -77,10 +75,10 @@ import {
   type RepoWorkspaceLifecyclePayload,
   type VcsType,
   type WorkspaceBindRequest,
-  type WorkspaceBindResponse,
   type WorkspaceId,
   type WorkspaceState,
 } from "../repo.js";
+import { SessionIdSchema } from "../session.js";
 
 // Real RFC 9562 UUIDs (mix of v4 and v7). `RFC_9562_TEXT_FORM` validates the version
 // nibble + variant bits in canonical positions; mismatch is rejected at the
@@ -97,34 +95,23 @@ const VERSION = "1.0";
 // Canonical enums.
 // --------------------------------------------------------------------------
 
-describe("ExecutionModeSchema (four-mode taxonomy)", () => {
+describe("ExecutionModeSchema (two-mode taxonomy)", () => {
   it.each([
-    ["read-only", true],
-    ["branch", true],
-    ["worktree", true],
-    // The space is part of the WIRE literal, preserved verbatim. The three
-    // plausible "cleanups" below must all stay rejected, or a producer that
-    // normalized the literal would diverge from the canonical bytes.
-    ["ephemeral clone", true],
-    ["ephemeral_clone", false],
-    ["ephemeral-clone", false],
-    ["ephemeralClone", false],
-    // A fifth mode is a contract change, not a runtime-tolerated value.
+    ["bound-root", true],
+    ["provisioned-worktree", true],
     ["submodule", false],
     ["", false],
   ])("parses %s -> %s", (candidate, shouldPass) => {
     expect(ExecutionModeSchema.safeParse(candidate).success).toBe(shouldPass);
   });
 
-  it("enumerates exactly the four canonical modes (no more, no less)", () => {
+  it("enumerates exactly the two canonical modes (no more, no less)", () => {
     // Exact-set pin, read through the same `.options` internals cast the
     // EventCategorySchema pin in session-event.test.ts uses: the schema is
     // annotated `z.ZodType<ExecutionMode>` for `isolatedDeclarations`, which
     // erases the enum construct.
     const schemaInternals = ExecutionModeSchema as unknown as { options: readonly string[] };
-    expect([...schemaInternals.options].sort()).toEqual(
-      ["branch", "ephemeral clone", "read-only", "worktree"].sort(),
-    );
+    expect([...schemaInternals.options].sort()).toEqual(["bound-root", "provisioned-worktree"]);
   });
 });
 
@@ -159,14 +146,13 @@ describe("RepoMountStateSchema (the 3-value mount lifecycle)", () => {
   });
 });
 
-describe("VcsTypeSchema (honest non-git classification)", () => {
+describe("VcsTypeSchema (git only)", () => {
   it.each([
     ["git", true],
-    ["none", true],
-    // The whole content is that the discriminator stays CLOSED at two
-    // values. Each rejection below is a shape a widened union would admit:
-    // an "unknown"/"pending" third state (which would let a resolver defer
-    // the verdict), a sibling VCS (which would be presented as git-adjacent
+    // The whole content is that the discriminator stays CLOSED at `git`.
+    // Each rejection below is a shape a widened union would admit: an
+    // "unknown"/"pending" state (which would let a resolver defer the
+    // verdict), a sibling VCS (which would be presented as git-adjacent
     // without git capabilities), and the empty string.
     ["unknown", false],
     ["pending", false],
@@ -176,9 +162,9 @@ describe("VcsTypeSchema (honest non-git classification)", () => {
     expect(VcsTypeSchema.safeParse(candidate).success).toBe(shouldPass);
   });
 
-  it("admits exactly two members — no third value, no passthrough", () => {
+  it("admits exactly one member — no second value, no passthrough", () => {
     const schemaInternals = VcsTypeSchema as unknown as { options: readonly string[] };
-    expect([...schemaInternals.options].sort()).toEqual(["git", "none"]);
+    expect([...schemaInternals.options]).toEqual(["git"]);
     // Negative control on the pin above: a tolerant arm would make an
     // arbitrary string parse. It must not.
     expect(VcsTypeSchema.safeParse("anything-else").success).toBe(false);
@@ -699,7 +685,7 @@ describe("SessionEventSchema registration of the six variants", () => {
       // replay.
       const broken = {
         ...buildRepoEvent(eventType, state),
-        category: "presence" as const,
+        category: "usage_telemetry" as const,
       };
       expect(SessionEventSchema.safeParse(broken).success).toBe(false);
     },
@@ -708,7 +694,7 @@ describe("SessionEventSchema registration of the six variants", () => {
   it("rejects a foreign payload smuggled onto a repo variant", () => {
     const broken = {
       ...buildRepoEvent("repo.attached", "attached"),
-      payload: { channelId: WORKSPACE_ID, name: "main" },
+      payload: { sessionId: SESSION_ID, config: {}, metadata: {} },
     };
     expect(SessionEventSchema.safeParse(broken).success).toBe(false);
   });
@@ -757,9 +743,7 @@ const CANONICAL_ROOT = "/Users/dev/projects/ai-sidekicks";
 const ATTACHED_AT = "2026-07-24T19:14:35.000Z";
 
 const buildAttachRequest = () => ({
-  sessionId: SESSION_ID,
   localPath: LOCAL_PATH,
-  nodeId: NODE_ID,
 });
 
 const buildAttachResponse = () => ({
@@ -767,12 +751,10 @@ const buildAttachResponse = () => ({
   state: "attached" as const,
   vcsType: "git" as const,
   canonicalRoot: CANONICAL_ROOT,
-  defaultWorkspaceId: WORKSPACE_ID,
 });
 
 const buildMountReadResponse = () => ({
   id: REPO_MOUNT_ID,
-  sessionId: SESSION_ID,
   nodeId: NODE_ID,
   localPath: LOCAL_PATH,
   canonicalRoot: CANONICAL_ROOT,
@@ -800,32 +782,13 @@ const parseMountReadResponse = (overrides: Record<string, unknown> = {}) =>
 const parseDetachResponse = (overrides: Record<string, unknown> = {}) =>
   RepoDetachResponseSchema.safeParse({ ...buildDetachResponse(), ...overrides });
 
-describe("RepoAttachRequestSchema (path, session, owning node)", () => {
+describe("RepoAttachRequestSchema (the entered path)", () => {
   it("accepts a valid attach request", () => {
     expect(parseAttachRequest().success).toBe(true);
   });
 
-  it.each(["sessionId", "localPath", "nodeId"])(
-    "rejects an attach request missing the required field %s",
-    (field) => {
-      const broken = { ...buildAttachRequest() } as Record<string, unknown>;
-      delete broken[field];
-      expect(RepoAttachRequestSchema.safeParse(broken).success).toBe(false);
-    },
-  );
-
-  it("types `nodeId` as the daemon-assigned OPAQUE scalar, not a UUID", () => {
-    // `NodeIdSchema` (-owned, declared in node-id.ts) deliberately departs
-    // from the UUID parser the branded repo ids use, because
-    // `runtime_node_attachments.node_id` is TEXT. Composing a UUID-branded
-    // schema here by mistake would satisfy every other row in this block —
-    // only this one catches it.
-    expect(parseAttachRequest({ nodeId: "cli-daemon@host.local" }).success).toBe(true);
-    // Opaque is not unvalidated — empty and over-cap are still refused, at the
-    // cap the canonical declaration owns.
-    expect(parseAttachRequest({ nodeId: "" }).success).toBe(false);
-    const overCapNodeId = "n".repeat(NODE_ID_MAX_LEN + 1);
-    expect(parseAttachRequest({ nodeId: overCapNodeId }).success).toBe(false);
+  it("rejects an attach request with no `localPath`", () => {
+    expect(RepoAttachRequestSchema.safeParse({}).success).toBe(false);
   });
 
   it("bounds `localPath` at REPO_PATH_MAX_LEN and refuses blank / NUL-byte forms", () => {
@@ -864,24 +827,18 @@ describe("RepoAttachRequestSchema (path, session, owning node)", () => {
   });
 });
 
-describe("RepoAttachResponseSchema (resolved root + default workspace required)", () => {
+describe("RepoAttachResponseSchema (resolved root required)", () => {
   it("accepts a valid attach response", () => {
     expect(parseAttachResponse().success).toBe(true);
   });
 
-  it.each(["canonicalRoot", "defaultWorkspaceId"])(
-    "rejects an attach response missing %s — the field is unrepresentable-absent",
-    (field) => {
-      // `canonicalRoot`: resolution failure ABORTS attach with typed
-      // `repo.root_resolution_failed`, so there is no partial success
-      // carrying an unresolved root. `defaultWorkspaceId`: attach
-      // unconditionally creates the default read-only workspace, so "attached
-      // but no workspace" is a state the model never produces.
-      const broken = { ...buildAttachResponse() } as Record<string, unknown>;
-      delete broken[field];
-      expect(RepoAttachResponseSchema.safeParse(broken).success).toBe(false);
-    },
-  );
+  it("rejects an attach response missing `canonicalRoot`", () => {
+    // Resolution failure ABORTS attach with typed `repo.root_resolution_failed`,
+    // so there is no partial success carrying an unresolved root.
+    const broken = { ...buildAttachResponse() } as Record<string, unknown>;
+    delete broken["canonicalRoot"];
+    expect(RepoAttachResponseSchema.safeParse(broken).success).toBe(false);
+  });
 
   it.each(["attached", "detached", "archived"])(
     "carries the full RepoMountState vocabulary, not an `attached` literal — %s",
@@ -916,32 +873,23 @@ describe("RepoAttachResponseSchema (resolved root + default workspace required)"
   });
 });
 
-// COMPILE-TIME leg of the `unrepresentable-absent` rows above: `canonicalRoot`
-// and `defaultWorkspaceId` are required on the TYPE, not merely at parse time.
-// The runtime rows prove the schema refuses the omission; these prove a
-// consumer cannot construct one in the first place. Held in a never-invoked
-// function so the pin does its whole job under the `tsconfig.test.json`
-// typecheck leg, and each directive self-verifies: weaken either field to
-// optional and TS reports the directive unused (TS2578), turning the leg red
-// rather than silently dropping the pin. Co-located with its subject, the same
-// placement as `brandNominalityPin` above.
+// COMPILE-TIME leg of the `unrepresentable-absent` row above: `canonicalRoot`
+// is required on the TYPE, not merely at parse time. The runtime row proves
+// the schema refuses the omission; this proves a consumer cannot construct one
+// in the first place. Held in a never-invoked function so the pin does its
+// whole job under the `tsconfig.test.json` typecheck leg, and the directive
+// self-verifies: weaken the field to optional and TS reports the directive
+// unused (TS2578), turning the leg red rather than silently dropping the pin.
+// Co-located with its subject, the same placement as `brandNominalityPin`
+// above.
 const attachResponseRequiredFieldPins = (): void => {
   // @ts-expect-error — an attach response with no resolved canonical root.
   const missingCanonicalRoot: RepoAttachResponse = {
     repoMountId: RepoMountIdSchema.parse(REPO_MOUNT_ID),
     state: "attached",
     vcsType: "git",
-    defaultWorkspaceId: WorkspaceIdSchema.parse(WORKSPACE_ID),
-  };
-  // @ts-expect-error — an attach response with no default workspace.
-  const missingDefaultWorkspaceId: RepoAttachResponse = {
-    repoMountId: RepoMountIdSchema.parse(REPO_MOUNT_ID),
-    state: "attached",
-    vcsType: "git",
-    canonicalRoot: CANONICAL_ROOT,
   };
   void missingCanonicalRoot;
-  void missingDefaultWorkspaceId;
 };
 void attachResponseRequiredFieldPins;
 
@@ -975,12 +923,11 @@ describe("RepoMountReadResponseSchema (canonical root + VCS metadata + current h
     expect(RepoMountReadResponseSchema.safeParse(renamed).success).toBe(false);
   });
 
-  // All NINE projection fields, enumerated exhaustively rather than by
+  // All EIGHT projection fields, enumerated exhaustively rather than by
   // representative: a field quietly turned optional in a later phase would
   // otherwise pass a partial list.
   it.each([
     "id",
-    "sessionId",
     "nodeId",
     "localPath",
     "canonicalRoot",
@@ -992,6 +939,14 @@ describe("RepoMountReadResponseSchema (canonical root + VCS metadata + current h
     const broken = { ...buildMountReadResponse() } as Record<string, unknown>;
     delete broken[field];
     expect(RepoMountReadResponseSchema.safeParse(broken).success).toBe(false);
+  });
+
+  it("types `nodeId` as the daemon-assigned OPAQUE scalar, not a UUID", () => {
+    // `NodeIdSchema` (declared in node-id.ts) deliberately departs from the
+    // UUID parser the branded repo ids use. Composing a UUID-branded schema
+    // here by mistake would satisfy every other row in this block — only this
+    // one catches it.
+    expect(parseMountReadResponse({ nodeId: "cli-daemon@host.local" }).success).toBe(true);
   });
 
   it("rejects out-of-vocabulary `vcsType` and `state` through the composition", () => {
@@ -1118,21 +1073,19 @@ describe("RepoDetach request/response", () => {
 //
 // The three request/response pairs for the WORKSPACE half of the six `repo.*`
 // methods. Coverage backstops the field requirements the shapes carry, all
-// three: `WorkspaceBind` accepts a repo mount plus an intended execution mode
-// from the canonical set (the "or directory root" arm being satisfied by a
-// plain-directory mount); the capabilities read exposes which modes are
+// three: `WorkspaceBind` accepts a session, a repo mount and an intended
+// execution mode from the canonical set; the capabilities read exposes which modes are
 // currently valid for the bound repo mount OR workspace; `WorkspaceList`
 // exposes workspace health and current binding state.
 //
-// Three conditional relationships are deliberately NOT pinned as shape rules,
-// because the schemas deliberately do not encode them: `restrictions`
-// covering every mode absent from `availableModes` (the test), `lastError`
-// present iff `stale`, and `fsRoot` absent while `provisioning`. The rows
-// below pin the REPRESENTABILITY of each case instead, which is the contract
-// half; the emitter half belongs to Phase 2.
+// Two conditional relationships are deliberately NOT pinned as shape rules,
+// because the schemas do not encode them: `restrictions` covering every mode
+// absent from `availableModes`, and `lastError` present iff `stale`. The rows
+// below pin the REPRESENTABILITY of each case instead; the daemon that emits
+// them owns the pairing.
 
 // A daemon-provisioned execution root — deliberately NOT equal to
-// `CANONICAL_ROOT` above. A writable bind's root lives under the daemon's
+// `CANONICAL_ROOT` above. A worktree's root lives under the daemon's
 // execution-roots directory, not inside the mount, so a fixture that
 // reused the mount root could not catch a schema conflating the two.
 const WORKSPACE_FS_ROOT = "/Users/dev/.ai-sidekicks/execution-roots/wt-0190f8a0";
@@ -1143,52 +1096,39 @@ const BIND_DIRECTORY = "packages/contracts";
 const WORKSPACE_LAST_ERROR = "fatal: could not create work tree dir: Permission denied";
 
 const buildBindRequest = () => ({
+  sessionId: SESSION_ID,
   repoMountId: REPO_MOUNT_ID,
-  executionMode: "worktree" as const,
+  executionMode: "provisioned-worktree" as const,
   directory: BIND_DIRECTORY,
 });
 
-// The WRITABLE bind, mid-provisioning: `state: "provisioning"` with NO
-// `fsRoot`. This is the fixture that would be unrepresentable if `fsRoot` were
-// required, which is the reason the field is optional at all.
+// The bind's answer: the new workspace, still `provisioning`.
 const buildProvisioningBindResponse = () => ({
   workspaceId: WORKSPACE_ID,
-  executionMode: "worktree" as const,
+  executionMode: "provisioned-worktree" as const,
   state: "provisioning" as const,
 });
 
-// The READ-ONLY bind: root known immediately (the mount's canonical root), so
-// the workspace is `ready` on the same response.
-const buildReadyBindResponse = () => ({
-  workspaceId: WORKSPACE_ID,
-  fsRoot: CANONICAL_ROOT,
-  executionMode: "read-only" as const,
-  state: "ready" as const,
-});
-
-// The two rows of the static capability matrix. A single fixture would let a
-// reader conclude `defaultMode` echoes the fresh-workspace posture.
+// The git mount's answer: both modes, nothing restricted.
 const buildGitCapabilitiesResponse = () => ({
-  availableModes: ["read-only", "branch", "worktree", "ephemeral clone"],
-  defaultMode: "worktree" as const,
+  availableModes: ["bound-root", "provisioned-worktree"],
+  defaultMode: "provisioned-worktree" as const,
 });
 
-const buildNonGitCapabilitiesResponse = () => ({
-  availableModes: ["read-only"],
-  defaultMode: "read-only" as const,
-  // Sparse: the three excluded modes carry reasons, `read-only` is omitted
-  // because it is not restricted (the explicit-gap shape).
+// A restricted answer the schema must carry: the excluded mode names its
+// reason, the available one is omitted (the explicit-gap shape).
+const buildRestrictedCapabilitiesResponse = () => ({
+  availableModes: ["bound-root"],
+  defaultMode: "bound-root" as const,
   restrictions: {
-    branch: "no git repository at the mount root",
-    worktree: "no git repository at the mount root",
-    "ephemeral clone": "no git repository at the mount root",
+    "provisioned-worktree": "worktree provisioning unavailable",
   },
 });
 
 const buildWorkspaceListItem = () => ({
   id: WORKSPACE_ID,
   repoMountId: REPO_MOUNT_ID,
-  executionMode: "worktree" as const,
+  executionMode: "provisioned-worktree" as const,
   state: "ready" as const,
   fsRoot: WORKSPACE_FS_ROOT,
 });
@@ -1200,12 +1140,12 @@ const buildWorkspaceListResponse = () => ({
 const parseBindRequest = (overrides: Record<string, unknown> = {}) =>
   WorkspaceBindRequestSchema.safeParse({ ...buildBindRequest(), ...overrides });
 const parseBindResponse = (overrides: Record<string, unknown> = {}) =>
-  WorkspaceBindResponseSchema.safeParse({ ...buildReadyBindResponse(), ...overrides });
+  WorkspaceBindResponseSchema.safeParse({ ...buildProvisioningBindResponse(), ...overrides });
 const parseCapabilitiesRequest = (request: Record<string, unknown>) =>
   WorkspaceExecutionModeCapabilitiesReadRequestSchema.safeParse(request);
 const parseCapabilitiesResponse = (overrides: Record<string, unknown> = {}) =>
   WorkspaceExecutionModeCapabilitiesReadResponseSchema.safeParse({
-    ...buildNonGitCapabilitiesResponse(),
+    ...buildRestrictedCapabilitiesResponse(),
     ...overrides,
   });
 const parseWorkspaceListItem = (overrides: Record<string, unknown> = {}) =>
@@ -1222,19 +1162,16 @@ const RESTRICTION_MAP_CASES: ReadonlyArray<
   readonly [label: string, restrictions: Record<string, string>, shouldPass: boolean]
 > = [
   ["an empty map", {}, true],
-  ["a single-mode strict subset", { worktree: "worktree provisioning unavailable" }, true],
   [
-    "the space-containing wire literal as a key",
-    { "ephemeral clone": "no git repository at the mount root" },
+    "a single-mode strict subset",
+    { "provisioned-worktree": "worktree provisioning unavailable" },
     true,
   ],
   [
     "an exhaustive map",
     {
-      "read-only": "mount root unreachable",
-      branch: "mount root unreachable",
-      worktree: "mount root unreachable",
-      "ephemeral clone": "mount root unreachable",
+      "bound-root": "mount root unreachable",
+      "provisioned-worktree": "mount root unreachable",
     },
     true,
   ],
@@ -1242,21 +1179,28 @@ const RESTRICTION_MAP_CASES: ReadonlyArray<
   // `z.record(z.string(), z.string())` would admit all three rows below, and a
   // reader would then have no way to match the entry against `availableModes`.
   ["an out-of-taxonomy key", { submodule: "not a mode" }, false],
-  ["a normalized spelling of the space literal", { ephemeral_clone: "wrong bytes" }, false],
-  ["a mixed map with one foreign key", { worktree: "ok", submodule: "not a mode" }, false],
+  [
+    "a mixed map with one foreign key",
+    { "provisioned-worktree": "ok", submodule: "not a mode" },
+    false,
+  ],
 ];
 
-describe("WorkspaceBindRequestSchema (mount + explicit mode)", () => {
+describe("WorkspaceBindRequestSchema (session + mount + explicit mode)", () => {
   it("accepts a valid bind request", () => {
     expect(parseBindRequest().success).toBe(true);
   });
 
   it("accepts a bind with no `directory` — binding the mount root itself", () => {
-    const rootBind = { repoMountId: REPO_MOUNT_ID, executionMode: "read-only" };
+    const rootBind = {
+      sessionId: SESSION_ID,
+      repoMountId: REPO_MOUNT_ID,
+      executionMode: "bound-root",
+    };
     expect(WorkspaceBindRequestSchema.safeParse(rootBind).success).toBe(true);
   });
 
-  it.each(["repoMountId", "executionMode"])(
+  it.each(["sessionId", "repoMountId", "executionMode"])(
     "rejects a bind request missing the required field %s",
     (field) => {
       const broken = { ...buildBindRequest() } as Record<string, unknown>;
@@ -1266,28 +1210,21 @@ describe("WorkspaceBindRequestSchema (mount + explicit mode)", () => {
   );
 
   it.each([
-    ["read-only", true],
-    ["branch", true],
-    ["worktree", true],
-    // The space-containing wire literal must survive the composition — a
-    // re-spelled enum would be the likeliest place to "clean" it.
-    ["ephemeral clone", true],
-    ["ephemeral_clone", false],
-    // Out-of-taxonomy. A fifth mode is a contract change, and a `.default()`
-    // or a bare `z.string()` here would admit it silently.
+    ["bound-root", true],
+    ["provisioned-worktree", true],
+    // Out-of-taxonomy: a `.default()` or a bare `z.string()` here would admit
+    // these silently.
     ["submodule", false],
     ["", false],
   ])("executionMode %s -> %s, driven through the composed request", (executionMode, shouldPass) => {
     expect(parseBindRequest({ executionMode }).success).toBe(shouldPass);
   });
 
-  it("has NO wire-level default for `executionMode` — omission is a rejection, not read-only", () => {
-    // Acceptance criterion, and the row that would flip if someone added
-    // `.default("read-only")`: with a default, the omission row above would
-    // parse and "caller omitted" would become indistinguishable from "caller
-    // chose read-only". The read-only initial posture is the
-    // `workspaces.execution_mode` DDL default, not a wire coercion.
-    const omitted = { repoMountId: REPO_MOUNT_ID };
+  it("has NO wire-level default for `executionMode` — omission is a rejection", () => {
+    // Acceptance criterion, and the row that would flip if someone added a
+    // `.default()`: the omission row above would then parse and "caller
+    // omitted" would become indistinguishable from "caller chose that mode".
+    const omitted = { sessionId: SESSION_ID, repoMountId: REPO_MOUNT_ID };
     expect(WorkspaceBindRequestSchema.safeParse(omitted).success).toBe(false);
   });
 
@@ -1331,26 +1268,11 @@ describe("WorkspaceBindRequestSchema (mount + explicit mode)", () => {
   });
 });
 
-describe("WorkspaceBindResponseSchema (fsRoot deferred to provisioning completion)", () => {
-  it("accepts the read-only bind — root known immediately, state `ready`", () => {
-    expect(WorkspaceBindResponseSchema.safeParse(buildReadyBindResponse()).success).toBe(true);
-  });
-
-  it("accepts the WRITABLE bind with NO `fsRoot` while `state` is `provisioning`", () => {
-    // The load-bearing optionality row. A writable bind returns before its
-    // execution root exists fills `fs_root` at provisioning completion.
-    // Making `fsRoot` required would make this lawful response
-    // unrepresentable and force the daemon to return a placeholder root — a
-    // guess forbids.
-    expect(WorkspaceBindResponseSchema.safeParse(buildProvisioningBindResponse()).success).toBe(
-      true,
-    );
-  });
-
+describe("WorkspaceBindResponseSchema", () => {
   it.each(["workspaceId", "executionMode", "state"])(
-    "requires %s on the bind response — only `fsRoot` is optional here",
+    "requires %s on the bind response",
     (field) => {
-      const broken = { ...buildReadyBindResponse() } as Record<string, unknown>;
+      const broken = { ...buildProvisioningBindResponse() } as Record<string, unknown>;
       delete broken[field];
       expect(WorkspaceBindResponseSchema.safeParse(broken).success).toBe(false);
     },
@@ -1371,13 +1293,6 @@ describe("WorkspaceBindResponseSchema (fsRoot deferred to provisioning completio
     // `detached` is a MOUNT state and must not leak across the vocabularies.
     expect(parseBindResponse({ state: "detached" }).success).toBe(false);
     expect(parseBindResponse({ state: "exploded" }).success).toBe(false);
-  });
-
-  it("applies the wireFreeFormString guard to `fsRoot`", () => {
-    // GUARD-DOWNGRADE VISIBILITY: re-spelling the root as a bare
-    // `z.string().optional()` passes every other row in this block.
-    expect(parseBindResponse({ fsRoot: "" }).success).toBe(false);
-    expect(parseBindResponse({ fsRoot: "   " }).success).toBe(false);
   });
 
   it("rejects extraneous keys (.strict() guard)", () => {
@@ -1454,41 +1369,37 @@ describe("WorkspaceExecutionModeCapabilitiesReadRequestSchema (exactly-one scope
 });
 
 describe("WorkspaceExecutionModeCapabilitiesReadResponseSchema (static matrix)", () => {
-  it("accepts the `git` matrix row — all four modes, no restrictions", () => {
+  it("accepts the `git` matrix row — both modes, no restrictions", () => {
     const parsed = WorkspaceExecutionModeCapabilitiesReadResponseSchema.safeParse(
       buildGitCapabilitiesResponse(),
     );
     expect(parsed.success).toBe(true);
   });
 
-  it("accepts the `none` matrix row — read-only plus three populated restrictions", () => {
+  it("accepts a restricted answer — one mode plus its excluded sibling's reason", () => {
     const parsed = WorkspaceExecutionModeCapabilitiesReadResponseSchema.safeParse(
-      buildNonGitCapabilitiesResponse(),
+      buildRestrictedCapabilitiesResponse(),
     );
     expect(parsed.success).toBe(true);
   });
 
   it.each(["availableModes", "defaultMode"])("requires %s", (field) => {
-    const broken = { ...buildNonGitCapabilitiesResponse() } as Record<string, unknown>;
+    const broken = { ...buildRestrictedCapabilitiesResponse() } as Record<string, unknown>;
     delete broken[field];
     expect(WorkspaceExecutionModeCapabilitiesReadResponseSchema.safeParse(broken).success).toBe(
       false,
     );
   });
 
-  it("accepts `defaultMode: read-only` — the field is NOT narrowed to writable modes", () => {
-    // A `z.enum` here that excluded `read-only` to "enforce" the writable
-    // reading would reject half the ratified matrix.
-    expect(parseCapabilitiesResponse({ defaultMode: "read-only" }).success).toBe(true);
-    expect(parseCapabilitiesResponse({ defaultMode: "worktree" }).success).toBe(true);
-    // Non-narrowed is not unvalidated.
+  it("accepts either mode as `defaultMode` and nothing outside the taxonomy", () => {
+    expect(parseCapabilitiesResponse({ defaultMode: "bound-root" }).success).toBe(true);
+    expect(parseCapabilitiesResponse({ defaultMode: "provisioned-worktree" }).success).toBe(true);
     expect(parseCapabilitiesResponse({ defaultMode: "submodule" }).success).toBe(false);
   });
 
   it("accepts an EMPTY `availableModes` and rejects an out-of-taxonomy member", () => {
-    // No `.min(1)` — and no V1 case that produces an empty list: the matrix is
-    // STATIC by `vcs_type`, so even a `'none'` mount still offers `read-only`.
-    // Leaving the constraint off is headroom for a later probe-derived matrix,
+    // No `.min(1)` — and no V1 case that produces an empty list: a git mount
+    // offers both modes. Leaving the constraint off is headroom for a later probe-derived matrix,
     // plus pairing of `availableModes` with `restrictions`, which makes a
     // fully restricted answer well formed rather than a shape error. `repo.ts`
     // carries the authoritative account.
@@ -1498,7 +1409,10 @@ describe("WorkspaceExecutionModeCapabilitiesReadResponseSchema (static matrix)",
 
   it("omits `restrictions` entirely when nothing is restricted", () => {
     // The `git` row's shape — the whole field absent, not an empty object.
-    const withoutRestrictions = { ...buildNonGitCapabilitiesResponse() } as Record<string, unknown>;
+    const withoutRestrictions = { ...buildRestrictedCapabilitiesResponse() } as Record<
+      string,
+      unknown
+    >;
     delete withoutRestrictions["restrictions"];
     expect(
       WorkspaceExecutionModeCapabilitiesReadResponseSchema.safeParse(withoutRestrictions).success,
@@ -1521,12 +1435,12 @@ describe("WorkspaceExecutionModeCapabilitiesReadResponseSchema (static matrix)",
     // schema is a bare non-optional string, so a present key carrying no
     // reason is precisely gap. Cannot join RESTRICTION_MAP_CASES, which is
     // typed `Record<string, string>`. Load-bearing for Phase 2 — the response
-    // schema is single-T, so a projection builder spreading `worktree:
+    // schema is single-T, so a projection builder spreading `"provisioned-worktree":
     // maybeReason` (`string | undefined`) gets NO compile-time protection and
     // would throw validation seam instead.
-    expect(parseCapabilitiesResponse({ restrictions: { worktree: undefined } }).success).toBe(
-      false,
-    );
+    expect(
+      parseCapabilitiesResponse({ restrictions: { "provisioned-worktree": undefined } }).success,
+    ).toBe(false);
   });
 
   it("applies the wireFreeFormString guard to restriction reason values", () => {
@@ -1535,12 +1449,20 @@ describe("WorkspaceExecutionModeCapabilitiesReadResponseSchema (static matrix)",
     // every one of them. An empty reason is failure mode that matters: a
     // restriction with no explanation is a silent gap wearing an explicit
     // gap's shape.
-    expect(parseCapabilitiesResponse({ restrictions: { worktree: "" } }).success).toBe(false);
-    expect(parseCapabilitiesResponse({ restrictions: { worktree: "   " } }).success).toBe(false);
+    expect(
+      parseCapabilitiesResponse({ restrictions: { "provisioned-worktree": "" } }).success,
+    ).toBe(false);
+    expect(
+      parseCapabilitiesResponse({ restrictions: { "provisioned-worktree": "   " } }).success,
+    ).toBe(false);
     const atCap = "r".repeat(EXECUTION_MODE_RESTRICTION_REASON_MAX_LEN);
     const overCap = "r".repeat(EXECUTION_MODE_RESTRICTION_REASON_MAX_LEN + 1);
-    expect(parseCapabilitiesResponse({ restrictions: { worktree: atCap } }).success).toBe(true);
-    expect(parseCapabilitiesResponse({ restrictions: { worktree: overCap } }).success).toBe(false);
+    expect(
+      parseCapabilitiesResponse({ restrictions: { "provisioned-worktree": atCap } }).success,
+    ).toBe(true);
+    expect(
+      parseCapabilitiesResponse({ restrictions: { "provisioned-worktree": overCap } }).success,
+    ).toBe(false);
   });
 
   it("leaves the shared canonical ExecutionModeSchema unmutated by partialRecord", () => {
@@ -1549,30 +1471,26 @@ describe("WorkspaceExecutionModeCapabilitiesReadResponseSchema (static matrix)",
     // this module's canonical `ExecutionModeSchema` (imported) would quietly
     // lose its value set for every other consumer. Cheap to assert,
     // catastrophic to miss.
-    expect(ExecutionModeSchema.safeParse("worktree").success).toBe(true);
+    expect(ExecutionModeSchema.safeParse("provisioned-worktree").success).toBe(true);
     expect(ExecutionModeSchema.safeParse("submodule").success).toBe(false);
     const schemaInternals = ExecutionModeSchema as unknown as { options: readonly string[] };
-    expect([...schemaInternals.options].sort()).toEqual(
-      ["branch", "ephemeral clone", "read-only", "worktree"].sort(),
-    );
+    expect([...schemaInternals.options].sort()).toEqual(["bound-root", "provisioned-worktree"]);
   });
 
   it("round-trips the sparse map through JSON without loss", () => {
     const firstPass = WorkspaceExecutionModeCapabilitiesReadResponseSchema.parse(
-      buildNonGitCapabilitiesResponse(),
+      buildRestrictedCapabilitiesResponse(),
     );
     const secondPass = WorkspaceExecutionModeCapabilitiesReadResponseSchema.parse(
       JSON.parse(JSON.stringify(firstPass)) as unknown,
     );
     expect(secondPass).toStrictEqual(firstPass);
-    // Sparseness pinned POSITIVELY, by exact key set: the `none` row restricts
-    // the three writable modes and says nothing about `read-only`, which must
-    // stay ABSENT rather than materializing as an explicit `undefined` key on
-    // the way through. An absent-key check alone would pass on an empty or
-    // missing map — the failure this round-trip exists to catch.
-    expect(Object.keys(firstPass.restrictions ?? {}).sort()).toStrictEqual(
-      ["branch", "worktree", "ephemeral clone"].sort(),
-    );
+    // Sparseness pinned POSITIVELY, by exact key set: the restricted row names
+    // `provisioned-worktree` and says nothing about `bound-root`, which must stay ABSENT rather
+    // than materializing as an explicit `undefined` key on the way through. An
+    // absent-key check alone would pass on an empty or missing map — the
+    // failure this round-trip exists to catch.
+    expect(Object.keys(firstPass.restrictions ?? {})).toStrictEqual(["provisioned-worktree"]);
   });
 
   it("rejects extraneous keys (.strict() guard)", () => {
@@ -1656,10 +1574,10 @@ describe("WorkspaceList request/response (health + binding state)", () => {
   });
 
   it("exposes binding state — `executionMode` from the canonical set plus optional `fsRoot`", () => {
-    expect(parseWorkspaceListItem({ executionMode: "ephemeral clone" }).success).toBe(true);
+    expect(parseWorkspaceListItem({ executionMode: "bound-root" }).success).toBe(true);
     expect(parseWorkspaceListItem({ executionMode: "submodule" }).success).toBe(false);
-    // `fsRoot` optional for the same reason as on the bind response: a
-    // `provisioning` workspace has no execution root yet.
+    // `fsRoot` is optional because a `provisioning` workspace has no
+    // execution root yet.
     const provisioning = { ...buildWorkspaceListItem() } as Record<string, unknown>;
     delete provisioning["fsRoot"];
     provisioning["state"] = "provisioning";
@@ -1716,10 +1634,11 @@ describe("WorkspaceList request/response (health + binding state)", () => {
 // never-invoked functions so each pin does its whole job at compile time.
 const workspaceBindTypePins = (): void => {
   // @ts-expect-error — a bind with no explicit execution mode. The acceptance
-  // criterion is that this is UNCONSTRUCTABLE, not defaulted; adding
-  // `.default("read-only")` and relaxing the interface would report this
-  // directive unused (TS2578) and turn the leg red.
+  // criterion is that this is UNCONSTRUCTABLE, not defaulted; adding a
+  // `.default()` and relaxing the interface would report this directive unused
+  // (TS2578) and turn the leg red.
   const missingExecutionMode: WorkspaceBindRequest = {
+    sessionId: SessionIdSchema.parse(SESSION_ID),
     repoMountId: RepoMountIdSchema.parse(REPO_MOUNT_ID),
   };
   void missingExecutionMode;
@@ -1731,32 +1650,21 @@ const workspaceBindTypePins = (): void => {
   // `as unknown as` bridge on the schema absorbs interface-side drift, so this
   // is the only thing standing behind that optionality.
   const rootBind: WorkspaceBindRequest = {
+    sessionId: SessionIdSchema.parse(SESSION_ID),
     repoMountId: RepoMountIdSchema.parse(REPO_MOUNT_ID),
-    executionMode: "read-only",
+    executionMode: "bound-root",
   };
   void rootBind;
-
-  // NO directive here, deliberately: this assignment MUST compile. It is the
-  // compile-time twin of the `provisioning` runtime row — if a later edit made
-  // `fsRoot` required, the writable-bind response would become unconstructable
-  // and the leg would go red HERE, at the decision, rather than at a distant
-  // consumer.
-  const provisioningBind: WorkspaceBindResponse = {
-    workspaceId: WorkspaceIdSchema.parse(WORKSPACE_ID),
-    executionMode: "worktree",
-    state: "provisioning",
-  };
-  void provisioningBind;
 };
 void workspaceBindTypePins;
 
 const capabilitiesRestrictionsKeyPin = (): void => {
   const { restrictions } = WorkspaceExecutionModeCapabilitiesReadResponseSchema.parse(
-    buildNonGitCapabilitiesResponse(),
+    buildRestrictedCapabilitiesResponse(),
   );
   // Every canonical mode is a legal index — the `Partial<Record<ExecutionMode,
   // string>>` half that must keep compiling.
-  void restrictions?.["ephemeral clone"];
+  void restrictions?.["provisioned-worktree"];
   // @ts-expect-error — `submodule` is not an `ExecutionMode`, so it is not a
   // legal index.
   //
@@ -1805,8 +1713,8 @@ const payloadNarrowsTheEnvelope: Record<string, unknown> = parsedLifecyclePayloa
 void payloadNarrowsTheEnvelope;
 
 // One representative field per surface, spelled with only this module's
-// exported types — `RepoAttachResponse.state` / `.vcsType` /
-// `.defaultWorkspaceId`, `RepoMountReadResponse.health`,
+// exported types — `RepoAttachResponse.state` / `.vcsType`,
+// `RepoMountReadResponse.health`,
 // `RepoDetachResponse.archivedWorkspaceIds`,
 // `WorkspaceBindRequest.executionMode`,
 // `WorkspaceExecutionModeCapabilitiesReadResponse.availableModes` /
@@ -1816,7 +1724,6 @@ void payloadNarrowsTheEnvelope;
 const sixWireSurfacesTypeFromThisModuleAlone: {
   attachState: RepoMountState;
   attachVcsType: VcsType;
-  attachDefaultWorkspaceId: WorkspaceId;
   mountReadHealth: RepoMountHealth;
   detachArchivedWorkspaceIds: WorkspaceId[];
   bindExecutionMode: ExecutionMode;
@@ -1825,13 +1732,12 @@ const sixWireSurfacesTypeFromThisModuleAlone: {
   listWorkspaceState: WorkspaceState;
 } = {
   attachState: RepoMountStateSchema.parse("attached"),
-  attachVcsType: VcsTypeSchema.parse("none"),
-  attachDefaultWorkspaceId: WorkspaceIdSchema.parse(WORKSPACE_ID),
+  attachVcsType: VcsTypeSchema.parse("git"),
   mountReadHealth: RepoMountHealthSchema.parse(buildValidHealth()),
   detachArchivedWorkspaceIds: [WorkspaceIdSchema.parse(WORKSPACE_ID)],
-  bindExecutionMode: ExecutionModeSchema.parse("ephemeral clone"),
-  capabilitiesAvailableModes: [ExecutionModeSchema.parse("read-only")],
-  capabilitiesRestrictions: { worktree: "no git repository at the mount root" },
+  bindExecutionMode: ExecutionModeSchema.parse("bound-root"),
+  capabilitiesAvailableModes: [ExecutionModeSchema.parse("bound-root")],
+  capabilitiesRestrictions: { "provisioned-worktree": "worktree provisioning unavailable" },
   listWorkspaceState: WorkspaceStateSchema.parse("stale"),
 };
 void sixWireSurfacesTypeFromThisModuleAlone;
@@ -1914,17 +1820,11 @@ describe("index.ts re-exports contract core", () => {
     expect(typeof (schema as { parse?: unknown })?.parse).toBe("function");
   });
 
-  it("still resolves the hoisted NodeId symbols through the barrel (re-export seam)", () => {
-    // Moved `NodeId` / `NodeIdSchema` / `NODE_ID_MAX_LEN` out of runtime-node.ts
-    // into the dependency-free leaf node-id.ts, to break the `repo.ts` ->
-    // `runtime-node.ts` -> `event.ts` -> `repo.ts` cycle that composing
-    // `NodeIdSchema` here would otherwise have closed; runtime-node.ts
-    // re-exports all three so its public API is unchanged.
-    //
-    // `__tests__/runtime-node.test.ts` is the untouched control that the DIRECT
-    // import path still works. This asserts the BARREL path lands on the very
-    // same instance — barrel -> runtime-node re-export -> node-id declaration —
-    // so no consumer can end up holding two schemas under one name.
+  it("resolves the NodeId symbols through the barrel to node-id.ts's instances", () => {
+    // `NodeIdSchema` and `NODE_ID_MAX_LEN` live in the dependency-free leaf
+    // node-id.ts, which repo.ts and event.ts import directly. This asserts the
+    // barrel lands on the very same instance, so no consumer can end up
+    // holding two schemas under one name.
     expect(contracts.NodeIdSchema).toBe(NodeIdSchema);
     expect(contracts.NODE_ID_MAX_LEN).toBe(NODE_ID_MAX_LEN);
     expect(contracts.NodeIdSchema.safeParse(NODE_ID).success).toBe(true);
@@ -1978,7 +1878,7 @@ describe("index.ts re-exports contract core", () => {
       // so a variant that accepted a mismatched one would hash under the wrong
       // category at replay. Pinned on the union above; pinned here on the
       // standalone surface, which is what Phase 2 emitters validate against.
-      expect(schema.safeParse({ ...event, category: "presence" }).success).toBe(false);
+      expect(schema.safeParse({ ...event, category: "usage_telemetry" }).success).toBe(false);
       // `.strict()` reaches the shared payload schema through this surface too.
       expect(
         schema.safeParse({ ...event, payload: { ...event.payload, smuggled: "nope" } }).success,

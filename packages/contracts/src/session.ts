@@ -4,11 +4,11 @@
 // ID format: the `brandedUuidIdSchema` factory's `RFC_9562_TEXT_FORM`
 // predicate accepts any RFC 9562 UUID, case-insensitively on every
 // alternative (general form, Nil, Max). Daemon-assigned IDs are
-// UUID v7 (sortable timestamp); admin-provisioned control-plane rows fall
-// through PostgreSQL's `gen_random_uuid()` which emits v4. Contracts must
-// accept both, so we deliberately do NOT pin to `z.uuidv7()`.
+// UUID v7 (sortable timestamp); control-plane rows take PostgreSQL's
+// `gen_random_uuid()`, which emits v4. Contracts must accept both, so we
+// deliberately do NOT pin to `z.uuidv7()`.
 //
-// Branded types (`SessionId`, `ChannelId`, …) provide compile-time nominal
+// Branded types (`SessionId`, `UserId`, …) provide compile-time nominal
 // typing — they prevent accidentally passing a `UserId` where a
 // `SessionId` was expected, even though both are strings at runtime.
 import { z } from "zod";
@@ -46,10 +46,6 @@ export const SessionIdSchema: z.ZodType<SessionId, SessionId> =
 
 export type UserId = string & { readonly __brand: "UserId" };
 export const UserIdSchema: z.ZodType<UserId, UserId> = brandedUuidIdSchema<UserId>("UserId");
-
-export type ChannelId = string & { readonly __brand: "ChannelId" };
-export const ChannelIdSchema: z.ZodType<ChannelId, ChannelId> =
-  brandedUuidIdSchema<ChannelId>("ChannelId");
 
 // Only needs to pass it through unchanged on `SessionRead.timelineCursors`
 // and `SessionSubscribe.afterCursor`.
@@ -128,9 +124,6 @@ export const SessionStateSchema: z.ZodType<SessionState> = z.enum([
   "purged",
 ]);
 
-export type ChannelState = "active" | "muted" | "archived";
-export const ChannelStateSchema: z.ZodType<ChannelState> = z.enum(["active", "muted", "archived"]);
-
 // --------------------------------------------------------------------------
 // Shared projection types
 // --------------------------------------------------------------------------
@@ -171,34 +164,6 @@ export const SessionSnapshotSchema: z.ZodType<SessionSnapshot> = z
   })
   .strict();
 
-// `name` is optional in the canonical interface (`name?: string`). omission is the wire
-// signal for a channel without a friendly label (e.g. the implicit `main` channel).
-//
-// Note on `exactOptionalPropertyTypes: true`: the spec's wire form is
-// "key absent" rather than "key present with value undefined" — but Zod's
-// `.optional()` produces `T | undefined`. We type the interface as
-// `name?: string | undefined` so the schema's inferred output matches
-// our exported interface; consumers who care about the absent-vs-undefined
-// distinction can still test `"name" in obj`.
-//
-// `name` length cap (`CHANNEL_NAME_MAX_LEN`, 128 chars) is defense in depth.
-// The `wireFreeFormString` helper also rejects whitespace-only and NUL-byte
-// values — channel names are user-visible UI labels, so the wire-layer
-// trust boundary applies.
-export const CHANNEL_NAME_MAX_LEN = 128;
-export interface ChannelSummary {
-  id: ChannelId;
-  name?: string | undefined;
-  state: ChannelState;
-}
-export const ChannelSummarySchema: z.ZodType<ChannelSummary> = z
-  .object({
-    id: ChannelIdSchema,
-    name: wireFreeFormString(CHANNEL_NAME_MAX_LEN, "ChannelSummary.name").optional(),
-    state: ChannelStateSchema,
-  })
-  .strict();
-
 // --------------------------------------------------------------------------
 // SessionCreate
 // --------------------------------------------------------------------------
@@ -223,16 +188,15 @@ export const SessionCreateRequestSchema: z.ZodType<SessionCreateRequest, Session
   })
   .strict();
 
+/** The `session.create` result: the new session's id and its starting state. */
 export interface SessionCreateResponse {
   sessionId: SessionId;
   state: SessionState;
-  channels: ChannelSummary[];
 }
 export const SessionCreateResponseSchema: z.ZodType<SessionCreateResponse> = z
   .object({
     sessionId: SessionIdSchema,
     state: SessionStateSchema,
-    channels: z.array(ChannelSummarySchema),
   })
   .strict();
 
@@ -296,28 +260,13 @@ export const SessionReadResponseSchema: z.ZodType<SessionReadResponse> = z
 // returns the `subscriptionId` to the wire client (e.g. as the `result` of a
 // `session.subscribe` request)".
 
-// SessionSubscribeRequest carries TWO replay-cursor fields because the
-// schema is shared across two transports with different injection
-// conventions:
-//
-//   * `afterCursor` — IPC/JSON-RPC clients (daemon transport) populate
-//     this field in the request body.
-//
-//   * `lastEventId` — HTTP/SSE clients (control-plane transport) send a
-//     `Last-Event-ID` header, which tRPC v11's fetch-adapter substrate
-//     injects into the input object PRE-Zod-validation when the procedure
-//     type is `subscription`. Without `lastEventId` declared in the
-//     schema, `.strict()` would throw on every reconnect that carries the
-//     `Last-Event-ID` resumption header — the very transport feature.
-//
-// Consumer precedence: `input.lastEventId ?? input.afterCursor`. Header
-// beats body so a reconnect's `Last-Event-ID` overrides any stale
-// `afterCursor` the client cached locally — matches the SSE EventSource
-// semantics the browser/runtime owns.
+/**
+ * The `session.subscribe` input: the session to follow and, in `afterCursor`,
+ * the cursor to replay from.
+ */
 export interface SessionSubscribeRequest {
   sessionId: SessionId;
   afterCursor?: EventCursor | undefined;
-  lastEventId?: EventCursor | undefined;
 }
 // `z.ZodType<T, T>` — see SessionCreateRequestSchema for rationale (preserves
 // Standard-Schema-V1 input inference for tRPC v11 consumers).
@@ -328,7 +277,6 @@ export const SessionSubscribeRequestSchema: z.ZodType<
   .object({
     sessionId: SessionIdSchema,
     afterCursor: EventCursorSchema.optional(),
-    lastEventId: EventCursorSchema.optional(),
   })
   .strict();
 

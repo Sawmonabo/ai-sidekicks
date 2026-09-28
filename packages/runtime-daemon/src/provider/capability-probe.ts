@@ -132,9 +132,8 @@
 //
 // -- What this module deliberately does NOT do --
 //
-// It mints no event type (a changed snapshot rides the shipped
-// `runtime_node.capability_updated` through writer's own change detection), no
-// error code (an invocation against a withdrawn flag refuses as the
+// It mints no event type (a changed snapshot is caught by the writer's own
+// change detection), no error code (an invocation against a withdrawn flag refuses as the
 // already-registered `driver.capability_unsupported`), and no durable column
 // (`detectionSource` is live-scoped and absent on
 // `DriverCapabilitiesWriter.hydrate()`, so the cache stores flag VALUES and not
@@ -169,13 +168,10 @@ export type ProbeAdmissibilityConjunct =
  * be a matrix lookup with no justification, which is the state the invariant
  * exists to forbid. Making it unrepresentable is cheaper than asserting it.
  */
-export type FailingConjuncts = readonly [
-  ProbeAdmissibilityConjunct,
-  ...ProbeAdmissibilityConjunct[],
-];
+type FailingConjuncts = readonly [ProbeAdmissibilityConjunct, ...ProbeAdmissibilityConjunct[]];
 
 /** One admissible probe: the wire name(s) issued, and why the answer decides. */
-export interface CapabilityProbe {
+interface CapabilityProbe {
   /**
    * The wire names this probe issues — control-request subtypes on the Claude
    * channel, client-request methods on the Codex one. They are the ONLY thing
@@ -422,13 +418,16 @@ export const CLAUDE_CAPABILITY_DETECTION_TABLE: DriverCapabilityDetectionTable =
     detectionSource: "static",
     failingConjuncts: ["decisive-at-consumption-granularity"],
     rationale:
-      "Composed from launch-time resume-at plus `--fork-session`. The conversation-rewind subtype is absent from the control-request census entirely, and the file-side `rewind_files` sibling decides a different capability (the daemon's turn-snapshot leg), so the channel cannot decide this flag.",
+      "Composed from launch-time resume-at plus `--fork-session`. The conversation-rewind " +
+      "subtype is absent from the control-request census, and the file-side `rewind_files` " +
+      "sibling restores files, a different capability, so the channel cannot decide this flag.",
   },
   session_goals: {
     detectionSource: "static",
     failingConjuncts: ["decisive-at-consumption-granularity"],
     rationale:
-      "Driver-EMULATED: the goal is daemon-stored and composed into the system prompt at the next turn or resume boundary. There is no provider-side surface to probe, and the provider's answer could not decide a capability the daemon itself delivers.",
+      "FALSE on this driver, which exposes no goal operation. A probe cannot grant a flag " +
+      "(resolution is withdraw-only), so the channel has nothing to decide here.",
   },
   callback_tools: {
     detectionSource: "static",
@@ -902,7 +901,7 @@ export function findCapabilityDetectionTableViolations(
 // --------------------------------------------------------------------------
 
 /** One flag withdrawn by its own probe, with the disposition that withdrew it. */
-export interface CapabilityProbeDiagnostic {
+interface CapabilityProbeDiagnostic {
   readonly driverName: FlooredDriverName;
   readonly flag: DriverCapabilityFlag;
   /**

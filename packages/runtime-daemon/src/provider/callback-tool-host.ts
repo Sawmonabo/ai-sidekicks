@@ -1140,7 +1140,7 @@ export interface RoutedProviderAsk {
 }
 
 /** The daemon's answer to one routed ask. */
-export type RoutedProviderAskDecision =
+type RoutedProviderAskDecision =
   | { readonly decision: "allow"; readonly payload?: Record<string, unknown> | undefined }
   | { readonly decision: "refuse"; readonly reason: string };
 

@@ -1,4 +1,4 @@
-// Worktree and ephemeral-clone status-read projection
+// Worktree status-read projection
 //
 // PURE FOLD, per the shipped `workspace/workspace-projector.ts` precedent and
 // the `session/session-projector.ts` one behind it: no filesystem call, no
@@ -9,14 +9,11 @@
 // be driven deterministically from a test with no database and no temp
 // directory.
 //
-//   • "`WorktreeStatusRead` must expose the session's worktree and
-//     ephemeral-clone records — lifecycle state, branch, cleanup bookkeeping,
-//     and provenance — as a daemon-owned read surface." All four axes are
-//     carried below for BOTH record kinds: lifecycle (`state`), branch
-//     (`branchName`), cleanup bookkeeping (`cleanedAt`, plus the clone's
-//     `cleanupPolicy` + `expiresAt`), and provenance (`createdBySessionId` /
-//     `createdByRunId` on the worktree record; the clone's owning
-//     `workspaceId`).
+//   • "`WorktreeStatusRead` must expose the session's worktree records —
+//     lifecycle state, branch, cleanup bookkeeping, and provenance — as a
+//     daemon-owned read surface." All four axes are carried below: lifecycle
+//     (`state`), branch (`branchName`), cleanup bookkeeping (`cleanedAt`), and
+//     provenance (`createdBySessionId` / `createdByRunId`).
 //   • "Dirty and merged state belong to daemon-owned workspace projections."
 //     `dirty` and `merged` are DAEMON verdicts that arrive on the `worktrees`
 //     row; their `-> dirty` / `-> merged` transitions belong to the
@@ -31,11 +28,10 @@
 // Invariants carried here:
 //   • Views render daemon verdicts verbatim and derive nothing (no client-side
 //     expiry math, no cleanliness inference, no root computation). Structural
-//     rather than merely disciplined: this module owns no clock, so
-//     `expiresAt` CANNOT become a remaining-TTL or an `expired` flag, and it
-//     owns no filesystem, so `fsRoot` / `cloneRoot` cannot be re-resolved or
-//     normalized. The response carries exactly the ratified field set, so
-//     there is nowhere to put a derived value even if one existed.
+//     rather than merely disciplined: this module owns no clock and no
+//     filesystem, so `fsRoot` cannot be re-resolved or normalized. The response
+//     carries exactly the ratified field set, so there is nowhere to put a
+//     derived value even if one existed.
 //   • Never-hide: the projection returns EVERY row it is handed, `failed` and
 //     `retired` included. The invariant is worded view-side ("status views
 //     render every row the status read returns"), and this is its
@@ -46,38 +42,19 @@
 //     never tested.
 //
 // ---------------------------------------------------------------------------
-// The row-read seam this projection obliges (the status-read binder)
+// The rows it takes
 // ---------------------------------------------------------------------------
 //
-// SESSION SCOPING RIDES `repo_mounts`, not the rows themselves. So both row
-// shapes below carry a join-supplied `session_id` beside the table's own
-// columns, and the projection refuses any row whose value disagrees with the
-// request's:
-//
-//   worktrees         SELECT w.*, m.session_id
-//                     FROM worktrees w
-//                     JOIN repo_mounts m ON m.id = w.repo_mount_id
-//                     WHERE m.session_id = :session_id
-//
-//   ephemeral_clones  SELECT c.*, ws.repo_mount_id, ws.session_id
-//                     FROM ephemeral_clones c
-//                     JOIN workspaces ws ON ws.id = c.workspace_id
-//                     WHERE ws.session_id = :session_id
-//
-// The clone side reaches its mount through `workspaces` — its row is
-// WORKSPACE-anchored where the worktree row is MOUNT-anchored (the asymmetry
-// the ratified response shape carries, faithful to the DDL) — and that single
-// join answers both questions at once: `workspaces.session_id` equals
-// `repo_mounts.session_id` by construction, because a workspace inherits its
-// mount's session at creation and never re-parents (the
-// `CreateDefaultWorkspaceInput.sessionId`: "the session the mount belongs to —
-// the workspace inherits it, never a caller-supplied one").
+// The caller reads the rows; this module reads no table. Each row carries a
+// `session_id` beside the `worktrees` columns: the session the caller read it
+// for, which is not a `worktrees` column and is distinct from
+// `created_by_session_id`. The projection refuses any row whose `session_id`
+// disagrees with the request's, so a caller that mis-scoped its read fails
+// loudly instead of leaking another session's worktrees.
 //
 // ORDER IS THE CALLER'S. This fold preserves the order it receives and never
-// sorts: sorting would be a derivation, and the ratified response arrays
-// declare no ordering. The stable rendering needs is therefore the query's
-// `ORDER BY` to own, not this module's — pick one there and the view
-// inherits it unchanged.
+// sorts: the response array declares no ordering, so a stable order is the
+// caller's `ORDER BY` to choose.
 //
 
 import {
@@ -91,7 +68,7 @@ import {
 // --------------------------------------------------------------------------
 
 /**
- * The `worktrees` columns this projection reads, plus the join-supplied
+ * The `worktrees` columns this projection reads, plus the caller-supplied
  * `session_id` documented in the file header.
  *
  * snake_case, matching the DDL and what `better-sqlite3` hands back verbatim.
@@ -108,9 +85,9 @@ export interface WorktreeStatusRow {
   /** The owning mount. Also the key the request's optional filter narrows on. */
   readonly repo_mount_id: string;
   /**
-   * JOIN-SUPPLIED, not a `worktrees` column: `repo_mounts.session_id` for
-   * `repo_mount_id`. The read's SCOPING key, and deliberately distinct from
-   * `created_by_session_id` below — see the file header.
+   * Not a `worktrees` column: the session the caller read this row for. The
+   * read's scoping key, distinct from `created_by_session_id` below — see the
+   * file header.
    */
   readonly session_id: string;
   /** Creating-session provenance (`NOT NULL` makes it unconditional). */
@@ -137,48 +114,9 @@ export interface WorktreeStatusRow {
   readonly cleaned_at: string | null;
 }
 
-/**
- * The `ephemeral_clones` columns this projection reads, plus the two
- * join-supplied fields the file header's query spells out.
- *
- * `updated_at` is deliberately absent even though the column exists: the
- * ratified clone record carries no such field, and reading a column the
- * projection cannot emit would invite an item key the `.strict()` wire shape
- * refuses.
- */
-export interface EphemeralCloneStatusRow {
-  /** `ephemeral_clones.id` — the wire's `cloneId`. */
-  readonly id: string;
-  /** The owning workspace — the anchor the ratified clone record carries. */
-  readonly workspace_id: string;
-  /**
-   * JOIN-SUPPLIED: `workspaces.repo_mount_id`. Not on the clone row and not on
-   * the wire — it exists so the request's `repoMountId` filter narrows BOTH
-   * arrays rather than only the worktrees.
-   */
-  readonly repo_mount_id: string;
-  /** JOIN-SUPPLIED: `workspaces.session_id`. The scoping key; see the header. */
-  readonly session_id: string;
-  readonly clone_root: string;
-  readonly branch_name: string;
-  /** Raw column; the parse boundary refuses a value outside the vocabulary. */
-  readonly cleanup_policy: string;
-  /** Raw column, for the same reason as {@link WorktreeStatusRow.state}. */
-  readonly state: string;
-  readonly expires_at: string;
-  readonly created_at: string;
-  readonly cleaned_at: string | null;
-}
-
-/**
- * One read's worth of rows: the two arrays the response's two arrays are
- * folded from. A single parameter rather than two on cohesion grounds: one
- * read's rows are one value, and the two arrays are only ever assembled and
- * consumed together.
- */
+/** One read's worth of rows: the array the response's array is folded from. */
 export interface WorktreeStatusRowSet {
   readonly worktrees: readonly WorktreeStatusRow[];
-  readonly ephemeralClones: readonly EphemeralCloneStatusRow[];
 }
 
 // --------------------------------------------------------------------------
@@ -204,28 +142,15 @@ interface WorktreeStatusRecordDraft {
   readonly cleanedAt?: string;
 }
 
-interface EphemeralCloneStatusRecordDraft {
-  readonly cloneId: string;
-  readonly workspaceId: string;
-  readonly cloneRoot: string;
-  readonly branchName: string;
-  readonly state: string;
-  readonly cleanupPolicy: string;
-  readonly expiresAt: string;
-  readonly createdAt: string;
-  readonly cleanedAt?: string;
-}
-
 interface WorktreeStatusReadResponseDraft {
   readonly worktrees: readonly WorktreeStatusRecordDraft[];
-  readonly ephemeralClones: readonly EphemeralCloneStatusRecordDraft[];
 }
 
-// The drafts above are unbranded restatements of the ratified record shapes,
+// The draft above is an unbranded restatement of the ratified record shape,
 // so nothing structural ties them to contracts: add a required field there and
 // this file still compiles, failing only at runtime on the first read. The
-// aliases below close that gap the same way the sibling emitter does. `keyof`
-// compares KEY NAMES only — no branded type is reintroduced into the drafts,
+// alias below closes that gap the same way the sibling emitter does. `keyof`
+// compares KEY NAMES only — no branded type is reintroduced into the draft,
 // so the fold keeps producing plain strings and the parse stays the single
 // place a brand is minted.
 //
@@ -238,16 +163,12 @@ type _AssertDraftCoversRatifiedWorktreeRecord = _AssertExtends<
   keyof WorktreeStatusReadResponse["worktrees"][number],
   keyof WorktreeStatusRecordDraft
 >;
-type _AssertDraftCoversRatifiedCloneRecord = _AssertExtends<
-  keyof WorktreeStatusReadResponse["ephemeralClones"][number],
-  keyof EphemeralCloneStatusRecordDraft
->;
 
 // --------------------------------------------------------------------------
 // --------------------------------------------------------------------------
 
 /**
- * Fold one session's worktree and ephemeral-clone rows onto the ratified
+ * Fold one session's worktree rows onto the ratified
  * `repo.worktreeStatusRead` response.
  *
  * Two narrowings, and it is worth being precise about which is which. The
@@ -263,9 +184,9 @@ type _AssertDraftCoversRatifiedCloneRecord = _AssertExtends<
  * past the guard unexamined — a leak the next call, with no filter, would then
  * commit.
  *
- * Both arrays are always present, empty when the session holds no records:
- * required-but-empty is a lawful answer the ratified shape declares (neither
- * array carries `.min(1)`), not a degenerate one.
+ * The array is always present, empty when the session holds no records:
+ * required-but-empty is a lawful answer the ratified shape declares (it
+ * carries no `.min(1)`), not a degenerate one.
  */
 export function projectWorktreeStatusRead(
   request: WorktreeStatusReadRequest,
@@ -273,7 +194,7 @@ export function projectWorktreeStatusRead(
 ): WorktreeStatusReadResponse {
   const worktrees: WorktreeStatusRecordDraft[] = [];
   for (const row of rows.worktrees) {
-    assertRowBelongsToReadSession(row.session_id, request.sessionId, "worktree", row.id);
+    assertRowBelongsToReadSession(row.session_id, request.sessionId, row.id);
     if (!matchesRequestedMount(row.repo_mount_id, request.repoMountId)) {
       continue;
     }
@@ -313,31 +234,7 @@ export function projectWorktreeStatusRead(
     });
   }
 
-  const ephemeralClones: EphemeralCloneStatusRecordDraft[] = [];
-  for (const row of rows.ephemeralClones) {
-    assertRowBelongsToReadSession(row.session_id, request.sessionId, "ephemeral clone", row.id);
-    if (!matchesRequestedMount(row.repo_mount_id, request.repoMountId)) {
-      continue;
-    }
-    ephemeralClones.push({
-      cloneId: row.id,
-      workspaceId: row.workspace_id,
-      cloneRoot: row.clone_root,
-      branchName: row.branch_name,
-      state: row.state,
-      cleanupPolicy: row.cleanup_policy,
-      // VERBATIM, and this is the field names first: the stored TTL deadline
-      // travels as the instant the daemon computed at prepare time. No
-      // comparison against a clock happens here or downstream — an expired
-      // clone is reported by its `state` once the sweep retires it, never by
-      // arithmetic on this value.
-      expiresAt: row.expires_at,
-      createdAt: row.created_at,
-      ...(typeof row.cleaned_at === "string" ? { cleanedAt: row.cleaned_at } : {}),
-    });
-  }
-
-  return parseProjection({ worktrees, ephemeralClones });
+  return parseProjection({ worktrees });
 }
 
 // --------------------------------------------------------------------------
@@ -365,17 +262,16 @@ export function projectWorktreeStatusRead(
 function assertRowBelongsToReadSession(
   rowSessionId: string,
   readSessionId: string,
-  rowKind: "worktree" | "ephemeral clone",
   rowId: string,
 ): void {
   if (rowSessionId === readSessionId) {
     return;
   }
   throw new Error(
-    `Worktree status-read projection refused a ${rowKind} row owned by a different session than the one ` +
-      `being read: row "${rowId}". Projecting it would disclose another session's execution roots on a ` +
-      "session-scoped read, and no downstream surface could detect the disclosure. The owning session is " +
-      "deliberately not named here.",
+    "Worktree status-read projection refused a worktree row owned by a different session " +
+      `than the one being read: row "${rowId}". Projecting it would disclose another session's ` +
+      "execution roots on a session-scoped read, and no downstream surface could detect the " +
+      "disclosure. The owning session is deliberately not named here.",
   );
 }
 
@@ -394,10 +290,9 @@ function matchesRequestedMount(
  * it, instead of surviving to the outbound response-validation boundary where
  * the failure would be attributed to the whole read.
  *
- * The parse is also what makes the fold above cast-free: branded ids, the two
- * state vocabularies, the cleanup-policy literals, the ISO-8601 instants, and
- * both length caps are all checked by the ratified schema rather than asserted
- * by this module.
+ * The parse is also what makes the fold above cast-free: branded ids, the
+ * state vocabulary, the ISO-8601 instants, and the length caps are all checked
+ * by the ratified schema rather than asserted by this module.
  *
  * The `ZodError` rides as `cause` rather than being re-formatted: its issue
  * path already names the array, the record's index, and the field

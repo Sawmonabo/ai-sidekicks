@@ -113,12 +113,10 @@ export const CODEX_INTERVENTION_FALLBACK_ACTION: string = "queue_and_interrupt";
  * Capability flag governing each intervention type this driver dispatches.
  *
  * A closed record over the three-armed `ApplyInterventionParams` union. `null`
- * means "no flag gates this type" (see the header). `rollback` is a member of
- * `InterventionType` but NOT of the params union — it travels through
- * `rollbackTo`, so it is absent here by construction rather than by omission.
+ * means "no flag gates this type" (see the header).
  */
 export const CODEX_INTERVENTION_CAPABILITY_FLAGS: Readonly<
-  Record<Exclude<InterventionType, "rollback">, DriverCapabilityFlag | null>
+  Record<InterventionType, DriverCapabilityFlag | null>
 > = {
   steer: "steer",
   interrupt: null,

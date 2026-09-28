@@ -15,7 +15,7 @@
 // Why a base class: the daemon already has per-error typed surfaces
 // (`SessionNotFoundError`, `SecureDefaultsValidationError`, …) each with its
 // own `instanceof` branch in `mapJsonRpcError`. As the wider namespace
-// plans (repo worktree approvals channels/orchestration) come online, every
+// plans (repo worktree approvals orchestration) come online, every
 // new namespace would otherwise add another near-identical branch.
 // `DaemonDomainError` collapses that to ONE branch: any error extending it
 // (or thrown as it directly) carries its own wire mapping, so the mapper

@@ -73,11 +73,10 @@ describe("SessionIdSchema (C1: id-format invariant)", () => {
 //
 // Asserted on `SessionIdSchema` because the predicate is the FACTORY's, not
 // this family's: every branded UUID id in the package (`UserId`,
-// `ChannelId`, `RunId`, `ArtifactId`, the repo / worktree /
-// runtime-node ids) composes the same `brandedUuidIdSchema`, so one family's
-// accept set is every family's. `provider-driver.test.ts` pins the same
-// properties on `ArtifactIdSchema` — two families, deliberately, so a future
-// edit that re-homed one off the factory could not pass by proving the other.
+// `RunId`, `ArtifactId`, the repo / worktree ids) composes the same `brandedUuidIdSchema`, so one
+// family's accept set is every family's. `provider-driver.test.ts` pins the same properties on
+// `ArtifactIdSchema` — two families, deliberately, so a future edit that re-homed one off the
+// factory could not pass by proving the other.
 
 describe("SessionIdSchema — the RFC 9562 accept set is case-insensitive on EVERY alternative", () => {
   const MAX_UUID_LOWERCASE = "ffffffff-ffff-ffff-ffff-ffffffffffff";

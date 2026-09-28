@@ -4,29 +4,27 @@
 //   • the five event types this module owns: `worktree.created`,
 //     `worktree.ready`, `worktree.dirty`, `worktree.merged`,
 //     `worktree.retired`.
-//   • "worktree and ephemeral-clone state transitions are not separately
-//     evented in V1 beyond the worktree lifecycle events already registered
-//     taxonomy; the `failed` transition and all ephemeral-clone transitions
-//     surface through the owning workspace's lifecycle events
-//     (`workspace.stale` carries the failure detail) … event-type registry
-//     stays closed." That decision is the whole reason this module exposes
-//     FIVE emit surfaces over a SIX-state row vocabulary, and no
-//     ephemeral-clone surface at all.
+//   • Worktree state transitions are not separately evented beyond the five
+//     registered worktree lifecycle events; the `failed` transition surfaces
+//     through the owning workspace's lifecycle events (`workspace.stale`
+//     carries the failure detail), and the event-type registry stays closed.
+//     That is why this module exposes FIVE emit surfaces over a SIX-state row
+//     vocabulary.
 //   • the `worktrees` rows whose transitions these events witness.
 //
 // Invariants carried here:
 //   • Exactly-once events: each worktree transition emits its event exactly
 //     once, transactionally with the row write; `failed` deliberately emits
-//     none; clone transitions emit none. This module carries the EMITTER-SIDE
-//     half on all three counts: each method constructs one envelope and appends
-//     exactly once (no retry, no fan-out), the caller's row write rides down as
-//     `transactionalPrelude` so the append path commits it inside the SAME
-//     transaction as the event row, and the two no-event carve-outs are
-//     unrepresentable here rather than merely unused — there is no `emitFailed`
-//     and no clone method to call. The "every transition" universal is the
-//     producers' half: routes each worktree transition through this seam as its
-//     only entry point, holding no envelope-construction code of its own, and
-//     the acceptance walk is what closes that quantifier over code that exists.
+//     none. This module carries the EMITTER-SIDE half on both counts: each
+//     method constructs one envelope and appends exactly once (no retry, no
+//     fan-out), the caller's row write rides down as `transactionalPrelude` so
+//     the append path commits it inside the SAME transaction as the event row,
+//     and the no-event carve-out is unrepresentable here rather than merely
+//     unused — there is no `emitFailed` to call. The "every transition" half
+//     belongs to the producer: `WorktreeService` routes each worktree
+//     transition through this seam as its only entry point, holding no
+//     envelope-construction code of its own, and the acceptance suite walks
+//     those transitions over the code that exists.
 //
 // ---------------------------------------------------------------------------
 // The event-transition mapping, and the carve-out
@@ -37,8 +35,7 @@
 // `-> retired` → `worktree.retired`; `-> failed` → NONE.
 //
 // `worktree.failed` is not a member of census at all, so an emit surface for
-// it could not produce a row the strict layer would interpret. Ephemeral-clone
-// transitions emit nothing for the same reason.
+// it could not produce a row the strict layer would interpret.
 //
 // Three things this module deliberately does NOT do:
 //
@@ -388,9 +385,9 @@ export class WorktreeEventEmitter {
     return this.#appendWorktreeEvent("worktree.retired", input);
   }
 
-  // There is deliberately NO `emitFailed` / `emitWorktreeFailed`, and no
-  // ephemeral-clone method. A producer reaching for one has a `-> failed`
-  // transition to record on the ROW, not an event to emit.
+  // There is deliberately NO `emitFailed` / `emitWorktreeFailed`. A producer
+  // reaching for one has a `-> failed` transition to record on the ROW, not an
+  // event to emit.
 
   // ------------------------------------------------------------------------
   // Internal — payload construction, envelope construction, append

@@ -2,17 +2,13 @@
 //
 // Coverage:
 //   Pr1 — presence is IN-MEMORY ONLY: no SQLite or Postgres write occurs on
-//         heartbeat ingestion. Proven three ways:
+//         heartbeat ingestion. Proven two ways:
 //           (a) the service takes NO database handle at all — a TYPE-LEVEL
 //               guarantee that `recordHeartbeat` cannot write to a durable store
 //               (there is nothing to write to). A heartbeat round-trips through
 //               the in-memory CRDT (`recordHeartbeat` -> `readPresence`),
 //               proving the service WORKS without any persistence dependency.
-//           (b) after the migration set, NO `public` table matches
-//               `ILIKE '%presence%'` other than the durable runtime-NODE
-//               liveness table, a DIFFERENT domain from the in-memory device
-//               presence this service owns.
-//           (c) exercising the ingest path alongside a live database adds no
+//           (b) exercising the ingest path alongside a live database adds no
 //               table.
 //   Pr2 — a missed heartbeat moves a DEVICE to `reconnecting` BEFORE `offline`:
 //         the reconnect-grace two-step timer (15s -> reconnecting, 45s ->
@@ -33,8 +29,7 @@
 //     primitive).
 //   * the projection parses against `PresenceReadResponseSchema`.
 //
-// Harness: the in-process PGlite pattern from
-// `migrations/__tests__/migration-shape.test.ts`. The service itself needs NO
+// Harness: in-process PGlite for the schema check. The service itself needs NO
 // database (that is the point of Pr1), so most behavioral tests construct it
 // standalone.
 
@@ -43,12 +38,7 @@ import { Awareness, applyAwarenessUpdate, encodeAwarenessUpdate } from "y-protoc
 import * as Y from "yjs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type {
-  ChannelId,
-  PresenceHeartbeat,
-  PresenceState,
-  SessionId,
-} from "@ai-sidekicks/contracts";
+import type { PresenceHeartbeat, PresenceState, SessionId } from "@ai-sidekicks/contracts";
 // Value import: the response schema proves the projection the service emits is
 // wire-valid, so a malformed stored snapshot cannot poison `presence.read`.
 import { PresenceReadResponseSchema } from "@ai-sidekicks/contracts";
@@ -66,13 +56,12 @@ import {
 
 const SESSION_ID: SessionId = "01970000-0000-7000-8000-0000000e1001" as SessionId;
 const OTHER_SESSION_ID: SessionId = "01970000-0000-7000-8000-0000000e1002" as SessionId;
-const FOCUSED_CHANNEL: ChannelId = "01970000-0000-7000-8000-0000000c1001" as ChannelId;
 
 const DEVICE_LAPTOP = "device-laptop-01";
 const DEVICE_PHONE = "device-phone-01";
 
-// Build a well-formed PresenceHeartbeat. `activityState` and the focus fields
-// are overridable per test; the metadata floor (all 5 keys present) matches the
+// Build a well-formed PresenceHeartbeat. `activityState` and the focus field
+// are overridable per test; the metadata floor (all 4 keys present) matches the
 // contract shape.
 function heartbeat(args: {
   deviceId: string;
@@ -80,7 +69,6 @@ function heartbeat(args: {
   deviceType?: string;
   appVisible?: boolean;
   focusedSessionId?: SessionId | null;
-  focusedChannelId?: ChannelId | null;
   lastActivityAt?: string;
 }): PresenceHeartbeat {
   return {
@@ -89,7 +77,6 @@ function heartbeat(args: {
     metadata: {
       deviceType: args.deviceType ?? "desktop",
       focusedSessionId: args.focusedSessionId ?? null,
-      focusedChannelId: args.focusedChannelId ?? null,
       lastActivityAt: args.lastActivityAt ?? new Date().toISOString(),
       appVisible: args.appVisible ?? true,
     },
@@ -97,8 +84,8 @@ function heartbeat(args: {
 }
 
 // ----------------------------------------------------------------------------
-// PGlite -> Querier adapter (mirrors migration-shape.test.ts `wrap`). Used ONLY
-// by the schema-shape assertions; the service itself takes no Querier.
+// PGlite -> Querier adapter. Used ONLY by the schema check; the service itself
+// takes no Querier.
 // ----------------------------------------------------------------------------
 
 function wrap(handle: PGlite | Transaction): Querier {
@@ -129,8 +116,8 @@ function isPGlite(handle: PGlite | Transaction): handle is PGlite {
   return typeof (handle as { transaction?: unknown }).transaction === "function";
 }
 
-// Snapshot the full set of `public`-schema table names (mirrors
-// migration-shape.test.ts). Returns a Set so callers can diff directly.
+// Snapshot the full set of `public`-schema table names. Returns a Set so
+// callers can diff directly.
 async function snapshotPublicTables(querier: Querier): Promise<Set<string>> {
   const probe = await querier.query<{ table_name: string }>(
     `SELECT table_name FROM information_schema.tables
@@ -161,7 +148,6 @@ describe("PresenceRegisterService — in-memory ingest, no database handle", () 
         activityState: "online",
         deviceType: "desktop",
         focusedSessionId: SESSION_ID,
-        focusedChannelId: FOCUSED_CHANNEL,
       }),
     );
 
@@ -190,14 +176,11 @@ describe("PresenceRegisterService — in-memory ingest, no database handle", () 
 });
 
 // ----------------------------------------------------------------------------
-// Pr1 (b) + (c) — no device-presence table; no durable presence surface.
+// Pr1 (b) — no durable presence surface.
 // ----------------------------------------------------------------------------
 //
-// The schema-side enforcement of the in-memory-only property: the only
-// presence-named table in the schema is the durable runtime-NODE liveness
-// record (`runtime_node_presence`), a DIFFERENT domain from the in-memory
-// device presence this service owns. Heartbeat ingestion happens entirely in
-// memory and cannot add a table.
+// The schema-side enforcement of the in-memory-only property: heartbeat
+// ingestion happens entirely in memory and cannot add a table.
 
 describe("PresenceRegisterService — no device-presence table in the schema", () => {
   let pg: PGlite;
@@ -210,16 +193,6 @@ describe("PresenceRegisterService — no device-presence table in the schema", (
 
   afterEach(async () => {
     await pg.close();
-  });
-
-  it("the only presence-named table after the migration set is the runtime-node liveness record", async () => {
-    await applyMigrations(querier);
-    const probe = await querier.query<{ table_name: string }>(
-      `SELECT table_name FROM information_schema.tables
-        WHERE table_schema = 'public'
-          AND table_name ILIKE '%presence%'`,
-    );
-    expect(probe.rows.map((row) => row.table_name).sort()).toEqual(["runtime_node_presence"]);
   });
 
   it("heartbeat ingestion does NOT create any table (the service still has no DB handle)", async () => {

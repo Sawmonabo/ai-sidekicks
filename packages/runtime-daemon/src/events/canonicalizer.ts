@@ -153,8 +153,8 @@ export type CanonicalBytes = Uint8Array & { readonly __brand: "CanonicalBytes" }
 //
 // Robust reproduction is NOT a licence to persist the raw one, and the governing
 // authority is the column contract, not a threat model:
-// `migrations/0001-initial.ts` declares `occurred_at TEXT NOT NULL, -- RFC 3339
-// UTC with ms precision`, while the wire schema admits `+05:00` offsets and
+// `daemon-schema.ts` declares `occurred_at TEXT NOT NULL, -- RFC 3339 UTC, ms
+// precision`, while the wire schema admits `+05:00` offsets and
 // omitted seconds. Persisting the producer's raw `2026-01-01T00:00Z` therefore
 // violates that column outright, with no adversary required. The tamper case is
 // the second reason, not the first: normalization is MANY-TO-ONE, so
@@ -399,9 +399,8 @@ export function isCanonicalOccurredAt(occurredAt: string): boolean {
  * the `action_payload` — opaque to read only by the target node's capability
  * handler — is depth 2 inside a dispatch body, leaving 62 levels; on the event
  * side the envelope wrapper plus its `payload` put every open record at depth 3,
- * leaving 61 (`session.created`'s `config` / `metadata` and the
- * `runtime_node.capability_*` detail fields today; `driver_ask`'s `input` /
- * `response` and `channel.created`'s `config` once their schemas land). That set
+ * leaving 61 (`session.created`'s `config` / `metadata` today; `driver_ask`'s
+ * `input` / `response` once their schemas land). That set
  * is OPEN by construction — it grows as those schemas land — so what the ceiling
  * rests on is the headroom, never a census. The ceiling is a two-way door — no
  * persisted byte depends on it, only the refusal boundary.

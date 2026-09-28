@@ -110,7 +110,7 @@ export const TIMELINE_RUN_ATTRIBUTION_PAYLOAD_KEYS: readonly string[] = Object.f
  * gives that category four subfamilies with three different shapes, so it is
  * the one run-scoped category that cannot be taken wholesale:
  *
- *   * queue events — `{sessionId, queueItemId, channelId?, state}`. A queue
+ *   * queue events — `{sessionId, queueItemId, state}`. A queue
  *     item's target run lives in the `queue_items` row, NOT in the event, so
  *     these five carry no run identity a projection could read.
  *   * `user.message` — `{sessionId, queueItemId?, runId?, …}`. Its run
@@ -131,7 +131,7 @@ const INTERACTIVE_REQUEST_TYPES_WITHOUT_REQUIRED_RUN: ReadonlySet<string> = new 
   "queue_item.admitted",
   "queue_item.superseded",
   "queue_item.canceled",
-  "queue_item.expired",
+  "queue_item.not_delivered",
   "user.message",
 ]);
 

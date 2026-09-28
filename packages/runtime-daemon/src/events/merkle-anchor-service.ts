@@ -151,7 +151,8 @@
 //     a fresh timestamp.)
 //
 // Distinct ranges sharing a `start_sequence` are NOT collapsed by either
-// mechanism — see the migration header for why that matters.
+// mechanism: a cadence anchor and a covering anchor share a start and must
+// coexist (the `pending_anchor_uploads` key comment in the daemon schema).
 //
 // ----------------------------------------------------------------------------
 // Upload is decoupled from anchoring, and that is a durability property
@@ -406,12 +407,12 @@ export interface TrpcFetchAnchorUploadTransportDeps {
  * The canonical procedure name for anchor upload — the `event-anchors/` router
  * namespace plus its single mutation.
  *
- * Spelled as one lowercase word to match the shipped `runtimenode.*` namespace
+ * Spelled as one lowercase word, the control plane's router-namespace
  * convention, and deliberately distinct from the daemon-side `event.*`
  * JSON-RPC namespace, which is a different transport carrying different
  * methods.
  */
-export const ANCHOR_UPLOAD_PROCEDURE = "eventanchor.upload";
+const ANCHOR_UPLOAD_PROCEDURE = "eventanchor.upload";
 
 /**
  * Merges provider-supplied headers over a set of defaults, matching names
@@ -736,8 +737,7 @@ export class MerkleAnchorService {
          (id, session_id, node_id, start_sequence, end_sequence, merkle_root, root_signature, anchored_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     );
-    // Sentinel-partitioned (node-scope) rows are excluded: they have no
-    // `sessions(id)` row for `event_log_anchors` to FK against, and node-scope
+    // Sentinel-partitioned (node-scope) rows are excluded: node-scope
     // witnessing is a V1.1 extension. Their `uploaded_at` stays NULL by design,
     // so this filter is what keeps them from being retried forever.
     // `attempt_count` and `last_attempt_at` come along because the drain's

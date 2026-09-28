@@ -39,21 +39,18 @@
 // `../../capability-refresh.js` — the single source of truth re-points at the
 // in-band reading without moving the comparison.
 //
-// -- The refresh seam is an emission seam, not a scheduler --
+// -- The refresh seam is a declaration seam, not a scheduler --
 //
-// `refreshCodexCapabilities` recomposes the report and hands it to writer, whose
-// `declare` performs the change detection and emits
-// `runtime_node.capability_declared` / `runtime_node.capability_updated` (an
-// EXISTING surface; the payload's `previousState` / `newState` carry the
-// wrapper-shape contents) — no new event type. The emission discriminant is returned
-// to the caller unchanged.
+// `refreshCodexCapabilities` recomposes the report and hands it to the writer,
+// whose `declare` performs the change detection. Its verdict is returned to the
+// caller unchanged.
 //
 // What this function deliberately does NOT own: the poll timer, the 15-minute
-// cadence, the paired `probeAuth()`, and node attach/detach lifecycle. Those
-// belong to the `CapabilityRefreshScheduler` (`../../capability-refresh.js`),
-// which drives THIS seam on the bounded cadence. Change detection is
-// likewise NOT re-implemented here: duplicating the writer's snapshot compare
-// would create a second, divergable answer to "did the capabilities change?".
+// cadence and the paired `probeAuth()`. Those belong to the
+// `CapabilityRefreshScheduler` (`../../capability-refresh.js`), which drives THIS
+// seam on the bounded cadence. Change detection is likewise NOT re-implemented
+// here: duplicating the writer's snapshot compare would create a second,
+// divergable answer to "did the capabilities change?".
 //
 // The writer is injected as `Pick<DriverCapabilitiesWriter, "declare">` rather
 // than as a locally-invented port interface: a `Pick` of the real class drifts
@@ -73,14 +70,11 @@
 // is specified to read as cache reconstruction rather than as unknown
 // provenance.
 //
-// `transcript_replay` is answered `true` below as of which is what closes the scope
-// boundary this header carried while the flag waited on its reader: the replay leg
-// that drives this provider's injection surface — and the post-replay assertion that
-// is the only admissible evidence it worked — now ship in `./lifecycle.ts`, so the
-// flag and the code it gates flip together, which is the condition the boundary
-// named. The `supported = 0` row backfilled at migration 0012 no longer matches this
-// declaration, and the contract-version move below is what makes a node holding that
-// row re-read rather than serve it.
+// `transcript_replay` is answered `true` below: the replay leg that drives this
+// provider's injection surface, and the post-replay assertion that is the only
+// admissible evidence it worked, ship in `./lifecycle.ts`. A cached
+// `supported = 0` row does not match this declaration, and the contract-version
+// move below is what makes a node holding that row re-read rather than serve it.
 //
 // Invariants from the pinned Codex wire census (wire surface at the
 // pinned `codex-cli` build; regenerate-don't-transcribe).
@@ -103,9 +97,8 @@ import {
   emitCapabilityDetectionDiagnostics,
 } from "../../capability-refresh.js";
 import type {
-  DeclareDriverCapabilitiesInput,
   DeclareDriverCapabilitiesResult,
-  DriverCapabilitiesWriter,
+  DriverCapabilityDeclarationSink,
 } from "../../driver-capabilities-writer.js";
 import type { DriverDiagnosticsEmitter } from "../../driver-diagnostics.js";
 import { DRIVER_OUTPUT_SPEED_LEVELS } from "../../driver-output-speed.js";
@@ -131,10 +124,9 @@ export const CODEX_DRIVER_NAME = "codex" as const;
  * is a complete answer rather than a withdrawal.
  *
  * `2.0.0`: a MAJOR move, and the first one. It is also the move that has to be
- * seen: migration `0012` backfilled this flag's row `supported = 0`, so a node
- * holding that cached row would keep serving `false` — routing every
- * reconstitution to the memo floor on a driver that now replays natively — until
- * the token it compares moves.
+ * seen: a node holding a cached `supported = 0` row for `transcript_replay` would
+ * keep serving `false` — routing every reconstitution to the memo floor on a
+ * driver that replays natively — until the token it compares moves.
  */
 export const CODEX_CAPABILITY_CONTRACT_VERSION: string = "2.0.0";
 
@@ -167,11 +159,11 @@ export const CODEX_CAPABILITY_FLAGS: Readonly<Record<DriverCapabilityFlag, boole
     model_mutation: true,
     // The turn accepts a caller-supplied output schema.
     structured_output: true,
-    // Rewind is delivered by forking a thread at an inclusive turn boundary.
-    // Non-probeable at the parameter level, so it resolves from the matrix;
-    // a build that REFUSES the boundary field is classified at the
-    // `rollbackTo` fork dispatch as `driver.capability_unsupported` rather
-    // than surfacing as an opaque provider fault.
+    // Fork: a thread forked at an inclusive turn boundary. Non-probeable at the
+    // parameter level, so it resolves from the matrix; a build that REFUSES the
+    // boundary field is classified at the fork dispatch as
+    // `driver.capability_unsupported` rather than surfacing as an opaque
+    // provider fault.
     rollback: true,
     // Durable per-thread goal set/clear operations exist on the wire.
     session_goals: true,
@@ -344,18 +336,8 @@ export async function readCodexCapabilityDetection(
   return detection;
 }
 
-/**
- * The write seam this module declares through — structurally a
- * `DriverCapabilitiesWriter`, narrowed to the one method used.
- */
-export type DriverCapabilityDeclarationSink = Pick<DriverCapabilitiesWriter, "declare">;
-
 /** Caller-supplied context for one capability declaration/refresh. */
 export interface CodexCapabilityRefreshInput {
-  /** Session partition the capability event is appended to. */
-  readonly sessionId: string;
-  /** Runtime node the declared capabilities describe. */
-  readonly nodeId: string;
   /**
    * The in-band reading of the spawned provider build. A REFRESH takes a NEW
    * reading rather than replaying the attach-time one — that is what makes a
@@ -379,18 +361,14 @@ export interface CodexCapabilityRefreshInput {
    * emitter would let a whole node's withdrawals go uncounted.
    */
   readonly diagnostics: DriverDiagnosticsEmitter;
-  /** EventEnvelope actor; omitted means the system actor. */
-  readonly actor?: string | null;
 }
 
 /**
- * Declare (or re-declare) Codex capabilities through writer.
+ * Declare (or re-declare) Codex capabilities through the writer.
  *
- * Returns the writer's own emission discriminant unchanged — `"declared"` on
- * the first write, `"updated"` when the snapshot actually differs, `"noop"`
- * when it does not. A `"noop"` appends nothing to the timeline, which is what
- * makes a periodic refresh safe to run without manufacturing false timeline
- * changes (change-detected emission).
+ * Returns the writer's own verdict unchanged — `"created"` on the first write,
+ * `"changed"` when the snapshot actually differs, `"unchanged"` when it does
+ * not, which is what makes a periodic refresh safe to run.
  */
 export async function refreshCodexCapabilities(
   sink: DriverCapabilityDeclarationSink,
@@ -401,17 +379,10 @@ export async function refreshCodexCapabilities(
     input.probe,
     input.diagnostics,
   );
-  const declareInput: DeclareDriverCapabilitiesInput = {
-    sessionId: input.sessionId,
-    nodeId: input.nodeId,
+  return sink.declare({
     driverName: CODEX_DRIVER_NAME,
     result: getCodexCapabilities(input.reading, detection),
-    // Spread conditionally: under `exactOptionalPropertyTypes` an explicit
-    // `actor: undefined` is NOT the same as an absent `actor`, and the writer
-    // defaults an ABSENT actor to the system actor.
-    ...(input.actor === undefined ? {} : { actor: input.actor }),
-  };
-  return sink.declare(declareInput);
+  });
 }
 
 // --------------------------------------------------------------------------

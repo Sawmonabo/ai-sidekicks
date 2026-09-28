@@ -24,7 +24,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
-  deriveMainChannelId,
   DRIVER_CAPABILITY_FLAGS,
   DRIVER_FAILURE_DETAIL_MAX_LEN,
   DRIVER_PROVIDER_COMMAND_ENTRIES_MAX,
@@ -122,7 +121,6 @@ import {
   CODEX_ASK_OPTION_SET_MAX,
   CODEX_CALLBACK_TOOL_REGISTRATION_UNAVAILABLE_DETAIL,
   CODEX_COMPACTION_WAIT_MS,
-  CODEX_MAX_OUTBOUND_FRAME_BYTES,
   CODEX_OUTBOUND_ANSWER_TOO_LARGE_REASON,
   UNREALIZED_TURN_POSTURE_MEMBERS,
   assertRealizedTurnPostureMembers,
@@ -557,9 +555,6 @@ function makeCapabilities(steer: boolean): DriverCapabilities {
 const SESSION_ID = "11111111-1111-4111-8111-111111111111" as SessionId;
 const RUN_ID = "22222222-2222-4222-8222-222222222222" as RunId;
 const SECOND_RUN_ID = "33333333-3333-4333-8333-333333333333" as RunId;
-// Derived rather than cast: a real branded value, and the id the daemon would
-// actually carry for a session's main channel.
-const CHANNEL_ID = deriveMainChannelId(SESSION_ID);
 const THREAD_ID = "01a04202-0148-7ae2-8560-622babf33ed0";
 const TURN_ID = "turn-01";
 // The turn of the SECOND run. Two distinct runs holding live turns is the state
@@ -1061,7 +1056,6 @@ describe("CodexDriver lifecycle operations", () => {
 
     await harness.driver.startRun({
       runId: RUN_ID,
-      channelId: CHANNEL_ID,
       agentConfig: { sessionId: SESSION_ID, input: "review the diff" },
     });
 
@@ -1080,7 +1074,6 @@ describe("CodexDriver lifecycle operations", () => {
 
     await harness.driver.startRun({
       runId: RUN_ID,
-      channelId: CHANNEL_ID,
       agentConfig: { sessionId: SESSION_ID, input: "summarize" },
       outputSchema: { type: "object" },
     });
@@ -1098,7 +1091,6 @@ describe("CodexDriver lifecycle operations", () => {
 
     await harness.driver.startRun({
       runId: RUN_ID,
-      channelId: CHANNEL_ID,
       agentConfig: { sessionId: SESSION_ID, input: "go" },
     });
     await harness.driver.interruptRun({ runId: RUN_ID });
@@ -1393,7 +1385,6 @@ describe("CodexDriver resumeSession", () => {
     await expect(
       harness.driver.startRun({
         runId: RUN_ID,
-        channelId: CHANNEL_ID,
         agentConfig: { sessionId: SESSION_ID, input: "carry on" },
       }),
     ).resolves.toBeUndefined();
@@ -1455,7 +1446,6 @@ describe("CodexAppServerConnection transport", () => {
     const longInput = "z".repeat(8000);
     await harness.driver.startRun({
       runId: RUN_ID,
-      channelId: CHANNEL_ID,
       agentConfig: { sessionId: SESSION_ID, input: longInput },
     });
 
@@ -1471,7 +1461,6 @@ describe("CodexAppServerConnection transport", () => {
     harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
     const pending = harness.driver.startRun({
       runId: RUN_ID,
-      channelId: CHANNEL_ID,
       agentConfig: { sessionId: SESSION_ID, input: "go" },
     });
     await pending;
@@ -1554,7 +1543,6 @@ describe("CodexAppServerConnection transport", () => {
     // correlation is the only honest test of that.
     const pending = harness.driver.startRun({
       runId: RUN_ID,
-      channelId: CHANNEL_ID,
       agentConfig: { sessionId: SESSION_ID, input: "go" },
     });
     await Promise.resolve();
@@ -1593,7 +1581,6 @@ describe("CodexAppServerConnection transport", () => {
     await createdSession(harness);
     const pending = harness.driver.startRun({
       runId: RUN_ID,
-      channelId: CHANNEL_ID,
       agentConfig: { sessionId: SESSION_ID, input: "go" },
     });
     await Promise.resolve();
@@ -1691,7 +1678,6 @@ describe("CodexAppServerConnection transport", () => {
 
     const pending = harness.driver.startRun({
       runId: RUN_ID,
-      channelId: CHANNEL_ID,
       agentConfig: { sessionId: SESSION_ID, input: "go" },
     });
     await Promise.resolve();
@@ -1715,7 +1701,6 @@ describe("CodexAppServerConnection transport", () => {
 
     const pending = harness.driver.startRun({
       runId: RUN_ID,
-      channelId: CHANNEL_ID,
       agentConfig: { sessionId: SESSION_ID, input: "go" },
     });
     await Promise.resolve();
@@ -1732,7 +1717,6 @@ describe("CodexAppServerConnection transport", () => {
     await expect(
       harness.driver.startRun({
         runId: RUN_ID,
-        channelId: CHANNEL_ID,
         agentConfig: { sessionId: SESSION_ID, input: "again" },
       }),
     ).rejects.toMatchObject({ code: "driver.unavailable" });
@@ -1838,7 +1822,6 @@ describe("CodexDriver session ownership", () => {
     await manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
     await manager.startRun({
       runId: RUN_ID,
-      channelId: CHANNEL_ID,
       agentConfig: { sessionId: SESSION_ID, input: "go" },
     });
     expect(manager.hasActiveTurn(RUN_ID)).toBe(true);
@@ -1864,7 +1847,6 @@ describe("CodexDriver session ownership", () => {
     // so the opening frame is still pending when the resume supersedes the leg.
     await harness.driver.startRun({
       runId: RUN_ID,
-      channelId: CHANNEL_ID,
       agentConfig: { sessionId: SESSION_ID, input: "please rebase onto develop" },
     });
 
@@ -1886,7 +1868,6 @@ describe("CodexDriver session ownership", () => {
     harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
     await harness.driver.startRun({
       runId: RUN_ID,
-      channelId: CHANNEL_ID,
       agentConfig: { sessionId: SESSION_ID, input: "please rebase onto develop" },
     });
 
@@ -1912,7 +1893,6 @@ describe("CodexDriver session ownership", () => {
     harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
     await harness.driver.startRun({
       runId: RUN_ID,
-      channelId: CHANNEL_ID,
       agentConfig: { sessionId: SESSION_ID, input: "please rebase onto develop" },
     });
 
@@ -1942,7 +1922,6 @@ describe("CodexDriver session ownership", () => {
     harness.server.on("turn/steer", () => ({ result: { turnId: TURN_ID } }));
     await harness.driver.startRun({
       runId: RUN_ID,
-      channelId: CHANNEL_ID,
       agentConfig: { sessionId: SESSION_ID, input: "please rebase onto develop" },
     });
     await harness.driver.applyIntervention({
@@ -2003,12 +1982,10 @@ describe("CodexDriver approval reviewer pinning", () => {
 
     await harness.driver.startRun({
       runId: RUN_ID,
-      channelId: CHANNEL_ID,
       agentConfig: { sessionId: SESSION_ID, input: "one" },
     });
     await harness.driver.startRun({
       runId: SECOND_RUN_ID,
-      channelId: CHANNEL_ID,
       agentConfig: { sessionId: SESSION_ID, input: "two" },
     });
 
@@ -3080,7 +3057,6 @@ describe("CodexDriver turn posture realization", () => {
 
     await harness.driver.startRun({
       runId: RUN_ID,
-      channelId: CHANNEL_ID,
       agentConfig: { sessionId: SESSION_ID, input: "review the diff" },
     });
 
@@ -3103,7 +3079,6 @@ describe("CodexDriver turn posture realization", () => {
 
     await harness.driver.startRun({
       runId: RUN_ID,
-      channelId: CHANNEL_ID,
       agentConfig: { sessionId: SESSION_ID, input: "review the diff" },
     });
 
@@ -3124,7 +3099,6 @@ describe("CodexDriver turn posture realization", () => {
       await expect(
         harness.driver.startRun({
           runId: RUN_ID,
-          channelId: CHANNEL_ID,
           agentConfig: {
             sessionId: SESSION_ID,
             input: "review the diff",
@@ -3313,7 +3287,6 @@ describe("CodexLifecycleManager steer wire shape", () => {
     harness.server.on("turn/steer", () => steerAnswer);
     await harness.driver.startRun({
       runId: RUN_ID,
-      channelId: CHANNEL_ID,
       agentConfig: { sessionId: SESSION_ID, input: "one" },
     });
     return harness;
@@ -3820,7 +3793,6 @@ describe("CodexLifecycleManager session slot across teardown", () => {
     // read the slot rather than the map.
     const starting = harness.manager.startRun({
       runId: RUN_ID,
-      channelId: CHANNEL_ID,
       agentConfig: { sessionId: SESSION_ID, input: "go" },
     });
     // Released BEFORE the outcome is read. The refusal under test is synchronous
@@ -3861,7 +3833,6 @@ describe("CodexLifecycleManager session slot across teardown", () => {
     const outcome = await harness.manager
       .startRun({
         runId: RUN_ID,
-        channelId: CHANNEL_ID,
         agentConfig: { sessionId: SESSION_ID, input: "go" },
       })
       .then(
@@ -3901,7 +3872,6 @@ describe("CodexLifecycleManager session slot across re-establishment", () => {
     });
     const starting = harness.manager.startRun({
       runId: RUN_ID,
-      channelId: CHANNEL_ID,
       agentConfig: { sessionId: SESSION_ID, input: "go" },
     });
     const outcome = await starting.then(
@@ -3946,7 +3916,6 @@ describe("CodexLifecycleManager session slot across re-establishment", () => {
 
     const starting = harness.manager.startRun({
       runId: RUN_ID,
-      channelId: CHANNEL_ID,
       agentConfig: { sessionId: SESSION_ID, input: "go" },
     });
     // Parks the resume inside its spawn so the answer lands while the transition
@@ -3987,7 +3956,6 @@ describe("CodexLifecycleManager turn/start ambiguity", () => {
 
     const starting = harness.manager.startRun({
       runId: RUN_ID,
-      channelId: CHANNEL_ID,
       agentConfig: { sessionId: SESSION_ID, input: "go" },
     });
     const failure = starting.then(
@@ -4018,7 +3986,6 @@ describe("CodexLifecycleManager turn/start ambiguity", () => {
     const outcome = await harness.manager
       .startRun({
         runId: RUN_ID,
-        channelId: CHANNEL_ID,
         agentConfig: { sessionId: SESSION_ID, input: "go" },
       })
       .then(
@@ -4045,7 +4012,6 @@ describe("CodexLifecycleManager turn/start ambiguity", () => {
     const outcome = await harness.manager
       .startRun({
         runId: RUN_ID,
-        channelId: CHANNEL_ID,
         agentConfig: { sessionId: SESSION_ID, input: "go" },
       })
       .then(
@@ -4063,7 +4029,6 @@ describe("CodexLifecycleManager turn/start ambiguity", () => {
     harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
     await harness.manager.startRun({
       runId: RUN_ID,
-      channelId: CHANNEL_ID,
       agentConfig: { sessionId: SESSION_ID, input: "go" },
     });
     expect(harness.manager.hasActiveTurn(RUN_ID)).toBe(true);
@@ -4128,7 +4093,6 @@ describe("CodexLifecycleManager permanent structural refusal", () => {
     const outcome = await harness.manager
       .startRun({
         runId: RUN_ID,
-        channelId: CHANNEL_ID,
         agentConfig: { sessionId: SESSION_ID, input: "go" },
       })
       .then(
@@ -4154,7 +4118,6 @@ describe("CodexLifecycleManager permanent structural refusal", () => {
     const redispatch = await harness.manager
       .startRun({
         runId: RUN_ID,
-        channelId: CHANNEL_ID,
         agentConfig: { sessionId: SESSION_ID, input: "go" },
       })
       .then(
@@ -4173,7 +4136,6 @@ describe("CodexLifecycleManager permanent structural refusal", () => {
     const outcome = await harness.manager
       .startRun({
         runId: RUN_ID,
-        channelId: CHANNEL_ID,
         agentConfig: { sessionId: SESSION_ID, input: "go" },
       })
       .then(
@@ -4201,7 +4163,6 @@ describe("CodexLifecycleManager permanent structural refusal", () => {
     const outcome = await harness.manager
       .startRun({
         runId: RUN_ID,
-        channelId: CHANNEL_ID,
         agentConfig: { sessionId: SESSION_ID, input: "go" },
       })
       .then(
@@ -4231,7 +4192,6 @@ describe("CodexLifecycleManager ambiguous turn/start reconciliation", () => {
 
     const starting = built.manager.startRun({
       runId: RUN_ID,
-      channelId: CHANNEL_ID,
       agentConfig: { sessionId: SESSION_ID, input: "go" },
     });
     const failure = starting.then(
@@ -4254,7 +4214,6 @@ describe("CodexLifecycleManager ambiguous turn/start reconciliation", () => {
     const redispatch = await built.manager
       .startRun({
         runId: RUN_ID,
-        channelId: CHANNEL_ID,
         agentConfig: { sessionId: SESSION_ID, input: "go" },
       })
       .then(
@@ -4276,7 +4235,6 @@ describe("CodexLifecycleManager ambiguous turn/start reconciliation", () => {
 
     const starting = harness.manager.startRun({
       runId: RUN_ID,
-      channelId: CHANNEL_ID,
       agentConfig: { sessionId: SESSION_ID, input: "go" },
     });
     const failure = starting.then(
@@ -4294,7 +4252,6 @@ describe("CodexLifecycleManager ambiguous turn/start reconciliation", () => {
     harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
     await harness.manager.startRun({
       runId: RUN_ID,
-      channelId: CHANNEL_ID,
       agentConfig: { sessionId: SESSION_ID, input: "go" },
     });
     expect(harness.manager.hasActiveTurn(RUN_ID)).toBe(true);
@@ -4315,7 +4272,6 @@ describe("CodexLifecycleManager ambiguous turn/start reconciliation", () => {
 
     const starting = harness.manager.startRun({
       runId: RUN_ID,
-      channelId: CHANNEL_ID,
       agentConfig: { sessionId: SESSION_ID, input: "go" },
     });
     const failure = starting.then(
@@ -4345,7 +4301,6 @@ describe("CodexLifecycleManager ambiguous turn/start reconciliation", () => {
 
     const starting = harness.manager.startRun({
       runId: RUN_ID,
-      channelId: CHANNEL_ID,
       agentConfig: { sessionId: SESSION_ID, input: "go" },
     });
     const failure = starting.then(
@@ -4411,7 +4366,6 @@ describe("CodexLifecycleManager resume result validation", () => {
     // process — which is what "a failed resume changes nothing" has to mean.
     await harness.manager.startRun({
       runId: RUN_ID,
-      channelId: CHANNEL_ID,
       agentConfig: { sessionId: SESSION_ID, input: "go" },
     });
     expect(harness.manager.hasActiveTurn(RUN_ID)).toBe(true);
@@ -4434,7 +4388,6 @@ describe("CodexLifecycleManager turn route lifetime", () => {
       await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
       await harness.manager.startRun({
         runId: RUN_ID,
-        channelId: CHANNEL_ID,
         agentConfig: { sessionId: SESSION_ID, input: "go" },
       });
       expect(harness.manager.hasActiveTurn(RUN_ID)).toBe(true);
@@ -4460,7 +4413,6 @@ describe("CodexLifecycleManager turn route lifetime", () => {
     await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
     await harness.manager.startRun({
       runId: RUN_ID,
-      channelId: CHANNEL_ID,
       agentConfig: {
         sessionId: SESSION_ID,
         input: "/status please",
@@ -4503,7 +4455,6 @@ describe("CodexLifecycleManager turn route lifetime", () => {
 
     await harness.manager.startRun({
       runId: RUN_ID,
-      channelId: CHANNEL_ID,
       agentConfig: {
         sessionId: SESSION_ID,
         input: "/status please",
@@ -4538,7 +4489,6 @@ describe("CodexLifecycleManager turn route lifetime", () => {
 
     await harness.manager.startRun({
       runId: RUN_ID,
-      channelId: CHANNEL_ID,
       agentConfig: {
         sessionId: SESSION_ID,
         input: "review the diff",
@@ -4563,7 +4513,6 @@ describe("CodexLifecycleManager turn route lifetime", () => {
     await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
     await harness.manager.startRun({
       runId: RUN_ID,
-      channelId: CHANNEL_ID,
       agentConfig: {
         sessionId: SESSION_ID,
         input: "/status please",
@@ -4577,7 +4526,6 @@ describe("CodexLifecycleManager turn route lifetime", () => {
     await expect(
       harness.manager.startRun({
         runId: SECOND_RUN_ID,
-        channelId: CHANNEL_ID,
         agentConfig: { sessionId: SESSION_ID, input: "carry on" },
       }),
     ).rejects.toThrow(TextNeutralizationRefusedError);
@@ -4596,7 +4544,6 @@ describe("CodexLifecycleManager turn route lifetime", () => {
     await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
     await harness.manager.startRun({
       runId: RUN_ID,
-      channelId: CHANNEL_ID,
       agentConfig: {
         sessionId: SESSION_ID,
         input: "/status please",
@@ -4615,7 +4562,6 @@ describe("CodexLifecycleManager turn route lifetime", () => {
     await expect(
       harness.manager.startRun({
         runId: SECOND_RUN_ID,
-        channelId: CHANNEL_ID,
         agentConfig: { sessionId: SESSION_ID, input: "carry on" },
       }),
     ).resolves.toBeUndefined();
@@ -4641,7 +4587,6 @@ describe("CodexLifecycleManager turn route lifetime", () => {
     await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
     await harness.manager.startRun({
       runId: RUN_ID,
-      channelId: CHANNEL_ID,
       agentConfig: {
         sessionId: SESSION_ID,
         input: "review the diff",
@@ -4684,7 +4629,6 @@ describe("CodexLifecycleManager turn route lifetime", () => {
     await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
     await harness.manager.startRun({
       runId: RUN_ID,
-      channelId: CHANNEL_ID,
       agentConfig: { sessionId: SESSION_ID, input: "review the diff" },
     });
     // The opening frame's own evidence, observed BEFORE the steer is written, so
@@ -4723,7 +4667,6 @@ describe("CodexLifecycleManager turn route lifetime", () => {
     await expect(
       harness.manager.startRun({
         runId: SECOND_RUN_ID,
-        channelId: CHANNEL_ID,
         agentConfig: { sessionId: SESSION_ID, input: "carry on" },
       }),
     ).resolves.toBeUndefined();
@@ -4744,7 +4687,6 @@ describe("CodexLifecycleManager turn route lifetime", () => {
     await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
     await harness.manager.startRun({
       runId: RUN_ID,
-      channelId: CHANNEL_ID,
       agentConfig: { sessionId: SESSION_ID, input: "review the diff" },
     });
     harness.server.emitFrame(modelOutputItemFrame(TURN_ID));
@@ -4792,7 +4734,6 @@ describe("CodexLifecycleManager turn route lifetime", () => {
     await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
     await harness.manager.startRun({
       runId: RUN_ID,
-      channelId: CHANNEL_ID,
       agentConfig: { sessionId: SESSION_ID, input: "review the diff" },
     });
     // Vouches for the OPENING frame and for no other, so a trip here names the
@@ -4821,7 +4762,6 @@ describe("CodexLifecycleManager turn route lifetime", () => {
     await expect(
       harness.manager.startRun({
         runId: SECOND_RUN_ID,
-        channelId: CHANNEL_ID,
         agentConfig: { sessionId: SESSION_ID, input: "carry on" },
       }),
     ).resolves.toBeUndefined();
@@ -4863,7 +4803,6 @@ describe("CodexLifecycleManager turn route lifetime", () => {
     await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
     await harness.manager.startRun({
       runId: RUN_ID,
-      channelId: CHANNEL_ID,
       agentConfig: { sessionId: SESSION_ID, input: "review the diff" },
     });
     // Vouches for the OPENING frame and for no other, so a trip here names the
@@ -4898,7 +4837,6 @@ describe("CodexLifecycleManager turn route lifetime", () => {
     await expect(
       harness.manager.startRun({
         runId: SECOND_RUN_ID,
-        channelId: CHANNEL_ID,
         agentConfig: { sessionId: SESSION_ID, input: "carry on" },
       }),
     ).resolves.toBeUndefined();
@@ -4930,7 +4868,6 @@ describe("CodexLifecycleManager turn route lifetime", () => {
     await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
     await harness.manager.startRun({
       runId: RUN_ID,
-      channelId: CHANNEL_ID,
       agentConfig: { sessionId: SESSION_ID, input: "review the diff" },
     });
     harness.server.emitFrame(modelOutputItemFrame(TURN_ID));
@@ -4958,7 +4895,6 @@ describe("CodexLifecycleManager turn route lifetime", () => {
     await expect(
       harness.manager.startRun({
         runId: SECOND_RUN_ID,
-        channelId: CHANNEL_ID,
         agentConfig: { sessionId: SESSION_ID, input: "carry on" },
       }),
     ).rejects.toThrow(TextNeutralizationRefusedError);
@@ -4983,7 +4919,6 @@ describe("CodexLifecycleManager turn route lifetime", () => {
     await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
     await harness.manager.startRun({
       runId: RUN_ID,
-      channelId: CHANNEL_ID,
       agentConfig: { sessionId: SESSION_ID, input: "review the diff" },
     });
     harness.server.emitFrame(modelOutputItemFrame(TURN_ID));
@@ -5025,7 +4960,6 @@ describe("CodexLifecycleManager turn route lifetime", () => {
     await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
     await harness.manager.startRun({
       runId: RUN_ID,
-      channelId: CHANNEL_ID,
       agentConfig: { sessionId: SESSION_ID, input: "review the diff" },
     });
     harness.server.emitFrame(modelOutputItemFrame(TURN_ID));
@@ -5059,7 +4993,6 @@ describe("CodexLifecycleManager turn route lifetime", () => {
     await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
     await harness.manager.startRun({
       runId: RUN_ID,
-      channelId: CHANNEL_ID,
       agentConfig: {
         sessionId: SESSION_ID,
         input: "review the diff",
@@ -5100,7 +5033,6 @@ describe("CodexLifecycleManager turn route lifetime", () => {
     await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
     await harness.manager.startRun({
       runId: RUN_ID,
-      channelId: CHANNEL_ID,
       agentConfig: {
         sessionId: SESSION_ID,
         input: "review the diff",
@@ -5138,7 +5070,6 @@ describe("CodexLifecycleManager turn route lifetime", () => {
     await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
     await harness.manager.startRun({
       runId: RUN_ID,
-      channelId: CHANNEL_ID,
       agentConfig: {
         sessionId: SESSION_ID,
         input: "review the diff",
@@ -5181,7 +5112,6 @@ describe("CodexLifecycleManager turn route lifetime", () => {
     await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
     await harness.manager.startRun({
       runId: RUN_ID,
-      channelId: CHANNEL_ID,
       agentConfig: {
         sessionId: SESSION_ID,
         input: "review the diff",
@@ -5221,7 +5151,6 @@ describe("CodexLifecycleManager turn route lifetime", () => {
     await expect(
       harness.manager.startRun({
         runId: SECOND_RUN_ID,
-        channelId: CHANNEL_ID,
         agentConfig: { sessionId: SESSION_ID, input: "carry on" },
       }),
     ).rejects.toThrow(TextNeutralizationRefusedError);
@@ -5241,7 +5170,6 @@ describe("CodexLifecycleManager turn route lifetime", () => {
     await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
     await harness.manager.startRun({
       runId: RUN_ID,
-      channelId: CHANNEL_ID,
       agentConfig: {
         sessionId: SESSION_ID,
         input: "review the diff",
@@ -5279,7 +5207,6 @@ describe("CodexLifecycleManager turn route lifetime", () => {
     await expect(
       harness.manager.startRun({
         runId: SECOND_RUN_ID,
-        channelId: CHANNEL_ID,
         agentConfig: { sessionId: SESSION_ID, input: "carry on" },
       }),
     ).rejects.toThrow(TextNeutralizationRefusedError);
@@ -5298,7 +5225,6 @@ describe("CodexLifecycleManager turn route lifetime", () => {
     await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
     await harness.manager.startRun({
       runId: RUN_ID,
-      channelId: CHANNEL_ID,
       agentConfig: {
         sessionId: SESSION_ID,
         input: "/status please",
@@ -5324,7 +5250,6 @@ describe("CodexLifecycleManager turn route lifetime", () => {
     await expect(
       harness.manager.startRun({
         runId: SECOND_RUN_ID,
-        channelId: CHANNEL_ID,
         agentConfig: { sessionId: SESSION_ID, input: "carry on" },
       }),
     ).rejects.toThrow(TextNeutralizationRefusedError);
@@ -5341,7 +5266,6 @@ describe("CodexLifecycleManager turn route lifetime", () => {
     await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
     await harness.manager.startRun({
       runId: RUN_ID,
-      channelId: CHANNEL_ID,
       agentConfig: {
         sessionId: SESSION_ID,
         input: "/status please",
@@ -5368,7 +5292,6 @@ describe("CodexLifecycleManager turn route lifetime", () => {
     await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
     await harness.manager.startRun({
       runId: RUN_ID,
-      channelId: CHANNEL_ID,
       agentConfig: {
         sessionId: SESSION_ID,
         input: "review the diff",
@@ -5387,7 +5310,6 @@ describe("CodexLifecycleManager turn route lifetime", () => {
     await expect(
       harness.manager.startRun({
         runId: SECOND_RUN_ID,
-        channelId: CHANNEL_ID,
         agentConfig: { sessionId: SESSION_ID, input: "carry on" },
       }),
     ).resolves.toBeUndefined();
@@ -5417,7 +5339,6 @@ describe("CodexLifecycleManager turn route lifetime", () => {
       interruptedRunIds.push(runId);
       await harness.manager.startRun({
         runId,
-        channelId: CHANNEL_ID,
         agentConfig: {
           sessionId: SESSION_ID,
           input: "/status please",
@@ -5433,7 +5354,6 @@ describe("CodexLifecycleManager turn route lifetime", () => {
     await expect(
       harness.manager.startRun({
         runId: RUN_ID,
-        channelId: CHANNEL_ID,
         agentConfig: { sessionId: SESSION_ID, input: "one more" },
       }),
     ).rejects.toThrow(OutboundFrameCapacityRefusedError);
@@ -5485,7 +5405,6 @@ describe("CodexLifecycleManager turn route lifetime", () => {
       const runId = `77777777-7777-4777-8777-${String(index).padStart(12, "0")}` as RunId;
       await harness.manager.startRun({
         runId,
-        channelId: CHANNEL_ID,
         agentConfig: { sessionId: SESSION_ID, input: "go" },
       });
       harness.server.emitFrame(modelOutputItemFrame(`turn-${String(index + 1)}`));
@@ -5503,7 +5422,6 @@ describe("CodexLifecycleManager turn route lifetime", () => {
     await expect(
       harness.manager.startRun({
         runId: RUN_ID,
-        channelId: CHANNEL_ID,
         agentConfig: { sessionId: SESSION_ID, input: "carry on" },
       }),
     ).rejects.toThrow();
@@ -5534,7 +5452,6 @@ describe("CodexLifecycleManager turn route lifetime", () => {
       const runId = `88888888-8888-4888-8888-${String(index).padStart(12, "0")}` as RunId;
       await harness.manager.startRun({
         runId,
-        channelId: CHANNEL_ID,
         agentConfig: { sessionId: SESSION_ID, input: "go" },
       });
       harness.server.emitFrame(modelOutputItemFrame(`turn-${String(index + 1)}`));
@@ -5551,7 +5468,6 @@ describe("CodexLifecycleManager turn route lifetime", () => {
     await expect(
       harness.manager.startRun({
         runId: RUN_ID,
-        channelId: CHANNEL_ID,
         agentConfig: { sessionId: SESSION_ID, input: "carry on" },
       }),
     ).resolves.toBeUndefined();
@@ -5574,7 +5490,6 @@ describe("CodexLifecycleManager turn route lifetime", () => {
       const runId = `66666666-6666-4666-8666-${String(index).padStart(12, "0")}` as RunId;
       await harness.manager.startRun({
         runId,
-        channelId: CHANNEL_ID,
         agentConfig: { sessionId: SESSION_ID, input: "go" },
       });
       await harness.manager.interruptRun({ runId });
@@ -5586,7 +5501,6 @@ describe("CodexLifecycleManager turn route lifetime", () => {
     await expect(
       harness.manager.startRun({
         runId: RUN_ID,
-        channelId: CHANNEL_ID,
         agentConfig: { sessionId: SESSION_ID, input: "carry on" },
       }),
     ).resolves.toBeUndefined();
@@ -5598,7 +5512,6 @@ describe("CodexLifecycleManager turn route lifetime", () => {
     await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
     await harness.manager.startRun({
       runId: RUN_ID,
-      channelId: CHANNEL_ID,
       agentConfig: { sessionId: SESSION_ID, input: "go" },
     });
 
@@ -5623,7 +5536,6 @@ describe("CodexLifecycleManager turn route lifetime", () => {
 
     await harness.manager.startRun({
       runId: RUN_ID,
-      channelId: CHANNEL_ID,
       agentConfig: { sessionId: SESSION_ID, input: "go" },
     });
 
@@ -5637,7 +5549,6 @@ describe("CodexLifecycleManager turn route lifetime", () => {
     await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
     await harness.manager.startRun({
       runId: RUN_ID,
-      channelId: CHANNEL_ID,
       agentConfig: { sessionId: SESSION_ID, input: "one" },
     });
     harness.server.emitFrame(turnCompletedFrame(TURN_ID, "completed"));
@@ -5646,7 +5557,6 @@ describe("CodexLifecycleManager turn route lifetime", () => {
     nextTurnId = "turn-02";
     await harness.manager.startRun({
       runId: RUN_ID,
-      channelId: CHANNEL_ID,
       agentConfig: { sessionId: SESSION_ID, input: "two" },
     });
 
@@ -5663,7 +5573,6 @@ describe("CodexLifecycleManager turn route lifetime", () => {
     await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
     await harness.manager.startRun({
       runId: RUN_ID,
-      channelId: CHANNEL_ID,
       agentConfig: { sessionId: SESSION_ID, input: "go" },
     });
 
@@ -5707,7 +5616,6 @@ describe("CodexLifecycleManager turn route lifetime", () => {
     const refused = harness.manager
       .startRun({
         runId: RUN_ID,
-        channelId: CHANNEL_ID,
         agentConfig: { sessionId: SESSION_ID, input: refusedOpeningText },
       })
       .then(
@@ -5718,7 +5626,6 @@ describe("CodexLifecycleManager turn route lifetime", () => {
     // which is the only window in which the overlap exists at all.
     const accepted = harness.manager.startRun({
       runId: RUN_ID,
-      channelId: CHANNEL_ID,
       agentConfig: { sessionId: SESSION_ID, input: "review the diff" },
     });
 
@@ -5764,12 +5671,10 @@ describe("CodexLifecycleManager turn route lifetime", () => {
 
     const first = harness.manager.startRun({
       runId: RUN_ID,
-      channelId: CHANNEL_ID,
       agentConfig: { sessionId: SESSION_ID, input: firstOpeningText },
     });
     const second = harness.manager.startRun({
       runId: RUN_ID,
-      channelId: CHANNEL_ID,
       agentConfig: { sessionId: SESSION_ID, input: "review the diff" },
     });
     await first;
@@ -5813,12 +5718,10 @@ describe("CodexLifecycleManager turn route lifetime", () => {
 
     const first = harness.manager.startRun({
       runId: RUN_ID,
-      channelId: CHANNEL_ID,
       agentConfig: { sessionId: SESSION_ID, input: firstOpeningText },
     });
     const second = harness.manager.startRun({
       runId: RUN_ID,
-      channelId: CHANNEL_ID,
       agentConfig: { sessionId: SESSION_ID, input: "review the diff" },
     });
     await first;
@@ -5871,12 +5774,10 @@ describe("CodexLifecycleManager turn route lifetime", () => {
 
     const first = harness.manager.startRun({
       runId: RUN_ID,
-      channelId: CHANNEL_ID,
       agentConfig: { sessionId: SESSION_ID, input: firstOpeningText },
     });
     const second = harness.manager.startRun({
       runId: RUN_ID,
-      channelId: CHANNEL_ID,
       agentConfig: { sessionId: SESSION_ID, input: "review the diff" },
     });
     await first;
@@ -5926,7 +5827,6 @@ describe("CodexLifecycleManager turn route lifetime", () => {
 
     const started = harness.manager.startRun({
       runId: RUN_ID,
-      channelId: CHANNEL_ID,
       agentConfig: { sessionId: SESSION_ID, input: "review the diff" },
     });
 
@@ -5948,7 +5848,6 @@ describe("CodexLifecycleManager turn route lifetime", () => {
     await expect(
       harness.manager.startRun({
         runId: RUN_ID,
-        channelId: CHANNEL_ID,
         agentConfig: { sessionId: SESSION_ID, input: "try again" },
       }),
     ).rejects.toThrow();
@@ -5980,7 +5879,6 @@ describe("CodexLifecycleManager turn route lifetime", () => {
     await expect(
       harness.manager.startRun({
         runId: RUN_ID,
-        channelId: CHANNEL_ID,
         agentConfig: { sessionId: SESSION_ID, input: "review the diff" },
       }),
     ).resolves.toBeUndefined();
@@ -5999,7 +5897,6 @@ describe("CodexLifecycleManager turn route lifetime", () => {
     await expect(
       harness.manager.startRun({
         runId: RUN_ID,
-        channelId: CHANNEL_ID,
         agentConfig: {
           sessionId: SESSION_ID,
           input: "/compact",
@@ -6026,7 +5923,6 @@ describe("CodexLifecycleManager turn route lifetime", () => {
 
     await harness.manager.startRun({
       runId: RUN_ID,
-      channelId: CHANNEL_ID,
       agentConfig: {
         sessionId: SESSION_ID,
         input: "review the diff",
@@ -6060,7 +5956,6 @@ describe("CodexAppServerConnection rejection handling", () => {
 
       const pending = harness.driver.startRun({
         runId: RUN_ID,
-        channelId: CHANNEL_ID,
         agentConfig: { sessionId: SESSION_ID, input: "go" },
       });
 
@@ -6089,7 +5984,6 @@ describe("CodexAppServerConnection rejection handling", () => {
 
       const pending = harness.driver.startRun({
         runId: RUN_ID,
-        channelId: CHANNEL_ID,
         agentConfig: { sessionId: SESSION_ID, input: "go" },
       });
       // The deadline is armed inside the executor, so it is live before the
@@ -6134,7 +6028,6 @@ describe("CodexAppServerConnection framing bounds", () => {
     // the typed error has a caller to reach.
     const pending = harness.driver.startRun({
       runId: RUN_ID,
-      channelId: CHANNEL_ID,
       agentConfig: { sessionId: SESSION_ID, input: "go" },
     });
 
@@ -6180,7 +6073,6 @@ describe("CodexAppServerConnection framing bounds", () => {
     await createdSession(harness);
     const pending = harness.driver.startRun({
       runId: RUN_ID,
-      channelId: CHANNEL_ID,
       agentConfig: { sessionId: SESSION_ID, input: "go" },
     });
 
@@ -6214,7 +6106,6 @@ describe("CodexAppServerConnection framing bounds", () => {
     await createdSession(harness);
     const pending = harness.driver.startRun({
       runId: RUN_ID,
-      channelId: CHANNEL_ID,
       agentConfig: { sessionId: SESSION_ID, input: "go" },
     });
     await Promise.resolve();
@@ -6286,7 +6177,6 @@ describe("CodexProviderRequestError", () => {
     harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
     await harness.driver.startRun({
       runId: RUN_ID,
-      channelId: CHANNEL_ID,
       agentConfig: { sessionId: SESSION_ID, input: "go" },
     });
 
@@ -6306,7 +6196,6 @@ describe("CodexProviderRequestError", () => {
     const rejection = await harness.driver
       .startRun({
         runId: RUN_ID,
-        channelId: CHANNEL_ID,
         agentConfig: { sessionId: SESSION_ID, input: "go" },
       })
       .catch((cause: unknown) => cause);
@@ -6422,7 +6311,7 @@ describe("Codex driver config read-shapes", () => {
 //
 // Spec coverage under test:
 //   `rollbackTo` / `setSessionGoal` /
-//     `clearSessionGoal` reach the pinned methods and answer the typed results;
+//     `clearSessionGoal` reach the pinned methods; `rollbackTo` answers its typed result;
 //     a `rollbackTo` that applies reports the `bindingId` the daemon rebinds on.
 //   the Codex cells this leg
 //     realizes NATIVELY (`thread/fork`, `thread/goal/*`) versus the ones it
@@ -6684,14 +6573,14 @@ describe("CodexDriver session goals (leg 2, native)", () => {
     await createdSession(harness);
     harness.server.on("thread/goal/set", () => ({ result: {} }));
 
-    const result = await harness.driver.setSessionGoal({
-      sessionId: SESSION_ID,
-      bindingId: "binding-abc",
-      runId: RUN_ID,
-      goalText: "land the parity legs",
-    });
-
-    expect(result).toStrictEqual({ status: "applied" });
+    await expect(
+      harness.driver.setSessionGoal({
+        sessionId: SESSION_ID,
+        bindingId: "binding-abc",
+        runId: RUN_ID,
+        goalText: "land the parity legs",
+      }),
+    ).resolves.toBeUndefined();
     // `status` and `tokenBudget` are provider-side goal state this daemon does
     // not own; sending either would make the driver a second author of them.
     expect(firstParamsFor(harness, "thread/goal/set")).toStrictEqual({
@@ -6700,20 +6589,19 @@ describe("CodexDriver session goals (leg 2, native)", () => {
     });
   });
 
-  it("answers `applied` for a clear on a thread that carried no goal", async () => {
+  it("sends `thread/goal/clear` and resolves on a thread that carried no goal", async () => {
     const harness = createHarness();
     await createdSession(harness);
     harness.server.on("thread/goal/clear", () => ({ result: { cleared: false } }));
 
-    expect(
-      await harness.driver.clearSessionGoal({
+    await expect(
+      harness.driver.clearSessionGoal({
         sessionId: SESSION_ID,
         bindingId: "binding-abc",
         runId: RUN_ID,
       }),
-    ).toStrictEqual({
-      status: "applied",
-    });
+    ).resolves.toBeUndefined();
+    expect(firstParamsFor(harness, "thread/goal/clear")).toStrictEqual({ threadId: THREAD_ID });
   });
 });
 
@@ -7156,7 +7044,6 @@ describe("CodexAppServerConnection routed server requests (R3)", () => {
     harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
     await harness.driver.startRun({
       runId: RUN_ID,
-      channelId: CHANNEL_ID,
       agentConfig: { sessionId: SESSION_ID, input: "search the workspace" },
     });
 
@@ -7174,25 +7061,21 @@ describe("CodexAppServerConnection routed server requests (R3)", () => {
   });
 
   it("REFUSES rather than truncates an answer larger than the outbound bound", async () => {
-    // `CODEX_MAX_LINE_LENGTH` bounds only what this transport ACCEPTS, so an
-    // answer composed from daemon-side content had no ceiling at all. A
-    // truncated tool output is a WRONG answer the model cannot tell from a
-    // complete one; a refusal is one it can act on.
+    // `CODEX_MAX_LINE_LENGTH` also bounds an answer composed from daemon-side
+    // content, in encoded bytes. A truncated tool output is a WRONG answer the
+    // model cannot tell from a complete one; a refusal is one it can act on.
     const { harness, askProvider } = await routedAskHarness({
       answer: async (): Promise<CodexServerRequestDecision> =>
         await Promise.resolve({
           decision: "allow",
           payload: {
-            contentItems: [
-              { type: "inputText", text: "x".repeat(CODEX_MAX_OUTBOUND_FRAME_BYTES + 1) },
-            ],
+            contentItems: [{ type: "inputText", text: "x".repeat(CODEX_MAX_LINE_LENGTH + 1) }],
           },
         }),
     });
     harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
     await harness.driver.startRun({
       runId: RUN_ID,
-      channelId: CHANNEL_ID,
       agentConfig: { sessionId: SESSION_ID, input: "search the workspace" },
     });
 
@@ -7216,7 +7099,7 @@ describe("CodexAppServerConnection routed server requests (R3)", () => {
     expect(oversized[0]).toMatchObject({
       kind: "server-request-answer-oversized",
       method: "item/tool/call",
-      limit: CODEX_MAX_OUTBOUND_FRAME_BYTES,
+      limit: CODEX_MAX_LINE_LENGTH,
     });
   }, 30_000);
 
@@ -7279,7 +7162,6 @@ describe("CodexAppServerConnection routed server requests (R3)", () => {
     harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
     await harness.driver.startRun({
       runId: RUN_ID,
-      channelId: CHANNEL_ID,
       agentConfig: { sessionId: SESSION_ID, input: "search the workspace" },
     });
 
@@ -7323,7 +7205,6 @@ describe("CodexAppServerConnection routed server requests (R3)", () => {
     harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
     await harness.driver.startRun({
       runId: RUN_ID,
-      channelId: CHANNEL_ID,
       agentConfig: { sessionId: SESSION_ID, input: "search the workspace" },
     });
 
@@ -7360,7 +7241,6 @@ describe("CodexAppServerConnection routed server requests (R3)", () => {
     harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
     await harness.driver.startRun({
       runId: RUN_ID,
-      channelId: CHANNEL_ID,
       agentConfig: { sessionId: SESSION_ID, input: "search the workspace" },
     });
 
@@ -7442,12 +7322,10 @@ describe("CodexAppServerConnection routed server requests (R3)", () => {
     }));
     const first = harness.driver.startRun({
       runId: RUN_ID,
-      channelId: CHANNEL_ID,
       agentConfig: { sessionId: SESSION_ID, input: firstOpeningText },
     });
     const second = harness.driver.startRun({
       runId: RUN_ID,
-      channelId: CHANNEL_ID,
       agentConfig: { sessionId: SESSION_ID, input: "review the diff" },
     });
     await first;
@@ -8063,7 +7941,6 @@ describe("CodexLifecycleManager thread routing and usage metering", () => {
     harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
     await harness.manager.startRun({
       runId: RUN_ID,
-      channelId: CHANNEL_ID,
       agentConfig: { sessionId: SESSION_ID, input: "go" },
     });
     if (options.meterBeforeFork !== false) {
@@ -8381,7 +8258,6 @@ describe("CodexLifecycleManager thread routing and usage metering", () => {
     harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
     await harness.manager.startRun({
       runId: RUN_ID,
-      channelId: CHANNEL_ID,
       agentConfig: { sessionId: SESSION_ID, input: "go" },
     });
     emitUsage(harness, THREAD_ID, 100);
@@ -8430,7 +8306,6 @@ describe("CodexLifecycleManager thread routing and usage metering", () => {
     const refusal = await harness.manager
       .startRun({
         runId: SECOND_RUN_ID,
-        channelId: CHANNEL_ID,
         agentConfig: { sessionId: SESSION_ID, input: "second" },
       })
       .then(
@@ -8708,7 +8583,6 @@ async function callbackToolRoundTripHarness(options: {
     harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
     await harness.driver.startRun({
       runId: RUN_ID,
-      channelId: CHANNEL_ID,
       agentConfig: { sessionId: SESSION_ID, input: "search the workspace" },
     });
   };
@@ -8716,7 +8590,6 @@ async function callbackToolRoundTripHarness(options: {
     harness.server.on("turn/start", () => ({ result: { turn: { id: SECOND_TURN_ID } } }));
     await harness.driver.startRun({
       runId: SECOND_RUN_ID,
-      channelId: CHANNEL_ID,
       agentConfig: { sessionId: SESSION_ID, input: "search the workspace again" },
     });
   };
@@ -9632,7 +9505,6 @@ describe("CodexLifecycleManager.listProviderCommands (live read)", () => {
     await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
     await harness.manager.startRun({
       runId: RUN_ID,
-      channelId: CHANNEL_ID,
       agentConfig: { sessionId: SESSION_ID, input: "go" },
     });
     expect(harness.manager.hasActiveTurn(RUN_ID)).toBe(true);
@@ -9916,7 +9788,6 @@ describe("CodexLifecycleManager.listProviderCommands (live read)", () => {
     // EXACTLY ONE live run is attributable, so it is named.
     await harness.manager.startRun({
       runId: RUN_ID,
-      channelId: CHANNEL_ID,
       agentConfig: { sessionId: SESSION_ID, input: "go" },
     });
     const oneLive = await harness.manager.listProviderCommands({
@@ -9930,7 +9801,6 @@ describe("CodexLifecycleManager.listProviderCommands (live read)", () => {
     harness.server.on("turn/start", () => ({ result: { turn: { id: "turn-02" } } }));
     await harness.manager.startRun({
       runId: SECOND_RUN_ID,
-      channelId: CHANNEL_ID,
       agentConfig: { sessionId: SESSION_ID, input: "also go" },
     });
     const twoLive = await harness.manager.listProviderCommands({

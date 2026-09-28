@@ -365,7 +365,6 @@ describe("method-name format validation", () => {
     "repo.mountRead",
     "repo.executionModeSelect",
     "approval.requestCreate",
-    "channel.rosterRead",
     "orchestration.runCreate",
     "orchestration.childRunLinkRead",
     "orchestration.budgetRead",

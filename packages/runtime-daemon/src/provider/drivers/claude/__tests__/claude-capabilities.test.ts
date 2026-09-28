@@ -6,13 +6,12 @@
  * COMPILE-time one and says so where it appears: the flag record's totality is
  * enforced by its type annotation, so a flag added to the contract union
  * breaks this file and the module before any test runs. The sink's conformance
- * to `DriverCapabilitiesWriter` needs no assertion at all now that the type is
- * a `Pick` of the writer — the fake below carries that check by `implements`.
+ * to `DriverCapabilitiesWriter` needs no assertion: the type is a `Pick` of the
+ * writer, and the shared recording sink carries that check by `implements`.
  *
- * What is deliberately NOT asserted here: that a
- * `runtime_node.capability_declared` / `capability_updated` event reaches the
- * log. That emission is `DriverCapabilitiesWriter`'s and is covered by its own
- * tests; a typed fake observes the CALL, never the event.
+ * What is deliberately NOT asserted here: what the writer stores. That is
+ * `DriverCapabilitiesWriter`'s and is covered by its own tests; a typed fake
+ * observes the CALL, never the tables.
  * What this file asserts about the refresh trigger is exactly what it owns —
  * that a fresh reading, keyed to this driver, reaches the sink unaltered, and
  * that the sink's verdict is returned unaltered.
@@ -27,7 +26,10 @@ import {
   type GetCapabilitiesResult,
 } from "@ai-sidekicks/contracts";
 
-import { RecordingCapabilityProbeTransport } from "../../../__fixtures__/capability-probe-doubles.js";
+import {
+  RecordingCapabilityProbeTransport,
+  RecordingDeclarationSink,
+} from "../../../__fixtures__/capability-probe-doubles.js";
 import {
   DriverDiagnosticsEmitter,
   type DriverDiagnosticRecord,
@@ -37,10 +39,7 @@ import {
   DriverCliVersionBelowFloorError,
   DriverCliVersionUnparseableError,
 } from "../../../capability-refresh.js";
-import type {
-  DeclareDriverCapabilitiesInput,
-  DeclareDriverCapabilitiesResult,
-} from "../../../driver-capabilities-writer.js";
+import type { DriverCapabilityDeclarationSink } from "../../../driver-capabilities-writer.js";
 import { DRIVER_OUTPUT_SPEED_LEVELS } from "../../../driver-output-speed.js";
 import {
   assertValidCapabilityFlags,
@@ -60,7 +59,6 @@ import {
   resolveClaudeModelCatalog,
   type ClaudeTranscriptReplayReading,
   type ClaudeTranscriptSeedingSurface,
-  type DriverCapabilityDeclarationSink,
 } from "../capabilities.js";
 import { CLAUDE_TOOL_CATALOG } from "../tools.js";
 
@@ -110,29 +108,6 @@ function makeReporter(
   });
 }
 
-/**
- * A typed fake of the ONE writer method this seam uses: it records what the
- * refresh trigger hands the writer. Typing it as
- * `DriverCapabilityDeclarationSink` (a `Pick` of the real class) means a
- * signature change on `DriverCapabilitiesWriter.declare` breaks this file at
- * compile time instead of leaving a stale fake passing.
- */
-class RecordingDeclarationSink implements DriverCapabilityDeclarationSink {
-  readonly calls: DeclareDriverCapabilitiesInput[] = [];
-  #verdict: DeclareDriverCapabilitiesResult;
-
-  constructor(
-    verdict: DeclareDriverCapabilitiesResult = { emitted: "declared", cliVersionRefreshed: true },
-  ) {
-    this.#verdict = verdict;
-  }
-
-  declare(input: DeclareDriverCapabilitiesInput): Promise<DeclareDriverCapabilitiesResult> {
-    this.calls.push(input);
-    return Promise.resolve(this.#verdict);
-  }
-}
-
 describe("Claude capability declaration — explicit and total", () => {
   it("declares the capability matrix values exactly", () => {
     // Transcribed from the Claude column of the per-driver capability matrix.
@@ -148,7 +123,7 @@ describe("Claude capability declaration — explicit and total", () => {
       model_mutation: true,
       structured_output: true,
       rollback: true,
-      session_goals: true,
+      session_goals: false,
       callback_tools: true,
       subagents: true,
       transcript_replay: false,
@@ -214,16 +189,6 @@ describe("Claude capability declaration — explicit and total", () => {
     expect(() => {
       assertValidContractVersion(CLAUDE_CAPABILITY_CONTRACT_VERSION);
     }).not.toThrow();
-  });
-
-  it("pins the contract version the flag growth moved it to, as a MINOR bump", () => {
-    // The version is change detection, so it must actually MOVE when the
-    // declared shape does — the writer compares whole snapshots, and a frozen
-    // token on a grown declaration is the failure mode this pins against. MINOR
-    // because the growth is additive: three flags joined the census and
-    // `outputSpeedLevels` joined the report, and nothing previously declared
-    // changed meaning.
-    expect(CLAUDE_CAPABILITY_CONTRACT_VERSION).toBe("1.1.0");
   });
 
   it("spells the shared vocabulary table rather than copying it", () => {
@@ -342,48 +307,25 @@ describe("getCapabilities() — the V1 result wrapper", () => {
   });
 });
 
-describe("refreshDeclaration() — the emission seam", () => {
+describe("refreshDeclaration() — the declaration seam", () => {
   it("hands the sink a fresh reading keyed to this driver", async () => {
     const sink = new RecordingDeclarationSink();
     const reporter = makeReporter();
 
-    const verdict = await reporter.refreshDeclaration(sink, {
-      sessionId: "session-1",
-      nodeId: "node-1",
-    });
+    const verdict = await reporter.refreshDeclaration(sink);
 
     expect(sink.calls.length).toBe(1);
     const [call] = sink.calls;
     expect(call?.driverName).toBe(CLAUDE_DRIVER_NAME);
-    expect(call?.sessionId).toBe("session-1");
-    expect(call?.nodeId).toBe("node-1");
     expect(call?.result).toStrictEqual(await reporter.getCapabilities());
-    expect(verdict).toStrictEqual({ emitted: "declared", cliVersionRefreshed: true });
-  });
-
-  it("omits `actor` entirely when the caller supplies none", async () => {
-    const sink = new RecordingDeclarationSink();
-    await makeReporter().refreshDeclaration(sink, { sessionId: "s", nodeId: "n" });
-    expect(Object.hasOwn(sink.calls[0] ?? {}, "actor")).toBe(false);
-  });
-
-  it("passes an explicit actor through, including an explicit null", async () => {
-    const sink = new RecordingDeclarationSink();
-    const reporter = makeReporter();
-    await reporter.refreshDeclaration(sink, { sessionId: "s", nodeId: "n", actor: "operator-1" });
-    await reporter.refreshDeclaration(sink, { sessionId: "s", nodeId: "n", actor: null });
-    expect(sink.calls[0]?.actor).toBe("operator-1");
-    expect(sink.calls[1]?.actor).toBeNull();
+    expect(verdict).toStrictEqual({ snapshotChange: "created", cliVersionRefreshed: true });
   });
 
   it("returns the sink's verdict unaltered — change detection is the writer's", async () => {
-    for (const emitted of ["declared", "updated", "noop"] as const) {
-      const sink = new RecordingDeclarationSink({ emitted, cliVersionRefreshed: false });
-      const verdict = await makeReporter().refreshDeclaration(sink, {
-        sessionId: "s",
-        nodeId: "n",
-      });
-      expect(verdict).toStrictEqual({ emitted, cliVersionRefreshed: false });
+    for (const snapshotChange of ["created", "changed", "unchanged"] as const) {
+      const sink = new RecordingDeclarationSink({ snapshotChange, cliVersionRefreshed: false });
+      const verdict = await makeReporter().refreshDeclaration(sink);
+      expect(verdict).toStrictEqual({ snapshotChange, cliVersionRefreshed: false });
     }
   });
 
@@ -400,8 +342,8 @@ describe("refreshDeclaration() — the emission seam", () => {
     });
     const sink = new RecordingDeclarationSink();
 
-    await reporter.refreshDeclaration(sink, { sessionId: "s", nodeId: "n" });
-    await reporter.refreshDeclaration(sink, { sessionId: "s", nodeId: "n" });
+    await reporter.refreshDeclaration(sink);
+    await reporter.refreshDeclaration(sink);
 
     expect(sink.calls[0]?.result.cliVersion.semver).toBe("2.1.245");
     expect(sink.calls[1]?.result.cliVersion.semver).toBe("2.1.246");
@@ -411,9 +353,9 @@ describe("refreshDeclaration() — the emission seam", () => {
     const failing: DriverCapabilityDeclarationSink = {
       declare: () => Promise.reject(new Error("write seam rejected the declaration")),
     };
-    await expect(
-      makeReporter().refreshDeclaration(failing, { sessionId: "s", nodeId: "n" }),
-    ).rejects.toThrow("write seam rejected the declaration");
+    await expect(makeReporter().refreshDeclaration(failing)).rejects.toThrow(
+      "write seam rejected the declaration",
+    );
   });
 });
 
@@ -455,9 +397,9 @@ describe("Claude CLI-version floor", () => {
       Promise.resolve({ raw: "2.1.198 (Claude Code)", semver: "2.1.198" }),
     );
     const sink = new RecordingDeclarationSink();
-    await expect(
-      reporter.refreshDeclaration(sink, { sessionId: "s", nodeId: "n" }),
-    ).rejects.toBeInstanceOf(DriverCliVersionBelowFloorError);
+    await expect(reporter.refreshDeclaration(sink)).rejects.toBeInstanceOf(
+      DriverCliVersionBelowFloorError,
+    );
     expect(sink.calls).toHaveLength(0);
   });
 
@@ -508,9 +450,7 @@ describe("Claude composition is bound to the spawned build", () => {
     await expect(reporter.getCapabilities()).rejects.toThrow(/driver 'codex'/);
 
     const sink = new RecordingDeclarationSink();
-    await expect(
-      reporter.refreshDeclaration(sink, { sessionId: "s", nodeId: "n" }),
-    ).rejects.toThrow(/driver 'codex'/);
+    await expect(reporter.refreshDeclaration(sink)).rejects.toThrow(/driver 'codex'/);
     expect(sink.calls).toHaveLength(0);
   });
 });

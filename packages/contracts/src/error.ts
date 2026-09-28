@@ -28,31 +28,21 @@
 //     (errno object, missing-binary path string, JSON-RPC error envelope —
 //     intentionally `unknown` because the producers are heterogeneous).
 //
-// Also ships the version-bound exception envelopes:
+// Also ships the version-bound exception envelope:
 //   • VersionFloorExceededError — fired when an attempted version is below
 //     a remote peer's accepted floor. Wire code literal
 //     `version.floor_exceeded` is single-sourced from
 //     `jsonrpc-negotiation.ts` where it ALSO surfaces as the
 //     `DaemonHelloAck.reason` discriminator string — the two surfaces
 //     share the same canonical code closure (error-contracts).
-//   • VersionCeilingExceededError — symmetric shape for the "attempted
-//     version above peer's accepted ceiling" case. Same payload as the
-//     floor variant; only the code literal differs.
 //
-// Both version envelopes share a single `VersionBoundExceededDetails`
-// payload: floor and ceiling carry identical fields (`attemptedVersion`
-// + `acceptedRange` + optional `upgradePath` guidance). The shared shape
-// avoids divergence; the only wire-level difference between the two errors is the
-// code literal. No emitter wiring lands — specifies "Phase 2 ships the wire-shape
-// contracts only" owns the emit sites where version-floor / version-ceiling checks
-// happen.
+// Its `VersionBoundExceededDetails` payload carries `attemptedVersion` +
+// `acceptedRange` + optional `upgradePath` guidance. No emitter wiring lands
+// here; the emit sites own the version-floor checks.
 //
 import { z } from "zod";
 
-import {
-  NEGOTIATION_REASON_CEILING_EXCEEDED,
-  NEGOTIATION_REASON_FLOOR_EXCEEDED,
-} from "./jsonrpc-negotiation.js";
+import { NEGOTIATION_REASON_FLOOR_EXCEEDED } from "./jsonrpc-negotiation.js";
 import { SessionIdSchema, wireFreeFormString, type SessionId } from "./session.js";
 
 // --------------------------------------------------------------------------
@@ -74,49 +64,15 @@ export const RESOURCE_LIMIT_EXCEEDED_CODE: ResourceLimitExceededCode = "resource
 export type PtyBackendUnavailableCode = "PtyBackendUnavailable";
 export const PTY_BACKEND_UNAVAILABLE_CODE: PtyBackendUnavailableCode = "PtyBackendUnavailable";
 
-// Version-bound codes — single-sourced from `jsonrpc-negotiation.ts`
-// (lines 211-212), where the same strings ALSO surface as
-// `DaemonHelloAck.reason` discriminators. Re-exporting via aliases here
-// keeps the wire literal in one place — a future code-string change at
-// the negotiation site automatically propagates to the error envelope
-// schemas below.
-//
-// Both literals match — these are the load-bearing identifiers for
-// downstream emitters and downstream SDK consumers branching on the
-// wire code.
+// Version-floor code — single-sourced from `jsonrpc-negotiation.ts`, where
+// the same string ALSO surfaces as a `DaemonHelloAck.reason` discriminator.
+// Re-exporting via an alias here keeps the wire literal in one place.
 export type VersionFloorExceededCode = typeof NEGOTIATION_REASON_FLOOR_EXCEEDED;
 export const VERSION_FLOOR_EXCEEDED_CODE: VersionFloorExceededCode =
   NEGOTIATION_REASON_FLOOR_EXCEEDED;
-export type VersionCeilingExceededCode = typeof NEGOTIATION_REASON_CEILING_EXCEEDED;
-export const VERSION_CEILING_EXCEEDED_CODE: VersionCeilingExceededCode =
-  NEGOTIATION_REASON_CEILING_EXCEEDED;
-
-// These are code+message-only (no Details/Schema) per the registry-only 409
-// convention — no AC needs structured details and a conflicting-session-id
-// detail would risk cross-session info-leak. Domain token `runtimenode` matches
-// the method namespace (runtimenode.attach / runtimenode.capabilityupdate) and
-// deliberately AVOIDS the `runtime_node.*` event-name namespace (separator
-// differs) so an error code never collides with a durable event name..
-export type RuntimeNodeAttachConflictCode = "runtimenode.attach_conflict";
-export const RUNTIME_NODE_ATTACH_CONFLICT_CODE: RuntimeNodeAttachConflictCode =
-  "runtimenode.attach_conflict";
-export type RuntimeNodeAttachRevokedCode = "runtimenode.attach_revoked";
-export const RUNTIME_NODE_ATTACH_REVOKED_CODE: RuntimeNodeAttachRevokedCode =
-  "runtimenode.attach_revoked";
-// The capability-update coordination-snapshot refresh (runtimenode.capabilityupdate)
-// raises this single code for BOTH of its refusals: a late update against a node
-// with no active attachment (a detach/sweep race), and state-context guard (cannot
-// drive `registering -> online` — bringing a node online requires a daemon-side
-// capability declaration, which the control plane is not the authority for). One
-// code, two call sites, distinct messages — neither leaks another session's identity
-// or the node's internal state.
-export type RuntimeNodeCapabilityUpdateConflictCode = "runtimenode.capabilityupdate_conflict";
-export const RUNTIME_NODE_CAPABILITY_UPDATE_CONFLICT_CODE: RuntimeNodeCapabilityUpdateConflictCode =
-  "runtimenode.capabilityupdate_conflict";
 
 // Daemon append-path refusal codes. All are raised by
-// `EventLogService.append` and all carry TYPED details, unlike the
-// code+message-only runtime-node 409s above: each detail member is a
+// `EventLogService.append` and all carry TYPED details: each detail member is a
 // non-secret identifier or size the caller supplied, so structured details
 // add no info-leak surface. Domain token `daemon` matches the local runtime
 // daemon's own authority — these refusals originate in the machine-local
@@ -129,8 +85,7 @@ export const RUNTIME_NODE_CAPABILITY_UPDATE_CONFLICT_CODE: RuntimeNodeCapability
 //     ingest is administratively halted (key-reuse observer published
 //     `halt(sessionId)` through the `IngestHaltRegistry`). Re-admission
 //     is possible without changing the write, via `clear(sessionId)` —
-//     hence the 409 shape shared with `run.invalid_transition` /
-//     `channel.inactive` / `agent.not_ready`.
+//     hence the 409 shape shared with `run.invalid_transition`.
 //   * `daemon.pii_split_bypass` (400) — a STRUCTURAL refusal. The write
 //     is malformed regardless of session state: its `payload` carries a
 //     PII-tagged field with no `pii_ciphertext_digest`, meaning it
@@ -163,8 +118,7 @@ export const DAEMON_EVENT_CANONICAL_BYTES_EXCEEDED_CODE: DaemonEventCanonicalByt
 // the desktop console classifies on it, and a wire string with one home on each
 // side of the wire is a string that can drift on one side without the other
 // failing to compile. It carries no `*Schema`: the registration is code+message
-// only (the same registry-only convention as the runtime-node 409s above), so
-// what this constant ships is the EXACT literal both ends compare against.
+// only, so what this constant ships is the EXACT literal both ends compare against.
 export type EventCursorUnresolvableCode = "event.cursor_unresolvable";
 export const EVENT_CURSOR_UNRESOLVABLE_CODE: EventCursorUnresolvableCode =
   "event.cursor_unresolvable";
@@ -316,8 +270,7 @@ export const PtyBackendUnavailableSchema: z.ZodType<PtyBackendUnavailable> = z
 // --------------------------------------------------------------------------
 // --------------------------------------------------------------------------
 //
-// Both `VersionFloorExceededError` and `VersionCeilingExceededError`
-// carry this same payload. The fields encode the negotiation context
+// `VersionFloorExceededError` carries this payload. The fields encode the negotiation context
 // the receiver needs to either present a useful UX message or attempt
 // a graceful retry against a different version.
 //
@@ -325,8 +278,7 @@ export const PtyBackendUnavailableSchema: z.ZodType<PtyBackendUnavailable> = z
 //     negotiate. Wire-string, opaque to this layer (the negotiation
 //     surface owns format validation "MAJOR.MINOR" semver).
 //   * `acceptedRange.{min,max}` — the inclusive range the receiver
-//     publishes. `min > attemptedVersion` for the floor variant;
-//     `max < attemptedVersion` for the ceiling variant. Both endpoints
+//     publishes; `min > attemptedVersion` on a floor refusal. Both endpoints
 //     are wire-format strings (same opacity rationale).
 //   * `upgradePath` — optional human-readable guidance. Producers
 //     SHOULD omit when no actionable upgrade path exists (e.g. a
@@ -380,27 +332,6 @@ export const VersionFloorExceededErrorSchema: z.ZodType<VersionFloorExceededErro
   .object({
     code: z.literal(VERSION_FLOOR_EXCEEDED_CODE),
     message: wireFreeFormString(ERROR_MESSAGE_MAX_LEN, "VersionFloorExceededError.message"),
-    details: VersionBoundExceededDetailsSchema,
-  })
-  .strict();
-
-// --------------------------------------------------------------------------
-// --------------------------------------------------------------------------
-//
-// Symmetric to the floor variant — fired when the source's
-// `attemptedVersion` is above the receiver's accepted ceiling
-// (`details.acceptedRange.max`). Same payload semantics; the code
-// literal is the only wire-level difference between the two errors.
-
-export interface VersionCeilingExceededError {
-  code: VersionCeilingExceededCode;
-  message: string;
-  details: VersionBoundExceededDetails;
-}
-export const VersionCeilingExceededErrorSchema: z.ZodType<VersionCeilingExceededError> = z
-  .object({
-    code: z.literal(VERSION_CEILING_EXCEEDED_CODE),
-    message: wireFreeFormString(ERROR_MESSAGE_MAX_LEN, "VersionCeilingExceededError.message"),
     details: VersionBoundExceededDetailsSchema,
   })
   .strict();

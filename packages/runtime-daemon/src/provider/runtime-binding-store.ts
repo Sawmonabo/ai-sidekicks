@@ -3,8 +3,8 @@
 // A runtime binding records that a specific `run` is bound to a specific driver
 // contract version, optionally carrying a provider-owned opaque `resume_handle`
 // plus arbitrary provider `runtime_metadata`. The store is the daemon-resident
-// authority over the `runtime_bindings` table (created by migration `0003`,
-// extended by `0011` with the CLI-version pair and `spawn_config`).
+// authority over the `runtime_bindings` table (`session/daemon-schema.ts`),
+// including the CLI-version pair and `spawn_config`.
 //
 // This store is DAEMON-RESIDENT — it holds prepared statements over the
 // machine-local SQLite handle. No binding state is ever read from or written to
@@ -14,16 +14,15 @@
 // is bound to which driver, and over the durable record of it, never leaves the
 // local daemon.
 //
-//   FOUR columns are PROVIDER-DECLARED, and they are exactly the columns carrying
-//   DB CHECK constraints — `contract_version` + `resume_handle`
-//   (`0003-runtime-bindings.ts`) and the `cli_version_raw` / `cli_version_semver`
-//   pair added. All four are validated through `provider-output-validation.ts`
-//   BEFORE the write — a second, semantic layer (canonical-semver shape;
-//   all-whitespace rejection) on top of the SQLite CHECK's length+NUL bounds. The
-//   pair is spawn-scoped, so it is validated at INSERT only; the other two are
-//   re-validated on every UPDATE that patches them.
+//   FOUR columns are PROVIDER-DECLARED, and they are exactly the columns carrying DB CHECK
+//   constraints — `contract_version` + `resume_handle` and the `cli_version_raw` /
+//   `cli_version_semver` pair. All four are validated through `provider-output-validation.ts`
+//   BEFORE the write — a second, semantic layer (canonical-semver shape; all-whitespace
+//   rejection) on top of the SQLite CHECK's length+NUL bounds. The pair is spawn-scoped, so it
+//   is validated at INSERT only; the other two are re-validated on every UPDATE that patches
+//   them.
 //
-// Extension (campaign B10) — three legs over the migration-`0011` columns:
+// Three legs over the CLI-version and `spawn_config` columns:
 //   * `findByRuns(runIds)` — the BATCH form of `findByRun`, the local
 //     synchronous ack-barrier input the fan-out gates on.
 //   * `spawn_config` — the daemon-owned record of the spawn-bound configuration
@@ -201,8 +200,7 @@ export interface RuntimeBinding {
  * Every binding write IS a spawn, and the spawn-bound configuration is what
  * recovery re-reads to rebuild `ResumeSessionParams` — so "spawn a leg, persist
  * nothing" must be UNREPRESENTABLE at this seam rather than merely discouraged.
- * The column's `'{}'` DEFAULT is a pre-B10-ROW artifact (rows written before
- * migration `0011` added the column), never a live-write outcome.
+ * The column's `'{}'` DEFAULT is never a live-write outcome.
  *
  * `cliVersion` is optional and is the pair-or-neither carrier: ABSENT persists
  * both columns as SQL NULL; PRESENT persists both. There is deliberately no way
@@ -584,15 +582,10 @@ export class RuntimeBindingStore {
   // read-then-upgrade transactions BOTH hold a read snapshot and BOTH attempt to
   // upgrade, colliding as `SQLITE_BUSY_SNAPSHOT`, which `busy_timeout` CANNOT
   // absorb (the busy-handler only retries while no transaction is held). This is
-  // exactly the failure class `session/migration-runner.ts` (see its
-  // `applyMigrations` docstring, lines 74-85) documents and fixes with
-  // `.immediate()`: `BEGIN IMMEDIATE` takes the RESERVED writer-intent lock at
-  // BEGIN, so racers serialize at BEGIN (which `busy_timeout` CAN absorb) rather
-  // than colliding at write-upgrade time. NodeRegistry's `#registerTxn`, by
-  // contrast, is WRITE-FIRST (UPSERT-then-emit → it upgrades immediately and is
-  // correctly left DEFERRED); the read-first store update does not inherit that
-  // safety, so it must be IMMEDIATE. Typed as `Transaction<F>` (not the erased
-  // bare callable) precisely so `.immediate(...)` is reachable.
+  // exactly the failure class `.immediate()` fixes: `BEGIN IMMEDIATE` takes the RESERVED
+  // writer-intent lock at BEGIN, so racers serialize at BEGIN (which `busy_timeout` CAN absorb)
+  // rather than colliding at write-upgrade time. Typed as `Transaction<F>` (not the erased bare
+  // callable) precisely so `.immediate(...)` is reachable.
   readonly #updateTxn: Transaction<
     (id: string, patch: UpdateRuntimeBindingPatch) => UpdatedRuntimeBindingRow | undefined
   >;
@@ -1099,11 +1092,10 @@ export class RuntimeBindingStore {
    * daemon-owned key vocabulary — no provider value ever enters the message).
    *
    * That leaves ONE ambiguity, named here rather than papered over: a
-   * genuinely-empty live record and a pre-B10 default row are
-   * indistinguishable BY VALUE. It is inert in practice because Phase-3 spawn
-   * writers always record `resolvedExecutablePath`, so a live-written record
-   * is never empty — but a reader that must be certain has to look at
-   * `created_at` against the migration, not at this value.
+   * genuinely-empty live record and the column's `'{}'` DEFAULT are
+   * indistinguishable BY VALUE. It is inert in practice because spawn writers
+   * always record `resolvedExecutablePath`, so a live-written record is never
+   * empty.
    */
   #parseSpawnConfig(bindingId: string, rawSpawnConfig: string): RuntimeBindingSpawnConfig {
     let parsed: unknown;

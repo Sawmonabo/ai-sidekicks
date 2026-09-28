@@ -1,5 +1,5 @@
-// Contract↔DDL lockstep is pinned conformance test against the migration's
-// `CHECK` clauses.
+// Contract↔DDL lockstep is pinned by a conformance test against the daemon
+// schema's `CHECK` clauses.
 //
 // CANONICAL CONSUMER (the reciprocal of). the repo.ts owns `ExecutionMode`,
 // `WorkspaceState`, `RepoMountState`, the branded `RepoMountId` /
@@ -9,16 +9,14 @@
 // NOT need: no wire shape or payload carries a mount state — residue from
 // when the worktree payload reused the two-arm `RepoMountState` ∪
 // `WorkspaceState` union the factory removed. The contract core composes the
-// mode taxonomy and the factory; the seven wire pairs below add the remaining
+// mode taxonomy and the factory; the five wire pairs below add the remaining
 // canon they need (`WorkspaceStateSchema`, the branded `RepoMountId` /
 // `WorkspaceId`, the shared `REPO_PATH_MAX_LEN`, and `ExecutionModeSchema` as
 // a LOCAL binding — the re-export just below declares no local name), plus the
 // `SessionIdSchema` / `wireFreeFormString` and the TYPE-ONLY `RunId` brand
 // from the provider-driver.ts (the status read's provenance field). The
-// reciprocal boundary: `WorktreeId`, `WorktreeState`, `EphemeralCloneId`,
-// `BranchContextId`, `EphemeralCloneState`, and the clone cleanup-policy
-// vocabulary (schema only — see its own note below) are declared HERE and
-// nowhere else. repo.ts deliberately leaves its family payload's `worktreeId?`
+// reciprocal boundary: `WorktreeId`, `WorktreeState` and `BranchContextId` are
+// declared HERE and nowhere else. repo.ts deliberately leaves its family payload's `worktreeId?`
 // an unbranded canonical-UUID string so this file's brand needs no repo.ts
 // edit.
 //
@@ -62,16 +60,13 @@ import { SessionIdSchema, wireFreeFormString, type SessionId } from "./session.j
 // ExecutionMode — canon, re-exported (type AND schema value).
 // --------------------------------------------------------------------------
 //
-// requires the execution-mode contract this domain builds on to distinguish
-// `read-only` / `branch` / `worktree` / `ephemeral clone`. That four-member
-// taxonomy is canon, so it is satisfied by IMPORT, never redefinition —
-// re-exported here so the taxonomy is reachable through this module's own
-// surface, the same cross-module composition channels.ts / presence.ts use for
-// session.ts's ids and runtime-node.ts uses for `NodeId`. Both this module and
-// repo.ts are star-exported by index.ts; a re-export that resolves to the SAME
-// declaration is not an ambiguous duplicate (the THREE-way `SessionIdSchema`
-// path — its session.ts declaration plus the channels.ts and presence.ts
-// re-exports — is the standing proof).
+// The execution-mode contract this domain builds on distinguishes `bound-root`
+// and `provisioned-worktree`. That taxonomy is canon, so it is satisfied by
+// IMPORT, never redefinition — re-exported here so the taxonomy is reachable
+// through this module's own surface, the same cross-module composition
+// presence.ts uses for session.ts's ids. Both this module and repo.ts are
+// star-exported by index.ts; a re-export that resolves to the SAME declaration
+// is not an ambiguous duplicate.
 //
 // TWO STATEMENTS, the shape those siblings use: the type-only half MUST spell
 // `export type {... }` (the `isolatedModules` + `verbatimModuleSyntax` posture
@@ -82,7 +77,7 @@ import { SessionIdSchema, wireFreeFormString, type SessionId } from "./session.j
 // runtime for the payload factory. consumes the VALUE: both
 // `ExecutionModeSelectRequest` and `ExecutionModeSelectResponse` type
 // `executionMode: ExecutionMode`, so those Zod pairs need the schema and not
-// merely the type. `__tests__/worktree.test.ts` pins the four-member set three
+// merely the type. `__tests__/worktree.test.ts` pins the member set three
 // ways: compile-time exhaustiveness over the re-exported type, runtime `.options`
 // equality, and object identity against repo.ts's declaration (the check a forked
 // redefinition here would fail).
@@ -93,8 +88,8 @@ export { ExecutionModeSchema } from "./repo.js";
 // Branded ID schemas
 // --------------------------------------------------------------------------
 //
-// Daemon-minted UUID primary keys (`worktrees.id`, `ephemeral_clones.id`,
-// `branch_contexts.id`), so all three compose the `brandedUuidIdSchema`
+// Daemon-minted UUID primary keys (`worktrees.id`, `branch_contexts.id`), so
+// both compose the `brandedUuidIdSchema`
 // helper from `./internal/branded.js`, the same idiom as `RepoMountIdSchema` /
 // `WorkspaceIdSchema` in repo.ts: the double-T `z.ZodType<T, T>` bridges Zod's
 // single-T `$ZodBranded` output to the shape tRPC v11's Standard-Schema-V1
@@ -109,11 +104,6 @@ export { ExecutionModeSchema } from "./repo.js";
 export type WorktreeId = string & { readonly __brand: "WorktreeId" };
 export const WorktreeIdSchema: z.ZodType<WorktreeId, WorktreeId> =
   brandedUuidIdSchema<WorktreeId>("WorktreeId");
-
-// Declared in-block beside its schema so the brand and its parser stay together.
-export type EphemeralCloneId = string & { readonly __brand: "EphemeralCloneId" };
-export const EphemeralCloneIdSchema: z.ZodType<EphemeralCloneId, EphemeralCloneId> =
-  brandedUuidIdSchema<EphemeralCloneId>("EphemeralCloneId");
 
 // The polymorphic branch-context carrier row's id (`branch_contexts`,
 // workspace-anchored). creates the brand and table extends the row for
@@ -130,8 +120,8 @@ export const BranchContextIdSchema: z.ZodType<BranchContextId, BranchContextId> 
 // TWO LEVELS — do not conflate them. In-repo, order is ALSO pinned: the
 // declaration order below mirrors the ratified `CHECK` clauses byte-for-byte, so
 // the contract↔DDL lockstep hands conformance test an ORDERED target to compare
-// the migration's extracted `CHECK` clauses against, and
-// `__tests__/worktree.test.ts` asserts these three enums unsorted. A reorder here
+// the schema's extracted `CHECK` clauses against, and
+// `__tests__/worktree.test.ts` asserts the enum unsorted. A reorder here
 // is therefore a suite failure plus a required re-sync, never a wire break.
 
 // The 6-value worktree lifecycle (`worktrees.state` CHECK). `retired` and
@@ -153,42 +143,6 @@ export const WorktreeStateSchema: z.ZodType<WorktreeState> = z.enum([
   "merged",
   "retired",
   "failed",
-]);
-
-// The 4-value ephemeral-clone lifecycle (in-block `ephemeral_clones.state`
-// CHECK). Deliberately NO `dirty` / `merged` members: a clone is a disposable
-// per-task root retired by TTL expiry (`expires_at`), owning-workspace archival,
-// run completion, or explicit dispose — merge-back and dirtiness tracking are the
-// worktree vocabulary's concern. Clone transitions emit NO session events.
-export type EphemeralCloneState = "creating" | "ready" | "retired" | "failed";
-export const EphemeralCloneStateSchema: z.ZodType<EphemeralCloneState> = z.enum([
-  "creating",
-  "ready",
-  "retired",
-  "failed",
-]);
-
-// When a prepared ephemeral clone is retired (`ephemeral_clones.cleanup_policy`
-// CHECK; the wire spelling is the snake_case row literal, verbatim — NOT
-// camelCase): `on_run_complete` retires the clone when its owning run reaches a
-// terminal state (the run-setup gate's `onRunTerminal` release path); `manual`
-// waits for an explicit `repo.ephemeralCloneDispose`. The TTL sweep over
-// `expires_at` is the backstop for both, and clone-prepare responses report the
-// EFFECTIVE policy applied.
-//
-// NO PAIRED `export type CleanupPolicy`, deliberately, and it is the one
-// place this file departs from repo.ts's type+schema pairing. The ratified
-// `EphemeralCloneState` and both brands but spells this union inline at all
-// three of its use sites (`EphemeralClonePrepareRequest.cleanupPolicy?`,
-// `EphemeralClonePrepareResponse.cleanupPolicy`, and the status read's clone
-// records). Minting a name the ratified contract does not carry would
-// pre-commit every downstream importer to a symbol with no doc-first backing
-// — so the annotation carries the literal union directly, the wire pairs
-// spell it exactly as ratified, and a named alias stays a purely additive
-// one-liner if a later task earns one.
-export const CleanupPolicySchema: z.ZodType<"on_run_complete" | "manual"> = z.enum([
-  "on_run_complete",
-  "manual",
 ]);
 
 // --------------------------------------------------------------------------
@@ -238,39 +192,36 @@ export const WorktreeLifecyclePayloadSchema: z.ZodType<WorktreeLifecyclePayload>
   buildRepoWorkspaceLifecyclePayloadSchema(WorktreeStateSchema);
 
 // ==========================================================================
-// Wire surfaces — the seven `repo.*` request/response pairs.
+// Wire surfaces — the five `repo.*` request/response pairs.
 // ==========================================================================
 //
 // `repo.executionModeSelect` (mutation), `repo.executionRootPrepare`
-// (mutation), `repo.worktreeReuseCheck` (query), `repo.ephemeralClonePrepare`
-// (mutation), `repo.ephemeralCloneDispose` (mutation), `repo.worktreeRetire`
-// (mutation), `repo.worktreeStatusRead` (query) — the seven methods, in the
-// ratified declaration order. They ride the SAME `repo.*` namespace as the six
-// rather than a new `worktree` root: the ratified namespace-root
-// enumeration admits `repo`, and mounts, workspaces, worktrees, and clones are
-// one repo aggregate (sibling symmetry — `repo.executionModeCapabilitiesRead`
+// (mutation), `repo.worktreeReuseCheck` (query), `repo.worktreeRetire`
+// (mutation), `repo.worktreeStatusRead` (query) — the five methods, in
+// declaration order. They ride the SAME `repo.*` namespace as the mount and
+// workspace methods rather than a new `worktree` root: mounts, workspaces and
+// worktrees are one repo aggregate (sibling symmetry — `repo.executionModeCapabilitiesRead`
 // ↔ `repo.executionModeSelect`).
 //
-// Field sets are transcribed and satisfy the seven bullets, one per pair. Every
+// Field sets are transcribed, one per pair. Every
 // shape composes brands and enums above, or canon by import, rather than
 // re-spelling either — which is also the contract half of: the `state` fields
-// carry the enum objects conformance test compares against the migration's
+// carry the enum objects conformance test compares against the schema's
 // `CHECK` clauses, so a literal union re-spelled here would sit outside that
 // lockstep.
 //
-// Daemon JSON-RPC ONLY — worktrees and ephemeral clones are node-local
-// filesystem state, so no control-plane tRPC sibling exists, and the seven
-// names register against the daemon's `MethodRegistry` (its regex-conformance
-// and typed-error-projection preconditions are both resolved).
+// Daemon JSON-RPC ONLY — worktrees are node-local filesystem state, so no
+// control-plane tRPC sibling exists, and the five names register against the daemon's
+// `MethodRegistry` (its regex-conformance and typed-error-projection preconditions are both
+// resolved).
 //
 // BRANCH NAMING IS THE CARVE-OUT from that list, and it is the asymmetry these
 // shapes most need read correctly. its own wording is narrower than "output":
 // the SDK never COMPUTES the naming. Daemon-DERIVED naming — slug rule and the
 // collision suffixing — is never client-computed and reaches a client only as
-// output. A caller-SUPPLIED `branchName` is lawful on the way IN, and on
-// `EphemeralClonePrepareRequest` it is REQUIRED; the execution-root prepare
-// leaves it optional precisely because that is where the derivation path runs,
-// and the reuse check takes one as its lookup KEY.
+// output. A caller-SUPPLIED `branchName` is lawful on the way IN; the
+// execution-root prepare leaves it optional precisely because that is where the
+// derivation path runs, and the reuse check takes one as its lookup KEY.
 //
 // TYPING — REQUESTS are double-T `z.ZodType<T, T>`, RESPONSES are single-T
 // `z.ZodType<T>`. The split is deliberate, grounded in how the substrate actually
@@ -279,39 +230,34 @@ export const WorktreeLifecyclePayloadSchema: z.ZodType<WorktreeLifecyclePayload>
 // `session.read` registration passes a double-T request alongside a single-T
 // response into exactly those slots.
 //
-// TWO of the seven requests need the `as unknown as z.ZodType<T, T>` bridge,
+// ONE of the five requests needs the `as unknown as z.ZodType<T, T>` bridge,
 // and the condition is structural rather than stylistic: a SINGLE-T member's
 // `Input` slot is `unknown` (`$ZodTypeInternals` declares `Input` covariant),
 // which poisons the composed object's inferred input.
 // `ExecutionModeSelectRequestSchema` composes single-T `ExecutionModeSchema` —
-// the identical mechanism that bridges `WorkspaceBindRequestSchema` in repo.ts,
-// which composes the same schema — and `EphemeralClonePrepareRequestSchema`
-// composes single-T `CleanupPolicySchema` above. The other five compose only
-// double-T branded ids, `z.ZodString` (`wireFreeFormString`), and
-// `z.ZodBoolean`, none of which contributes an `unknown` slot: the bridge-free
-// condition `WorkspaceListRequestSchema` documents. Both bridges sit at the
-// CONSUMPTION site rather than re-annotating a canonical declaration —
-// `ExecutionModeSchema` is the symbol, and re-annotating `CleanupPolicySchema`
-// would re-type it for consumers that want the single-T form.
+// the identical mechanism that bridges `WorkspaceBindRequestSchema` in repo.ts.
+// The other four compose only double-T branded ids, `z.ZodString`
+// (`wireFreeFormString`), and `z.ZodBoolean`, none of which contributes an
+// `unknown` slot: the bridge-free condition `WorkspaceListRequestSchema`
+// documents. The bridge sits at the CONSUMPTION site rather than re-annotating
+// the canonical `ExecutionModeSchema` declaration.
 //
 // NO CROSS-FIELD REFINEMENTS on any conditional field below — the reuse
 // check's six optional fields (five describing the candidate, plus the
-// `reason` that explains a negative verdict), the prepare response's three
-// mode-discriminated ids, the select response's `executionRoot`, and the
-// status read's `createdByRunId` / `cleanedAt`. All are plain-optional in the
-// ratified block, and each conditional relationship is an EMITTER obligation
-// discharged at the `.parse()` boundary of the Phase 2 / Phase 3 surface that
-// produces it — the stance repo.ts's workspace half documents at length. Two
-// of them the schema COULD NOT check even in principle: which root id a
-// prepare response carries depends on the workspace's selected mode, and the
-// mode-conditional `branchName` requiredness on `ExecutionRootPrepareRequest`
-// does too. Neither the mode nor the row is visible at parse time, which is
-// exactly why that refusal is the typed service-side
-// `workspace.branch_name_required` (400) raised before any git call, and not
-// a parse error.
+// `reason` that explains a negative verdict), the prepare response's
+// `worktreeId`, and the status read's `createdByRunId` / `cleanedAt`. All are
+// plain-optional, and each conditional relationship is an EMITTER obligation
+// discharged at the `.parse()` boundary of the daemon surface that produces it
+// — the stance repo.ts's workspace half documents at length. Two of them the
+// schema COULD NOT check even in principle: whether a prepare response carries
+// `worktreeId` depends on the workspace's selected mode, and the conditional
+// `branchName` requiredness on `ExecutionRootPrepareRequest` depends on whether
+// a run id exists. Neither is visible at parse time, which is exactly why that
+// refusal is the typed service-side `workspace.branch_name_required` (400)
+// raised before any git call, and not a parse error.
 
 // Bound on the git ref names these surfaces carry — `branchName` (the head
-// branch of a worktree or clone) and `baseRef` (the worktree base: a branch,
+// branch of a worktree) and `baseRef` (the worktree base: a branch,
 // tag, or commit-ish). ONE constant for both, because both carry a git ref
 // name and two constants obliged to hold the same value with nothing
 // enforcing the equality is the hazard `WorkspaceBindRequest.directory`
@@ -329,9 +275,9 @@ export const WorktreeLifecyclePayloadSchema: z.ZodType<WorktreeLifecyclePayload>
 // truncates far below this bound), or from the `onCollision: 'suffix'` arm
 // appending `-<ordinal>` to a capped name — the one origin that can OUTGROW
 // the cap, which refuses at the write (`branch_name_unavailable`) rather than
-// persist a name this bound would make unrepresentable — and `branch` mode
-// writes no worktree or clone row at all. So no read surface can inherit a
-// name this cap would refuse.
+// persist a name this bound would make unrepresentable — and `bound-root` mode
+// writes no worktree row at all. So no read surface can inherit a name this
+// cap would refuse.
 //
 // ACCEPTED RESIDUAL: a PRE-EXISTING repository branch longer than 256
 // characters cannot be probed through `repo.worktreeReuseCheck` or named as a
@@ -384,13 +330,12 @@ export const WORKTREE_REUSE_REASON_MAX_LEN = 512;
 // --------------------------------------------------------------------------
 //
 // SELECT RECORDS; PREPARE MATERIALIZES. This mutation records the canonical
-// mode and transitions the workspace — `beginReprovision` for a writable
-// target, synchronous completion for `read-only` — while per-task root
-// materialization is `repo.executionRootPrepare`'s surface below. states the
-// same boundary and adds the client rule carries — exactly one selection
-// mutation per explicit switch, never a client-sequenced select-then-prepare
-// chain.
+// mode and transitions the workspace through `beginReprovision` — while
+// per-task root materialization is `repo.executionRootPrepare`'s surface below.
+// A client sends exactly one selection mutation per explicit switch, never a
+// client-sequenced select-then-prepare chain.
 
+/** The `repo.executionModeSelect` input: the workspace and the mode it switches to. */
 export interface ExecutionModeSelectRequest {
   workspaceId: WorkspaceId;
   executionMode: ExecutionMode;
@@ -398,16 +343,15 @@ export interface ExecutionModeSelectRequest {
 // The `as unknown as` bridge — single-T `ExecutionModeSchema` member; see the
 // banner's typing note for the mechanism and for why the bridge belongs here
 // rather than on the declaration.
+/** Wire schema for {@link ExecutionModeSelectRequest}. */
 export const ExecutionModeSelectRequestSchema: z.ZodType<
   ExecutionModeSelectRequest,
   ExecutionModeSelectRequest
 > = z
   .object({
     workspaceId: WorkspaceIdSchema,
-    // The mode being switched TO — REQUIRED, and the full four-value taxonomy
-    // reached by import, so the "must distinguish `read-only`, `branch`,
-    // `worktree`, and `ephemeral clone`" is satisfied by the canonical schema
-    // rather than a re-spelling. No `.default()`, for both of the reasons
+    // The mode being switched TO — REQUIRED, and the full taxonomy reached by
+    // import rather than a re-spelling. No `.default()`, for both of the reasons
     // `WorkspaceBindRequest.executionMode` gives: a wire default would make
     // "caller omitted the mode" indistinguishable from "caller chose that
     // mode" on the one surface whose entire job is recording an EXPLICIT
@@ -417,13 +361,13 @@ export const ExecutionModeSelectRequestSchema: z.ZodType<
   })
   .strict() as unknown as z.ZodType<ExecutionModeSelectRequest, ExecutionModeSelectRequest>;
 
+/** The `repo.executionModeSelect` result: the recorded mode and the workspace's position. */
 export interface ExecutionModeSelectResponse {
   workspaceId: WorkspaceId;
   executionMode: ExecutionMode;
   state: WorkspaceState;
-  executionRoot?: string | undefined;
 }
-// Single-T — a response is not an input surface (see the banner's typing note).
+/** Wire schema for {@link ExecutionModeSelectResponse}; single-T, as a response is no input. */
 export const ExecutionModeSelectResponseSchema: z.ZodType<ExecutionModeSelectResponse> = z
   .object({
     workspaceId: WorkspaceIdSchema,
@@ -432,25 +376,13 @@ export const ExecutionModeSelectResponseSchema: z.ZodType<ExecutionModeSelectRes
     // `workspace.mode_unsupported` refusal, never a substituted mode quietly
     // reported here.
     executionMode: ExecutionModeSchema,
-    // The post-select workspace position — `ready` when the select resolved
-    // synchronously (`read-only`), `provisioning` while a writable root awaits
-    // prepare. Composes the FULL 5-value `WorkspaceStateSchema` and is NOT
-    // narrowed to those two literals: the ratified block types the field
-    // `WorkspaceState` and glosses the two values in a comment, exactly as
-    // `WorkspaceBindResponse.state` does. Contrast the three `Extract`-narrowed
-    // `state` fields further down, where the ratified block narrows the TYPE
-    // itself and the schema follows it.
+    // The post-select workspace position — `provisioning` while the root
+    // awaits prepare. Composes the FULL 5-value `WorkspaceStateSchema` and is
+    // NOT narrowed to that literal: the ratified block types the field
+    // `WorkspaceState`, exactly as `WorkspaceBindResponse.state` does. Contrast
+    // the `Extract`-narrowed retire `state` further down, where the ratified
+    // block narrows the TYPE itself and the schema follows it.
     state: WorkspaceStateSchema,
-    // PRESENT IFF RESOLVED SYNCHRONOUSLY. A `read-only` select resolves the
-    // bind root immediately and populates this; a writable select returns
-    // while the workspace sits `provisioning` and the root does not exist yet.
-    // A REQUIRED field would force the daemon either to block the select until
-    // provisioning finished or to answer with a placeholder root — a guess,
-    // and admits no fallback root.
-    executionRoot: wireFreeFormString(
-      REPO_PATH_MAX_LEN,
-      "ExecutionModeSelectResponse.executionRoot",
-    ).optional(),
   })
   .strict();
 
@@ -463,11 +395,12 @@ export const ExecutionModeSelectResponseSchema: z.ZodType<ExecutionModeSelectRes
 // REUSE rides, by naming the candidate.
 //
 // NO WIRE `runId`, deliberately: run binding is gate-supplied service-side.
-// The run-setup gate (registered on seam) calls the service directly and
+// The run-setup gate calls the service directly and
 // supplies the run id that populates `worktrees.created_by_run_id` + the
 // `run_execution_contexts` row, so a wire `runId` would let a caller forge
 // run provenance on a row the gate owns.
 
+/** The `repo.executionRootPrepare` input: the workspace, its branch, and any worktree to reuse. */
 export interface ExecutionRootPrepareRequest {
   workspaceId: WorkspaceId;
   branchName?: string | undefined;
@@ -479,21 +412,18 @@ export interface ExecutionRootPrepareRequest {
 // `wireFreeFormString` is a `z.ZodString` (Input `string`), and `z.boolean()`
 // is a `z.ZodBoolean` (Input `boolean`) — no single-T member, so nothing
 // contributes an `unknown` input slot.
+/** Wire schema for {@link ExecutionRootPrepareRequest}. */
 export const ExecutionRootPrepareRequestSchema: z.ZodType<
   ExecutionRootPrepareRequest,
   ExecutionRootPrepareRequest
 > = z
   .object({
     workspaceId: WorkspaceIdSchema,
-    // SCHEMA-OPTIONAL, SERVICE-CONDITIONAL — the one field on these seven
-    // pairs whose optionality does not mean "optional". A WRITABLE-mode wire
-    // prepare is pre-run by definition and carries no slug-rule derivation
-    // seed, so omitting the branch draws the typed
-    // `workspace.branch_name_required` (400) refusal before any git call,
-    // while a `read-only` prepare ignores the field entirely. That is
-    // mode-conditional requiredness, and the mode lives on the `workspaces`
-    // row — invisible at parse time — so it cannot be a refinement here
-    // without the schema inventing state it does not have.
+    // SCHEMA-OPTIONAL, SERVICE-CONDITIONAL — the one field on these five
+    // pairs whose optionality does not mean "optional". A wire prepare is
+    // pre-run by definition and carries no slug-rule derivation seed, so
+    // omitting the branch draws the typed `workspace.branch_name_required`
+    // (400) refusal before any git call.
     branchName: wireFreeFormString(
       WORKTREE_GIT_REF_MAX_LEN,
       "ExecutionRootPrepareRequest.branchName",
@@ -535,20 +465,20 @@ export const ExecutionRootPrepareRequestSchema: z.ZodType<
   })
   .strict();
 
+/** The `repo.executionRootPrepare` result: the prepared root and the rows it names. */
 export interface ExecutionRootPrepareResponse {
   executionRoot: string;
   state: WorkspaceState;
   worktreeId?: WorktreeId | undefined;
-  ephemeralCloneId?: EphemeralCloneId | undefined;
-  branchContextId?: BranchContextId | undefined;
+  branchContextId: BranchContextId;
 }
-// Single-T — a response is not an input surface.
+/** Wire schema for {@link ExecutionRootPrepareResponse}; single-T, as a response is no input. */
 export const ExecutionRootPrepareResponseSchema: z.ZodType<ExecutionRootPrepareResponse> = z
   .object({
     // Prepare either resolves a root or REFUSES with a typed error
-    // (`worktree.create_failed` / `clone.prepare_failed` / the workspace
-    // codes) — admits no substituted mode and no fallback root, so there is
-    // no partial success carrying an unresolved root to represent.
+    // (`worktree.create_failed` / the workspace codes) — admits no substituted
+    // mode and no fallback root, so there is no partial success carrying an
+    // unresolved root to represent.
     executionRoot: wireFreeFormString(
       REPO_PATH_MAX_LEN,
       "ExecutionRootPrepareResponse.executionRoot",
@@ -557,17 +487,13 @@ export const ExecutionRootPrepareResponseSchema: z.ZodType<ExecutionRootPrepareR
     // (`completeReprovision` on success). Full 5-value vocabulary, not
     // narrowed — the same stance as the select response above.
     state: WorkspaceStateSchema,
-    // The three MODE-DISCRIMINATED ids: `worktreeId` for worktree mode,
-    // `ephemeralCloneId` for ephemeral-clone mode, `branchContextId` for all
-    // three writable modes (`read-only` carries none of them). Plain-optional
-    // per the ratified block, with no refinement — which id set is lawful
-    // depends on the workspace's selected mode, and the schema cannot see it.
-    // The at-most-one rule that IS structural lives where it can be enforced:
-    // the `branch_contexts` CHECK constraint and the mode-conditional
-    // `run_execution_contexts` CHECK.
+    // `worktreeId` is present for a `provisioned-worktree` prepare only, with
+    // no refinement: which is lawful depends on the workspace's selected mode,
+    // which the schema cannot see. The mode-conditional `run_execution_contexts`
+    // CHECK is where that rule is structural. Every prepare writes or refreshes
+    // a branch context, so `branchContextId` is always present.
     worktreeId: WorktreeIdSchema.optional(),
-    ephemeralCloneId: EphemeralCloneIdSchema.optional(),
-    branchContextId: BranchContextIdSchema.optional(),
+    branchContextId: BranchContextIdSchema,
   })
   .strict();
 
@@ -656,139 +582,6 @@ export const WorktreeReuseCheckResponseSchema: z.ZodType<WorktreeReuseCheckRespo
   .strict();
 
 // --------------------------------------------------------------------------
-// EphemeralClonePrepare — `repo.ephemeralClonePrepare` (mutation).
-// --------------------------------------------------------------------------
-//
-// NO TTL ON THE WIRE: the clone TTL is DAEMON CONFIGURATION
-// (`ephemeral-clone-service.ts`'s `ttlMs`), and the request carries no `ttlMs`
-// / `expiresAt` / `ttlSeconds` field of any spelling. `.strict()` is what
-// makes that a refusal rather than a silent strip — a caller who believes it
-// set a TTL and had the key dropped would run against a deadline it never
-// chose, so the parse error is the honest outcome and
-// `__tests__/worktree.test.ts` pins it behaviorally.
-
-export interface EphemeralClonePrepareRequest {
-  workspaceId: WorkspaceId;
-  branchName: string;
-  cleanupPolicy?: "on_run_complete" | "manual" | undefined;
-}
-// The `as unknown as` bridge — single-T `CleanupPolicySchema` member (the
-// banner's typing note).
-export const EphemeralClonePrepareRequestSchema: z.ZodType<
-  EphemeralClonePrepareRequest,
-  EphemeralClonePrepareRequest
-> = z
-  .object({
-    workspaceId: WorkspaceIdSchema,
-    // REQUIRED ON THE WIRE — the head branch inside the clone.
-    branchName: wireFreeFormString(
-      WORKTREE_GIT_REF_MAX_LEN,
-      "EphemeralClonePrepareRequest.branchName",
-    ),
-    // OPTIONAL; the daemon applies `on_run_complete` when it is absent and
-    // reports the EFFECTIVE policy on the response. Deliberately not
-    // `.default("on_run_complete")`, for both of the reasons the select
-    // request's `executionMode` gives: the default is service-side state, and
-    // `.default()` is a transform that would break the Input=Output equality
-    // the double-T annotation asserts — a divergence the `as unknown as`
-    // bridge on this schema would HIDE rather than surface.
-    cleanupPolicy: CleanupPolicySchema.optional(),
-  })
-  .strict() as unknown as z.ZodType<EphemeralClonePrepareRequest, EphemeralClonePrepareRequest>;
-
-export interface EphemeralClonePrepareResponse {
-  cloneId: EphemeralCloneId;
-  cloneRoot: string;
-  state: Extract<EphemeralCloneState, "creating" | "ready">;
-  cleanupPolicy: "on_run_complete" | "manual";
-  branchName: string;
-  expiresAt: string;
-}
-// Single-T — a response is not an input surface.
-export const EphemeralClonePrepareResponseSchema: z.ZodType<EphemeralClonePrepareResponse> = z
-  .object({
-    cloneId: EphemeralCloneIdSchema,
-    cloneRoot: wireFreeFormString(REPO_PATH_MAX_LEN, "EphemeralClonePrepareResponse.cloneRoot"),
-    // NARROWED TO THE TWO NON-TERMINAL STATES, and here the narrowing is the
-    // ratified contract rather than a local tightening: the block types this
-    // field `Extract<EphemeralCloneState, "creating" | "ready">`. A prepare
-    // that ended `retired` or `failed` did not prepare a clone — it refused
-    // with `clone.prepare_failed`, so the terminal states are
-    // unrepresentable on the success path by construction.
-    //
-    // Spelled as a narrowed `z.enum` rather than derived from
-    // `EphemeralCloneStateSchema`, because annotates that schema as the ERASED
-    // `z.ZodType<EphemeralCloneState>`, which exposes no `ZodEnum` members to
-    // narrow through (the same erasure that makes the family-payload factory's
-    // return admit no `.extend()`).
-    state: z.enum(["creating", "ready"]),
-    // The EFFECTIVE policy actually applied — the request's field is optional,
-    // this one is not, because reporting it is the point (clone prepare
-    // reports cleanup policy). Composes the `CleanupPolicySchema` so the
-    // snake_case wire literals cannot drift between the two surfaces.
-    cleanupPolicy: CleanupPolicySchema,
-    // The effective head branch, persisted on the clone row
-    // (`ephemeral_clones.branch_name` NOT NULL) and REQUIRED here: the request
-    // above always supplies one, and the run-setup gate path always resolves
-    // one before reaching the service, so "a clone with no head branch" is a
-    // state the model never produces.
-    branchName: wireFreeFormString(
-      WORKTREE_GIT_REF_MAX_LEN,
-      "EphemeralClonePrepareResponse.branchName",
-    ),
-    // The TTL deadline the daemon computed (`now + ttlMs`), reported so the
-    // caller can see the expiry it did not get to choose. ISO 8601 with `{
-    // offset: true }` — the package-wide datetime convention (`checkedAt` /
-    // `attachedAt` in repo.ts, `occurredAt` in event.ts). keeps the views from
-    // doing expiry MATH on it; carrying the instant is not the same as
-    // deriving from it.
-    expiresAt: z.iso.datetime({ offset: true }),
-  })
-  .strict();
-
-// --------------------------------------------------------------------------
-// EphemeralCloneDispose — `repo.ephemeralCloneDispose` (mutation).
-// --------------------------------------------------------------------------
-//
-// The explicit-disposal arm: the "explicit disposal of a prepared clone",
-// which is the `manual` cleanup-policy path and the operator-driven cleanup
-// path. The TTL sweep and the `on_run_complete` release reach the same
-// terminal state without this method.
-
-export interface EphemeralCloneDisposeRequest {
-  cloneId: EphemeralCloneId;
-}
-// Bridge-free double-T (a lone double-T branded id).
-export const EphemeralCloneDisposeRequestSchema: z.ZodType<
-  EphemeralCloneDisposeRequest,
-  EphemeralCloneDisposeRequest
-> = z
-  .object({
-    cloneId: EphemeralCloneIdSchema,
-  })
-  .strict();
-
-export interface EphemeralCloneDisposeResponse {
-  cloneId: EphemeralCloneId;
-  state: Extract<EphemeralCloneState, "retired">;
-}
-// Single-T — a response is not an input surface.
-export const EphemeralCloneDisposeResponseSchema: z.ZodType<EphemeralCloneDisposeResponse> = z
-  .object({
-    cloneId: EphemeralCloneIdSchema,
-    // `Extract<EphemeralCloneState, "retired">` — a single literal, so
-    // `z.literal` rather than a one-member `z.enum`. Dispose has exactly one
-    // success shape: it RECORDS retirement, and disk removal follows
-    // asynchronously (the recorded-then-cleaned ordering), so no other state
-    // is reachable on this path. The narrowing is the ratified block's, not a
-    // local tightening — contrast `RepoDetachResponse.state` in repo.ts, which
-    // stays the full vocabulary precisely because its ratified spelling
-    // glosses the value in a comment instead of narrowing the type.
-    state: z.literal("retired"),
-  })
-  .strict();
-
-// --------------------------------------------------------------------------
 // WorktreeRetire — `repo.worktreeRetire` (mutation).
 // --------------------------------------------------------------------------
 //
@@ -813,11 +606,12 @@ export const WorktreeRetireRequestSchema: z.ZodType<WorktreeRetireRequest, Workt
     })
     .strict();
 
+/** The `repo.worktreeRetire` result: the worktree, now `retired`. */
 export interface WorktreeRetireResponse {
   worktreeId: WorktreeId;
   state: Extract<WorktreeState, "retired">;
 }
-// Single-T — a response is not an input surface.
+/** Wire schema for {@link WorktreeRetireResponse}; single-T, since a response is not an input. */
 export const WorktreeRetireResponseSchema: z.ZodType<WorktreeRetireResponse> = z
   .object({
     worktreeId: WorktreeIdSchema,
@@ -835,17 +629,14 @@ export const WorktreeRetireResponseSchema: z.ZodType<WorktreeRetireResponse> = z
 // WorktreeStatusRead — `repo.worktreeStatusRead` (query).
 // --------------------------------------------------------------------------
 //
-// The daemon-owned read surface over worktree AND clone records with
-// provenance, feeding the Phase 4 execution-mode-picker status view. Two
-// arrays in one response because the two record kinds answer one question
-// — what roots does this session hold — and the picker renders them
-// together.
+// The daemon-owned read surface over worktree records with provenance, feeding
+// the execution-mode picker's status view.
 //
 // NEVER-HIDE: the projection returns EVERY row, `failed` and `retired`
-// included, and the views label rather than filter. Both `state` fields
-// below therefore carry their full vocabularies; a "live states only"
+// included, and the views label rather than filter. The `state` field
+// below therefore carries its full vocabulary; a "live states only"
 // narrowing would make the admit-not-eject contract unrepresentable on the
-// wire, which is the mirror image of the three `Extract` narrowings above.
+// wire, which is the mirror image of the retire `Extract` narrowing above.
 
 // The RUNTIME half of `WorktreeStatusReadResponse.worktrees[].createdByRunId`.
 //
@@ -865,20 +656,15 @@ export const WorktreeRetireResponseSchema: z.ZodType<WorktreeRetireResponse> = z
 // `./provider-driver.js`.
 const runIdSchema = brandedUuidIdSchema<RunId>("RunId");
 
-// The item TYPES stay INLINE and unnamed on the response interface below,
-// transcribed from the ratified block's own anonymous `Array<{…}>` spellings;
-// the SCHEMAS are hoisted to module-local consts rather than nested two levels
-// inside a call argument, which would bury a ten-field and a nine-field list
-// (the clone record carries no `updatedAt`; see its declaration). Consumers
-// that need an element type spell
+// The item TYPE stays INLINE and unnamed on the response interface below; the
+// SCHEMA is hoisted to a module-local const rather than nested two levels
+// inside a call argument, which would bury a ten-field list. Consumers that
+// need an element type spell
 // `WorktreeStatusReadResponse["worktrees"][number]`.
 const worktreeStatusRecordSchema = z
   .object({
     // QUALIFIED `worktreeId`, not the bare `id` the mount and workspace read
-    // projections use — transcribed verbatim from the ratified block. The
-    // asymmetry is the doc's and it is coherent: this projection returns TWO
-    // record kinds in one response, so each names its own key (`worktreeId` /
-    // `cloneId`) rather than both answering to `id`.
+    // projections use.
     worktreeId: WorktreeIdSchema,
     repoMountId: RepoMountIdSchema,
     branchName: wireFreeFormString(
@@ -914,39 +700,6 @@ const worktreeStatusRecordSchema = z
   // unnoticed, and outer `.strict()` leaves no compile-time trace to catch it.
   .strict();
 
-const ephemeralCloneStatusRecordSchema = z
-  .object({
-    cloneId: EphemeralCloneIdSchema,
-    // WORKSPACE-anchored, where the worktree record above is MOUNT-anchored —
-    // transcribed from the ratified block and faithful to the DDL
-    // (`ephemeral_clones.workspace_id` vs `worktrees.repo_mount_id`). A clone
-    // is provisioned for one workspace's writable execution; a worktree is a
-    // checkout OF a mount that several workspaces may reuse.
-    workspaceId: WorkspaceIdSchema,
-    cloneRoot: wireFreeFormString(
-      REPO_PATH_MAX_LEN,
-      "WorktreeStatusReadResponse.ephemeralClones[].cloneRoot",
-    ),
-    // The head branch inside the clone — exposed on clone records
-    // and REQUIRED here because `ephemeral_clones.branch_name` is
-    // NOT NULL.
-    branchName: wireFreeFormString(
-      WORKTREE_GIT_REF_MAX_LEN,
-      "WorktreeStatusReadResponse.ephemeralClones[].branchName",
-    ),
-    // Full four-value vocabulary, `retired` and `failed` included.
-    state: EphemeralCloneStateSchema,
-    cleanupPolicy: CleanupPolicySchema,
-    expiresAt: z.iso.datetime({ offset: true }),
-    createdAt: z.iso.datetime({ offset: true }),
-    // No `updatedAt` on this record, though `ephemeral_clones.updated_at`
-    // exists: the ratified block carries the column on the worktree projection
-    // only. Transcribed as ratified — adding it here would be a wire change
-    // ahead of the doc.
-    cleanedAt: z.iso.datetime({ offset: true }).optional(),
-  })
-  .strict();
-
 export interface WorktreeStatusReadRequest {
   sessionId: SessionId;
   repoMountId?: RepoMountId | undefined;
@@ -969,6 +722,7 @@ export const WorktreeStatusReadRequestSchema: z.ZodType<
   })
   .strict();
 
+/** The `repo.worktreeStatusRead` result: one record per worktree the session can reach. */
 export interface WorktreeStatusReadResponse {
   worktrees: Array<{
     worktreeId: WorktreeId;
@@ -982,27 +736,13 @@ export interface WorktreeStatusReadResponse {
     updatedAt: string;
     cleanedAt?: string | undefined;
   }>;
-  ephemeralClones: Array<{
-    cloneId: EphemeralCloneId;
-    workspaceId: WorkspaceId;
-    cloneRoot: string;
-    branchName: string;
-    state: EphemeralCloneState;
-    cleanupPolicy: "on_run_complete" | "manual";
-    expiresAt: string;
-    createdAt: string;
-    cleanedAt?: string | undefined;
-  }>;
 }
-// Single-T — a read projection, never an input surface.
+/** Wire schema for {@link WorktreeStatusReadResponse}; single-T, since a read is not an input. */
 export const WorktreeStatusReadResponseSchema: z.ZodType<WorktreeStatusReadResponse> = z
   .object({
-    // BOTH ARRAYS REQUIRED, and neither carries `.min(1)`: a session that has
-    // bound no writable root yet returns two empty arrays, which is a lawful
-    // answer rather than a degenerate one. Required-but-empty also keeps the
-    // Phase 4 views from having to distinguish "no records" from "the field
-    // was omitted" (they render what the daemon returns).
+    // REQUIRED, with no `.min(1)`: a session that has bound no worktree yet
+    // returns an empty array, which is a lawful answer rather than a
+    // degenerate one.
     worktrees: z.array(worktreeStatusRecordSchema),
-    ephemeralClones: z.array(ephemeralCloneStatusRecordSchema),
   })
   .strict();

@@ -39,10 +39,10 @@ export interface SharedCoverageOverrides {
 
 /**
  * Exclusions shared by every package. Test material is excluded because it is
- * the instrument, not the subject; `src/migrations/**` is excluded because
- * those modules are inline-SQL DDL literals whose "uncovered lines" measure
- * nothing about behaviour (they execute wholesale or not at all through
- * `migration-runner.ts`, which IS measured).
+ * the instrument, not the subject. The two schema modules are excluded because
+ * each is one SQL string literal whose "uncovered lines" measure nothing about
+ * behavior: it executes whole or not at all through `migration-runner.ts`,
+ * which is measured.
  */
 const SHARED_COVERAGE_EXCLUDES: readonly string[] = [
   "**/__tests__/**",
@@ -52,7 +52,8 @@ const SHARED_COVERAGE_EXCLUDES: readonly string[] = [
   "**/dist/**",
   "**/out/**",
   "**/node_modules/**",
-  "src/migrations/**",
+  "src/session/daemon-schema.ts",
+  "src/sessions/control-plane-schema.ts",
 ];
 
 interface TestTimeouts {

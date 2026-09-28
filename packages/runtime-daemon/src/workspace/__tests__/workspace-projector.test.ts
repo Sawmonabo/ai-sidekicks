@@ -1,4 +1,4 @@
-// workspace-projector behaviour.
+// workspace-projector behavior.
 //
 // Exercises the three read-side projections the daemon's health and capability
 // surfaces answer from. No database, no temp directory, no clock: the module
@@ -26,8 +26,8 @@
 //     a row that owes none each throw rather than answering from a partial or
 //     mispaired input — and a state outside the closed vocabulary is refused
 //     outright rather than assigned a probe policy by guess.
-//   * Shared root: default workspace is rooted at the mount's own canonical
-//     root, so the two rows legitimately share one path and one probe
+//   * Shared root: a bound-root workspace executes in the mount's own
+//     checkout, so the two rows legitimately share one path and one probe
 //     measurement lawfully serves both projections.
 //   * Wire validity: each projection parses clean against the canonical
 //     response schema, so a reason string that outgrew its ratified cap fails
@@ -36,10 +36,6 @@
 //     instead of receiving another profile's answer.
 //   * Fresh outputs: successive calls hand back independent collections, so a
 //     caller that mutates a response cannot corrupt a later one.
-//   * Purity: the module's static-import census is exactly the contracts
-//     package — no sibling module that could pull I/O in transitively — with
-//     no dynamic-import or require escape hatch, checked by an extractor that
-//     is itself negative-controlled across all three static import forms.
 //
 
 import { describe, expect, it } from "vitest";
@@ -85,7 +81,7 @@ const MOUNT_ROW: RepoMountHealthRow = { canonicalRoot: MOUNT_CANONICAL_ROOT };
 const PROBE_INSTANT: string = "2026-08-04T12:00:00.000Z";
 const LATER_PROBE_INSTANT: string = "2026-08-04T12:00:30.000Z";
 
-// The full workspace vocabulary. The canonical four-mode taxonomy.
+// The full workspace vocabulary, and the canonical mode taxonomy.
 //
 // Each roster carries the SAME pair of checks the module applies to its own
 // taxonomy array, and both directions are needed: `satisfies` proves every
@@ -103,13 +99,11 @@ const ALL_WORKSPACE_STATES = [
 ] as const satisfies readonly WorkspaceState[];
 
 const ALL_EXECUTION_MODES = [
-  "read-only",
-  "branch",
-  "worktree",
-  "ephemeral clone",
+  "bound-root",
+  "provisioned-worktree",
 ] as const satisfies readonly ExecutionMode[];
 
-const ALL_VCS_TYPES = ["git", "none"] as const satisfies readonly VcsType[];
+const ALL_VCS_TYPES = ["git"] as const satisfies readonly VcsType[];
 
 // The `_` prefix is what the root eslint config's `varsIgnorePattern` exempts
 // from `no-unused-vars`; the aliases exist to be type-checked, not read.
@@ -381,11 +375,10 @@ describe("health projections — one outage, two surfaces", () => {
   });
 
   it("accepts one probe for both surfaces when the workspace root IS the mount root", () => {
-    // Default workspace is rooted at the mount's own canonical root — the
-    // shape most production reads take, since attach unconditionally
-    // creates it. The two rows legitimately share one path, so one
-    // measurement of it lawfully feeds both projections; the
-    // subject-binding guards reject mispairing, not sharing.
+    // A bound-root workspace executes in the mount's own checkout, so the two
+    // rows legitimately share one path and one measurement of it lawfully
+    // feeds both projections; the subject-binding guards reject mispairing,
+    // not sharing.
     const sharedOutage = probeOf(MOUNT_CANONICAL_ROOT, false);
     const mountHealth = computeRepoMountHealth(MOUNT_ROW, sharedOutage);
     const workspaceHealth = computeWorkspaceHealth(
@@ -403,16 +396,11 @@ describe("health projections — one outage, two surfaces", () => {
 // ----------------------------------------------------------------------------
 
 describe("computeExecutionModeCapabilities — git mounts", () => {
-  it("offers the full four-mode taxonomy with worktree default", () => {
+  it("offers both modes with provisioned-worktree default", () => {
     const capabilities = capabilitiesFor("git");
 
-    expect(capabilities.availableModes).toEqual([
-      "read-only",
-      "branch",
-      "worktree",
-      "ephemeral clone",
-    ]);
-    expect(capabilities.defaultMode).toBe("worktree");
+    expect(capabilities.availableModes).toEqual(["bound-root", "provisioned-worktree"]);
+    expect(capabilities.defaultMode).toBe("provisioned-worktree");
   });
 
   it("omits the restrictions key entirely when nothing is restricted", () => {
@@ -422,47 +410,6 @@ describe("computeExecutionModeCapabilities — git mounts", () => {
     // unrestricted answer.
     expect(Object.keys(capabilities).sort()).toEqual(["availableModes", "defaultMode"]);
     expect(capabilities.restrictions).toBeUndefined();
-  });
-});
-
-describe("computeExecutionModeCapabilities — plain-directory mounts", () => {
-  it("offers read-only alone and defaults to it", () => {
-    const capabilities = capabilitiesFor("none");
-
-    expect(capabilities.availableModes).toEqual(["read-only"]);
-    expect(capabilities.defaultMode).toBe("read-only");
-  });
-
-  it("names all three excluded git-backed modes with a populated reason", () => {
-    const capabilities = capabilitiesFor("none");
-    const restricted = restrictedModesOf(capabilities);
-
-    expect(restricted).toEqual(["branch", "worktree", "ephemeral clone"]);
-    for (const mode of restricted) {
-      // `toMatch` fails outright on a missing reason. An optional-chained
-      // `reason?.trim()).not.toBe("")` would PASS on `undefined` — the exact
-      // input forbids — so the non-blankness is asserted directly.
-      expect(capabilities.restrictions?.[mode]).toMatch(/\S/);
-    }
-  });
-
-  it("carries no restriction key beyond the canonical taxonomy", () => {
-    const capabilities = capabilitiesFor("none");
-
-    // `restrictedModesOf` reads only canonical keys; comparing counts is what
-    // catches a stray key it would skip over.
-    expect(Object.keys(capabilities.restrictions ?? {})).toHaveLength(
-      restrictedModesOf(capabilities).length,
-    );
-  });
-
-  it("gives each restricted mode its own reason, never one recycled sentence", () => {
-    const capabilities = capabilitiesFor("none");
-    const reasons = restrictedModesOf(capabilities).map(
-      (mode) => capabilities.restrictions?.[mode],
-    );
-
-    expect(new Set(reasons).size).toBe(reasons.length);
   });
 });
 
@@ -513,24 +460,11 @@ describe("computeExecutionModeCapabilities — fail-closed dispatch and fresh ou
 
   it("hands back independent arrays per call, so one caller cannot corrupt the next", () => {
     const first = capabilitiesFor("git");
-    first.availableModes.push("read-only");
+    first.availableModes.push("provisioned-worktree");
 
     const second = capabilitiesFor("git");
 
     expect(second.availableModes).toHaveLength(ALL_EXECUTION_MODES.length);
     expect(second.availableModes).not.toBe(first.availableModes);
-  });
-
-  it("hands back an independent restrictions map per call", () => {
-    const first = capabilitiesFor("none");
-    const originalReason = first.restrictions?.["branch"];
-    if (first.restrictions !== undefined) {
-      first.restrictions["branch"] = "mutated by a careless consumer";
-    }
-
-    const second = capabilitiesFor("none");
-
-    expect(originalReason).toBeDefined();
-    expect(second.restrictions?.["branch"]).toBe(originalReason);
   });
 });

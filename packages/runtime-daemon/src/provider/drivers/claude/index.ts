@@ -8,34 +8,25 @@
 // session state it must not mutate.
 //
 // WHY `Pick<ProviderDriver,...>` AND NOT `implements ProviderDriver`. This class
-// implements FOURTEEN of the contract's EIGHTEEN operations — both figures
-// counted from `ClaudeDriverOperations` below and from the `ProviderDriver`
-// members themselves rather than carried forward from an earlier revision, since
-// each side of that subtraction has moved three times this phase. The four still
-// absent — `respondToRequest`, `listModes`, `getCapabilities`, `exportTranscript`
-// — are authored by sibling Phase-3 tasks (capabilities / modes interactive
-// requests the canonical-transcript export). `listModels` left that list with the
-// currency duty, `compactContext` / `listProviderCommands` with the
-// console-parity surfaces, and `replayTranscript` with the replay leg and
-// post-replay assertion. The enumeration is re-derived from the type argument
-// rather than restated, so it cannot drift from what this class implements.
-// Declaring the full interface today would force throwing stubs into the driver,
-// and a driver that answers a contract operation by throwing is indistinguishable
-// from one whose provider refused — the exact conflation exist to prevent. The
-// `Pick` binds every signature this class DOES implement to the contract with
-// zero drift, so widening to the full `ProviderDriver` when the sibling bands
-// land is purely additive: change the type argument, add the methods, and any
-// drift becomes a compile error rather than a runtime surprise.
+// implements TWELVE of the contract's EIGHTEEN operations, both figures counted
+// from `ClaudeDriverOperations` below and from the `ProviderDriver` members
+// themselves. The six it does not implement are `respondToRequest`,
+// `listModes`, `getCapabilities`, `exportTranscript`, and the two goal
+// operations. The enumeration is derived from the type argument rather than
+// restated, so it cannot drift from what this class implements. Declaring the
+// full interface would force throwing stubs into the driver, and a driver that
+// answers a contract operation by throwing is indistinguishable from one whose
+// provider refused. The `Pick` binds every signature this class DOES implement
+// to the contract with zero drift, so adding an operation means widening the
+// type argument and adding the method, and any drift becomes a compile error.
 
 import type {
   ApplyInterventionParams,
-  ClearSessionGoalParams,
   CloseSessionParams,
   CompactContextParams,
   CreateSessionParams,
   DriverAuthProbeResult,
   DriverCompactionResult,
-  DriverGoalResult,
   ListProviderCommandsParams,
   ProviderCommandListResult,
   DriverInterventionResult,
@@ -51,7 +42,6 @@ import type {
   ResumeSessionParams,
   RollbackToParams,
   SessionId,
-  SetSessionGoalParams,
   StartRunParams,
 } from "@ai-sidekicks/contracts";
 
@@ -69,64 +59,14 @@ import { ClaudeSessionLifecycle, type ClaudeSessionLifecycleDependencies } from 
 // symbols ONLY — they ride `listModels`, which this driver now serves — and the
 // declaration, refresh, and probe symbols of that module stay unexported here
 // because no operation on this class serves them. `tools.ts` stays fully absent.
+export { type ClaudeModelCatalogExchange } from "./capabilities.js";
+export { ClaudeInterventionDispatcher, CLAUDE_STEER_FALLBACK_ACTION } from "./intervention.js";
 export {
-  CLAUDE_DECLARED_MODEL_CATALOG,
-  ClaudeModelCatalogUnreadableError,
-  normalizeClaudeModelCatalog,
-  resolveClaudeModelCatalog,
-  type ClaudeModelCatalogExchange,
-} from "./capabilities.js";
-export {
-  ClaudeInterventionDispatcher,
-  CLAUDE_STEER_FALLBACK_ACTION,
-  type ClaudeInterventionDispatcherDependencies,
-} from "./intervention.js";
-export {
-  ClaudeAuthenticationRequiredError,
-  ClaudeControlRequestRefusedError,
   ClaudeSessionLifecycle,
   ClaudeSessionUnavailableError,
-  ClaudeSubagentConcurrencyGate,
   CLAUDE_CALLBACK_MCP_SERVER_NAME,
-  CLAUDE_COMPACTION_WAIT_MS,
-  CLAUDE_SUBAGENT_MAX_DEPTH_CEILING,
-  composeClaudeCallbackMcpServer,
   composeClaudeProviderToolName,
-  composeClaudeSandboxSettings,
-  realizeClaudeSubagentPolicy,
-  type ClaudeCallbackMcpServerDescriptor,
-  type ClaudeChannelDisposalReason,
-  type ClaudeControlRequest,
-  type ClaudeControlRequestRefusedFields,
-  type ClaudeControlResponse,
-  type ClaudeCompactionBoundaryObservation,
   type ClaudeHandshakeDeclaration,
-  type ClaudeInboundFrameObservation,
-  type ClaudeInterruptControlRequest,
-  type ClaudeResumedSessionAttachment,
-  type ClaudeRewoundSessionAttachment,
-  type ClaudeSandboxSettings,
-  type ClaudeRunChannelLookup,
-  type ClaudeRunDispatch,
-  type ClaudeRunDispatchResolver,
-  type ClaudeSessionAttachment,
-  type ClaudeSessionChannel,
-  type ClaudeSessionLifecycleDependencies,
-  type ClaudeSessionResumeRequest,
-  type ClaudeSessionRewindRequest,
-  type ClaudeSessionSpawnRequest,
-  type ClaudeSessionTransport,
-  type ClaudeSessionUnavailableContext,
-  type ClaudeSessionUnavailableFields,
-  type ClaudeSessionUnavailableReason,
-  type ClaudeSpawnBoundLegs,
-  type ClaudeSubagentAdmissionPort,
-  type ClaudeSubagentPolicyRealization,
-  type ClaudeSubagentSlotRelease,
-  type ClaudeUserTextDelivery,
-  type ClaudeUserTextFrame,
-  type ClaudeUserTextWriteAttempt,
-  type ClaudeWithheldSubagentDefinition,
 } from "./lifecycle.js";
 
 // The operations this driver owns, named once so the class declaration, the
@@ -140,8 +80,6 @@ export type ClaudeDriverOperations = Pick<
   | "applyIntervention"
   | "closeSession"
   | "rollbackTo"
-  | "setSessionGoal"
-  | "clearSessionGoal"
   | "probeAuth"
   | "listModels"
   | "compactContext"
@@ -216,14 +154,6 @@ export class ClaudeDriver implements ClaudeDriverOperations {
     return await this.#lifecycle.rollbackTo(params);
   }
 
-  async setSessionGoal(params: SetSessionGoalParams): Promise<DriverGoalResult> {
-    return await this.#lifecycle.setSessionGoal(params);
-  }
-
-  async clearSessionGoal(params: ClearSessionGoalParams): Promise<DriverGoalResult> {
-    return await this.#lifecycle.clearSessionGoal(params);
-  }
-
   async probeAuth(): Promise<DriverAuthProbeResult> {
     return await this.#lifecycle.probeAuth();
   }
@@ -266,8 +196,8 @@ export class ClaudeDriver implements ClaudeDriverOperations {
    * handshake, or `undefined` where the binding holds none.
    *
    * BESIDE the contract operations, not among them: it is deliberately absent
-   * from `ClaudeDriverOperations`, so the thirteen-of-eighteen count in this
-   * file's header still reads from that `Pick` and does not move. Widening
+   * from `ClaudeDriverOperations`, so the count in this file's header still
+   * reads from that `Pick` and does not move. Widening
    * `ProviderDriver` for it would mint an eighteenth-plus operation on a
    * censused surface for a read only one of the two drivers can answer — the
    * sibling provider declares no such axis (corrected 2026-08-31: its wire is

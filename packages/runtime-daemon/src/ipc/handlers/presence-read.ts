@@ -23,18 +23,14 @@
 // Presence is in-memory only:
 //   This handler reads presence state through the deps closure; the deps'
 //   implementor sources it from the in-memory Yjs Awareness CRDT, NEVER from a
-//   durable `presence_state` table (which does not exist — the migration-shape
-//   test pins its absence). The liveness timestamp is projected from the
-//   in-memory CRDT's last-update time, not a persisted row.
+//   durable table (`daemon-schema.ts` has no `presence_state`). The liveness
+//   timestamp is projected from the in-memory CRDT's last-update time, not a
+//   persisted row.
 //
 // What this file does NOT do (deferred to siblings):
 //   * Yjs Awareness projection — owned by `presence-register-service.ts`. This
 //     file consumes the resulting projection through the
 //     `PresenceReadDeps.readPresence` callback.
-//   * Durable presence-state-change event emission (`presence.online` etc.)
-//     — that is a SUBSCRIBE-side / heartbeat-transition concern documented on
-//     `PresenceSubscribeDeps.subscribeToPresence` in `presence-subscribe.ts`.
-//     The `read` path is a pure projection query and emits nothing.
 //
 // Method-name format: dotted-camelCase. The canonical regex
 // `/^[a-z][a-zA-Z0-9]*(\.[a-z][a-zA-Z0-9]*)+$/` accepts `"presence.read"`. The

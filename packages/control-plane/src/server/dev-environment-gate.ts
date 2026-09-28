@@ -12,13 +12,15 @@
 
 import type { GateResult } from "./feature-flag-gate.js";
 
+/** The Worker environment key gate #2 reads. */
 export interface DevEnvironmentEnv {
   readonly ENVIRONMENT?: string;
 }
 
-export const ENVIRONMENT_KEY = "ENVIRONMENT";
-export const DEV_ENVIRONMENT_VALUE = "development";
+const ENVIRONMENT_KEY = "ENVIRONMENT";
+const DEV_ENVIRONMENT_VALUE = "development";
 
+/** Passes only when `ENVIRONMENT` is exactly `'development'`; a refusal names the value seen. */
 export function checkDevEnvironment(env: DevEnvironmentEnv): GateResult {
   if (env.ENVIRONMENT === DEV_ENVIRONMENT_VALUE) {
     return { ok: true };

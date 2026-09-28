@@ -33,7 +33,6 @@
 // across axes).
 import { z } from "zod";
 
-import { NodeIdSchema, type NodeId } from "../node-id.js";
 import { RunIdSchema, type RunId } from "../provider-driver.js";
 import { RunStateSchema, type RunState } from "../runControl.js";
 
@@ -90,19 +89,11 @@ export const CHILD_RUN_INCOMPLETE_CAUSES: readonly ChildRunIncompleteCause[] = O
   "compacted",
 ] as const);
 
-/**
- * The summarized child-run projection.
- *
- * `producingNodeId` is optional because provenance runs to the parent run and
- * the producing runtime node, and a child run projected before its producing
- * node is resolved has no honest value to put there — an absent member says
- * so, where a fabricated one would not.
- */
+/** The summarized child-run projection: its parent, state, event count and completeness. */
 export interface ChildRunSummary {
   runId: RunId;
   parentRunId: RunId;
   state: RunState;
-  producingNodeId?: NodeId | undefined;
   /**
    * On the `incomplete` arm of {@link completeness} this is a LOWER BOUND: the
    * count this daemon currently holds, not the child run's true total, which
@@ -132,7 +123,6 @@ export const ChildRunSummarySchema: z.ZodType<ChildRunSummary> = z
     runId: RunIdSchema,
     parentRunId: RunIdSchema,
     state: RunStateSchema,
-    producingNodeId: NodeIdSchema.optional(),
     // `.int()` is safe-integer in zod 4, which is the honest ceiling for a
     // tally: past it, distinct counts collapse onto one IEEE-754 double. No
     // separate cap constant — the counter form `runControl.ts` uses.

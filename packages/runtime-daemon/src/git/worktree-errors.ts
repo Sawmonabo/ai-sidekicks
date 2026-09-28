@@ -1,12 +1,11 @@
-// Typed carriers for every error code — the `worktree.*` and `clone.*`
-// namespaces in full, plus the three `workspace.*` rows this plan
-// INTRODUCES.
+// Typed carriers for every error code — the `worktree.*` namespace in full,
+// plus the three `workspace.*` codes that execution-root preparation raises.
 //
 //   * the provenance-split collision policy ("a caller-supplied branch name
 //     that collides with a live checkout is refused with the typed collision
 //     error — user intent is never silently adapted"), the base-ref policy
 //     ("preparation against a detached-HEAD mount with no explicit base ref is
-//     refused rather than guessed"), and the branch-mode bind-only rule ("a
+//     refused rather than guessed"), and the bound-root bind-only rule ("a
 //     mismatch is a typed refusal").
 //     {@link WorktreeBranchCollisionError}, {@link WorktreeCreateFailedError}
 //     and {@link WorkspaceBranchMismatchError}.
@@ -27,8 +26,8 @@
 //     the partial-unique `idx_worktrees_active_branch` arbitrates a
 //     refusing collision. The index-arbitrated insert-retry that
 //     produces it binds on `worktree-service.ts`.
-//   * Carrier leg: prepare-time unavailability is `worktree.create_failed`
-//     / `clone.prepare_failed`, never a substituted mode. Select-time
+//   * Carrier leg: prepare-time unavailability is `worktree.create_failed`,
+//     never a substituted mode. Select-time
 //     capability refusal stays on the `workspace.mode_unsupported`, which
 //     is why no `worktree.unsupported` code exists here (states the
 //     omission explicitly).
@@ -38,7 +37,7 @@
 //     `worktree-service.ts`'s `validateReuse`.
 //
 // ---------------------------------------------------------------------------
-// SCOPE: ten classes, and the one code deliberately ABSENT
+// SCOPE: eight classes, and the one code deliberately ABSENT
 // ---------------------------------------------------------------------------
 //
 // Re-declaring it here would fork a live symbol: two classes minting one code,
@@ -55,7 +54,7 @@
 // ---------------------------------------------------------------------------
 //
 // The base (`../ipc/domain-error.js`) is projected by a SINGLE `instanceof`
-// branch in `mapJsonRpcError`, so all ten reach the wire with no per-class
+// branch in `mapJsonRpcError`, so all eight reach the wire with no per-class
 // mapper edit: `code` becomes the envelope's `data.type` and `detail` becomes
 // `data.fields` (through that module's `sanitizeFields` seam). This is the
 // path ratifies rather than an implementation liberty — the plan's Phase-3
@@ -64,12 +63,12 @@
 // CARRIER declaration; no phase edits `jsonrpc-error-mapping.ts` on its
 // behalf.
 //
-// `jsonRpcCode` is set on exactly the TWO not-found carriers. The base class
+// `jsonRpcCode` is set on exactly the ONE not-found carrier. The base class
 // fixes that rule — "a not-found namespace error rides `-32602`, like
 // `session.not_found`", a supplied id that does not resolve being structurally
 // a param-shape failure — and landed `repo.not_found` at `-32602` as its
 // worked example on both sides of the wire, with `workspace.not_found`
-// following it. The other eight stay UNSET, taking the mapper's documented
+// following it. The other seven stay UNSET, taking the mapper's documented
 // `-32603` default with the dotted identifier in `data.type`: no numeric is
 // ratified for their rows, and selecting one here would be this file inventing
 // wire behavior Phase 3 then has to honor. `httpStatus` IS fixed per class,
@@ -89,21 +88,13 @@
 // What the arguments themselves may carry is bounded the same way and is
 // uneven by design, exactly as `../workspace/repo-errors.js`'s is:
 //
-//   * The three DISCRIMINANT-BEARING carriers
-//     ({@link WorktreeCreateFailedError}, {@link WorktreeReuseConflictError},
-//     {@link ClonePrepareFailedError}) admit a closed reason enum and nothing
-//     else, so their whole message is a table lookup. A git `stderr` capture —
-//     the one value on these paths most likely to contain a path — has no
-//     channel to reach any of them.
-//
-//     {@link ClonePrepareFailedError} took no argument at all when it was
-//     first declared. The clone-prepare service has since supplied it from
-//     its five real throw sites ({@link ClonePrepareFailureReason}) — the
-//     additive widening that argument-free staging was holding open, taken
-//     by the owner of the taxonomy rather than guessed by the declarer of
-//     the carrier.
+//   * The two DISCRIMINANT-BEARING carriers
+//     ({@link WorktreeCreateFailedError}, {@link WorktreeReuseConflictError})
+//     admit a closed reason enum and nothing else, so their whole message is
+//     a table lookup. A git `stderr` capture — the one value on these paths
+//     most likely to contain a path — has no channel to reach any of them.
 //   * The ID- and REF-bearing carriers interpolate opaque identifiers (mount /
-//     worktree / clone / workspace ids) and git REF NAMES (branch names) into
+//     worktree / workspace ids) and git REF NAMES (branch names) into
 //     `message` and `detail`. Neither class is a path: ids are opaque scalars
 //     by daemon convention, and a branch name is the value the caller itself
 //     supplied on the wire, capped at `WORKTREE_GIT_REF_MAX_LEN`. The
@@ -163,15 +154,6 @@ export const WORKTREE_ERROR_CODES: readonly WorktreeErrorCode[] = [
   "worktree.branch_collision",
   "worktree.reuse_conflict",
   "worktree.retire_conflict",
-];
-
-/** The two `` codes, in row order. */
-export type EphemeralCloneErrorCode = "clone.not_found" | "clone.prepare_failed";
-
-/** Runtime companion to {@link EphemeralCloneErrorCode}, in `` row order. */
-export const EPHEMERAL_CLONE_ERROR_CODES: readonly EphemeralCloneErrorCode[] = [
-  "clone.not_found",
-  "clone.prepare_failed",
 ];
 
 /**
@@ -325,78 +307,6 @@ export type WorktreeReuseConflictReason =
   | "branch_mismatch"
   | "dirty_unacknowledged"
   | "cleanliness_unresolved";
-
-/**
- * Why ephemeral clone preparation failed. Closed and non-path-bearing, for the
- * same reason {@link WorktreeCreateFailureReason} is.
- *
- * Five members, in the order `ephemeral-clone-service.ts`'s `prepare` reaches
- * them. The first four are the sibling's shape — a step of the preparation did
- * not work — and the fifth is not, which is why it is last:
- *
- *   * `execution_root_unavailable` — the clone-roots directory could not be
- *     prepared under the daemon's execution-roots directory. Named identically to
- *     its {@link WorktreeCreateFailureReason} member because it is the same
- *     failure of the same step; the two unions are distinct types, so the shared
- *     spelling costs nothing and makes the parallel legible.
- *   * `clone_invocation_failed` — the `git clone` invocation did not complete.
- *     Deliberately NOT the sibling's `git_invocation_failed`: preparation makes
- *     THREE git invocations, and the other two's failures are the next two
- *     members, so a name that said only "a git call failed" would not
- *     discriminate.
- *   * `base_branch_unreadable` — the `git branch --show-current` read of the
- *     clone's own HEAD did not complete. UNREADABLE rather than the siblings'
- *     "unavailable", and the difference is the member's whole point: the
- *     siblings name something that could not be brought into existence, whereas
- *     a base branch can be LAWFULLY ABSENT. When no branch references the
- *     source's HEAD commit, the clone's own HEAD lands detached — a merely
- *     detached source does not suffice, `git clone` resolving the remote HEAD
- *     to a branch naming that commit — and there the read succeeds and prints
- *     nothing, and the preparation goes on to report no base branch at all —
- *     not this reason, not any failure. This member fires only when the
- *     invocation itself fails. Collapsing the two would let a transient read
- *     failure followed by a successful branch cut ship silently self-anchored
- *     provenance into `branch_contexts`, which hands to for PR and diff
- *     attribution.
- *   * `head_branch_unavailable` — the `git checkout -b` invocation did not
- *     create the caller's head branch. Its reachable case is a name that already
- *     exists in the fresh clone, the source's own default branch being the
- *     obvious one. The obligation to CREATE the supplied head branch is Phase-2
- *     row's is the separate ruling that makes the name REQUIRED at this seam
- *     rather than derivable inside it. A name that is already present is refused
- *     rather than silently bound, the same "user intent is never silently
- *     adapted" posture takes for worktree branch collisions.
- *   * `concurrently_retired` — the clone row left `creating` while git was
- *     running, which only a concurrent `dispose` or `retireRunClone` can do.
- *     Unlike every other member this reports no defect: the preparation was
- *     CANCELLED by a legitimate concurrent retirement, and the compare-and-swap
- *     to `ready` is what observes it. It still belongs on `clone.prepare_failed`
- *     rather than on a conflict code, because the caller's disposition is the
- *     registry row's exactly — no usable clone came out of the call and the run
- *     stays blocked in setup — and the repair (prepare again) is the same one.
- *     The directory git did materialize is not leaked by reporting it this way:
- *     the row is already `retired`, so the cleanup sweep owns its removal.
- */
-export type ClonePrepareFailureReason =
-  | "execution_root_unavailable"
-  | "clone_invocation_failed"
-  | "base_branch_unreadable"
-  | "head_branch_unavailable"
-  | "concurrently_retired";
-
-/** Fixed, path-free message per clone-preparation reason. Total `Record`, as above. */
-const CLONE_PREPARE_FAILURE_MESSAGES: Record<ClonePrepareFailureReason, string> = {
-  execution_root_unavailable:
-    "ephemeral clone preparation failed: the daemon execution root could not be prepared",
-  clone_invocation_failed:
-    "ephemeral clone preparation failed: the git clone invocation did not complete",
-  base_branch_unreadable:
-    "ephemeral clone preparation failed: the clone's base branch could not be read",
-  head_branch_unavailable:
-    "ephemeral clone preparation failed: the requested head branch could not be created in the clone",
-  concurrently_retired:
-    "ephemeral clone preparation failed: the clone was retired by a concurrent disposal before preparation completed",
-};
 
 /** Fixed, path-free message per reuse-conflict reason. Total `Record`, as above. */
 const WORKTREE_REUSE_CONFLICT_MESSAGES: Record<WorktreeReuseConflictReason, string> = {
@@ -566,70 +476,11 @@ export class WorktreeRetireConflictError extends DaemonDomainError {
 // ==========================================================================
 
 /**
- * `clone.not_found` — "Ephemeral clone does not exist" (notional HTTP 404).
- *
- * Declared here rather than in `ephemeral-clone-service.ts` because the row
- * makes this file the home of EVERY typed error class imports it. Sets
- * `jsonRpcCode` for the same reason {@link WorktreeNotFoundError} does.
- */
-export class CloneNotFoundError extends DaemonDomainError {
-  /** The clone id that did not resolve. Projects to `data.fields.cloneId`. */
-  readonly cloneId: string;
-
-  constructor(cloneId: string) {
-    super(`ephemeral clone ${cloneId} does not exist`, {
-      code: "clone.not_found" satisfies EphemeralCloneErrorCode,
-      jsonRpcCode: JsonRpcErrorCode.InvalidParams,
-      httpStatus: 404,
-      detail: { cloneId },
-    });
-    this.cloneId = cloneId;
-  }
-}
-
-/**
- * `clone.prepare_failed` — "Ephemeral clone preparation failed; the owning
- * workspace transitions to `stale` via `failReprovision` and the run stays
- * blocked in setup" (notional HTTP 500).
- *
- * Carries the closed {@link ClonePrepareFailureReason}, and nothing else — the
- * shape its `worktree.create_failed` sibling has, reached the same way. The
- * widening was left to whoever first had real throw sites, on the reasoning
- * that adding a parameter later is additive whereas retracting a leaky one
- * after Phase 3 ships is not. supplied the members, one per point its `prepare`
- * can fail.
- *
- * The reason is what lets a caller tell the defect members apart from the one
- * non-defect (`concurrently_retired`, a preparation cancelled by a concurrent
- * disposal) without parsing prose, and it is the value the workspace-level
- * incident can carry into `workspace.stale` metadata. The underlying git
- * `stderr` is still given no channel here — it stays in the service's scope,
- * and the persisted row remains the queryable trail: state `failed` on every
- * defect arm, and already `retired` on the cancelled one.
- */
-export class ClonePrepareFailedError extends DaemonDomainError {
-  /** Non-path-bearing failure discriminant. Projects to `data.fields.reason`. */
-  readonly reason: ClonePrepareFailureReason;
-
-  constructor(reason: ClonePrepareFailureReason) {
-    super(CLONE_PREPARE_FAILURE_MESSAGES[reason], {
-      code: "clone.prepare_failed" satisfies EphemeralCloneErrorCode,
-      httpStatus: 500,
-      detail: { reason },
-    });
-    this.reason = reason;
-  }
-}
-
-// ==========================================================================
-// ==========================================================================
-
-/**
- * `workspace.branch_mismatch` — "`branch` mode bind-only verification failed:
+ * `workspace.branch_mismatch` — "`bound-root` mode bind-only verification failed:
  * the main checkout's current branch does not match the requested branch
  * context; the daemon never switches branches in the main checkout" (notional
- * HTTP 409). Carrier leg of on the `branch`-mode arm, where the refusal is
- * what keeps the main checkout unmutated.
+ * HTTP 409). Raised on the `bound-root` arm, where the refusal is what keeps the
+ * main checkout unmutated.
  *
  * Carries BOTH ref names because the refusal's entire repair affordance is the
  * comparison: a caller told only that the branches disagree cannot tell whether
@@ -646,7 +497,9 @@ export class WorkspaceBranchMismatchError extends DaemonDomainError {
 
   constructor(workspaceId: string, requestedBranchName: string, currentBranchName: string) {
     super(
-      `branch-mode bind refused for workspace ${workspaceId}: the checkout is on ${currentBranchName}, not the requested ${requestedBranchName}; the daemon never switches branches in the main checkout`,
+      `bound-root bind refused for workspace ${workspaceId}: the checkout is on ` +
+        `${currentBranchName}, not the requested ${requestedBranchName}; the daemon never ` +
+        "switches branches in the main checkout",
       {
         code: "workspace.branch_mismatch" satisfies WorkspaceErrorCode,
         httpStatus: 409,
@@ -700,17 +553,15 @@ export class WorkspaceExecutionRootUnresolvedError extends DaemonDomainError {
 }
 
 /**
- * `workspace.branch_name_required` — "A writable-mode wire-initiated (pre-run)
- * `repo.executionRootPrepare` omitted `branchName`: slug rule's derivation
- * inputs (queue-item summary / run id) exist only on the run-setup gate path,
- * so wire prepares must carry the branch" (notional HTTP 400).
+ * `workspace.branch_name_required` — a wire-initiated (pre-run)
+ * `repo.executionRootPrepare` omitted `branchName`. The slug rule derives a
+ * branch from a run id, which exists only on the run-setup gate path, so a wire
+ * prepare must carry the branch (notional HTTP 400).
  *
  * The typed form of `ExecutionRootPrepareRequest.branchName`'s
  * schema-optional-but-service-conditional requiredness. It cannot be a parse
- * error: the requiredness is conditioned on the workspace's SELECTED MODE,
- * which lives on the `workspaces` row and is invisible at parse time — the
- * reasoning `packages/contracts/src/worktree.ts` gives at that field. Raised
- * before any git call.
+ * error: the same request shape is complete when the run-setup gate supplies a
+ * run id, which the wire never carries. Raised before any git call.
  */
 export class WorkspaceBranchNameRequiredError extends DaemonDomainError {
   /** The workspace the prepare targeted. Projects to `data.fields.workspaceId`. */
@@ -718,7 +569,9 @@ export class WorkspaceBranchNameRequiredError extends DaemonDomainError {
 
   constructor(workspaceId: string) {
     super(
-      `execution root prepare refused for workspace ${workspaceId}: a writable-mode prepare must carry a branch name, because the daemon's derivation inputs exist only on the run-setup gate path`,
+      `execution root prepare refused for workspace ${workspaceId}: a wire prepare must ` +
+        "carry a branch name, because the daemon's derivation inputs exist only on the " +
+        "run-setup gate path",
       {
         code: "workspace.branch_name_required" satisfies WorkspaceErrorCode,
         httpStatus: 400,

@@ -66,15 +66,6 @@ import { createRustSidecarPtyHost, PtyBackendUnavailableError } from "./rust-sid
 // --------------------------------------------------------------------------
 
 /**
- * Recognized `AIS_PTY_BACKEND` env-var values.
- *
- * Any string outside this union (including empty string, uppercase
- * variants, typos) is "unrecognized" and falls back to the platform
- * default with a `console.warn` step-9 selector bullet.
- */
-export type PtyBackendName = "rust-sidecar" | "node-pty";
-
-/**
  * Optional dependencies for `selectPtyHost`.
  *
  * Production callers pass nothing — defaults resolve to `process.env`,

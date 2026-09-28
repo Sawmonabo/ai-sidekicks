@@ -140,10 +140,9 @@ export default tseslint.config(
   },
   // `@ai-sidekicks/contracts` isomorphism guard. Contracts
   // ships to Node, Cloudflare Workers, AND the browser (it is the shared wire
-  // surface), so it must stay free of Node-only builtins. The shared
-  // `deriveMainChannelId` derivation uses `@noble/hashes` (isomorphic) rather
-  // than `node:crypto` / `Buffer` precisely so contracts can run on Workers.
-  // This rule catches a regression at lint time. Its scope is the SHIPPED
+  // surface), so it must stay free of Node-only builtins: a `node:` import or
+  // `Buffer` in shipped contracts code would break it on Workers and in the
+  // browser. This rule catches a regression at lint time. Its scope is the SHIPPED
   // surface only: `contracts` compiles non-test `src/*.ts` into `dist/`
   // (package.json `files: ["dist"]`), and `dist` is what runs on Workers /
   // browser. Test files are never shipped and run on Node via vitest, where
@@ -165,7 +164,8 @@ export default tseslint.config(
             {
               group: ["node:*"],
               message:
-                "@ai-sidekicks/contracts must stay isomorphic (Node + Cloudflare Workers + browser): node: builtins are forbidden. Use @noble/hashes for hashing/hex.",
+                "@ai-sidekicks/contracts must stay isomorphic (Node + Cloudflare Workers + " +
+                "browser): node: builtins are forbidden. Use a Web-standard API instead.",
             },
           ],
         },
@@ -175,7 +175,7 @@ export default tseslint.config(
         {
           name: "Buffer",
           message:
-            "@ai-sidekicks/contracts must stay isomorphic: Buffer is Node-only. Use Uint8Array + @noble/hashes/utils bytesToHex.",
+            "@ai-sidekicks/contracts must stay isomorphic: Buffer is Node-only. Use Uint8Array.",
         },
       ],
     },

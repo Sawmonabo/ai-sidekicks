@@ -62,7 +62,6 @@
  * below.
  */
 
-import { McpServerStatusEmissionSchema } from "@ai-sidekicks/contracts";
 import type {
   IdempotencyClass,
   McpServerStatus,
@@ -70,6 +69,12 @@ import type {
   NormalizedProviderToolMetadata,
   ProviderToolMetadata,
 } from "@ai-sidekicks/contracts";
+
+import {
+  boundMcpServerStatusEmission,
+  type McpServerStatusIngestRejection,
+  type McpServerStatusIngestResult,
+} from "../mcp-server-status-ingest.js";
 
 // --------------------------------------------------------------------------
 // The conservative default
@@ -368,21 +373,6 @@ export function observeMcpTaskAcceptance(
 // --------------------------------------------------------------------------
 
 /**
- * A raw row or line this normalizer could not turn into a bounded emission.
- * Rejections are RETURNED, never dropped — the wiring seam routes them to
- * the driver diagnostic surface so a malformed row is a visible census gap.
- */
-export interface McpServerStatusIngestRejection {
-  readonly reason: string;
-}
-
-/** The outcome of normalizing one raw ingress payload. */
-export interface McpServerStatusIngestResult {
-  readonly emissions: readonly McpServerStatusEmission[];
-  readonly rejections: readonly McpServerStatusIngestRejection[];
-}
-
-/**
  * Recognized Claude status tokens → unified enum (Derived — see the module
  * note above). Keys are compared lower-cased with `_`/`-`/space collapsed, so
  * the init census's `needs_auth` and the CLI's "Needs authentication" resolve
@@ -420,24 +410,6 @@ function mapClaudeStatusToken(rawToken: unknown): McpServerStatus {
   return CLAUDE_STATUS_TOKEN_MAP[canonical] ?? "unknown";
 }
 
-/** Bound one (serverName, status) pair through the contract schema. */
-function boundEmission(
-  serverName: unknown,
-  status: McpServerStatus,
-): { emission?: McpServerStatusEmission; rejection?: McpServerStatusIngestRejection } {
-  const parsed = McpServerStatusEmissionSchema.safeParse({ serverName, status });
-  if (parsed.success) {
-    return { emission: parsed.data };
-  }
-  return {
-    rejection: {
-      reason: `MCP server-status emission rejected at the wire bound: ${parsed.error.issues
-        .map((issue) => issue.message)
-        .join("; ")}`,
-    },
-  };
-}
-
 /**
  * Normalize the `system/init` `mcp_servers[]` member — the per-session init
  * census. Rows are `{ name, status }`-shaped; anything else per row is a
@@ -462,7 +434,7 @@ export function normalizeClaudeMcpServerInitCensus(
       continue;
     }
     const row = rawServer as Record<string, unknown>;
-    const bounded = boundEmission(row["name"], mapClaudeStatusToken(row["status"]));
+    const bounded = boundMcpServerStatusEmission(row["name"], mapClaudeStatusToken(row["status"]));
     if (bounded.emission !== undefined) {
       emissions.push(bounded.emission);
     }
@@ -504,7 +476,7 @@ export function normalizeClaudeMcpListProbeOutput(
       .slice(separatorIndex + " - ".length)
       .replace(/^[^\p{L}\p{N}]+/u, "")
       .trim();
-    const bounded = boundEmission(serverName, mapClaudeStatusToken(statusText));
+    const bounded = boundMcpServerStatusEmission(serverName, mapClaudeStatusToken(statusText));
     if (bounded.emission !== undefined) {
       emissions.push(bounded.emission);
     }

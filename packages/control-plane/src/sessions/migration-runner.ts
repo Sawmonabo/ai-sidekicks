@@ -1,142 +1,27 @@
-// Schema migration runner for the control-plane Postgres database.
+// Applies the control plane's one Postgres schema.
 //
-// Version 1 is `migrations/0001-initial.ts` (the identity anchor and the
-// session directory); version 2 is `migrations/0002-runtime-nodes.ts` (the
-// `runtime_node_attachments` + `runtime_node_presence` tables); version 3 is
-// `migrations/0003-event-log-anchors.ts`. The runner probes each registered
-// version independently and iterates the `MIGRATIONS` array declared below; to register a new migration, add
-// `{ version: N, sql: ... }` in ascending version order.
-//
-// SQL is sourced as a TypeScript string constant (not a sibling .sql file)
-// because `tsc -b` does not copy non-TS assets into `dist/` and `package.json`
-// `"files": ["dist"]` would exclude `src/migrations/` from publish; see the
-// header of `migrations/0001-initial.ts` for the full rationale.
-//
-// ----------------------------------------------------------------------------
-// Concurrency model differs from runtime-daemon's SQLite migration runner
-// ----------------------------------------------------------------------------
-//
-// `packages/runtime-daemon/src/session/migration-runner.ts` defends against
-// concurrent-boot writer-vs-writer SQLITE_BUSY contention via
-// `BEGIN IMMEDIATE` and a `worker_threads`-driven race test. Postgres has a
-// fundamentally different concurrency model — DDL is catalog-locked at the
-// statement boundary, not at `BEGIN`, so SQLite's `BEGIN IMMEDIATE` shape
-// has no direct Postgres analogue. The threat model also differs: shared
-// Postgres can be hit by concurrent boots (rolling deploys, multi-replica
-// daemons sharing the control-plane database) racing the migration check
-// from a fresh database. Two racers that both pass an unguarded outer
-// probe both proceed into the transaction; one runner's `CREATE TABLE
-// users` then fails with `42P07 relation already exists`, crashing
-// startup. That is bad UX for an "idempotent" entry point.
-//
-// Defense: the canonical Postgres "lock-and-re-probe" pattern around an
-// `pg_advisory_xact_lock`. The outer probe stays as a fast path for the
-// (overwhelmingly common) already-migrated case; on a cache miss the
-// transaction acquires a stable advisory lock, re-probes inside the lock,
-// and only then runs the migration SQL. Concurrent racers BLOCK on the
-// lock acquisition, then re-probe to a populated `schema_migrations` and
-// short-circuit. See `applyMigrations` for the full trace; the lock id
-// is `MIGRATION_LOCK_ID` declared at the top of this file (right below
-// the imports).
-//
-// Cross-process production migrations are still expected to run via the
-// release pipeline, but concurrent
-// daemon-boot calls into `applyMigrations` are no longer required to
-// avoid the race externally — the runner now closes it at the source.
+// Concurrency: two control-plane boots can race on a fresh database. Both would
+// pass an unguarded probe, and the second `CREATE TABLE` would fail with `42P07
+// relation already exists`. So the apply runs in one transaction under a
+// `pg_advisory_xact_lock` and re-probes inside the lock: a racer blocks on the
+// lock, then finds the committed schema and returns. Postgres takes DDL locks at
+// the statement, not at `BEGIN`, so the daemon's SQLite `BEGIN IMMEDIATE` has no
+// direct analogue here.
 
-import { INITIAL_MIGRATION_SQL } from "../migrations/0001-initial.js";
-import { RUNTIME_NODES_MIGRATION_SQL } from "../migrations/0002-runtime-nodes.js";
-import { EVENT_LOG_ANCHORS_MIGRATION_SQL } from "../migrations/0003-event-log-anchors.js";
+import { CONTROL_PLANE_SCHEMA_SQL } from "./control-plane-schema.js";
 
-// Ordered registry of every migration the control-plane is responsible for
-// applying. Iteration order is the apply order — the runner walks this array
-// in declaration order, probes whether each version is already present, and
-// applies any that are missing inside a per-version transaction guarded by
-// the shared advisory lock. To register a new migration:
-//
-//   1. Add the SQL file under `src/migrations/NNNN-description.ts` with an
-//      `INSERT INTO schema_migrations (version, description) VALUES (N, ...)`
-//      as its last statement (so the version anchor commits atomically with
-//      the DDL — see the head-of-file docstring on `0001-initial.ts`).
-//   2. Import the SQL constant here and append `{ version: N, sql: ... }`
-//      to `MIGRATIONS` in ascending version order. Do NOT reorder existing
-//      entries — production databases will have applied them in the order
-//      shown.
-//
-// A migration's SQL file and its registration here land in the SAME commit.
-// A file that exists on disk but not in this array is an orphan: an
-// `event_log_anchors` table
-// that exists on disk but not in this array is a table the anchor-upload
-// procedure writes to and no deployer has.
-//
-// Version values are plain `number` (not `bigint`): the `schema_migrations.version`
-// column is `integer` (see `migrations/0001-initial.ts`), version values are
-// small monotone integers, and `hasMigrationApplied` takes
-// `version: number`. The `MIGRATION_LOCK_ID` constant below is `bigint`
-// because `pg_advisory_xact_lock($1)` takes a Postgres `bigint`; that is the
-// only place BigInt is load-bearing in this module.
-const MIGRATIONS: ReadonlyArray<{ readonly version: number; readonly sql: string }> = [
-  { version: 1, sql: INITIAL_MIGRATION_SQL },
-  { version: 2, sql: RUNTIME_NODES_MIGRATION_SQL },
-  { version: 3, sql: EVENT_LOG_ANCHORS_MIGRATION_SQL },
-];
-
-// Stable advisory-lock ID for ai-sidekicks control-plane migrations.
-// `pg_advisory_xact_lock` takes a bigint; the value must be unique
-// relative to ALL OTHER advisory-lock callers in the same Postgres
-// database. We own the database today, so collision is impossible — but
-// a future caller that adds an additional advisory-lock caller (e.g. for
-// cross-replica coordination of a recurring job) MUST pick a distinct
-// constant. `9_000_000_001` was chosen as a memorable value well outside
-// the typical application id-space (most apps key on values < 2^32 or on
-// hashed strings); changing this constant requires a coordinated rollout
-// because two daemons disagreeing on the lock id would silently permit
-// the race the lock is meant to prevent.
-const MIGRATION_LOCK_ID = 9_000_000_001n;
+// The advisory-lock key. It must differ from every other advisory-lock caller in
+// the same database, and every control-plane replica must use the same value.
+const SCHEMA_LOCK_ID = 9_000_000_001n;
 
 /**
- * Minimal SQL surface this module needs from a database client.
+ * The SQL surface the control plane needs, so production (`pg.Pool`) and tests
+ * (PGlite) share one code path.
  *
- * Three methods, three Postgres wire-protocol uses:
- *
- *   * `query()` issues a single statement over the **extended query
- *     protocol** (Parse + Bind + Execute on a prepared statement). This is
- *     the only path that supports `$1`-style positional parameters and the
- *     only path that returns rows. It is also hard-limited to ONE statement
- *     per call — both `pg`'s parameterized `query()` and PGlite's `query()`
- *     reject multi-statement strings here with `cannot insert multiple
- *     commands into a prepared statement`.
- *
- *   * `exec()` issues a multi-statement batch over the **simple query
- *     protocol** (no Parse step, no parameters, statements separated by
- *     `;`). This is what migration SQL fundamentally needs — a single
- *     batch of `CREATE TABLE ...; INSERT ...;` statements in one round
- *     trip. Both `pg.Client#query(sqlString)` (without a params array)
- *     and PGlite's `pg.exec(sql)` map to this protocol. Returns no rows
- *     by contract.
- *
- *   * `transaction(fn)` runs `fn` against a connection-bound `Querier`
- *     wrapped in `BEGIN`/`COMMIT` (auto-`ROLLBACK` on throw). Required
- *     for atomicity across multiple statements when the underlying
- *     driver checks out a different connection per `query()`/`exec()`
- *     call (the `pg.Pool` shape production wiring composes). The callback
- *     receives a `Querier` rather than a narrower transaction type so
- *     that helper code shared between in-transaction and
- *     out-of-transaction paths sees the same surface; nested-transaction
- *     calls inside `fn` will throw at runtime per Postgres semantics, an
- *     acceptable runtime check rather than a type-system constraint.
- *
- * Typing against this minimal interface (rather than `pg.Pool` or
- * `pg.Client` directly) is what makes the production wiring (a
- * `Querier` composed from `pg.Pool`) and the test wiring (an in-process
- * `PGlite` instance) interchangeable without a runtime branch inside the
- * migration runner or the directory service.
- *
- * `params` is `ReadonlyArray<unknown>` to accommodate the heterogeneous shape
- * Postgres parameters take (UUIDs as strings, JSON as objects/strings, etc.)
- * without forcing every call site to `as unknown[]`. The trust boundary for
- * parameter shape lives at the per-method site that constructs the array,
- * not at the Querier boundary.
+ * `query` runs one parameterized statement and returns rows; `exec` runs a
+ * multi-statement batch over the simple query protocol and returns none;
+ * `transaction` runs `fn` on one connection between BEGIN and COMMIT, rolling
+ * back on a throw. Nested transactions throw.
  */
 export interface Querier {
   query<T>(sql: string, params?: ReadonlyArray<unknown>): Promise<{ rows: ReadonlyArray<T> }>;
@@ -145,153 +30,38 @@ export interface Querier {
 }
 
 /**
- * Apply all pending migrations against a `Querier`.
+ * Create the schema on a database that has none; a no-op on one that has it.
  *
- * Iterates the `MIGRATIONS` array in declaration order. Each version goes
- * through the canonical Postgres "lock-and-re-probe" pattern in its OWN
- * transaction; the runner walks every version on every call, so a partial
- * deploy (v1 applied, v2 missing) catches up cleanly on the next boot.
- *
- *   1. Outer probe — fast path. `hasMigrationApplied(querier, version)`
- *      queries `information_schema.tables` for `schema_migrations` and
- *      then `COUNT(*)` for the version anchor row; if the version is
- *      already applied the loop iteration short-circuits without taking
- *      the lock. This is the overwhelmingly common case at runtime
- *      (booted daemon hitting an already-migrated database).
- *   2. Transaction + advisory lock — slow path. On a probe miss we open
- *      a transaction for THAT version, acquire
- *      `pg_advisory_xact_lock(MIGRATION_LOCK_ID)`, and re-probe inside
- *      the lock. Concurrent racers that both passed the outer probe
- *      BLOCK on the lock acquisition; the first runner executes the
- *      migration SQL and commits, releasing the lock. The blocked racer
- *      then re-probes to a populated `schema_migrations` row and
- *      short-circuits without re-running the DDL.
- *   3. Migration body — only the runner that wins the lock AND fails the
- *      re-probe runs the version's SQL. The migration SQL itself
- *      contains the `INSERT INTO schema_migrations` as its tail, so the
- *      version anchor row is committed atomically with the DDL.
- *
- * Without the inside-transaction lock + re-probe, two concurrent calls on
- * a fresh database would both observe "not applied" at the outer probe,
- * both open transactions, and both run `CREATE TABLE users` — the
- * second `CREATE` would crash with `42P07 relation already exists`,
- * surfacing the concurrent boot as a startup failure rather than the
- * idempotent no-op the API contract promises.
- *
- * Atomicity: each version's lock + re-probe + migration SQL share ONE
- * transaction boundary. A torn write (process crash mid-migration) leaves
- * THAT version fully unmigrated (never half-migrated) AND releases the
- * advisory lock at ROLLBACK so the next runner can retry cleanly. Versions
- * applied BEFORE the crash remain committed because each prior version had
- * its own transaction.
- *
- * Per-version transaction choice: every version takes its own `transaction()`
- * boundary rather than wrapping the whole loop in one outer transaction.
- * Two reasons: (a) DDL transactions can grow expensive (catalog locks,
- * relcache bloat) — keeping each version's transaction small minimizes the
- * blast radius if a future migration is large, and (b) concurrent racers on
- * DIFFERENT-version starting points (e.g., one already at v1 racing with one
- * at v0) interleave correctly through the shared advisory lock because each
- * version's lock is taken-and-released independently. A single outer
- * transaction would deadlock if both racers held the lock through different
- * iterations.
- *
- * Wire-protocol choice: the multi-statement migration body goes through
- * `tx.exec()` (simple query protocol). The extended-query path (`query()`
- * with or without parameters) is hard-limited to ONE statement per call —
- * both `pg`'s parameterized `query()` and PGlite's `query()` reject the
- * multi-statement shape with `cannot insert multiple commands into a
- * prepared statement`. The Querier interface exposes both methods (plus
- * `transaction`) so the service surface stays consistent across migration
- * SQL (simple) and runtime CRUD (extended, parameterized).
- *
- * Why `transaction()` and not three separate `exec("BEGIN")` /
- * `exec(SQL)` / `exec("COMMIT")` calls: the three-call shape works on
- * PGlite (single connection per instance) but BREAKS the future `pg.Pool`
- * wiring (a `Querier` composed from `pg.Pool`, where each
- * `pool.query()` call checks out a fresh connection — three separate exec
- * calls would land on three different connections, dissolving the
- * transaction AND releasing the advisory lock between statements).
- * `Querier.transaction(fn)` collapses both substrates onto the same
- * atomicity primitive — PGlite's `pg.transaction(fn)` and the `pg.Pool`
- * adapter's `pool.connect()` + `BEGIN`/`COMMIT`/release pattern both
- * implement the contract. Error surfacing is preserved: PGlite returns
- * the FIRST error from a multi-statement `exec()` batch (verified
- * empirically — a `CREATE TABLE x` failure surfaces as `42P07 relation
- * already exists`, not as `25P02 current transaction is aborted`).
+ * The outer probe is the fast path for an existing database. On a miss, one
+ * transaction takes the advisory lock, re-probes, and runs the schema through
+ * `exec()`, because the extended-query path takes one statement per call. The
+ * lock is released at COMMIT or ROLLBACK, so a crash mid-apply leaves no schema
+ * and no held lock.
  */
 export async function applyMigrations(querier: Querier): Promise<void> {
-  for (const { version, sql } of MIGRATIONS) {
-    // Outer probe — fast path. Avoids taking a lock on the (overwhelmingly
-    // common) already-applied case; see method docstring.
-    if (await hasMigrationApplied(querier, version)) {
-      continue;
-    }
-    await querier.transaction(async (tx) => {
-      // Acquire a transactional advisory lock so only ONE migration runner
-      // enters this version's body at a time. Released automatically at
-      // COMMIT or ROLLBACK. Concurrent racers that both passed the outer
-      // probe BLOCK on this call until the first runner commits, then
-      // re-probe and short-circuit.
-      //
-      // BigInt parameter is accepted by both PGlite (verified empirically
-      // 2026-04-27 against @electric-sql/pglite 0.4.4) and `pg` (driver's
-      // documented bigint binding). If a future substrate rejects BigInt
-      // for the bigint-typed parameter, fall back to the string form
-      // (`"9000000001"`) — Postgres accepts the textual representation
-      // and parses it as bigint server-side.
-      await tx.query("SELECT pg_advisory_xact_lock($1)", [MIGRATION_LOCK_ID]);
-
-      // Re-probe inside the lock. A racer that BLOCKED on the lock above
-      // reaches this re-probe AFTER the original runner committed; the
-      // re-probe sees the just-committed `schema_migrations` row and
-      // short-circuits without re-running the DDL.
-      if (await hasMigrationApplied(tx, version)) {
-        return;
-      }
-
-      // The migration SQL includes the INSERT into schema_migrations as its
-      // last statement, so the version anchor row is committed atomically
-      // with the table CREATEs. Routed through `exec()` (simple query
-      // protocol) because the extended-query path is one-statement-per-call
-      // by Postgres protocol contract — see the Querier docstring.
-      await tx.exec(sql);
-    });
+  if (await hasSchema(querier)) {
+    return;
   }
+  await querier.transaction(async (tx) => {
+    // Both PGlite and `pg` bind a BigInt to the lock's bigint parameter.
+    await tx.query("SELECT pg_advisory_xact_lock($1)", [SCHEMA_LOCK_ID]);
+    if (await hasSchema(tx)) {
+      return;
+    }
+    await tx.exec(CONTROL_PLANE_SCHEMA_SQL);
+  });
 }
 
-// --------------------------------------------------------------------------
-// Internal helpers
-// --------------------------------------------------------------------------
-//
-// `hasMigrationApplied` tolerates the brand-new-database case where the
-// `schema_migrations` table doesn't yet exist. We probe
-// `information_schema.tables` (always present in Postgres) instead of
-// catching exceptions so the happy path stays exception-free.
-
-async function hasMigrationApplied(querier: Querier, version: number): Promise<boolean> {
-  const tableProbe = await querier.query<{ exists: boolean }>(
+// Probes `information_schema` rather than catching an exception, so the common
+// path (an existing database) stays exception-free. The schema commits in one
+// transaction, so one table's presence stands for all of them.
+async function hasSchema(querier: Querier): Promise<boolean> {
+  const probe = await querier.query<{ exists: boolean }>(
     `SELECT EXISTS (
        SELECT 1 FROM information_schema.tables
         WHERE table_schema = 'public'
-          AND table_name = 'schema_migrations'
+          AND table_name = 'event_log_anchors'
      ) AS exists`,
   );
-  const probeRow: { exists: boolean } | undefined = tableProbe.rows[0];
-  if (probeRow === undefined || !probeRow.exists) {
-    return false;
-  }
-  const versionProbe = await querier.query<{ count: string }>(
-    "SELECT COUNT(*)::text AS count FROM schema_migrations WHERE version = $1",
-    [version],
-  );
-  const versionRow: { count: string } | undefined = versionProbe.rows[0];
-  if (versionRow === undefined) {
-    return false;
-  }
-  // COUNT(*) returns BIGINT in Postgres, which `pg` hydrates as a string
-  // by default to avoid Number.MAX_SAFE_INTEGER overflow. We cast to text
-  // in SQL and parse here so the type is unambiguous regardless of driver
-  // numeric-handling configuration.
-  return Number.parseInt(versionRow.count, 10) > 0;
+  return probe.rows[0]?.exists === true;
 }

@@ -1,5 +1,4 @@
-// Typed carriers for the five canonical `repo.*` error codes — the first file in
-// the `workspace/` directory.
+// Typed carriers for the five canonical `repo.*` error codes.
 //
 //   * "If canonical root resolution fails, repo attach must fail
 //     explicitly rather than guessing." The explicit failure is
@@ -27,13 +26,9 @@
 // SINGLE `instanceof` branch in `mapJsonRpcError`, so all five reach the
 // wire with no per-class mapper edit — ever: `code` becomes the envelope's
 // `data.type` and `detail` becomes `data.fields` (through the substrate's
-// `sanitizeFields` seam). This is the path ratifies rather than an
-// implementation liberty. records as a landed Phase 3 precondition because
-// "without it, the wire assertions observe anonymous `-32603` errors instead
-// of the ratified `repo.*` codes", and Phase 3 consumes both that projection
-// branch and "thrown domain-error classes ← this plan Phase 1 ". Consistent
-// with that, `jsonrpc-error-mapping.ts` is named nowhere as a file any phase
-// edits — only as a substrate it consumes.
+// `sanitizeFields` seam). Without that branch the wire would carry anonymous
+// `-32603` errors instead of the ratified `repo.*` codes. The mapper is a
+// substrate these carriers consume, never a file a new carrier edits.
 //
 // `jsonRpcCode` is set on exactly one carrier. `RepoMountNotFoundError` rides
 // `-32602 InvalidParams`, which is not a choice this file makes: the base
@@ -42,7 +37,7 @@
 // a param-shape failure — and landed `repo.not_found` at `-32602` as its
 // worked example on both sides of the wire, in the daemon's
 // `jsonrpc-error-mapping` suite and the SDK's `jsonRpcClient` suite. Pinning
-// it here is what keeps Phase 3 from editing a Phase 1 carrier.
+// it here means no consumer has to edit the carrier to select a numeric.
 //
 // The other four stay UNSET. None is a not-found shape, and no numeric is
 // ratified for their rows. bars MINTING numerics in the reserved range, not
@@ -62,7 +57,7 @@
 // so no prose channel exists.
 //
 // Beyond that the guarantee is uneven, and deliberately strongest on the two
-// carriers. `RepoRootResolutionError` admits only a closed five-member enum
+// carriers. `RepoRootResolutionError` admits only a closed six-member enum
 // and `TrustEnvelopeViolationError` admits nothing at all, so for those two no
 // channel exists that a path could travel. The id-bearing pair is weaker by
 // construction: `RepoMountNotFoundError` and `RepoAlreadyAttachedError`
@@ -82,9 +77,8 @@ import { DaemonDomainError } from "../ipc/domain-error.js";
  * The five canonical dotted identifiers of registry, quoted verbatim.
  *
  * Type-bound locally rather than imported from `packages/contracts`: the
- * strings are daemon-internal in Phase 1, and defers the hoist-to-contracts
- * decision to Phase 3, where SDK consumption first makes them a shared
- * cross-surface vocabulary.
+ * strings are daemon-internal, and move to contracts only once SDK consumption
+ * makes them a shared cross-surface vocabulary.
  *
  * Note the asymmetry between the compile-time and instance-level surfaces.
  * Each `super()` call below pins its literal with `satisfies RepoErrorCode`,
@@ -127,9 +121,9 @@ export const REPO_ERROR_CODES: readonly RepoErrorCode[] = [
  * discriminant is safe to carry all the way to the wire — the same shape as
  * the ratified `transport.invalid_protocol_version` `{ reason }` payload.
  *
- * Five members, in pipeline order. fixed the middle three added the two that
- * bracket them — `not_absolute` with its step-1 input gate, and
- * `root_mismatch` with the step-5 verification of what git reported back.
+ * Six members, in pipeline order: `not_absolute` is the step-1 input gate,
+ * `not_a_git_repository` is git's own verdict on the supplied path, and
+ * `root_mismatch` is the step-5 verification of what git reported back.
  *
  * Read `not_absolute` as "does not name one complete location" — THREE input
  * shapes qualify, each missing a different piece that only the daemon's OWN
@@ -150,16 +144,16 @@ export const REPO_ERROR_CODES: readonly RepoErrorCode[] = [
  * closes (a repository's OWN config redirecting `--show-toplevel`) is
  * documented at the check, in `repo-root-resolver.ts`.
  *
- * Note what is deliberately NOT a member: "path is not a git repository" is
- * not a failure at all but plain-directory classification, which resolves to
- * `vcsType: "none"`. A `git` binary that is absent or fails routes to
- * `vcs_error`, never to that fallback, so a missing toolchain cannot
- * silently reclassify a real repository.
+ * `not_a_git_repository` is reported only on git's positive verdict for a
+ * directory that carries no `.git` entry. A `git` binary that is absent or
+ * fails, or a checkout whose metadata is damaged, is `vcs_error`, so a missing
+ * toolchain never reports a real repository as not being one.
  */
 export type RepoRootResolutionReason =
   | "not_absolute"
   | "path_not_found"
   | "not_readable"
+  | "not_a_git_repository"
   | "vcs_error"
   | "root_mismatch";
 
@@ -173,10 +167,13 @@ const ROOT_RESOLUTION_MESSAGES: Record<RepoRootResolutionReason, string> = {
   not_absolute: "canonical repository root resolution failed: the supplied path is not absolute",
   path_not_found: "canonical repository root resolution failed: the supplied path does not exist",
   not_readable: "canonical repository root resolution failed: the supplied path is not readable",
+  not_a_git_repository:
+    "canonical repository root resolution failed: the supplied path is not a git repository",
   vcs_error:
     "canonical repository root resolution failed: the version-control root query did not complete",
   root_mismatch:
-    "canonical repository root resolution failed: the reported root did not contain the supplied path, or did not report itself as its own root",
+    "canonical repository root resolution failed: the reported root did not contain the " +
+    "supplied path, or did not report itself as its own root",
 };
 
 /**
@@ -230,8 +227,9 @@ export class RepoRootResolutionError extends DaemonDomainError {
 }
 
 /**
- * `repo.outside_trust_envelope` — "Path or workspace binding resolves
- * outside the session's declared local trust envelope" (notional HTTP 403).
+ * `repo.outside_trust_envelope` — a path or workspace binding resolves outside
+ * the declared local trust envelope, the machine's attached mount roots
+ * (notional HTTP 403).
  *
  * Deliberately argument-free, and deliberately more conservative than the
  * registry requires. `message` and bars them from `fields` — but a NON-path
@@ -245,12 +243,13 @@ export class RepoRootResolutionError extends DaemonDomainError {
  * Accepting nothing is what makes the ban structural rather than advisory,
  * and it leaves the widening decision to whoever first has a real consumer
  * for it — adding a parameter later is additive, whereas retracting a leaky
- * one after Phase 3 ships is not.
+ * one after it ships is not.
  */
 export class TrustEnvelopeViolationError extends DaemonDomainError {
   constructor() {
     super(
-      "workspace binding rejected: the resolved execution root is outside the session's declared local trust envelope",
+      "workspace binding rejected: the resolved execution root is outside the declared local " +
+        "trust envelope",
       {
         code: "repo.outside_trust_envelope" satisfies RepoErrorCode,
         httpStatus: 403,
@@ -260,10 +259,8 @@ export class TrustEnvelopeViolationError extends DaemonDomainError {
 }
 
 /**
- * `repo.already_attached` — "The resolved canonical root is already actively
- * attached to this session on the same owning node" (notional HTTP 409
- * node-scoped active-mount uniqueness refusal). Thrown by the Phase 2 attach
- * service.
+ * `repo.already_attached` — the resolved canonical root is already actively
+ * attached on this node (notional HTTP 409). Thrown by the attach service.
  *
  * Carries the conflicting mount's id rather than the canonical root, so the
  * refusal identifies the conflict without naming the path that caused it. As
@@ -271,12 +268,16 @@ export class TrustEnvelopeViolationError extends DaemonDomainError {
  * than by type; the header's message-discipline note covers the residual.
  */
 export class RepoAlreadyAttachedError extends DaemonDomainError {
-  /** Id of the active mount already holding the canonical root. Projects to `data.fields.conflictingRepoMountId`. */
+  /**
+   * Id of the active mount already holding the canonical root. Projects to
+   * `data.fields.conflictingRepoMountId`.
+   */
   readonly conflictingRepoMountId: string;
 
   constructor(conflictingRepoMountId: string) {
     super(
-      `repo attach refused: the resolved canonical root is already actively attached on this node (repo mount ${conflictingRepoMountId})`,
+      "repo attach refused: the resolved canonical root is already actively attached on this " +
+        `node (repo mount ${conflictingRepoMountId})`,
       {
         code: "repo.already_attached" satisfies RepoErrorCode,
         httpStatus: 409,
@@ -289,8 +290,8 @@ export class RepoAlreadyAttachedError extends DaemonDomainError {
 
 /**
  * `repo.detach_conflict` — "Detach refused while a dependent workspace is
- * `busy`; no force-detach in V1" (notional HTTP 409). Thrown by the Phase 2
- * detach service.
+ * `busy`; no force-detach in V1" (notional HTTP 409). Thrown by the detach
+ * service.
  *
  * Carries the busy workspace ids so a client can name what to finish or
  * cancel. Both the own field and the wire `detail` hold copies, so a caller
@@ -303,7 +304,8 @@ export class RepoDetachConflictError extends DaemonDomainError {
 
   constructor(busyWorkspaceIds: readonly string[]) {
     super(
-      `repo detach refused: ${busyWorkspaceIds.length} dependent workspace(s) still busy; there is no force-detach in V1`,
+      `repo detach refused: ${busyWorkspaceIds.length} dependent workspace(s) still busy; ` +
+        "there is no force-detach in V1",
       {
         code: "repo.detach_conflict" satisfies RepoErrorCode,
         httpStatus: 409,

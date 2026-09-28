@@ -50,33 +50,27 @@
 // wraps its whole read-decide-write in `withSessionAppendLock` and the nested
 // `append()` reuses that hold through owner-scoped reentrancy.
 //
-// WHAT THIS RESTRUCTURE MOVED, and what the prelude therefore has to do.
-// `DriverCapabilitiesWriter` and `NodeCapabilityService` previously ran their
-// CHANGE-DETECTION read inside the write transaction. That read CANNOT stay
-// inside it now, and the reason is structural, not a matter of effort — the
-// event PAYLOAD depends on the read (`declared` and `updated` are different
-// events with different payloads), signing depends on the payload, and signing
-// is async. No ordering exists in which the read is inside the transaction that
-// ends with the INSERT.
+// WHAT THE PRELUDE HAS TO DO. A producer whose event PAYLOAD depends on a read
+// of its own state cannot run that read inside the write transaction: signing
+// depends on the payload, and signing is async. No ordering exists in which the
+// read is inside the transaction that ends with the INSERT.
 //
 // The append lock does NOT cover the resulting window, and it is important not
-// to claim otherwise: the lock is keyed on `sessionId` while both producers'
-// hazards are keyed on something else (`driverName`; `(nodeId, capability)`).
-// Two declares for the same driver under DIFFERENT sessions hold DIFFERENT
-// locks and are ordered by nothing — on ONE connection as much as on two. Both
-// read prior state, both park in the signing-key unseal, both commit.
+// to claim otherwise: the lock is keyed on `sessionId`, while a producer's
+// hazard is keyed on its own row. Two appends that touch the same row under
+// DIFFERENT sessions hold DIFFERENT locks and are ordered by nothing — on ONE
+// connection as much as on two.
 //
 // The window is closed by the PRELUDE, which is exactly why the prelude runs
-// inside the transaction rather than beside it: each producer re-reads its
-// decision-time state as the prelude's first statement, inside `BEGIN
-// IMMEDIATE`, and throws a module-private divergence sentinel if it moved. That
-// throw aborts the whole transaction — durable write undone, INSERT never
+// inside the transaction rather than beside it: the producer re-checks its
+// decision-time state as the prelude's first statement (a re-read or a
+// compare-and-swap `UPDATE`), inside `BEGIN IMMEDIATE`, and throws if it moved.
+// That throw aborts the whole transaction — durable write undone, INSERT never
 // reached, no sequence consumed, so a retry re-derives its sequence from the
-// durable chain head — and the producer retries the read-decide-emit a bounded
-// number of times on that sentinel alone. This service supplies the mechanism
-// (a synchronous prelude inside an IMMEDIATE transaction whose throw rolls
-// everything back); the producers own the comparison and the loop, because only
-// they know what "unchanged" means for their state.
+// durable chain head. This service supplies the mechanism (a synchronous prelude
+// inside an IMMEDIATE transaction whose throw rolls everything back); the
+// producers own the comparison and what an abort means, because only they know
+// what "unchanged" means for their state.
 //
 // ----------------------------------------------------------------------------
 // What this service does NOT do
@@ -98,11 +92,8 @@ import {
   DaemonIngestHaltedDetailsSchema,
   DaemonPiiSplitBypassDetailsSchema,
   EVENT_CANONICAL_BYTES_MAX,
-  EventShreddedPayloadSchema,
   JsonRpcErrorCode,
   type EventEnvelope,
-  type EventShreddedEvent,
-  type EventShreddedPayload,
   type SessionId,
 } from "@ai-sidekicks/contracts";
 import type { Database, Statement } from "better-sqlite3";
@@ -165,7 +156,7 @@ export interface EventLogAppendReceipt {
  * The partition itself (which fields are PII) is the `splitPii`
  * classification, performed by the CALLER.
  */
-export interface EventLogAppendPii {
+interface EventLogAppendPii {
   /** Whose content key seals `piiPayload`, and the value for the stamp column. */
   readonly userId: string;
   /** The PII half of the split — encrypted into `pii_payload`, never hashed. */
@@ -185,7 +176,7 @@ export interface EventLogAppendPii {
  * here either — the sealing codec mints all three from the body it actually
  * sealed, and a producer that supplies one is refused.
  */
-export interface EventLogAppendContent {
+interface EventLogAppendContent {
   /** The prose. Over-bound bodies are truncated at a codepoint boundary. */
   readonly body: string;
 }
@@ -281,25 +272,6 @@ export interface EventLogAppendOptions {
   readonly monotonicNs?: bigint;
 }
 
-/**
- * Path 1's post-shred hook.
- *
- * Invoked AFTER an `event.shredded` row is durable, while its session's append
- * lock is still held — so a handler observing the log sees the shred row and
- * everything before it, and nothing appended after. It receives the payload as
- * PARSED by {@link EventShreddedPayloadSchema} (never the caller's raw object)
- * together with the row's receipt.
- *
- * A rejecting handler propagates to the `append()` caller, and this is the one
- * place that propagation is misleading enough to state outright: the row is
- * ALREADY COMMITTED by then. A rejection here means "the post-shred hook
- * failed", never "the shred event was not recorded".
- */
-export type ShredCallback = (
-  shredded: EventShreddedPayload,
-  receipt: EventLogAppendReceipt,
-) => Promise<void>;
-
 /** Construction dependencies. */
 export interface EventLogServiceDeps {
   /** The connection every write lands on. Prepared statements are cached. */
@@ -391,7 +363,6 @@ export class EventLogService {
   readonly #contentKeySource: SessionContentKeySource | undefined;
   readonly #contentKeyDisposer: SessionContentKeyDisposer | undefined;
   readonly #monotonicNow: () => bigint;
-  #shredCallback: ShredCallback | undefined;
 
   constructor(deps: EventLogServiceDeps) {
     this.#signingKeySource = deps.signingKeySource;
@@ -459,19 +430,6 @@ export class EventLogService {
     this.#writeTxn = (bindings, prelude) => {
       writeTxn.immediate(bindings, prelude);
     };
-  }
-
-  /**
-   * Register Path 1's post-shred hook. At most one; a second call REPLACES
-   * the first.
-   *
-   * Replacement rather than a handler list, deliberately: Path 1 has exactly
-   * one orchestrator, and a list would quietly admit a second registrant whose
-   * failure would then be attributed to the first. If a second consumer ever
-   * needs the signal, that is a fan-out decision to take explicitly.
-   */
-  registerShredCallback(handler: ShredCallback): void {
-    this.#shredCallback = handler;
   }
 
   /**
@@ -561,19 +519,7 @@ export class EventLogService {
       // typed error rather than a `DaemonDomainError`.
       assertNoCodecOwnedContentKeys(envelope.payload, "EventLogService.append");
 
-      // (3) `event.shredded` EMISSION-SEAM PARSE. Before the write, so a
-      // malformed shred payload is refused rather than persisted, and the
-      // PARSED value is what both the row and the callback carry (the
-      // emitter-parses convention). `event.shredded` is `event_maintenance`, a
-      // category the codec refuses outright (layer 2), so it necessarily
-      // travels the plain path with `pii_payload` NULL — shredding PII into a
-      // record OF the shred would be self-defeating.
-      const shreddedPayload: EventShreddedPayload | undefined =
-        envelope.type === EVENT_SHREDDED_EVENT_TYPE
-          ? EventShreddedPayloadSchema.parse(envelope.payload)
-          : undefined;
-
-      // (4) CHAIN HEAD. One query, under the lock, for both the sequence to
+      // (3) CHAIN HEAD. One query, under the lock, for both the sequence to
       // allocate and the hash to chain to.
       const head: ChainHeadRow | undefined = this.#chainHeadStmt.get(sessionId) as
         | ChainHeadRow
@@ -629,7 +575,7 @@ export class EventLogService {
         throw error;
       }
 
-      // (7) PERSIST — the prelude and the row, atomically. Everything bound
+      // (4) PERSIST — the prelude and the row, atomically. Everything bound
       // here comes from `signed`, never from the caller's input: substituting
       // any of the four (a re-canonicalized envelope, a re-read `prev_hash`, a
       // stamp taken from anywhere else) yields an untampered row that can never
@@ -674,11 +620,6 @@ export class EventLogService {
         sequence,
         rowHash: signed.signedRow.rowHash,
       };
-
-      // (8) POST-SHRED HOOK — after the row is durable, still under the lock.
-      if (shreddedPayload !== undefined && this.#shredCallback !== undefined) {
-        await this.#shredCallback(shreddedPayload, receipt);
-      }
 
       return receipt;
     });
@@ -1025,13 +966,6 @@ export class EventLogService {
 // --------------------------------------------------------------------------
 // Module-private helpers + shapes
 // --------------------------------------------------------------------------
-
-// The `event.shredded` type literal, taken by indexed access from the contracts
-// variant rather than respelled. The binding is what makes a rename in contracts
-// fail THIS compile: a bare string literal would keep compiling and silently
-// disable the shred seam — the parse would simply never run, and no test of a
-// non-shred append would notice.
-const EVENT_SHREDDED_EVENT_TYPE: EventShreddedEvent["type"] = "event.shredded";
 
 /**
  * The `row_hash` width `signer.ts` enforces, re-spelled here for the chain-head

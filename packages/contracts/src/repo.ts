@@ -19,28 +19,16 @@
 //
 // THE RULE IS TRANSITIVE, and reads on the whole import CLOSURE: this module
 // must import nothing that itself reaches `./event.js`, however many hops out.
-// found the gap — `NodeIdSchema` needed by the attach/read surfaces below lived
-// in `runtime-node.ts`, which at the time imported values FROM `event.ts` (those
-// now bind the `./event-core.js` leaf), so the direct import would have closed
-// `repo.ts` → `runtime-node.ts` → `event.ts` → `repo.ts`. Every edge in that
-// cycle is an eager module-scope Zod initializer, so it throws `ReferenceError`
-// at import time from every entry point, and `tsc` does not flag it. The
-// resolution was to hoist the `NodeId` declaration into the dependency-free leaf
-// `./node-id.js` (still owns the shape) and import from there — NOT to restate
-// the parser here, and NOT to weaken the field's brand. Before composing any new
-// cross-module symbol below, check its closure the same way.
+// A cycle among eager module-scope Zod initializers throws `ReferenceError` at
+// import time from every entry point, and `tsc` does not flag it. That is why
+// `NodeIdSchema` comes from the dependency-free leaf `./node-id.js`. Before
+// composing any new cross-module symbol below, check its closure the same way.
 //
 // Workspace, and Worktree Lifecycle (the shared payload shape).
 import { z } from "zod";
 
 import { brandedUuidIdSchema, uuidTextFormSchema } from "./internal/branded.js";
-// DIRECT import from the `./node-id.js` leaf, never from `./runtime-node.js`
-// (which re-exports the same three symbols): runtime-node.ts imports values
-// from `./event.js`, and event.ts imports `RepoWorkspaceLifecyclePayloadSchema`
-// from THIS module, so routing through it would close the eager three-hop cycle
-// described in the header and throw at import time. still owns the shape — this
-// is composition of another plan's canonical symbol rule read in the reciprocal
-// direction.
+// DIRECT import from the dependency-free `./node-id.js` leaf (see the header).
 import { NodeIdSchema, type NodeId } from "./node-id.js";
 import { SessionIdSchema, wireFreeFormString, type SessionId } from "./session.js";
 
@@ -53,8 +41,7 @@ import { SessionIdSchema, wireFreeFormString, type SessionId } from "./session.j
 // predicate plus the `.brand().as unknown as z.ZodType<T, T>` cast bridging
 // Zod's single-T `$ZodBranded` output to the double-T shape tRPC v11's
 // Standard-Schema-V1 input inference needs) — the same idiom as
-// `SessionIdSchema` in session.ts. Both are composed side by side on
-// `RepoAttachRequest` below.
+// `SessionIdSchema` in session.ts.
 //
 // The `z.ZodType<T, T>` double-T annotations are also what
 // `--isolatedDeclarations` requires (TS9010 — exported declarations cannot
@@ -75,16 +62,16 @@ export const WorkspaceIdSchema: z.ZodType<WorkspaceId, WorkspaceId> =
 // JCS serializes the literal wire string, so order is not load-bearing, but
 // additions are MINOR and removals MAJOR.
 
-// `"ephemeral clone"` CONTAINS A SPACE — preserved verbatim from the canonical
-// enum. This is the wire form; editing it to `"ephemeral_clone"` or `"ephemeral-clone"`
-// is a contract break. The four members are the canonical execution-mode taxonomy
-// mandates for git-backed binding, per the four-mode decision.
-export type ExecutionMode = "read-only" | "branch" | "worktree" | "ephemeral clone";
+/**
+ * How a workspace uses its mount: `bound-root` works in the root already bound
+ * to it (the mount's own checkout), `provisioned-worktree` in a worktree the
+ * daemon provisions for it.
+ */
+export type ExecutionMode = "bound-root" | "provisioned-worktree";
+/** Wire schema for {@link ExecutionMode}. */
 export const ExecutionModeSchema: z.ZodType<ExecutionMode> = z.enum([
-  "read-only",
-  "branch",
-  "worktree",
-  "ephemeral clone",
+  "bound-root",
+  "provisioned-worktree",
 ]);
 
 // The 5-value workspace lifecycle. `stale` is the availability-loss position (a
@@ -113,19 +100,17 @@ export const RepoMountStateSchema: z.ZodType<RepoMountState> = z.enum([
 ]);
 
 // --------------------------------------------------------------------------
-// VcsType — the honest non-git discriminator.
+// VcsType — the version-control system behind a mount.
 // --------------------------------------------------------------------------
 //
-// The capability projection keys off this discriminator (`"git"` yields all
-// four execution modes, `"none"` yields `["read-only"]` with a populated
-// `restrictions` reason per excluded mode), so a wrong or widened value makes
-// that projection lie about git-backed modes.
-//
-// Both values ride the SAME attach funnel (mount-first single funnel):
-// `repo.attach` accepts any local path, and a non-git path yields a RepoMount with
-// `vcsType: "none"` rather than a mount-less bind path.
-export type VcsType = "git" | "none";
-export const VcsTypeSchema: z.ZodType<VcsType> = z.enum(["git", "none"]);
+/**
+ * The version-control system behind a mount. `repo.attach` refuses a path that
+ * is not a git repository, so every mount is `"git"`; the capability projection
+ * keys off this value.
+ */
+export type VcsType = "git";
+/** Wire schema for {@link VcsType}. */
+export const VcsTypeSchema: z.ZodType<VcsType> = z.enum(["git"]);
 
 // --------------------------------------------------------------------------
 // RepoMountHealth — derived projection, never persisted.
@@ -155,8 +140,7 @@ export const VcsTypeSchema: z.ZodType<VcsType> = z.enum(["git", "none"]);
 //     never bind again is a lying read model" (per the
 //     carried-findings adjudication). `unreachable` TAKES PRECEDENCE — no
 //     further question can be put to a root that cannot be probed — and a mount
-//     persisting no anchor (a plain directory, which has no repository identity
-//     at all) never projects it. Re-attach is the named recovery, and it mints a
+//     persisting no anchor never projects it. Re-attach is the named recovery, and it mints a
 //     new mount row.
 //   • `checkedAt` is REQUIRED, not optional. A verdict with no probe
 //     timestamp is unauditable — the reader cannot tell a fresh probe from a
@@ -169,16 +153,14 @@ export interface RepoMountHealth {
   checkedAt: string;
 }
 // Single-T `z.ZodType<T>` — a derived read-side projection, never a tRPC input
-// surface, so it needs no double-T input-inference bridge (matches
-// `ChannelSummarySchema` in session.ts / `RuntimeNodeAttachResponseSchema`
-// in runtime-node.ts).
+// surface, so it needs no double-T input-inference bridge.
 export const RepoMountHealthSchema: z.ZodType<RepoMountHealth> = z
   .object({
     status: z.enum(["healthy", "unreachable", "identity_mismatch"]),
     // ISO 8601 instant of the probe that produced the verdict. `{ offset:
     // true }` widens default Z-only acceptance to numeric RFC 3339 — the
     // package-wide datetime convention (`createdAt` in session.ts,
-    // `occurredAt` in event.ts, `attachedAt` in runtime-node.ts).
+    // `occurredAt` in event.ts).
     checkedAt: z.iso.datetime({ offset: true }),
   })
   .strict();
@@ -201,8 +183,8 @@ export const RepoMountHealthSchema: z.ZodType<RepoMountHealth> = z
 // worktree event carries `worktreeId`. The schema imposes no cross-field
 // requirement — marks all three optional, and inventing a "exactly one id"
 // refinement here would reject the legitimately multi-id rows the detach
-// cascade emits (a `workspace.archived` caused by `repo.detached` names
-// both). Which id each type populates is the EMITTER's obligation, enforced
+// cascade emits (its `workspace.archived` names the mount and the
+// workspace). Which id each type populates is the EMITTER's obligation, enforced
 // at the `.parse()` emission seam, not a shape rule.
 //
 // This is also why the payload is authored HERE rather than in event.ts:
@@ -234,14 +216,12 @@ const REPO_WORKSPACE_LIFECYCLE_ACTOR_MAX_LEN = 256;
  * typed `Record<string, unknown>`. TypeScript grants an implicit index
  * signature to an object type alias but NOT to an interface, so an interface
  * here would fail the `extends EventEnvelope` narrowing with "index signature
- * is missing". (runtime-node.ts's payloads are interfaces because they are
- * standalone `.parse()` shapes that never narrow the envelope member.)
+ * is missing".
  *
  * Optional fields are typed `key?: T | undefined` (not bare `key?:`): Zod's
  * `.optional()` infers `T | undefined`, and with no `as unknown as` cast
  * TypeScript checks the alias against the schema's inferred output exactly
- * under `exactOptionalPropertyTypes` (the same stance as `ChannelSummary.name`
- * in session.ts). The wire signal is still "key absent" — consumers that need
+ * under `exactOptionalPropertyTypes`. The wire signal is still "key absent" — consumers that need
  * the absent-vs-undefined distinction can test `"workspaceId" in payload`.
  */
 export type RepoWorkspaceLifecyclePayloadOf<TState extends string> = {
@@ -304,11 +284,10 @@ export function buildRepoWorkspaceLifecyclePayloadSchema<TState extends string>(
 ): z.ZodType<RepoWorkspaceLifecyclePayloadOf<TState>> {
   return z
     .object({
-      // REQUIRED — spells the family base `{sessionId, …}` with no `?`,
-      // unlike the `sessionId?` base of the runtime-node family. Every
-      // repo/workspace/worktree subject is session-scoped, so there is no
-      // session-less row to represent. Duplicates the envelope's `sessionId`,
-      // exactly as `session.created`'s payload does (projector convenience).
+      // REQUIRED — spells the family base `{sessionId, …}` with no `?`. Every
+      // event in this family is appended to one session's log. Duplicates the
+      // envelope's `sessionId`, exactly as `session.created`'s payload does
+      // (projector convenience).
       sessionId: SessionIdSchema,
       repoMountId: RepoMountIdSchema.optional(),
       workspaceId: WorkspaceIdSchema.optional(),
@@ -331,8 +310,7 @@ export function buildRepoWorkspaceLifecyclePayloadSchema<TState extends string>(
       // `sessionId`. Realized with the package's standard
       // `wireFreeFormString` (length cap + whitespace-only rejection + NUL-byte
       // rejection at the wire/replay trust boundary), matching
-      // `buildCommonShape()`'s envelope actor and runtime-node.ts's
-      // payload-level actors. `.nullable()` composes AFTER the helper so the
+      // `buildCommonShape()`'s envelope actor. `.nullable()` composes AFTER the helper so the
       // string checks run only on string values; a system-emitted event uses
       // `null` or omits the key, never an empty string.
       actor: wireFreeFormString(
@@ -347,8 +325,7 @@ export function buildRepoWorkspaceLifecyclePayloadSchema<TState extends string>(
 
 // Single-T `z.ZodType<T>`, `.strict()` — a non-input event payload,
 // constructed daemon-side and validated at the emission boundary with
-// `.parse()`, never a tRPC request input (the same typing stance as
-// runtime-node.ts's `runtime_node.*` payload schemas). `.strict()` is the
+// `.parse()`, never a tRPC request input. `.strict()` is the
 // house posture for a `session_lifecycle` payload: unknown keys are schema
 // drift surfaced at parse time. (The non-strict carve-out mandates is scoped
 // to `artifact.*` payloads and does not reach this family.)
@@ -395,7 +372,7 @@ export const RepoWorkspaceLifecyclePayloadSchema: z.ZodType<RepoWorkspaceLifecyc
 // available to any later typed-SDK consumer, at no cost here.
 //
 // The response side is single-T for the reason every response schema in
-// session.ts / runtime-node.ts is: a response is not an input surface. It is
+// session.ts is: a response is not an input surface. It is
 // also the CAST-FREE choice — `RepoMountReadResponseSchema` composes the
 // single-T `RepoMountHealthSchema`, whose `Input` slot is `unknown`, so a
 // double-T response annotation would need an `as unknown as` bridge to express
@@ -403,14 +380,12 @@ export const RepoWorkspaceLifecyclePayloadSchema: z.ZodType<RepoWorkspaceLifecyc
 // file style, which its own `PresenceSubscribeRequestSchema` comment concedes
 // is "for file-wide annotation uniformity, not a live tRPC-input requirement".
 //
-// None of the three request schemas needs the `as unknown as z.ZodType<T, T>`
-// bridge that runtime-node.ts's request schemas carry. Every member composed
-// below is either double-T (`SessionIdSchema`, `NodeIdSchema`,
-// `RepoMountIdSchema`) or a `z.ZodString` (`wireFreeFormString`, whose `Input`
-// slot is `string`, not `unknown`), so no single-T member contributes an
-// `unknown` input slot to poison the composed object's inference — the same
-// structural condition under which `RuntimeNodeDetachRequestSchema` and
-// `RuntimeNodeRosterRequestSchema` compile bridge-free.
+// None of the three request schemas needs an `as unknown as z.ZodType<T, T>`
+// bridge. Every member composed below is either the double-T
+// `RepoMountIdSchema` or a `z.ZodString` (`wireFreeFormString`,
+// whose `Input` slot is `string`, not `unknown`), so no single-T member
+// contributes an `unknown` input slot to poison the composed object's
+// inference.
 
 // Bound on the two filesystem-path wire strings these surfaces carry:
 // `RepoAttachRequest.localPath` (inbound, caller-supplied) and the
@@ -434,19 +409,18 @@ export const REPO_PATH_MAX_LEN = 4096;
 // --------------------------------------------------------------------------
 //
 // The envelope-admission action: attach is the ONLY way a path enters the
-// session's declared local trust envelope ("no path enters the envelope
-// implicitly"). It is also a SINGLE FUNNEL: a non-git path rides this same
-// method and yields a mount with `vcsType: "none"`, rather than a mount-less
-// bind path.
+// machine's local trust envelope ("no path enters the envelope implicitly").
+// A mount belongs to the machine, not to a session: the daemon stamps its own
+// node id on the row, and a session reaches the mount by binding a workspace
+// to it. A path that is not a git repository is refused.
 
+/** The `repo.attach` input: the path to attach, as the user entered it. */
 export interface RepoAttachRequest {
-  sessionId: SessionId;
   localPath: string;
-  nodeId: NodeId;
 }
+/** Wire schema for {@link RepoAttachRequest}. */
 export const RepoAttachRequestSchema: z.ZodType<RepoAttachRequest, RepoAttachRequest> = z
   .object({
-    sessionId: SessionIdSchema,
     // USER-ENTERED PATH, provenance only — persisted as
     // `repo_mounts.local_path` and never used as the canonical root
     // (trust-envelope enforcement and node-ownership routing key off
@@ -468,9 +442,8 @@ export const RepoAttachRequestSchema: z.ZodType<RepoAttachRequest, RepoAttachReq
     //     such as `\repos\foo` (which `path.win32.isAbsolute` calls absolute
     //     while it names no volume). Completing any of them would mean taking
     //     the missing piece from daemon-side state — its working directory,
-    //     its home, its current drive — and under the cross-node model
-    //     (`nodeId` below) that is not the author's context, so the root would
-    //     be a guess, which forbids. All three therefore fail LOUDLY;
+    //     its home, its current drive — and the daemon's context is not the
+    //     author's, so the root would be a guess. All three therefore fail LOUDLY;
     //     resolving them against the author's context belongs to the
     //     client/CLI layer, before the path reaches the wire. They stay
     //     REPRESENTABLE here anyway, because refusing them at parse time would
@@ -489,24 +462,17 @@ export const RepoAttachRequestSchema: z.ZodType<RepoAttachRequest, RepoAttachReq
     // nothing but spaces is far likelier to be a UI-submission bug than an
     // intended target, so the guard stays.
     localPath: wireFreeFormString(REPO_PATH_MAX_LEN, "RepoAttachRequest.localPath"),
-    // The OWNING runtime node — the node that can actually reach the
-    // filesystem path, persisted as `repo_mounts.node_id`. Load-bearing
-    // beyond provenance: active-root uniqueness index is keyed `(session_id,
-    // node_id, canonical_root)`, because the same absolute path on two
-    // different nodes names two distinct node-local filesystems and both may
-    // attach.
-    nodeId: NodeIdSchema,
   })
   .strict();
 
+/** The `repo.attach` result: the new mount and the root its path resolved to. */
 export interface RepoAttachResponse {
   repoMountId: RepoMountId;
   state: RepoMountState;
   vcsType: VcsType;
   canonicalRoot: string;
-  defaultWorkspaceId: WorkspaceId;
 }
-// Single-T — a response is not an input surface (see the typing note above).
+/** Wire schema for {@link RepoAttachResponse}; single-T, since a response is not an input. */
 export const RepoAttachResponseSchema: z.ZodType<RepoAttachResponse> = z
   .object({
     repoMountId: RepoMountIdSchema,
@@ -514,7 +480,7 @@ export const RepoAttachResponseSchema: z.ZodType<RepoAttachResponse> = z
     // field on any later attach path that returns a non-`attached` row, which
     // is a wire break rather than the additive change.
     state: RepoMountStateSchema,
-    // The honest git/non-git verdict fixed at resolution time capability
+    // The version-control system fixed at resolution time; the capability
     // projection keys off it downstream.
     vcsType: VcsTypeSchema,
     // RESOLVER OUTPUT — absolute and symlink-resolved, NEVER the echoed
@@ -524,11 +490,6 @@ export const RepoAttachResponseSchema: z.ZodType<RepoAttachResponse> = z
     // ABORTS attach with typed `repo.root_resolution_failed` rather than
     // returning a partial success.
     canonicalRoot: wireFreeFormString(REPO_PATH_MAX_LEN, "RepoAttachResponse.canonicalRoot"),
-    // REQUIRED, not optional: attach unconditionally creates the default
-    // read-only workspace, for git and non-git mounts alike. Optionality would
-    // make "attached, but no workspace" representable, and the persistence
-    // model never produces it.
-    defaultWorkspaceId: WorkspaceIdSchema,
   })
   .strict();
 
@@ -545,9 +506,9 @@ export const RepoMountReadRequestSchema: z.ZodType<RepoMountReadRequest, RepoMou
   })
   .strict();
 
+/** One mount as `repo.mountRead` reports it, owned by the machine that attached it. */
 export interface RepoMountReadResponse {
   id: RepoMountId;
-  sessionId: SessionId;
   nodeId: NodeId;
   localPath: string;
   canonicalRoot: string;
@@ -556,7 +517,7 @@ export interface RepoMountReadResponse {
   health: RepoMountHealth;
   attachedAt: string;
 }
-// Single-T — a read projection, never an input surface.
+/** Wire schema for {@link RepoMountReadResponse}; single-T, since a read is not an input. */
 export const RepoMountReadResponseSchema: z.ZodType<RepoMountReadResponse> = z
   .object({
     // BARE `id`, NOT `repoMountId` — transcribed verbatim from the wire doc,
@@ -566,7 +527,7 @@ export const RepoMountReadResponseSchema: z.ZodType<RepoMountReadResponse> = z
     // deliberate: a projection names its own row's key `id`, while a mutation
     // response names the entity it acted on. Do not "fix" it to `repoMountId`.
     id: RepoMountIdSchema,
-    sessionId: SessionIdSchema,
+    // The machine that attached the mount, stamped by its daemon.
     nodeId: NodeIdSchema,
     // Provenance and resolved identity travel TOGETHER and independently (both
     // values are meaningful: the entered path is what the user recognizes, the
@@ -585,7 +546,7 @@ export const RepoMountReadResponseSchema: z.ZodType<RepoMountReadResponse> = z
     health: RepoMountHealthSchema,
     // `repo_mounts.attached_at`. ISO 8601 with `{ offset: true }` — the
     // package-wide datetime convention (`checkedAt` above, `createdAt` in
-    // session.ts, `attachedAt` on runtime-node.ts's attach response).
+    // session.ts).
     attachedAt: z.iso.datetime({ offset: true }),
   })
   .strict();
@@ -654,13 +615,12 @@ export const RepoDetachResponseSchema: z.ZodType<RepoDetachResponse> = z
 // the `as unknown as` bridge the three requests did not; its own comment
 // carries the mechanism.
 //
-// NO CROSS-FIELD REFINEMENTS ON THE THREE CONDITIONAL FIELDS — a deliberate
-// boundary, not an omission. Three conditional relationships are real:
-// `restrictions` names every mode absent from `availableModes`, `lastError` is
-// present iff the workspace went `stale` from a recorded failure, and `fsRoot`
-// is absent while a workspace is `provisioning`. All three are plain-optional
-// in the canonical wire doc, and all three are EMITTER obligations discharged
-// at the `.parse()` boundary of the surface that produces them — the same
+// NO CROSS-FIELD REFINEMENTS ON THE TWO CONDITIONAL FIELDS — a deliberate
+// boundary, not an omission. Two conditional relationships are real:
+// `restrictions` names every mode absent from `availableModes`, and `lastError`
+// is present iff the workspace went `stale` from a recorded failure. Both are
+// plain-optional in the canonical wire doc, and both are EMITTER obligations
+// discharged at the `.parse()` boundary of the surface that produces them — the same
 // stance the family-shared lifecycle payload above takes on which subject id
 // each event type populates. Spelling them as refinements here would reject
 // shapes the wire doc permits and would make the test vacuous, since the
@@ -671,11 +631,9 @@ export const RepoDetachResponseSchema: z.ZodType<RepoDetachResponse> = z
 
 // Bound on the per-mode reason strings in
 // `WorkspaceExecutionModeCapabilitiesReadResponse.restrictions`. 512 is this
-// package's SHORT-HUMAN-REASON class (`RUNTIME_NODE_DETACH_REASON_MAX_LEN`,
-// `RUNTIME_NODE_CAPABILITY_UPDATE_REASON_MAX_LEN`), which is the right class
-// here: V1's matrix is STATIC by `vcs_type`, so these values are short
-// daemon-authored explanations such as "no git repository at the mount root",
-// never captured subprocess output.
+// package's SHORT-HUMAN-REASON class (`AUDIT_INTEGRITY_DETAIL_MAX_LEN`), which
+// is the right class here: these values are short daemon-authored
+// explanations, never captured subprocess output.
 export const EXECUTION_MODE_RESTRICTION_REASON_MAX_LEN = 512;
 
 // DELIBERATELY a different, far more generous class than the restriction reason
@@ -695,7 +653,7 @@ export const EXECUTION_MODE_RESTRICTION_REASON_MAX_LEN = 512;
 // — named by task because "the emitter" in this file means the workspace-event
 // emitter, which never writes this field.
 //
-//   1. SCRUB. A failing `ephemeral clone` against an authenticated remote can
+//   1. SCRUB. A failing git operation against an authenticated remote can
 //      echo a token-bearing remote URL into stderr; a cap this generous
 //      carries it verbatim into unencrypted `workspaces.metadata` and
 //      re-broadcasts it on every `repo.workspaceList` read. Captured
@@ -720,16 +678,16 @@ export const WORKSPACE_LAST_ERROR_MAX_LEN = 8192;
 // WorkspaceBind — `repo.workspaceBind` (mutation).
 // --------------------------------------------------------------------------
 //
-// Says bind accepts "repo mount or directory root"; the directory-root arm is
-// satisfied by first attaching the directory as a plain-directory mount
-// (`vcsType: "none"`) through `repo.attach`, so this request identifies its
-// target by `repoMountId` and by nothing else. There is deliberately NO
+// Bind names an attached mount by `repoMountId` and by nothing else, and the
+// session the new workspace belongs to. There is deliberately NO
 // `localPath` arm: `workspaces.repo_mount_id` is NOT NULL, there is no
 // mount-less workspace, and a second identifying field here would reopen
 // exactly the second envelope-admission door closed ("no path enters the
 // envelope implicitly").
 
+/** The `repo.workspaceBind` input: the session, the attached mount, and the mode to bind in. */
 export interface WorkspaceBindRequest {
+  sessionId: SessionId;
   repoMountId: RepoMountId;
   executionMode: ExecutionMode;
   directory?: string | undefined;
@@ -737,31 +695,27 @@ export interface WorkspaceBindRequest {
 // The `as unknown as z.ZodType<T, T>` bridge — the one departure from the
 // bridge-free request stance, and it is structural, not stylistic. Every
 // member the requests compose is either double-T (`SessionIdSchema`,
-// `NodeIdSchema`, `RepoMountIdSchema`) or a `z.ZodString`, so none contributes
+// `RepoMountIdSchema`) or a `z.ZodString`, so none contributes
 // an `unknown` input slot. `ExecutionModeSchema` is SINGLE-T (declared
 // `z.ZodType<ExecutionMode>` above — its `Input` slot defaults to `unknown`),
 // and `$ZodTypeInternals` declares `Input` covariant, so the composed object's
 // input infers `executionMode: unknown`, which is not assignable to the
-// double-T annotation's `WorkspaceBindRequest`. This is the identical
-// mechanism that puts the bridge on `RuntimeNodeAttachRequestSchema` in
-// runtime-node.ts (single-T `RuntimeNodeHealthStateSchema` member).
+// double-T annotation's `WorkspaceBindRequest`, hence the bridge.
+/** Wire schema for {@link WorkspaceBindRequest}. */
 export const WorkspaceBindRequestSchema: z.ZodType<WorkspaceBindRequest, WorkspaceBindRequest> = z
   .object({
+    // The mount belongs to the machine, so the session comes from the caller;
+    // the daemon refuses a session that does not exist.
+    sessionId: SessionIdSchema,
     repoMountId: RepoMountIdSchema,
-    // REQUIRED and NOT `.default("read-only")` — acceptance criterion is that
-    // binding is representable only with an EXPLICIT mode from the canonical
-    // set. Two independent reasons the default was rejected. First, semantic:
-    // a wire-level default makes "caller omitted the mode" and "caller chose
-    // read-only" indistinguishable, and the read-only initial posture is
-    // already the `workspaces.execution_mode` DDL default — daemon-side row
-    // state, not a wire coercion. Second, mechanical: `.default()` is a
-    // transform, so Input would stop equalling Output and the double-T
-    // annotation this file's typing note relies on would no longer be
-    // truthful.
+    // REQUIRED, with no `.default()`: binding is representable only with an
+    // EXPLICIT mode from the canonical set. `.default()` is also a transform,
+    // so Input would stop equalling Output and the double-T annotation this
+    // file's typing note relies on would no longer be truthful.
     executionMode: ExecutionModeSchema,
     // MOUNT-ROOT-RELATIVE subdirectory — a subtree of the mount's canonical
     // root, never an absolute path. OPTIONAL: omission binds the mount root
-    // itself, which is default-workspace case.
+    // itself.
     //
     // CONTAINMENT IS NOT CHECKED HERE, and `../../etc` is representable on
     // this field on purpose. A `..`-rejecting regex here would be
@@ -782,33 +736,22 @@ export const WorkspaceBindRequestSchema: z.ZodType<WorkspaceBindRequest, Workspa
   })
   .strict() as unknown as z.ZodType<WorkspaceBindRequest, WorkspaceBindRequest>;
 
+/** The `repo.workspaceBind` result: the new workspace, its bound mode, and its lifecycle state. */
 export interface WorkspaceBindResponse {
   workspaceId: WorkspaceId;
-  fsRoot?: string | undefined;
   executionMode: ExecutionMode;
   state: WorkspaceState;
 }
-// Single-T — a response is not an input surface (typing note).
+/** Validates a `repo.workspaceBind` result; single-T, since a response is not an input surface. */
 export const WorkspaceBindResponseSchema: z.ZodType<WorkspaceBindResponse> = z
   .object({
     workspaceId: WorkspaceIdSchema,
-    // OPTIONAL, and the optionality is load-bearing rather than defensive: a
-    // WRITABLE bind returns BEFORE its execution root exists. The workspace is
-    // created `provisioning` and fills `fs_root` at provisioning completion,
-    // so a REQUIRED `fsRoot` would make the `provisioning` response
-    // unrepresentable and force the daemon to either block the bind until
-    // provisioning finished or return a placeholder root — a guess, which
-    // forbids. A READ-ONLY bind has its root immediately (the mount's
-    // canonical root) and populates the field on the same response. Which of
-    // the two cases applies is the emitter's obligation, not a shape rule —
-    // see the no-cross-field- refinements note above.
-    fsRoot: wireFreeFormString(REPO_PATH_MAX_LEN, "WorkspaceBindResponse.fsRoot").optional(),
     // Echoed back from the request so the caller sees the mode the daemon
-    // actually bound. Composes the full four-value taxonomy, not a narrowing.
+    // actually bound. Composes the full taxonomy, not a narrowing.
     executionMode: ExecutionModeSchema,
-    // The workspace's post-bind lifecycle position — `provisioning` for a
-    // writable bind, `ready` for a read-only one. Composes the full 5-value
-    // `WorkspaceStateSchema` and is NOT narrowed to those two literals: the
+    // The workspace's post-bind lifecycle position, `provisioning` until its
+    // root is prepared. Composes the full 5-value `WorkspaceStateSchema` and
+    // is NOT narrowed to that literal: the
     // wire doc types the field `WorkspaceState` with no narrowing, and a
     // narrowing would be re-typed (a wire break) the first time a bind
     // legitimately answers from another state — the same stance
@@ -826,7 +769,7 @@ export const WorkspaceBindResponseSchema: z.ZodType<WorkspaceBindResponse> = z
 // on this mount do" — the pre-bind question, whose answer is the static matrix
 // keyed on `vcs_type`. A WORKSPACE-scoped read answers "what may THIS
 // workspace do now" — the post-bind question, whose answer additionally
-// reflects per-workspace state (a `stale` workspace restricts writable modes
+// reflects per-workspace state (a `stale` workspace restricts its modes,
 // which blocks new write runs until repair). The two are not interchangeable,
 // which is why the request must name exactly one.
 
@@ -894,20 +837,13 @@ export const WorkspaceExecutionModeCapabilitiesReadResponseSchema: z.ZodType<Wor
       // canonical wire doc states no non-empty constraint, and the pairing of
       // `availableModes` with `restrictions` makes a fully restricted answer —
       // empty list, a reason per mode — well formed rather than a shape error.
-      // V1's static matrix never emits one (a `'none'` mount still offers
-      // `read-only`), so this is headroom for a later probe-derived matrix, not
-      // a case in the current model. Mutable `ExecutionMode[]`, matching the
-      // wire doc's spelling.
+      // V1's static matrix never emits one, so this is headroom for a later
+      // probe-derived matrix, not a case in the current model. Mutable
+      // `ExecutionMode[]`, matching the wire doc's spelling.
       availableModes: z.array(ExecutionModeSchema),
-      // The default for the next WRITABLE coding run, NOT the fresh-workspace
-      // posture. The distinction is the one reviewers should check: a newly
-      // bound workspace is always `read-only` (and the
-      // `workspaces.execution_mode` DDL default), while this field reports
-      // `worktree` on a `'git'` mount. They disagree by design, and a reader
-      // who conflates them will think one of the two is wrong.
-      //
-      // "Writable" is the semantics of the field, not a constraint on its type
-      // — the same no-narrowing stance as `RepoAttachResponse.state` above.
+      // The mode to bind with when the caller states no preference:
+      // `provisioned-worktree` on a git mount, so a coding run works in a worktree of its
+      // own rather than in the main checkout.
       defaultMode: ExecutionModeSchema,
       // SPARSE map — a reason per RESTRICTED mode; unrestricted modes are
       // omitted entirely, and the whole field is omitted when nothing is
@@ -981,9 +917,8 @@ export interface WorkspaceListResponse {
   }>;
 }
 // The item TYPE stays INLINE and unnamed, transcribed from the wire doc's own
-// anonymous `Array<{…}>` spelling. The contrast case is `ChannelSummary` in
-// session.ts, which the wire doc NAMES and which several surfaces reuse;
-// nothing else consumes this shape, so exporting a
+// anonymous `Array<{…}>` spelling. Nothing else consumes this shape, so
+// exporting a
 // `WorkspaceSummary` would pre-commit every downstream importer to a symbol
 // neither the plan nor the spec asked for. Consumers that need the element type
 // spell `WorkspaceListResponse["workspaces"][number]`. The in-file precedent
@@ -1016,8 +951,8 @@ const workspaceListItemSchema = z
     // health is its lifecycle position: `stale` is the availability-loss
     // verdict requires every daemon read surface to expose.
     state: WorkspaceStateSchema,
-    // Optional for the same reason as on the bind response: a `provisioning`
-    // workspace has no execution root yet.
+    // Optional because a `provisioning` workspace has no execution root yet;
+    // the root is filled in when it is prepared.
     fsRoot: wireFreeFormString(
       REPO_PATH_MAX_LEN,
       "WorkspaceListResponse.workspaces[].fsRoot",
@@ -1040,9 +975,8 @@ const workspaceListItemSchema = z
     ).optional(),
   })
   // The ITEM carries its own `.strict()` as well as the envelope below — the
-  // wire shape is closed at both levels, matching
-  // `RuntimeNodeCapabilityUpdateRequest.healthChanges`. A top-level-only guard
-  // would let item-level drift through unnoticed.
+  // wire shape is closed at both levels. A top-level-only guard would let
+  // item-level drift through unnoticed.
   .strict();
 
 // Single-T — a read projection, never an input surface.

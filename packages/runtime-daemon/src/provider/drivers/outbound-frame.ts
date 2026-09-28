@@ -445,11 +445,11 @@ export const UNRECOGNIZED_TURN_EVIDENCE: TurnEvidenceClassification = Object.fre
 // The tripwire
 // --------------------------------------------------------------------------
 
-export type TripwirePassReason = "no-correlated-frame" | "frame-exempt" | "turn-evidence-observed";
+type TripwirePassReason = "no-correlated-frame" | "frame-exempt" | "turn-evidence-observed";
 
 export type TripwireTripCause = "no-turn-evidence" | "unrecognized-settling-envelope";
 
-export interface TripwirePass {
+interface TripwirePass {
   readonly tripped: false;
   readonly reason: TripwirePassReason;
 }

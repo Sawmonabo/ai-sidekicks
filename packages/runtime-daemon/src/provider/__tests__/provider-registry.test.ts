@@ -29,7 +29,6 @@ import {
   type DriverCapabilityFlag,
   type DriverCliVersionReport,
   type DriverCompactionResult,
-  type DriverGoalResult,
   type DriverInterventionResult,
   type DriverResumeResult,
   type DriverRollbackResult,
@@ -154,10 +153,10 @@ class FakeProviderDriver implements ProviderDriver {
   respondToRequest(_params: RespondToRequestParams): Promise<void> {
     throw new Error("not implemented in test");
   }
-  setSessionGoal(_params: SetSessionGoalParams): Promise<DriverGoalResult> {
+  setSessionGoal(_params: SetSessionGoalParams): Promise<void> {
     throw new Error("not implemented in test");
   }
-  clearSessionGoal(_params: ClearSessionGoalParams): Promise<DriverGoalResult> {
+  clearSessionGoal(_params: ClearSessionGoalParams): Promise<void> {
     throw new Error("not implemented in test");
   }
   closeSession(_params: CloseSessionParams): Promise<void> {

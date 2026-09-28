@@ -2,22 +2,21 @@
 //
 // Single source of truth for the bounds applied to PROVIDER-DECLARED strings at
 // the moment they cross into durable Local SQLite storage. This is
-// DEFENSE-IN-DEPTH layered on top of the SQLite CHECK constraints shipped in
-// `migrations/0003-runtime-bindings.ts` — NOT a contract-layer schema.
+// DEFENSE-IN-DEPTH layered on top of the SQLite CHECK constraints in
+// `session/daemon-schema.ts` — NOT a contract-layer schema.
 // `packages/contracts/src/provider-driver.ts` deliberately does NOT re-parse
 // these fields; it documents that they are "bounded Phase-2 write seam", and
 // THIS module is that seam.
 //
 // Why a shared module (not inlined into RuntimeBindingStore):
 //   The same bounds govern two provider-output columns with identical SQL CHECKs
-//   — `runtime_bindings.contract_version` (this task) AND
+//   — `runtime_bindings.contract_version` AND
 //   `driver_contract_meta.contract_version`. Centralizing the bounds + the
 //   assert functions here means the const↔Zod↔SQL-CHECK coherence is asserted in
 //   ONE place and reused, rather than drifting across two call sites. The
-//   `cli_version_raw` / `cli_version_semver` pair added by migration
-//   `0011-driver-capability-currency.ts` has exactly the same two-table shape
-//   (`runtime_bindings` `driver_contract_meta` at the capability-writer
-//   widening), so `assertValidCliVersionReport` lands here for the same reason.
+//   `cli_version_raw` / `cli_version_semver` pair has exactly the same
+//   two-table shape (`runtime_bindings` and `driver_contract_meta`), so
+//   `assertValidCliVersionReport` lives here for the same reason.
 //
 
 // No `DriverCliVersionReport` type import: `assertValidCliVersionReport` takes
@@ -36,7 +35,7 @@ import semver from "semver";
  * Maximum length of a provider-declared `contract_version`.
  *
  * MUST stay in lockstep with the `length(contract_version) <= 64` SQL CHECK
- * literal in `migrations/0003-runtime-bindings.ts` on BOTH
+ * literal in `session/daemon-schema.ts` on BOTH
  * `runtime_bindings.contract_version` AND `driver_contract_meta.contract_version`.
  * The boundary tests in `__tests__/runtime-binding-store.test.ts` ENFORCE this
  * coherence end-to-end: a `CONTRACT_VERSION_MAX_LEN`-length value is INSERTed
@@ -51,7 +50,7 @@ export const CONTRACT_VERSION_MAX_LEN = 64;
  * Maximum length of a provider-owned opaque `resume_handle`.
  *
  * MUST stay in lockstep with the `length(resume_handle) <= 4096` SQL CHECK
- * literal in `migrations/0003-runtime-bindings.ts` on
+ * literal in `session/daemon-schema.ts` on
  * `runtime_bindings.resume_handle`. Enforced end-to-end by the boundary tests
  * (same mechanism as `CONTRACT_VERSION_MAX_LEN` above).
  */
@@ -62,7 +61,7 @@ export const RESUME_HANDLE_MAX_LEN = 4096;
  * (`DriverCliVersionReport.raw`).
  *
  * MUST stay in lockstep with the `length(cli_version_raw) <= 128` SQL CHECK
- * literal in `migrations/0011-driver-capability-currency.ts` on BOTH
+ * literal in `session/daemon-schema.ts` on BOTH
  * `runtime_bindings.cli_version_raw` AND `driver_contract_meta.cli_version_raw`.
  * Enforced end-to-end by the boundary tests (same mechanism as
  * `CONTRACT_VERSION_MAX_LEN` above).
@@ -81,7 +80,7 @@ export const CLI_VERSION_RAW_MAX_LEN = 128;
  * (`DriverCliVersionReport.semver`).
  *
  * MUST stay in lockstep with the `length(cli_version_semver) <= 64` SQL CHECK
- * literal in `migrations/0011-driver-capability-currency.ts` on BOTH
+ * literal in `session/daemon-schema.ts` on BOTH
  * `runtime_bindings.cli_version_semver` AND
  * `driver_contract_meta.cli_version_semver`. Same character-unit note as
  * `CLI_VERSION_RAW_MAX_LEN`.
@@ -151,7 +150,7 @@ export class ProviderOutputValidationError extends Error {
 // The build-metadata rejection is a DOCUMENTED CONTRACT RULE, not an incidental side
 // effect of `semver.valid`: `contract_version` is a canonical, IDENTIFYING semver
 // string. Accepting `1.2.3+build.5` and `1.2.3+build.6` as DISTINCT stored values
-// would spuriously fire `runtime_node.capability_updated` on a non-change (SemVer
+// would spuriously report a capability change on a non-change (SemVer
 // section 10 says they denote the SAME version) — the same defect class as the
 // tool-sort canonical-ordering guard.
 //
@@ -174,7 +173,7 @@ const resumeHandleSchema = wireFreeFormString(RESUME_HANDLE_MAX_LEN, "resume_han
 // The CLI-version pair. Both members are PROVIDER-DECLARED (the handshake
 // report the spawned process answers with), so they belong at this seam beside
 // `contract_version` / `resume_handle` — and both carry a SQL CHECK in
-// `0011-driver-capability-currency.ts` whose SQLite-expressible part (non-empty
+// `session/daemon-schema.ts` whose SQLite-expressible part (non-empty
 // + length + NUL-rejection) these schemas mirror, with `wireFreeFormString`'s
 // `/\S/` adding the same all-whitespace hardening the handles already get.
 //
@@ -187,9 +186,8 @@ const resumeHandleSchema = wireFreeFormString(RESUME_HANDLE_MAX_LEN, "resume_han
 // derives `semver` canonically by construction. What this refinement closes is
 // the seam accepting a bounded-but-unparseable string from ANY caller and
 // persisting it, where it would poison floor comparison at a call site far
-// from the row that produced it. The DDL CHECK on this
-// pair stays bounds-only — the shipped `0011` migration is frozen — so Zod is
-// deliberately the tighter gate, the module-wide pattern.
+// from the row that produced it. The DDL CHECK on this pair is bounds-only, so
+// Zod is deliberately the tighter gate, the module-wide pattern.
 const cliVersionRawSchema = wireFreeFormString(CLI_VERSION_RAW_MAX_LEN, "cli_version_raw");
 const cliVersionSemverSchema = wireFreeFormString(
   CLI_VERSION_SEMVER_MAX_LEN,
@@ -313,7 +311,7 @@ export function assertValidCliVersionReport(driverName: string, report: unknown)
  * `capabilities.contractVersion` / each tool entry — those keep their dedicated
  * downstream validators (`assertValidCapabilityFlags`,
  * `assertValidContractVersion`, `ProviderToolMetadataSchema.safeParse`). Full
- * value-normalization stays the Phase-3 driver adapter's job (see this module's
+ * value-normalization stays the driver adapter's job (see this module's
  * header / provider-driver.ts) boundary). Structural shape-guarding so no raw
  * error escapes is THIS seam's job; value-normalization is NOT.
  */
@@ -372,10 +370,10 @@ export function assertValidGetCapabilitiesResultShape(result: unknown): void {
  * keys for forward-compat) because each flag maps to a fixed CHECK-constrained
  * row — the set is closed for this contract version. The canonical key-set is
  * sourced from the contract (`DRIVER_CAPABILITY_FLAGS`), kept in lockstep with
- * the frozen migration-0003 CHECK list.
+ * the `driver_capabilities.capability_flag` CHECK list.
  *
  * NOT a re-parse of already-normalized provider output (provider-driver.ts)
- * value-normalization stays the Phase-3 driver adapter's job) — only the
+ * value-normalization stays the driver adapter's job) — only the
  * key-set cardinality this writer's schema choice created.
  *
  * Both halves are on an OWN-key basis (the cardinality check via `Object.keys`;

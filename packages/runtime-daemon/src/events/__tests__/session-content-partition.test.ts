@@ -112,6 +112,7 @@ import {
   type SessionContentKeySweepResult,
   type SessionContentKeyUnavailableReason,
 } from "../session-content-key-store.js";
+import { writeAcrossStrictTyping } from "../../session/__fixtures__/at-rest-tamper.js";
 import {
   GENESIS_PREV_HASH,
   verifyRow,
@@ -416,9 +417,11 @@ const KEY_STORE_FAILURE_MATRIX: readonly KeyStoreFailureCase[] = [
     reason: "wrapped_key_unopenable",
     arrange: async (store) => {
       await store.resolveForWrite(SESSION);
-      database
-        .prepare(`UPDATE session_content_keys SET encrypted_key_blob = ? WHERE session_id = ?`)
-        .run("not a blob", SESSION);
+      writeAcrossStrictTyping(database, "session_content_keys", () => {
+        database
+          .prepare(`UPDATE session_content_keys SET encrypted_key_blob = ? WHERE session_id = ?`)
+          .run("not a blob", SESSION);
+      });
       return store.read(SESSION);
     },
   },
@@ -1282,19 +1285,20 @@ describe("codec refusals over the content partition", () => {
     // guard that parsed every row would make this codec the one place the
     // carrier is not tolerated. This payload would satisfy no registered
     // variant — it declares a member none of them knows — and the row seals
-    // anyway, because no variant claims to interpret `user.exported`.
+    // anyway, because `user.message` is in the census but no payload variant
+    // claims to interpret it.
     const result = await seal(
       {
         ...makePiiCarryingInput(),
-        type: "user.exported",
-        category: "user_lifecycle",
+        type: "user.message",
+        category: "interactive_request",
         payload: { improvisedMember: "a higher-MINOR producer's member" },
       } as unknown as RawEventInput,
       new DeterministicPiiEncryptor(),
     );
 
     expect(result.piiPayload).toBeInstanceOf(Uint8Array);
-    // The perturbation back: the identical payload on a REGISTERED type is
+    // The perturbation back: the identical payload on a type WITH a variant is
     // refused, so the seal above is a fact about the dispatch rather than about
     // the guard having quietly stopped firing.
     await expect(

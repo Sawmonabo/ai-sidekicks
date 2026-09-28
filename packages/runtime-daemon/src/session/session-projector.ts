@@ -3,21 +3,14 @@
 // layer (session-service.ts) reads events from SQLite and feeds them in
 // `sequence ASC` order.
 //
-// Event coverage:
-//   * session.created — bootstrap the session, record its owner, and
-//                       synthesize the main channel (a projected
-//                       structural invariant; see below)
-//   * channel.created — append a channel row
+// Event coverage: `session.created` bootstraps the session and records its
+// owner; every other event type only advances `asOfSequence` (a second
+// `session.created` throws).
 //
 // Bootstrap contract: a single `session.created` event MUST yield a
-// snapshot naming the owner (read off the envelope's `actor`) AND carrying
-// the bootstrap main channel, whose id is derived via the shared
-// `deriveMainChannelId` from `@ai-sidekicks/contracts` (RFC 9562 section 5.8
-// UUIDv8). Every newly-created session therefore has a stable id, a known
-// owner, and a default channel from its first event onward — the projector
-// synthesizes the channel rather than waiting for a separate
-// `channel.created` envelope. The main channel is a PROJECTED STRUCTURAL
-// INVARIANT (1:1 with the session), NOT an event-sourced row.
+// snapshot naming the owner (read off the envelope's `actor`), so every
+// newly-created session has a stable id and a known owner from its first
+// event onward.
 //
 // Ordering contract: `replay()` consumes events in the exact order it
 // receives them. The service layer is responsible for sorting by
@@ -26,9 +19,7 @@
 // sequence-not-monotonic_ns invariant without contaminating projector
 // logic.
 
-import { deriveMainChannelId, MAIN_CHANNEL_NAME } from "@ai-sidekicks/contracts";
-
-import type { ChannelProjection, DaemonSessionSnapshot, StoredEvent } from "./types.js";
+import type { DaemonSessionSnapshot, StoredEvent } from "./types.js";
 
 // --------------------------------------------------------------------------
 // Replay
@@ -78,10 +69,10 @@ export function replay(events: ReadonlyArray<StoredEvent>): DaemonSessionSnapsho
  * Apply a single event to the running snapshot. Pure: returns a new
  * snapshot, does not mutate the input.
  *
- * Unknown event types are tolerated as a no-op — the projector folds only
- * the two variants below, but the daemon may receive later event types
- * during forward-compatible replay, where MINOR-version additions to the
- * event union are non-breaking by construction.
+ * Every type other than `session.created` is a no-op that advances
+ * `asOfSequence`: the daemon may receive later event types during
+ * forward-compatible replay, where MINOR-version additions to the event
+ * union are non-breaking by construction.
  */
 export function projectEvent(
   snapshot: DaemonSessionSnapshot,
@@ -105,10 +96,8 @@ export function projectEvent(
       throw new Error(
         `projectEvent: 'session.created' may only appear at sequence=0 (got sequence=${String(event.sequence)})`,
       );
-    case "channel.created":
-      return applyChannelCreated(snapshot, event);
     default:
-      // Forward-compatible no-op for unknown event types.
+      // Forward-compatible no-op for every other event type.
       // TODO: bump an unknown_event_type_skipped counter so the
       // observability surface sees forward-compat skips at runtime instead
       // of swallowing them silently.
@@ -117,8 +106,7 @@ export function projectEvent(
 }
 
 // --------------------------------------------------------------------------
-// Bootstrap from session.created — records the owner, synthesizes the main
-// channel.
+// Bootstrap from session.created — records the owner.
 // --------------------------------------------------------------------------
 
 function bootstrapFromCreated(event: StoredEvent): DaemonSessionSnapshot {
@@ -140,98 +128,17 @@ function bootstrapFromCreated(event: StoredEvent): DaemonSessionSnapshot {
   const ownerActor: string | null =
     rawOwnerActor !== null && rawOwnerActor.length > 0 ? rawOwnerActor : null;
 
-  const mainChannel: ChannelProjection = {
-    channelId: deriveMainChannelId(event.sessionId),
-    name: MAIN_CHANNEL_NAME,
-    createdAt: event.occurredAt,
-  };
-
   return {
     sessionId: event.sessionId,
     // A newly created session starts in `provisioning` and transitions to
-    // `active` once storage and control-plane metadata are ready, announced
-    // by a distinct `session.activated` event. The full canonical lifecycle
-    // is provisioning → active → archived/closed → purge_requested →
-    // purged; the wire enum is `SessionState` in
-    // `packages/contracts/src/session.ts`.
+    // `active` once its storage is ready, announced by a distinct
+    // `session.activated` event. The full canonical lifecycle is provisioning →
+    // active → archived/closed → purge_requested → purged; the wire enum is
+    // `SessionState` in `packages/contracts/src/session.ts`.
     // TODO: handle `session.activated` and transition to `active`.
     state: "provisioning",
     createdAt: event.occurredAt,
     asOfSequence: event.sequence,
     ownerActor,
-    channels: [mainChannel],
-  };
-}
-
-// --------------------------------------------------------------------------
-// channel.created — appends a channel (idempotent on channelId).
-// --------------------------------------------------------------------------
-
-function applyChannelCreated(
-  snapshot: DaemonSessionSnapshot,
-  event: StoredEvent,
-): DaemonSessionSnapshot {
-  // Step 1: validate channelId. `channelId` is REQUIRED on the wire
-  // (`ChannelIdSchema` is non-optional in `channelCreatedPayloadSchema`),
-  // so a missing/empty value is a producer bug at any sequence.
-  const channelId: unknown = event.payload["channelId"];
-  if (typeof channelId !== "string" || channelId.length === 0) {
-    throw new Error(
-      `applyChannelCreated: payload.channelId must be a non-empty string at sequence=${String(event.sequence)}`,
-    );
-  }
-
-  // Step 2: idempotent no-op for already-known channels. This guard is
-  // LOAD-BEARING and runs BEFORE optional-field validation so that a
-  // duplicate-main-channel event (which the audit-log consolidation may
-  // legitimately emit when bootstrap becomes a real event) survives
-  // even if it omits the wire-optional `name`. Without the early return,
-  // a perfectly-valid duplicate envelope with the wire-permissible
-  // omitted `name` would crash projection in the next step.
-  // TODO: when `channel.created` becomes the authoritative source for the
-  // main channel, the bootstrap synthesis here should be gated on whether
-  // the event log already contains an explicit
-  // `channel.created` for the derived main-channel id.
-  const alreadyExists: boolean = snapshot.channels.some((c) => c.channelId === channelId);
-  if (alreadyExists) {
-    return { ...snapshot, asOfSequence: event.sequence };
-  }
-
-  // Step 3: validate `name` IF PRESENT. The wire schema (per
-  // `channelCreatedPayloadSchema` in `packages/contracts/src/event.ts`)
-  // declares `name` as `wireFreeFormString(...).optional()` — the key
-  // may be absent/undefined. We mirror that on the daemon side: omitted
-  // is fine, but a present-but-non-string or present-but-empty value is
-  // a producer bug (mirrors `wireFreeFormString`'s whitespace-rejection
-  // stance). The check is intentionally typeof-guard + length, NOT a
-  // `==` against undefined, because `payload.name === undefined` is
-  // indistinguishable from a missing key on a JSON-derived object.
-  const rawName: unknown = event.payload["name"];
-  let name: string | undefined;
-  if (rawName === undefined) {
-    name = undefined;
-  } else if (typeof rawName === "string" && rawName.length > 0) {
-    name = rawName;
-  } else {
-    throw new Error(
-      `applyChannelCreated: payload.name must be a non-empty string when present at sequence=${String(event.sequence)} (got ${typeof rawName === "string" ? "''" : typeof rawName})`,
-    );
-  }
-
-  // Step 4: append. `name` is omitted from the projection literal when
-  // undefined (the `name?: string` shape on `ChannelProjection` matches
-  // the wire optionality semantics). `exactOptionalPropertyTypes` is on
-  // for the daemon, so we conditionally spread rather than assign
-  // `name: undefined` — assigning undefined to an optional field is a
-  // type error under that flag.
-  const newChannel: ChannelProjection = {
-    channelId,
-    ...(name !== undefined ? { name } : {}),
-    createdAt: event.occurredAt,
-  };
-  return {
-    ...snapshot,
-    asOfSequence: event.sequence,
-    channels: [...snapshot.channels, newChannel],
   };
 }

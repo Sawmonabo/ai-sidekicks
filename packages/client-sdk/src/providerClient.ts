@@ -2,14 +2,11 @@
 //
 // DAEMON-ONLY, AND THAT IS THE WHOLE DESIGN. There is exactly one factory here
 // and there will not be a second: `createDaemonProviderClient(JsonRpcClient):
-// DriverClient` with no control-plane variant, because places driver authority
-// in the local daemon. The two sibling clients in this package
-// (`sessionClient.ts`, `runtimeNodeClient.ts`) each ship a daemon factory AND a
-// control-plane factory; the asymmetry here is deliberate, and its absence is
-// the enforcement. A control-plane factory would be a wire path by which a
-// client executed a provider somewhere other than the node that owns the
-// process, which is the exact thing forbids — so the invariant survives contact
-// with this package by there being no such function to call.
+// DriverClient` with no control-plane variant, because driver authority lives
+// in the local daemon, and the absence of that variant is the enforcement. A
+// control-plane factory would be a wire path by which a client executed a
+// provider somewhere other than the node that owns the process; there is no
+// such function to call.
 //
 // NINE METHODS, AND THE FOUR THAT ARE MISSING ARE THE CONTRACT. `ProviderDriver`
 // carries eighteen operations. Four of them — `createSession`, `resumeSession`,
@@ -102,17 +99,12 @@ import type { LocalSubscriptionConsumer } from "./transport/types.js";
  * dotted-camelCase long form require.
  *
  * Authored as local string constants rather than imported symbols, matching
- * `sessionClient.ts`'s `SESSION_METHOD_*` and `runtimeNodeClient.ts`'s
- * `RUNTIME_NODE_METHOD_*` tables: the wire name is a protocol fact shared with
- * the daemon's `register()` calls, and centralizing it here means a future
- * namespace evolution edits one location per side rather than scattered
- * literals. The daemon's own copies live in `driver-handlers.ts` and
+ * `sessionClient.ts`'s `SESSION_METHOD_*` table: the wire name is a protocol
+ * fact shared with the daemon's `register()` calls, and centralizing it here
+ * means a future namespace evolution edits one location per side rather than
+ * scattered literals. The daemon's own copies live in `driver-handlers.ts` and
  * `driver-subscribe.ts`; the pair is kept honest by the round-trip tests, which
  * dispatch these exact strings against a registry the daemon bound.
- *
- * Unlike the runtime-node table, every name here routes on the daemon transport
- * — there is no control-plane-only row, because there is no control-plane
- * driver transport at all (see the file header).
  */
 const DRIVER_METHOD_LIST_CAPABILITIES = "driver.listCapabilities";
 const DRIVER_METHOD_LIST_MODELS = "driver.listModels";
@@ -191,15 +183,7 @@ export interface DriverClient {
   /** Interrupt the run's in-flight turn. Resolves the empty ack on success. */
   interruptRun(params: InterruptRunParams): Promise<DriverAckResult>;
 
-  /**
-   * Apply a `steer` / `interrupt` / `cancel` intervention to a run.
-   *
-   * `rollback` is deliberately NOT reachable here:
-   * `ApplyInterventionParamsSchema` is a discriminated union over three arms, so
-   * a `type: "rollback"` request fails the caller-side params parse at the
-   * discriminator before any wire write. Rollback is content driven through its
-   * own intervention path against the driver-side `rollbackTo` operation.
-   */
+  /** Apply a `steer` / `interrupt` / `cancel` intervention to a run. */
   applyIntervention(params: ApplyInterventionParams): Promise<DriverInterventionResult>;
 
   /** Answer a provider-raised interactive request. Resolves the empty ack. */
@@ -277,8 +261,7 @@ export interface DriverClient {
  * rather than being flattened into a boolean or laundered into a throw.
  *
  * A daemon-side refusal surfaces as `JsonRpcRemoteError` carrying the registered
- * dotted code — this path does NOT carry the control-plane clients' typed
- * `aisError` parsing, which is an HTTP/tRPC envelope concern.
+ * dotted code.
  */
 export function createDaemonProviderClient(client: JsonRpcClient): DriverClient {
   return {

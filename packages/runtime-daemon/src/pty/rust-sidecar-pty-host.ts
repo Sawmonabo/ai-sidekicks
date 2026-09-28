@@ -332,8 +332,8 @@ export const CRASH_BUDGET_LIMIT = 5;
  * the contract.
  *
  */
-export const MAX_PRE_SPAWN_DATA_CHUNKS_PER_SESSION = 64;
-export const MAX_PRE_SPAWN_BUFFERED_SESSIONS = 64;
+const MAX_PRE_SPAWN_DATA_CHUNKS_PER_SESSION = 64;
+const MAX_PRE_SPAWN_BUFFERED_SESSIONS = 64;
 
 /**
  * Closed-session-id retention cap with FIFO eviction.
@@ -352,7 +352,7 @@ export const MAX_PRE_SPAWN_BUFFERED_SESSIONS = 64;
  * bursts and bounds memory at ~80 KiB (entry size ≈ 8 bytes for a
  * `s-{n}` string literal in V8).
  */
-export const MAX_CLOSED_SESSION_IDS = 10_000;
+const MAX_CLOSED_SESSION_IDS = 10_000;
 
 // --------------------------------------------------------------------------
 // Default deps resolution
@@ -1510,12 +1510,8 @@ export class RustSidecarPtyHost implements PtyHost {
   }
 
   /**
-   * Drain every active session and wind down the sidecar process in
-   * preparation for desktop-shell termination.
-   *
-   * `apps/desktop/src/main/sidecar-lifecycle.ts` before any
-   * Electron `app.on('will-quit',...)` registration so the FIFO
-   * registration-order invariant holds.
+   * Drain every active session and wind down the sidecar process when the
+   * service stops.
    *
    * Shutdown sequence:
    *   1. Flip `shuttingDown` at entry — `ensureChild` refuses new
@@ -1629,19 +1625,13 @@ export class RustSidecarPtyHost implements PtyHost {
       // `ExitCodeNotification`, so a wedged sidecar (process alive, IPC
       // handler unresponsive) cannot stall the drain.
       //
-      // Wedge-scenario bug pin: the prior shape awaited `sendRequest`
-      // BEFORE arming the timer. If `kill_response` never arrived (and
-      // `sendRequest` did not reject — e.g., the sidecar process was
-      // alive but the IPC dispatcher loop was wedged), the per-session
-      // `setTimeout` was never armed, `drainSingleSession` never
-      // returned, `Promise.all` over `activeSessionIds.map(drainSingleSession,
-      // ...)` in `runShutdown` blocked forever, `drainSidecarHost`
-      // never ran, the outer `hardCap` in `sidecar-lifecycle.ts` fired
-      // while `shutdownPromise` (memoized at L1189) stayed pending
-      // forever, and every future `shutdown()` call was locked onto
-      // that dead promise. The fix wraps the SIGTERM IPC + drain wait
-      // in a single `gracefulDrain` Promise and races it against the
-      // per-session timer up front.
+      // Awaiting `sendRequest` before arming the timer would let a
+      // `kill_response` that never arrives block `drainSingleSession`, and
+      // with it `runShutdown`'s `Promise.all`: `drainSidecarHost` would never
+      // run, the service's stop would never finish, and every later
+      // `shutdown()` call would be locked onto the pending memoized promise.
+      // So the SIGTERM IPC and the drain wait are one `gracefulDrain` Promise,
+      // raced against the per-session timer.
       let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
       const timeoutPromise: Promise<"timeout"> = new Promise<"timeout">((resolve) => {
         timeoutHandle = setTimeout(() => {

@@ -4,8 +4,7 @@
   // excludes `src/**/__tests__/**` so unit tests under `src/` don't ship in
   // `dist/`; integration tests under `test/` are outside the production
   // `include` glob entirely. This config covers BOTH via a `noEmit` typecheck
-  // pass — `rootDir` widens to the package root so `test/**/*` is in-scope
-  // (`test/transport/sse-roundtrip.test.ts`).
+  // pass — `rootDir` widens to the package root so `test/**/*` is in-scope.
   "extends": "../../tsconfig.node22.json",
   "compilerOptions": {
     "noEmit": true,

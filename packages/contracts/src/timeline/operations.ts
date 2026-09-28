@@ -78,11 +78,9 @@ import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "../jsonrp
 import { RunIdSchema, type RunId } from "../provider-driver.js";
 import { RunStateSchema, type RunState } from "../runControl.js";
 import {
-  ChannelIdSchema,
   EventCursorSchema,
   SessionIdSchema,
   wireFreeFormString,
-  type ChannelId,
   type EventCursor,
   type SessionId,
 } from "../session.js";
@@ -302,17 +300,13 @@ export const TIMELINE_READ_LIMIT_MAX = 256;
  *
  * `afterCursor` and `beforeCursor` are independently optional — the pair spans
  * forward paging, backward paging, and a bounded range — and both are the
- * opaque `EventCursor` owns. `channelId` filters to one channel's rows that
- * filter NEVER suppresses a `run.rolled_back` boundary for a run whose rows
- * the filter admits, which is a delivery rule the daemon enforces and not
- * something this request shape can express.
+ * opaque `EventCursor` owns.
  */
 export interface TimelineReadRequest {
   sessionId: SessionId;
   afterCursor?: EventCursor | undefined;
   beforeCursor?: EventCursor | undefined;
   limit?: number | undefined;
-  channelId?: ChannelId | undefined;
 }
 
 /**
@@ -325,7 +319,6 @@ export const TimelineReadRequestSchema: z.ZodType<TimelineReadRequest, TimelineR
     afterCursor: EventCursorSchema.optional(),
     beforeCursor: EventCursorSchema.optional(),
     limit: z.number().int().positive().max(TIMELINE_READ_LIMIT_MAX).optional(),
-    channelId: ChannelIdSchema.optional(),
   })
   .strict();
 
@@ -424,14 +417,11 @@ export const TimelineReadResponseSchema: z.ZodType<TimelineReadResponse> = z
  * delivery gaps occur, the client must request replay from the canonical event
  * source").
  *
- * Deliberately carries no `lastEventId`: that member exists on
- * `SessionSubscribeRequest` because tRPC's HTTP substrate injects the
- * `Last-Event-ID` resumption header into the input object pre-validation.
+ * Resumption is by `afterCursor` alone; the stream carries no `lastEventId`.
  */
 export interface TimelineSubscribeRequest {
   sessionId: SessionId;
   afterCursor?: EventCursor | undefined;
-  channelId?: ChannelId | undefined;
 }
 
 export const TimelineSubscribeRequestSchema: z.ZodType<
@@ -441,7 +431,6 @@ export const TimelineSubscribeRequestSchema: z.ZodType<
   .object({
     sessionId: SessionIdSchema,
     afterCursor: EventCursorSchema.optional(),
-    channelId: ChannelIdSchema.optional(),
   })
   .strict();
 

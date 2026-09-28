@@ -33,10 +33,10 @@
 //
 // What this file does NOT do (deferred to siblings):
 //   * Domain-side `createSession` business logic — owned by the daemon's
-//     session/control-plane bridge (downstream `SessionDirectoryService`
-//     integration). This file consumes the resulting projection through
-//     the `SessionCreateDeps.createSession` callback; the deps'
-//     implementor is responsible for shape-conformant return values.
+//     own session store, the one store a session lives in. This file
+//     consumes the resulting projection through the
+//     `SessionCreateDeps.createSession` callback; the deps' implementor is
+//     responsible for shape-conformant return values.
 //   * Persistence / event-append — owned by the daemon's session service
 //     (`runtime-daemon/src/session/session-service.ts`). The deps closure
 //     typically calls into that service.
@@ -65,13 +65,9 @@ import { SessionCreateRequestSchema, SessionCreateResponseSchema } from "@ai-sid
 /**
  * Dependencies required by `session.create`'s handler closure.
  *
- * Why a deps interface (rather than a free-function closure imported
- * directly): each handler file is registry-binding code that is
- * orthogonal to the daemon's domain implementation. supplies the
- * concrete `createSession` callback during bootstrap; decoupling here
- * lets inject test doubles without monkey-patching, and lets future
- * amendments swap the domain backend (e.g. control-plane bridge)
- * without touching this file.
+ * Bootstrap supplies the concrete `createSession` callback, so this
+ * registry-binding file stays apart from the domain and tests can inject
+ * doubles without monkey-patching.
  */
 export interface SessionCreateDeps {
   /**

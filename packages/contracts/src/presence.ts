@@ -8,9 +8,8 @@
 // session.
 //
 // `PresenceState` is the canonical device-liveness enum. The heartbeat carries
-// the five metadata fields a device reports about itself
-// (`{deviceType, focusedSessionId, focusedChannelId, lastActivityAt,
-// appVisible}`).
+// the four metadata fields a device reports about itself
+// (`{deviceType, focusedSessionId, lastActivityAt, appVisible}`).
 //
 // Presence is in-memory only: these schemas are for WIRE TRANSIT ONLY and MUST
 // NOT be persisted to SQLite or Postgres. The register service garbage-collects
@@ -28,13 +27,7 @@
 import { z } from "zod";
 
 import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "./jsonrpc-streaming.js";
-import {
-  ChannelIdSchema,
-  SessionIdSchema,
-  wireFreeFormString,
-  type ChannelId,
-  type SessionId,
-} from "./session.js";
+import { SessionIdSchema, wireFreeFormString, type SessionId } from "./session.js";
 
 // --------------------------------------------------------------------------
 // Re-exports from session.ts
@@ -49,8 +42,8 @@ import {
 // + `verbatimModuleSyntax` posture from tsconfig.base.json forbids erased
 // re-exports on the runtime form).
 
-export type { ChannelId, SessionId } from "./session.js";
-export { ChannelIdSchema, SessionIdSchema } from "./session.js";
+export type { SessionId } from "./session.js";
+export { SessionIdSchema } from "./session.js";
 
 // --------------------------------------------------------------------------
 // PresenceState — canonical device-liveness enum
@@ -96,25 +89,22 @@ export const DEVICE_TYPE_MAX_LEN = 64;
 //
 // Outer fields (2 required): `{deviceId, activityState}`.
 //
-// Metadata sub-object (all 5 REQUIRED; 2 nullable):
+// Metadata sub-object (all 4 REQUIRED; 1 nullable):
 //   `metadata: {
 //     deviceType: string;                       // required
 //     focusedSessionId: SessionId | null;       // REQUIRED key, nullable value
-//     focusedChannelId: ChannelId | null;       // REQUIRED key, nullable value
 //     lastActivityAt: string;                   // required, ISO 8601 timestamp
 //     appVisible: boolean;                      // required
 //   }`
 //
-// Both outer fields and ALL 5 metadata fields are REQUIRED at parse time —
-// the keys MUST be present in every heartbeat payload. The two nullable
-// metadata fields (`focusedSessionId`, `focusedChannelId`) encode the no-
-// focus case as serialized `null` (the key is present with value `null`),
-// NOT as an absent key. Heartbeats fire on the daemon-bound transport
-// regardless of whether the device is currently focused on a session or
-// channel.
+// Both outer fields and ALL 4 metadata fields are REQUIRED at parse time —
+// the keys MUST be present in every heartbeat payload. The nullable
+// `focusedSessionId` encodes the no-focus case as serialized `null` (the key
+// is present with value `null`), NOT as an absent key. Heartbeats fire on the
+// daemon-bound transport whether or not the device is focused on a session.
 //
 // Why nullable, not optional: the FIELD SET is the floor. The `.nullable()`
-// shape preserves "5 keys always present" while admitting the no-focus
+// shape preserves "4 keys always present" while admitting the no-focus
 // runtime case. `.optional()` would let producers omit the key entirely;
 // `.nullish()` would re-admit the absent-key case under a different name —
 // explicitly NOT used here.
@@ -125,13 +115,13 @@ export const DEVICE_TYPE_MAX_LEN = 64;
 // `lastActivityAt` follows the session.ts ISO 8601 convention (RFC 3339
 // — accepts both Z-suffixed UTC and numeric offsets like "+00:00").
 
+/** A device's periodic presence report: what it is doing and which session it has in focus. */
 export interface PresenceHeartbeat {
   deviceId: string;
   activityState: PresenceState;
   metadata: {
     deviceType: string;
     focusedSessionId: SessionId | null;
-    focusedChannelId: ChannelId | null;
     lastActivityAt: string;
     appVisible: boolean;
   };
@@ -150,7 +140,6 @@ export const PresenceHeartbeatSchema: z.ZodType<PresenceHeartbeat, PresenceHeart
           "PresenceHeartbeat.metadata.deviceType",
         ),
         focusedSessionId: SessionIdSchema.nullable(),
-        focusedChannelId: ChannelIdSchema.nullable(),
         lastActivityAt: z.iso.datetime({ offset: true }),
         appVisible: z.boolean(),
       })
@@ -271,10 +260,9 @@ export const PresenceReadResponseSchema: z.ZodType<PresenceReadResponse, Presenc
  * two surfaces diverge independently if either request later gains a field,
  * with zero churn on the other.
  *
- * Carries NO replay cursors — unlike `SessionSubscribeRequest`, which carries
- * `afterCursor` / `lastEventId` for durable event-log replay. Presence pushes
- * live in-memory CRDT state; there is no durable cursor to replay, so the
- * request stays minimal.
+ * Carries NO replay cursor — unlike `SessionSubscribeRequest`, which carries
+ * `afterCursor` for durable event-log replay. Presence pushes live in-memory
+ * state; there is no durable cursor to replay, so the request stays minimal.
  */
 export interface PresenceSubscribeRequest {
   sessionId: SessionId;

@@ -53,13 +53,11 @@
 // cadence period; mid-run credential expiry stays the live-signal path
 // (`RecoveryCondition` `reauth-required`), not this poll's.
 //
-// Change-detected emission is the WRITER's: `refreshDeclaration`
-// declares through `DriverCapabilitiesWriter`, which compares the reconstructed
-// snapshot against the cached rows and emits `runtime_node.capability_updated`
-// only on an actual difference (no new event type). This scheduler deliberately
-// carries no event sink and adds no second change detection: a no-op poll and an
-// auth-only change append nothing to the timeline, because the auth-state record
-// updates out-of-band of the event surface.
+// Change detection is the WRITER's: `refreshDeclaration` declares through
+// `DriverCapabilitiesWriter`, which compares the reconstructed snapshot against
+// the cached rows and writes only on an actual difference. This scheduler adds
+// no second change detection, and an auth-only change touches only the
+// auth-state record below.
 //
 // The auth-state record lives HERE because no earlier task minted one: the
 // scheduler is the daemon's per-(node, driver) auth-state owner, and run
@@ -263,8 +261,8 @@ export interface CapabilityRefreshDriverEntry {
    * attach-time reading would make a capability that has since disappeared
    * invisible until the next attach, and would report `probed` provenance for an
    * answer no longer measured. A flag a re-probe withdraws changes the snapshot,
-   * so the writer's own change detection turns it into exactly one
-   * `runtime_node.capability_updated` — an unchanged poll still emits nothing.
+   * so the writer's own change detection reports it `changed` — an unchanged
+   * poll still writes nothing.
    */
   readonly refreshDeclaration: () => Promise<DeclareDriverCapabilitiesResult>;
   /** The zero-turn authentication probe, paired with every refresh. */
@@ -591,7 +589,7 @@ export class CapabilityRefreshScheduler {
       this.#reportFailure(nodeId, entry.driverName, "capability-refresh", refreshOutcome);
     }
     // A fulfilled refresh needs no reaction here: the writer already decided
-    // declared/updated/noop and emitted (or deliberately did not)
+    // created/changed/unchanged and wrote (or deliberately did not).
 
     if (probeOutcome.settled === "fulfilled") {
       this.#recordAuthState(nodeId, generation, entry.driverName, {

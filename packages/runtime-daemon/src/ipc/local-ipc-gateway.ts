@@ -138,7 +138,7 @@ const HEADER_BODY_SEPARATOR = "\r\n\r\n";
  * stable for the lifetime of the connection and is the only value
  * supervision consumers (the desktop-shell) should key off.
  */
-export interface SupervisionTransport {
+interface SupervisionTransport {
   readonly id: number;
   readonly remoteFamily: "unix" | "pipe" | "tcp" | "unknown";
 }

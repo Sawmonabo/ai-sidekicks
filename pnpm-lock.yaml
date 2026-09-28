@@ -259,15 +259,6 @@ importers:
         specifier: ^4.3.6
         version: 4.3.6
     devDependencies:
-      '@ai-sidekicks/control-plane':
-        specifier: workspace:*
-        version: link:../control-plane
-      '@electric-sql/pglite':
-        specifier: ^0.4.4
-        version: 0.4.4
-      '@trpc/server':
-        specifier: ^11.17.0
-        version: 11.17.0(typescript@5.9.3)
       '@vitest/coverage-v8':
         specifier: catalog:testing
         version: 4.1.5(@vitest/browser@4.1.5)(vitest@4.1.5)
@@ -277,9 +268,6 @@ importers:
 
   packages/contracts:
     dependencies:
-      '@noble/hashes':
-        specifier: ^2
-        version: 2.2.0
       zod:
         specifier: ^4.3.6
         version: 4.3.6
@@ -296,9 +284,6 @@ importers:
       '@ai-sidekicks/contracts':
         specifier: workspace:*
         version: link:../contracts
-      '@ai-sidekicks/crypto-paseto':
-        specifier: workspace:*
-        version: link:../crypto-paseto
       '@trpc/server':
         specifier: ^11.17.0
         version: 11.17.0(typescript@5.9.3)

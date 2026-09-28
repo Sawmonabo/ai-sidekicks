@@ -286,8 +286,7 @@ interface DaemonSigningKeyRow {
  *
  * LOCAL SQLITE, NOT SHARED POSTGRES. A daemon signing key attests that THIS node emitted
  * a row, so replicating it would defeat the attestation and put daemon-private material
- * in the control plane. The canonical DDL is mirrored by
- * `migrations/0005-daemon-signing-keys.ts`.
+ * in the control plane. The table is `daemon_signing_keys` in `daemon-schema.ts`.
  *
  * NO ROTATE OPERATION IN V1. `daemon_signing_keys.rotated_at` exists in the
  * canonical DDL as reserved storage for a rotation ceremony no V1 document

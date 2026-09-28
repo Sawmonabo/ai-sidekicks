@@ -147,42 +147,6 @@ export const CLAUDE_INIT_CAPABILITY_TOKENS: readonly string[] = Object.freeze([
 ] as const);
 
 /**
- * The `get_usage` response window keys at the pin, plus the two sibling fields
- * that gate reading them.
- *
- * Kept beside the stream census because `system/rate_limit_event` is the
- * PREFERRED carrier for the same account-plane quota data - a push channel that
- * does not require the experimental `get_usage` round trip - so a reader
- * comparing the two surfaces needs both in one place.
- */
-export const CLAUDE_GET_USAGE_RATE_LIMIT_WINDOW_KEYS: readonly string[] = Object.freeze([
-  "five_hour",
-  "seven_day",
-  "seven_day_oauth_apps",
-  "seven_day_opus",
-  "seven_day_sonnet",
-] as const);
-
-/** The `get_usage` response fields that must be read BEFORE `rate_limits`. */
-export const CLAUDE_GET_USAGE_GATING_FIELDS: readonly string[] = Object.freeze([
-  "rate_limits_available",
-  "subscription_type",
-] as const);
-
-/**
- * The `get_binary_version` response member names.
- *
- * The census records the in-band version channel returning `{ version,
- * buildTime }` for the build actually running, and warns that
- * `claude --version` reports the launcher's build instead - the two came apart
- * mid-census.
- */
-export const CLAUDE_GET_BINARY_VERSION_RESPONSE_MEMBERS: readonly [string, string] = Object.freeze([
-  "version",
-  "buildTime",
-] as const);
-
-/**
  * The pinned CLI version every vector in this directory is recorded against.
  *
  * NOT the build the schema-constructor census was extracted from - that was

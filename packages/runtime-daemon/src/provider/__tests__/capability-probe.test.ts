@@ -1,7 +1,6 @@
 // Per-capability zero-turn detection.
 //
-// Coverage map — the plan's Tests field is the contract, and each clause below
-// names the block that discharges it:
+// Coverage map — each clause below names the block that discharges it:
 //
 //   * "the mechanism table is TOTAL over the flag set for each driver, every
 //     `static` entry names a failing conjunct, and an entry claiming `probed`
@@ -32,11 +31,11 @@
 //     composition site refuses two readings that disagree
 //   * a withdrawal reaches the driver diagnostic band, and an all-accepted read
 //     emits nothing
-//   * "a flag moving `true` → `false` across two polls emits exactly one
-//     `runtime_node.capability_updated` and an unchanged poll emits none" — over
-//     the REAL `DriverCapabilitiesWriter` and a real SQLite handle. A recording
-//     sink fake could not discharge this: change detection lives in the writer,
-//     so a fake would be asserting its own canned discriminant.
+//   * a flag moving `true` → `false` across two polls reports exactly one
+//     `"changed"` snapshot and an unchanged poll reports `"unchanged"` — over the
+//     REAL `DriverCapabilitiesWriter` and a real SQLite handle. A recording sink
+//     fake could not discharge this: change detection lives in the writer, so a
+//     fake would be asserting its own canned discriminant.
 //
 
 import type { Database as DatabaseType } from "better-sqlite3";
@@ -47,14 +46,8 @@ import {
   type CapabilityDetectionSource,
   type DriverCapabilityFlag,
   type GetCapabilitiesResult,
-  type SessionId,
 } from "@ai-sidekicks/contracts";
 
-import { EventLogService } from "../../events/event-log-service.js";
-import { __resetSessionAppendLocksForTest } from "../../events/session-append-lock.js";
-import type { Ed25519PrivateKey, Ed25519PublicKey } from "../../events/signer.js";
-import type { DaemonSigningKeySource } from "../../events/signing-key-source.js";
-import { RuntimeNodeEventEmitter } from "../../node/node-event-emitter.js";
 import { openDatabase } from "../../session/migration-runner.js";
 import {
   RecordingCapabilityProbeTransport,
@@ -91,7 +84,10 @@ import {
 } from "../capability-probe.js";
 import type { FlooredDriverName } from "../capability-refresh.js";
 import { DriverCliVersionBelowFloorError } from "../capability-refresh.js";
-import { DriverCapabilitiesWriter } from "../driver-capabilities-writer.js";
+import {
+  DriverCapabilitiesWriter,
+  type DeclareDriverCapabilitiesResult,
+} from "../driver-capabilities-writer.js";
 import {
   DRIVER_DIAGNOSTIC_COUNTER_NAMES,
   DriverDiagnosticsEmitter,
@@ -519,11 +515,10 @@ describe("zero billed turns, asserted at the provider transport", () => {
   it("an ATTACH that probes issues no turn-start and no user message (Codex)", async () => {
     const transport = new RecordingCapabilityProbeTransport("codex");
     const sink = {
-      declare: () => Promise.resolve({ emitted: "declared" as const, cliVersionRefreshed: true }),
+      declare: () =>
+        Promise.resolve({ snapshotChange: "created" as const, cliVersionRefreshed: true }),
     };
     await refreshCodexCapabilities(sink, {
-      sessionId: "session-probe",
-      nodeId: "node-probe",
       reading: CODEX_VERSION_READING,
       probe: transport.exchange,
       diagnostics: recordingDiagnostics().emitter,
@@ -1083,11 +1078,10 @@ describe("a successful read that withdrew a flag reaches the diagnostic band", (
     const { emitter } = recordingDiagnostics();
     await refreshCodexCapabilities(
       {
-        declare: () => Promise.resolve({ emitted: "declared" as const, cliVersionRefreshed: true }),
+        declare: () =>
+          Promise.resolve({ snapshotChange: "created" as const, cliVersionRefreshed: true }),
       },
       {
-        sessionId: "session-diag",
-        nodeId: "node-diag",
         reading: CODEX_VERSION_READING,
         probe: new RecordingCapabilityProbeTransport("codex", {
           replies: { [refusedName]: codexUnknownMethodReply(refusedName) },
@@ -1118,22 +1112,8 @@ describe("a successful read that withdrew a flag reaches the diagnostic band", (
 });
 
 // --------------------------------------------------------------------------
+// The cadence re-probe over the real writer
 // --------------------------------------------------------------------------
-
-class FixedDaemonSigningKeySource implements DaemonSigningKeySource {
-  readonly #privateKey: Ed25519PrivateKey = new Uint8Array(32).fill(11) as Ed25519PrivateKey;
-
-  read(_sessionId: SessionId): Promise<Ed25519PrivateKey> {
-    return Promise.resolve(this.#privateKey);
-  }
-
-  create(_sessionId: SessionId): Promise<{ readonly publicKey: Ed25519PublicKey }> {
-    return Promise.reject(new Error("unused by this suite"));
-  }
-}
-
-const POLL_SESSION_ID = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f11";
-const POLL_NODE_ID = "node-01J0ND0000NN5J5J5J5J5J5K";
 
 let db: DatabaseType;
 
@@ -1142,59 +1122,42 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  __resetSessionAppendLocksForTest();
   if (db.open) {
     db.close();
   }
 });
 
 function makeWriter(): DriverCapabilitiesWriter {
-  let idCounter = 0;
   let minute = 0;
-  const emitter = new RuntimeNodeEventEmitter({
-    sessionEvents: new EventLogService({ db, signingKeySource: new FixedDaemonSigningKeySource() }),
-    newEventId: () => `probe-evt-${(idCounter++).toString()}`,
-  });
-  return new DriverCapabilitiesWriter(db, emitter, () => {
+  return new DriverCapabilitiesWriter(db, () => {
     const stamp = `2026-08-30T12:${(minute++).toString().padStart(2, "0")}:00.000Z`;
     return stamp;
   });
 }
 
-function readCapabilityEventTypes(): readonly string[] {
-  return db
-    .prepare<[string], { type: string }>(
-      "SELECT type FROM session_events WHERE session_id = ? ORDER BY sequence ASC",
-    )
-    .all(POLL_SESSION_ID)
-    .map((row) => row.type);
-}
-
-// Verifies the change-detected emission obligation: the writer owns the
-// discriminant, and a re-probe only changes the snapshot it compares.
-describe("the cadence re-probe and its change-detected emission", () => {
-  async function poll(
+// Verifies change detection on a re-probe: the writer owns the discriminant, and
+// a re-probe only changes the snapshot it compares.
+describe("the cadence re-probe and its change detection", () => {
+  function poll(
     writer: DriverCapabilitiesWriter,
     transport: RecordingCapabilityProbeTransport,
-  ): Promise<void> {
-    await refreshCodexCapabilities(writer, {
-      sessionId: POLL_SESSION_ID,
-      nodeId: POLL_NODE_ID,
+  ): Promise<DeclareDriverCapabilitiesResult> {
+    return refreshCodexCapabilities(writer, {
       reading: CODEX_VERSION_READING,
       probe: transport.exchange,
       diagnostics: recordingDiagnostics().emitter,
     });
   }
 
-  it("emits exactly ONE capability_updated when a flag moves true → false across two polls", async () => {
+  it("reports ONE changed snapshot when a flag moves true → false over two polls", async () => {
     const writer = makeWriter();
     const probedFlag = withdrawalCanaryFor("codex");
     const probeName = firstProbeNameFor(CODEX_CAPABILITY_DETECTION_TABLE, probedFlag);
     expect(CODEX_CAPABILITY_FLAGS[probedFlag]).toBe(true);
 
     // Poll 1 — the build carries the surface.
-    await poll(writer, new RecordingCapabilityProbeTransport("codex"));
-    expect(readCapabilityEventTypes()).toStrictEqual(["runtime_node.capability_declared"]);
+    const first = await poll(writer, new RecordingCapabilityProbeTransport("codex"));
+    expect(first.snapshotChange).toBe("created");
 
     // Poll 2 — the RE-PROBE finds the method gone (a mid-lifetime provider
     // replacement). The withdrawal changes the snapshot, so the writer's own
@@ -1202,29 +1165,28 @@ describe("the cadence re-probe and its change-detected emission", () => {
     const withdrawing = new RecordingCapabilityProbeTransport("codex", {
       replies: { [probeName]: codexUnknownMethodReply(probeName) },
     });
-    await poll(writer, withdrawing);
-    expect(readCapabilityEventTypes()).toStrictEqual([
-      "runtime_node.capability_declared",
-      "runtime_node.capability_updated",
-    ]);
+    const second = await poll(writer, withdrawing);
+    expect(second.snapshotChange).toBe("changed");
 
-    // Poll 3 — the same withdrawal again. Nothing changed, so nothing is
-    // appended: a periodic poll must not manufacture timeline churn.
-    await poll(
+    // Poll 3 — the same withdrawal again. Nothing changed, so the snapshot is
+    // unchanged: a periodic poll must not manufacture churn.
+    const third = await poll(
       writer,
       new RecordingCapabilityProbeTransport("codex", {
         replies: { [probeName]: codexUnknownMethodReply(probeName) },
       }),
     );
-    expect(readCapabilityEventTypes()).toHaveLength(2);
+    expect(third.snapshotChange).toBe("unchanged");
   });
 
-  it("emits NOTHING on an unchanged poll", async () => {
+  it("reports an unchanged snapshot on an unchanged poll", async () => {
     const writer = makeWriter();
-    await poll(writer, new RecordingCapabilityProbeTransport("codex"));
-    await poll(writer, new RecordingCapabilityProbeTransport("codex"));
-    await poll(writer, new RecordingCapabilityProbeTransport("codex"));
-    expect(readCapabilityEventTypes()).toStrictEqual(["runtime_node.capability_declared"]);
+    const changes: string[] = [];
+    for (let pollIndex = 0; pollIndex < 3; pollIndex += 1) {
+      const outcome = await poll(writer, new RecordingCapabilityProbeTransport("codex"));
+      changes.push(outcome.snapshotChange);
+    }
+    expect(changes).toStrictEqual(["created", "unchanged", "unchanged"]);
   });
 
   it("leaves detectionSource ABSENT on a hydrate() reconstruction", async () => {

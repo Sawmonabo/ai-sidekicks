@@ -23,10 +23,9 @@
 //     (`tx()`, which `better-sqlite3` dispatches as `BEGIN` → DEFERRED
 //     in SQLite). Negative control: proves the workers are genuinely
 //     contending and that `.immediate()` is the load-bearing seam. The
-//     replica imports the SAME `INITIAL_MIGRATION_SQL` constant the
-//     production runner consumes, so the only legitimate variation
-//     between paths is the transaction wrapper — schema drift in the
-//     production DDL cannot silently desynchronize the replica.
+//     replica imports the SAME `DAEMON_SCHEMA_SQL` constant the production
+//     runner consumes, so the only legitimate variation between paths is
+//     the transaction wrapper.
 //
 // Snapshot barrier (DEFERRED path only)
 // --------------------------------------------------------------------------
@@ -63,8 +62,8 @@ import Database from "better-sqlite3";
 // Install the .js → .ts module-resolver hook BEFORE any subsequent
 // `import()` attempts to resolve project source. Without this,
 // `import("../migration-runner.js")` would succeed but its transitive
-// `import { INITIAL_MIGRATION_SQL } from "../migrations/0001-initial.js"`
-// would fail to resolve under vanilla Node.
+// `import { DAEMON_SCHEMA_SQL } from "./daemon-schema.js"` would fail to
+// resolve under vanilla Node.
 register("./migration-race-loader.mjs", import.meta.url);
 
 /**
@@ -97,7 +96,7 @@ register("./migration-race-loader.mjs", import.meta.url);
 // --------------------------------------------------------------------------
 // DEFERRED-replica internals (negative-control path only).
 // Mirrors the runner pattern with `tx()` substituted for `tx.immediate()`,
-// but consumes the SAME `INITIAL_MIGRATION_SQL` the production runner uses.
+// but consumes the SAME `DAEMON_SCHEMA_SQL` the production runner uses.
 // The dynamic import sits inside the function so the loader hook above is
 // already registered when resolution runs.
 // --------------------------------------------------------------------------
@@ -112,27 +111,17 @@ function applyPragmasDeferredReplica(db) {
 
 /**
  * @param {import("better-sqlite3").Database} db
- * @param {number} version
  * @returns {boolean}
  */
-function hasMigrationAppliedReplica(db, version) {
-  const tableExists = /** @type {CountRow | undefined} */ (
+function hasSchemaReplica(db) {
+  const row = /** @type {CountRow | undefined} */ (
     db
       .prepare(
-        "SELECT COUNT(*) AS count FROM sqlite_master WHERE type='table' AND name='schema_version'",
+        "SELECT COUNT(*) AS count FROM sqlite_master WHERE type='table' AND name='session_events'",
       )
       .get()
   );
-  if (tableExists === undefined || Number(tableExists.count) === 0) {
-    return false;
-  }
-  const row = /** @type {CountRow | undefined} */ (
-    db.prepare("SELECT COUNT(*) AS count FROM schema_version WHERE version = ?").get(version)
-  );
-  if (row === undefined) {
-    return false;
-  }
-  return Number(row.count) > 0;
+  return row !== undefined && Number(row.count) > 0;
 }
 
 /**
@@ -177,13 +166,11 @@ function awaitSnapshotBarrier(barrier) {
  * @param {SnapshotBarrier | null} barrier
  */
 async function applyMigrationsDeferredReplica(db, barrier) {
-  // The worker file lives at `src/session/__tests__/`, so the migration
-  // module sits two directories up (`src/migrations/0001-initial.ts`).
   // The loader hook rewrites `.js` → `.ts` for the actual on-disk file.
-  const { INITIAL_MIGRATION_SQL } = await import("../../migrations/0001-initial.js");
-  if (!hasMigrationAppliedReplica(db, 1)) {
+  const { DAEMON_SCHEMA_SQL } = await import("../daemon-schema.js");
+  if (!hasSchemaReplica(db)) {
     const tx = db.transaction(() => {
-      if (!hasMigrationAppliedReplica(db, 1)) {
+      if (!hasSchemaReplica(db)) {
         // The re-check above is the first read of the transaction, so the WAL
         // snapshot is pinned by the time we park here. Waiting between that
         // read and the write below is what makes every sibling's snapshot
@@ -191,7 +178,7 @@ async function applyMigrationsDeferredReplica(db, barrier) {
         if (barrier !== null) {
           awaitSnapshotBarrier(barrier);
         }
-        db.exec(INITIAL_MIGRATION_SQL);
+        db.exec(DAEMON_SCHEMA_SQL);
       }
     });
     tx(); // DEFAULT wrapper → BEGIN (DEFERRED) — the broken pattern.

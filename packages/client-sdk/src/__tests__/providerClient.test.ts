@@ -55,7 +55,6 @@ import type {
   JsonRpcRequest,
   JsonRpcResponseEnvelope,
   ListProviderCommandsRequest,
-  ChannelId,
   UserId,
   ProviderCommandListResult,
   RunId,
@@ -345,15 +344,13 @@ describe("driver.applyIntervention — degraded fallback across the SDK seam", (
     }
   });
 
-  it("refuses a rollback intervention at the seam BEFORE any wire write", async () => {
-    // `ApplyInterventionParamsSchema` is a discriminated union over three arms.
-    // `rollback` is content driven through a different driver operation, so a
-    // caller reaching for it here must fail at the discriminator rather than
-    // reach a handler that would have to invent a refusal. The cast is the
-    // realistic path — a runtime caller composing params from untyped input,
-    // not a TypeScript-detected mismatch.
-    const rollbackParams = {
-      type: "rollback",
+  it("refuses an intervention type outside the three arms BEFORE any wire write", async () => {
+    // `ApplyInterventionParamsSchema` is a discriminated union over three arms,
+    // so an unknown type fails at the discriminator rather than reaching a
+    // handler that would have to invent a refusal. The cast is the realistic
+    // path — a runtime caller composing params from untyped input.
+    const unknownTypeParams = {
+      type: "pause",
       targetRunId: TEST_RUN_ID,
       expectedRunVersion: 1,
       clientIdempotencyKey: TEST_IDEMPOTENCY_KEY,
@@ -364,7 +361,7 @@ describe("driver.applyIntervention — degraded fallback across the SDK seam", (
       scriptResult(METHOD_APPLY_INTERVENTION, { status: "applied" }),
     );
 
-    await expect(client.applyIntervention(rollbackParams)).rejects.toBeInstanceOf(
+    await expect(client.applyIntervention(unknownTypeParams)).rejects.toBeInstanceOf(
       JsonRpcSchemaError,
     );
     // Nothing reached the wire — the fail-fast is what keeps a malformed
@@ -499,10 +496,10 @@ describe("DriverClient — the ratified client-facing surface", () => {
 
   it("exposes none of the four R8 parity operations either (the absence half)", () => {
     // `rollbackTo`, `setSessionGoal`, `clearSessionGoal`, and `probeAuth` are
-    // daemon-internal by the same decision #2 principle: each already has its
-    // own client route (rollback via the intervention path, goals via the
-    // surface, auth probes via the account plane), so a second route here would
-    // fork one operation's authority across two doors.
+    // daemon-internal by the same principle: the daemon drives the conversation
+    // fork on a resend, goals go through the surface and auth probes through the
+    // account plane, so a second route here would fork one operation's
+    // authority across two doors.
     const { client } = buildDriverClient({});
     for (const parityOperation of [
       "rollbackTo",
@@ -545,7 +542,7 @@ describe("DriverClient — the ratified client-facing surface", () => {
 //
 // It is here for the incorrect pairing, which is the shape of the finding it
 // closes: a daemon whose filter regressed, or a peer on a version that widened
-// the stream, otherwise hands this client an approval or channel row that
+// the stream, otherwise hands this client an approval or session row that
 // parses cleanly against the full `SessionEvent` union and reaches a consumer
 // typed to expect neither. The scripted daemon below is exactly that daemon —
 // it pushes a frame no correct producer would send, and the assertion is that
@@ -555,7 +552,6 @@ describe("DriverClient — the ratified client-facing surface", () => {
 const TEST_SUBSCRIPTION_ID = "00000000-0000-4000-8000-000000000003";
 const TEST_SESSION_ID = "00000000-0000-4000-8000-000000000004" as SessionId;
 const TEST_USER_ID = "00000000-0000-4000-8000-000000000005" as UserId;
-const TEST_CHANNEL_ID = "00000000-0000-4000-8000-000000000006" as ChannelId;
 
 /**
  * The envelope version, branded at the fixture rather than at each use. The
@@ -581,9 +577,9 @@ function buildDriverEvent(): SessionEvent {
 
 /**
  * A session-lifecycle row — a fully valid `SessionEvent` that belongs on no
- * driver stream. A channel's creation is the sharpest fixture available: it is
+ * driver stream. A session's creation is the sharpest fixture available: it is
  * session-scoped and names no run at all, so a consumer that received one from a
- * driver subscription would be reading session state off a per-run event channel.
+ * driver subscription would be reading session state off a per-run event stream.
  */
 function buildNonDriverEvent(): SessionEvent {
   return {
@@ -592,12 +588,13 @@ function buildNonDriverEvent(): SessionEvent {
     sequence: 2,
     occurredAt: "2026-01-22T19:14:36.000Z",
     category: "session_lifecycle",
-    type: "channel.created",
+    type: "session.created",
     actor: TEST_USER_ID,
     version: EVENT_VERSION,
     payload: {
-      channelId: TEST_CHANNEL_ID,
-      name: "main",
+      sessionId: TEST_SESSION_ID,
+      config: {},
+      metadata: {},
     },
   };
 }

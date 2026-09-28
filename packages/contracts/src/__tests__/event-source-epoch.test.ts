@@ -46,10 +46,8 @@
 //     branch is required to carry the stamp exactly when it is run-scoped
 //     (its payload carries `runId`) AND belongs to an admitting family; any
 //     other branch must not carry the keys at all. Today every registered
-//     branch is in the must-not class and passes non-vacuously — including
-//     the five `runtime_node.*` arms registered, which are NODE-scoped
-//     (payload carries `nodeId`, no `runId`), so the guard below widened to
-//     them by set-equality with no assertion change; the ratchet turns red
+//     branch is in the must-not class and passes non-vacuously; the ratchet
+//     turns red
 //     when a run-scoped branch of an admitting family lands unwrapped — a
 //     strict payload schema that skipped the wrap would reject a stamped row
 //     wherever the STRICT layer parses it (scoped honestly: the tolerant
@@ -1012,22 +1010,20 @@ describe("PII-indirection admission ratchet over the live SessionEventSchema uni
     expect(piiAdmissionViolations(liveBranches)).toEqual([]);
   });
 
-  it("the admitted/refused split is 23/6 over the 29 registered variants", () => {
+  it("the admitted/refused split is 17/4 over the 21 registered variants", () => {
     // The set-quantifier pin. Both halves are asserted, so neither a variant
     // that quietly stops admitting nor a newly registered refused-category
     // variant can move the split without this line moving with it.
     const refused = liveBranches.filter((branch) =>
       PII_REFUSED_CATEGORIES.includes(branch.category as EventCategory),
     );
-    expect(liveBranches).toHaveLength(29);
-    expect(refused).toHaveLength(6);
+    expect(liveBranches).toHaveLength(21);
+    expect(refused).toHaveLength(4);
     expect(refused.map((branch) => branch.type).sort()).toEqual([
       "audit_integrity_failed",
       "audit_integrity_verified",
       "event.compacted",
-      "event.shredded",
       "key_reuse_detected",
-      "schema.migrated",
     ]);
   });
 
@@ -1050,7 +1046,7 @@ describe("PII-indirection admission ratchet over the live SessionEventSchema uni
       z.discriminatedUnion("type", [
         z
           .object({
-            type: z.literal("event.shredded"),
+            type: z.literal("event.compacted"),
             category: z.literal("event_maintenance"),
             payload: runScopedPayloadSchema.extend({
               [PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY]: z.string().optional(),
@@ -1172,18 +1168,21 @@ describe("a sealed row's PII indirection pair parses through its own strict vari
     expect(payload[PII_USER_ID_PAYLOAD_KEY]).toBeUndefined();
   });
 
-  it("REJECTS the pair on a refused-category row (event.shredded)", () => {
+  it("REJECTS the pair on a refused-category row (event.compacted)", () => {
     // The other direction of the invariant, parsed rather than introspected:
     // holds this category's `pii_payload` NULL, so the pair is not merely
     // unused here — it is not registered.
-    const shreddedPayload = {
+    const compactedPayload = {
       nodeId: "990e8400-e29b-41d4-a716-446655440011",
-      operationId: "shred-pass-0007",
+      operationId: "compact-pass-0007",
       occurredAt: "2026-08-30T11:02:04.000Z",
-      userId: "990e8400-e29b-41d4-a716-446655440012",
-      affectedSessionIds: [SESSION_ID],
-      piiPayloadsCleared: 3,
-      shredReason: "gdpr_article_17" as const,
+      fromSeq: 0,
+      toSeq: 40,
+      eventsBefore: 41,
+      eventsAfter: 41,
+      bytesReclaimed: 2048,
+      tombstoneCount: 41,
+      compactionReason: "age_threshold" as const,
     };
     const base = {
       id: "evt-pii-0002",
@@ -1191,17 +1190,17 @@ describe("a sealed row's PII indirection pair parses through its own strict vari
       sequence: 42,
       occurredAt: "2026-08-30T11:02:04.000Z",
       category: "event_maintenance" as const,
-      type: "event.shredded",
+      type: "event.compacted",
       actor: null,
       version: VERSION,
     };
     // The clean row parses, so the rejection below is caused by the pair and
     // not by a malformed fixture.
-    expect(SessionEventSchema.safeParse({ ...base, payload: shreddedPayload }).success).toBe(true);
+    expect(SessionEventSchema.safeParse({ ...base, payload: compactedPayload }).success).toBe(true);
 
     const result = SessionEventSchema.safeParse({
       ...base,
-      payload: { ...shreddedPayload, ...PII_PAIR },
+      payload: { ...compactedPayload, ...PII_PAIR },
     });
     expect(result.success).toBe(false);
     expect(issuePaths(result)).toContain("payload");

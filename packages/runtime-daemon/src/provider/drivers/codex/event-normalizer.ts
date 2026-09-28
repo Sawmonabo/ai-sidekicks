@@ -177,12 +177,7 @@ import {
 } from "@ai-sidekicks/contracts";
 
 import type { DriverDiagnosticRecord, DriverDiagnosticsEmitter } from "../../driver-diagnostics.js";
-import {
-  TerminalEmissionGate,
-  type TerminalEmissionDecision,
-  type TerminalRunFrame,
-  type TerminalSuppressionReason,
-} from "../../terminal-emission-gate.js";
+import { TerminalEmissionGate, type TerminalRunFrame } from "../../terminal-emission-gate.js";
 import type { ChildThreadAnnouncement, ThreadFrameFamilyClass } from "../../thread-frame-router.js";
 import {
   UNRECOGNIZED_TURN_EVIDENCE,
@@ -534,7 +529,7 @@ export interface CodexNormalizedFamilyEmission {
  * {@link UnknownCodexInboundFrameError}). It is the path for a KNOWN frame
  * whose record the daemon already owns.
  */
-export interface CodexNotEventedFrameDisposition {
+interface CodexNotEventedFrameDisposition {
   readonly disposition: "not-evented";
   readonly nativeMethod: CodexInboundFrameMethod;
   readonly transport: CodexInboundFrameTransport;
@@ -967,7 +962,9 @@ const CODEX_FRAME_NORMALIZATION_RECORD = {
     nativeMethod: "thread/environment/connected",
     transport: "server-notification",
     reason:
-      "Codex environment-connection bookkeeping; runtime-node liveness is daemon-owned (`runtime_node.*`) and is observed by the daemon that spawned the process, so a provider-reported connection would report liveness the daemon can see directly",
+      "Codex environment-connection bookkeeping; machine liveness is daemon-owned and is " +
+      "observed by the daemon that spawned the process, so a provider-reported connection " +
+      "would report liveness the daemon can see directly",
   },
   "thread/environment/disconnected": {
     disposition: "not-evented",
@@ -1221,7 +1218,7 @@ export const CODEX_THREAD_TOKEN_USAGE_METHOD = "thread/tokenUsage/updated" as co
  * the child terminal is read off this method rather than off a thread-lifecycle
  * one.
  */
-export const CODEX_TURN_STARTED_METHOD = "turn/started" as const;
+const CODEX_TURN_STARTED_METHOD = "turn/started" as const;
 export const CODEX_TURN_COMPLETED_METHOD = "turn/completed" as const;
 
 /**
@@ -1387,11 +1384,9 @@ export function classifyCodexFrameFamilyForRouting(nativeMethod: string): Thread
  * — the two driver legs feed ONE shared uniqueness index (partial unique index),
  * and two implementations of one invariant is one more than the invariant can
  * survive. What stays here is the Codex-named binding, so the driver's own
- * callers and its barrel keep naming a Codex symbol.
+ * callers keep naming a Codex symbol.
  */
 export type CodexTerminalRunFrame = TerminalRunFrame;
-export type CodexTerminalSuppressionReason = TerminalSuppressionReason;
-export type CodexTerminalEmissionDecision = TerminalEmissionDecision;
 
 /**
  * The Codex terminal-emission gate — one instance per provider session, held

@@ -22,16 +22,15 @@
 //     position rather than appended, and DELIBERATELY excludes `pause`, whose
 //     exclusion is permanent.
 //   • Parity ops — the four added operations (`rollbackTo`, `setSessionGoal`,
-//     `clearSessionGoal`, `probeAuth`) and the three result envelopes they
-//     answer (`DriverRollbackResultSchema`, `DriverGoalResultSchema`,
-//     `DriverAuthProbeResultSchema`) plus the two driver-normalized seam
-//     schemas (`CallbackToolInvocationSchema`, `McpServerStatusEmissionSchema`)
-//     parse valid shapes, reject invalid ones, and reject unknown keys
-//     (`.strict()` on all five).
-//   • `InterventionType` widening — the union carries FOUR members while
-//     `ApplyInterventionParams` stays THREE-armed; a `rollback` dispatch arm is
-//     a compile error, which is the structural form of "rollback's driver leg is
-//     the dedicated `rollbackTo` operation, not an `applyIntervention` route".
+//     `clearSessionGoal`, `probeAuth`); the two result envelopes among them
+//     (`DriverRollbackResultSchema`, `DriverAuthProbeResultSchema`) plus the
+//     two driver-normalized seam schemas (`CallbackToolInvocationSchema`,
+//     `McpServerStatusEmissionSchema`) parse valid shapes, reject invalid ones,
+//     and reject unknown keys (`.strict()` on all four). The goal operations
+//     return nothing.
+//   • `InterventionType` — the union's three members are exactly
+//     `ApplyInterventionParams`' three arms; a `rollback` dispatch arm is a
+//     compile error.
 //   • `RecoveryCondition` re-type — the `failed` resume variant now accepts BOTH
 //     conditions where accepted only the `recovery-needed` literal.
 //   • `GetCapabilitiesResult.cliVersion` — REQUIRED, so a capability report
@@ -102,6 +101,7 @@ import {
   DriverReadParamsSchema,
   DriverSubscribeEventsParamsSchema,
   InterruptRunParamsSchema,
+  InterventionTypeSchema,
   ListCapabilitiesResultSchema,
   ListModelsResultSchema,
   ListModesResultSchema,
@@ -112,7 +112,6 @@ import {
   RespondToRequestParamsSchema,
   RunIdSchema,
   DriverAuthProbeResultSchema,
-  DriverGoalResultSchema,
   DriverInterventionResultSchema,
   DriverResumeResultSchema,
   DriverRollbackResultSchema,
@@ -138,7 +137,6 @@ import {
   type DriverCapabilities,
   type DriverCapabilityFlag,
   type DriverCompactionResult,
-  type DriverGoalResult,
   type DriverInterventionResult,
   type DriverResumeResult,
   type DriverRollbackResult,
@@ -175,7 +173,7 @@ import {
   type StartRunParams,
   type SubagentPolicy,
 } from "../provider-driver.js";
-import { type ChannelId, type SessionId } from "../session.js";
+import { type SessionId } from "../session.js";
 import * as contracts from "../index.js";
 
 // Real RFC 9562 UUIDs reused as branded-id runtime values (the brands are
@@ -183,11 +181,9 @@ import * as contracts from "../index.js";
 // same way the sibling fixtures feed wire strings into branded slots.
 const SESSION_UUID = "550e8400-e29b-41d4-a716-446655440000";
 const RUN_UUID = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f00";
-const CHANNEL_UUID = "880e8400-e29b-41d4-a716-446655440003";
 
 const SESSION_ID = SESSION_UUID as SessionId;
 const RUN_ID = RUN_UUID as RunId;
-const CHANNEL_ID = CHANNEL_UUID as ChannelId;
 
 // The requester-generated intervention idempotency key. A real UUID rather than
 // a label token: the contract types it as a plain `string`, but the value the
@@ -203,7 +199,7 @@ const CLIENT_IDEMPOTENCY_KEY = "6f9619ff-8b86-4011-b42d-00cf4fc964ff";
 // return shapes. The fact that it typechecks under `implements ProviderDriver`
 // (with `exactOptionalPropertyTypes` + `isolatedDeclarations` on) IS the
 // acceptance assertion: a provider integration can satisfy this contract with
-// zero changes to the session domain (`SessionId` / `ChannelId` are consumed,
+// zero changes to the session domain (`SessionId` is consumed,
 // not redefined). The runtime `it` block adds a smoke assertion so the compile
 // proof is anchored to an executing test.
 //
@@ -255,12 +251,12 @@ class MockProviderDriver implements ProviderDriver {
     return Promise.resolve();
   }
 
-  public setSessionGoal(_params: SetSessionGoalParams): Promise<DriverGoalResult> {
-    return Promise.resolve({ status: "applied" });
+  public setSessionGoal(_params: SetSessionGoalParams): Promise<void> {
+    return Promise.resolve();
   }
 
-  public clearSessionGoal(_params: ClearSessionGoalParams): Promise<DriverGoalResult> {
-    return Promise.resolve({ status: "applied" });
+  public clearSessionGoal(_params: ClearSessionGoalParams): Promise<void> {
+    return Promise.resolve();
   }
 
   public closeSession(_params: CloseSessionParams): Promise<void> {
@@ -498,20 +494,18 @@ describe("ProviderDriver contract: a mock implements all 18 operations", () => {
     expect(rolled).toEqual({ status: "applied", sessionPosition: 12 });
   });
 
-  it("both goal operations resolve an applied DriverGoalResult (runtime smoke)", async () => {
-    const setResult = await driver.setSessionGoal({
-      sessionId: SESSION_ID,
-      bindingId: "binding-abc",
-      runId: RUN_ID,
-      goalText: "land the migration",
-    });
-    const clearResult = await driver.clearSessionGoal({
-      sessionId: SESSION_ID,
-      bindingId: "binding-abc",
-      runId: RUN_ID,
-    });
-    expect(setResult.status).toBe("applied");
-    expect(clearResult.status).toBe("applied");
+  it("both goal operations resolve with no result (runtime smoke)", async () => {
+    await expect(
+      driver.setSessionGoal({
+        sessionId: SESSION_ID,
+        bindingId: "binding-abc",
+        runId: RUN_ID,
+        goalText: "land the migration",
+      }),
+    ).resolves.toBeUndefined();
+    await expect(
+      driver.clearSessionGoal({ sessionId: SESSION_ID, bindingId: "binding-abc", runId: RUN_ID }),
+    ).resolves.toBeUndefined();
   });
 
   it("applyIntervention resolves an applied DriverInterventionResult (runtime smoke)", async () => {
@@ -540,16 +534,14 @@ describe("ProviderDriver contract: a mock implements all 18 operations", () => {
   });
 
   it("consumes session-domain branded ids without redefining them (no session-domain change)", () => {
-    // The contract imports `SessionId` / `ChannelId` from session.ts. Binding
+    // The contract imports `SessionId` from session.ts. Binding
     // the same brands here proves the driver reuses the session domain rather
     // than forking it — the structural form of "no session-domain change".
     const startParams: StartRunParams = {
       runId: RUN_ID,
-      channelId: CHANNEL_ID,
       agentConfig: {},
     };
     expect(startParams.runId).toBe(RUN_UUID);
-    expect(startParams.channelId).toBe(CHANNEL_UUID);
   });
 
   it("carries the native-cap admitted cap on both the start and resume seams", () => {
@@ -558,7 +550,6 @@ describe("ProviderDriver contract: a mock implements all 18 operations", () => {
     // the run.queued server-stamped cap (campaign B6).
     const cappedStart: StartRunParams = {
       runId: RUN_ID,
-      channelId: CHANNEL_ID,
       agentConfig: {},
       admittedCostCapCents: 2500,
     };
@@ -1389,7 +1380,7 @@ describe("DriverResumeResultSchema — resume result envelope (trust boundary)",
 //        permanent exclusion.
 // ===========================================================================
 //
-// `DRIVER_CAPABILITY_FLAGS` is the single source the union, the migration CHECK
+// `DRIVER_CAPABILITY_FLAGS` is the single source the union, the schema's CHECK
 // list, the write-seam cardinality guard, and the driver fixtures all derive
 // from — so drift here is drift everywhere. These checks are written against
 // HAND-SPELLED expectations rather than against the const itself: a check
@@ -1424,10 +1415,9 @@ describe("DRIVER_CAPABILITY_FLAGS — seventeen-flag currency", () => {
   });
 
   it("places `transcript_replay` at its canonical position rather than at the end", () => {
-    // The array order IS the canonical enum order, and the migration that
-    // backfills a capability cache reads position, not membership — so a flag
-    // appended for convenience would disagree with the enumeration every other
-    // surface derives from. Asserted by INDEX so an append cannot pass.
+    // The array order IS the canonical enum order, so a flag appended for
+    // convenience would disagree with the enumeration every other surface
+    // derives from. Asserted by INDEX so an append cannot pass.
     expect(DRIVER_CAPABILITY_FLAGS.indexOf("transcript_replay")).toBe(12);
     expect(DRIVER_CAPABILITY_FLAGS.at(-1)).toBe("output_speed");
   });
@@ -1589,83 +1579,6 @@ describe("DriverRollbackResultSchema — rollback envelope", () => {
       ).toBe(false);
     },
   );
-});
-
-// ===========================================================================
-// `DriverGoalResultSchema` (the `session_goals`-gated parity envelope).
-// ===========================================================================
-
-describe("DriverGoalResultSchema — session-goal envelope", () => {
-  it("parses a bare applied result", () => {
-    const parsed: DriverGoalResult = DriverGoalResultSchema.parse({ status: "applied" });
-    expect(parsed).toEqual({ status: "applied" });
-  });
-
-  it("REJECTS a fallbackAction on the applied arm (a fallback narrative on a success is unrepresentable)", () => {
-    // The load-bearing case for choosing a discriminated union here over the
-    // flat `DriverInterventionResult` shape: the flat shape would have accepted
-    // this silently.
-    const result = DriverGoalResultSchema.safeParse({
-      status: "applied",
-      fallbackAction: "queue_and_retry",
-    });
-    expect(result.success).toBe(false);
-    if (!result.success) {
-      const unrecognizedKeyIssue = result.error.issues.find(
-        (issue) => issue.code === "unrecognized_keys",
-      );
-      expect((unrecognizedKeyIssue as { keys?: readonly string[] })?.keys).toContain(
-        "fallbackAction",
-      );
-    }
-  });
-
-  it("forbids `fallbackAction` on the applied arm after narrowing (compile-time mirror)", () => {
-    const applied: DriverGoalResult = DriverGoalResultSchema.parse({ status: "applied" });
-    if (applied.status === "applied") {
-      // @ts-expect-error `fallbackAction` does not exist on the `applied` variant
-      const leakedFallback = applied.fallbackAction;
-      expect(leakedFallback).toBeUndefined();
-    } else {
-      throw new Error(`expected the applied variant, got status=${applied.status}`);
-    }
-  });
-
-  it("parses a degraded result with and without a fallbackAction", () => {
-    expect(DriverGoalResultSchema.safeParse({ status: "degraded" }).success).toBe(true);
-    expect(
-      DriverGoalResultSchema.safeParse({ status: "degraded", fallbackAction: "prompt_prefix" })
-        .success,
-    ).toBe(true);
-  });
-
-  it("rejects an unknown status discriminator value", () => {
-    expect(DriverGoalResultSchema.safeParse({ status: "queued" }).success).toBe(false);
-  });
-
-  it.each([
-    ["empty string", ""],
-    ["whitespace-only", "   "],
-    ["NUL-containing", "a\u0000b"],
-    ["over-max", "a".repeat(DRIVER_FALLBACK_ACTION_MAX_LEN + 1)],
-  ])(
-    "rejects a goal `fallbackAction` that is %s (wireFreeFormString bound)",
-    (_label, invalidValue) => {
-      expect(
-        DriverGoalResultSchema.safeParse({ status: "degraded", fallbackAction: invalidValue })
-          .success,
-      ).toBe(false);
-    },
-  );
-
-  it("accepts a goal `fallbackAction` at exactly DRIVER_FALLBACK_ACTION_MAX_LEN (inclusive boundary)", () => {
-    expect(
-      DriverGoalResultSchema.safeParse({
-        status: "degraded",
-        fallbackAction: "a".repeat(DRIVER_FALLBACK_ACTION_MAX_LEN),
-      }).success,
-    ).toBe(true);
-  });
 });
 
 // ===========================================================================
@@ -1913,32 +1826,38 @@ describe("McpServerStatusEmissionSchema — MCP status producer seam", () => {
 });
 
 // ===========================================================================
-// `InterventionType` widens to four; the DISPATCH surface stays three.
+// `InterventionType` and the three-armed DISPATCH surface.
 // ===========================================================================
 //
 // The union is the intervention VOCABULARY; `ApplyInterventionParams`' arm set is
-// the DISPATCH surface. They are deliberately not the same set, because a
-// rollback's driver leg is the dedicated capability-gated `rollbackTo` operation.
-// A fourth arm here would create a second, UNGATED route to the same provider
-// mechanism — which is exactly what these cases pin.
+// the DISPATCH surface, one arm per member.
 
-describe("InterventionType — three→four widening with a three-armed dispatch surface", () => {
-  it("carries exactly the four canonical members", () => {
-    const allInterventionTypes: InterventionType[] = ["steer", "interrupt", "cancel", "rollback"];
-    expect(allInterventionTypes).toHaveLength(4);
-    expect(allInterventionTypes).toContain("rollback");
+describe("InterventionType — three members, three dispatch arms", () => {
+  it("accepts every member of the type", () => {
+    // `Record<InterventionType, true>` fails to compile if a type member is
+    // missing or extra, and the schema's `z.ZodType<InterventionType>`
+    // annotation refuses an extra schema member, so accepting every key here
+    // binds the runtime spelling to the type.
+    const interventionTypeMembers: Record<InterventionType, true> = {
+      steer: true,
+      interrupt: true,
+      cancel: true,
+    };
+    for (const member of Object.keys(interventionTypeMembers)) {
+      expect(InterventionTypeSchema.safeParse(member).success).toBe(true);
+    }
   });
 
-  it("still rejects `pause` as an InterventionType (unchanged by the widening)", () => {
+  it("rejects `pause` as an InterventionType", () => {
     // @ts-expect-error `pause` is not an InterventionType — models pause as an orchestration-layer
     // construct
     const notAnInterventionType: InterventionType = "pause";
     expect(notAnInterventionType).toBe("pause");
   });
 
-  it("forbids a `rollback` arm on ApplyInterventionParams (compile-time; its leg is `rollbackTo`)", () => {
+  it("forbids a `rollback` arm on ApplyInterventionParams (compile-time)", () => {
     const rollbackDispatch: ApplyInterventionParams = {
-      // @ts-expect-error `ApplyInterventionParams` stays three-armed — there is no `rollback` dispatch arm
+      // @ts-expect-error `ApplyInterventionParams` has no `rollback` dispatch arm
       type: "rollback",
       targetRunId: RUN_ID,
       expectedRunVersion: 1,
@@ -2442,7 +2361,6 @@ describe("spawn/turn parity surfaces — structural invariants", () => {
   it("carries the per-turn posture and outputSchema on StartRunParams", () => {
     const startParams: StartRunParams = {
       runId: RUN_ID,
-      channelId: CHANNEL_ID,
       agentConfig: {},
       executionPosture: { networkAccess: "full", writableRoots: [], mode: "trusted" },
       outputSchema: { type: "object" },
@@ -3192,11 +3110,10 @@ describe("DriverCapabilitiesSchema — flag totality is derived, never hand-list
     ).toBe(false);
   });
 
-  it("bounds contractVersion at the same value the event boundary uses", () => {
+  it("bounds contractVersion at the same value the capability snapshot uses", () => {
     // Deliberately the same 64 as `CAPABILITY_CONTRACT_VERSION_MAX_LEN`: a
     // version string that survives this reply must also survive the
-    // `runtime_node.capability_*` event, or the two surfaces disagree about one
-    // value.
+    // `CapabilityDetails` snapshot, or the two disagree about one value.
     expect(DRIVER_WIRE_CONTRACT_VERSION_MAX_LEN).toBe(64);
     expect(
       DriverCapabilitiesSchema.safeParse({
@@ -3391,9 +3308,7 @@ describe("ApplyInterventionParamsSchema — three arms, and the fourth is a pars
   });
 
   it("REFUSES a rollback arm at the discriminator, not merely at its payload", () => {
-    // `InterventionType` carries four members; this dispatch surface carries
-    // three. Rollback's driver leg is the dedicated `rollbackTo` operation with
-    // its own params and its own result envelope, so a `rollback` request must
+    // `rollback` is not an `InterventionType`, so a `rollback` request must
     // fail PARSE rather than reach a handler that would have to invent a
     // refusal for it.
     //

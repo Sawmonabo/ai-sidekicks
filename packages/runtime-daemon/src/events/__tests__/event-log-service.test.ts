@@ -89,17 +89,14 @@ import {
   type SignedRow,
 } from "../signer.js";
 import type { DaemonSigningKeySource } from "../signing-key-source.js";
+import { writeAcrossStrictTyping } from "../../session/__fixtures__/at-rest-tamper.js";
 
 const SESSION: SessionId = SessionIdSchema.parse("0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f10");
 const OTHER_SESSION: SessionId = SessionIdSchema.parse("0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f11");
 const ENVELOPE_VERSION = EventEnvelopeVersionSchema.parse("1.0");
 
-// A UUID rather than a readable slug, and the constraint is a real one worth
-// knowing before writing a fixture: `pii_user_id` is plain TEXT and
-// `EventLogAppendPii` types the id as a bare `string`, but
-// `EventShreddedPayloadSchema` requires a UUID. A user that will ever be
-// named in a shred record has to be one from the start, or the two halves of
-// Path 1 disagree about who was shredded.
+// A UUID rather than a readable slug: `pii_user_id` is plain TEXT and the append
+// types the id as a bare `string`, but the contracts' `UserIdSchema` is a UUID.
 const USER = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f20";
 
 const DAEMON_PRIVATE_KEY = new Uint8Array(32).fill(11) as Ed25519PrivateKey;
@@ -485,9 +482,9 @@ describe("EventLogService — chain-head read boundary", () => {
   const THIRTY_TWO_CHARACTER_TEXT = "0".repeat(32);
 
   it("refuses a head whose sequence is not an INTEGER rather than allocating from it", async () => {
-    // INTEGER affinity coerces only text that LOOKS numeric, so `'x'` stays
-    // TEXT — and SQLite orders TEXT above every INTEGER, which is what makes the
-    // corrupted row the head that `ORDER BY sequence DESC` selects.
+    // An edit to the file can leave TEXT in `sequence`, and SQLite orders TEXT
+    // above every INTEGER, which is what makes the corrupted row the head that
+    // `ORDER BY sequence DESC` selects.
     //
     // TWO rows seeded and the LOWER one corrupted, deliberately: with a single
     // row the corrupt value is the head whatever the query orders by, so the arm
@@ -496,9 +493,11 @@ describe("EventLogService — chain-head read boundary", () => {
     await service.append(makeEnvelope());
     await service.append(makeEnvelope());
 
-    database
-      .prepare("UPDATE session_events SET sequence = 'x' WHERE session_id = ? AND sequence = 0")
-      .run(SESSION);
+    writeAcrossStrictTyping(database, "session_events", () => {
+      database
+        .prepare("UPDATE session_events SET sequence = 'x' WHERE session_id = ? AND sequence = 0")
+        .run(SESSION);
+    });
 
     await expect(service.append(makeEnvelope())).rejects.toThrow(
       /session_events\.sequence for session .+ is not an INTEGER: got a value of type string/,
@@ -509,16 +508,17 @@ describe("EventLogService — chain-head read boundary", () => {
   });
 
   it("refuses a head whose row_hash arrives as TEXT rather than chaining it into prev_hash", async () => {
-    // `row_hash` is declared BLOB, which gives the column affinity NONE — a
-    // bound string is stored AS TEXT and read back as a JS `string`. Nothing in
-    // the DDL objects, so this read is the only thing standing between a value
-    // that is not a hash and the next row's signed `prev_hash`.
+    // An edit to the file can leave TEXT in `row_hash`, read back as a JS
+    // `string`. This read is the only thing standing between a value that is
+    // not a hash and the next row's signed `prev_hash`.
     const { service } = buildService();
     await service.append(makeEnvelope());
 
-    database
-      .prepare("UPDATE session_events SET row_hash = ? WHERE session_id = ?")
-      .run(THIRTY_TWO_CHARACTER_TEXT, SESSION);
+    writeAcrossStrictTyping(database, "session_events", () => {
+      database
+        .prepare("UPDATE session_events SET row_hash = ? WHERE session_id = ?")
+        .run(THIRTY_TWO_CHARACTER_TEXT, SESSION);
+    });
 
     await expect(service.append(makeEnvelope())).rejects.toThrow(
       /session_events\.row_hash for session .+ is not a 32-byte BLOB: got a non-Uint8Array value of type string/,
@@ -1562,7 +1562,7 @@ describe("EventLogService — the append lock", () => {
 });
 
 // ----------------------------------------------------------------------------
-// The run_lifecycle terminal-key backstop — migration 0006, seen from `append()`
+// The run_lifecycle terminal-key backstop, seen from `append()`
 // ----------------------------------------------------------------------------
 
 function terminalEnvelope(payload: Record<string, unknown>): UnsequencedEventEnvelope {
@@ -1728,125 +1728,5 @@ describe("EventLogService — terminal-key backstop", () => {
     await expect(
       service.append(terminalEnvelope({ runId: "run-1", runVersion: 1 })),
     ).rejects.toThrow(/UNIQUE/i);
-  });
-});
-
-// ----------------------------------------------------------------------------
-// `event.shredded` — the emission-seam parse and the post-shred callback
-// ----------------------------------------------------------------------------
-
-function shreddedEnvelope(overrides?: Record<string, unknown>): UnsequencedEventEnvelope {
-  return makeEnvelope({
-    category: "event_maintenance",
-    type: "event.shredded",
-    payload: {
-      nodeId: "node-shred-0001",
-      operationId: "op-shred-1",
-      occurredAt: "2026-08-04T12:00:00.000Z",
-      userId: USER,
-      affectedSessionIds: [SESSION],
-      piiPayloadsCleared: 3,
-      shredReason: "gdpr_article_17",
-      ...overrides,
-    },
-  });
-}
-
-describe("EventLogService — event.shredded emission seam (Path 1)", () => {
-  it("hands the callback the PARSED payload and the receipt, after the row is durable", async () => {
-    const { service } = buildService();
-    const observed: Array<{ readonly rowsVisible: number; readonly receiptSequence: number }> = [];
-
-    service.registerShredCallback((shredded, receipt) => {
-      // The parsed value, not the caller's object.
-      expect(shredded.shredReason).toBe("gdpr_article_17");
-      expect(shredded.piiPayloadsCleared).toBe(3);
-      observed.push({
-        rowsVisible: readRawRows(SESSION).length,
-        receiptSequence: receipt.sequence,
-      });
-      return Promise.resolve();
-    });
-
-    await service.append(shreddedEnvelope());
-
-    expect(observed).toEqual([{ rowsVisible: 1, receiptSequence: 0 }]);
-  });
-
-  it("still holds the session's append lock while the callback runs", async () => {
-    // "Post-commit UNDER THE LOCK" is what lets a handler observe the shred row
-    // and everything before it, and nothing appended after. Observed by racing a
-    // second append against a macrotask boundary from OUTSIDE the callback's
-    // async context: had the lock been released, it would land.
-    const { service } = buildService();
-    let releaseCallback!: () => void;
-    const callbackParked = new Promise<void>((resolve) => {
-      releaseCallback = resolve;
-    });
-    let secondAppendLanded = false;
-
-    service.registerShredCallback(async () => {
-      await callbackParked;
-    });
-
-    const shredding = service.append(shreddedEnvelope());
-    await tick();
-
-    const second = service.append(makeEnvelope()).then((receipt) => {
-      secondAppendLanded = true;
-      return receipt;
-    });
-    await tick();
-    expect(secondAppendLanded).toBe(false);
-
-    releaseCallback();
-    await shredding;
-    await expect(second).resolves.toMatchObject({ sequence: 1 });
-  });
-
-  it("refuses a malformed shred payload before the write and never calls the callback", async () => {
-    const { service } = buildService();
-    let callbackCalls = 0;
-    service.registerShredCallback(() => {
-      callbackCalls += 1;
-      return Promise.resolve();
-    });
-
-    await expect(
-      service.append(shreddedEnvelope({ shredReason: "because-we-felt-like-it" })),
-    ).rejects.toThrow();
-
-    expect(readRawRows(SESSION)).toHaveLength(0);
-    expect(callbackCalls).toBe(0);
-  });
-
-  it("replaces a previously registered callback rather than fanning out", async () => {
-    const { service } = buildService();
-    const called: string[] = [];
-    service.registerShredCallback(() => {
-      called.push("first");
-      return Promise.resolve();
-    });
-    service.registerShredCallback(() => {
-      called.push("second");
-      return Promise.resolve();
-    });
-
-    await service.append(shreddedEnvelope());
-
-    expect(called).toEqual(["second"]);
-  });
-
-  it("never invokes the callback for a non-shred append", async () => {
-    const { service } = buildService();
-    let callbackCalls = 0;
-    service.registerShredCallback(() => {
-      callbackCalls += 1;
-      return Promise.resolve();
-    });
-
-    await service.append(makeEnvelope());
-
-    expect(callbackCalls).toBe(0);
   });
 });

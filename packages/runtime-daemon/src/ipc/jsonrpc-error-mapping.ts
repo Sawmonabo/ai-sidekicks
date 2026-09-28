@@ -276,7 +276,7 @@ function buildNegotiationErrorData(thrown: NegotiationError): JsonRpcErrorData {
 /**
  * Build the `data: JsonRpcErrorData` payload for a
  * `SecureDefaultsValidationError`. The error's stable `code` string is
- * the canonical `data.type` (`unknown_setting`, `invalid_bind_address`,
+ * the canonical `data.type` (`unknown_setting`, `invalid_local_ipc_path`,
  * etc.). The structured `{ setting, value }` payload captured at the
  * throw site projects through to `data.fields`.
  */
@@ -398,29 +398,26 @@ interface SanitizationBudget {
 }
 
 /**
- * Sanitize a `data.fields` payload for wire emission. enforcement
- * seam for the structured-detail channel of the JSON-RPC error
- * envelope.
+ * Sanitize a `data.fields` payload for wire emission: the enforcement seam for
+ * the structured-detail channel of the JSON-RPC error envelope.
  *
- * Why this exists: the `error.message` channel has a single-seam
- * sanitizer (`sanitizeErrorMessage` in `local-ipc-gateway.ts`) that
- * strips Unix / UNC / Windows-drive paths and caps length. Before this
- * helper, the parallel `error.data.fields` channel was a verbatim
- * passthrough of the throw site's structured detail — a
- * `SecureDefaultsValidationError` on `--bind-address`, `--banner`, or
- * `--local-ipc-path` carries the operator-supplied raw value into
- * `data.fields.value`, which can be a path-shape, a secret-shape, or a
- * non-JSON-safe type (`BigInt` throws in `JSON.stringify`; circular
- * objects throw; symbols / functions silently drop). All four classes
- * are violations:
+ * Why this exists: the `error.message` channel has a single-seam sanitizer
+ * (`sanitizeErrorMessage` in `local-ipc-gateway.ts`) that strips Unix / UNC /
+ * Windows-drive paths and caps length. The parallel `error.data.fields`
+ * channel carries the throw site's structured detail — a
+ * `SecureDefaultsValidationError` on `--banner` or `--local-ipc-path` carries
+ * the operator-supplied raw value into `data.fields.value`, which can be a
+ * path-shape, a secret-shape, or a non-JSON-safe type (`BigInt` throws in
+ * `JSON.stringify`; circular objects throw; symbols / functions silently
+ * drop). Passed through verbatim, all four classes are violations:
  *
  *   1. Confidentiality: an absolute path or secret-shape value bypasses
  *      the path-redaction the message channel applies.
  *   2. DoS: a `BigInt` or circular value crashes
  *      `local-ipc-gateway.ts`'s `encodeFrame.JSON.stringify`, which
  *      destroys the connection (peer sees `ECONNRESET`).
- *   3. Asymmetric: only `error.message` was actually enforced by the
- *      substrate; `data.fields` was producer-honor-system.
+ *   3. Asymmetric: only `error.message` would be enforced by the
+ *      substrate; `data.fields` would rest on each producer's honor.
  *
  * What this function does:
  *   * Recursively walks the structured payload bounded by
@@ -803,8 +800,8 @@ export function mapJsonRpcError(thrown: unknown, requestId: JsonRpcId): JsonRpcE
   } else if (thrown instanceof SecureDefaultsValidationError) {
     // Config-validation failures are `-32602 InvalidParams` — daemon
     // boot-time config IS the request parameters from the operator's
-    // perspective; rejecting an unknown setting or an invalid bind
-    // address is structurally the same shape as rejecting a malformed
+    // perspective; rejecting an unknown setting or an invalid socket
+    // path is structurally the same shape as rejecting a malformed
     // handler param.
     numericCode = JsonRpcErrorCode.InvalidParams;
     data = buildSecureDefaultsValidationData(thrown);

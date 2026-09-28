@@ -1,63 +1,33 @@
 // Turn-snapshot service — the daemon-side owner of the per-run snapshot refs
 // under `refs/sidekicks/runs/<runId>/epoch-<E>/turn-<N>`.
 //
-// This file landed in three passes. authored the CAPTURE leg EXTENDED it with
-// the non-mutating `resolveRestoreTarget` plus the mutating `restoreToTurn`
-// adds the window-based RETENTION prune plus the sweeper driver at the foot of
-// the file that the sanctioned wiring call in `../bootstrap/index.ts` invokes.
-// The class, the git invocation layer, the ref builders and the diagnostic seam
-// below are written once for all three.
+// Two legs: the CAPTURE leg and the window-based RETENTION prune. The class, the
+// git invocation layer, the ref builders and the diagnostic seam below are
+// written once for both.
 //
 //   * the capture temp-index recipe (out-of-worktree `GIT_INDEX_FILE`, the
 //     check-in leg's conversion pins plus `GIT_ATTR_NOSYSTEM=1` — see the closed
-//     disposition table below for the whole knob population and each knob's one
-//     ruling, this leg's and the checkout leg's alike, the single base OID
-//     reused for tree base AND recorded parent, the untracked-embedded-repo
+//     disposition table below for every knob and its setting — the single base
+//     OID reused for tree base AND recorded parent, the untracked-embedded-repo
 //     `160000` normalization with its unborn-`HEAD` skip, the encoding-pinned
 //     `commit-tree`, the six-var host-independence env set), the
-//     epoch-namespaced create-only ref write and its per-epoch idempotence, and
-//     the writable-modes-only applicability rule.
-//   * the RESTORE recipe: the fail-closed `HEAD` precondition, the lineage walk
-//     with its no-fallthrough refusal, the pinned `read-tree --reset -u` leg
-//     under the checkout-conversion pins, the untracked-delete pass repeated to
-//     a FIXPOINT, the closing index-only `read-tree --reset HEAD` (both of those
-//     spec spellings name a MUTABLE ref that an earlier check already read, so
-//     both are issued against the verified OID instead — see the sites), the
-//     collision-overwrite and divergent-gitlink enumerations, and the convergent
-//     partial-restore disposition.
+//     epoch-namespaced create-only ref write and its per-epoch idempotence.
 //   * the execution epoch `<E>`: `0` before any rollback, advanced with each
-//     accepted `run.rolled_back`. SUPPLIED by the caller and never derived here
-//     — and the two-phase split, which exists so the whole-rollback validation
-//     runs BEFORE the conversation leg, with the bound restore then running
-//     under the caller's exclusive execution-root tenancy.
+//     accepted `run.rolled_back`. SUPPLIED by the caller and never derived here.
 //
 // ---------------------------------------------------------------------------
-// The capture and restore legs resolve NOTHING
+// The capture leg resolves NOTHING
 // ---------------------------------------------------------------------------
 //
-// `executionRoot`, `runId`, `epoch`, `turnOrdinal` and `mode` all arrive as
-// parameters. Neither the capture leg nor the restore leg reads
-// `run_execution_contexts`, derives the epoch from rollback history, or infers
-// the mode from the root's shape. The production call site — run engine's turn
-// boundary — is authored by the campaign's B9 bundle and owns every one of
-// those resolutions.
+// `executionRoot`, `runId`, `epoch` and `turnOrdinal` all arrive as parameters.
+// The capture leg does not read `run_execution_contexts` or derive the epoch
+// from rollback history. Every execution mode snapshots, so the capture takes
+// no mode. The production call site — the run engine's turn boundary — owns
+// every one of those resolutions.
 //
-// The RETENTION leg is the deliberate exception, and carves it out in so many
-// words: " retention leg's `released_at` / `git_common_dir` reads are a
-// separate concern, outside this obligation".
+// The RETENTION leg is the one exception: it reads `released_at` and
+// `git_common_dir` from `run_execution_contexts` itself (see
 // {@link TurnSnapshotService.sweepPrunableRuns}).
-//
-// The `mode` self-guard is the one place the parameter is INTERPRETED rather
-// than passed through, and it is deliberately a self-guard rather than a
-// caller-side `if`: the Applicability bullet of makes "`read-only` runs snapshot
-// nothing" a property of the mechanism, and a guard that lives only in the
-// caller is one refactor away from a read-only run minting objects. It runs
-// FIRST — before the base resolution, before the hook-neutralization directory,
-// before the scratch-index directory — so the no-op is observable as zero git
-// objects and zero refs rather than merely as an absent ref. It is also an
-// ALLOWLIST over the writable modes named in that bullet, so a mode added to
-// `ExecutionMode` later is inert here until somebody admits it deliberately (see
-// {@link SNAPSHOT_APPLICABLE_MODES}).
 //
 // ---------------------------------------------------------------------------
 // The namespace is enforced at THIS layer, not by git
@@ -156,9 +126,8 @@
 // buy: every write this service issues lands on a name it validated and inside the
 // namespace, and an input it cannot make sense of becomes a typed refusal rather
 // than a guess. What they do not buy: that a ref this service READS BACK was
-// written by this service. That bounds what the two reading legs may claim — see
-// {@link TurnSnapshotAlreadyCaptured} and
-// {@link TurnSnapshotService.resolveRestoreTarget}.
+// written by this service. That bounds what the reading leg may claim — see
+// {@link TurnSnapshotAlreadyCaptured}.
 //
 // ---------------------------------------------------------------------------
 // The CAS is the arbiter; nothing pre-checks it
@@ -190,125 +159,6 @@
 // capture whose worktree has since changed writes a tree and a commit that no
 // ref will ever point at. They are unreferenced objects, which is exactly what
 // `git gc` collects, and the alternative — the pre-check — costs the arbiter.
-//
-// ---------------------------------------------------------------------------
-// The restore leg is fail-closed, and TWICE
-// ---------------------------------------------------------------------------
-//
-// needs the file-leg verdict BEFORE the conversation leg moves, because a
-// refusal rejects the whole rollback intervention with no leg applied.
-// {@link TurnSnapshotService.restoreToTurn} is the answer's application. The
-// resolver spawns nothing but read commands — `show-ref`, `rev-parse` — so a
-// refused resolve and an accepted one leave the execution root's worktree, index
-// and refs byte-identical.
-//
-// The precondition is then checked FOUR times, and none of the three extras is
-// redundant, because `HEAD` may move between any two of them: a commit/push
-// action landing in the execution root, most plausibly, or a user terminal open
-// in the same worktree. The exclusive execution-root tenancy puts around the
-// intervention is the CALLER's (campaign B9), and it excludes other RUNS, not
-// other processes; this module builds no tenancy machinery and instead re-asks
-// the one question that matters at each point the answer could have changed:
-//
-//   * at the resolve, so the whole rollback can be refused before its
-//     conversation leg moves;
-//   * inside `restoreToTurn`, before the derivation — the plain TOCTOU guard;
-//   * again after the derivation, because those listings are themselves a
-//     window, and this side of `read-tree` a refusal still costs nothing;
-//   * once more before the closing index reset, where the answer differs: the
-//     worktree already holds snapshot content, so a moved `HEAD` is a
-//     `partial_restore`, not a clean refusal.
-//
-// The first three refuse with NO mutation. The fourth is the one that would
-// otherwise be silent, and `restoreToTurn`'s docblock spells out what it
-// prevents. It is a check and not a lock, so the closing reset names the OID it
-// just verified rather than the mutable name `HEAD` — which does not close the
-// remaining window, but decides what a commit landing inside it looks like. The
-// destructive checkout leg names its verified OID for the same reason, one name
-// down: the resolver read the snapshot ref, so the checkout does not ask git to
-// re-resolve it.
-//
-// Fail-closed means the equality must be ESTABLISHED, not merely
-// un-contradicted: an unreadable `HEAD` and an unreadable recorded parent refuse
-// exactly as a mismatch does. At the resolve and at the two pre-mutation checks
-// that is the `head_moved` arm, carrying `null` for whichever side could not be
-// read; at the post-mutation check it is `partial_restore` at `close-index`, like
-// any other answer from that point on. Reading the older snapshot tree against
-// a newer `HEAD` would leave the later commit in branch history while
-// anti-diffing its files into the worktree as unstaged modifications —
-// fabricated edit intent of exactly the kind the closing index reset exists to
-// prevent.
-//
-// ---------------------------------------------------------------------------
-// The lineage walk NEVER falls through
-// ---------------------------------------------------------------------------
-//
-// Same-run resurrection re-uses turn ordinals, so `turn-6` exists under as many
-// `epoch-<E>` segments as the run has been rolled back. The walk picks the
-// OWNING epoch — the newest whose `rewindBase` is strictly below the target
-// position, positions at or below a rewind base inheriting from the parent epoch
-// — and then resolves that epoch's ref and no other. When the owning epoch's ref
-// is absent (a failure-tolerant capture left a gap), the answer is a typed
-// no-snapshot refusal: resolving the superseded parent epoch's same-ordinal ref
-// would restore a tree from an execution the user rolled back, which is the
-// silent wrong answer this refusal exists to make impossible.
-//
-// The `epochLineage` is the CALLER's — derived run engine's durable
-// epoch/intervention records — and the owner is selected by MAXIMUM epoch among
-// the candidates rather than by list position, so an unsorted lineage yields the
-// same owner rather than a plausible wrong one.
-//
-// ---------------------------------------------------------------------------
-// The partial-restore enumerations are OBSERVED, not bookkept
-// ---------------------------------------------------------------------------
-//
-// `read-tree --reset -u` updates the working tree as it applies, not
-// transactionally: a required smudge filter erroring on a later path leaves the
-// earlier paths — an overwritten colliding ignored file among them — on disk,
-// with the index NOT written (exit 128; empirically confirmed on git 2.50.1, and
-// the reason the index is no use as evidence here). So the sequence derives its
-// PROSPECTIVE collision-overwrite and gitlink-divergence sets before mutating —
-// recording each candidate's on-disk state at that moment — and, at a failure,
-// reports the subset whose on-disk state actually CHANGED.
-//
-// That observation is deliberately git-free (one TYPE-AWARE path fingerprint per
-// candidate, for BOTH candidate sets): it runs on the failure path, where the
-// git seam is the thing that just failed, and an enumeration that needed a
-// working git could empty-wash exactly the report maps to its
-// `files-partially-restored` disposition. Type-aware because bytes alone cannot
-// see a destroyed dangling symlink or a symlink replaced by a byte-identical
-// file — see {@link fingerprintPath}. The gitlink set reached this standard by
-// correction rather than design: it carried a `stat`-based presence boolean,
-// which read a symlink-to-directory as a directory and dropped the destroyed
-// symlink out of the report.
-//
-// The rule's one deliberate consequence, recorded rather than hidden: a
-// submodule that is PRESENT but divergent is enumerated on a completed restore
-// (the spec's report of the gitlink boundary) and is not enumerated on a
-// partial restore that never reached it, because `submodule.recurse=false` means
-// the failed sequence applied nothing at that path. Materializing an absent
-// gitlink as an empty directory IS such an effect, and is observed as one.
-//
-// Note also what these two enumerations are NOT: a census of everything the
-// sequence touched. They are two effect classes, so both can be empty on a
-// `partial_restore` that rewrote the whole worktree — see
-// {@link TurnSnapshotPartialRestore}, which states the exact reading a rollback
-// consumer needs.
-//
-// ---------------------------------------------------------------------------
-// The gitlink boundary cuts BOTH ways
-// ---------------------------------------------------------------------------
-//
-// `submodule.recurse=false` is usually described as "the restore does not reach
-// inside a submodule". The delete pass inherits the same boundary from the other
-// direction, and this one is easy to miss: `ls-files -o` does not descend into a
-// path the index holds as a `160000` gitlink — empirically confirmed on git
-// 2.50.1, including the case where the working copy there is an ORDINARY
-// directory, which is what a turn that removed an embedded repository's `.git`
-// leaves behind. Post-boundary untracked content inside such a path therefore
-// survives the restore, where the same content anywhere else is deleted. The
-// path is reported in `divergentGitlinks`, which is the caller's whole signal
-// that the boundary applied there.
 //
 // ---------------------------------------------------------------------------
 // Host-config knobs — the CLOSED disposition table
@@ -353,7 +203,7 @@
 // base commit — reversed the disposition to honored. A disposition here needs
 // the whole matrix, not the cell that motivated the question. The fourth
 // finding is that method applied to a knob needing the pin on SOME legs and not
-// others: the closing index reset honours it deliberately, and pinning there
+// others: the closing index reset honors it deliberately, and pinning there
 // would have been the `core.fileMode` mistake in a new place.
 //
 // ENUMERATION SOURCE — the variable listing of `git help --config` on git
@@ -515,7 +365,7 @@
 // the alternative is worse than the exposure.
 //
 //   * IN-TREE `.gitattributes`, both legs. A project declaration, checked in and
-//     identical on every host, so honouring it is what makes a restored worktree
+//     identical on every host, so honoring it is what makes a restored worktree
 //     byte-identical to any porcelain checkout of the project. This covers `text`,
 //     `eol=`, `working-tree-encoding=` and `filter=` NAMES alike — measured for
 //     `working-tree-encoding=UTF-16LE`, where the odb blob is UTF-8 and the
@@ -536,7 +386,7 @@
 //     content is the target path. Not pinned in either direction, because the
 //     value is a filesystem CAPABILITY: pinning `true` on a filesystem without
 //     symlink support makes the checkout fail rather than restore, and pinning
-//     `false` would degrade every host that does support them. Honouring it means
+//     `false` would degrade every host that does support them. Honoring it means
 //     the restore reproduces what a porcelain checkout produces on that host,
 //     which is this table's standard everywhere else. Measured irrelevant on the
 //     check-in leg: with and without the knob the staged tree is identical,
@@ -572,7 +422,7 @@
 //     truthfully. A `true` pin there would feed that fabrication into EVERY
 //     tracked file's recorded mode, turning a per-turn annoyance into
 //     recorded-bit loss across the snapshot. RESIDUAL, recorded rather than
-//     closed: honouring the knob means a preference-set or stale `false` on a
+//     closed: honoring the knob means a preference-set or stale `false` on a
 //     capable filesystem loses a turn-created executable's bit, and records a
 //     boundary `chmod` of a tracked file as that file's stale recorded mode. A
 //     stale `false` is narrow — git's probe never writes it on a capable
@@ -704,57 +554,15 @@
 //         structurally unable to become a failure. The listing content is
 //         unaffected.
 //
-//     SCOPE, restated because the row's previous one was wrong in a way worth
-//     recording: it read "the exposure is `in_place` mode on a user's canonical
-//     repository", and `in_place` names no member of {@link ExecutionMode} at
-//     all. The exposure is not a mode, it is a ROOT — any execution root whose
-//     `core.sparseCheckout` bit is set. Canonically that is a `branch`-mode root,
-//     which IS the user's own checkout and is therefore sparse whenever the user
-//     made it so; a `worktree`-mode root reaches it too, by INHERITANCE, since
-//     `git worktree add` copies the sparse state (driven by the suite, not
-//     assumed); and an `ephemeral clone` starts full, which is a fact about how
-//     the daemon creates it rather than a rule this module may rely on. Which is
-//     exactly why detection reads the ROOT and never `input.mode` — a mode-keyed
-//     detector would have inherited the old sentence's error as behaviour.
+//     SCOPE. The exposure is a ROOT, not a mode — any execution root whose
+//     `core.sparseCheckout` bit is set. A `bound-root` root IS the user's own
+//     checkout, sparse whenever the user made it so; a `provisioned-worktree`
+//     root reaches it too, by INHERITANCE, since `git worktree add` copies the
+//     sparse state (driven by the suite, not assumed). So detection reads the
+//     root: a mode-keyed detector would miss an inherited sparse root.
 //
-//     The residual this closure does NOT remove is MATERIALIZATION, and it is
-//     stated rather than hidden: the restore's `read-tree --reset -u` writes every
-//     path the CURRENT sparse definition admits, so a definition that changed
-//     between capture and restore projects the full snapshot tree differently than
-//     the capture-time one did. That is git's projection of a full tree through the
-//     live definition, which is the correct behaviour and also an effect no result
-//     arm names.
-//
-//     What the restore reports about it is an OBSERVATION, taken TWICE, under the
-//     same observed-not-bookkept discipline the collision and gitlink enumerations
-//     follow — and for the same reason they do. Before the checkout, in the
-//     pre-mutation window, the restore reads which snapshot-tracked paths the LIVE
-//     definition scores OUT of cone and are nevertheless sitting on disk, and
-//     records a fingerprint for each. At report time it re-reads them and emits
-//     only the ones that changed. So the diagnostic names paths the restore
-//     actually DISCARDED, and a sequence that refused before the checkout — or
-//     whose checkout failed at the spawn — emits nothing, because it discarded
-//     nothing. Reporting the pre-mutation candidate list on that path would have
-//     been a bookkept claim about work that did not happen, which is the exact
-//     defect the sibling enumerations were written to avoid.
-//
-//     The honest limit of the reading: a definition WIDENED at restore time makes
-//     the newly-admitted paths IN cone, so their materialization is ordinary
-//     projection and this enumeration does not name them — the reported slice is
-//     the out-of-cone-yet-present one the re-projection removes. See the suite's
-//     sparse cases, which drive the closure rather than characterizing the loss.
-//
-//     Widening is ordinary in exactly one direction, though, and DESTRUCTIVE in
-//     the other: a newly-admitted snapshot path whose place on disk is held by a
-//     RECORDED BOUNDARY path is written over content the trailer promised to keep,
-//     by the checkout itself, before any exemption is consulted. That case is
-//     refused pre-mutation rather than reported — see
-//     {@link TurnSnapshotService.#deriveBoundaryObstructions} for the three
-//     shapes and for why a diagnostic would not have satisfied.
-//
-// RECORDED RESIDUALS — the honest failure modes, closed by neither pin nor
-// measurement. The family above used to be the other member of this section;
-// what remains is the one whose pin set is unbounded by construction.
+// RECORDED RESIDUAL — the honest failure mode closed by neither pin nor
+// measurement, because its pin set is unbounded by construction.
 //
 //   * `filter.<name>.smudge` / `.clean` / `.required`, where `<name>` arrives from
 //     an IN-TREE attribute but the driver commands live in HOST config. Measured:
@@ -762,9 +570,7 @@
 //     the restored bytes (`PLAINTEXT` in the odb, `SMUDGED` on disk). `-c
 //     filter.redact.smudge=` neutralizes that ONE driver (measured — the restore
 //     returns `PLAINTEXT`), but the name is chosen by the repository, so the set
-//     of knobs to pin is unbounded and no closed pin set exists. This is the same
-//     mechanism the partial-restore section names as the archetypal mid-checkout
-//     failure, seen from the bytes side rather than the failure side.
+//     of knobs to pin is unbounded and no closed pin set exists.
 //
 // ---------------------------------------------------------------------------
 // Retention is WINDOW-BASED, and the git dir is the one that SURVIVES
@@ -795,31 +601,14 @@
 // the loop for that reason, because one `EACCES` stranding every later candidate
 // is the failure mode the never-fatal rule is written against.
 //
-// The skip vocabulary is three-way where a single `git-dir-unusable` would have
-// been one line shorter, and the third arm is what keeps the other two honest.
-// git answers a removed repository, a disposed clone, an `EACCES` on a live
-// store, a missing `git` binary and a failure creating the daemon's own
-// hook-neutralization directory with the SAME rejection, so the reason is
-// attributed by a `stat` probe on the failure path plus the row's
-// `execution_mode` — never by parsing git's stderr, and never by assuming.
-// Absent-and-a-clone is `clone-disposed`, absent-otherwise is `git-dir-absent`,
-// and present-but-unusable is `git-dir-unusable`, the fault arm. The probe fails
+// The git-dir skip vocabulary is two-way. git answers a removed repository, an
+// `EACCES` on a live store, a missing `git` binary and a failure creating the
+// daemon's own hook-neutralization directory with the SAME rejection, so the
+// reason is attributed by a `stat` probe on the failure path — never by parsing
+// git's stderr, and never by assuming. Absent is `git-dir-absent`, and
+// present-but-unusable is `git-dir-unusable`, the fault arm. The probe fails
 // TOWARD the fault (see `isPathProvablyAbsent`), because misreading an `EACCES`
-// as a disposal is the mistake that goes quiet.
-//
-// The clone-disposal boundary is the same fact from the other side. In
-// `ephemeral clone` mode the recorded common dir is the CLONE's own git dir, so
-// the snapshot refs share the clone's disposal lifecycle: an `on_run_complete`
-// disposal takes them with it, possibly before the retention window closes, and
-// a later rollback of that run proceeds CONVERSATION-ONLY — the ruling campaign
-// B2 recorded, with the file-leg disposition carried on the intervention
-// outcome. Neither disposal nor sweep is a retention violation: a disposed
-// clone leaves nothing to restore into, and the sweep fires only after the
-// window. Concretely, the sweep then finds the recorded common dir gone and
-// reports `clone-disposed` — the plan row's "the sweep then finds nothing to
-// delete", which is why that arm alone does not raise the pass warn (see
-// `sweepPrunableRuns`). On a clone-mode daemon it is otherwise EVERY run the
-// daemon ever executed, arriving hourly, forever.
+// as a removal is the mistake that goes quiet.
 //
 // Deletion is a COMPARE-AND-SWAP, matching the capture leg's posture: the
 // enumeration reads `<oid> <refname>` and each deletion names the oid it read
@@ -831,21 +620,15 @@
 //
 // RESIDUALS, recorded rather than closed:
 //
-//   * The candidate set is every terminal WRITABLE run whose window has closed,
-//     EVERY tick, forever — so the per-tick spawn count grows with the daemon's
+//   * The candidate set is every terminal run whose window has closed, EVERY
+//     tick, forever — so the per-tick spawn count grows with the daemon's
 //     LIFETIME run count, not with the number of runs that have anything left to
 //     prune: a daemon with five thousand historical runs spawns five thousand
-//     `git for-each-ref` processes an hour to delete nothing. Nothing memoizes an
-//     already-pruned run, because the only durable key available is `released_at`
-//     and a terminal-source rollback CLEARS and re-stamps it (the table's own DDL
-//     comment); a memo keyed on it would go stale in exactly the case that
-//     matters. `LIMIT` is not the missing bound either: with `ORDER BY
-//     released_at ASC` and no memo it re-reads the same oldest N rows forever and
-//     starves everything behind them. The one bound that IS sound is taken —
-//     `read-only` runs can never have captured a ref, so the predicate excludes
-//     them. Row retention for `run_execution_contexts` has no owner in the V1
-//     corpus and is not this service's to invent: it holds no writer for that
-//     table.
+//     `git for-each-ref` processes an hour to delete nothing, because nothing
+//     memoizes an already-pruned run. `LIMIT` is not the missing bound: with
+//     `ORDER BY released_at ASC` and no memo it re-reads the same oldest N rows
+//     forever and starves everything behind them. This service holds no writer
+//     for `run_execution_contexts` and deletes none of its rows.
 //   * The same absent memo has a SECOND consequence, on the operator channel: a
 //     run that is skipped rather than pruned re-enumerates in the
 //     `retention-prune-skipped` diagnostic every tick, for as long as its row
@@ -854,35 +637,14 @@
 //     and a pass that skips it and says nothing would not be enumerating it. So
 //     a daemon whose canonical repository was deleted warns hourly, forever,
 //     over a set that stops growing but never empties (no retention owner for
-//     the rows). Only the `clone-disposed` arm is exempted, and that exemption
-//     buys silence only where the set would otherwise grow without bound — see
-//     {@link NON_ALARMING_SKIP_REASONS}.
+//     the rows).
 //   * Spawn count scales with (turns x epochs) per run, because the ratified
 //     recipe is per-ref `update-ref -d` rather than a batched `--stdin`
 //     transaction. Deviating would need a plan amendment; the batched form is
 //     also all-or-nothing, where the per-ref form partially prunes and reports.
 //   * `released_at <= <cutoff>` is a TEXT comparison, so it is chronological only
 //     while the column holds fixed-width UTC `toISOString()` spellings. That is a
-//     forward contract on gate that stamps it, spelled the same way
-//     `./ephemeral-clone-service.ts` spells its own `expires_at` contract.
-//   * The sweep takes no lock against a concurrent rollback re-opening a run
-//     whose window had already closed. The exposure is a rollback issued in the
-//     same moment as a sweep of a run the retention policy had already released,
-//     and its outcome splits by WHICH SIDE of the resolve the deletion lands on:
-//     before it, the ordinary answer for a missing snapshot — a typed
-//     no-snapshot/`ref-absent` refusal with nothing applied; between the resolve
-//     and the application, the correct tree still applies, because the resolve
-//     froze the snapshot's OID into the target and both legs downstream of it
-//     name that OID, while the commit object outlives its last ref until `gc`.
-//     Deleting the ref removes a NAME, not the snapshot. Never a wrong tree
-//     either way; both sides are driven by one case in the retention suite,
-//     "applies a snapshot whose ref the prune deleted inside the
-//     resolve→restore window". There is a composite THIRD shape, recorded
-//     because it is the one place the deletion still bites: a deletion inside
-//     that window costs nothing until some UNRELATED step fails, and the
-//     resulting partial restore is then terminal for its target, because the
-//     fresh rollback's resolve refuses `ref-absent`. See
-//     {@link TurnSnapshotPartialRestore}.
+//     forward contract on the gate that stamps it.
 //
 // ---------------------------------------------------------------------------
 // Capture NEVER throws into the turn boundary
@@ -894,9 +656,9 @@
 // caller gets a typed result on every arm. THREE pieces carry that, not one,
 // because the last two run where a `catch` cannot reach them:
 //
-//   * The mode allowlist and the ref-component validation run first and return
-//     typed results directly. They spawn nothing and touch nothing, so there is
-//     no rejection for a `catch` to catch.
+//   * The ref-component validation runs first and returns a typed result
+//     directly. It spawns nothing and touches nothing, so there is no rejection
+//     for a `catch` to catch.
 //   * ONE `try` with a step cursor wraps every fallible leg — the scratch-index
 //     directory, each git invocation, the ref write — so the caller's `failed`
 //     result names the step. A cursor rather than a list of `catch`es, because a
@@ -925,8 +687,8 @@
 // is created per invocation rather than once, and why the argv is an ARRAY and
 // never a shell string — is at `./worktree-service.ts`'s header and is not
 // repeated. The neutralization directory is spelled identically to that module's
-// and `./ephemeral-clone-service.ts`'s on purpose: three spellings would mean
-// three directories, any of which a temp reaper could remove.
+// on purpose: two spellings would mean two directories, either of which a temp
+// reaper could remove.
 //
 // The shell-free rule is load-bearing here in a way it is not for the sibling
 // services, because the ratified recipe is written as a PIPE
@@ -940,23 +702,11 @@ import { execFile } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import type { Stats } from "node:fs";
 import type { FileHandle } from "node:fs/promises";
-import {
-  copyFile,
-  lstat,
-  mkdir,
-  open,
-  readFile,
-  readlink,
-  rm,
-  rmdir,
-  stat,
-} from "node:fs/promises";
-import { isAbsolute, dirname, join } from "node:path";
+import { copyFile, lstat, mkdir, open, readFile, readlink, rm, stat } from "node:fs/promises";
+import { isAbsolute, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 
 import type { Database, Statement } from "better-sqlite3";
-
-import type { ExecutionMode } from "@ai-sidekicks/contracts";
 
 import {
   DEFAULT_GIT_EXECUTABLE,
@@ -992,7 +742,7 @@ export interface TurnSnapshotGitInvocationResult {
 }
 
 /** Per-invocation bounds and inputs. */
-export interface TurnSnapshotGitInvocationOptions {
+interface TurnSnapshotGitInvocationOptions {
   /** Wall-clock ceiling; the child is killed past it. */
   readonly timeoutMs: number;
   /**
@@ -1006,11 +756,10 @@ export interface TurnSnapshotGitInvocationOptions {
    */
   readonly environmentOverrides?: Readonly<Record<string, string>>;
   /**
-   * Written to the child's stdin, which is then closed. FOUR legs supply one:
+   * Written to the child's stdin, which is then closed. THREE legs supply one:
    * `update-index --add --remove -z --stdin` (the staging listing),
-   * `sparse-checkout check-rules -z` (the candidate paths), `update-index
-   * --force-remove -z --stdin` (the restore's boundary-set index pre-drop) and
-   * `commit-tree -F -` (the snapshot message).
+   * `sparse-checkout check-rules -z` (the candidate paths) and `commit-tree -F -`
+   * (the snapshot message).
    *
    * stdin is closed on EVERY invocation, supplied or not, and that close is now
    * LOAD-BEARING rather than a belt. calls out the failure mode — `commit-tree`
@@ -1029,10 +778,9 @@ export interface TurnSnapshotGitInvocationOptions {
  *
  * Takes the COMPLETE argv — `-C <dir>` included — and no working directory, so
  * the argv is the whole invocation. Same reasoning, and the same deliberate
- * non-import of the `GitFileExecutor`, that `./worktree-service.ts` and
- * `./ephemeral-clone-service.ts` each record at their own seam; this one differs
- * from both by carrying stdin and an environment overlay, which the snapshot
- * recipe needs and neither of theirs does.
+ * non-import of the `GitFileExecutor`, that `./worktree-service.ts` records at
+ * its own seam; this one differs by carrying stdin and an environment overlay,
+ * which the snapshot recipe needs and that one does not.
  *
  * Rejections are opaque to this module: nothing reads a field off the thrown
  * value. Failure detection is BY EXIT STATUS ONLY, and that is not a stylistic
@@ -1051,76 +799,35 @@ export type TurnSnapshotGitRunner = (
  * The seam through which this service MUTATES the filesystem — and only that.
  *
  * Every verb is idempotent: `createDirectory` creates leading directories and
- * tolerates an existing one, `removePath` removes a file or a directory tree and
- * tolerates a missing one, `removeDirectoryIfEmpty` removes a directory only
- * when the removal is unambiguous and tolerates both a missing and a still-
- * populated one. The tolerance is load-bearing twice: for the scratch-index
- * cleanup, which runs in a `finally` and must not turn a capture failure into a
- * second one, and for the restore leg's directory pruning, where a directory
- * that turns out to still hold snapshot content is the ordinary case rather than
- * an error.
- *
- * The restore leg's OBSERVATIONS — the collision and gitlink path fingerprints
- * — deliberately do not come through here. They are reads, they
- * run on the failure path where a seam is the least trustworthy thing available,
- * and seaming them would hand every implementor (the suite's two capture-only
- * doubles included) verbs it has no opinion about. The boundary is therefore
+ * tolerates an existing one, and `removePath` removes a file or a directory tree
+ * and tolerates a missing one. The tolerance is load-bearing for the
+ * scratch-index cleanup, which runs in a `finally` and must not turn a capture
+ * failure into a second one. Reads do not come through here: the boundary is
  * "this interface is where the service writes", with ONE stated carve-out.
  *
  * THE CARVE-OUT is the sparse seed's index lock, and the discriminator is the
  * idempotence sentence above rather than the write/read line. Adding it here
  * would either break the invariant every other verb's tolerance rests on (the
- * `finally` cleanup and the restore's directory pruning are correct only because
- * their verbs tolerate a repeat) or force a fourth verb documented as the
- * exception to its own interface's opening line.
+ * `finally` cleanup is correct only because its verb tolerates a repeat) or force
+ * a third verb documented as the exception to its own interface's opening line.
  * {@link TurnSnapshotService.#seedScratchIndexFromLiveIndex} calls `node:fs`
- * directly, exactly as `fingerprintPath` and `isPathProvablyAbsent` already do
- * on the read side, and its failure mode is exercised against a REAL held lock
+ * directly, exactly as `isPathProvablyAbsent` already does on the read side, and
+ * its failure mode is exercised against a REAL held lock
  * rather than through an injected seam — which is the stronger test anyway,
- * since the protocol being honoured is git's and not this module's.
+ * since the protocol being honored is git's and not this module's.
  *
- * Paths are `string`, deliberately and with a known cost, and the cost is not the
- * one it first looks like. A path name that is not valid UTF-8 reaches these
- * verbs with replacement characters, and the hazard is NOT that the removal
- * silently finds nothing: U+FFFD is a character a filename may legitimately
- * contain, so the mangled spelling can address a DIFFERENT path that really
- * exists — including one the caller adjudicated as protected. The complete fix is
- * Buffer-typed paths throughout, which is not taken while this seam stays three
- * narrow mutation verbs whose every implementor (the suite's doubles included)
- * would have to carry the wider type for a case none of them exercises.
- *
- * What keeps a lossy spelling from ever reaching these verbs is the delete pass's
- * PRE-MUTATION ROUND-TRIP GUARD: the one leg that derives paths for them from a
- * git listing refuses a whole pass holding any entry whose decoded text does not
- * re-encode to the bytes git emitted, before any removal in that pass runs (see
- * {@link listingEntryTextRoundTripsToItsBytes}; the other `removePath` caller
- * addresses this module's own scratch-index path). Behind that, the same pass
- * still detects a listing that did not change instead of trusting that its
- * removals removed, which is what covers the stalls a spelling check cannot see
- * (see {@link splitNulTerminatedListing} for the same boundary on the capture
- * side, where the listing never gets decoded at all).
+ * Paths are `string`: the one caller passes this module's own scratch-index
+ * path, never a path decoded from a git listing.
  */
 export interface TurnSnapshotFilesystem {
   createDirectory(path: string): Promise<void>;
   removePath(path: string): Promise<void>;
-  /**
-   * Remove `path` when it is an EMPTY directory; a non-empty or absent one is a
-   * no-op. Never recursive — the restore leg prunes directories its own
-   * deletions emptied, and a recursive form here would delete the snapshot
-   * content that made the directory non-empty in the first place.
-   */
-  removeDirectoryIfEmpty(path: string): Promise<void>;
 }
 
 /**
  * The capture pipeline's steps, in execution order. Named on the failure result
  * and on the diagnostic so a caller — and an operator reading the diagnostic —
  * learns WHERE a capture stopped without this module echoing git's stderr.
- *
- * {@link TurnSnapshotRestoreStep} is the restore sequence's own step vocabulary,
- * a SIBLING type rather than a growth of this one: `failedStep` on the restore
- * result is pinned name-identical to the wire arms, and a shared union would
- * leak capture steps into a restore disposition.
  *
  * The sparse closure added exactly TWO members, slotted in execution order
  * rather than overloaded onto neighbours, because each is a distinct thing an
@@ -1158,62 +865,11 @@ export type TurnSnapshotCaptureStep =
   | "write-ref";
 
 /**
- *
- * The first two are pre-mutation by construction — with ONE qualification added
- * and did not want to leave implied. `derive-enumerations` now also performs the
- * sparse boundary set's INDEX PRE-DROP, which writes the index; a failure there
- * still leaves index and worktree untouched, because the drop is a single
- * `update-index --force-remove` invocation and git's index write is atomic (lock,
- * write, rename), so it either applied whole or not at all. What the
- * qualification costs is the stronger reading: a SUCCEEDED drop ahead of a later
- * failed step is reported by that later step, not by this one. The property the
- * spec's sentence protects — nothing is half-applied where a failure is reported
- * — survives; the property "no bytes moved at all under this name" no longer
- * does, and the drop is deliberately not given a step of its own because the wire
- * mapping froze this vocabulary at five. The step's three REFUSALS are all
- * upstream of that drop — an undecodable trailer, the sparse vintage gate and the
- * boundary-obstruction guard all throw from inside the read-only derivation — so
- * each of them does still leave index and worktree byte-identical, which is the
- * stronger reading and the one the suite pins. The last three are the pinned
- * three-step of in the order that spec fixes: the delete pass must run while the
- * index still holds the SNAPSHOT tree, and `close-index` must run after it.
- * Swapped, the close returns the index to the branch tip and every
- * captured-untracked file the restore just materialized becomes a deletion
- * candidate — a restore that silently deletes the files it was asked to bring
- * back.
- *
- * Two of the five need their reachability stated, because the vocabulary is
- * wider than the set `failedStep` actually reports:
- *
- *   * `verify-head` is NEVER a reported `failedStep`. It is the step cursor's
- *     initial value, and the restore's three `HEAD` reads all refuse through the
- *     `head_moved` ARM (or, for the last one, through `close-index`) rather than
- *     through this name. It stays in the union so the vocabulary covers the
- *     whole sequence rather than only its fallible-by-command half.
- *   * `close-index` is reachable THREE ways: the closing `read-tree` itself
- *     failing, and — from the post-mutation `HEAD` check that runs immediately
- *     before it (see {@link TurnSnapshotService.restoreToTurn}) — a `HEAD` that
- *     MOVED or a `HEAD` that could not be READ. The latter two are not git
- *     failures at all, and they differ from each other in whether a fresh
- *     rollback can recover, so the diagnostic detail names which one happened.
- */
-export type TurnSnapshotRestoreStep =
-  | "verify-head"
-  | "derive-enumerations"
-  | "read-tree"
-  | "delete-untracked"
-  | "close-index";
-
-/**
  * Why one run's snapshot refs were not pruned. See {@link TurnSnapshotRetentionSkip}.
  *
- * The vocabulary splits FAULT from BOUNDARY: `clone-disposed` and
- * `git-dir-absent` are outcomes, while the rest are conditions somebody acts on.
- * The warn gate is drawn one notch tighter than that split — only
- * `clone-disposed` is silent, because only it is unbounded — so "the pass
- * diagnostic can quiesce" is a claim about a clone-mode daemon specifically. See
- * {@link NON_ALARMING_SKIP_REASONS} and
- * {@link TurnSnapshotService.sweepPrunableRuns}.
+ * The vocabulary splits FAULT from BOUNDARY: `git-dir-absent` is an outcome,
+ * while the rest are conditions somebody acts on. Every one of them raises the
+ * pass diagnostic; see {@link TurnSnapshotService.sweepPrunableRuns}.
  */
 export type TurnSnapshotRetentionSkipReason =
   /** The `runId` is not safe as a ref path component — refused before any git call. */
@@ -1229,27 +885,11 @@ export type TurnSnapshotRetentionSkipReason =
    */
   | "run-context-unreadable"
   /**
-   * An `ephemeral clone`-mode run whose recorded git dir is GONE —
-   * `on_run_complete` disposal took the refs with it, since they lived in the
-   * clone's own object store. The expected boundary, not a fault: the plan row
-   * reads "the sweep then finds nothing to delete", and a later rollback of that
-   * run proceeds conversation-only (campaign B2). Excluded from the pass warn.
-   */
-  | "clone-disposed"
-  /**
-   * The recorded `git_common_dir` is absent from disk in a mode that does NOT
-   * dispose its store — the plan row's "the repo was removed", which that row
-   * requires to be "skipped and enumerated in the sweep diagnostic". So this one
-   * DOES raise the pass warn, unlike `clone-disposed`.
-   *
-   * The distinction is SET SIZE, not report frequency — nothing memoizes on
-   * either side, so both classes re-enumerate on every tick for as long as their
-   * rows live (residual 1). But a removed repository implicates a BOUNDED set:
-   * the runs that were executing in it when it vanished, a number that stops
-   * growing the moment it does. Disposed clones are unbounded and growing —
-   * every clone-mode run the daemon ever finishes adds one, forever. A warn that
-   * says the same bounded thing until somebody deals with it is a warn; one that
-   * grows without limit under normal operation is what drowns it.
+   * The recorded `git_common_dir` is absent from disk — "the repo was removed",
+   * which must be "skipped and enumerated in the sweep diagnostic". Nothing
+   * memoizes it, so it re-enumerates on every tick for as long as its row lives;
+   * the set a removed repository implicates is BOUNDED (the runs that were
+   * executing in it), so the warn stays readable.
    */
   | "git-dir-absent"
   /**
@@ -1267,35 +907,13 @@ export type TurnSnapshotRetentionSkipReason =
   | "ref-delete-failed";
 
 /**
- * The skip reasons that do not raise the pass warn. A pass whose skips are all
- * in this set emits no `retention-prune-skipped` diagnostic at all, which is the
- * whole of "the warn can quiesce"; every skip is on the sweep RESULT either way.
- *
- * `git-dir-absent` is deliberately NOT a member even though it is equally an
- * outcome rather than a fault: row names that case specifically and requires it
- * "skipped and enumerated in the sweep diagnostic", and the set of runs a
- * removed repository implicates is BOUNDED — where disposed clones accumulate
- * one per clone-mode run, without limit, as the design works. Neither side
- * memoizes, so both re-report every tick; only the size differs, and the
- * unbounded one is what would drown the channel (see the reason's own docblock
- * and residual 1 in the header).
- *
- * COUPLED to the diagnostic's `disposedCloneCount`, which counts the skips whose
- * reason IS in this set — `skipped.length - actionableSkips.length`, where
- * `actionableSkips` is the complement. A second member here means renaming that
- * field, because it would no longer be counting only clones.
- */
-const NON_ALARMING_SKIP_REASONS: ReadonlySet<TurnSnapshotRetentionSkipReason> =
-  new Set<TurnSnapshotRetentionSkipReason>(["clone-disposed"]);
-
-/**
  * One run the sweep declined to finish, and why.
  *
  * The plan's obligation is that such a run is "skipped and enumerated in the
  * sweep diagnostic, never fatal", so this is the enumeration's element type and
  * it appears BOTH on the per-run result and on the pass's diagnostic.
  */
-export interface TurnSnapshotRetentionSkip {
+interface TurnSnapshotRetentionSkip {
   readonly runId: string;
   readonly reason: TurnSnapshotRetentionSkipReason;
   /** Free-form; the rejection's message when there was one. */
@@ -1305,27 +923,21 @@ export interface TurnSnapshotRetentionSkip {
 /**
  * What this service reports to the daemon's observability layer.
  *
- * Two kinds are spec-named: requires the failure diagnostic ("capture failure
- * emits an OTel diagnostic and never blocks or fails the turn") and requires the
- * skipped commitless embedded repositories to be "enumerated in the capture
- * diagnostic" — which happens on a capture that otherwise SUCCEEDED, hence its own
- * kind rather than a field on `capture-failed`.
+ * Two kinds are required behavior: a failed capture emits a diagnostic and never
+ * blocks or fails the turn, and skipped commitless embedded repositories are
+ * enumerated in a diagnostic — which happens on a capture that otherwise
+ * SUCCEEDED, hence its own kind rather than a field on `capture-failed`.
  *
- * The rest are operational rather than spec-named.
- * `embedded-repositories-preserved` is the restore-side mirror of the skip
- * enumeration, and exists because the skip has a consequence the spec did not
- * anticipate: those repositories had to be protected from the restore's own
- * delete pass, and a daemon that silently declines to delete something owes an
- * operator the list. `scratch-index-cleanup-failed` covers a cleanup that is
- * best-effort by construction (it must never convert a completed capture into a
- * failure), where best-effort with no report is how a daemon leaks index files
- * into its own execution-roots directory for months without a signal. It is
- * deliberately NOT a `capture-failed`: the capture it follows may have fully
+ * The rest are operational. `scratch-index-cleanup-failed` covers a cleanup
+ * that is best-effort by construction (it must never convert a completed capture
+ * into a failure), where best-effort with no report is how a daemon leaks index
+ * files into its own execution-roots directory for months without a signal. It
+ * is deliberately NOT a `capture-failed`: the capture it follows may have fully
  * succeeded, and the outcome is reported by the RESULT, not here.
  *
- * Paths appear here deliberately. no-path-echo rule governs typed errors that
- * reach the WIRE; a diagnostic is daemon-local observability, and enumerating
- * which repositories were skipped is the whole content of the obligation.
+ * Paths appear here deliberately. The no-path-echo rule governs typed errors
+ * that reach the WIRE; a diagnostic is daemon-local observability, and
+ * enumerating which repositories were skipped is its whole content.
  */
 export type TurnSnapshotDiagnostic =
   | {
@@ -1359,94 +971,6 @@ export type TurnSnapshotDiagnostic =
       readonly skippedPaths: readonly string[];
     }
   | {
-      /**
-       * The RESTORE side of the kind above: the skipped embedded repositories a
-       * restore protected from its own delete pass.
-       *
-       * A DIAGNOSTIC rather than a field on the restore result, and the choice is
-       * forced rather than preferred. `TurnSnapshotRestoreResult` is the shape
-       * froze for the rollback consumer; adding a member to its success arm
-       * changes a contract this task has no authority over, for information that
-       * arm's consumer does not act on. The observability layer is where "the
-       * daemon deliberately did not touch these paths" belongs, and emitting it as
-       * the mirror of `embedded-repositories-skipped` means the two halves of one
-       * lifecycle read the same way in a log: capture could not record these,
-       * restore did not delete them.
-       *
-       * Emitted only when the set is non-empty and only after the delete pass has
-       * run, so its presence means protection was actually exercised.
-       */
-      readonly kind: "embedded-repositories-preserved";
-      readonly runId: string;
-      /** The OWNING epoch — the resolved ref's own `epoch-<E>` segment. */
-      readonly epoch: number;
-      /** The target position — the resolved ref's own `turn-<N>` segment. */
-      readonly turnOrdinal: number;
-      readonly ref: string;
-      /**
-       * Worktree-relative paths recorded by the capture's
-       * `Skipped-Embedded-Repositories` trailer, which the delete pass left alone
-       * along with everything beneath them.
-       */
-      readonly preservedPaths: readonly string[];
-    }
-  | {
-      /**
-       * The materialized out-of-cone paths a sparse restore DISCARDED from the
-       * worktree — the residual the host-config table's sparse row names,
-       * reported instead of hidden.
-       *
-       * A snapshot tree is FULL: the capture records out-of-cone content because
-       * sparseness is a checkout-time projection, not a property of the recorded
-       * state. `read-tree --reset -u` then re-projects that tree through the cone
-       * that is live AT RESTORE TIME, which is the correct behaviour and is also
-       * the one restore effect a caller has no other way to learn about — a path
-       * the live definition excludes can still be sitting in the worktree (the
-       * cone widened and then narrowed again without a checkout, or git could not
-       * un-materialize it), and the re-projection removes it while neither result
-       * arm names the path.
-       *
-       * OBSERVED, never bookkept, which is this module's standing discipline for
-       * a restore effect (see the header's partial-restore section), and observed
-       * TWICE. Before the checkout, three facts fix the candidate set: the paths
-       * the snapshot tree tracks, the ones git's matcher scores out-of-cone under
-       * the LIVE definition, and the ones actually present on disk (a path in the
-       * first two and absent from disk is the ordinary unmaterialized case and is
-       * never a candidate). Each candidate's pre-mutation
-       * {@link fingerprintPath} is recorded. At report time each is re-read, and
-       * only the changed ones are named — so this says what the restore DID,
-       * never what it was going to do.
-       *
-       * The second observation is what makes the arm safe on the failure path. A
-       * `partial_restore` that refused at window two, or whose checkout failed at
-       * the spawn, discarded nothing: every candidate fingerprints equal and the
-       * diagnostic is not emitted at all. One that got past the checkout and
-       * failed at `delete-untracked` or `close-index` reports the real set. The
-       * candidate list alone could not tell those apart.
-       *
-       * A DIAGNOSTIC and not a result field, for the reason
-       * `embedded-repositories-preserved` states at length: froze
-       * `TurnSnapshotRestoreResult` for the consumer, and this task has no
-       * authority to grow a union that consumer switches on. Emitted at most ONCE
-       * per restore — on the success tail after the last leg that can fail, or
-       * from the failure reporter, never both.
-       */
-      readonly kind: "sparse-out-of-cone-materialized";
-      readonly runId: string;
-      /** The OWNING epoch — the resolved ref's own `epoch-<E>` segment. */
-      readonly epoch: number;
-      /** The target position — the resolved ref's own `turn-<N>` segment. */
-      readonly turnOrdinal: number;
-      readonly ref: string;
-      /**
-       * Worktree-relative, sorted. Snapshot-tracked paths that the live sparse
-       * definition scores OUT of cone, that were observed materialized before the
-       * checkout, and whose on-disk state the restore then changed. Never empty
-       * — an empty set is not emitted.
-       */
-      readonly materializedPaths: readonly string[];
-    }
-  | {
       readonly kind: "scratch-index-cleanup-failed";
       readonly runId: string;
       readonly epoch: number;
@@ -1454,63 +978,6 @@ export type TurnSnapshotDiagnostic =
       /** The scratch index that survived. Daemon-local, never a worktree path. */
       readonly scratchIndexPath: string;
       /** Free-form; the rejection's message when there was one. */
-      readonly detail: string;
-    }
-  | {
-      /**
-       * A restore that stopped mid-sequence — the `partial_restore` result's
-       * operational half. The RESULT carries the disposition maps (`failedStep`
-       * plus the two enumerations); this carries the one thing the result
-       * deliberately does not, the rejection's `detail`, exactly as
-       * `capture-failed` does for the capture leg.
-       *
-       * The line this module draws is FAULT versus REFUSAL, not failure versus
-       * success. A `head_moved` re-verify, an absent snapshot and unusable
-       * inputs are contract answers the caller acts on — refusals — and are not
-       * diagnosed. A restore that stopped mid-sequence is a fault, and so is the
-       * `probe-failed` resolution below: both mean the daemon could not do what
-       * it was asked, which is what an operator is paged about.
-       *
-       * `detail` is therefore the operator's WHOLE channel here, and the two
-       * `close-index` failures that are not git rejections carry a written detail
-       * for that reason: `failedStep` cannot distinguish a `HEAD` that moved (this
-       * target is finished) from one that could not be read (a fresh rollback may
-       * well succeed), and the difference decides what to do next.
-       */
-      readonly kind: "restore-failed";
-      readonly runId: string;
-      /** The OWNING epoch — the resolved ref's own `epoch-<E>` segment. */
-      readonly epoch: number;
-      /** The target position — the resolved ref's own `turn-<N>` segment. */
-      readonly turnOrdinal: number;
-      readonly ref: string;
-      readonly failedStep: TurnSnapshotRestoreStep;
-      /** Free-form; the rejection's message when there was one. */
-      readonly detail: string;
-      /** As on the result: observed, required, empty-when-none. */
-      readonly overwrittenIgnoredPaths: readonly string[];
-      readonly divergentGitlinks: readonly string[];
-    }
-  | {
-      /**
-       * The resolver could not ASK the repository — the ref probe failed and so
-       * did a bare `rev-parse --git-dir` against the same root, which is a
-       * vanished execution root, an `EACCES`, or no git binary at all.
-       *
-       * A fault, not a refusal, which is why it is diagnosed where the three
-       * other `no_snapshot` reasons are not: reporting "no snapshot" for a
-       * question nobody could put would otherwise be the daemon's quietest
-       * possible failure. The caller still refuses the whole rollback either
-       * way, so the diagnostic is the ONLY signal this condition produces.
-       */
-      readonly kind: "restore-probe-failed";
-      readonly runId: string;
-      /** The OWNING epoch the walk selected before the probe failed. */
-      readonly epoch: number;
-      /** The target position — the ref's own `turn-<N>` segment. */
-      readonly turnOrdinal: number;
-      readonly ref: string;
-      /** Free-form; what was attempted, since the rejection itself is swallowed. */
       readonly detail: string;
     }
   | {
@@ -1532,21 +999,10 @@ export type TurnSnapshotDiagnostic =
        */
       readonly kind: "retention-prune-skipped";
       /**
-       * The skips an operator can act on. Non-empty by construction — the sweep
-       * does not emit an empty enumeration — and deliberately NOT every skip of
-       * the pass: see `disposedCloneCount`.
+       * Every skip of the pass. Non-empty by construction — the sweep does not
+       * emit an empty enumeration.
        */
       readonly skipped: readonly TurnSnapshotRetentionSkip[];
-      /**
-       * How many candidates were skipped because their ephemeral clone had been
-       * disposed. A COUNT rather than an enumeration, and that is the whole
-       * point: on a clone-mode daemon EVERY run ever executed ends here, nothing
-       * memoizes an already-seen one (see the header's residuals), and by the
-       * plan's own ruling there is nothing to act on — so enumerating them would
-       * bury the actionable skips beside them under a list that only grows. The
-       * sweep RESULT still carries every one of them in full.
-       */
-      readonly disposedCloneCount: number;
       /** How many runs the pass examined, so the skip count reads as a proportion. */
       readonly examinedRunCount: number;
     }
@@ -1557,7 +1013,7 @@ export type TurnSnapshotDiagnostic =
        * scopes, and the `runId` field is what tells them apart:
        *
        *   * {@link TurnSnapshotService.sweepPrunableRuns} — the sweep could not
-       *     run AT ALL: its candidate read rejected, or the clock did not honour
+       *     run AT ALL: its candidate read rejected, or the clock did not honor
        *     its contract. No `runId`; the pass never got far enough to name one.
        *     This is the daemon's ONLY signal for that condition, because the
        *     sweep returns an empty result and never throws (a background leg on a
@@ -1612,10 +1068,9 @@ export interface TurnSnapshotServiceDeps {
    * milliseconds. Defaults to
    * {@link DEFAULT_TURN_SNAPSHOT_RETENTION_WINDOW_MS}.
    *
-   * Daemon configuration expressed as constructor config, following the
-   * ephemeral-clone TTL exactly: calls the window "configured" without fixing a
-   * number, and the corpus-true home for a daemon-side duration is daemon
-   * config, not the wire.
+   * Daemon configuration expressed as constructor config: the window has no
+   * fixed number, and a daemon-side duration belongs in daemon config, not on
+   * the wire.
    */
   readonly retentionWindowMs?: number;
   /** Git process seam; defaults to {@link runTurnSnapshotGitWithExecFile}. */
@@ -1668,11 +1123,10 @@ export interface TurnSnapshotServiceDeps {
  */
 export interface CaptureTurnSnapshotInput {
   /**
-   * The run's execution root — the worktree, the main checkout (`branch` mode)
-   * or the ephemeral clone. Resolved by the caller from the
-   * `run_execution_contexts` row; the capture leg never reads that table
-   * itself (only the retention leg does, for a different column and on a
-   * different trigger; see the header).
+   * The run's execution root — the worktree or the main checkout (`bound-root`
+   * mode). Resolved by the caller from the `run_execution_contexts` row; the
+   * capture leg never reads that table itself (only the retention leg does, for
+   * a different column and on a different trigger; see the header).
    */
   readonly executionRoot: string;
   /**
@@ -1692,11 +1146,6 @@ export interface CaptureTurnSnapshotInput {
   readonly epoch: number;
   /** The turn position this snapshot records. Non-negative integer. */
   readonly turnOrdinal: number;
-  /**
-   * `read-only` returns the typed no-op; `branch` / `worktree` / `ephemeral
-   * clone` run the pipeline (the Applicability bullet of).
-   */
-  readonly mode: ExecutionMode;
 }
 
 /** A snapshot this call created. */
@@ -1708,10 +1157,8 @@ export interface TurnSnapshotCaptured {
   readonly snapshotCommit: string;
   /**
    * The ONE base OID resolved at entry, used for both the tree base and the
-   * recorded parent. Reported because the restore leg's fail-closed precondition
-   * is "current `HEAD` equals this", and a caller that wants to know whether a
-   * later restore is still possible should not have to re-derive it from the
-   * commit object.
+   * recorded parent. Reported so a caller that compares it with the current
+   * `HEAD` need not re-derive it from the commit object.
    */
   readonly baseCommit: string;
   /**
@@ -1727,7 +1174,7 @@ export interface TurnSnapshotCaptured {
  * The create-only ref was already written — a retried or duplicated capture of
  * the same `(runId, epoch, turnOrdinal)`.
  */
-export interface TurnSnapshotAlreadyCaptured {
+interface TurnSnapshotAlreadyCaptured {
   readonly outcome: "already-captured";
   readonly ref: string;
   /**
@@ -1741,25 +1188,6 @@ export interface TurnSnapshotAlreadyCaptured {
    * repository write access need not be an OID this service ever recorded.
    */
   readonly snapshotCommit: string;
-}
-
-/**
- * The mode does not snapshot: nothing was captured, and nothing was written — no
- * git object, no ref, no directory (the Applicability bullet of).
- */
-export interface TurnSnapshotNotApplicable {
-  readonly outcome: "not-applicable";
-  /**
-   * `read-only-mode` is the spec-named case. `mode-not-snapshot-capable` is the
-   * ALLOWLIST's default arm — reported for a mode that reaches
-   * {@link SNAPSHOT_APPLICABLE_MODES} without being on it, which today is
-   * unreachable and after a future `ExecutionMode` member is the deliberate
-   * inert answer. Two reasons rather than one because the arms are not the same
-   * fact: one is a decision the spec made, the other is a decision nobody has
-   * made yet.
-   */
-  readonly reason: "read-only-mode" | "mode-not-snapshot-capable";
-  readonly mode: ExecutionMode;
 }
 
 /**
@@ -1778,414 +1206,7 @@ export interface TurnSnapshotCaptureFailed {
 export type TurnSnapshotCaptureResult =
   | TurnSnapshotCaptured
   | TurnSnapshotAlreadyCaptured
-  | TurnSnapshotNotApplicable
   | TurnSnapshotCaptureFailed;
-
-/**
- * One epoch of a run's execution lineage: the epoch number and the position it
- * rewound TO (`0` for the run's first epoch, which rewound from nothing).
- *
- * Both fields are the CALLER's — run engine derives the ordered list from its
- * durable epoch / intervention records. This service holds no rollback history
- * and could not reconstruct one.
- */
-export interface TurnSnapshotEpochLineageEntry {
-  readonly epoch: number;
-  /**
-   * The position this epoch rewound to. Positions at or BELOW it belong to the
-   * parent epoch (the prefix an epoch inherits); positions strictly above it are
-   * this epoch's own territory.
-   */
-  readonly rewindBase: number;
-}
-
-/** Inputs for {@link TurnSnapshotService.resolveRestoreTarget}. */
-export interface ResolveRestoreTargetInput {
-  /** The run's execution root, caller-resolved exactly as at capture. */
-  readonly executionRoot: string;
-  /** The run whose snapshots are being resolved (a validated ref component). */
-  readonly runId: string;
-  /** The turn position the rollback targets. Non-negative integer. */
-  readonly targetPosition: number;
-  /**
-   * The run's execution lineage. Order is not relied upon: the owning epoch is
-   * the MAXIMUM epoch whose `rewindBase` is strictly below `targetPosition`, so
-   * an unsorted list resolves the same owner rather than a plausible wrong one.
-   */
-  readonly epochLineage: readonly TurnSnapshotEpochLineageEntry[];
-}
-
-/** The resolver's minted fields; see {@link TurnSnapshotRestoreTarget}. */
-interface RestoreTargetFields {
-  readonly executionRoot: string;
-  readonly runId: string;
-  readonly targetPosition: number;
-  readonly owningEpoch: number;
-  readonly ref: string;
-  readonly snapshotCommit: string;
-  readonly expectedHead: string;
-}
-
-/**
- * Every target {@link mintRestoreTarget} has produced, and the authoritative
- * answer {@link TurnSnapshotRestoreTarget.isMinted} gives.
- *
- * A registry rather than an instance check, because BOTH of the checks a class
- * can make about itself are defeatable from JavaScript:
- *
- *   * `private constructor` is a compile-time-only modifier — it erases at emit,
- *     so `Reflect.construct(TurnSnapshotRestoreTarget, [fields])`,
- *     `new (TurnSnapshotRestoreTarget as any)(fields)` and a JS subclass calling
- *     `super(fields)` all run the constructor body;
- *   * every one of those installs the private field too, so a `#field in value`
- *     brand check accepts all three.
- *
- * Membership is added at exactly one place — the mint below — and there is no
- * exported handle on this set, so a caller outside this FILE cannot forge a
- * member at all. `WeakSet` so a target that goes out of scope is collectable;
- * nothing here ever needs to enumerate the live set.
- *
- * Module-scoped, not per-service: a target minted by one {@link
- * TurnSnapshotService} is legitimately applied by another (the suite's recording
- * and fault-injecting runners are separate instances), and the object already
- * carries the execution root and ref it was resolved against.
- */
-const mintedRestoreTargets: WeakSet<object> = new WeakSet();
-
-/**
- * The module-private mint, assigned by the class's static block below — the one
- * way a {@link TurnSnapshotRestoreTarget} comes into existence, and the one place
- * {@link mintedRestoreTargets} gains a member.
- *
- * A module-level function rather than a static factory because the resolver
- * lives on a DIFFERENT class ({@link TurnSnapshotService}), which a `private`
- * constructor and a private static factory alike would both keep out. The
- * static block is what reaches the private constructor; the binding it writes
- * is not exported, so the mint stays inside this file.
- *
- * Definite-assignment (`!`) because the assignment happens at class-evaluation
- * time, which the compiler cannot see through.
- */
-let mintRestoreTarget!: (fields: RestoreTargetFields) => TurnSnapshotRestoreTarget;
-
-/**
- * An accepted resolution — the snapshot exists in its owning epoch's territory
- * and the fail-closed `HEAD` precondition held at resolve time.
- *
- * This whole object is what {@link TurnSnapshotService.restoreToTurn} BINDS, so
- * it carries every input that leg needs: a caller cannot hand the applier a root
- * and a ref that were never resolved together.
- *
- * A sealed CLASS rather than an interface, because that binding is only worth
- * something if it cannot be faked. The applier drives `read-tree --reset -u
- * <ref>` against the root on this object, so a hand-built
- * `{outcome: "resolved", ref: "refs/heads/main", executionRoot: "/somewhere"}`
- * would be an arbitrary checkout of an arbitrary ref into an arbitrary
- * directory, wearing this module's authority and its hook neutralization. Three
- * mechanisms close that, and they close different holes:
- *
- *   * the private field makes the type NOMINAL — a structurally identical
- *     object literal is not assignable to it, so the forgery does not compile;
- *   * {@link TurnSnapshotRestoreTarget.isMinted} is re-checked at the top of
- *     `restoreToTurn`, and it asks {@link mintedRestoreTargets} rather than
- *     asking the value about itself. That covers the FORGING caller the type
- *     system cannot see: the JS caller, the `as` cast, and the three paths that
- *     reach the erased-at-emit `private constructor` and would therefore
- *     satisfy any self-reported brand — `Reflect.construct`, `new (X as
- *     any)()`, and a subclass `super()`;
- *   * the mint freezes the instance, because `readonly` erases at emit exactly
- *     as the constructor's privacy does. That covers the MUTATING caller:
- *     without it, a holder of a genuine target could reassign `ref` after the
- *     resolve and drive the applier at a ref nobody resolved. Membership
- *     proves the object's provenance; the freeze is what makes its field
- *     values carry that provenance too.
- *
- * The cost is that a target cannot be serialized and rehydrated across a process
- * boundary. Nothing needs to, and that is a contract fact rather than a hope:
- * makes recovery from an incomplete file leg a FRESH rollback intervention that
- * re-runs both legs, and restart reconciliation re-dispatches rather than
- * resuming a held resolution. A target's lifetime is one intervention, in one
- * process.
- */
-export class TurnSnapshotRestoreTarget {
-  /**
-   * COMPILE-TIME nominality, and nothing else: a private instance member is what
-   * makes this class type unassignable from a structurally identical object
-   * literal, so the forgery does not compile. It has no runtime reader by design —
-   * {@link TurnSnapshotRestoreTarget.isMinted} tests {@link
-   * mintedRestoreTargets} membership instead, because a brand FIELD is installed
-   * by every constructor path including the forged ones.
-   */
-  // eslint-disable-next-line no-unused-private-class-members -- type-level use only; see above
-  readonly #mintedByResolver = true as const;
-
-  readonly outcome = "resolved" as const;
-  readonly executionRoot: string;
-  readonly runId: string;
-  /** The position asked for — the resolved ref's `turn-<N>` segment. */
-  readonly targetPosition: number;
-  /** The epoch that OWNS that position — the ref's `epoch-<E>` segment. */
-  readonly owningEpoch: number;
-  readonly ref: string;
-  readonly snapshotCommit: string;
-  /**
-   * The snapshot's recorded first parent (`<ref>^`) — the value `HEAD` must
-   * equal. Checked FOUR times in all: once at resolve time, then three more
-   * inside `restoreToTurn` (at entry, after the derivation, and before the
-   * closing index reset — the TOCTOU guards; see
-   * {@link TurnSnapshotService.restoreToTurn} for what each window costs).
-   *
-   * The last of those checks also USES it: the closing reset is spelled with this
-   * OID rather than with the name `HEAD`, so the comparison and the command
-   * cannot end up talking about different commits.
-   */
-  readonly expectedHead: string;
-
-  private constructor(fields: RestoreTargetFields) {
-    this.executionRoot = fields.executionRoot;
-    this.runId = fields.runId;
-    this.targetPosition = fields.targetPosition;
-    this.owningEpoch = fields.owningEpoch;
-    this.ref = fields.ref;
-    this.snapshotCommit = fields.snapshotCommit;
-    this.expectedHead = fields.expectedHead;
-  }
-
-  /**
-   * Whether `value` is a target THIS MODULE minted.
-   *
-   * {@link mintedRestoreTargets} membership, which is a claim about PROVENANCE
-   * rather than about shape: the set gains a member only in the mint, and no
-   * handle on it leaves this file, so a value outside this module cannot be
-   * forged into a `true` here. That is a stronger statement than either
-   * `instanceof` (defeated by a reassigned prototype, and satisfied by a
-   * subclass) or a `#mintedByResolver in value` brand check (satisfied by
-   * `Reflect.construct` and by a subclass `super()` call, both of which reach the
-   * erased-at-emit `private constructor`) can make.
-   *
-   * A `static` because a caller outside this module has no other way to ask —
-   * the registry is not exported, and the whole point is that it is not.
-   */
-  static isMinted(value: unknown): value is TurnSnapshotRestoreTarget {
-    return typeof value === "object" && value !== null && mintedRestoreTargets.has(value);
-  }
-
-  static {
-    mintRestoreTarget = (fields: RestoreTargetFields): TurnSnapshotRestoreTarget => {
-      const target = new TurnSnapshotRestoreTarget(fields);
-      // `readonly` erases at emit; the freeze is what holds the
-      // resolved-together binding against a MUTATING caller (the registry only
-      // covers a forging one). Complete because every field is a primitive.
-      Object.freeze(target);
-      mintedRestoreTargets.add(target);
-      return target;
-    };
-  }
-}
-
-/**
- * The fail-closed precondition did not hold: branch history advanced past the
- * snapshot, or one of the two sides could not be read at all.
- *
- * `null` on either side means "could not be read", which refuses for the same
- * reason a mismatch does — the equality must be ESTABLISHED, never merely
- * un-contradicted.
- */
-export interface TurnSnapshotResolutionHeadMoved {
-  readonly outcome: "head_moved";
-  readonly ref: string;
-  readonly owningEpoch: number;
-  readonly expectedHead: string | null;
-  readonly observedHead: string | null;
-}
-
-/**
- * No snapshot to restore. NEVER a fallthrough: an absent ref in the owning
- * epoch's territory refuses here rather than resolving a superseded parent
- * epoch's same-ordinal ref.
- */
-export interface TurnSnapshotResolutionNoSnapshot {
-  readonly outcome: "no_snapshot";
-  /** `null` when the inputs were refused before a ref could be built. */
-  readonly ref: string | null;
-  /** `null` when no epoch in the lineage owns the target position. */
-  readonly owningEpoch: number | null;
-  /**
-   * Why. `ref-absent` is the spec's gap case (a failure-tolerant capture left
-   * one); `no-owning-epoch` is a target position no epoch's territory contains;
-   * `unusable-inputs` is a caller whose run id or positions could not name a ref
-   * at all; `probe-failed` is the honest answer when the repository could not be
-   * ASKED — see {@link TurnSnapshotService.resolveRestoreTarget}.
-   *
-   * All four ride this one arm deliberately: rejects the whole intervention on
-   * EVERY non-resolved arm, so the behavioural set is unchanged, and pins the
-   * union's OUTCOME names (an accepted resolution plus the two named refusals)
-   * while leaving this reason vocabulary service-local. A reason keeps the
-   * distinction an operator needs without widening what the caller must branch
-   * on.
-   */
-  readonly reason: "ref-absent" | "no-owning-epoch" | "unusable-inputs" | "probe-failed";
-}
-
-/**
- * Every outcome {@link TurnSnapshotService.resolveRestoreTarget} can report.
- *
- * The `outcome` values on this union and on {@link TurnSnapshotRestoreResult}
- * are SNAKE_CASE while every other discriminant in this file is kebab
- * (`already-captured`, `not-applicable`, `mode-not-snapshot-capable`). That is
- * not an oversight and must not be normalized: `head_moved`, `no_snapshot`,
- * `restored` and `partial_restore` are pinned name-identical to the arms maps
- * onto its `RollbackInterventionResult` disposition, so the mapping is an
- * identity rather than a rename. A tidying pass over these four strings would
- * silently break a cross-plan contract that compiles fine.
- */
-export type TurnSnapshotResolution =
-  | TurnSnapshotRestoreTarget
-  | TurnSnapshotResolutionHeadMoved
-  | TurnSnapshotResolutionNoSnapshot;
-
-/**
- * The restore ran to completion: the pinned three-step applied and the index was
- * closed back to `HEAD`.
- *
- * Both enumerations are REQUIRED and empty-when-none — the field names are
- * pinned name-identical to the wire arms so mapping is an identity, never
- * a rename.
- *
- * What this arm ATTESTS, per the header's symref BOUNDARY paragraph: that
- * fail-closed preconditions all held, and that the tree this service wrote is
- * the one the resolve verified — the checkout names that OID.
- */
-export interface TurnSnapshotRestored {
-  readonly outcome: "restored";
-  /**
-   * The ref this restore RESOLVED from — reported for correlation, not as a live
-   * handle. It may already be gone: prune can delete it inside the
-   * resolve→application window and the restore still succeeds, because the
-   * tree-ish actually applied is {@link TurnSnapshotRestored.snapshotCommit}.
-   */
-  readonly ref: string;
-  readonly snapshotCommit: string;
-  /**
-   * Ignored untracked paths that collided with snapshot-tracked content and were
-   * overwritten by the `read-tree --reset -u` leg. Restore wins by design; the
-   * enumeration is what keeps the loss observable rather than silent. Colliding
-   * means occupying a path the checkout has to have, so it covers a shared path
-   * and either direction of segment-boundary PREFIX obstruction — see
-   * `#deriveProspectiveRestoreEffects` for the three measured shapes.
-   */
-  readonly overwrittenIgnoredPaths: readonly string[];
-  /**
-   * Superproject paths whose `160000` gitlink diverges from the snapshot's —
-   * including one whose working copy is absent and therefore materializes as an
-   * empty directory. Interior submodule state is out of contract
-   * (`submodule.recurse=false`), so divergence is REPORTED, never half-restored.
-   */
-  readonly divergentGitlinks: readonly string[];
-}
-
-/**
- * An execution-time re-verify refused (the TOCTOU guard). `restoreToTurn`
- * returns this arm from EITHER of its two pre-mutation checks, and the arm does
- * not distinguish them, because the caller's answer is identical for both:
- *
- *   * at entry — `HEAD` moved between the resolve and the dispatch (the wide
- *     window mandates a guard for);
- *   * after the derivation — `HEAD` moved DURING the dispatch, while the
- *     enumerations were being listed.
- *
- * NOTHING was mutated on either path; that is the load-bearing half. The third
- * `HEAD` re-check sits after mutation has begun and therefore CANNOT report
- * here — it reports {@link TurnSnapshotPartialRestore} at `close-index`.
- */
-export interface TurnSnapshotRestoreHeadMoved {
-  readonly outcome: "head_moved";
-  readonly ref: string;
-  readonly expectedHead: string;
-  /** `null` when `HEAD` could not be read — fail-closed, same as a mismatch. */
-  readonly observedHead: string | null;
-}
-
-/**
- * The sequence stopped mid-flight. maps this arm to the distinct
- * `files-partially-restored` disposition; it is never collapsed into
- * `files-unrestored` and never empty-washed.
- *
- * The SEQUENCE is convergent by construction — every command drives toward the
- * declarative snapshot-tree target, so re-running it re-runs to the fixpoint —
- * but that is a property of the commands, not a promise that recovery always
- * succeeds: a fresh rollback first has to pass
- * {@link TurnSnapshotService.resolveRestoreTarget} again, and TWO different
- * things can stop it there, so this arm has two terminal shapes rather than one:
- *
- *   * TERMINAL BY PRECONDITION — `close-index` reached by a MOVED `HEAD`. The
- *     resolve refuses `head_moved` from then on, and the partial state stands
- *     until whoever moved `HEAD` deals with it.
- *   * TERMINAL BY LIFETIME — ANY `failedStep` whose ref retention prune has
- *     since deleted. The resolve then refuses `no_snapshot`/`ref-absent`,
- *     because there is no longer an OID to freeze, and the partial state stands
- *     with no snapshot left to re-apply. Not tied to one step, unlike the other:
- *     a deletion inside the resolve→application window is survivable by the
- *     APPLICATION (the checkout names the frozen OID, and the commit outlives
- *     its last name), so it costs nothing unless some unrelated step fails and
- *     sends the caller back through the resolve.
- *
- * Every other `failedStep` leaves both the precondition and the ref intact and
- * re-runs cleanly — including the other non-git `close-index` failure, a `HEAD`
- * that could not be READ, which is an environmental fault rather than a changed
- * precondition. Those two `close-index` causes are not distinguishable from
- * `failedStep` alone; the diagnostic detail is where they part, and that is why
- * its wording is branched at the site.
- *
- * WHAT THE ENUMERATIONS ARE, exactly — they are two effect CLASSES, never a
- * census of everything the sequence touched:
- *
- *   * both are empty when the failure preceded any mutation, AND equally when
- *     the derivation simply found no candidate in either class. A `read-tree`
- *     that rewrote the whole worktree and then a delete pass that failed reports
- *     two empty arrays if the tree held no colliding ignored path and no
- *     gitlink. "Both empty" therefore does NOT mean "nothing was mutated", and a
- *     consumer rendering it as "no files were changed" would be wrong;
- *   * on THIS arm a candidate is reported only when its on-disk state actually
- *     changed, where {@link TurnSnapshotRestored} reports the prospective set
- *     verbatim. So a collision whose ignored bytes happened to equal the
- *     snapshot's is enumerated on a completed restore and not on a partial one,
- *     and a present-but-divergent submodule likewise (`submodule.recurse=false`
- *     means the failed sequence applied nothing at that path). The asymmetry is
- *     deliberate: on the failure path the git seam is the thing that just
- *     failed, so the evidence is git-free observation rather than intent.
- */
-export interface TurnSnapshotPartialRestore {
-  readonly outcome: "partial_restore";
-  readonly ref: string;
-  /** Which command stopped. The detail travels on the diagnostic, not here. */
-  readonly failedStep: TurnSnapshotRestoreStep;
-  readonly overwrittenIgnoredPaths: readonly string[];
-  readonly divergentGitlinks: readonly string[];
-}
-
-/**
- * Every outcome {@link TurnSnapshotService.restoreToTurn} can report — three
- * arms, exactly the three maps (`restored → files-restored`, `partial_restore →
- * files-partially-restored`, `head_moved → files-unrestored`).
- *
- * A fourth arm would be unmapped at that call site, which is why the one input
- * this union deliberately does NOT describe — a `target` this service never
- * minted — is a throw rather than an outcome (see
- * {@link TurnSnapshotService.restoreToTurn}). The snake_cased names are pinned;
- * see {@link TurnSnapshotResolution}.
- *
- * `ref` means the same thing on ALL THREE arms, and it is not a live handle: it
- * is the ref the restore RESOLVED from, reported for correlation. retention
- * prune can delete it inside the resolve→application window, on any arm — see
- * {@link TurnSnapshotRestored.ref} for why a restore nonetheless succeeds
- * across that deletion, and the header's retention residuals for what it costs
- * a RETRY.
- */
-export type TurnSnapshotRestoreResult =
-  | TurnSnapshotRestored
-  | TurnSnapshotRestoreHeadMoved
-  | TurnSnapshotPartialRestore;
 
 /**
  * What one {@link TurnSnapshotService.pruneSnapshotsForRun} did to one run.
@@ -2239,26 +1260,6 @@ export interface TurnSnapshotRetentionSweepResult {
  * preparation and diff attribution, so is unaffected.
  */
 const SNAPSHOT_REF_ROOT = "refs/sidekicks/runs";
-
-/**
- * The modes that snapshot — the Applicability bullet of spelled
- * as an ALLOWLIST.
- *
- * A denylist (`mode === "read-only"`) reads the same today and fails open
- * tomorrow: a mode added to `ExecutionMode` for some future execution surface
- * would start capturing by default, in a root nobody wrote this recipe against,
- * and the first report of it would be objects in a stranger's store. The
- * allowlist fails INERT instead — the new mode gets the typed no-op until
- * somebody adds it here on purpose. The trade-off is accepted deliberately: a
- * genuinely writable mode that nobody admits here silently stops snapshotting,
- * which costs a recovery convenience, where the denylist's failure costs a
- * guarantee.
- */
-const SNAPSHOT_APPLICABLE_MODES: ReadonlySet<ExecutionMode> = new Set<ExecutionMode>([
-  "worktree",
-  "branch",
-  "ephemeral clone",
-]);
 
 /**
  * The snapshot commit's message SUBJECT. FIXED — the same bytes for every
@@ -2367,8 +1368,8 @@ const SKIPPED_EMBEDDED_REPOSITORIES_TRAILER = "Skipped-Embedded-Repositories:";
  *     compares them EQUAL. The destructive direction of that aliasing is the
  *     pre-drop's exclusion firing spuriously, which leaves a boundary path's
  *     index entry in place for `read-tree --reset -u` to unlink. So the bytes are
- *     preserved to the trailer and back, and the utf8 decode happens only where a
- *     HUMAN reads the result (see {@link decodeSparseBoundaryPathKey}).
+ *     preserved to the trailer and back, and a utf8 decode belongs only where a
+ *     HUMAN reads the result.
  *
  *     Two consequences worth stating rather than discovering. The JSON is still
  *     valid and still one line — `JSON.stringify` escapes every code point below
@@ -2381,11 +1382,8 @@ const SKIPPED_EMBEDDED_REPOSITORIES_TRAILER = "Skipped-Embedded-Repositories:";
  *     are present. Trailer order is message bytes and therefore OID bytes; fixing
  *     it here is what keeps two captures of identical project state identical.
  *     The sibling trailer stays UTF-8 TEXT, deliberately: its contents reach the
- *     capture RESULT and a diagnostic, which are wire-facing values a human and
- *     both read, and its own consumer ({@link isPreservedListingEntry}) compares
- *     them against decoded listing strings. The two trailers therefore carry
- *     different kinds of string, which {@link readJsonPathArrayTrailer} states at
- *     the one place both are read.
+ *     capture RESULT and a diagnostic, which are wire-facing values a human
+ *     reads. The two trailers therefore carry different kinds of string.
  *
  * TYPE-PRESERVING: a path git listed with a TRAILING SLASH is recorded WITH it.
  * The slash is not decoration — it is git saying "a directory I did not descend
@@ -2395,8 +1393,7 @@ const SKIPPED_EMBEDDED_REPOSITORIES_TRAILER = "Skipped-Embedded-Repositories:";
  * capture can tell them apart: at restore time a boundary-time embedded
  * repository whose `.git` the turn removed is listed as its payload FILES, and
  * an exemption that matched the recorded name exactly would protect none of
- * them. See {@link classifySparseBoundaryPaths} for the split and
- * {@link isSparseBoundaryListingEntry} for what each kind then protects.
+ * them.
  *
  * Recording the slash costs no ambiguity: git spells repo-relative paths with
  * forward slashes and never emits a trailing one for a blob, so the suffix is a
@@ -2423,20 +1420,18 @@ const SPARSE_BOUNDARY_PATHS_TRAILER = "Sparse-Boundary-Paths:";
 const SNAPSHOT_IDENTITY_NAME = "AI Sidekicks";
 const SNAPSHOT_IDENTITY_EMAIL = "snapshots@ai-sidekicks.invalid";
 
-// Spelled identically to `./worktree-service.ts`'s and
-// `./ephemeral-clone-service.ts`'s: all three neutralize against the SAME
-// directory under a shared execution-roots directory, and a third spelling would
-// mean a third directory a reaper could remove out from under one of them.
+// Spelled identically to `./worktree-service.ts`'s: both neutralize against the
+// SAME directory under a shared execution-roots directory, and a second spelling
+// would mean a second directory a reaper could remove out from under one of them.
 const HOOK_NEUTRALIZATION_SEGMENT = ".hook-neutralization";
 
-// Where the scratch indexes live. requires the temp index OUTSIDE the worktree
+// Where the scratch indexes live. The temp index must sit OUTSIDE the worktree
 // — a worktree-resident scratch index would surface to the capture pipeline's
-// own `ls-files -o` listing, to the restore's untracked-delete pass, and to the
-// user's `git status` as stray untracked content. A dotted sibling of the
-// per-mount root directories, so it can never collide with a mount id, exactly
-// as the neutralization directory is; a `branch`-mode root is the user's own
-// checkout somewhere else entirely, which this placement is trivially outside
-// of too.
+// own `ls-files -o` listing and to the user's `git status` as stray untracked
+// content. A dotted sibling of the per-mount root directories, so it can never
+// collide with a mount id, exactly as the neutralization directory is; a
+// `bound-root` root is the user's own checkout somewhere else entirely, which
+// this placement is trivially outside of too.
 const SNAPSHOT_INDEX_SEGMENT = ".snapshot-indexes";
 
 // Per-invocation git timeout. Matched to `./worktree-service.ts`'s bound rather
@@ -2453,19 +1448,14 @@ const DEFAULT_TURN_SNAPSHOT_GIT_TIMEOUT_MS = 120_000;
  * exactly like a run that never captured. So it errs long, and seven days is
  * the span over which "go back to before that turn" is still a thing somebody
  * says about a run.
- *
- * Exported so a composition root expresses a configured override as a delta from
- * this default rather than re-spelling it — the shape and the reason
- * {@link DEFAULT_EPHEMERAL_CLONE_TTL_MS} established.
  */
-export const DEFAULT_TURN_SNAPSHOT_RETENTION_WINDOW_MS: number = 7 * 24 * 60 * 60 * 1000;
+const DEFAULT_TURN_SNAPSHOT_RETENTION_WINDOW_MS: number = 7 * 24 * 60 * 60 * 1000;
 
 /**
  * The largest retention window the constructor accepts: ECMAScript's own Date
  * range, ±8.64e15 ms of the epoch.
  *
- * The bound exists for the same reason {@link MAXIMUM_TIMER_DELAY_MS} does — a
- * value the platform cannot represent does not announce itself, it degrades. A
+ * A value the platform cannot represent does not announce itself, it degrades. A
  * window above this passes a finite-and-positive check and then makes
  * `now - window` unrepresentable, so `#retentionCutoff`'s `toISOString()` throws
  * `RangeError: Invalid time value` on EVERY sweep. The sweep's own `try`
@@ -2481,18 +1471,6 @@ export const DEFAULT_TURN_SNAPSHOT_RETENTION_WINDOW_MS: number = 7 * 24 * 60 * 6
  * at exactly this ceiling). `#retentionCutoff` carries the other half.
  */
 const MAXIMUM_RETENTION_WINDOW_MS = 8_640_000_000_000_000;
-
-/**
- * How often the daemon runs the retention sweep: hourly.
- *
- * Lives here rather than in `../bootstrap/index.ts` because it is configuration and
- * that file is the — the wiring call there passes a cadence through, it does not own
- * one. Neither direction of error is severe, which is why the value is unceremonious:
- * too frequent spends a handful of git spawns on an empty candidate set, and too rare
- * lets refs outlive their window by up to one cadence, which is a rounding error
- * against a seven-day window.
- */
-export const DEFAULT_TURN_SNAPSHOT_SWEEP_CADENCE_MS: number = 60 * 60 * 1000;
 
 // stdout ceiling. Eight times `./worktree-service.ts`'s, because the `-z`
 // listing this module reads is one NUL-terminated path per tracked-or-untracked
@@ -2523,23 +1501,14 @@ const OBJECT_ID_HEX_LENGTHS: ReadonlyMap<string, number> = new Map<string, numbe
 ]);
 
 // git's superproject submodule representation ([gitsubmodules]) — the mode the
-// capture leg records for an untracked embedded repository and the mode the
-// restore leg reads back out of the snapshot tree to derive its gitlink
-// enumeration. Spelled once; the two legs must agree or the enumeration silently
-// covers nothing.
+// capture leg records for an untracked embedded repository.
 const GITLINK_TREE_MODE = "160000";
 
-// The `ls-files` exclude source, spelled once. Three legs pass it — the capture
-// listing, the restore's collision derivation and the restore's delete pass —
-// and they must AGREE or the module's central safety argument dissolves: the
-// delete pass is safe because it lists exactly what the derivation and the
-// capture consider ignorable, so a snapshot-declared `node_modules` is protected
-// in every pass. Two legs on `.gitignore` and a third on some other exclude
-// source would delete content the capture deliberately never recorded.
+// The `ls-files` exclude source of the capture listing, spelled once.
 //
-// It is also the reason the recipe is plumbing rather than `git add -A`:
+// It is the reason the recipe is plumbing rather than `git add -A`:
 // `ls-files` consults NO other exclude source unless asked to, while porcelain
-// also honours `core.excludesFile` and `$GIT_DIR/info/exclude` with no
+// also honors `core.excludesFile` and `$GIT_DIR/info/exclude` with no
 // off-switch, and a developer's private ignore patterns are not project
 // declarations (the Scope bullet of).
 const EXCLUDE_PER_DIRECTORY_GITIGNORE = "--exclude-per-directory=.gitignore";
@@ -2562,12 +1531,6 @@ const USE_REPLACE_REFS_PIN: readonly string[] = ["-c", "core.useReplaceRefs=fals
 // with. See {@link joinNulTerminatedListing}.
 const NUL_TERMINATOR: Buffer = Buffer.from([0]);
 
-// The field separator in a `ls-tree -z` record, as a BYTE — the tree listing is
-// split on the buffer, so the separator has to be one too. See
-// {@link parseSnapshotTreeListing} for why the first occurrence is always the
-// real separator.
-const TAB_SEPARATOR_BYTE: number = 0x09;
-
 // The config key that IS the sparse-root predicate. Spelled once so the
 // host-config table's `READ AS INPUT` row and the detection leg cannot drift
 // apart — the table's claim is about this exact key and no other.
@@ -2589,23 +1552,6 @@ const CORE_SPARSE_CHECKOUT_KEY = "core.sparseCheckout";
 // holds a REAL lock file rather than simulating one.
 const SPARSE_SEED_INDEX_LOCK_ATTEMPTS = 4;
 const SPARSE_SEED_INDEX_LOCK_RETRY_DELAY_MS = 25;
-
-// Ceiling on the untracked-delete pass (requires repetition to a FIXPOINT,
-// not a fixed count).
-//
-// It cannot be reached by the pinned listing: every non-final pass strictly
-// shrinks the untracked set and deleting files never adds ignore rules, so the
-// spec's own termination argument bounds the real work far below this.
-//
-// It is also NOT the guard against the seam that reports a deletion it did not
-// perform — the no-progress check in `#deleteUntrackedToFixpoint` catches that on
-// the second pass, where this ceiling would first walk the whole worktree sixty
-// more times under the caller's exclusive hold. What survives that check and
-// still fails to converge is a seam whose removals keep producing NEW untracked
-// content, and this bound is what stops a daemon spinning forever inside a
-// rollback on it. Exceeding it is a `delete-untracked` failure, which is to say a
-// loud one.
-const UNTRACKED_DELETE_PASS_LIMIT = 64;
 
 /**
  * The CHARACTER-CLASS half of "safe as a ref path component" — an
@@ -2645,7 +1591,7 @@ const RESERVED_REF_LOCK_SUFFIX = ".lock";
  *     LONGER listed here, having moved into the imported
  *     {@link DISCOVERY_REDIRECTING_GIT_ENV_KEYS}: that list's owner re-probed it
  *     on git 2.50.1 and found it bending repository DISCOVERY for every consumer,
- *     not just this module's object writes. This module's behaviour is unchanged
+ *     not just this module's object writes. This module's behavior is unchanged
  *     — it still strips the variable, now through the spread rather than through
  *     a second literal — and the entry's original finding survives at the header
  *     above.
@@ -2884,25 +1830,6 @@ const DEFAULT_TURN_SNAPSHOT_FILESYSTEM: TurnSnapshotFilesystem = {
   async removePath(path: string): Promise<void> {
     await rm(path, { recursive: true, force: true });
   },
-  async removeDirectoryIfEmpty(path: string): Promise<void> {
-    try {
-      await rmdir(path);
-    } catch (reason: unknown) {
-      // `rmdir` is the whole mechanism: it refuses a populated directory rather
-      // than emptying it, so the "only when unambiguous" half of the contract is
-      // the kernel's rather than a read-then-delete race of ours. `ENOTEMPTY`
-      // (POSIX) and `EEXIST` (some platforms report the same condition this way)
-      // are the ordinary answer — a directory that still holds snapshot content —
-      // and `ENOENT` means a recursive removal already took it. Anything else —
-      // an `EACCES`, most plausibly — is a real failure of the delete pass and
-      // travels to the funnel.
-      const code: string | undefined = (reason as NodeJS.ErrnoException | null)?.code;
-      if (code === "ENOTEMPTY" || code === "EEXIST" || code === "ENOENT") {
-        return;
-      }
-      throw reason;
-    }
-  },
 };
 
 /**
@@ -2925,8 +1852,7 @@ function warnDiagnostic(diagnostic: TurnSnapshotDiagnostic): void {
     console.warn(
       `turn-snapshot ${diagnostic.kind}: ` +
         `skipped=${String(diagnostic.skipped.length)} of ` +
-        `examined=${String(diagnostic.examinedRunCount)} ` +
-        `disposed-clones=${String(diagnostic.disposedCloneCount)}`,
+        `examined=${String(diagnostic.examinedRunCount)}`,
       diagnostic,
     );
     return;
@@ -2961,7 +1887,7 @@ function describeRejection(reason: unknown): string {
  * verbatim (confirmed on git 2.50.1), which also sidesteps every ambiguity in
  * git's ISO parser.
  *
- * `null` for an unparseable clock — an injected `now` that did not honour the
+ * `null` for an unparseable clock — an injected `now` that did not honor the
  * contract — which the funnel reports as a `commit-tree` failure rather than
  * stamping an `Invalid Date`.
  */
@@ -2986,28 +1912,13 @@ function toRawGitDate(isoInstant: string): string | null {
  * against the byte-keyed sparse boundary set decodes any more. Capture uses these
  * strings at exactly one site — {@link TurnSnapshotService.#normalizeEmbeddedRepositories},
  * classifying trailing-slash entries as embedded repositories — where a mangled
- * decode at worst mis-classifies a path git will report again next turn. Restore
- * uses them at two: the collision derivation, which tests an ignored-file listing
- * against the DECODED snapshot-tree paths, and {@link parseCachedStateListing},
- * whose records the discarded-subset diagnostic matches against those same decoded
- * paths. Both compare a decode against a decode — like against like — and both
- * fail by UNDER-reporting a diagnostic rather than by destroying content, which is
- * what makes the decode tolerable there rather than merely convenient.
+ * decode at worst mis-classifies a path git will report again next turn.
  *
- * What deliberately does NOT appear on that list: the sparse partition, the
- * boundary subtraction, {@link parseSnapshotTreeListing}, the boundary index
- * pre-drop, and the delete pass all read {@link splitNulTerminatedListingBytes}
- * and key on {@link listingEntryKey}, because each of them compares a listing
- * entry against the boundary set, where a mangled decode would make two DIFFERENT
- * paths compare equal and cost a file. The delete pass is the instructive one: it
- * still needs a path STRING because the filesystem seam is string-typed, so it
- * keys its exemption and its no-progress check on the bytes and hands only the
- * removal the decoded text. A mangled decode there does not merely make the
- * removal a no-op — it can address a different real path — so that pass refuses
- * any entry whose text does not re-encode to its own bytes before removing
- * anything ({@link listingEntryTextRoundTripsToItsBytes}), and detects a listing
- * that did not change rather than trusting its own deletions behind it — see
- * {@link TurnSnapshotFilesystem} for why the seam is not Buffer-typed instead.
+ * What deliberately does NOT appear on that list: the sparse partition and the
+ * boundary subtraction read {@link splitNulTerminatedListingBytes} and key on
+ * {@link listingEntryKey}, because each of them compares a listing entry against
+ * the boundary set, where a mangled decode would make two DIFFERENT paths compare
+ * equal and cost a file.
  */
 function splitNulTerminatedListing(listing: Buffer): readonly string[] {
   const entries: string[] = [];
@@ -3041,9 +1952,7 @@ function splitNulTerminatedListing(listing: Buffer): readonly string[] {
  * strings would re-encode them: a non-UTF-8 path decodes to replacement
  * characters, fails to match git's own echo of its bytes, and is dropped from
  * the snapshot — a silent loss, in the one leg whose entire purpose is to stop
- * losing what porcelain keeps. {@link parseSnapshotTreeListing} joined that
- * argument on the restore side: its paths are compared against the boundary set,
- * and a comparison is only as exact as its least exact side.
+ * losing what porcelain keeps.
  *
  * So the partition runs end to end on bytes. `slice` shares the parent Buffer's
  * memory rather than copying, which is exactly right here: the slices are read,
@@ -3097,62 +2006,12 @@ function joinNulTerminatedListing(entries: readonly Buffer[]): Buffer {
  * un-decodable paths compare equal — and this key decides which paths reach the
  * snapshot.
  *
- * These strings USED to be module-local scratch. They are not any more: the same
- * encoding is what {@link SPARSE_BOUNDARY_PATHS_TRAILER} records, so a key minted
- * here at capture is the key matched at restore, one commit message and any
- * number of processes later. That is the property the whole boundary closure
- * rests on, and it holds because `latin1` is a bijection in BOTH directions —
- * {@link decodeSparseBoundaryPathKey} is the only sanctioned way back out, and it
- * exists for RENDERING, never for comparing.
+ * The same encoding is what {@link SPARSE_BOUNDARY_PATHS_TRAILER} records, so the
+ * trailer holds exactly the bytes git listed: `latin1` is a bijection in BOTH
+ * directions.
  */
 function listingEntryKey(entry: Buffer): string {
   return entry.toString("latin1");
-}
-
-/**
- * One `ls-files -o` entry the delete pass may remove, in BOTH representations.
- *
- * A record rather than a string because that pass needs both and the choice is
- * not one a reader should have to make per line: its exemption test and its
- * no-progress fingerprint are DECISIONS and run on {@link key}, while the removal
- * itself and the failure message are a syscall and a sentence and run on
- * {@link text}. Collapsing to one of them silently breaks the other half — a
- * key-only pass hands `rm` a `latin1` mojibake, a text-only pass lets two
- * byte-distinct paths borrow each other's exemption.
- */
-interface DeletableListingEntry {
-  /** {@link listingEntryKey} spelling: the entry's bytes, for every comparison. */
-  readonly key: string;
-  /** The decoded entry, for {@link TurnSnapshotFilesystem} and for humans. */
-  readonly text: string;
-}
-
-/**
- * Whether an entry's decoded {@link DeletableListingEntry.text} re-encodes to the
- * exact bytes its {@link DeletableListingEntry.key} carries — the delete pass's
- * PRE-MUTATION guard, and what makes a string-typed removal seam safe at all.
- *
- * The two halves of that record speak different alphabets, and the gap between
- * them is ADDRESSABLE. The exemptions adjudicate BYTES; the removal hands
- * {@link TurnSnapshotFilesystem} the decoded text. When the decode was lossy that
- * text is not a mangled spelling of nothing — U+FFFD is a character a filename may
- * perfectly well contain, so it is a REAL, DIFFERENT name, and it can be the name
- * of a path the same pass just decided it must not touch. The concrete shape: a
- * recorded boundary FILE whose valid-UTF-8 name holds a literal U+FFFD (`EF BF
- * BD`, which every target filesystem accepts) standing beside a turn-created path
- * carrying a lone `0xFF` where those three bytes are. The two share no bytes, so
- * the byte-keyed exemption correctly protects the first and marks the second
- * deletable — and the second's decoded text addresses the FIRST. Removing it
- * destroys the protected file, at exit 0, through the very keying that got the
- * adjudication right.
- *
- * `latin1` back to bytes is exact ({@link listingEntryKey}) and a `utf8`
- * re-encoding is exact for every name that really is valid UTF-8, so this test
- * cannot fire on ordinary content — which is what lets the caller treat a failure
- * as evidence rather than as noise.
- */
-function listingEntryTextRoundTripsToItsBytes(entry: DeletableListingEntry): boolean {
-  return Buffer.from(entry.text, "utf8").equals(Buffer.from(entry.key, "latin1"));
 }
 
 /** One `<oid> <refname>` line of the retention leg's `for-each-ref` listing. */
@@ -3205,263 +2064,8 @@ function parseSnapshotRefListing(
 }
 
 // --------------------------------------------------------------------------
-// Restore helpers (pure, or read-only against the filesystem)
+// Helpers (pure, or read-only against the filesystem)
 // --------------------------------------------------------------------------
-
-/**
- * The owning epoch for `targetPosition`, or `null` when no epoch's territory
- * contains it (the lineage walk).
- *
- * "The newest epoch whose `rewindBase` is STRICTLY below the target": a position
- * at or below a rewind base is the prefix that epoch inherited from its parent,
- * so it belongs to the parent. Selected by MAXIMUM epoch rather than by list
- * position, so an unsorted lineage cannot silently yield a different owner than
- * a sorted one — the caller's ordering is a convenience here, never the rule.
- */
-function selectOwningEpoch(
-  epochLineage: readonly TurnSnapshotEpochLineageEntry[],
-  targetPosition: number,
-): number | null {
-  let owningEpoch: number | null = null;
-  for (const entry of epochLineage) {
-    if (entry.rewindBase >= targetPosition) {
-      continue;
-    }
-    if (owningEpoch === null || entry.epoch > owningEpoch) {
-      owningEpoch = entry.epoch;
-    }
-  }
-  return owningEpoch;
-}
-
-/** Every lineage entry must be able to name a ref segment and a position. */
-function isUsableEpochLineage(epochLineage: readonly TurnSnapshotEpochLineageEntry[]): boolean {
-  return epochLineage.every(
-    (entry) => isNonNegativeInteger(entry.epoch) && isNonNegativeInteger(entry.rewindBase),
-  );
-}
-
-/** One `git ls-tree -r -z` record. */
-interface SnapshotTreeEntry {
-  /** `100644`, `120000`, `160000` (a gitlink), … */
-  readonly mode: string;
-  readonly objectId: string;
-  /**
-   * Worktree-relative, DECODED — for rendering, for the filesystem seam, and for
-   * the decode-to-decode comparisons that are documented as such. Not for
-   * deciding whether this entry is the same path as a boundary record.
-   */
-  readonly path: string;
-  /**
-   * The same path as {@link listingEntryKey} bytes: the form every membership
-   * test uses. Equal keys mean equal bytes; equal {@link path}s do not.
-   */
-  readonly pathKey: string;
-}
-
-/**
- * Parse `git ls-tree -r -z` — `<mode> SP <type> SP <object> TAB <path>` per
- * NUL-terminated record.
- *
- * `-z` is what makes this parseable at all: without it git QUOTES paths
- * containing unusual bytes, and the collision derivation below would then miss
- * exactly the paths whose names are hardest to reason about. A record that does
- * not carry the expected separators is skipped rather than guessed at — it would
- * be a git that changed its plumbing format, and a fabricated path would
- * silently widen or narrow an enumeration.
- *
- * Split on the BUFFER and carry BOTH representations, because this listing sits
- * on both sides of the byte-exactness line. Its paths are matched against the
- * byte-keyed boundary set — the pre-drop's snapshot-tree exclusion and the
- * obstruction guard's ancestor test both do it — and a decoded path there would
- * make an unrelated tracked file compare EQUAL to a boundary path whose bytes it
- * merely resembles once U+FFFD has eaten both. The same paths are also rendered
- * and handed to the filesystem, which needs text. So the record carries `pathKey`
- * for every decision and `path` for everything a human or a syscall sees, and no
- * caller has to remember which one it is holding.
- *
- * The split point is unambiguous on bytes: the header before it is ASCII and
- * contains no TAB, so the FIRST 0x09 is the separator even when the path itself
- * contains one — which `-z` output does not quote.
- */
-function parseSnapshotTreeListing(listing: Buffer): readonly SnapshotTreeEntry[] {
-  const entries: SnapshotTreeEntry[] = [];
-  for (const record of splitNulTerminatedListingBytes(listing)) {
-    const tabIndex: number = record.indexOf(TAB_SEPARATOR_BYTE);
-    if (tabIndex < 0) {
-      continue;
-    }
-    const fields: readonly string[] = record.subarray(0, tabIndex).toString("latin1").split(" ");
-    const mode: string | undefined = fields[0];
-    const objectId: string | undefined = fields[2];
-    if (mode === undefined || objectId === undefined) {
-      continue;
-    }
-    const pathBytes: Buffer = record.subarray(tabIndex + 1);
-    entries.push({
-      mode,
-      objectId,
-      path: pathBytes.toString("utf8"),
-      pathKey: listingEntryKey(pathBytes),
-    });
-  }
-  return entries;
-}
-
-/** One `git ls-files -t -z` record: a status tag and the path it describes. */
-interface CachedStateEntry {
-  /** `H` (materialized), `S` (skip-worktree), `M` (unmerged), … */
-  readonly tag: string;
-  /** Worktree-relative, as git emitted it. */
-  readonly path: string;
-}
-
-/**
- * Parse `git ls-files -t -z` — `<tag> SP <path>` per NUL-terminated record.
- *
- * The tag is returned rather than interpreted, exactly as
- * {@link parseSnapshotTreeListing} returns every record and lets its caller pick:
- * which tags MEAN something is the consumer's question, and the one consumer here
- * wants `H`.
- *
- * A record that does not carry the expected separator is skipped rather than
- * guessed at, and unlike the tree listing the direction of that skip is knowable:
- * a dropped record is a path its consumer will not see as materialized, so the
- * discarded-subset diagnostic UNDER-reports. That is the safe direction for a
- * channel whose whole discipline is to avoid over-claiming, and it is why the
- * skip is tolerable here rather than merely conventional.
- */
-function parseCachedStateListing(listing: Buffer): readonly CachedStateEntry[] {
-  const entries: CachedStateEntry[] = [];
-  for (const record of splitNulTerminatedListing(listing)) {
-    if (record.length < 2 || record[1] !== " ") {
-      continue;
-    }
-    entries.push({ tag: record.slice(0, 1), path: record.slice(2) });
-  }
-  return entries;
-}
-
-/**
- * The paths {@link SKIPPED_EMBEDDED_REPOSITORIES_TRAILER} recorded, out of a raw
- * `cat-file commit` body. An absent trailer is an empty list.
- *
- * Absent-collapses-to-empty is correct HERE and is not the general rule — see
- * {@link parseSparseBoundaryPaths}, whose absent case is a refusal. The
- * difference is what the two trailers mean by absence: this one is written only
- * when the skip list is non-empty, so no trailer IS the empty list, while the
- * sparse trailer is written unconditionally in a sparse root, so no trailer means
- * the capture was not sparse-aware. See {@link readJsonPathArrayTrailer} for the
- * fail-closed rule they share on a malformed value.
- *
- * The strings here are TEXT — decoded paths, the same kind the capture RESULT and
- * the preserved-entry check already carry. That differs from the sibling reader
- * below, whose strings are byte keys; the divergence and its reason live in
- * {@link readJsonPathArrayTrailer}.
- */
-function parseSkippedEmbeddedRepositories(commitObject: Buffer): readonly string[] {
-  return (
-    readJsonPathArrayTrailer(
-      commitObject,
-      SKIPPED_EMBEDDED_REPOSITORIES_TRAILER,
-      "skipped-embedded-repository",
-    ) ?? []
-  );
-}
-
-/**
- * The paths {@link SPARSE_BOUNDARY_PATHS_TRAILER} recorded, or `null` when the
- * snapshot carries no such trailer at all.
- *
- * THREE outcomes where the sibling decoder has two, and the third is the whole
- * point. `null` (absent) and `[]` (present and empty) are different facts about
- * the SNAPSHOT'S VINTAGE, and their correct handling is opposite:
- *
- *   * In a sparse restore root, ABSENT means the snapshot's out-of-cone
- *     disposition is unknown — either a pre-closure capture that lost the content
- *     or a root that was not sparse when it was captured — and the restore
- *     REFUSES at `derive-enumerations`, before anything is written. Reading it as
- *     the empty set would hand the delete pass full authority over exactly the
- *     content the trailer exists to protect, which is the failure mode the
- *     sibling decoder's fail-closed rule already names in the other direction.
- *   * In a NON-sparse restore root, absent is the ordinary answer for the
- *     overwhelming majority of snapshots ever captured, and the empty set is the
- *     correct reading: there is no boundary set because there was no cone.
- *
- * Collapsing the two would force one of those to be wrong. Present-but-
- * undecodable throws in both roots, exactly as the sibling does.
- *
- * The strings here are BYTE KEYS, not text: `latin1`, exactly as
- * {@link listingEntryKey} mints them, because every restore-side consumer
- * compares them against a listing and a comparison is only as exact as its least
- * exact side. Render one only through {@link decodeSparseBoundaryPathKey}.
- */
-function parseSparseBoundaryPaths(commitObject: Buffer): readonly string[] | null {
-  return readJsonPathArrayTrailer(commitObject, SPARSE_BOUNDARY_PATHS_TRAILER, "sparse-boundary");
-}
-
-/**
- * The shared reader behind the two trailer decoders above: the JSON string array
- * at `key`, or `null` when the message carries no line with that key.
- *
- * FAIL-CLOSED on a malformed value, which is the one interesting decision here.
- * Returning `null` for an unparseable body would be the tolerant reading and is
- * exactly wrong for both callers: each list is a DO-NOT-DELETE set, so an absent
- * list is not a neutral default but full authority to destroy the content the
- * trailer exists to protect. A body carrying the key and not a decodable array is
- * a snapshot this code does not understand, and the safe answer to that is to
- * refuse the restore rather than to proceed with the protection silently
- * disabled. The throw lands at `derive-enumerations`, which is pre-mutation — the
- * refusal costs nothing on disk.
- *
- * The commit body is located by the FIRST blank line, per git's object format:
- * everything before it is headers (`tree`, `parent`, `author`, `committer`, and
- * possibly `encoding` or a multi-line `gpgsig` whose continuations are
- * space-prefixed), everything after is the message. Scanning the whole object
- * instead would let a header value ending in a trailer key be read as one.
- *
- * ONE reader, TWO kinds of string, and this is the place to know it. The commit
- * object is decoded as UTF-8 here because that is what it IS — the message was
- * written as UTF-8 bytes — but what the recovered code points MEAN is the
- * caller's fact, not this function's. {@link parseSkippedEmbeddedRepositories}
- * gets TEXT: its writer stringified decoded paths, and its consumers render them
- * and compare them against decoded listing entries.
- * {@link parseSparseBoundaryPaths} gets BYTE KEYS: its writer stringified
- * `latin1` keys, so each recovered code point is one path byte and
- * `Buffer.from(key, "latin1")` is the original path. The asymmetry survives this
- * function untouched — U+0080–U+00FF make the round trip through
- * `JSON.stringify` → UTF-8 message bytes → `toString("utf8")` → `JSON.parse`
- * unchanged, and every code point below U+0020 is escaped, so no path byte can
- * forge the newline that would end the trailer.
- */
-function readJsonPathArrayTrailer(
-  commitObject: Buffer,
-  key: string,
-  description: string,
-): readonly string[] | null {
-  const text: string = commitObject.toString("utf8");
-  const separator: number = text.indexOf("\n\n");
-  if (separator < 0) {
-    return null;
-  }
-  for (const line of text.slice(separator + 2).split("\n")) {
-    if (!line.startsWith(key)) {
-      continue;
-    }
-    const encoded: string = line.slice(key.length).trim();
-    let decoded: unknown;
-    try {
-      decoded = JSON.parse(encoded);
-    } catch {
-      throw new Error(`turn-snapshot could not decode the snapshot's ${description} trailer`);
-    }
-    if (!Array.isArray(decoded) || decoded.some((path) => typeof path !== "string")) {
-      throw new Error(`turn-snapshot ${description} trailer was not an array of paths`);
-    }
-    return decoded as readonly string[];
-  }
-  return null;
-}
 
 /**
  * The object-id hex length a repository uses, from `rev-parse
@@ -3481,349 +2085,26 @@ function requireObjectIdHexLength(stdout: Buffer): number {
 }
 
 /**
- * Every PROPER ancestor directory of a git-spelled repo-relative path, outermost
- * first: `a/b/c` yields `a` and `a/b`, and a single-segment path yields none.
+ * A type-aware fingerprint of the entry at `path`, so two observations of one
+ * path compare equal only when they saw the same kind of thing with the same
+ * content.
  *
- * Splitting on `/` is what makes the restore leg's obstruction test respect
- * SEGMENT boundaries — `foo` is an ancestor of `foo/a` and is not one of
- * `foobar/a`, which a raw string-prefix test would get backwards. Both listings
- * this compares come from git itself (`ls-tree -r` and `ls-files`), and git
- * spells repo-relative paths with forward slashes on every platform, so no
- * host separator enters the comparison — which is also why `dirname` is not the
- * tool here.
+ * The answer is one of `absent`, `file:<sha256>`, `symlink:<sha256 of target>`,
+ * `directory` or `other`, with `file:unreadable` and `symlink:unreadable` when
+ * the entry exists but cannot be read. The type prefix keeps a file whose bytes
+ * are `x` and a symlink whose target is `x` unequal. `lstat` is used rather than
+ * `stat`, so a symlink is fingerprinted as itself, never as what it points at.
+ * `directory` and `other` carry no hash: a directory whose contents changed, or
+ * two different device nodes, compare equal.
+ *
+ * `absent` covers an `lstat` that failed for any reason, so a path unreadable on
+ * both sides for different reasons compares equal; {@link isPathProvablyAbsent}
+ * exists separately for callers that must tell those apart. It runs no git (an
+ * `lstat`, a `readFile`, a `readlink`), so it works when git itself has failed.
+ *
+ * @consumedBy the turn checkpointer
  */
-function collectProperAncestorDirectories(path: string): readonly string[] {
-  const segments: readonly string[] = path.split("/");
-  const ancestors: string[] = [];
-  for (let boundary = 1; boundary < segments.length; boundary += 1) {
-    ancestors.push(segments.slice(0, boundary).join("/"));
-  }
-  return ancestors;
-}
-
-/** Append `value` to the list `index` holds at `path`, creating the list once. */
-function appendToPathIndex<Value>(index: Map<string, Value[]>, path: string, value: Value): void {
-  const existing: Value[] | undefined = index.get(path);
-  if (existing === undefined) {
-    index.set(path, [value]);
-    return;
-  }
-  existing.push(value);
-}
-
-/**
- * Whether an `ls-files -o` entry names a path the CAPTURE put outside this
- * restore's write authority — the delete pass's exemption test.
- *
- * `entry` arrives in listing spelling, so a directory carries the trailing slash
- * git adds to a path it did not descend into; it is stripped before comparing,
- * because {@link classifySparseBoundaryPaths} has already moved that slash from
- * the path text into the KIND — both of its sets hold slash-free names, and the
- * trailer keeps the slash only so the kind survives the round trip.
- *
- * AT or BENEATH, on SEGMENT boundaries, for the reason
- * {@link collectProperAncestorDirectories} states in the other direction: a bare
- * `startsWith` would make recorded `nested` protect an unrelated `nested-copy/`,
- * which is over-protection — content the restore is supposed to delete surviving
- * because of a shared name prefix. The `/` in the test is what keeps the
- * exemption to the recorded subtree.
- *
- * TEXT on both sides, unlike {@link isSparseBoundaryListingEntry}, which compares
- * byte keys. Not an inconsistency: this predicate's recorded list arrives from
- * {@link parseSkippedEmbeddedRepositories}, whose trailer holds decoded paths
- * because they also reach the capture RESULT, so decoded-against-decoded is like
- * against like here. The residual that leaves — two un-decodable nested
- * repositories aliasing onto one recorded entry — is over-protection of a path
- * the capture already declared out-of-snapshot, and closing it means changing
- * that trailer's encoding and the wire-facing values it feeds.
- */
-function isPreservedListingEntry(entry: string, preservedPaths: readonly string[]): boolean {
-  const path: string = entry.endsWith("/") ? entry.slice(0, -1) : entry;
-  return preservedPaths.some((preserved) => path === preserved || path.startsWith(`${preserved}/`));
-}
-
-/**
- * The recorded sparse boundary set, SPLIT BY THE ENTRY KIND the capture saw.
- *
- * The trailer is one JSON array; this is that array read ONCE into the two kinds
- * its consumers must treat differently, so no consumer re-derives the split and
- * they cannot drift apart. See {@link SPARSE_BOUNDARY_PATHS_TRAILER} for why the
- * kinds are distinguishable at all.
- *
- * A SET for BOTH kinds, and for the same reason on each: every consumer asks
- * MEMBERSHIP, once per candidate path, and it asks it on the hot dimensions —
- * every `ls-files -o` entry on every delete pass, every cached index entry at the
- * pre-drop. The file kind asks it of the candidate itself; the directory kind
- * asks it of the candidate's own proper ancestors
- * ({@link isWithinSparseBoundaryDirectory}), which is what lets that kind be a
- * Set too rather than the list a `startsWith` scan would need. Directory names
- * are stored SLASH-STRIPPED — the slash did its work at classification time and
- * every comparison downstream is against a stripped listing path.
- *
- * Both members hold BYTE KEYS ({@link listingEntryKey} spelling), never text,
- * because every one of this type's consumers is a membership test and a
- * membership test on decoded paths answers the wrong question — see
- * {@link SPARSE_BOUNDARY_PATHS_TRAILER}. The three consumers, all byte-keyed:
- * the delete exemption ({@link isSparseBoundaryListingEntry}), the index pre-drop
- * ({@link isSparseBoundaryIndexPath}), and the obstruction guard.
- */
-interface SparseBoundarySet {
-  readonly filePaths: ReadonlySet<string>;
-  readonly directoryPaths: ReadonlySet<string>;
-}
-
-/** The boundary set of a snapshot that recorded none. */
-const EMPTY_SPARSE_BOUNDARY_SET: SparseBoundarySet = {
-  filePaths: new Set<string>(),
-  directoryPaths: new Set<string>(),
-};
-
-/**
- * Split the decoded trailer array into {@link SparseBoundarySet}'s two kinds.
- *
- * PURE, and deliberately downstream of {@link parseSparseBoundaryPaths} rather
- * than folded into it: that decoder's three-way answer — absent, present-empty,
- * malformed — is the sparse VINTAGE gate, and this classification must not be
- * able to blur it. An empty array in, an empty set of both kinds out; `null`
- * never reaches here.
- *
- * A zero-length name after stripping (`""`, or a bare `"/"` — neither is a shape
- * `ls-files` produces) is DROPPED rather than kept or refused. Kept as a
- * directory name it would prefix-match the entire worktree and exempt every
- * untracked path from the delete pass, which is the failure mode with the widest
- * blast radius available here; refusing would fail a restore over an entry that
- * names nothing. Dropping costs exactly nothing real, because no listing entry
- * can ever equal it.
- *
- * `recordedPaths` are BYTE KEYS and the kind test still works on them, because
- * the trailing slash is 0x2F and no byte of a multi-byte UTF-8 sequence can be
- * 0x2F — the same property that lets git split its own paths on `/`. So the kind
- * survives whatever the path's bytes are, decodable or not.
- */
-function classifySparseBoundaryPaths(recordedPaths: readonly string[]): SparseBoundarySet {
-  const filePaths = new Set<string>();
-  const directoryPaths = new Set<string>();
-  for (const recordedPath of recordedPaths) {
-    if (recordedPath.endsWith("/")) {
-      const directoryPath: string = recordedPath.slice(0, -1);
-      if (directoryPath.length > 0) {
-        directoryPaths.add(directoryPath);
-      }
-      continue;
-    }
-    if (recordedPath.length > 0) {
-      filePaths.add(recordedPath);
-    }
-  }
-  return { filePaths, directoryPaths };
-}
-
-/**
- * Whether an `ls-files -o` entry names a path the capture recorded as a SPARSE
- * BOUNDARY path — the delete pass's other exemption test.
- *
- * A SEPARATE predicate from {@link isPreservedListingEntry}, and THREE-WAY where
- * that one has a single rule. What the capture recorded decides the width, and
- * the three cases are:
- *
- *   * A skipped embedded repository ({@link isPreservedListingEntry}) is a
- *     REPOSITORY. Deleting `nested/src/a.ts` one path at a time destroys it as
- *     completely as deleting `nested/`, so the exemption covers everything
- *     beneath it.
- *   * A boundary FILE entry is a PATH, and its exemption is EXACT. The capture
- *     recorded the identity of one out-of-cone file, and that file is exactly
- *     what the restore may not delete. Matching subtrees for this kind would
- *     over-protect in the direction that matters: it cannot, because a file has
- *     no subtree — which is precisely why the kinds are recorded separately
- *     instead of the whole set taking one width.
- *   * A boundary DIRECTORY entry is a SUBTREE, for the same reason the skipped
- *     repository is. `ls-files -o` emits a trailing-slash entry only for a
- *     directory it did NOT descend into, so the capture could not enumerate what
- *     was inside; path identity for that entry IS the subtree, and there is no
- *     narrower true statement available about it. The concrete case: a
- *     boundary-time out-of-cone embedded repository, recorded as `nested/`, whose
- *     turn removed its `.git` — the restore's listing now descends and emits
- *     `nested/payload.txt`, which an exact-path exemption would not cover, and
- *     the delete pass would take the boundary-time payload the trailer exists to
- *     keep.
- *
- * NAMED RESIDUAL, the cost of that third case: a file the TURN created INSIDE a
- * boundary-time non-descended directory is post-boundary content that this
- * exemption nonetheless protects. It is the same over-protection the skipped-
- * repository exemption already accepts, bounded to directories git refused to
- * walk, and it is the survivable direction — the alternative deletes
- * boundary-time content. Turn-created out-of-cone files ANYWHERE ELSE are still
- * deleted exactly as their in-cone counterparts are, which is property this
- * closure must not trade away, and the suite pins it with a turn-created file
- * inside a boundary-time PLAIN directory.
- *
- * THE TRAILING SLASH IS HANDLED ASYMMETRICALLY, and the asymmetry is the whole
- * content of the kind distinction at match time:
- *
- *   * The FILE arm requires the listing entry to be SLASH-FREE. A trailing slash
- *     in an `ls-files -o` entry is git saying "this is a DIRECTORY I did not
- *     descend into", so a slash-suffixed entry standing at a recorded boundary
- *     FILE path is not that file — it is a directory the TURN created where the
- *     file used to be, most plausibly an embedded repository. Stripping first and
- *     matching the file set anyway exempted that directory WHOLE, on the strength
- *     of a name it merely inherited, which is the exact-path width this docblock
- *     claims being quietly false.
- *   * The DIRECTORY arm accepts BOTH spellings, because there the slash is not
- *     evidence: git emits it only for a directory it refused to walk, so the same
- *     boundary-time directory is spelled `nested/` in one listing and reached as
- *     `nested/payload.txt` (slash-free, and beneath) in the next. Requiring the
- *     slash on this arm would under-exempt, and under-exemption on this arm is
- *     deletion of boundary-time content — the failure the trailer exists to stop.
- *
- * SECOND NAMED RESIDUAL, the mirror of the first and deliberately retained: a
- * FILE the turn created at a recorded boundary DIRECTORY path is exempted by the
- * directory arm's equality case. Distinguishing it would mean requiring the slash
- * on that arm, which is the destructive trade just refused. Over-protection of a
- * turn-created path is survivable; deletion of boundary-time content is not.
- *
- * `entryKey` is a {@link listingEntryKey} byte key and both of this set's members
- * are too — the exemption is decided on bytes, never on decoded text, so two
- * paths that merely COLLAPSE to the same string cannot borrow each other's
- * protection.
- */
-function isSparseBoundaryListingEntry(entryKey: string, boundarySet: SparseBoundarySet): boolean {
-  const isDirectorySpelling: boolean = entryKey.endsWith("/");
-  const pathKey: string = isDirectorySpelling ? entryKey.slice(0, -1) : entryKey;
-  return (
-    (!isDirectorySpelling && boundarySet.filePaths.has(pathKey)) ||
-    isWithinSparseBoundaryDirectory(pathKey, boundarySet)
-  );
-}
-
-/**
- * Whether `pathKey` is AT or BENEATH a recorded boundary DIRECTORY, on segment
- * boundaries — the directory kind's width, spelled once for the two legs that
- * must agree on it.
- *
- * Shared by the delete exemption and the index pre-drop deliberately: those two
- * legs are the same statement about one path made to two mechanisms ("the restore
- * has no authority to destroy this"), and a width that drifted between them would
- * mean the pre-drop unstaging something the delete pass then removes, or the
- * reverse.
- *
- * ASKED OF THE CANDIDATE, never of the recorded set, and that is a cost property
- * rather than a taste: equality against the recorded directories, then one
- * membership test per PROPER ANCESTOR of the candidate. The scan this replaces —
- * a `startsWith` against every recorded directory — cost the PRODUCT of two
- * dimensions this module bounds neither of, and both callers run it on the hot
- * one: the delete exemption over every `ls-files -o` entry on every pass, the
- * pre-drop over every cached index entry. The recorded set's size no longer
- * enters the per-candidate cost at all, which now tracks the candidate's path
- * DEPTH — the shared width itself is unchanged, and the equality case is still
- * part of it (see {@link isSparseBoundaryIndexPath} for what rests on that).
- *
- * THE TWO SPELLINGS ARE THE SAME PREDICATE, with no side condition on the
- * recorded name. The old test — `pathKey` starting with a recorded
- * `directoryPath` plus `/` — holds exactly when `pathKey` is `directoryPath`, a
- * `/`, and a remainder. Splitting and re-joining on `/` are exact inverses, so
- * that is exactly the case where SOME PROPER PREFIX of `pathKey`'s segments
- * re-joins to `directoryPath` — which is what
- * {@link collectProperAncestorDirectories} enumerates, and the equality case
- * covers the remaining one where the whole path does. The `/` the old prefix test
- * carried is the segment boundary that helper argues for from the other side, and
- * it survives the rewrite for free: recorded `nested` still must not reach
- * `nested-copy/a.txt`, because `nested-copy` is that path's ancestor and `nested`
- * is not.
- */
-function isWithinSparseBoundaryDirectory(pathKey: string, boundarySet: SparseBoundarySet): boolean {
-  if (boundarySet.directoryPaths.has(pathKey)) {
-    return true;
-  }
-  for (const ancestor of collectProperAncestorDirectories(pathKey)) {
-    if (boundarySet.directoryPaths.has(ancestor)) {
-      return true;
-    }
-  }
-  return false;
-}
-
-/**
- * Whether an INDEX path falls inside the recorded boundary set — the pre-drop's
- * membership test.
- *
- * The exemption's width, minus the slash question: git's index holds files, so an
- * index path is never slash-suffixed and the file arm is a plain exact match. The
- * directory arm is shared outright with {@link isSparseBoundaryListingEntry},
- * equality case included, so a boundary directory that the turn REPLACED with a
- * tracked file is unstaged rather than left for `read-tree` to overwrite.
- */
-function isSparseBoundaryIndexPath(pathKey: string, boundarySet: SparseBoundarySet): boolean {
-  return (
-    boundarySet.filePaths.has(pathKey) || isWithinSparseBoundaryDirectory(pathKey, boundarySet)
-  );
-}
-
-/**
- * A boundary byte key rendered back to TEXT, for a human.
- *
- * The one sanctioned exit from the byte-keyed world, and it exists so the rest of
- * the closure never needs another: refusal detail, diagnostics and log lines all
- * come through here, and nothing that DECIDES anything does. `latin1` back to
- * bytes is exact; the `utf8` decode after it is lossy in precisely the way that is
- * fine for a message and fatal for a comparison.
- */
-function decodeSparseBoundaryPathKey(pathKey: string): string {
-  return Buffer.from(pathKey, "latin1").toString("utf8");
-}
-
-/**
- * A TYPE-AWARE fingerprint of whatever is at `path` — the restore leg's evidence
- * for "this colliding ignored path was overwritten".
- *
- * One string per observable state, never `null`, and the type is half the value:
- * a fingerprint that carried bytes alone answered "same bytes?" when the
- * question is "same THING?", and the two differ in exactly the cases this
- * enumeration exists to catch. Both were measured on git 2.50.1 and both are
- * driven by the suite:
- *
- *   * A DANGLING SYMLINK destroyed by the restore. Reading it fails (`ENOENT`
- *     through the link), and reading what replaced it — a directory the checkout
- *     needed — fails too (`EISDIR`). A bytes-only fingerprint scored that
- *     `null` → `null`, compared them EQUAL, and dropped a destroyed ignored path
- *     out of a `partial_restore` report whose whole job is to name it.
- *   * A LIVE SYMLINK replaced by a regular file with byte-identical content. A
- *     bytes-only fingerprint follows the link, hashes the target's bytes, and
- *     scores the two sides equal — so a link the restore replaced with the
- *     snapshot's own file goes unreported. `lstat` and not `stat` for this
- *     reason: every probe here is about the entry AT the path, never about what
- *     it points at.
- *
- * The arms are prefixed rather than bare hashes, so the two arms that DO carry a
- * hash cannot collide across types: a file whose bytes are `x` and a symlink
- * whose target is `x` are different observations and compare unequal. The two
- * hashless arms are coarser by construction and say so — `directory` and `other`
- * each describe a state rather than identify one — and each is a NAMED residual
- * rather than an oversight:
- *
- *   * `other` (fifo, socket, device) collides with a different `other`. Not
- *     reachable as a restore EFFECT: `read-tree --reset -u` writes regular files,
- *     symlinks and the directories that hold them, never a device node, so
- *     scoring `other` on both sides means the restore did not touch that path.
- *   * `directory` collides with a directory whose CONTENTS changed. Reachable —
- *     it is exactly what replaced the dangling symlink above — and left coarse on
- *     purpose: the enumerated paths are the ones the checkout named as blockers,
- *     which are blobs in the snapshot tree, and hashing a directory instead would
- *     be a recursive walk on the failure path, where the rule is to observe
- *     cheaply and never to become the failure being reported.
- *
- * `absent` is the answer for a path with nothing observable, an `lstat` that
- * failed for any reason included — the same fail-to-absent posture
- * {@link pathExists} takes, and the reason
- * {@link isPathProvablyAbsent} exists separately for the retention leg, where
- * that collapse would be wrong. It is a deliberate residual here: a path
- * unreadable before AND after for two DIFFERENT reasons compares equal and is
- * not enumerated. The alternative — reporting every unreadable path as
- * overwritten — would fabricate data loss out of an `EACCES`.
- *
- * Deliberately git-free (an `lstat`, a `readFile`, a `readlink`): it runs on the
- * failure path, where the git seam is the thing that just failed.
- */
-async function fingerprintPath(path: string): Promise<string> {
+export async function fingerprintPath(path: string): Promise<string> {
   let entry: Stats;
   try {
     entry = await lstat(path);
@@ -3856,75 +2137,24 @@ function hashBytes(bytes: Buffer): string {
 }
 
 /**
- * What the boundary-obstruction guard needs to know about a path: is a DIRECTORY
- * there, is something else there, is nothing there — or could this not be
- * settled at all.
- *
- * A SEPARATE observer from {@link fingerprintPath}, and the fourth arm is the
- * entire reason. That one collapses every `lstat` rejection onto `"absent"`,
- * which is right for a fingerprint (an unreadable path compares unequal to
- * whatever replaces it, so a destroyed path is still reported) and exactly wrong
- * here: this answer decides whether a DESTRUCTIVE checkout is refused, so
- * reading `EACCES` as "nothing is there" would fail OPEN in a guard whose only
- * job is to fail closed. `"unreadable"` is therefore its own arm and its consumer
- * treats it as obstruction.
- *
- * `ENOENT` and `ENOTDIR` are the two rejections that really do mean "not on
- * disk" — the second is what `lstat` says when an ancestor of the path is a file
- * — and they are the only two read as absence.
- *
- * `lstat` and not `stat`, so a SYMLINK is its own thing rather than whatever it
- * points at. A symlink where a boundary FILE entry was recorded answers
- * `"non-directory"`, which is the fail-closed reading and also the measured one:
- * on git 2.50.1 `read-tree --reset -u` unlinks a symlink standing where the
- * snapshot needs a directory (the link's TARGET survives; the link itself, which
- * is the boundary-time content, does not).
- */
-type BoundaryPathPresence = "absent" | "directory" | "non-directory" | "unreadable";
-
-async function probeBoundaryPathPresence(path: string): Promise<BoundaryPathPresence> {
-  let entry: Stats;
-  try {
-    entry = await lstat(path);
-  } catch (reason) {
-    const code: string | undefined = (reason as NodeJS.ErrnoException | null)?.code;
-    return code === "ENOENT" || code === "ENOTDIR" ? "absent" : "unreadable";
-  }
-  return entry.isDirectory() ? "directory" : "non-directory";
-}
-
-/** Whether anything exists at `path`. Any error — including `ENOENT` — is `false`. */
-async function pathExists(path: string): Promise<boolean> {
-  try {
-    await stat(path);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/**
  * Whether `path` is PROVABLY absent — the retention leg's discriminator between
  * a git dir that is gone and one it merely could not use.
  *
- * A separate helper rather than `!(await pathExists(path))`, and the difference
- * is the whole reason it exists: `pathExists` treats every error as absence,
- * which is right for the restore leg's directory observations and exactly wrong
- * here. An `EACCES` on a live repository would then read as a disposal and go
- * quiet, which is the fault this taxonomy is drawn to surface. So only `ENOENT`
+ * Treating every error as absence would be exactly wrong here: an `EACCES` on a
+ * live repository would then read as a removal and go quiet, which is the fault
+ * this taxonomy is drawn to surface. So only `ENOENT`
  * and `ENOTDIR` are absence; anything else — including a probe that failed for a
  * reason with no `code` at all — resolves `false` and lands the run in the
  * alarming `git-dir-unusable` arm. Fails toward the alarm, deliberately.
  *
- * The errno read is typed `string | undefined` (this file's established form, at
- * the `rmdir` funnel) rather than `unknown`, and the type is doing work: under
+ * The errno read is typed `string | undefined` rather than `unknown`, and the
+ * type is doing work: under
  * `unknown`, a maintainer reaching for a NUMERIC errno — `code === 2` — compiles
  * to a permanently-false branch, and a genuinely-absent repository would then be
  * reported present and alarmed on. Typed, that spelling is a compile error.
  *
  * A READ, so it does not go through {@link TurnSnapshotFilesystem}, which is the
- * seam through which this service MUTATES — the same boundary the restore leg's
- * observations respect.
+ * seam through which this service MUTATES.
  */
 async function isPathProvablyAbsent(path: string): Promise<boolean> {
   try {
@@ -3935,133 +2165,6 @@ async function isPathProvablyAbsent(path: string): Promise<boolean> {
     return code === "ENOENT" || code === "ENOTDIR";
   }
 }
-
-/**
- * A colliding ignored path plus the on-disk state the failure is measured
- * against.
- *
- * The fingerprint is a non-nullable {@link fingerprintPath} arm, and the absence
- * of `| null` is load-bearing rather than tidy: the nullable form made "could
- * not read either side" compare EQUAL to "could not read either side" for two
- * entirely different reasons, which is how a destroyed dangling symlink went
- * unreported. `absent` is one arm among several here, not the type's escape
- * hatch.
- */
-interface ProspectiveCollision {
-  readonly path: string;
-  readonly fingerprintBeforeRestore: string;
-}
-
-/**
- * A divergent gitlink plus the on-disk state the failure is measured against.
- *
- * The same non-nullable {@link fingerprintPath} arm {@link ProspectiveCollision}
- * records, and for a sharper version of the same reason. This field was a
- * `presentBeforeRestore: boolean` filled by a `stat`, which FOLLOWS symlinks, so
- * a symlink pointing at a directory scored `true` — indistinguishable from a
- * real directory — and the failure report skipped every `true`. A restore that
- * replaced that symlink with a materialized gitlink directory and then failed
- * later therefore destroyed a symlink and enumerated nothing. That is the
- * `stat`-follows-symlink defect recurring at a second consumer, which is why the
- * fix is the type rather than the call site: a boolean cannot express the
- * distinction, so any consumer of one is one edit away from re-introducing it.
- */
-interface ProspectiveGitlinkDivergence {
-  readonly path: string;
-  readonly fingerprintBeforeRestore: string;
-}
-
-/**
- * A snapshot-tracked path the LIVE sparse definition excludes that was sitting
- * MATERIALIZED on disk before the checkout, plus the state its later removal is
- * measured against.
- *
- * The third member of the same family, carrying the same non-nullable
- * {@link fingerprintPath} arm for the same reason, and it is a CANDIDATE rather
- * than a conclusion. The set this seeds is the checkout's re-projection of a full
- * tree through a narrower live cone, which discards the path from the worktree —
- * so it is a real restore effect and belongs in the report. But it is an effect
- * of the CHECKOUT, and a sequence that refused before the checkout ran (or whose
- * checkout failed at the spawn) discarded nothing. Reporting the pre-mutation
- * candidate list on that path would be a bookkept claim about work that did not
- * happen, which is the failure the collision and gitlink enumerations already
- * solved by re-observing at report time. This carries the fingerprint so it can
- * be held to the same standard rather than to a weaker one.
- */
-interface ProspectiveMaterialization {
-  readonly path: string;
-  readonly fingerprintBeforeRestore: string;
-}
-
-/** What the pre-mutation derivation produces; see the header. */
-interface ProspectiveRestoreEffects {
-  readonly collisions: readonly ProspectiveCollision[];
-  readonly gitlinkDivergences: readonly ProspectiveGitlinkDivergence[];
-  /**
-   * Paths the CAPTURE recorded as skipped embedded repositories, and therefore
-   * paths outside this restore's write authority — see
-   * {@link SKIPPED_EMBEDDED_REPOSITORIES_TRAILER}. Carried alongside the two
-   * enumerations because it is derived from the same object read and consumed in
-   * the same sequence, not because it is an "effect": nothing happens at these
-   * paths, which is the entire point.
-   */
-  readonly preservedEmbeddedRepositories: readonly string[];
-  /**
-   * Paths the CAPTURE recorded as its sparse boundary set, already split by entry
-   * kind — see {@link SPARSE_BOUNDARY_PATHS_TRAILER} and
-   * {@link classifySparseBoundaryPaths}. The delete pass's other exemption, and
-   * carried here for the reason above: same object read, same sequence.
-   *
-   * Classified ONCE, here, rather than per consumer: three legs read it (the
-   * delete-pass exemption, the index pre-drop and the obstruction guard) and they
-   * ask the two kinds different questions — the guard's two shapes are per-kind,
-   * while the exemption and the pre-drop share a width they must not drift apart
-   * on ({@link isWithinSparseBoundaryDirectory}). Re-deriving the split at each
-   * site is exactly the drift this carries a type to prevent.
-   */
-  readonly sparseBoundarySet: SparseBoundarySet;
-  /**
-   * Snapshot-tracked paths the LIVE sparse definition scores out of cone and that
-   * were observed materialized before the checkout — the diagnostic's CANDIDATE
-   * set, not its payload. Sorted, empty in a non-sparse root. Each carries the
-   * pre-mutation fingerprint the emission re-observes against, so what is
-   * reported is the subset the restore actually discarded. See
-   * {@link ProspectiveMaterialization} and the `sparse-out-of-cone-materialized`
-   * arm of {@link TurnSnapshotDiagnostic}.
-   */
-  readonly materializedOutOfCone: readonly ProspectiveMaterialization[];
-  /**
-   * The LIVE-index entries the pre-drop is about to remove — recorded boundary
-   * paths the index holds and the snapshot tree does not. Raw `-z` listing bytes
-   * rather than decoded names, so the invocation that consumes them feeds git
-   * back the exact bytes git produced (the capture partition's discipline, for
-   * the same reason: no path here is ever reconstructed from a decode).
-   *
-   * DERIVED here and applied by the caller, which is not a stylistic split. This
-   * is the derivation's one mutating consequence, and the sequence puts a second
-   * `HEAD` read between the derivation and the first mutation precisely so that
-   * a `HEAD` moving during the listings refuses with NOTHING applied. Performing
-   * the drop inside the derivation would make that `head_moved` arm — frozen by
-   * the wire mapping as the "refused before any mutation" answer — report a
-   * refusal it had already half-acted on.
-   *
-   * Non-empty only for a snapshot that RECORDED a boundary set, whatever the
-   * restore root's own sparsity now is — the same membership scope
-   * {@link sparseBoundarySet} carries, because the two are halves of one
-   * protection.
-   */
-  readonly droppableBoundaryIndexEntries: readonly Buffer[];
-}
-
-/** The derivation's value before it has run — a failure here reports all empty. */
-const NO_PROSPECTIVE_RESTORE_EFFECTS: ProspectiveRestoreEffects = {
-  collisions: [],
-  gitlinkDivergences: [],
-  preservedEmbeddedRepositories: [],
-  sparseBoundarySet: EMPTY_SPARSE_BOUNDARY_SET,
-  materializedOutOfCone: [],
-  droppableBoundaryIndexEntries: [],
-};
 
 /**
  * The capture leg's cone partition of one `-z` listing.
@@ -4081,63 +2184,6 @@ interface SparseListingPartition {
   readonly outOfConeEntries: readonly Buffer[];
 }
 
-/**
- * One refusal reason from the boundary-obstruction guard: a recorded boundary
- * path standing where the checkout is about to write, and the snapshot paths that
- * would displace it.
- *
- * `displacedBy` holds only paths that WILL materialize at this restore — see
- * {@link TurnSnapshotService.#deriveBoundaryObstructions}. Naming a path that the
- * live cone leaves unwritten would make the refusal's one operator-facing channel
- * point at something that was never the cause.
- */
-interface BoundaryObstruction {
-  readonly path: string;
-  readonly displacedBy: readonly string[];
-}
-
-/**
- * How many displacers the refusal names per obstruction before it starts
- * counting. Small on purpose: the first few carry the diagnosis, and the rest
- * only carry size.
- */
-const NAMED_DISPLACERS_PER_OBSTRUCTION = 3;
-
-/**
- * The obstruction refusal's detail, bounded — the two halves are bounded
- * DIFFERENTLY because only one of them amplifies.
- *
- * Every obstructing boundary path is named, with no cap. That list is the
- * operator's action item, and capping it would cost one refused restore per
- * batch to discover the next names; for a guard whose whole job is standing in
- * front of data destruction, a truncated action list is the wrong trade. Its
- * size is bounded by the recorded boundary set — a string this very snapshot
- * already carries in its commit message and this very call already decoded, so
- * naming all of it re-emits a quantity the system holds anyway.
- *
- * The displacers are only evidence, and they are a PRODUCT: shape (i) fires for
- * every proper ancestor, so a boundary file sitting high in the tree is
- * displaced by its entire subtree, and the string would then grow with the
- * REPOSITORY rather than with the trailer. It has nowhere to be truncated
- * downstream — `detail` reaches {@link TurnSnapshotPartialRestore} and the
- * `restore-failed` diagnostic verbatim, and both sibling pre-mutation refusals
- * are fixed-length strings, so this is the one message that could grow at all.
- */
-function describeBoundaryObstructions(obstructions: readonly BoundaryObstruction[]): string {
-  return obstructions
-    .map((obstruction) => {
-      const named: readonly string[] = obstruction.displacedBy.slice(
-        0,
-        NAMED_DISPLACERS_PER_OBSTRUCTION,
-      );
-      const unnamedCount: number = obstruction.displacedBy.length - named.length;
-      const evidence: string =
-        unnamedCount === 0 ? named.join(", ") : `${named.join(", ")}, and ${unnamedCount} more`;
-      return `${obstruction.path} (displaced by ${evidence})`;
-    })
-    .join("; ");
-}
-
 // --------------------------------------------------------------------------
 // Retention reads (`run_execution_contexts`)
 // --------------------------------------------------------------------------
@@ -4149,28 +2195,10 @@ function describeBoundaryObstructions(obstructions: readonly BoundaryObstruction
 interface PrunableRunRow {
   readonly run_id: string;
   readonly git_common_dir: string;
-  /**
-   * `string` rather than `ExecutionMode`, matching
-   * `./ephemeral-clone-service.ts`'s row shapes: the DDL's CHECK constrains the
-   * column, but a row type is what SQLite handed back, not a parse of it. The
-   * comparison happens against the annotated constants below.
-   */
-  readonly execution_mode: string;
 }
-
-/**
- * The two `run_execution_contexts` modes this leg reasons about, written as
- * annotated constants rather than inline literals — the idiom (and the reason)
- * `./ephemeral-clone-service.ts` states at its own pair: `'ephemeral clone'`
- * carries a SPACE, and a typo in it would silently make the disposal arm
- * unreachable rather than failing anywhere.
- */
-const EPHEMERAL_CLONE_EXECUTION_MODE: ExecutionMode = "ephemeral clone";
-const READ_ONLY_EXECUTION_MODE: ExecutionMode = "read-only";
 
 interface RetentionCutoffParams {
   readonly released_before: string;
-  readonly excluded_mode: ExecutionMode;
 }
 
 interface RunContextLookupParams {
@@ -4209,11 +2237,10 @@ export class TurnSnapshotService {
   readonly #now: () => string;
   readonly #emitDiagnostic: (diagnostic: TurnSnapshotDiagnostic) => void;
   readonly #retentionWindowMs: number;
-  // `null` when no `database` was supplied — the capture/restore-only wiring
-  // describes. Prepared ONCE in the constructor, the idiom
-  // `./ephemeral-clone-service.ts` and `../workspace/execution-root-service.ts`
-  // both use, so a schema drift fails at construction rather than at the first
-  // sweep an hour into the daemon's life.
+  // `null` when no `database` was supplied — capture-only wiring. Prepared ONCE
+  // in the constructor, the idiom `../workspace/execution-root-service.ts` uses,
+  // so a schema drift fails at construction rather than at the first sweep an
+  // hour into the daemon's life.
   readonly #selectPrunableRunsStmt: Statement<RetentionCutoffParams, PrunableRunRow> | null;
   readonly #selectRunContextStmt: Statement<RunContextLookupParams, PrunableRunRow> | null;
 
@@ -4238,7 +2265,7 @@ export class TurnSnapshotService {
     // opaquely, throwing "Invalid time value" from inside the sweep's own `try`
     // every tick while retention never actually runs. Both are a config typo
     // (`DEFAULT_… / 0`, a units mix-up, a subtraction the wrong way), and both
-    // deserve the same answer the sweep cadence gives one.
+    // deserve a refusal.
     //
     // The UPPER bound joins them for a third failure direction that reads like
     // the opposite of a typo: `Number.MAX_SAFE_INTEGER` spelled as "keep
@@ -4276,34 +2303,24 @@ export class TurnSnapshotService {
       // clause states the intent and keeps the predicate readable rather than
       // resting the "a live run is never pruned" property on a subtlety.
       //
-      // `read-only` runs are excluded at the PREDICATE rather than skipped later:
-      // {@link SNAPSHOT_APPLICABLE_MODES} guarantees they never captured a ref,
-      // so every one of them would cost a `git for-each-ref` spawn to enumerate
-      // nothing — and would inflate `examinedRunCount`, the denominator an
-      // operator reads the skip list against. Bound rather than interpolated, so
-      // the excluded mode is one typed constant and not a hand-typed literal.
-      //
       // The comparison is TEXT `<=`; see the header for the fixed-width-UTC
       // constraint that makes it chronological. Ordered so a pass is
       // deterministic and the oldest release prunes first — with `run_id` as the
       // tiebreak, since two runs can release in the same millisecond.
       this.#selectPrunableRunsStmt = database.prepare<RetentionCutoffParams, PrunableRunRow>(
-        `SELECT run_id, git_common_dir, execution_mode
+        `SELECT run_id, git_common_dir
            FROM run_execution_contexts
           WHERE released_at IS NOT NULL
             AND released_at <= @released_before
-            AND execution_mode <> @excluded_mode
           ORDER BY released_at ASC, run_id ASC`,
       );
 
       // The per-run primitive's own resolution. Deliberately UNFILTERED by
-      // `released_at` AND by mode: the window is the SWEEP's predicate and the
-      // read-only exclusion is the sweep's economy, while this statement backs
-      // the primitive that an operator (or a future explicit-disposal path)
-      // calls for one named run — see `pruneSnapshotsForRun`. A read-only run
-      // reached that way enumerates nothing, which is the honest answer.
+      // `released_at`: the window is the SWEEP's predicate, while this statement
+      // backs the primitive that an operator (or a future explicit-disposal path)
+      // calls for one named run — see `pruneSnapshotsForRun`.
       this.#selectRunContextStmt = database.prepare<RunContextLookupParams, PrunableRunRow>(
-        `SELECT run_id, git_common_dir, execution_mode
+        `SELECT run_id, git_common_dir
            FROM run_execution_contexts
           WHERE run_id = @run_id`,
       );
@@ -4342,19 +2359,6 @@ export class TurnSnapshotService {
    *     format) is skipped and enumerated.
    */
   async captureTurnSnapshot(input: CaptureTurnSnapshotInput): Promise<TurnSnapshotCaptureResult> {
-    // The mode self-guard runs FIRST — see the header. Nothing above this line
-    // touches the filesystem or spawns git, which is what makes the read-only
-    // no-op assertable as an unchanged object count and an unchanged ref count.
-    // An ALLOWLIST, so an unrecognized mode is inert rather than captured; see
-    // {@link SNAPSHOT_APPLICABLE_MODES}.
-    if (!SNAPSHOT_APPLICABLE_MODES.has(input.mode)) {
-      return {
-        outcome: "not-applicable",
-        reason: input.mode === "read-only" ? "read-only-mode" : "mode-not-snapshot-capable",
-        mode: input.mode,
-      };
-    }
-
     if (
       !isSafeRefComponent(input.runId) ||
       !isNonNegativeInteger(input.epoch) ||
@@ -4419,7 +2423,7 @@ export class TurnSnapshotService {
       // `-c` re-lists the temp index's seeded base paths so `--add --remove`
       // re-stats each one (staging tracked modifications AND deletions), while
       // `-o` plus {@link EXCLUDE_PER_DIRECTORY_GITIGNORE} lists untracked files
-      // honouring IN-TREE `.gitignore` rules only — see that constant for why
+      // honoring IN-TREE `.gitignore` rules only — see that constant for why
       // the exclude source is pinned rather than left to porcelain, and for the
       // two restore legs that must spell it identically.
       const fullListing: Buffer = (
@@ -4462,7 +2466,7 @@ export class TurnSnapshotService {
           // `GIT_ATTR_NOSYSTEM=1` take the user and system attribute files out of
           // the conversion decision, while in-tree `.gitattributes` — a project
           // declaration, checked in and identical on every host — stays
-          // deliberately honoured. `core.fileMode` is deliberately NOT pinned
+          // deliberately honored. `core.fileMode` is deliberately NOT pinned
           // here, and the reason is this leg specifically: the seeded scratch
           // index carries no stat data, so `update-index` re-stats every listed
           // path, and a `fileMode=true` pin would therefore take each TRACKED
@@ -4634,12 +2638,12 @@ export class TurnSnapshotService {
    * Fail-closed, and a capture that did not happen is what makes safe by never
    * blocking the turn.
    *
-   * ROOT-KEYED AND MODE-AGNOSTIC. Nothing here consults `input.mode`, because
-   * sparseness is a property of the checkout and not of how the daemon came to be
-   * pointed at it: a `worktree`-mode root INHERITS its main checkout's sparse
-   * configuration (`worktree add` copies the sparse state), while an ephemeral
-   * clone starts full. Reading the root is what makes both answers correct
-   * without this module holding a table of which modes can be sparse.
+   * ROOT-KEYED AND MODE-AGNOSTIC. Sparseness is read from the root, because it is
+   * a property of the checkout and not of how the daemon came to be pointed at
+   * it: a `provisioned-worktree` root INHERITS its main checkout's sparse
+   * configuration (`worktree add` copies the sparse state). Reading the root is
+   * what makes the answer correct without this module holding a table of which
+   * modes can be sparse.
    *
    * `--type=bool --default=false` rather than exit-code interpretation. This
    * module's git seam reports failure BY EXIT STATUS ONLY and rejections are
@@ -4679,7 +2683,7 @@ export class TurnSnapshotService {
    * in the repository already respects; a lock of this module's own invention
    * would exclude nothing.
    *
-   * The protocol, honoured exactly: create `<index>.lock` EXCLUSIVELY, do the
+   * The protocol, honored exactly: create `<index>.lock` EXCLUSIVELY, do the
    * work, then release WITHOUT writing. `wx` is the create — an existing lock
    * makes it `EEXIST`, which is the contention signal rather than an error to
    * work around, and this leg never removes a lock it did not create. Releasing
@@ -4761,14 +2765,8 @@ export class TurnSnapshotService {
    * Score CANDIDATES against this root's live sparsity rules, returning the keys
    * of the ones git considers IN CONE.
    *
-   * THE ORACLE, SPELLED ONCE. Both sparse legs call it — the capture partition
-   * and the restore's discarded-subset derivation — and their answers are
-   * load-bearing against each other: capture decides what a snapshot OMITS and
-   * restore decides what it may DISCARD, which is one question asked twice and
-   * has to be asked of the same matcher. Two spellings that drifted (a
-   * `--rules-file` on one side and a live read on the other) would put the legs
-   * on different definitions of the cone with every test still green, so the argv
-   * is single-sourced exactly as {@link EXCLUDE_PER_DIRECTORY_GITIGNORE} and
+   * THE ORACLE, SPELLED ONCE: the capture partition's one matcher call, so the
+   * argv is single-sourced exactly as {@link EXCLUDE_PER_DIRECTORY_GITIGNORE} and
    * {@link USE_REPLACE_REFS_PIN} are.
    *
    * `sparse-checkout check-rules -z` in its LIVE-RULES form: no `--rules-file`,
@@ -4953,7 +2951,7 @@ export class TurnSnapshotService {
    * refused to resolve its `HEAD`, or when the object id git reported is not
    * INSERTABLE IN THE SUPERPROJECT'S OBJECT FORMAT. The first covers the
    * commitless embedded repository the spec calls out — porcelain `git add -A`
-   * hard-fails on it, so capture skipping honours capture-never-blocks — and any
+   * hard-fails on it, so capture skipping honors capture-never-blocks — and any
    * other trailing-slash entry that is not a repository at all. The second is the
    * MIXED FORMAT case, where both repositories are healthy and their object
    * formats simply differ.
@@ -5246,67 +3244,6 @@ export class TurnSnapshotService {
     }
   }
 
-  /**
-   * The OID `revision` names, or `null` when it does not resolve.
-   *
-   * The restore leg's read primitive: `HEAD`, `<commit>^` and an embedded
-   * repository's `HEAD` all arrive here. `null` rather than a throw because every
-   * caller has a named arm for "could not be read", and a throw would turn a
-   * fail-closed refusal into an exception the two public methods promise not to
-   * raise. There are three such arms, one per caller class: `head_moved` with a
-   * `null` side (the resolve and the two pre-mutation checks), `partial_restore`
-   * at `close-index` (the post-mutation check, where no refusal is free any more),
-   * and a gitlink counted as divergent (the enumeration probes).
-   *
-   * `--verify` for the reason {@link TurnSnapshotService.captureTurnSnapshot}'s
-   * base resolution takes it: the bare form echoes its own argument on a miss,
-   * and {@link OBJECT_ID_PATTERN} then has to be the only thing standing between
-   * an echo and a later argv.
-   *
-   * `configPins` exists because the callers split on that predicate and
-   * the split is not visible from in here: reading `HEAD` RESOLVES a ref, while
-   * reading `<commit>^` INTERPRETS an object, and only the second can be
-   * redirected by a replace ref (measured both ways). Defaulting to none keeps
-   * every ref-resolving caller unpinned and makes the one pinned call site state
-   * its own reason, rather than this helper quietly pinning reads whose
-   * disposition the host-config table records as unpinned.
-   */
-  async #readRevisionIfPresent(
-    gitDirectory: string,
-    revision: string,
-    configPins: readonly string[] = [],
-  ): Promise<string | null> {
-    try {
-      const result = await this.#runGit(
-        ["-C", gitDirectory, ...configPins, "rev-parse", "--verify", revision],
-        {},
-      );
-      return this.#requireObjectId(result.stdout);
-    } catch {
-      return null;
-    }
-  }
-
-  /**
-   * Whether the execution root answers git at all.
-   *
-   * `rev-parse --git-dir` is the cheapest question with a repository-shaped
-   * answer: it reads no ref, walks no tree, and fails for exactly the conditions
-   * that make a ref probe uninformative — a vanished root, a directory that is
-   * not a repository, an unreadable one, or no git binary. Used ONLY to
-   * interpret a ref probe that already failed (see
-   * {@link TurnSnapshotService.resolveRestoreTarget}), so the ordinary resolve
-   * spawns nothing extra.
-   */
-  async #isRepositoryAskable(executionRoot: string): Promise<boolean> {
-    try {
-      await this.#runGit(["-C", executionRoot, "rev-parse", "--git-dir"], {});
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
   /** The recorded OID, or `null` when the ref does not resolve. */
   async #readRefIfPresent(executionRoot: string, ref: string): Promise<string | null> {
     try {
@@ -5323,1681 +3260,16 @@ export class TurnSnapshotService {
   }
 
   // ------------------------------------------------------------------------
-  // ------------------------------------------------------------------------
-
-  /**
-   * Resolve which snapshot a rollback to `targetPosition` would restore, and
-   * whether it MAY be restored — without touching anything.
-   *
-   * runs this before the conversation leg moves, because a refusal rejects the
-   * whole rollback intervention with no leg applied. Every command it spawns is
-   * a read (`show-ref`, `rev-parse`), so the execution root's worktree, index
-   * and refs are byte-identical afterwards on every arm — refused and accepted
-   * alike.
-   *
-   * NEVER THROWS: each of the three reads has a named landing arm.
-   *
-   *   * the ref itself — absent is `no_snapshot`/`ref-absent`, and UNREADABLE is
-   *     `no_snapshot`/`probe-failed`, below;
-   *   * the recorded first parent (`<commit>^`) — unreadable is `head_moved`
-   *     with `expectedHead: null`;
-   *   * the current `HEAD` — unreadable is `head_moved` with
-   *     `observedHead: null`.
-   *
-   * The last two are the fail-closed posture stated as code: the precondition
-   * must be ESTABLISHED, so an unanswerable question refuses exactly as a
-   * mismatch does.
-   *
-   * The first splits because the two conditions are not the same fact and the
-   * caller's operator needs them apart. A `show-ref` that fails says nothing
-   * about WHY: an absent ref (exit 1 — the spec's capture-gap case) and an
-   * unaskable repository (a vanished execution root, an `EACCES`, no git binary)
-   * arrive identically. So a failed ref probe is followed by a bare
-   * `rev-parse --git-dir` against the same root: if THAT answers, the repository
-   * was askable and the ref is genuinely absent; if it does not, the honest
-   * report is `probe-failed` plus a diagnostic, because "no snapshot" for a
-   * question nobody could put is the daemon's quietest possible failure. The
-   * second probe reads only an exit status, so it holds for any runner rather
-   * than only for the `execFile` default (the seam reads no field off a
-   * rejection anywhere in this module). Its RESIDUAL, recorded rather than
-   * closed: a failure isolated to the one ref — a permission bit on a single
-   * loose ref file — still reports `ref-absent`, because the repository does
-   * answer.
-   *
-   * A second RESIDUAL, from the header's symref BOUNDARY paragraph: the accepted
-   * arm reports the OID the snapshot ref names AT RESOLVE TIME. It attests that
-   * the fail-closed preconditions held against that OID, not that the ref store
-   * was unmodified by a co-resident writer — an actor with repository write
-   * access can repoint an in-namespace ref by ordinary means, and this leg reads
-   * what it finds. Freezing the OID into the minted target is what confines that
-   * exposure to the resolve: {@link TurnSnapshotService.restoreToTurn} applies the
-   * OID checked HERE, so a later repoint cannot redirect the checkout.
-   */
-  async resolveRestoreTarget(input: ResolveRestoreTargetInput): Promise<TurnSnapshotResolution> {
-    if (
-      !isSafeRefComponent(input.runId) ||
-      !isNonNegativeInteger(input.targetPosition) ||
-      !isUsableEpochLineage(input.epochLineage)
-    ) {
-      return { outcome: "no_snapshot", ref: null, owningEpoch: null, reason: "unusable-inputs" };
-    }
-
-    const owningEpoch: number | null = selectOwningEpoch(input.epochLineage, input.targetPosition);
-    if (owningEpoch === null) {
-      return { outcome: "no_snapshot", ref: null, owningEpoch: null, reason: "no-owning-epoch" };
-    }
-
-    // The ONE ref this walk will look at. No second lookup exists in this
-    // method, which is how "never a fallthrough to a superseded parent epoch's
-    // same-ordinal ref" is discharged — structurally, not by a policy check.
-    const ref: string = buildTurnSnapshotRef(input.runId, owningEpoch, input.targetPosition);
-    const snapshotCommit: string | null = await this.#readRefIfPresent(input.executionRoot, ref);
-    if (snapshotCommit === null) {
-      if (!(await this.#isRepositoryAskable(input.executionRoot))) {
-        this.#emit({
-          kind: "restore-probe-failed",
-          runId: input.runId,
-          epoch: owningEpoch,
-          turnOrdinal: input.targetPosition,
-          ref,
-          detail: "the execution root did not answer `rev-parse --git-dir`",
-        });
-        return { outcome: "no_snapshot", ref, owningEpoch, reason: "probe-failed" };
-      }
-      return { outcome: "no_snapshot", ref, owningEpoch, reason: "ref-absent" };
-    }
-
-    // `<commit>^` rather than `<ref>^`: the ref is create-only, so the two agree,
-    // and asking the OID keeps the question independent of the ref one more time.
-    //
-    // PINNED, and this is the guard's own integrity rather than the checkout's: a
-    // replace ref on the snapshot commit answers `^` with the REPLACEMENT's
-    // parent (measured — an attacker commit with a different parent returns that
-    // parent here), and this value is the left-hand side of every `head_moved`
-    // comparison below. Unpinned, an attacker chooses both what the guard
-    // compares and what the checkout writes.
-    const expectedHead: string | null = await this.#readRevisionIfPresent(
-      input.executionRoot,
-      `${snapshotCommit}^`,
-      USE_REPLACE_REFS_PIN,
-    );
-    const observedHead: string | null = await this.#readRevisionIfPresent(
-      input.executionRoot,
-      "HEAD",
-    );
-    if (expectedHead === null || observedHead === null || expectedHead !== observedHead) {
-      return { outcome: "head_moved", ref, owningEpoch, expectedHead, observedHead };
-    }
-
-    // The ONE mint. See {@link TurnSnapshotRestoreTarget}: the applier accepts
-    // nothing this line did not produce.
-    return mintRestoreTarget({
-      executionRoot: input.executionRoot,
-      runId: input.runId,
-      targetPosition: input.targetPosition,
-      owningEpoch,
-      ref,
-      snapshotCommit,
-      expectedHead,
-    });
-  }
-
-  /**
-   *
-   * Takes the resolution ITSELF rather than a root plus a ref, so the applier
-   * cannot be handed a pair that was never resolved together. Runs under the
-   * caller's exclusive execution-root tenancy (campaign B9); this module
-   * builds no tenancy machinery and instead re-verifies the one thing that
-   * tenancy cannot promise about the window BEFORE it opened — that `HEAD` is
-   * still the snapshot's recorded parent.
-   *
-   * NEVER THROWS for any target this service minted — and the exception proves the
-   * rule rather than weakening it. A value that is not one is rejected by a THROW:
-   * an `as` cast, a JS caller, or any of the constructor paths that survive emit
-   * (see {@link TurnSnapshotRestoreTarget} and {@link mintedRestoreTargets}).
-   * There are exactly three result arms and all three are wire-pinned statements
-   * about a worktree, so reporting `head_moved` or `partial_restore` for a forged
-   * input would tell something false about a tree this call never touched, while
-   * adding a fourth arm would leave the mapping incomplete. A caller that can
-   * reach the throw is one that bypassed the type system.
-   *
-   * The sequence, in the order pins:
-   *
-   *   1. `verify-head` — the TOCTOU re-verify. A moved (or unreadable) `HEAD`
-   *      refuses with NO mutation.
-   *   2. `derive-enumerations` — read-only listings that fix the PROSPECTIVE
-   *      collision-overwrite and gitlink-divergence sets, plus the on-disk state
-   *      a later failure is measured against. For a snapshot that RECORDED a
-   *      sparse boundary set — whatever this root's own sparsity now is — the
-   *      step's NAME also covers the boundary-path pre-drop, which fires on
-   *      recorded-set membership in any root and is not a listing: it is
-   *      enumerated with the rest here and applied after the window read below,
-   *      so it is the first mutation in the sequence rather than part of the
-   *      read-only block. See {@link #dropBoundaryPathsFromLiveIndex}.
-   *   3. `read-tree` — the destructive checkout, which spells `read-tree --reset
-   *      -u <ref>` and this issues against the resolved OID (see the site),
-   *      under the checkout-conversion pins, which extend the capture leg's
-   *      host-config-independence class to the smudge path: a host `*.txt
-   *      eol=crlf` would otherwise restore different bytes than were captured.
-   *      In-tree `.gitattributes` stays honoured, so attribute-affected paths
-   *      restore to git-canonical worktree form — identical to any porcelain
-   *      checkout of the project.
-   *   4. `delete-untracked` — the post-snapshot untracked sweep, repeated to a
-   *      fixpoint.
-   *   5. `close-index` — the index-only reset the spec spells `read-tree --reset
-   *      HEAD`, issued against the just-verified OID rather than the name — as
-   *      step 3 is, and for the same reason: both spec spellings are MUTABLE
-   *      names read by an earlier check, so naming them again would be a
-   *      check-then-act (see either site).
-   *
-   * Steps 4 and 5 are ordered, not merely sequenced: the delete pass is safe
-   * only while the index still holds the SNAPSHOT tree, which is what makes
-   * every captured file index-tracked and therefore not a deletion candidate.
-   *
-   * Step 2 carries THREE pre-mutation refusals, all typed, all landing at
-   * `derive-enumerations` with nothing written: an undecodable trailer, a sparse
-   * root whose snapshot predates the boundary closure, and a recorded boundary
-   * path the checkout would destroy ({@link #deriveBoundaryObstructions}). They
-   * are grouped there for one reason — a refusal that costs nothing on disk is
-   * only available BEFORE step 3, so every question whose wrong answer is
-   * destructive has to be asked while the derivation is still read-only.
-   *
-   * `HEAD` is read THREE times, and the two extra reads are the reason step 1's
-   * name is not the whole story. The caller's exclusive tenancy covers the
-   * intervention, but nothing stops a user terminal in the same execution root
-   * from committing, and the two windows that opens have different answers:
-   *
-   *   * BETWEEN the derivation and `read-tree` — still pre-mutation, so the
-   *     answer is the same `head_moved` refusal step 1 gives, with nothing
-   *     applied. Without this read the derivation's own listings (an `ls-tree`
-   *     and an `ls-files`) are the window, and it is wide enough to lose. "With
-   *     nothing applied" is what orders the boundary pre-drop AFTER this read
-   *     rather than at the derivation's tail: it is a mutation, and putting it on
-   *     the far side would make this arm report a refusal it had already acted
-   *     on.
-   *   * BETWEEN `read-tree` and `close-index` — the worktree already holds
-   *     snapshot content, so the honest answer is `partial_restore` at
-   *     `close-index`. Closing the index against the MOVED `HEAD` instead is the
-   *     precise incoherence step 5 exists to prevent (confirmed on git 2.50.1):
-   *     the newer commit stays in branch history while its files are anti-diffed
-   *     into the worktree as ordinary UNSTAGED modifications — fabricated edit
-   *     intent, indistinguishable from a human undoing that commit by hand, and
-   *     reported as `restored`. Closing it against the stale `expectedHead` and
-   *     reporting `restored` anyway is better in the worktree and still wrong in
-   *     the arm: it claims a rollback completed against a precondition that had
-   *     already failed. Refusing leaves the index at the snapshot tree, which
-   *     `git status` shows as loudly staged: a visibly half-applied rollback
-   *     rather than a plausible lie. A `HEAD` that cannot be READ here refuses
-   *     the same way and through the same arm, but it is a different situation —
-   *     an environmental fault rather than a changed precondition, so a fresh
-   *     rollback may simply work — which is why the two carry different
-   *     diagnostic details.
-   *
-   * That third read is a check, not a lock, and the two are not the same thing:
-   * a commit landing between it and the spawn it guards is undetectable from
-   * here. Step 5's argv is spelled with the OID for exactly that residue — see
-   * the site — which decides what the undetectable case LOOKS like, not whether
-   * it can happen.
-   */
-  async restoreToTurn(target: TurnSnapshotRestoreTarget): Promise<TurnSnapshotRestoreResult> {
-    if (!TurnSnapshotRestoreTarget.isMinted(target)) {
-      throw new TypeError("turn-snapshot restore target was not minted by resolveRestoreTarget");
-    }
-
-    // The cursor the failure reporter names, advanced immediately before each
-    // leg — the capture funnel's discipline, for the same reason: a leg added
-    // later inherits the reporting instead of needing its own `catch`.
-    let step: TurnSnapshotRestoreStep = "verify-head";
-    // Empty until the derivation runs, so a failure before it reports both
-    // enumerations empty — which is the truth: nothing had been mutated.
-    let prospectiveEffects: ProspectiveRestoreEffects = NO_PROSPECTIVE_RESTORE_EFFECTS;
-
-    try {
-      const observedHead: string | null = await this.#readRevisionIfPresent(
-        target.executionRoot,
-        "HEAD",
-      );
-      if (observedHead !== target.expectedHead) {
-        return {
-          outcome: "head_moved",
-          ref: target.ref,
-          expectedHead: target.expectedHead,
-          observedHead,
-        };
-      }
-
-      step = "derive-enumerations";
-      prospectiveEffects = await this.#deriveProspectiveRestoreEffects(target);
-
-      // Window one, closed. Still pre-mutation, so this refuses exactly as the
-      // first read does; the cursor is deliberately left where it is, since the
-      // `head_moved` arm names no step.
-      const headBeforeCheckout: string | null = await this.#readRevisionIfPresent(
-        target.executionRoot,
-        "HEAD",
-      );
-      if (headBeforeCheckout !== target.expectedHead) {
-        return {
-          outcome: "head_moved",
-          ref: target.ref,
-          expectedHead: target.expectedHead,
-          observedHead: headBeforeCheckout,
-        };
-      }
-
-      // The boundary pre-drop — the sequence's FIRST mutation, and therefore
-      // placed on this side of the read above rather than inside the derivation
-      // that enumerated it. The cursor stays `derive-enumerations` deliberately:
-      // the step vocabulary is frozen at five members, and this belongs to the
-      // enumeration leg by contract even though it runs after the window closes.
-      // Empty — and so a no-op — whenever the snapshot recorded no boundary set,
-      // which is every snapshot a non-sparse capture ever produced.
-      await this.#dropBoundaryPathsFromLiveIndex(
-        target.executionRoot,
-        prospectiveEffects.droppableBoundaryIndexEntries,
-      );
-
-      step = "read-tree";
-      await this.#runGit(
-        [
-          "-C",
-          target.executionRoot,
-          "-c",
-          "core.autocrlf=false",
-          // `core.eol` decides the line ending the SMUDGE path writes for a path
-          // the attributes declare `text`, and the pin above is what hands it that
-          // decision: measured on git 2.50.1 against an in-tree `*.txt text`, a
-          // host `core.autocrlf=true` produces CRLF whatever `core.eol` says,
-          // while under the `false` pin the restored bytes follow `core.eol`
-          // exactly — host `crlf` writes CRLF, `lf` writes LF. So without this
-          // second pin the previous line does not close the checkout channel; it
-          // merely moves the host's control of it one knob along.
-          //
-          // `lf` and not `native`, which is the same measurement's other half:
-          // `native` resolved to LF here only because the measuring host is a LF
-          // host, so it would restore CRLF on Windows for bytes captured as LF.
-          // The snapshot's blobs are git-canonical, and this is the value that
-          // spells them back byte-identically on every host.
-          "-c",
-          "core.eol=lf",
-          "-c",
-          "submodule.recurse=false",
-          "-c",
-          "core.attributesFile=/dev/null",
-          // Without this, the verified OID below is not the tree that gets
-          // written: a `refs/replace/<snapshotCommit>` entry substitutes an
-          // attacker's commit transparently, and one built with the SAME parent
-          // passes every HEAD guard above (measured on git 2.50.1 — the unpinned
-          // leg writes the attacker's bytes at exit 0 and the restore reports
-          // success). Freezing the id is necessary and not sufficient; this is
-          // the other half.
-          ...USE_REPLACE_REFS_PIN,
-          "read-tree",
-          "--reset",
-          "-u",
-          // The verified OID, not the name — the same check-then-act reasoning
-          // the closing reset below documents, applied to the destructive leg.
-          // `resolveRestoreTarget` read the ref once and froze what it resolved
-          // to; re-naming the ref here would let git re-resolve a MUTABLE name
-          // across a window that already spans two `HEAD` re-verifies and the
-          // derivation's own spawns. A commit is a valid tree-ish, so outside
-          // that window the two spellings are the same command spells the leg
-          // with the ref, and this is that value resolved one step earlier —
-          // the very OID step 2 above enumerated against, so what is written
-          // and what was enumerated can no longer disagree.
-          //
-          // It also decouples the leg from the ref's LIFETIME. A ref deleted
-          // between the resolve and here (retention prune is the only thing
-          // that deletes one) no longer starves the checkout: the commit object
-          // outlives its last name until `gc`, so the resolved snapshot still
-          // applies instead of reporting `partial_restore` at `read-tree` for a
-          // retention-bookkeeping event that changed no tree.
-          target.snapshotCommit,
-        ],
-        { environmentOverrides: { GIT_ATTR_NOSYSTEM: "1" } },
-      );
-
-      step = "delete-untracked";
-      await this.#deleteUntrackedToFixpoint(
-        target.executionRoot,
-        prospectiveEffects.preservedEmbeddedRepositories,
-        prospectiveEffects.sparseBoundarySet,
-      );
-
-      // Emitted HERE rather than at the derivation, because this is the point at
-      // which the protection was actually exercised: a restore that refused at
-      // window one deleted nothing, and reporting "preserved" for a pass that
-      // never ran would be a claim about work that did not happen.
-      if (prospectiveEffects.preservedEmbeddedRepositories.length > 0) {
-        this.#emit({
-          kind: "embedded-repositories-preserved",
-          runId: target.runId,
-          epoch: target.owningEpoch,
-          turnOrdinal: target.targetPosition,
-          ref: target.ref,
-          preservedPaths: prospectiveEffects.preservedEmbeddedRepositories,
-        });
-      }
-
-      step = "close-index";
-      // Window two. Past this point the worktree already holds snapshot content,
-      // so a moved `HEAD` is no longer refusable with "nothing applied" — it is
-      // a partial restore, and these are the two `close-index` failures that are
-      // not git failures. See the method docblock for why REFUSING here beats
-      // closing the index anyway, either against the moved `HEAD` or against the
-      // stale `expectedHead`.
-      const headBeforeClose: string | null = await this.#readRevisionIfPresent(
-        target.executionRoot,
-        "HEAD",
-      );
-      if (headBeforeClose !== target.expectedHead) {
-        return this.#failRestore(
-          target,
-          "close-index",
-          // Two causes, distinguished because their RECOVERY properties are
-          // opposite and this string is the operator's only channel: a moved
-          // `HEAD` is terminal for this target (the fresh rollback has to resolve
-          // against the new history), while an unreadable one is an environmental
-          // fault that may well retry clean against the same target.
-          headBeforeClose === null
-            ? "HEAD could not be read before the closing index reset"
-            : "HEAD moved between the checkout and the closing index reset",
-          prospectiveEffects,
-        );
-      }
-
-      // Index-only — no `-u`. The leg above left the REAL index at the snapshot
-      // tree, so every captured-untracked file would otherwise surface as a
-      // staged addition against `HEAD`; this returns them to untracked status
-      // and tracked edits to ordinary unstaged modifications, worktree bytes
-      // untouched. No conversion pins: nothing is written to the working tree.
-      //
-      // Reset to the OID, not to the name `HEAD`: the comparison above is a
-      // check-then-act on a MUTABLE name, and the gap between it and this spawn
-      // is real work (a directory create and a process launch). Letting git
-      // re-resolve `HEAD` inside that gap is what would close the index against a
-      // commit nobody verified. The OID is not a different value — it IS the
-      // `HEAD` just read, so outside the race the two spellings are the same
-      // command; `expectedHead` reached this object through
-      // {@link OBJECT_ID_PATTERN}, so it is a validated object id and never
-      // spells the leg `read-tree --reset HEAD`; this is that value, resolved
-      // one step earlier.
-      //
-      // It does NOT close the race — nothing at this layer can, since the check
-      // has already passed. It changes what the unclosable window produces: the
-      // index lands on the verified commit's tree — loud in the worktree column,
-      // and in the staged column whenever the intervening commit changed the
-      // tree — instead of the newer commit's files anti-diffed into the worktree
-      // as plausible hand edits. Either way the call still returns `restored`,
-      // because it has no way to know: the improvement is in what an operator
-      // then sees, not in the arm.
-      await this.#runGit(
-        ["-C", target.executionRoot, "read-tree", "--reset", target.expectedHead],
-        {},
-      );
-
-      // LAST, after every leg that can still fail. Emitting it before
-      // `close-index` — where it sat — meant a refusal at window two, or a throw
-      // from the closing reset, routed to the failure reporter and emitted the
-      // identical payload a second time: two diagnostics for one restore, and the
-      // duplication itself leaked which arm was taken, which the arm's own
-      // docblock forbids. `embedded-repositories-preserved` above is the
-      // precedent for the other half of the rule — it lives only on the success
-      // tail, because only the success tail proves its pass ran. Here the
-      // failure tail DOES need its own emission (the checkout can succeed and a
-      // later leg fail), so the fix is placement rather than exclusivity, and the
-      // re-observation is what makes the two mutually exclusive in practice.
-      //
-      // The closing reset above is index-only, so re-observing after it sees the
-      // same worktree the checkout left.
-      await this.#emitMaterializedOutOfCone(target, prospectiveEffects);
-
-      return {
-        outcome: "restored",
-        ref: target.ref,
-        snapshotCommit: target.snapshotCommit,
-        // The completed `read-tree --reset -u` re-materialized every
-        // snapshot-tracked path, so the prospective set IS the applied set here.
-        // Reported verbatim rather than re-observed, so a colliding file whose
-        // ignored content happened to be byte-identical to the snapshot's is
-        // still enumerated: the enumeration is of paths the restore overwrote,
-        // not of paths whose bytes visibly changed.
-        overwrittenIgnoredPaths: prospectiveEffects.collisions.map((collision) => collision.path),
-        divergentGitlinks: prospectiveEffects.gitlinkDivergences.map(
-          (divergence) => divergence.path,
-        ),
-      };
-    } catch (reason: unknown) {
-      return this.#failRestore(target, step, describeRejection(reason), prospectiveEffects);
-    }
-  }
-
-  // ------------------------------------------------------------------------
-  // Internals — restore legs
-  // ------------------------------------------------------------------------
-
-  /**
-   * The PROSPECTIVE enumerations, derived before anything is mutated.
-   *
-   * A collision is an ignored untracked path on disk (`ls-files -o -i` on the
-   * same `--exclude-per-directory=.gitignore` pipeline as capture, so
-   * project-declared rules only) that the `read-tree --reset -u` leg will
-   * destroy. Equality with a snapshot-tracked path is only ONE of the three ways
-   * that happens, because the checkout replaces a whole OBSTRUCTING file or
-   * directory rather than merging around it. All three are measured on git
-   * 2.50.1, and in each the checkout exits 0 while taking the ignored content
-   * with it:
-   *
-   *   1. SAME PATH — the snapshot tracks a file at the ignored path, and writes
-   *      over it.
-   *   2. FILE OVER DIRECTORY — an ancestor of the ignored path is a
-   *      snapshot-tracked FILE (snapshot has file `foo`; disk has ignored
-   *      `foo/a`). The directory is removed whole and the file written in its
-   *      place, so everything beneath it goes with it.
-   *   3. DIRECTORY OVER FILE — the ignored path is an ancestor directory of some
-   *      snapshot-tracked path (ignored file `foo`; snapshot tracks `foo/a`).
-   *      The checkout needs a directory there, so the file is unlinked.
-   *
-   * Prefix obstruction is the same never-silent overwrite names as the
-   * exact-path case, so it is enumerated the same way: in all three shapes the
-   * reported path — and the fingerprint taken against it — is the IGNORED one,
-   * the content being destroyed, never the snapshot path that displaced it.
-   * {@link collectProperAncestorDirectories}), so `foo` collides with `foo/a`
-   * and never with `foobar/a`. What does NOT collide is a SIBLING: ignored
-   * `foo/b` beside snapshot-tracked `foo/a` shares a directory the checkout
-   * merely populates, and survives byte-identically.
-   *
-   * A TRAILING SLASH is git spelling a directory it will not descend into — an
-   * ignored embedded repository — and it is enumerated under its slash-stripped
-   * name, through shapes 1 and 2 only. Measured: such a directory is destroyed
-   * whole, `.git` included, when the snapshot puts a file at or above its path,
-   * and is merged into with its payload and `.git` intact when the snapshot only
-   * holds paths BENEATH it. Shape 3 is a file-only obstruction for that reason.
-   * Its `fingerprintBeforeRestore` is {@link fingerprintPath}'s `directory` arm
-   * — the correct before-state for a path that held no file bytes to begin with,
-   * and one that compares UNEQUAL to the `file:<hash>` a snapshot file
-   * displacing it leaves behind, which is what makes shapes 1 and 2 observable
-   * at that path rather than washing out.
-   *
-   * "Untracked" there is an INDEX fact, not a disk fact: `ls-files -o` lists a
-   * path only while it is absent from the current index, so a path that is both
-   * index-tracked and ignored-by-rule never appears and is never enumerated.
-   * That is the intended reading, not a hole — the spec's collision case is
-   * ignored content the run created OUTSIDE git's tracking that the snapshot
-   * tree happens to track, and an index-tracked path is by construction content
-   * the run committed, whose overwrite is the ordinary restore, not a
-   * user-data collision. A fixture reproducing the collision therefore has to
-   * `git rm --cached` the path; content-only ignoring is not enough.
-   *
-   * `160000` entries are filtered out of the TRACKED set, so they never fire
-   * shapes 1 and 2: this leg writes no file bytes at a gitlink path — under
-   * `submodule.recurse=false` it materializes an empty directory and stops —
-   * and those two shapes report an ignored path a snapshot FILE overwrote.
-   *
-   * It does need a DIRECTORY there, though, so every `160000` entry seeds
-   * `snapshotRequiredDirectories` with its own path AND its ancestors, and shape
-   * 3 enumerates whatever clearing room for that directory unlinks. Measured on
-   * git 2.50.1: an ignored FILE holding a snapshot gitlink's own path (file
-   * `sub`, gitlink at `sub`) and one holding an ancestor directory of a deeper
-   * gitlink (file `sub`, gitlink at `sub/mod`) are both unlinked by the
-   * checkout, and both are reported — under the ignored path being destroyed,
-   * with {@link fingerprintPath}'s `file:<hash>` arm as the before-state, on the
-   * same contract shapes 1-3 carry everywhere else.
-   *
-   * Shape 3's `!isDirectoryEntry` guard is what keeps that exact. An ignored
-   * DIRECTORY at a gitlink path is not a collision because it is not destroyed:
-   * measured on git 2.50.1 with an ignored embedded repository at a snapshot
-   * gitlink's path, the checkout exits 0 leaving the directory, its payload and
-   * its `.git` untouched — the directory the gitlink wants is already there, and
-   * this leg does not descend into it. That path's disposition is the divergence
-   * enumeration's below: reported through `divergentGitlinks` when the embedded
-   * `HEAD` disagrees with the snapshot's, and reported nowhere when it agrees,
-   * because then nothing moved. Ignored content merely BENEATH a materialized
-   * gitlink directory is likewise neither enumerated nor deleted (measured) —
-   * the checkout's side of the same `submodule.recurse=false` boundary the
-   * delete pass meets from `ls-files -o`.
-   *
-   * Gitlink divergence is per `160000` entry in the snapshot tree: the working
-   * copy's embedded `HEAD` is resolved and compared, and anything that is not an
-   * exact match — a moved submodule, a directory that is not a repository, an
-   * absent one — is divergent. Each candidate's on-disk state is recorded here
-   * because materializing an ABSENT gitlink as an empty directory is the effect
-   * this leg most often has at a gitlink path, and the failure observation needs
-   * a before-state to see it. Recorded as a {@link fingerprintPath} arm rather
-   * than as a presence boolean: the boolean came from a symlink-FOLLOWING `stat`
-   * and so could not distinguish a directory from a symlink pointing at one,
-   * which silently excused the destruction of the symlink from the report.
-   *
-   * The skipped-repository trailer is read here too, in the same pre-mutation
-   * window and for the same reason the enumerations are: it constrains what the
-   * later legs are allowed to do, so it has to exist before any of them run, and
-   * a malformed one has to be able to refuse while nothing has been written.
-   */
-  async #deriveProspectiveRestoreEffects(
-    target: TurnSnapshotRestoreTarget,
-  ): Promise<ProspectiveRestoreEffects> {
-    // An OID-INTERPRETATION read, so it carries the pin: an unpinned `cat-file`
-    // would hand back the replacement commit's message, and an attacker who can
-    // plant a replace ref could then blank the trailer and re-arm the delete pass
-    // against the very repositories it protects.
-    const commitObject: Buffer = (
-      await this.#runGit(
-        [
-          "-C",
-          target.executionRoot,
-          ...USE_REPLACE_REFS_PIN,
-          "cat-file",
-          "commit",
-          target.snapshotCommit,
-        ],
-        {},
-      )
-    ).stdout;
-    const preservedEmbeddedRepositories: readonly string[] =
-      parseSkippedEmbeddedRepositories(commitObject);
-
-    // The sparse vintage gate. Read here, in the same pre-mutation window and for
-    // the same reason the trailer above is: it constrains what the later legs may
-    // do, so it has to exist before any of them run, and a refusal has to be able
-    // to fire while nothing has been written.
-    const isSparseRoot: boolean = await this.#detectSparseRoot(target.executionRoot);
-    const recordedBoundaryPaths: readonly string[] | null = parseSparseBoundaryPaths(commitObject);
-    if (isSparseRoot && recordedBoundaryPaths === null) {
-      // REFUSED, not degraded, and the two vintages this covers are why. A
-      // trailer-less snapshot in a sparse root is either a pre-closure capture —
-      // whose out-of-cone content was never recorded and whose boundary set is
-      // therefore unknowable — or a capture taken while this root was NOT sparse,
-      // which the user made sparse afterwards. The two are indistinguishable from
-      // here and their safe handling is the same: proceeding would run the delete
-      // pass with no boundary exemption at all, and the pre-drop over an empty
-      // recorded set — the pre-drop is scoped by set MEMBERSHIP, not by this root
-      // test, and an absent trailer is precisely an absent input to it —
-      // destroying out-of-cone content the user still has on disk. The
-      // throw lands at `derive-enumerations`, pre-mutation, so the refusal costs
-      // nothing on disk — the whole reason this read is here and not later.
-      throw new Error(
-        "turn-snapshot refuses a snapshot with no sparse-boundary trailer in a sparse execution root",
-      );
-    }
-    // A non-sparse root reads an absent trailer as the empty set, which is the
-    // correct reading THERE: there is no boundary set because there is no cone.
-    // See {@link parseSparseBoundaryPaths} for why the decoder distinguishes the
-    // two rather than making this the only reading.
-    //
-    // Classified into its two entry kinds ONCE, here, because three legs below
-    // consume it and each needs a different kind. The classification is pure and
-    // deliberately downstream of the vintage gate above, which is the only place
-    // absent-versus-empty may be decided.
-    const sparseBoundarySet: SparseBoundarySet = classifySparseBoundaryPaths(
-      recordedBoundaryPaths ?? [],
-    );
-
-    const treeListing: Buffer = (
-      await this.#runGit(
-        [
-          "-C",
-          target.executionRoot,
-          // Same predicate as the checkout leg: this INTERPRETS the frozen id, so
-          // an unpinned listing would enumerate a replacement tree's paths and
-          // hand the failure report a candidate set describing a different
-          // snapshot than the one about to be written.
-          ...USE_REPLACE_REFS_PIN,
-          "ls-tree",
-          "-r",
-          "-z",
-          target.snapshotCommit,
-        ],
-        {},
-      )
-    ).stdout;
-    const treeEntries: readonly SnapshotTreeEntry[] = parseSnapshotTreeListing(treeListing);
-    const snapshotTrackedPaths = new Set<string>(
-      treeEntries.filter((entry) => entry.mode !== GITLINK_TREE_MODE).map((entry) => entry.path),
-    );
-    // Shape 3's side of the test, derived once instead of per ignored path.
-    // Membership means "the checkout has to have a directory here", which is
-    // exactly what an ignored FILE sitting there obstructs.
-    const snapshotRequiredDirectories = new Set<string>();
-    for (const trackedPath of snapshotTrackedPaths) {
-      for (const ancestor of collectProperAncestorDirectories(trackedPath)) {
-        snapshotRequiredDirectories.add(ancestor);
-      }
-    }
-    // A gitlink needs a directory AT ITS OWN PATH — the empty one the checkout
-    // materializes under `submodule.recurse=false` — as well as along the way to
-    // it, so each `160000` entry seeds both. Deliberately NOT added to
-    // `snapshotTrackedPaths`: this leg writes no file bytes at a gitlink path, so
-    // shapes 1 and 2 (an ignored path a snapshot FILE overwrites) must not fire
-    // there, while shape 3 (an ignored file unlinked to clear a directory's
-    // place) must.
-    for (const entry of treeEntries) {
-      if (entry.mode !== GITLINK_TREE_MODE) {
-        continue;
-      }
-      snapshotRequiredDirectories.add(entry.path);
-      for (const ancestor of collectProperAncestorDirectories(entry.path)) {
-        snapshotRequiredDirectories.add(ancestor);
-      }
-    }
-
-    const ignoredListing: Buffer = (
-      await this.#runGit(
-        ["-C", target.executionRoot, "ls-files", "-o", "-i", EXCLUDE_PER_DIRECTORY_GITIGNORE, "-z"],
-        {},
-      )
-    ).stdout;
-
-    const collisions: ProspectiveCollision[] = [];
-    for (const entry of splitNulTerminatedListing(ignoredListing)) {
-      const isDirectoryEntry: boolean = entry.endsWith("/");
-      const path: string = isDirectoryEntry ? entry.slice(0, -1) : entry;
-      const obstructed: boolean =
-        snapshotTrackedPaths.has(path) ||
-        collectProperAncestorDirectories(path).some((ancestor) =>
-          snapshotTrackedPaths.has(ancestor),
-        ) ||
-        (!isDirectoryEntry && snapshotRequiredDirectories.has(path));
-      if (!obstructed) {
-        continue;
-      }
-      collisions.push({
-        path,
-        fingerprintBeforeRestore: await fingerprintPath(join(target.executionRoot, path)),
-      });
-    }
-
-    const gitlinkDivergences: ProspectiveGitlinkDivergence[] = [];
-    for (const entry of treeEntries) {
-      if (entry.mode !== GITLINK_TREE_MODE) {
-        continue;
-      }
-      const gitlinkPath: string = join(target.executionRoot, entry.path);
-      const observedCommit: string | null = await this.#resolveEmbeddedHead(gitlinkPath);
-      if (observedCommit === entry.objectId) {
-        continue;
-      }
-      gitlinkDivergences.push({
-        path: entry.path,
-        fingerprintBeforeRestore: await fingerprintPath(gitlinkPath),
-      });
-    }
-
-    // THE OBSTRUCTION GUARD, and it comes first among the sparse legs because it
-    // is the only one that can REFUSE. Still read-only, still pre-mutation: the
-    // throw lands at `derive-enumerations` with the index and the worktree
-    // untouched, exactly as the vintage gate above does.
-    const obstructions: readonly BoundaryObstruction[] = await this.#deriveBoundaryObstructions(
-      target.executionRoot,
-      isSparseRoot,
-      sparseBoundarySet,
-      treeEntries,
-    );
-    if (obstructions.length > 0) {
-      throw new Error(
-        "turn-snapshot refuses a restore whose checkout would destroy recorded sparse-boundary content: " +
-          describeBoundaryObstructions(obstructions),
-      );
-    }
-
-    // The three sparse legs, and they are scoped DIFFERENTLY on purpose — the one
-    // asymmetry in this closure worth stating outright, because the symmetric
-    // reading is the plausible one and it loses data.
-    //
-    // The DIAGNOSTIC leg keys on the LIVE definition: it reports what the live
-    // cone is about to discard, so it is meaningless in a root that has no cone,
-    // and it is the only leg here whose EXISTENCE turns on the matcher.
-    //
-    // The OBSTRUCTION guard above is scoped BOTH ways, and needs to be. Which
-    // boundary paths it must consider is a fact about the SNAPSHOT (the recorded
-    // set, like the drop leg below), while whether a conflicting snapshot path
-    // actually gets written is a fact about the LIVE cone (the matcher, like the
-    // diagnostic leg above) — a conflict the live projection leaves unwritten
-    // destroys nothing and must not refuse a restore. Root-gating its membership
-    // half would miss the shape where a capture recorded a boundary path and the
-    // user then disabled sparse checkout, which is the shape where EVERY snapshot
-    // path materializes and the destruction is total.
-    //
-    // The DROP leg keys on the RECORDED SET ALONE — membership plus absence from
-    // the snapshot tree, no matcher, no live definition, no root test. It has to,
-    // for the same reason the delete-pass exemption it pairs with does: both
-    // exist to keep boundary-time content alive, the recorded set is what fixes
-    // that content's identity at CAPTURE time, and a cone edit between capture
-    // and restore must never turn boundary-time content into a deletion
-    // candidate. Root-gating this one would break exactly that pairing. A capture
-    // records path P, the user disables sparse checkout, and the restore then
-    // skips the drop while still exempting P from the delete pass — so
-    // `read-tree --reset -u` finds a live-index entry the snapshot tree lacks and
-    // deletes P from disk before the exemption is ever consulted. The exemption
-    // cannot save a file the checkout already unlinked.
-    //
-    // Nothing is spent in the ordinary non-sparse case: a snapshot captured in a
-    // non-sparse root carries no trailer, the decode reads that as the empty set,
-    // and {@link #deriveDroppableBoundaryIndexEntries} returns on it without
-    // spawning anything. Only a trailer-BEARING snapshot reaches the listing.
-    const materializedOutOfCone: readonly ProspectiveMaterialization[] = isSparseRoot
-      ? await this.#deriveMaterializedOutOfCone(target.executionRoot, treeEntries)
-      : [];
-    // ENUMERATED here, applied by the caller after the second `HEAD` read — see
-    // the field's docblock, and {@link #dropBoundaryPathsFromLiveIndex} for why
-    // the split exists. Nothing else in this derivation depends on the drop
-    // having happened: the materialization set above is filtered to
-    // snapshot-tracked paths, and a droppable boundary path is by construction
-    // one the snapshot tree does NOT track.
-    const droppableBoundaryIndexEntries: readonly Buffer[] =
-      await this.#deriveDroppableBoundaryIndexEntries(
-        target.executionRoot,
-        sparseBoundarySet,
-        treeEntries,
-      );
-
-    return {
-      collisions,
-      gitlinkDivergences,
-      preservedEmbeddedRepositories,
-      sparseBoundarySet,
-      materializedOutOfCone,
-      droppableBoundaryIndexEntries,
-    };
-  }
-
-  /**
-   * Recorded boundary paths the CHECKOUT ITSELF would destroy — the restore's
-   * pre-mutation refusal reason, and the half of the boundary protection neither
-   * the index pre-drop nor the delete-pass exemption can supply.
-   *
-   * WHY A THIRD LEG EXISTS. The other two each stop one destructive mechanism:
-   * the pre-drop removes the index entry that would make `read-tree --reset -u`
-   * unlink a boundary path it holds, and the exemption stops the delete pass from
-   * removing an untracked one. Neither reaches the case where the boundary path
-   * and a SNAPSHOT path want the same place on disk. There is no index entry to
-   * drop — the index caches `foo/bar`, not `foo` — and the delete pass runs after
-   * the checkout, so its exemption arrives to protect a file that was unlinked two
-   * legs ago. The checkout does this at exit 0 and says nothing.
-   *
-   * THREE DESTRUCTIVE SHAPES, each measured on git 2.50.1, each stated in terms
-   * of what the CAPTURE recorded. The shape SET is not invented here: it mirrors
-   * the collision taxonomy measured for IGNORED paths, which enumerates the three
-   * ways `read-tree --reset -u` destroys an obstructing path rather than merging
-   * around it — a snapshot file AT the path, a snapshot file at an ANCESTOR of
-   * it, and the path standing as an ancestor DIRECTORY of a snapshot path.
-   * Boundary paths meet the same checkout through the same mechanism, so the
-   * taxonomy transfers whole and the set is complete for the same reason that one
-   * is: it covers both directions of the file/directory conflict plus the
-   * ancestor direction, which is every way a single checkout can need a path's
-   * place.
-   *
-   *   1. A boundary FILE entry `P` standing where the snapshot needs a DIRECTORY,
-   *      because the tree holds something strictly beneath `P`. The checkout
-   *      unlinks the file and creates the directory. The tree entry beneath may be
-   *      a blob (`P/bar`) or a GITLINK — a gitlink needs the empty directory the
-   *      checkout materializes under `submodule.recurse=false`, and measured, an
-   *      ordinary file standing at a gitlink's own path is unlinked to make room
-   *      for it.
-   *   2. A boundary DIRECTORY entry `P/` standing where the snapshot holds a BLOB
-   *      at `P`. Measured: the directory is removed WHOLE, its untracked payload
-   *      with it, and the blob written in its place — the same destruction the
-   *      collision enumeration reports for an ignored directory, arriving at a
-   *      path the trailer promised to keep.
-   *   3. A boundary entry of EITHER kind whose proper ANCESTOR is a snapshot BLOB.
-   *      The checkout needs a file at the ancestor, so it removes the directory
-   *      standing there WHOLE and everything beneath goes with it — including a
-   *      boundary path several segments down. A SPARSE root is what makes this
-   *      reachable rather than exotic: an out-of-cone tracked blob at `P` is
-   *      skip-worktree and so absent from disk, the turn is free to `mkdir P` and
-   *      write `P/child` into the space it left, and `ls-files -o` then records
-   *      `P/child` in the boundary set while the tree keeps its cached blob at `P`
-   *      — the very persistence requires of out-of-cone cached entries. Measured
-   *      end to end on that fixture: `ls-files -o` reports `P/child`, and after a
-   *      widening the checkout writes file `P` at exit 0 with `P/child` gone. A
-   *      GITLINK at an ancestor is NOT a displacer, for the same reason it is not
-   *      one in shape 2: it wants a DIRECTORY at that path, which is what is
-   *      already there, so the checkout merges rather than removes. That carve is
-   *      belt-and-braces rather than load-bearing, and no test drives it, because
-   *      the case is unreachable from a capture: git does not descend into an
-   *      embedded repository, so `ls-files -o` reports nothing beneath a gitlink
-   *      and no boundary path can be recorded under one in the first place. It is
-   *      written anyway, because the carve costs one comparison and the
-   *      unreachability is a property of the CAPTURE leg that a future change
-   *      there could quietly retire.
-   *
-   * WHAT IS NOT A SHAPE, stated because each is the plausible false positive:
-   *
-   *   * A boundary DIRECTORY entry whose STRICT DESCENDANTS materialize. Measured:
-   *      the checkout merges into the directory, leaving its payload and its
-   *      `.git` intact. Refusing there would refuse the ordinary sparse restore.
-   *   * A conflicting tree path that will NOT materialize. Under the live sparse
-   *      projection an out-of-cone blob is never written, so nothing displaces the
-   *      boundary path and there is nothing to refuse.
-   *   * A tree path AT a boundary FILE path. Structurally unreachable rather than
-   *      tolerated: the capture derives the boundary set by SUBTRACTING the whole
-   *      `ls-tree -r` listing (blobs and gitlinks alike), so a recorded boundary
-   *      FILE path is by construction absent from that snapshot's tree. The
-   *      DIRECTORY kind is the deliberate exception and the reason shape 2 exists
-   *      — a recorded `P/` carries a trailing slash that no `ls-tree -r` path
-   *      does, so the subtraction cannot cancel it against a blob at `P`.
-   *
-   * WHY REFUSE RATHER THAN REPORT AND PROCEED. says boundary-time out-of-cone
-   * content SURVIVES the restore on disk; a diagnostic naming what was destroyed
-   * would satisfy the enumeration half of that sentence and violate the survival
-   * half. The `restore wins, with enumeration` precedent belongs to IGNORED paths,
-   * which the snapshot contract excludes from the outset — boundary paths are that
-   * contract's protected subject, so the precedent does not reach them. The
-   * refusal is typed, lands at `derive-enumerations` and costs nothing on disk,
-   * which is the same disposition the sparse vintage gate already has.
-   *
-   * MATERIALIZATION IS ASKED, NOT ASSUMED, and asked differently per entry kind —
-   * this is where a plausible implementation fails open. A GITLINK always
-   * materializes: measured, git never marks a gitlink skip-worktree (`ls-files -t`
-   * reports `H` for an out-of-cone one) and the checkout makes its directory
-   * whatever the cone says, so scoring gitlinks through the matcher would score
-   * the destructive case out of cone and wave it through. Only BLOBS are scored,
-   * and only in a sparse root — in a non-sparse one every tree path materializes,
-   * which is exactly the widened-cone case this guard exists for.
-   *
-   * DISK IS CONSULTED LAST, and only for boundary paths that already conflict by
-   * PATH SHAPE against a MATERIALIZING displacer. A path nothing is about to
-   * displace needs no `lstat`, and the whole worktree walk this avoids would be
-   * the pre-mutation path's most expensive read. The probe is
-   * {@link probeBoundaryPathPresence} rather than {@link fingerprintPath}, because
-   * an unreadable path has to count as obstruction here; see that observer.
-   *
-   * The matcher call does NOT guard on an empty candidate set, so
-   * {@link #scoreInConeKeys}'s "the oracle answers or the sequence refuses" rule
-   * survives this third caller intact: a sparse root whose rules file vanished
-   * fails here as it fails everywhere else. What DOES gate it is the recorded set
-   * being empty, which is a fact about the snapshot rather than about the matcher.
-   *
-   * EVERY PATH COMPARISON HERE IS BYTE-EXACT — the recorded set's keys against
-   * {@link SnapshotTreeEntry.pathKey}, the ancestor walk over those same keys, the
-   * matcher scored on `latin1`-restored bytes. The decode happens twice and both
-   * times at the exit: the obstruction's `path` and its `displacedBy` names are
-   * read by a human out of a refusal detail. ORDER is taken on the keys before
-   * that decode, so the message stays a function of repository state rather than
-   * of which spelling survived a decode.
-   *
-   * NAMED RESIDUAL, in the fail-open direction and pre-existing rather than
-   * introduced: the presence probe addresses the filesystem, whose seam is
-   * string-typed, so a boundary path whose bytes are not valid UTF-8 is probed at
-   * its DECODED spelling. That path answers `absent`, no obstruction is recorded
-   * for it, and the guard waves through a checkout that may destroy it. It is
-   * unreachable on a filesystem that rejects non-UTF-8 names (APFS does, at
-   * `creat`), and closing it means a Buffer-typed filesystem seam — see
-   * {@link TurnSnapshotFilesystem}. Stated here because this guard's posture is
-   * otherwise fail-closed and a reader is owed the exception.
-   */
-  async #deriveBoundaryObstructions(
-    executionRoot: string,
-    isSparseRoot: boolean,
-    boundarySet: SparseBoundarySet,
-    treeEntries: readonly SnapshotTreeEntry[],
-  ): Promise<readonly BoundaryObstruction[]> {
-    if (boundarySet.filePaths.size === 0 && boundarySet.directoryPaths.size === 0) {
-      return [];
-    }
-
-    // Shape 1 and shape 2 candidates, by path shape alone — no matcher, no disk.
-    // Kept apart rather than in one map keyed by path, because a forged trailer
-    // may record both `a` and `a/` and the two kinds then ask opposite questions
-    // of the same path.
-    const fileBoundaryDisplacers = new Map<string, SnapshotTreeEntry[]>();
-    const directoryBoundaryDisplacers = new Map<string, SnapshotTreeEntry[]>();
-    const blobEntriesByPathKey = new Map<string, SnapshotTreeEntry>();
-    for (const entry of treeEntries) {
-      for (const ancestor of collectProperAncestorDirectories(entry.pathKey)) {
-        if (boundarySet.filePaths.has(ancestor)) {
-          appendToPathIndex(fileBoundaryDisplacers, ancestor, entry);
-        }
-      }
-      // A gitlink AT a boundary directory destroys nothing: the directory the
-      // gitlink wants is already there, and this leg does not descend into it
-      // (measured — the checkout leaves such a directory, its payload and its
-      // `.git` untouched). Only a blob displaces.
-      if (entry.mode !== GITLINK_TREE_MODE) {
-        blobEntriesByPathKey.set(entry.pathKey, entry);
-        if (boundarySet.directoryPaths.has(entry.pathKey)) {
-          appendToPathIndex(directoryBoundaryDisplacers, entry.pathKey, entry);
-        }
-      }
-    }
-
-    // Shape 3 candidates, walked from the BOUNDARY side rather than the tree side
-    // — the shape's displacer sits ABOVE the boundary path, so the tree loop above
-    // never passes through it. Its displacers are appended into the SAME per-kind
-    // maps instead of a third one, because shape 3 asks nothing new about the
-    // boundary path itself: whichever kind was recorded is the kind that must
-    // still be standing on disk for there to be anything to destroy. That keeps
-    // the presence probe, the sort, and the `displacedBy` merge below identical,
-    // and it puts these displacers inside the SINGLE oracle batch scored next.
-    // At most one ancestor can match — git cannot hold a blob at both `a` and
-    // `a/b` — but the walk is written for the general case rather than that proof.
-    for (const [boundaryPathKey, displacers] of [
-      ...[...boundarySet.filePaths].map(
-        (boundaryPathKey): readonly [string, Map<string, SnapshotTreeEntry[]>] => [
-          boundaryPathKey,
-          fileBoundaryDisplacers,
-        ],
-      ),
-      ...[...boundarySet.directoryPaths].map(
-        (boundaryPathKey): readonly [string, Map<string, SnapshotTreeEntry[]>] => [
-          boundaryPathKey,
-          directoryBoundaryDisplacers,
-        ],
-      ),
-    ]) {
-      for (const ancestor of collectProperAncestorDirectories(boundaryPathKey)) {
-        const shadowingBlob: SnapshotTreeEntry | undefined = blobEntriesByPathKey.get(ancestor);
-        if (shadowingBlob !== undefined) {
-          appendToPathIndex(displacers, boundaryPathKey, shadowingBlob);
-        }
-      }
-    }
-
-    const conflictingBlobPathKeys: readonly string[] = [
-      ...new Set<string>(
-        [...fileBoundaryDisplacers.values(), ...directoryBoundaryDisplacers.values()]
-          .flat()
-          .filter((entry) => entry.mode !== GITLINK_TREE_MODE)
-          .map((entry) => entry.pathKey),
-      ),
-    ];
-    const inConeKeys: ReadonlySet<string> | null = isSparseRoot
-      ? await this.#scoreInConeKeys(
-          executionRoot,
-          // `latin1` back to bytes, which restores the ORIGINAL `ls-tree` bytes
-          // rather than a re-encoding of a decode — the matcher echoes what it is
-          // given, so its keys land in the same alphabet as `pathKey`.
-          conflictingBlobPathKeys.map((pathKey) => Buffer.from(pathKey, "latin1")),
-        )
-      : null;
-    const willMaterialize = (entry: SnapshotTreeEntry): boolean =>
-      entry.mode === GITLINK_TREE_MODE || inConeKeys === null || inConeKeys.has(entry.pathKey);
-
-    const obstructions: { readonly pathKey: string; readonly obstruction: BoundaryObstruction }[] =
-      [];
-    for (const [boundaryPathKey, displacers, obstructingPresence] of [
-      ...[...fileBoundaryDisplacers].map(
-        ([pathKey, entries]) => [pathKey, entries, "non-directory"] as const,
-      ),
-      ...[...directoryBoundaryDisplacers].map(
-        ([pathKey, entries]) => [pathKey, entries, "directory"] as const,
-      ),
-    ]) {
-      // `filter` already copies, so the sort cannot reorder the map's own array.
-      const materializingDisplacers: readonly SnapshotTreeEntry[] = displacers
-        .filter(willMaterialize)
-        .sort((left, right) => (left.pathKey < right.pathKey ? -1 : 1));
-      if (materializingDisplacers.length === 0) {
-        continue;
-      }
-      const presence: BoundaryPathPresence = await probeBoundaryPathPresence(
-        join(executionRoot, decodeSparseBoundaryPathKey(boundaryPathKey)),
-      );
-      // `unreadable` obstructs whatever kind was recorded — see the probe.
-      if (presence !== obstructingPresence && presence !== "unreadable") {
-        continue;
-      }
-      obstructions.push({
-        pathKey: boundaryPathKey,
-        obstruction: {
-          path: decodeSparseBoundaryPathKey(boundaryPathKey),
-          displacedBy: materializingDisplacers.map((entry) => entry.path),
-        },
-      });
-    }
-    // Sorted so the refusal's message is a function of the repository state and
-    // not of `ls-tree` ordering; the suite asserts on it. On the KEYS, so the
-    // order is the paths' byte order and no decode can perturb it.
-    return obstructions
-      .sort((left, right) => (left.pathKey < right.pathKey ? -1 : 1))
-      .map((entry) => entry.obstruction);
-  }
-
-  /**
-   * The CANDIDATES for the discarded-subset diagnostic: snapshot-tracked paths
-   * the LIVE cone excludes that are on disk right now, each carrying the state
-   * its removal will be measured against.
-   *
-   * OBSERVED, never bookkept, and that discipline is why this returns candidates
-   * rather than an answer. The three facts readable at this moment (what the
-   * snapshot tracks, what the matcher scores out of cone, what `ls-files -c`
-   * reports as materialized rather than skip-worktree) say what the checkout is
-   * ABOUT TO discard. What it actually discarded is a different question, and it
-   * is settled at emission by re-fingerprinting — the standard the collision and
-   * gitlink enumerations already hold themselves to, arrived at here for the same
-   * reason: a `partial_restore` that never reached these paths must not report
-   * them. Nothing here changes what the checkout does; no result arm grows. See
-   * the `sparse-out-of-cone-materialized` arm of {@link TurnSnapshotDiagnostic}.
-   *
-   * "On disk" is asked of the INDEX, not of the filesystem, and deliberately: git
-   * marks an unmaterialized out-of-cone entry skip-worktree (`ls-files -t` spells
-   * it `S`), so the index already holds the answer for every tracked path and a
-   * per-path `lstat` would buy nothing but a worktree walk on the pre-mutation
-   * path. A path the snapshot tracks that is absent from the live index entirely
-   * is not materialized either, and falls out of the same test. The per-candidate
-   * {@link fingerprintPath} that follows IS a filesystem read, but only over the
-   * paths that survived that test — the walk this avoids is the whole tree.
-   *
-   * FAIL-CLOSED like every other matcher call: a failure here is a
-   * `derive-enumerations` failure, pre-mutation. Degrading to "report nothing"
-   * would be defensible for a diagnostic and is not taken, because the same
-   * matcher answer feeds nothing else here and a matcher that cannot answer is
-   * the condition the whole sparse arm refuses on.
-   *
-   * The candidates are rebuilt with `Buffer.from(path)` from tree-listing paths
-   * that {@link parseSnapshotTreeListing} already decoded, which is a deliberate
-   * departure from the capture partition's all-bytes discipline: byte-exactness is
-   * unattainable here — the strings arrive decoded — and unneeded, because both
-   * sides of the comparison below come from that one `ls-tree`, making the round
-   * trip decode-to-decode. See {@link #scoreInConeKeys} on candidate provenance.
-   * The capture side has NO such departure left: its subtraction runs on listing
-   * bytes end to end, and the one decode there happens after it, at the trailer.
-   *
-   * NO EARLY RETURN ON AN EMPTY CANDIDATE SET, and that is the point rather than
-   * an oversight. A snapshot tree with no non-gitlink path (an empty base commit;
-   * a tree holding only submodules) would otherwise skip the ONLY oracle call the
-   * restore side makes, so a sparse root whose rules file had vanished — or a git
-   * below the 2.41 `check-rules` floor — would restore BLIND in exactly the shape
-   * where nothing is left to fail on later. The capture side has never had such a
-   * guard either, and since both legs now reach the matcher through
-   * {@link #scoreInConeKeys}, which guards nothing, "the oracle answers or the
-   * sequence refuses" is enforced by STRUCTURE rather than by two call sites
-   * independently remembering to. The cost is one spawn on a shape that is nearly
-   * always empty anyway, and `check-rules` exits 0 on an empty candidate set in a
-   * healthy sparse root (driven by the suite, not assumed).
-   */
-  async #deriveMaterializedOutOfCone(
-    executionRoot: string,
-    treeEntries: readonly SnapshotTreeEntry[],
-  ): Promise<readonly ProspectiveMaterialization[]> {
-    const snapshotPaths: readonly string[] = treeEntries
-      .filter((entry) => entry.mode !== GITLINK_TREE_MODE)
-      .map((entry) => entry.path);
-    const candidates: readonly Buffer[] = snapshotPaths.map((path) => Buffer.from(path, "utf8"));
-    const inConeKeys: ReadonlySet<string> = await this.#scoreInConeKeys(executionRoot, candidates);
-
-    // `-c` alone lists every cached path; `--sparse` is deliberately absent, so a
-    // sparse index is expanded and skip-worktree entries are reported. The `-t`
-    // form is what carries the disposition: `H` is materialized, `S` is
-    // skip-worktree, and only the former is content the checkout will overwrite.
-    const materializedPaths = new Set<string>(
-      parseCachedStateListing(
-        (await this.#runGit(["-C", executionRoot, "ls-files", "-c", "-t", "-z"], {})).stdout,
-      )
-        .filter((entry) => entry.tag === "H")
-        .map((entry) => entry.path),
-    );
-
-    const discardable: readonly string[] = snapshotPaths
-      .filter(
-        (path) =>
-          !inConeKeys.has(listingEntryKey(Buffer.from(path, "utf8"))) &&
-          materializedPaths.has(path),
-      )
-      .sort();
-
-    const observed: ProspectiveMaterialization[] = [];
-    for (const path of discardable) {
-      observed.push({
-        path,
-        fingerprintBeforeRestore: await fingerprintPath(join(executionRoot, path)),
-      });
-    }
-    return observed;
-  }
-
-  /**
-   * The LIVE-index entries the pre-drop will remove: recorded boundary paths the
-   * index holds and the snapshot tree does not. READ-ONLY — see
-   * {@link #dropBoundaryPathsFromLiveIndex}, which applies them.
-   *
-   * The `ls-files -c` read is deliberately taken here rather than at apply time,
-   * with the derivation's other listings, so the whole enumeration is fixed in
-   * one window. Re-reading it after the second `HEAD` check would widen the set
-   * to entries staged during the derivation, which is content this restore never
-   * measured and must not silently unstage.
-   *
-   * MEMBERSHIP-SCOPED, NOT ROOT-SCOPED, and the early return below is what makes
-   * that affordable. The caller does not ask whether this root is sparse: the
-   * predicate is "the RECORDED set holds this path and the snapshot tree does
-   * not", both of which are facts about the SNAPSHOT. A root that stopped being
-   * sparse between capture and restore still holds the live-index entries the
-   * capture recorded, and `read-tree --reset -u` still deletes them — sparseness
-   * is not what makes that dangerous, the index/tree disagreement is. Gating on
-   * the live root would also split this leg from the delete-pass exemption it
-   * exists to complete, which is already membership-scoped; see the call site.
-   *
-   * Cost in the ordinary non-sparse restore is zero rather than small. A snapshot
-   * captured in a non-sparse root carries no trailer, an absent trailer decodes
-   * to the empty set THERE, and a set empty in BOTH kinds returns before the
-   * listing spawns. A snapshot that recorded only DIRECTORY entries now reaches
-   * the listing where it used to return early — one `ls-files -c -z` on a shape
-   * that previously had no protection at all, which is the trade the widening
-   * below is.
-   * So the leg is reached only by a trailer-BEARING snapshot, and nothing about
-   * the non-sparse pipeline's spawn sequence changes.
-   *
-   * That also leaves the LEGACY residual exactly where it was, which is the point
-   * worth checking rather than assuming. A pre-closure snapshot captured in a
-   * sparse root carries no trailer either; restored into a root that is no longer
-   * sparse it decodes empty, this leg no-ops, and the sequence behaves precisely
-   * as it did before the closure — its out-of-cone content was never recorded, so
-   * there is nothing here that could protect it. Only a trailer-BEARING snapshot
-   * gains the drop in a non-sparse root. (The same legacy snapshot restored into a
-   * still-SPARSE root is refused outright by the vintage gate; see the call site.)
-   *
-   * THE RECORDED SET'S FULL WIDTH, both kinds — {@link isSparseBoundaryIndexPath},
-   * which is the delete-pass exemption's width minus the slash question an index
-   * path cannot raise. Taking only `filePaths` here read as a shape-of-the-data
-   * argument and was a hole: `ls-files -o` emits a trailing-slash entry ONLY for a
-   * directory it did not descend into, and it descends the moment the index holds
-   * anything at or beneath that directory (measured on git 2.50.1), so at CAPTURE
-   * time a recorded directory provably has no index entry inside it. The flaw is
-   * that this leg runs at RESTORE time, and the turn is free to change the fact in
-   * between: remove the embedded `.git` that made git refuse to descend, `git add`
-   * something beneath it, and the index now holds a path under a recorded boundary
-   * directory that the snapshot tree does not — precisely the index/tree
-   * disagreement `read-tree --reset -u` resolves by UNLINKING. The narrow, named,
-   * uncovered residual was therefore a live data-loss path, and matching the
-   * exemption's width closes it.
-   *
-   * The DIRECTORY arm's equality case (an index entry AT the recorded directory
-   * path, not beneath it) is included rather than carved out, even though the
-   * brief for this leg is "strictly beneath". Two reasons, and the second is why
-   * it is not merely harmless: a file the turn created where the boundary
-   * directory stood is exactly the shape the exemption already protects — the two
-   * legs are one statement made to two mechanisms and a width that drifted between
-   * them would unstage what the delete pass then removes — and the outcome of
-   * including it is an UNSTAGE, never a delete. The tree exclusion below still
-   * fires first for anything the snapshot itself holds.
-   *
-   * THE TREE EXCLUSION STAYS, and widening the membership is exactly why it must.
-   * A snapshot-tree path beneath a recorded boundary directory is content the
-   * checkout is SUPPOSED to write — the ordinary sparse restore of a directory
-   * whose payload the capture could not enumerate — so dropping its index entry
-   * would leave the checkout to merge it back in from a tree it no longer knows is
-   * missing, or worse, strand it. The predicate is "the recorded set holds this
-   * path and the snapshot tree does NOT", and only the first half moved.
-   *
-   * BYTE-KEYED on both halves. The live index entry is keyed with
-   * {@link listingEntryKey}, the recorded set already holds byte keys, and the
-   * exclusion set is built from {@link SnapshotTreeEntry.pathKey} rather than from
-   * decoded paths. A `utf8` key here was the second live data-loss path: a tracked
-   * snapshot path byte-DISTINCT from a boundary path but decode-IDENTICAL to it
-   * (both collapsing onto U+FFFD) made the exclusion fire for the boundary entry,
-   * which then kept its index entry and lost its only on-disk copy to the
-   * checkout. Bytes cannot alias.
-   */
-  async #deriveDroppableBoundaryIndexEntries(
-    executionRoot: string,
-    boundarySet: SparseBoundarySet,
-    treeEntries: readonly SnapshotTreeEntry[],
-  ): Promise<readonly Buffer[]> {
-    if (boundarySet.filePaths.size === 0 && boundarySet.directoryPaths.size === 0) {
-      return [];
-    }
-    // Every tree path, gitlinks INCLUDED: a gitlink is snapshot-recorded too — it
-    // is simply filtered out of the tracked set the collision shapes use — so it
-    // must not be dropped here.
-    const recordedPathKeys = new Set<string>(treeEntries.map((entry) => entry.pathKey));
-
-    const cachedListing: Buffer = (
-      await this.#runGit(["-C", executionRoot, "ls-files", "-c", "-z"], {})
-    ).stdout;
-    const droppable: Buffer[] = [];
-    for (const entry of splitNulTerminatedListingBytes(cachedListing)) {
-      const pathKey: string = listingEntryKey(entry);
-      if (isSparseBoundaryIndexPath(pathKey, boundarySet) && !recordedPathKeys.has(pathKey)) {
-        droppable.push(entry);
-      }
-    }
-    return droppable;
-  }
-
-  /**
-   * Drop the enumerated boundary entries from the LIVE index, in one invocation,
-   * before anything destructive runs.
-   *
-   * This is the half of the boundary-set protection the delete-pass exemption
-   * cannot provide, because the two destructive legs destroy that content by
-   * different mechanisms. The delete pass removes an UNTRACKED boundary path as
-   * post-boundary content, and the exemption stops it. `read-tree --reset -u`
-   * removes a boundary path the LIVE INDEX holds and the snapshot tree does not,
-   * because that is what resetting to a tree means — and it does so before the
-   * delete pass ever runs, so no exemption there can reach it. Two shapes land in
-   * that second case, and both are ordinary user actions inside a sparse root:
-   *
-   *   * INTENT-TO-ADD (`git add -N --sparse`). The capture recorded the path as a
-   *     boundary path precisely because `write-tree` omits such an entry, so the
-   *     index-versus-tree disagreement is guaranteed rather than incidental.
-   *   * TURN-STAGED (`git add --sparse` DURING the turn, after the boundary). The
-   *     capture saw an untracked out-of-cone path; the user then staged it. The
-   *     rollback's whole promise is to return the tree to the boundary, which
-   *     means the staging is undone — not that the file is deleted.
-   *
-   * "Inside a sparse root" describes where those entries are CREATED, not where
-   * this leg runs. The restore root's own sparsity is never consulted: what the
-   * index holds outlives the config bit, so a user who disables sparse checkout
-   * between capture and restore still arrives here with the entry, and skipping
-   * the drop would delete the file. See the enumeration's docblock and the call
-   * site for why the pairing with the delete-pass exemption forces that scope.
-   *
-   * ONE `update-index --force-remove -z --stdin` invocation, and both properties
-   * of that spelling are load-bearing. `--force-remove` drops the INDEX entry and
-   * leaves the file on disk, which is exactly the transition wanted (the path
-   * returns to untracked, where the delete-pass exemption then protects it).
-   * SINGLE invocation because git's index write is atomic — lock, write, rename —
-   * so a failure leaves index and worktree untouched and the `derive-enumerations`
-   * failure it reports is truthful. A per-path loop would have a half-applied
-   * middle.
-   *
-   * CALLED AFTER THE SECOND `HEAD` READ, and that placement is the reason this is
-   * a method of its own rather than the derivation's last statement. Dropping
-   * inside the derivation would have that refusal fire against an index this call
-   * had already edited: a `head_moved` result reporting no mutation, next to a
-   * user's unstaged intent-to-add entry that this code removed.
-   *
-   * {@link TurnSnapshotRestoreStep}, whose docblock carries the qualification this
-   * makes necessary). The multi-reachable `close-index` is the precedent — one
-   * step name already covers three distinguishable conditions there, and the
-   * diagnostic `detail` is what tells them apart, which is what the thrown message
-   * below does here.
-   *
-   * NO `GIT_INDEX_FILE` OVERLAY. This is the one index-touching leg in the module
-   * that must reach the REAL index; pointing it at a scratch file would drop
-   * entries from a temporary nobody reads and leave the live index exactly as
-   * destructive as before.
-   */
-  async #dropBoundaryPathsFromLiveIndex(
-    executionRoot: string,
-    droppableEntries: readonly Buffer[],
-  ): Promise<void> {
-    if (droppableEntries.length === 0) {
-      return;
-    }
-    try {
-      await this.#runGit(["-C", executionRoot, "update-index", "--force-remove", "-z", "--stdin"], {
-        stdin: joinNulTerminatedListing(droppableEntries),
-      });
-    } catch (reason: unknown) {
-      // Re-thrown with the leg NAMED, because `derive-enumerations` covers three
-      // things now (the object reads, the vintage gate and this drop) and the
-      // diagnostic `detail` is the operator's only way to tell which stopped.
-      throw new Error(
-        `turn-snapshot could not drop sparse boundary paths from the index: ${describeRejection(reason)}`,
-        { cause: reason },
-      );
-    }
-  }
-
-  /**
-   * The embedded `HEAD` at `gitlinkPath`, or `null` when there is no repository
-   * there to ask.
-   *
-   * The `.git` probe in front is not an optimization: `git -C <dir>` ASCENDS to
-   * the enclosing repository when `<dir>` is an ordinary directory, so a
-   * submodule path whose working copy was replaced by a plain directory would
-   * otherwise report the SUPERPROJECT's `HEAD` as the embedded one. A `.git`
-   * entry — the directory form, or the `gitdir:` file form a real submodule uses
-   * — is what distinguishes the two.
-   *
-   * This probe KEEPS its symlink-following `stat`, adjudicated rather than
-   * inherited, and it is the one consumer in this file that wants follow
-   * semantics. The question the probe asks is not "is there an entry named
-   * `.git`" but "is there a repository reachable through it", and only the
-   * follow answers that. Measured on git 2.50.1, both directions:
-   *   * a DANGLING `.git` symlink — `lstat` says present, `stat` says absent.
-   *     Under `lstat` the probe would pass and `git -C` would ascend and return
-   *     the superproject's `HEAD` at exit 0, i.e. the exact false match the
-   *     probe exists to prevent, now dressed as a successful read.
-   *   * a `.git` symlink to a REAL git dir — both agree present, and `git -C`
-   *     returns the embedded repository's own `HEAD`, which is the right answer
-   *     and the one the follow preserves.
-   * So the fail-to-absent collapse is correct here for the same reason it is
-   * correct in {@link fingerprintPath}: an unreadable probe resolves `null`,
-   * which routes to "no repository there" rather than to a fabricated match.
-   */
-  async #resolveEmbeddedHead(gitlinkPath: string): Promise<string | null> {
-    if (!(await pathExists(join(gitlinkPath, ".git")))) {
-      return null;
-    }
-    return this.#readRevisionIfPresent(gitlinkPath, "HEAD");
-  }
-
-  /**
-   * The untracked-delete pass, repeated to a FIXPOINT.
-   *
-   * One pass under-deletes, and the spec says why: the listing honours ignore
-   * rules that post-snapshot untracked ignore files themselves supply, so a
-   * turn-created untracked `.gitignore` shields what it ignores through the very
-   * pass that deletes the `.gitignore`. Pass two then sees the un-hidden
-   * content. Termination is the spec's argument — every non-final pass strictly
-   * shrinks the untracked set and deleting files never adds ignore rules — with
-   * {@link UNTRACKED_DELETE_PASS_LIMIT} standing behind it for the case that
-   * argument does not cover.
-   *
-   * There are therefore TWO ways out other than the fixpoint, and they report
-   * different things because they are different failures:
-   *
-   *   * NO PROGRESS — this pass's deletable set is byte-identical to the previous
-   *     pass's, so the deletions did not delete and repeating is pointless. It
-   *     fails immediately, naming a stuck path. Its former concrete case is no
-   *     longer one of its shapes: a path name that is not valid UTF-8 used to
-   *     arrive at {@link TurnSnapshotFilesystem} with replacement characters, `rm`
-   *     find nothing there, `force` swallow it, and git list the same path
-   *     forever — that entry is now REFUSED on the first pass that lists it as
-   *     deletable (pass one for an entry on disk at the checkout; later for one a
-   *     turn-created `.gitignore` shielded until an earlier pass removed it),
-   *     before any removal in THAT pass runs, by the round-trip guard below, which
-   *     also explains why such a spelling is destructive rather than merely inert
-   *     ({@link listingEntryTextRoundTripsToItsBytes}). The complete fix remains
-   *     Buffer-typed paths through the seam, deliberately not taken while that
-   *     seam stays mutation-only and three-verb — the capture leg keeps the same
-   *     discipline and the same boundary (see {@link splitNulTerminatedListing}).
-   *     What this check still covers is every OTHER stall: a seam that reports a
-   *     removal it did not perform (the shape the suite drives), a path something
-   *     outside this sequence recreates between listings, and whatever a future
-   *     seam invents — all of them invisible to a pass that trusted its own
-   *     deletions, and none of them detectable at the entry. What is NOT
-   *     acceptable is grinding through every remaining pass — each one a full
-   *     worktree walk under the caller's exclusive hold — before failing.
-   *   * THE CEILING — {@link UNTRACKED_DELETE_PASS_LIMIT} passes each of which
-   *     did change the listing. Unreachable through the pinned listing, and left
-   *     standing behind the no-progress check for the shape it does not cover: a
-   *     seam whose removals have side effects that keep producing NEW untracked
-   *     content. Its off-by-one is recorded rather than closed: the final pass
-   *     deletes and then throws without re-listing, so a cascade that converged
-   *     on exactly the last pass is reported `partial_restore` despite being
-   *     fully restored. That direction is the safe one — it under-claims success
-   *     on an input the spec's own argument says cannot occur, and the recovery
-   *     is a fresh rollback that converges on its first pass — and the
-   *     alternative is a git spawn on every ceiling failure to confirm a state
-   *     nothing else needs.
-   *
-   * The pass cannot over-delete: at delete time the index still holds the
-   * snapshot tree — tracked AND captured-untracked files, their `.gitignore`s
-   * and any captured embedded repository's gitlink included — so only
-   * post-snapshot untracked content is ever a candidate, and snapshot-declared
-   * ignored paths (`node_modules`, build artifacts) are protected in every pass
-   * by the {@link EXCLUDE_PER_DIRECTORY_GITIGNORE} pipeline.
-   *
-   * One BLIND SPOT, empirically established on git 2.50.1 rather than reasoned
-   * about: `ls-files -o` does not descend into a path the index holds as a
-   * `160000` gitlink, even when the working copy there is an ordinary directory
-   * (a turn that deleted an embedded repository's `.git` and left its files).
-   * So post-boundary untracked content inside a snapshot-gitlink path SURVIVES
-   * the restore. That is the `submodule.recurse=false` boundary showing up as a
-   * deletion that does not happen, where the divergence enumeration is the same
-   * boundary showing up as a restore that does not happen; the path is reported
-   * in `divergentGitlinks` either way, which is the whole signal the caller gets.
-   *
-   * The pass CAN over-delete in exactly one way, and `preservedPaths` is that
-   * hole closed. An embedded repository the capture SKIPPED is absent from the
-   * snapshot tree, so it looks identical to one the turn created: `ls-files -o`
-   * names it `nested/` and the recursive removal above takes it whole — `.git`,
-   * un-captured history and all. The two cases are indistinguishable on disk at
-   * restore time, which is why the discriminator is carried from the capture in
-   * the snapshot commit's own message ({@link
-   * SKIPPED_EMBEDDED_REPOSITORIES_TRAILER}) rather than probed for here. The rule
-   * the exemption expresses: THE DELETE PASS'S AUTHORITY IS THE SNAPSHOT, and a
-   * path the capture declared out-of-snapshot is a path this pass has no
-   * authority to delete. A turn-created nested repository is unaffected — it is
-   * on no recorded list, and it is still deleted.
-   *
-   * Protection extends BENEATH each recorded path, on segment boundaries. The
-   * listing usually names the repository itself, but a turn that removed its
-   * `.git` makes `ls-files -o` descend and enumerate the payload file by file,
-   * and deleting `nested/src/a.ts` one path at a time destroys the repository
-   * just as completely as deleting `nested/`.
-   *
-   * NAMED RESIDUAL of the boundary exemption's byte-exactness, in the
-   * fail-CLOSED direction: a turn-created path whose bytes are not valid UTF-8
-   * used to alias onto a recorded boundary path once both decoded to U+FFFD and
-   * was exempted by accident. It is now correctly deletable — and it still cannot
-   * be removed, because its decoded spelling is not a name this pass may hand a
-   * seam that addresses paths by string. So the pass REFUSES it BEFORE any
-   * removal in that pass runs, and the restore reports `partial_restore` at
-   * `delete-untracked` with the worktree exactly as the checkout left it. A
-   * restore that used to succeed by protecting the wrong thing now fails honestly
-   * instead, which is the right side of that trade.
-   *
-   * THAT REFUSAL IS ALSO WHAT CLOSES the same aliasing's DESTRUCTIVE corner,
-   * which a stall detected one pass after the fact could not. The decoded
-   * spelling of an un-decodable path is a real name, and it can be the recorded
-   * boundary file's own: a boundary file legitimately named with a literal U+FFFD
-   * beside a turn-created path carrying a lone `0xFF` in the same position. The
-   * exemption adjudicates those two correctly on bytes — protecting one, marking
-   * the other deletable — and the removal then addressed the PROTECTED file with
-   * the deletable one's text and deleted it at exit 0. Nothing is removed in a
-   * pass holding such an entry, so `removePath` is never handed a spelling that
-   * could address a path other than the one adjudicated deletable; the corner is
-   * closed, not merely stalled into.
-   *
-   * SCOPED to what this pass decides, which is the honest form of that claim: the
-   * guard runs on the DELETABLE subset, so an entry the exemptions already
-   * protected never reaches it. {@link isPreservedListingEntry} compares DECODED
-   * text and keeps its own aliasing residual, stated there — and that one spares a
-   * path from deletion rather than destroying one, which is the direction this
-   * module accepts. Both shapes are unreachable on a filesystem that rejects
-   * non-UTF-8 names (APFS does) and close entirely with a Buffer-typed seam.
-   */
-  async #deleteUntrackedToFixpoint(
-    executionRoot: string,
-    preservedPaths: readonly string[],
-    sparseBoundarySet: SparseBoundarySet,
-  ): Promise<void> {
-    let previousDeletable: string | null = null;
-    for (let pass = 0; pass < UNTRACKED_DELETE_PASS_LIMIT; pass += 1) {
-      const listing: Buffer = (
-        await this.#runGit(
-          ["-C", executionRoot, "ls-files", "-o", EXCLUDE_PER_DIRECTORY_GITIGNORE, "-z"],
-          {},
-        )
-      ).stdout;
-      // BOTH termination checks run on the DELETABLE subset, not on the raw
-      // listing, and that is the whole interlock rather than a refinement of it.
-      // A preserved path is listed on every pass forever — it is never deleted —
-      // so against the raw listing the empty check could never fire and the
-      // byte-equality check would report "no progress" the moment the deletable
-      // work finished. A correct restore would fail at `delete-untracked` purely
-      // for having protected something.
-      const deletable: readonly DeletableListingEntry[] = splitNulTerminatedListingBytes(listing)
-        .map(
-          (entry): DeletableListingEntry => ({
-            key: listingEntryKey(entry),
-            text: entry.toString("utf8"),
-          }),
-        )
-        .filter(
-          (entry) =>
-            // TEXT against the skipped-repository list, KEY against the boundary
-            // set, because the two trailers carry different kinds of string —
-            // see {@link readJsonPathArrayTrailer}. Each comparison is like
-            // against like, which is the only property either one needs.
-            !isPreservedListingEntry(entry.text, preservedPaths) &&
-            // The sparse exemption joins the DELETABLE computation, not the removal
-            // site, and for exactly the interlock reason above: a boundary path is
-            // never deleted either, so against the raw listing it would keep the
-            // empty check from ever firing and make the byte-equality check report
-            // "no progress" the moment the deletable work finished. A correct
-            // restore of a sparse root would then fail at `delete-untracked` purely
-            // for having protected something.
-            !isSparseBoundaryListingEntry(entry.key, sparseBoundarySet),
-        );
-      if (deletable.length === 0) {
-        return;
-      }
-      // THE PASS'S OWN PRECONDITION, checked before anything in it is removed and
-      // ahead of the no-progress fingerprint: every entry this pass is about to
-      // delete must be ADDRESSABLE at the spelling the seam takes, or none of them
-      // is removed. An entry whose decoded text does not re-encode to its bytes
-      // names a different path than the one adjudicated deletable — possibly one
-      // this same pass exempted — so the removal loop below can only run once no
-      // such entry is present. Whole-pass rather than per-entry, and the skip is
-      // the tempting wrong answer: the entry can never leave the listing, so the
-      // pass is going to fail at the no-progress check one full worktree walk
-      // later — after this pass's other removals already ran. Refusing here keeps
-      // the failure pre-mutation for the pass that detected it, which is the same
-      // trade the no-progress check itself makes against the ceiling.
-      const unaddressableEntry: DeletableListingEntry | undefined = deletable.find(
-        (entry) => !listingEntryTextRoundTripsToItsBytes(entry),
-      );
-      if (unaddressableEntry !== undefined) {
-        throw new Error(
-          `turn-snapshot untracked-delete refused a path whose name is not valid UTF-8 at ${unaddressableEntry.text}`,
-        );
-      }
-      // Fingerprinted on the KEYS: two passes that listed byte-different paths
-      // which merely decode alike are progress, and a decoded fingerprint would
-      // call them a stall.
-      const deletableKey: string = deletable.map((entry) => entry.key).join("\0");
-      if (previousDeletable !== null && deletableKey === previousDeletable) {
-        throw new Error(
-          `turn-snapshot untracked-delete made no progress at ${deletable[0]?.text ?? "(unnamed path)"}`,
-        );
-      }
-      previousDeletable = deletableKey;
-
-      const emptiedDirectories = new Set<string>();
-      for (const entry of deletable) {
-        // A TRAILING SLASH is git reporting a directory it does not descend
-        // into — a nested repository the turn created, the class `clean -ffd`'s
-        // second `-f` exists for. The removal is recursive either way, which is
-        // what takes such a directory whole; for a plain file it is an unlink.
-        // It is also why the exemption has to filter BEFORE this line: there is
-        // no partial form of this removal to fall back on.
-        const relativePath: string = entry.text.endsWith("/")
-          ? entry.text.slice(0, -1)
-          : entry.text;
-        await this.#filesystem.removePath(join(executionRoot, relativePath));
-        const parent: string = dirname(relativePath);
-        if (parent !== "." && parent !== "" && parent !== "/") {
-          emptiedDirectories.add(parent);
-        }
-      }
-      await this.#pruneEmptiedDirectories(executionRoot, emptiedDirectories);
-    }
-    throw new Error("turn-snapshot untracked-delete pass did not reach a fixpoint");
-  }
-
-  /**
-   * Remove the directories the deletions emptied, walking each one's ancestors
-   * up to — never including — the execution root.
-   *
-   * `removeDirectoryIfEmpty` is the guard: a directory that still holds snapshot
-   * content is left alone by the kernel's own emptiness check rather than by a
-   * read-then-delete race of ours. The walk climbs because deleting
-   * `nested/deep/created.txt` empties `nested/deep` AND then `nested`, and stops
-   * at `.` because the execution root is the caller's, not this leg's, to remove.
-   */
-  async #pruneEmptiedDirectories(
-    executionRoot: string,
-    directories: ReadonlySet<string>,
-  ): Promise<void> {
-    for (const directory of directories) {
-      let current: string = directory;
-      while (current !== "." && current !== "" && current !== "/") {
-        await this.#filesystem.removeDirectoryIfEmpty(join(executionRoot, current));
-        current = dirname(current);
-      }
-    }
-  }
-
-  /**
-   * The one place a mid-sequence restore failure is reported: observe, diagnose,
-   * then the typed result.
-   *
-   * The observation is deliberately git-free — one typed path fingerprint per
-   * candidate — because it runs on the failure path, where the git seam is the
-   * thing that just failed. An enumeration that needed a working git would
-   * empty-wash exactly the report requires never be empty-washed.
-   *
-   * BOTH candidate sets now apply one standard: an effect counts as applied when
-   * {@link fingerprintPath} no longer matches the pre-mutation arm. For a
-   * collision that means a vanished file included (its ignored content is gone
-   * either way), and a path whose TYPE changed under identical bytes included
-   * too, which a bytes-only comparison could not see.
-   *
-   * For a gitlink the shared standard replaces a `stat`-based "was it already a
-   * directory?" boolean, and it changes three answers, each in the direction of
-   * reporting a real effect the old form hid:
-   *   * a SYMLINK to a directory, which `stat` could not tell from a directory,
-   *     is now reported when the restore replaced it;
-   *   * a divergent submodule directory the failed restore DELETED is now
-   *     reported, where the boolean's `continue` skipped it as "present before";
-   *   * a gitlink path holding a file whose bytes changed is now reported.
-   * The one answer that must NOT change is preserved: a present-but-divergent
-   * submodule the sequence never touched fingerprints `directory` on both sides,
-   * compares equal, and stays unreported — because `submodule.recurse=false`
-   * means the failed sequence applied nothing at that path (see the header).
-   */
-  async #failRestore(
-    target: TurnSnapshotRestoreTarget,
-    failedStep: TurnSnapshotRestoreStep,
-    detail: string,
-    prospectiveEffects: ProspectiveRestoreEffects,
-  ): Promise<TurnSnapshotPartialRestore> {
-    const overwrittenIgnoredPaths: string[] = [];
-    for (const collision of prospectiveEffects.collisions) {
-      const fingerprintNow: string = await fingerprintPath(
-        join(target.executionRoot, collision.path),
-      );
-      if (fingerprintNow !== collision.fingerprintBeforeRestore) {
-        overwrittenIgnoredPaths.push(collision.path);
-      }
-    }
-
-    const divergentGitlinks: string[] = [];
-    for (const divergence of prospectiveEffects.gitlinkDivergences) {
-      const fingerprintNow: string = await fingerprintPath(
-        join(target.executionRoot, divergence.path),
-      );
-      if (fingerprintNow !== divergence.fingerprintBeforeRestore) {
-        divergentGitlinks.push(divergence.path);
-      }
-    }
-
-    // The third re-observation, held to the standard the two above set: the
-    // candidates were fixed before the checkout, and only the ones whose on-disk
-    // state actually changed are reported. A sequence that failed at the
-    // `read-tree` spawn leaves them all untouched and emits nothing — the checkout
-    // is what discards an out-of-cone path, so a checkout that never ran discarded
-    // none. A sequence that failed at `delete-untracked` or `close-index` has a
-    // completed checkout behind it and reports the real set.
-    await this.#emitMaterializedOutOfCone(target, prospectiveEffects);
-
-    this.#emit({
-      kind: "restore-failed",
-      runId: target.runId,
-      epoch: target.owningEpoch,
-      turnOrdinal: target.targetPosition,
-      ref: target.ref,
-      failedStep,
-      detail,
-      overwrittenIgnoredPaths,
-      divergentGitlinks,
-    });
-
-    return {
-      outcome: "partial_restore",
-      ref: target.ref,
-      failedStep,
-      overwrittenIgnoredPaths,
-      divergentGitlinks,
-    };
-  }
-
-  // ------------------------------------------------------------------------
+  // Retention
   // ------------------------------------------------------------------------
 
   /**
    * Delete the snapshot refs of every run whose retention window has closed.
    *
-   * The daemon's ONE retention trigger, and it serves both the plan's drivers
-   * with the same code: a startup call is the "reconcile runs whose windows
-   * elapsed while the daemon was down" pass — those runs are simply candidates
-   * the first sweep finds — and the periodic call on the daemon cadence is the
-   * ongoing one. Both are driven by {@link registerTurnSnapshotRetentionSweep}
-   * at the foot of this file, which `../bootstrap/index.ts` calls.
+   * The daemon's ONE retention trigger, and it serves both drivers with the
+   * same code: a startup call is the "reconcile runs whose windows elapsed while
+   * the daemon was down" pass — those runs are simply candidates the first sweep
+   * finds — and a periodic call is the ongoing one.
    *
    * NEVER REJECTS on a runtime fault. This runs on a timer with nobody awaiting
    * it, where a rejection is an UNHANDLED rejection and Node's default
@@ -7007,30 +3279,16 @@ export class TurnSnapshotService {
    * enumerated in the pass's `retention-prune-skipped` diagnostic, and does not
    * strand the candidates behind it (the per-run `try` is INSIDE the loop).
    *
-   * THE WARN CAN QUIESCE, and it has to be able to. Nothing memoizes an
-   * already-skipped run (the header's first residual), so a skip class that
-   * recurs by construction would fire this diagnostic every hour forever with a
-   * list that only grows — and the genuine `EACCES` would be the line nobody
-   * reads. So a pass whose skips are ALL disposed ephemeral clones emits
-   * nothing, and a pass that emits reports those clones as a count beside the
-   * skips an operator can act on. The plan row's "a run whose recorded
-   * `git_common_dir` is missing … is skipped and enumerated in the sweep
-   * diagnostic" is honored for exactly the case it names — a removed
-   * REPOSITORY, `git-dir-absent` — while the clone-disposal boundary follows
-   * the row's own other clause for it, "the sweep then finds nothing to delete".
-   * Every skip of every class is on the RESULT regardless.
+   * Every skip is enumerated in the pass diagnostic and on the RESULT: "a run
+   * whose recorded `git_common_dir` is missing … is skipped and enumerated in
+   * the sweep diagnostic".
    *
    * It DOES throw for one condition, and the asymmetry is the point: a service
    * constructed without a `database` cannot answer the retention question at
    * all. Returning an empty result there would make a mis-wired daemon
    * indistinguishable from a daemon with nothing to prune — silent forever,
    * which is the exact failure this leg's diagnostics exist to prevent. That is
-   * a programmer error at the composition root, on the same footing as the
-   * un-minted-restore-target refusal in `restoreToTurn`. It is refused twice
-   * over: the wiring call in `../bootstrap/index.ts` will not build a sweeper
-   * without a handle at all, and {@link registerTurnSnapshotRetentionSweep}
-   * contains the throw if one reaches it anyway, rather than letting a timer
-   * callback carry it to the process.
+   * a programmer error at the composition root.
    */
   async sweepPrunableRuns(): Promise<TurnSnapshotRetentionSweepResult> {
     // OUTSIDE the `try`, deliberately: this is the wiring-defect throw described
@@ -7057,14 +3315,12 @@ export class TurnSnapshotService {
       }
       const candidates: readonly PrunableRunRow[] = selectPrunableRuns.all({
         released_before: cutoff,
-        excluded_mode: READ_ONLY_EXECUTION_MODE,
       });
       for (const candidate of candidates) {
         examinedRunIds.push(candidate.run_id);
         const outcome: TurnSnapshotRetentionPruneResult = await this.#pruneRunRefs(
           candidate.run_id,
           candidate.git_common_dir,
-          candidate.execution_mode,
         );
         deletedRefs.push(...outcome.deletedRefs);
         if (outcome.skipped === null) {
@@ -7083,19 +3339,10 @@ export class TurnSnapshotService {
       // A `finally`, not a tail statement: a pass that failed halfway still
       // skipped the runs it skipped, and losing that enumeration would report
       // the fault while hiding which runs it stranded.
-      //
-      // The partition, and the gate: an expected-absence skip never RAISES the
-      // diagnostic and is never enumerated in it, only counted. See the method
-      // docblock for why a diagnostic that cannot go quiet is a diagnostic
-      // nobody reads.
-      const actionableSkips: TurnSnapshotRetentionSkip[] = skipped.filter(
-        (entry: TurnSnapshotRetentionSkip): boolean => !NON_ALARMING_SKIP_REASONS.has(entry.reason),
-      );
-      if (actionableSkips.length > 0) {
+      if (skipped.length > 0) {
         this.#emit({
           kind: "retention-prune-skipped",
-          skipped: actionableSkips,
-          disposedCloneCount: skipped.length - actionableSkips.length,
+          skipped,
           examinedRunCount: examinedRunIds.length,
         });
       }
@@ -7118,11 +3365,7 @@ export class TurnSnapshotService {
    *
    * UNCONDITIONAL on the window, and that division is deliberate: the window is
    * the sweep's predicate (attaches it to "the run's retention window closes",
-   * which is what the sweep asks), and this is the primitive underneath — the
-   * same split `./ephemeral-clone-service.ts` makes between its TTL-driven
-   * `cleanupTick` and its unconditional `dispose`. Nothing in the daemon does
-   * that today — the sweeper is the only trigger, and keeps retention out of the
-   * B9 turn-boundary caller.
+   * which is what the sweep asks), and this is the primitive underneath.
    *
    * Never rejects on a runtime fault, for the sweep's reasons; the missing-
    * `database` throw is the same programmer-error path documented on
@@ -7157,7 +3400,7 @@ export class TurnSnapshotService {
       // could not look" are the two answers this leg must never conflate.
       return this.#skipPrune(runId, "run-context-absent", "no run_execution_contexts row");
     }
-    return this.#pruneRunRefs(runId, row.git_common_dir, row.execution_mode);
+    return this.#pruneRunRefs(runId, row.git_common_dir);
   }
 
   /**
@@ -7175,7 +3418,6 @@ export class TurnSnapshotService {
   async #pruneRunRefs(
     runId: string,
     gitCommonDir: string,
-    executionMode: string,
   ): Promise<TurnSnapshotRetentionPruneResult> {
     if (!isSafeRefComponent(runId)) {
       return this.#skipPrune(runId, "unsafe-run-id", "run id is not a safe ref path component");
@@ -7206,15 +3448,14 @@ export class TurnSnapshotService {
       // ATTRIBUTED rather than assumed, and by a probe rather than by parsing
       // git's stderr — discipline in this same file, where a failed resolve
       // gets its own second question instead of folding into the absent case.
-      // git answers this one rejection for a removed repository, a disposed
-      // clone, an `EACCES` on a live store, a missing `git` binary and a
-      // failure creating the daemon's OWN hook-neutralization directory
-      // (`#runGit` creates it before spawning), and the last three are faults
-      // where the first two are outcomes. One `stat` on the failure path buys
-      // the distinction; the happy path pays nothing.
+      // git answers this one rejection for a removed repository, an `EACCES` on
+      // a live store, a missing `git` binary and a failure creating the daemon's
+      // OWN hook-neutralization directory (`#runGit` creates it before
+      // spawning), and the last three are faults where the first is an outcome.
+      // One `stat` on the failure path buys the distinction; the happy path pays nothing.
       return this.#skipPrune(
         runId,
-        await this.#classifyGitDirFailure(gitCommonDir, executionMode),
+        await this.#classifyGitDirFailure(gitCommonDir),
         describeRejection(reason),
       );
     }
@@ -7278,26 +3519,16 @@ export class TurnSnapshotService {
   }
 
   /**
-   * Which of the three git-dir skip reasons a failed enumeration earned.
-   *
-   * The mode is the second half of the answer and the DDL says why: for
-   * `ephemeral clone` the recorded common dir is the clone's OWN git dir, whose
-   * lifecycle is the clone's, so its absence is disposal working. For every
-   * other mode the recorded dir belongs to a repository nobody was supposed to
-   * delete, so the same absence is news.
+   * Which of the two git-dir skip reasons a failed enumeration earned. The
+   * recorded dir belongs to a repository nobody was supposed to delete, so its
+   * absence is news.
    *
    * The probe itself is contained: a `stat` that rejects for an exotic reason
    * resolves "not provably absent" (see {@link isPathProvablyAbsent}) and the
    * run lands in the fault arm, which is the direction that gets looked at.
    */
-  async #classifyGitDirFailure(
-    gitCommonDir: string,
-    executionMode: string,
-  ): Promise<TurnSnapshotRetentionSkipReason> {
-    if (!(await isPathProvablyAbsent(gitCommonDir))) {
-      return "git-dir-unusable";
-    }
-    return executionMode === EPHEMERAL_CLONE_EXECUTION_MODE ? "clone-disposed" : "git-dir-absent";
+  async #classifyGitDirFailure(gitCommonDir: string): Promise<TurnSnapshotRetentionSkipReason> {
+    return (await isPathProvablyAbsent(gitCommonDir)) ? "git-dir-absent" : "git-dir-unusable";
   }
 
   /** A prune that deleted nothing, carrying why. */
@@ -7376,62 +3607,6 @@ export class TurnSnapshotService {
     );
   }
 
-  /**
-   * Re-observe the materialization candidates and emit the subset the restore
-   * actually discarded.
-   *
-   * RE-OBSERVED, not replayed, and that is the whole content of this method. The
-   * candidate list was fixed before the checkout; what this reports is the part
-   * of it whose on-disk state then CHANGED, measured with the same
-   * {@link fingerprintPath} standard the collision and gitlink enumerations use.
-   * A `partial_restore` that never reached the checkout — a refusal at the second
-   * `HEAD` read, a `read-tree` that failed at the spawn — leaves every candidate
-   * byte-identical, so nothing is emitted and no claim is made about work that
-   * did not happen. The ordinary success case moves every one of them (the
-   * re-projection un-materializes the out-of-cone path, so its fingerprint goes
-   * from `file:<hash>` to `absent`), which is why the discipline costs nothing in
-   * the case it is most often exercised on.
-   *
-   * A path that reappeared byte-identical would be omitted, which is the correct
-   * reading here and differs from the collision enumeration's: a collision
-   * reports paths the restore OVERWROTE, so identical bytes still count, while
-   * this reports paths the restore DISCARDED from the worktree, and a path still
-   * sitting there in the same state was not discarded.
-   *
-   * Factored because BOTH restore tails call it and the rule has to be the same
-   * on each — a different standard on one would make the diagnostic report which
-   * arm the restore took rather than what it did to the worktree. Empty in every
-   * non-sparse root by construction, so a non-sparse restore's diagnostic stream
-   * is byte-unchanged by this closure. Called ONCE per restore: on the success
-   * tail it sits after the last leg that can fail, so a late failure routes to
-   * the reporter instead of adding a second emission of the same payload.
-   */
-  async #emitMaterializedOutOfCone(
-    target: TurnSnapshotRestoreTarget,
-    prospectiveEffects: ProspectiveRestoreEffects,
-  ): Promise<void> {
-    const discardedPaths: string[] = [];
-    for (const candidate of prospectiveEffects.materializedOutOfCone) {
-      const fingerprintNow: string = await fingerprintPath(
-        join(target.executionRoot, candidate.path),
-      );
-      if (fingerprintNow !== candidate.fingerprintBeforeRestore) {
-        discardedPaths.push(candidate.path);
-      }
-    }
-    if (discardedPaths.length === 0) {
-      return;
-    }
-    this.#emit({
-      kind: "sparse-out-of-cone-materialized",
-      runId: target.runId,
-      epoch: target.owningEpoch,
-      turnOrdinal: target.targetPosition,
-      ref: target.ref,
-      materializedPaths: discardedPaths,
-    });
-  }
-
   /** See {@link OBJECT_ID_PATTERN}. Throws into the funnel on anything else. */
   #requireObjectId(stdout: Buffer): string {
     const candidate: string = stdout.toString("utf8").trim();
@@ -7484,210 +3659,4 @@ export class TurnSnapshotService {
       // See the docblock: swallowed on purpose.
     }
   }
-}
-
-// --------------------------------------------------------------------------
-// The retention sweeper driver
-// --------------------------------------------------------------------------
-//
-// OWNED HERE, called from `../bootstrap/index.ts`.
-//
-// An earlier draft of this task put the whole driver in `bootstrap/index.ts` and
-// argued that a typed collaborator there "would make this file import the module
-// — ownership by the back door". Importing a plan's module into
-// `bootstrap/index.ts` IS the sanctioned shape; what would be ownership is the
-// driver body, which is why it lives here.
-
-/** What a composition root hands {@link registerTurnSnapshotRetentionSweep}. */
-export interface TurnSnapshotRetentionSweepRegistration {
-  /**
-   * One retention pass. In production this is
-   * `() => turnSnapshotService.sweepPrunableRuns()`, bound at the sanctioned
-   * wiring call in `../bootstrap/index.ts`.
-   *
-   * A BARE CALLABLE rather than a {@link TurnSnapshotService}, on grounds that
-   * survive the relocation above: this is a lifecycle driver, and the two things
-   * it actually guarantees — that a rejecting sweeper cannot reach the process
-   * and that a THROWING one cannot either — are then assertable with plain
-   * functions instead of a cast against a class that makes one of them
-   * unreachable by construction. It does NOT assume the sweeper honours
-   * `sweepPrunableRuns`'s never-rejects posture: a rejection inside a timer
-   * callback with nobody awaiting it is an unhandled rejection that takes the
-   * daemon down. The cost, accepted: the type system does not stop a composition
-   * root binding the wrong callable — mitigated by there being exactly one
-   * production binding site, in the file the ownership map points at.
-   */
-  readonly runRetentionSweep: () => Promise<unknown>;
-  /**
-   * How often the periodic sweep runs, in milliseconds. Daemon configuration;
-   * defaults to {@link DEFAULT_TURN_SNAPSHOT_SWEEP_CADENCE_MS}, the same way the
-   * retention window defaults on the service.
-   *
-   * MUST be a positive integer no larger than {@link MAXIMUM_TIMER_DELAY_MS}.
-   * Refused rather than normalized — see the `@throws` on the function.
-   */
-  readonly sweepCadenceMs?: number;
-  /**
-   * Where a sweep that REJECTED is reported. Defaults to a `console.warn`
-   * rendering, the same interim sink the daemon's other diagnostic seams use
-   * until an OpenTelemetry substrate exists.
-   *
-   * Reports the SEAM's failures only. A sweep that ran and skipped some runs
-   * reports that through the service's own diagnostic sink; this hears about the
-   * sweep that could not run at all — a mis-wired sweeper, most plausibly.
-   */
-  readonly reportSweepFailure?: (reason: unknown) => void;
-}
-
-/** The shutdown half of {@link registerTurnSnapshotRetentionSweep}. */
-export interface TurnSnapshotRetentionSweepHandle {
-  /**
-   * Stops the periodic sweep.
-   *
-   * Idempotent, and by `clearInterval` itself being a no-op on a timer already
-   * cleared rather than by a flag this object keeps — a flag would be state
-   * nothing could observe, which is a worse thing to maintain than the property
-   * it claims to provide. A sweep already IN FLIGHT runs to completion: it holds
-   * no resource this handle owns, and cancelling a half-finished ref deletion
-   * would leave exactly the partial state the leg's idempotence exists to make
-   * harmless anyway.
-   */
-  dispose(): void;
-}
-
-/**
- * The largest delay Node's timers accept before wrapping. A delay above this —
- * like a delay below `1`, fractional ones included — is silently coerced to
- * `1 ms`, which is why the cadence guard has an upper bound at all.
- */
-const MAXIMUM_TIMER_DELAY_MS = 2_147_483_647;
-
-/**
- * Start the turn-snapshot retention sweeper: one immediate reconcile pass, then
- * a periodic sweep on the supplied cadence, until the returned handle is
- * disposed.
- *
- * ORDERING OBLIGATION, and it is the caller's. This must run AFTER database
- * migrations have been applied, because the sweeper reads
- * `run_execution_contexts` on its very first pass. The wiring call in
- * `../bootstrap/index.ts` takes an already-open handle for that reason, which
- * discharges the obligation by construction rather than by comment.
- *
- * The two drivers row names are both here:
- *
- *   * the DAEMON-STARTUP RECONCILE — the immediate pass, which prunes runs whose
- *     retention windows elapsed while the daemon was down. Kicked off ASYNC and
- *     NON-BLOCKING: retention is housekeeping, and a daemon that waited on a git
- *     walk before opening its listeners would have made a background concern into
- *     a startup latency. A failure is diagnosed, never thrown.
- *   * the PERIODIC SWEEP on the daemon-owned cadence.
- *
- * Overlapping ticks are suppressed. A sweep still in flight when the next tick
- * fires causes that tick to be skipped rather than a second concurrent pass: two
- * sweeps enumerate the same refs and race each other's deletions, and on a daemon
- * whose sweep is slower than its cadence the passes would otherwise pile up
- * without bound. The skipped tick costs nothing — the next one re-enumerates
- * whatever is left, the sweep being idempotent.
- *
- * The interval is `unref`'d, so a composition root that forgets to `dispose()`
- * cannot by itself keep the process alive at shutdown. It is a safety net and not
- * a substitute: an undisposed sweeper still fires for as long as anything else
- * holds the loop open.
- *
- * @throws RangeError when `sweepCadenceMs` is present and is not a positive
- * integer of at most {@link MAXIMUM_TIMER_DELAY_MS} milliseconds.
- */
-export function registerTurnSnapshotRetentionSweep(
-  registration: TurnSnapshotRetentionSweepRegistration,
-): TurnSnapshotRetentionSweepHandle {
-  // Resolved first, then validated: an absent cadence is the DEFAULT and not a
-  // refusal, which is what makes the cadence daemon config on the same footing
-  // as the retention window.
-  const sweepCadenceMs: number =
-    registration.sweepCadenceMs ?? DEFAULT_TURN_SNAPSHOT_SWEEP_CADENCE_MS;
-  // Every arm here is one of Node's timer coercions, and they are the reason for
-  // the shape of the check rather than a tidier `> 0`. A delay of `0`, a negative
-  // one, `NaN`, `Infinity`, a FRACTIONAL one below `1`, and one ABOVE
-  // 2147483647 all become a 1 ms interval — so a plausible monthly cadence
-  // (`DEFAULT_TURN_SNAPSHOT_RETENTION_WINDOW_MS * 4` = 2419200000) would pass a
-  // positive-and-finite check and then spawn `git for-each-ref` against every
-  // historical run a thousand times a second. Refused rather than normalized,
-  // because a daemon that quietly reinterprets a monthly cadence as 1 ms is worse
-  // than one that will not start.
-  if (
-    !Number.isInteger(sweepCadenceMs) ||
-    sweepCadenceMs < 1 ||
-    sweepCadenceMs > MAXIMUM_TIMER_DELAY_MS
-  ) {
-    throw new RangeError(
-      "registerTurnSnapshotRetentionSweep: sweepCadenceMs must be a positive integer of at " +
-        `most ${String(MAXIMUM_TIMER_DELAY_MS)} milliseconds (received ${String(sweepCadenceMs)})`,
-    );
-  }
-
-  // Guarded in turn, on BOTH halves, because this is called from inside a `.catch`
-  // handler: whatever escapes here rejects the promise that handler settles, with
-  // no further handler attached — the unhandled rejection this whole wrapper
-  // exists to prevent, arriving by the one path a `try` around the sweep would
-  // miss. A synchronous throw is the `catch` below. An ASYNCHRONOUS rejection is
-  // the attached `.catch`, and it needs one because the seam is typed
-  // `(reason: unknown) => void`: void-return assignability accepts an `async`
-  // reporter, whose returned promise the surrounding `try` cannot see, let alone
-  // contain. `Promise.resolve(…)` wraps the call so a reporter returning nothing
-  // — which the type invites and erased types permit — does not make `.catch` a
-  // TypeError. This is the turn-snapshot service's own `#emit` idiom, for the
-  // same reason and in the same order.
-  const reportSweepFailure = (reason: unknown): void => {
-    try {
-      const report: ((reason: unknown) => void) | undefined = registration.reportSweepFailure;
-      if (report === undefined) {
-        console.warn("turn-snapshot retention sweep failed", reason);
-        return;
-      }
-      void Promise.resolve(report(reason)).catch(() => {
-        /* an async reporter's rejection must not become the failure it was reporting */
-      });
-    } catch {
-      /* a reporter that throws must not become the failure it was reporting */
-    }
-  };
-
-  let sweepInFlight = false;
-  const runSweepGuarded = (): void => {
-    if (sweepInFlight) {
-      return;
-    }
-    sweepInFlight = true;
-    try {
-      // `Promise.resolve(…)` rather than the returned promise directly: the seam
-      // is typed `() => Promise<unknown>`, and an implementation that returned a
-      // thenable — or nothing at all, which erased types permit at a JS call site
-      // — would otherwise make `.catch` a TypeError right here.
-      void Promise.resolve(registration.runRetentionSweep())
-        .catch(reportSweepFailure)
-        .finally(() => {
-          sweepInFlight = false;
-        });
-    } catch (reason: unknown) {
-      // That is a NON-`async` implementation of the seam; it is NOT
-      // missing-`database` wiring defect, whose `TypeError` is raised inside an
-      // `async` method and therefore always arrives as a REJECTION on the
-      // `.catch` path above. Both guards exist because those are two different
-      // paths, and the one that carries the known production defect is the other
-      // one.
-      sweepInFlight = false;
-      reportSweepFailure(reason);
-    }
-  };
-
-  runSweepGuarded();
-
-  const sweepInterval: NodeJS.Timeout = setInterval(runSweepGuarded, sweepCadenceMs);
-  sweepInterval.unref();
-
-  return {
-    dispose(): void {
-      clearInterval(sweepInterval);
-    },
-  };
 }

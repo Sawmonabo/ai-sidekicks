@@ -1,10 +1,9 @@
 // Brand-preserving UUID canonicalization for use as a Map key / hash input.
 //
-// THE single definition of "canonical UUID form" shared across surfaces:
-// today the bootstrap channel-id derivation (`channel-id.ts`) and the
+// THE single definition of "canonical UUID form" shared across surfaces: the
 // control-plane presence map (`@ai-sidekicks/control-plane`
-// `PresenceRegisterService`) both key off UUID identity, and both route their
-// lowercasing through this helper so "canonical" means ONE thing repo-wide.
+// `PresenceRegisterService`) keys off UUID identity and routes its lowercasing
+// through this helper so "canonical" means ONE thing repo-wide.
 
 /**
  * Canonicalize a UUID string to its lowercase hex form, preserving the brand.

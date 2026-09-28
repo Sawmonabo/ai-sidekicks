@@ -66,6 +66,7 @@ import { MerkleAnchorService } from "../merkle-anchor-service.js";
 import { __resetSessionAppendLocksForTest, withSessionAppendLock } from "../session-append-lock.js";
 import type { Ed25519PrivateKey, Ed25519PublicKey } from "../signer.js";
 import type { DaemonSigningKeySource } from "../signing-key-source.js";
+import { writeAcrossStrictTyping } from "../../session/__fixtures__/at-rest-tamper.js";
 
 const SESSION: SessionId = SessionIdSchema.parse("11111111-2222-4333-8444-555555555555");
 const SECOND_SESSION: SessionId = SessionIdSchema.parse("11111111-2222-4333-8444-555555555556");
@@ -386,7 +387,7 @@ describe("Compactor — compaction triggers", () => {
     });
     const maintenance = seed({
       category: "event_maintenance",
-      type: "schema.migrated",
+      type: "event.compacted",
       payload: { ok: true },
     });
     const newest = seed({
@@ -1000,7 +1001,7 @@ describe("Compactor — audit-stub projection", () => {
 });
 
 // ----------------------------------------------------------------------------
-// Terminal-key backstop, POST-COMPACTION — migration 0006 against a stub
+// Terminal-key backstop, POST-COMPACTION — the schema's backstop against a stub
 // ----------------------------------------------------------------------------
 
 // ----------------------------------------------------------------------------
@@ -1141,15 +1142,16 @@ describe("Compactor — the terminal-key backstop survives compaction", () => {
 
 describe("Compactor — pass-result census", () => {
   it("counts a partition whose session_id is not TEXT as unreadable, and compacts the rest", async () => {
-    // `session_events.session_id` is TEXT-affinity, and TEXT affinity does NOT
-    // coerce a BLOB — so this really is a stored non-string, which is the shape
-    // `#readSessionSummaries` skips before it ever reaches the branded parse.
-    seed({
-      category: "session_lifecycle",
-      type: "session.updated",
-      payload: { text: "corrupt" },
-      sessionId: Buffer.from([0xde, 0xad]),
-      sequence: 0,
+    // A BLOB `session_id` left by an edit to the file is a stored non-string,
+    // the shape `#readSessionSummaries` skips before the branded parse.
+    writeAcrossStrictTyping(database, "session_events", () => {
+      seed({
+        category: "session_lifecycle",
+        type: "session.updated",
+        payload: { text: "corrupt" },
+        sessionId: Buffer.from([0xde, 0xad]),
+        sequence: 0,
+      });
     });
     seed({ category: "session_lifecycle", type: "session.updated", payload: { text: "a" } });
     seed({ category: "session_lifecycle", type: "session.updated", payload: { text: "b" } });
@@ -1164,11 +1166,11 @@ describe("Compactor — pass-result census", () => {
   });
 
   it("counts a partition whose MIN(sequence) is not a number as unreadable", async () => {
-    // THE THIRD BRANCH — the aggregate guard, not the id guard. `sequence` is
-    // INTEGER affinity with no `typeof` CHECK, so a corrupt write stores TEXT
-    // verbatim; TEXT sorts above INTEGER in SQLite's type ordering, so on a
-    // SINGLE-row partition `MIN(sequence)` is itself non-numeric and the summary
-    // is unreadable even though its `session_id` parses cleanly.
+    // THE THIRD BRANCH — the aggregate guard, not the id guard. An edit to the
+    // file can leave TEXT in `sequence`; TEXT sorts above INTEGER in SQLite's
+    // type ordering, so on a SINGLE-row partition `MIN(sequence)` is itself
+    // non-numeric and the summary is unreadable even though its `session_id`
+    // parses cleanly.
     const corrupt = seed({
       category: "session_lifecycle",
       type: "session.updated",
@@ -1176,7 +1178,11 @@ describe("Compactor — pass-result census", () => {
       sessionId: SECOND_SESSION,
       sequence: 0,
     });
-    database.prepare("UPDATE session_events SET sequence = 'corrupt' WHERE id = ?").run(corrupt.id);
+    writeAcrossStrictTyping(database, "session_events", () => {
+      database
+        .prepare("UPDATE session_events SET sequence = 'corrupt' WHERE id = ?")
+        .run(corrupt.id);
+    });
 
     seed({ category: "session_lifecycle", type: "session.updated", payload: { text: "a" } });
     seed({ category: "session_lifecycle", type: "session.updated", payload: { text: "b" } });

@@ -1,6 +1,6 @@
 // CLI-version floor seam + CapabilityRefreshScheduler.
 //
-// Coverage targets (audit-derived):
+// Coverage targets:
 //   * the per-driver minimum-version floor is enforced mechanically; an
 //     unparseable version fails closed as `driver.cli_version_unparseable`
 //     and a parseable below-floor version as
@@ -9,15 +9,13 @@
 //   * the 15-minute bounded cadence, per runtime node, with the capability
 //     refresh PAIRED with the zero-turn auth probe; correctness never depends
 //     on push.
-//   * Change-detected emission is the WRITER's: a no-op poll and an auth-only
-//     change append nothing to the timeline; the scheduler adds no second
-//     change detection and no event sink of its own.
-//   * The plan row's cadence test list: poll fires on schedule with the paired
-//     probe; a changed snapshot emits `runtime_node.capability_updated`; a
-//     no-op poll and an auth-only change emit nothing; the scheduler clears
-//     its timer on shutdown/detach. Plus the fail-closed legs: a thrown probe
-//     records `indeterminate`, and one driver's refresh refusal neither kills
-//     the timer nor the sibling's poll.
+//   * Change detection is the WRITER's: the scheduler polls whatever the
+//     snapshot did and adds no second change detection of its own; an auth-only
+//     change moves only the auth-state record.
+//   * The cadence: poll fires on schedule with the paired probe; the scheduler
+//     clears its timer on shutdown/detach. Plus the fail-closed legs: a thrown
+//     probe records `indeterminate`, and one driver's refresh refusal neither
+//     kills the timer nor the sibling's poll.
 
 import type { DriverAuthProbeResult } from "@ai-sidekicks/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -151,16 +149,9 @@ interface FakeDriverEntry {
   setProbeResult(result: DriverAuthProbeResult | Error): void;
 }
 
-// Simulates writer's emission decision so the "emits nothing" claims are
-// asserted against an event list, not inferred: the fake appends to
-// `emittedEvents` exactly when the writer would have emitted (declared /
-// updated), and never on noop — which is the writer contract pins.
-function buildFakeDriverEntry(
-  driverName: FlooredDriverName,
-  emittedEvents: string[],
-): FakeDriverEntry {
+function buildFakeDriverEntry(driverName: FlooredDriverName): FakeDriverEntry {
   let refreshResult: DeclareDriverCapabilitiesResult | Error = {
-    emitted: "noop",
+    snapshotChange: "unchanged",
     cliVersionRefreshed: false,
   };
   let probeResult: DriverAuthProbeResult | Error = { status: "authenticated" };
@@ -171,13 +162,9 @@ function buildFakeDriverEntry(
       driverName,
       refreshDeclaration: () => {
         refreshCalls.push(Date.now());
-        if (refreshResult instanceof Error) {
-          return Promise.reject(refreshResult);
-        }
-        if (refreshResult.emitted !== "noop") {
-          emittedEvents.push(`${driverName}:runtime_node.capability_${refreshResult.emitted}`);
-        }
-        return Promise.resolve(refreshResult);
+        return refreshResult instanceof Error
+          ? Promise.reject(refreshResult)
+          : Promise.resolve(refreshResult);
       },
       probeAuth: () => {
         probeCalls.push(Date.now());
@@ -202,7 +189,7 @@ function buildFakeDriverEntry(
  *
  * The emitter is REQUIRED by the scheduler, so every construction site goes
  * through here: a test that reached for the bare constructor would be asserting
- * against a dependency shape the production code no longer accepts.
+ * against a dependency shape the production code does not accept.
  */
 function buildScheduler(): {
   readonly scheduler: CapabilityRefreshScheduler;
@@ -231,8 +218,7 @@ describe("CapabilityRefreshScheduler", () => {
   });
 
   it("fires the poll on the 15-minute cadence with the refresh PAIRED to the auth probe", async () => {
-    const emittedEvents: string[] = [];
-    const codex = buildFakeDriverEntry("codex", emittedEvents);
+    const codex = buildFakeDriverEntry("codex");
     const { scheduler } = buildScheduler();
     scheduler.startForNode({ nodeId: "node-1", drivers: [codex.entry] });
 
@@ -251,34 +237,8 @@ describe("CapabilityRefreshScheduler", () => {
     scheduler.shutdown();
   });
 
-  it("surfaces a changed snapshot as capability_updated, while a no-op poll and an auth-only change emit nothing", async () => {
-    const emittedEvents: string[] = [];
-    const claude = buildFakeDriverEntry("claude", emittedEvents);
-    const { scheduler } = buildScheduler();
-    scheduler.startForNode({ nodeId: "node-1", drivers: [claude.entry] });
-
-    // Tick 1: a genuinely changed snapshot — the writer emits.
-    claude.setRefreshResult({ emitted: "updated", cliVersionRefreshed: true });
-    await vi.advanceTimersByTimeAsync(CAPABILITY_REFRESH_INTERVAL_MS);
-    expect(emittedEvents).toStrictEqual(["claude:runtime_node.capability_updated"]);
-
-    // Tick 2: identical snapshot — a no-op poll appends nothing.
-    claude.setRefreshResult({ emitted: "noop", cliVersionRefreshed: false });
-    await vi.advanceTimersByTimeAsync(CAPABILITY_REFRESH_INTERVAL_MS);
-    expect(emittedEvents).toHaveLength(1);
-
-    // Tick 3: auth-only change (logout) — the record moves, the timeline does
-    // not (the auth-state record updates out-of-band of the event surface).
-    claude.setProbeResult({ status: "unauthenticated" });
-    await vi.advanceTimersByTimeAsync(CAPABILITY_REFRESH_INTERVAL_MS);
-    expect(emittedEvents).toHaveLength(1);
-    expect(scheduler.getAuthState("node-1", "claude")?.status).toBe("unauthenticated");
-    scheduler.shutdown();
-  });
-
   it("surfaces a post-attach logout within one cadence period through the auth-state record", async () => {
-    const emittedEvents: string[] = [];
-    const claude = buildFakeDriverEntry("claude", emittedEvents);
+    const claude = buildFakeDriverEntry("claude");
     const { scheduler } = buildScheduler();
     scheduler.startForNode({ nodeId: "node-1", drivers: [claude.entry] });
 
@@ -295,8 +255,7 @@ describe("CapabilityRefreshScheduler", () => {
   });
 
   it("records a THROWN probe as indeterminate (fail closed) and reports the failed leg", async () => {
-    const emittedEvents: string[] = [];
-    const codex = buildFakeDriverEntry("codex", emittedEvents);
+    const codex = buildFakeDriverEntry("codex");
     const { scheduler, diagnostics } = buildScheduler();
     scheduler.startForNode({ nodeId: "node-1", drivers: [codex.entry] });
 
@@ -319,9 +278,8 @@ describe("CapabilityRefreshScheduler", () => {
   });
 
   it("keeps polling past one driver's refresh refusal, and neither kills the sibling's poll", async () => {
-    const emittedEvents: string[] = [];
-    const codex = buildFakeDriverEntry("codex", emittedEvents);
-    const claude = buildFakeDriverEntry("claude", emittedEvents);
+    const codex = buildFakeDriverEntry("codex");
+    const claude = buildFakeDriverEntry("claude");
     const { scheduler, diagnostics } = buildScheduler();
     scheduler.startForNode({ nodeId: "node-1", drivers: [codex.entry, claude.entry] });
 
@@ -347,8 +305,7 @@ describe("CapabilityRefreshScheduler", () => {
   });
 
   it("clears the node's timer on detach and drops its auth records", async () => {
-    const emittedEvents: string[] = [];
-    const codex = buildFakeDriverEntry("codex", emittedEvents);
+    const codex = buildFakeDriverEntry("codex");
     const { scheduler } = buildScheduler();
     scheduler.startForNode({ nodeId: "node-1", drivers: [codex.entry] });
 
@@ -363,9 +320,8 @@ describe("CapabilityRefreshScheduler", () => {
   });
 
   it("clears every node's timer at shutdown (no timer leaks)", async () => {
-    const emittedEvents: string[] = [];
-    const first = buildFakeDriverEntry("codex", emittedEvents);
-    const second = buildFakeDriverEntry("claude", emittedEvents);
+    const first = buildFakeDriverEntry("codex");
+    const second = buildFakeDriverEntry("claude");
     const { scheduler } = buildScheduler();
     scheduler.startForNode({ nodeId: "node-1", drivers: [first.entry] });
     scheduler.startForNode({ nodeId: "node-2", drivers: [second.entry] });
@@ -378,8 +334,7 @@ describe("CapabilityRefreshScheduler", () => {
   });
 
   it("re-attaching a node replaces its timer instead of stacking a second one", async () => {
-    const emittedEvents: string[] = [];
-    const codex = buildFakeDriverEntry("codex", emittedEvents);
+    const codex = buildFakeDriverEntry("codex");
     const { scheduler } = buildScheduler();
     scheduler.startForNode({ nodeId: "node-1", drivers: [codex.entry] });
     scheduler.startForNode({ nodeId: "node-1", drivers: [codex.entry] });
@@ -405,7 +360,7 @@ describe("CapabilityRefreshScheduler", () => {
           }),
         probeAuth: codex.entry.probeAuth,
       },
-      releaseHang: () => resolveHang?.({ emitted: "noop", cliVersionRefreshed: false }),
+      releaseHang: () => resolveHang?.({ snapshotChange: "unchanged", cliVersionRefreshed: false }),
     };
   }
 
@@ -429,8 +384,7 @@ describe("CapabilityRefreshScheduler", () => {
   }
 
   it("skips a tick while the previous poll of the same node is still INSIDE its deadline", async () => {
-    const emittedEvents: string[] = [];
-    const codex = buildFakeDriverEntry("codex", emittedEvents);
+    const codex = buildFakeDriverEntry("codex");
     const hanging = buildHangingEntry(codex);
     const { scheduler } = buildScheduler();
     scheduler.startForNode({ nodeId: "node-1", drivers: [hanging.entry] });
@@ -454,8 +408,7 @@ describe("CapabilityRefreshScheduler", () => {
   });
 
   it("abandons a leg that never settles, records it as timed out, and resumes the cadence", async () => {
-    const emittedEvents: string[] = [];
-    const codex = buildFakeDriverEntry("codex", emittedEvents);
+    const codex = buildFakeDriverEntry("codex");
     const hanging = buildHangingEntry(codex);
     const { scheduler, diagnostics } = buildScheduler();
     scheduler.startForNode({ nodeId: "node-1", drivers: [hanging.entry] });
@@ -489,8 +442,7 @@ describe("CapabilityRefreshScheduler", () => {
   });
 
   it("keys an auth-state write to the node LIFETIME the poll started in", async () => {
-    const emittedEvents: string[] = [];
-    const codex = buildFakeDriverEntry("codex", emittedEvents);
+    const codex = buildFakeDriverEntry("codex");
     // The PROBE is the hung leg deliberately: it is the only leg that writes an
     // auth record, so hanging any other leg would leave this test passing on
     // detach's record drop alone and asserting nothing about the guard.
@@ -521,8 +473,7 @@ describe("CapabilityRefreshScheduler", () => {
   });
 
   it("refreshNow runs an immediate poll outside the cadence (the provider-push lever)", async () => {
-    const emittedEvents: string[] = [];
-    const codex = buildFakeDriverEntry("codex", emittedEvents);
+    const codex = buildFakeDriverEntry("codex");
     const { scheduler } = buildScheduler();
     scheduler.startForNode({ nodeId: "node-1", drivers: [codex.entry] });
 
@@ -560,8 +511,7 @@ describe("the cadence re-probe's diagnostic leg", () => {
     // arrives on the refresh leg. Reporting it as an ordinary refresh failure
     // would leave an operator unable to tell "the probe channel is broken" from
     // "the declaration could not be written" — two different repairs.
-    const emittedEvents: string[] = [];
-    const codex = buildFakeDriverEntry("codex", emittedEvents);
+    const codex = buildFakeDriverEntry("codex");
     const { scheduler, diagnostics, emittedDiagnosticRecords } = buildScheduler();
     scheduler.startForNode({ nodeId: "node-1", drivers: [codex.entry] });
 
@@ -580,8 +530,7 @@ describe("the cadence re-probe's diagnostic leg", () => {
   });
 
   it("refines a transport failure of the probe surface too", async () => {
-    const emittedEvents: string[] = [];
-    const codex = buildFakeDriverEntry("codex", emittedEvents);
+    const codex = buildFakeDriverEntry("codex");
     const { scheduler, diagnostics } = buildScheduler();
     scheduler.startForNode({ nodeId: "node-1", drivers: [codex.entry] });
 
@@ -597,8 +546,7 @@ describe("the cadence re-probe's diagnostic leg", () => {
   it("leaves an ORDINARY refresh failure on the `capability-refresh` leg", async () => {
     // The refinement is scoped, not a rename: a below-floor downgrade is still a
     // refresh failure and must not be mislabelled as a probe fault.
-    const emittedEvents: string[] = [];
-    const codex = buildFakeDriverEntry("codex", emittedEvents);
+    const codex = buildFakeDriverEntry("codex");
     const { scheduler, diagnostics } = buildScheduler();
     scheduler.startForNode({ nodeId: "node-1", drivers: [codex.entry] });
 
@@ -614,8 +562,7 @@ describe("the cadence re-probe's diagnostic leg", () => {
   it("never refines the AUTH-PROBE leg, whatever it rejects with", async () => {
     // A probe error surfacing from the auth seam would be a wiring fault, and
     // relabelling it would attribute an auth failure to the capability channel.
-    const emittedEvents: string[] = [];
-    const codex = buildFakeDriverEntry("codex", emittedEvents);
+    const codex = buildFakeDriverEntry("codex");
     const { scheduler, diagnostics } = buildScheduler();
     scheduler.startForNode({ nodeId: "node-1", drivers: [codex.entry] });
 

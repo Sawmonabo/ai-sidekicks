@@ -1,26 +1,14 @@
-// `presence.subscribe` (PresenceUpdate push) handler + durable-emission test
-// suite.
+// `presence.subscribe` (PresenceUpdate push) handler test suite.
 //
-// Presence here is PER-DEVICE liveness of the one user's linked devices. The
-// file covers TWO conceptually-distinct deliverables:
-//
-//   1. LOCAL IPC BRIDGE — the daemon-to-client `PresenceUpdate` push. Realized
-//      as the notify side of a `presence.subscribe` subscription on the
-//      streaming primitive (see presence-subscribe.ts for the streaming-design
-//      rationale). Tests: round-trip through dispatch → `{subscriptionId}`; a
-//      pushed `PresenceUpdate` becomes a `$/subscription/notify` frame
-//      validated against `PresenceUpdateSchema`; `mutating: false`;
-//      transportId required; duplicate-registration.
-//
-//   2. DURABLE PRESENCE EMISSION — `presence.online` / `idle` /
-//      `reconnecting` / `offline` state-change events land in the daemon's
-//      `session_events` log. The runtime trigger lives downstream (documented
-//      as a deps-contract obligation on
-//      `PresenceSubscribeDeps.subscribeToPresence`); THIS test proves the
-//      canonical emission ARTIFACT round-trips to REAL `session_events` rows
-//      through a real `better-sqlite3`-backed `SessionService`, and that the
-//      projector forward-compat-skips them (replay-safe, snapshot unaffected).
-//      Presence ROWS are never persisted — only the state-change EVENTS are.
+// Presence here is PER-DEVICE liveness of the one user's linked devices, held
+// in memory and pushed to the client; it never lands in `session_events`.
+// The daemon-to-client `PresenceUpdate` push is the notify side of a
+// `presence.subscribe` subscription on the streaming primitive (see
+// presence-subscribe.ts for the streaming-design rationale). Tests:
+// round-trip through dispatch → `{subscriptionId}`; a pushed `PresenceUpdate`
+// becomes a `$/subscription/notify` frame validated against
+// `PresenceUpdateSchema`; `mutating: false`; transportId required;
+// duplicate-registration.
 //
 // Invariants verified:
 //   * Duplicate `registerPresenceSubscribe` is rejected at register-time.
@@ -34,43 +22,25 @@
 //     replay-flush + live-tail crash guards).
 //   * Streaming-leak — `sub.onCancel(unsubscribe)` fires the upstream detach
 //     on wire-cancel + transport-disconnect; `complete()` does NOT fire it.
-// Plus the cross-cutting guard that an emitted presence row carries the
-// category the contracts package assigns to its type, never one the emitter
-// invented.
 
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-
-import type { Database as DatabaseType } from "better-sqlite3";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type {
   HandlerContext,
   JsonRpcNotification,
-  PresenceState,
   PresenceSubscribeResponse,
   PresenceUpdate,
-  SessionEventType,
   SessionId,
   SubscriptionNotifyParams,
 } from "@ai-sidekicks/contracts";
 import {
   JSONRPC_VERSION,
   PresenceUpdateSchema,
-  SESSION_EVENT_CATEGORY_BY_TYPE,
   SUBSCRIPTION_NOTIFY_METHOD,
 } from "@ai-sidekicks/contracts";
 
 import { MethodRegistryImpl, RegistryRegistrationError } from "../../registry.js";
 import { StreamingPrimitive, StreamingValidationError } from "../../streaming-primitive.js";
-
-import { openDatabase } from "../../../session/migration-runner.js";
-import {
-  SessionService,
-  UnsignedPlaceholderAppendToken,
-} from "../../../session/session-service.js";
-import type { AppendableEvent } from "../../../session/types.js";
 
 import { registerPresenceSubscribe, type PresenceSubscribeDeps } from "../presence-subscribe.js";
 
@@ -96,7 +66,7 @@ function buildPresenceUpdate(): PresenceUpdate {
 }
 
 // ============================================================================
-// PART 1 — LOCAL IPC BRIDGE (presence.subscribe push slice)
+// Local IPC bridge (presence.subscribe push slice)
 // ============================================================================
 
 describe("presence.subscribe — push slice round-trip + wire-frame emission", () => {
@@ -288,10 +258,10 @@ describe("presence.subscribe — push slice round-trip + wire-frame emission", (
 });
 
 // ============================================================================
-// PART 1b — push-slice crash guards (replay-flush + live-tail) + onCancel
+// Push-slice crash guards (replay-flush + live-tail) + onCancel
 // upstream-detach. Faithful presence analogs of the `session-subscribe.ts`
 // regression tests (session-handlers.test.ts) — a regression dropping any
-// of these branches would pass every Part-1 test above.
+// of these branches would pass every push-slice test above.
 // ============================================================================
 
 describe("presence.subscribe — replay-flush + live-tail crash guards", () => {
@@ -503,238 +473,5 @@ describe("presence.subscribe — wires upstream unsubscribe via sub.onCancel (th
     // The upstream watcher is NOT detached on natural completion. The hook
     // only fires on externally-imposed cancellation.
     expect(unsubscribe).not.toHaveBeenCalled();
-  });
-});
-
-// ============================================================================
-// PART 2 — DURABLE PRESENCE-STATE-CHANGE EMISSION (real session_events)
-// ============================================================================
-//
-// Per-test SQLite DB under os.tmpdir() (the canonical
-// `session-service.test.ts` harness: `openDatabase` runs pragmas +
-// migrations, `new SessionService(db)`, afterEach closes + unlinks).
-
-const EMISSION_SESSION_ID = "01J0SE5510NN5J5J5J5J5J5J5J";
-const EMISSION_OWNER_ID = "01J0PA0000NN5J5J5J5J5J5J5J";
-const EMISSION_DEVICE_ID = "device-abc-123";
-
-interface EmissionContext {
-  db: DatabaseType;
-  service: SessionService;
-  tmpDir: string;
-}
-
-/**
- * Bootstrap `session.created` event at sequence=0 — every session log must
- * open with one (the projector's `replay` requires it). Mirrors the
- * `session-service.test.ts` fixture.
- */
-function makeBootstrapCreatedEvent(): AppendableEvent {
-  return {
-    id: "01J0EV0000NN5J5J5J5J5J5J5J",
-    sessionId: EMISSION_SESSION_ID,
-    sequence: 0,
-    occurredAt: "2026-04-27T12:00:00.000Z",
-    monotonicNs: 1_000_000_000n,
-    category: "session_lifecycle",
-    type: "session.created",
-    actor: EMISSION_OWNER_ID,
-    payload: { sessionId: EMISSION_SESSION_ID, name: "presence-test-session" },
-    correlationId: null,
-    causationId: null,
-    version: "1.0",
-  };
-}
-
-/**
- * Build the canonical durable presence-state-change `AppendableEvent` for one
- * transition. This is the EXACT shape the downstream emission contract
- * (documented on `PresenceSubscribeDeps.subscribeToPresence`) obligates the
- * substrate to append:
- *   * type:     "presence.<newState>"
- *   * category: whatever the contracts package assigns that type — LOOKED UP,
- *               never restated, so a fixture can never enshrine a category the
- *               canonical assignment has moved away from
- *   * payload:  {sessionId, deviceId, previousState?, newState}
- *   * actor:    null — the daemon's liveness watcher OBSERVES the transition;
- *               no one requested it
- */
-function makePresenceEvent(
-  sequence: number,
-  newState: PresenceState,
-  previousState: PresenceState | undefined,
-): AppendableEvent {
-  const type: SessionEventType = `presence.${newState}`;
-  const category = SESSION_EVENT_CATEGORY_BY_TYPE.get(type);
-  if (category === undefined) {
-    throw new Error(
-      `presence event type ${type} is absent from SESSION_EVENT_CATEGORY_BY_TYPE; the emission contract has no canonical category to write`,
-    );
-  }
-  const payload: Record<string, unknown> = {
-    sessionId: EMISSION_SESSION_ID,
-    deviceId: EMISSION_DEVICE_ID,
-    newState,
-  };
-  // `previousState` is OPTIONAL — absent on the very first transition for a
-  // device. Omit the key entirely when undefined (do not write
-  // `previousState: undefined`) so the persisted JSON matches the contract's
-  // `previousState?` optionality.
-  if (previousState !== undefined) {
-    payload["previousState"] = previousState;
-  }
-  return {
-    id: `01J0EVP00NN5J5J5J5J5J5J0${sequence.toString()}`,
-    sessionId: EMISSION_SESSION_ID,
-    sequence,
-    occurredAt: "2026-04-27T12:05:00.000Z",
-    monotonicNs: BigInt(2_000_000_000 + sequence),
-    category,
-    type,
-    actor: null,
-    payload,
-    correlationId: null,
-    causationId: null,
-    version: "1.0",
-  };
-}
-
-describe("durable presence-state-change events round-trip to real session_events rows", () => {
-  // SQLite setup is scoped to THIS block (not module scope) so the Part 1
-  // push-slice tests — which never touch durable storage — do not needlessly
-  // run mkdtempSync + openDatabase (full migration) + close + rmSync.
-  let emissionContext: EmissionContext;
-
-  beforeEach(() => {
-    const tmpDir = mkdtempSync(join(tmpdir(), "ai-sidekicks-presence-test-"));
-    const dbPath = join(tmpDir, "test.db");
-    // Canonical factory — same code path production daemon takes (pragmas +
-    // migrations, in order).
-    const db = openDatabase(dbPath);
-    // Test-only opt-in to the guarded append path — this block seeds presence
-    // rows through it (session-service.test.ts pins the guard itself).
-    emissionContext = {
-      db,
-      service: new SessionService(db, {
-        allowUnsignedPlaceholderAppend: UnsignedPlaceholderAppendToken.forTestsOnly(),
-      }),
-      tmpDir,
-    };
-  });
-
-  afterEach(() => {
-    if (emissionContext.db.open) {
-      emissionContext.db.close();
-    }
-    rmSync(emissionContext.tmpDir, { recursive: true, force: true });
-  });
-
-  it("appends all 4 lifecycle states (online incl. recovery, idle, reconnecting, offline) and reads them back with the canonical category, type, and payload", () => {
-    const { service } = emissionContext;
-
-    // sequence 0 — bootstrap. Then the FULL presence lifecycle, including
-    // BOTH `online`-from-initial-connect (no previousState) AND
-    // `online`-from-recovery (previousState: "reconnecting"). This proves
-    // the emission shape can represent all four states AND that `online`
-    // is reachable as both the initial state and a recovery state — i.e.
-    // it is NOT a degradation-only (online→reconnecting→offline) shape.
-    service.append(makeBootstrapCreatedEvent());
-    service.append(makePresenceEvent(1, "online", undefined)); // initial connect
-    service.append(makePresenceEvent(2, "idle", "online")); // activity → idle
-    service.append(makePresenceEvent(3, "reconnecting", "idle")); // WS drop
-    service.append(makePresenceEvent(4, "offline", "reconnecting")); // grace expired
-    service.append(makePresenceEvent(5, "online", "reconnecting")); // RECOVERY back to online
-
-    const rows = service.readEvents(EMISSION_SESSION_ID);
-
-    // The 5 presence rows (sequences 1-5) all carry the canonical category.
-    const presenceRows = rows.filter((r) => r.sequence >= 1);
-    expect(presenceRows).toHaveLength(5);
-
-    // CRITICAL guard — every presence row carries the category the contracts
-    // package assigns to its own type, and that value survives the SQLite
-    // round-trip unchanged. An emitter that invents a category instead of
-    // looking one up breaks the integrity hash chain rather than failing a
-    // parse, so this is pinned against the registry and never against a
-    // literal. The definedness assertion is what keeps the comparison from
-    // passing vacuously: an unregistered type looks up `undefined`, and a row
-    // that stored no category at all would then match it.
-    for (const row of presenceRows) {
-      const registered = SESSION_EVENT_CATEGORY_BY_TYPE.get(row.type as SessionEventType);
-      expect(registered).toBeDefined();
-      expect(row.category).toBe(registered);
-    }
-
-    // The 4 canonical type strings are all present (online appears twice —
-    // initial + recovery).
-    expect(presenceRows.map((r) => r.type)).toEqual([
-      "presence.online",
-      "presence.idle",
-      "presence.reconnecting",
-      "presence.offline",
-      "presence.online",
-    ]);
-
-    // Payload shape: the initial `online` omits `previousState`; the recovery
-    // `online` carries `previousState: "reconnecting"` and
-    // `newState: "online"`. The subject is the DEVICE — there is no per-person
-    // axis, because every device on a session belongs to the one user.
-    const initialOnline = presenceRows.find((r) => r.sequence === 1);
-    if (initialOnline === undefined) throw new Error("unreachable");
-    expect(initialOnline.payload).toStrictEqual({
-      sessionId: EMISSION_SESSION_ID,
-      deviceId: EMISSION_DEVICE_ID,
-      newState: "online",
-    });
-    // `previousState` key is genuinely ABSENT on the first transition (not
-    // present-with-undefined) — JSON round-trip drops undefined keys, and we
-    // omit it at write time.
-    expect("previousState" in initialOnline.payload).toBe(false);
-
-    const recoveryOnline = presenceRows.find((r) => r.sequence === 5);
-    if (recoveryOnline === undefined) throw new Error("unreachable");
-    expect(recoveryOnline.payload).toStrictEqual({
-      sessionId: EMISSION_SESSION_ID,
-      deviceId: EMISSION_DEVICE_ID,
-      previousState: "reconnecting",
-      newState: "online",
-    });
-
-    // The offline row's payload likewise carries the full transition.
-    const offline = presenceRows.find((r) => r.type === "presence.offline");
-    if (offline === undefined) throw new Error("unreachable");
-    expect(offline.payload["newState"]).toBe("offline");
-    expect(offline.payload["previousState"]).toBe("reconnecting");
-  });
-
-  it("the projector forward-compat-skips presence rows on replay — snapshot is unaffected (no presence data in the projection; replay-safe)", () => {
-    const { service } = emissionContext;
-
-    service.append(makeBootstrapCreatedEvent());
-    service.append(makePresenceEvent(1, "online", undefined));
-    service.append(makePresenceEvent(2, "idle", "online"));
-    service.append(makePresenceEvent(3, "reconnecting", "idle"));
-    service.append(makePresenceEvent(4, "offline", "reconnecting"));
-
-    const snapshot = service.replay(EMISSION_SESSION_ID);
-    expect(snapshot).not.toBeNull();
-    if (snapshot === null) return;
-
-    // Replay consumed every row WITHOUT throwing (the projector's `default`
-    // case forward-compat-skips unknown event types) and advanced
-    // `asOfSequence` to the last presence row.
-    expect(snapshot.asOfSequence).toBe(4);
-
-    // The presence rows contributed NOTHING to the projection — the snapshot
-    // carries only the bootstrap-derived owner and the synthesized main
-    // channel. No device list, no presence state, no extra rows leaked into
-    // the durable projection: presence is ephemeral, and only the
-    // state-change events are durable, and they project to nothing.
-    expect(snapshot.sessionId).toBe(EMISSION_SESSION_ID);
-    expect(snapshot.state).toBe("provisioning");
-    expect(snapshot.ownerActor).toBe(EMISSION_OWNER_ID);
-    // Exactly the synthesized "main" channel — presence events added no
-    // channels.
-    expect(snapshot.channels).toHaveLength(1);
   });
 });

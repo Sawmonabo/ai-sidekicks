@@ -1,4 +1,5 @@
-// +): gate #2 (`ENVIRONMENT === 'development'`) allow-list contract.
+// The control-plane fetch handler's gate #2 (`ENVIRONMENT === 'development'`)
+// allow-list contract.
 //
 // What we verify, end-to-end through `buildControlPlaneFetchHandler`:
 //
@@ -15,13 +16,10 @@
 //        `wrangler secret put CONTROL_PLANE_BOOTSTRAP_ENABLED 1`. The
 //        allow-list closes this path.
 //
-//   T3 — The 'development' row asserts the gate-PASS contract: status
-//        is NOT 503 and the refusal logger is never invoked. The handler
-//        dispatches into `fetchRequestHandler` (tRPC v11). To prove the
-//        gate let traffic through without invoking router-side deps, the
-//        test routes a path tRPC rejects pre-dispatch (unknown procedure
-//        method) — that path crashes the refusal-asserting deps if
-//        reached, so a passing test proves the dispatch happened cleanly.
+//   T3 — The 'development' row asserts the gate-PASS contract: the request
+//        reaches the tRPC router, which answers a GET to the
+//        `eventanchor.upload` mutation with 405 before any procedure runs, and
+//        the refusal logger is never invoked.
 //
 
 import { describe, expect, it } from "vitest";
@@ -41,7 +39,7 @@ async function runGate(env: ControlPlaneEnv): Promise<HarnessResult> {
     requestIdGenerator: () => "req-test-1",
   });
   const response = await handler(
-    new Request("https://control-plane.test/trpc/session.bogus-method"),
+    new Request("https://control-plane.test/trpc/eventanchor.upload"),
     env,
   );
   return {
@@ -96,34 +94,16 @@ describe("T2 / gate #2: dev-environment allow-list refusal table", () => {
 });
 
 describe("T3 / gate #2: handler serves with both gates passing", () => {
-  it("does NOT refuse when CONTROL_PLANE_BOOTSTRAP_ENABLED='1' AND ENVIRONMENT='development'", async () => {
+  it("does NOT refuse when both gates pass", async () => {
     const result = await runGate({
       CONTROL_PLANE_BOOTSTRAP_ENABLED: "1",
       ENVIRONMENT: "development",
     });
-    // The exact status is tRPC's choice for an unknown method
-    // (404 in v11). The contract here is "not 503" — i.e., the gates
-    // let traffic through.
-    expect(result.status).not.toBe(503);
+    // Past both gates the request reaches the tRPC router, which turns away a
+    // GET to a mutation with 405 METHOD_NOT_SUPPORTED: proof the gates let the
+    // request through rather than answering it themselves.
+    expect(result.status).toBe(405);
+    expect(result.body).toContain("METHOD_NOT_SUPPORTED");
     expect(result.logs).toEqual([]);
-  });
-
-  it("dispatches into the tRPC router on a valid path (no router deps invoked yet because procedure lookup precedes deps)", async () => {
-    // Stronger: route to the canonical `/trpc/session.read` with no
-    // parameters and assert the response is a tRPC envelope (4xx) — not a
-    // gate refusal (503) and not a deps-call crash (500 from the throwing
-    // querier). This proves the gate layer + tRPC routing both work end
-    // to end without the router actually executing a handler that would
-    // touch the throwing deps.
-    const logs: string[] = [];
-    const handler = buildControlPlaneFetchHandler(makeRefusalAssertingDeps(), {
-      refusalLogger: (msg) => logs.push(msg),
-    });
-    const response = await handler(new Request("https://control-plane.test/trpc/session.read"), {
-      CONTROL_PLANE_BOOTSTRAP_ENABLED: "1",
-      ENVIRONMENT: "development",
-    });
-    expect(response.status).not.toBe(503);
-    expect(logs).toEqual([]);
   });
 });

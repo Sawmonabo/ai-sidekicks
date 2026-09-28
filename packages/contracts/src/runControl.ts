@@ -24,10 +24,9 @@
 // today. Its one in-package consumer is the `./timeline/` subdirectory (take
 // `RunState` and `RunRolledBackEventSchema` from here), which nothing below
 // imports back. Keep it that way: the shapes below compose
-// `./provider-driver.js`, `./session.js`, `./repo.js`, and the `./node-id.js`
-// leaf, and every one of those is an eager module-scope Zod initializer, so a
-// back-import from any of them would throw `ReferenceError` at import time
-// rather than fail to compile (see the `repo.ts` header for the worked case).
+// `./provider-driver.js`, `./session.js`, and `./repo.js`, and every one of those is an eager
+// module-scope Zod initializer, so a back-import from any of them would throw `ReferenceError` at
+// import time rather than fail to compile (see the `repo.ts` header for the worked case).
 //
 // Request schemas use the double-T `z.ZodType<T, T>` form and response /
 // event schemas the single-T `z.ZodType<T>` form, matching `session.ts`:
@@ -35,7 +34,6 @@
 import { z } from "zod";
 
 import { brandedUuidIdSchema } from "./internal/branded.js";
-import { NodeIdSchema, type NodeId } from "./node-id.js";
 import {
   ArtifactIdSchema,
   DRIVER_FAILURE_DETAIL_MAX_LEN,
@@ -43,23 +41,19 @@ import {
   DRIVER_WIRE_REASON_MAX_LEN,
   DRIVER_WIRE_STEER_ATTACHMENTS_MAX,
   DRIVER_WIRE_STEER_CONTENT_MAX_LEN,
+  InterventionTypeSchema,
   RecoveryConditionSchema,
   RecoverySpanClassificationSchema,
   RunIdSchema,
   type ArtifactId,
   type ExecutionPosture,
+  type InterventionType,
   type RecoveryCondition,
   type RecoverySpanClassification,
   type RunId,
 } from "./provider-driver.js";
 import { WorkspaceIdSchema, type WorkspaceId } from "./repo.js";
-import {
-  ChannelIdSchema,
-  SessionIdSchema,
-  wireFreeFormString,
-  type ChannelId,
-  type SessionId,
-} from "./session.js";
+import { SessionIdSchema, wireFreeFormString, type SessionId } from "./session.js";
 
 // --------------------------------------------------------------------------
 // Branded identifiers
@@ -89,13 +83,15 @@ export const InterventionIdSchema: z.ZodType<InterventionId, InterventionId> =
 // `./internal/branded.ts`). Declaring the honest Input on all four keeps the
 // four consistent instead of splitting them by current call site.
 
-export type QueueItemState = "queued" | "admitted" | "superseded" | "canceled" | "expired";
+/** Where a queued message stands: waiting, sent to the run, replaced, canceled, or never sent. */
+export type QueueItemState = "queued" | "admitted" | "superseded" | "canceled" | "not_delivered";
+/** Validates a {@link QueueItemState}. */
 export const QueueItemStateSchema: z.ZodType<QueueItemState, QueueItemState> = z.enum([
   "queued",
   "admitted",
   "superseded",
   "canceled",
-  "expired",
+  "not_delivered",
 ]);
 
 export type InterventionState =
@@ -167,25 +163,18 @@ const RecordOfUnknownSchema: z.ZodType<Record<string, unknown>, Record<string, u
 // refusal that reads as a conflict.
 const runCounterSchema: z.ZodNumber = z.number().int().nonnegative();
 
-// Filesystem path entries. Three consuming members: the restore result's two
-// never-silent enumerations (`overwrittenIgnoredPaths` / `divergentGitlinks`,
-// recurring across every file-bearing rollback disposition) and the execution
-// posture's `writableRoots` (recurring across all four posture arms).
+// Filesystem path entries: the execution posture's `writableRoots`
+// (recurring across all four posture arms).
 //
 // Deliberately NOT `wireFreeFormString`: that helper rejects whitespace-only
-// values, and a repository entry named with a single space is legal on POSIX,
-// so using it here would turn a real restore into a parse failure. The only
-// guard that CANNOT falsely refuse is applied instead — NUL rejection (no
+// values, and a directory named with a single space is legal on POSIX. The
+// only guard that CANNOT falsely refuse is applied instead — NUL rejection (no
 // filesystem admits a NUL in a path component).
 //
-// Both length and cardinality are deliberately UNBOUNDED. a per-path length
-// ceiling would make a valid extended-length Windows path (\\?\ prefix — no
-// 260/4096 bound) or a deep POSIX tree fail parse, and an array-count cap
-// would refuse a large-but-legitimate restore — either way discarding the
-// only report of overwritten files or divergent gitlinks, which is the one
-// outcome the never-silent mandate forbids. Byte bounds belong to the
-// framework layer's body-size limit, not to a cap that can refuse a
-// truthful result.
+// Length is deliberately UNBOUNDED: a per-path ceiling would make a valid
+// extended-length Windows path (\\?\ prefix — no 260/4096 bound) or a deep
+// POSIX tree fail parse. Byte bounds belong to the framework layer's
+// body-size limit.
 const filesystemPathSchema: z.ZodString = z
   .string()
   .min(1)
@@ -198,7 +187,6 @@ const filesystemPathSchema: z.ZodString = z
 
 export interface QueueItemCreateRequest {
   sessionId: SessionId;
-  channelId?: ChannelId | undefined;
   // Repo-bound run binding (run setup data; absent = non-repo run) — repo-bound
   // audit.
   workspaceId?: WorkspaceId | undefined;
@@ -211,7 +199,6 @@ export const QueueItemCreateRequestSchema: z.ZodType<
 > = z
   .object({
     sessionId: SessionIdSchema,
-    channelId: ChannelIdSchema.optional(),
     workspaceId: WorkspaceIdSchema.optional(),
     // `.int()` mirrors the `queue_items.priority INTEGER NOT NULL DEFAULT 0`
     // column: a float would round on the way into SQLite and silently reorder
@@ -239,13 +226,11 @@ export const QueueItemCreateResponseSchema: z.ZodType<QueueItemCreateResponse> =
 export interface QueueItemListRequest {
   sessionId: SessionId;
   state?: QueueItemState | undefined;
-  channelId?: ChannelId | undefined;
 }
 export const QueueItemListRequestSchema: z.ZodType<QueueItemListRequest, QueueItemListRequest> = z
   .object({
     sessionId: SessionIdSchema,
     state: QueueItemStateSchema.optional(),
-    channelId: ChannelIdSchema.optional(),
   })
   .strict();
 
@@ -253,7 +238,6 @@ export interface QueueItemSummary {
   id: QueueItemId;
   state: QueueItemState;
   priority: number;
-  channelId?: ChannelId | undefined;
   createdAt: string;
   updatedAt: string;
 }
@@ -262,7 +246,6 @@ export const QueueItemSummarySchema: z.ZodType<QueueItemSummary> = z
     id: QueueItemIdSchema,
     state: QueueItemStateSchema,
     priority: z.number().int(),
-    channelId: ChannelIdSchema.optional(),
     createdAt: z.iso.datetime({ offset: true }),
     updatedAt: z.iso.datetime({ offset: true }),
   })
@@ -308,19 +291,8 @@ export const QueueItemCancelResponseSchema: z.ZodType<QueueItemCancelResponse> =
 // replays the recorded outcome. The UUID shape is validated here rather than
 // left to caller discipline because a non-UUID key lands in a durable receipt
 // as an unbounded caller-chosen string.
-//
-// `targetPosition` parses as an integer >= 0 and NOTHING MORE. Whether it
-// names a recorded turn boundary of the target run strictly below that run's
-// current position is a daemon ADMISSION check against durable state (Phase 2
-// / Phase 3), not something a schema can know.
-//
-// `replacementSend` is OPTIONAL and PRESENCE-DISCRIMINATING: presence alone
-// selects the atomic edit-and-resend composite and turns on that composite's
-// four additional structural refusal guards, each of which is likewise an
-// admission concern. `.strict()` is what makes the absence meaningful — an
-// unregistered sibling member fails closed rather than being silently
-// dropped into a bare rollback.
 
+/** A caller's request to steer, interrupt, or cancel a run, one arm per intervention type. */
 export type InterventionRequestPayload =
   | {
       type: "steer";
@@ -353,14 +325,6 @@ export type InterventionRequestPayload =
       expectedRunVersion: number;
       clientIdempotencyKey: string;
       reason?: string | undefined;
-    }
-  | {
-      type: "rollback";
-      targetRunId: RunId;
-      expectedRunVersion: number;
-      clientIdempotencyKey: string;
-      targetPosition: number;
-      replacementSend?: { content: string } | undefined;
     };
 
 export const InterventionRequestPayloadSchema: z.ZodType<
@@ -412,101 +376,28 @@ export const InterventionRequestPayloadSchema: z.ZodType<
       ).optional(),
     })
     .strict(),
-  z
-    .object({
-      type: z.literal("rollback"),
-      targetRunId: RunIdSchema,
-      expectedRunVersion: runCounterSchema,
-      clientIdempotencyKey: z.string().uuid(),
-      targetPosition: runCounterSchema,
-      replacementSend: z
-        .object({
-          // The `steer` arm's `content` vocabulary. No attachment member in
-          // V1: the leg replaces a user `user.message` body and nothing
-          // else, so widening it is a named future amendment rather than an
-          // unregistered field the daemon might silently drop.
-          content: wireFreeFormString(
-            DRIVER_WIRE_STEER_CONTENT_MAX_LEN,
-            "InterventionRequestPayload.replacementSend.content",
-          ),
-        })
-        .strict()
-        .optional(),
-    })
-    .strict(),
 ]);
 
 // --------------------------------------------------------------------------
 // --------------------------------------------------------------------------
 //
-// The disposition class is ENCODED in the arm types: `applied` admits exactly
-// `RollbackAppliedResult` and `degraded` exactly `RollbackDegradedResult`, so
-// a state/disposition mismatch is a parse failure rather than a rendering bug.
-// That mapping is ORTHOGONAL to the rewind grouping — the confirmed-rewind
-// group spans both states.
+// The result shapes a settled rollback reports. The disposition class is
+// ENCODED in the arm types: `applied` admits exactly `RollbackAppliedResult`
+// and `degraded` exactly `RollbackDegradedResult`.
 //
-// `resendDisposition` is a THIRD, separate axis: it names no leg, reports the
-// replacement leg's outcome rather than an earliest-failing one, and rides
-// both terminal classes. It is SCHEMA-OPTIONAL and PRODUCER-OBLIGATED —
-// presence is not expressible as required because no member of a rollback
-// result identifies its request as composite (`replacementSend` is
-// request-side and is never echoed), except on `resend-unapplied`, which is
-// composite-only and therefore REQUIRES it. The VALUE is expressible and is
-// state-determined in V1 (`applied` => "admitted", every `degraded` arm =>
-// "unapplied"), so each class admits only its own literal.
-//
-// ENCODING NOTE. The canonical doc composes these as
-// `RollbackAppliedResult & RollbackAppliedResendOutcome`. The schemas below
-// fold the resend member into each arm instead of composing a Zod
-// intersection, because `.strict()` and `z.intersection` are mutually
-// destructive — each side of an intersection sees the whole input, so two
-// strict halves reject each other's keys and nothing parses. TypeScript
-// distributes `(A | B) & C` to `(A & C) | (B & C)`, so the folded union's
-// output type is the doc's composition exactly, and the `z.ZodType<...>`
-// annotations below are what prove it.
+// `resendDisposition` is a separate axis: it reports the replacement leg's
+// outcome, and each class admits only its own literal (`applied` =>
+// "admitted", `degraded` => "unapplied").
 
+/** What an applied rollback restored: files and the conversation, or the conversation only. */
 export type RollbackAppliedResult =
-  | {
-      disposition: "files-restored";
-      // "never silent"): REQUIRED, empty-when-none — absence is a parse
-      // failure, so a consumer can never mistake absence for none.
-      overwrittenIgnoredPaths: string[];
-      divergentGitlinks: string[];
-    }
+  | { disposition: "files-restored" }
   | { disposition: "conversation-only" };
 
+/** Why a rollback degraded: nothing was applied, or the replacement message was not sent. */
 export type RollbackDegradedResult =
-  | {
-      disposition: "files-partially-restored";
-      failedStep: string;
-      // Same never-silent mandate, covering every effect applied BEFORE the
-      // failure — the failing command's partial writes included. Only a
-      // pre-mutation failure carries both empty.
-      overwrittenIgnoredPaths: string[];
-      divergentGitlinks: string[];
-    }
-  | { disposition: "files-unrestored" }
-  | { disposition: "pause-only" }
   | { disposition: "nothing-applied" }
-  | { disposition: "position-mismatch"; requestedPosition: number; confirmedPosition: number }
-  | {
-      disposition: "boundary-diverged";
-      confirmedPosition: number;
-      // An absent member could not distinguish that from a producer that forgot
-      // to populate it; an explicit `null` states the cause.
-      newestBoundaryPosition: number | null;
-    }
-  | {
-      // Composite-only, and the ONLY disposition that STANDS IN FOR a completed
-      // file leg — its reachability condition is a fully successful rewind — so
-      // it carries `files-restored`'s two enumerations on the same REQUIRED +
-      // empty-when-none contract. Dropping them would silence an overwritten
-      // ignored path in exactly the case where the restore DID mutate the tree.
-      disposition: "resend-unapplied";
-      resendDisposition: "unapplied";
-      overwrittenIgnoredPaths: string[];
-      divergentGitlinks: string[];
-    };
+  | { disposition: "resend-unapplied"; resendDisposition: "unapplied" };
 
 export interface RollbackAppliedResendOutcome {
   resendDisposition?: "admitted" | undefined;
@@ -515,180 +406,18 @@ export interface RollbackDegradedResendOutcome {
   resendDisposition?: "unapplied" | undefined;
 }
 
-export type RollbackInterventionResult =
-  | (RollbackAppliedResult & RollbackAppliedResendOutcome)
-  | (RollbackDegradedResult & RollbackDegradedResendOutcome);
-
-export const RollbackAppliedResultSchema: z.ZodType<
-  RollbackAppliedResult & RollbackAppliedResendOutcome
-> = z.discriminatedUnion("disposition", [
-  z
-    .object({
-      disposition: z.literal("files-restored"),
-      overwrittenIgnoredPaths: z.array(filesystemPathSchema),
-      divergentGitlinks: z.array(filesystemPathSchema),
-      resendDisposition: z.literal("admitted").optional(),
-    })
-    .strict(),
-  z
-    .object({
-      disposition: z.literal("conversation-only"),
-      resendDisposition: z.literal("admitted").optional(),
-    })
-    .strict(),
-]);
-
-export const RollbackDegradedResultSchema: z.ZodType<
-  RollbackDegradedResult & RollbackDegradedResendOutcome
-> = z.discriminatedUnion("disposition", [
-  z
-    .object({
-      disposition: z.literal("files-partially-restored"),
-      failedStep: wireFreeFormString(
-        DRIVER_WIRE_REASON_MAX_LEN,
-        "RollbackDegradedResult.failedStep",
-      ),
-      overwrittenIgnoredPaths: z.array(filesystemPathSchema),
-      divergentGitlinks: z.array(filesystemPathSchema),
-      resendDisposition: z.literal("unapplied").optional(),
-    })
-    .strict(),
-  z
-    .object({
-      disposition: z.literal("files-unrestored"),
-      resendDisposition: z.literal("unapplied").optional(),
-    })
-    .strict(),
-  z
-    .object({
-      disposition: z.literal("pause-only"),
-      resendDisposition: z.literal("unapplied").optional(),
-    })
-    .strict(),
-  z
-    .object({
-      disposition: z.literal("nothing-applied"),
-      resendDisposition: z.literal("unapplied").optional(),
-    })
-    .strict(),
-  z
-    .object({
-      disposition: z.literal("position-mismatch"),
-      requestedPosition: runCounterSchema,
-      confirmedPosition: runCounterSchema,
-      resendDisposition: z.literal("unapplied").optional(),
-    })
-    .strict(),
-  z
-    .object({
-      disposition: z.literal("boundary-diverged"),
-      confirmedPosition: runCounterSchema,
-      newestBoundaryPosition: runCounterSchema.nullable(),
-      resendDisposition: z.literal("unapplied").optional(),
-    })
-    .strict(),
-  z
-    .object({
-      disposition: z.literal("resend-unapplied"),
-      resendDisposition: z.literal("unapplied"),
-      overwrittenIgnoredPaths: z.array(filesystemPathSchema),
-      divergentGitlinks: z.array(filesystemPathSchema),
-    })
-    .strict(),
-]);
-
-export const RollbackInterventionResultSchema: z.ZodType<RollbackInterventionResult> = z.union([
-  RollbackAppliedResultSchema,
-  RollbackDegradedResultSchema,
-]);
-
 // --------------------------------------------------------------------------
 // --------------------------------------------------------------------------
-//
-// Discriminated on `interventionType` so `result` parses STRICTLY per type: a
-// malformed rollback result FAILS validation instead of falling through a
-// permissive generic arm. The rollback arm is additionally split by lifecycle
-// state, so a disposition-less terminal response fails parse and so does a
-// state/disposition mismatch (`applied` + `files-unrestored` would otherwise
-// exit-map 0 while rendering a failed restore, since the CLI derives the POSIX
-// code from `state`).
 //
 // `rejectionReason` is a machine-readable cause carried on a `rejected`
-// OUTCOME — a normal response, NOT a JSON-RPC transport error. It is REQUIRED
-// on the rollback `rejected` arm (every refusal family there carries its cause
-// and the daemon persists all of them) and optional on the base for the
-// remaining states and non-rollback types.
+// OUTCOME — a normal response, NOT a JSON-RPC transport error.
 //
-// `rejectionGuard` names WHICH of the atomic edit-and-resend composite's four
-// structural refusal guards refused, when one of them did. It is NOT a typed
-// restatement of prose: `rejectionReason` is a machine-readable cause (above)
-// and never a sentence — the shipped console renders it verbatim in its refusal
-// CODE slot, which is "never prose, never localized, never reworded between the
-// producer and the screen"
-// (`apps/desktop/src/renderer/src/console/core/refusal.ts`). What that member is
-// NOT is a CLOSED VOCABULARY: so no contract anywhere enumerates the causes a
-// rollback `rejected` may carry, and the `wireFreeFormString` below bounds
-// length / whitespace / NUL at the trust boundary rather than fixing a value
-// set. A client can therefore SHOW the cause and cannot SWITCH on it: a refusal
-// family added later carries a new identifier that every exhaustive read falls
-// through, silently and at no compile-time cost. This member is the closed union
-// that closes exactly that gap for the four guards — the shape `refusal.ts`
-// already prescribes, where each producer "keeps its own closed code union and
-// widens into this shape at its boundary" — so a fifth guard breaks compilation
-// at every exhaustive reader and a per-guard remedy render is total by
-// construction rather than by care. The four literals are the guard names of
-// kebab-cased with the leading article dropped, so each names the condition the
-// guard requires rather than a restatement of the failure.
-//
-// Only the composite raises these guards, and only a `rollback` request can be a
-// composite, so the member is declared on the rollback `rejected` arm alone —
-// `.strict()` then REFUSES it on a steer / interrupt / cancel rejection and on
-// every non-`rejected` state, instead of a base-level optional that would parse
-// a guard on an arm that can never raise one. Within that arm it is
-// additive-OPTIONAL and PRODUCER-OBLIGATED, the `resendDisposition` shape: no
-// member of a `rejected` response identifies its request as composite
-// (`replacementSend` is request-side and the response does not echo it), so
-// requiredness is not expressible at the strict-parse boundary. The daemon's
-// tested obligation is that a refusal raised by one of the four guards always
-// populates it and every other refusal family never does — the EIGHT `Queue And
-// Intervention Model ` admits for a rollback: the capability gate,
-// authorization, the target-position domain check, the compaction-boundary
-// classification, an incompatible target run state restore precondition, the
-// uncompacted-rewind-span intersection, and execution-root `busy`. The
-// obligation is asserted by the composite's settlement tests, whose negative
-// control runs all eight.
-//
-// REPLAY-DURABLE, AND NOT DERIVABLE FROM ITS SIBLING. A `rejected` response
-// carries no `result` (the state-split arm below declares `result?: never`), so
-// an idempotent replay of the same `clientIdempotencyKey` reconstructs the whole
-// response from the durable intervention row — which is why `rejectionReason`
-// has a column of its own. The guard literal cannot be recovered from that
-// sibling: its vocabulary is open and unenumerated (above), so reading a literal
-// back out of it would be a match against a value set no contract publishes —
-// exactly what this member exists to abolish. The daemon
-// therefore persists the literal beside the sentence (`interventions`
-// `rejection_guard`, additive nullable, its column-attached CHECK closing the
-// same four literals and binding them to the rollback `rejected` arm this member
-// is scoped to), and a replay returns a value EQUAL to the recorded one across a
-// daemon restart — never omitted, and never re-derived by re-evaluating the
-// guards against a run that has since moved on.
-//
-// ADDITIVE-OPTIONAL UNDER THE EXISTING PROTOCOL VERSION. The arm shipped before
-// this member, so the additive-only rule for already-published shapes binds — and
-// a new optional member is inside what that rule admits and outside everything it
-// forbids (no rename, no type change, no semantic change, no new required field,
-// no new required semantic invariant). It rides `2026-05-01` and mints no
-// revision, as every additive member added to this file since that ratification
-// has — Queue Steer Pause Resume for the rule and the precedent list.
+// `RollbackCompositeRejectionGuard` names the edit-and-resend composite's
+// structural refusal guard. It is a closed union so a new guard breaks
+// compilation at every exhaustive reader.
 
-export type RollbackCompositeRejectionGuard =
-  | "no-active-turn"
-  | "no-pending-send"
-  | "user-authored-target"
-  | "resumable-target";
-
-export const RollbackCompositeRejectionGuardSchema: z.ZodType<RollbackCompositeRejectionGuard> =
-  z.enum(["no-active-turn", "no-pending-send", "user-authored-target", "resumable-target"]);
+/** The guard that refuses an edit-and-resend rollback before anything is applied. */
+export type RollbackCompositeRejectionGuard = "user-authored-target";
 
 export interface InterventionResponseBase {
   interventionId: InterventionId;
@@ -702,115 +431,26 @@ export interface InterventionResponseBase {
   rejectionReason?: string | undefined;
 }
 
-export type InterventionRequestResponse =
-  | (InterventionResponseBase & {
-      interventionType: "rollback";
-      state: "applied";
-      result: RollbackAppliedResult & RollbackAppliedResendOutcome;
-      // The guard is the `rejected` arm's alone. Declared `?: never` on every
-      // other arm for the same reason `result?: never` is below: structural
-      // assignability lets a producer-side variable carry a stray member that
-      // compiles and then fails the client's strict parse. `runControl.test-d.ts`
-      // pins this at compile time off a non-fresh variable.
-      rejectionGuard?: never;
-    })
-  | (InterventionResponseBase & {
-      interventionType: "rollback";
-      state: "degraded";
-      result: RollbackDegradedResult & RollbackDegradedResendOutcome;
-      rejectionGuard?: never;
-    })
-  | (InterventionResponseBase & {
-      interventionType: "rollback";
-      state: "rejected";
-      rejectionReason: string;
-      // Present exactly when one of the composite's four structural refusal
-      // guards refused; absent on every other refusal family (see the block
-      // above the base interface).
-      rejectionGuard?: RollbackCompositeRejectionGuard | undefined;
-      // The doc declares `result?: never` on this arm. Without it, structural
-      // assignability lets a producer-side variable carry a stray `result`
-      // that compiles and then fails the strict runtime parse.
-      result?: never;
-    })
-  | (InterventionResponseBase & {
-      interventionType: "rollback";
-      state: "requested" | "accepted" | "expired";
-      result?: never;
-      rejectionGuard?: never;
-    })
-  | (InterventionResponseBase & {
-      interventionType: "steer" | "interrupt" | "cancel";
-      result?: Record<string, unknown> | undefined;
-      // Only a rollback request can be a composite.
-      rejectionGuard?: never;
-    });
+/** The daemon's answer to an intervention request: its state, the run version, any result. */
+export type InterventionRequestResponse = InterventionResponseBase & {
+  interventionType: InterventionType;
+  result?: Record<string, unknown> | undefined;
+};
 
-// The base members every arm carries. Spread rather than composed through
-// `z.intersection` for the reason recorded on the rollback results above:
-// `.strict()` and intersection cannot both hold.
-const interventionResponseBaseShape = {
-  interventionId: InterventionIdSchema,
-  runVersion: runCounterSchema,
-  rejectionReason: wireFreeFormString(
-    DRIVER_WIRE_HANDLE_MAX_LEN,
-    "InterventionResponseBase.rejectionReason",
-  ).optional(),
-} as const;
-
-// The non-disposition states (`requested` / `accepted` / `expired`) and the
-// `rejected` arm carry the doc's `result?: never` in the exported type, and
-// every arm but `rejected` carries `rejectionGuard?: never` (so a stray member
-// fails at compile time), while `.strict()` is what turns either into a parse
-// refusal at runtime.
-export const InterventionRequestResponseSchema: z.ZodType<InterventionRequestResponse> =
-  z.discriminatedUnion("interventionType", [
-    z.discriminatedUnion("state", [
-      z
-        .object({
-          ...interventionResponseBaseShape,
-          interventionType: z.literal("rollback"),
-          state: z.literal("applied"),
-          result: RollbackAppliedResultSchema,
-        })
-        .strict(),
-      z
-        .object({
-          ...interventionResponseBaseShape,
-          interventionType: z.literal("rollback"),
-          state: z.literal("degraded"),
-          result: RollbackDegradedResultSchema,
-        })
-        .strict(),
-      z
-        .object({
-          ...interventionResponseBaseShape,
-          interventionType: z.literal("rollback"),
-          state: z.literal("rejected"),
-          rejectionReason: wireFreeFormString(
-            DRIVER_WIRE_HANDLE_MAX_LEN,
-            "InterventionResponseBase.rejectionReason",
-          ),
-          rejectionGuard: RollbackCompositeRejectionGuardSchema.optional(),
-        })
-        .strict(),
-      z
-        .object({
-          ...interventionResponseBaseShape,
-          interventionType: z.literal("rollback"),
-          state: z.enum(["requested", "accepted", "expired"]),
-        })
-        .strict(),
-    ]),
-    z
-      .object({
-        ...interventionResponseBaseShape,
-        interventionType: z.enum(["steer", "interrupt", "cancel"]),
-        state: InterventionStateSchema,
-        result: RecordOfUnknownSchema.optional(),
-      })
-      .strict(),
-  ]);
+/** Validates an {@link InterventionRequestResponse}; closed to unknown keys. */
+export const InterventionRequestResponseSchema: z.ZodType<InterventionRequestResponse> = z
+  .object({
+    interventionId: InterventionIdSchema,
+    runVersion: runCounterSchema,
+    rejectionReason: wireFreeFormString(
+      DRIVER_WIRE_HANDLE_MAX_LEN,
+      "InterventionResponseBase.rejectionReason",
+    ).optional(),
+    interventionType: InterventionTypeSchema,
+    state: InterventionStateSchema,
+    result: RecordOfUnknownSchema.optional(),
+  })
+  .strict();
 
 // --------------------------------------------------------------------------
 // --------------------------------------------------------------------------
@@ -828,8 +468,8 @@ export const InterventionRequestResponseSchema: z.ZodType<InterventionRequestRes
 // asymmetry is exactly why the two recovery vocabularies are single-sourced
 // upstream instead of annotated here.
 //
-// THREE MEMBERS OF THE CANONICAL SHAPE ARE DELIBERATELY OMITTED: `agentId`,
-// `linkType`, and `effectiveRunConfig`.
+// TWO MEMBERS OF THE CANONICAL SHAPE ARE DELIBERATELY OMITTED: `agentId` and
+// `effectiveRunConfig`.
 //
 // The consequence is deliberate and must be understood before lands:
 // `.strict()` means a producer emitting `agentId` FAILS PARSE.
@@ -906,6 +546,7 @@ const executionPostureSchema: z.ZodType<ExecutionPosture> = z.union([
 // (`RunStateSubscribeRequest`), not repeated per event, and the canonical
 // wire member is `currentState`. The durable payload is NOT expected to
 // validate through this schema.
+/** One run state transition as `run.subscribeState` delivers it, with its new run version. */
 export interface RunStateChangeEvent {
   runId: RunId;
   // Run-progression counter: the optimistic-concurrency comparand clients
@@ -918,7 +559,6 @@ export interface RunStateChangeEvent {
   failureCategory?: RunFailureCategory | undefined;
   recoveryCondition?: RecoveryCondition | undefined;
   recoverySpanClassification?: RecoverySpanClassification | undefined;
-  healthSignal?: "stuck-suspected" | undefined;
   // Two producers, one field: free-form prose from the resume-failure
   // producer, and one fixed `<registered code> origin=<arm>` form from the
   // outbound-frame neutralization tripwire. A consumer reads the cause as the
@@ -938,12 +578,10 @@ export interface RunStateChangeEvent {
     | "turn_limit"
     | "budget_exhausted"
     | "idle_timeout"
-    | "moderation_denied"
     | "workflow_phase_cancelled"
     | undefined;
   parentRunId?: RunId | undefined;
   internalHelper?: boolean | undefined;
-  producingNodeId?: NodeId | undefined;
   // Path-independent admission stamps — NOT part of the orchestration linkage
   // block: `run.queued` carries these for EVERY provider run, whichever
   // admission path created it. Never client-suppliable.
@@ -961,7 +599,6 @@ export const RunStateChangeEventSchema: z.ZodType<RunStateChangeEvent> = z
     failureCategory: RunFailureCategorySchema.optional(),
     recoveryCondition: RecoveryConditionSchema.optional(),
     recoverySpanClassification: RecoverySpanClassificationSchema.optional(),
-    healthSignal: z.literal("stuck-suspected").optional(),
     providerFailureDetail: wireFreeFormString(
       DRIVER_FAILURE_DETAIL_MAX_LEN,
       "RunStateChangeEvent.providerFailureDetail",
@@ -970,17 +607,10 @@ export const RunStateChangeEventSchema: z.ZodType<RunStateChangeEvent> = z
     intendedClose: z.literal(true).optional(),
     executionPosture: executionPostureSchema.optional(),
     trigger: z
-      .enum([
-        "turn_limit",
-        "budget_exhausted",
-        "idle_timeout",
-        "moderation_denied",
-        "workflow_phase_cancelled",
-      ])
+      .enum(["turn_limit", "budget_exhausted", "idle_timeout", "workflow_phase_cancelled"])
       .optional(),
     parentRunId: RunIdSchema.optional(),
     internalHelper: z.boolean().optional(),
-    producingNodeId: NodeIdSchema.optional(),
     admittedUnpricedCapCents: z.number().int().nonnegative().optional(),
     admittedModelFamily: wireFreeFormString(
       DRIVER_WIRE_HANDLE_MAX_LEN,
@@ -1013,6 +643,7 @@ export const RunStateChangeEventSchema: z.ZodType<RunStateChangeEvent> = z
 // payload.runId`, `sessionId === payload.sessionId`, and `position ===
 // payload.targetPosition`, so outer attribution and payload cannot disagree.
 
+/** A run rewound to an earlier turn boundary, carried on `run.subscribeState`. */
 export interface RunRolledBackEvent {
   sessionId: SessionId;
   runId: RunId;
@@ -1020,7 +651,6 @@ export interface RunRolledBackEvent {
   // it. The rewind records no transition of its own, so this event is what
   // keeps a `run.subscribeState` subscriber from being blind to it.
   runVersion: number;
-  channelId?: ChannelId | undefined;
   // The turn-boundary rewind anchor the run LANDED at (normalized session
   // position). Equal to the request's `targetPosition` on the confirmed path;
   // a confirmed-floor mismatch degrade records the driver-confirmed landing
@@ -1033,7 +663,6 @@ export const RunRolledBackEventSchema: z.ZodType<RunRolledBackEvent> = z
     sessionId: SessionIdSchema,
     runId: RunIdSchema,
     runVersion: runCounterSchema,
-    channelId: ChannelIdSchema.optional(),
     targetPosition: runCounterSchema,
   })
   .strict();
@@ -1044,7 +673,7 @@ export const RunRolledBackEventSchema: z.ZodType<RunRolledBackEvent> = z
 //
 // `pause` and `resume` are SEPARATE REQUEST TYPES, not `InterventionType`
 // members: they are orchestration-layer verbs and hold no membership in `steer
-// | interrupt | cancel | rollback` by design, so the client needs a typed
+// | interrupt | cancel` by design, so the client needs a typed
 // trigger distinct from `applyIntervention`. Both carry the MANDATORY
 // `expectedRunVersion` guard with the same fail-closed semantics as
 // `InterventionRequestPayload` — as deliberately extended to these two verbs,
@@ -1104,14 +733,10 @@ export const RunControlAckSchema: z.ZodType<RunControlAck> = z
 // second, weaker scope over an authorization decision the session already
 // settles.
 //
-// NO replay-cursor member, unlike `SessionSubscribeRequest`: that shape
-// declares `afterCursor` / `lastEventId` because it is ALSO served over
-// tRPC's HTTP/SSE transport, whose fetch adapter injects a reconnect's
-// `Last-Event-ID` header into the input object BEFORE Zod validation, where
-// a strict shape lacking the member would throw on every resumption. The
-// `run.*` namespace is local-IPC JSON-RPC — the posture
+// NO replay-cursor member, unlike `SessionSubscribeRequest`'s `afterCursor`:
+// the `run.*` namespace is local-IPC JSON-RPC — the posture
 // `PresenceSubscribeRequest` records for itself — so the absence here is a
-// decision, and adding cursors is a doc edit first.
+// decision, and adding a cursor is a doc edit first.
 //
 // Structurally identical today and DISTINCT types on purpose: the doc
 // registers two, and separate types let either surface gain a member later

@@ -106,7 +106,7 @@
 //     read, for the reuse cleanliness verdict.
 //
 // No `checkout`, no `switch`, no `branch`, no `merge`, no `reset`, no `stash`.
-// The `branch`-mode counterpart of this invariant — verify the checkout's
+// The `bound-root` counterpart of this invariant — verify the checkout's
 // current branch, never switch it — is carried by
 // `WorkspaceBranchMismatchError` on the path that owns that mode.
 //
@@ -271,7 +271,7 @@ export interface WorktreeGitInvocationResult {
 }
 
 /** Per-invocation bounds. */
-export interface WorktreeGitInvocationOptions {
+interface WorktreeGitInvocationOptions {
   /** Wall-clock ceiling; the child is killed past it. */
   readonly timeoutMs: number;
 }
@@ -1028,10 +1028,9 @@ export class WorktreeService {
     // load-bearing removal must still run, which is the whole argument for the
     // LEFT join — so the arm is defense in depth rather than a live case.
     //
-    // The busy-holder deferral is the same one interpolates into every clone
-    // sweep, keyed on `fs_root` rather than on a binding row: `worktrees` has
-    // no workspace column, and the compensation can delete a `branch_contexts`
-    // row while the root stays live, so the path is the one link that cannot be
+    // The busy-holder deferral is keyed on `fs_root` rather than on a binding
+    // row: `worktrees` has no workspace column, and the compensation can delete
+    // a `branch_contexts` row while the root stays live, so the path is the one link that cannot be
     // severed out from under this read. The retire-time probe does NOT cover
     // this window — it decides at the retirement instant, and a workspace still
     // pointing at the root can be marked busy AFTERWARD (the `markBusy`
@@ -1198,10 +1197,9 @@ export class WorktreeService {
       //
       // `#markFailedStmt`'s `state = 'creating'` predicate matches here because
       // a rejected append committed nothing: the prelude's `-> ready` write and
-      // the event row share one transaction, and the only post-commit work the
-      // append path does is an `event.shredded` callback this type never
-      // reaches. Re-throws the ORIGINAL failure, so the caller still learns why
-      // provisioning failed rather than what the recovery did about it.
+      // the event row share one transaction. Re-throws the ORIGINAL failure,
+      // so the caller still learns why provisioning failed rather than what the
+      // recovery did about it.
       //
       await this.#recordCreateFailure({
         worktreeId,
@@ -1372,10 +1370,6 @@ export class WorktreeService {
    *       administrative entry is pruned from the repository, and only then is
    *       the row stamped.
    *
-   * The ephemeral-clone legs (TTL expiry and `on_run_complete` disposal) are NOT
-   * here: they operate on `ephemeral_clones`, which owns, and a sweep that
-   * reached into another task's table would give that table two writers.
-   *
    * (c) runs before (d) within a pass, so a cascade-retired root is cleaned in
    * the same tick rather than waiting for the next one.
    *
@@ -1415,10 +1409,7 @@ export class WorktreeService {
       // offers no claim column and forbids stamping before removing, so that
       // residual window is owned by the Phase-3 run-setup gate, whose
       // root-keyed busy probe (recorded at the plan's Phase 3 Goal) refuses
-      // the hold before a run adopts a retired root. The clone sweep needs no
-      // twin: its leg (d) disposes the workspace to `provisioning` — a state
-      // `markBusy` cannot claim — before it removes, and skips on a busy
-      // refusal.
+      // the hold before a run adopts a retired root.
       if (this.#selectBusyHolderStmt.get({ worktree_id: row.id }) !== undefined) {
         continue;
       }

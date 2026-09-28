@@ -1,6 +1,6 @@
 // Trust-envelope containment validator — the single place a `WorkspaceBind`
-// request's execution root is proven to sit inside the session's declared
-// local trust envelope before Phase 2 persists it as `workspaces.fs_root`.
+// request's execution root is proven to sit inside the local trust envelope:
+// the canonical roots of the repo mounts attached on this machine.
 //
 //   * "The system must reject path traversal or workspace binding outside the
 //     declared local trust envelope."
@@ -18,38 +18,36 @@
 // from `WorkspaceBind` and from nowhere else.
 //
 // Daemon-PROVISIONED roots are outside its remit for a different reason. The
-// same spec section admits worktrees and ephemeral clones under the daemon's
+// same spec section admits worktrees under the daemon's
 // execution-roots directory BY PROVENANCE — daemon-created derivatives of an
 // admitted mount, never user-supplied paths — so the containment rule governs
 // user-supplied bind paths only. Those roots sit outside the mount canonical
 // root, so applying this validator defensively at the
 // `completeReprovision(workspaceId, fsRoot)` seam would refuse every worktree
-// and ephemeral-clone root it provisions.
+// root it provisions.
 //
 // Two layers, because the containment invariant has two clauses
 // --------------------------------------------------------------------------
-// The invariant reads "within the canonical root of a repo mount attached to
-// THE SAME SESSION". Both halves are checked, in order:
+// The invariant reads "within the canonical root of a repo mount attached on
+// this machine". Both halves are checked, in order:
 //
-//   1. ADMISSION — `mountCanonicalRoot` must itself BE one of
-//      `sessionEnvelopeRoots`. The envelope IS the set of attached canonical
-//      roots (spec line: "the set of fully resolved canonical roots of its
-//      attached repo mounts"), so membership is component EQUALITY, not
-//      containment. This is what makes "attached to the same session"
-//      structural rather than an assertion the caller makes about itself: a
-//      mount id belonging to another session, or to a `detached` row, produces
-//      an anchor the session's envelope does not contain, and the bind is
+//   1. ADMISSION checks that the anchor is one of the attached roots:
+//      `mountCanonicalRoot` must itself BE one of `attachedMountRoots`. The
+//      envelope IS the set of attached canonical roots, so membership is
+//      component EQUALITY, not containment. That makes "attached" structural
+//      rather than an assertion the caller makes about itself: a `detached`
+//      mount produces an anchor no attached root matches, and the bind is
 //      refused before the filesystem is touched.
-//   2. CONTAINMENT — the resolved candidate must be inside that one anchor,
-//      NOT merely inside some member of the envelope. `WorkspaceBind` is
-//      mount-scoped (mount-first), and the spec resolves `directory` against
-//      "the mount's canonical root" and rejects escape "outside the MOUNT
-//      root". So `directory: "../other-mount/sub"` is refused even when
-//      `other-mount` is itself attached to the same session and the result
-//      would satisfy the looser envelope-wide reading.
+//   2. CONTAINMENT is what confines a bind to its mount: the resolved
+//      candidate must be inside that one anchor, NOT merely inside some member
+//      of the envelope. `WorkspaceBind` is mount-scoped, resolves `directory`
+//      against the mount's canonical root, and rejects escape outside the
+//      MOUNT root. So `directory: "../other-mount/sub"` is refused even when
+//      `other-mount` is itself attached and the result would satisfy the
+//      looser envelope-wide reading.
 //
 // Layer 2 implies layer 1 by transitivity, so the accepted root is inside both
-// the named mount and the session envelope.
+// the named mount and the envelope.
 //
 // ORDER IS LOAD-BEARING: resolve, THEN contain
 // --------------------------------------------------------------------------
@@ -149,10 +147,8 @@
 // ORDER IS LOAD-BEARING section exists to refuse. Both suites pin the default by
 // identity, and pin the casing behavior behind a filesystem probe.
 //
-// Nothing needs migrating. Phase 1 persists no rows at all, so no stored
-// `canonical_root` carries operator-supplied casing for a later phase to
-// reconcile; Phase 2 begins writing values that are on-disk-spelled by
-// construction.
+// Every stored `canonical_root` is on-disk-spelled by construction, so no row
+// carries operator-supplied casing to reconcile.
 //
 // Failure is uniform, and one residual comes with it
 // --------------------------------------------------------------------------
@@ -222,10 +218,9 @@ import { TrustEnvelopeViolationError } from "./repo-errors.js";
 /**
  * One `WorkspaceBind` execution-root candidate, expressed entirely as strings.
  *
- * The validator performs no session or mount lookups of its own: it is handed
- * the roots the caller has already read, which keeps the security boundary
- * unit-testable without a database and keeps this module free of Phase 2
- * persistence concerns.
+ * The validator performs no mount lookups of its own: it is handed the roots
+ * the caller has already read, which keeps the security boundary unit-testable
+ * without a database and keeps this module free of persistence concerns.
  */
 export interface WorkspaceExecutionRootCandidate {
   /**
@@ -247,13 +242,13 @@ export interface WorkspaceExecutionRootCandidate {
    */
   readonly directory?: string | undefined;
   /**
-   * The session's declared trust envelope: the canonical roots of every repo
-   * mount currently attached to the session the bind targets.
+   * The trust envelope: the canonical roots of every repo mount currently
+   * attached on this machine.
    *
    * `mountCanonicalRoot` must appear here — that membership is what proves the
-   * anchor belongs to this session. An empty envelope admits nothing.
+   * anchor is an attached mount. An empty envelope admits nothing.
    */
-  readonly sessionEnvelopeRoots: readonly string[];
+  readonly attachedMountRoots: readonly string[];
 }
 
 // --------------------------------------------------------------------------
@@ -322,10 +317,10 @@ export type PathRealpathResolver = (path: string) => Promise<string>;
  * Imported by `./repo-root-resolver.js` rather than re-declared there; the
  * preamble above says why the declaration sits on this side. That module drives
  * the seam under TWO readings — its `finish` classifies a rejection into a
- * resolution failure, while its plain-directory arm probes `<input>/.git` and
- * reads `ENOENT` as absence-evidence with SUCCESS as a refusal. A stub written
- * for one will mislead the other; see the resolver's `probeDirectoryReadable`
- * member for both.
+ * resolution failure, while its not-a-repository arm probes `<input>/.git` and
+ * reads `ENOENT` as absence and SUCCESS as presence. A stub written for one
+ * will mislead the other; see the resolver's `probeDirectoryReadable` member
+ * for both.
  */
 export type DirectoryReadabilityProbe = (path: string) => Promise<void>;
 
@@ -586,8 +581,8 @@ export function componentsEqual(left: readonly string[], right: readonly string[
 // --------------------------------------------------------------------------
 
 /**
- * Proves a `WorkspaceBind` execution root is inside the session's declared
- * local trust envelope, or refuses the bind.
+ * Proves a `WorkspaceBind` execution root is inside the local trust envelope,
+ * or refuses the bind.
  *
  * Stateless and safe to share. Nothing is cached: an envelope verdict is a
  * statement about the filesystem at one instant, and a remembered one would
@@ -601,13 +596,14 @@ export class TrustEnvelopeValidator {
   }
 
   /**
-   * Resolve and validate one bind candidate, returning the execution root to
-   * persist as `workspaces.fs_root`.
+   * Resolve and validate one bind candidate, returning the resolved root.
    *
    * The returned root is symlink-resolved and proven contained within
-   * `mountCanonicalRoot`, which is itself proven to be one of the session's
-   * attached canonical roots. Callers use this value verbatim; re-deriving a
-   * root from the request's `directory` discards the guarantee (header).
+   * `mountCanonicalRoot`, which is itself proven to be one of the attached
+   * canonical roots. The bind path calls this only to refuse an out-of-envelope
+   * directory and discards the root; a caller that keeps a root must keep this
+   * value, because re-deriving one from the request's `directory` discards the
+   * guarantee (header).
    *
    * @throws {TrustEnvelopeViolationError} on every refusal — a foreign or
    *   malformed anchor, an escape by traversal, symlink, or absolute
@@ -626,16 +622,16 @@ export class TrustEnvelopeValidator {
       throw new TrustEnvelopeViolationError();
     }
 
-    // Step 2 — admission. The anchor must BE one of the session's attached
-    // canonical roots; see the header on why this is equality and why it runs
-    // before the filesystem is touched.
+    // Step 2 — admission. The anchor must BE one of the attached canonical
+    // roots; see the header on why this is equality and why it runs before the
+    // filesystem is touched.
     const anchorComponents = toComparableComponents(anchor, platformPath);
-    const anchorIsAttachedToSession = candidate.sessionEnvelopeRoots.some(
+    const anchorIsAttachedMountRoot = candidate.attachedMountRoots.some(
       (envelopeRoot) =>
         platformPath.isAbsolute(envelopeRoot) &&
         componentsEqual(toComparableComponents(envelopeRoot, platformPath), anchorComponents),
     );
-    if (!anchorIsAttachedToSession) {
+    if (!anchorIsAttachedMountRoot) {
       throw new TrustEnvelopeViolationError();
     }
 

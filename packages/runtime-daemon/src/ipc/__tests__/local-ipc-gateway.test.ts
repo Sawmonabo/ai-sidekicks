@@ -10,12 +10,6 @@
 //                   (it.skipIf(process.platform !== "win32"); the
 //                   OS-local socket in vitest CI is Linux per the
 //                   matrix).
-//   * Transport: gated loopback fallback.
-//                   The `transport.unavailable` envelope code surface
-//                   does not exist at the gateway layer today —
-//                   `SecureDefaults.load` refuses non-loopback at
-//                   config-time with `invalid_bind_address`, so the
-//                   case is `it.todo` until that gate moves.
 //   * 1MB max-message-size enforcement.
 //                   Body > 1MB → connection close + `-32600` error frame. The
 //                   mapping is wired in `jsonrpc-error-mapping.ts`
@@ -341,7 +335,6 @@ describe("Unix domain socket round-trip", () => {
   it("binds, accepts a connection, dispatches a request, and returns the typed result", async () => {
     const socketPath = ephemeralSocketPath("t2");
     bootstrap({
-      bindAddress: "127.0.0.1",
       localIpcPath: socketPath,
       bannerFormat: "text",
     });
@@ -410,7 +403,6 @@ describe("Windows named pipe round-trip", () => {
     async () => {
       const pipeName = `\\\\?\\pipe\\aisk-test-t3-${Math.random().toString(36).slice(2, 10)}`;
       bootstrap({
-        bindAddress: "127.0.0.1",
         localIpcPath: pipeName,
         bannerFormat: "text",
       });
@@ -461,23 +453,6 @@ describe("Windows named pipe round-trip", () => {
 });
 
 // ----------------------------------------------------------------------------
-// Gated loopback fallback (conservative gate)
-// ----------------------------------------------------------------------------
-//
-// Attempting a non-loopback bind path must fail with the
-// `transport.unavailable` wire envelope. Marked `it.todo` because that
-// surface does not exist at the gateway layer yet. The two-layer envelope
-// mapping itself already exists, so when the gateway-time gate lands the
-// assertion will project through `mapJsonRpcError` exactly like the
-// `unknown_setting` envelope test in `secure-defaults.test.ts`.
-
-describe("gated loopback fallback", () => {
-  it.todo(
-    "non-loopback bind attempt fails at the gateway with `transport.unavailable` envelope (surface deferred until the gate fires at gateway-time rather than config-time)",
-  );
-});
-
-// ----------------------------------------------------------------------------
 // 1MB max-message-size enforcement
 // ----------------------------------------------------------------------------
 //
@@ -491,7 +466,6 @@ describe("1MB max-message-size enforcement", () => {
   it("oversized body → connection close + `-32600` InvalidRequest error frame; reconnect succeeds", async () => {
     const socketPath = ephemeralSocketPath("t5");
     bootstrap({
-      bindAddress: "127.0.0.1",
       localIpcPath: socketPath,
       bannerFormat: "text",
     });
@@ -618,7 +592,6 @@ describe("handler-thrown error mapping", () => {
   it("unhandled handler exception → `-32603` with sanitized message; no path/stack leak", async () => {
     const socketPath = ephemeralSocketPath("t10");
     bootstrap({
-      bindAddress: "127.0.0.1",
       localIpcPath: socketPath,
       bannerFormat: "text",
     });
@@ -700,7 +673,6 @@ describe("handler-thrown error mapping", () => {
   it("supervision hooks fire on connect / disconnect with a stable transport id", async () => {
     const socketPath = ephemeralSocketPath("t10-hooks");
     bootstrap({
-      bindAddress: "127.0.0.1",
       localIpcPath: socketPath,
       bannerFormat: "text",
     });
@@ -774,7 +746,6 @@ describe("start() rollback on listen failure", () => {
   it("rejects on EADDRINUSE and permits a subsequent start() retry (no 'gateway already started' wedge)", async () => {
     const socketPath = ephemeralSocketPath("rollback");
     bootstrap({
-      bindAddress: "127.0.0.1",
       localIpcPath: socketPath,
       bannerFormat: "text",
     });
@@ -854,7 +825,6 @@ describe("malformed request id rejected before dispatch", () => {
     it(`rejects {"id": ${idJson}} as -32600 InvalidRequest without invoking the handler`, async () => {
       const socketPath = ephemeralSocketPath(`bad-id-${label}`);
       bootstrap({
-        bindAddress: "127.0.0.1",
         localIpcPath: socketPath,
         bannerFormat: "text",
       });
@@ -926,7 +896,7 @@ describe("JSON_RPC_ID_MAX_BYTES — an oversized request id is refused, never ec
 
   it("refuses a 100 KB id as -32600 without invoking the handler, and echoes null", async () => {
     const socketPath = ephemeralSocketPath("oversized-id");
-    bootstrap({ bindAddress: "127.0.0.1", localIpcPath: socketPath, bannerFormat: "text" });
+    bootstrap({ localIpcPath: socketPath, bannerFormat: "text" });
     const registry = new MethodRegistryImpl();
     const handlerSpy = vi.fn(async () => ({ ok: true }));
     const handler: Handler<unknown, { ok: boolean }> = handlerSpy;
@@ -989,7 +959,7 @@ describe("JSON_RPC_ID_MAX_BYTES — an oversized request id is refused, never ec
     // the one carrying a 100 KB echo — the connection would close on a
     // malformed request instead of the client being told it sent one.
     const socketPath = ephemeralSocketPath("oversized-id-early-gate");
-    bootstrap({ bindAddress: "127.0.0.1", localIpcPath: socketPath, bannerFormat: "text" });
+    bootstrap({ localIpcPath: socketPath, bannerFormat: "text" });
     const gateway = new LocalIpcGateway({ registry: new MethodRegistryImpl() });
     try {
       await gateway.start();
@@ -1031,7 +1001,7 @@ describe("JSON_RPC_ID_MAX_BYTES — an oversized request id is refused, never ec
     // ASCII id encodes to exactly 256 bytes with its two quotes.
     const atBoundId = "a".repeat(JSON_RPC_ID_MAX_BYTES - 2);
     const socketPath = ephemeralSocketPath("at-bound-id");
-    bootstrap({ bindAddress: "127.0.0.1", localIpcPath: socketPath, bannerFormat: "text" });
+    bootstrap({ localIpcPath: socketPath, bannerFormat: "text" });
     const registry = new MethodRegistryImpl();
     const handler: Handler<unknown, { ok: boolean }> = async () => ({ ok: true });
     registry.register(
@@ -1219,7 +1189,7 @@ describe("envelope-level protocolVersion substrate gate", () => {
 
   it("well-formed envelope-level protocolVersion is accepted; handler runs", async () => {
     const socketPath = ephemeralSocketPath("pv-ok");
-    bootstrap({ bindAddress: "127.0.0.1", localIpcPath: socketPath, bannerFormat: "text" });
+    bootstrap({ localIpcPath: socketPath, bannerFormat: "text" });
     const { registry, handlerSpy } = makeRegistry("session.create");
     const gateway = new LocalIpcGateway({ registry });
     try {
@@ -1307,7 +1277,7 @@ describe("envelope-level protocolVersion substrate gate", () => {
   for (const { label, pvLiteral, expectedReason, expectedObservedType } of cases) {
     it(`rejects ${label} with -32600 + transport.invalid_protocol_version (reason=${expectedReason}); handler not invoked`, async () => {
       const socketPath = ephemeralSocketPath(`pv-${expectedReason}`);
-      bootstrap({ bindAddress: "127.0.0.1", localIpcPath: socketPath, bannerFormat: "text" });
+      bootstrap({ localIpcPath: socketPath, bannerFormat: "text" });
       const { registry, handlerSpy } = makeRegistry("session.create");
       const gateway = new LocalIpcGateway({ registry });
       try {
@@ -1353,7 +1323,7 @@ describe("envelope-level protocolVersion substrate gate", () => {
 
   it("`daemon.hello` is exempt: missing envelope-level protocolVersion still dispatches", async () => {
     const socketPath = ephemeralSocketPath("pv-exempt");
-    bootstrap({ bindAddress: "127.0.0.1", localIpcPath: socketPath, bannerFormat: "text" });
+    bootstrap({ localIpcPath: socketPath, bannerFormat: "text" });
     const { registry, handlerSpy } = makeRegistry("daemon.hello");
     const gateway = new LocalIpcGateway({ registry });
     try {
@@ -1386,7 +1356,7 @@ describe("envelope-level protocolVersion substrate gate", () => {
 
   it("connection stays open after gate rejection; subsequent valid request on same socket dispatches", async () => {
     const socketPath = ephemeralSocketPath("pv-stay-open");
-    bootstrap({ bindAddress: "127.0.0.1", localIpcPath: socketPath, bannerFormat: "text" });
+    bootstrap({ localIpcPath: socketPath, bannerFormat: "text" });
     const { registry, handlerSpy } = makeRegistry("session.create");
     const gateway = new LocalIpcGateway({ registry });
     try {
@@ -1446,7 +1416,7 @@ describe("envelope-level protocolVersion substrate gate", () => {
 
   it("notification with bad protocolVersion is dropped silently; supervision onError fires", async () => {
     const socketPath = ephemeralSocketPath("pv-notif");
-    bootstrap({ bindAddress: "127.0.0.1", localIpcPath: socketPath, bannerFormat: "text" });
+    bootstrap({ localIpcPath: socketPath, bannerFormat: "text" });
     const { registry, handlerSpy } = makeRegistry("session.create");
     const onConnect = vi.fn();
     const onDisconnect = vi.fn();
@@ -1504,7 +1474,7 @@ describe("envelope-level protocolVersion substrate gate", () => {
     // reordered these would silently change the surfaced data.type for
     // such envelopes — this test pins the ordering.
     const socketPath = ephemeralSocketPath("pv-order");
-    bootstrap({ bindAddress: "127.0.0.1", localIpcPath: socketPath, bannerFormat: "text" });
+    bootstrap({ localIpcPath: socketPath, bannerFormat: "text" });
     const { registry, handlerSpy } = makeRegistry("session.create");
     const gateway = new LocalIpcGateway({ registry });
     try {

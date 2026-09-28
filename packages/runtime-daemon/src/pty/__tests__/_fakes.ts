@@ -30,7 +30,7 @@ import type { NodePtyChild } from "../node-pty-host.js";
  * `{ exitCode: 0, signal: undefined }` literally would typecheck in
  * production but trip the test fake's listener signature.
  */
-export type NodePtyExitEvent = { exitCode: number; signal?: number | undefined };
+type NodePtyExitEvent = { exitCode: number; signal?: number | undefined };
 
 /**
  * Build a fake `NodePtyChild` whose handlers (`onData`, `onExit`)

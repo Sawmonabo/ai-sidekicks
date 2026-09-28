@@ -1,4 +1,4 @@
-// ExecutionRootService behaviour.
+// ExecutionRootService behavior.
 //
 // Drives the real service over a real test SQLite database (the same lifecycle
 // as - suites: `openDatabase` factory -> per-test tmp file -> `afterEach` close
@@ -10,7 +10,7 @@
 //   * A stub would let this suite agree with itself about a bracket that does
 //     not exist.
 //   * The mode provisioners are FAKES that write REAL rows. `branch_contexts`
-//     carries foreign keys to `worktrees` and `ephemeral_clones`, so a fake that
+//     carries a foreign key to `worktrees`, so a fake that
 //     returned an id without a row would make every polymorphism assertion below
 //     an assertion about an unconstrained column.
 //   * The fake git RECORDS argv and REJECTS unknown verbs. argv is the whole
@@ -22,16 +22,14 @@
 //
 // Coverage map (the cites are the contract, not just the ACs):
 //   * dispatch is on the workspace's ONE selected mode.
-//   * `branch` mode overrides onto the EXISTING checkout.
+//   * `bound-root` mode overrides onto the EXISTING checkout.
 //   * no arm falls back to the main checkout; failures refuse.
 //   * a failed materialization blocks the run in setup (`stale` + `lastError`), and
 //     the original typed cause reaches the caller.
-//   * a stale workspace refuses, before any process is spawned, and the read-only
-//     arm drives the SAME gate so that a vanished root is recorded rather than only
-//     refused.
-//   * the branch context is persisted per WRITABLE mode, and its shape is
-//     polymorphic in which root it names.
-//   * `branch`-mode bind-only verification, and its refusal.
+//   * a stale workspace refuses, before any process is spawned.
+//   * the branch context is persisted per mode, and its shape is polymorphic in
+//     which root it names.
+//   * `bound-root` bind-only verification, and its refusal.
 //
 // Two areas here are about what happens when a step that CANNOT be refused fails
 // anyway. `git invocation` pins the split between an answer (a detached HEAD,
@@ -60,10 +58,6 @@ import { EventLogService } from "../../events/event-log-service.js";
 import { __resetSessionAppendLocksForTest } from "../../events/session-append-lock.js";
 import type { Ed25519PrivateKey, Ed25519PublicKey } from "../../events/signer.js";
 import type { DaemonSigningKeySource } from "../../events/signing-key-source.js";
-import type {
-  PrepareEphemeralCloneInput,
-  PreparedEphemeralClone,
-} from "../../git/ephemeral-clone-service.js";
 import {
   WorkspaceBranchMismatchError,
   WorkspaceBranchNameRequiredError,
@@ -76,15 +70,12 @@ import type {
   ReusableWorktreeCandidate,
   ValidateWorktreeReuseInput,
 } from "../../git/worktree-service.js";
-import { DaemonDomainError } from "../../ipc/domain-error.js";
 import { openDatabase } from "../../session/migration-runner.js";
 import { ExecutionRootService } from "../execution-root-service.js";
 import type {
-  ExecutionRootClonePreparer,
   ExecutionRootGitRunner,
   ExecutionRootServiceDeps,
   ExecutionRootWorktreeProvisioner,
-  PreparedExecutionRoot,
   WorkspaceLifecyclePrimitives,
 } from "../execution-root-service.js";
 import { RepoMountNotFoundError } from "../repo-errors.js";
@@ -95,6 +86,7 @@ import {
   WorkspaceNotFoundError,
   WorkspaceService,
   WorkspaceStaleError,
+  type SessionExistenceReader,
 } from "../workspace-service.js";
 
 // ----------------------------------------------------------------------------
@@ -115,13 +107,12 @@ const SEEDED_CONTEXT_ID: string = "0190fb16-7283-7495-8a01-1c2d3e4f5067";
 const UNKNOWN_WORKSPACE_ID: string = "0190fb17-8394-75a6-9b12-2d3e4f506178";
 
 const CANONICAL_ROOT: string = "/tmp/ai-sidekicks-fixture-exec-mount";
-// The subdirectory a READ-ONLY bind resolved. Deliberately NOT the mount root:
-// answering with the mount root would widen approval scope, and a fixture
-// where the two are equal could not tell the two answers apart.
-const READ_ONLY_BIND_ROOT: string = `${CANONICAL_ROOT}/packages/api`;
-// A writable workspace's PREVIOUS root — the one `beginReprovision` releases.
+// A workspace's PREVIOUS root — the one `beginReprovision` releases.
 const PRIOR_ROOT: string = "/tmp/ai-sidekicks-fixture-exec-prior-root";
 const EXECUTION_ROOTS_DIRECTORY: string = "/tmp/ai-sidekicks-fixture-exec-roots";
+// Where the fake provisioner would have placed the seeded worktree.
+const SEEDED_WORKTREE_ROOT: string =
+  `${EXECUTION_ROOTS_DIRECTORY}/${REPO_MOUNT_ID}/worktrees/` + SEEDED_WORKTREE_ID;
 
 const MAIN_BRANCH: string = "main";
 const FEATURE_BRANCH: string = "sidekicks/0190fb10/fix-login";
@@ -279,7 +270,7 @@ class FakeWorktreeProvisioner implements ExecutionRootWorktreeProvisioner {
   readonly createdWorktreeIds: string[] = [];
   /** Compensation's target — the orphan-retire leg records here. */
   readonly retiredWorktreeIds: string[] = [];
-  /** When set, `create` rejects with it — the `` failure arm. */
+  /** When set, `create` rejects with it — the create-failure arm. */
   createFailure: Error | null = null;
   /** When set, `retire` rejects — the swallowed-compensation arm. */
   retireFailure: Error | null = null;
@@ -327,55 +318,6 @@ class FakeWorktreeProvisioner implements ExecutionRootWorktreeProvisioner {
   }
 }
 
-/** Stands in for and writes the `ephemeral_clones` row a real prepare writes. */
-class FakeClonePreparer implements ExecutionRootClonePreparer {
-  readonly inputs: PrepareEphemeralCloneInput[] = [];
-  /** The ids this fake minted, so disposal can be held to the one it prepared. */
-  readonly preparedCloneIds: string[] = [];
-  /** Compensation's target for clone mode. */
-  readonly disposedCloneIds: string[] = [];
-  /**
-   * The base OBSERVED, or `null` for a source HEAD commit no branch
-   * references.
-   *
-   * `null` is the case where the clone's own HEAD lands detached and reports
-   * the field absent — a lawful outcome for it, and the one case where this
-   * service still self-anchors.
-   */
-  observedBaseBranch: string | null = SEEDED_BASE_BRANCH;
-
-  prepare(input: PrepareEphemeralCloneInput): Promise<PreparedEphemeralClone> {
-    this.inputs.push(input);
-    const cloneId = mintUuid();
-    const cloneRoot = `${EXECUTION_ROOTS_DIRECTORY}/${REPO_MOUNT_ID}/clones/${cloneId}`;
-    insertCloneRow({
-      cloneId,
-      workspaceId: input.workspaceId,
-      cloneRoot,
-      branchName: input.branchName,
-    });
-    this.preparedCloneIds.push(cloneId);
-    return Promise.resolve({
-      cloneId,
-      workspaceId: input.workspaceId,
-      cloneRoot,
-      branchName: input.branchName,
-      // Conditional spread, matching its own contract: `exactOptionalPropertyTypes`
-      // makes an absent key and an explicit `undefined` different values, and the
-      // detached-clone-HEAD case is ABSENT.
-      ...(this.observedBaseBranch === null ? {} : { baseBranch: this.observedBaseBranch }),
-      cleanupPolicy: "on_run_complete",
-      expiresAt: EPOCH,
-      state: "ready",
-    });
-  }
-
-  dispose(cloneId: string): Promise<unknown> {
-    this.disposedCloneIds.push(cloneId);
-    return Promise.resolve({ cloneId, state: "retired" });
-  }
-}
-
 // ----------------------------------------------------------------------------
 // Per-test lifecycle
 // ----------------------------------------------------------------------------
@@ -384,7 +326,6 @@ interface TestContext {
   db: DatabaseType;
   workspaces: WorkspaceService;
   worktrees: FakeWorktreeProvisioner;
-  clones: FakeClonePreparer;
   git: FakeGit;
   /** Paths the injected probe reports UNREACHABLE — the stale lever. */
   unreachablePaths: Set<string>;
@@ -413,6 +354,11 @@ const probePath: FilesystemPathProbeFn = (path) =>
     checkedAt: EPOCH,
   });
 
+/** No case here binds; the service still needs a session-existence reader. */
+const KNOWN_SESSIONS: SessionExistenceReader = {
+  replay: (sessionId) => (sessionId === SESSION_ID ? { sessionId } : null),
+};
+
 beforeEach(() => {
   mintedIdCount = 0;
   const tmpDir: string = mkdtempSync(join(tmpdir(), "ai-sidekicks-execution-root-test-"));
@@ -427,11 +373,11 @@ beforeEach(() => {
           signingKeySource: new FixedDaemonSigningKeySource(),
         }),
       }),
+      sessions: KNOWN_SESSIONS,
       probePath,
       now: clock,
     }),
     worktrees: new FakeWorktreeProvisioner(),
-    clones: new FakeClonePreparer(),
     git: new FakeGit(),
     unreachablePaths: new Set<string>(),
     tmpDir,
@@ -466,7 +412,6 @@ function makeService(overrides: Partial<ExecutionRootServiceDeps> = {}): Executi
     database: ctx.db,
     workspaces: realPrimitives(),
     worktrees: ctx.worktrees,
-    clones: ctx.clones,
     executionRootsDirectory: EXECUTION_ROOTS_DIRECTORY,
     git: ctx.git.run,
     filesystem: { createDirectory: () => Promise.resolve() },
@@ -494,10 +439,10 @@ function insertAttachedMount(): void {
   ctx.db
     .prepare(
       `INSERT INTO repo_mounts (
-         id, session_id, node_id, local_path, canonical_root, state, attached_at, updated_at
-       ) VALUES (?, ?, 'node-1', ?, ?, 'attached', ?, ?)`,
+         id, node_id, local_path, canonical_root, state, attached_at, updated_at
+       ) VALUES (?, 'node-1', ?, ?, 'attached', ?, ?)`,
     )
-    .run(REPO_MOUNT_ID, SESSION_ID, CANONICAL_ROOT, CANONICAL_ROOT, EPOCH, EPOCH);
+    .run(REPO_MOUNT_ID, CANONICAL_ROOT, CANONICAL_ROOT, EPOCH, EPOCH);
 }
 
 /**
@@ -545,7 +490,9 @@ function insertWorktreeRow(options: {
       `INSERT INTO worktrees (
          id, repo_mount_id, created_by_session_id, created_by_run_id,
          branch_name, fs_root, state, created_at, updated_at
-       ) VALUES (@id, @repo_mount_id, @session_id, NULL, @branch_name, @fs_root, 'ready', @now, @now)`,
+       ) VALUES (
+         @id, @repo_mount_id, @session_id, NULL, @branch_name, @fs_root, 'ready', @now, @now
+       )`,
     )
     .run({
       id: options.worktreeId,
@@ -553,31 +500,6 @@ function insertWorktreeRow(options: {
       session_id: SESSION_ID,
       branch_name: options.branchName,
       fs_root: options.fsRoot,
-      now: EPOCH,
-    });
-}
-
-function insertCloneRow(options: {
-  readonly cloneId: string;
-  readonly workspaceId: string;
-  readonly cloneRoot: string;
-  readonly branchName: string;
-}): void {
-  ctx.db
-    .prepare(
-      `INSERT INTO ephemeral_clones (
-         id, workspace_id, clone_root, branch_name, cleanup_policy, state,
-         expires_at, created_at, updated_at
-       ) VALUES (
-         @id, @workspace_id, @clone_root, @branch_name, 'on_run_complete', 'ready',
-         @now, @now, @now
-       )`,
-    )
-    .run({
-      id: options.cloneId,
-      workspace_id: options.workspaceId,
-      clone_root: options.cloneRoot,
-      branch_name: options.branchName,
       now: EPOCH,
     });
 }
@@ -593,9 +515,9 @@ function insertBranchContext(options: {
   ctx.db
     .prepare(
       `INSERT INTO branch_contexts (
-         id, workspace_id, worktree_id, ephemeral_clone_id,
+         id, workspace_id, worktree_id,
          base_branch, head_branch, created_at, updated_at
-       ) VALUES (@id, @workspace_id, @worktree_id, NULL, @base_branch, @head_branch, @now, @now)`,
+       ) VALUES (@id, @workspace_id, @worktree_id, @base_branch, @head_branch, @now, @now)`,
     )
     .run({
       id: options.id,
@@ -629,24 +551,10 @@ function readWorktreeRow(worktreeId: string): WorktreeTestRow {
   return row;
 }
 
-function readCloneRoot(cloneId: string): string {
-  const row = ctx.db
-    .prepare<
-      [string],
-      { readonly clone_root: string }
-    >(`SELECT clone_root FROM ephemeral_clones WHERE id = ?`)
-    .get(cloneId);
-  if (row === undefined) {
-    throw new Error(`expected an ephemeral_clones row for ${cloneId}`);
-  }
-  return row.clone_root;
-}
-
 interface BranchContextTestRow {
   readonly id: string;
   readonly workspace_id: string;
   readonly worktree_id: string | null;
-  readonly ephemeral_clone_id: string | null;
   readonly base_branch: string;
   readonly head_branch: string;
   readonly created_at: string;
@@ -656,7 +564,7 @@ interface BranchContextTestRow {
 function readBranchContexts(): readonly BranchContextTestRow[] {
   return ctx.db
     .prepare<[], BranchContextTestRow>(
-      `SELECT id, workspace_id, worktree_id, ephemeral_clone_id,
+      `SELECT id, workspace_id, worktree_id,
               base_branch, head_branch, created_at, updated_at
          FROM branch_contexts ORDER BY id ASC`,
     )
@@ -715,51 +623,8 @@ function readEventTypes(): readonly string[] {
 // ============================================================================
 
 describe("mode dispatch", () => {
-  it("read-only resolves the bind root and materializes nothing", async () => {
-    insertWorkspace({ executionMode: "read-only", state: "ready", fsRoot: READ_ONLY_BIND_ROOT });
-
-    const prepared: PreparedExecutionRoot = await makeService().prepare({
-      workspaceId: WORKSPACE_ID,
-    });
-
-    // The BIND root, not the mount root. Widening to `CANONICAL_ROOT` would hand
-    // an approval scope covering the whole repository.
-    expect(prepared.executionRoot).toBe(READ_ONLY_BIND_ROOT);
-    expect(prepared.executionMode).toBe("read-only");
-    expect(prepared.state).toBe("ready");
-    expect(prepared.branchName).toBeUndefined();
-    expect(prepared.worktreeId).toBeUndefined();
-    expect(prepared.ephemeralCloneId).toBeUndefined();
-    // scopes the branch context to the three WRITABLE modes.
-    expect(prepared.branchContextId).toBeUndefined();
-    expect(readBranchContexts()).toHaveLength(0);
-    // No bracket: nothing was reprovisioned, so nothing was evented.
-    expect(readEventTypes()).toEqual([]);
-    expect(ctx.git.invocations).toHaveLength(0);
-  });
-
-  it("read-only resolves its bind root while held busy, and reports that position", async () => {
-    // Pins the decision, which is not the writable one. `assertWritable` PASSES
-    // `busy` on purpose, and its docblock says why: the precise `workspace.busy`
-    // refusal belongs to `markBusy`, the call that actually contends for the hold,
-    // and duplicating it in the gate would refuse a caller that never takes one. A
-    // read-only prepare is exactly that caller — it hands no root off, so it is
-    // not in contention (the busy-handoff subject of) with the run holding this
-    // workspace. The response carries the OBSERVED position: "the position after
-    // the bracket" has no bracket to describe here, and answering `ready` for a
-    // held workspace would be the fabrication.
-    insertWorkspace({ executionMode: "read-only", state: "ready", fsRoot: READ_ONLY_BIND_ROOT });
-    await ctx.workspaces.markBusy(WORKSPACE_ID, RUN_ID);
-
-    const prepared = await makeService().prepare({ workspaceId: WORKSPACE_ID });
-
-    expect(prepared.executionRoot).toBe(READ_ONLY_BIND_ROOT);
-    expect(prepared.state).toBe("busy");
-    expect(readBranchContexts()).toHaveLength(0);
-  });
-
-  it("branch mode binds the shared main checkout when the checkout already matches", async () => {
-    insertWorkspace({ executionMode: "branch", state: "ready", fsRoot: PRIOR_ROOT });
+  it("bound-root mode binds the shared main checkout when it already matches", async () => {
+    insertWorkspace({ executionMode: "bound-root", state: "ready", fsRoot: PRIOR_ROOT });
     ctx.git.headBranch = FEATURE_BRANCH;
 
     const prepared = await makeService().prepare({
@@ -769,20 +634,18 @@ describe("mode dispatch", () => {
 
     // the execution root IS the shared main checkout.
     expect(prepared.executionRoot).toBe(CANONICAL_ROOT);
-    expect(prepared.executionMode).toBe("branch");
+    expect(prepared.executionMode).toBe("bound-root");
     expect(prepared.branchName).toBe(FEATURE_BRANCH);
     expect(prepared.worktreeId).toBeUndefined();
-    expect(prepared.ephemeralCloneId).toBeUndefined();
     expect(prepared.branchContextId).toBeDefined();
     // The single invocation is a READ of HEAD.
     expect(ctx.git.verbs()).toEqual(["symbolic-ref"]);
-    // Nothing was delegated — branch mode creates no worktree and no clone.
+    // Nothing was delegated — bound-root mode creates no worktree.
     expect(ctx.worktrees.createInputs).toHaveLength(0);
-    expect(ctx.clones.inputs).toHaveLength(0);
   });
 
-  it("worktree mode delegates to and reports the created root", async () => {
-    insertWorkspace({ executionMode: "worktree", state: "provisioning" });
+  it("provisioned-worktree mode delegates to and reports the created root", async () => {
+    insertWorkspace({ executionMode: "provisioned-worktree", state: "provisioning" });
 
     const prepared = await makeService().prepare({
       workspaceId: WORKSPACE_ID,
@@ -796,102 +659,11 @@ describe("mode dispatch", () => {
     expect(createInput?.branchName).toBe(FEATURE_BRANCH);
     expect(createInput?.onCollision).toBe("refuse");
 
-    expect(prepared.executionMode).toBe("worktree");
+    expect(prepared.executionMode).toBe("provisioned-worktree");
     expect(prepared.worktreeId).toBeDefined();
     expect(prepared.executionRoot).toBe(readWorktreeRow(prepared.worktreeId ?? "").fs_root);
-    expect(prepared.ephemeralCloneId).toBeUndefined();
     // The main checkout is never consulted for a worktree prepare.
     expect(ctx.git.invocations).toHaveLength(0);
-  });
-
-  it("ephemeral clone mode delegates to and reports the clone root", async () => {
-    insertWorkspace({ executionMode: "ephemeral clone", state: "provisioning" });
-
-    const prepared = await makeService().prepare({
-      workspaceId: WORKSPACE_ID,
-      branchName: FEATURE_BRANCH,
-    });
-
-    expect(ctx.clones.inputs).toEqual([{ workspaceId: WORKSPACE_ID, branchName: FEATURE_BRANCH }]);
-    expect(prepared.executionMode).toBe("ephemeral clone");
-    expect(prepared.ephemeralCloneId).toBeDefined();
-    // The root PERSISTED, not merely a path shaped like one — a substring
-    // check would pass on a root this service invented for itself.
-    expect(prepared.executionRoot).toBe(readCloneRoot(prepared.ephemeralCloneId ?? ""));
-    expect(prepared.worktreeId).toBeUndefined();
-    expect(ctx.git.invocations).toHaveLength(0);
-  });
-});
-
-// ============================================================================
-// The read-only arm's gate
-// ============================================================================
-
-describe("read-only gate", () => {
-  it("persists the stale transition it observes, rather than only refusing", async () => {
-    // THE case that justifies calling a write-named gate from a read-only path.
-    // Observing a vanished root obliges the daemon to RECORD it, and that record
-    // is a `workspaces` write forbids this module from making — so the gate is not
-    // decoration over a local probe, it is the only lawful way to make the finding
-    // durable. Without it the next `list` answers `ready` for a workspace this
-    // call already knows is gone, and hands that root to as an approval scope.
-    insertWorkspace({ executionMode: "read-only", state: "ready", fsRoot: READ_ONLY_BIND_ROOT });
-    ctx.unreachablePaths.add(READ_ONLY_BIND_ROOT);
-
-    const rejection = await captureRejection(() =>
-      makeService().prepare({ workspaceId: WORKSPACE_ID }),
-    );
-
-    expect(rejection).toBeInstanceOf(WorkspaceStaleError);
-    // The DURABLE half — a refusal alone would leave this row `ready`.
-    expect(readWorkspaceRow().state).toBe("stale");
-    expect(readEventTypes()).toEqual(["workspace.stale"]);
-  });
-
-  it("refuses a stale read-only workspace", async () => {
-    insertWorkspace({ executionMode: "read-only", state: "stale", fsRoot: READ_ONLY_BIND_ROOT });
-
-    const rejection = await captureRejection(() =>
-      makeService().prepare({ workspaceId: WORKSPACE_ID }),
-    );
-
-    expect(rejection).toBeInstanceOf(WorkspaceStaleError);
-  });
-
-  it("refuses a released root as stale rather than as a defect", async () => {
-    // `fs_root IS NULL` under a `ready` read-only row: something released the root
-    // (`beginReprovision` is the only writer that does). Refused BEFORE the gate,
-    // because the health projector treats a NULL root under a probe-bearing state
-    // as its own precondition failure — which would answer a gone root with an
-    // unrelated defect instead of the `workspace.stale` whose repair fits.
-    insertWorkspace({ executionMode: "read-only", state: "ready", fsRoot: null });
-
-    const rejection = await captureRejection(() =>
-      makeService().prepare({ workspaceId: WORKSPACE_ID }),
-    );
-
-    expect(rejection).toBeInstanceOf(WorkspaceStaleError);
-  });
-
-  it("reports an archived read-only workspace as this module's own defect", async () => {
-    // Refused BEFORE the gate too, but for the opposite reason: `assertWritable`
-    // answers `archived` with the anonymous `illegal_state_transition`, where
-    // this module has a kind that names the actual condition — a read-only
-    // workspace that cannot serve a root. No root on the fixture on purpose: the
-    // STATE alone decides here, ahead of the released-root check, so a row
-    // without one still takes this arm.
-    insertWorkspace({ executionMode: "read-only", state: "archived" });
-
-    const rejection = await captureRejection(() =>
-      makeService().prepare({ workspaceId: WORKSPACE_ID }),
-    );
-
-    expect(rejection).toMatchObject({
-      kind: "read_only_workspace_unusable",
-      workspaceId: WORKSPACE_ID,
-    });
-    // Not a wire refusal: no caller argument produces this, so it earns no code.
-    expect(rejection).not.toBeInstanceOf(DaemonDomainError);
   });
 });
 
@@ -901,9 +673,9 @@ describe("read-only gate", () => {
 
 describe("pre-bracket refusals", () => {
   it("refuses a stale workspace before any git call", async () => {
-    // `branch` mode deliberately: it is the ONLY mode that calls git, so "before
+    // `bound-root` mode deliberately: it is the ONLY mode that calls git, so "before
     // any git call" is a claim with content here and vacuous elsewhere.
-    insertWorkspace({ executionMode: "branch", state: "ready", fsRoot: PRIOR_ROOT });
+    insertWorkspace({ executionMode: "bound-root", state: "ready", fsRoot: PRIOR_ROOT });
     ctx.unreachablePaths.add(PRIOR_ROOT);
 
     const rejection = await captureRejection(() =>
@@ -915,8 +687,8 @@ describe("pre-bracket refusals", () => {
     expect(readBranchContexts()).toHaveLength(0);
   });
 
-  it("refuses a branch-mode mismatch without mutating the checkout", async () => {
-    insertWorkspace({ executionMode: "branch", state: "ready", fsRoot: PRIOR_ROOT });
+  it("refuses a bound-root branch mismatch without mutating the checkout", async () => {
+    insertWorkspace({ executionMode: "bound-root", state: "ready", fsRoot: PRIOR_ROOT });
     ctx.git.headBranch = MAIN_BRANCH;
 
     const rejection = await captureRejection(() =>
@@ -944,7 +716,7 @@ describe("pre-bracket refusals", () => {
   });
 
   it("refuses a detached main checkout as a mismatch, naming it unambiguously", async () => {
-    insertWorkspace({ executionMode: "branch", state: "ready", fsRoot: PRIOR_ROOT });
+    insertWorkspace({ executionMode: "bound-root", state: "ready", fsRoot: PRIOR_ROOT });
     ctx.git.headBranch = null;
 
     const rejection = await captureRejection(() =>
@@ -958,8 +730,8 @@ describe("pre-bracket refusals", () => {
     expect(readWorkspaceRow().state).toBe("ready");
   });
 
-  it("refuses a writable prepare carrying neither branchName nor runId, before any git call", async () => {
-    insertWorkspace({ executionMode: "branch", state: "ready", fsRoot: PRIOR_ROOT });
+  it("refuses a prepare carrying neither branchName nor runId, before any git call", async () => {
+    insertWorkspace({ executionMode: "bound-root", state: "ready", fsRoot: PRIOR_ROOT });
 
     const rejection = await captureRejection(() =>
       makeService().prepare({ workspaceId: WORKSPACE_ID }),
@@ -977,7 +749,7 @@ describe("pre-bracket refusals", () => {
     // The negative control for the case above AND for the fallback below: an
     // empty string is not a run id, and letting it through would answer a caller
     // error with `worktree.create_failed`'s underivable-name defect instead.
-    insertWorkspace({ executionMode: "worktree", state: "provisioning" });
+    insertWorkspace({ executionMode: "provisioned-worktree", state: "provisioning" });
 
     const rejection = await captureRejection(() =>
       makeService().prepare({ workspaceId: WORKSPACE_ID, runId: "   " }),
@@ -988,7 +760,7 @@ describe("pre-bracket refusals", () => {
   });
 
   it("refuses a busy workspace with the holding run id", async () => {
-    insertWorkspace({ executionMode: "worktree", state: "ready", fsRoot: PRIOR_ROOT });
+    insertWorkspace({ executionMode: "provisioned-worktree", state: "ready", fsRoot: PRIOR_ROOT });
     // Through the REAL primitive, so the metadata this service reads is metadata
     // wrote.
     await ctx.workspaces.markBusy(WORKSPACE_ID, RUN_ID);
@@ -1008,7 +780,7 @@ describe("pre-bracket refusals", () => {
   it("refuses when the workspace's mount is no longer attached", async () => {
     // A detached mount is not a provisioning target, and the refusal lands before
     // the bracket so a re-attach is all the repair a caller needs.
-    insertWorkspace({ executionMode: "worktree", state: "provisioning" });
+    insertWorkspace({ executionMode: "provisioned-worktree", state: "provisioning" });
     ctx.db.prepare(`UPDATE repo_mounts SET state = 'detached' WHERE id = ?`).run(REPO_MOUNT_ID);
 
     const rejection = await captureRejection(() =>
@@ -1031,7 +803,7 @@ const HOOK_NEUTRALIZATION_DIRECTORY: string = join(
 
 describe("git invocation", () => {
   it("neutralizes hooks on its one invocation, and creates that directory first", async () => {
-    insertWorkspace({ executionMode: "branch", state: "ready", fsRoot: PRIOR_ROOT });
+    insertWorkspace({ executionMode: "bound-root", state: "ready", fsRoot: PRIOR_ROOT });
     ctx.git.headBranch = FEATURE_BRANCH;
     const filesystem = new RecordingFilesystem();
 
@@ -1060,7 +832,7 @@ describe("git invocation", () => {
   it("reports an unreadable repository as a defect, never as a branch mismatch", async () => {
     // git RAN and answered 128. Collapsing that into the mismatch refusal would
     // hand the caller a repair — "switch your checkout" — that cannot work.
-    insertWorkspace({ executionMode: "branch", state: "ready", fsRoot: PRIOR_ROOT });
+    insertWorkspace({ executionMode: "bound-root", state: "ready", fsRoot: PRIOR_ROOT });
     ctx.git.failureExitCode = 128;
 
     const rejection = await captureRejection(() =>
@@ -1082,7 +854,7 @@ describe("git invocation", () => {
   });
 
   it("reports a git that never ran as a defect, without echoing its message", async () => {
-    insertWorkspace({ executionMode: "branch", state: "ready", fsRoot: PRIOR_ROOT });
+    insertWorkspace({ executionMode: "bound-root", state: "ready", fsRoot: PRIOR_ROOT });
     // A spawn failure carries a path in its own message — the seam rejects, and
     // nothing may read a field off the thrown value into a carrier.
     ctx.git.invocationFailure = new Error(`spawn ENOENT: no git at ${CANONICAL_ROOT}/bin/git`);
@@ -1101,8 +873,8 @@ describe("git invocation", () => {
 // ============================================================================
 
 describe("branch-name resolution", () => {
-  it("resolves the run-<short-8> fallback and hands the mode service an explicit name", async () => {
-    insertWorkspace({ executionMode: "worktree", state: "provisioning" });
+  it("derives the run-<short-8> fallback and hands the mode service an explicit name", async () => {
+    insertWorkspace({ executionMode: "provisioned-worktree", state: "provisioning" });
 
     const prepared = await makeService().prepare({ workspaceId: WORKSPACE_ID, runId: RUN_ID });
 
@@ -1111,13 +883,13 @@ describe("branch-name resolution", () => {
     expect(ctx.worktrees.createInputs[0]?.branchName).toBe(DERIVED_RUN_BRANCH);
     expect(ctx.worktrees.createInputs[0]?.runId).toBe(RUN_ID);
     expect(prepared.branchName).toBe(DERIVED_RUN_BRANCH);
-    expect(readBranchContext(prepared.branchContextId ?? "").head_branch).toBe(DERIVED_RUN_BRANCH);
+    expect(readBranchContext(prepared.branchContextId).head_branch).toBe(DERIVED_RUN_BRANCH);
   });
 
   it("passes a supplied branchName through verbatim (negative control)", async () => {
     // Without this, "the fallback fired" is indistinguishable from "the service
     // always derives".
-    insertWorkspace({ executionMode: "worktree", state: "provisioning" });
+    insertWorkspace({ executionMode: "provisioned-worktree", state: "provisioning" });
 
     const prepared = await makeService().prepare({
       workspaceId: WORKSPACE_ID,
@@ -1131,7 +903,7 @@ describe("branch-name resolution", () => {
   });
 
   it("normalizes a padded runId ONCE, for the branch and for the delegated call", async () => {
-    insertWorkspace({ executionMode: "worktree", state: "provisioning" });
+    insertWorkspace({ executionMode: "provisioned-worktree", state: "provisioning" });
 
     const prepared = await makeService().prepare({
       workspaceId: WORKSPACE_ID,
@@ -1155,7 +927,7 @@ describe("request pass-through", () => {
   it("passes an explicit onCollision to the create", async () => {
     // The negative control for the `refuse` default asserted in mode dispatch:
     // without this, "defaults to refuse" and "ignores the field" look identical.
-    insertWorkspace({ executionMode: "worktree", state: "provisioning" });
+    insertWorkspace({ executionMode: "provisioned-worktree", state: "provisioning" });
 
     await makeService().prepare({
       workspaceId: WORKSPACE_ID,
@@ -1172,9 +944,9 @@ describe("request pass-through", () => {
     insertWorktreeRow({
       worktreeId: SEEDED_WORKTREE_ID,
       branchName: FEATURE_BRANCH,
-      fsRoot: `${EXECUTION_ROOTS_DIRECTORY}/${REPO_MOUNT_ID}/worktrees/${SEEDED_WORKTREE_ID}`,
+      fsRoot: SEEDED_WORKTREE_ROOT,
     });
-    insertWorkspace({ executionMode: "worktree", state: "provisioning" });
+    insertWorkspace({ executionMode: "provisioned-worktree", state: "provisioning" });
     insertBranchContext({
       id: SEEDED_CONTEXT_ID,
       workspaceId: WORKSPACE_ID,
@@ -1203,11 +975,11 @@ describe("explicit worktree reuse", () => {
     insertWorktreeRow({
       worktreeId: SEEDED_WORKTREE_ID,
       branchName: FEATURE_BRANCH,
-      fsRoot: `${EXECUTION_ROOTS_DIRECTORY}/${REPO_MOUNT_ID}/worktrees/${SEEDED_WORKTREE_ID}`,
+      fsRoot: SEEDED_WORKTREE_ROOT,
     });
     // The CANDIDATE's workspace and its context row — the provenance the reuse
     // carries a base branch from.
-    insertWorkspace({ executionMode: "worktree", state: "ready", fsRoot: PRIOR_ROOT });
+    insertWorkspace({ executionMode: "provisioned-worktree", state: "ready", fsRoot: PRIOR_ROOT });
     insertBranchContext({
       id: SEEDED_CONTEXT_ID,
       workspaceId: WORKSPACE_ID,
@@ -1220,7 +992,7 @@ describe("explicit worktree reuse", () => {
     // A DIFFERENT workspace binds the same worktree.
     insertWorkspace({
       workspaceId: OTHER_WORKSPACE_ID,
-      executionMode: "worktree",
+      executionMode: "provisioned-worktree",
       state: "provisioning",
     });
     const prepared = await makeService().prepare({
@@ -1236,7 +1008,7 @@ describe("explicit worktree reuse", () => {
     const rows = readBranchContexts();
     expect(rows).toHaveLength(2);
 
-    const boundRow = readBranchContext(prepared.branchContextId ?? "");
+    const boundRow = readBranchContext(prepared.branchContextId);
     expect(boundRow.id).not.toBe(SEEDED_CONTEXT_ID);
     expect(boundRow.workspace_id).toBe(OTHER_WORKSPACE_ID);
     expect(boundRow.worktree_id).toBe(SEEDED_WORKTREE_ID);
@@ -1250,8 +1022,8 @@ describe("explicit worktree reuse", () => {
     expect(readBranchContext(SEEDED_CONTEXT_ID)).toEqual(candidateRowBefore);
   });
 
-  it("refreshes the existing pair row when a workspace re-binds a worktree it created", async () => {
-    insertWorkspace({ executionMode: "worktree", state: "provisioning" });
+  it("refreshes the pair row when a workspace re-binds a worktree it created", async () => {
+    insertWorkspace({ executionMode: "provisioned-worktree", state: "provisioning" });
     const service = makeService();
 
     // The full round trip: create writes the pair row, then a later reuse must
@@ -1277,16 +1049,16 @@ describe("explicit worktree reuse", () => {
     // it is the SAME row.
     expect(readBranchContexts()).toHaveLength(1);
     expect(rebound.branchContextId).toBe(created.branchContextId);
-    expect(readBranchContext(rebound.branchContextId ?? "").base_branch).toBe(SEEDED_BASE_BRANCH);
+    expect(readBranchContext(rebound.branchContextId).base_branch).toBe(SEEDED_BASE_BRANCH);
   });
 
   it("preserves a same-workspace candidate's existing row without duplication", async () => {
     insertWorktreeRow({
       worktreeId: SEEDED_WORKTREE_ID,
       branchName: FEATURE_BRANCH,
-      fsRoot: `${EXECUTION_ROOTS_DIRECTORY}/${REPO_MOUNT_ID}/worktrees/${SEEDED_WORKTREE_ID}`,
+      fsRoot: SEEDED_WORKTREE_ROOT,
     });
-    insertWorkspace({ executionMode: "worktree", state: "ready", fsRoot: PRIOR_ROOT });
+    insertWorkspace({ executionMode: "provisioned-worktree", state: "ready", fsRoot: PRIOR_ROOT });
     insertBranchContext({
       id: SEEDED_CONTEXT_ID,
       workspaceId: WORKSPACE_ID,
@@ -1318,9 +1090,9 @@ describe("explicit worktree reuse", () => {
     insertWorktreeRow({
       worktreeId: SEEDED_WORKTREE_ID,
       branchName: FEATURE_BRANCH,
-      fsRoot: `${EXECUTION_ROOTS_DIRECTORY}/${REPO_MOUNT_ID}/worktrees/${SEEDED_WORKTREE_ID}`,
+      fsRoot: SEEDED_WORKTREE_ROOT,
     });
-    insertWorkspace({ executionMode: "worktree", state: "provisioning" });
+    insertWorkspace({ executionMode: "provisioned-worktree", state: "provisioning" });
 
     const rejection = await captureRejection(() =>
       makeService().prepare({
@@ -1344,14 +1116,17 @@ describe("explicit worktree reuse", () => {
     // pre-bracket — routed through the materialization catch it would
     // `failReprovision` the requester into `stale` repair for someone else's
     // live run.
-    const candidateRoot = `${EXECUTION_ROOTS_DIRECTORY}/${REPO_MOUNT_ID}/worktrees/${SEEDED_WORKTREE_ID}`;
     insertWorktreeRow({
       worktreeId: SEEDED_WORKTREE_ID,
       branchName: FEATURE_BRANCH,
-      fsRoot: candidateRoot,
+      fsRoot: SEEDED_WORKTREE_ROOT,
     });
     // The holder: the candidate's own workspace, busy in the candidate's root.
-    insertWorkspace({ executionMode: "worktree", state: "busy", fsRoot: candidateRoot });
+    insertWorkspace({
+      executionMode: "provisioned-worktree",
+      state: "busy",
+      fsRoot: SEEDED_WORKTREE_ROOT,
+    });
     insertBranchContext({
       id: SEEDED_CONTEXT_ID,
       workspaceId: WORKSPACE_ID,
@@ -1361,7 +1136,7 @@ describe("explicit worktree reuse", () => {
     });
     insertWorkspace({
       workspaceId: OTHER_WORKSPACE_ID,
-      executionMode: "worktree",
+      executionMode: "provisioned-worktree",
       state: "provisioning",
     });
 
@@ -1386,24 +1161,23 @@ describe("explicit worktree reuse", () => {
     expect(requesterState?.state).toBe("provisioning");
   });
 
-  it("ignores a busy-held reuse candidate on a branch-mode prepare (inert field)", async () => {
-    // The dispatch consumes `reuseWorktreeId` only in the worktree arm; on a
-    // `branch` prepare the field is inert, and the pre-bracket busy probe must
-    // not turn it into a `workspace.busy` refusal over a directory the prepare
-    // never touches.
-    const candidateRoot = `${EXECUTION_ROOTS_DIRECTORY}/${REPO_MOUNT_ID}/worktrees/${SEEDED_WORKTREE_ID}`;
+  it("ignores a busy-held reuse candidate on a bound-root prepare (inert field)", async () => {
+    // The dispatch consumes `reuseWorktreeId` only in the `provisioned-worktree`
+    // arm; on a `bound-root` prepare the field is inert, and the pre-bracket
+    // busy probe must not turn it into a `workspace.busy` refusal over a
+    // directory the prepare never touches.
     insertWorktreeRow({
       worktreeId: SEEDED_WORKTREE_ID,
       branchName: FEATURE_BRANCH,
-      fsRoot: candidateRoot,
+      fsRoot: SEEDED_WORKTREE_ROOT,
     });
     insertWorkspace({
       workspaceId: OTHER_WORKSPACE_ID,
-      executionMode: "worktree",
+      executionMode: "provisioned-worktree",
       state: "busy",
-      fsRoot: candidateRoot,
+      fsRoot: SEEDED_WORKTREE_ROOT,
     });
-    insertWorkspace({ executionMode: "branch", state: "ready", fsRoot: PRIOR_ROOT });
+    insertWorkspace({ executionMode: "bound-root", state: "ready", fsRoot: PRIOR_ROOT });
     ctx.git.headBranch = FEATURE_BRANCH;
 
     const prepared = await makeService().prepare({
@@ -1412,7 +1186,7 @@ describe("explicit worktree reuse", () => {
       reuseWorktreeId: SEEDED_WORKTREE_ID,
     });
 
-    expect(prepared.executionMode).toBe("branch");
+    expect(prepared.executionMode).toBe("bound-root");
     expect(prepared.executionRoot).toBe(CANONICAL_ROOT);
   });
 
@@ -1422,13 +1196,12 @@ describe("explicit worktree reuse", () => {
     // write, after which the bound "execution root" is a directory sweep leg
     // (d) is entitled to delete under the adopting workspace. The bind-time
     // re-check runs in the same synchronous block as the upsert and refuses.
-    const candidateRoot = `${EXECUTION_ROOTS_DIRECTORY}/${REPO_MOUNT_ID}/worktrees/${SEEDED_WORKTREE_ID}`;
     insertWorktreeRow({
       worktreeId: SEEDED_WORKTREE_ID,
       branchName: FEATURE_BRANCH,
-      fsRoot: candidateRoot,
+      fsRoot: SEEDED_WORKTREE_ROOT,
     });
-    insertWorkspace({ executionMode: "worktree", state: "provisioning" });
+    insertWorkspace({ executionMode: "provisioned-worktree", state: "provisioning" });
     insertBranchContext({
       id: SEEDED_CONTEXT_ID,
       workspaceId: WORKSPACE_ID,
@@ -1471,67 +1244,30 @@ describe("explicit worktree reuse", () => {
 // ============================================================================
 
 describe("branch_contexts polymorphism", () => {
-  it("writes a worktree-referencing row for worktree mode", async () => {
-    insertWorkspace({ executionMode: "worktree", state: "provisioning" });
+  it("writes a worktree-referencing row for provisioned-worktree mode", async () => {
+    insertWorkspace({ executionMode: "provisioned-worktree", state: "provisioning" });
 
     const prepared = await makeService().prepare({
       workspaceId: WORKSPACE_ID,
       branchName: FEATURE_BRANCH,
     });
 
-    const row = readBranchContext(prepared.branchContextId ?? "");
+    const row = readBranchContext(prepared.branchContextId);
     expect(row.worktree_id).toBe(prepared.worktreeId);
-    expect(row.ephemeral_clone_id).toBeNull();
   });
 
-  it("writes a clone-referencing row for ephemeral clone mode", async () => {
-    insertWorkspace({ executionMode: "ephemeral clone", state: "provisioning" });
-
-    const prepared = await makeService().prepare({
-      workspaceId: WORKSPACE_ID,
-      branchName: FEATURE_BRANCH,
-    });
-
-    const row = readBranchContext(prepared.branchContextId ?? "");
-    expect(row.ephemeral_clone_id).toBe(prepared.ephemeralCloneId);
-    expect(row.worktree_id).toBeNull();
-    // The base OBSERVED, not a self-anchor. This service cannot see the source
-    // HEAD; the one that cloned it can, and reporting its measurement is the whole
-    // reason the field exists.
-    expect(row.base_branch).toBe(SEEDED_BASE_BRANCH);
-    expect(row.base_branch).not.toBe(row.head_branch);
-  });
-
-  it("self-anchors a clone whose source commit no branch references", async () => {
-    // The ONLY case left where the recorded base is not a measurement. omits the
-    // field when the clone's own HEAD lands detached — lawful there, not a
-    // failure — and `base_branch` is TEXT NOT NULL, so something must be written.
-    insertWorkspace({ executionMode: "ephemeral clone", state: "provisioning" });
-    ctx.clones.observedBaseBranch = null;
-
-    const prepared = await makeService().prepare({
-      workspaceId: WORKSPACE_ID,
-      branchName: FEATURE_BRANCH,
-    });
-
-    const row = readBranchContext(prepared.branchContextId ?? "");
-    expect(row.base_branch).toBe(FEATURE_BRANCH);
-    expect(row.base_branch).toBe(row.head_branch);
-  });
-
-  it("writes a root-less row for branch mode, one per prepare", async () => {
-    insertWorkspace({ executionMode: "branch", state: "provisioning" });
+  it("writes a root-less row for bound-root mode, one per prepare", async () => {
+    insertWorkspace({ executionMode: "bound-root", state: "provisioning" });
     ctx.git.headBranch = FEATURE_BRANCH;
     const service = makeService();
 
     const first = await service.prepare({ workspaceId: WORKSPACE_ID, branchName: FEATURE_BRANCH });
-    const row = readBranchContext(first.branchContextId ?? "");
+    const row = readBranchContext(first.branchContextId);
     // The main checkout carries no root row, so the context references NEITHER
-    // — which is exactly what makes it a branch-mode row.
+    // — which is exactly what makes it a bound-root row.
     expect(row.worktree_id).toBeNull();
-    expect(row.ephemeral_clone_id).toBeNull();
 
-    // A second branch-mode prepare ACCUMULATES. Nothing needs a workspace-scoped
+    // A second bound-root prepare ACCUMULATES. Nothing needs a workspace-scoped
     // "current row" — `BranchContextReadRequest` has no workspace-only arm, and
     // reaches a specific row through `run_execution_contexts`. Refreshing in place
     // would instead destroy the previous binding's recorded branches. The user
@@ -1544,17 +1280,8 @@ describe("branch_contexts polymorphism", () => {
     expect(second.branchContextId).not.toBe(first.branchContextId);
     // The FIRST row still carries what it recorded — the history that refreshing
     // in place would have overwritten.
-    expect(readBranchContext(first.branchContextId ?? "").head_branch).toBe(FEATURE_BRANCH);
-    expect(readBranchContext(second.branchContextId ?? "").head_branch).toBe(MAIN_BRANCH);
-  });
-
-  it("writes no row at all for read-only mode", async () => {
-    insertWorkspace({ executionMode: "read-only", state: "ready", fsRoot: READ_ONLY_BIND_ROOT });
-
-    const prepared = await makeService().prepare({ workspaceId: WORKSPACE_ID });
-
-    expect(prepared.branchContextId).toBeUndefined();
-    expect(readBranchContexts()).toHaveLength(0);
+    expect(readBranchContext(first.branchContextId).head_branch).toBe(FEATURE_BRANCH);
+    expect(readBranchContext(second.branchContextId).head_branch).toBe(MAIN_BRANCH);
   });
 });
 
@@ -1563,7 +1290,7 @@ describe("branch_contexts polymorphism", () => {
 
 describe("the reprovision bracket", () => {
   it("completes reprovision with the prepared root", async () => {
-    insertWorkspace({ executionMode: "worktree", state: "ready", fsRoot: PRIOR_ROOT });
+    insertWorkspace({ executionMode: "provisioned-worktree", state: "ready", fsRoot: PRIOR_ROOT });
 
     const prepared = await makeService().prepare({
       workspaceId: WORKSPACE_ID,
@@ -1582,7 +1309,7 @@ describe("the reprovision bracket", () => {
   });
 
   it("fail-reprovisions on a materialization failure and records the detail", async () => {
-    insertWorkspace({ executionMode: "worktree", state: "ready", fsRoot: PRIOR_ROOT });
+    insertWorkspace({ executionMode: "provisioned-worktree", state: "ready", fsRoot: PRIOR_ROOT });
     const failure = new WorktreeCreateFailedError("base_ref_unresolved");
     ctx.worktrees.createFailure = failure;
 
@@ -1605,9 +1332,9 @@ describe("the reprovision bracket", () => {
   });
 
   it("does not double-begin a first-bind workspace", async () => {
-    // A writable bind lands `provisioning` and stays there for this call, so
+    // A bind lands `provisioning` and stays there for this call, so
     // beginning again would fail the `ready | stale` compare-and-swap.
-    insertWorkspace({ executionMode: "worktree", state: "provisioning" });
+    insertWorkspace({ executionMode: "provisioned-worktree", state: "provisioning" });
 
     const prepared = await makeService().prepare({
       workspaceId: WORKSPACE_ID,
@@ -1620,7 +1347,7 @@ describe("the reprovision bracket", () => {
   });
 
   it("swallows a failReprovision throw and still reports the original cause", async () => {
-    insertWorkspace({ executionMode: "worktree", state: "ready", fsRoot: PRIOR_ROOT });
+    insertWorkspace({ executionMode: "provisioned-worktree", state: "ready", fsRoot: PRIOR_ROOT });
     const failure = new WorktreeCreateFailedError("base_ref_unresolved");
     ctx.worktrees.createFailure = failure;
     const bookkeepingFailure = new Error("failReprovision could not reach the database");
@@ -1662,7 +1389,7 @@ describe("compensation", () => {
     // Without compensation this leaks permanently: the sweep retires worktrees
     // whose MOUNT detached and cleans rows already `retired`, and an orphan on an
     // attached mount is in neither set.
-    insertWorkspace({ executionMode: "worktree", state: "provisioning" });
+    insertWorkspace({ executionMode: "provisioned-worktree", state: "provisioning" });
     const failure = new Error(COMPLETION_FAILURE_MESSAGE);
 
     const rejection = await captureRejection(() =>
@@ -1674,32 +1401,14 @@ describe("compensation", () => {
 
     // The caller is owed the failure that actually happened.
     expect(rejection).toBe(failure);
-    // The row goes first: the retirement refuses while a `busy` workspace is bound
-    // to the worktree, and it finds that binding by joining `branch_contexts` on
-    // `worktree_id`. Ours is a binding for a handover that never happened.
+    // The row is deleted: it records a handover that never happened. Retirement
+    // does not read it; its busy probe joins `workspaces` on `fs_root`.
     expect(readBranchContexts()).toHaveLength(0);
     // Against the id this call MINTED, not against whatever rows exist: the claim
     // is that compensation retires its own root, and a count would also pass if it
     // had retired someone else's.
     expect(ctx.worktrees.retiredWorktreeIds).toEqual(ctx.worktrees.createdWorktreeIds);
     expect(ctx.worktrees.createdWorktreeIds).toHaveLength(1);
-  });
-
-  it("disposes a clone this call minted", async () => {
-    insertWorkspace({ executionMode: "ephemeral clone", state: "provisioning" });
-    const failure = new Error(COMPLETION_FAILURE_MESSAGE);
-
-    const rejection = await captureRejection(() =>
-      makeService({ workspaces: primitivesFailingCompletion(failure) }).prepare({
-        workspaceId: WORKSPACE_ID,
-        branchName: FEATURE_BRANCH,
-      }),
-    );
-
-    expect(rejection).toBe(failure);
-    expect(ctx.clones.disposedCloneIds).toEqual(ctx.clones.preparedCloneIds);
-    expect(ctx.clones.preparedCloneIds).toHaveLength(1);
-    expect(readBranchContexts()).toHaveLength(0);
   });
 
   it("leaves a REUSED worktree and its existing row untouched", async () => {
@@ -1710,9 +1419,9 @@ describe("compensation", () => {
     insertWorktreeRow({
       worktreeId: SEEDED_WORKTREE_ID,
       branchName: FEATURE_BRANCH,
-      fsRoot: `${EXECUTION_ROOTS_DIRECTORY}/${REPO_MOUNT_ID}/worktrees/${SEEDED_WORKTREE_ID}`,
+      fsRoot: SEEDED_WORKTREE_ROOT,
     });
-    insertWorkspace({ executionMode: "worktree", state: "provisioning" });
+    insertWorkspace({ executionMode: "provisioned-worktree", state: "provisioning" });
     insertBranchContext({
       id: SEEDED_CONTEXT_ID,
       workspaceId: WORKSPACE_ID,
@@ -1737,7 +1446,7 @@ describe("compensation", () => {
   });
 
   it("still reports the completion failure when the compensation itself fails", async () => {
-    insertWorkspace({ executionMode: "worktree", state: "provisioning" });
+    insertWorkspace({ executionMode: "provisioned-worktree", state: "provisioning" });
     const failure = new Error(COMPLETION_FAILURE_MESSAGE);
     ctx.worktrees.retireFailure = new Error("retire could not reach the database either");
 
@@ -1763,7 +1472,7 @@ describe("compensation", () => {
     // no delete leg — the foreign row that forced the failure must survive.
     insertWorkspace({
       workspaceId: OTHER_WORKSPACE_ID,
-      executionMode: "branch",
+      executionMode: "bound-root",
       state: "ready",
       fsRoot: PRIOR_ROOT,
     });
@@ -1774,7 +1483,7 @@ describe("compensation", () => {
       baseBranch: SEEDED_BASE_BRANCH,
       headBranch: FEATURE_BRANCH,
     });
-    insertWorkspace({ executionMode: "worktree", state: "provisioning" });
+    insertWorkspace({ executionMode: "provisioned-worktree", state: "provisioning" });
 
     const rejection = await captureRejection(() =>
       // The id source collides with the seeded row, so the context INSERT
@@ -1808,7 +1517,7 @@ describe("no raw workspaces write", () => {
     // With the primitives replaced by recording no-ops, any
     // change to the row could only have come from this module's own SQL — so an
     // unchanged row is a direct observation, not a proxy for one.
-    insertWorkspace({ executionMode: "worktree", state: "provisioning" });
+    insertWorkspace({ executionMode: "provisioned-worktree", state: "provisioning" });
     const before = readWorkspaceRow();
 
     const calls: string[] = [];

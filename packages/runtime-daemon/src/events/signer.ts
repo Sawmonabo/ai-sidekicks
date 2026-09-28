@@ -40,7 +40,7 @@ import type { CanonicalBytes } from "./canonicalizer.js";
 
 /**
  * BLAKE3's default digest width, and the width of both chain columns —
- * `0001-initial.ts` declares `prev_hash` / `row_hash` as `BLOB` under
+ * `daemon-schema.ts` declares `prev_hash` / `row_hash` as `BLOB` under
  * `CHECK(length(…) = 32)`, normative per `Security Architecture `.
  */
 const CHAIN_HASH_LENGTH = 32;
@@ -55,7 +55,7 @@ const ED25519_PUBLIC_KEY_LENGTH = 32;
 
 /**
  * The RFC 8032 section 5.1.6 Ed25519 signature width — `R || S`, 32 bytes each — and
- * the width `0001-initial.ts` enforces on the column, which declares
+ * the width `daemon-schema.ts` enforces on the column, which declares
  * `daemon_signature` as `BLOB` under `CHECK(length(daemon_signature) = 64)`.
  *
  * Spelled here for {@link verifyRow}'s placeholder check ONLY. It is
@@ -394,7 +394,7 @@ export function signRow(
  * `length()` counts CHARACTERS for a TEXT value — so the at-rest adversary this
  * protocol is written against (write access to the DB, no signing key) can
  * `UPDATE session_events SET row_hash = '00000000000000000000000000000000'`,
- * satisfy `0001-initial.ts`'s `CHECK(length(row_hash) = 32)` with 32 CHARACTERS,
+ * satisfy `daemon-schema.ts`'s `CHECK(length(row_hash) = 32)` with 32 CHARACTERS,
  * and have better-sqlite3 hand back a JS `string`. Unguarded, that string
  * reaches `equalBytes`, whose `abytes` raises `TypeError`, and the throw escapes
  * this function — so emits NO `audit_integrity_failed` and the tamper goes
@@ -480,9 +480,9 @@ export function verifyRow(
   // no daemon signature, and the row's second signature column ships NULL
   // beside them, so nothing on such a row commits its `sequence`: placeholder
   // rows can be fabricated, deleted, and renumbered. Nor is there a schema rule
-  // to fall back on. `0001-initial.ts` documents the column "monotonic per
-  // session" under `UNIQUE(session_id, sequence)`, as does and neither adds a
-  // contiguity constraint.
+  // to fall back on. `daemon-schema.ts` documents the column "monotonic per
+  // session" under `UNIQUE(session_id, sequence)` and adds no contiguity
+  // constraint.
   //
   // AN UPLOADED ANCHOR PUTS A COMMITMENT OFF THIS MACHINE, AND SOME SPANS NEVER
   // GET ONE. That is what the `anchor_*` range modes verify against: an
@@ -502,8 +502,8 @@ export function verifyRow(
   // range walk a threat model derived on its own terms.
   //
   // A LEGITIMATE GENESIS ROW MUST NOT TRIP THIS, AND THAT IS NOT OBVIOUS.
-  // `0001-initial.ts` documents `prev_hash` as "32 bytes; zero-filled at
-  // sequence=0" and {@link GENESIS_PREV_HASH} is that value, so a REAL genesis
+  // `daemon-schema.ts` documents `prev_hash` as zero-filled at sequence 0 and
+  // {@link GENESIS_PREV_HASH} is that value, so a REAL genesis
   // row signed carries a zero `prev_hash` beside a real `row_hash` and a real
   // signature. The `row_hash` conjunct is what keeps it out: drop that one
   // clause while keeping the `prev_hash` one and every genesis row in the

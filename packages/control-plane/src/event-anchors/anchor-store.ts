@@ -71,38 +71,6 @@ import {
 
 import type { Querier } from "../sessions/migration-runner.js";
 
-/**
- * Raised when the anchor names a session the control plane does not know.
- *
- * A PLAIN `Error` SUBCLASS, deliberately not an `AisWireException`. The wire
- * error CODES are a governed vocabulary and this condition has no row there;
- * minting one here would put an uncatalogued code on the wire. The router
- * maps this to a bare tRPC `NOT_FOUND` instead — the same shape
- * `session.join`'s self-check uses for its bare `UNAUTHORIZED`.
- */
-export class UnknownAnchorSessionError extends Error {
-  constructor(sessionId: string) {
-    super(
-      `event_log_anchors references session ${sessionId}, which does not exist in the control ` +
-        "plane. An anchor can only witness a session the control plane knows: either the session " +
-        "was never created here, or the daemon is uploading a node-scope (sentinel-partitioned) " +
-        "anchor, which is locally-witnessed-only in V1.",
-    );
-    this.name = "UnknownAnchorSessionError";
-  }
-}
-
-// Postgres FK-violation SQLSTATE. Compared against the portable
-// `{ code }` surface rather than a driver class, so the same branch works under
-// `pg` and PGlite.
-const FOREIGN_KEY_VIOLATION = "23503";
-
-function asDatabaseErrorCode(error: unknown): string | undefined {
-  if (typeof error !== "object" || error === null) return undefined;
-  const candidate = error as { code?: unknown };
-  return typeof candidate.code === "string" ? candidate.code : undefined;
-}
-
 // Base64 -> bytes WITHOUT `Buffer`.
 //
 // This module sits in the Worker import graph and `wrangler.toml` declares no
@@ -143,14 +111,12 @@ export class EventLogAnchorStore {
    *
    * @returns `{ stored: true }` when this call inserted the row, `{ stored:
    * false }` when the identical range was already witnessed. Both are success.
-   * @throws {UnknownAnchorSessionError} when `sessionId` names no session.
    */
   async upload(anchor: AnchorPayload): Promise<EventAnchorUploadResponse> {
-    // Trust-boundary validation — parse rather than trust the caller, mirroring
-    // `attach` / `detach` / `readRoster`. This is also where is ENFORCED rather
-    // than assumed: the schema is `.strict()`, so a body that smuggled a
-    // `payload` / `events` / `pii_payload` member is refused here even if the
-    // router's own `.input()` parse were ever loosened.
+    // Trust-boundary validation: parse rather than trust the caller. The schema
+    // is `.strict()`, so a body that smuggled a `payload` / `events` /
+    // `pii_payload` member is refused here even if the router's own `.input()`
+    // parse were ever loosened.
     const validated: AnchorPayload = AnchorPayloadSchema.parse(anchor);
 
     // Base64 on the wire (the tRPC root runs `transformer: false`, so bytes
@@ -160,39 +126,30 @@ export class EventLogAnchorStore {
     const merkleRoot = decodeBase64(validated.merkleRoot);
     const rootSignature = decodeBase64(validated.rootSignature);
 
-    try {
-      // `RETURNING id` is the idempotency discriminator: `DO NOTHING` suppresses
-      // the row, so an already-witnessed anchor comes back with zero rows.
-      //
-      // Only `id` is returned, and that is deliberate. `start_sequence` /
-      // `end_sequence` are BIGINT, which `pg` hydrates as STRINGS to avoid
-      // silent precision loss (the same reason `hasMigrationApplied` casts its
-      // `COUNT(*)::text`) — echoing them back would need a normalization step
-      // whose only purpose would be to un-do a hydration this method has no
-      // reason to trigger.
-      const inserted = await this.#querier.query<{ id: string }>(
-        `INSERT INTO event_log_anchors
-           (session_id, node_id, start_sequence, end_sequence, merkle_root, root_signature, anchored_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7::timestamptz)
-         ON CONFLICT (session_id, node_id, start_sequence, end_sequence) DO NOTHING
-         RETURNING id`,
-        [
-          validated.sessionId,
-          validated.nodeId,
-          validated.startSequence,
-          validated.endSequence,
-          merkleRoot,
-          rootSignature,
-          validated.anchoredAt,
-        ],
-      );
+    // `RETURNING id` is the idempotency discriminator: `DO NOTHING` suppresses
+    // the row, so an already-witnessed anchor comes back with zero rows.
+    //
+    // Only `id` is returned: `start_sequence` / `end_sequence` are BIGINT, which
+    // `pg` hydrates as STRINGS to avoid silent precision loss, so echoing them
+    // back would need a normalization step this method has no reason to trigger.
+    const inserted = await this.#querier.query<{ id: string }>(
+      `INSERT INTO event_log_anchors
+         (session_id, node_id, start_sequence, end_sequence, merkle_root, root_signature,
+          anchored_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7::timestamptz)
+       ON CONFLICT (session_id, node_id, start_sequence, end_sequence) DO NOTHING
+       RETURNING id`,
+      [
+        validated.sessionId,
+        validated.nodeId,
+        validated.startSequence,
+        validated.endSequence,
+        merkleRoot,
+        rootSignature,
+        validated.anchoredAt,
+      ],
+    );
 
-      return { stored: inserted.rows.length > 0 };
-    } catch (error) {
-      if (asDatabaseErrorCode(error) === FOREIGN_KEY_VIOLATION) {
-        throw new UnknownAnchorSessionError(validated.sessionId);
-      }
-      throw error;
-    }
+    return { stored: inserted.rows.length > 0 };
   }
 }

@@ -222,7 +222,7 @@ export interface DriverDispatchDeps {
 // resolve versus a resolved address no live binding backs.
 
 /** One run's live-binding resolution, scoped to the addressed session. */
-export type RunBindingResolution =
+type RunBindingResolution =
   | { readonly kind: "unknown-run" }
   | { readonly kind: "no-live-binding" }
   | { readonly kind: "bound"; readonly driverName: string; readonly bindingId: string };
@@ -243,7 +243,7 @@ export type RunBindingResolution =
  * not the cross-binding wildcard match that doctrine forbids on dispatch
  * routing.
  */
-export interface ResolvedAgentBinding {
+interface ResolvedAgentBinding {
   readonly driverName: string;
   readonly bindingId: string;
   readonly providerAccountId: string | null;
@@ -261,7 +261,7 @@ export interface ResolvedAgentBinding {
  * never-empty-on-success rule convert the read into a `-32603` that reports a
  * daemon bug where the contract's own refusal was owed.
  */
-export type AgentBindingsResolution =
+type AgentBindingsResolution =
   | { readonly kind: "unknown-agent" }
   | { readonly kind: "no-live-binding" }
   | {

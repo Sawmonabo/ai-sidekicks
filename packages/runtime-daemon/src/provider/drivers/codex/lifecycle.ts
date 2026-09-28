@@ -130,7 +130,6 @@ import {
   DRIVER_PROVIDER_COMMAND_ENTRIES_MAX,
   DRIVER_PROVIDER_DECLARED_TOKEN_MAX_LEN,
   DriverAuthProbeResultSchema,
-  DriverGoalResultSchema,
   DriverResumeResultSchema,
   DriverRollbackResultSchema,
   ProviderCommandEntrySchema,
@@ -143,7 +142,6 @@ import {
   type DriverAuthProbeResult,
   type DriverCapabilityFlag,
   type DriverCompactionResult,
-  type DriverGoalResult,
   type ListProviderCommandsParams,
   type ProviderCommandEntry,
   type ProviderCommandListResult,
@@ -288,7 +286,7 @@ export const CODEX_APP_SERVER_SHELL_PRELUDE: string =
 export const CODEX_APP_SERVER_SHELL_ARGV0: string = "codex-app-server";
 
 /** Default provider binary; overridable so a node-pinned path can be supplied. */
-export const CODEX_DEFAULT_EXECUTABLE_PATH: string = "codex";
+const CODEX_DEFAULT_EXECUTABLE_PATH: string = "codex";
 
 // --------------------------------------------------------------------------
 // Transport axis (leg 6).
@@ -512,7 +510,8 @@ export function composeCodexTransportArgv(
 }
 
 /**
- * Hard ceiling on a single unterminated inbound line, in UTF-16 code units.
+ * Hard ceiling on a single unterminated inbound line, in UTF-16 code units, and
+ * on one outbound frame, in encoded UTF-8 bytes.
  *
  * The read buffer is fed from a sink the PROVIDER controls, and a newline is the
  * only thing that ever drains it. Without a ceiling, any peer that never emits
@@ -521,44 +520,26 @@ export function composeCodexTransportArgv(
  * accumulating against a tty nobody configured. That is a liveness hazard for
  * the whole node, not merely for one session.
  *
- * The unit is code units rather than bytes ON PURPOSE. Measuring UTF-8 bytes of
- * the retained tail means re-scanning the whole tail on every chunk, which is
- * quadratic in exactly the case the ceiling exists to survive. A code unit costs
- * a fixed two bytes of retained memory whatever it encodes, so this bound is a
- * direct bound on the hazard; and since a UTF-8 encoding is never SHORTER than
- * the code-unit count, a line that trips this ceiling has always exceeded the
- * same figure in bytes too.
+ * The inbound unit is code units rather than bytes ON PURPOSE. Measuring UTF-8
+ * bytes of the retained tail means re-scanning the whole tail on every chunk,
+ * which is quadratic in exactly the case the ceiling exists to survive. A code
+ * unit costs a fixed two bytes of retained memory whatever it encodes, so this
+ * bound is a direct bound on the hazard; and since a UTF-8 encoding is never
+ * SHORTER than the code-unit count, a line that trips this ceiling has always
+ * exceeded the same figure in bytes too.
+ *
+ * Outbound, an answer composed from daemon-side content (a callback tool's
+ * output, an elicitation's structured content) needs a bound as well: an
+ * unbounded answer is a write the provider's reader may reject, and a rejected
+ * answer leaves the ask permanently unanswered. The pinned `codex-cli 0.151.0`
+ * publishes no outbound frame limit (its only size member,
+ * `McpElicitationStringSchema.maxLength`, validates an elicited string), so the
+ * same figure applies. Counted in encoded bytes, which the encode step has
+ * already produced, it is never looser than the inbound bound and is tighter
+ * for any non-ASCII payload: the transport never sends what it would refuse to
+ * receive.
  */
 export const CODEX_MAX_LINE_LENGTH: number = 32 * 1024 * 1024;
-
-/**
- * The ceiling on one OUTBOUND frame, in encoded UTF-8 bytes.
- *
- * WHY THIS EXISTS AT ALL. {@link CODEX_MAX_LINE_LENGTH} bounds what this
- * transport will ACCEPT and says nothing about what it will send, so an answer
- * composed from daemon-side content — a callback tool's output, an
- * elicitation's structured content — had no ceiling at all before this. A
- * single unbounded answer is a write the provider's own reader may reject, and
- * a rejected answer leaves the ask permanently unanswered.
- *
- * WHY THIS FIGURE. The pinned generation publishes NO outbound frame or byte
- * limit anywhere: a sweep of the `--experimental` generation at `codex-cli
- * 0.151.0` for size-limit members finds only `McpElicitationStringSchema
- * .maxLength`, which is a JSON-Schema validation keyword for an elicited
- * string rather than a transport bound. Absent a published figure the honest
- * default is the one this transport already applies to the same wire in the
- * other direction, so the bound is the inbound ceiling's numeric figure.
- *
- * THE UNITS DIFFER ON PURPOSE, and in the safe direction. The inbound ceiling
- * counts UTF-16 code units of a retained tail (see above — measuring bytes
- * there is quadratic); this one counts the ENCODED BYTES, which the encode step
- * has already produced, so measuring is free. Since a UTF-8 encoding is never
- * shorter than the code-unit count, an outbound bound stated in bytes at the
- * same figure is never LOOSER than the inbound one and is strictly tighter for
- * any non-ASCII payload — the transport refuses to send anything it would have
- * refused to receive.
- */
-export const CODEX_MAX_OUTBOUND_FRAME_BYTES: number = CODEX_MAX_LINE_LENGTH;
 
 /**
  * The refusal reason substituted for an answer that will not fit the wire.
@@ -887,7 +868,7 @@ export interface CodexServerRequestResponder {
  * human-facing title as an answer or hide a real title behind an opaque
  * constant.
  */
-export interface ProviderAskOption {
+interface ProviderAskOption {
   readonly value: string;
   readonly label: string;
 }
@@ -1392,7 +1373,7 @@ const JSON_RPC_METHOD_NOT_FOUND = -32601;
  * opt-out, and it takes the default-branch diagnostic path exactly as the
  * paragraph above describes.
  */
-export const CODEX_SUPPRESSED_REALTIME_NOTIFICATION_METHODS: readonly string[] = Object.freeze([
+const CODEX_SUPPRESSED_REALTIME_NOTIFICATION_METHODS: readonly string[] = Object.freeze([
   "thread/realtime/started",
   "thread/realtime/closed",
   "thread/realtime/error",
@@ -2334,8 +2315,8 @@ export type CodexTransportDiagnostic =
       disposition: "refused";
     }
   /**
-   * The composed answer to a routed ask exceeded
-   * {@link CODEX_MAX_OUTBOUND_FRAME_BYTES}.
+   * The composed answer to a routed ask exceeded {@link CODEX_MAX_LINE_LENGTH}
+   * in encoded bytes.
    *
    * Recorded on the way to a REFUSAL, never a truncation: the provider still
    * receives the method's own refusal shape carrying
@@ -2774,12 +2755,12 @@ function codexNetworkAccessEnabled(posture: ExecutionPosture): boolean {
 const CODEX_WORKSPACE_NETWORK_ACCESS_CONFIG_KEY = "sandbox_workspace_write.network_access";
 
 /** Thread-level posture legs — `sandbox` + `approvalPolicy` on `thread/start`. */
-export interface CodexThreadPostureParams {
+interface CodexThreadPostureParams {
   readonly sandbox: string;
   readonly approvalPolicy: string;
 }
 
-export function composeCodexThreadPosture(posture: ExecutionPosture): CodexThreadPostureParams {
+function composeCodexThreadPosture(posture: ExecutionPosture): CodexThreadPostureParams {
   const sandbox = CODEX_SANDBOX_MODE_BY_POSTURE_MODE[posture.mode];
   return {
     sandbox,
@@ -2797,9 +2778,7 @@ export function composeCodexThreadPosture(posture: ExecutionPosture): CodexThrea
  * inert). On those arms the turn-level `sandboxPolicy` is the only expression
  * of the axis, and every run supplies it.
  */
-export function composeCodexThreadPostureConfig(
-  posture: ExecutionPosture,
-): Record<string, unknown> {
+function composeCodexThreadPostureConfig(posture: ExecutionPosture): Record<string, unknown> {
   if (posture.mode !== "workspace-sandboxed") {
     return {};
   }
@@ -2864,7 +2843,7 @@ export function describeCodexPostureDivergence(
  * temp directory the posture never listed is still a writable root, and the
  * daemon's `writableRoots` is the complete list by construction.
  */
-export function composeCodexTurnSandboxPolicy(posture: ExecutionPosture): Record<string, unknown> {
+function composeCodexTurnSandboxPolicy(posture: ExecutionPosture): Record<string, unknown> {
   const networkAccess = codexNetworkAccessEnabled(posture);
   switch (posture.mode) {
     case "trusted":
@@ -4385,14 +4364,14 @@ export class CodexAppServerConnection {
     if (composedAnswer === null) {
       return null;
     }
-    if (composedAnswer.bytes.length <= CODEX_MAX_OUTBOUND_FRAME_BYTES) {
+    if (composedAnswer.bytes.length <= CODEX_MAX_LINE_LENGTH) {
       return composedAnswer;
     }
     this.#reportDiagnosticQuietly({
       kind: "server-request-answer-oversized",
       method,
       encodedByteLength: composedAnswer.bytes.length,
-      limit: CODEX_MAX_OUTBOUND_FRAME_BYTES,
+      limit: CODEX_MAX_LINE_LENGTH,
     });
     const substitutedRefusal = this.#encodeAnswerFrameOrReport(
       id,
@@ -4402,7 +4381,7 @@ export class CodexAppServerConnection {
     if (substitutedRefusal === null) {
       return null;
     }
-    if (substitutedRefusal.bytes.length <= CODEX_MAX_OUTBOUND_FRAME_BYTES) {
+    if (substitutedRefusal.bytes.length <= CODEX_MAX_LINE_LENGTH) {
       return substitutedRefusal;
     }
     // Reachable only when the request `id` the provider chose is itself past
@@ -4411,7 +4390,7 @@ export class CodexAppServerConnection {
       kind: "server-request-answer-oversized",
       method,
       encodedByteLength: substitutedRefusal.bytes.length,
-      limit: CODEX_MAX_OUTBOUND_FRAME_BYTES,
+      limit: CODEX_MAX_LINE_LENGTH,
     });
     return null;
   }
@@ -6743,16 +6722,11 @@ export class CodexLifecycleManager {
   }
 
   /**
-   * Rewinds a session's conversation to a recorded turn boundary (leg 1).
-   *
-   * CONVERSATION ONLY. The provider's own type says its rewind "does not revert
-   * local file changes"; working-tree restore is the daemon's turn-snapshot leg,
-   * and a driver claiming it here would be inventing a guarantee the provider
-   * never made.
+   * Forks the provider conversation at a recorded turn boundary and leaves the
+   * original thread untouched. Files on disk are not restored.
    *
    * MECHANISM: `thread/fork` at an inclusive `lastTurnId`, which mints a NEW
-   * thread and leaves the pre-rewind thread intact and unreferenced. Three
-   * consequences, all of them load-bearing:
+   * thread. Three consequences, all of them load-bearing:
    *
    *   * the caller's absolute position resolves to a BOUNDARY TURN ID, never to
    *     a drop-count, so a retried rewind re-forks from the same boundary
@@ -6808,7 +6782,7 @@ export class CodexLifecycleManager {
     // Position N names the Nth turn. Position 0 is deliberately NOT mapped onto
     // an omitted `lastTurnId`: omitting the boundary forks the WHOLE thread, so
     // a request to rewind to an empty history would be answered by a fork that
-    // rewound nothing at all — the one outcome a rollback must never report as
+    // rewound nothing at all — the one outcome this fork must never report as
     // applied.
     const boundaryTurnId =
       params.position >= 1 ? record.turnBoundaries[params.position - 1] : undefined;
@@ -7031,27 +7005,24 @@ export class CodexLifecycleManager {
    * does not own — sending either would make the driver a second author of a
    * value whose durable truth is the session's own goal events.
    */
-  async setSessionGoal(params: SetSessionGoalParams): Promise<DriverGoalResult> {
+  async setSessionGoal(params: SetSessionGoalParams): Promise<void> {
     const record = this.#requireSession(params.sessionId);
     await record.connection.request("thread/goal/set", {
       threadId: record.threadId,
       objective: params.goalText,
     });
-    return DriverGoalResultSchema.parse({ status: "applied" });
   }
 
   /**
    * Clears the session's goal on the provider (leg 2, native).
    *
-   * A `cleared: false` answer is still `applied`. The post-condition this
+   * A `cleared: false` answer still resolves: the post-condition this
    * operation promises is that the session carries no goal, and a thread that
-   * had none already satisfies it — reporting `degraded` there would tell the
-   * caller to run a fallback for a state it has.
+   * had none already satisfies it.
    */
-  async clearSessionGoal(params: ClearSessionGoalParams): Promise<DriverGoalResult> {
+  async clearSessionGoal(params: ClearSessionGoalParams): Promise<void> {
     const record = this.#requireSession(params.sessionId);
     await record.connection.request("thread/goal/clear", { threadId: record.threadId });
-    return DriverGoalResultSchema.parse({ status: "applied" });
   }
 
   /**

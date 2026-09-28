@@ -2,9 +2,9 @@
 //
 // Exercises CRUD + the provider-output write-seam validation over a REAL Local
 // SQLite handle via `openDatabase(":memory:")` — so BOTH the Zod write-seam
-// layer AND the DB CHECK constraints from `0003-runtime-bindings.ts` fire
-// end-to-end. A fresh private in-memory DB is opened per test (the full
-// migration chain runs each time; the WAL pragma is a silent no-op on
+// layer AND the DB CHECK constraints from `session/daemon-schema.ts` fire
+// end-to-end. A fresh private in-memory DB is opened per test (the schema is
+// applied each time; the WAL pragma is a silent no-op on
 // `:memory:`), so there is no tmp-file/unlink lifecycle to manage.
 //
 // Coverage map (cites are the authoritative contract, not just the ACs):
@@ -976,7 +976,7 @@ describe("RuntimeBindingStore — spawn_config", () => {
   it("NEGATIVE CONTROL: a create carrying an executionPosture never leaves the raw column at '{}'", () => {
     // The defect this pins is the one row calls out by name: a spawn that
     // realizes a spawn-bound surface but persists nothing, leaving the column at
-    // its migration DEFAULT. Recovery would then rebuild a posture-less resume —
+    // its schema DEFAULT. Recovery would then rebuild a posture-less resume —
     // an UNSANDBOXED relaunch — while every accessor above reported a successful
     // create. Read through a RAW SELECT, because the store's own accessor parses
     // `'{}'` into a perfectly valid empty record and could not tell the two
@@ -998,11 +998,10 @@ describe("RuntimeBindingStore — spawn_config", () => {
   });
 
   it("an EXPLICIT empty record is written as '{}' and reads back as all-absent", () => {
-    // The documented pre-B10 ambiguity: a genuinely-empty LIVE record and a
-    // pre-migration DEFAULT row are indistinguishable by value. Pinned here so
-    // the ambiguity is a known property rather than a surprise — Phase-3 spawn
-    // writers always record `resolvedExecutablePath`, which is what resolves it
-    // in practice.
+    // The documented ambiguity: a genuinely-empty LIVE record and a DEFAULT row
+    // are indistinguishable by value. Pinned here so the ambiguity is a known
+    // property rather than a surprise — spawn writers always record
+    // `resolvedExecutablePath`, which is what resolves it in practice.
     const store = makeStore();
     const created = store.create({
       runId: RUN_ID,
@@ -1326,9 +1325,8 @@ describe("RuntimeBindingStore — cliVersion pair", () => {
 
   it("the two-column CHECK survives an UPDATE that names neither column", () => {
     // SQLite re-evaluates every CHECK on the row for EVERY write to it, not only
-    // for writes that name the constrained column — the hazard migration 0011's
-    // own comment calls out. The update path must therefore carry the pair
-    // through untouched rather than dropping half of it.
+    // for writes that name the constrained column. The update path must
+    // therefore carry the pair through untouched rather than dropping half of it.
     const store = makeStore();
     const created = store.create({
       runId: RUN_ID,

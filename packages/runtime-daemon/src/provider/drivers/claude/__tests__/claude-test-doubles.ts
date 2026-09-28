@@ -7,7 +7,6 @@
 
 import type {
   ApplyInterventionParams,
-  ChannelId,
   CreateSessionParams,
   RunId,
   SessionId,
@@ -40,7 +39,6 @@ import type {
 } from "../lifecycle.js";
 
 export const TEST_SESSION_ID: SessionId = "session-1" as SessionId;
-export const TEST_CHANNEL_ID: ChannelId = "channel-1" as ChannelId;
 export const TEST_RUN_ID: RunId = "run-1" as RunId;
 export const TEST_SECOND_RUN_ID: RunId = "run-2" as RunId;
 export const TEST_PINNED_PROVIDER_SESSION_ID: string = "provider-session-pinned";
@@ -465,7 +463,7 @@ export function buildCreateSessionParams(): CreateSessionParams {
 }
 
 export function buildStartRunParams(): StartRunParams {
-  return { runId: TEST_RUN_ID, channelId: TEST_CHANNEL_ID, agentConfig: {} };
+  return { runId: TEST_RUN_ID, agentConfig: {} };
 }
 
 export function buildSteerParams(content: string): ApplyInterventionParams {
@@ -519,7 +517,7 @@ export function makeSilentDriverDiagnostics(): DriverDiagnosticsEmitter {
  * reports a non-zero turn count, a non-zero API duration, a non-zero cost, and
  * a populated per-model usage map, and all four move together.
  */
-export function synthesizeTurnEvidenceResult(frameKind: string): Record<string, unknown> {
+function synthesizeTurnEvidenceResult(frameKind: string): Record<string, unknown> {
   return {
     type: "result",
     subtype: frameKind.slice("result/".length),

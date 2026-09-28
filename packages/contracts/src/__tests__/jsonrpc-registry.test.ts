@@ -41,7 +41,6 @@ describe("METHOD_NAME_FORMAT — canonical JSON-RPC method-name format", () => {
     "repo.mountRead",
     "repo.executionModeSelect",
     "approval.requestCreate",
-    "channel.rosterRead",
     "orchestration.runCreate",
     "orchestration.childRunLinkRead",
     "orchestration.budgetRead",
@@ -73,7 +72,7 @@ describe("METHOD_NAME_FORMAT — canonical JSON-RPC method-name format", () => {
     "session/create", // slash separator (HTTP-path conflation)
     "SessionCreate", // PascalCase (type-name collision)
     // Underscores are durable-event form — invalid as a method.
-    "runtime_node.attach",
+    "repo_mount.attach",
     "approval.rule_revoked",
     // Malformed dots.
     "session.", // trailing dot

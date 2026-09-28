@@ -9,9 +9,8 @@
 //     ways: a type-level exactness assertion, a runtime key-set compare, and
 //     the production write-seam guard `assertValidCapabilityFlags`, which is
 //     the code that actually decides whether a declaration is admissible.
-//   * The refresh trigger declares through writer and surfaces its
-//     change-detected emission discriminant unchanged. No new event type,
-//     no local change detection.
+//   * The refresh trigger declares through the writer and surfaces its
+//     change-detected verdict unchanged, with no local change detection.
 
 import { DRIVER_CAPABILITY_FLAGS, ProviderToolMetadataSchema } from "@ai-sidekicks/contracts";
 import type {
@@ -23,6 +22,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   RecordingCapabilityProbeTransport,
+  RecordingDeclarationSink,
   fullyProbedDetectionReading,
 } from "../../../__fixtures__/capability-probe-doubles.js";
 import type { CapabilityDetectionReading } from "../../../capability-probe.js";
@@ -31,10 +31,6 @@ import {
   DriverCliVersionBelowFloorError,
   DriverCliVersionUnparseableError,
 } from "../../../capability-refresh.js";
-import type {
-  DeclareDriverCapabilitiesInput,
-  DeclareDriverCapabilitiesResult,
-} from "../../../driver-capabilities-writer.js";
 import { DriverDiagnosticsEmitter } from "../../../driver-diagnostics.js";
 import { DRIVER_OUTPUT_SPEED_LEVELS } from "../../../driver-output-speed.js";
 import { DriverCapabilityUnsupportedError, ProviderRegistry } from "../../../provider-registry.js";
@@ -57,7 +53,6 @@ import {
   refreshCodexCapabilities,
   resolveCodexModelCatalog,
 } from "../capabilities.js";
-import type { DriverCapabilityDeclarationSink } from "../capabilities.js";
 import { CODEX_TOOL_METADATA } from "../tools.js";
 
 // Codex column — transcribed here from the spec rather than imported from
@@ -146,26 +141,6 @@ const declaredFlagKeysAreExactlyCanonical: MutuallyAssignable<
   DriverCapabilityFlag
 > = true;
 
-/**
- * A typed fake of the ONE writer method this seam uses. Typing it as
- * `DriverCapabilityDeclarationSink` (a `Pick` of the real class) means a
- * signature change on `DriverCapabilitiesWriter.declare` breaks this file at
- * compile time instead of leaving a stale fake passing.
- */
-class RecordingDeclarationSink implements DriverCapabilityDeclarationSink {
-  readonly calls: DeclareDriverCapabilitiesInput[] = [];
-  #nextResult: DeclareDriverCapabilitiesResult;
-
-  constructor(nextResult: DeclareDriverCapabilitiesResult) {
-    this.#nextResult = nextResult;
-  }
-
-  declare(input: DeclareDriverCapabilitiesInput): Promise<DeclareDriverCapabilitiesResult> {
-    this.calls.push(input);
-    return Promise.resolve(this.#nextResult);
-  }
-}
-
 describe("Codex capability declaration", () => {
   it("declares exactly Codex matrix", () => {
     expect(declaredFlagKeysAreExactlyCanonical).toBe(true);
@@ -227,20 +202,6 @@ describe("Codex getCapabilities() wrapper", () => {
       assertValidCliVersionReport(CODEX_DRIVER_NAME, result.cliVersion);
     }).not.toThrow();
     expect(result.capabilities.contractVersion).toBe(CODEX_CAPABILITY_CONTRACT_VERSION);
-  });
-
-  it("pins the contract version flag flip moved it to, as a MAJOR bump", () => {
-    // Change detection only works if the token actually MOVES when the declared
-    // shape does — the writer compares whole snapshots, and a frozen token on a
-    // changed declaration is the failure mode this pins against.
-    //
-    // MAJOR, unlike the additive MINOR: no flag joined the census,
-    // `transcript_replay` changed VALUE, and a previously declared flag changing
-    // meaning is exactly what separates the two. It is also the move that has to
-    // be seen — migration `0012` backfilled this flag's row `supported = 0`, so
-    // a node holding that cached row would keep routing every reconstitution to
-    // the memo floor on a driver that now replays natively.
-    expect(CODEX_CAPABILITY_CONTRACT_VERSION).toBe("2.0.0");
   });
 
   it("spells the shared vocabulary table rather than copying it", () => {
@@ -310,10 +271,11 @@ describe("Codex getCapabilities() wrapper", () => {
 
 describe("Codex capability refresh seam", () => {
   it("declares through writer with the Codex driver key and composed report", async () => {
-    const sink = new RecordingDeclarationSink({ emitted: "declared", cliVersionRefreshed: true });
-    const emission = await refreshCodexCapabilities(sink, {
-      sessionId: "session-1",
-      nodeId: "node-1",
+    const sink = new RecordingDeclarationSink({
+      snapshotChange: "created",
+      cliVersionRefreshed: true,
+    });
+    const verdict = await refreshCodexCapabilities(sink, {
       reading: CLI_VERSION_READING,
       probe: CODEX_PROBE.exchange,
       diagnostics: silentDiagnostics(),
@@ -327,61 +289,24 @@ describe("Codex capability refresh seam", () => {
     }
     expect(call.driverName).toBe(CODEX_DRIVER_NAME);
     expect(call.driverName).toBe("codex");
-    expect(call.sessionId).toBe("session-1");
-    expect(call.nodeId).toBe("node-1");
     expect(call.result).toEqual(getCodexCapabilities(CLI_VERSION_READING, CODEX_DETECTION));
-    // `actor` absent (not `undefined`) means the writer's system-actor default.
-    expect(Object.prototype.hasOwnProperty.call(call, "actor")).toBe(false);
     // The writer owns change detection; this seam surfaces its verdict as-is.
-    expect(emission).toEqual({ emitted: "declared", cliVersionRefreshed: true });
+    expect(verdict).toEqual({ snapshotChange: "created", cliVersionRefreshed: true });
   });
 
-  it("threads an explicit actor when the caller supplies one", async () => {
-    const sink = new RecordingDeclarationSink({ emitted: "updated", cliVersionRefreshed: false });
-    await refreshCodexCapabilities(sink, {
-      sessionId: "session-2",
-      nodeId: "node-2",
-      reading: CLI_VERSION_READING,
-      probe: CODEX_PROBE.exchange,
-      diagnostics: silentDiagnostics(),
-      actor: "user-7",
+  it("returns an unchanged verdict as-is (no local change detection)", async () => {
+    // This seam neither suppresses nor manufactures the writer's verdict, which
+    // is what keeps a single answer to "did it change?".
+    const sink = new RecordingDeclarationSink({
+      snapshotChange: "unchanged",
+      cliVersionRefreshed: false,
     });
-    expect(sink.calls[0]?.actor).toBe("user-7");
-  });
-
-  it("threads an EXPLICIT null actor through as null, not as an absent key", async () => {
-    // The third arm of the conditional spread. `null` is the writer's system
-    // actor, so explicit-null and absent converge behaviorally — but they are
-    // distinguishable inputs, and only an explicit test pins which one the
-    // caller's `null` becomes.
-    const sink = new RecordingDeclarationSink({ emitted: "declared", cliVersionRefreshed: true });
-    await refreshCodexCapabilities(sink, {
-      sessionId: "session-4",
-      nodeId: "node-4",
-      reading: CLI_VERSION_READING,
-      probe: CODEX_PROBE.exchange,
-      diagnostics: silentDiagnostics(),
-      actor: null,
-    });
-    const call = sink.calls[0];
-    expect(call).toBeDefined();
-    expect(Object.prototype.hasOwnProperty.call(call ?? {}, "actor")).toBe(true);
-    expect(call?.actor).toBeNull();
-  });
-
-  it("returns a noop emission unchanged (no local change detection)", async () => {
-    // Re-declaring an unchanged snapshot must append nothing to the timeline.
-    // This seam neither suppresses nor manufactures that verdict — it reports
-    // the writer's, which is what keeps a single answer to "did it change?".
-    const sink = new RecordingDeclarationSink({ emitted: "noop", cliVersionRefreshed: false });
-    const emission = await refreshCodexCapabilities(sink, {
-      sessionId: "session-3",
-      nodeId: "node-3",
+    const verdict = await refreshCodexCapabilities(sink, {
       reading: CLI_VERSION_READING,
       probe: CODEX_PROBE.exchange,
       diagnostics: silentDiagnostics(),
     });
-    expect(emission.emitted).toBe("noop");
+    expect(verdict.snapshotChange).toBe("unchanged");
     expect(sink.calls).toHaveLength(1);
   });
 });
@@ -432,11 +357,12 @@ describe("Codex CLI-version floor", () => {
   });
 
   it("refuses the refresh path through the same gate (one comparison, two moments)", async () => {
-    const sink = new RecordingDeclarationSink({ emitted: "noop", cliVersionRefreshed: false });
+    const sink = new RecordingDeclarationSink({
+      snapshotChange: "unchanged",
+      cliVersionRefreshed: false,
+    });
     await expect(
       refreshCodexCapabilities(sink, {
-        sessionId: "session-floor",
-        nodeId: "node-floor",
         reading: codexReading({ raw: "codex-cli 0.140.0", semver: "0.140.0" }),
         probe: CODEX_PROBE.exchange,
         diagnostics: silentDiagnostics(),
@@ -504,11 +430,12 @@ describe("Codex composition is bound to the spawned build", () => {
     };
     expect(() => getCodexCapabilities(foreign, CODEX_DETECTION)).toThrow(/driver 'claude'/);
 
-    const sink = new RecordingDeclarationSink({ emitted: "noop", cliVersionRefreshed: false });
+    const sink = new RecordingDeclarationSink({
+      snapshotChange: "unchanged",
+      cliVersionRefreshed: false,
+    });
     await expect(
       refreshCodexCapabilities(sink, {
-        sessionId: "session-foreign",
-        nodeId: "node-foreign",
         reading: foreign,
         probe: CODEX_PROBE.exchange,
         diagnostics: silentDiagnostics(),

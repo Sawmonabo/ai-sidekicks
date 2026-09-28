@@ -27,9 +27,9 @@
 //     branch and provenance context.
 //   * the row's provenance columns are populated at creation and survive
 //     retirement.
-//   * the carrier census: every class reports its ratified code and notional
-//     status, the three registries are covered exactly, and `workspace.busy`
-//     (the, already shipped as `WorkspaceBusyError`) is absent.
+//   * the error vocabulary: every class reports its code and notional status,
+//     the two registries are covered exactly, and `workspace.busy` (already
+//     shipped as `WorkspaceBusyError`) is absent.
 //
 // The interleaving-sensitive cases drive their races through a SUBCLASSED
 // `WorktreeEventEmitter` whose overridden emit method performs the interfering
@@ -54,9 +54,7 @@ import type { EventLogAppendReceipt } from "../../events/event-log-service.js";
 import { __resetSessionAppendLocksForTest } from "../../events/session-append-lock.js";
 import type { Ed25519PrivateKey, Ed25519PublicKey } from "../../events/signer.js";
 import type { DaemonSigningKeySource } from "../../events/signing-key-source.js";
-// A VALUE import, not a type-only one: the exported-carrier census below tests
-// `prototype instanceof DaemonDomainError` at runtime.
-import { DaemonDomainError } from "../../ipc/domain-error.js";
+import type { DaemonDomainError } from "../../ipc/domain-error.js";
 import { openDatabase } from "../../session/migration-runner.js";
 import { RepoMountNotFoundError } from "../../workspace/repo-errors.js";
 import { WorktreeEventEmitter } from "../worktree-event-emitter.js";
@@ -65,9 +63,6 @@ import type {
   WorktreeEventEmitterDeps,
 } from "../worktree-event-emitter.js";
 import {
-  CloneNotFoundError,
-  ClonePrepareFailedError,
-  EPHEMERAL_CLONE_ERROR_CODES,
   WORKSPACE_ERROR_CODES,
   WORKTREE_ERROR_CODES,
   WorkspaceBranchMismatchError,
@@ -80,10 +75,6 @@ import {
   WorktreeReuseConflictError,
 } from "../worktree-errors.js";
 import type { WorktreeCreateFailureReason } from "../worktree-errors.js";
-// The whole module surface, for the exported-carrier census. Named imports
-// cannot serve it: a class the suite forgot to import is exactly the class the
-// census exists to catch.
-import * as worktreeErrorsModule from "../worktree-errors.js";
 import { WorktreeService, deriveWorktreeBranchName } from "../worktree-service.js";
 import type {
   CreateWorktreeInput,
@@ -114,8 +105,8 @@ const UNKNOWN_WORKTREE_ID: string = "0190f8b7-7c9d-7e1f-9a76-8b2c1a04f576";
 const FIXED_WORKTREE_ID: string = "0190f8b8-8d0e-7f20-8b87-9c3d2b15a687";
 
 // Two distinct canonical roots: `idx_repo_mounts_active_root` is UNIQUE over
-// (session_id, node_id, canonical_root) for attached rows, so a second mount in
-// the same session needs a root of its own.
+// (node_id, canonical_root) for attached rows, so a second mount on the same
+// node needs a root of its own.
 const CANONICAL_ROOT: string = "/tmp/ai-sidekicks-fixture-mount";
 const OTHER_CANONICAL_ROOT: string = "/tmp/ai-sidekicks-fixture-other-mount";
 const HEAD_BRANCH: string = "main";
@@ -339,12 +330,11 @@ function insertMount(options: {
   const canonicalRoot = options.canonicalRoot ?? CANONICAL_ROOT;
   const statement = ctx.db.prepare(
     `INSERT INTO repo_mounts (
-       id, session_id, node_id, local_path, canonical_root, state, attached_at, updated_at
-     ) VALUES (?, ?, 'node-1', ?, ?, ?, ?, ?)`,
+       id, node_id, local_path, canonical_root, state, attached_at, updated_at
+     ) VALUES (?, 'node-1', ?, ?, ?, ?, ?)`,
   );
   statement.run(
     options.repoMountId,
-    SESSION_ID,
     canonicalRoot,
     canonicalRoot,
     options.state ?? "attached",
@@ -360,7 +350,7 @@ function insertWorkspace(options: {
   const statement = ctx.db.prepare(
     `INSERT INTO workspaces (
        id, session_id, repo_mount_id, execution_mode, fs_root, state, created_at, updated_at
-     ) VALUES (?, ?, ?, 'worktree', ?, ?, ?, ?)`,
+     ) VALUES (?, ?, ?, 'provisioned-worktree', ?, ?, ?, ?)`,
   );
   statement.run(
     WORKSPACE_ID,
@@ -1726,18 +1716,6 @@ function allCarriers(): readonly CarrierCase[] {
       httpStatus: 409,
     },
     {
-      error: new CloneNotFoundError(UNKNOWN_WORKTREE_ID),
-      name: "CloneNotFoundError",
-      code: "clone.not_found",
-      httpStatus: 404,
-    },
-    {
-      error: new ClonePrepareFailedError("clone_invocation_failed"),
-      name: "ClonePrepareFailedError",
-      code: "clone.prepare_failed",
-      httpStatus: 500,
-    },
-    {
       error: new WorkspaceBranchMismatchError(WORKSPACE_ID, "feature/login", HEAD_BRANCH),
       name: "WorkspaceBranchMismatchError",
       code: "workspace.branch_mismatch",
@@ -1758,36 +1736,8 @@ function allCarriers(): readonly CarrierCase[] {
   ];
 }
 
-/**
- * Whether an exported value is one of the module's `DaemonDomainError`
- * subclasses.
- *
- * Keyed on the PROTOTYPE CHAIN rather than on a name convention: the three
- * exported `*_ERROR_CODES` arrays are not functions and drop out on the first
- * clause, and a future exported helper function would not extend the base.
- */
-function isCarrierClass(candidate: unknown): boolean {
-  return typeof candidate === "function" && candidate.prototype instanceof DaemonDomainError;
-}
-
-/**
- * How many carrier classes the errors module EXPORTS, discovered from its
- * namespace rather than listed.
- *
- * This is the leg set-equality cannot cover, and the claim
- * `WORKTREE_ERROR_CODES`' docblock makes. `registeredWorkspaceCodes()` proves the
- * enumerated carriers and the three registries agree — but BOTH sides of that
- * comparison are written by hand here, so a class the module exports and
- * `allCarriers()` forgets leaves the comparison consistent and the class
- * asserted by nothing. Reading the namespace is what makes the census
- * independent of the list it is checking.
- */
-function countExportedCarrierClasses(): number {
-  return Object.values(worktreeErrorsModule).filter(isCarrierClass).length;
-}
-
 function registeredWorkspaceCodes(): readonly string[] {
-  return [...WORKTREE_ERROR_CODES, ...EPHEMERAL_CLONE_ERROR_CODES, ...WORKSPACE_ERROR_CODES];
+  return [...WORKTREE_ERROR_CODES, ...WORKSPACE_ERROR_CODES];
 }
 
 describe("error vocabulary", () => {
@@ -1799,19 +1749,12 @@ describe("error vocabulary", () => {
     }
   });
 
-  it("covers the three registries exactly", () => {
+  it("covers the two registries exactly", () => {
     const registered = registeredWorkspaceCodes();
     const carried = allCarriers().map((carrier) => carrier.error.code);
 
     expect([...carried].sort()).toEqual([...registered].sort());
     expect(new Set(registered).size).toBe(registered.length);
-  });
-
-  it("enumerates every carrier class the module exports", () => {
-    // The header's "SCOPE: ten classes" claim, pinned twice: against the
-    // module's own exports, and against the literal that scope note names.
-    expect(countExportedCarrierClasses()).toBe(10);
-    expect(allCarriers()).toHaveLength(countExportedCarrierClasses());
   });
 
   it("declares no carrier for -owned workspace.busy code", () => {

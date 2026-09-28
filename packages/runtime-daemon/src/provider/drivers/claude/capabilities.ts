@@ -4,8 +4,7 @@
  * Owns the Claude driver's `getCapabilities()` answer — the V1
  * `GetCapabilitiesResult` wrapper (flags + contract version, tool metadata,
  * CLI version report) — and the refresh trigger that hands a fresh reading to
- * the capability-declaration sink, which is what emits
- * `runtime_node.capability_declared` / `runtime_node.capability_updated`.
+ * the capability-declaration sink, which stores it.
  *
  * ## Declaration is TOTAL, and absence never means "supported"
  *
@@ -72,7 +71,7 @@
  * * **The refresh cadence** — the 15-minute poll and its pairing with the
  *   zero-turn auth probe are the `CapabilityRefreshScheduler`'s
  *   (`../../capability-refresh.ts`). {@link
- *   ClaudeCapabilityReporter.refreshDeclaration} is the emission seam that
+ *   ClaudeCapabilityReporter.refreshDeclaration} is the declaration seam that
  *   scheduler drives, not the scheduler. The CLI-version FLOOR, by
  *   contrast, is enforced HERE: {@link
  *   ClaudeCapabilityReporter.getCapabilities} refuses a below-floor reading
@@ -117,7 +116,7 @@ import {
 } from "../../capability-refresh.js";
 import type {
   DeclareDriverCapabilitiesResult,
-  DriverCapabilitiesWriter,
+  DriverCapabilityDeclarationSink,
 } from "../../driver-capabilities-writer.js";
 import type { DriverDiagnosticsEmitter } from "../../driver-diagnostics.js";
 import { DRIVER_OUTPUT_SPEED_LEVELS } from "../../driver-output-speed.js";
@@ -132,40 +131,17 @@ import { getClaudeToolMetadata } from "./tools.js";
 
 /**
  * The registry key for this driver. The capability writer keys
- * `driver_capabilities` / `driver_tools` / `driver_contract_meta` on it and
- * derives the evented capability key `provider-driver-claude` from it, so it
+ * `driver_capabilities` / `driver_tools` / `driver_contract_meta` on it, so it
  * is daemon-controlled identity — never provider output.
  */
 export const CLAUDE_DRIVER_NAME = "claude" as const;
 
 /**
- * The Claude driver's capability-contract version — a change-detection signal
- * for the capability writer, NOT a negotiation surface. It must be a canonical
- * identifying semver
- * (`assertValidContractVersion`), and it is bumped when the DECLARED SHAPE
- * changes — a flag's value, the FLAG CENSUS, a tool's class, the tool census,
- * or a member joining the report — so a node that already has a row re-reads
- * rather than trusting its cache.
- *
- * `1.1.0`: additive growth, hence a MINOR move. The declared flag set
- * grew from fourteen to seventeen (`context_compaction`, `provider_commands`,
- * `output_speed`) and the report gained `outputSpeedLevels`. Nothing previously
- * declared changed meaning, which is what keeps this off a major.
- *
- * DELIBERATELY UNMOVED where `transcript_replay` became probe-derived.
- * The rule above lists "a flag's value" as a trigger, and no flag's value moves:
- * with no probe bound — which is every node at this pin, since no build publishes
- * a seeding surface — the composed declaration is byte-identical to the one
- * `1.1.0` described, so bumping would make every Claude node re-read for a reply
- * it already has. The value is also now per-BUILD rather than per-release, and a
- * process-wide constant cannot express a token that moves per node; the flip that
- * matters when a probe does answer `true` is caught where it is actually
- * observable — the writer's `declare` compares the stored snapshot, flags
- * included, and emits `runtime_node.capability_updated` on the difference. The
- * sibling Codex constant DID move to `2.0.0`, because there a declared value
- * genuinely changed for every node at once.
+ * The Claude driver's capability-contract version: a canonical semver the
+ * capability writer compares to detect change, bumped whenever the declared shape
+ * changes so a node holding a cached row re-reads it.
  */
-export const CLAUDE_CAPABILITY_CONTRACT_VERSION: string = "1.1.0";
+export const CLAUDE_CAPABILITY_CONTRACT_VERSION: string = "2.0.0";
 
 // --------------------------------------------------------------------------
 // The declaration
@@ -206,14 +182,11 @@ export const CLAUDE_CAPABILITY_FLAGS: Readonly<Record<DriverCapabilityFlag, bool
     model_mutation: true,
     // `--json-schema` constrains the final output to a supplied schema.
     structured_output: true,
-    // Composed natively from resume-at + `--fork-session`. Conversation
-    // rollback only; file-state restore is the daemon's turn-snapshot leg.
+    // Composed natively from resume-at + `--fork-session`: a fork of the
+    // conversation.
     rollback: true,
-    // Driver-EMULATED: the goal is daemon-stored and composed into the system
-    // prompt at the next turn or resume boundary. The flag answers "does the
-    // driver deliver it", and it does — the grade records that the delivery is
-    // not live mid-turn.
-    session_goals: true,
+    // FALSE: this driver exposes no goal operation.
+    session_goals: false,
     // Daemon-hosted ephemeral MCP server surfaces callback tools into the run.
     callback_tools: true,
     // `--agents` AgentDefinitions (provider-native in-session subagents).
@@ -298,7 +271,7 @@ export const CLAUDE_OUTPUT_SPEED_LEVELS: readonly string[] = DRIVER_OUTPUT_SPEED
  * object, and a surface free to mutate what it was given would then be able to
  * move the expectation it is about to be checked against.
  */
-export interface ClaudeTranscriptSeedFrame {
+interface ClaudeTranscriptSeedFrame {
   readonly position: number;
   readonly role: CanonicalTranscriptTurn["role"];
   readonly text: string;
@@ -434,32 +407,6 @@ export interface ClaudeCapabilityReporterDependencies {
    * fail-closed either way: absent, refusing, and throwing all land on `false`.
    */
   readonly transcriptReplayProbe?: ClaudeTranscriptReplayProbe | undefined;
-}
-
-/**
- * The write seam this module declares through — structurally a
- * `DriverCapabilitiesWriter` (which performs the atomic dual-write and emits
- * `runtime_node.capability_declared` /
- * `runtime_node.capability_updated`), narrowed to the one method used.
- *
- * A `Pick` of the real class rather than a hand-written mirror: a mirror keeps
- * compiling against a writer whose `declare` signature has since moved, so the
- * drift surfaces at the call site or not at all. Depending on the SHAPE and
- * not on the construction is what keeps this module testable — a real writer
- * needs a database handle and an event-log service.
- *
- * Deliberately duplicated from the sibling `../codex/capabilities.ts` rather
- * than imported from it: the two driver trees stay import-independent, so
- * neither can break the other by moving a file.
- */
-export type DriverCapabilityDeclarationSink = Pick<DriverCapabilitiesWriter, "declare">;
-
-/** Who the declaration is recorded for. */
-export interface ClaudeCapabilityDeclarationTarget {
-  readonly sessionId: string;
-  readonly nodeId: string;
-  /** Optional actor attribution for the emitted event. */
-  readonly actor?: string | null;
 }
 
 /**
@@ -615,11 +562,10 @@ export class ClaudeCapabilityReporter {
 
   /**
    * The refresh trigger: re-read the declaration and hand it to
-   * the sink, which decides `declared` / `updated` / `noop` by comparing
-   * against the stored row and emits `runtime_node.capability_declared` or
-   * `runtime_node.capability_updated` accordingly. This method deliberately
-   * does NOT decide which event fires — change detection lives with the
-   * stored state, and a second opinion here could disagree with the row.
+   * the sink, which decides `created` / `changed` / `unchanged` by comparing
+   * against the stored row. This method deliberately does NOT decide that —
+   * change detection lives with the stored state, and a second opinion here
+   * could disagree with the row.
    *
    * WHEN this runs is not this module's business either: the 15-minute
    * cadence and its pairing with the auth probe belong to the refresh
@@ -627,16 +573,9 @@ export class ClaudeCapabilityReporter {
    */
   async refreshDeclaration(
     sink: DriverCapabilityDeclarationSink,
-    target: ClaudeCapabilityDeclarationTarget,
   ): Promise<DeclareDriverCapabilitiesResult> {
     const result = await this.getCapabilities();
-    return sink.declare({
-      sessionId: target.sessionId,
-      nodeId: target.nodeId,
-      driverName: CLAUDE_DRIVER_NAME,
-      result,
-      ...(target.actor !== undefined ? { actor: target.actor } : {}),
-    });
+    return sink.declare({ driverName: CLAUDE_DRIVER_NAME, result });
   }
 }
 

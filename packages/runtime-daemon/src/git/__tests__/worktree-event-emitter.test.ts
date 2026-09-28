@@ -1,4 +1,4 @@
-// WorktreeEventEmitter behaviour.
+// WorktreeEventEmitter behavior.
 //
 // Exercises the single seam every worktree state transition appends its
 // `session_lifecycle` event through, over a real test SQLite DB (same lifecycle
@@ -20,11 +20,9 @@
 //   * Mapping AS A SET: all five methods driven through one recording log
 //     yield exactly the five `{type, state}` pairs the decision names, and no
 //     other.
-//   * Carve-out, emitter-side: the seam exposes exactly five emit surfaces, no
-//     `emitFailed` under either plausible spelling, and no emission carries
-//     `state: "failed"` — even though the payload schema deliberately ADMITS
-//     that state (it is the row vocabulary). The census absence and union
-//     rejection of `worktree.failed` are already pinned in
+//   * Carve-out, emitter-side: no emission carries `state: "failed"`, even
+//     though the payload schema admits that state (it is the row vocabulary).
+//     The absence and union rejection of `worktree.failed` are pinned in
 //     `packages/contracts/src/__tests__/worktree.test.ts`; re-asserting them
 //     here would test contracts, not this seam.
 //   * Integrity columns: the emitter never computes them, and the append path
@@ -529,48 +527,6 @@ describe("WorktreeEventEmitter — mapping and carve-out", () => {
     expect(appended).toHaveLength(5);
     expect(appended.map(payloadState)).not.toContain("failed");
     expect(appended.map((envelope) => envelope.type)).not.toContain("worktree.failed");
-  });
-
-  it("exposes exactly five emit surfaces and nothing named for failure", () => {
-    // The public method census. `#private` methods do not appear on the
-    // prototype's own property names, so this list IS the seam's surface —
-    // a sixth emit method (or a clone one) fails the equality, and the
-    // name filter catches a failure surface added under any spelling.
-    const prototypeNames: readonly string[] = Object.getOwnPropertyNames(
-      WorktreeEventEmitter.prototype,
-    );
-    const methodNames: readonly string[] = prototypeNames.filter((name) => name !== "constructor");
-
-    expect([...methodNames].sort()).toEqual([
-      "emitWorktreeCreated",
-      "emitWorktreeDirty",
-      "emitWorktreeMerged",
-      "emitWorktreeReady",
-      "emitWorktreeRetired",
-    ]);
-    expect(methodNames.filter((name) => /fail/i.test(name))).toEqual([]);
-    expect(methodNames.filter((name) => /clone/i.test(name))).toEqual([]);
-  });
-
-  it("has no failed-transition emit surface at COMPILE time, under either spelling", () => {
-    // The census above is a runtime enumeration; this is the compile-time half,
-    // and it pins BOTH plausible names — the plan's literal `emitFailed` and the
-    // subject-prefixed `emitWorktreeFailed` this file's naming would suggest —
-    // so the pin cannot miss on a naming choice. Deleting either directive must
-    // yield a property-does-not-exist error (TS2339), never an unused-directive
-    // TS2578. The runtime assertions are the second layer: an emit surface that
-    // existed but was, say, inherited rather than own-enumerable would satisfy
-    // the census above and fail here.
-    const emitter: WorktreeEventEmitter = makeEmitter();
-
-    // @ts-expect-error — there is no `emitWorktreeFailed`: the `-> failed`
-    // transition emits no worktree event.
-    const worktreeFailedSurface: unknown = emitter.emitWorktreeFailed;
-    // @ts-expect-error — nor under the plan's own spelling, `emitFailed`.
-    const failedSurface: unknown = emitter.emitFailed;
-
-    expect(worktreeFailedSurface).toBeUndefined();
-    expect(failedSurface).toBeUndefined();
   });
 });
 

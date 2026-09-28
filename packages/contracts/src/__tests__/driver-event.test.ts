@@ -32,11 +32,10 @@ import {
 
 const SESSION_ID = "550e8400-e29b-41d4-a716-446655440000";
 const USER_ID = "660e8400-e29b-41d4-a716-446655440001";
-const CHANNEL_ID = "880e8400-e29b-41d4-a716-446655440003";
 const RUN_ID = "990e8400-e29b-41d4-a716-446655440004";
 const VERSION = "1.0";
 
-// One driver-category fixture and three non-driver ones — the minimum that
+// One driver-category fixture and one non-driver one — the minimum that
 // separates "refuses non-driver events" from "refuses everything". Shaped to
 // match the wire fixtures in session-event.test.ts; that suite owns the
 // round-trip coverage, this one owns only the driver narrowing.
@@ -52,7 +51,6 @@ const buildAssistantMessage = () => ({
   payload: {
     sessionId: SESSION_ID,
     runId: RUN_ID,
-    channelId: CHANNEL_ID,
     contentType: "text/markdown",
     contentLength: 4096,
     contentCiphertextDigest: "a".repeat(64),
@@ -75,21 +73,6 @@ const buildSessionCreated = () => ({
   },
 });
 
-const buildChannelCreated = () => ({
-  id: "evt-0003",
-  sessionId: SESSION_ID,
-  sequence: 2,
-  occurredAt: "2026-01-22T19:14:37.000Z",
-  category: "session_lifecycle" as const,
-  type: "channel.created" as const,
-  actor: null,
-  version: VERSION,
-  payload: {
-    channelId: CHANNEL_ID,
-    name: "main",
-  },
-});
-
 // The seven categories decision #4 ratifies, hand-transcribed. The
 // `EventCategory` element type is the first bind: a category string that is
 // not a canonical category fails to compile here.
@@ -103,30 +86,27 @@ const DRIVER_EVENT_CATEGORIES: readonly EventCategory[] = [
   "runtime_node_lifecycle",
 ];
 
-// The census size of the seven driver categories: 13 + 2 + 7 + 16 + 6 + 8 + 9.
+// The census size of the seven driver categories: 13 + 2 + 7 + 16 + 6 + 8 + 2.
 // Hand-maintained on purpose — it is the one number here derived from neither
 // the arrays nor the registry, so it fails when a category grows or when the
 // driver list itself changes, which no derivation-versus-derivation assert can
 // catch.
-const DRIVER_EVENT_TYPE_COUNT = 61;
+const DRIVER_EVENT_TYPE_COUNT = 54;
 
 // One sample per driver category that currently REGISTERS a payload variant —
-// `assistant_output`, `tool_activity`, `runtime_node_lifecycle`. The element
+// `assistant_output` and `tool_activity`. The element
 // type is the pin: `DriverEventType` is derived by `Extract` over the union's
 // literal `category` member, so a category dropped or misspelled in the
 // derivation removes its arms from the type and fails this declaration at
 // COMPILE time (vitest strips types and would not catch it).
 //
-// The four categories with no sample here are not omissions: `run_lifecycle`,
-// `interactive_request`, `artifact_publication`, and `usage_telemetry` are on
-// decision #4's list and carry census types, but none of them registers a
-// payload variant yet, so none contributes an arm to `DriverEvent` today.
+// The five categories with no sample here are not omissions: `run_lifecycle`,
+// `interactive_request`, `artifact_publication`, `usage_telemetry` and
+// `runtime_node_lifecycle` are on the driver list and carry census types, but
+// none of them registers a payload variant yet, so none contributes an arm to
+// `DriverEvent` today.
 // That asymmetry is exactly what the set-versus-type bind below states.
-const DRIVER_EVENT_TYPE_SAMPLES: readonly DriverEventType[] = [
-  "assistant.message",
-  "tool.invoked",
-  "runtime_node.capability_declared",
-];
+const DRIVER_EVENT_TYPE_SAMPLES: readonly DriverEventType[] = ["assistant.message", "tool.invoked"];
 
 describe("DriverEvent — the driver slice of the census", () => {
   it("DRIVER_EVENT_TYPES is exactly the census filtered to the seven driver categories", () => {
@@ -169,7 +149,7 @@ describe("DriverEvent — the driver slice of the census", () => {
     // Runtime read of the compile-time fixture, so the pin anchors to an
     // executing assertion rather than sitting inert (the `@ts-expect-error`
     // idiom the provider-driver suite uses).
-    expect(DRIVER_EVENT_TYPE_SAMPLES).toHaveLength(3);
+    expect(DRIVER_EVENT_TYPE_SAMPLES).toHaveLength(2);
     for (const sample of DRIVER_EVENT_TYPE_SAMPLES) {
       expect(DRIVER_EVENT_TYPES.has(sample)).toBe(true);
       expect(SESSION_EVENT_TYPES).toContain(sample);
@@ -194,7 +174,7 @@ describe("DriverEvent — the driver slice of the census", () => {
   });
 
   it("DriverEventSchema REFUSES a schema-valid non-driver session event", () => {
-    const nonDriver = buildChannelCreated();
+    const nonDriver = buildSessionCreated();
     // Premise first: without this the refusal below could be any parse
     // failure at all, and the test would pass on a malformed fixture.
     expect(SessionEventSchema.safeParse(nonDriver).success).toBe(true);
@@ -213,10 +193,8 @@ describe("DriverEvent — the driver slice of the census", () => {
     // — including the daemon's own streaming primitive, which validates with
     // it precisely so a non-driver value is DROPPED by the handler's filter
     // rather than killing the subscription.
-    const nonDriverEvents = [buildSessionCreated(), buildChannelCreated()];
-    for (const event of nonDriverEvents) {
-      expect(SessionEventSchema.safeParse(event).success).toBe(true);
-      expect(DriverEventSchema.safeParse(event).success).toBe(false);
-    }
+    const nonDriver = buildSessionCreated();
+    expect(SessionEventSchema.safeParse(nonDriver).success).toBe(true);
+    expect(DriverEventSchema.safeParse(nonDriver).success).toBe(false);
   });
 });

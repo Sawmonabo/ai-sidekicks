@@ -84,7 +84,7 @@ import { type DriverDiagnosticsEmitter, type DriverProviderName } from "./driver
  * lifecycle reaches the timeline only through `subagent.*`, never through the
  * child's own frames).
  */
-export type ThreadScopedFrameCapability = "usage" | "interactive-request" | "lifecycle" | "content";
+type ThreadScopedFrameCapability = "usage" | "interactive-request" | "lifecycle" | "content";
 
 /**
  * One frame's family classification against the pinned stream-surface census.

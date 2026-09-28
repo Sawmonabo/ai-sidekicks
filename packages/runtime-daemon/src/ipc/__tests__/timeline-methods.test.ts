@@ -36,12 +36,10 @@ import {
   TIMELINE_SUBSCRIBE_METHOD,
 } from "@ai-sidekicks/contracts";
 
-// THROUGH THE BARREL, deliberately. `handlers/index.js` is the surface the
-// bootstrap orchestrator wires from, and its own header states that
-// convention. A test that reached past it into `timeline-methods.js` would
-// pass while the bootstrap could still register only three of the four
-// methods — which is exactly the gap that made `registerTimelineSubscription`
-// reachable from nowhere but this file.
+// THROUGH THE BARREL, deliberately. `handlers/index.js` is the surface a
+// caller binds the timeline methods from. A test that reached past it into
+// `timeline-methods.js` would pass while the barrel could still expose only
+// three of the four methods.
 import {
   registerTimelineMethod,
   registerTimelineSubscription,

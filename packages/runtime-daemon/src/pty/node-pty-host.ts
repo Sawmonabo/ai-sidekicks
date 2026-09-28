@@ -100,7 +100,7 @@ export interface NodePtyChild {
 }
 
 /** Options passed to `node-pty.spawn`. */
-export interface NodePtySpawnOptions {
+interface NodePtySpawnOptions {
   readonly name?: string;
   readonly cols: number;
   readonly rows: number;

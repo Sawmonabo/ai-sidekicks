@@ -35,7 +35,10 @@ async function runGate(env: ControlPlaneEnv): Promise<HarnessResult> {
     refusalLogger: (msg) => logs.push(msg),
     requestIdGenerator: () => "req-test-1",
   });
-  const response = await handler(new Request("https://control-plane.test/trpc/session.read"), env);
+  const response = await handler(
+    new Request("https://control-plane.test/trpc/eventanchor.upload"),
+    env,
+  );
   return {
     status: response.status,
     body: await response.text(),
@@ -86,15 +89,15 @@ describe("T1 / gate #1: feature-flag refusal", () => {
   it("does NOT refuse when CONTROL_PLANE_BOOTSTRAP_ENABLED is '1' AND ENVIRONMENT is 'development'", async () => {
     // Sanity-check the inverse: with both gates passing the request leaves
     // the gate layer and reaches `fetchRequestHandler`. The refusal-asserting
-    // deps would CRASH on any subsequent router dispatch, so we hit a path
-    // tRPC rejects pre-dispatch (404 for an unknown procedure) — proving
-    // the refusal layer let traffic through without invoking router deps.
+    // deps would CRASH on any subsequent router dispatch, so we send a GET to
+    // the `eventanchor.upload` mutation, which tRPC rejects pre-dispatch —
+    // proving the refusal layer let traffic through without invoking router deps.
     const logs: string[] = [];
     const handler = buildControlPlaneFetchHandler(makeRefusalAssertingDeps(), {
       refusalLogger: (msg) => logs.push(msg),
     });
     const response = await handler(
-      new Request("https://control-plane.test/trpc/session.bogus-method"),
+      new Request("https://control-plane.test/trpc/eventanchor.upload"),
       { CONTROL_PLANE_BOOTSTRAP_ENABLED: "1", ENVIRONMENT: "development" },
     );
     expect(response.status).not.toBe(503);

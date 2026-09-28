@@ -4,15 +4,14 @@
 //   • `DesktopBridge` — the bridge shape plus `readonly` hardening on every
 //     capability group and `app` sub-property, so a compromised renderer
 //     cannot reassign `bridge.daemon = …`.
-//   • Stub type declarations for the daemon, control-plane, Electron dialog,
-//     and DOM WebAuthn surfaces, so the bridge shape is reviewable before
-//     those surfaces exist
+//   • Stub type declarations for the daemon, control-plane and Electron dialog
+//     surfaces, so the bridge shape is reviewable before those surfaces exist
 //   • `NotImplementedError` — thrown by every bridge method until the
 //     corresponding IPC handler ships
 //   • `createStubBridge()` — factory the preload calls; every method throws
 //
 // Coverage:
-//   Any future edit that introduces a property name matching /token|dpop|prf|secret/i
+//   Any future edit that introduces a property name matching /token|dpop|secret/i
 //   FAILS `pnpm --filter @ai-sidekicks/contracts typecheck`.
 //
 //   • Daemon types do not exist yet — stubbed as `string` brands + `unknown`
@@ -22,19 +21,14 @@
 //   • Electron dialog types (`OpenDialogOptions`, etc.) stubbed locally as
 //     empty interfaces — replaced by imports from `electron`'s types once
 //     `electron` becomes a `packages/contracts` devDep.
-//   • DOM WebAuthn types (`PublicKeyCredentialCreationOptions`, …) stubbed
-//     locally because `tsconfig.node22.json` does NOT include the `dom` lib.
-//     Replacing them means either adding `dom` to the contracts lib list or
-//     importing the types from `@types/webappapis`.
 //
 //   • raw `ipcRenderer` / `ipcMain`
 //   • `require`, `process`, `global`, any Node built-in
-//   • auth material (PASETO tokens, DPoP key, WebAuthn PRF output, daemon
-//     session token) — enforced typewise by the negative type-test
+//   • auth material (PASETO tokens, DPoP key, daemon session token) — enforced typewise by the
+//     negative type-test
 //   • raw file paths as strings — paths returned to the renderer are opaque
 //     `FilePathRef` tokens; dereferencing is a second main-process round trip
 
-import type { AuxiliaryWindowControls } from "./desktop/auxiliary-window.js";
 import type { SessionId } from "./session.js";
 
 // ---------------------------------------------------------------------------
@@ -145,45 +139,6 @@ export interface NotificationOptions {}
  */
 export type FilePathRef = string & { readonly __brand: "FilePathRef" };
 
-// ---------------------------------------------------------------------------
-// WebAuthn DOM-type stubs.
-//
-// `tsconfig.node22.json` ships `lib: ["es2023"]` (no dom). The DOM WebAuthn
-// types (`PublicKeyCredentialCreationOptions`, `PublicKeyCredentialRequestOptions`,
-// `PublicKeyCredential`) are not in lib.es2023 and cannot be referenced from
-// this package without a config change. Lifting that means either adding
-// `dom` to the contracts lib list (allowed for type-only imports) or pulling
-// in `@types/webappapis`. Until then, stub minimal shapes here.
-//
-// `ArrayBuffer` IS in lib.es2023 (it's an ECMAScript global, not a DOM type),
-// so the `deriveKeyMaterial` return type stays as `Promise<ArrayBuffer>`.
-// ---------------------------------------------------------------------------
-
-/** DOM `PublicKeyCredentialCreationOptions` shape (stub). */
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type
-export interface PublicKeyCredentialCreationOptions {}
-/** DOM `PublicKeyCredentialRequestOptions` shape (stub). */
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type
-export interface PublicKeyCredentialRequestOptions {}
-/** DOM `PublicKeyCredential` shape (stub). */
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type
-export interface PublicKeyCredential {}
-
-/**
- * Input to `webAuthn.deriveKeyMaterial` (stub). The salt is the
- * only renderer-visible input — the derived material returns as an
- * `ArrayBuffer` and never includes the raw PRF output in any other form.
- *
- * IMPORTANT: this type name `PrfInput` contains the substring `prf`. The
- * negative type-test (`desktop-bridge.test-d.ts`) flattens BRIDGE PROPERTY
- * NAMES, not exported TYPE NAMES — so `PrfInput` as a parameter TYPE does
- * not pollute the surface. The forbidden-substring check applies to keys
- * like `prfOutput` or `prfSalt`, neither of which appears on the bridge.
- */
-export interface PrfInput {
-  readonly salt: ArrayBuffer;
-}
-
 /**
  * Auto-update state surfaced to the renderer (stub). A coarse-grained
  * discriminated union is sufficient for the bridge type to compile; the stub
@@ -205,39 +160,6 @@ export type UpdateState =
   | { readonly status: "downloading"; readonly percent: number }
   | { readonly status: "ready" }
   | { readonly status: "error"; readonly message: string };
-
-// ---------------------------------------------------------------------------
-// Shell signals — the one namespace whose direction is main-to-renderer.
-// ---------------------------------------------------------------------------
-
-/**
- * What the desktop shell asks of the window it is speaking to.
- *
- * EVERY OTHER NAMESPACE ON THE BRIDGE RUNS THE OTHER WAY — the renderer calls and
- * main answers — so this one is declared apart rather than folded into `native`,
- * whose members are OS surfaces the renderer requests. A shell signal is not a
- * request the renderer made; it is the shell reaching a window that could not have
- * asked, because the keystroke that raised it landed somewhere else entirely.
- *
- * IT IS ALSO THE ONE NAMESPACE A STUB BRIDGE CAN SERVE FOR REAL, which is why the
- * factory below takes it rather than stubbing it: a shell signal needs no daemon, no
- * control plane, and no credential — only the channel the preload is already sitting
- * on. Every other namespace is a round trip to something that does not exist yet.
- */
-export interface ShellSignals {
-  /**
-   * Told when the shell asks this window's composer to take the caret.
-   *
-   * NO PAYLOAD, in both directions. What focusing means belongs to the window that
-   * draws a composer, so a handler that received a value would eventually be one
-   * that branched on it — and nothing that crosses `contextBridge` has to be
-   * cloneable when nothing crosses it.
-   *
-   * Returns the disposer the caller owes. A window binds this once and releases it
-   * on unmount, exactly as it does every other subscription on this bridge.
-   */
-  subscribeToComposerFocusRequest(handler: () => void): Unsubscribe;
-}
 
 // ---------------------------------------------------------------------------
 // Error class — thrown by every stub bridge method.
@@ -264,7 +186,7 @@ export class NotImplementedError extends Error {
 // block contains zero `readonly` modifiers).
 //
 // Every property name on this interface is enforced not to match
-// /token|dpop|prf|secret/i by the conditional-type test in
+// /token|dpop|secret/i by the conditional-type test in
 // `desktop-bridge.test-d.ts`. Adding a property like `sessionToken: string`
 // would fail `pnpm --filter @ai-sidekicks/contracts typecheck` with TS2344
 // at the `AssertNever<Offenders>` line of the test.
@@ -274,18 +196,15 @@ export class NotImplementedError extends Error {
  * The single typed object exposed on `window.desktopBridge` via
  * `contextBridge.exposeInMainWorld('desktopBridge', bridge)`.
  *
- * Seven capability surfaces:
+ * Five capability surfaces:
  *   • `daemon` — JSON-RPC over IPC to the local daemon
  *   • `controlPlane` — tRPC + relay WebSocket to the control plane
  *   • `native` — main-process-mediated OS dialogs and OS surfaces
- *   • `webAuthn` — main-process-orchestrated WebAuthn ceremony
- *   • `window` — the shell's auxiliary-window controls
  *   • `update` — renderer observes the auto-updater state machine
- *   • `shell` — the desktop shell asking THIS window to do something
  *   • `app` — read-only build/runtime meta
  *
  *   • `ipcRenderer` / `ipcMain` / `require` / `process` / `global` / Node built-ins
- *   • auth material (any token / DPoP / PRF output / secret) — enforced
+ *   • auth material (any token / DPoP / secret) — enforced
  *     STRUCTURALLY by the negative type-test (`desktop-bridge.test-d.ts`)
  *   • raw file path strings — paths are opaque `FilePathRef` tokens
  */
@@ -328,22 +247,6 @@ export interface DesktopBridge {
     revealInFileExplorer(path: FilePathRef): Promise<void>;
   };
 
-  // WebAuthn — main process orchestrates the WebAuthn ceremony via Electron's bindings
-  readonly webAuthn: {
-    createCredential(options: PublicKeyCredentialCreationOptions): Promise<PublicKeyCredential>;
-    getAssertion(options: PublicKeyCredentialRequestOptions): Promise<PublicKeyCredential>;
-    deriveKeyMaterial(input: PrfInput): Promise<ArrayBuffer>;
-  };
-
-  // the shell speaking to THIS window — main asks, the renderer decides what the
-  // ask means. The one direction the other namespaces do not cover: everywhere else
-  // the renderer asks and main answers.
-  readonly shell: ShellSignals;
-
-  // auxiliary windows — renderer asks the shell to move a pane into a window of
-  // its own, addresses that window, and hears about the two ways it can end
-  readonly window: AuxiliaryWindowControls;
-
   // auto-update — renderer observes state; main process drives
   readonly update: {
     getState(): Promise<UpdateState>;
@@ -382,38 +285,14 @@ function stubThrow(method: string): never {
 }
 
 /**
- * The shell a bridge has when its builder supplied none.
- *
- * Not an empty subscription. A caller that holds no channel has not "no requests to
- * report" — it has no shell at all — and the two are only distinguishable if the
- * second one says so. This is the same reading every round-trip method above takes,
- * and it is what makes a forgotten binding a refusal rather than a silence.
- */
-const SHELL_WITHOUT_A_HOST: ShellSignals = {
-  subscribeToComposerFocusRequest: () => stubThrow("shell.subscribeToComposerFocusRequest"),
-};
-
-/**
  * Factory returning a `DesktopBridge` whose every round-trip method throws
  * `NotImplementedError`. Called once by the preload script
  * (`apps/desktop/src/preload/index.ts`) to populate `window.desktopBridge`.
  *
  * Wiring a namespace replaces its methods with real implementations bound to
  * the corresponding IPC channel on the main-process side.
- *
- * `shell` IS TAKEN RATHER THAN STUBBED, because it is the one namespace a caller can
- * actually serve without anything else being wired: it needs no daemon, no control
- * plane, and no credential, only the channel the preload is already sitting on.
- *
- * ITS DEFAULT REFUSES RATHER THAN REPORTING NOTHING, and the difference decides how a
- * preload that forgot to bind it fails. A never-firing default would compile, pass
- * the shape comparison, and answer no shell request ever — a chord that silently does
- * nothing, with no other observable anywhere. Refusing puts that bridge on exactly
- * the footing every other unwired namespace here is already on, so the window that
- * binds the signal raises `NotImplementedError` at its first subscription
- * instead of running for a session and losing every ask.
  */
-export function createStubBridge(shell: ShellSignals = SHELL_WITHOUT_A_HOST): DesktopBridge {
+export function createStubBridge(): DesktopBridge {
   return {
     daemon: {
       call: () => stubThrow("daemon.call"),
@@ -431,29 +310,6 @@ export function createStubBridge(shell: ShellSignals = SHELL_WITHOUT_A_HOST): De
       openExternal: () => stubThrow("native.openExternal"),
       copyToClipboard: () => stubThrow("native.copyToClipboard"),
       revealInFileExplorer: () => stubThrow("native.revealInFileExplorer"),
-    },
-    webAuthn: {
-      createCredential: () => stubThrow("webAuthn.createCredential"),
-      getAssertion: () => stubThrow("webAuthn.getAssertion"),
-      deriveKeyMaterial: () => stubThrow("webAuthn.deriveKeyMaterial"),
-    },
-    // Handed through rather than stubbed: the caller that builds this bridge is the
-    // one holding the channel the shell speaks on, so there is nothing here to defer.
-    shell,
-    // The one namespace the PRELOAD replaces rather than takes from here. Its
-    // main-process handlers already ship, so
-    // `apps/desktop/src/preload/index.ts` spreads a real `ipcRenderer`
-    // implementation over this block. The throwing stub stays because the
-    // factory's contract is a TOTAL `DesktopBridge` — every reader that builds
-    // one from here (the shape probe, the live-bridge suites) needs the member
-    // present, and a member present-and-throwing is what a window whose preload
-    // did not finish installing actually has.
-    window: {
-      detachPane: () => stubThrow("window.detachPane"),
-      focusAuxiliary: () => stubThrow("window.focusAuxiliary"),
-      closeAuxiliary: () => stubThrow("window.closeAuxiliary"),
-      subscribePaneErrors: () => stubThrow("window.subscribePaneErrors"),
-      subscribePaneReturns: () => stubThrow("window.subscribePaneReturns"),
     },
     update: {
       getState: () => stubThrow("update.getState"),

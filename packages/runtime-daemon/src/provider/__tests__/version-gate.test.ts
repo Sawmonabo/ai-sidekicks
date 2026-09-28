@@ -30,17 +30,17 @@ import { join } from "node:path";
 import type { DriverCliVersionReport } from "@ai-sidekicks/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { RecordingCapabilityProbeTransport } from "../__fixtures__/capability-probe-doubles.js";
+import {
+  RecordingCapabilityProbeTransport,
+  RecordingDeclarationSink,
+} from "../__fixtures__/capability-probe-doubles.js";
 import {
   DRIVER_CLI_VERSION_FLOORS,
   DriverCliVersionBelowFloorError,
   DriverCliVersionUnparseableError,
   type FlooredDriverName,
 } from "../capability-refresh.js";
-import type {
-  DeclareDriverCapabilitiesInput,
-  DeclareDriverCapabilitiesResult,
-} from "../driver-capabilities-writer.js";
+import type { DeclareDriverCapabilitiesResult } from "../driver-capabilities-writer.js";
 import { DriverDiagnosticsEmitter } from "../driver-diagnostics.js";
 import {
   withSpawnedVersionCarriers,
@@ -59,11 +59,7 @@ import {
   type ProviderVersionHandshakeRequest,
   type SpawnedProviderVersionReading,
 } from "../version-gate.js";
-import {
-  CODEX_DRIVER_NAME,
-  refreshCodexCapabilities,
-  type DriverCapabilityDeclarationSink,
-} from "../drivers/codex/capabilities.js";
+import { CODEX_DRIVER_NAME, refreshCodexCapabilities } from "../drivers/codex/capabilities.js";
 
 // --------------------------------------------------------------------------
 // Doubles
@@ -96,15 +92,6 @@ class RecordingHandshake {
     }
     return Promise.resolve(reply);
   };
-}
-
-class RecordingDeclarationSink implements DriverCapabilityDeclarationSink {
-  readonly calls: DeclareDriverCapabilitiesInput[] = [];
-
-  declare(input: DeclareDriverCapabilitiesInput): Promise<DeclareDriverCapabilitiesResult> {
-    this.calls.push(input);
-    return Promise.resolve({ emitted: "declared", cliVersionRefreshed: true });
-  }
 }
 
 function codexUserAgent(codexVersion: string, clientVersion = "0.9.0"): string {
@@ -487,8 +474,6 @@ describe("the ratified floor gate at the spawn", () => {
       resolver: passthroughResolver(),
     });
     return refreshCodexCapabilities(sink, {
-      sessionId: "session-attach",
-      nodeId: "node-attach",
       reading,
       probe: probe.exchange,
       diagnostics: new DriverDiagnosticsEmitter({ logSink: { record: () => undefined } }),

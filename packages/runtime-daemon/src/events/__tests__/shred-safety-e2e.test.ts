@@ -1,36 +1,25 @@
-// END-TO-END shred safety — the Phase-3 acceptance gate.
+// END-TO-END compaction safety over PII-carrying rows.
 //
 // One lifecycle, run through the REAL modules in the order production runs them:
 //
 //   64 PII-carrying appends through `EventLogService`
-//     → a compaction pass behind a real `MerkleAnchorService` anchor →
-//     `event.shredded` through the same append path → the registered shred
-//     callback performs Path 1's crypto-shred
-//       (a `user_keys` row DELETE — the key, never the ciphertext)
+//     → a compaction pass behind a real `MerkleAnchorService` anchor
 //     → the integrity verifier re-runs over the WHOLE chain
 //
-// and then asserts the property the whole design exists for: DESTROYING THE KEY
-// DESTROYS THE PLAINTEXT AND NOTHING ELSE. Every signature still verifies, every
-// chain link still holds, and a reader gets `<pii-shredded>` where the
-// user's content used to be.
+// and then asserts that stubbing the compacted prefix leaves every signature and
+// every chain link intact, on the session and on the daemon-scope sentinel.
 //
-// WHY THE FIXTURE LEAVES A LIVE TAIL, and why that is not incidental. Compaction
-// NULLs `pii_payload` and `pii_user_id` on every row it stubs — a
-// compacted row has no ciphertext left to shred and no owner stamp to join on.
-// So the shred-visibility arms have to run over rows that SURVIVED the pass, and
-// the threshold is chosen to leave forty of them. Shredding only over the
-// compacted prefix would pass for the wrong reason: there would be nothing there.
+// The threshold leaves a live tail of forty PII rows: compaction NULLs
+// `pii_payload` and `pii_user_id` on every row it stubs, so only rows that
+// survived the pass still carry a PII partition for the verifier to cover.
 //
-// WHAT IS SUITE-LOCAL, and what is production. The read projection below is
-// suite-local by design — Phase 4's replay service does not exist yet, and
-// importing a symbol from it is not an option. `splitPii` is likewise a fixture:
-// owns the real classification. Everything else — the append path, the PII codec,
-// the compactor, the anchor service, the signer — is the shipped code.
+// The read projection and `splitPii` are suite-local fixtures. Everything
+// else — the append path, the PII codec, the compactor, the anchor service, the
+// signer — is the shipped code.
 //
 
 import { ed25519 } from "@noble/curves/ed25519.js";
 import { blake3 } from "@noble/hashes/blake3.js";
-import { bytesToHex } from "@noble/hashes/utils.js";
 import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -54,12 +43,7 @@ import {
 } from "../compactor.js";
 import { EventLogService, type UnsequencedEventEnvelope } from "../event-log-service.js";
 import { MerkleAnchorService } from "../merkle-anchor-service.js";
-import {
-  PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY,
-  PII_USER_ID_PAYLOAD_KEY,
-  type PiiEncryptionRequest,
-  type PiiEncryptor,
-} from "../pii-indirection.js";
+import { type PiiEncryptionRequest, type PiiEncryptor } from "../pii-indirection.js";
 import { __resetSessionAppendLocksForTest } from "../session-append-lock.js";
 import { SessionContentKeyStore } from "../session-content-key-store.js";
 import {
@@ -72,22 +56,17 @@ import {
 import type { DaemonSigningKeySource } from "../signing-key-source.js";
 
 const SESSION: SessionId = SessionIdSchema.parse("33333333-4444-4555-8666-777777777777");
-const NODE: NodeId = NodeIdSchema.parse("node-shred-e2e-01");
+const NODE: NodeId = NodeIdSchema.parse("node-compaction-e2e-01");
 const ENVELOPE_VERSION = EventEnvelopeVersionSchema.parse("1.0");
 const PASS_INSTANT = "2026-08-04T12:00:00.000Z";
 
-/** The user whose key this run destroys. */
-const SHREDDED_USER = "44444444-5555-4666-8777-888888888888";
-/** The control: a second user whose key survives. */
-const RETAINED_USER = "44444444-5555-4666-8777-888888888899";
+/** The user who authors most of the session. */
+const FIRST_USER = "44444444-5555-4666-8777-888888888888";
+/** A second author, so the live tail holds two users' partitions. */
+const SECOND_USER = "44444444-5555-4666-8777-888888888899";
 
-const SHREDDED_PLAINTEXT = "the-content-that-must-become-unreadable";
-const RETAINED_PLAINTEXT = "the-content-that-must-stay-readable";
-
-/**
- * The marker the third state puts where the user's fields were.
- */
-const PII_SHREDDED_MARKER = "<pii-shredded>";
+const FIRST_USER_PLAINTEXT = "the-first-user-content";
+const SECOND_USER_PLAINTEXT = "the-second-user-content";
 
 const DAEMON_PRIVATE_KEY = new Uint8Array(32).fill(23) as Ed25519PrivateKey;
 const DAEMON_PUBLIC_KEY = ed25519.getPublicKey(DAEMON_PRIVATE_KEY) as Ed25519PublicKey;
@@ -107,14 +86,8 @@ const keySource: DaemonSigningKeySource = {
 
 /**
  * The test-only codec: a symmetric XOR over a BLAKE3 keystream derived from the
- * user's stored content key, the user id and the event id.
- *
- * DERIVING FROM THE STORED KEY IS THE WHOLE POINT of this fixture, and it is
- * what makes the shred arm mean anything: `decrypt` reads
- * `user_keys.encrypted_key_blob` and cannot proceed without it, so a
- * DELETEd row makes the plaintext genuinely unrecoverable rather than merely
- * unread. A stub that ignored the stored key would produce a test in which the
- * shred changed nothing and every assertion still passed.
+ * user's stored content key (`user_keys.encrypted_key_blob`), the user id and
+ * the event id.
  */
 class UserKeyedPiiCodec implements PiiEncryptor {
   constructor(private readonly database: DatabaseType) {}
@@ -129,14 +102,12 @@ class UserKeyedPiiCodec implements PiiEncryptor {
     );
   }
 
-  /** The read-side counterpart; `undefined` once the key row is gone. */
-  decrypt(
-    ciphertext: Uint8Array,
-    userId: string,
-    eventId: string,
-  ): Record<string, unknown> | undefined {
+  /** The read-side counterpart. */
+  decrypt(ciphertext: Uint8Array, userId: string, eventId: string): Record<string, unknown> {
     const contentKey = this.readContentKey(userId);
-    if (contentKey === undefined) return undefined;
+    if (contentKey === undefined) {
+      throw new Error(`no content key for user ${userId}`);
+    }
     const plaintext = xorWithKeystream(ciphertext, contentKey, userId, eventId);
     return JSON.parse(new TextDecoder().decode(plaintext)) as Record<string, unknown>;
   }
@@ -199,7 +170,7 @@ beforeEach(() => {
     piiEncryptor: codec,
   });
   __resetSessionAppendLocksForTest();
-  for (const userId of [SHREDDED_USER, RETAINED_USER]) {
+  for (const userId of [FIRST_USER, SECOND_USER]) {
     database
       .prepare(
         `INSERT INTO user_keys (user_id, encrypted_key_blob, key_version, created_at)
@@ -316,28 +287,13 @@ function bytesEqual(left: Uint8Array, right: Uint8Array): boolean {
 }
 
 /**
- * The SUITE-LOCAL read projection — the three states.
- *
- * ONE MODELLING DECISION worth stating outright: in the third state the reader
- * marks the user's contribution AS A UNIT rather than field by field,
- * because the field NAMES are themselves inside the ciphertext it can no longer
- * open. Marking per field would require the reader to know a schema the shred
- * just made unknowable, so the marker sits at one reserved key and the arms
- * below additionally assert the negative property that matters — no byte of the
- * plaintext survives anywhere in the projection.
+ * The suite-local read projection: a row with no PII partition is returned
+ * verbatim; otherwise the decrypted partition is merged back under its own keys.
  */
 function projectForRead(row: StoredRow): Record<string, unknown> {
   const payload = JSON.parse(row.payload) as Record<string, unknown>;
-  // State 1 — no PII on this row. Returned verbatim.
   if (row.pii_payload === null || row.pii_user_id === null) return payload;
-
-  const decrypted = codec.decrypt(row.pii_payload, row.pii_user_id, row.id);
-  // State 3 — ciphertext present, key gone. The digest stays: it is what a
-  // verifier uses to prove the ciphertext this row committed to was never
-  // swapped, and it is not itself user content.
-  if (decrypted === undefined) return { ...payload, pii: PII_SHREDDED_MARKER };
-  // State 2 — key available. The partition is merged back under its own keys.
-  return { ...payload, ...decrypted };
+  return { ...payload, ...codec.decrypt(row.pii_payload, row.pii_user_id, row.id) };
 }
 
 // ----------------------------------------------------------------------------
@@ -350,47 +306,38 @@ function projectForRead(row: StoredRow): Record<string, unknown> {
  * it occupies the first slot of the compacted prefix.
  */
 const SESSION_OPENER_EVENT_COUNT = 1;
-const SHREDDED_USER_EVENT_COUNT = 60;
-const RETAINED_USER_EVENT_COUNT = 4;
-const TOTAL_PII_EVENT_COUNT = SHREDDED_USER_EVENT_COUNT + RETAINED_USER_EVENT_COUNT;
+const FIRST_USER_EVENT_COUNT = 60;
+const SECOND_USER_EVENT_COUNT = 4;
+const TOTAL_PII_EVENT_COUNT = FIRST_USER_EVENT_COUNT + SECOND_USER_EVENT_COUNT;
 /** Everything the pass may consider: the opener plus every PII row. */
 const COMPACTABLE_EVENT_COUNT = SESSION_OPENER_EVENT_COUNT + TOTAL_PII_EVENT_COUNT;
-/** Chosen to leave forty of the shredded user's rows live past the pass. */
+/** Chosen to leave forty of the first user's rows live past the pass. */
 const COMPACTION_COUNT_THRESHOLD = 44;
 const EXPECTED_COMPACTED_ROWS = COMPACTABLE_EVENT_COUNT - COMPACTION_COUNT_THRESHOLD;
 /** The stubbed prefix opens with the session-opener row, so one fewer PII row is stubbed. */
 const COMPACTED_PII_ROW_COUNT = EXPECTED_COMPACTED_ROWS - SESSION_OPENER_EVENT_COUNT;
-const LIVE_SHREDDED_ROW_COUNT = SHREDDED_USER_EVENT_COUNT - COMPACTED_PII_ROW_COUNT;
+const LIVE_FIRST_USER_ROW_COUNT = FIRST_USER_EVENT_COUNT - COMPACTED_PII_ROW_COUNT;
 /**
- * The opener and every PII row — and NOTHING else. `event.shredded` is
+ * The opener and every PII row — and NOTHING else. `event.compacted` is
  * daemon-scope bound and lands on the sentinel partition, not here.
  */
 const TOTAL_SESSION_ROW_COUNT = COMPACTABLE_EVENT_COUNT;
 const LIVE_ROW_COUNT = TOTAL_SESSION_ROW_COUNT - EXPECTED_COMPACTED_ROWS;
 
 /**
- * The sentinel partition after one lifecycle: the pass's `event.compacted` at
- * sequence 0, then `event.shredded` at sequence 1.
+ * The sentinel partition after one lifecycle: the pass's `event.compacted`.
  *
- * binds EVERY `event_maintenance` type to the daemon-scope sentinel, and grants
- * exactly one carve-out back to a real session: an `event.compacted` scoped to a
- * single session's compaction MAY carry that session's id.
+ * Every `event_maintenance` type is bound to the daemon-scope sentinel, with
+ * one carve-out back to a real session: an `event.compacted` scoped to a single
+ * session's compaction MAY carry that session's id.
  */
-const SENTINEL_COMPACTED_RECORD_COUNT = 1;
-const SHRED_SENTINEL_SEQUENCE = SENTINEL_COMPACTED_RECORD_COUNT;
-const SENTINEL_ROW_COUNT = SENTINEL_COMPACTED_RECORD_COUNT + 1;
-
-interface LifecycleResult {
-  readonly compaction: CompactionPassResult;
-  readonly shredCallbackInvocations: number;
-  readonly shredSequence: number;
-}
+const SENTINEL_ROW_COUNT = 1;
 
 async function appendPiiEvent(index: number, userId: string, text: string): Promise<void> {
   // The clear half is a REAL `assistant.message` payload rather than fixture
   // bookkeeping: that type has a registered `SessionEventSchema` variant, and
-  // the sealing codec parses the composed row against it before signing. A
-  // `{ index, channel }` payload would be refused — correctly, since the row it
+  // the sealing codec parses the composed row against it before signing. An
+  // `{ index }` payload would be refused — correctly, since the row it
   // signed could never be read back as an `assistant.message` again.
   const { clear, pii } = splitPii({ sessionId: SESSION, runId: `run-${String(index)}`, text });
   const envelope: UnsequencedEventEnvelope = {
@@ -445,12 +392,12 @@ function buildCompactor(thresholds: {
   });
 }
 
-/** Appends, compacts, then shreds — the whole lifecycle, once. */
-async function runLifecycle(): Promise<LifecycleResult> {
+/** Appends, then compacts — the whole lifecycle, once. */
+async function runLifecycle(): Promise<CompactionPassResult> {
   // The session opens, exactly as the end-to-end lifecycle sentence has it.
   // It is also the row that proves the compacted prefix is not PII-only: a
   // stub projection that mishandled a payload with no PII partition would
-  // fail here rather than in Phase 4.
+  // fail here rather than at read time.
   await eventLog.append({
     id: "evt-session-created",
     sessionId: SESSION,
@@ -462,69 +409,29 @@ async function runLifecycle(): Promise<LifecycleResult> {
     // append path parses what it is about to sign, so a fixture composing an
     // ad-hoc shape here is refused before signing — which is that guard
     // working, not an obstacle to it.
-    payload: { sessionId: SESSION, config: {}, metadata: { title: "shred-safety end-to-end" } },
+    payload: { sessionId: SESSION, config: {}, metadata: { title: "compaction end-to-end" } },
     version: ENVELOPE_VERSION,
   });
 
-  for (let index = 0; index < SHREDDED_USER_EVENT_COUNT; index += 1) {
-    await appendPiiEvent(index, SHREDDED_USER, `${SHREDDED_PLAINTEXT}-${String(index)}`);
+  for (let index = 0; index < FIRST_USER_EVENT_COUNT; index += 1) {
+    await appendPiiEvent(index, FIRST_USER, `${FIRST_USER_PLAINTEXT}-${String(index)}`);
   }
-  for (let index = 0; index < RETAINED_USER_EVENT_COUNT; index += 1) {
+  for (let index = 0; index < SECOND_USER_EVENT_COUNT; index += 1) {
     await appendPiiEvent(
-      SHREDDED_USER_EVENT_COUNT + index,
-      RETAINED_USER,
-      `${RETAINED_PLAINTEXT}-${String(index)}`,
+      FIRST_USER_EVENT_COUNT + index,
+      SECOND_USER,
+      `${SECOND_USER_PLAINTEXT}-${String(index)}`,
     );
   }
 
-  const compaction = await buildCompactor({
+  return buildCompactor({
     eventCountThreshold: COMPACTION_COUNT_THRESHOLD,
   }).tick();
-
-  // Path 1: the callback destroys the KEY. It runs post-commit, while the append
-  // still holds the lock of the session the RECORD was written on — the
-  // sentinel's, here. That is a narrower guarantee than it looks: the append
-  // lock is per-session and there is no cross-session exclusion, so an append on
-  // an affected session can legitimately interleave with the key deletion. What
-  // the hold actually buys is serialization of the sentinel chain across the
-  // callback, which is what keeps a second maintenance record from landing
-  // mid-shred.
-  let shredCallbackInvocations = 0;
-  eventLog.registerShredCallback((shredded) => {
-    shredCallbackInvocations += 1;
-    database.prepare("DELETE FROM user_keys WHERE user_id = ?").run(shredded.userId);
-    return Promise.resolve();
-  });
-
-  const receipt = await eventLog.append({
-    id: "evt-shredded",
-    // DAEMON-SCOPE BOUND, like every other `event_maintenance` type. Writing it
-    // on `SESSION` would put a fan-out record on one of the several sessions it
-    // reports about, and would additionally make this fixture disagree with the
-    // production binding the compaction record above already follows.
-    sessionId: DAEMON_SCOPE_SENTINEL_SESSION_ID,
-    occurredAt: PASS_INSTANT,
-    category: "event_maintenance",
-    type: "event.shredded",
-    actor: null,
-    payload: {
-      nodeId: NODE,
-      operationId: "shred-operation-1",
-      occurredAt: PASS_INSTANT,
-      userId: SHREDDED_USER,
-      affectedSessionIds: [SESSION],
-      piiPayloadsCleared: SHREDDED_USER_EVENT_COUNT,
-      shredReason: "gdpr_article_17",
-    },
-    version: ENVELOPE_VERSION,
-  });
-
-  return { compaction, shredCallbackInvocations, shredSequence: receipt.sequence };
 }
 
-describe("Shred safety E2E — PII lifecycle through compaction and crypto-shred", () => {
+describe("Compaction safety E2E — PII lifecycle through compaction", () => {
   it("compacts a prefix behind a real anchor and leaves a live PII tail", async () => {
-    const { compaction } = await runLifecycle();
+    const compaction = await runLifecycle();
 
     // The pass must have actually run: a refusal here would make every
     // downstream assertion vacuous rather than failing.
@@ -533,16 +440,15 @@ describe("Shred safety E2E — PII lifecycle through compaction and crypto-shred
     expect(compaction.rowsStubbed).toBe(EXPECTED_COMPACTED_ROWS);
 
     const rows = storedRows();
-    // The opener and 64 PII rows. The maintenance records this lifecycle writes
-    // — `event.compacted` and `event.shredded` alike — are on the sentinel.
+    // The opener and 64 PII rows. The pass's `event.compacted` is on the sentinel.
     expect(rows).toHaveLength(TOTAL_SESSION_ROW_COUNT);
     const compacted = rows.filter((row) => row.retention_class === AUDIT_STUB_RETENTION_CLASS);
     const live = rows.filter((row) => row.retention_class === null);
     expect(compacted).toHaveLength(EXPECTED_COMPACTED_ROWS);
-    // Forty of the shredded user's rows and four of the retained one's.
+    // Forty of the first user's rows and four of the second one's.
     expect(live).toHaveLength(LIVE_ROW_COUNT);
-    expect(live.filter((row) => row.pii_user_id === SHREDDED_USER)).toHaveLength(
-      LIVE_SHREDDED_ROW_COUNT,
+    expect(live.filter((row) => row.pii_user_id === FIRST_USER)).toHaveLength(
+      LIVE_FIRST_USER_ROW_COUNT,
     );
     // The prefix opens with the session-opener row, which carries no PII
     // partition at all — so the stubbed set is not homogeneous.
@@ -558,41 +464,8 @@ describe("Shred safety E2E — PII lifecycle through compaction and crypto-shred
     expect(anchors).toEqual([{ start_sequence: 0, end_sequence: EXPECTED_COMPACTED_ROWS - 1 }]);
   });
 
-  it("destroys the key, not the ciphertext, and invokes the callback exactly once", async () => {
-    const { shredCallbackInvocations, shredSequence } = await runLifecycle();
-
-    expect(shredCallbackInvocations).toBe(1);
-    // WHICH CHAIN the record landed on, expressed as a sequence. The sentinel
-    // partition already held the pass's `event.compacted` at 0, so a shred bound
-    // to the sentinel gets 1 — whereas a shred that had (wrongly) landed on the
-    // real session would have taken the next sequence there, far above this.
-    expect(shredSequence).toBe(SHRED_SENTINEL_SEQUENCE);
-    expect(database.prepare("SELECT user_id FROM user_keys ORDER BY user_id").all()).toEqual([
-      { user_id: RETAINED_USER },
-    ]);
-
-    // The CIPHERTEXT is untouched — this is a crypto-shred, not a column wipe,
-    // and the digest in the signed payload still names these exact bytes.
-    const liveShreddedRows = storedRows().filter(
-      (row) => row.retention_class === null && row.pii_user_id === SHREDDED_USER,
-    );
-    expect(liveShreddedRows.length).toBeGreaterThan(0);
-    for (const row of liveShreddedRows) {
-      expect(row.pii_payload).toBeInstanceOf(Uint8Array);
-      const payload = JSON.parse(row.payload) as Record<string, unknown>;
-      const digest = payload[PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY];
-      expect(typeof digest).toBe("string");
-      // Lowercase hex, matching the encoding the codec commits to inside the
-      // signed canonical bytes.
-      expect(bytesToHex(blake3(row.pii_payload ?? new Uint8Array()))).toBe(digest);
-      // The owner stamp survives too — after the shred it is the only remaining
-      // evidence of WHOSE data those bytes were.
-      expect(payload[PII_USER_ID_PAYLOAD_KEY]).toBe(SHREDDED_USER);
-    }
-  });
-
-  it("re-verifies the WHOLE chain after the shred — every signature, every link", async () => {
-    const { compaction } = await runLifecycle();
+  it("re-verifies the WHOLE chain after compaction — every signature, every link", async () => {
+    const compaction = await runLifecycle();
 
     // The pass must have RUN. Both halves below are satisfied by an empty row
     // set, so a swallowed emission failure would vacate the arm rather than
@@ -601,18 +474,17 @@ describe("Shred safety E2E — PII lifecycle through compaction and crypto-shred
 
     const { perRow, linkageDefect } = verifyWholeChain();
 
-    // THE LOAD-BEARING PROPERTY. Canonical bytes exclude `pii_payload` and bind
-    // it only through a digest, so removing the decryption key changes nothing
-    // any signature committed to.
+    // THE LOAD-BEARING PROPERTY. Stubbing the prefix leaves every live row's
+    // signature and every link valid; canonical bytes bind `pii_payload` only
+    // through its digest.
     expect(perRow).toHaveLength(LIVE_ROW_COUNT);
     expect(perRow.filter((verdict) => !verdict.valid)).toEqual([]);
     expect(linkageDefect).toBeUndefined();
 
-    // And the sentinel partition both maintenance records landed on verifies too
+    // And the sentinel partition the maintenance record landed on verifies too
     // — this is the ONLY place in the tree that checks the node-scope chain's
     // SIGNATURES rather than merely its linkage, so the row count is pinned: one
-    // `event.compacted` for the single session this pass compacted, plus the
-    // `event.shredded` record.
+    // `event.compacted` for the single session this pass compacted.
     const sentinel = verifyWholeChain(DAEMON_SCOPE_SENTINEL_SESSION_ID);
     expect(sentinel.perRow).toHaveLength(SENTINEL_ROW_COUNT);
     expect(sentinel.perRow.filter((verdict) => !verdict.valid)).toEqual([]);
@@ -627,9 +499,7 @@ describe("Shred safety E2E — PII lifecycle through compaction and crypto-shred
     );
     expect(compacted).toHaveLength(EXPECTED_COMPACTED_ROWS);
     for (const row of compacted) {
-      // Compaction NULLed both PII columns — a stub has no ciphertext left to
-      // shred, which is exactly why the shred-visibility arms run over the live
-      // tail instead.
+      // Compaction NULLed both PII columns.
       expect(row.pii_payload).toBeNull();
       expect(row.pii_user_id).toBeNull();
       expect(row.stub_signature).not.toBeNull();
@@ -643,53 +513,34 @@ describe("Shred safety E2E — PII lifecycle through compaction and crypto-shred
     }
   });
 
-  it("returns <pii-shredded> on read for the shredded user, and content for the other", async () => {
+  it("returns a PII-free row verbatim and a live PII row decrypted", async () => {
     await runLifecycle();
-    const live = storedRows().filter((row) => row.retention_class === null);
-
-    const shreddedProjections = live
-      .filter((row) => row.pii_user_id === SHREDDED_USER)
-      .map((row) => projectForRead(row));
-    const retainedProjections = live
-      .filter((row) => row.pii_user_id === RETAINED_USER)
-      .map((row) => projectForRead(row));
-
-    expect(shreddedProjections.length).toBeGreaterThan(0);
-    for (const projection of shreddedProjections) {
-      expect(projection["pii"]).toBe(PII_SHREDDED_MARKER);
-      // The digest is still surfaced: it is a commitment to ciphertext, not
-      // user content.
-      expect(typeof projection[PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY]).toBe("string");
-      // NOT ONE BYTE of the plaintext survives anywhere in what a reader sees.
-      expect(JSON.stringify(projection)).not.toContain(SHREDDED_PLAINTEXT);
-      expect(projection["text"]).toBeUndefined();
-    }
-
-    // THE NEGATIVE CONTROL — without it, a projection that returned the marker
-    // unconditionally would pass every assertion above.
-    expect(retainedProjections).toHaveLength(RETAINED_USER_EVENT_COUNT);
-    for (const projection of retainedProjections) {
-      expect(projection["pii"]).toBeUndefined();
-      expect(String(projection["text"])).toContain(RETAINED_PLAINTEXT);
-    }
-  });
-
-  it("returns a PII-free row verbatim (read-path state 1)", async () => {
-    await runLifecycle();
-    const shredRecord = storedRows(DAEMON_SCOPE_SENTINEL_SESSION_ID).find(
-      (row) => row.type === "event.shredded",
+    const compactedRecord = storedRows(DAEMON_SCOPE_SENTINEL_SESSION_ID).find(
+      (row) => row.type === "event.compacted",
     );
 
-    expect(shredRecord).toBeDefined();
-    if (shredRecord === undefined) return;
-    expect(shredRecord.pii_payload).toBeNull();
-    const projection = projectForRead(shredRecord);
-    expect(projection["userId"]).toBe(SHREDDED_USER);
-    expect(projection["piiPayloadsCleared"]).toBe(SHREDDED_USER_EVENT_COUNT);
-    expect(projection["pii"]).toBeUndefined();
+    expect(compactedRecord).toBeDefined();
+    if (compactedRecord === undefined) return;
+    expect(compactedRecord.pii_payload).toBeNull();
+    const projection = projectForRead(compactedRecord);
+    expect(projection).toEqual(JSON.parse(compactedRecord.payload));
+
+    // A live tail row keeps its ciphertext; reading it merges the text back.
+    const liveSecondUserRow = storedRows().find(
+      (row) => row.retention_class === null && row.pii_user_id === SECOND_USER,
+    );
+    if (liveSecondUserRow === undefined) {
+      throw new Error("no live row for the second user survived compaction");
+    }
+    expect(liveSecondUserRow.pii_payload).not.toBeNull();
+    expect(JSON.parse(liveSecondUserRow.payload)).not.toHaveProperty("text");
+    expect(projectForRead(liveSecondUserRow)).toEqual({
+      ...(JSON.parse(liveSecondUserRow.payload) as Record<string, unknown>),
+      text: `${SECOND_USER_PLAINTEXT}-0`,
+    });
   });
 
-  it("proves the verifier CAN fail — tampering with a live row after the shred is caught", async () => {
+  it("proves the verifier CAN fail on a live row tampered with after compaction", async () => {
     // NEGATIVE CONTROL for the re-verification arm. Every verdict above is
     // `valid: true`, and a verifier wired to the wrong bytes would report that
     // too. Two independent defects, two different detections.
@@ -716,15 +567,15 @@ describe("Shred safety E2E — PII lifecycle through compaction and crypto-shred
   it("spares the never-compacted categories through a SECOND pass (layer 1)", async () => {
     await runLifecycle();
     const sentinelBefore = storedRows(DAEMON_SCOPE_SENTINEL_SESSION_ID);
-    const shredRecordBefore = sentinelBefore.find((row) => row.type === "event.shredded");
-    expect(shredRecordBefore).toBeDefined();
+    const compactedRecordBefore = sentinelBefore.find((row) => row.type === "event.compacted");
+    expect(compactedRecordBefore).toBeDefined();
     expect(sentinelBefore).toHaveLength(SENTINEL_ROW_COUNT);
 
     // A STORAGE pass with a zero byte budget, NOT a second count pass. The count
     // trigger's candidate set is the oldest rows beyond the newest
     // `eventCountThreshold`, so a partition's newest row is spared at every
-    // threshold — and `event.shredded` is the newest row this suite writes. Under
-    // a count pass the maintenance rows would therefore survive whether or not
+    // threshold — and the first pass's `event.compacted` is the sentinel's newest
+    // row. Under a count pass the maintenance row would therefore survive whether or not
     // layer 1 existed, and the arm would be asserting the trigger's prefix bound
     // rather than the category exclusion. A zero storage budget has no prefix
     // bound: every live compactable row is a candidate, so the exclusion is the
@@ -735,25 +586,23 @@ describe("Shred safety E2E — PII lifecycle through compaction and crypto-shred
     }).tick();
     expect(second.rowsStubbed).toBeGreaterThan(0);
 
-    // The `event_maintenance` rows on the sentinel partition — the shred record
-    // and the first pass's own `event.compacted` — are excluded by the SQL
-    // selector itself, layer 1 of the three-layer enforcement. That the storage
-    // pass still stubbed rows (asserted above) is what proves the exclusion is
-    // doing the work rather than the trigger having gone quiet.
-    const shredRecordAfter = storedRows(DAEMON_SCOPE_SENTINEL_SESSION_ID).find(
-      (row) => row.type === "event.shredded",
+    // The `event_maintenance` row on the sentinel partition — the first pass's
+    // own `event.compacted` — is excluded by the SQL selector itself, layer 1 of
+    // the three-layer enforcement. That the storage pass still stubbed rows
+    // (asserted above) is what proves the exclusion is doing the work rather
+    // than the trigger having gone quiet.
+    const compactedRecordAfter = storedRows(DAEMON_SCOPE_SENTINEL_SESSION_ID).find(
+      (row) => row.id === compactedRecordBefore?.id,
     );
-    expect(shredRecordAfter?.retention_class).toBeNull();
-    expect(shredRecordAfter?.stub_signature).toBeNull();
-    expect(shredRecordAfter?.payload).toBe(shredRecordBefore?.payload);
+    expect(compactedRecordAfter?.retention_class).toBeNull();
+    expect(compactedRecordAfter?.stub_signature).toBeNull();
+    expect(compactedRecordAfter?.payload).toBe(compactedRecordBefore?.payload);
 
     // The second pass appends its OWN `event.compacted`, so the partition grows;
-    // what must hold is that no row in it was ever stubbed and the first is
-    // byte-identical to what the first pass wrote.
+    // what must hold is that no row in it was ever stubbed.
     const sentinelAfter = storedRows(DAEMON_SCOPE_SENTINEL_SESSION_ID);
     expect(sentinelAfter.length).toBeGreaterThan(sentinelBefore.length);
     expect(sentinelAfter.every((row) => row.retention_class === null)).toBe(true);
-    expect(sentinelAfter[0]?.payload).toBe(sentinelBefore[0]?.payload);
 
     // The chain still verifies on both partitions after the second pass.
     expect(verifyWholeChain().perRow.filter((verdict) => !verdict.valid)).toEqual([]);
@@ -761,23 +610,5 @@ describe("Shred safety E2E — PII lifecycle through compaction and crypto-shred
     const sentinelVerification = verifyWholeChain(DAEMON_SCOPE_SENTINEL_SESSION_ID);
     expect(sentinelVerification.perRow.filter((verdict) => !verdict.valid)).toEqual([]);
     expect(sentinelVerification.linkageDefect).toBeUndefined();
-  });
-
-  it("proves the shred is what makes the plaintext unreadable", async () => {
-    // NEGATIVE CONTROL for the marker arm: with the key still present the SAME
-    // projection returns the content, so the marker is a consequence of the
-    // DELETE rather than of the projection always saying so.
-    for (let index = 0; index < 3; index += 1) {
-      await appendPiiEvent(index, SHREDDED_USER, `${SHREDDED_PLAINTEXT}-${String(index)}`);
-    }
-
-    const beforeShred = storedRows().map((row) => projectForRead(row));
-    expect(beforeShred.every((projection) => projection["pii"] === undefined)).toBe(true);
-    expect(String(beforeShred[0]?.["text"])).toContain(SHREDDED_PLAINTEXT);
-
-    database.prepare("DELETE FROM user_keys WHERE user_id = ?").run(SHREDDED_USER);
-
-    const afterShred = storedRows().map((row) => projectForRead(row));
-    expect(afterShred.every((projection) => projection["pii"] === PII_SHREDDED_MARKER)).toBe(true);
   });
 });

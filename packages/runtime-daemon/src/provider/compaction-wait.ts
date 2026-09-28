@@ -67,7 +67,7 @@
  * two ways of not seeing the evidence, and the caller maps each onto its own
  * `DriverCompactionResult` failure reason.
  */
-export type CompactionWaitTerminal = "observed" | "wait_expired" | "binding_lost";
+type CompactionWaitTerminal = "observed" | "wait_expired" | "binding_lost";
 
 /**
  * The settlement handed back to one waiter.

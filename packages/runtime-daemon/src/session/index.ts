@@ -1,8 +1,8 @@
 // Public surface of the runtime-daemon `session` module.
 //
-// The storage + projection slice. The control-plane directory and the
-// client SDK consume these exports over IPC; nothing here is wire-stable
-// until the IPC contract translation layer says so.
+// The storage + projection slice. The client SDK consumes these exports over
+// IPC; nothing here is wire-stable until the IPC contract translation layer
+// says so.
 
 export { SessionService } from "./session-service.js";
 export type { SessionServiceOptions } from "./session-service.js";
@@ -18,9 +18,4 @@ export type {
   TranslateSpawnCwdInput,
   WrappingShell,
 } from "./spawn-cwd-translator.js";
-export type {
-  AppendableEvent,
-  ChannelProjection,
-  DaemonSessionSnapshot,
-  StoredEvent,
-} from "./types.js";
+export type { AppendableEvent, DaemonSessionSnapshot, StoredEvent } from "./types.js";

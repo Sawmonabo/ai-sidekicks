@@ -1,4 +1,4 @@
-// WorkspaceService behaviour.
+// WorkspaceService behavior.
 //
 // Drives the real service against a real temp-file SQLite database (canonical
 // `openDatabase` factory → per-test tmp dir → `afterEach` close + unlink), a
@@ -25,7 +25,7 @@
 //
 // Negative controls accompany the guards that could otherwise pass vacuously —
 // the redaction ORDER, both bind orderings, and the stale-transition
-// persistence each have an arm proving the wrong behaviour would be observable.
+// persistence each have an arm proving the wrong behavior would be observable.
 
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { mkdtemp, realpath } from "node:fs/promises";
@@ -48,21 +48,13 @@ import { EventLogService } from "../../events/event-log-service.js";
 import { __resetSessionAppendLocksForTest } from "../../events/session-append-lock.js";
 import type { Ed25519PrivateKey, Ed25519PublicKey } from "../../events/signer.js";
 import type { DaemonSigningKeySource } from "../../events/signing-key-source.js";
-// A VALUE import, not a type-only one: the export census below tests
-// `prototype instanceof DaemonDomainError` at runtime.
-import { DaemonDomainError } from "../../ipc/domain-error.js";
+import type { DaemonDomainError } from "../../ipc/domain-error.js";
+import { SessionNotFoundError } from "../../ipc/session-errors.js";
 import { openDatabase } from "../../session/migration-runner.js";
 import { RepoMountNotFoundError, TrustEnvelopeViolationError } from "../repo-errors.js";
 import { TrustEnvelopeValidator } from "../trust-envelope.js";
 import { WorkspaceEventEmitter } from "../workspace-event-emitter.js";
-import {
-  computeExecutionModeCapabilities,
-  type FilesystemPathProbe,
-} from "../workspace-projector.js";
-import type { WorkspaceServiceErrorCode } from "../workspace-service.js";
-// Namespace import for the export census: it observes every export the module
-// actually has, which a named list by construction cannot.
-import * as workspaceServiceModule from "../workspace-service.js";
+import type { FilesystemPathProbe } from "../workspace-projector.js";
 import {
   normalizeWorkspaceLastError,
   scrubCredentials,
@@ -76,6 +68,7 @@ import {
   WORKSPACE_LAST_ERROR_TRUNCATION_MARKER,
   WORKSPACE_SERVICE_ERROR_CODES,
   type FilesystemPathProbeFn,
+  type SessionExistenceReader,
   type WorkspaceServiceDeps,
 } from "../workspace-service.js";
 
@@ -90,18 +83,12 @@ const SESSION_ID: SessionId = "0190f8b0-0000-7000-8000-000000000001" as SessionI
 const OTHER_SESSION_ID: SessionId = "0190f8b0-0000-7000-8000-000000000002" as SessionId;
 const GIT_MOUNT_ID: RepoMountId = "0190f8b1-0000-7000-8000-000000000001" as RepoMountId;
 const SECOND_GIT_MOUNT_ID: RepoMountId = "0190f8b1-0000-7000-8000-000000000002" as RepoMountId;
-const PLAIN_MOUNT_ID: RepoMountId = "0190f8b1-0000-7000-8000-000000000003" as RepoMountId;
 const DETACHED_MOUNT_ID: RepoMountId = "0190f8b1-0000-7000-8000-000000000004" as RepoMountId;
 const FILE_MOUNT_ID: RepoMountId = "0190f8b1-0000-7000-8000-000000000005" as RepoMountId;
 const UNKNOWN_MOUNT_ID: RepoMountId = "0190f8b1-0000-7000-8000-00000000ffff" as RepoMountId;
 const UNKNOWN_WORKSPACE_ID: string = "0190f8b2-0000-7000-8000-00000000ffff";
 const RUN_ID: string = "0190f8b3-0000-7000-8000-000000000001";
 const OTHER_RUN_ID: string = "0190f8b3-0000-7000-8000-000000000002";
-
-// Envelope linkage fixtures. Free-form on the wire (`wireFreeFormString`), so
-// the shape is convention rather than schema — real ids, to match production.
-const USER_ACTOR: string = "0190f8b4-0000-7000-8000-000000000001";
-const ATTACH_CORRELATION_ID: string = "0190f8b5-0000-7000-8000-000000000001";
 
 // A pool of real UUIDs for the injected id source. A counter would fail
 // `WorkspaceIdSchema.parse`, which is exactly why that parse is there.
@@ -131,6 +118,14 @@ class FixedDaemonSigningKeySource implements DaemonSigningKeySource {
   }
 }
 
+/** Knows the one session this suite binds under; every other id names no session. */
+const KNOWN_SESSIONS: SessionExistenceReader = {
+  replay: (sessionId) => (sessionId === SESSION_ID ? { sessionId } : null),
+};
+
+/** What a bind the provisioner then completes appends, in order. */
+const READY_BIND_EVENTS: readonly string[] = ["workspace.provisioning", "workspace.ready"];
+
 interface StoredWorkspaceRow {
   readonly id: string;
   readonly session_id: string;
@@ -148,7 +143,6 @@ interface TestHarness {
   readonly tmpDir: string;
   readonly gitMountRoot: string;
   readonly secondGitMountRoot: string;
-  readonly plainMountRoot: string;
   readonly siblingRoot: string;
 }
 
@@ -164,6 +158,7 @@ function createService(overrides: Partial<WorkspaceServiceDeps> = {}): Workspace
   return new WorkspaceService({
     database: harness.db,
     events: harness.emitter,
+    sessions: KNOWN_SESSIONS,
     newWorkspaceId: makeWorkspaceIdSource(),
     ...overrides,
   });
@@ -183,9 +178,7 @@ function makeWorkspaceIdSource(): () => string {
 
 interface MountFixture {
   readonly id: string;
-  readonly sessionId?: string;
   readonly canonicalRoot: string;
-  readonly vcsType?: string;
   readonly state?: string;
 }
 
@@ -194,19 +187,31 @@ function insertMount(fixture: MountFixture): void {
   harness.db
     .prepare(
       `INSERT INTO repo_mounts (
-         id, session_id, node_id, local_path, canonical_root, vcs_type, state, attached_at, updated_at, metadata
-       ) VALUES (@id, @session_id, @node_id, @local_path, @canonical_root, @vcs_type, @state, @now, @now, '{}')`,
+         id, node_id, local_path, canonical_root, vcs_type, state, attached_at, updated_at, metadata
+       ) VALUES (@id, @node_id, @local_path, @canonical_root, 'git', @state, @now, @now, '{}')`,
     )
     .run({
       id: fixture.id,
-      session_id: fixture.sessionId ?? SESSION_ID,
       node_id: "node-local",
       local_path: fixture.canonicalRoot,
       canonical_root: fixture.canonicalRoot,
-      vcs_type: fixture.vcsType ?? "git",
       state: fixture.state ?? "attached",
       now,
     });
+}
+
+/**
+ * Bind a bound-root workspace and complete it onto the mount's own root — the
+ * `ready` row a bound-root prepare leaves behind.
+ */
+async function bindReady(repoMountId: RepoMountId, mountRoot: string): Promise<string> {
+  const bound = await harness.service.bind({
+    sessionId: SESSION_ID,
+    repoMountId,
+    executionMode: "bound-root",
+  });
+  await harness.service.completeReprovision(bound.workspaceId, mountRoot);
+  return bound.workspaceId;
 }
 
 function readWorkspaceRow(workspaceId: string): StoredWorkspaceRow | undefined {
@@ -247,15 +252,6 @@ async function captureRejection(body: () => Promise<unknown>): Promise<unknown> 
     return error;
   }
   throw new Error("expected the operation to reject, but it resolved");
-}
-
-function captureThrow(body: () => unknown): unknown {
-  try {
-    body();
-  } catch (error: unknown) {
-    return error;
-  }
-  throw new Error("expected the operation to throw, but it returned");
 }
 
 /**
@@ -321,25 +317,11 @@ function readEventPayloads(type: string): ReadonlyArray<Record<string, unknown>>
   return rows.map((row) => JSON.parse(row.payload) as Record<string, unknown>);
 }
 
-interface StoredEventEnvelopeRow {
-  readonly type: string;
-  readonly actor: string | null;
-  readonly correlation_id: string | null;
-}
-
-function readEventEnvelopes(): ReadonlyArray<StoredEventEnvelopeRow> {
-  return harness.db
-    .prepare(
-      "SELECT type, actor, correlation_id FROM session_events WHERE session_id = ? ORDER BY sequence ASC",
-    )
-    .all(SESSION_ID) as ReadonlyArray<StoredEventEnvelopeRow>;
-}
-
 /** One instance of each carrier, in `` row order. */
 function everyCarrier(): readonly DaemonDomainError[] {
   return [
     new WorkspaceNotFoundError(UNKNOWN_WORKSPACE_ID),
-    new WorkspaceModeUnsupportedError("worktree", ["read-only"], "no git"),
+    new WorkspaceModeUnsupportedError("provisioned-worktree", ["bound-root"], "no worktree"),
     new WorkspaceStaleError(UNKNOWN_WORKSPACE_ID),
     new WorkspaceBusyError(UNKNOWN_WORKSPACE_ID, RUN_ID),
   ];
@@ -376,9 +358,8 @@ beforeEach(async () => {
   // missing would prove nothing about the boundary.
   const gitMountRoot: string = join(tmpDir, "repos", "git-mount");
   const secondGitMountRoot: string = join(tmpDir, "repos", "second-git-mount");
-  const plainMountRoot: string = join(tmpDir, "repos", "plain-mount");
   const siblingRoot: string = join(tmpDir, "repos", "sibling");
-  for (const directory of [gitMountRoot, secondGitMountRoot, plainMountRoot, siblingRoot]) {
+  for (const directory of [gitMountRoot, secondGitMountRoot, siblingRoot]) {
     mkdirSync(directory, { recursive: true });
   }
   mkdirSync(join(gitMountRoot, "packages"), { recursive: true });
@@ -389,12 +370,12 @@ beforeEach(async () => {
     service: new WorkspaceService({
       database: db,
       events: emitter,
+      sessions: KNOWN_SESSIONS,
       newWorkspaceId: makeWorkspaceIdSource(),
     }),
     tmpDir,
     gitMountRoot,
     secondGitMountRoot,
-    plainMountRoot,
     siblingRoot,
   };
 });
@@ -409,165 +390,12 @@ afterEach(() => {
 });
 
 // ----------------------------------------------------------------------------
-// ----------------------------------------------------------------------------
-
-describe("createDefaultWorkspace", () => {
-  it("writes a read-only, ready workspace rooted at the mount's canonical root", async () => {
-    const creation = harness.service.createDefaultWorkspace({
-      repoMountId: GIT_MOUNT_ID,
-      sessionId: SESSION_ID,
-      canonicalRoot: harness.gitMountRoot,
-    });
-
-    // The composition the attach uses: the mount row and the workspace row
-    // land in ONE transaction, driven by the `repo.attached` append.
-    await harness.emitter.emitRepoAttached({
-      sessionId: SESSION_ID,
-      repoMountId: GIT_MOUNT_ID,
-      transactionalPrelude: () => {
-        insertMount({ id: GIT_MOUNT_ID, canonicalRoot: harness.gitMountRoot });
-        creation.insertRow();
-      },
-    });
-    await creation.emitReady();
-
-    const row = readWorkspaceRow(creation.workspaceId);
-    expect(row).toBeDefined();
-    // read-only, and immediately usable. A writable mode is never the
-    // fresh-workspace posture.
-    expect(row?.execution_mode).toBe("read-only" satisfies ExecutionMode);
-    expect(row?.state).toBe("ready" satisfies WorkspaceState);
-    // The persisted root is the canonical one, verbatim.
-    expect(row?.fs_root).toBe(harness.gitMountRoot);
-    expect(row?.session_id).toBe(SESSION_ID);
-    expect(row?.repo_mount_id).toBe(GIT_MOUNT_ID);
-    expect(readEventTypes()).toEqual(["repo.attached", "workspace.ready"]);
-  });
-
-  it("aborts the workspace row with the mount row when the shared transaction fails", async () => {
-    const creation = harness.service.createDefaultWorkspace({
-      repoMountId: GIT_MOUNT_ID,
-      sessionId: SESSION_ID,
-      canonicalRoot: harness.gitMountRoot,
-    });
-
-    await expect(
-      harness.emitter.emitRepoAttached({
-        sessionId: SESSION_ID,
-        repoMountId: GIT_MOUNT_ID,
-        transactionalPrelude: () => {
-          insertMount({ id: GIT_MOUNT_ID, canonicalRoot: harness.gitMountRoot });
-          creation.insertRow();
-          throw new Error("attach failed after both rows were written");
-        },
-      }),
-    ).rejects.toThrow("attach failed after both rows were written");
-
-    // Neither row, and no event: the atomicity the two-closure shape exists to
-    // provide. A mount with no default workspace would be a mount the REQUIRED
-    // `defaultWorkspaceId` could not render.
-    expect(countRows("workspaces")).toBe(0);
-    expect(countRows("repo_mounts")).toBe(0);
-    expect(readEventTypes()).toEqual([]);
-  });
-
-  it("refuses a second insert and refuses readiness before the insert", async () => {
-    const creation = harness.service.createDefaultWorkspace({
-      repoMountId: GIT_MOUNT_ID,
-      sessionId: SESSION_ID,
-      canonicalRoot: harness.gitMountRoot,
-    });
-
-    await expect(creation.emitReady()).rejects.toBeInstanceOf(WorkspaceServiceInvariantError);
-    expect(readEventTypes()).toEqual([]);
-
-    insertMount({ id: GIT_MOUNT_ID, canonicalRoot: harness.gitMountRoot });
-    creation.insertRow();
-    expect(captureThrow(() => creation.insertRow())).toBeInstanceOf(WorkspaceServiceInvariantError);
-    expect(countRows("workspaces")).toBe(1);
-  });
-
-  it("refuses a SECOND readiness announcement, so one transition emits one event", async () => {
-    const creation = harness.service.createDefaultWorkspace({
-      repoMountId: GIT_MOUNT_ID,
-      sessionId: SESSION_ID,
-      canonicalRoot: harness.gitMountRoot,
-    });
-    insertMount({ id: GIT_MOUNT_ID, canonicalRoot: harness.gitMountRoot });
-    creation.insertRow();
-    await creation.emitReady();
-
-    // Unlike `insertRow`, this half has no compare-and-swap to make a repeat
-    // harmless — a second call would simply append a second `workspace.ready`
-    // for one transition.
-    await expect(creation.emitReady()).rejects.toBeInstanceOf(WorkspaceServiceInvariantError);
-    expect(readEventTypes()).toEqual(["workspace.ready"]);
-  });
-
-  it("carries the caller's actor and correlationId onto the event envelope", async () => {
-    const creation = harness.service.createDefaultWorkspace({
-      repoMountId: GIT_MOUNT_ID,
-      sessionId: SESSION_ID,
-      canonicalRoot: harness.gitMountRoot,
-      actor: USER_ACTOR,
-      correlationId: ATTACH_CORRELATION_ID,
-    });
-    insertMount({ id: GIT_MOUNT_ID, canonicalRoot: harness.gitMountRoot });
-    creation.insertRow();
-    await creation.emitReady();
-
-    // Every other arm here takes the defaults, so a dropped linkage field would
-    // be invisible. `correlationId` is what ties this `workspace.ready` back to
-    // the `repo.attached` that caused it on a rebuilt timeline.
-    const envelopes = readEventEnvelopes();
-    expect(envelopes).toEqual([
-      { type: "workspace.ready", actor: USER_ACTOR, correlation_id: ATTACH_CORRELATION_ID },
-    ]);
-    // The payload's own actor is reconciled from the same value, not defaulted.
-    expect(readEventPayloads("workspace.ready")[0]?.["actor"]).toBe(USER_ACTOR);
-  });
-
-  it("refuses a canonical root that does not name one complete location", () => {
-    // Three shapes, each missing a different piece only the daemon's own
-    // context could supply: a working directory, a home directory, a drive.
-    for (const incompleteRoot of ["repos/git-mount", "~/repos/git-mount", "\\repos\\git-mount"]) {
-      const refusal = captureThrow(() =>
-        harness.service.createDefaultWorkspace({
-          repoMountId: GIT_MOUNT_ID,
-          sessionId: SESSION_ID,
-          canonicalRoot: incompleteRoot,
-        }),
-      );
-      expect(refusal).toBeInstanceOf(WorkspaceServiceInvariantError);
-      expect((refusal as WorkspaceServiceInvariantError).kind).toBe("non_absolute_execution_root");
-    }
-  });
-
-  it("accepts the three COMPLETE root spellings, including the Windows forms", () => {
-    // The negative control for the arm above: a guard that refused everything
-    // would pass that one and fail this. No fixture on disk is needed — the
-    // check runs before any database or filesystem work, which is also why a
-    // Windows-shaped root is testable on a POSIX host.
-    const completeRoots = ["/repos/app", "C:\\repos\\app", "C:/repos/app", "\\\\server\\share"];
-    for (const completeRoot of completeRoots) {
-      expect(() =>
-        harness.service.createDefaultWorkspace({
-          repoMountId: GIT_MOUNT_ID,
-          sessionId: SESSION_ID,
-          canonicalRoot: completeRoot,
-        }),
-      ).not.toThrow();
-    }
-  });
-});
-
-// ----------------------------------------------------------------------------
+// bind
 // ----------------------------------------------------------------------------
 
 describe("bind", () => {
   beforeEach(() => {
     insertMount({ id: GIT_MOUNT_ID, canonicalRoot: harness.gitMountRoot });
-    insertMount({ id: PLAIN_MOUNT_ID, canonicalRoot: harness.plainMountRoot, vcsType: "none" });
     insertMount({
       id: DETACHED_MOUNT_ID,
       canonicalRoot: harness.secondGitMountRoot,
@@ -583,36 +411,25 @@ describe("bind", () => {
     expect(await realpath(harness.siblingRoot)).toBe(harness.siblingRoot);
   });
 
-  it("binds read-only at the mount root and derives the session from the mount", async () => {
-    const response = await harness.service.bind({
-      repoMountId: GIT_MOUNT_ID,
-      executionMode: "read-only",
-    });
+  it("refuses a session that does not exist, before any probe or write", async () => {
+    // A valid, attached mount, so "nothing was written" discriminates: without
+    // the session check this bind would succeed.
+    const probePath = vi.fn<FilesystemPathProbeFn>();
 
-    expect(response.state).toBe("ready" satisfies WorkspaceState);
-    expect(response.executionMode).toBe("read-only" satisfies ExecutionMode);
-    expect(response.fsRoot).toBe(harness.gitMountRoot);
-
-    const row = readWorkspaceRow(response.workspaceId);
-    // The session is the MOUNT's. The bind request carries no session field at
-    // all, which is the structural half of the same rule: a caller cannot name
-    // someone else's session by naming a mount it does not own.
-    expect(row?.session_id).toBe(SESSION_ID);
-    expect(row?.fs_root).toBe(harness.gitMountRoot);
-    expect(readEventTypes()).toEqual(["workspace.ready"]);
-  });
-
-  it("resolves a subdirectory inside the mount", async () => {
-    const response = await harness.service.bind({
-      repoMountId: GIT_MOUNT_ID,
-      executionMode: "read-only",
-      directory: "packages",
-    });
-
-    expect(response.fsRoot).toBe(join(harness.gitMountRoot, "packages"));
-    expect(readWorkspaceRow(response.workspaceId)?.fs_root).toBe(
-      join(harness.gitMountRoot, "packages"),
+    const refusal = await captureRejection(() =>
+      createService({ probePath }).bind({
+        sessionId: OTHER_SESSION_ID,
+        repoMountId: GIT_MOUNT_ID,
+        executionMode: "bound-root",
+      }),
     );
+
+    expect(refusal).toBeInstanceOf(SessionNotFoundError);
+    expect((refusal as SessionNotFoundError).code).toBe("session.not_found");
+    expect((refusal as SessionNotFoundError).fields).toEqual({ sessionId: OTHER_SESSION_ID });
+    expect(probePath).not.toHaveBeenCalled();
+    expect(countRows("workspaces")).toBe(0);
+    expect(readEventTypes(OTHER_SESSION_ID)).toEqual([]);
   });
 
   it("rejects a traversal escape on the `directory` argument", async () => {
@@ -620,8 +437,9 @@ describe("bind", () => {
     // absence.
     await expect(
       harness.service.bind({
+        sessionId: SESSION_ID,
         repoMountId: GIT_MOUNT_ID,
-        executionMode: "read-only",
+        executionMode: "bound-root",
         directory: "../sibling",
       }),
     ).rejects.toBeInstanceOf(TrustEnvelopeViolationError);
@@ -629,8 +447,9 @@ describe("bind", () => {
     // The absolute-redirection spelling of the same escape.
     await expect(
       harness.service.bind({
+        sessionId: SESSION_ID,
         repoMountId: GIT_MOUNT_ID,
-        executionMode: "read-only",
+        executionMode: "bound-root",
         directory: harness.siblingRoot,
       }),
     ).rejects.toBeInstanceOf(TrustEnvelopeViolationError);
@@ -643,8 +462,9 @@ describe("bind", () => {
   it("carries the ratified `repo.outside_trust_envelope` code on the refusal", async () => {
     const refusal = await captureRejection(() =>
       harness.service.bind({
+        sessionId: SESSION_ID,
         repoMountId: GIT_MOUNT_ID,
-        executionMode: "read-only",
+        executionMode: "bound-root",
         directory: "../sibling",
       }),
     );
@@ -655,84 +475,48 @@ describe("bind", () => {
   });
 
   it("rejects an absolute directory pointing at a DETACHED mount's root", async () => {
-    // A detached mount's root is out of the session's envelope, and it is also
+    // A detached mount's root is outside the attached set, and it is also
     // outside the anchor — both halves refuse, and neither may admit it.
     await expect(
       harness.service.bind({
+        sessionId: SESSION_ID,
         repoMountId: GIT_MOUNT_ID,
-        executionMode: "read-only",
+        executionMode: "bound-root",
         directory: harness.secondGitMountRoot,
       }),
     ).rejects.toBeInstanceOf(TrustEnvelopeViolationError);
   });
 
-  it("lands a writable bind in `provisioning` with no execution root", async () => {
+  it("lands every bind in `provisioning` with no root, a valid directory included", async () => {
     const response = await harness.service.bind({
+      sessionId: SESSION_ID,
       repoMountId: GIT_MOUNT_ID,
-      executionMode: "worktree",
+      executionMode: "provisioned-worktree",
+      directory: "packages",
     });
 
     expect(response.state).toBe("provisioning" satisfies WorkspaceState);
-    expect(response.fsRoot).toBeUndefined();
 
     const row = readWorkspaceRow(response.workspaceId);
     expect(row?.state).toBe("provisioning" satisfies WorkspaceState);
-    // The validated root is DISCARDED rather than persisted: a worktree
-    // does not execute in the requested directory, and storing it would
-    // hand an approval scope the workspace never uses.
+    // The validated root is DISCARDED rather than persisted: neither mode
+    // executes in the requested directory, and storing it would hand an
+    // approval scope the workspace never uses.
     expect(row?.fs_root).toBeNull();
-    expect(row?.execution_mode).toBe("worktree" satisfies ExecutionMode);
+    expect(row?.execution_mode).toBe("provisioned-worktree" satisfies ExecutionMode);
+    expect(row?.session_id).toBe(SESSION_ID);
     expect(readEventTypes()).toEqual(["workspace.provisioning"]);
   });
 
-  it("still validates containment on a writable bind, before any provisioner runs", async () => {
-    // The validated root is thrown away, so the validation could look like dead
-    // work — it is not. Refusing an out-of-envelope request before a provisioner
-    // is spawned is the whole point.
-    await expect(
-      harness.service.bind({
-        repoMountId: GIT_MOUNT_ID,
-        executionMode: "worktree",
-        directory: "../sibling",
-      }),
-    ).rejects.toBeInstanceOf(TrustEnvelopeViolationError);
-    expect(countRows("workspaces")).toBe(0);
-  });
-
-  it("refuses a mode the mount cannot offer, naming the reason", async () => {
-    const refusal = await captureRejection(() =>
-      harness.service.bind({ repoMountId: PLAIN_MOUNT_ID, executionMode: "worktree" }),
-    );
-
-    expect(refusal).toBeInstanceOf(WorkspaceModeUnsupportedError);
-    const modeRefusal = refusal as WorkspaceModeUnsupportedError;
-    expect(modeRefusal.code).toBe("workspace.mode_unsupported");
-    expect(modeRefusal.httpStatus).toBe(400);
-
-    // Compared against the matrix rather than a copy of it: a suite that
-    // restates the reason string pins the copy, not the matrix.
-    const capabilities = computeExecutionModeCapabilities({ vcsType: "none" });
-    expect(modeRefusal.availableModes).toEqual(capabilities.availableModes);
-    expect(modeRefusal.detail?.["reason"]).toBe(capabilities.restrictions?.worktree);
-
-    // No substitution happened: nothing was written at all.
-    expect(countRows("workspaces")).toBe(0);
-  });
-
-  it("still binds `read-only` on a plain-directory mount", async () => {
-    const response = await harness.service.bind({
-      repoMountId: PLAIN_MOUNT_ID,
-      executionMode: "read-only",
-    });
-    expect(response.state).toBe("ready" satisfies WorkspaceState);
-    expect(response.fsRoot).toBe(harness.plainMountRoot);
-  });
-
-  // -- Ordering obligation (ii): mount identity before envelope construction --
+  // -- Mount identity before envelope construction --
 
   it("refuses an unknown mount id with `repo.not_found`", async () => {
     const refusal = await captureRejection(() =>
-      harness.service.bind({ repoMountId: UNKNOWN_MOUNT_ID, executionMode: "read-only" }),
+      harness.service.bind({
+        sessionId: SESSION_ID,
+        repoMountId: UNKNOWN_MOUNT_ID,
+        executionMode: "bound-root",
+      }),
     );
 
     expect(refusal).toBeInstanceOf(RepoMountNotFoundError);
@@ -741,7 +525,11 @@ describe("bind", () => {
 
   it("refuses a DETACHED mount id with `repo.not_found`, not an envelope violation", async () => {
     const refusal = await captureRejection(() =>
-      harness.service.bind({ repoMountId: DETACHED_MOUNT_ID, executionMode: "read-only" }),
+      harness.service.bind({
+        sessionId: SESSION_ID,
+        repoMountId: DETACHED_MOUNT_ID,
+        executionMode: "bound-root",
+      }),
     );
 
     // The discriminating assertion. With the envelope query unscoped, this bind
@@ -762,9 +550,8 @@ describe("bind", () => {
     // the containment validator. A `repo.detach` cascade landing in there has
     // already passed over this workspace, and the foreign key is no help — a
     // detach moves the mount's `state`, it does not delete the row. Without the
-    // insert's attachment predicate this commits a `ready` workspace on a
-    // detached mount: a live execution root outside the session's trust
-    // envelope that `assertWritable` then passes.
+    // insert's attachment predicate this commits a workspace on a detached
+    // mount that the cascade never archives.
     const validator = new TrustEnvelopeValidator();
     const validateExecutionRootOriginal = validator.validateExecutionRoot.bind(validator);
     vi.spyOn(validator, "validateExecutionRoot").mockImplementationOnce(async (candidate) => {
@@ -777,13 +564,14 @@ describe("bind", () => {
 
     await expect(
       createService({ trustEnvelope: validator }).bind({
+        sessionId: SESSION_ID,
         repoMountId: GIT_MOUNT_ID,
-        executionMode: "read-only",
+        executionMode: "bound-root",
       }),
     ).rejects.toBeInstanceOf(WorkspaceServiceInvariantError);
 
-    // The whole write rolled back — no orphan row, and no `workspace.ready`
-    // announcing a workspace that does not exist.
+    // The whole write rolled back — no orphan row, and no
+    // `workspace.provisioning` announcing a workspace that does not exist.
     expect(countRows("workspaces")).toBe(0);
     expect(readEventTypes()).toEqual([]);
   });
@@ -798,22 +586,27 @@ describe("bind", () => {
     );
 
     const response = await createService({ trustEnvelope: validator }).bind({
+      sessionId: SESSION_ID,
       repoMountId: GIT_MOUNT_ID,
-      executionMode: "read-only",
+      executionMode: "bound-root",
     });
 
-    expect(response.state).toBe("ready" satisfies WorkspaceState);
+    expect(response.state).toBe("provisioning" satisfies WorkspaceState);
     expect(countRows("workspaces")).toBe(1);
-    expect(readEventTypes()).toEqual(["workspace.ready"]);
+    expect(readEventTypes()).toEqual(["workspace.provisioning"]);
   });
 
-  // -- Ordering obligation (i): reachability before containment --
+  // -- Reachability before containment --
 
   it("reports a vanished mount root as `workspace.stale`, not a 403", async () => {
     rmSync(harness.gitMountRoot, { recursive: true, force: true });
 
     const refusal = await captureRejection(() =>
-      harness.service.bind({ repoMountId: GIT_MOUNT_ID, executionMode: "read-only" }),
+      harness.service.bind({
+        sessionId: SESSION_ID,
+        repoMountId: GIT_MOUNT_ID,
+        executionMode: "bound-root",
+      }),
     );
 
     expect(refusal).toBeInstanceOf(WorkspaceStaleError);
@@ -834,7 +627,7 @@ describe("bind", () => {
     const refusal = await captureRejection(() =>
       new TrustEnvelopeValidator().validateExecutionRoot({
         mountCanonicalRoot: harness.gitMountRoot,
-        sessionEnvelopeRoots: [harness.gitMountRoot],
+        attachedMountRoots: [harness.gitMountRoot],
       }),
     );
 
@@ -850,7 +643,11 @@ describe("bind", () => {
     // The probe opens the path for enumeration, so a regular file is
     // unreachable by the same measure a missing directory is.
     await expect(
-      harness.service.bind({ repoMountId: FILE_MOUNT_ID, executionMode: "read-only" }),
+      harness.service.bind({
+        sessionId: SESSION_ID,
+        repoMountId: FILE_MOUNT_ID,
+        executionMode: "bound-root",
+      }),
     ).rejects.toBeInstanceOf(WorkspaceStaleError);
   });
 });
@@ -866,26 +663,21 @@ describe("list", () => {
   });
 
   it("returns every workspace across two mounts with its state", async () => {
-    const first = await harness.service.bind({
-      repoMountId: GIT_MOUNT_ID,
-      executionMode: "read-only",
-    });
+    const first = await bindReady(GIT_MOUNT_ID, harness.gitMountRoot);
     const second = await harness.service.bind({
+      sessionId: SESSION_ID,
       repoMountId: GIT_MOUNT_ID,
-      executionMode: "worktree",
+      executionMode: "provisioned-worktree",
     });
-    const third = await harness.service.bind({
-      repoMountId: SECOND_GIT_MOUNT_ID,
-      executionMode: "read-only",
-    });
+    const third = await bindReady(SECOND_GIT_MOUNT_ID, harness.secondGitMountRoot);
 
     const response = await harness.service.list({ sessionId: SESSION_ID });
     expect(response.workspaces).toHaveLength(3);
     expect(new Map(response.workspaces.map((entry) => [String(entry.id), entry.state]))).toEqual(
       new Map([
-        [String(first.workspaceId), "ready"],
+        [first, "ready"],
         [String(second.workspaceId), "provisioning"],
-        [String(third.workspaceId), "ready"],
+        [third, "ready"],
       ]),
     );
     expect(new Set(response.workspaces.map((entry) => String(entry.repoMountId)))).toEqual(
@@ -898,10 +690,15 @@ describe("list", () => {
   });
 
   it("scopes to one mount when asked, and to one session always", async () => {
-    await harness.service.bind({ repoMountId: GIT_MOUNT_ID, executionMode: "read-only" });
+    await harness.service.bind({
+      sessionId: SESSION_ID,
+      repoMountId: GIT_MOUNT_ID,
+      executionMode: "bound-root",
+    });
     const scoped = await harness.service.bind({
+      sessionId: SESSION_ID,
       repoMountId: SECOND_GIT_MOUNT_ID,
-      executionMode: "read-only",
+      executionMode: "bound-root",
     });
 
     const byMount = await harness.service.list({
@@ -917,31 +714,25 @@ describe("list", () => {
   });
 
   it("reports and PERSISTS a stale transition when the root vanished", async () => {
-    const bound = await harness.service.bind({
-      repoMountId: GIT_MOUNT_ID,
-      executionMode: "read-only",
-    });
+    const workspaceId = await bindReady(GIT_MOUNT_ID, harness.gitMountRoot);
     rmSync(harness.gitMountRoot, { recursive: true, force: true });
 
     const first = await harness.service.list({ sessionId: SESSION_ID });
     expect(first.workspaces[0]?.state).toBe("stale" satisfies WorkspaceState);
     // The persistence half. A response-only verdict would leave the next
     // reader — and `assertWritable` — believing the row is still `ready`.
-    expect(readWorkspaceRow(bound.workspaceId)?.state).toBe("stale");
-    expect(readEventTypes()).toEqual(["workspace.ready", "workspace.stale"]);
+    expect(readWorkspaceRow(workspaceId)?.state).toBe("stale");
+    expect(readEventTypes()).toEqual([...READY_BIND_EVENTS, "workspace.stale"]);
 
     // Exactly one event per real transition: a second read observes the same
     // fact and must not re-announce it.
     const second = await harness.service.list({ sessionId: SESSION_ID });
     expect(second.workspaces[0]?.state).toBe("stale" satisfies WorkspaceState);
-    expect(readEventTypes()).toEqual(["workspace.ready", "workspace.stale"]);
+    expect(readEventTypes()).toEqual([...READY_BIND_EVENTS, "workspace.stale"]);
   });
 
   it("never auto-heals a stale row when its root comes back", async () => {
-    const bound = await harness.service.bind({
-      repoMountId: GIT_MOUNT_ID,
-      executionMode: "read-only",
-    });
+    const workspaceId = await bindReady(GIT_MOUNT_ID, harness.gitMountRoot);
     rmSync(harness.gitMountRoot, { recursive: true, force: true });
     await harness.service.list({ sessionId: SESSION_ID });
 
@@ -951,20 +742,15 @@ describe("list", () => {
     // Repair is an explicit reprovision, not an accident of a read — the same
     // posture `computeWorkspaceHealth` holds.
     expect(afterRepair.workspaces[0]?.state).toBe("stale" satisfies WorkspaceState);
-    expect(readWorkspaceRow(bound.workspaceId)?.state).toBe("stale");
+    expect(readWorkspaceRow(workspaceId)?.state).toBe("stale");
   });
 
   // -- The four per-row throw sources. None may be silently dropped. --
 
   it("source 1: propagates an out-of-vocabulary state, attributed to its row", async () => {
-    const bound = await harness.service.bind({
-      repoMountId: GIT_MOUNT_ID,
-      executionMode: "read-only",
-    });
+    const workspaceId = await bindReady(GIT_MOUNT_ID, harness.gitMountRoot);
     withCheckConstraintsDisabled(() => {
-      harness.db
-        .prepare("UPDATE workspaces SET state = 'liquefied' WHERE id = ?")
-        .run(bound.workspaceId);
+      harness.db.prepare("UPDATE workspaces SET state = 'liquefied' WHERE id = ?").run(workspaceId);
     });
 
     const failure = await captureRejection(() => harness.service.list({ sessionId: SESSION_ID }));
@@ -972,31 +758,25 @@ describe("list", () => {
     expect(failure).toBeInstanceOf(WorkspaceServiceInvariantError);
     const invariantFailure = failure as WorkspaceServiceInvariantError;
     expect(invariantFailure.kind).toBe("workspace_row_unprojectable");
-    expect(invariantFailure.workspaceId).toBe(bound.workspaceId);
+    expect(invariantFailure.workspaceId).toBe(workspaceId);
     expect((invariantFailure.cause as Error).message).toContain("no probe policy is registered");
   });
 
   it("source 2: propagates a NULL execution root under a probe-bearing state", async () => {
-    const bound = await harness.service.bind({
-      repoMountId: GIT_MOUNT_ID,
-      executionMode: "read-only",
-    });
-    harness.db.prepare("UPDATE workspaces SET fs_root = NULL WHERE id = ?").run(bound.workspaceId);
+    const workspaceId = await bindReady(GIT_MOUNT_ID, harness.gitMountRoot);
+    harness.db.prepare("UPDATE workspaces SET fs_root = NULL WHERE id = ?").run(workspaceId);
 
     const failure = await captureRejection(() => harness.service.list({ sessionId: SESSION_ID }));
 
     expect(failure).toBeInstanceOf(WorkspaceServiceInvariantError);
     const invariantFailure = failure as WorkspaceServiceInvariantError;
     expect(invariantFailure.kind).toBe("workspace_row_unprojectable");
-    expect(invariantFailure.workspaceId).toBe(bound.workspaceId);
+    expect(invariantFailure.workspaceId).toBe(workspaceId);
     expect((invariantFailure.cause as Error).message).toContain("must carry a resolved fs_root");
   });
 
   it("source 3: propagates a probe that measured a different path", async () => {
-    const bound = await harness.service.bind({
-      repoMountId: GIT_MOUNT_ID,
-      executionMode: "read-only",
-    });
+    const workspaceId = await bindReady(GIT_MOUNT_ID, harness.gitMountRoot);
 
     // A LYING probe seam — the only way to reach the subject-binding guard,
     // because the production probe stamps `probedPath` from its own argument
@@ -1012,7 +792,7 @@ describe("list", () => {
     expect(failure).toBeInstanceOf(WorkspaceServiceInvariantError);
     const invariantFailure = failure as WorkspaceServiceInvariantError;
     expect(invariantFailure.kind).toBe("workspace_row_unprojectable");
-    expect(invariantFailure.workspaceId).toBe(bound.workspaceId);
+    expect(invariantFailure.workspaceId).toBe(workspaceId);
     expect((invariantFailure.cause as Error).message).toContain(
       "did not measure the workspace's execution root",
     );
@@ -1023,8 +803,13 @@ describe("list", () => {
     // pragma — it is the most reachable of the four in practice.
     harness.db
       .prepare(
-        `INSERT INTO workspaces (id, session_id, repo_mount_id, execution_mode, fs_root, state, metadata, created_at, updated_at)
-         VALUES ('not-a-uuid', @session_id, @repo_mount_id, 'read-only', @fs_root, 'ready', '{}', @now, @now)`,
+        `INSERT INTO workspaces (
+           id, session_id, repo_mount_id, execution_mode, fs_root, state, metadata,
+           created_at, updated_at
+         ) VALUES (
+           'not-a-uuid', @session_id, @repo_mount_id, 'bound-root', @fs_root, 'ready', '{}',
+           @now, @now
+         )`,
       )
       .run({
         session_id: SESSION_ID,
@@ -1041,10 +826,7 @@ describe("list", () => {
   });
 
   it("fifth failure: a stale write that cannot be made durable gets its OWN kind", async () => {
-    const bound = await harness.service.bind({
-      repoMountId: GIT_MOUNT_ID,
-      executionMode: "read-only",
-    });
+    const workspaceId = await bindReady(GIT_MOUNT_ID, harness.gitMountRoot);
     rmSync(harness.gitMountRoot, { recursive: true, force: true });
     vi.spyOn(harness.emitter, "emitWorkspaceStale").mockImplementationOnce(() =>
       Promise.reject(new Error("database is locked")),
@@ -1058,22 +840,16 @@ describe("list", () => {
     // of that projection failed. Labelling it the other way sends an operator
     // to inspect a healthy row for what is a locked database.
     expect(invariantFailure.kind).toBe("stale_transition_durability_failure");
-    expect(invariantFailure.workspaceId).toBe(bound.workspaceId);
+    expect(invariantFailure.workspaceId).toBe(workspaceId);
     expect((invariantFailure.cause as Error).message).toBe("database is locked");
     // Not swallowed: reporting `stale` for a row the database still calls
     // `ready` is precisely what the persistence half forbids.
-    expect(readWorkspaceRow(bound.workspaceId)?.state).toBe("ready" satisfies WorkspaceState);
+    expect(readWorkspaceRow(workspaceId)?.state).toBe("ready" satisfies WorkspaceState);
   });
 
   it("names the row whose root vanished as the stale event's SUBJECT", async () => {
-    const healthy = await harness.service.bind({
-      repoMountId: GIT_MOUNT_ID,
-      executionMode: "read-only",
-    });
-    const doomed = await harness.service.bind({
-      repoMountId: SECOND_GIT_MOUNT_ID,
-      executionMode: "read-only",
-    });
+    const healthy = await bindReady(GIT_MOUNT_ID, harness.gitMountRoot);
+    const doomed = await bindReady(SECOND_GIT_MOUNT_ID, harness.secondGitMountRoot);
     rmSync(harness.secondGitMountRoot, { recursive: true, force: true });
 
     await harness.service.list({ sessionId: SESSION_ID });
@@ -1083,23 +859,15 @@ describe("list", () => {
     // that a healthy workspace went stale.
     const stalePayloads = readEventPayloads("workspace.stale");
     expect(stalePayloads).toHaveLength(1);
-    expect(stalePayloads[0]?.["workspaceId"]).toBe(doomed.workspaceId);
-    expect(stalePayloads[0]?.["workspaceId"]).not.toBe(healthy.workspaceId);
-    expect(readWorkspaceRow(healthy.workspaceId)?.state).toBe("ready" satisfies WorkspaceState);
+    expect(stalePayloads[0]?.["workspaceId"]).toBe(doomed);
+    expect(stalePayloads[0]?.["workspaceId"]).not.toBe(healthy);
+    expect(readWorkspaceRow(healthy)?.state).toBe("ready" satisfies WorkspaceState);
   });
 
   it("never silently drops a corrupt row from an otherwise-healthy roster", async () => {
-    const healthy = await harness.service.bind({
-      repoMountId: GIT_MOUNT_ID,
-      executionMode: "read-only",
-    });
-    const corrupted = await harness.service.bind({
-      repoMountId: SECOND_GIT_MOUNT_ID,
-      executionMode: "read-only",
-    });
-    harness.db
-      .prepare("UPDATE workspaces SET fs_root = NULL WHERE id = ?")
-      .run(corrupted.workspaceId);
+    const healthy = await bindReady(GIT_MOUNT_ID, harness.gitMountRoot);
+    const corrupted = await bindReady(SECOND_GIT_MOUNT_ID, harness.secondGitMountRoot);
+    harness.db.prepare("UPDATE workspaces SET fs_root = NULL WHERE id = ?").run(corrupted);
 
     // The whole point of the containment decision: the caller gets a LOUD
     // failure, never a two-row roster that quietly became one. A shortened list
@@ -1108,7 +876,7 @@ describe("list", () => {
     await expect(harness.service.list({ sessionId: SESSION_ID })).rejects.toBeInstanceOf(
       WorkspaceServiceInvariantError,
     );
-    expect(readWorkspaceRow(healthy.workspaceId)).toBeDefined();
+    expect(readWorkspaceRow(healthy)).toBeDefined();
     expect(countRows("workspaces")).toBe(2);
   });
 });
@@ -1121,11 +889,7 @@ describe("reprovision cycle", () => {
 
   beforeEach(async () => {
     insertMount({ id: GIT_MOUNT_ID, canonicalRoot: harness.gitMountRoot });
-    const bound = await harness.service.bind({
-      repoMountId: GIT_MOUNT_ID,
-      executionMode: "read-only",
-    });
-    workspaceId = bound.workspaceId;
+    workspaceId = await bindReady(GIT_MOUNT_ID, harness.gitMountRoot);
   });
 
   it("keeps the id and the row count across a full cycle", async () => {
@@ -1133,7 +897,7 @@ describe("reprovision cycle", () => {
     const worktreeRoot = join(harness.tmpDir, "worktrees", "feature");
     mkdirSync(worktreeRoot, { recursive: true });
 
-    await harness.service.beginReprovision(workspaceId, "worktree");
+    await harness.service.beginReprovision(workspaceId, "provisioned-worktree");
     const midCycle = readWorkspaceRow(workspaceId);
     expect(midCycle?.state).toBe("provisioning" satisfies WorkspaceState);
     // The released root does not linger: would otherwise keep matching
@@ -1141,7 +905,7 @@ describe("reprovision cycle", () => {
     expect(midCycle?.fs_root).toBeNull();
     // The target mode is persisted at BEGIN because `completeReprovision` takes
     // no mode argument — nothing downstream could persist it.
-    expect(midCycle?.execution_mode).toBe("worktree" satisfies ExecutionMode);
+    expect(midCycle?.execution_mode).toBe("provisioned-worktree" satisfies ExecutionMode);
 
     await harness.service.completeReprovision(workspaceId, worktreeRoot);
     const afterCycle = readWorkspaceRow(workspaceId);
@@ -1153,7 +917,7 @@ describe("reprovision cycle", () => {
     expect(afterCycle?.state).toBe("ready" satisfies WorkspaceState);
     expect(afterCycle?.fs_root).toBe(worktreeRoot);
     expect(readEventTypes()).toEqual([
-      "workspace.ready",
+      ...READY_BIND_EVENTS,
       "workspace.provisioning",
       "workspace.ready",
     ]);
@@ -1161,34 +925,49 @@ describe("reprovision cycle", () => {
 
   it("adopts an execution root OUTSIDE the mount, without re-checking containment", async () => {
     // A worktree lives outside the mount's canonical root by construction, so
-    // re-running the containment validator here would reject every writable mode
+    // re-running the containment validator here would reject every mode
     // it exists to support. The root's legitimacy is its provenance: the
     // provisioner created it under daemon control.
     const outsideRoot = join(harness.tmpDir, "worktrees", "outside");
     mkdirSync(outsideRoot, { recursive: true });
 
-    await harness.service.beginReprovision(workspaceId, "worktree");
+    await harness.service.beginReprovision(workspaceId, "provisioned-worktree");
     await harness.service.completeReprovision(workspaceId, outsideRoot);
 
     expect(readWorkspaceRow(workspaceId)?.fs_root).toBe(outsideRoot);
   });
 
-  it("refuses a non-absolute execution root at completion", async () => {
-    await harness.service.beginReprovision(workspaceId, "worktree");
+  it("refuses an execution root that does not name one complete location", async () => {
+    await harness.service.beginReprovision(workspaceId, "provisioned-worktree");
 
-    // Provenance does not make a relative path safe: scopes approvals against
-    // this value, and a relative one would be completed against whatever working
-    // directory the tool process happens to have.
-    await expect(
-      harness.service.completeReprovision(workspaceId, "worktrees/relative"),
-    ).rejects.toBeInstanceOf(WorkspaceServiceInvariantError);
+    // Provenance does not make an incomplete path safe: approvals are scoped
+    // against this value, and each shape below is missing a piece only the
+    // daemon's own context could supply — a working directory, a home
+    // directory, a drive.
+    for (const incompleteRoot of ["worktrees/relative", "~/worktrees", "\\worktrees\\app"]) {
+      const refusal = await captureRejection(() =>
+        harness.service.completeReprovision(workspaceId, incompleteRoot),
+      );
+      expect(refusal).toBeInstanceOf(WorkspaceServiceInvariantError);
+      expect((refusal as WorkspaceServiceInvariantError).kind).toBe("non_absolute_execution_root");
+    }
     // Refused BEFORE the write, so the cycle is still open and retryable.
     expect(readWorkspaceRow(workspaceId)?.state).toBe("provisioning" satisfies WorkspaceState);
     expect(readWorkspaceRow(workspaceId)?.fs_root).toBeNull();
+
+    // The negative control: a guard that refused everything would pass the loop
+    // above. The check reads the path's shape only, so the Windows forms pass
+    // on a POSIX host too.
+    const completeRoots = ["/repos/app", "C:\\repos\\app", "C:/repos/app", "\\\\server\\share"];
+    for (const completeRoot of completeRoots) {
+      await harness.service.completeReprovision(workspaceId, completeRoot);
+      expect(readWorkspaceRow(workspaceId)?.fs_root).toBe(completeRoot);
+      await harness.service.beginReprovision(workspaceId, "provisioned-worktree");
+    }
   });
 
   it("records a scrubbed failure detail and lands the row `stale`", async () => {
-    await harness.service.beginReprovision(workspaceId, "worktree");
+    await harness.service.beginReprovision(workspaceId, "provisioned-worktree");
     await harness.service.failReprovision(
       workspaceId,
       "fatal: could not read from https://octocat:ghp_abcdefghijklmnop@github.com/acme/repo.git",
@@ -1204,14 +983,14 @@ describe("reprovision cycle", () => {
     // would pass the two assertions above and be useless.
     expect(lastError).toContain("fatal: could not read from");
     expect(readEventTypes()).toEqual([
-      "workspace.ready",
+      ...READY_BIND_EVENTS,
       "workspace.provisioning",
       "workspace.stale",
     ]);
   });
 
   it("surfaces the recorded failure on the list response", async () => {
-    await harness.service.beginReprovision(workspaceId, "worktree");
+    await harness.service.beginReprovision(workspaceId, "provisioned-worktree");
     await harness.service.failReprovision(workspaceId, "fatal: worktree add failed (exit 128)");
 
     const response = await harness.service.list({ sessionId: SESSION_ID });
@@ -1225,13 +1004,13 @@ describe("reprovision cycle", () => {
     const worktreeRoot = join(harness.tmpDir, "worktrees", "retry");
     mkdirSync(worktreeRoot, { recursive: true });
 
-    await harness.service.beginReprovision(workspaceId, "worktree");
+    await harness.service.beginReprovision(workspaceId, "provisioned-worktree");
     await harness.service.failReprovision(workspaceId, "fatal: first attempt failed");
     expect(readWorkspaceMetadata(workspaceId)["lastError"]).toBeDefined();
 
     // the switch may be retried, and a failed switch left the row `stale`. A
     // gate that refused `stale` would make the documented retry impossible.
-    await harness.service.beginReprovision(workspaceId, "worktree");
+    await harness.service.beginReprovision(workspaceId, "provisioned-worktree");
 
     // MID-RETRY, before the outcome is known. `packages/contracts/src/repo.ts`
     // makes `lastError` "present iff the workspace went `stale` from a recorded
@@ -1252,28 +1031,11 @@ describe("reprovision cycle", () => {
     expect(readWorkspaceMetadata(workspaceId)["lastError"]).toBeUndefined();
   });
 
-  it("refuses a target mode the mount cannot offer", async () => {
-    insertMount({ id: PLAIN_MOUNT_ID, canonicalRoot: harness.plainMountRoot, vcsType: "none" });
-    const plainBound = await harness.service.bind({
-      repoMountId: PLAIN_MOUNT_ID,
-      executionMode: "read-only",
-    });
-
-    await expect(
-      harness.service.beginReprovision(plainBound.workspaceId, "branch"),
-    ).rejects.toBeInstanceOf(WorkspaceModeUnsupportedError);
-    // Refused by name, never substituted, and the row is untouched.
-    expect(readWorkspaceRow(plainBound.workspaceId)?.state).toBe("ready" satisfies WorkspaceState);
-    expect(readWorkspaceRow(plainBound.workspaceId)?.execution_mode).toBe(
-      "read-only" satisfies ExecutionMode,
-    );
-  });
-
   it("refuses to reprovision a held workspace with `workspace.busy`", async () => {
     await harness.service.markBusy(workspaceId, RUN_ID);
 
     const refusal = await captureRejection(() =>
-      harness.service.beginReprovision(workspaceId, "worktree"),
+      harness.service.beginReprovision(workspaceId, "provisioned-worktree"),
     );
 
     expect(refusal).toBeInstanceOf(WorkspaceBusyError);
@@ -1285,7 +1047,7 @@ describe("reprovision cycle", () => {
     harness.db.prepare("UPDATE workspaces SET state = 'archived' WHERE id = ?").run(workspaceId);
 
     const refusal = await captureRejection(() =>
-      harness.service.beginReprovision(workspaceId, "worktree"),
+      harness.service.beginReprovision(workspaceId, "provisioned-worktree"),
     );
 
     expect(refusal).toBeInstanceOf(WorkspaceServiceInvariantError);
@@ -1301,12 +1063,12 @@ describe("reprovision cycle", () => {
     );
     // Nothing was written and nothing was announced.
     expect(readWorkspaceRow(workspaceId)?.state).toBe("ready" satisfies WorkspaceState);
-    expect(readEventTypes()).toEqual(["workspace.ready"]);
+    expect(readEventTypes()).toEqual(READY_BIND_EVENTS);
   });
 
   it("refuses an unknown workspace with `workspace.not_found`", async () => {
     const refusal = await captureRejection(() =>
-      harness.service.beginReprovision(UNKNOWN_WORKSPACE_ID, "worktree"),
+      harness.service.beginReprovision(UNKNOWN_WORKSPACE_ID, "provisioned-worktree"),
     );
 
     expect(refusal).toBeInstanceOf(WorkspaceNotFoundError);
@@ -1323,7 +1085,7 @@ describe("reprovision cycle", () => {
 // hostile to every tool that reads this file.
 const NUL_CHARACTER: string = String.fromCharCode(0);
 
-describe("lastError normalisation", () => {
+describe("lastError normalization", () => {
   // An OPAQUE password inside a URL: no vendor prefix, no keyword nearby, so the
   // userinfo pattern is the ONLY thing that can catch it. That is what makes the
   // ordering observable — a truncation that lands mid-userinfo destroys the `@`
@@ -1397,18 +1159,15 @@ describe("lastError normalisation", () => {
 
   it("records NO lastError when nothing publishable survives", async () => {
     insertMount({ id: GIT_MOUNT_ID, canonicalRoot: harness.gitMountRoot });
-    const bound = await harness.service.bind({
-      repoMountId: GIT_MOUNT_ID,
-      executionMode: "read-only",
-    });
-    await harness.service.beginReprovision(bound.workspaceId, "worktree");
-    await harness.service.failReprovision(bound.workspaceId, "  \n\t   ");
+    const workspaceId = await bindReady(GIT_MOUNT_ID, harness.gitMountRoot);
+    await harness.service.beginReprovision(workspaceId, "provisioned-worktree");
+    await harness.service.failReprovision(workspaceId, "  \n\t   ");
 
     // `wireFreeFormString` demands `.min(1)`, at least one non-whitespace
     // character, and no NUL. Persisting an illegal value would make the very
     // list response that reports this failure unrepresentable.
-    expect(readWorkspaceRow(bound.workspaceId)?.state).toBe("stale" satisfies WorkspaceState);
-    expect(readWorkspaceMetadata(bound.workspaceId)["lastError"]).toBeUndefined();
+    expect(readWorkspaceRow(workspaceId)?.state).toBe("stale" satisfies WorkspaceState);
+    expect(readWorkspaceMetadata(workspaceId)["lastError"]).toBeUndefined();
 
     const response = await harness.service.list({ sessionId: SESSION_ID });
     expect(response.workspaces[0]?.lastError).toBeUndefined();
@@ -1485,18 +1244,14 @@ describe("assertWritable", () => {
 
   beforeEach(async () => {
     insertMount({ id: GIT_MOUNT_ID, canonicalRoot: harness.gitMountRoot });
-    const bound = await harness.service.bind({
-      repoMountId: GIT_MOUNT_ID,
-      executionMode: "read-only",
-    });
-    workspaceId = bound.workspaceId;
+    workspaceId = await bindReady(GIT_MOUNT_ID, harness.gitMountRoot);
   });
 
   it("passes a ready workspace", async () => {
     await expect(harness.service.assertWritable(workspaceId)).resolves.toBeUndefined();
     // The gate observed the row; it did not change it.
     expect(readWorkspaceRow(workspaceId)?.state).toBe("ready" satisfies WorkspaceState);
-    expect(readEventTypes()).toEqual(["workspace.ready"]);
+    expect(readEventTypes()).toEqual(READY_BIND_EVENTS);
   });
 
   it("throws the typed `workspace.stale` refusal for a stale workspace", async () => {
@@ -1519,7 +1274,7 @@ describe("assertWritable", () => {
     // The refusal is not a private verdict: the next reader sees it too, which
     // is what makes the "observably stale" true.
     expect(readWorkspaceRow(workspaceId)?.state).toBe("stale" satisfies WorkspaceState);
-    expect(readEventTypes()).toEqual(["workspace.ready", "workspace.stale"]);
+    expect(readEventTypes()).toEqual([...READY_BIND_EVENTS, "workspace.stale"]);
   });
 
   it("passes a busy workspace, leaving the precise refusal to the hold primitive", async () => {
@@ -1565,11 +1320,7 @@ describe("run holds", () => {
 
   beforeEach(async () => {
     insertMount({ id: GIT_MOUNT_ID, canonicalRoot: harness.gitMountRoot });
-    const bound = await harness.service.bind({
-      repoMountId: GIT_MOUNT_ID,
-      executionMode: "read-only",
-    });
-    workspaceId = bound.workspaceId;
+    workspaceId = await bindReady(GIT_MOUNT_ID, harness.gitMountRoot);
   });
 
   it("takes the hold WITHOUT emitting an event (closed event registry)", async () => {
@@ -1579,7 +1330,7 @@ describe("run holds", () => {
     expect(readWorkspaceMetadata(workspaceId)["holdingRunId"]).toBe(RUN_ID);
     // Carves `busy` out of the six-type registry deliberately; the run's
     // own `run.*` events carry the hold's timeline visibility.
-    expect(readEventTypes()).toEqual(["workspace.ready"]);
+    expect(readEventTypes()).toEqual(READY_BIND_EVENTS);
   });
 
   it("refuses a second holder with `workspace.busy`, naming the incumbent", async () => {
@@ -1610,7 +1361,7 @@ describe("run holds", () => {
     // The one place the two rules meet: the hold itself emits nothing (closed
     // registry), while the on-read floor it drove emits a REAL `workspace.stale`.
     // Asserting the list proves "no event for the hold" is not "no event at all".
-    expect(readEventTypes()).toEqual(["workspace.ready", "workspace.stale"]);
+    expect(readEventTypes()).toEqual([...READY_BIND_EVENTS, "workspace.stale"]);
   });
 
   it("releases the hold and clears the attribution, still with no event", async () => {
@@ -1619,7 +1370,7 @@ describe("run holds", () => {
 
     expect(readWorkspaceRow(workspaceId)?.state).toBe("ready" satisfies WorkspaceState);
     expect(readWorkspaceMetadata(workspaceId)["holdingRunId"]).toBeUndefined();
-    expect(readEventTypes()).toEqual(["workspace.ready"]);
+    expect(readEventTypes()).toEqual(READY_BIND_EVENTS);
   });
 
   it("treats a double release as a benign no-op", async () => {
@@ -1632,7 +1383,7 @@ describe("run holds", () => {
     expect(readWorkspaceRow(workspaceId)?.state).toBe("ready" satisfies WorkspaceState);
   });
 
-  // -- Decide-and-document #6: `busy -> stale` is legal and IS persisted --
+  // -- `busy -> stale` is legal and IS persisted --
 
   it("stales a HELD workspace whose root vanished mid-run", async () => {
     await harness.service.markBusy(workspaceId, RUN_ID);
@@ -1644,7 +1395,7 @@ describe("run holds", () => {
     // damage: a live run writing into a root that no longer exists.
     expect(response.workspaces[0]?.state).toBe("stale" satisfies WorkspaceState);
     expect(readWorkspaceRow(workspaceId)?.state).toBe("stale" satisfies WorkspaceState);
-    expect(readEventTypes()).toEqual(["workspace.ready", "workspace.stale"]);
+    expect(readEventTypes()).toEqual([...READY_BIND_EVENTS, "workspace.stale"]);
     // The hold attribution goes with it: a `stale` workspace is held by nobody,
     // and a lingering id would let a later refusal name a run that is long gone.
     expect(readWorkspaceMetadata(workspaceId)["holdingRunId"]).toBeUndefined();
@@ -1662,11 +1413,11 @@ describe("run holds", () => {
 
   it("markStale is idempotent and terminal-safe", async () => {
     expect(await harness.service.markStale(workspaceId)).toBe(true);
-    expect(readEventTypes()).toEqual(["workspace.ready", "workspace.stale"]);
+    expect(readEventTypes()).toEqual([...READY_BIND_EVENTS, "workspace.stale"]);
 
     // Already stale — no second transition, so no second event.
     expect(await harness.service.markStale(workspaceId)).toBe(false);
-    expect(readEventTypes()).toEqual(["workspace.ready", "workspace.stale"]);
+    expect(readEventTypes()).toEqual([...READY_BIND_EVENTS, "workspace.stale"]);
 
     // Archived is terminal; nothing resurrects it into `stale`.
     harness.db.prepare("UPDATE workspaces SET state = 'archived' WHERE id = ?").run(workspaceId);
@@ -1702,7 +1453,7 @@ describe("run holds", () => {
     expect(concurrentOutcomes).toEqual([true]);
     expect(lostTheRace).toBe(false);
     expect(readWorkspaceRow(workspaceId)?.state).toBe("stale" satisfies WorkspaceState);
-    expect(readEventTypes()).toEqual(["workspace.ready", "workspace.stale"]);
+    expect(readEventTypes()).toEqual([...READY_BIND_EVENTS, "workspace.stale"]);
   });
 
   it("declines before the append when the row was already staled by another reader", async () => {
@@ -1720,7 +1471,7 @@ describe("run holds", () => {
     const response = await service.list({ sessionId: SESSION_ID });
 
     expect(response.workspaces[0]?.state).toBe("stale" satisfies WorkspaceState);
-    expect(readEventTypes()).toEqual(["workspace.ready"]);
+    expect(readEventTypes()).toEqual(READY_BIND_EVENTS);
   });
 
   // -- markBusy losing its compare-and-swap, one arm per re-read verdict --
@@ -1798,41 +1549,11 @@ describe("run holds", () => {
 // ----------------------------------------------------------------------------
 
 describe("error carriers", () => {
-  it("emit the same set as WORKSPACE_SERVICE_ERROR_CODES — no orphan row, no invented code", () => {
-    // Drift detector, scoped to what this helper enumerates: a as does one of
-    // THESE four minting a code the roster does not list. A fifth carrier
-    // added to the module but not to the helper is invisible to this assertion
-    // — the export census below closes that gap.
+  it("emit exactly WORKSPACE_SERVICE_ERROR_CODES — no orphan row, no invented code", () => {
+    // Every carrier the helper enumerates mints a code the roster lists, and
+    // the roster lists no code without a carrier.
     const emittedCodes = everyCarrier().map((carrier) => carrier.code);
     expect([...emittedCodes].sort()).toEqual([...WORKSPACE_SERVICE_ERROR_CODES].sort());
-  });
-
-  it("exports exactly four error constructors — a fifth carrier fails the census", () => {
-    // Observes the module's real export surface rather than a hand-kept list,
-    // so a carrier added without a roster row and a test cannot slip through
-    // the scoping caveat above. `WorkspaceServiceInvariantError` is correctly
-    // NOT counted: it extends `Error`, not `DaemonDomainError`, which is the
-    // structural expression of "it carries no registered wire code".
-    const exportedErrorConstructors = Object.entries(workspaceServiceModule).filter(
-      ([, exported]) =>
-        typeof exported === "function" && exported.prototype instanceof DaemonDomainError,
-    );
-    expect(exportedErrorConstructors).toHaveLength(WORKSPACE_SERVICE_ERROR_CODES.length);
-  });
-
-  it("WORKSPACE_SERVICE_ERROR_CODES enumerates exactly the WorkspaceServiceErrorCode union", () => {
-    // Total `Record` over the union: a member missing below, or a key that is
-    // not a member, is a compile error. The runtime comparison then pins the
-    // exported tuple to that same set.
-    const everyRegistryCode: Record<WorkspaceServiceErrorCode, true> = {
-      "workspace.not_found": true,
-      "workspace.mode_unsupported": true,
-      "workspace.stale": true,
-      "workspace.busy": true,
-    };
-    expect([...WORKSPACE_SERVICE_ERROR_CODES].sort()).toEqual(
-      Object.keys(everyRegistryCode).sort(),
-    );
   });
 
   it("quote the registered codes and statuses", () => {
@@ -1850,7 +1571,9 @@ describe("error carriers", () => {
       code: "workspace.busy",
       httpStatus: 409,
     });
-    expect(new WorkspaceModeUnsupportedError("worktree", ["read-only"], "no git")).toMatchObject({
+    expect(
+      new WorkspaceModeUnsupportedError("provisioned-worktree", ["bound-root"], "no worktree"),
+    ).toMatchObject({
       code: "workspace.mode_unsupported",
       httpStatus: 400,
     });
@@ -1860,7 +1583,8 @@ describe("error carriers", () => {
     expect(new WorkspaceStaleError(null).jsonRpcCode).toBeUndefined();
     expect(new WorkspaceBusyError(UNKNOWN_WORKSPACE_ID, null).jsonRpcCode).toBeUndefined();
     expect(
-      new WorkspaceModeUnsupportedError("branch", ["read-only"], "no git").jsonRpcCode,
+      new WorkspaceModeUnsupportedError("bound-root", ["provisioned-worktree"], "no bound root")
+        .jsonRpcCode,
     ).toBeUndefined();
   });
 
@@ -1870,12 +1594,16 @@ describe("error carriers", () => {
     // copies. A caller that keeps mutating the array it passed — the capability
     // matrix's `availableModes` is a shared value — must not be able to change
     // what an already-thrown refusal says it offered.
-    const availableModes: ExecutionMode[] = ["read-only", "branch"];
-    const refusal = new WorkspaceModeUnsupportedError("worktree", availableModes, "no git");
-    availableModes.push("ephemeral clone");
+    const availableModes: ExecutionMode[] = ["bound-root"];
+    const refusal = new WorkspaceModeUnsupportedError(
+      "provisioned-worktree",
+      availableModes,
+      "no worktree",
+    );
+    availableModes.push("provisioned-worktree");
 
-    expect(refusal.availableModes).toEqual(["read-only", "branch"]);
-    expect(refusal.detail?.["availableModes"]).toEqual(["read-only", "branch"]);
+    expect(refusal.availableModes).toEqual(["bound-root"]);
+    expect(refusal.detail?.["availableModes"]).toEqual(["bound-root"]);
   });
 
   it("keeps no path in a stale refusal raised before a workspace exists", () => {

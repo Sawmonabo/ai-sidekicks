@@ -1,9 +1,8 @@
 // Conditional-type negative test against the `DesktopBridge` interface.
 //
-//   "No auth material (daemon session token, PASETO tokens, DPoP key,
-//   WebAuthn PRF output) appears on the `window.desktopBridge` surface —
-//   verified by a negative contract test against the bridge's exposed
-//   type."
+//   "No auth material (daemon session token, PASETO tokens, DPoP key)
+//   appears on the `window.desktopBridge` surface — verified by a negative
+//   contract test against the bridge's exposed type."
 //
 // How it works
 // ------------
@@ -12,7 +11,7 @@
 //    `keyof Function` chain is irrelevant) and at primitives (which are not
 //    assignable to `object`).
 // 2. `ContainsForbidden<K>` matches any key whose lowercased form contains
-//    "token", "dpop", "prf", or "secret" as a substring, via template-literal
+//    "token", "dpop", or "secret" as a substring, via template-literal
 //    types.
 // 3. `Offenders` is the union of every flattened bridge key that matches one
 //    of the forbidden substrings. The bridge is invariant-compliant iff
@@ -74,11 +73,9 @@ type ContainsForbidden<K extends string> = K extends string
     ? K
     : Lowercase<K> extends `${string}dpop${string}`
       ? K
-      : Lowercase<K> extends `${string}prf${string}`
+      : Lowercase<K> extends `${string}secret${string}`
         ? K
-        : Lowercase<K> extends `${string}secret${string}`
-          ? K
-          : never
+        : never
   : never;
 
 /**
@@ -101,7 +98,7 @@ type AssertNever<T extends never> = T;
 
 /**
  * Load-bearing assertion. If `DesktopBridge` ever grows a property name
- * matching /token|dpop|prf|secret/i (at any depth), `Offenders` becomes a
+ * matching /token|dpop|secret/i (at any depth), `Offenders` becomes a
  * non-never union and this line fails compilation with TS2344, blocking
  * `pnpm --filter @ai-sidekicks/contracts typecheck`.
  *

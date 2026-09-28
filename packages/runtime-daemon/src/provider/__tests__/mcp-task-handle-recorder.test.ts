@@ -41,8 +41,6 @@ import {
   McpTaskHandleRecorder,
   type McpTaskHandleObservationRecord,
 } from "../mcp-task-handle-recorder.js";
-import { INITIAL_MIGRATION_SQL } from "../../migrations/0001-initial.js";
-import { QUEUE_AND_INTERVENTIONS_MIGRATION_SQL } from "../../migrations/0015-queue-and-interventions.js";
 import { applyMigrations, applyPragmas } from "../../session/migration-runner.js";
 
 // Built rather than typed: a raw U+0000 in source is invisible in every editor
@@ -77,9 +75,7 @@ describe("McpTaskHandleRecorder", () => {
     db.close();
   });
 
-  // The FIVE-column shell version 15 actually ships. Deliberately not copied
-  // from the canonical doc block, whose NOT NULL `idempotency_class` belongs to
-  // an EXTEND that has not landed and would name a column that does not exist.
+  // Names only the columns the schema requires; `mcp_task_id` starts NULL.
   function insertReceipt(commandId: string): void {
     db.prepare(
       `INSERT INTO command_receipts (id, command_id, run_id, status, created_at)
@@ -227,8 +223,8 @@ describe("McpTaskHandleRecorder", () => {
 
     it("measures the bound in code points, exactly as the column's length() does", () => {
       // 256 astral characters: 256 to SQLite, 512 to `String.prototype.length`.
-      // The column admits it (asserted in the migration-shape suite), so a guard
-      // counting UTF-16 code units would refuse a handle the database accepts.
+      // The column's length() admits it, so a guard counting UTF-16 code units
+      // would refuse a handle the database accepts.
       const astralHandle = "\u{1F600}".repeat(MCP_TASK_ID_MAX_LENGTH);
       expect(astralHandle.length).toBe(MCP_TASK_ID_MAX_LENGTH * 2);
 
@@ -524,42 +520,5 @@ describe("storage-failure containment", () => {
     expect(
       counterSink.totalFor(DRIVER_DIAGNOSTIC_COUNTER_NAMES.mcp_task_handle_write_refused),
     ).toBe(0);
-  });
-});
-
-describe("the pre-migration state", () => {
-  it("cannot even CONSTRUCT the write seam before the migration lands", () => {
-    // The obligation "assert the dormant pre-state — the Phase-3 seam writes no
-    // handle before this migration", in the only form that is still honest once
-    // the seam is live. Before this task there was a sink that discarded;
-    // asserting THAT today would assert a contract the corpus no longer has.
-    // This is the `wireTurnSnapshotRetentionSweep` posture, and it is why the
-    // storage-failure containment above deliberately does not extend to
-    // construction.
-    const preMigrationDatabase = new Database(":memory:");
-    applyPragmas(preMigrationDatabase);
-    preMigrationDatabase.exec(INITIAL_MIGRATION_SQL);
-    preMigrationDatabase.exec(QUEUE_AND_INTERVENTIONS_MIGRATION_SQL);
-
-    // `command_receipts` exists at this point — the shell is version 15's — so
-    // the throw below is about the COLUMN and not about a missing table.
-    expect(
-      preMigrationDatabase
-        .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?")
-        .get("command_receipts"),
-    ).toEqual({ name: "command_receipts" });
-
-    expect(
-      () =>
-        new McpTaskHandleRecorder(preMigrationDatabase, {
-          provider: "codex",
-          diagnostics: new DriverDiagnosticsEmitter({
-            logSink: { record: () => undefined },
-            counterSink: new InMemoryDriverDiagnosticCounterSink(),
-          }),
-        }),
-    ).toThrow(/no such column: mcp_task_id/);
-
-    preMigrationDatabase.close();
   });
 });

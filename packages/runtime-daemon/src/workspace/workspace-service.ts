@@ -1,31 +1,34 @@
 /**
- * Workspace lifecycle service — the daemon-side owner of the `workspaces`
- * table.
- *
- * Cross-plan obligations discharged here:.
+ * Workspace lifecycle service: the daemon-side owner of the `workspaces` table.
  *
  * ## Bind evaluates its refusals in a fixed order, and the order is the contract
  *
- * 1. **Reachability before containment.** The mount's canonical root is probed
- *    through the health projection BEFORE `validateExecutionRoot` runs. The
- *    validator `realpath`s its candidate, and `realpath` on a vanished root
- *    fails — so with the orders swapped, an unmounted volume or a deleted
- *    checkout reports `repo.outside_trust_envelope` (403, "you tried to escape
- *    the sandbox") for what is really `workspace.stale` (409, "the root is
- *    gone"). The 403 is both wrong and alarming: it accuses the caller of an
- *    escape attempt. Probing first lets the honest answer win, and it is the
- *    same on-read floor mandates for every health-reporting surface.
+ * 1. **Session existence first.** A mount belongs to the machine, not to a
+ *    session, so the session comes from the request and is checked before any
+ *    mount read, probe or write.
  * 2. **Mount identity before envelope construction.** The mount lookup is
  *    scoped to `state = 'attached'` and a miss refuses immediately with
  *    `repo.not_found`. The envelope-roots query is likewise scoped to
  *    `state = 'attached'`. A detached or unknown mount id must not fall
  *    through to envelope evaluation, where an empty root set makes every
  *    candidate "outside the envelope" and turns a stale bookmark into a 403.
+ * 3. **Mode capability before filesystem work.** A mode the mount cannot offer
+ *    is refused by name, never substituted.
+ * 4. **Reachability before containment.** The mount's canonical root is probed
+ *    through the health projection BEFORE `validateExecutionRoot` runs. The
+ *    validator `realpath`s its candidate, and `realpath` on a vanished root
+ *    fails — so with the orders swapped, an unmounted volume or a deleted
+ *    checkout reports `repo.outside_trust_envelope` (403, "you tried to escape
+ *    the sandbox") for what is really `workspace.stale` (409, "the root is
+ *    gone"). The 403 is both wrong and alarming: it accuses the caller of an
+ *    escape attempt. Probing first lets the honest answer win, the same
+ *    probe-on-read floor every health-reporting surface keeps.
+ * 5. **Containment, then the write.**
  *
  * ## `list` propagates per-row failures; it never drops a row
  *
- * `list` folds every row through the `computeWorkspaceHealth`, and that fold
- * has four distinct throw sources. Naming them all, because the choice below is
+ * `list` folds every row through `computeWorkspaceHealth`, and that fold has
+ * four distinct throw sources. Naming them all, because the choice below is
  * only defensible against the whole set:
  *
  * 1. **Out-of-vocabulary `workspaces.state`** — the projector's positive
@@ -51,15 +54,14 @@
  * no clue which row caused it; wrapped, the failure is still loud and still
  * whole-response, but the daemon log names the row to repair.
  *
- * It has exactly two implementations and both are worse: DROP the row, which
- * silently shortens a roster the operator is using to decide what to detach —
- * the render-side mirror of the never-mask posture — or FABRICATE a
- * substitute state, which is unrepresentable for source 1 (no
- * `WorkspaceState` fits) and an outright lie for source 2 (reporting `ready`
- * for a row with no root is the exact claim the probe floor exists to
- * prevent). Source 3 additionally wants the loud throw: it is this module's
- * own bug, and swallowing it converts a systematic mispairing into a
- * plausible wrong answer on every row.
+ * Containing the failure instead has exactly two implementations, and both are
+ * worse: DROP the row, which masks the failure and silently shortens a roster
+ * the operator is using to decide what to detach, or FABRICATE a substitute
+ * state, which is unrepresentable for source 1 (no `WorkspaceState` fits) and
+ * an outright lie for source 2 (reporting `ready` for a row with no root is
+ * the exact claim the probe floor exists to prevent). Source 3 additionally
+ * wants the loud throw: it is this module's own bug, and swallowing it
+ * converts a systematic mispairing into a plausible wrong answer on every row.
  *
  * A fifth failure — the on-read floor's `markStale` write or its
  * `workspace.stale` append failing — also propagates, but under its OWN
@@ -73,14 +75,14 @@
  * travels attributed to the same row, since it is raised from inside that row's
  * observation.
  *
- * `list` therefore writes rows and appends events while registers
- * `repo.workspaceList` as a non-mutating query.
+ * `list` therefore writes rows and appends events, although `repo.workspaceList`
+ * is a query on the wire.
  *
  * ## `busy -> stale` is legal and IS persisted
  *
- * states the stale transition unconditionally on the current state, and
- * deliberately left the legality call here. So a `busy` row whose root vanished
- * becomes `stale` and emits `workspace.stale` like any other.
+ * The health projection derives the stale transition whatever the current
+ * state, and leaves the legality call to this service. So a `busy` row whose
+ * root vanished becomes `stale` and emits `workspace.stale` like any other.
  *
  * The corollary is in {@link WorkspaceService.releaseBusy}: it clears the hold
  * only if the row is still `busy`. A workspace that went stale mid-run stays
@@ -92,34 +94,28 @@
  *
  * ## `fs_root` is an approval-scope boundary, not a convenience field
  *
- * Makes `fs_root` the root scopes tool approvals against, so a non-canonical
- * value written here silently widens an approval envelope. There are exactly
- * three write sites and each is guarded:
- * {@link WorkspaceService.createDefaultWorkspace} and
- * {@link WorkspaceService.bind} write a path the repo-root resolver or the
- * mount validator already canonicalised, and
- * {@link WorkspaceService.completeReprovision} — whose value comes from the
- * execution-root provisioner and which the trust-envelope header explicitly forbids
- * re-validating — at minimum refuses a non-absolute path, since a relative
- * one would be completed against the daemon's working directory at spawn
- * time.
+ * Tool approvals are scoped against `fs_root`, so a non-canonical value written
+ * here silently widens an approval envelope. A bind and
+ * {@link WorkspaceService.beginReprovision} write NULL; the one site that
+ * writes a path is {@link WorkspaceService.completeReprovision}, whose value
+ * comes from the execution-root provisioner and which the trust-envelope header
+ * forbids re-validating. It at minimum refuses a path that does not name one
+ * complete location, since a relative one would be completed against the
+ * daemon's working directory at spawn time.
  *
  * ## Transactionality
  *
  * Every transition writes its row inside the emitter's `transactionalPrelude`,
  * so the row and its event commit together or not at all. The writes are
- * compare-and-swap `UPDATE`s (`WHERE id = ? Deciding-inside-a-prelude is
- * precedented by `../node/node-capability-service.js`, which re-checks and
- * throws in its own prelude for the same reason; the prelude's "writes only"
- * rule bars I/O and async work, not a guard that aborts the write it wraps.
+ * compare-and-swap `UPDATE`s (`WHERE id = ?`) that re-check and throw inside
+ * the prelude; the prelude's "writes only" rule bars I/O and async work, not a
+ * guard that aborts the write it wraps.
  *
- * ## Error carriers live in this module
+ * ## Error carriers
  *
- * The four `workspace.*` domain errors below are modelled on the
- * `./repo-errors.js` and belong beside it. They are here because the target
- * paths do not include that file; the hoist into a shared `workspace-errors.ts`
- * is a mechanical move that rides the first Phase-3 task to consume these
- * carriers, per the record. Every code is quoted — this module mints none.
+ * The four `workspace.*` domain errors below follow `./repo-errors.js`'s
+ * carrier pattern. Every code is quoted from the error registry; this module
+ * mints none.
  */
 
 import type { Database, Statement } from "better-sqlite3";
@@ -140,6 +136,7 @@ import {
 } from "@ai-sidekicks/contracts";
 
 import { DaemonDomainError } from "../ipc/domain-error.js";
+import { SessionNotFoundError } from "../ipc/session-errors.js";
 
 import { RepoMountNotFoundError } from "./repo-errors.js";
 import {
@@ -196,7 +193,7 @@ export const WORKSPACE_SERVICE_ERROR_CODES: readonly WorkspaceServiceErrorCode[]
  * example on both sides of the wire. The three below stay UNSET, taking the
  * mapper's documented `-32603` default with the dotted identifier in
  * `data.type` — no numeric is ratified for their rows, and selecting one here
- * would be this module inventing wire behaviour Phase 3 then has to honour.
+ * would be this module inventing wire behavior its callers then have to honor.
  *
  * `this.name` is not assigned: the base sets it from `new.target.name`.
  */
@@ -412,10 +409,8 @@ export class WorkspaceServiceInvariantError extends Error {
  *
  * Throwing is therefore the only way to say "abort, but this is not an error".
  * `markStale` catches EXACTLY this class and returns `false`; anything else
- * propagates. Modelled on `../node/node-capability-service.js`'s
- * `CapabilityRowDivergedError`, and not exported for the same reason: it never
- * escapes this module, and it names an internal concurrency event rather than
- * anything a caller did wrong.
+ * propagates. Not exported: it never escapes this module, and it names an
+ * internal concurrency event rather than anything a caller did wrong.
  */
 class StaleTransitionRaceError extends Error {
   constructor(workspaceId: string) {
@@ -429,7 +424,7 @@ class StaleTransitionRaceError extends Error {
 }
 
 // --------------------------------------------------------------------------
-// `metadata.lastError` normalisation — SCRUB, then TRUNCATE
+// `metadata.lastError` normalization — SCRUB, then TRUNCATE
 // --------------------------------------------------------------------------
 
 /**
@@ -560,6 +555,23 @@ export function normalizeWorkspaceLastError(rawDetail: string): string | null {
  */
 export type FilesystemPathProbeFn = (path: string) => Promise<FilesystemPathProbe>;
 
+/**
+ * The session-existence predicate a bind checks first.
+ *
+ * `SessionService.replay(sessionId)` satisfies it: `null` means "no such
+ * session". The return type is `unknown` because only the `null` / non-`null`
+ * discrimination is read here; what a session contains is the session domain's
+ * business, not this one's.
+ *
+ * A `replay` that THROWS (a corrupt event chain whose first event is not
+ * `session.created`) propagates unchanged. That is not "session not found": the
+ * session exists and its log is damaged, and reporting a 404 for it would send
+ * an operator to create a session that is already there.
+ */
+export interface SessionExistenceReader {
+  replay(sessionId: string): unknown;
+}
+
 /** Constructor dependencies. Every optional member defaults to the real one. */
 export interface WorkspaceServiceDeps {
   /**
@@ -568,14 +580,15 @@ export interface WorkspaceServiceDeps {
    * MUST be the same connection the event log behind {@link events} appends
    * through. Every transition writes its row as a `transactionalPrelude`, and
    * a statement prepared on a different connection does not join the event
-   * transaction — the row/event atomicity rests on would silently vanish, with
-   * no exception anywhere. Nothing here can verify handle identity (the event
-   * log sits behind the emitter seam), so the composition root owns the
-   * constraint; the plan's Phase-3 wiring obligation records it.
+   * transaction — the row/event atomicity would silently vanish, with no
+   * exception anywhere. Nothing here can verify handle identity (the event log
+   * sits behind the emitter seam), so the composition root owns the constraint.
    */
   readonly database: Database;
   /** The single seam through which workspace lifecycle events are appended. */
   readonly events: WorkspaceEventEmitter;
+  /** Session-existence predicate. See {@link SessionExistenceReader}. */
+  readonly sessions: SessionExistenceReader;
   /** Containment validator. Defaults to a stock `TrustEnvelopeValidator`. */
   readonly trustEnvelope?: TrustEnvelopeValidator;
   /**
@@ -585,7 +598,10 @@ export interface WorkspaceServiceDeps {
    * it timestamps — a conservative freshness claim on a slow filesystem.
    */
   readonly probePath?: FilesystemPathProbeFn;
-  /** ISO-8601 wall clock for `created_at` / `updated_at`. Defaults to `new Date().toISOString()`. */
+  /**
+   * ISO-8601 wall clock for `created_at` / `updated_at`. Defaults to
+   * `new Date().toISOString()`.
+   */
   readonly now?: () => string;
   /**
    * Workspace-id source. Defaults to the daemon-wide `mintUuidV7`
@@ -599,7 +615,6 @@ export interface WorkspaceServiceDeps {
 /** The `repo_mounts` columns this service reads. */
 interface MountRow {
   readonly id: string;
-  readonly session_id: string;
   readonly canonical_root: string;
   readonly vcs_type: string;
 }
@@ -615,59 +630,6 @@ interface WorkspaceRow {
   readonly metadata: string;
 }
 
-/** Inputs for {@link WorkspaceService.createDefaultWorkspace}. */
-export interface CreateDefaultWorkspaceInput {
-  /** The mount being attached. */
-  readonly repoMountId: string;
-  /** The session the mount belongs to — the workspace inherits it, never a caller-supplied one. */
-  readonly sessionId: string;
-  /** The mount's canonical root, already absolute and `realpath`-ed. */
-  readonly canonicalRoot: string;
-  /** Envelope actor; defaults to the system actor. */
-  readonly actor?: string | null;
-  /** Envelope linkage back to the causing `repo.attached`, when the caller has one. */
-  readonly correlationId?: string | null;
-}
-
-/**
- * The two halves of a default-workspace creation, so the attach can commit
- * the workspace row inside the SAME transaction as the mount row.
- *
- * Attach composes them as:
- *
- * ```ts
- * const creation = workspaces.createDefaultWorkspace({ ... });
- * await events.emitRepoAttached({
- *   sessionId, repoMountId,
- *   transactionalPrelude: () => { insertMountRow(); creation.insertRow(); },
- * });
- * await creation.emitReady();
- * ```
- *
- * The split is not cosmetic. Putting the workspace INSERT in the
- * `workspace.ready` append instead would leave a crash window in which a mount
- * exists with no default workspace — and makes `defaultWorkspaceId` REQUIRED
- * on the ATTACH response (`RepoMountReadResponse` has no such field, so the
- * read side is not what forces this). `packages/contracts/src/repo.ts` gives
- * the reason at `RepoAttachResponse.defaultWorkspaceId`: optionality "would
- * make 'attached, but no workspace' representable, and the persistence model
- * never produces it" — which is precisely what that crash window would make
- * durable. This split's window is the survivable one instead: both rows are
- * present and consistent, and only the `workspace.ready` event is missing.
- *
- * {@link WorkspaceService.createDefaultWorkspace} takes the mount's fields as
- * arguments rather than reading the mount row, because at call time that row is
- * not committed — a `SELECT` from inside the prelude would find nothing.
- */
-export interface DefaultWorkspaceCreation {
-  /** The minted id, available before either half runs (attach needs it for its response). */
-  readonly workspaceId: string;
-  /** Synchronous, prelude-safe INSERT. Throws if called twice. */
-  insertRow(): void;
-  /** Appends `workspace.ready`. Throws if {@link insertRow} has not run. */
-  emitReady(): Promise<void>;
-}
-
 /** Inputs for {@link WorkspaceService.bind}. */
 export interface BindWorkspaceInput extends WorkspaceBindRequest {
   /** Envelope actor; defaults to the system actor. */
@@ -678,14 +640,13 @@ export interface BindWorkspaceInput extends WorkspaceBindRequest {
 // Constants
 // --------------------------------------------------------------------------
 
-// The one workspace state a fresh binding may take without provisioning, and
-// the DDL default.
-const READ_ONLY_EXECUTION_MODE: ExecutionMode = "read-only";
-
-// `lastError` is ratified `holdingRunId` is daemon-internal (see
-// `markBusy`) and never crosses the wire.
-const LAST_ERROR_METADATA_PATH = "$.lastError";
-const HOLDING_RUN_ID_METADATA_PATH = "$.holdingRunId";
+// `lastError` crosses the wire on the list response; `holdingRunId` is
+// daemon-internal (see `markBusy`) and never does.
+const LAST_ERROR_METADATA_KEY = "lastError";
+const LAST_ERROR_METADATA_PATH = `$.${LAST_ERROR_METADATA_KEY}`;
+const HOLDING_RUN_ID_METADATA_KEY = "holdingRunId";
+/** The JSON path in `workspaces.metadata` of the run holding a `busy` workspace. */
+export const HOLDING_RUN_ID_METADATA_PATH: string = `$.${HOLDING_RUN_ID_METADATA_KEY}`;
 
 // --------------------------------------------------------------------------
 // WorkspaceService
@@ -705,6 +666,7 @@ const HOLDING_RUN_ID_METADATA_PATH = "$.holdingRunId";
  */
 export class WorkspaceService {
   readonly #events: WorkspaceEventEmitter;
+  readonly #sessions: SessionExistenceReader;
   readonly #trustEnvelope: TrustEnvelopeValidator;
   readonly #probePath: FilesystemPathProbeFn;
   readonly #now: () => string;
@@ -715,7 +677,6 @@ export class WorkspaceService {
   readonly #selectWorkspaceStmt: Statement;
   readonly #listWorkspacesStmt: Statement;
   readonly #listWorkspacesByMountStmt: Statement;
-  readonly #insertWorkspaceStmt: Statement;
   readonly #bindWorkspaceStmt: Statement;
   readonly #beginReprovisionStmt: Statement;
   readonly #completeReprovisionStmt: Statement;
@@ -727,6 +688,7 @@ export class WorkspaceService {
 
   constructor(deps: WorkspaceServiceDeps) {
     this.#events = deps.events;
+    this.#sessions = deps.sessions;
     this.#trustEnvelope = deps.trustEnvelope ?? new TrustEnvelopeValidator();
     this.#probePath = deps.probePath ?? createDefaultPathProbe();
     this.#now = deps.now ?? ((): string => new Date().toISOString());
@@ -734,22 +696,22 @@ export class WorkspaceService {
 
     const database = deps.database;
 
-    // Scoped to `state = 'attached'` — ordering obligation (ii). A detached
-    // mount is not a bind target, and answering `repo.not_found` for one is
-    // more honest than letting it reach containment evaluation.
+    // Scoped to `state = 'attached'`: a detached mount is not a bind target,
+    // and `repo.not_found` for one is more honest than letting it reach
+    // containment evaluation.
     this.#selectAttachedMountStmt = database.prepare(
-      `SELECT id, session_id, canonical_root, vcs_type
+      `SELECT id, canonical_root, vcs_type
          FROM repo_mounts
         WHERE id = @repo_mount_id AND state = 'attached'`,
     );
 
-    // The session's declared envelope: the canonical roots of its ACTIVE
-    // mounts. A detached mount's root is no longer part of the envelope, so a
-    // path under it must not validate.
+    // The trust envelope: the canonical roots of every mount attached on this
+    // machine. A detached mount's root is no longer part of it, so a path under
+    // it must not validate.
     this.#selectAttachedMountRootsStmt = database.prepare(
       `SELECT canonical_root
          FROM repo_mounts
-        WHERE session_id = @session_id AND state = 'attached'
+        WHERE state = 'attached'
         ORDER BY canonical_root ASC`,
     );
 
@@ -760,9 +722,8 @@ export class WorkspaceService {
     );
 
     // `created_at, id` rather than insertion order: `created_at` alone ties for
-    // rows written inside one transaction (the attach writes a mount and its
-    // default workspace at the same instant), and a list whose order depends on
-    // the query planner is not testable.
+    // two binds that read the same clock instant, and a list whose order depends
+    // on the query planner is not testable.
     this.#listWorkspacesStmt = database.prepare(
       `SELECT id, session_id, repo_mount_id, execution_mode, fs_root, state, metadata
          FROM workspaces
@@ -777,31 +738,26 @@ export class WorkspaceService {
         ORDER BY created_at ASC, id ASC`,
     );
 
-    // Unconditional INSERT, used ONLY by `createDefaultWorkspace`.
-    this.#insertWorkspaceStmt = database.prepare(
-      `INSERT INTO workspaces (
-         id, session_id, repo_mount_id, execution_mode, fs_root, state, metadata, created_at, updated_at
-       ) VALUES (
-         @id, @session_id, @repo_mount_id, @execution_mode, @fs_root, @state, '{}', @now, @now
-       )`,
-    );
-
-    // SELECT` rather than `VALUES`, so the mount's attachment is re-tested
+    // `SELECT` rather than `VALUES`, so the mount's attachment is re-tested
     // INSIDE the write transaction. `bind` reads the mount, then awaits a
     // filesystem probe and the containment validator — during those awaits a
     // `repo.detach` cascade can archive this mount's workspaces and flip it to
     // `detached`, and it has already passed over the row this insert is about
     // to write. The foreign key would still be satisfied (the mount ROW
     // survives a detach; only its `state` moves), so without this predicate the
-    // bind commits a `ready` workspace on a detached mount — a live execution
-    // root outside the session's trust envelope that `assertWritable` then
-    // happily passes. Zero rows changed aborts the prelude, which takes the
-    // `workspace.ready` event with it.
+    // bind commits a workspace the cascade never archives, on a mount outside
+    // the attached set. Zero rows changed aborts the prelude, which takes the
+    // `workspace.provisioning` event with it.
+    //
+    // Every bind lands `provisioning` with no root: the provisioner supplies
+    // the root through `completeReprovision`.
     this.#bindWorkspaceStmt = database.prepare(
       `INSERT INTO workspaces (
-         id, session_id, repo_mount_id, execution_mode, fs_root, state, metadata, created_at, updated_at
+         id, session_id, repo_mount_id, execution_mode, fs_root, state, metadata,
+         created_at, updated_at
        )
-       SELECT @id, @session_id, @repo_mount_id, @execution_mode, @fs_root, @state, '{}', @now, @now
+       SELECT @id, @session_id, @repo_mount_id, @execution_mode, NULL, 'provisioning', '{}',
+              @now, @now
          FROM repo_mounts
         WHERE id = @repo_mount_id AND state = 'attached'`,
     );
@@ -916,89 +872,29 @@ export class WorkspaceService {
   // ------------------------------------------------------------------------
 
   /**
-   * Build the default workspace for a mount being attached: read-only, rooted
-   * at the mount's canonical root, immediately `ready`.
-   *
-   * Returns the two halves described on {@link DefaultWorkspaceCreation}; this
-   * method itself touches neither the database nor the event log.
-   *
-   * No reachability probe: the resolver just proved the root readable to
-   * produce `canonicalRoot`, and re-probing inside an attach that is already
-   * mid-transaction would buy a window measured in microseconds.
-   */
-  createDefaultWorkspace(input: CreateDefaultWorkspaceInput): DefaultWorkspaceCreation {
-    assertAbsoluteExecutionRoot(input.canonicalRoot, null);
-
-    const workspaceId = this.#newWorkspaceId();
-    const createdAt = this.#now();
-    let rowInserted = false;
-    let readinessAnnounced = false;
-
-    return {
-      workspaceId,
-      insertRow: (): void => {
-        if (rowInserted) {
-          throw new WorkspaceServiceInvariantError(
-            `default workspace "${workspaceId}" was already inserted; a creation is single-use`,
-            { kind: "illegal_state_transition", workspaceId },
-          );
-        }
-        this.#insertWorkspaceStmt.run({
-          id: workspaceId,
-          session_id: input.sessionId,
-          repo_mount_id: input.repoMountId,
-          execution_mode: READ_ONLY_EXECUTION_MODE,
-          fs_root: input.canonicalRoot,
-          state: "ready" satisfies WorkspaceState,
-          now: createdAt,
-        });
-        rowInserted = true;
-      },
-      emitReady: async (): Promise<void> => {
-        if (!rowInserted) {
-          throw new WorkspaceServiceInvariantError(
-            `default workspace "${workspaceId}" cannot announce readiness before its row is written`,
-            { kind: "illegal_state_transition", workspaceId },
-          );
-        }
-        // Single-use for the same reason `insertRow` is, and for a stronger
-        // one: this half has no compare-and-swap to make a repeat harmless, so
-        // a second call appends a second `workspace.ready` for one transition —
-        // duplicate. Flagged BEFORE the append, so a caller that retries a
-        // failed append does not get a silent second event on the second
-        // success either.
-        if (readinessAnnounced) {
-          throw new WorkspaceServiceInvariantError(
-            `default workspace "${workspaceId}" already announced readiness; a creation is single-use`,
-            { kind: "illegal_state_transition", workspaceId },
-          );
-        }
-        readinessAnnounced = true;
-        await this.#events.emitWorkspaceReady({
-          sessionId: input.sessionId,
-          workspaceId,
-          repoMountId: input.repoMountId,
-          actor: input.actor ?? null,
-          correlationId: input.correlationId ?? null,
-        });
-      },
-    };
-  }
-
-  /**
    * Bind a workspace to an attached mount (`repo.workspaceBind`).
    *
    * The refusal order is the contract; see the module header. Briefly:
-   * mount identity → mode capability → root reachability → containment → write.
+   * session → mount identity → mode capability → root reachability →
+   * containment → write.
    *
-   * A read-only bind lands `ready` with its resolved root. A writable bind lands
-   * `provisioning` with `fs_root` NULL — the provisioner supplies the real root
-   * through {@link completeReprovision}. The validation still runs, because
-   * refusing an out-of-envelope request before spawning a provisioner is cheaper
-   * and safer than refusing after.
+   * The workspace lands `provisioning` with `fs_root` NULL; the provisioner
+   * supplies the real root through {@link completeReprovision}. The requested
+   * directory is still validated, because refusing an out-of-envelope request
+   * before a provisioner is spawned is cheaper and safer than refusing after.
+   *
+   * @throws {SessionNotFoundError} when `sessionId` names no session; nothing is
+   *   read, probed or written.
    */
   async bind(input: BindWorkspaceInput): Promise<WorkspaceBindResponse> {
-    // (1) Mount identity, scoped to `attached` — ordering obligation (ii).
+    // (1) Session existence, before any mount read, probe or write.
+    if (this.#sessions.replay(input.sessionId) === null) {
+      throw new SessionNotFoundError(`session ${input.sessionId} does not exist`, {
+        sessionId: input.sessionId,
+      });
+    }
+
+    // (2) Mount identity, scoped to `attached`.
     const mountRow = this.#selectAttachedMountStmt.get({
       repo_mount_id: input.repoMountId,
     }) as MountRow | undefined;
@@ -1006,12 +902,7 @@ export class WorkspaceService {
       throw new RepoMountNotFoundError(input.repoMountId);
     }
 
-    // `session_id` comes off the mount row. A caller-supplied session would let
-    // a request attach a workspace to someone else's session by naming a mount
-    // it does not own.
-    const sessionId = mountRow.session_id;
-
-    // (2) Mode capability, before any filesystem work: a mode this mount
+    // (3) Mode capability, before any filesystem work: a mode this mount
     // cannot offer is refused by name, never substituted.
     const capabilities = computeExecutionModeCapabilities({
       vcsType: mountRow.vcs_type as VcsType,
@@ -1025,7 +916,7 @@ export class WorkspaceService {
       );
     }
 
-    // (3) Reachability BEFORE containment — ordering obligation (i).
+    // (4) Reachability BEFORE containment.
     const mountRootProbe = await this.#probePath(mountRow.canonical_root);
     const mountHealth = computeRepoMountHealth(
       { canonicalRoot: mountRow.canonical_root },
@@ -1035,29 +926,23 @@ export class WorkspaceService {
       throw new WorkspaceStaleError(null);
     }
 
-    // The envelope is the session's ACTIVE mount roots;
-    // `validateExecutionRoot` raises `TrustEnvelopeViolationError` for
-    // anything that escapes, and guarantees the root it returns is a readable
-    // directory.
-    const envelopeRootRows = this.#selectAttachedMountRootsStmt.all({
-      session_id: sessionId,
-    }) as ReadonlyArray<{ readonly canonical_root: string }>;
-    const envelopeRoots = envelopeRootRows.map((mountRootRow) => mountRootRow.canonical_root);
-    const resolvedExecutionRoot = await this.#trustEnvelope.validateExecutionRoot({
+    // (5) Containment against every mount attached on this machine;
+    // `validateExecutionRoot` raises `TrustEnvelopeViolationError` for anything
+    // that escapes the named mount. The resolved root is discarded: neither mode
+    // executes in the requested directory, and storing it would hand an
+    // approval scope the workspace never uses.
+    const attachedMountRootRows = this.#selectAttachedMountRootsStmt.all() as ReadonlyArray<{
+      readonly canonical_root: string;
+    }>;
+    await this.#trustEnvelope.validateExecutionRoot({
       mountCanonicalRoot: mountRow.canonical_root,
       directory: input.directory,
-      sessionEnvelopeRoots: envelopeRoots,
+      attachedMountRoots: attachedMountRootRows.map((mountRootRow) => mountRootRow.canonical_root),
     });
 
-    // (5) Write the row inside the event's transaction.
-    const isReadOnly = input.executionMode === READ_ONLY_EXECUTION_MODE;
+    // (6) Write the row inside the event's transaction.
     const workspaceId = this.#newWorkspaceId();
     const createdAt = this.#now();
-    const boundState: WorkspaceState = isReadOnly ? "ready" : "provisioning";
-    const boundRoot = isReadOnly ? resolvedExecutionRoot : null;
-    if (boundRoot !== null) {
-      assertAbsoluteExecutionRoot(boundRoot, workspaceId);
-    }
 
     // The mount's attachment is re-tested inside this write — see
     // `#bindWorkspaceStmt`. Zero rows means a detach cascade overtook the
@@ -1066,11 +951,9 @@ export class WorkspaceService {
       assertSingleRowChanged(
         this.#bindWorkspaceStmt.run({
           id: workspaceId,
-          session_id: sessionId,
+          session_id: input.sessionId,
           repo_mount_id: mountRow.id,
           execution_mode: input.executionMode,
-          fs_root: boundRoot,
-          state: boundState,
           now: createdAt,
         }),
         workspaceId,
@@ -1083,24 +966,18 @@ export class WorkspaceService {
     // BIRTH: it is the only point at which a timeline reader can learn the
     // workspace/mount association without reading a row. Later transitions omit
     // it — the association is already on the timeline by then.
-    const emitInput = {
-      sessionId,
+    await this.#events.emitWorkspaceProvisioning({
+      sessionId: input.sessionId,
       workspaceId,
       repoMountId: mountRow.id,
       actor: input.actor ?? null,
       transactionalPrelude: insertRow,
-    };
-    if (isReadOnly) {
-      await this.#events.emitWorkspaceReady(emitInput);
-    } else {
-      await this.#events.emitWorkspaceProvisioning(emitInput);
-    }
+    });
 
     return {
       workspaceId: WorkspaceIdSchema.parse(workspaceId),
-      ...(boundRoot === null ? {} : { fsRoot: boundRoot }),
       executionMode: input.executionMode,
-      state: boundState,
+      state: "provisioning",
     };
   }
 
@@ -1157,13 +1034,12 @@ export class WorkspaceService {
    * `workspace.busy` refusal belongs to {@link markBusy}, which is the call that
    * actually contends for the hold, and duplicating it here would let a caller
    * that never takes a hold be refused for a reason that does not apply to it.
-   * owns the remaining pre-run refusals (`workspace.execution_root_unresolved`,
-   * `workspace.branch_mismatch`).
+   * The execution-root service owns the remaining pre-run refusals
+   * (`workspace.execution_root_unresolved`, `workspace.branch_mismatch`).
    *
-   * The clause that "the same gate guards its own writable-bind path" is
-   * discharged by {@link bind}'s step (3), not by a call to this method: at
-   * bind time there is no workspace row to assert against, so the mount-root
-   * probe is the same refusal one step earlier.
+   * A bind is guarded by {@link bind}'s reachability step, not by a call to
+   * this method: at bind time there is no workspace row to assert against, so
+   * the mount-root probe is the same refusal one step earlier.
    */
   async assertWritable(workspaceId: string): Promise<void> {
     const row = this.#requireWorkspaceRow(workspaceId);
@@ -1450,7 +1326,8 @@ export class WorkspaceService {
         throw new WorkspaceStaleError(workspaceId);
       }
       throw new WorkspaceServiceInvariantError(
-        `workspace "${workspaceId}" left state "ready" before the hold could be taken (now "${currentRow.state}")`,
+        `workspace "${workspaceId}" left state "ready" before the hold could be taken ` +
+          `(now "${currentRow.state}")`,
         { kind: "illegal_state_transition", workspaceId },
       );
     }
@@ -1696,9 +1573,8 @@ function wrapRowFailure(
  * what disqualifies a candidate is needing a piece of the daemon's own context
  * to become concrete. A relative path wants a working directory; `~` wants a
  * home directory; a driveless Windows root such as `\repos\app` wants a drive.
- *
  */
-function assertAbsoluteExecutionRoot(candidate: string, workspaceId: string | null): void {
+function assertAbsoluteExecutionRoot(candidate: string, workspaceId: string): void {
   if (namesOneCompleteLocation(candidate)) {
     return;
   }
@@ -1708,7 +1584,8 @@ function assertAbsoluteExecutionRoot(candidate: string, workspaceId: string | nu
   // against this module's no-path-echo posture. The structured detail already
   // attributes the refusal.
   throw new WorkspaceServiceInvariantError(
-    "execution root does not name one complete location; the daemon would have to supply the missing piece from its own context",
+    "execution root does not name one complete location; the daemon would have to " +
+      "supply the missing piece from its own context",
     { kind: "non_absolute_execution_root", workspaceId },
   );
 }
@@ -1719,7 +1596,7 @@ function assertAbsoluteExecutionRoot(candidate: string, workspaceId: string | nu
 // is the driveless root the doc above refuses.
 //
 // Spelled out rather than imported from `node:path` for two reasons: that
-// module's `isAbsolute` is the wrong predicate (see above), and its behaviour
+// module's `isAbsolute` is the wrong predicate (see above), and its behavior
 // is platform-dependent, so a POSIX-format root stored by one machine would
 // stop being recognised when the same database is read on another. The daemon's
 // database is portable even when its filesystem is not.
@@ -1735,8 +1612,7 @@ function namesOneCompleteLocation(candidate: string): boolean {
  * Called from inside a `transactionalPrelude`, where a throw aborts the
  * transaction and takes the event row with it — which is the point. A row that
  * moved between the read and the write must not produce a state/event pair that
- * disagree. Precedent: `../node/node-capability-service.js` re-checks and
- * throws in its own prelude for the same reason.
+ * disagree.
  *
  * `movedSubject` names WHICH row failed the predicate, because it is not always
  * the workspace: `bind`'s conditional insert is guarded on the repo mount's
@@ -1751,7 +1627,8 @@ function assertSingleRowChanged(
 ): void {
   if (result.changes !== 1) {
     throw new WorkspaceServiceInvariantError(
-      `cannot ${attemptedAction} workspace "${workspaceId}": ${movedSubject} left its expected state before the write committed`,
+      `cannot ${attemptedAction} workspace "${workspaceId}": ${movedSubject} left its ` +
+        "expected state before the write committed",
       { kind: "illegal_state_transition", workspaceId },
     );
   }
@@ -1780,9 +1657,9 @@ function readMetadataString(row: WorkspaceRow, key: string): string | null {
 }
 
 function readLastError(row: WorkspaceRow): string | null {
-  return readMetadataString(row, "lastError");
+  return readMetadataString(row, LAST_ERROR_METADATA_KEY);
 }
 
 function readHoldingRunId(row: WorkspaceRow): string | null {
-  return readMetadataString(row, "holdingRunId");
+  return readMetadataString(row, HOLDING_RUN_ID_METADATA_KEY);
 }

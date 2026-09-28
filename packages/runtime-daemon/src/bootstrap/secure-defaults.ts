@@ -7,60 +7,36 @@
 // configuration. The orchestrator-throw on out-of-order bind attempts is
 // wired on top of this module's API-internal guard.
 //
-// Invariants this module enforces (canonical text through):
+// Invariants this module enforces:
 //   * `effectiveSettings()` throws if called before `load()` resolves.
 //
-// Rows this module covers (canonical text):
-//   * Row 4 — loopback bind by default (daemon).
+// The daemon binds only its OS-local socket or named pipe; `/metrics` is the
+// one network listener.
 //
-// Canonical source: this file. no-mirror disposition, the
-// `SecureDefaults` config + effective-settings shape is canonical in
-// code does not maintain a doc-side mirror. The interfaces below are
-// the authoritative contract for the loopback-bind validation
-// surface; a later phase widens it by extending the schema additively.
-//
-// What this module does NOT do (deferred):
-//   * Port-availability or interface-reachability probing (a listener
-//     concern; deferred to Phase 2 wire substrate).
+// What this module does NOT do:
+//   * Socket-path probing (a listener concern).
 //   * Override-event emission — owned by `secure-defaults-events.ts`.
-//   * extended-scope validation (TLS mode, non-loopback bind, first-run
-//     keys policy). Those keys are refused with
-//     `unknown_setting`.
+//   * Any other setting (TLS mode, a network bind address, first-run keys
+//     policy): those keys are refused with `unknown_setting`.
 
 // --------------------------------------------------------------------------
-// Inline contract types — canonical source no-mirror disposition.
+// Settings types
 // --------------------------------------------------------------------------
 
 /**
- * The fields cover the bind paths actually exposed (loopback
- * OS-local socket + banner format); any other key is refused with
- * `unknown_setting`.
+ * The bootstrap settings: the OS-local socket or pipe path and the banner
+ * format. Any other key is refused with `unknown_setting`.
  */
 export interface SecureDefaultsConfig {
   /**
-   * Loopback bind address for the daemon. Only the
-   * loopback set: `127.0.0.1`, `::1`, `localhost`. Non-loopback values
-   * are refused (a later phase widens this surface).
-   */
-  readonly bindAddress: string;
-
-  /**
-   * Optional TCP port. When omitted, the daemon listener picks a port
-   * (the OS-local socket path may not need a port at all; the
-   * field is preserved as optional so a future HTTP-listener consumer
-   * can populate it without a contract-shape amendment).
-   */
-  readonly bindPort?: number;
-
-  /**
    * Filesystem path for the OS-local IPC socket / named pipe. Validated
    * here only as "non-empty string"; deeper path-shape validation
-   * (existence, parent-dir permissions) is a listener concern wired.
+   * (existence, parent-dir permissions) is the listener's concern.
    */
   readonly localIpcPath: string;
 
   /**
-   * First-run-banner output format (row 10). `text` is the
+   * First-run-banner output format. `text` is the
    * single-screen stdout default; `json` emits the same payload as a
    * single JSON line for log-formatting environments.
    */
@@ -68,22 +44,18 @@ export interface SecureDefaultsConfig {
 }
 
 /**
- * Effective-settings view returned by `effectiveSettings()`. Mirrors
- * `SecureDefaultsConfig` minus any future secret-bearing fields. At
- * Today the two shapes are structurally identical because no input
- * field carries a secret; the type is preserved separately so a later phase
- * can widen `SecureDefaultsConfig` with secret-bearing fields
- * without leaking them through this view.
+ * Effective-settings view returned by `effectiveSettings()`: the non-secret
+ * view of `SecureDefaultsConfig`. The two shapes are structurally identical
+ * because no input field carries a secret; the type stays separate so a
+ * secret-bearing setting never leaks through this view.
  */
 export interface SecureDefaultsEffectiveSettings {
-  readonly bindAddress: string;
-  readonly bindPort?: number;
   readonly localIpcPath: string;
   readonly bannerFormat: "text" | "json";
 }
 
 // --------------------------------------------------------------------------
-// Allowlists (closed set; widens with the bind surface)
+// Allowlists (closed sets)
 // --------------------------------------------------------------------------
 
 // The KNOWN_KEYS set is the load-bearing enforcement surface for the
@@ -91,21 +63,7 @@ export interface SecureDefaultsEffectiveSettings {
 // keys (`tlsMode`, `firstRunKeysPolicy`, `nonLoopbackHost`) would silently
 // accept any future extended-scope key added before the corpus catches up; the
 // closed allowlist forces every new key through an explicit extension here.
-const KNOWN_KEYS: ReadonlySet<string> = new Set<string>([
-  "bindAddress",
-  "bindPort",
-  "localIpcPath",
-  "bannerFormat",
-]);
-
-// Scope: loopback-only. Non-loopback (`0.0.0.0`, public addresses,
-// hostnames) is refused. A later phase widens this set when TLS + non-loopback
-// bind paths land (-remainder).
-const LOOPBACK_BIND_ADDRESSES: ReadonlySet<string> = new Set<string>([
-  "127.0.0.1",
-  "::1",
-  "localhost",
-]);
+const KNOWN_KEYS: ReadonlySet<string> = new Set<string>(["localIpcPath", "bannerFormat"]);
 
 const VALID_BANNER_FORMATS: ReadonlySet<string> = new Set<string>(["text", "json"]);
 
@@ -171,7 +129,7 @@ export class SecureDefaults {
 
   /**
    * Validate the configuration and persist the effective view for
-   * downstream consumers. Synchronous — there is no I/O (port-bind
+   * downstream consumers. Synchronous — there is no I/O (socket
    * probes are a listener concern).
    *
    * Idempotency: calling `load()` a second time replaces the previously
@@ -254,15 +212,7 @@ function validateConfig(config: SecureDefaultsConfig): SecureDefaultsEffectiveSe
     }
   }
 
-  // Required-key presence (`bindAddress`, `localIpcPath`, `bannerFormat`).
-  // `bindPort` is optional per the inline contract.
-  if (!hasOwn(config, "bindAddress")) {
-    throw new SecureDefaultsValidationError(
-      "missing_required_setting",
-      `SecureDefaults.load: required setting "bindAddress" is missing`,
-      { setting: "bindAddress" },
-    );
-  }
+  // Required-key presence (`localIpcPath`, `bannerFormat`).
   if (!hasOwn(config, "localIpcPath")) {
     throw new SecureDefaultsValidationError(
       "missing_required_setting",
@@ -278,45 +228,6 @@ function validateConfig(config: SecureDefaultsConfig): SecureDefaultsEffectiveSe
     );
   }
 
-  // bindAddress: must be a string in the loopback set.
-  const { bindAddress } = config;
-  if (typeof bindAddress !== "string" || bindAddress.length === 0) {
-    throw new SecureDefaultsValidationError(
-      "invalid_bind_address",
-      `SecureDefaults.load: bindAddress must be a non-empty string (got ${describeValue(bindAddress)})`,
-      { setting: "bindAddress", value: bindAddress },
-    );
-  }
-  if (!LOOPBACK_BIND_ADDRESSES.has(bindAddress)) {
-    throw new SecureDefaultsValidationError(
-      "invalid_bind_address",
-      `SecureDefaults.load: bindAddress "${bindAddress}" is not in the loopback set ${listKeys(LOOPBACK_BIND_ADDRESSES)} — non-loopback bind paths are not supported yet`,
-      { setting: "bindAddress", value: bindAddress },
-    );
-  }
-
-  // bindPort (optional): if present, must be an integer in [0, 65535].
-  // `exactOptionalPropertyTypes` makes `bindPort: undefined` distinct
-  // from omission; we treat both as "not provided" since the contract
-  // semantically encodes "no port chosen".
-  let bindPort: number | undefined;
-  if (hasOwn(config, "bindPort") && config.bindPort !== undefined) {
-    const candidate: unknown = config.bindPort;
-    if (
-      typeof candidate !== "number" ||
-      !Number.isInteger(candidate) ||
-      candidate < 0 ||
-      candidate > 65535
-    ) {
-      throw new SecureDefaultsValidationError(
-        "invalid_bind_port",
-        `SecureDefaults.load: bindPort must be an integer in [0, 65535] (got ${describeValue(candidate)})`,
-        { setting: "bindPort", value: candidate },
-      );
-    }
-    bindPort = candidate;
-  }
-
   // Deeper path-shape checks are a listener concern.
   const { localIpcPath } = config;
   if (typeof localIpcPath !== "string" || localIpcPath.length === 0) {
@@ -327,7 +238,7 @@ function validateConfig(config: SecureDefaultsConfig): SecureDefaultsEffectiveSe
     );
   }
 
-  // bannerFormat: closed set row 10.
+  // bannerFormat: a closed set.
   const { bannerFormat } = config;
   if (typeof bannerFormat !== "string" || !VALID_BANNER_FORMATS.has(bannerFormat)) {
     throw new SecureDefaultsValidationError(
@@ -337,20 +248,7 @@ function validateConfig(config: SecureDefaultsConfig): SecureDefaultsEffectiveSe
     );
   }
 
-  // Build the validated view. `bindPort` is omitted (not assigned
-  // `undefined`) when not provided so the output respects
-  // `exactOptionalPropertyTypes` — see the SecureDefaultsEffectiveSettings
-  // shape note above.
-  if (bindPort !== undefined) {
-    return {
-      bindAddress,
-      bindPort,
-      localIpcPath,
-      bannerFormat: bannerFormat as "text" | "json",
-    };
-  }
   return {
-    bindAddress,
     localIpcPath,
     bannerFormat: bannerFormat as "text" | "json",
   };

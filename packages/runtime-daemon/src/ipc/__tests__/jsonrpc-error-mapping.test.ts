@@ -133,10 +133,10 @@ describe("sanitizeFields — path redaction (Unix / UNC / Windows-drive)", () =>
 
   it("redacts paths inside nested objects and arrays", () => {
     const out = sanitizeFields({
-      issues: [{ path: ["bindAddress"], hint: "/etc/daemon/config.toml" }],
+      issues: [{ path: ["localIpcPath"], hint: "/etc/daemon/config.toml" }],
     });
     expect(out).toEqual({
-      issues: [{ path: ["bindAddress"], hint: "<redacted-path>" }],
+      issues: [{ path: ["localIpcPath"], hint: "<redacted-path>" }],
     });
   });
 

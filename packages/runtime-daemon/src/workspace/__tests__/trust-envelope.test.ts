@@ -14,8 +14,8 @@
 // Invariant covered (canonical text):
 //   * No input — traversal, symlink escape, prefix collision, absolute
 //     redirection, a foreign anchor, or an unresolvable path — yields a
-//     validated root outside the canonical root of a mount attached to the same
-//     session. → every section below.
+//     validated root outside the canonical root of an attached mount. → every
+//     section below.
 //
 // Fixture strategy. Real temp directories, real symlinks, and real permission
 // MODES for everything a POSIX filesystem can express, so the ordering
@@ -233,7 +233,7 @@ function candidateInMount(directory?: string): WorkspaceExecutionRootCandidate {
   return {
     mountCanonicalRoot: fixtures.mountRoot,
     directory,
-    sessionEnvelopeRoots: [fixtures.mountRoot],
+    attachedMountRoots: [fixtures.mountRoot],
   };
 }
 
@@ -315,34 +315,33 @@ function rejectingProbe(errnoCode: string): DirectoryReadabilityProbe {
 }
 
 // ----------------------------------------------------------------------------
-// Envelope admission — the "attached to the same session" clause
+// Envelope admission — the "attached mount" clause
 // ----------------------------------------------------------------------------
 
 describe("envelope admission", () => {
-  // The anchor a bind names must BE one of the session's attached canonical
-  // roots. defines the envelope as "the set of fully resolved canonical roots
-  // of its attached repo mounts", so membership is equality — which is what
-  // turns "attached to the same session" from an assertion the caller makes
-  // into something the validator checks.
+  // The anchor a bind names must BE one of the attached canonical roots. The
+  // envelope is the set of fully resolved canonical roots of the attached repo
+  // mounts, so membership is equality — which is what turns "attached" from an
+  // assertion the caller makes into something the validator checks.
 
   it("accepts an anchor that is one of several attached mounts", async () => {
     const validated = await new TrustEnvelopeValidator().validateExecutionRoot({
       mountCanonicalRoot: fixtures.mountRoot,
       directory: "nested",
-      sessionEnvelopeRoots: [fixtures.secondMountRoot, fixtures.mountRoot],
+      attachedMountRoots: [fixtures.secondMountRoot, fixtures.mountRoot],
     });
     expect(validated).toBe(join(fixtures.mountRoot, "nested"));
   });
 
-  it("refuses an anchor the session envelope does not contain", async () => {
-    // The cross-session bind: a real, resolvable mount root that belongs to
-    // someone else's envelope. Containment within it would succeed, so only
+  it("refuses an anchor the attached roots do not contain", async () => {
+    // A real, resolvable mount root that is not attached — a mount detached
+    // while a bind was in flight. Containment within it would succeed, so only
     // admission can refuse this.
     await expectEnvelopeRefusal(
       new TrustEnvelopeValidator().validateExecutionRoot({
         mountCanonicalRoot: fixtures.secondMountRoot,
         directory: "sub",
-        sessionEnvelopeRoots: [fixtures.mountRoot],
+        attachedMountRoots: [fixtures.mountRoot],
       }),
     );
   });
@@ -352,7 +351,7 @@ describe("envelope admission", () => {
       new TrustEnvelopeValidator().validateExecutionRoot({
         mountCanonicalRoot: fixtures.prefixCollisionRoot,
         directory: "inside",
-        sessionEnvelopeRoots: [fixtures.mountRoot],
+        attachedMountRoots: [fixtures.mountRoot],
       }),
     );
   });
@@ -365,16 +364,16 @@ describe("envelope admission", () => {
     await expectEnvelopeRefusal(
       new TrustEnvelopeValidator().validateExecutionRoot({
         mountCanonicalRoot: fixtures.realSubdirectory,
-        sessionEnvelopeRoots: [fixtures.mountRoot],
+        attachedMountRoots: [fixtures.mountRoot],
       }),
     );
   });
 
-  it("refuses every candidate when the session has an empty envelope", async () => {
+  it("refuses every candidate when no mount is attached", async () => {
     await expectEnvelopeRefusal(
       new TrustEnvelopeValidator().validateExecutionRoot({
         mountCanonicalRoot: fixtures.mountRoot,
-        sessionEnvelopeRoots: [],
+        attachedMountRoots: [],
       }),
     );
   });
@@ -384,7 +383,7 @@ describe("envelope admission", () => {
     await expectEnvelopeRefusal(
       new TrustEnvelopeValidator({ realpath: recordingRealpath(recorded) }).validateExecutionRoot({
         mountCanonicalRoot: fixtures.secondMountRoot,
-        sessionEnvelopeRoots: [fixtures.mountRoot],
+        attachedMountRoots: [fixtures.mountRoot],
       }),
     );
     expect(recorded).toEqual([]);
@@ -398,7 +397,7 @@ describe("envelope admission", () => {
       new TrustEnvelopeValidator({ realpath: recordingRealpath(recorded) }).validateExecutionRoot({
         mountCanonicalRoot: "repo",
         directory: "nested",
-        sessionEnvelopeRoots: ["repo"],
+        attachedMountRoots: ["repo"],
       }),
     );
     expect(recorded).toEqual([]);
@@ -408,7 +407,7 @@ describe("envelope admission", () => {
     await expectEnvelopeRefusal(
       new TrustEnvelopeValidator().validateExecutionRoot({
         mountCanonicalRoot: fixtures.mountRoot,
-        sessionEnvelopeRoots: ["repo"],
+        attachedMountRoots: ["repo"],
       }),
     );
   });
@@ -518,7 +517,7 @@ describe("an unusable execution root is refused", () => {
     );
   });
 
-  it("resolves `link-to-file` to a real file INSIDE the mount, so that refusal is not an escape", async () => {
+  it("resolves `link-to-file` inside the mount, so its refusal is not an escape", async () => {
     // The premise the test above rests on. Without it, that refusal could just
     // as well be an escape or an unresolvable path — the two arms the rest of
     // this file already covers — and the type check would be asserted nowhere.
@@ -534,7 +533,7 @@ describe("an unusable execution root is refused", () => {
     const windowsCandidate: WorkspaceExecutionRootCandidate = {
       mountCanonicalRoot: "C:\\repos\\app",
       directory: "pkg",
-      sessionEnvelopeRoots: ["C:\\repos\\app"],
+      attachedMountRoots: ["C:\\repos\\app"],
     };
     const physicalPathBySpelling = { "C:\\repos\\app\\pkg": "C:\\repos\\app\\pkg" };
 
@@ -679,10 +678,10 @@ describe("escapes from the mount root are refused", () => {
     );
   });
 
-  it("refuses an escape into ANOTHER mount attached to the same session", async () => {
-    // The mount-scoped reading of pinned: `WorkspaceBind` is mount-first and
-    // the spec rejects escape "outside the MOUNT root". The result here is
-    // inside the session envelope, and it is still refused.
+  it("refuses an escape into ANOTHER attached mount", async () => {
+    // The mount-scoped reading: `WorkspaceBind` is mount-first and rejects
+    // escape outside the MOUNT root. The result here is inside the envelope,
+    // and it is still refused.
     const envelope = [fixtures.mountRoot, fixtures.secondMountRoot];
     const validator = new TrustEnvelopeValidator();
 
@@ -693,7 +692,7 @@ describe("escapes from the mount root are refused", () => {
       await validator.validateExecutionRoot({
         mountCanonicalRoot: fixtures.secondMountRoot,
         directory: "sub",
-        sessionEnvelopeRoots: envelope,
+        attachedMountRoots: envelope,
       }),
     ).toBe(fixtures.secondMountChild);
 
@@ -701,7 +700,7 @@ describe("escapes from the mount root are refused", () => {
       validator.validateExecutionRoot({
         mountCanonicalRoot: fixtures.mountRoot,
         directory: join("..", "other-mount", "sub"),
-        sessionEnvelopeRoots: envelope,
+        attachedMountRoots: envelope,
       }),
     );
   });
@@ -716,7 +715,7 @@ describe("escapes from the mount root are refused", () => {
       new TrustEnvelopeValidator().validateExecutionRoot({
         mountCanonicalRoot: fixtures.aliasToMountRoot,
         directory: "nested",
-        sessionEnvelopeRoots: [fixtures.aliasToMountRoot],
+        attachedMountRoots: [fixtures.aliasToMountRoot],
       }),
     );
   });
@@ -725,7 +724,7 @@ describe("escapes from the mount root are refused", () => {
     await expectEnvelopeRefusal(
       new TrustEnvelopeValidator().validateExecutionRoot({
         mountCanonicalRoot: fixtures.aliasToMountRoot,
-        sessionEnvelopeRoots: [fixtures.aliasToMountRoot],
+        attachedMountRoots: [fixtures.aliasToMountRoot],
       }),
     );
   });
@@ -870,7 +869,7 @@ describe("win32 case folding and root shapes", () => {
     }).validateExecutionRoot({
       mountCanonicalRoot: WINDOWS_MOUNT_ROOT,
       directory: "Src",
-      sessionEnvelopeRoots: [WINDOWS_MOUNT_ROOT],
+      attachedMountRoots: [WINDOWS_MOUNT_ROOT],
     });
     // Folding governs the COMPARISON only; the returned root keeps the
     // filesystem's own spelling, since that is what gets executed against.
@@ -882,7 +881,7 @@ describe("win32 case folding and root shapes", () => {
       "C:\\repos\\app": "C:\\repos\\app",
     }).validateExecutionRoot({
       mountCanonicalRoot: WINDOWS_MOUNT_ROOT,
-      sessionEnvelopeRoots: ["C:\\REPOS\\APP"],
+      attachedMountRoots: ["C:\\REPOS\\APP"],
     });
     expect(validated).toBe(WINDOWS_MOUNT_ROOT);
   });
@@ -896,7 +895,7 @@ describe("win32 case folding and root shapes", () => {
       }).validateExecutionRoot({
         mountCanonicalRoot: WINDOWS_MOUNT_ROOT,
         directory: "out",
-        sessionEnvelopeRoots: [WINDOWS_MOUNT_ROOT],
+        attachedMountRoots: [WINDOWS_MOUNT_ROOT],
       }),
     );
   });
@@ -912,7 +911,7 @@ describe("win32 case folding and root shapes", () => {
       windowsValidator({ "\\evil": "C:\\evil" }, recorded).validateExecutionRoot({
         mountCanonicalRoot: WINDOWS_MOUNT_ROOT,
         directory: "\\evil",
-        sessionEnvelopeRoots: [WINDOWS_MOUNT_ROOT],
+        attachedMountRoots: [WINDOWS_MOUNT_ROOT],
       }),
     );
     expect(recorded).toEqual([]);
@@ -927,7 +926,7 @@ describe("win32 case folding and root shapes", () => {
       windowsValidator({ "/evil": "C:\\repos\\app\\evil" }).validateExecutionRoot({
         mountCanonicalRoot: WINDOWS_MOUNT_ROOT,
         directory: "/evil",
-        sessionEnvelopeRoots: [WINDOWS_MOUNT_ROOT],
+        attachedMountRoots: [WINDOWS_MOUNT_ROOT],
       }),
     );
   });
@@ -940,7 +939,7 @@ describe("win32 case folding and root shapes", () => {
     }).validateExecutionRoot({
       mountCanonicalRoot: WINDOWS_MOUNT_ROOT,
       directory: "C:\\repos\\app\\pkg",
-      sessionEnvelopeRoots: [WINDOWS_MOUNT_ROOT],
+      attachedMountRoots: [WINDOWS_MOUNT_ROOT],
     });
     expect(validated).toBe("C:\\repos\\app\\pkg");
   });
@@ -953,7 +952,7 @@ describe("win32 case folding and root shapes", () => {
     await expectEnvelopeRefusal(
       windowsValidator({ "C:\\": "C:\\" }).validateExecutionRoot({
         mountCanonicalRoot: "C:\\",
-        sessionEnvelopeRoots: ["C:"],
+        attachedMountRoots: ["C:"],
       }),
     );
   });
@@ -966,7 +965,7 @@ describe("win32 case folding and root shapes", () => {
     await expectEnvelopeRefusal(
       windowsValidator({ "C:": "C:\\somewhere" }, recorded).validateExecutionRoot({
         mountCanonicalRoot: "C:",
-        sessionEnvelopeRoots: ["C:\\"],
+        attachedMountRoots: ["C:\\"],
       }),
     );
     expect(recorded).toEqual([]);
@@ -980,7 +979,7 @@ describe("win32 case folding and root shapes", () => {
     await expectEnvelopeRefusal(
       windowsValidator({ "C:\\": "C:" }).validateExecutionRoot({
         mountCanonicalRoot: "C:\\",
-        sessionEnvelopeRoots: ["C:\\"],
+        attachedMountRoots: ["C:\\"],
       }),
     );
   });
@@ -992,7 +991,7 @@ describe("win32 case folding and root shapes", () => {
     }).validateExecutionRoot({
       mountCanonicalRoot: uncRoot,
       directory: "pkg",
-      sessionEnvelopeRoots: [uncRoot],
+      attachedMountRoots: [uncRoot],
     });
     expect(validated).toBe("\\\\server\\share\\repo\\pkg");
   });
@@ -1004,7 +1003,7 @@ describe("win32 case folding and root shapes", () => {
       }).validateExecutionRoot({
         mountCanonicalRoot: "\\\\server\\share\\repo",
         directory: "pkg",
-        sessionEnvelopeRoots: ["\\\\server\\share\\repo"],
+        attachedMountRoots: ["\\\\server\\share\\repo"],
       }),
     );
   });
@@ -1015,7 +1014,7 @@ describe("win32 case folding and root shapes", () => {
     }).validateExecutionRoot({
       mountCanonicalRoot: "C:\\",
       directory: "data",
-      sessionEnvelopeRoots: ["C:\\"],
+      attachedMountRoots: ["C:\\"],
     });
     expect(validated).toBe("C:\\data");
   });
@@ -1055,7 +1054,7 @@ describe("case folding stays win32-scoped", () => {
       posixValidator({ "/repos/app/Src": "/Repos/App/Src" }).validateExecutionRoot({
         mountCanonicalRoot: POSIX_MOUNT_ROOT,
         directory: "Src",
-        sessionEnvelopeRoots: [POSIX_MOUNT_ROOT],
+        attachedMountRoots: [POSIX_MOUNT_ROOT],
       }),
     );
   });
@@ -1064,7 +1063,7 @@ describe("case folding stays win32-scoped", () => {
     await expectEnvelopeRefusal(
       posixValidator({ "/repos/app": "/repos/app" }).validateExecutionRoot({
         mountCanonicalRoot: POSIX_MOUNT_ROOT,
-        sessionEnvelopeRoots: ["/REPOS/APP"],
+        attachedMountRoots: ["/REPOS/APP"],
       }),
     );
   });
@@ -1075,7 +1074,7 @@ describe("case folding stays win32-scoped", () => {
     const validated = await posixValidator({ "/srv": "/srv" }).validateExecutionRoot({
       mountCanonicalRoot: "/",
       directory: "srv",
-      sessionEnvelopeRoots: ["/"],
+      attachedMountRoots: ["/"],
     });
     expect(validated).toBe("/srv");
   });

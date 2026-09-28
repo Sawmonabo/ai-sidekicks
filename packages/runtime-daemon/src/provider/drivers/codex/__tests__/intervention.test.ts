@@ -454,8 +454,6 @@ describe("CodexInterventionDispatcher result contract", () => {
   });
 
   it("maps exactly the three dispatchable intervention types", () => {
-    // `rollback` is a member of `InterventionType` but not of the params union —
-    // it travels through `rollbackTo`, so its absence here is by construction.
     expect(Object.keys(CODEX_INTERVENTION_CAPABILITY_FLAGS).sort()).toEqual([
       "cancel",
       "interrupt",

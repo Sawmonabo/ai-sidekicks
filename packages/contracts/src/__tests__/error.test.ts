@@ -36,13 +36,9 @@ import {
   RESOURCE_LABEL_MAX_LEN,
   RESOURCE_LIMIT_EXCEEDED_CODE,
   ResourceLimitExceededErrorSchema,
-  RUNTIME_NODE_ATTACH_CONFLICT_CODE,
-  RUNTIME_NODE_ATTACH_REVOKED_CODE,
-  VERSION_CEILING_EXCEEDED_CODE,
   VERSION_FLOOR_EXCEEDED_CODE,
   VERSION_STRING_MAX_LEN,
   VERSION_UPGRADE_PATH_MAX_LEN,
-  VersionCeilingExceededErrorSchema,
   VersionFloorExceededErrorSchema,
 } from "../error.js";
 
@@ -369,10 +365,8 @@ describe("PtyBackendUnavailableSchema", () => {
 // ----------------------------------------------------------------------------
 // ----------------------------------------------------------------------------
 //
-// Floor and ceiling errors share `VersionBoundExceededDetails` — they are
-// the SAME shape with two different code literals. The test suites here
-// are deliberately parallel so a future divergence (e.g. floor variant
-// gaining an extra field) shows up as a test-suite skew at PR review.
+// The floor error carries `VersionBoundExceededDetails`: the attempted
+// version, the accepted range and an optional upgrade path.
 
 const buildValidFloorError = () => ({
   code: VERSION_FLOOR_EXCEEDED_CODE,
@@ -381,16 +375,6 @@ const buildValidFloorError = () => ({
     attemptedVersion: "0.9",
     acceptedRange: { min: "1.0", max: "2.0" },
     upgradePath: "Upgrade the client to 1.0 or higher: https://example.com/upgrade",
-  },
-});
-
-const buildValidCeilingError = () => ({
-  code: VERSION_CEILING_EXCEEDED_CODE,
-  message: "Client protocol version 3.0 is above daemon's accepted ceiling 2.0.",
-  details: {
-    attemptedVersion: "3.0",
-    acceptedRange: { min: "1.0", max: "2.0" },
-    upgradePath: "Downgrade the client to 2.0 or lower.",
   },
 });
 
@@ -410,8 +394,8 @@ describe("VersionFloorExceededErrorSchema", () => {
     expect(result.success).toBe(true);
   });
 
-  it("rejects a wrong `code` literal (ceiling code on floor schema)", () => {
-    const broken = { ...buildValidFloorError(), code: VERSION_CEILING_EXCEEDED_CODE };
+  it("rejects a sibling `version.*` code literal", () => {
+    const broken = { ...buildValidFloorError(), code: "version.ceiling_exceeded" as never };
     const result = VersionFloorExceededErrorSchema.safeParse(broken);
     expect(result.success).toBe(false);
   });
@@ -479,83 +463,18 @@ describe("VersionFloorExceededErrorSchema", () => {
   });
 });
 
-describe("VersionCeilingExceededErrorSchema", () => {
-  it("accepts the canonical ceiling-exceeded envelope round-trip", () => {
-    const valid = buildValidCeilingError();
-    const parsed = VersionCeilingExceededErrorSchema.parse(valid);
-    const serialized = JSON.stringify(parsed);
-    const reparsed = VersionCeilingExceededErrorSchema.parse(JSON.parse(serialized));
-    expect(reparsed).toEqual(valid);
-  });
-
-  it("rejects a wrong `code` literal (floor code on ceiling schema)", () => {
-    const broken = { ...buildValidCeilingError(), code: VERSION_FLOOR_EXCEEDED_CODE };
-    const result = VersionCeilingExceededErrorSchema.safeParse(broken);
-    expect(result.success).toBe(false);
-  });
-
-  it("rejects an oversized `acceptedRange.max`", () => {
-    const broken = buildValidCeilingError();
-    broken.details.acceptedRange.max = "x".repeat(VERSION_STRING_MAX_LEN + 1);
-    const result = VersionCeilingExceededErrorSchema.safeParse(broken);
-    expect(result.success).toBe(false);
-  });
-
-  it("rejects NUL-byte in `message`", () => {
-    const broken = { ...buildValidCeilingError(), message: `bad${NUL}message` };
-    const result = VersionCeilingExceededErrorSchema.safeParse(broken);
-    expect(result.success).toBe(false);
-  });
-});
-
 // ----------------------------------------------------------------------------
-// Runtime-node attach-time refusal codes
+// Event-read cursor refusal code
 // ----------------------------------------------------------------------------
 //
-// `runtimenode.attach_conflict` (P9 / transient) and `runtimenode.attach_revoked`
-// (P10, terminal) are code+message-only — no Details/Schema/Error envelope, per
-// the registry-only 409 convention (no AC needs structured details and a
-// conflicting-session-id detail would risk cross-session info-leak). There is
-// therefore no `*Schema` to round-trip; the contract these constants ship is the
-// EXACT wire string each emits, which the control-plane
-// `RuntimeNodeAttach{Conflict,Revoked}Exception.code` literals
-// (runtime-nodes/errors.ts) project onto the wire envelope. This suite pins the
-// literal values so a typo in either constant fails CI before it reaches the
-// service layer (mirrors the `RESOURCE_LIMIT_EXCEEDED_CODE` literal assertion at
-// line 64). The domain token `runtimenode` deliberately matches the method
-// namespace (`runtimenode.attach`) and AVOIDS the `runtime_node.*` durable
-// event-name namespace (separator differs) so an error code can never collide with
-// an event name (error.ts header). The event-read cursor refusal ships as a
-// code-and-message-only registration — no `*Schema`, the same registry-only shape
-// as the runtime-node 409s below — so the contract it ships IS the literal string.
-// Both ends compare against it: the daemon raises it from the read path, and the
-// desktop console's resume classifier branches on it to tell a lost position from
-// every other read refusal. A typo in the constant would silently make that arm
+// The event-read cursor refusal ships as a code-and-message-only registration —
+// no `*Schema` — so the contract it ships IS the literal string. Both ends
+// compare against it: the daemon raises it from the read path, and the desktop
+// console's resume classifier branches on it to tell a lost position from every
+// other read refusal. A typo in the constant would silently make that arm
 // unreachable rather than fail, which is what this assertion exists to stop.
 describe("event-read cursor refusal code", () => {
   it("exposes the cursor code as the literal `event.cursor_unresolvable`", () => {
     expect(EVENT_CURSOR_UNRESOLVABLE_CODE).toBe("event.cursor_unresolvable");
-  });
-});
-
-describe("runtime-node attach-conflict codes", () => {
-  it("exposes the conflict code as the literal `runtimenode.attach_conflict`", () => {
-    expect(RUNTIME_NODE_ATTACH_CONFLICT_CODE).toBe("runtimenode.attach_conflict");
-  });
-
-  it("exposes the revoked code as the literal `runtimenode.attach_revoked`", () => {
-    expect(RUNTIME_NODE_ATTACH_REVOKED_CODE).toBe("runtimenode.attach_revoked");
-  });
-
-  it("uses the `runtimenode` (no-underscore) domain token, distinct from the runtime_node.* event namespace", () => {
-    // The two error codes must NOT collide with any `runtime_node.*` durable
-    // event-type name. The discriminating fact is the domain separator: the
-    // error namespace is `runtimenode` (no underscore), the event namespace is
-    // `runtime_node` (underscore). Assert both codes carry the no-underscore
-    // token and neither begins with the underscore form.
-    for (const code of [RUNTIME_NODE_ATTACH_CONFLICT_CODE, RUNTIME_NODE_ATTACH_REVOKED_CODE]) {
-      expect(code.startsWith("runtimenode.")).toBe(true);
-      expect(code.startsWith("runtime_node.")).toBe(false);
-    }
   });
 });

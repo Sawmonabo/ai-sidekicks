@@ -1,48 +1,17 @@
 // Event-core — the dependency LEAF of the session-event contracts: the
 // envelope-version brand, the shared per-field length cap, and the canonical
 // `CapabilityDetails` snapshot, in a module that imports nothing able to reach
-// back into `event.ts`.
-//
-// OWNERSHIP IS UNCHANGED — the session-event contracts still govern every shape
-// below. This file is a STRUCTURAL RELOCATION of three declaration blocks that
-// shipped inside `event.ts`, not a re-declaration: the blocks below are
-// verbatim, `event.ts` re-exports all eight symbols — six values plus the
-// `CapabilityDetails` and `EventEnvelopeVersion` types — so its public API is
-// exactly what it was. Consumers keep importing from `@ai-sidekicks/contracts`;
-// no wire contract moves. Same hoist shape — and the
-// same reason — as `./node-id.js`, which relocated the `NodeId` brand out of
-// `runtime-node.ts`.
-//
-// WHY A SEPARATE MODULE — the eager two-hop cycle it breaks. `event.ts`
-// registers the five `runtime_node.*` payload variants into
-// `SessionEventSchema`, which adds
-// a VALUE edge `event.ts` → `runtime-node.ts` (the five `*PayloadSchema`
-// consts, read at module scope by the union arms). `runtime-node.ts` already
-// holds the opposite edge — VALUE imports of `EVENT_FIELD_MAX_LEN`,
-// `EventEnvelopeVersionSchema` and `CapabilityDetailsSchema`, each read at
-// module scope by a schema initializer (the attach request, the roster
-// projection, the lifecycle / capability payload shapes). Together they would
-// close:
-//
-//     event.ts → runtime-node.ts → event.ts
-//
-// Both edges are EAGER module-scope Zod initializers, so no evaluation order
-// satisfies both: whichever module the runtime enters first, the other reads a
-// binding still in temporal dead zone and throws `ReferenceError: Cannot
-// access '<binding>' before initialization`. TypeScript compiles module cycles
-// silently, so the failure appears only at import time — and because every
-// test loads the barrel, that is a total package failure.
+// back into `event.ts`. `event.ts` re-exports all eight symbols — six values
+// plus the `CapabilityDetails` and `EventEnvelopeVersion` types — so consumers
+// keep importing them from `@ai-sidekicks/contracts`.
 //
 // THE LEAF INVARIANT — this module imports `zod`, `./session.js` and
 // `./provider-driver.js`, and NEVER `./event.js`. That set is closed under the
 // same check: `session.ts` imports only zod + `./internal/branded.js` +
 // `./jsonrpc-streaming.js` (both zod-only), and `provider-driver.ts` imports
 // only zod + `./session.js` — so no path out of this file reaches back into
-// `event.ts`, and the surviving edge `runtime-node.ts` → `event-core.ts` cannot
-// participate in a cycle. Adding a `./event.js` import here would silently
-// restore the one this hoist removed; __tests__/session-event.test.ts pins both
-// the import set (from source text) and clean module init from BOTH entry
-// orders.
+// `event.ts`. Every schema here is an EAGER module-scope Zod initializer, and a
+// module cycle among such initializers throws `ReferenceError` at import time.
 //
 import { z } from "zod";
 
@@ -86,15 +55,10 @@ export type EventEnvelopeVersion = string & {
 /**
  * Runtime validator for the branded {@link EventEnvelopeVersion} — the
  * producer-set `"MAJOR.MINOR"` protocol version whose bump/stub/read rules
- * live. An out-of-range version is rejected at the version-floor gate and
- * reader-side version negotiation (never by this format-and-length-only
- * validator) as the shipped typed error contracts
- * `VersionFloorExceededErrorSchema` / `VersionCeilingExceededErrorSchema`
- * (error.ts): below-floor writes return `VERSION_FLOOR_EXCEEDED` #4;
- * join-time negotiation surfaces both `VERSION_FLOOR_EXCEEDED` and
- * `VERSION_CEILING_EXCEEDED` which also mandates their registration ahead
- * of the first emitter — both shipped and cross-linked here, not
- * re-authored.
+ * live. An out-of-range version is rejected at the version-floor gate
+ * (never by this format-and-length-only validator) as the typed error
+ * contract `VersionFloorExceededErrorSchema` (error.ts): below-floor writes
+ * return `VERSION_FLOOR_EXCEEDED`.
  *
  * Its total ordering is `compareEventEnvelopeVersion` (event.ts), which stays
  * beside the envelope it gates rather than riding this leaf: it is a pure
@@ -121,10 +85,6 @@ export const EventEnvelopeVersionSchema: z.ZodType<EventEnvelopeVersion> = z
 // multi-file survey — which caps exist, where each is declared, and why the
 // contracts package holds a second line of defense at all — stays in event.ts,
 // the module whose envelope fields consume them. Raising it is a contract bump.
-//
-// Hoisted onto this leaf rather than left in event.ts because `runtime-node.ts`
-// reads it at module scope for the `actor` field of both runtime-node payload
-// base shapes — see this file's header.
 
 export const EVENT_FIELD_MAX_LEN = 256;
 
@@ -132,21 +92,17 @@ export const EVENT_FIELD_MAX_LEN = 256;
 // CapabilityDetails — canonical capability snapshot.
 // --------------------------------------------------------------------------
 //
-// The canonical typed shape of the capability snapshot carried on the
-// `runtime_node.capability_declared` / `runtime_node.capability_updated` event
-// payloads — the two capability rows of wire authority.
+// The canonical typed shape of one driver's capability snapshot: its flags,
+// its contract version, and its normalized tools. The daemon's capability
+// writer compares a fresh snapshot against the cached one in this shape.
 //
 // NON-NORMALIZING end to end — parse output is structurally identical to
 // accepted input: no `.default()`, no `.transform()`, no unknown-key
-// stripping (`.strict()` at both levels). Load-bearing because the daemon
-// emitter persists the PARSED output of the payload schemas
-// (node-event-emitter.ts): a default-filling or stripping arm here would
-// silently rewrite stored payloads relative to the wire bytes — the same
-// no-collapse stance as the envelope's notes in event.ts.
+// stripping (`.strict()` at both levels) — the same no-collapse stance as the
+// envelope's notes in event.ts.
 
-// 64 mirrors the sibling version-string precedent
-// `RUNTIME_NODE_VERSION_MAX_LEN` (runtime-node.ts): generous headroom for
-// any plausible driver-contract version string while bounding pathological
+// 64: generous headroom for any plausible driver-contract version string
+// while bounding pathological
 // input at the wire/replay trust boundary. Deliberately NOT
 // `EVENT_ENVELOPE_VERSION_MAX_LEN` — that caps the strict MAJOR.MINOR
 // protocol version, whereas `contractVersion` is a free-form
@@ -162,9 +118,9 @@ export const CAPABILITY_CONTRACT_VERSION_MAX_LEN = 64;
 // default-fills `idempotency_class` and strips unknown keys, so routing
 // event payloads through it would make parse output diverge from accepted
 // input. Here `idempotency_class` is REQUIRED with no `.default()`: only the
-// NORMALIZED tool shape crosses the persistence / event boundary
-// (provider-driver.ts), and an un-normalized entry in an event snapshot is a
-// producer bug that must fail loud, never be silently repaired.
+// NORMALIZED tool shape crosses the persistence boundary (provider-driver.ts),
+// and an un-normalized entry in a snapshot is a producer bug that must fail
+// loud, never be silently repaired.
 const capabilityToolMetadataSchema = z
   .object({
     name: wireFreeFormString(DRIVER_TOOL_NAME_MAX_LEN, "CapabilityDetails.tools.name"),
@@ -176,12 +132,9 @@ const capabilityToolMetadataSchema = z
   })
   .strict();
 
-// COMPILE-TIME PIN (tool element) — `CapabilityDetailsSchema` rides as the
-// canonical arm of the tolerant union in runtime-node.ts, and that union
-// never REJECTS a mismatch: a value the canonical arm stops matching silently
-// parses on the permissive record arm instead. So schema↔interface drift here
-// would de-canonicalize every capability parse without a single test failing
-// on shape. The three directions below pin the TOOL-ELEMENT schema (the outer
+// COMPILE-TIME PIN (tool element) — schema↔interface drift here would let a
+// parse accept a shape the interface does not describe. The three directions
+// below pin the TOOL-ELEMENT schema (the outer
 // `CapabilityDetails` object has its own pin block after its schema, below):
 // (1) everything the element schema emits is a
 // `NormalizedProviderToolMetadata`; (2) every `NormalizedProviderToolMetadata`
@@ -207,12 +160,8 @@ type _ToolSchemaInputIsNormalized = _AssertExtends<
 >;
 
 /**
- * Canonical capability snapshot for `runtime_node.capability_*` payloads
- * (closes). `tools` is `readonly` task row (the governing spelling over the
- * wire doc's mutable gloss — a mutable schema output stays assignable under
- * covariance) and carries the NORMALIZED tool shape: `CapabilityDetails`
- * crosses the persistence / event boundary, which the ingress
- * `ProviderToolMetadata` never does.
+ * Canonical capability snapshot of one driver. `tools` is `readonly` and carries
+ * the NORMALIZED tool shape, which the ingress `ProviderToolMetadata` is not.
  */
 export interface CapabilityDetails {
   flags: Record<DriverCapabilityFlag, boolean>;
@@ -244,11 +193,11 @@ const capabilityDetailsObjectSchema = z
   .strict();
 export const CapabilityDetailsSchema: z.ZodType<CapabilityDetails> = capabilityDetailsObjectSchema;
 
-// COMPILE-TIME PIN (outer object) — same de-canonicalization hazard as the
-// tool-element pins above, one level up: the `z.ZodType<CapabilityDetails>`
-// annotation does NOT catch a grown required schema field (extra properties
-// pass covariant assignability), so without these pins the outer object could
-// drift while every parse silently falls to the permissive union arm.
+// COMPILE-TIME PIN (outer object) — the same drift hazard as the tool-element
+// pins above, one level up: the `z.ZodType<CapabilityDetails>` annotation
+// does NOT catch a grown required schema field (extra properties pass
+// covariant assignability), so without these pins the outer object could
+// drift unnoticed.
 // Directions: (1) everything the schema emits satisfies `CapabilityDetails`
 // (a loosened/dropped/mistyped output field breaks this); (2) every
 // `CapabilityDetails` is an acceptable schema INPUT (a grown or narrowed

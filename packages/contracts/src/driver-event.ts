@@ -82,13 +82,11 @@ import {
 } from "./event.js";
 
 // The seven `EventCategory` values a driver event may carry. Hand-written
-// because the list is a DESIGN choice over the 20-category census that nothing
+// because the list is a DESIGN choice over the 16-category census that nothing
 // derives; everything from here down is mechanical off it and off the
 // per-category arrays. Module-local: the exported surface is the set, the two
 // types, and the schema — a consumer narrowing by category narrows through
-// `DriverEvent` itself. `runtime_node_lifecycle` is on the list for
-// `runtime_node.capability_declared` / `runtime_node.capability_updated`, not
-// for node administration.
+// `DriverEvent` itself.
 type DriverEventCategory =
   | "run_lifecycle"
   | "assistant_output"

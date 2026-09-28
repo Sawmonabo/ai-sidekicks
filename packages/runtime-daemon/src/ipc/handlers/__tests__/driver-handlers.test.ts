@@ -396,10 +396,9 @@ describe("driver.* registration surface", () => {
     // start, or tear down a domain object, so a client reaching them would
     // mint runtime state behind the orchestrator's back. The R8 parity four
     // (the absence half) stay daemon-internal for the reason that decision
-    // records — each already has its own client route (rollback through the
-    // intervention path, goals through the surface, auth probes through the
-    // account plane), and a second route here would fork one operation's
-    // authority.
+    // records — the daemon drives the conversation fork on a resend, goals go
+    // through the surface and auth probes through the account plane, and a
+    // second route here would fork one operation's authority.
     const registry = new MethodRegistryImpl();
     bindAll(registry);
 
@@ -731,7 +730,7 @@ describe("driver.applyIntervention", () => {
     ).resolves.toStrictEqual({ status: "degraded", fallbackAction: "queue_and_interrupt" });
   });
 
-  it("REFUSES a rollback arm before the driver is resolved", async () => {
+  it("REFUSES an unknown intervention type before the driver is resolved", async () => {
     const registry = new MethodRegistryImpl();
     const resolveDriverForRun = vi.fn(() => "claude");
     registerDriverApplyIntervention(registry, dispatchDeps({}, resolveDriverForRun));
@@ -739,7 +738,7 @@ describe("driver.applyIntervention", () => {
     await expect(
       registry.dispatch(
         "driver.applyIntervention",
-        { ...steer, type: "rollback", payload: {} },
+        { ...steer, type: "pause", payload: {} },
         NO_TRANSPORT,
       ),
     ).rejects.toBeInstanceOf(RegistryDispatchError);

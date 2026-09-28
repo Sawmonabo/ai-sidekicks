@@ -56,10 +56,8 @@
 // (`toEd25519PublicKey` / `toEd25519PrivateKey` / `assertEd25519KeyWidth`) are
 // module-private by design, so they are exercised through the two paths that
 // call them rather than imported. The database is a real in-memory SQLite on
-// the shipped migrations, so the `daemon_signing_keys` DDL — BLOB columns, the
-// PK, the NOT NULLs — participates in every assertion; its SHAPE is pinned
-// separately by the `0005-daemon-signing-keys migration shape` block in
-// `session/__tests__/migration-shape.test.ts`.
+// the daemon schema, so the `daemon_signing_keys` DDL — BLOB columns, the PK,
+// the NOT NULLs — participates in every assertion.
 //
 // ONE ROLE OF `assertEd25519KeyWidth` IS NOT REACHABLE FROM HERE, AND THAT IS
 // STATED RATHER THAN PAPERED OVER. The "private key" role is driven below
@@ -84,6 +82,7 @@ import type { CanonicalBytes } from "../canonicalizer.js";
 import { GENESIS_PREV_HASH, signRow, verifyRow } from "../signer.js";
 import type { Ed25519PrivateKey, SignedRow } from "../signer.js";
 import { OsKeystoreSealedDaemonSigningKeySource } from "../signing-key-source.js";
+import { writeAcrossStrictTyping } from "../../session/__fixtures__/at-rest-tamper.js";
 import type {
   DaemonSigningKeyProvisioner,
   DaemonSigningKeySealer,
@@ -784,14 +783,15 @@ describe("OsKeystoreSealedDaemonSigningKeySource", () => {
 
     it("refuses a stored value that is not a BLOB", async () => {
       await keySource.create(SESSION_ONE);
-      // SQLite's BLOB declared type gives BLOB AFFINITY with no coercion, so
-      // anything with write access to the file can leave TEXT in the column and
-      // better-sqlite3 hands it back as a JS string. Unguarded it reaches the
-      // sealer as a non-`Uint8Array` and surfaces as whatever that
+      // Anything with write access to the file can leave TEXT in the column,
+      // and better-sqlite3 hands it back as a JS string. Unguarded it reaches
+      // the sealer as a non-`Uint8Array` and surfaces as whatever that
       // implementation throws, far from the column that caused it.
-      database
-        .prepare("UPDATE daemon_signing_keys SET sealed_private_key = ? WHERE session_id = ?")
-        .run("not-actually-bytes", SESSION_ONE);
+      writeAcrossStrictTyping(database, "daemon_signing_keys", () => {
+        database
+          .prepare("UPDATE daemon_signing_keys SET sealed_private_key = ? WHERE session_id = ?")
+          .run("not-actually-bytes", SESSION_ONE);
+      });
 
       await expect(keySource.read(SESSION_ONE)).rejects.toThrow(
         /sealed_private_key for session .* is not a non-empty BLOB: got a non-Uint8Array value of type string/,
@@ -995,13 +995,14 @@ describe("OsKeystoreSealedDaemonSigningKeySource", () => {
 
     it("refuses a stored public key that is not bytes, before the sealer is consulted", async () => {
       await keySource.create(SESSION_ONE);
-      // Same BLOB-affinity hole as the sibling column: SQLite coerces nothing,
-      // so anything with write access can leave TEXT here. Unguarded it would
-      // reach `equalBytes`, whose `abytes` raises a `TypeError` naming noble
-      // instead of this row.
-      database
-        .prepare("UPDATE daemon_signing_keys SET public_key = ? WHERE session_id = ?")
-        .run("not-actually-bytes", SESSION_ONE);
+      // Same hole as the sibling column: anything with write access to the file
+      // can leave TEXT here. Unguarded it would reach `equalBytes`, whose
+      // `abytes` raises a `TypeError` naming noble instead of this row.
+      writeAcrossStrictTyping(database, "daemon_signing_keys", () => {
+        database
+          .prepare("UPDATE daemon_signing_keys SET public_key = ? WHERE session_id = ?")
+          .run("not-actually-bytes", SESSION_ONE);
+      });
 
       await expect(keySource.read(SESSION_ONE)).rejects.toThrow(
         /daemon_signing_keys\.public_key for session .* is not a 32-byte BLOB: got a non-Uint8Array value of type string/,

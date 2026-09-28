@@ -42,8 +42,6 @@ import Database from "better-sqlite3";
 import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { deriveMainChannelId } from "@ai-sidekicks/contracts";
-
 import { applyMigrations, applyPragmas, openDatabase } from "../migration-runner.js";
 import { SessionService, UnsignedPlaceholderAppendToken } from "../session-service.js";
 import type { AppendableEvent } from "../types.js";
@@ -72,12 +70,7 @@ function makeCreatedEvent(): AppendableEvent {
   };
 }
 
-function makeChannelCreatedEvent(
-  sequence: number,
-  monotonicNs: bigint,
-  channelId: string,
-  name: string,
-): AppendableEvent {
+function makeRenamedEvent(sequence: number, monotonicNs: bigint, name: string): AppendableEvent {
   return {
     id: `01J0EV0002NN5J5J5J5J5J5J0${sequence.toString()}`,
     sessionId: SESSION_ID,
@@ -85,13 +78,21 @@ function makeChannelCreatedEvent(
     occurredAt: "2026-04-27T12:02:00.000Z",
     monotonicNs,
     category: "session_lifecycle",
-    type: "channel.created",
+    type: "session.renamed",
     actor: OWNER_ID,
-    payload: { channelId, name },
+    payload: { sessionId: SESSION_ID, name },
     correlationId: null,
     causationId: null,
     version: "1.0",
   };
+}
+
+// Every table, index and trigger name in the database, sorted.
+function schemaObjectNames(db: DatabaseType): ReadonlyArray<string> {
+  const rows = db
+    .prepare("SELECT type || ':' || name AS entry FROM sqlite_master ORDER BY type, name")
+    .all() as ReadonlyArray<{ entry: string }>;
+  return rows.map((row) => row.entry);
 }
 
 // ----------------------------------------------------------------------------
@@ -145,23 +146,13 @@ describe("SessionService — replay reads events by sequence ASC", () => {
     // order; the canonical ordering is established by the read path's
     // ORDER BY sequence ASC.
     const created: AppendableEvent = makeCreatedEvent();
-    const firstChannel: AppendableEvent = makeChannelCreatedEvent(
-      1,
-      2_000_000_000n,
-      "01970000-0000-7000-8000-000000000001",
-      "Design Review",
-    );
-    const secondChannel: AppendableEvent = makeChannelCreatedEvent(
-      2,
-      3_000_000_000n,
-      "01970000-0000-7000-8000-000000000002",
-      "Release Notes",
-    );
+    const firstRename: AppendableEvent = makeRenamedEvent(1, 2_000_000_000n, "Design Review");
+    const secondRename: AppendableEvent = makeRenamedEvent(2, 3_000_000_000n, "Release Notes");
 
     // Append sequence=2 first, then 0, then 1.
-    ctx.service.append(secondChannel);
+    ctx.service.append(secondRename);
     ctx.service.append(created);
-    ctx.service.append(firstChannel);
+    ctx.service.append(firstRename);
 
     const events = ctx.service.readEvents(SESSION_ID);
     // Events come back in sequence-ASC order regardless of insert order.
@@ -172,16 +163,6 @@ describe("SessionService — replay reads events by sequence ASC", () => {
     if (snapshot === null) return;
     expect(snapshot.asOfSequence).toBe(2);
     expect(snapshot.ownerActor).toBe(OWNER_ID);
-    // Channels: synthesized "main" (id from the shared `deriveMainChannelId`)
-    // + the two explicit ones above.
-    expect(snapshot.channels).toHaveLength(3);
-    expect(snapshot.channels.map((c) => c.channelId).sort()).toEqual(
-      [
-        "01970000-0000-7000-8000-000000000001",
-        "01970000-0000-7000-8000-000000000002",
-        deriveMainChannelId(SESSION_ID),
-      ].sort(),
-    );
   });
 });
 
@@ -201,18 +182,8 @@ describe("SessionService — replay uses sequence not monotonic_ns", () => {
     // data; sequence is the canonical replay key. Replay MUST produce
     // sequence=[0, 1, 2] regardless of monotonic_ns clock skew.
     const e0: AppendableEvent = { ...makeCreatedEvent(), monotonicNs: 5_000_000_000n };
-    const e1: AppendableEvent = makeChannelCreatedEvent(
-      1,
-      1_000_000_000n,
-      "01970000-0000-7000-8000-000000000021",
-      "Back Channel",
-    );
-    const e2: AppendableEvent = makeChannelCreatedEvent(
-      2,
-      3_000_000_000n,
-      "01970000-0000-7000-8000-000000000022",
-      "Side Channel",
-    );
+    const e1: AppendableEvent = makeRenamedEvent(1, 1_000_000_000n, "Back Room");
+    const e2: AppendableEvent = makeRenamedEvent(2, 3_000_000_000n, "Side Room");
 
     ctx.service.append(e0);
     ctx.service.append(e1);
@@ -288,24 +259,14 @@ describe("SessionService — replay uses sequence not monotonic_ns", () => {
 
 describe("SessionService — snapshot survives daemon restart", () => {
   it("yields identical projection after closing and reopening the database file", () => {
-    // First "process": create the session and add two channels.
+    // First "process": create the session and rename it twice.
     const created: AppendableEvent = makeCreatedEvent();
-    const firstChannel: AppendableEvent = makeChannelCreatedEvent(
-      1,
-      2_000_000_000n,
-      "01970000-0000-7000-8000-000000000031",
-      "Design Review",
-    );
-    const secondChannel: AppendableEvent = makeChannelCreatedEvent(
-      2,
-      3_000_000_000n,
-      "01970000-0000-7000-8000-000000000003",
-      "Release Notes",
-    );
+    const firstRename: AppendableEvent = makeRenamedEvent(1, 2_000_000_000n, "Design Review");
+    const secondRename: AppendableEvent = makeRenamedEvent(2, 3_000_000_000n, "Release Notes");
 
     ctx.service.append(created);
-    ctx.service.append(firstChannel);
-    ctx.service.append(secondChannel);
+    ctx.service.append(firstRename);
+    ctx.service.append(secondRename);
 
     const beforeRestart = ctx.service.replay(SESSION_ID);
     expect(beforeRestart).not.toBeNull();
@@ -333,89 +294,34 @@ describe("SessionService — snapshot survives daemon restart", () => {
     // monotonic_ns roundtrip which happens identically on both sides.
     expect(afterRestart).toEqual(beforeRestart);
 
-    // Spot-check the owner & channel content survived. (Belt & braces —
-    // toEqual would already catch a divergence.)
     if (afterRestart === null) return;
     expect(afterRestart.ownerActor).toBe(OWNER_ID);
-    expect(afterRestart.channels.map((c) => c.channelId).sort()).toEqual(
-      [
-        "01970000-0000-7000-8000-000000000003",
-        "01970000-0000-7000-8000-000000000031",
-        deriveMainChannelId(SESSION_ID),
-      ].sort(),
-    );
     expect(afterRestart.asOfSequence).toBe(2);
   });
 
-  it("openDatabase is idempotent on reopen (does not re-run migrations)", () => {
-    // Reopening the SAME file via the factory must not throw, must not
-    // duplicate any schema_version row. The factory internally calls
-    // applyMigrations, so this also covers read-after-write
-    // idempotency: the second open sees the first's committed
-    // schema_version rows and short-circuits all version guards.
+  it("openDatabase is idempotent on reopen (does not re-create the schema)", () => {
+    // Reopening the same file must not throw and must leave the schema as the
+    // first open created it.
+    const tablesBefore: ReadonlyArray<string> = schemaObjectNames(ctx.db);
     ctx.db.close();
     const reopened: DatabaseType = openDatabase(ctx.dbPath);
     ctx.db = reopened;
     ctx.service = new SessionService(reopened);
-    const versions = reopened
-      .prepare("SELECT version FROM schema_version ORDER BY version")
-      .all() as ReadonlyArray<{ version: number }>;
-    expect(versions).toEqual([
-      { version: 1 },
-      { version: 2 },
-      { version: 3 },
-      { version: 4 },
-      { version: 5 },
-      { version: 6 },
-      { version: 7 },
-      { version: 8 },
-      { version: 9 },
-      { version: 10 },
-      { version: 11 },
-      { version: 12 },
-      { version: 13 },
-      { version: 14 },
-      { version: 15 },
-      { version: 16 },
-      { version: 17 },
-    ]);
+    expect(schemaObjectNames(reopened)).toEqual(tablesBefore);
   });
 
   it("applyMigrations is idempotent against direct re-call on the same handle", () => {
-    // Reapplying migrations on an already-migrated DB must not throw,
-    // must not duplicate any schema_version row.
+    const objectsBefore: ReadonlyArray<string> = schemaObjectNames(ctx.db);
     applyMigrations(ctx.db);
     applyMigrations(ctx.db);
-    const versions = ctx.db
-      .prepare("SELECT version FROM schema_version ORDER BY version")
-      .all() as ReadonlyArray<{ version: number }>;
-    expect(versions).toEqual([
-      { version: 1 },
-      { version: 2 },
-      { version: 3 },
-      { version: 4 },
-      { version: 5 },
-      { version: 6 },
-      { version: 7 },
-      { version: 8 },
-      { version: 9 },
-      { version: 10 },
-      { version: 11 },
-      { version: 12 },
-      { version: 13 },
-      { version: 14 },
-      { version: 15 },
-      { version: 16 },
-      { version: 17 },
-    ]);
+    expect(schemaObjectNames(ctx.db)).toEqual(objectsBefore);
   });
 
   it("applyMigrations on a second handle to the same file is a sequential no-op (read-after-write idempotency)", () => {
     // Sequential idempotency — NOT a concurrency test. The first handle
     // (ctx.db, opened in beforeEach) has already migrated; this test
     // opens a second handle AFTER the first commit is durable and asserts
-    // that the second `applyMigrations` call short-circuits via
-    // `hasMigrationApplied` returning true.
+    // that the second `applyMigrations` call finds the schema and returns.
     //
     // True concurrent-boot contention is exercised by the worker_threads
     // test below (`concurrent applyMigrations across worker_threads
@@ -430,28 +336,7 @@ describe("SessionService — snapshot survives daemon restart", () => {
       applyPragmas(secondHandle);
       // Should NOT throw — the first handle (ctx.db) already migrated.
       applyMigrations(secondHandle);
-      const versions = secondHandle
-        .prepare("SELECT version FROM schema_version ORDER BY version")
-        .all() as ReadonlyArray<{ version: number }>;
-      expect(versions).toEqual([
-        { version: 1 },
-        { version: 2 },
-        { version: 3 },
-        { version: 4 },
-        { version: 5 },
-        { version: 6 },
-        { version: 7 },
-        { version: 8 },
-        { version: 9 },
-        { version: 10 },
-        { version: 11 },
-        { version: 12 },
-        { version: 13 },
-        { version: 14 },
-        { version: 15 },
-        { version: 16 },
-        { version: 17 },
-      ]);
+      expect(schemaObjectNames(secondHandle)).toEqual(schemaObjectNames(ctx.db));
     } finally {
       secondHandle.close();
     }
@@ -463,11 +348,11 @@ describe("SessionService — snapshot survives daemon restart", () => {
 // ----------------------------------------------------------------------------
 //
 // Production must serialize concurrent `openDatabase(sharedPath)` calls
-// without losing any migration. The bug class this block defends
+// without losing or duplicating the schema. The bug class this block defends
 // against is writer-vs-writer SQLITE_BUSY: when two daemons race to
 // migrate the same file under `db.transaction(...)` invoked WITHOUT
 // `.immediate()`, better-sqlite3 dispatches `BEGIN` (DEFERRED). Both
-// racers begin as readers; the inside-tx `hasMigrationApplied` SELECT
+// racers begin as readers; the inside-tx schema-probe SELECT
 // succeeds without a lock upgrade; the subsequent `db.exec(SQL)`
 // requires a writer lock; in WAL mode two DEFERRED transactions
 // attempting to upgrade hit `SQLITE_BUSY_SNAPSHOT`, which
@@ -475,7 +360,7 @@ describe("SessionService — snapshot survives daemon restart", () => {
 // no transaction is held). The fix is `.immediate()` — BEGIN IMMEDIATE
 // takes the RESERVED writer-intent lock at BEGIN time, so racers
 // serialize at BEGIN (which `busy_timeout` CAN absorb) and the loser's
-// inside-tx re-check sees the winner's committed schema_version row.
+// inside-tx re-check sees the winner's committed schema.
 //
 // Concurrency note: better-sqlite3 is fully synchronous. A single
 // process cannot exercise this contention from one event loop. The
@@ -535,8 +420,7 @@ async function runMigrationRace(
   // `Promise.all` then awaits each result. The point is to maximize the
   // chance the workers reach `BEGIN ...` simultaneously. SQLite's
   // file-locking will then serialize them; the assertion is on the
-  // exit shape (all OK + the expected schema_version rows), not on the
-  // order.
+  // exit shape (all OK + the expected schema), not on the order.
   //
   // The outer `workers` array tracks every spawned Worker so the
   // `finally` block can terminate any sibling that's still alive when
@@ -612,9 +496,9 @@ describe("applyMigrations concurrent-boot race (BEGIN IMMEDIATE serialization)",
   // tests we need never-yet-migrated files so the race is "first
   // boot", not "verify-already-migrated". Both tests below construct
   // per-trial DB paths inside `raceTmpDir` so trials don't bleed into
-  // each other (a leftover schema_version row would let later trials'
-  // `hasMigrationApplied` short-circuit before any write-lock is
-  // attempted, masking the contention behavior the tests are pinning).
+  // each other (a leftover schema would let later trials' probe
+  // short-circuit before any write-lock is attempted, masking the
+  // contention behavior the tests are pinning).
   let raceTmpDir: string;
 
   beforeEach(() => {
@@ -717,7 +601,7 @@ describe("applyMigrations concurrent-boot race (BEGIN IMMEDIATE serialization)",
     const allResults: RaceWorkerResult[][] = [];
     for (let trial = 0; trial < TRIAL_COUNT; trial++) {
       // Fresh DB path per trial — leftover state would mask contention
-      // by letting later trials' `hasMigrationApplied` short-circuit
+      // by letting later trials' schema probe short-circuit
       // before any write-lock is attempted (just like the negative
       // control loop below).
       const trialPath: string = join(raceTmpDir, `imm-trial-${trial.toString()}.db`);
@@ -735,185 +619,28 @@ describe("applyMigrations concurrent-boot race (BEGIN IMMEDIATE serialization)",
       `expected ≤${FAILURE_THRESHOLD.toString()} failures across ${TRIAL_COUNT.toString()} trials × ${WORKER_COUNT.toString()} workers (=${(TRIAL_COUNT * WORKER_COUNT).toString()} attempts); a broken DEFERRED pattern produces ~19 BUSY failures across 20 attempts on Linux bare-metal (threshold set well below this; WSL2 detection ~35 % due to fcntl-on-9p reducing contention saturation, see test docstring). Got ${totalFailures.toString()}. Detail: ${JSON.stringify(allResults)}`,
     ).toBeLessThanOrEqual(FAILURE_THRESHOLD);
 
-    // Belt-and-braces verification: every trial's database file must
-    // contain exactly the seventeen expected schema_version rows [1..17]
-    // regardless of how many workers succeeded vs blocked. The
-    // useDeferred:false worker calls PRODUCTION applyMigrations, so each
-    // trial exercises all seventeen migration blocks.
-    //
-    // What this row-count assertion actually guarantees (claim no more):
-    //   * it catches a broken or missing anchor INSERT for the newest
-    //     migration (a v17 migration that failed to write its
-    //     schema_version row, or wrote the wrong version) — and likewise
-    //     for the v2..v16 anchors, and
-    //   * it catches a within-handle double-apply that duplicated any
-    //     anchor row, and
-    //   * it is a strict strengthening over the old `[1]` assertion (the
-    //     assertion evolved [1] → [1, 2] → … → [1..5] → [1..9] → [1..11] →
-    //     … → [1..17] as each migration landed) — it cannot pass anything
-    //     `[1]` would have failed.
-    //
-    // What it does NOT deterministically catch: a newest-migration-ONLY
-    // `.immediate()` drop. The race below was traced for v11 and has NOT
-    // been re-traced for the newer ordinals. Tracing it, a DEFERRED loser
-    // hits SQLITE_BUSY on the write-UPGRADE and bails BEFORE committing its
-    // INSERT (so no duplicate row lands), and some worker always wins each
-    // BEGIN (so the row is never missing) — the row-count assertion is
-    // therefore essentially immune to a v11-only `.immediate()` regression.
-    // Loop over EVERY trial path so a partial regression that only corrupts
-    // one trial still surfaces.
-    //
-    // The immunity argument was RE-DERIVED (not incremented) for v6, v7, v8,
-    // v9, v10, and v11, because it rests on a property each migration must be
-    // checked for individually: the anchor INSERT must ride the SAME single
-    // `.exec()` as the DDL, so a loser that bails mid-migration can leave
-    // neither a duplicate anchor nor an anchor without its schema.
-    //   * v6 (`RUN_LIFECYCLE_TERMINAL_BACKSTOP_MIGRATION_SQL`) — the
-    //     CREATE INDEX, the three CREATE TRIGGERs, and the version-6 INSERT
-    //     are one script, one `.exec()`. Holds.
-    //   * v7 (`PII_USER_ID_MIGRATION_SQL`) — the ALTER TABLE ADD
-    //     COLUMN and the version-7 INSERT are one script, one `.exec()`.
-    //     Holds, and v7 is the arm where a REGRESSION would bite hardest:
-    //     SQLite has no `ADD COLUMN IF NOT EXISTS`, so a lost guard turns a
-    //     re-apply into a hard "duplicate column name" throw, which lands
-    //     in the worker-failure count above rather than here.
-    //   * v8 (`PENDING_ANCHOR_UPLOADS_MIGRATION_SQL`) — the CREATE TABLE, its
-    //     partial CREATE INDEX, and the version-8 INSERT are one script, one
-    //     `.exec()`. Re-derived rather than incremented: v8 is the first
-    //     migration to create a TABLE, so the failure mode it would add is a
-    //     loser that landed the anchor row without the table. It cannot, for
-    //     the same single-`.exec()` reason — and a lost guard turns a re-apply
-    //     into a hard "table already exists" throw, which lands in the
-    //     worker-failure count above rather than here.
-    //   * v9 (`RETENTION_CLASS_AND_STUB_SIGNATURE_MIGRATION_SQL`) — the two
-    //     ALTER TABLE ADD COLUMNs, the partial CREATE INDEX, and the version-9
-    //     INSERT are one script, one `.exec()`. Re-derived rather than
-    //     incremented: v9 is the first migration whose statements are
-    //     INTERNALLY ordered (its index predicate reads a column the same
-    //     script adds two statements earlier), so the failure mode it would add
-    //     is a loser that landed the columns without the index — a schema that
-    //     satisfies every column assertion while silently dropping the live-row
-    //     partial index. It cannot, for the same single-`.exec()` reason: the
-    //     whole script commits or none of it does. A lost guard turns a
-    //     re-apply into a hard "duplicate column name" throw (the v7 story),
-    //     which lands in the worker-failure count above rather than here.
-    //   * v10 (`REPO_WORKSPACES_MIGRATION_SQL`) — the two CREATE TABLEs, the
-    //     four CREATE INDEXes (including the partial-unique
-    //     `idx_repo_mounts_active_root`), and the version-10 INSERT are one
-    //     script, one `.exec()`. Holds. Re-derived rather than incremented:
-    //     v10 is the first migration since v8 to create a TABLE and the first
-    //     since v4 to create MORE THAN ONE, so the failure modes it would add
-    //     are new in kind. Two of them: a loser landing the anchor row with
-    //     only ONE of the two tables — a schema where either
-    //     `workspaces.repo_mount_id` references a parent that does not exist
-    //     or the mount table has no binding table at all, both of which the
-    //     per-table shape assertions elsewhere would attribute to the wrong
-    //     migration; and a loser landing both tables without
-    //     `idx_repo_mounts_active_root`, whose key columns are declared by the
-    //     very tables the same script creates — a schema that satisfies every
-    //     column assertion while silently admitting duplicate active mounts of
-    //     one canonical root. Neither can happen, for the same single-`.exec()`
-    //     reason: the whole script commits or none of it does. A lost guard
-    //     turns a re-apply into a hard "table already exists" throw (the v8
-    //     story), which lands in the worker-failure count above rather than
-    //     here.
-    //   * v11 (`DRIVER_CAPABILITY_CURRENCY_MIGRATION_SQL`) — the successor
-    //     CREATE TABLE, the copy INSERT, the DROP, the RENAME, the backfill
-    //     INSERT, the five ALTER TABLE ADD COLUMNs, and the version-11 INSERT
-    //     are one script, one `.exec()`. Holds. Re-derived rather than
-    //     incremented, and this is the version where re-derivation earns its
-    //     keep: v11 is the FIRST migration to DROP and RENAME a table and the
-    //     FIRST to backfill DATA, so both failure modes it would add are new in
-    //     kind and neither resembles anything v2..v10 could produce. First: a
-    //     loser landing the anchor row with `driver_capabilities_new` created
-    //     and `driver_capabilities` already dropped — not a missing index or a
-    //     missing column but a table the writers name that is simply GONE, so
-    //     every capability read fails as `no such table` while the anchor row
-    //     reports the migration applied. Second: a loser landing the widened
-    //     CHECK without its backfill rows — a schema that satisfies every
-    //     column, PK, and CHECK assertion in the corpus while leaving each
-    //     driver's cache short of the declared union, which trips the
-    //     exact-cardinality guard in `provider/driver-capabilities-writer.ts`
-    //     on the first cold-start hydration, long after this test would have
-    //     passed.
-    //     Neither can happen, for the same single-`.exec()` reason: the whole
-    //     script commits or none of it does. A lost guard turns a re-apply into
-    //     a hard "table already exists" throw on the successor CREATE (the v8
-    //     story) or a "duplicate column name" throw on the ALTERs (the v7
-    //     story), both of which land in the worker-failure count above rather
-    //     than here.
-    //   * v15 (`QUEUE_AND_INTERVENTIONS_MIGRATION_SQL`) — the three CREATE
-    //     TABLEs, their four indexes, and the version-15 INSERT are one script,
-    //     one `.exec()`. Holds. Re-derived rather than incremented: v15 creates
-    //     THREE tables where v10 created two, and its pair is linked by an
-    //     in-row reference (`queue_items.admitting_intervention_id` naming an
-    //     `interventions` row) that is deliberately NOT an FK, so SQLite would
-    //     raise nothing on a torn apply. The failure mode that adds is a loser
-    //     landing the anchor row with `queue_items` present and `interventions`
-    //     absent — a schema where every per-table shape assertion on the
-    //     surviving table passes while the admission transaction that writes
-    //     both rows cannot be written at all. It cannot happen for the same
-    //     single-`.exec()` reason: the whole script commits or none of it does.
-    //     A lost guard turns a re-apply into a hard "table already exists"
-    //     throw on the first CREATE (the v8 story), which lands in the
-    //     worker-failure count above rather than here.
-    //   * v16 (`PROVIDER_ACCOUNTS_MIGRATION_SQL`) — the two CREATE TABLEs,
-    //     their two CREATE UNIQUE INDEXes, and the version-16 INSERT are one
-    //     script, one `.exec()`. Holds. Re-derived rather than incremented,
-    //     and the re-derivation's finding is that v16 adds NO failure mode
-    //     that is new in kind: its shape is v10's — a parent/child pair and
-    //     unique indexes over columns the same script declares — so v10's two
-    //     modes are the two to check, restated on this pair. A loser landing
-    //     the anchor row with `provider_account_usage_windows` present and
-    //     `provider_accounts` absent: the child's FK does NOT catch that,
-    //     because SQLite resolves a parent at DML time rather than at CREATE
-    //     time, so the schema is accepted and the loss surfaces as `no such
-    //     table` on the first window write. And a loser landing both tables
-    //     without `provider_accounts_one_default_per_provider`, whose key
-    //     columns the same script declares — a schema that satisfies every
-    //     column assertion while silently admitting a second default account
-    //     per provider. Neither can happen, for the same single-`.exec()`
-    //     reason: the whole script commits or none of it does. The one thing
-    //     v16 does introduce is the corpus's first referential ACTION
-    //     (`ON DELETE CASCADE`; every earlier FK, v1/v4/v10, declares none),
-    //     and it is inert to this argument — a cascade fires on a parent DELETE
-    //     at DML time and can neither add nor remove a torn-apply mode. A lost
-    //     guard turns a re-apply into a hard "table already exists" throw on
-    //     the first CREATE (the v8 story), which lands in the worker-failure
-    //     count above rather than here.
-    // A future migration that committed its anchor row separately from its
-    // DDL would invalidate this paragraph rather than merely extend it —
-    // re-derive it, do not increment it.
+    // Every trial's file must hold exactly the schema a single in-process
+    // apply creates, however many workers won or blocked. The whole schema
+    // commits in one transaction, so a torn or doubled apply shows up either
+    // here or as a worker failure above.
+    const reference: DatabaseType = new Database(join(raceTmpDir, "reference.db"));
+    let expectedObjects: ReadonlyArray<string>;
+    try {
+      applyPragmas(reference);
+      applyMigrations(reference);
+      expectedObjects = schemaObjectNames(reference);
+    } finally {
+      reference.close();
+    }
     for (let trial = 0; trial < TRIAL_COUNT; trial++) {
       const trialPath: string = join(raceTmpDir, `imm-trial-${trial.toString()}.db`);
       const verifier: DatabaseType = new Database(trialPath);
       try {
         applyPragmas(verifier);
-        const rows = verifier
-          .prepare("SELECT version FROM schema_version ORDER BY version")
-          .all() as ReadonlyArray<{ version: number }>;
         expect(
-          rows,
-          `trial ${trial.toString()} expected exactly the seventeen migration anchor rows [1..17] (a broken/missing v17 INSERT — the newest migration — or a duplicated anchor row would fail here); got ${JSON.stringify(rows)}`,
-        ).toEqual([
-          { version: 1 },
-          { version: 2 },
-          { version: 3 },
-          { version: 4 },
-          { version: 5 },
-          { version: 6 },
-          { version: 7 },
-          { version: 8 },
-          { version: 9 },
-          { version: 10 },
-          { version: 11 },
-          { version: 12 },
-          { version: 13 },
-          { version: 14 },
-          { version: 15 },
-          { version: 16 },
-          { version: 17 },
-        ]);
+          schemaObjectNames(verifier),
+          `trial ${trial.toString()} expected exactly the reference schema`,
+        ).toEqual(expectedObjects);
       } finally {
         verifier.close();
       }
@@ -979,8 +706,8 @@ describe("applyMigrations concurrent-boot race (BEGIN IMMEDIATE serialization)",
     const allTrialResults: RaceWorkerResult[][] = [];
     for (let trial = 0; trial < TRIAL_COUNT; trial++) {
       // Fresh DB path per trial — leftover state would mask contention
-      // by letting the second trial's `hasMigrationApplied` short-
-      // circuit before any write-lock is attempted.
+      // by letting the second trial's schema probe short-circuit before
+      // any write-lock is attempted.
       const trialPath: string = join(raceTmpDir, `trial-${trial.toString()}.db`);
       // Fresh counter per trial too, rather than resetting one buffer: a
       // straggler from a terminated trial cannot then bump the next trial's
@@ -1054,10 +781,10 @@ describe("applyMigrations concurrent-boot race (BEGIN IMMEDIATE serialization)",
 // until V8 garbage-collects the wrapper, racing the next retry. The
 // fix wraps init in try/catch + db.close() before rethrowing.
 //
-// The test makes `applyMigrations` throw deterministically by pre-
-// creating a conflicting `session_events` table on the target file
-// (without a `schema_version` row), so `INITIAL_MIGRATION_SQL.exec()`
-// hits "table session_events already exists" inside `applyMigrations`.
+// The test makes `applyMigrations` throw deterministically by pre-creating a
+// conflicting `session_snapshots` table on the target file. The schema probe
+// looks for `session_events`, finds none, and the schema script then hits
+// "table session_snapshots already exists".
 // We spy on `Database.prototype.close` to assert the cleanup branch
 // fires exactly once. Spy-based verification is the load-bearing
 // witness — a regression that removed the try/catch but happened to
@@ -1078,13 +805,12 @@ describe("openDatabase — failure-mode cleanup (closes handle if init throws)",
   it("calls db.close() on the half-initialized handle before rethrowing if applyMigrations throws", () => {
     const dbPath: string = join(cleanupTmpDir, "init-fail.db");
 
-    // Pre-stage the file with a conflicting `session_events` table so
-    // INITIAL_MIGRATION_SQL.exec() inside applyMigrations throws
-    // "table session_events already exists" — the cleanup branch's
-    // failure-mode trigger.
+    // Pre-stage the file with a conflicting `session_snapshots` table so the
+    // schema script inside applyMigrations throws "table session_snapshots
+    // already exists" — the cleanup branch's failure-mode trigger.
     const seedHandle: DatabaseType = new Database(dbPath);
     try {
-      seedHandle.exec("CREATE TABLE session_events (placeholder TEXT)");
+      seedHandle.exec("CREATE TABLE session_snapshots (placeholder TEXT)");
     } finally {
       seedHandle.close();
     }
@@ -1122,7 +848,7 @@ describe("openDatabase — failure-mode cleanup (closes handle if init throws)",
     // Same pre-stage trick to force applyMigrations to throw.
     const seedHandle: DatabaseType = new Database(dbPath);
     try {
-      seedHandle.exec("CREATE TABLE session_events (placeholder TEXT)");
+      seedHandle.exec("CREATE TABLE session_snapshots (placeholder TEXT)");
     } finally {
       seedHandle.close();
     }
@@ -1153,7 +879,7 @@ describe("openDatabase — failure-mode cleanup (closes handle if init throws)",
 // Integrity-column CHECK constraints
 // ----------------------------------------------------------------------------
 //
-// Migration declares CHECK(length(prev_hash) = 32 AND length(row_hash)
+// The schema declares CHECK(length(prev_hash) = 32 AND length(row_hash)
 // = 32 AND length(daemon_signature) = 64) on session_events. Without
 // these CHECKs, wrong-length placeholder bytes (e.g. Buffer.alloc(0))
 // would silently succeed and surface as a chain-recompute failure
@@ -1236,8 +962,7 @@ describe("session_events integrity-column CHECK constraints", () => {
 // guard fires, so the opted-in green suite is not vacuous evidence.
 
 // The guard's negative controls' titles, bound to exported identifiers so a
-// rename or deletion is a compile-time change rather than a silent one (same
-// pattern as migration-shape.test.ts's exported titles).
+// rename or deletion is a compile-time change rather than a silent one.
 export const DEFAULT_CONSTRUCTED_APPEND_REFUSAL_TEST: string =
   "refuses append on a default-constructed service, naming the replacement writer and the opt-in";
 export const FORGED_TOKEN_REFUSAL_TEST: string =

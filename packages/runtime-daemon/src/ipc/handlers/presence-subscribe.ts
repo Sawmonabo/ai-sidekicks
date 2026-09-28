@@ -50,20 +50,14 @@
 //
 // Presence is in-memory only:
 //   The pushed `PresenceUpdate.awarenessState` is the serialized in-memory Yjs
-//   Awareness CRDT (NEVER persisted). Only durable presence-state-CHANGE
-//   EVENTS (`presence.online` etc.) land in `session_events` — and those are
-//   emitted by the upstream substrate per the deps JSDoc below, NOT by this
-//   handler. The handler routes ephemeral CRDT bytes to the wire and never
-//   touches durable storage.
+//   Awareness CRDT (NEVER persisted), and no presence transition is a session
+//   event. The handler routes ephemeral CRDT bytes to the wire and never
+//   touches durable storage; the register is read per machine.
 //
 // What this file does NOT do (deferred to siblings):
 //   * Yjs Awareness ingestion / fan-out — owned by
 //     `presence-register-service.ts`. This file consumes the resulting stream
 //     through the `PresenceSubscribeDeps.subscribeToPresence` callback.
-//   * The runtime trigger that fires `presence.online` / `idle` /
-//     `reconnecting` / `offline` emissions — owned by the daemon's heartbeat /
-//     connection-liveness watcher. This file only DOCUMENTS the emission
-//     contract on the deps interface.
 //
 // Method-name format: dotted-camelCase. The canonical regex
 // `/^[a-z][a-zA-Z0-9]*(\.[a-z][a-zA-Z0-9]*)+$/` accepts
@@ -139,57 +133,6 @@ export interface PresenceSubscribeDeps {
    * Domain-side errors during subscription setup MUST surface as thrown
    * `Error` instances — the registry's `dispatch()` wrapper catches them
    * and applies `mapJsonRpcError`.
-   *
-   * ---------------------------------------------------------------------
-   * DURABLE PRESENCE-STATE-CHANGE EVENT EMISSION CONTRACT
-   * ---------------------------------------------------------------------
-   *
-   * THIS IS A LOAD-BEARING OBLIGATION ON THE DEPS IMPLEMENTOR — NOT on this
-   * handler. The handler routes ephemeral CRDT bytes; the durable audit trail
-   * is emitted by the upstream substrate (the daemon's heartbeat /
-   * connection-liveness watcher) as it observes presence TRANSITIONS for the
-   * devices attached to the session this subscription targets.
-   *
-   * On EVERY presence state transition, the substrate MUST append one
-   * `AppendableEvent` to the session's durable event log via the durable
-   * append path — `SessionService.append` is guarded test-only, so the
-   * event-log service is the production writer — with EXACTLY this shape:
-   *
-   *   * `type` — one of the 4 canonical strings:
-   *       `"presence.online"`       — connected / actively present (this
-   *                                   covers BOTH the initial connect AND
-   *                                   recovery from reconnecting/offline
-   *                                   back to online — `previousState`
-   *                                   discriminates the two cases);
-   *       `"presence.idle"`         — the device became idle;
-   *       `"presence.reconnecting"` — lost connection, attempting reconnect;
-   *       `"presence.offline"`      — the device disconnected.
-   *     ALL FOUR states MUST be expressible. `online` / `idle` are
-   *     heartbeat/activity-driven; `reconnecting` / `offline` are
-   *     connection-liveness-driven (a dropped socket opens the reconnect grace
-   *     window). This is a FULL lifecycle, not a degradation-only
-   *     (online → reconnecting → offline) chain.
-   *
-   *   * `category` — READ IT, do not restate it. The contracts package owns
-   *     the type-to-category assignment and publishes it as
-   *     `SESSION_EVENT_CATEGORY_BY_TYPE`; the substrate MUST look the emitted
-   *     `type` up there rather than hardcoding a literal, because a hardcoded
-   *     category that drifts from the canonical assignment breaks the
-   *     integrity hash chain rather than failing a parse.
-   *
-   *   * `payload` — the device the transition is about, plus the transition:
-   *       `{ sessionId, deviceId, previousState?, newState }`
-   *     where `newState` is REQUIRED and `previousState` is OPTIONAL (absent
-   *     on the very first transition for a device), both drawn from
-   *     `PresenceState` (`"online" | "idle" | "reconnecting" | "offline"`,
-   *     exported from `@ai-sidekicks/contracts`). There is no per-person axis:
-   *     every device on a session belongs to the one user, so `deviceId` is
-   *     the whole of the subject.
-   *
-   * The presence ROWS themselves (the Yjs Awareness CRDT) are NEVER persisted
-   * — only these state-change EVENTS are. The events are forward-compatible:
-   * the projector forward-compat-skips unknown event types, so these rows land
-   * in `session_events` and replay safely without a contracts change.
    */
   readonly subscribeToPresence: (
     sessionId: SessionId,

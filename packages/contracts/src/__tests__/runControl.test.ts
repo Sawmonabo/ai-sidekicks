@@ -10,24 +10,17 @@
 //     stale-replay guard cannot be bypassed by omitting the field.
 //   • The same guard extended to the orchestration-layer pause and resume
 //     verbs, which hold no `InterventionType` membership.
-//   • The settlement-time boundary reclassification and the
-//     committed-then-failed composite. Both are pinned through the shapes
-//     that make them legible: `newestBoundaryPosition` required-and-nullable,
-//     and `resendDisposition` REQUIRED on the composite-only arm.
 //
 // Coverage shape:
 //   • Every member of every enum parses and an out-of-set value is rejected,
 //     so each pin is a real accept/reject boundary rather than a one-sided
 //     smoke test.
 //   • Every parse refusal the contract claims is exercised WITH its positive
-//     control: a class-crossing `resendDisposition`, a disposition-less
-//     terminal, a state/disposition mismatch, a `result` on a non-disposition
-//     state, a `rejected` response with no cause, and a rollback whose
-//     `targetPosition` is a float or negative.
-//   • The three canonical `RunStateChangeEvent` members this module cannot yet
-//     type (`agentId`, `linkType`, `effectiveRunConfig`) are pinned as
-//     REJECTED, so their absence is a recorded decision rather than a silent
-//     gap a producer could stumble into.
+//     control.
+//   • The two `RunStateChangeEvent` members this module cannot yet type
+//     (`agentId`, `effectiveRunConfig`) are pinned as REJECTED, so their
+//     absence is a recorded decision rather than a silent gap a producer could
+//     stumble into.
 //   • The two arms of the `run.subscribeState` stream are pinned AGAINST
 //     EACH OTHER: the stream carries no wire tag, so each schema is shown to
 //     reject the other's well-formed payload — the property that makes one
@@ -35,8 +28,7 @@
 //   • The two `run.subscribe*` request shapes are pinned against the two
 //     members a copy of a neighbouring subscribe shape would bring with it: a
 //     `runId` filter (the subscription is session-scoped and fans out per run
-//     client-side) and a replay cursor (`run.*` is local-IPC JSON-RPC, so no
-//     `Last-Event-ID` is injected pre-validation).
+//     client-side) and a replay cursor (`run.*` carries none).
 //   • The `index.ts` barrel re-exports every symbol this task provides — the
 //     barrel-gap regression.
 import { describe, expect, it } from "vitest";
@@ -60,10 +52,6 @@ import {
   QueueItemListResponseSchema,
   QueueItemStateSchema,
   QueueItemSummarySchema,
-  RollbackAppliedResultSchema,
-  RollbackCompositeRejectionGuardSchema,
-  RollbackDegradedResultSchema,
-  RollbackInterventionResultSchema,
   RunControlAckSchema,
   RunFailureCategorySchema,
   RunPauseRequestSchema,
@@ -81,13 +69,11 @@ import {
 } from "../runControl.js";
 
 const SESSION_ID = "0f2b4d5e-1111-4111-8111-111111111111";
-const CHANNEL_ID = "0f2b4d5e-2222-4222-8222-222222222222";
 const WORKSPACE_ID = "0f2b4d5e-3333-4333-8333-333333333333";
 const QUEUE_ITEM_ID = "0f2b4d5e-4444-4444-8444-444444444444";
 const INTERVENTION_ID = "0f2b4d5e-5555-4555-8555-555555555555";
 const RUN_ID = "0f2b4d5e-6666-4666-8666-666666666666";
 const PARENT_RUN_ID = "0f2b4d5e-7777-4777-8777-777777777777";
-const NODE_ID = "0f2b4d5e-8888-4888-8888-888888888888";
 const IDEMPOTENCY_KEY = "0f2b4d5e-9999-4999-8999-999999999999";
 // Two DISTINCT artifact ids, so an order assertion over the steer carrier can
 // tell the elements apart.
@@ -105,7 +91,7 @@ describe("run-control shared enums", () => {
     "admitted",
     "superseded",
     "canceled",
-    "expired",
+    "not_delivered",
   ];
   it.each(queueItemStates)("admits the queue-item state %s", (state) => {
     expect(QueueItemStateSchema.parse(state)).toBe(state);
@@ -182,7 +168,6 @@ describe("QueueItemCreateRequest", () => {
   it("parses with every optional member supplied", () => {
     const full = {
       sessionId: SESSION_ID,
-      channelId: CHANNEL_ID,
       workspaceId: WORKSPACE_ID,
       priority: 7,
       payload: { kind: "user-send", position: 4 },
@@ -221,11 +206,11 @@ describe("QueueItemCreateResponse", () => {
 });
 
 describe("QueueItemList", () => {
-  it("parses the request with and without its two filters", () => {
+  it("parses the request with and without its state filter", () => {
     expect(QueueItemListRequestSchema.parse({ sessionId: SESSION_ID })).toEqual({
       sessionId: SESSION_ID,
     });
-    const filtered = { sessionId: SESSION_ID, state: "admitted", channelId: CHANNEL_ID };
+    const filtered = { sessionId: SESSION_ID, state: "admitted" };
     expect(QueueItemListRequestSchema.parse(filtered)).toEqual(filtered);
   });
 
@@ -244,7 +229,6 @@ describe("QueueItemList", () => {
           id: QUEUE_ITEM_ID,
           state: "queued",
           priority: 0,
-          channelId: CHANNEL_ID,
           createdAt: TIMESTAMP,
           updatedAt: TIMESTAMP,
         },
@@ -281,7 +265,7 @@ describe("QueueItemCancel", () => {
     // A cancel that reports any other lifecycle state is reporting an outcome
     // it did not produce.
     expect(() =>
-      QueueItemCancelResponseSchema.parse({ queueItemId: QUEUE_ITEM_ID, state: "expired" }),
+      QueueItemCancelResponseSchema.parse({ queueItemId: QUEUE_ITEM_ID, state: "not_delivered" }),
     ).toThrow();
   });
 });
@@ -300,7 +284,6 @@ describe("InterventionRequestPayload", () => {
     steer: { ...guards, type: "steer", content: "please use the async client" },
     interrupt: { ...guards, type: "interrupt", reason: "wrong branch" },
     cancel: { ...guards, type: "cancel" },
-    rollback: { ...guards, type: "rollback", targetPosition: 12 },
   };
   const arms: ReadonlyArray<[InterventionType, Record<string, unknown>]> = (
     Object.entries(armPayloads) as Array<[InterventionType, Record<string, unknown>]>
@@ -453,247 +436,6 @@ describe("InterventionRequestPayload", () => {
       );
     });
   });
-
-  describe("the rollback arm", () => {
-    const rollback = { ...guards, type: "rollback" };
-
-    it("admits position zero and refuses a fractional or negative position", () => {
-      // Position 0 is a legitimate rewind target — the run's first boundary.
-      // Whether the position names a RECORDED boundary strictly below the
-      // run's current position is a daemon admission check against durable
-      // state, deliberately not a parse concern.
-      expect(InterventionRequestPayloadSchema.parse({ ...rollback, targetPosition: 0 })).toEqual({
-        ...rollback,
-        targetPosition: 0,
-      });
-      expect(() =>
-        InterventionRequestPayloadSchema.parse({ ...rollback, targetPosition: 2.5 }),
-      ).toThrow();
-      expect(() =>
-        InterventionRequestPayloadSchema.parse({ ...rollback, targetPosition: -1 }),
-      ).toThrow();
-    });
-
-    it("treats an absent replacementSend as an ordinary bare rollback", () => {
-      const bare = { ...rollback, targetPosition: 9 };
-      expect(InterventionRequestPayloadSchema.parse(bare)).toEqual(bare);
-      expect("replacementSend" in InterventionRequestPayloadSchema.parse(bare)).toBe(false);
-    });
-
-    it("selects the composite on presence alone and bounds its body", () => {
-      const composite = {
-        ...rollback,
-        targetPosition: 9,
-        replacementSend: { content: "the corrected message" },
-      };
-      expect(InterventionRequestPayloadSchema.parse(composite)).toEqual(composite);
-      expect(() =>
-        InterventionRequestPayloadSchema.parse({
-          ...rollback,
-          targetPosition: 9,
-          replacementSend: { content: "" },
-        }),
-      ).toThrow();
-    });
-
-    it("refuses an attachment member on replacementSend", () => {
-      // No attachment member in V1: the leg replaces a user message body
-      // and nothing else, so an unregistered field must fail closed rather than
-      // be silently dropped.
-      expect(() =>
-        InterventionRequestPayloadSchema.parse({
-          ...rollback,
-          targetPosition: 9,
-          replacementSend: { content: "corrected", attachments: [] },
-        }),
-      ).toThrow();
-    });
-  });
-});
-
-// --------------------------------------------------------------------------
-// --------------------------------------------------------------------------
-
-const RESTORED_ENUMERATIONS = {
-  overwrittenIgnoredPaths: ["build/out.js"],
-  divergentGitlinks: ["vendor/lib"],
-} as const;
-
-describe("RollbackAppliedResult", () => {
-  it("round-trips both applied dispositions, bare and with the admitted literal", () => {
-    for (const bare of [
-      { disposition: "files-restored", ...RESTORED_ENUMERATIONS },
-      { disposition: "conversation-only" },
-    ]) {
-      expect(RollbackAppliedResultSchema.parse(bare)).toEqual(bare);
-      const composite = { ...bare, resendDisposition: "admitted" };
-      expect(RollbackAppliedResultSchema.parse(composite)).toEqual(composite);
-    }
-  });
-
-  it("requires both never-silent enumerations on files-restored", () => {
-    // The turn-boundary snapshot mandate: absence is a parse failure, so a
-    // consumer can never mistake absence for none.
-    expect(() => RollbackAppliedResultSchema.parse({ disposition: "files-restored" })).toThrow();
-    expect(() =>
-      RollbackAppliedResultSchema.parse({
-        disposition: "files-restored",
-        overwrittenIgnoredPaths: [],
-      }),
-    ).toThrow();
-    // Empty-when-none is the legal shape, and is what makes absence meaningful.
-    expect(
-      RollbackAppliedResultSchema.parse({
-        disposition: "files-restored",
-        overwrittenIgnoredPaths: [],
-        divergentGitlinks: [],
-      }),
-    ).toEqual({
-      disposition: "files-restored",
-      overwrittenIgnoredPaths: [],
-      divergentGitlinks: [],
-    });
-  });
-
-  it("refuses the degraded class and the degraded resend literal", () => {
-    expect(() => RollbackAppliedResultSchema.parse({ disposition: "pause-only" })).toThrow();
-    expect(() =>
-      RollbackAppliedResultSchema.parse({
-        disposition: "conversation-only",
-        resendDisposition: "unapplied",
-      }),
-    ).toThrow();
-  });
-
-  it("refuses a path carrying a NUL byte", () => {
-    expect(() =>
-      RollbackAppliedResultSchema.parse({
-        disposition: "files-restored",
-        overwrittenIgnoredPaths: ["build/\0out.js"],
-        divergentGitlinks: [],
-      }),
-    ).toThrow();
-    // Positive control: a path that is entirely whitespace is LEGAL on POSIX
-    // and must still parse — the enumerations are not free-form wire prose.
-    expect(
-      RollbackAppliedResultSchema.parse({
-        disposition: "files-restored",
-        overwrittenIgnoredPaths: [" "],
-        divergentGitlinks: [],
-      }).disposition,
-    ).toBe("files-restored");
-  });
-});
-
-describe("RollbackDegradedResult", () => {
-  const degradedArms: ReadonlyArray<Record<string, unknown>> = [
-    { disposition: "files-partially-restored", failedStep: "read-tree", ...RESTORED_ENUMERATIONS },
-    { disposition: "files-unrestored" },
-    { disposition: "pause-only" },
-    { disposition: "nothing-applied" },
-    { disposition: "position-mismatch", requestedPosition: 12, confirmedPosition: 9 },
-    { disposition: "boundary-diverged", confirmedPosition: 9, newestBoundaryPosition: 11 },
-    { disposition: "resend-unapplied", resendDisposition: "unapplied", ...RESTORED_ENUMERATIONS },
-  ];
-
-  it.each(degradedArms)("round-trips %o", (arm) => {
-    expect(RollbackDegradedResultSchema.parse(arm)).toEqual(arm);
-  });
-
-  it("carries the seven dispositions and no more", () => {
-    // Re-derived by counting the arms above rather than asserted.
-    expect(degradedArms).toHaveLength(7);
-    expect(() => RollbackDegradedResultSchema.parse({ disposition: "files-restored" })).toThrow();
-  });
-
-  it("requires resendDisposition on the composite-only arm and nowhere else", () => {
-    // The arm is reachable only from a composite request, so unlike every other
-    // outcome its result DOES identify its request as composite — which is what
-    // makes requiredness expressible here alone.
-    expect(() =>
-      RollbackDegradedResultSchema.parse({
-        disposition: "resend-unapplied",
-        ...RESTORED_ENUMERATIONS,
-      }),
-    ).toThrow();
-    // ...while pause-only parses without it.
-    expect(RollbackDegradedResultSchema.parse({ disposition: "pause-only" })).toEqual({
-      disposition: "pause-only",
-    });
-  });
-
-  it("requires files-restored's two enumerations on the composite-only arm", () => {
-    // The arm DISPLACES a completed file leg, so dropping them would silence a
-    // restore that did mutate the tree.
-    expect(() =>
-      RollbackDegradedResultSchema.parse({
-        disposition: "resend-unapplied",
-        resendDisposition: "unapplied",
-      }),
-    ).toThrow();
-  });
-
-  it("takes newestBoundaryPosition as required-and-nullable, never optional", () => {
-    // `null` states the position-less-compaction-row cause; an ABSENT member
-    // could not be distinguished from a producer that forgot to populate it.
-    expect(
-      RollbackDegradedResultSchema.parse({
-        disposition: "boundary-diverged",
-        confirmedPosition: 9,
-        newestBoundaryPosition: null,
-      }),
-    ).toEqual({
-      disposition: "boundary-diverged",
-      confirmedPosition: 9,
-      newestBoundaryPosition: null,
-    });
-    expect(() =>
-      RollbackDegradedResultSchema.parse({
-        disposition: "boundary-diverged",
-        confirmedPosition: 9,
-      }),
-    ).toThrow();
-  });
-
-  it("refuses the applied class and the applied resend literal", () => {
-    expect(() =>
-      RollbackDegradedResultSchema.parse({ disposition: "conversation-only" }),
-    ).toThrow();
-    expect(() =>
-      RollbackDegradedResultSchema.parse({
-        disposition: "pause-only",
-        resendDisposition: "admitted",
-      }),
-    ).toThrow();
-  });
-
-  it("refuses an unknown disposition", () => {
-    expect(() =>
-      RollbackDegradedResultSchema.parse({ disposition: "files-half-restored" }),
-    ).toThrow();
-  });
-});
-
-describe("RollbackInterventionResult", () => {
-  it("admits both classes through the composed union", () => {
-    expect(RollbackInterventionResultSchema.parse({ disposition: "conversation-only" })).toEqual({
-      disposition: "conversation-only",
-    });
-    expect(RollbackInterventionResultSchema.parse({ disposition: "pause-only" })).toEqual({
-      disposition: "pause-only",
-    });
-  });
-
-  it("still refuses a class-crossing resend literal through the union", () => {
-    // The union is where a naive composition would lose the state-scoping, so
-    // this is the pin that matters most on the composed shape.
-    expect(() =>
-      RollbackInterventionResultSchema.parse({
-        disposition: "pause-only",
-        resendDisposition: "admitted",
-      }),
-    ).toThrow();
-  });
 });
 
 // --------------------------------------------------------------------------
@@ -705,202 +447,7 @@ const responseBase = {
 } as const;
 
 describe("InterventionRequestResponse", () => {
-  it("parses an applied rollback carrying an applied-class disposition", () => {
-    const response = {
-      ...responseBase,
-      interventionType: "rollback",
-      state: "applied",
-      result: { disposition: "files-restored", ...RESTORED_ENUMERATIONS },
-    };
-    expect(InterventionRequestResponseSchema.parse(response)).toEqual(response);
-  });
-
-  it("parses a degraded rollback carrying a degraded-class disposition", () => {
-    const response = {
-      ...responseBase,
-      interventionType: "rollback",
-      state: "degraded",
-      result: {
-        disposition: "boundary-diverged",
-        confirmedPosition: 9,
-        newestBoundaryPosition: null,
-      },
-    };
-    expect(InterventionRequestResponseSchema.parse(response)).toEqual(response);
-  });
-
-  it("refuses a state/disposition mismatch in both directions", () => {
-    // `applied` + `files-unrestored` would exit-map 0 while rendering a failed
-    // restore, because the CLI derives the POSIX code from `state`.
-    expect(() =>
-      InterventionRequestResponseSchema.parse({
-        ...responseBase,
-        interventionType: "rollback",
-        state: "applied",
-        result: { disposition: "files-unrestored" },
-      }),
-    ).toThrow();
-    expect(() =>
-      InterventionRequestResponseSchema.parse({
-        ...responseBase,
-        interventionType: "rollback",
-        state: "degraded",
-        result: { disposition: "conversation-only" },
-      }),
-    ).toThrow();
-  });
-
-  it("refuses a disposition-less terminal rollback response", () => {
-    for (const state of ["applied", "degraded"]) {
-      expect(() =>
-        InterventionRequestResponseSchema.parse({
-          ...responseBase,
-          interventionType: "rollback",
-          state,
-        }),
-      ).toThrow();
-    }
-  });
-
-  it("requires the machine-readable cause on a rejected rollback", () => {
-    expect(() =>
-      InterventionRequestResponseSchema.parse({
-        ...responseBase,
-        interventionType: "rollback",
-        state: "rejected",
-      }),
-    ).toThrow();
-    const rejected = {
-      ...responseBase,
-      interventionType: "rollback",
-      state: "rejected",
-      rejectionReason: "driver.capability_unsupported",
-    };
-    expect(InterventionRequestResponseSchema.parse(rejected)).toEqual(rejected);
-  });
-
-  describe("the rejectionGuard member", () => {
-    // The composite's four structural refusal guards, typed so a renderer maps
-    // guard -> remedy by an exhaustive switch. `rejectionReason` is a
-    // machine-readable cause and not prose (see the module comment), but its
-    // vocabulary is OPEN — so it can be shown and not switched on. Every
-    // fixture below therefore carries an identifier, never a sentence.
-    const guards = [
-      "no-active-turn",
-      "no-pending-send",
-      "user-authored-target",
-      "resumable-target",
-    ] as const;
-
-    it.each(guards)("admits %s beside the rejection reason", (guard) => {
-      const rejected = {
-        ...responseBase,
-        interventionType: "rollback",
-        state: "rejected",
-        rejectionReason: "run.invalid_transition",
-        rejectionGuard: guard,
-      };
-      expect(InterventionRequestResponseSchema.parse(rejected)).toEqual(rejected);
-      expect(RollbackCompositeRejectionGuardSchema.parse(guard)).toBe(guard);
-    });
-
-    it("is optional — a non-composite refusal carries none", () => {
-      const rejected = {
-        ...responseBase,
-        interventionType: "rollback",
-        state: "rejected",
-        rejectionReason: "driver.capability_unsupported",
-      };
-      expect(InterventionRequestResponseSchema.parse(rejected)).toEqual(rejected);
-    });
-
-    it("refuses a guard value outside the closed four", () => {
-      // Negative control: a free string would leave the member as open as the
-      // cause vocabulary it exists to close.
-      expect(() => RollbackCompositeRejectionGuardSchema.parse("no-active-run")).toThrow();
-      expect(() =>
-        InterventionRequestResponseSchema.parse({
-          ...responseBase,
-          interventionType: "rollback",
-          state: "rejected",
-          rejectionReason: "run.invalid_transition",
-          rejectionGuard: "no-active-run",
-        }),
-      ).toThrow();
-    });
-
-    it("refuses the member on arms that can never raise a composite guard", () => {
-      // Arm-scoped, not base-scoped: only a rollback request can be a
-      // composite, and only a `rejected` rollback settles on a guard.
-      expect(() =>
-        InterventionRequestResponseSchema.parse({
-          ...responseBase,
-          interventionType: "steer",
-          state: "rejected",
-          rejectionReason: "run.invalid_transition",
-          rejectionGuard: "no-active-turn",
-        }),
-      ).toThrow();
-      expect(() =>
-        InterventionRequestResponseSchema.parse({
-          ...responseBase,
-          interventionType: "rollback",
-          state: "expired",
-          rejectionGuard: "no-active-turn",
-        }),
-      ).toThrow();
-    });
-  });
-
-  it("refuses a result on rejected and on the three non-disposition states", () => {
-    expect(() =>
-      InterventionRequestResponseSchema.parse({
-        ...responseBase,
-        interventionType: "rollback",
-        state: "rejected",
-        rejectionReason: "driver.capability_unsupported",
-        result: { disposition: "nothing-applied" },
-      }),
-    ).toThrow();
-    for (const state of ["requested", "accepted", "expired"]) {
-      // Positive control: the state itself parses without a result.
-      expect(
-        InterventionRequestResponseSchema.parse({
-          ...responseBase,
-          interventionType: "rollback",
-          state,
-        }),
-      ).toEqual({ ...responseBase, interventionType: "rollback", state });
-      expect(() =>
-        InterventionRequestResponseSchema.parse({
-          ...responseBase,
-          interventionType: "rollback",
-          state,
-          result: { disposition: "nothing-applied" },
-        }),
-      ).toThrow();
-    }
-  });
-
-  it("carries the class-scoped resend literal on both terminal arms", () => {
-    const applied = {
-      ...responseBase,
-      interventionType: "rollback",
-      state: "applied",
-      result: { disposition: "conversation-only", resendDisposition: "admitted" },
-    };
-    expect(InterventionRequestResponseSchema.parse(applied)).toEqual(applied);
-    // ...and refuses the crossing one through the response seam, not merely on
-    // the bare result schema.
-    expect(() =>
-      InterventionRequestResponseSchema.parse({
-        ...applied,
-        result: { disposition: "conversation-only", resendDisposition: "unapplied" },
-      }),
-    ).toThrow();
-  });
-
-  it("parses the three non-rollback types with a permissive result and without one", () => {
+  it("parses the three types with a permissive result and without one", () => {
     for (const interventionType of ["steer", "interrupt", "cancel"]) {
       const bare = { ...responseBase, interventionType, state: "applied" };
       expect(InterventionRequestResponseSchema.parse(bare)).toEqual(bare);
@@ -909,15 +456,23 @@ describe("InterventionRequestResponse", () => {
     }
   });
 
-  it("refuses a rollback result smuggled onto a non-rollback response", () => {
-    // The permissive generic arm is exactly where a malformed rollback outcome
-    // would otherwise cross the boundary, so the discriminator is pinned first.
+  it("carries a machine-readable cause on a rejected response", () => {
+    const rejected = {
+      ...responseBase,
+      interventionType: "cancel",
+      state: "rejected",
+      rejectionReason: "driver.capability_unsupported",
+    };
+    expect(InterventionRequestResponseSchema.parse(rejected)).toEqual(rejected);
+  });
+
+  it("refuses an unknown member rather than stripping it", () => {
     expect(() =>
       InterventionRequestResponseSchema.parse({
         ...responseBase,
         interventionType: "steer",
         state: "applied",
-        rollbackResult: { disposition: "conversation-only" },
+        outcome: { deliveredAt: TIMESTAMP },
       }),
     ).toThrow();
   });
@@ -956,7 +511,6 @@ describe("RunStateChangeEvent", () => {
       failureCategory: "provider failure",
       recoveryCondition: "reauth-required",
       recoverySpanClassification: "irreversible",
-      healthSignal: "stuck-suspected",
       providerFailureDetail: "driver.text_neutralization_failed origin=human_text",
       completionKind: "turn",
       intendedClose: true,
@@ -964,7 +518,6 @@ describe("RunStateChangeEvent", () => {
       trigger: "workflow_phase_cancelled",
       parentRunId: PARENT_RUN_ID,
       internalHelper: false,
-      producingNodeId: NODE_ID,
       admittedUnpricedCapCents: 500,
       admittedModelFamily: "claude-opus",
     };
@@ -1030,33 +583,28 @@ describe("RunStateChangeEvent", () => {
     ).toThrow();
   });
 
-  it("refuses the three orchestration-linkage members this module cannot type", () => {
-    // `agentId`, `linkType`, and `effectiveRunConfig` are typed symbols no
+  it("refuses the two orchestration-linkage members this module cannot type", () => {
+    // `agentId` and `effectiveRunConfig` are typed symbols no
     // TypeScript in this workspace declares. Their absence is a recorded
     // decision, so a producer that emits one must FAIL rather than have it
     // silently dropped — and the fix is to add them here, never to relax
     // the strict shape at a consumer.
     //
-    // DELETE THIS CASE in the same diff that adds the three members. It asserts
+    // DELETE THIS CASE in the same diff that adds the two members. It asserts
     // a temporary gap, not designed behaviour: left standing, it is a passing
     // test that says the opposite of what the adding task needs.
-    for (const smuggled of [
-      { agentId: "agent-1" },
-      { linkType: "spawn" },
-      { effectiveRunConfig: { turnLimit: 8 } },
-    ]) {
+    for (const smuggled of [{ agentId: "agent-1" }, { effectiveRunConfig: { turnLimit: 8 } }]) {
       expect(() =>
         RunStateChangeEventSchema.parse({ ...minimalRunStateChange, ...smuggled }),
       ).toThrow();
     }
     // The linkage members that CAN be typed are carried, so the refusals above
-    // are the three named omissions and not a blanket rejection of the block.
+    // are the two named omissions and not a blanket rejection of the block.
     expect(
       RunStateChangeEventSchema.parse({
         ...minimalRunStateChange,
         parentRunId: PARENT_RUN_ID,
         internalHelper: true,
-        producingNodeId: NODE_ID,
       }).parentRunId,
     ).toBe(PARENT_RUN_ID);
   });
@@ -1161,10 +709,8 @@ const minimalRolledBack = {
 } as const;
 
 describe("RunRolledBackEvent", () => {
-  it("parses with and without the optional channel attribution", () => {
+  it("parses the four required members", () => {
     expect(RunRolledBackEventSchema.parse(minimalRolledBack)).toEqual(minimalRolledBack);
-    const channelScoped = { ...minimalRolledBack, channelId: CHANNEL_ID };
-    expect(RunRolledBackEventSchema.parse(channelScoped)).toEqual(channelScoped);
   });
 
   it.each(["sessionId", "runId", "runVersion", "targetPosition"])(
@@ -1194,14 +740,11 @@ describe("RunRolledBackEvent", () => {
     }
   });
 
-  it("refuses a non-UUID session, run, or channel id", () => {
+  it("refuses a non-UUID session or run id", () => {
     expect(() =>
       RunRolledBackEventSchema.parse({ ...minimalRolledBack, sessionId: "s-1" }),
     ).toThrow();
     expect(() => RunRolledBackEventSchema.parse({ ...minimalRolledBack, runId: "r-1" })).toThrow();
-    expect(() =>
-      RunRolledBackEventSchema.parse({ ...minimalRolledBack, channelId: "c-1" }),
-    ).toThrow();
   });
 
   it("refuses a fabricated state transition", () => {
@@ -1293,9 +836,8 @@ describe("run-control subscription requests", () => {
   });
 
   it.each(subscribeSchemas)("%s refuses a replay-cursor member", (_name, schema) => {
-    // `SessionSubscribeRequest` declares `afterCursor` / `lastEventId` because
-    // its HTTP/SSE transport injects `Last-Event-ID` pre-validation. `run.*` is
-    // local-IPC JSON-RPC, so neither member has a producer here and the
+    // `SessionSubscribeRequest` declares `afterCursor` for replay. `run.*`
+    // replays nothing, so neither cursor member has a producer here and the
     // absence is a decision — copying the neighbouring shape must fail.
     expect(() => schema.parse({ sessionId: SESSION_ID, afterCursor: "0" })).toThrow();
     expect(() => schema.parse({ sessionId: SESSION_ID, lastEventId: "0" })).toThrow();
@@ -1348,10 +890,6 @@ describe("index.ts re-exports run-control contracts", () => {
     ["QueueItemCancelRequestSchema", contracts.QueueItemCancelRequestSchema],
     ["QueueItemCancelResponseSchema", contracts.QueueItemCancelResponseSchema],
     ["InterventionRequestPayloadSchema", contracts.InterventionRequestPayloadSchema],
-    ["RollbackAppliedResultSchema", contracts.RollbackAppliedResultSchema],
-    ["RollbackCompositeRejectionGuardSchema", contracts.RollbackCompositeRejectionGuardSchema],
-    ["RollbackDegradedResultSchema", contracts.RollbackDegradedResultSchema],
-    ["RollbackInterventionResultSchema", contracts.RollbackInterventionResultSchema],
     ["InterventionRequestResponseSchema", contracts.InterventionRequestResponseSchema],
     ["RunStateChangeEventSchema", contracts.RunStateChangeEventSchema],
     ["RunRolledBackEventSchema", contracts.RunRolledBackEventSchema],

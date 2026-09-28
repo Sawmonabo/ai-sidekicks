@@ -9,9 +9,8 @@
 //   * Invalid config throws `SecureDefaultsValidationError` with an actionable
 //     message AND leaves `isLoaded() === false` — there is no partial-start
 //     state.
-//   * The returned object has EXACTLY the four conservative-config keys
-//     (`bindAddress`, `bindPort`, `localIpcPath`, `bannerFormat`); no
-//     extras leak through.
+//   * The returned object has EXACTLY the two config keys
+//     (`localIpcPath`, `bannerFormat`); no extras leak through.
 //   * Each of `tlsMode`, `tlsCertPath`, `nonLoopbackHost`,
 //     `firstRunKeysPolicy` is refused with the `unknown_setting` error
 //     code AND the canonical two-layer JSON-RPC envelope — `error.code
@@ -50,12 +49,8 @@ import {
 // Test fixtures
 // ----------------------------------------------------------------------------
 
-// The minimal valid config for the conservative-config shape
-// (matches secure-defaults.ts inline contract). bindPort is OMITTED
-// here so the default fixture exercises the "without bindPort" branch
-// of validation; tests that need bindPort spread in their own.
+// The minimal valid config (matches secure-defaults.ts inline contract).
 const VALID_BASE_CONFIG: SecureDefaultsConfig = {
-  bindAddress: "127.0.0.1",
   localIpcPath: "/tmp/ai-sidekicks-test.sock",
   bannerFormat: "text",
 };
@@ -157,15 +152,15 @@ describe("fail-closed on invalid config", () => {
   it("throws SecureDefaultsValidationError with an actionable message and leaves isLoaded()===false", () => {
     let caught: unknown;
     try {
-      // Invalid bindAddress: not in the loopback set. This exercises
+      // Invalid bannerFormat: not in the closed set. This exercises
       // the per-field validation path (vs the refuse-unknown-keys
-      // path covered by T4); both fail-modes share the
-      // SecureDefaultsValidationError type, so this case is a
-      // representative witness.
+      // path covered by the extended-scope-key cases below); both
+      // fail-modes share the SecureDefaultsValidationError type, so
+      // this case is a representative witness.
       SecureDefaults.load({
         ...VALID_BASE_CONFIG,
-        bindAddress: "0.0.0.0",
-      });
+        bannerFormat: "yaml",
+      } as unknown as SecureDefaultsConfig);
     } catch (err) {
       caught = err;
     }
@@ -173,12 +168,12 @@ describe("fail-closed on invalid config", () => {
     // "Typed error" — instance check is the load-bearing assertion.
     expect(caught).toBeInstanceOf(SecureDefaultsValidationError);
     if (!(caught instanceof SecureDefaultsValidationError)) return;
-    expect(caught.code).toBe("invalid_bind_address");
+    expect(caught.code).toBe("invalid_banner_format");
     // "Actionable message" — the message names the offending value
     // and the allowed set so an operator can act on it
     // without reading source.
-    expect(caught.message).toMatch(/0\.0\.0\.0/);
-    expect(caught.message).toMatch(/loopback set/);
+    expect(caught.message).toMatch(/yaml/);
+    expect(caught.message).toMatch(/\["text", "json"\]/);
     // "No partial-start path" — the failed first-time load did NOT
     // leave the singleton in a half-loaded state.
     expect(SecureDefaults.isLoaded()).toBe(false);
@@ -209,7 +204,6 @@ describe("fail-closed on invalid config", () => {
       // refuse-unknown-keys check passes (no unknown keys present);
       // the missing-required-key check fires next per source order.
       SecureDefaults.load({
-        bindAddress: "127.0.0.1",
         localIpcPath: "/tmp/ai-sidekicks-test.sock",
       } as unknown as SecureDefaultsConfig);
     } catch (err) {
@@ -227,93 +221,37 @@ describe("fail-closed on invalid config", () => {
 // effectiveSettings exposes only non-secret typed values
 // ----------------------------------------------------------------------------
 //
-// Per the orchestrator note + advisor confirmation: the assertion
-// shape is the EXACT key set of the conservative-config view. Two
-// branches are pinned:
-//
-//   * with-bindPort: `Object.keys(eff).sort()` deep-equals the four
-//     allowlisted keys (`bannerFormat`, `bindAddress`, `bindPort`,
-//     `localIpcPath`).
-//   * without-bindPort: `Object.keys(eff).length === 3` AND
-//     `"bindPort" in eff === false`. The `in`-check is the load-
-//     bearing assertion: a regression that switched the source to
-//     `{ ...x, bindPort: undefined }` would still satisfy
-//     `eff.bindPort === undefined` but would NOT satisfy `"bindPort"
-//     in eff === false`.
-//
-// Coupled with the value round-trip assertions (each key carries the
-// loaded value verbatim), the exact-key-set assertion catches a
-// regression that ADDED a leaking field without changing existing
-// behavior.
+// The assertion shape is the EXACT key set of the settings view. Coupled
+// with the value round-trip assertions (each key carries the loaded value
+// verbatim), the exact-key-set assertion catches a regression that ADDED a
+// leaking field without changing existing behavior.
 
 describe("effectiveSettings non-secret typed values", () => {
-  it("returns exactly the four conservative-config keys when bindPort is supplied", () => {
-    bootstrap({ ...VALID_BASE_CONFIG, bindPort: 47100 });
+  it("returns exactly the two config keys, each carrying the loaded value", () => {
+    bootstrap(VALID_BASE_CONFIG);
     const eff = SecureDefaults.effectiveSettings();
 
-    // The orchestrator-pinned assertion shape: full key-set equality.
-    // Sorting both sides removes any insertion-order coupling so a
-    // refactor that reorders the validateConfig return literal
+    // Full key-set equality. Sorting removes any insertion-order coupling
+    // so a refactor that reorders the validateConfig return literal
     // doesn't break the test.
-    const keys = Object.keys(eff).sort();
-    expect(keys).toEqual(["bannerFormat", "bindAddress", "bindPort", "localIpcPath"]);
-    expect(keys).toHaveLength(4);
+    expect(Object.keys(eff).sort()).toEqual(["bannerFormat", "localIpcPath"]);
 
     // Value round-trip: each known field carries the loaded value
     // verbatim. A regression that returned a hard-coded constant
     // would still pass the key-set assertion but fail here.
-    expect(eff.bindAddress).toBe("127.0.0.1");
-    expect(eff.bindPort).toBe(47100);
     expect(eff.localIpcPath).toBe("/tmp/ai-sidekicks-test.sock");
     expect(eff.bannerFormat).toBe("text");
 
-    // The returned view is frozen per source line 203 — assert the
-    // freeze invariant so a regression that returned a mutable
-    // object is caught here. Mutation attempts on a frozen object
-    // throw in strict mode (which all test files run under via
-    // Node's ESM `"use strict"` default).
+    // The returned view is frozen — assert the freeze invariant so a
+    // regression that returned a mutable object is caught here.
     expect(Object.isFrozen(eff)).toBe(true);
   });
 
-  it("OMITS bindPort from the returned view when input omits it (proves clean-omit branch, not undefined-assignment)", () => {
-    // The source has TWO return literals (lines 354-365). The
-    // without-bindPort literal omits the key entirely; the with-
-    // bindPort literal includes it. This test pins the omit branch
-    // — the load-bearing distinction is `"bindPort" in eff === false`,
-    // not just `eff.bindPort === undefined`.
-    bootstrap(VALID_BASE_CONFIG);
+  it("admits the json banner format end-to-end", () => {
+    // Pins the closed-set branch so a regression that narrowed the
+    // banner-format set down to "text" only would surface here.
+    bootstrap({ ...VALID_BASE_CONFIG, bannerFormat: "json" });
     const eff = SecureDefaults.effectiveSettings();
-
-    expect(Object.keys(eff)).toHaveLength(3);
-    expect(Object.keys(eff).sort()).toEqual(["bannerFormat", "bindAddress", "localIpcPath"]);
-    // The clean-omit witness — `in`-check, not value-check.
-    expect("bindPort" in eff).toBe(false);
-
-    // Other fields still round-trip.
-    expect(eff.bindAddress).toBe("127.0.0.1");
-    expect(eff.localIpcPath).toBe("/tmp/ai-sidekicks-test.sock");
-    expect(eff.bannerFormat).toBe("text");
-  });
-
-  it("admits the second loopback set member (`::1`) and the json banner format end-to-end", () => {
-    // Belt-and-braces: pin the closed-set branches so a regression
-    // that narrowed the loopback set or the banner-format set down
-    // to "127.0.0.1" + "text" only would surface here. The four-key
-    // set assertion is shared with the earlier with-bindPort case.
-    bootstrap({
-      bindAddress: "::1",
-      bindPort: 47100,
-      localIpcPath: "/tmp/ai-sidekicks-test.sock",
-      bannerFormat: "json",
-    });
-    const eff = SecureDefaults.effectiveSettings();
-    expect(Object.keys(eff).sort()).toEqual([
-      "bannerFormat",
-      "bindAddress",
-      "bindPort",
-      "localIpcPath",
-    ]);
-    expect(eff.bindAddress).toBe("::1");
     expect(eff.bannerFormat).toBe("json");
   });
 });

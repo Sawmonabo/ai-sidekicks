@@ -192,22 +192,6 @@ export const AnchorPayloadSchema: z.ZodType<AnchorPayload, AnchorPayload> = z
   });
 
 /**
- * Wire input for the control-plane `eventanchor.upload` procedure — the
- * anchor payload itself, unwrapped.
- *
- * Aliased rather than re-declared so the upload boundary can never drift from
- * the shape the daemon signed: there is one anchor contract, and both ends
- * parse the same schema object.
- */
-export type EventAnchorUploadRequest = AnchorPayload;
-
-/** Runtime validator for {@link EventAnchorUploadRequest}. */
-export const EventAnchorUploadRequestSchema: z.ZodType<
-  EventAnchorUploadRequest,
-  EventAnchorUploadRequest
-> = AnchorPayloadSchema;
-
-/**
  * Wire result of `eventanchor.upload`.
  *
  * `stored` distinguishes the two SUCCESS arms of an idempotent upload, and

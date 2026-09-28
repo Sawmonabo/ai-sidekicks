@@ -1,17 +1,9 @@
-// File-row errata PR (2026-08-10) — direct schema coverage for the SessionSubscribe payload family.
-// the Files row promised a `session.test.ts` covering all five payload schema families; the shipped
-// split left SessionSubscribe exercised only transitively through consumer suites
-// (`packages/runtime-daemon/src/ipc/handlers/__tests__/session-handlers.test.ts#SessionSubscribeRequestSchema`,
-// control-plane SSE factory). This file completes the SessionSubscribe leg of the direct coverage —
-// errata entry, same date.
+// Direct schema coverage for the SessionSubscribe payload family.
 //
 // Coverage shape:
 //   • Request:
-//       - `{sessionId}` alone parses (both replay cursors optional)
+//       - `{sessionId}` alone parses (the replay cursor is optional)
 //       - `afterCursor` (IPC body convention) parses
-//       - `lastEventId` (tRPC v11 SSE `Last-Event-ID` header injection,
-//         pre-Zod — the field .strict() would otherwise reject on every
-//         reconnect) parses, alone and alongside `afterCursor`
 //       - sessionId is required and UUID-guarded
 //       - extra unknown keys are rejected (`.strict()` enforcement)
 //       - cursor bounds: empty rejects (min 1), oversized rejects
@@ -30,11 +22,10 @@ const SESSION_ID = "550e8400-e29b-41d4-a716-446655440000";
 const SUBSCRIPTION_ID = "990e8400-e29b-41d4-a716-446655440004";
 
 describe("SessionSubscribeRequestSchema (request shape)", () => {
-  it("accepts a minimal request — both replay cursors are optional", () => {
+  it("accepts a minimal request — the replay cursor is optional", () => {
     const parsed = SessionSubscribeRequestSchema.parse({ sessionId: SESSION_ID });
     expect(parsed.sessionId).toBe(SESSION_ID);
     expect(parsed.afterCursor).toBeUndefined();
-    expect(parsed.lastEventId).toBeUndefined();
   });
 
   it("accepts an `afterCursor` (IPC/JSON-RPC body convention)", () => {
@@ -43,23 +34,6 @@ describe("SessionSubscribeRequestSchema (request shape)", () => {
       afterCursor: "42_1723291500000000000",
     });
     expect(parsed.afterCursor).toBe("42_1723291500000000000");
-  });
-
-  it("accepts a `lastEventId` (SSE Last-Event-ID header, injected pre-validation)", () => {
-    const parsed = SessionSubscribeRequestSchema.parse({
-      sessionId: SESSION_ID,
-      lastEventId: "43_1723291600000000000",
-    });
-    expect(parsed.lastEventId).toBe("43_1723291600000000000");
-  });
-
-  it("accepts both cursors together (reconnect with a stale cached afterCursor)", () => {
-    const result = SessionSubscribeRequestSchema.safeParse({
-      sessionId: SESSION_ID,
-      afterCursor: "42_1723291500000000000",
-      lastEventId: "43_1723291600000000000",
-    });
-    expect(result.success).toBe(true);
   });
 
   it("rejects a request missing `sessionId`", () => {
@@ -82,27 +56,21 @@ describe("SessionSubscribeRequestSchema (request shape)", () => {
     expect(result.success).toBe(false);
   });
 
-  it.each(["afterCursor", "lastEventId"] as const)(
-    "rejects an empty-string %s (opaque but non-empty)",
-    (field) => {
-      const result = SessionSubscribeRequestSchema.safeParse({
-        sessionId: SESSION_ID,
-        [field]: "",
-      });
-      expect(result.success).toBe(false);
-    },
-  );
+  it("rejects an empty-string afterCursor (opaque but non-empty)", () => {
+    const result = SessionSubscribeRequestSchema.safeParse({
+      sessionId: SESSION_ID,
+      afterCursor: "",
+    });
+    expect(result.success).toBe(false);
+  });
 
-  it.each(["afterCursor", "lastEventId"] as const)(
-    "rejects an oversized %s (defense-in-depth length cap)",
-    (field) => {
-      const result = SessionSubscribeRequestSchema.safeParse({
-        sessionId: SESSION_ID,
-        [field]: "x".repeat(EVENT_CURSOR_MAX_LEN + 1),
-      });
-      expect(result.success).toBe(false);
-    },
-  );
+  it("rejects an oversized afterCursor (defense-in-depth length cap)", () => {
+    const result = SessionSubscribeRequestSchema.safeParse({
+      sessionId: SESSION_ID,
+      afterCursor: "x".repeat(EVENT_CURSOR_MAX_LEN + 1),
+    });
+    expect(result.success).toBe(false);
+  });
 
   it("accepts a cursor at exactly the length cap (boundary)", () => {
     const result = SessionSubscribeRequestSchema.safeParse({

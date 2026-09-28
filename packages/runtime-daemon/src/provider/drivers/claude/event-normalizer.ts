@@ -129,12 +129,7 @@ import {
 } from "@ai-sidekicks/contracts";
 
 import type { DriverDiagnosticRecord, DriverDiagnosticsEmitter } from "../../driver-diagnostics.js";
-import {
-  TerminalEmissionGate,
-  type TerminalEmissionDecision,
-  type TerminalRunFrame,
-  type TerminalSuppressionReason,
-} from "../../terminal-emission-gate.js";
+import { TerminalEmissionGate, type TerminalRunFrame } from "../../terminal-emission-gate.js";
 import type { ChildThreadAnnouncement, ThreadFrameFamilyClass } from "../../thread-frame-router.js";
 import {
   UNRECOGNIZED_TURN_EVIDENCE,
@@ -168,7 +163,7 @@ import {
  * wire and needs to learn which channel discipline applies. Making it an input
  * would ask the caller to already know the answer.
  */
-export type ClaudeWireChannel = "stream" | "control-request" | "control-response";
+type ClaudeWireChannel = "stream" | "control-request" | "control-response";
 
 // --------------------------------------------------------------------------
 // The closed census of Claude inbound frame kinds this normalizer maps.
@@ -341,7 +336,7 @@ export interface ClaudeNormalizedFamilyEmission {
  * record the daemon already owns, or whose capability another census row
  * already carries.
  */
-export interface ClaudeNotEventedFrameDisposition {
+interface ClaudeNotEventedFrameDisposition {
   readonly disposition: "not-evented";
   readonly frameKind: ClaudeWireFrameKind;
   readonly channel: ClaudeWireChannel;
@@ -1327,7 +1322,7 @@ function classifyClaudeFrameKindForRouting(frameKind: string): ThreadFrameFamily
 // never settles the parent's.
 
 /**
- * The Claude leg's bindings for the provider-neutral emission gate.
+ * The Claude leg's binding for the provider-neutral emission gate.
  *
  * The suppression rule itself lives once at `provider/terminal-emission-gate.ts`
  * — both driver legs feed ONE shared uniqueness index, and two implementations
@@ -1335,8 +1330,6 @@ function classifyClaudeFrameKindForRouting(frameKind: string): ThreadFrameFamily
  * is the Claude-named binding.
  */
 export type ClaudeTerminalRunFrame = TerminalRunFrame;
-export type ClaudeTerminalSuppressionReason = TerminalSuppressionReason;
-export type ClaudeTerminalEmissionDecision = TerminalEmissionDecision;
 
 /**
  * The Claude terminal-emission gate — one instance per provider session, held

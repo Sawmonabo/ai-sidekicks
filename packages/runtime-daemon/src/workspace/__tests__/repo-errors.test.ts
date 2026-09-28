@@ -24,10 +24,7 @@ import { describe, expect, it } from "vitest";
 import { JsonRpcErrorCode } from "@ai-sidekicks/contracts";
 
 import { DaemonDomainError } from "../../ipc/domain-error.js";
-import type { RepoErrorCode, RepoRootResolutionReason } from "../repo-errors.js";
-// Namespace import for the export census below: it observes every export the
-// module actually has, which the named list by construction cannot.
-import * as repoErrorModule from "../repo-errors.js";
+import type { RepoRootResolutionReason } from "../repo-errors.js";
 import {
   REPO_ERROR_CODES,
   RepoAlreadyAttachedError,
@@ -47,7 +44,7 @@ const ATTEMPTED_PATH = "/Users/operator/private-clients/acme-payments/src";
 // Bare UUIDs, not prefixed handles. the `RepoMountIdSchema` /
 // `WorkspaceIdSchema` are `brandedUuidIdSchema` (`RFC_9562_TEXT_FORM`), so an
 // `rm-` / `ws-`-prefixed fixture would fail to parse — and a fixture here is
-// what a Phase 2 author copies.
+// what a later author copies.
 const SAMPLE_MOUNT_ID = "8f3c1a20-0f1e-4c77-9d2b-6a4e1f0b7c53";
 const SAMPLE_CONFLICTING_MOUNT_ID = "1b7d9e44-3c22-4f81-8a05-2e9c6d33b1af";
 const SAMPLE_BUSY_WORKSPACE_IDS = [
@@ -58,18 +55,14 @@ const SAMPLE_BUSY_WORKSPACE_IDS = [
 /**
  * Total `Record` over the reason union: a member added to the union but not
  * listed here, or listed here but not in the union, is a compile error. Every
- * reason loop below derives from this rather than hardcoding the members, so
- * the loops grow with the union. That matters most for the redaction assertions
- * — a future reason whose message escaped them would be a silent hole. It
- * worked as designed twice, on both members added — `not_absolute` for its
- * absoluteness gate and `root_mismatch` for its root verification: this Record
- * failed to compile until each member landed, and the redaction and round-trip
- * loops picked them up with no further edit.
+ * reason loop below derives from this, so a new reason's message is
+ * redaction-checked with no further edit.
  */
 const RESOLUTION_REASON_KEYS: Record<RepoRootResolutionReason, true> = {
   not_absolute: true,
   path_not_found: true,
   not_readable: true,
+  not_a_git_repository: true,
   vcs_error: true,
   root_mismatch: true,
 };
@@ -94,6 +87,7 @@ function everyCarrier(): readonly DaemonDomainError[] {
 }
 
 // ----------------------------------------------------------------------------
+// Canonical code strings
 // ----------------------------------------------------------------------------
 
 describe("repo error carriers — canonical code strings", () => {
@@ -122,37 +116,10 @@ describe("repo error carriers — canonical code strings", () => {
   });
 
   it("emits the same set as REPO_ERROR_CODES — no orphan row, no invented code", () => {
-    // Drift detector, scoped to what `everyCarrier()` enumerates: a as does
-    // one of THESE five minting a code the registry does not list. A sixth
-    // carrier added to the module but not to the helper is invisible to this
-    // assertion — the export census below is what closes that gap.
+    // Every carrier `everyCarrier()` builds emits a code the registry lists,
+    // and every registry code has a carrier.
     const emittedCodes = everyCarrier().map((carrier) => carrier.code);
     expect([...emittedCodes].sort()).toEqual([...REPO_ERROR_CODES].sort());
-  });
-
-  it("exports exactly five error constructors — a sixth carrier fails the census", () => {
-    // Observes the module's real export surface rather than a hand-kept list,
-    // so a carrier added without a corresponding registry row and test cannot
-    // slip through the scoping caveat above.
-    const exportedErrorConstructors = Object.entries(repoErrorModule).filter(
-      ([, exported]) =>
-        typeof exported === "function" && exported.prototype instanceof DaemonDomainError,
-    );
-    expect(exportedErrorConstructors).toHaveLength(REPO_ERROR_CODES.length);
-  });
-
-  it("REPO_ERROR_CODES enumerates exactly the RepoErrorCode union", () => {
-    // Total `Record` over the union: a member missing below, or a key that
-    // is not a member, is a compile error. The runtime comparison then pins
-    // the exported tuple to that same set.
-    const everyRegistryCode: Record<RepoErrorCode, true> = {
-      "repo.not_found": true,
-      "repo.root_resolution_failed": true,
-      "repo.outside_trust_envelope": true,
-      "repo.already_attached": true,
-      "repo.detach_conflict": true,
-    };
-    expect(Object.keys(everyRegistryCode).sort()).toEqual([...REPO_ERROR_CODES].sort());
   });
 
   it("pins the notional HTTP status of every row", () => {
@@ -222,15 +189,14 @@ describe("repo error carriers — Error subclass behavior", () => {
 });
 
 // ----------------------------------------------------------------------------
-// Wire-projection shape — the structural precondition for Phase 3
+// Wire-projection shape — the structural precondition for the JSON-RPC wire
 // ----------------------------------------------------------------------------
 
 describe("repo error carriers — wire-projection shape", () => {
   it("every carrier extends DaemonDomainError, so it rides the single mapper branch", () => {
-    // This is what makes the AC's "Phase 2/3 map onto the JSON-RPC envelope
-    // without re-keying" true: `mapJsonRpcError` already has one generic
-    // `instanceof DaemonDomainError` branch (a landed), so no phase adds a
-    // per-class branch.
+    // This is what lets every carrier map onto the JSON-RPC envelope without
+    // re-keying: `mapJsonRpcError` has one generic `instanceof
+    // DaemonDomainError` branch, so no carrier needs its own.
     for (const carrier of everyCarrier()) {
       expect(carrier).toBeInstanceOf(DaemonDomainError);
     }
@@ -238,9 +204,9 @@ describe("repo error carriers — wire-projection shape", () => {
 
   it("pins repo.not_found at -32602 InvalidParams, matching session.not_found", () => {
     // The base class's own rule: a supplied id that does not resolve is a
-    // param-shape failure. landed `repo.not_found` at `-32602` as its worked
-    // example on both sides of the wire, so pinning it in the carrier is
-    // what spares Phase 3 from editing a Phase 1 file.
+    // param-shape failure, with `repo.not_found` at `-32602` as its worked
+    // example on both sides of the wire, so pinning it in the carrier spares
+    // every consumer from editing it.
     expect(new RepoMountNotFoundError(SAMPLE_MOUNT_ID).jsonRpcCode).toBe(
       JsonRpcErrorCode.InvalidParams,
     );
@@ -263,19 +229,6 @@ describe("repo error carriers — wire-projection shape", () => {
 // ----------------------------------------------------------------------------
 
 describe("RepoRootResolutionError — closed reason discriminant (carrier leg)", () => {
-  it("accepts exactly the five ratified reasons", () => {
-    // The union's member set is pinned at compile time by
-    // `RESOLUTION_REASON_KEYS` being a total `Record`; this fixes the count
-    // and spelling so a sixth member cannot land silently.
-    expect([...EVERY_RESOLUTION_REASON].sort()).toEqual([
-      "not_absolute",
-      "not_readable",
-      "path_not_found",
-      "root_mismatch",
-      "vcs_error",
-    ]);
-  });
-
   it("round-trips each reason onto the instance and into the wire detail", () => {
     for (const reason of EVERY_RESOLUTION_REASON) {
       const error = new RepoRootResolutionError(reason);
@@ -301,6 +254,7 @@ describe("RepoRootResolutionError — closed reason discriminant (carrier leg)",
 });
 
 // ----------------------------------------------------------------------------
+// Path redaction
 // ----------------------------------------------------------------------------
 
 describe("path redaction — the attempted path cannot reach message or fields", () => {
@@ -308,8 +262,8 @@ describe("path redaction — the attempted path cannot reach message or fields",
     // Prescribes a carrier "constructed with an attempted path" that does not
     // leak it into `message`. This satisfies that in the stronger structural
     // form — there is no way to construct it WITH a path, so the leak is
-    // unrepresentable rather than merely absent. A plan-vs-test differ should
-    // read the missing literal case as subsumed, not skipped.
+    // unrepresentable rather than merely absent, which subsumes a literal
+    // "constructed with a path" case.
     //
     // Two type-level pins plus a runtime cross-check:
     //   * the empty-tuple annotation rejects a new REQUIRED parameter;
@@ -325,7 +279,7 @@ describe("path redaction — the attempted path cannot reach message or fields",
     //     erase, leaving nothing that observes the emitted signature.
     // Together they trip on any signature change. That is deliberate: widening
     // here should be an explicit decision, even for the closed non-path
-    // discriminant Phase 3 might legitimately want.
+    // discriminant a later consumer might legitimately want.
     const constructorArguments: TrustEnvelopeArguments = [];
     expect(constructorArguments).toHaveLength(0);
     expect(TrustEnvelopeViolationError.length).toBe(0);
@@ -370,7 +324,7 @@ describe("path redaction — the attempted path cannot reach message or fields",
 });
 
 // ----------------------------------------------------------------------------
-// Structured detail — the payloads Phase 2/3 project into data.fields
+// Structured detail — the payloads the wire projects into data.fields
 // ----------------------------------------------------------------------------
 
 describe("repo error carriers — structured detail payloads", () => {

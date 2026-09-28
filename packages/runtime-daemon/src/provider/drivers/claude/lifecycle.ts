@@ -58,7 +58,6 @@ import {
   DRIVER_FAILURE_DETAIL_MAX_LEN,
   DRIVER_PROVIDER_COMMAND_ENTRIES_MAX,
   DriverAuthProbeResultSchema,
-  DriverGoalResultSchema,
   DriverResumeResultSchema,
   DriverRollbackResultSchema,
   ProviderCommandEntrySchema,
@@ -67,13 +66,11 @@ import {
   type DriverTranscriptReplayResult,
   type ReplayTranscriptParams,
   type CallbackToolResult,
-  type ClearSessionGoalParams,
   type CloseSessionParams,
   type CompactContextParams,
   type CreateSessionParams,
   type DriverAuthProbeResult,
   type DriverCompactionResult,
-  type DriverGoalResult,
   type DriverResumeResult,
   type DriverRollbackResult,
   type ExecutionPosture,
@@ -90,7 +87,6 @@ import {
   type RunId,
   type SessionCallbackTool,
   type SessionId,
-  type SetSessionGoalParams,
   type StartRunParams,
   type SubagentDefinition,
   type SubagentPolicy,
@@ -292,7 +288,7 @@ export type ClaudeUserTextWriteAttempt =
  * frame path — `system/api_retry` with a typed `error`, and the result subtypes —
  * which is a different seam with a different owner.
  */
-export function observeClaudeUserTextFailure(
+function observeClaudeUserTextFailure(
   delivery: ClaudeUserTextDelivery,
 ): ProviderRequestFailureObservation {
   return { delivery: delivery === "unsent" ? "unsent" : "indeterminate" };
@@ -306,7 +302,7 @@ export function observeClaudeUserTextFailure(
 // realizing it against a build whose `system/init` capability tokens do not
 // include `interrupt_cancel_queued_v1` is the transport's job, through
 // per-capability detection.
-export interface ClaudeInterruptControlRequest {
+interface ClaudeInterruptControlRequest {
   readonly subtype: "interrupt";
   readonly cancelQueued: boolean;
 }
@@ -349,7 +345,7 @@ export type ClaudeChannelDisposalReason =
  * session that resets at no turn boundary, at no compaction, and on no resume.
  * The driver differences it; the transport must not.
  */
-export interface ClaudeCumulativeUsageObservation {
+interface ClaudeCumulativeUsageObservation {
   /** The turn the metered frame itself names, or `null` where it names none. */
   readonly namedTurnId: string | null;
   readonly cumulative: CumulativeAxisReadings;
@@ -400,7 +396,7 @@ export interface ClaudeHandshakeDeclaration {
  * provider's frame names no position — a positive statement, not an absence of
  * information about whether the compaction happened.
  */
-export interface ClaudeCompactionBoundaryObservation {
+interface ClaudeCompactionBoundaryObservation {
   readonly boundaryPosition: number | null;
 }
 
@@ -611,23 +607,6 @@ export interface ClaudeSessionChannel {
 // rather than a discipline the two call sites are asked to remember.
 export interface ClaudeSpawnBoundLegs {
   readonly sessionId: SessionId;
-  /**
-   * The session goal, rendered to text by the daemon (EMULATED).
-   *
-   * TRANSPORT OBLIGATION — a present goal is realized as the CLI's system-prompt
-   * append on this spawn. It is not a user turn and MUST NOT be delivered as
-   * one: the goal is daemon-authored standing instruction, and injecting it into
-   * the user's message stream would put words in a user's mouth
-   * and put them in the transcript.
-   *
-   * Rides the SPAWN-BOUND shape rather than a live control request because this
-   * provider exposes no arbitrary session-metadata surface — session name, tag,
-   * and `getSessionInfo` only — so the append is the mechanism, and an append is
-   * bound at process start. That is exactly why `setSessionGoal` answers
-   * `degraded` against a running process instead of claiming an application it
-   * cannot perform until the next spawn.
-   */
-  readonly goalText: string | undefined;
   readonly admittedCostCapCents: number | undefined;
   readonly executionPosture: ExecutionPosture | undefined;
   readonly callbackTools: SessionCallbackTool[] | undefined;
@@ -756,13 +735,12 @@ export interface ClaudeSessionResumeRequest extends ClaudeSpawnBoundLegs {
  *      rewinding to approximately the right place is a wrong answer that reads
  *      as a right one.
  *   2. The forked process runs from the IDENTICAL worktree cwd as the session
- *      being rewound. This provider answers a resume it cannot honour by
+ *      being rewound. This provider answers a resume it cannot honor by
  *      starting a fresh session instead, and a cwd change is the documented
  *      trigger.
  *   3. `--rewind-files` is NOT used. Its coverage is Write/Edit-only, so it
- *      would restore some of the tree and leave the rest — file-state restore is
- *      the daemon's turn-snapshot leg, which is provider-uniform and strictly
- *      richer.
+ *      would restore some of the tree and leave the rest; the fork leaves files
+ *      on disk as they are.
  */
 export interface ClaudeSessionRewindRequest extends ClaudeSpawnBoundLegs {
   readonly resumeHandle: string;
@@ -826,7 +804,7 @@ export interface ClaudeAuthProbeReading {
  *
  * A STANDALONE shape rather than a `ClaudeSpawnBoundLegs` extender, and the
  * difference is the point: a probe binds to no session, starts no thread, and
- * admits no run, so it has no posture, no goal, no callback registry, and no
+ * admits no run, so it has no posture, no callback registry, and no
  * cost cap to carry. Widening the spawn-bound shape to reach it would hand the
  * probe legs it must not have — and would move the "every one of the three
  * spawn-bound requests" count the port's obligations below are stated against.
@@ -1038,7 +1016,7 @@ export interface ClaudeSessionTransport {
  */
 const RUN_OPENING_FRAME_ORIGIN: CallerDeclaredFrameOrigin = "human_text";
 
-// `StartRunParams` carries `runId` / `channelId` / `agentConfig` and NEITHER the
+// `StartRunParams` carries `runId` / `agentConfig` and NEITHER the
 // owning `sessionId` NOR the run's opening text. Both are daemon-owned facts:
 // the run-to-binding mapping lives in `runtime_bindings` and the opening
 // content is composed by the daemon's run pipeline. Reading either out of the
@@ -1210,7 +1188,7 @@ export class ClaudeControlRequestRefusedError extends Error {
  * member for, and widening it would put replay-specific arms into the vocabulary
  * every session-lifecycle refusal shares.
  */
-export class ClaudeTranscriptReplayFailedError extends Error {
+class ClaudeTranscriptReplayFailedError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "ClaudeTranscriptReplayFailedError";
@@ -2512,19 +2490,6 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
       ) => void)
     | undefined;
   /**
-   * The daemon-stored session goals (the emulation's driver half).
-   *
-   * DRIVER-HELD, never durable truth: the goal's record of record is the
-   * session's own `goal_updated` / `goal_cleared` events, and the daemon
-   * re-pushes on resume. This map exists only so a spawn this driver performs
-   * ITSELF — a rewind fork — carries the goal the session currently has, rather
-   * than silently relaunching without it.
-   *
-   * Keyed beside the slot map for the same reason the terminal gates are: a goal
-   * set against a session whose slot is mid-transition must still be recorded.
-   */
-  readonly #sessionGoals: Map<SessionId, string> = new Map();
-  /**
    * The `system/init` declaration of each live session — a LIVE READ held as
    * driver-session state, never a stored registry and never persisted.
    *
@@ -2620,10 +2585,8 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
       });
     }
     const pinnedProviderSessionId = this.#mintProviderSessionId();
-    // Built ONCE and retained, not built twice. The second build would read
-    // `#sessionGoals` again, so a goal set between the spawn and the
-    // registration would be recorded as the leg this process launched under
-    // when it is not.
+    // Built ONCE and retained: a fork relaunches from the legs this process
+    // launched under.
     const spawnBoundLegs = this.#buildSpawnBoundLegs(params);
     const attachment = await this.#transport.spawnSession({
       ...spawnBoundLegs,
@@ -3210,19 +3173,17 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
   }
 
   /**
-   * Rewinds a session's conversation to a recorded position.
+   * Forks the provider conversation at a recorded message and leaves the
+   * original conversation untouched. Files on disk are not restored; this
+   * provider's own `--rewind-files` is not used, because it covers only
+   * Write/Edit changes and would restore part of a tree and leave the rest.
    *
-   * CONVERSATION ONLY. Working-tree restore is the daemon's turn-snapshot leg;
-   * this provider's own `--rewind-files` is deliberately not used, because its
-   * Write/Edit-only coverage would restore part of a tree and leave the rest.
-   *
-   * MECHANISM: a FORK, not an in-place rewind — the transport composes
-   * `--resume-session-at` with `--fork-session`, so the rewound conversation
-   * runs as a NEW provider session and the pre-rewind one is left intact. That
-   * is why an `applied` result carries a freshly minted `bindingId`: the
-   * surrogate is the daemon's only channel for the new provider session, and
-   * without it the run stays bound to a session the store never recorded and is
-   * therefore not resumable across a restart.
+   * MECHANISM: the transport composes `--resume-session-at` with
+   * `--fork-session`, so the forked conversation runs as a NEW provider
+   * session. That is why an `applied` result carries a freshly minted
+   * `bindingId`: the surrogate is the daemon's only channel for the new
+   * provider session, and without it the run stays bound to a session the store
+   * never recorded and is therefore not resumable across a restart.
    *
    * NON-DESTRUCTIVE ON FAILURE, which is the property the slot discipline here
    * exists for. The predecessor is captured before the claim and restored by
@@ -3253,19 +3214,12 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
     params: RollbackToParams,
     predecessor: LiveClaudeSession,
   ): Promise<DriverRollbackResult> {
-    // A rewind IS a spawn, so it is the boundary `setSessionGoal` promised to
-    // bind at. The predecessor's legs carry the goal as it stood at ITS spawn,
-    // and reusing them verbatim would drop a goal recorded since — answering a
-    // caller `degraded, goal-appended-at-next-session-spawn` and then skipping
-    // the very next spawn. Re-read here, and registered below, so a second
-    // rewind does not re-drop it.
     const rewoundSpawnBoundLegs: ClaudeSpawnBoundLegs = {
       // The predecessor's OWN legs, re-realized verbatim. Rebuilding them from
       // anything else would relaunch the session under a configuration nobody
       // chose — the same failure mode a resume guards against, reached here by
       // a path that carries no params to rebuild from.
       ...predecessor.spawnBoundLegs,
-      goalText: this.#sessionGoals.get(params.sessionId),
       // A FRESH gate, never the predecessor's. A rewind relaunches the process,
       // so every subagent the old gate was holding slots for died with it —
       // carrying that gate forward would hold a permanently reduced cap against
@@ -3424,63 +3378,6 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
     this.#pendingCompactions.releaseBinding(params.sessionId);
     await this.#disposeRefusedChannel(predecessor.channel, "session_closed");
     return validatedRollbackResult;
-  }
-
-  /**
-   * Records the session goal (EMULATED on this provider).
-   *
-   * ALWAYS `degraded` against a live session, and that is the honest answer
-   * rather than a limitation being papered over. This provider exposes no
-   * arbitrary session-metadata surface, so the goal is realized as a
-   * system-prompt append — which is bound at process start. A running process
-   * therefore cannot take a new goal, and answering `applied` would tell the
-   * daemon the session is governed by an instruction its model has never seen.
-   *
-   * The goal IS recorded, so every spawn this driver performs from here on
-   * carries it. `fallbackAction` names the boundary at which it takes effect, so
-   * the caller can decide whether to relaunch.
-   */
-  async setSessionGoal(params: SetSessionGoalParams): Promise<DriverGoalResult> {
-    const live = this.#findLiveSession(params.sessionId);
-    if (live === undefined) {
-      throw new ClaudeSessionUnavailableError("no_live_session", {
-        sessionId: params.sessionId,
-      });
-    }
-    this.#sessionGoals.set(params.sessionId, params.goalText);
-    return await Promise.resolve(
-      DriverGoalResultSchema.parse({
-        status: "degraded",
-        fallbackAction: "goal-appended-at-next-session-spawn",
-      }),
-    );
-  }
-
-  /**
-   * Clears the session goal (EMULATED on this provider).
-   *
-   * `applied` ONLY when no goal was recorded. That is not a technicality: the
-   * post-condition this operation promises is that the session carries no goal,
-   * and a session that never had one already satisfies it exactly. Where a goal
-   * WAS recorded, the running process still carries it in a system prompt that
-   * cannot be un-appended, so the answer is `degraded` at the same boundary the
-   * set path names.
-   */
-  async clearSessionGoal(params: ClearSessionGoalParams): Promise<DriverGoalResult> {
-    const live = this.#findLiveSession(params.sessionId);
-    if (live === undefined) {
-      throw new ClaudeSessionUnavailableError("no_live_session", {
-        sessionId: params.sessionId,
-      });
-    }
-    const hadGoal = this.#sessionGoals.delete(params.sessionId);
-    return await Promise.resolve(
-      DriverGoalResultSchema.parse(
-        hadGoal
-          ? { status: "degraded", fallbackAction: "goal-cleared-at-next-session-spawn" }
-          : { status: "applied" },
-      ),
-    );
   }
 
   // ------------------------------------------------------------------------
@@ -4180,7 +4077,6 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
       // entry per redundant close.
       if (slot === undefined) {
         this.#terminalEmissionGates.delete(params.sessionId);
-        this.#sessionGoals.delete(params.sessionId);
         return;
       }
       // Exhaustive over the union: a new slot state cannot be added without
@@ -4249,8 +4145,6 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
       // this point names a run no slot can settle, so retaining the gate would
       // retain state for a decision nobody makes.
       this.#terminalEmissionGates.delete(sessionId);
-      // Same scope, same reason: a goal is a property of a session that exists.
-      this.#sessionGoals.delete(sessionId);
       // The routing and metering band is per-provider-session state; a router
       // surviving its session would answer the next one with a thread registry
       // that session never made.
@@ -4687,7 +4581,6 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
     const callbackToolServer = this.#resolveCallbackToolServer(params);
     return {
       sessionId: params.sessionId,
-      goalText: this.#sessionGoals.get(params.sessionId),
       admittedCostCapCents: params.admittedCostCapCents,
       executionPosture: posture,
       sandboxSettings: posture === undefined ? undefined : composeClaudeSandboxSettings(posture),

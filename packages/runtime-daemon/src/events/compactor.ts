@@ -159,13 +159,13 @@ import { mintUuidV7 } from "../ids/uuid-v7.js";
 // test its own fixture's patience.
 
 /** 50,000 events per session — ``. */
-export const COMPACTION_EVENT_COUNT_THRESHOLD: number = 50_000;
+const COMPACTION_EVENT_COUNT_THRESHOLD: number = 50_000;
 
 /** 90 days — ``. */
-export const COMPACTION_AGE_THRESHOLD_DAYS: number = 90;
+const COMPACTION_AGE_THRESHOLD_DAYS: number = 90;
 
 /** 500 MB of live payload per session — ``. */
-export const COMPACTION_STORAGE_THRESHOLD_BYTES: number = 500 * 1024 * 1024;
+const COMPACTION_STORAGE_THRESHOLD_BYTES: number = 500 * 1024 * 1024;
 
 /** The `retention_class` value a compacted row carries. */
 export const AUDIT_STUB_RETENTION_CLASS = "audit_stub" as const;
@@ -253,9 +253,9 @@ const PRESERVED_PAYLOAD_KEYS: readonly string[] = [
 ];
 
 // The `event.compacted` envelope's category/type/version. Minted THROUGH the
-// schema rather than cast for `version`, on the `node-event-emitter.ts`
-// reasoning: a literal that stopped satisfying the version grammar throws at
-// import, in every consumer, rather than at the first emit against a real chain.
+// schema rather than cast for `version`: a literal that stopped satisfying the
+// version grammar throws at import, in every consumer, rather than at the first
+// emit against a real chain.
 const EVENT_MAINTENANCE_CATEGORY: EventCategory = "event_maintenance";
 const EVENT_COMPACTED_TYPE = "event.compacted" as const;
 const COMPACTOR_EVENT_VERSION: EventEnvelopeVersion = EventEnvelopeVersionSchema.parse("1.0");
@@ -274,7 +274,7 @@ const ED25519_SIGNATURE_LENGTH = 64;
 // --------------------------------------------------------------------------
 
 /** The row an attribution is being asked about. */
-export interface RollbackAttributionRequest {
+interface RollbackAttributionRequest {
   readonly sessionId: SessionId;
   readonly eventId: string;
   readonly sequence: number;
@@ -338,7 +338,7 @@ export interface RollbackAttributionSource {
  * exactly the legacy-stub state the spec describes ("a position-less stub of the
  * target run is therefore itself a standing refusal").
  */
-export const VACUOUS_CURRENT_ROLLBACK_ATTRIBUTION_SOURCE: RollbackAttributionSource = {
+const VACUOUS_CURRENT_ROLLBACK_ATTRIBUTION_SOURCE: RollbackAttributionSource = {
   attributeAtCompaction(): Promise<RollbackAttribution> {
     return Promise.resolve({ disposition: "current" });
   },
@@ -544,11 +544,8 @@ export interface CompactionPassResult {
  * The durable append seam for `event.compacted`, typed against its own
  * parameter and return types so a signature change there fails THIS compile.
  *
- * Structural, naming no concrete class — the `SessionEventLog` seam in
- * `node/node-event-emitter.ts` is the precedent. It is re-declared here rather
- * than imported from that module because the dependency direction runs the
- * other way (`node/` consumes `events/`), and a type import upward would invert
- * it for no benefit.
+ * Structural, naming no concrete class, so a test can hand in a recording
+ * double and the compactor imports no concrete append service.
  */
 export interface CompactionEventLog {
   append(
@@ -1829,8 +1826,7 @@ export class Compactor {
       actor: null,
       // `EventCompactedPayload` is an object TYPE ALIAS, which TypeScript grants
       // an implicit index signature — so this is a safe specific-to-general
-      // widening, not a reinterpretation (the `node-event-emitter.ts` note on
-      // the same conversion carries the full reasoning).
+      // widening, not a reinterpretation.
       payload: payload as Record<string, unknown>,
       version: COMPACTOR_EVENT_VERSION,
     });

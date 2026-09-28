@@ -3,20 +3,16 @@
 // `DaemonSessionSnapshot` is intentionally distinct from the wire-facing
 // `SessionSnapshot` in `@ai-sidekicks/contracts`: the wire shape is the
 // projection returned over IPC (small, intentionally narrow), while the
-// daemon's internal projection carries the channels the projector folds
-// over events plus the owner the bootstrap event names.
+// daemon's internal projection carries the owner the bootstrap event names.
 //
 // `state` reuses `SessionState` from `@ai-sidekicks/contracts` so daemon
 // code cannot drift from the wire vocabulary. The canonical enum is
 // `provisioning | active | archived | closed | purge_requested | purged`.
-// The contracts dependency was already present in this package's
-// `package.json`; this import doesn't add a new edge to the workspace dep
-// graph.
 //
-// Hash-chain placeholder rationale: see migrations/0001-initial.ts header.
-// The append path writes zero-fill integrity bytes and real `monotonic_ns`
-// so the NOT NULL constraints hold without claiming real hash-chain
-// semantics.
+// Hash-chain placeholders: the `session_events` table in `daemon-schema.ts`
+// requires the integrity columns. The append path writes zero-fill integrity
+// bytes and real `monotonic_ns` so the NOT NULL constraints hold without
+// claiming real hash-chain semantics.
 
 import type { SessionState } from "@ai-sidekicks/contracts";
 
@@ -70,40 +66,12 @@ export interface StoredEvent {
 // --------------------------------------------------------------------------
 // Daemon session snapshot — projector output
 // --------------------------------------------------------------------------
-//
-// `ChannelProjection` carries only the fields derivable from the session
-// event stream: `session.created` bootstraps the session and its main
-// channel, `channel.created` appends a channel row.
 
-export interface ChannelProjection {
-  readonly channelId: string;
-  // `name` is OPTIONAL on the wire — `channelCreatedPayloadSchema` in
-  // `packages/contracts/src/event.ts` declares it as
-  // `wireFreeFormString(...).optional()` (i.e. the key may be absent /
-  // undefined; explicitly NOT nullable). The daemon-internal projection
-  // mirrors that shape so the wire-to-daemon coercion stays the identity
-  // function. The bootstrap-synthesized "main" channel ALWAYS sets a name
-  // (constant `MAIN_CHANNEL_NAME = "main"`), so the only producers of an
-  // omitted-name projection are explicit `channel.created` envelopes whose
-  // wire payload omitted the optional `name` field.
-  //
-  // UI fallback (e.g. label-by-channelId for the unnamed case) is the IPC
-  // mapping seam's responsibility, NOT the projector's. Treating
-  // absent-as-absent here keeps the projector honest about the information
-  // actually present in the event log.
-  readonly name?: string;
-  readonly createdAt: string; // RFC 3339 UTC
-}
-
-// `state` reuses the canonical `SessionState` from `@ai-sidekicks/contracts`
-// (`provisioning | active | archived | closed | purge_requested | purged`).
-// The projector only emits `provisioning`: a newly created session starts
-// there and transitions to `active` once storage and control-plane metadata
-// are ready, announced by a distinct `session.activated` event. Carrying the
-// full canonical union at the daemon-internal layer lets the archived /
-// closed / purge handlers fold directly into this snapshot type without a
-// contract-vs-daemon vocabulary reconciliation.
-
+/**
+ * The projector's view of one session: id, lifecycle state, creation time, the
+ * last folded sequence and the owner. `state` is the full canonical
+ * `SessionState` union, though the projector itself emits only `provisioning`.
+ */
 export interface DaemonSessionSnapshot {
   readonly sessionId: string;
   readonly state: SessionState;
@@ -116,5 +84,4 @@ export interface DaemonSessionSnapshot {
   // event was system-emitted (`actor: null` is legal on the wire), which is
   // the projector reporting what the log actually holds instead of guessing.
   readonly ownerActor: string | null;
-  readonly channels: ReadonlyArray<ChannelProjection>;
 }

@@ -1,10 +1,8 @@
 // The MCP Tasks durable recovery handle's write seam.
 //
-// Shipped both drivers' observation halves (`observeMcpTaskAcceptance`) bound
-// to a no-op sink, because the column they observe FOR did not exist.
-// Migration `0017-command-receipt-mcp-task-handle.ts` lands it; this module is
-// the sink that replaces the no-op, and it is the ONLY writer of
-// `command_receipts.mcp_task_id` anywhere in the daemon.
+// Both drivers' observation halves (`observeMcpTaskAcceptance`) write through
+// this sink, and it is the ONLY writer of `command_receipts.mcp_task_id`
+// anywhere in the daemon.
 //
 // Provider-neutral by construction and therefore a `provider/`-level sibling
 // rather than a member of `provider/drivers/`: the two drivers differ in how
@@ -12,49 +10,28 @@
 // per-driver copy would be two copies of one bound and one SQL statement.
 //
 // ----------------------------------------------------------------------------
-// What is live here, and what is not: the dispatch caller is UNOWNED
+// Who calls this recorder
 // ----------------------------------------------------------------------------
 //
-// Everything in this file is live. The migration ships the column, this class
-// is its only writer, and both drivers' `observeMcpTaskAcceptance` seams call
-// a real sink rather than the no-op they were born with. What does not exist
-// anywhere in the daemon is the CALLER — the code that issues a task-augmented
-// MCP call and hands the acceptance response to that seam. This module is
-// constructed only by its tests.
+// The schema ships the column, this class is its only writer, and both drivers'
+// `observeMcpTaskAcceptance` seams call it. No code in the daemon issues a
+// task-augmented MCP call and hands the acceptance response to those seams, so
+// only this module's tests construct the recorder.
 //
-// That is not an oversight to be fixed by wiring it somewhere. NO PLAN TASK
-// OWNS THE DISPATCH CALLER. The three adjacent owners each own something
-// deliberately else: owns the acceptance-observation seam owns the column and
-// the write, and READS the stored handle to poll `tasks/get` / `tasks/result`
-// in place of the halt. Its own task text scopes to the migration, the runner
-// registration, both `tools.ts` files, and two doc verifications — no wiring
-// site appears in it.
+// The provider CLIs are the MCP clients and the daemon does not join the MCP
+// wire, while seeing a `CreateTaskResult` at dispatch and later polling
+// `tasks/get` takes a party on that wire. The method string `tools/call`
+// appears nowhere in the daemon.
 //
-// There is a live contradiction above this file that a future wiring attempt
-// must resolve FIRST rather than paper over: states that the provider CLIs
-// are the MCP clients and "the daemon never joins the MCP wire", and its
-// Non-Goals repeat it, while and require the daemon to see a
-// `CreateTaskResult` at dispatch and later poll `tasks/get` — which only a
-// party on that wire can do. The method string `tools/call` appears nowhere
-// in the corpus or the code. Wiring a caller would be picking a side of that
-// contradiction in code, which is a governance decision and not this task's
-// to make.
-//
-// The state is also not peculiar to this module: RuntimeBindingStore,
-// DriverCapabilitiesWriter, CallbackToolHost, and ThreadFrameRouter are every
-// other service that takes a `Database`, and not one of them has a production
-// construction site either. They are all owed by the same composition root
-// `bootstrap/index.ts` says does not exist yet ("no composition root that owns
-// one — Phase 2 brings the listener lifecycle"). That directory is
-// additionally single-owner and the dependency map's `index.ts` is not among
-// them. Constructing this recorder there would be an unsanctioned edit wiring a
-// sink that nothing can call.
+// RuntimeBindingStore, DriverCapabilitiesWriter, CallbackToolHost, and
+// ThreadFrameRouter, every other service that takes a `Database`, likewise have
+// no production construction site.
 //
 // ----------------------------------------------------------------------------
 // Why the bound is restated here when the column already CHECKs it
 // ----------------------------------------------------------------------------
 //
-// `MCP_TASK_ID_MAX_LENGTH` is the same 256 the migration's CHECK expresses, and
+// `MCP_TASK_ID_MAX_LENGTH` is the same 256 the column's CHECK expresses, and
 // the duplication is the point (defense-in-depth convention the
 // `runtime_bindings` provider-declared strings follow). The database bound is
 // the one no code path can talk its way past; this one exists so a violation is
@@ -111,8 +88,8 @@ import type { DriverDiagnosticsEmitter, DriverProviderName } from "./driver-diag
  * conjunct outranks this bound in {@link classifyMcpTaskIdRefusal} whenever
  * one bounded walk sees both.
  *
- * Mirrors migration `0017-command-receipt-mcp-task-handle.ts` verbatim. If one
- * moves, both move.
+ * Mirrors the `command_receipts.mcp_task_id` CHECK in `session/daemon-schema.ts`
+ * verbatim. If one moves, both move.
  */
 export const MCP_TASK_ID_MAX_LENGTH: number = 256;
 
@@ -472,9 +449,8 @@ export class McpTaskHandleRecorder {
    *
    * Note what is NOT contained anywhere: the constructor's `database.prepare`
    * calls. Schema drift there throws at wiring time, at the composition root,
-   * which is the better failure and matches the `wireTurnSnapshotRetentionSweep`
-   * precedent in `bootstrap/index.ts`. Only the per-observation path is
-   * contained, because only it runs inside a turn.
+   * which is the better failure. Only the per-observation path is contained,
+   * because only it runs inside a turn.
    */
   #reportStorageFailure(
     observation: McpTaskHandleObservationRecord,

@@ -158,7 +158,6 @@ const OTHER_SESSION_ID = "7a2d0b7f-2e3c-4b4d-9e6f-1b2c3d4e5f60";
 const RUN_ID = "11111111-2222-4333-8444-555555555555";
 const OTHER_RUN_ID = "22222222-3333-4444-8555-666666666666";
 const PARENT_RUN_ID = "33333333-4444-4555-8666-777777777777";
-const NODE_ID = "44444444-5555-4666-8777-888888888888";
 const SUBSCRIPTION_ID = "55555555-6666-4777-8888-999999999999";
 const TIMESTAMP = "2026-09-01T12:00:00.000Z";
 
@@ -230,7 +229,6 @@ const childRunSummary = {
   runId: RUN_ID,
   parentRunId: PARENT_RUN_ID,
   state: "running",
-  producingNodeId: NODE_ID,
   eventCount: 17,
   completeness: { state: "complete" },
 } as const;
@@ -625,10 +623,8 @@ describe("TimelineRollbackBoundary", () => {
 // ----------------------------------------------------------------------------
 
 describe("ChildRunSummary", () => {
-  it("round-trips with and without the optional producing node", () => {
+  it("round-trips", () => {
     expectRoundTrip(ChildRunSummarySchema, childRunSummary);
-    const { producingNodeId: _omitted, ...withoutNode } = childRunSummary;
-    expectRoundTrip(ChildRunSummarySchema, withoutNode);
   });
 
   it("F34 — `eventCount` is required", () => {
@@ -1009,7 +1005,6 @@ describe("timeline read window and live stream", () => {
       afterCursor: cursor,
       beforeCursor: cursor,
       limit: TIMELINE_READ_LIMIT_MAX,
-      channelId: NODE_ID,
     });
     expectRoundTrip(TimelineReadResponseSchema, {
       entries: [generalRow, runScopedRow, legacyStubRow, rollbackBoundaryRow],
@@ -1102,8 +1097,8 @@ describe("timeline read window and live stream", () => {
 
   it("the subscribe request declares no second resumption channel", () => {
     expectRoundTrip(TimelineSubscribeRequestSchema, { sessionId: SESSION_ID, afterCursor: cursor });
-    // `lastEventId` is tRPC's header injection; the timeline rides daemon
-    // JSON-RPC only, so the member would be a second way to say `afterCursor`.
+    // The timeline resumes by `afterCursor` alone; a `lastEventId` member would
+    // be a second way to say the same thing.
     expect(
       TimelineSubscribeRequestSchema.safeParse({ sessionId: SESSION_ID, lastEventId: cursor })
         .success,

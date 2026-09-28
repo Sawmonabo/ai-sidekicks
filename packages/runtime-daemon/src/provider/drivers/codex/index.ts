@@ -63,7 +63,6 @@ import type {
   CreateSessionParams,
   DriverAuthProbeResult,
   DriverCompactionResult,
-  DriverGoalResult,
   DriverInterventionResult,
   DriverResumeResult,
   DriverRollbackResult,
@@ -106,73 +105,33 @@ export {
   CODEX_APP_SERVER_READY_SENTINEL,
   CODEX_APP_SERVER_SHELL_ARGV0,
   CODEX_APP_SERVER_SHELL_PRELUDE,
-  CODEX_DEFAULT_EXECUTABLE_PATH,
   CODEX_MAX_LINE_LENGTH,
   CODEX_ROUTED_SERVER_REQUEST_METHODS,
-  CODEX_SUBAGENT_DEFINITION_WITHHELD_REASON,
-  CODEX_SUPPRESSED_REALTIME_NOTIFICATION_METHODS,
-  composeCodexSubagentConfigOverrides,
-  composeCodexThreadPosture,
-  composeCodexThreadPostureConfig,
   composeCodexTransportArgv,
-  composeCodexTurnSandboxPolicy,
   describeCodexPostureDivergence,
   normalizeProviderFailureDetail,
   parseCodexRunConfig,
   parseCodexSessionConfig,
   resolveCodexTransportSelection,
-  type CodexBearerCredentialResolver,
-  type CodexConnectionOptions,
   type CodexCredentialEnvPolicyResolver,
-  type CodexDiagnosticSink,
-  type CodexLifecycleOptions,
   type CodexPtySessionListeners,
   type CodexPtySessionSubscriber,
-  type CodexRequestAttempt,
-  type CodexRequestDelivery,
-  type CodexRewindBoundaryUnsupportedFields,
-  type CodexRunConfig,
   type CodexScheduleTimeout,
-  type CodexServerNotificationSink,
   type CodexServerRequestDecision,
-  type CodexSessionServerRequest,
   type CodexSessionServerRequestResponder,
   type CodexSessionConfig,
-  type CodexSessionSlotState,
-  type CodexThreadPostureParams,
   type CodexTransportDiagnostic,
   type CodexTransportSelection,
   type CodexWebsocketBearerCredential,
-  type CodexWebsocketTransportConnector,
 } from "./lifecycle.js";
 
 // The model-catalog symbols only — `listModels` is served by this class, so the
 // barrel advertises exactly what the driver object can answer. The declaration,
 // refresh, and probe symbols of `./capabilities.ts` stay unexported here because
 // no operation on this class serves them.
-export {
-  CODEX_DECLARED_MODEL_CATALOG,
-  CodexModelCatalogUnreadableError,
-  normalizeCodexModelCatalog,
-  resolveCodexModelCatalog,
-  type CodexModelCatalogExchange,
-} from "./capabilities.js";
+export { CODEX_DECLARED_MODEL_CATALOG, type CodexModelCatalogExchange } from "./capabilities.js";
 
-export {
-  CodexTerminalEmissionGate,
-  type CodexTerminalEmissionDecision,
-  type CodexTerminalRunFrame,
-  type CodexTerminalSuppressionReason,
-} from "./event-normalizer.js";
-
-export {
-  CodexInterventionDispatcher,
-  CODEX_INTERVENTION_CAPABILITY_FLAGS,
-  CODEX_INTERVENTION_FALLBACK_ACTION,
-  type CodexCapabilitySnapshotReader,
-  type CodexInterventionOptions,
-  type CodexInterventionRuntime,
-} from "./intervention.js";
+export { CodexInterventionDispatcher, CODEX_INTERVENTION_FALLBACK_ACTION } from "./intervention.js";
 
 /** Construction inputs for the Codex driver. */
 export interface CodexDriverOptions extends CodexLifecycleOptions {
@@ -296,11 +255,11 @@ export class CodexDriver implements Pick<
     return this.#lifecycle.rollbackTo(params);
   }
 
-  setSessionGoal(params: SetSessionGoalParams): Promise<DriverGoalResult> {
+  setSessionGoal(params: SetSessionGoalParams): Promise<void> {
     return this.#lifecycle.setSessionGoal(params);
   }
 
-  clearSessionGoal(params: ClearSessionGoalParams): Promise<DriverGoalResult> {
+  clearSessionGoal(params: ClearSessionGoalParams): Promise<void> {
     return this.#lifecycle.clearSessionGoal(params);
   }
 

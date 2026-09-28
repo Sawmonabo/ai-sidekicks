@@ -30,15 +30,12 @@
 //
 //   * No durable presence storage. This service writes NO presence ROW to
 //     SQLite or Postgres: it takes no querier and no pool, and no
-//     presence-state table exists in the schema. Audit-relevant presence
-//     transitions (`presence.online/idle/reconnecting/offline`) are emitted as
-//     `session_events` by the consumer wired to the `onTransition` seam; that
-//     event log — not this live CRDT — is the durable surface.
+//     presence-state table exists in the schema.
 //   * No wire/transport layer for the JSON-RPC `PresenceUpdate` push or the
 //     `PresenceRead` RPC binding — those are downstream; this service is the
 //     in-process ingest/query core.
-//   * No cross-node fan-out. One runtime node executes, so there is no peer
-//     node to publish a device's Awareness slot to.
+//   * No fan-out. One machine runs each session, so there is no peer to
+//     publish a device's Awareness slot to.
 
 import type {
   PresenceHeartbeat,
@@ -51,7 +48,6 @@ import type {
 // used to revalidate a device snapshot read back out of its Awareness slot (see
 // `validatePresenceDeviceState`).
 import {
-  ChannelIdSchema,
   DEVICE_ID_MAX_LEN,
   DEVICE_TYPE_MAX_LEN,
   PresenceStateSchema,
@@ -144,7 +140,6 @@ const PresenceDeviceStateSchema = z.object({
   state: PresenceStateSchema,
   deviceType: wireFreeFormString(DEVICE_TYPE_MAX_LEN, "PresenceDeviceState.deviceType"),
   focusedSessionId: SessionIdSchema.nullable(),
-  focusedChannelId: ChannelIdSchema.nullable(),
   // Server-clock receipt time, NOT the wire `metadata.lastActivityAt`. See
   // `recordHeartbeat` for why the server clock is authoritative for `lastSeen`.
   // Bounded by `MAX_PRESENCE_LAST_SEEN_MS` — see that const's declaration for
@@ -178,9 +173,10 @@ interface DevicePresence {
   graceTimer: ReturnType<typeof setTimeout> | undefined;
 }
 
-// Observation seam for durable-event emission. The service invokes this on
-// every timer-driven device transition; the consumer wires it to the
-// `session_events` append path. This service itself performs NO durable write.
+/**
+ * One timer-driven device transition, handed to the `onTransition` observer.
+ * The service only notifies; it performs no durable write.
+ */
 export interface PresenceTransitionEvent {
   readonly sessionId: SessionId;
   readonly deviceId: string;
@@ -189,10 +185,10 @@ export interface PresenceTransitionEvent {
   readonly at: Date;
 }
 
-// --------------------------------------------------------------------------
-// Constructor options — ALL fields optional, so `new PresenceRegisterService()`
-// is a valid construction.
-// --------------------------------------------------------------------------
+/**
+ * Constructor options. Every field is optional, so `new PresenceRegisterService()`
+ * is a valid construction.
+ */
 export interface PresenceRegisterServiceOptions {
   // Reconnect-grace timing (defaults: 15s / 45s). Read as the delay (ms) from
   // the LAST heartbeat to the `reconnecting` and `offline` transitions
@@ -200,13 +196,11 @@ export interface PresenceRegisterServiceOptions {
   // two-step machine to be well-ordered.
   readonly reconnectingAfterMs?: number;
   readonly offlineAfterMs?: number;
-  // Observation seam for durable presence-event emission (see
-  // `PresenceTransitionEvent`). Absent => transitions are applied to the live
-  // CRDT only (no observer). The return type admits `Promise<void>` because the
-  // consumer wires this to the daemon's durable append path, an async DB write;
-  // `#transition` catches BOTH a sync throw and an async rejection so either
-  // failure mode degrades gracefully instead of crashing the daemon on the
-  // detached timer boundary. A plain `() => void` callback still satisfies it.
+  // Observer called on every timer-driven transition (see
+  // `PresenceTransitionEvent`). Absent => transitions change only the live CRDT.
+  // The return type admits `Promise<void>` so the observer may be async;
+  // `#transition` catches BOTH a sync throw and an async rejection so neither
+  // crashes the process on the detached timer boundary.
   readonly onTransition?: (event: PresenceTransitionEvent) => void | Promise<void>;
 }
 
@@ -299,7 +293,6 @@ export class PresenceRegisterService {
       state: heartbeat.activityState,
       deviceType: heartbeat.metadata.deviceType,
       focusedSessionId: heartbeat.metadata.focusedSessionId,
-      focusedChannelId: heartbeat.metadata.focusedChannelId,
       lastSeenAtMs: Date.now(),
       lastActivityAt: heartbeat.metadata.lastActivityAt,
       appVisible: heartbeat.metadata.appVisible,
@@ -464,9 +457,8 @@ export class PresenceRegisterService {
    * `PRESENCE_PROGRESSION`). The grace machine only ever moves FORWARD in
    * degradation — it must never bounce a device backward (e.g. an explicit
    * `offline` heartbeat must NOT be dragged back to `reconnecting` when the 15s
-   * timer fires). This keeps the observed transition stream monotonic, which
-   * matters for the observer's durable-event emission (a bogus
-   * offline->reconnecting would pollute the timeline).
+   * timer fires). This keeps the observed transition stream monotonic, so an
+   * observer never sees a bogus offline->reconnecting.
    */
   #transition(
     sessionId: SessionId,
@@ -488,11 +480,8 @@ export class PresenceRegisterService {
     // CRASH GUARD: `#transition` is reached from a DETACHED `setTimeout`
     // grace-timer callback (`#armGraceTimer`), so this stack has NO surrounding
     // try/catch and runs outside any caller's reach. The `onTransition` observer
-    // is the durable-emission seam wired to the daemon's durable append path, an
-    // ASYNC DB write that CAN fail two ways — a SYNCHRONOUS throw (a
-    // guard/validation error before the await) OR a REJECTED promise (SQLite
-    // `SQLITE_BUSY`, a `monotonic_ns` unique-violation, a Zod failure inside the
-    // async body). On this detached timer boundary a sync throw escapes to
+    // may be async, so it CAN fail two ways — a SYNCHRONOUS throw OR a REJECTED
+    // promise. On this detached timer boundary a sync throw escapes to
     // `uncaughtException` and an unhandled rejection escapes to
     // `unhandledRejection` — in Node 22 BOTH are capable of terminating the
     // daemon process. So we degrade gracefully on EITHER path: the try/catch

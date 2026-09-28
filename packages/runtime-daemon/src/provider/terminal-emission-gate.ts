@@ -45,7 +45,7 @@ export interface TerminalRunFrame {
 }
 
 /** Why a terminal frame did not settle its run. */
-export type TerminalSuppressionReason =
+type TerminalSuppressionReason =
   /** A terminal for this `(runId, runVersion)` epoch already settled it. */
   | "duplicate-terminal-epoch"
   /** The router did not route this frame to the session's own thread. */

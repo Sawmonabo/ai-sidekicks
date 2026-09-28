@@ -19,7 +19,6 @@ import { describe, expect, it } from "vitest";
 
 import {
   AnchorPayloadSchema,
-  EventAnchorUploadRequestSchema,
   EventAnchorUploadResponseSchema,
   MERKLE_ROOT_BYTE_LENGTH,
   ROOT_SIGNATURE_BYTE_LENGTH,
@@ -253,13 +252,6 @@ describe("AnchorPayload — the commitment fields decode to their DDL-pinned wid
 // ----------------------------------------------------------------------------
 
 describe("eventanchor.upload wire pair", () => {
-  it("the upload request IS the anchor payload schema (one contract, both ends)", () => {
-    // Identity, not merely equivalence: the daemon signs what the control
-    // plane parses. Two separately-declared schemas could drift apart while
-    // both still passing their own tests.
-    expect(EventAnchorUploadRequestSchema).toBe(AnchorPayloadSchema);
-  });
-
   it("the upload response reports the two idempotent-success arms", () => {
     expect(EventAnchorUploadResponseSchema.parse({ stored: true })).toEqual({ stored: true });
     expect(EventAnchorUploadResponseSchema.parse({ stored: false })).toEqual({ stored: false });

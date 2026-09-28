@@ -1,22 +1,18 @@
-// `worktree.ts` contract core: the three branded ids, the worktree/clone
-// lifecycle enums, the clone cleanup-policy vocabulary, the family-payload
-// instantiation over `WorktreeStateSchema`, and the registration of the
-// five `worktree.*` variants into `SessionEventSchema`.
+// `worktree.ts` contract core: the two branded ids, the worktree lifecycle
+// enum, the family-payload instantiation over `WorktreeStateSchema`, and the
+// registration of the five `worktree.*` variants into `SessionEventSchema`.
 //
 // Backstops and plus the contract-shape halves of the invariants this file
 // carries:
-//   • Import, never redefine: the four-mode taxonomy is pinned through
-//     worktree.ts's re-export (type AND schema value) against repo.ts's
-//     canonical declaration, and the identity checks — direct and through
-//     the barrel — prove the re-export resolves to that one declaration
-//     rather than forking or shadowing canon.
-//   • The registry stays closed: `worktree.failed` and ephemeral-clone
-//     literals stay rejected by the union and absent from the census.
+//   • Import, never redefine: an identity check proves worktree.ts's
+//     re-export of the execution-mode schema is repo.ts's one declaration
+//     rather than a fork.
+//   • The registry stays closed: `worktree.failed` stays rejected by the
+//     union and absent from the census.
 //
 // Coverage shape (mirrors repo.test.ts, the Phase-1 sibling):
 //   • Every member of every enum parses; out-of-set values are rejected
-//     (base-vocabulary states, case drift, plausible "cleanups" of the
-//     snake_case cleanup-policy literal), so each pin is a real
+//     (base-vocabulary states, case drift), so each pin is a real
 //     accept/reject boundary.
 //   • Branded ids reject a non-UUID, and the brands are nominal AND mutually
 //     nominal at compile time.
@@ -56,13 +52,6 @@ import * as contracts from "../index.js";
 import { ExecutionModeSchema, REPO_PATH_MAX_LEN, RepoMountIdSchema } from "../repo.js";
 import {
   BranchContextIdSchema,
-  CleanupPolicySchema,
-  EphemeralCloneDisposeRequestSchema,
-  EphemeralCloneDisposeResponseSchema,
-  EphemeralCloneIdSchema,
-  EphemeralClonePrepareRequestSchema,
-  EphemeralClonePrepareResponseSchema,
-  EphemeralCloneStateSchema,
   ExecutionModeSchema as ExecutionModeSchemaFromWorktreeReExport,
   ExecutionModeSelectRequestSchema,
   ExecutionModeSelectResponseSchema,
@@ -80,10 +69,6 @@ import {
   WorktreeStatusReadRequestSchema,
   WorktreeStatusReadResponseSchema,
   type BranchContextId,
-  type EphemeralCloneDisposeResponse,
-  type EphemeralCloneId,
-  type EphemeralClonePrepareResponse,
-  type ExecutionMode,
   type WorktreeId,
   type WorktreeLifecyclePayload,
   type WorktreeRetireResponse,
@@ -98,7 +83,6 @@ const SESSION_ID = "550e8400-e29b-41d4-a716-446655440000";
 const REPO_MOUNT_ID = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f10";
 const WORKSPACE_ID = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f11";
 const WORKTREE_ID = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f12";
-const EPHEMERAL_CLONE_ID = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f13";
 const BRANCH_CONTEXT_ID = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f14";
 const USER_ID = "660e8400-e29b-41d4-a716-446655440001";
 const OCCURRED_AT = "2026-07-26T09:30:00.000Z";
@@ -156,59 +140,14 @@ describe("WorktreeStateSchema (the six-state worktree lifecycle)", () => {
   });
 });
 
-describe("EphemeralCloneStateSchema (api-payload-contracts — the four-state clone lifecycle)", () => {
-  it.each([
-    ["creating", true],
-    ["ready", true],
-    ["retired", true],
-    ["failed", true],
-    // Deliberate absences: clones are disposable per-task roots — merge-back
-    // and dirtiness tracking are the worktree vocabulary's concern, and TTL
-    // expiry RETIRES a clone rather than minting an `expired` state.
-    ["dirty", false],
-    ["merged", false],
-    ["expired", false],
-    ["", false],
-  ])("parses %s -> %s", (candidate, shouldPass) => {
-    expect(EphemeralCloneStateSchema.safeParse(candidate).success).toBe(shouldPass);
-  });
-
-  it("enumerates exactly the four canonical states in the ratified CHECK order", () => {
-    const schemaInternals = EphemeralCloneStateSchema as unknown as { options: readonly string[] };
-    expect(schemaInternals.options).toEqual(["creating", "ready", "retired", "failed"]);
-  });
-});
-
-describe("CleanupPolicySchema (ephemeral_clones.cleanup_policy)", () => {
-  it.each([
-    // The wire spelling is the snake_case ROW literal, verbatim — the
-    // plausible "cleanups" below must all stay rejected, or a producer that
-    // normalized the literal would diverge from the ratified CHECK bytes
-    // (the same stance as `"ephemeral clone"`'s preserved space).
-    ["on_run_complete", true],
-    ["manual", true],
-    ["onRunComplete", false],
-    ["on-run-complete", false],
-    ["auto", false],
-    ["", false],
-  ])("parses %s -> %s", (candidate, shouldPass) => {
-    expect(CleanupPolicySchema.safeParse(candidate).success).toBe(shouldPass);
-  });
-
-  it("enumerates exactly the two canonical policies in the ratified CHECK order", () => {
-    const schemaInternals = CleanupPolicySchema as unknown as { options: readonly string[] };
-    expect(schemaInternals.options).toEqual(["on_run_complete", "manual"]);
-  });
-});
-
 // --------------------------------------------------------------------------
 // Branded ids.
 // --------------------------------------------------------------------------
 
-// Structural element typing, not inference: the three schemas have DISTINCT
+// Structural element typing, not inference: the two schemas have DISTINCT
 // branded output types, so an un-annotated literal array widens `schema` to a
 // union that includes `string` and `.parse` stops resolving. The structural
-// view keeps one table driving all three (same affordance as
+// view keeps one table driving both (same affordance as
 // `STANDALONE_WORKTREE_EVENT_SCHEMAS` below).
 const BRANDED_ID_SCHEMAS: ReadonlyArray<
   readonly [
@@ -221,11 +160,10 @@ const BRANDED_ID_SCHEMAS: ReadonlyArray<
   ]
 > = [
   ["WorktreeIdSchema", WorktreeIdSchema, WORKTREE_ID],
-  ["EphemeralCloneIdSchema", EphemeralCloneIdSchema, EPHEMERAL_CLONE_ID],
   ["BranchContextIdSchema", BranchContextIdSchema, BRANCH_CONTEXT_ID],
 ];
 
-describe("branded worktree / ephemeral-clone / branch-context ids", () => {
+describe("branded worktree / branch-context ids", () => {
   it.each(BRANDED_ID_SCHEMAS)(
     "%s accepts a canonical UUID and rejects non-UUID input",
     (_label, schema, uuid) => {
@@ -243,20 +181,17 @@ describe("branded worktree / ephemeral-clone / branch-context ids", () => {
 
   // Compile-time nominality pins — never executed; present so `tsc -p
   // tsconfig.test.json` fails if a brand decays to a plain string or the
-  // three brands collapse into one another (the repo.test.ts idiom).
+  // two brands collapse into one another (the repo.test.ts idiom).
   const brandNominalityPin = (): void => {
     // @ts-expect-error — a raw string is not a WorktreeId without a parse.
     const unbrandedWorktreeId: WorktreeId = WORKTREE_ID;
     void unbrandedWorktreeId;
-    // @ts-expect-error — a raw string is not an EphemeralCloneId without a parse.
-    const unbrandedEphemeralCloneId: EphemeralCloneId = EPHEMERAL_CLONE_ID;
-    void unbrandedEphemeralCloneId;
     // @ts-expect-error — a raw string is not a BranchContextId without a parse.
     const unbrandedBranchContextId: BranchContextId = BRANCH_CONTEXT_ID;
     void unbrandedBranchContextId;
-    // @ts-expect-error — mutually nominal: a parsed WorktreeId is not an
-    // EphemeralCloneId.
-    const crossBrand: EphemeralCloneId = WorktreeIdSchema.parse(WORKTREE_ID);
+    // @ts-expect-error — mutually nominal: a parsed WorktreeId is not a
+    // BranchContextId.
+    const crossBrand: BranchContextId = WorktreeIdSchema.parse(WORKTREE_ID);
     void crossBrand;
   };
   void brandNominalityPin;
@@ -453,7 +388,7 @@ describe("SessionEventSchema registration of the five variants", () => {
     (eventType, state) => {
       const broken = {
         ...buildWorktreeEvent(eventType, state),
-        category: "presence" as const,
+        category: "usage_telemetry" as const,
       };
       expect(SessionEventSchema.safeParse(broken).success).toBe(false);
     },
@@ -552,7 +487,7 @@ describe("standalone worktree event schemas agree with the union arms", () => {
       // chain — pinned on the union above, pinned here on the standalone
       // surface (the fourth axis of the repo.test.ts precedent this block
       // mirrors).
-      const withMismatchedCategory = { ...fixture, category: "presence" as const };
+      const withMismatchedCategory = { ...fixture, category: "usage_telemetry" as const };
       expect(standaloneSchema.safeParse(withMismatchedCategory).success).toBe(false);
       expect(SessionEventSchema.safeParse(withMismatchedCategory).success).toBe(false);
     },
@@ -589,68 +524,19 @@ describe("registry stays closed", () => {
     expect(SESSION_EVENT_TYPES as readonly string[]).not.toContain("worktree.failed");
     expect(SESSION_EVENT_CATEGORY_BY_TYPE.has("worktree.failed" as never)).toBe(false);
   });
-
-  it.each([["clone.prepared"], ["clone.ready"], ["clone.retired"], ["clone.disposed"]])(
-    "registers no ephemeral-clone event under the plausible literal %s",
-    (cloneLiteral) => {
-      // Clone transitions emit no session events at all — the plausible
-      // spellings stay census-absent and union-rejected.
-      expect(SESSION_EVENT_CATEGORY_BY_TYPE.has(cloneLiteral as never)).toBe(false);
-      const cloneEvent = buildWorktreeEvent(cloneLiteral, "ready");
-      expect(SessionEventSchema.safeParse(cloneEvent).success).toBe(false);
-    },
-  );
 });
 
 // --------------------------------------------------------------------------
 // --------------------------------------------------------------------------
 
-// Compile-time exhaustiveness pin over the TYPE half of worktree.ts's
-// re-export: `Record<ExecutionMode, true>` fails to compile if a mode is
-// missing OR if an extra key is added, so the four-mode taxonomy is provably
-// reachable through this module's surface (reached by import, never
-// redefinition).
-const executionModeTaxonomy: Record<ExecutionMode, true> = {
-  "read-only": true,
-  branch: true,
-  worktree: true,
-  "ephemeral clone": true,
-};
-
 describe("execution-mode taxonomy (import)", () => {
-  it("distinguishes read-only / branch / worktree / ephemeral clone", () => {
-    // Bind the compile-time pin above to the canonical runtime schema: the
-    // four keys and the four `.options` are the same set. SORTED both sides,
-    // unlike the three enum pins at the top of this file: this enum is canon
-    // with no `CHECK` clause to mirror, so membership is the whole of what
-    // can pin — the same membership-not-order stance repo.test.ts takes for
-    // this schema.
-    const schemaInternals = ExecutionModeSchema as unknown as { options: readonly string[] };
-    expect([...schemaInternals.options].sort()).toEqual(Object.keys(executionModeTaxonomy).sort());
-    expect(schemaInternals.options).toHaveLength(4);
-  });
-
   it("re-exports the canonical schema VALUE by identity, never a fork", () => {
     // The runtime half of the re-export, pinned directly on worktree.ts's own
     // surface — the binding the `ExecutionModeSelectRequest` /
-    // `ExecutionModeSelectResponse` Zod pairs consume. A four-member enum
-    // REDEFINED in worktree.ts would satisfy the exhaustiveness pin above and
-    // every `.options` assertion; only object identity declaration refuses
-    // it.
+    // `ExecutionModeSelectResponse` Zod pairs consume. A two-member enum
+    // REDEFINED in worktree.ts would pass every `.options` assertion; only
+    // object identity refuses it.
     expect(ExecutionModeSchemaFromWorktreeReExport).toBe(ExecutionModeSchema);
-  });
-
-  it("keeps the canonical schema reachable through the barrel by identity", () => {
-    // The re-export must COMPOSE canon, never fork it: index.ts star-exports
-    // both repo.ts and worktree.ts, so this asserts the barrel still surfaces
-    // the one canonical `ExecutionModeSchema` object — a second, redefined
-    // execution-mode schema in worktree.ts would fail the identity check here
-    // even though both would type-check. This is also the barrel-ambiguity
-    // canary now that the VALUE reaches index.ts down two star-export paths:
-    // `export *` conflicts only when the paths resolve to DIFFERENT
-    // declarations, and a conflicted name resolves to `undefined` — which
-    // fails here.
-    expect(contracts.ExecutionModeSchema).toBe(ExecutionModeSchema);
   });
 });
 
@@ -661,11 +547,8 @@ describe("execution-mode taxonomy (import)", () => {
 describe("index.ts re-exports contract core", () => {
   it("re-exports every runtime symbol by identity (the barrel-gap regression)", () => {
     expect(contracts.WorktreeIdSchema).toBe(WorktreeIdSchema);
-    expect(contracts.EphemeralCloneIdSchema).toBe(EphemeralCloneIdSchema);
     expect(contracts.BranchContextIdSchema).toBe(BranchContextIdSchema);
     expect(contracts.WorktreeStateSchema).toBe(WorktreeStateSchema);
-    expect(contracts.EphemeralCloneStateSchema).toBe(EphemeralCloneStateSchema);
-    expect(contracts.CleanupPolicySchema).toBe(CleanupPolicySchema);
     expect(contracts.WorktreeLifecyclePayloadSchema).toBe(WorktreeLifecyclePayloadSchema);
     expect(contracts.WorktreeCreatedEventSchema).toBe(WorktreeCreatedEventSchema);
     expect(contracts.WorktreeReadyEventSchema).toBe(WorktreeReadyEventSchema);
@@ -679,9 +562,7 @@ describe("index.ts re-exports contract core", () => {
   const barrelTypeSurfacePin = (): void => {
     const worktreeState: contracts.WorktreeState = "merged";
     void worktreeState;
-    const ephemeralCloneState: contracts.EphemeralCloneState = "retired";
-    void ephemeralCloneState;
-    const executionMode: contracts.ExecutionMode = "ephemeral clone";
+    const executionMode: contracts.ExecutionMode = "provisioned-worktree";
     void executionMode;
     const worktreeId: contracts.WorktreeId = WorktreeIdSchema.parse(WORKTREE_ID);
     void worktreeId;
@@ -692,39 +573,33 @@ describe("index.ts re-exports contract core", () => {
 });
 
 // ==========================================================================
-// Wire surfaces — the seven `repo.*` request/response pairs.
+// Wire surfaces — the five `repo.*` request/response pairs.
 // ==========================================================================
 //
-// Coverage backstops the seven bullets, one per pair: select distinguishes the
-// four canonical modes and records one; prepare creates-or-binds the root and
-// carries explicit reuse; the reuse check reports branch, cleanliness, and
-// compatibility; clone prepare reports root, lifecycle, and cleanup policy;
-// dispose is an explicit interface; retire records retirement independent of
-// disk deletion; the status read exposes worktree AND clone records with
-// provenance. It also carries the contract half of — every `state` field
-// composes the canonical enum object, so a re-spelled literal union that fell
-// outside the DDL lockstep fails the vocabulary rows below — and requiredness
-// split (clone prepare requires `branchName` in the SHAPE; execution-root
-// prepare leaves it schema-optional and refuses service-side).
+// Coverage, one per pair: select distinguishes the two canonical modes and
+// records one; prepare creates-or-binds the root and carries explicit reuse;
+// the reuse check reports branch, cleanliness, and compatibility; retire
+// records retirement independent of disk deletion; the status read exposes
+// worktree records with provenance. Every `state` field composes the canonical
+// enum object, so a re-spelled literal union that fell outside the DDL
+// lockstep fails the vocabulary rows below; execution-root prepare leaves
+// `branchName` schema-optional and refuses service-side.
 //
 // THE `.strict()` PIN IS BEHAVIORAL AND EXHAUSTIVE (the block at the end of
 // this file). Outer `.strict()` leaves no trace in a schema's inferred output
 // type, so a dropped `.strict()` typechecks green and silently STRIPS the
-// unknown key instead of rejecting it — the failure mode that would let a
-// caller believe it set a clone TTL. Sixteen shapes are pinned there: the
-// fourteen exported schemas plus both status-read ITEM schemas, which are
-// closed independently of their envelope. Those rows also carry the
-// "parse-accept one in-shape fixture per shape" floor for all fourteen, since
-// each pin asserts its fixture parses before adding the stray key.
+// unknown key instead of rejecting it. Eleven shapes are pinned there: the ten
+// exported schemas plus the status-read ITEM schema, which is closed
+// independently of its envelope. Those rows also carry the "parse-accept one
+// in-shape fixture per shape" floor for all ten, since each pin asserts its
+// fixture parses before adding the stray key.
 
 const RUN_ID = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f15";
 const EXECUTION_ROOT = "/Users/dev/.ai-sidekicks/execution-roots/mount-0190f8a0/worktrees/wt-01";
-const CLONE_ROOT = "/Users/dev/.ai-sidekicks/execution-roots/mount-0190f8a0/clones/cl-01";
 const BRANCH_NAME = "sidekicks/550e8400/add-worktree-wire-pairs";
 const BASE_REF = "main";
 const CREATED_AT = "2026-07-26T09:30:00.000Z";
 const UPDATED_AT = "2026-07-26T09:31:00.000Z";
-const EXPIRES_AT = "2026-07-27T09:30:00.000Z";
 const CLEANED_AT = "2026-07-26T10:00:00.000Z";
 
 // The three inputs that separate `wireFreeFormString` from a bare `z.string()`:
@@ -739,17 +614,13 @@ const GUARD_DOWNGRADE_VALUES: readonly string[] = [
   `sidekicks/550e8400/wire${String.fromCharCode(0)}/etc`,
 ];
 
-// The select fixture carries the WRITABLE case — no `executionRoot`, because a
-// writable select returns while the workspace is still `provisioning`. The
-// synchronous `read-only` case is a row of its own below, so the optionality
-// is exercised in both directions rather than assumed.
 const buildExecutionModeSelectRequest = () => ({
   workspaceId: WORKSPACE_ID,
-  executionMode: "worktree",
+  executionMode: "provisioned-worktree",
 });
 const buildExecutionModeSelectResponse = () => ({
   workspaceId: WORKSPACE_ID,
-  executionMode: "worktree",
+  executionMode: "provisioned-worktree",
   state: "provisioning",
 });
 
@@ -775,32 +646,11 @@ const buildWorktreeReuseCheckResponse = () => ({
   compatible: true,
 });
 
-const buildEphemeralClonePrepareRequest = () => ({
-  workspaceId: WORKSPACE_ID,
-  branchName: BRANCH_NAME,
-});
-const buildEphemeralClonePrepareResponse = () => ({
-  cloneId: EPHEMERAL_CLONE_ID,
-  cloneRoot: CLONE_ROOT,
-  state: "ready",
-  cleanupPolicy: "on_run_complete",
-  branchName: BRANCH_NAME,
-  expiresAt: EXPIRES_AT,
-});
-
-const buildEphemeralCloneDisposeRequest = () => ({ cloneId: EPHEMERAL_CLONE_ID });
-const buildEphemeralCloneDisposeResponse = () => ({
-  cloneId: EPHEMERAL_CLONE_ID,
-  state: "retired",
-});
-
 const buildWorktreeRetireRequest = () => ({ worktreeId: WORKTREE_ID });
 const buildWorktreeRetireResponse = () => ({ worktreeId: WORKTREE_ID, state: "retired" });
 
 // The worktree record carries RUN provenance and no cleanup stamp — a live
-// run-created checkout. The clone record carries neither a run edge (clones
-// have no `created_by_run_id`; the run edge lives in `run_execution_contexts`)
-// nor a stamp.
+// run-created checkout.
 const buildWorktreeStatusRecord = () => ({
   worktreeId: WORKTREE_ID,
   repoMountId: REPO_MOUNT_ID,
@@ -812,20 +662,9 @@ const buildWorktreeStatusRecord = () => ({
   createdAt: CREATED_AT,
   updatedAt: UPDATED_AT,
 });
-const buildEphemeralCloneStatusRecord = () => ({
-  cloneId: EPHEMERAL_CLONE_ID,
-  workspaceId: WORKSPACE_ID,
-  cloneRoot: CLONE_ROOT,
-  branchName: BRANCH_NAME,
-  state: "ready",
-  cleanupPolicy: "on_run_complete",
-  expiresAt: EXPIRES_AT,
-  createdAt: CREATED_AT,
-});
 const buildWorktreeStatusReadRequest = () => ({ sessionId: SESSION_ID });
 const buildWorktreeStatusReadResponse = () => ({
   worktrees: [buildWorktreeStatusRecord()],
-  ephemeralClones: [buildEphemeralCloneStatusRecord()],
 });
 
 // Override-parse helpers, the repo.test.ts affordance: the fixtures above stay
@@ -856,52 +695,29 @@ const parseReuseCheckResponse = (overrides: Record<string, unknown> = {}) =>
     ...buildWorktreeReuseCheckResponse(),
     ...overrides,
   });
-const parseClonePrepareRequest = (overrides: Record<string, unknown> = {}) =>
-  EphemeralClonePrepareRequestSchema.safeParse({
-    ...buildEphemeralClonePrepareRequest(),
-    ...overrides,
-  });
-const parseClonePrepareResponse = (overrides: Record<string, unknown> = {}) =>
-  EphemeralClonePrepareResponseSchema.safeParse({
-    ...buildEphemeralClonePrepareResponse(),
-    ...overrides,
-  });
-// Status-read helpers reach INTO the arrays: every interesting failure mode is
-// per-RECORD, and a top-level override could not express one. The two record
-// helpers take a whole record (so the field-omission rows can `delete` a key);
-// the two override helpers ride them for the common in-shape case.
+// Status-read helpers reach INTO the array: every interesting failure mode is
+// per-RECORD, and a top-level override could not express one. The record
+// helper takes a whole record (so the field-omission rows can `delete` a key);
+// the override helper rides it for the common in-shape case.
 const parseStatusReadWorktreeRecord = (record: Record<string, unknown>) =>
-  WorktreeStatusReadResponseSchema.safeParse({ worktrees: [record], ephemeralClones: [] });
-const parseStatusReadCloneRecord = (record: Record<string, unknown>) =>
-  WorktreeStatusReadResponseSchema.safeParse({ worktrees: [], ephemeralClones: [record] });
+  WorktreeStatusReadResponseSchema.safeParse({ worktrees: [record] });
 const parseStatusReadWithWorktree = (overrides: Record<string, unknown> = {}) =>
   parseStatusReadWorktreeRecord({ ...buildWorktreeStatusRecord(), ...overrides });
-const parseStatusReadWithClone = (overrides: Record<string, unknown> = {}) =>
-  parseStatusReadCloneRecord({ ...buildEphemeralCloneStatusRecord(), ...overrides });
 
 describe("ExecutionModeSelect request (records the mode)", () => {
   it("accepts a select naming a workspace and an explicit mode", () => {
     expect(parseSelectRequest().success).toBe(true);
   });
 
-  it.each(["read-only", "branch", "worktree", "ephemeral clone"])(
+  it.each(["bound-root", "provisioned-worktree"])(
     "distinguishes the canonical mode %s",
     (executionMode) => {
-      // The spec bullet in full: select "must distinguish `read-only`,
-      // `branch`, `worktree`, and `ephemeral clone`". Reached through the
-      // imported taxonomy, so all four are wire-lawful here.
+      // Reached through the imported taxonomy, so both are wire-lawful here.
       expect(parseSelectRequest({ executionMode }).success).toBe(true);
     },
   );
 
   it.each([
-    // Normalizations of the canonical spelling are contract breaks, not
-    // tolerated variants — `"ephemeral clone"` keeps its SPACE on the wire.
-    ["ephemeral_clone"],
-    ["ephemeral-clone"],
-    ["ephemeralClone"],
-    ["readonly"],
-    ["Worktree"],
     // A plausible-but-absent mode, and the empty string.
     ["detached"],
     [""],
@@ -910,10 +726,9 @@ describe("ExecutionModeSelect request (records the mode)", () => {
   });
 
   it.each(["workspaceId", "executionMode"])("rejects a select missing %s", (field) => {
-    // Neither field has a wire default: `executionMode` is deliberately not
-    // `.default("read-only")`, because a default would make "caller omitted the
-    // mode" indistinguishable from "caller chose read-only" on the one surface
-    // whose whole job is recording an explicit switch.
+    // Neither field has a wire default: a default on `executionMode` would make
+    // "caller omitted the mode" indistinguishable from "caller chose that mode"
+    // on the one surface whose whole job is recording an explicit switch.
     const broken = { ...buildExecutionModeSelectRequest() } as Record<string, unknown>;
     delete broken[field];
     expect(ExecutionModeSelectRequestSchema.safeParse(broken).success).toBe(false);
@@ -924,42 +739,16 @@ describe("ExecutionModeSelect request (records the mode)", () => {
   });
 });
 
-describe("ExecutionModeSelect response (executionRoot iff resolved synchronously)", () => {
-  it("accepts the writable answer with NO executionRoot", () => {
-    // The `provisioning` case: the mode is recorded, the root does not exist
-    // yet, and `repo.executionRootPrepare` will materialize it.
-    expect(parseSelectResponse().success).toBe(true);
-  });
-
-  it("accepts the synchronous read-only answer carrying executionRoot", () => {
-    expect(
-      parseSelectResponse({
-        executionMode: "read-only",
-        state: "ready",
-        executionRoot: EXECUTION_ROOT,
-      }).success,
-    ).toBe(true);
-  });
-
-  it("applies the wireFreeFormString guard to executionRoot", () => {
-    // GUARD-DOWNGRADE VISIBILITY: re-spelling the field as a bare
-    // `z.string().optional()` passes every other row in this block; these
-    // three make it fail.
-    expect(parseSelectResponse({ executionRoot: "" }).success).toBe(false);
-    expect(parseSelectResponse({ executionRoot: "   " }).success).toBe(false);
-    const rootWithNulByte = `${EXECUTION_ROOT}${String.fromCharCode(0)}/etc`;
-    expect(parseSelectResponse({ executionRoot: rootWithNulByte }).success).toBe(false);
-  });
-
-  it.each(["read-only", "branch", "worktree", "ephemeral clone"])(
-    "echoes back the full four-mode taxonomy — %s",
+describe("ExecutionModeSelect response (records the mode)", () => {
+  it.each(["bound-root", "provisioned-worktree"])(
+    "echoes back the full two-mode taxonomy — %s",
     (executionMode) => {
       // The response echo is not a narrower surface than the request: makes an
       // unavailable mode a typed `workspace.mode_unsupported` refusal, so every
       // mode the request accepts must be echoable. A narrowing like
-      // `z.enum(["worktree", "read-only"])` is assignable to the wider
+      // `z.enum(["provisioned-worktree"])` is assignable to the wider
       // `ExecutionMode` annotation, so it typechecks green and passes every
-      // other row here while silently refusing two lawful answers.
+      // other row here while silently refusing a lawful answer.
       expect(parseSelectResponse({ executionMode }).success).toBe(true);
     },
   );
@@ -967,7 +756,6 @@ describe("ExecutionModeSelect response (executionRoot iff resolved synchronously
   it("rejects an out-of-taxonomy executionMode on the response too", () => {
     // Negative control on the row above — response validation is not laxer
     // than request validation (validates both directions).
-    expect(parseSelectResponse({ executionMode: "ephemeral_clone" }).success).toBe(false);
     expect(parseSelectResponse({ executionMode: "detached" }).success).toBe(false);
   });
 
@@ -977,8 +765,8 @@ describe("ExecutionModeSelect response (executionRoot iff resolved synchronously
       // The ratified block types this field `WorkspaceState` and glosses the
       // two expected values in a comment; a `z.enum(["ready","provisioning"])`
       // would silently reject the other three lawful states while passing
-      // every other row here. Contrast the three `Extract`-narrowed `state`
-      // fields below, where the ratified block narrows the TYPE.
+      // every other row here. Contrast the `Extract`-narrowed retire `state`
+      // below, where the ratified block narrows the TYPE.
       expect(parseSelectResponse({ state }).success).toBe(true);
     },
   );
@@ -996,10 +784,8 @@ describe("ExecutionModeSelect response (executionRoot iff resolved synchronously
 
 describe("ExecutionRootPrepare request (create or bind)", () => {
   it("accepts the minimal shape — workspaceId alone (schema-optional branch)", () => {
-    // `branchName` stays optional in the SHAPE on purpose: a writable-mode wire
-    // prepare without it draws the typed service-side
-    // `workspace.branch_name_required` (400) refusal, which the schema cannot
-    // raise because the workspace's selected mode is not visible at parse time.
+    // `branchName` is optional in the SHAPE: a wire prepare without it draws
+    // the typed service-side `workspace.branch_name_required` (400) refusal.
     expect(parsePrepareRequest().success).toBe(true);
   });
 
@@ -1057,21 +843,15 @@ describe("ExecutionRootPrepare request (create or bind)", () => {
   });
 });
 
-// The four mode-discriminated response shapes, keyed by which root id each
-// carries. All three WRITABLE modes carry `branchContextId`; `read-only`
-// carries none of the three. The element type is spelled out rather than
+// The two mode-discriminated response shapes, keyed by which root id each
+// carries. Both modes carry `branchContextId`. The element type is spelled out rather than
 // inferred: an un-annotated literal array widens each row to a union that
 // includes `string`, and the spread in the test body then stops
 // type-checking as an object (the `REGISTERED_WORKTREE_EVENTS` stance
 // above).
 const PREPARE_RESPONSE_MODE_SHAPES: ReadonlyArray<readonly [string, Record<string, string>]> = [
-  ["worktree mode", { worktreeId: WORKTREE_ID, branchContextId: BRANCH_CONTEXT_ID }],
-  [
-    "ephemeral clone mode",
-    { ephemeralCloneId: EPHEMERAL_CLONE_ID, branchContextId: BRANCH_CONTEXT_ID },
-  ],
-  ["branch mode", { branchContextId: BRANCH_CONTEXT_ID }],
-  ["read-only mode", {}],
+  ["provisioned-worktree mode", { worktreeId: WORKTREE_ID, branchContextId: BRANCH_CONTEXT_ID }],
+  ["bound-root mode", { branchContextId: BRANCH_CONTEXT_ID }],
 ];
 
 describe("ExecutionRootPrepare response (a root or a typed refusal, never both)", () => {
@@ -1085,8 +865,8 @@ describe("ExecutionRootPrepare response (a root or a typed refusal, never both)"
   });
 
   it("rejects a response with no executionRoot — unrepresentable-absent", () => {
-    // Preparation failure ABORTS with a typed error (`worktree.create_failed`
-    // / `clone.prepare_failed`) admits no fallback root, so there is no
+    // Preparation failure ABORTS with a typed error (`worktree.create_failed`)
+    // and admits no fallback root, so there is no
     // partial success carrying an unresolved one.
     const broken = { ...buildExecutionRootPrepareResponse() } as Record<string, unknown>;
     delete broken["executionRoot"];
@@ -1120,21 +900,7 @@ describe("ExecutionRootPrepare response (a root or a typed refusal, never both)"
 
   it("keeps each root id branded to its own vocabulary", () => {
     expect(parsePrepareResponse({ worktreeId: "worktree-1" }).success).toBe(false);
-    expect(parsePrepareResponse({ ephemeralCloneId: "clone-1" }).success).toBe(false);
     expect(parsePrepareResponse({ branchContextId: "ctx-1" }).success).toBe(false);
-  });
-
-  it("does NOT refine the mode-discriminated ids against each other", () => {
-    // The structural at-most-one rule lives in the `branch_contexts` CHECK and
-    // the mode-conditional `run_execution_contexts` CHECK, where it can be
-    // enforced against real row state. A refinement here would also make the
-    // polymorphism tests vacuous.
-    expect(
-      parsePrepareResponse({
-        worktreeId: WORKTREE_ID,
-        ephemeralCloneId: EPHEMERAL_CLONE_ID,
-      }).success,
-    ).toBe(true);
   });
 });
 
@@ -1213,165 +979,6 @@ describe("WorktreeReuseCheck (branch, cleanliness, compat)", () => {
   });
 });
 
-describe("EphemeralClonePrepare request (branch required no wire TTL)", () => {
-  it("accepts a prepare with and without an explicit cleanupPolicy", () => {
-    expect(parseClonePrepareRequest().success).toBe(true);
-    expect(parseClonePrepareRequest({ cleanupPolicy: "manual" }).success).toBe(true);
-    expect(parseClonePrepareRequest({ cleanupPolicy: "on_run_complete" }).success).toBe(true);
-  });
-
-  it("REJECTS a prepare missing branchName", () => {
-    // The requiredness split this pair exists to pin: a wire clone prepare is
-    // pre-run and carries no slug-rule derivation seed, and unlike the
-    // execution-root prepare there is no `read-only` arm for which a head
-    // branch would be meaningless — so requiredness is expressible in the
-    // SHAPE and lives here rather than in a service-side refusal.
-    const broken = { ...buildEphemeralClonePrepareRequest() } as Record<string, unknown>;
-    delete broken["branchName"];
-    expect(EphemeralClonePrepareRequestSchema.safeParse(broken).success).toBe(false);
-  });
-
-  it("requires workspaceId — the field the `as unknown as` bridge cannot pin", () => {
-    // This is one of the TWO schemas carrying the bridge, and the cast erases
-    // all structural checking: re-spell this field `WorkspaceIdSchema.optional()`
-    // and typecheck stays green (the annotation is asserted, not derived),
-    // while `expectClosedShape`'s fixture supplies the key. These two rows are
-    // the only backstop against a workspace-less clone prepare.
-    const broken = { ...buildEphemeralClonePrepareRequest() } as Record<string, unknown>;
-    delete broken["workspaceId"];
-    expect(EphemeralClonePrepareRequestSchema.safeParse(broken).success).toBe(false);
-    expect(parseClonePrepareRequest({ workspaceId: "workspace-1" }).success).toBe(false);
-  });
-
-  it("applies the wireFreeFormString guard to branchName", () => {
-    // Same bridge exposure: the cast means a downgrade to a bare `z.string()`
-    // here is invisible to tsc, and a whitespace-only head branch would reach
-    // the clone service as if it were a name.
-    for (const hostile of GUARD_DOWNGRADE_VALUES) {
-      expect(parseClonePrepareRequest({ branchName: hostile }).success).toBe(false);
-    }
-  });
-
-  it.each(["ttlMs", "ttlSeconds", "expiresAt", "ttl"])(
-    "rejects the TTL-like key %s under strict parsing",
-    (ttlKey) => {
-      // TTL is DAEMON CONFIGURATION, so no spelling of it is a wire parameter.
-      // `.strict()` is what makes this a refusal rather than a silent strip — a
-      // caller that believed it set a deadline and had the key dropped would
-      // run against an expiry it never chose.
-      expect(parseClonePrepareRequest({ [ttlKey]: 3_600_000 }).success).toBe(false);
-    },
-  );
-
-  it("rejects a normalized cleanupPolicy spelling", () => {
-    // The wire literal is the snake_case ROW value, verbatim — a producer that
-    // camelCased it would diverge from the ratified CHECK bytes.
-    expect(parseClonePrepareRequest({ cleanupPolicy: "onRunComplete" }).success).toBe(false);
-    expect(parseClonePrepareRequest({ cleanupPolicy: "auto" }).success).toBe(false);
-  });
-
-  it("does not default cleanupPolicy on the wire", () => {
-    // `.default()` was refused twice over: it would make "caller omitted" and
-    // "caller chose on_run_complete" indistinguishable, and it is a TRANSFORM,
-    // so Input would stop equalling Output — a divergence this schema's
-    // `as unknown as` double-T bridge would HIDE rather than surface. Omission
-    // therefore stays omission through the parse.
-    const parsed = EphemeralClonePrepareRequestSchema.parse(buildEphemeralClonePrepareRequest());
-    expect("cleanupPolicy" in parsed).toBe(false);
-  });
-});
-
-describe("EphemeralClonePrepare response (Extract-narrowed state; reports policy + expiry)", () => {
-  it.each(["creating", "ready"])("accepts the non-terminal prepare state %s", (state) => {
-    expect(parseClonePrepareResponse({ state }).success).toBe(true);
-  });
-
-  it.each(["retired", "failed"])(
-    "REJECTS the terminal clone state %s (the Extract narrowing, runtime half)",
-    (state) => {
-      // A prepare that ended `retired` or `failed` did not prepare a clone — it
-      // refused with `clone.prepare_failed`. Both literals are lawful members
-      // of `EphemeralCloneState`, so only the narrowing rejects them, and outer
-      // narrowing has no compile-time trace on a parse of unknown input — hence
-      // this runtime row plus the compile-time pin below.
-      expect(parseClonePrepareResponse({ state }).success).toBe(false);
-    },
-  );
-
-  it.each(["cloneId", "cloneRoot", "state", "cleanupPolicy", "branchName", "expiresAt"])(
-    "rejects a prepare response missing %s — every field is required",
-    (field) => {
-      // `branchName` is the row the plan's Tests line names ("clone shapes
-      // carry branchName"): the effective head branch is persisted on the clone
-      // row (`ephemeral_clones.branch_name` NOT NULL) and reported here, so a
-      // clone with no head branch is a state the model never produces.
-      const broken = { ...buildEphemeralClonePrepareResponse() } as Record<string, unknown>;
-      delete broken[field];
-      expect(EphemeralClonePrepareResponseSchema.safeParse(broken).success).toBe(false);
-    },
-  );
-
-  it.each(["on_run_complete", "manual"])(
-    "reports either effective cleanup policy — %s",
-    (cleanupPolicy) => {
-      // The fixture only ever carries `on_run_complete`. Reporting the
-      // EFFECTIVE policy is this field's entire job, so a narrowing to the
-      // default value alone would make the `manual` answer — the one a caller
-      // explicitly asked for — unrepresentable, while typechecking green
-      // against the wider `"on_run_complete" | "manual"` annotation.
-      expect(parseClonePrepareResponse({ cleanupPolicy }).success).toBe(true);
-    },
-  );
-
-  it("rejects a normalized or invented cleanupPolicy on the response", () => {
-    expect(parseClonePrepareResponse({ cleanupPolicy: "onRunComplete" }).success).toBe(false);
-    expect(parseClonePrepareResponse({ cleanupPolicy: "never" }).success).toBe(false);
-  });
-
-  it("applies the wireFreeFormString guard to cloneRoot and branchName", () => {
-    for (const hostile of GUARD_DOWNGRADE_VALUES) {
-      expect(parseClonePrepareResponse({ cloneRoot: hostile }).success).toBe(false);
-      expect(parseClonePrepareResponse({ branchName: hostile }).success).toBe(false);
-    }
-  });
-
-  it("accepts both ISO-8601 instant forms on expiresAt and rejects non-instants", () => {
-    // `{ offset: true }` widens Zod's default Z-only acceptance to numeric
-    // RFC 3339 section 5.6 offsets — the package-wide datetime convention. The offset
-    // row is what proves the option is present: without it that value fails.
-    expect(parseClonePrepareResponse({ expiresAt: "2026-07-27T11:30:00.000+02:00" }).success).toBe(
-      true,
-    );
-    expect(parseClonePrepareResponse({ expiresAt: "2026-07-27" }).success).toBe(false);
-    expect(parseClonePrepareResponse({ expiresAt: "not-a-timestamp" }).success).toBe(false);
-    expect(parseClonePrepareResponse({ expiresAt: 1_800_000_000 }).success).toBe(false);
-  });
-});
-
-describe("EphemeralCloneDispose (the explicit `manual` arm)", () => {
-  it("accepts a dispose naming the clone and requires a canonical UUID", () => {
-    const request = buildEphemeralCloneDisposeRequest();
-    expect(EphemeralCloneDisposeRequestSchema.safeParse(request).success).toBe(true);
-    expect(EphemeralCloneDisposeRequestSchema.safeParse({}).success).toBe(false);
-    const nonUuidCloneId = { cloneId: "clone-1" };
-    expect(EphemeralCloneDisposeRequestSchema.safeParse(nonUuidCloneId).success).toBe(false);
-  });
-
-  it("accepts the one success state and rejects the other three", () => {
-    const response = buildEphemeralCloneDisposeResponse();
-    expect(EphemeralCloneDisposeResponseSchema.safeParse(response).success).toBe(true);
-    for (const state of ["creating", "ready", "failed"]) {
-      // `Extract<EphemeralCloneState, "retired">`: dispose RECORDS retirement
-      // and disk removal follows asynchronously, so no other state is reachable
-      // on this path. All three rejected literals are lawful members of the
-      // parent enum — only the narrowing refuses them.
-      expect(EphemeralCloneDisposeResponseSchema.safeParse({ ...response, state }).success).toBe(
-        false,
-      );
-    }
-  });
-});
-
 describe("WorktreeRetire (records retirement)", () => {
   it("accepts a retire naming the worktree and requires a canonical UUID", () => {
     expect(WorktreeRetireRequestSchema.safeParse(buildWorktreeRetireRequest()).success).toBe(true);
@@ -1400,7 +1007,7 @@ describe("WorktreeRetire (records retirement)", () => {
   });
 });
 
-describe("WorktreeStatusRead (worktree + clone records with provenance)", () => {
+describe("WorktreeStatusRead (worktree records with provenance)", () => {
   it("accepts a session-scoped read with and without the mount filter", () => {
     const sessionScoped = buildWorktreeStatusReadRequest();
     expect(WorktreeStatusReadRequestSchema.safeParse(sessionScoped).success).toBe(true);
@@ -1412,19 +1019,17 @@ describe("WorktreeStatusRead (worktree + clone records with provenance)", () => 
     expect(WorktreeStatusReadRequestSchema.safeParse(sessionless).success).toBe(false);
   });
 
-  it("accepts the full projection and two EMPTY arrays alike", () => {
+  it("accepts the full projection and an EMPTY array alike", () => {
     const fullProjection = buildWorktreeStatusReadResponse();
     expect(WorktreeStatusReadResponseSchema.safeParse(fullProjection).success).toBe(true);
-    // A session that has bound no writable root yet is a lawful answer, not a
-    // degenerate one — hence no `.min(1)` on either array.
-    const emptyProjection = { worktrees: [], ephemeralClones: [] };
+    // A session that has bound no worktree yet is a lawful answer, not a
+    // degenerate one — hence no `.min(1)` on the array.
+    const emptyProjection = { worktrees: [] };
     expect(WorktreeStatusReadResponseSchema.safeParse(emptyProjection).success).toBe(true);
   });
 
-  it.each(["worktrees", "ephemeralClones"])("requires the %s array to be present", (arrayField) => {
-    const broken = { ...buildWorktreeStatusReadResponse() } as Record<string, unknown>;
-    delete broken[arrayField];
-    expect(WorktreeStatusReadResponseSchema.safeParse(broken).success).toBe(false);
+  it("requires the worktrees array to be present", () => {
+    expect(WorktreeStatusReadResponseSchema.safeParse({}).success).toBe(false);
   });
 
   it.each([
@@ -1457,9 +1062,8 @@ describe("WorktreeStatusRead (worktree + clone records with provenance)", () => 
     expect(parseStatusReadWithWorktree({ createdByRunId: RUN_ID }).success).toBe(true);
   });
 
-  it("accepts the async cleanup stamp on either record kind", () => {
+  it("accepts the async cleanup stamp on a worktree record", () => {
     expect(parseStatusReadWithWorktree({ cleanedAt: CLEANED_AT }).success).toBe(true);
-    expect(parseStatusReadWithClone({ cleanedAt: CLEANED_AT }).success).toBe(true);
     expect(parseStatusReadWithWorktree({ cleanedAt: "2026-07-26" }).success).toBe(false);
   });
 
@@ -1473,76 +1077,25 @@ describe("WorktreeStatusRead (worktree + clone records with provenance)", () => 
     },
   );
 
-  it.each(["creating", "ready", "retired", "failed"])(
-    "never hides a clone row in state %s",
-    (state) => {
-      expect(parseStatusReadWithClone({ state }).success).toBe(true);
-    },
-  );
-
-  it("keeps the two state vocabularies disjoint per record kind", () => {
-    // A clone has no `dirty` / `merged` position, and a worktree row must not
-    // borrow a workspace state — the per-record composition of the canonical
-    // enums (contract half) is what enforces both.
-    expect(parseStatusReadWithClone({ state: "dirty" }).success).toBe(false);
-    expect(parseStatusReadWithClone({ state: "merged" }).success).toBe(false);
+  it("keeps a workspace state out of the worktree record", () => {
+    // The per-record composition of the canonical enum (contract half) keeps a
+    // worktree row from borrowing a workspace state.
     expect(parseStatusReadWithWorktree({ state: "provisioning" }).success).toBe(false);
   });
 
-  it.each([
-    "cloneId",
-    "workspaceId",
-    "cloneRoot",
-    "branchName",
-    "state",
-    "cleanupPolicy",
-    "expiresAt",
-    "createdAt",
-  ])("rejects a clone record missing %s", (field) => {
-    // The second half of "clone shapes carry branchName": the status read
-    // exposes the head branch for clone records, and
-    // `ephemeral_clones.branch_name` is NOT NULL.
-    const broken = { ...buildEphemeralCloneStatusRecord() } as Record<string, unknown>;
-    delete broken[field];
-    expect(parseStatusReadCloneRecord(broken).success).toBe(false);
-  });
-
-  it.each(["on_run_complete", "manual"])(
-    "carries either cleanup policy on a clone record — %s",
-    (cleanupPolicy) => {
-      // `ephemeral_clones.cleanup_policy` holds whichever the clone was
-      // prepared with, so the projection has to round-trip both. The fixture
-      // exercises one, which is what makes a narrowing here invisible.
-      expect(parseStatusReadWithClone({ cleanupPolicy }).success).toBe(true);
-    },
-  );
-
-  it("rejects a normalized cleanupPolicy on a clone record", () => {
-    expect(parseStatusReadWithClone({ cleanupPolicy: "onRunComplete" }).success).toBe(false);
-  });
-
-  it("applies the wireFreeFormString guard to every path and ref on both records", () => {
-    // Four fields, none of which has a cap row: a downgrade at any one of them
+  it("applies the wireFreeFormString guard to every path and ref on the record", () => {
+    // Two fields, neither of which has a cap row: a downgrade at either of them
     // would put a blank or NUL-bearing path into a projection the Phase 4 views
     // render directly.
     for (const hostile of GUARD_DOWNGRADE_VALUES) {
       expect(parseStatusReadWithWorktree({ branchName: hostile }).success).toBe(false);
       expect(parseStatusReadWithWorktree({ fsRoot: hostile }).success).toBe(false);
-      expect(parseStatusReadWithClone({ cloneRoot: hostile }).success).toBe(false);
-      expect(parseStatusReadWithClone({ branchName: hostile }).success).toBe(false);
     }
-  });
-
-  it("does not carry updatedAt on clone records (transcribed as ratified)", () => {
-    // `ephemeral_clones.updated_at` exists in the DDL, but the ratified block
-    // carries the column on the worktree projection only. Adding it here would
-    // be a wire change ahead of the doc, so `.strict()` refuses it.
-    expect(parseStatusReadWithClone({ updatedAt: UPDATED_AT }).success).toBe(false);
   });
 });
 
 // --------------------------------------------------------------------------
-// `.strict()` — the behavioral pin on all sixteen shapes.
+// `.strict()` — the behavioral pin on all eleven shapes.
 // --------------------------------------------------------------------------
 //
 // Outer `.strict()` is TYPE-INVISIBLE: a schema's inferred output does not
@@ -1557,39 +1110,34 @@ const expectClosedShape = (
   // Accept THEN reject: the accept leg proves the fixture is in-shape, so the
   // rejection is attributable to the stray key alone and not to a fixture that
   // never parsed. It also carries this block's second job — one parse-accept
-  // per shape, all fourteen exported schemas.
+  // per shape, all ten exported schemas.
   expect(schema.safeParse(fixture).success).toBe(true);
   expect(schema.safeParse({ ...fixture, unknownWireKey: "leak" }).success).toBe(false);
 };
 
 describe("`.strict()` closes every wire shape (behavioral pin)", () => {
-  it("closes all seven request schemas", () => {
+  it("closes all five request schemas", () => {
     expectClosedShape(ExecutionModeSelectRequestSchema, buildExecutionModeSelectRequest());
     expectClosedShape(ExecutionRootPrepareRequestSchema, buildExecutionRootPrepareRequest());
     expectClosedShape(WorktreeReuseCheckRequestSchema, buildWorktreeReuseCheckRequest());
-    expectClosedShape(EphemeralClonePrepareRequestSchema, buildEphemeralClonePrepareRequest());
-    expectClosedShape(EphemeralCloneDisposeRequestSchema, buildEphemeralCloneDisposeRequest());
     expectClosedShape(WorktreeRetireRequestSchema, buildWorktreeRetireRequest());
     expectClosedShape(WorktreeStatusReadRequestSchema, buildWorktreeStatusReadRequest());
   });
 
-  it("closes all seven response schemas", () => {
+  it("closes all five response schemas", () => {
     expectClosedShape(ExecutionModeSelectResponseSchema, buildExecutionModeSelectResponse());
     expectClosedShape(ExecutionRootPrepareResponseSchema, buildExecutionRootPrepareResponse());
     expectClosedShape(WorktreeReuseCheckResponseSchema, buildWorktreeReuseCheckResponse());
-    expectClosedShape(EphemeralClonePrepareResponseSchema, buildEphemeralClonePrepareResponse());
-    expectClosedShape(EphemeralCloneDisposeResponseSchema, buildEphemeralCloneDisposeResponse());
     expectClosedShape(WorktreeRetireResponseSchema, buildWorktreeRetireResponse());
     expectClosedShape(WorktreeStatusReadResponseSchema, buildWorktreeStatusReadResponse());
   });
 
-  it("closes BOTH status-read item schemas independently of their envelope", () => {
+  it("closes the status-read item schema independently of its envelope", () => {
     // The envelope's own `.strict()` cannot reach inside an array element, so
     // an item-level guard is a separate obligation — the wire shape is closed
-    // at both levels (the `workspaceListItemSchema` precedent). These two rows
-    // are why the count is sixteen, not fourteen.
+    // at both levels (the `workspaceListItemSchema` precedent). This row is why
+    // the count is eleven, not ten.
     expect(parseStatusReadWithWorktree({ unknownWireKey: "leak" }).success).toBe(false);
-    expect(parseStatusReadWithClone({ unknownWireKey: "leak" }).success).toBe(false);
   });
 });
 
@@ -1603,16 +1151,6 @@ describe("`.strict()` closes every wire shape (behavioral pin)", () => {
 // typecheck leg red rather than silently dropping the pin.
 
 const extractNarrowingPins = (): void => {
-  // @ts-expect-error — `retired` is outside EphemeralClonePrepareResponse's
-  // `Extract<EphemeralCloneState, "creating" | "ready">`.
-  const retiredPrepareState: EphemeralClonePrepareResponse["state"] = "retired";
-  void retiredPrepareState;
-  // @ts-expect-error — `failed` is outside the same narrowing.
-  const failedPrepareState: EphemeralClonePrepareResponse["state"] = "failed";
-  void failedPrepareState;
-  // @ts-expect-error — EphemeralCloneDisposeResponse admits `retired` only.
-  const readyDisposeState: EphemeralCloneDisposeResponse["state"] = "ready";
-  void readyDisposeState;
   // @ts-expect-error — WorktreeRetireResponse admits `retired` only.
   const mergedRetireState: WorktreeRetireResponse["state"] = "merged";
   void mergedRetireState;
@@ -1648,10 +1186,6 @@ describe("index.ts re-exports wire surfaces", () => {
     expect(contracts.ExecutionRootPrepareResponseSchema).toBe(ExecutionRootPrepareResponseSchema);
     expect(contracts.WorktreeReuseCheckRequestSchema).toBe(WorktreeReuseCheckRequestSchema);
     expect(contracts.WorktreeReuseCheckResponseSchema).toBe(WorktreeReuseCheckResponseSchema);
-    expect(contracts.EphemeralClonePrepareRequestSchema).toBe(EphemeralClonePrepareRequestSchema);
-    expect(contracts.EphemeralClonePrepareResponseSchema).toBe(EphemeralClonePrepareResponseSchema);
-    expect(contracts.EphemeralCloneDisposeRequestSchema).toBe(EphemeralCloneDisposeRequestSchema);
-    expect(contracts.EphemeralCloneDisposeResponseSchema).toBe(EphemeralCloneDisposeResponseSchema);
     expect(contracts.WorktreeRetireRequestSchema).toBe(WorktreeRetireRequestSchema);
     expect(contracts.WorktreeRetireResponseSchema).toBe(WorktreeRetireResponseSchema);
     expect(contracts.WorktreeStatusReadRequestSchema).toBe(WorktreeStatusReadRequestSchema);

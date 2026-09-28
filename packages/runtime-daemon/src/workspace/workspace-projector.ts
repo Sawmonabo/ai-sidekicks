@@ -21,10 +21,6 @@
 //     `healthy` when that root is present and readable at probe time and
 //     `unreachable` otherwise, with `checkedAt` the instant of the probe that
 //     produced the verdict.
-//   • "Non-git directory workspaces remain usable without pretending to
-//     support git-only features": the plain-directory profile below keeps
-//     `read-only` available and refuses the three git-backed modes WITH A
-//     REASON rather than by omission.
 //
 // Invariants carried here:
 //   • An unavailable execution root is observable as `stale` on every daemon
@@ -54,14 +50,14 @@
 //
 // Layer 2 is the daemon-owned BACKGROUND REFRESH — a periodic re-probe of
 // attached mounts on a daemon idle scheduler. Its wiring is NOT here,
-// deliberately: no idle scheduler exists in this package at Phase-2 time. The
+// deliberately: no idle scheduler exists in this package. The
 // precedent points at compactor, exposes a `tick()` and deliberately declines
 // to invent the scheduler that would own its cadence (its header: "The idle
 // scheduler that owns `tick()` owns the precondition"), and nothing in
 // production code calls that `tick()` yet. Declaring a scheduler seam here to
 // hang a re-probe off would be a premature interface in exactly the way the
-// compactor refused, so the background layer lands with Phase 3 per its own
-// carve-out. The on-read floor keeps the spec satisfied in the meantime.
+// compactor refused, so the background layer lands with the scheduler. The
+// on-read floor keeps the spec satisfied until then.
 //
 // ----------------------------------------------------------------------------
 // One scope only: this module projects capabilities from a MOUNT
@@ -72,7 +68,7 @@
 // `@ai-sidekicks/contracts`): a MOUNT-scoped read answers "what could a
 // workspace on this mount do", which is the static matrix below, and a
 // WORKSPACE-scoped read answers "what may THIS workspace do now", which
-// additionally narrows writable modes for a `stale` workspace.
+// additionally narrows the modes for a `stale` workspace.
 //
 // Whoever lands it MUST route it through the same per-mode verdict shape:
 // narrowing by filtering `availableModes` in a handler would drop a mode
@@ -105,9 +101,8 @@ import {
  * `probedPath` is what makes the measurement ATTRIBUTABLE. Every projection
  * that consumes a probe checks it against the path its row declares and
  * refuses a mismatch — see the subject-binding guards below. Without it, a
- * multi-mount list fold (guarantees a session holds several mounts and
- * several workspaces) that mispairs rows and probes reports a confident,
- * wrong verdict for both rows.
+ * list fold over several workspaces on several mounts that mispairs rows and
+ * probes reports a confident, wrong verdict for both rows.
  */
 export interface FilesystemPathProbe {
   // The absolute path the probe actually measured.
@@ -249,8 +244,8 @@ export interface WorkspaceHealthRow {
   readonly state: WorkspaceState;
   // The resolved execution root. `string | null`, matching the nullable
   // `workspaces.fs_root` column rather than the wire shape's optional
-  // `fsRoot?: string` — a row is not a payload, and a writable bind
-  // legitimately persists NULL until provisioning completes.
+  // `fsRoot?: string` — a row is not a payload, and a bind legitimately
+  // persists NULL until provisioning completes.
   readonly fsRoot: string | null;
 }
 
@@ -302,10 +297,11 @@ export function computeWorkspaceHealth(
   if (NON_PROBE_BEARING_WORKSPACE_STATES.has(workspaceRow.state)) {
     if (probe !== null) {
       throw new Error(
-        `computeWorkspaceHealth: a workspace in state "${workspaceRow.state}" owes no execution-root probe, ` +
-          "but one was supplied. Its verdict would be discarded (a terminal or root-less workspace is not " +
-          "re-derived from the filesystem, and a stale workspace is never auto-healed), so accepting it " +
-          "silently would hide a mispaired row and probe.",
+        `computeWorkspaceHealth: a workspace in state "${workspaceRow.state}" owes no ` +
+          "execution-root probe, but one was supplied. Its verdict would be discarded (a " +
+          "terminal or root-less workspace is not re-derived from the filesystem, and a stale " +
+          "workspace is never auto-healed), so accepting it silently would hide a mispaired row " +
+          "and probe.",
       );
     }
     return {
@@ -321,24 +317,26 @@ export function computeWorkspaceHealth(
     // have handed it. Guessing either policy would answer a health read from
     // a row the model does not describe.
     throw new Error(
-      `computeWorkspaceHealth: no probe policy is registered for workspace state "${String(workspaceRow.state)}". ` +
-        "Every value of the closed WorkspaceState union is either probe-bearing or not; a value outside " +
-        "that vocabulary is a corrupt row, and answering it from either branch would guess at a policy " +
-        "nobody ratified.",
+      "computeWorkspaceHealth: no probe policy is registered for workspace state " +
+        `"${String(workspaceRow.state)}". Every value of the closed WorkspaceState union is ` +
+        "either probe-bearing or not; a value outside that vocabulary is a corrupt row, and " +
+        "answering it from either branch would guess at a policy nobody ratified.",
     );
   }
   if (workspaceRow.fsRoot === null) {
     throw new Error(
-      `computeWorkspaceHealth: a workspace in state "${workspaceRow.state}" must carry a resolved fs_root; ` +
-        "this row carries NULL. A probe-bearing state with no execution root is a corrupt row — the bind " +
-        "and reprovision paths set fs_root before either state is written — and there is nothing to probe.",
+      `computeWorkspaceHealth: a workspace in state "${workspaceRow.state}" must carry a ` +
+        "resolved fs_root; this row carries NULL. A probe-bearing state with no execution root " +
+        "is a corrupt row — the reprovision path sets fs_root whenever it writes either " +
+        "state — and there is nothing to probe.",
     );
   }
   if (probe === null) {
     throw new Error(
-      `computeWorkspaceHealth: a workspace in state "${workspaceRow.state}" requires an execution-root probe. ` +
-        "Answering without one would report the row's own state as a checked verdict, which is exactly the " +
-        "unobserved-staleness failure the on-read probe floor exists to prevent.",
+      `computeWorkspaceHealth: a workspace in state "${workspaceRow.state}" requires an ` +
+        "execution-root probe. Answering without one would report the row's own state as a " +
+        "checked verdict, which is exactly the unobserved-staleness failure the on-read probe " +
+        "floor exists to prevent.",
     );
   }
   assertProbeTargets(probe, workspaceRow.fsRoot, "workspace's execution root");
@@ -381,53 +379,23 @@ type ExecutionModeVerdict =
 /**
  * The capability answer for one `vcs_type`, before it is folded into the wire
  * shape. `Record<ExecutionMode, ...>` makes the verdict table TOTAL over the
- * canonical four-mode taxonomy — a fifth mode registered in contracts fails
- * THIS compile rather than silently arriving with no standing at all, which
- * would leave it neither available nor restricted.
+ * canonical mode taxonomy — a mode added in contracts fails THIS compile rather
+ * than silently arriving with no standing at all, which would leave it neither
+ * available nor restricted.
  */
 interface VcsTypeCapabilityProfile {
   readonly defaultMode: ExecutionMode;
   readonly modeVerdicts: Readonly<Record<ExecutionMode, ExecutionModeVerdict>>;
 }
 
-// The shared premise of all three plain-directory refusals, factored out so
-// the three reasons cannot drift into three different accounts of one fact.
-const PLAIN_DIRECTORY_PREMISE = "This repo mount is a plain directory, not a git repository, so";
-
-// A git-backed mount: the full nothing restricted.
+// A git mount: both modes, nothing restricted.
 const GIT_CAPABILITY_PROFILE = {
-  // Writable coding runs default to dedicated `worktree` execution rather than
-  // mutating the main checkout. The two disagree by design.
-  defaultMode: "worktree",
+  // Coding runs default to a `provisioned-worktree` rather than mutating the
+  // main checkout.
+  defaultMode: "provisioned-worktree",
   modeVerdicts: {
-    "read-only": { available: true },
-    branch: { available: true },
-    worktree: { available: true },
-    "ephemeral clone": { available: true },
-  },
-} as const satisfies VcsTypeCapabilityProfile;
-
-// A plain-directory mount (the single funnel): usable, with the git-backed
-// modes refused BY REASON rather than by omission — "usable without
-// pretending to support git-only features".
-const PLAIN_DIRECTORY_CAPABILITY_PROFILE = {
-  // The only available mode is necessarily the default. There is no writable
-  // mode to prefer, and names `read-only` here explicitly.
-  defaultMode: "read-only",
-  modeVerdicts: {
-    "read-only": { available: true },
-    branch: {
-      available: false,
-      reason: `${PLAIN_DIRECTORY_PREMISE} there is no branch to create or check out.`,
-    },
-    worktree: {
-      available: false,
-      reason: `${PLAIN_DIRECTORY_PREMISE} no git worktree can be provisioned from it.`,
-    },
-    "ephemeral clone": {
-      available: false,
-      reason: `${PLAIN_DIRECTORY_PREMISE} there is no repository to clone.`,
-    },
+    "bound-root": { available: true },
+    "provisioned-worktree": { available: true },
   },
 } as const satisfies VcsTypeCapabilityProfile;
 
@@ -441,10 +409,8 @@ const PLAIN_DIRECTORY_CAPABILITY_PROFILE = {
 // assertion below proves every MODE is an element. Neither direction alone
 // would catch a mode added to contracts and forgotten here.
 const EXECUTION_MODES_IN_TAXONOMY_ORDER = [
-  "read-only",
-  "branch",
-  "worktree",
-  "ephemeral clone",
+  "bound-root",
+  "provisioned-worktree",
 ] as const satisfies readonly ExecutionMode[];
 
 type _AssertTaxonomyOrderIsExhaustive = _AssertExtends<
@@ -457,9 +423,8 @@ type _AssertTaxonomyOrderIsExhaustive = _AssertExtends<
  * structural, for the same reason as {@link RepoMountHealthRow}.
  */
 export interface ExecutionModeCapabilityRow {
-  // The honest git/non-git verdict fixed at resolution time. The
-  // capability matrix keys off it and off nothing else, which is why a
-  // misclassified mount makes this projection lie about git-backed modes.
+  // Fixed at resolution time. The capability matrix keys off it and off
+  // nothing else.
   readonly vcsType: VcsType;
 }
 
@@ -479,27 +444,24 @@ export function computeExecutionModeCapabilities(
 
 /**
  * Resolve the profile for one `vcs_type`. A `switch` with a `never` default
- * rather than a lookup table: the `never` binding makes a third `VcsType`
- * member fail this compile, AND the throw fails closed at runtime for a value
- * that reached here past the compiler (a raw database row, a plain-JS caller).
- * Answering an unrecognized `vcs_type` with the git profile would hand a
- * caller four modes for a mount that supports one; answering with the
- * plain-directory profile would hide git modes from a real repository. There
- * is no safe default, so there is no default.
+ * rather than a lookup table: the `never` binding makes a new `VcsType` member
+ * fail this compile, AND the throw fails closed at runtime for a value that
+ * reached here past the compiler (a raw database row, a plain-JS caller).
+ * Answering an unrecognized `vcs_type` with the git profile would claim git
+ * modes for a mount that is not a git repository. There is no safe default, so
+ * there is no default.
  */
 function capabilityProfileFor(vcsType: VcsType): VcsTypeCapabilityProfile {
   switch (vcsType) {
     case "git":
       return GIT_CAPABILITY_PROFILE;
-    case "none":
-      return PLAIN_DIRECTORY_CAPABILITY_PROFILE;
     default: {
       const unregisteredVcsType: never = vcsType;
       throw new Error(
         "computeExecutionModeCapabilities: no capability profile is registered for vcs_type " +
-          `"${String(unregisteredVcsType)}". Every value of the closed VcsType union needs a profile — ` +
-          "a mount whose capabilities cannot be projected must fail the read, never receive another " +
-          "vcs_type's answer.",
+          `"${String(unregisteredVcsType)}". Every value of the closed VcsType union needs a ` +
+          "profile — a mount whose capabilities cannot be projected must fail the read, never " +
+          "receive another vcs_type's answer.",
       );
     }
   }
@@ -566,9 +528,9 @@ function assertProbeTargets(
 ): void {
   if (probe.probedPath !== expectedPath) {
     throw new Error(
-      `Health projection refused a probe that did not measure the ${subjectDescription}: the probed path ` +
-        "and the row's path differ. Attributing another path's verdict to this row would report a " +
-        "confident, wrong health answer, which no downstream surface can detect.",
+      `Health projection refused a probe that did not measure the ${subjectDescription}: the ` +
+        "probed path and the row's path differ. Attributing another path's verdict to this row " +
+        "would report a confident, wrong health answer, which no downstream surface can detect.",
     );
   }
 }
@@ -579,9 +541,9 @@ function assertProbeTargets(
 
 // Every `vcs_type`, pinned both directions like the rosters above: `satisfies`
 // proves each element is a real member, and the alias beneath proves no member
-// is missing — so a third `VcsType` cannot leave the validation below silently
+// is missing — so a new `VcsType` cannot leave the validation below silently
 // covering a subset of the profiles `capabilityProfileFor` dispatches to.
-const ALL_VCS_TYPES = ["git", "none"] as const satisfies readonly VcsType[];
+const ALL_VCS_TYPES = ["git"] as const satisfies readonly VcsType[];
 type _AssertVcsTypeRosterIsComplete = _AssertExtends<VcsType, (typeof ALL_VCS_TYPES)[number]>;
 
 /**
@@ -615,8 +577,8 @@ function validateStaticCapabilityMatrix(): void {
       throw new Error(
         `Static capability matrix is inconsistent for vcs_type "${vcsType}": defaultMode ` +
           `"${capabilities.defaultMode}" is not among the available modes ` +
-          `[${capabilities.availableModes.join(", ")}]. Reporting a default a caller may not select is ` +
-          "the silent substitution the capability projection exists to prevent.",
+          `[${capabilities.availableModes.join(", ")}]. Reporting a default a caller may not ` +
+          "select is the silent substitution the capability projection exists to prevent.",
       );
     }
   }

@@ -1771,11 +1771,10 @@ describe("ClaudeSessionUnavailableError", () => {
 // --------------------------------------------------------------------------
 //
 // What is under test:
-//   * `rollbackTo` reports the `bindingId` the daemon rebinds on; the goal
-//     operations answer the typed results.
-//   * This provider's EMULATED cells: the goal as a spawn-bound system-prompt
-//     append, the concurrency cap as a daemon-side boundary serialization, and
-//     the callback-tool registry as a daemon-hosted ephemeral MCP server.
+//   * `rollbackTo` reports the `bindingId` the daemon rebinds on.
+//   * This provider's EMULATED cells: the concurrency cap as a daemon-side
+//     boundary serialization, and the callback-tool registry as a daemon-hosted
+//     ephemeral MCP server.
 //   * A registry with no dispatcher to adjudicate through is withheld rather
 //     than offered.
 //   * A subagent definition that cannot be held at the daemon boundary is
@@ -1821,90 +1820,6 @@ describe("ClaudeSessionLifecycle.rollbackTo (EMULATED as a fork)", () => {
 
     expect(result.status).toBe("degraded");
     expect((result as { fallbackAction: string }).fallbackAction).toContain("rewind-not-forked");
-  });
-});
-
-describe("ClaudeSessionLifecycle session goals (EMULATED)", () => {
-  it("answers `degraded` and names the boundary the goal binds at", async () => {
-    const harness = buildHarness();
-    await harness.lifecycle.createSession(buildCreateSessionParams());
-
-    const result = await harness.lifecycle.setSessionGoal({
-      sessionId: TEST_SESSION_ID,
-      bindingId: TEST_BINDING_ID,
-      runId: TEST_RUN_ID,
-      goalText: "land the parity legs",
-    });
-
-    // The goal is realized as a system-prompt append, which is bound at process
-    // start; answering `applied` would tell the daemon the session is governed
-    // by an instruction its model has never seen.
-    expect(result).toStrictEqual({
-      status: "degraded",
-      fallbackAction: "goal-appended-at-next-session-spawn",
-    });
-  });
-
-  it("answers `applied` for a clear on a session that carried no goal", async () => {
-    const harness = buildHarness();
-    await harness.lifecycle.createSession(buildCreateSessionParams());
-
-    expect(
-      await harness.lifecycle.clearSessionGoal({
-        sessionId: TEST_SESSION_ID,
-        bindingId: TEST_BINDING_ID,
-        runId: TEST_RUN_ID,
-      }),
-    ).toStrictEqual({
-      status: "applied",
-    });
-  });
-
-  it("carries a goal recorded AFTER the spawn into the rewind's relaunch", async () => {
-    // The rewind IS the "next session spawn" the set answer named. Reusing the
-    // predecessor's legs verbatim would skip the very next spawn.
-    const harness = buildHarness();
-    await harness.lifecycle.createSession(buildCreateSessionParams());
-    await harness.lifecycle.setSessionGoal({
-      sessionId: TEST_SESSION_ID,
-      bindingId: TEST_BINDING_ID,
-      runId: TEST_RUN_ID,
-      goalText: "land the parity legs",
-    });
-
-    await harness.lifecycle.rollbackTo({
-      sessionId: TEST_SESSION_ID,
-      bindingId: TEST_BINDING_ID,
-      position: 4,
-    });
-
-    expect(harness.transport.rewindRequests[0]?.goalText).toBe("land the parity legs");
-  });
-
-  it("does not RE-drop the goal on a second rewind", async () => {
-    // The regression a verbatim leg reuse would leave: the first rewind picks
-    // the goal up, and the second reads legs that must already carry it.
-    const harness = buildHarness();
-    await harness.lifecycle.createSession(buildCreateSessionParams());
-    await harness.lifecycle.setSessionGoal({
-      sessionId: TEST_SESSION_ID,
-      bindingId: TEST_BINDING_ID,
-      runId: TEST_RUN_ID,
-      goalText: "land the parity legs",
-    });
-
-    await harness.lifecycle.rollbackTo({
-      sessionId: TEST_SESSION_ID,
-      bindingId: TEST_BINDING_ID,
-      position: 4,
-    });
-    await harness.lifecycle.rollbackTo({
-      sessionId: TEST_SESSION_ID,
-      bindingId: TEST_BINDING_ID,
-      position: 3,
-    });
-
-    expect(harness.transport.rewindRequests[1]?.goalText).toBe("land the parity legs");
   });
 });
 

@@ -1,34 +1,28 @@
-// `eventanchor.upload` resolves through the MERGED host.
+// `eventanchor.upload` resolves through the host.
 //
 // Every test here dispatches an HTTP request at
 // `buildControlPlaneFetchHandler` rather than driving the router factory
 // through `t.createCallerFactory`, and that is the point rather than an
 // incidental choice. Three things are only observable on the HTTP path:
 //
-//   1. A 200 at `/trpc/eventanchor.upload` is reachable only if
-//      `t.mergeRouters` composed this router flat alongside the session and
-//      runtime-node siblings. A regression that re-nested it or dropped it from
-//      the merge surfaces here as a 404 while every in-process caller test
-//      would still pass — the same gap
-//      `server/__tests__/host-runtime-node.test.ts` closes for `runtimenode.*`.
+//   1. A 200 at `/trpc/eventanchor.upload` is reachable only if the host
+//      mounts this router at its namespace. A regression that re-nested or
+//      unmounted it surfaces here as a 404 while every in-process caller test
+//      would still pass.
 //   2. THE `.input()` REFUSAL as a wire STATUS. The metadata-only invariant
 //      is enforced by a `.strict()` schema at the procedure boundary, and a
 //      caller needs to see a 4xx — not a 200 with the extra member quietly
 //      dropped.
-//   3. Adding a third router to the merge must not open a path around the dual
-//      gate.
+//   3. The mount must not open a path around the dual gate.
 //
-// The store's own behaviour (idempotency mechanics, byte fidelity, the FK arm)
-// is covered against PGlite in the sibling `anchor-store.test.ts`; this file
-// asserts the transport contract on top of it and does not re-derive it.
-//
-// `packages/control-plane/src/server/host.ts` (the `t.mergeRouters`
-// composition).
+// The store's own behavior (idempotency mechanics, byte fidelity) is covered
+// against PGlite in the sibling `anchor-store.test.ts`; this file asserts the
+// transport contract on top of it and does not re-derive it.
 
 import { PGlite, type Transaction } from "@electric-sql/pglite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import type { AnchorPayload, NodeId, UserId, SessionId } from "@ai-sidekicks/contracts";
+import type { AnchorPayload, NodeId, SessionId } from "@ai-sidekicks/contracts";
 
 import { buildControlPlaneFetchHandler, type ControlPlaneEnv } from "../../server/host.js";
 import { makePassThroughDeps } from "../../server/__tests__/_helpers.js";
@@ -39,10 +33,6 @@ import { applyMigrations, type Querier } from "../../sessions/migration-runner.j
 // ----------------------------------------------------------------------------
 
 const SESSION_ID = "01970000-0000-7000-8000-00000000a001" as SessionId;
-const SESSION_OWNER_ID = "01970000-0000-7000-8000-00000000b0ff";
-const ABSENT_SESSION_ID = "01970000-0000-7000-8000-00000000dead" as SessionId;
-const CURRENT_USER_ID = "01970000-0000-7000-8000-00000000b001" as UserId;
-const NEXT_SESSION_ID = "01970000-0000-7000-8000-00000000a002" as SessionId;
 const NODE_ID = "node-alpha" as NodeId;
 const ANCHORED_AT = "2026-08-04T00:00:00.000Z";
 
@@ -71,7 +61,7 @@ function anchorFixture(overrides: Partial<AnchorPayload> = {}): AnchorPayload {
 
 // The tRPC v11 HTTP mutation wire shape this package emits (no transformer, no
 // batching): POST `/trpc/<proc>` with `Content-Type: application/json` and the
-// raw input JSON as the body — the same form `host-runtime-node.test.ts` uses.
+// raw input JSON as the body.
 function buildUploadRequest(body: unknown): Request {
   return new Request("https://control-plane.test/trpc/eventanchor.upload", {
     method: "POST",
@@ -127,19 +117,7 @@ beforeEach(async () => {
   pg = new PGlite();
   const querier: Querier = adaptPGlite(pg);
   await applyMigrations(querier);
-  // A session needs the user who owns it — `owner_user_id` is NOT NULL.
-  await querier.query("INSERT INTO users (id) VALUES ($1)", [SESSION_OWNER_ID]);
-  await querier.query("INSERT INTO sessions (id, owner_user_id) VALUES ($1, $2)", [
-    SESSION_ID,
-    SESSION_OWNER_ID,
-  ]);
-  handler = buildControlPlaneFetchHandler(
-    makePassThroughDeps({
-      querier,
-      currentUserId: CURRENT_USER_ID,
-      nextSessionId: NEXT_SESSION_ID,
-    }),
-  );
+  handler = buildControlPlaneFetchHandler(makePassThroughDeps(querier));
 });
 
 afterEach(async () => {
@@ -162,11 +140,11 @@ async function readErrorCode(response: Response): Promise<unknown> {
 // ----------------------------------------------------------------------------
 // ----------------------------------------------------------------------------
 
-describe("merged host — eventanchor.upload resolves through t.mergeRouters", () => {
+describe("host — eventanchor.upload resolves through the mounted router", () => {
   it("dispatches an anchor upload and returns 200 + { stored: true }", async () => {
     const response = await handler(buildUploadRequest(anchorFixture()), PASSING_ENV);
 
-    // Status first: a 404 (procedure not mounted by the merge) or a 503 (gate
+    // Status first: a 404 (procedure not mounted by the host) or a 503 (gate
     // refusal) would make the body read misleading, and the status assertion
     // names the failure mode cleanly.
     expect(response.status).toBe(200);
@@ -178,7 +156,7 @@ describe("merged host — eventanchor.upload resolves through t.mergeRouters", (
     const second = await handler(buildUploadRequest(anchorFixture()), PASSING_ENV);
 
     // NOT a 409. A retried upload of the same range is the daemon's normal
-    // behaviour when an attempt's outcome is unknown to it, and answering with
+    // behavior when an attempt's outcome is unknown to it, and answering with
     // an error status would strand the anchor in the local queue forever.
     expect(second.status).toBe(200);
     expect(await readResultData(second)).toEqual({ stored: false });
@@ -236,29 +214,11 @@ describe("eventanchor.upload — metadata-only refusal on the wire", () => {
 });
 
 // ----------------------------------------------------------------------------
-// The unknown-session arm
 // ----------------------------------------------------------------------------
 
-describe("eventanchor.upload — unknown session", () => {
-  it("maps an absent session to 404 NOT_FOUND rather than a retriable 500", async () => {
-    // A raw FK violation would surface as INTERNAL_SERVER_ERROR, which tells the
-    // daemon to retry a request that can never succeed. NOT_FOUND is the
-    // terminal answer it needs.
-    const response = await handler(
-      buildUploadRequest(anchorFixture({ sessionId: ABSENT_SESSION_ID })),
-      PASSING_ENV,
-    );
-    expect(response.status).toBe(404);
-    expect(await readErrorCode(response)).toBe("NOT_FOUND");
-  });
-});
-
-// ----------------------------------------------------------------------------
-// ----------------------------------------------------------------------------
-
-describe("eventanchor.upload — dual gate is not bypassed by the new mount", () => {
+describe("eventanchor.upload — dual gate is not bypassed by the mount", () => {
   it("refuses with 503 before router dispatch when the kill-switch is off", async () => {
-    // Adding a third router to the merge must not open a path around the gate.
+    // The mount must not open a path around the gate.
     // `makePassThroughDeps` supplies a live querier here, so a 503 proves the
     // gate intercepted rather than the store failing.
     const response = await handler(buildUploadRequest(anchorFixture()), REFUSING_ENV);

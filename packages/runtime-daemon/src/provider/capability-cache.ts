@@ -33,12 +33,11 @@
 // payload to the flags, and rules that the mechanism grades and `cliVersion` alike
 // stop at the driver-side read — a consumer needing provenance or a version reads it
 // through the daemon rather than off this reply. `tools` is a daemon-side ingress
-// concern whose readers are `driver_tools` and the `runtime_node.capability_*`
-// events, and no clause routes it to a client. Composing the whole wrapper here and
-// letting the wire schema strip it would put the carve-out in the wrong place: the
-// schema is `.strict()`, so it REJECTS rather than strips, and the mistake would
-// surface as a failed read rather than as leaked provenance — but the composition is
-// where the rule belongs, and the schema is the backstop that proves it held.
+// concern whose reader is `driver_tools`, and no clause routes it to a client. Composing the whole
+// wrapper here and letting the wire schema strip it would put the carve-out in the wrong place: the
+// schema is `.strict()`, so it REJECTS rather than strips, and the mistake would surface as a
+// failed read rather than as leaked provenance — but the composition is where the rule belongs,
+// and the schema is the backstop that proves it held.
 //
 // `outputSpeedLevels` IS RE-DERIVED ON EVERY READ AND IS NEVER STORED — the one
 // rule of this module worth stating twice. The vocabulary is a constant OF THE
@@ -54,12 +53,10 @@
 // moment of each read.
 //
 // INVALIDATION. A capability set changes when a driver is re-declared, which is
-// exactly when `DriverCapabilitiesWriter` emits `runtime_node.capability_updated`.
-// The daemon has no general audit-log fanout to subscribe to today (verified by
-// repo grep: neither the node event emitter nor the event-log service exposes an
-// observer seam), so this class takes the subscription as an INJECTED dependency
-// — the same posture `session-subscribe.ts` takes for its upstream event source,
-// where the bootstrap orchestrator owns the implementor. Supplying it is
+// exactly when `DriverCapabilitiesWriter.declare` reports `changed`. This class
+// takes the change notification as an INJECTED dependency — the same posture
+// `session-subscribe.ts` takes for its upstream event source, where the
+// bootstrap orchestrator owns the implementor. Supplying it is
 // optional and its absence is a real degradation rather than a neutral default:
 // without it the only invalidation is an explicit `invalidate()` call, so a
 // caller that wires no source MUST call `invalidate()` from wherever it performs
@@ -104,8 +101,8 @@ export interface DriverCapabilityCacheDeps {
   readonly resolveOutputSpeedLevels?: ((driverName: string) => readonly string[]) | undefined;
 
   /**
-   * Subscribe to `runtime_node.capability_updated` for any driver, returning an
-   * unsubscribe handle. The callback receives the driver name whose capabilities
+   * Subscribe to capability changes for any driver (a re-declaration the writer reports `changed`),
+   * returning an unsubscribe handle. The callback receives the driver name whose capabilities
    * changed; this cache drops that driver's entry so the next read re-hydrates.
    *
    * Optional, and see the file header for what its absence costs: with no source

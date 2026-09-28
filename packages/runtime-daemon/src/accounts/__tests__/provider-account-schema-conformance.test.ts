@@ -3,7 +3,7 @@
 // The suite IS the test: one row per pinned pair, and every pin reads the LIVE
 // schema rather than a transcription of it. That distinction is the whole point
 // (documented-pin != enforced-pin): a test that compared two hand-written lists
-// would agree with itself forever while the migration drifted underneath.
+// would agree with itself forever while the schema drifted underneath.
 // Every assertion here therefore reads `sqlite_master.sql` or `PRAGMA
 // table_info` on a database the real runner just migrated, and compares it
 // against the exported contract symbol a consumer actually parses with.

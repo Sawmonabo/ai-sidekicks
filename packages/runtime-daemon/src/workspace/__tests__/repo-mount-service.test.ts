@@ -2,25 +2,24 @@
 //
 // Drives the real service against a real temp-file SQLite database (canonical
 // `openDatabase` factory → per-test tmp dir → `afterEach` close + unlink), a
-// real `EventLogService` append path, a real `WorkspaceService`, a real
-// `SessionService`, and REAL git repositories on disk built with `execFile` —
-// the same fixture approach `repo-root-resolver.test.ts` uses, because "attach
-// through a subdirectory resolves to the repository root" is only a real claim
-// if git actually answered it.
+// real `EventLogService` append path, a real `WorkspaceService` for the binds a
+// detach cascades over, a real `SessionService`, and REAL git repositories on
+// disk built with `execFile` — the same fixture approach
+// `repo-root-resolver.test.ts` uses, because "attach through a subdirectory
+// resolves to the repository root" is only a real claim if git actually
+// answered it.
 //
 // Five deliberate test-only mechanisms:
 //   * REAL git fixtures, built once in `beforeAll` under a hermetic environment.
 //     A mocked resolver would let every canonical-root assertion in this file
 //     pass against a value the test itself invented.
-//   * INTERFERENCE SEAMS — a signing-key source that mutates the database once,
-//     before resolving. `EventLogService.append` awaits the signing key BEFORE
-//     it opens the write transaction, so whatever the seam writes lands in the
-//     exact window between this service's pre-transaction read and its prelude.
-//     Both compare-and-swap paths and the in-transaction dependent read exist
-//     for that window, and a race left to real concurrency is either flaky or
-//     never reached.
-//   * An injected `newRepoMountId` / `newWorkspaceId` that mints a COLLIDING id,
-//     to reach constraint failures the production id source cannot produce.
+//   * An INTERFERING CLOCK that mutates the database once, on its first read.
+//     `detach` reads the clock between its pre-transaction row read and the
+//     transaction, so whatever the clock writes lands in exactly the window the
+//     compare-and-swap and the in-transaction dependent read exist for. A race
+//     left to real concurrency is either flaky or never reached.
+//   * An injected `newRepoMountId` that mints a COLLIDING id, to reach a
+//     constraint failure the production id source cannot produce.
 //   * A FAILING EMITTER subclass whose first `workspace.archived` append
 //     rejects, for the post-commit announcement path. That failure is
 //     environmental (a signing outage, a full disk) and has no other trigger.
@@ -29,9 +28,8 @@
 //     `repo-root-resolver.ts` already makes for its injected `path` module.
 //
 // Negative controls accompany the guards that could otherwise pass vacuously:
-// the refusal-ordering arm proves the resolver DID run for a known session, the
-// uniqueness arm proves a non-uniqueness constraint failure is NOT translated,
-// the in-transaction-read arm would still archive one workspace if the read had
+// the uniqueness arm proves a non-uniqueness constraint failure is NOT
+// translated, the in-transaction-read arm would archive nothing if the read had
 // happened outside the transaction, the git-seam arm would succeed if the
 // injected executable path were dropped, the win32 guard has a companion arm
 // proving it refuses an OMISSION rather than refusing win32, and the busy
@@ -53,7 +51,6 @@ import { EventLogService } from "../../events/event-log-service.js";
 import { __resetSessionAppendLocksForTest } from "../../events/session-append-lock.js";
 import type { Ed25519PrivateKey, Ed25519PublicKey } from "../../events/signer.js";
 import type { DaemonSigningKeySource } from "../../events/signing-key-source.js";
-import { SessionNotFoundError } from "../../ipc/session-errors.js";
 import { openDatabase } from "../../session/migration-runner.js";
 import { SessionService, UnsignedPlaceholderAppendToken } from "../../session/session-service.js";
 import {
@@ -78,13 +75,11 @@ import { WorkspaceService, type FilesystemPathProbeFn } from "../workspace-servi
 
 const SESSION_ID: SessionId = "0190f9a0-0000-7000-8000-000000000001" as SessionId;
 const OTHER_SESSION_ID: SessionId = "0190f9a0-0000-7000-8000-000000000002" as SessionId;
-const UNKNOWN_SESSION_ID: SessionId = "0190f9a0-0000-7000-8000-0000000000ff" as SessionId;
 const NODE_ID: NodeId = "node-local" as NodeId;
 const OTHER_NODE_ID: NodeId = "node-remote" as NodeId;
 const UNKNOWN_MOUNT_ID: RepoMountId = "0190f9a1-0000-7000-8000-00000000ffff" as RepoMountId;
 
 const USER_ACTOR: string = "0190f9a4-0000-7000-8000-000000000001";
-const ATTACH_CORRELATION_ID: string = "0190f9a5-0000-7000-8000-000000000001";
 const DETACH_CORRELATION_ID: string = "0190f9a5-0000-7000-8000-000000000002";
 const RUN_ID: string = "0190f9a6-0000-7000-8000-000000000001";
 const OTHER_RUN_ID: string = "0190f9a6-0000-7000-8000-000000000002";
@@ -134,36 +129,6 @@ class FixedDaemonSigningKeySource implements DaemonSigningKeySource {
 }
 
 /**
- * A signing-key source that runs `interfere()` ONCE before answering.
- *
- * The interleaving driver for every race arm below. `EventLogService.append`
- * awaits the key BEFORE opening its write transaction, so the interference
- * commits in the window between the service's pre-transaction row read and the
- * prelude that acts on it — which is the only window those compare-and-swaps
- * and the in-transaction dependent read exist for.
- */
-class InterferingSigningKeySource implements DaemonSigningKeySource {
-  #fired: boolean = false;
-  readonly #interfere: () => void;
-
-  constructor(interfere: () => void) {
-    this.#interfere = interfere;
-  }
-
-  read(_sessionId: SessionId): Promise<Ed25519PrivateKey> {
-    if (!this.#fired) {
-      this.#fired = true;
-      this.#interfere();
-    }
-    return Promise.resolve(FIXED_DAEMON_PRIVATE_KEY);
-  }
-
-  create(_sessionId: SessionId): Promise<{ readonly publicKey: Ed25519PublicKey }> {
-    return Promise.reject(new Error("InterferingSigningKeySource.create is not used"));
-  }
-}
-
-/**
  * An emitter whose FIRST `workspace.archived` append rejects; later ones append
  * for real.
  *
@@ -188,21 +153,8 @@ class FirstArchiveAppendFailingEmitter extends WorkspaceEventEmitter {
   }
 }
 
-/** Records every path handed to the resolver, then resolves it for real. */
-class RecordingRepoRootResolver extends RepoRootResolver {
-  readonly calls: string[] = [];
-
-  override resolveCanonicalRoot(
-    localPath: string,
-  ): ReturnType<RepoRootResolver["resolveCanonicalRoot"]> {
-    this.calls.push(localPath);
-    return super.resolveCanonicalRoot(localPath);
-  }
-}
-
 interface StoredMountRow {
   readonly id: string;
-  readonly session_id: string;
   readonly node_id: string;
   readonly local_path: string;
   readonly canonical_root: string;
@@ -214,10 +166,6 @@ interface StoredMountRow {
 
 interface StoredWorkspaceRow {
   readonly id: string;
-  readonly session_id: string;
-  readonly repo_mount_id: string;
-  readonly execution_mode: string;
-  readonly fs_root: string | null;
   readonly state: string;
 }
 
@@ -290,13 +238,15 @@ function runFixtureGit(
 
 interface GitFixtures {
   readonly fixtureRoot: string;
+  /** The hermetic environment fixture git runs under. */
+  readonly environment: NodeJS.ProcessEnv;
   /** A real git repository root — what `rev-parse --show-toplevel` reports. */
   readonly repositoryRoot: string;
   /** A directory BELOW `repositoryRoot`; attaching it must persist the root. */
   readonly nestedDirectory: string;
   /** A second, unrelated repository — the envelope-admission control's target. */
   readonly unrelatedRepositoryRoot: string;
-  /** A directory that is not a repository at all (the honest `none`). */
+  /** A directory that is not a repository at all, refused as `not_a_git_repository`. */
   readonly plainDirectory: string;
   /** An absolute path that does not exist. */
   readonly absentPath: string;
@@ -328,6 +278,7 @@ beforeAll(async () => {
 
   gitFixtures = {
     fixtureRoot,
+    environment,
     repositoryRoot,
     nestedDirectory,
     unrelatedRepositoryRoot,
@@ -402,17 +353,36 @@ function createService(overrides: Partial<RepoMountServiceDeps> = {}): RepoMount
   return new RepoMountService({
     database: harness.db,
     events: harness.emitter,
-    workspaces: harness.workspaces,
-    sessions: harness.sessions,
+    nodeId: NODE_ID,
     newRepoMountId: makeIdSource(MOUNT_ID_POOL, "repo mount"),
     ...overrides,
   });
 }
 
+/** Bind a `provisioning` workspace on a mount for `sessionId`, returning its id. */
+async function bindWorkspace(
+  repoMountId: RepoMountId,
+  sessionId: SessionId = SESSION_ID,
+): Promise<string> {
+  const bound = await harness.workspaces.bind({
+    sessionId,
+    repoMountId,
+    executionMode: "bound-root",
+  });
+  return bound.workspaceId;
+}
+
+/** Bind a workspace and complete its provisioning at the repository root, so it is `ready`. */
+async function bindReadyWorkspace(repoMountId: RepoMountId): Promise<string> {
+  const workspaceId = await bindWorkspace(repoMountId);
+  await harness.workspaces.completeReprovision(workspaceId, gitFixtures.repositoryRoot);
+  return workspaceId;
+}
+
 function readMountRow(repoMountId: string): StoredMountRow | undefined {
   return harness.db
     .prepare(
-      `SELECT id, session_id, node_id, local_path, canonical_root, vcs_type, state, attached_at, updated_at
+      `SELECT id, node_id, local_path, canonical_root, vcs_type, state, attached_at, updated_at
          FROM repo_mounts WHERE id = ?`,
     )
     .get(repoMountId) as StoredMountRow | undefined;
@@ -427,12 +397,9 @@ function requireMountRow(repoMountId: string): StoredMountRow {
 }
 
 function readWorkspaceRow(workspaceId: string): StoredWorkspaceRow | undefined {
-  return harness.db
-    .prepare(
-      `SELECT id, session_id, repo_mount_id, execution_mode, fs_root, state
-         FROM workspaces WHERE id = ?`,
-    )
-    .get(workspaceId) as StoredWorkspaceRow | undefined;
+  return harness.db.prepare("SELECT id, state FROM workspaces WHERE id = ?").get(workspaceId) as
+    | StoredWorkspaceRow
+    | undefined;
 }
 
 function requireWorkspaceRow(workspaceId: string): StoredWorkspaceRow {
@@ -443,9 +410,9 @@ function requireWorkspaceRow(workspaceId: string): StoredWorkspaceRow {
   return row;
 }
 
-function countRows(table: "workspaces" | "repo_mounts"): number {
+function countMountRows(): number {
   return (
-    harness.db.prepare(`SELECT COUNT(*) AS total FROM ${table}`).get() as {
+    harness.db.prepare("SELECT COUNT(*) AS total FROM repo_mounts").get() as {
       readonly total: number;
     }
   ).total;
@@ -456,7 +423,7 @@ function countRows(table: "workspaces" | "repo_mounts"): number {
  *
  * Dropped rather than asserted in every arm: the anchor exists only because
  * `replay` refuses a chain that does not start with it, and repeating it in
- * thirty expectations would bury the sequence each arm is actually about.
+ * every expectation would bury the sequence each arm is actually about.
  */
 function readLifecycleEventTypes(sessionId: string = SESSION_ID): readonly string[] {
   return (
@@ -475,14 +442,14 @@ interface StoredEventEnvelopeRow {
   readonly payload: string;
 }
 
-function readLifecycleEnvelopes(): readonly StoredEventEnvelopeRow[] {
+function readLifecycleEnvelopes(sessionId: string = SESSION_ID): readonly StoredEventEnvelopeRow[] {
   return (
     harness.db
       .prepare(
         `SELECT type, actor, correlation_id, payload FROM session_events
           WHERE session_id = ? ORDER BY sequence ASC`,
       )
-      .all(SESSION_ID) as readonly StoredEventEnvelopeRow[]
+      .all(sessionId) as readonly StoredEventEnvelopeRow[]
   ).filter((row) => row.type !== "session.created");
 }
 
@@ -522,6 +489,25 @@ function steppingClock(): () => string {
   };
 }
 
+/**
+ * A clock that runs `interfere()` ONCE, on its first read, then answers a fixed
+ * stamp.
+ *
+ * The interleaving driver for the race arms: `detach` reads the clock after its
+ * pre-transaction row read and before the transaction opens. Build a service
+ * with it only for the detach call — attach reads the clock too.
+ */
+function interferingClock(interfere: () => void): () => string {
+  let fired: boolean = false;
+  return () => {
+    if (!fired) {
+      fired = true;
+      interfere();
+    }
+    return "2026-08-05T00:00:02.000Z";
+  };
+}
+
 /** A probe seam that records the path it was handed, then answers truthfully. */
 function recordingProbe(record: (path: string) => void): FilesystemPathProbeFn {
   return (path: string) => {
@@ -544,27 +530,6 @@ function mispairedProbe(probedPathOverride: string): FilesystemPathProbeFn {
     } satisfies FilesystemPathProbe);
 }
 
-/**
- * A service whose event appends run `interfere()` once, in the window between
- * the pre-transaction read and the prelude. It carries its OWN emitter so the
- * interference cannot fire during the arm's setup attach.
- */
-function createInterferingService(interfere: () => void): RepoMountService {
-  const emitter = new WorkspaceEventEmitter({
-    sessionEvents: new EventLogService({
-      db: harness.db,
-      signingKeySource: new InterferingSigningKeySource(interfere),
-    }),
-  });
-  return new RepoMountService({
-    database: harness.db,
-    events: emitter,
-    workspaces: harness.workspaces,
-    sessions: harness.sessions,
-    newRepoMountId: makeIdSource(MOUNT_ID_POOL, "repo mount"),
-  });
-}
-
 beforeEach(async () => {
   const tmpDir: string = await realpath(
     await mkdtemp(join(tmpdir(), "ai-sidekicks-repo-mount-service-db-")),
@@ -577,13 +542,14 @@ beforeEach(async () => {
       signingKeySource: new FixedDaemonSigningKeySource(),
     }),
   });
+  const sessions = new SessionService(db, {
+    allowUnsignedPlaceholderAppend: UnsignedPlaceholderAppendToken.forTestsOnly(),
+  });
   const workspaces = new WorkspaceService({
     database: db,
     events: emitter,
+    sessions,
     newWorkspaceId: makeIdSource(WORKSPACE_ID_POOL, "workspace"),
-  });
-  const sessions = new SessionService(db, {
-    allowUnsignedPlaceholderAppend: UnsignedPlaceholderAppendToken.forTestsOnly(),
   });
   const disposableRoot = join(tmpDir, "disposable-root");
   mkdirSync(disposableRoot, { recursive: true });
@@ -597,8 +563,7 @@ beforeEach(async () => {
     service: new RepoMountService({
       database: db,
       events: emitter,
-      workspaces,
-      sessions,
+      nodeId: NODE_ID,
       newRepoMountId: makeIdSource(MOUNT_ID_POOL, "repo mount"),
     }),
     tmpDir,
@@ -619,23 +584,21 @@ afterEach(() => {
 });
 
 // ----------------------------------------------------------------------------
+// attach
 // ----------------------------------------------------------------------------
 
 describe("RepoMountService.attach", () => {
   it("persists the resolved root of a SUBDIRECTORY attach, and it survives a reopen", async () => {
     const response = await harness.service.attach({
-      sessionId: SESSION_ID,
-      // The entered path is BELOW the repository root — the case calls out, and
-      // the only shape in which is observable at all.
+      // The entered path is BELOW the repository root — the only shape in which
+      // the entered path and the canonical root differ.
       localPath: gitFixtures.nestedDirectory,
-      nodeId: NODE_ID,
     });
 
     expect(response.state).toBe("attached");
     expect(response.vcsType).toBe("git");
     expect(response.canonicalRoot).toBe(gitFixtures.repositoryRoot);
     expect(response.canonicalRoot).not.toBe(gitFixtures.nestedDirectory);
-    expect(response.defaultWorkspaceId).toBe(WORKSPACE_ID_POOL[0]);
 
     // The durability leg: close the handle, reopen the same FILE, and read. An
     // in-memory or uncommitted row would not survive this.
@@ -648,54 +611,21 @@ describe("RepoMountService.attach", () => {
     // which is what makes keeping both meaningful.
     expect(mount.local_path).toBe(gitFixtures.nestedDirectory);
     expect(mount.local_path).not.toBe(mount.canonical_root);
-    expect(mount.session_id).toBe(SESSION_ID);
+    // The request names no node; the service stamps its own.
     expect(mount.node_id).toBe(NODE_ID);
     expect(mount.vcs_type).toBe("git");
     expect(mount.state).toBe("attached");
-
-    const workspace = requireWorkspaceRow(response.defaultWorkspaceId);
-    expect(workspace.repo_mount_id).toBe(response.repoMountId);
-    expect(workspace.session_id).toBe(SESSION_ID);
-    expect(workspace.execution_mode).toBe("read-only");
-    expect(workspace.state).toBe("ready");
-    // Rooted at the mount's CANONICAL root, never the entered subdirectory.
-    expect(workspace.fs_root).toBe(gitFixtures.repositoryRoot);
-
-    expect(readLifecycleEventTypes()).toEqual(["repo.attached", "workspace.ready"]);
   });
 
-  it("records a non-git directory as vcs_type 'none' — not an error", async () => {
-    const response = await harness.service.attach({
-      sessionId: SESSION_ID,
-      localPath: gitFixtures.plainDirectory,
-      nodeId: NODE_ID,
-    });
+  it("refuses a path that is not a git repository, and persists nothing", async () => {
+    const error = await captureRejection(() =>
+      harness.service.attach({ localPath: gitFixtures.plainDirectory }),
+    );
 
-    expect(response.vcsType).toBe("none");
-    expect(response.canonicalRoot).toBe(gitFixtures.plainDirectory);
-    expect(requireMountRow(response.repoMountId).vcs_type).toBe("none");
-
-    // The SINGLE FUNNEL: a plain directory gets the same default workspace a
-    // repository does, rather than a mount-less bind path.
-    const workspace = requireWorkspaceRow(response.defaultWorkspaceId);
-    expect(workspace.execution_mode).toBe("read-only");
-    expect(workspace.state).toBe("ready");
-    expect(readLifecycleEventTypes()).toEqual(["repo.attached", "workspace.ready"]);
-  });
-
-  it("threads actor and correlationId onto both attach events", async () => {
-    await harness.service.attach({
-      sessionId: SESSION_ID,
-      localPath: gitFixtures.repositoryRoot,
-      nodeId: NODE_ID,
-      actor: USER_ACTOR,
-      correlationId: ATTACH_CORRELATION_ID,
-    });
-
-    for (const envelope of readLifecycleEnvelopes()) {
-      expect(envelope.actor).toBe(USER_ACTOR);
-      expect(envelope.correlation_id).toBe(ATTACH_CORRELATION_ID);
-    }
+    expect(error).toBeInstanceOf(RepoRootResolutionError);
+    expect((error as RepoRootResolutionError).code).toBe("repo.root_resolution_failed");
+    expect((error as RepoRootResolutionError).reason).toBe("not_a_git_repository");
+    expect(countMountRows()).toBe(0);
   });
 
   it("persists NOTHING when the root cannot be resolved", async () => {
@@ -706,127 +636,45 @@ describe("RepoMountService.attach", () => {
       "relative/not/absolute",
     ]) {
       const error = await captureRejection(() =>
-        harness.service.attach({
-          sessionId: SESSION_ID,
-          localPath: unresolvable,
-          nodeId: NODE_ID,
-        }),
+        harness.service.attach({ localPath: unresolvable }),
       );
       expect(error).toBeInstanceOf(RepoRootResolutionError);
       expect((error as RepoRootResolutionError).code).toBe("repo.root_resolution_failed");
     }
 
-    expect(countRows("repo_mounts")).toBe(0);
-    expect(countRows("workspaces")).toBe(0);
-    expect(readLifecycleEventTypes()).toEqual([]);
-  });
-
-  it("refuses an unknown session BEFORE resolving or persisting anything", async () => {
-    const resolver = new RecordingRepoRootResolver();
-    const service = createService({ resolver });
-
-    const error = await captureRejection(() =>
-      service.attach({
-        sessionId: UNKNOWN_SESSION_ID,
-        // A path that WOULD resolve. If the ordering were reversed, the
-        // recorder below would hold it.
-        localPath: gitFixtures.nestedDirectory,
-        nodeId: NODE_ID,
-      }),
-    );
-
-    expect(error).toBeInstanceOf(SessionNotFoundError);
-    expect((error as SessionNotFoundError).code).toBe("session.not_found");
-    expect((error as SessionNotFoundError).fields).toEqual({ sessionId: UNKNOWN_SESSION_ID });
-    expect(resolver.calls).toEqual([]);
-    expect(countRows("repo_mounts")).toBe(0);
-    expect(countRows("workspaces")).toBe(0);
-    expect(readLifecycleEventTypes(UNKNOWN_SESSION_ID)).toEqual([]);
-
-    // NEGATIVE CONTROL: the same service, the same path, a session that exists.
-    // Without this the arm above would also pass if the recorder were broken or
-    // the path unresolvable for an unrelated reason.
-    await service.attach({
-      sessionId: SESSION_ID,
-      localPath: gitFixtures.nestedDirectory,
-      nodeId: NODE_ID,
-    });
-    expect(resolver.calls).toEqual([gitFixtures.nestedDirectory]);
+    expect(countMountRows()).toBe(0);
   });
 
   it("admits a path with NO containment check — attach IS envelope admission", async () => {
-    // The session already has an envelope: one attached mount at
+    // The machine already has an envelope: one attached mount at
     // `repositoryRoot`. A containment check at attach would refuse anything
     // outside it, which is precisely what must NOT happen here.
-    const first = await harness.service.attach({
-      sessionId: SESSION_ID,
-      localPath: gitFixtures.repositoryRoot,
-      nodeId: NODE_ID,
-    });
+    const first = await harness.service.attach({ localPath: gitFixtures.repositoryRoot });
 
     const second = await harness.service.attach({
-      sessionId: SESSION_ID,
       // An unrelated repository, a sibling of the first and under no part of it.
       localPath: gitFixtures.unrelatedRepositoryRoot,
-      nodeId: NODE_ID,
     });
 
     expect(second.canonicalRoot).toBe(gitFixtures.unrelatedRepositoryRoot);
     expect(second.repoMountId).not.toBe(first.repoMountId);
-    expect(countRows("repo_mounts")).toBe(2);
+    expect(countMountRows()).toBe(2);
   });
 
   it("refuses the attach response — and writes nothing — when the identity is unrepresentable", async () => {
     // A minted id the branded schema refuses. The projection runs BEFORE the
-    // writes precisely so this leaves no durable mount: a mount that exists and
+    // write precisely so this leaves no durable mount: a mount that exists and
     // cannot be reported is one the caller never learns the id of, and so cannot
     // detach either.
     const service = createService({ newRepoMountId: () => "not-a-uuid" });
 
     const error = await captureRejection(() =>
-      service.attach({
-        sessionId: SESSION_ID,
-        localPath: gitFixtures.repositoryRoot,
-        nodeId: NODE_ID,
-      }),
+      service.attach({ localPath: gitFixtures.repositoryRoot }),
     );
 
     expect(error).toBeInstanceOf(RepoMountServiceInvariantError);
     expect((error as RepoMountServiceInvariantError).kind).toBe("repo_mount_row_unprojectable");
-    expect(countRows("repo_mounts")).toBe(0);
-    expect(countRows("workspaces")).toBe(0);
-    expect(readLifecycleEventTypes()).toEqual([]);
-  });
-
-  it("rolls the mount row back when the default-workspace INSERT throws", async () => {
-    // Prelude-throw atomicity from the OTHER side: the mount INSERT succeeds and
-    // the workspace INSERT fails on its primary key. Both rows and the
-    // `repo.attached` event must vanish together.
-    const collidingWorkspaces = new WorkspaceService({
-      database: harness.db,
-      events: harness.emitter,
-      newWorkspaceId: () => INJECTED_WORKSPACE_ID,
-    });
-    const service = createService({ workspaces: collidingWorkspaces });
-
-    await service.attach({
-      sessionId: SESSION_ID,
-      localPath: gitFixtures.repositoryRoot,
-      nodeId: NODE_ID,
-    });
-    expect(countRows("repo_mounts")).toBe(1);
-
-    await captureRejection(() =>
-      service.attach({
-        sessionId: SESSION_ID,
-        localPath: gitFixtures.unrelatedRepositoryRoot,
-        nodeId: NODE_ID,
-      }),
-    );
-
-    expect(countRows("repo_mounts")).toBe(1);
-    expect(countRows("workspaces")).toBe(1);
-    expect(readLifecycleEventTypes()).toEqual(["repo.attached", "workspace.ready"]);
+    expect(countMountRows()).toBe(0);
   });
 });
 
@@ -835,96 +683,50 @@ describe("RepoMountService.attach", () => {
 // ----------------------------------------------------------------------------
 
 describe("RepoMountService.attach — active-root uniqueness", () => {
-  it("refuses a duplicate active root and takes the aborted event row with it", async () => {
-    const first = await harness.service.attach({
-      sessionId: SESSION_ID,
-      localPath: gitFixtures.repositoryRoot,
-      nodeId: NODE_ID,
-    });
+  it("refuses a duplicate active root and writes nothing", async () => {
+    const first = await harness.service.attach({ localPath: gitFixtures.repositoryRoot });
 
     const error = await captureRejection(() =>
       harness.service.attach({
-        sessionId: SESSION_ID,
         // A DIFFERENT entered path resolving to the SAME canonical root — the
         // shape that proves the index keys `canonical_root`, not `local_path`.
         localPath: gitFixtures.nestedDirectory,
-        nodeId: NODE_ID,
       }),
     );
 
     expect(error).toBeInstanceOf(RepoAlreadyAttachedError);
     expect((error as RepoAlreadyAttachedError).conflictingRepoMountId).toBe(first.repoMountId);
     expect((error as RepoAlreadyAttachedError).code).toBe("repo.already_attached");
-
-    // The translation throws from the MOUNT INSERT, which is the FIRST statement
-    // in the prelude — so on this path `creation.insertRow()` was never reached
-    // and the abort had no workspace row to undo. `workspaces === 1` is
-    // therefore the claim that the second workspace was never inserted, not that
-    // an inserted one rolled back. (The rolled-back-prior-write direction is the
-    // colliding-workspace-id arm's job, where the mount INSERT succeeds first.)
-    // The event row is what this abort actually undoes: only the FIRST attach's
-    // pair is in the log.
-    expect(countRows("repo_mounts")).toBe(1);
-    expect(countRows("workspaces")).toBe(1);
-    expect(readLifecycleEventTypes()).toEqual(["repo.attached", "workspace.ready"]);
+    expect(countMountRows()).toBe(1);
   });
 
-  it("attaches the same root cleanly on a different node and in a different session", async () => {
-    await harness.service.attach({
-      sessionId: SESSION_ID,
-      localPath: gitFixtures.repositoryRoot,
-      nodeId: NODE_ID,
-    });
+  it("attaches the same root cleanly on a different node", async () => {
+    await harness.service.attach({ localPath: gitFixtures.repositoryRoot });
 
     // The same absolute path on two nodes names two node-local filesystems, and
     // both may attach (the node-scoped key).
-    const otherNode = await harness.service.attach({
-      sessionId: SESSION_ID,
-      localPath: gitFixtures.repositoryRoot,
+    const otherNodeService = createService({
       nodeId: OTHER_NODE_ID,
+      newRepoMountId: makeIdSource(MOUNT_ID_POOL.slice(1), "other-node repo mount"),
     });
+    const otherNode = await otherNodeService.attach({ localPath: gitFixtures.repositoryRoot });
+
     expect(otherNode.canonicalRoot).toBe(gitFixtures.repositoryRoot);
-
-    // The index is session-scoped too.
-    const otherSession = await harness.service.attach({
-      sessionId: OTHER_SESSION_ID,
-      localPath: gitFixtures.repositoryRoot,
-      nodeId: NODE_ID,
-    });
-    expect(otherSession.canonicalRoot).toBe(gitFixtures.repositoryRoot);
-    expect(countRows("repo_mounts")).toBe(3);
-
-    // Three attaches over two sessions must therefore split 2/1, never 3/0 or
-    // 0/3. This is the only arm where a sessionId threaded from the request
-    // into the wrong envelope would show.
-    expect(readLifecycleEventTypes(SESSION_ID)).toEqual([
-      "repo.attached",
-      "workspace.ready",
-      "repo.attached",
-      "workspace.ready",
-    ]);
-    expect(readLifecycleEventTypes(OTHER_SESSION_ID)).toEqual(["repo.attached", "workspace.ready"]);
+    expect(requireMountRow(otherNode.repoMountId).node_id).toBe(OTHER_NODE_ID);
+    expect(countMountRows()).toBe(2);
   });
 
   it("re-attaches a detached root as a NEW row", async () => {
-    const first = await harness.service.attach({
-      sessionId: SESSION_ID,
-      localPath: gitFixtures.repositoryRoot,
-      nodeId: NODE_ID,
-    });
+    const first = await harness.service.attach({ localPath: gitFixtures.repositoryRoot });
     await harness.service.detach({ repoMountId: first.repoMountId });
 
-    const second = await harness.service.attach({
-      sessionId: SESSION_ID,
-      localPath: gitFixtures.repositoryRoot,
-      nodeId: NODE_ID,
-    });
+    const second = await harness.service.attach({ localPath: gitFixtures.repositoryRoot });
 
     expect(second.repoMountId).not.toBe(first.repoMountId);
     // The durable record of the first mount is RETAINED, not replaced.
     expect(requireMountRow(first.repoMountId).state).toBe("detached");
     expect(requireMountRow(second.repoMountId).state).toBe("attached");
-    expect(countRows("repo_mounts")).toBe(2);
+    expect(countMountRows()).toBe(2);
   });
 
   it("does NOT translate a constraint failure that is not the uniqueness index", async () => {
@@ -934,43 +736,31 @@ describe("RepoMountService.attach — active-root uniqueness", () => {
     // original error must surface untranslated.
     const service = createService({ newRepoMountId: () => INJECTED_MOUNT_ID });
 
-    await service.attach({
-      sessionId: SESSION_ID,
-      localPath: gitFixtures.repositoryRoot,
-      nodeId: NODE_ID,
-    });
+    await service.attach({ localPath: gitFixtures.repositoryRoot });
 
     const error = await captureRejection(() =>
-      service.attach({
-        sessionId: SESSION_ID,
-        localPath: gitFixtures.unrelatedRepositoryRoot,
-        nodeId: NODE_ID,
-      }),
+      service.attach({ localPath: gitFixtures.unrelatedRepositoryRoot }),
     );
 
     expect(error).not.toBeInstanceOf(RepoAlreadyAttachedError);
     expect(error).toBeInstanceOf(Error);
     expect(String((error as { code?: unknown }).code)).toContain("SQLITE_CONSTRAINT");
-    expect(countRows("repo_mounts")).toBe(1);
+    expect(countMountRows()).toBe(1);
   });
 });
 
 // ----------------------------------------------------------------------------
+// read
 // ----------------------------------------------------------------------------
 
 describe("RepoMountService.read", () => {
   it("projects the row and enriches it with a fresh health verdict", async () => {
-    const attached = await harness.service.attach({
-      sessionId: SESSION_ID,
-      localPath: gitFixtures.nestedDirectory,
-      nodeId: NODE_ID,
-    });
+    const attached = await harness.service.attach({ localPath: gitFixtures.nestedDirectory });
 
     const response = await harness.service.read(attached.repoMountId);
 
     // BARE `id` on a read projection, per the contract's naming note.
     expect(response.id).toBe(attached.repoMountId);
-    expect(response.sessionId).toBe(SESSION_ID);
     expect(response.nodeId).toBe(NODE_ID);
     expect(response.localPath).toBe(gitFixtures.nestedDirectory);
     expect(response.canonicalRoot).toBe(gitFixtures.repositoryRoot);
@@ -991,11 +781,7 @@ describe("RepoMountService.read", () => {
   });
 
   it("probes the row's canonical_root VERBATIM", async () => {
-    const attached = await harness.service.attach({
-      sessionId: SESSION_ID,
-      localPath: gitFixtures.nestedDirectory,
-      nodeId: NODE_ID,
-    });
+    const attached = await harness.service.attach({ localPath: gitFixtures.nestedDirectory });
 
     const probedPaths: string[] = [];
     const service = createService({ probePath: recordingProbe((path) => probedPaths.push(path)) });
@@ -1007,11 +793,12 @@ describe("RepoMountService.read", () => {
   });
 
   it("reports a vanished root as unreachable, and changes nothing", async () => {
-    const attached = await harness.service.attach({
-      sessionId: SESSION_ID,
-      localPath: harness.disposableRoot,
-      nodeId: NODE_ID,
-    });
+    await runFixtureGit(
+      ["init", "-q", harness.disposableRoot],
+      gitFixtures.environment,
+      gitFixtures.fixtureRoot,
+    );
+    const attached = await harness.service.attach({ localPath: harness.disposableRoot });
     // A REAL deletion, not a mocked verdict.
     rmSync(harness.disposableRoot, { recursive: true, force: true });
 
@@ -1019,18 +806,13 @@ describe("RepoMountService.read", () => {
 
     expect(response.health.status).toBe("unreachable");
     // Health is a projection, never a persisted column and never a transition:
-    // the mount is still `attached` and the read appended no event.
+    // the mount is still `attached`.
     expect(response.state).toBe("attached");
     expect(requireMountRow(attached.repoMountId).state).toBe("attached");
-    expect(readLifecycleEventTypes()).toEqual(["repo.attached", "workspace.ready"]);
   });
 
   it("answers for a DETACHED mount, and its health stays orthogonal to lifecycle", async () => {
-    const attached = await harness.service.attach({
-      sessionId: SESSION_ID,
-      localPath: gitFixtures.repositoryRoot,
-      nodeId: NODE_ID,
-    });
+    const attached = await harness.service.attach({ localPath: gitFixtures.repositoryRoot });
     await harness.service.detach({ repoMountId: attached.repoMountId });
 
     const response = await harness.service.read(attached.repoMountId);
@@ -1050,11 +832,7 @@ describe("RepoMountService.read", () => {
   });
 
   it("refuses a probe that measured some other path", async () => {
-    const attached = await harness.service.attach({
-      sessionId: SESSION_ID,
-      localPath: gitFixtures.repositoryRoot,
-      nodeId: NODE_ID,
-    });
+    const attached = await harness.service.attach({ localPath: gitFixtures.repositoryRoot });
     const service = createService({
       probePath: mispairedProbe(gitFixtures.unrelatedRepositoryRoot),
     });
@@ -1068,25 +846,24 @@ describe("RepoMountService.read", () => {
 });
 
 // ----------------------------------------------------------------------------
+// detach
 // ----------------------------------------------------------------------------
 
 describe("RepoMountService.detach", () => {
-  it("archives every dependent and flips the mount, in one exact event sequence", async () => {
+  it("archives every dependent and announces each to the session that bound it", async () => {
     // A STEPPING clock, not the wall clock. The `updated_at` assertions below
     // compare the attach stamp to the detach stamp, and `toISOString` is
     // millisecond-resolution — a real clock lets the two calls tie and the arm
     // fails intermittently for a reason that has nothing to do with the code.
     const service = createService({ now: steppingClock() });
 
-    const attached = await service.attach({
-      sessionId: SESSION_ID,
-      localPath: gitFixtures.repositoryRoot,
-      nodeId: NODE_ID,
-    });
-    const bound = await harness.workspaces.bind({
-      repoMountId: attached.repoMountId,
-      executionMode: "read-only",
-    });
+    const attached = await service.attach({ localPath: gitFixtures.repositoryRoot });
+    // One dependent per session: each archival must reach the log of the
+    // session that bound it, never the other one.
+    const workspaceIdBySession = new Map<SessionId, string>([
+      [SESSION_ID, await bindWorkspace(attached.repoMountId, SESSION_ID)],
+      [OTHER_SESSION_ID, await bindWorkspace(attached.repoMountId, OTHER_SESSION_ID)],
+    ]);
     const mountBeforeDetach = requireMountRow(attached.repoMountId);
 
     const response = await service.detach({
@@ -1097,7 +874,7 @@ describe("RepoMountService.detach", () => {
 
     expect(response.state).toBe("detached");
     expect([...response.archivedWorkspaceIds].sort()).toEqual(
-      [attached.defaultWorkspaceId, bound.workspaceId].sort(),
+      [...workspaceIdBySession.values()].sort(),
     );
 
     const detachedMount = requireMountRow(attached.repoMountId);
@@ -1110,117 +887,89 @@ describe("RepoMountService.detach", () => {
       Date.parse(mountBeforeDetach.updated_at),
     );
     expect(detachedMount.attached_at).toBe(mountBeforeDetach.attached_at);
-    expect(requireWorkspaceRow(attached.defaultWorkspaceId).state).toBe("archived");
-    expect(requireWorkspaceRow(bound.workspaceId).state).toBe("archived");
 
-    // `repo.detached` FIRST — it is the append whose prelude carried every row
-    // write — then one `workspace.archived` per workspace actually transitioned.
-    expect(readLifecycleEventTypes()).toEqual([
-      "repo.attached",
-      "workspace.ready",
-      "workspace.ready",
-      "repo.detached",
-      "workspace.archived",
-      "workspace.archived",
-    ]);
-
-    // Every event of the cascade carries the caller's linkage — the only thing
-    // that collates them, since the follow-on events cannot name the
-    // `repo.detached` event id without reading the append receipt.
-    for (const envelope of readLifecycleEnvelopes().slice(3)) {
-      expect(envelope.actor).toBe(USER_ACTOR);
-      expect(envelope.correlation_id).toBe(DETACH_CORRELATION_ID);
-    }
-    // The dependent archivals name their mount, per the cascade contract.
-    for (const envelope of readLifecycleEnvelopes().filter(
-      (row) => row.type === "workspace.archived",
-    )) {
-      expect((JSON.parse(envelope.payload) as { repoMountId?: string }).repoMountId).toBe(
-        attached.repoMountId,
+    for (const [sessionId, workspaceId] of workspaceIdBySession) {
+      expect(requireWorkspaceRow(workspaceId).state).toBe("archived");
+      // The session's own bind, then its own archival — and nothing about the
+      // other session's workspace or the mount itself.
+      expect(readLifecycleEventTypes(sessionId)).toEqual([
+        "workspace.provisioning",
+        "workspace.archived",
+      ]);
+      const archived = readLifecycleEnvelopes(sessionId).filter(
+        (row) => row.type === "workspace.archived",
       );
+      const payload = JSON.parse(archived[0]?.payload ?? "{}") as {
+        readonly workspaceId?: string;
+        readonly repoMountId?: string;
+      };
+      expect(payload.workspaceId).toBe(workspaceId);
+      // The dependent archival names its mount, per the cascade contract.
+      expect(payload.repoMountId).toBe(attached.repoMountId);
+      // The caller's linkage is the only thing that collates the cascade.
+      expect(archived[0]?.actor).toBe(USER_ACTOR);
+      expect(archived[0]?.correlation_id).toBe(DETACH_CORRELATION_ID);
     }
   });
 
   it("refuses while dependents are busy, naming EVERY busy one, and persists nothing", async () => {
-    const attached = await harness.service.attach({
-      sessionId: SESSION_ID,
-      localPath: gitFixtures.repositoryRoot,
-      nodeId: NODE_ID,
-    });
-    const bound = await harness.workspaces.bind({
-      repoMountId: attached.repoMountId,
-      executionMode: "read-only",
-    });
+    const attached = await harness.service.attach({ localPath: gitFixtures.repositoryRoot });
+    const firstWorkspaceId = await bindReadyWorkspace(attached.repoMountId);
+    const secondWorkspaceId = await bindReadyWorkspace(attached.repoMountId);
 
     // TWO busy dependents, not one. With a single busy workspace the arm cannot
     // tell a refusal that COLLECTS every blocker from one that throws on the
     // first it meets — both produce a one-element array. The operator-facing
     // difference is real: a refusal naming one of two busy workspaces sends
     // someone to free that run and retry, only to be refused again.
-    await harness.workspaces.markBusy(attached.defaultWorkspaceId, RUN_ID);
-    await harness.workspaces.markBusy(bound.workspaceId, OTHER_RUN_ID);
+    await harness.workspaces.markBusy(firstWorkspaceId, RUN_ID);
+    await harness.workspaces.markBusy(secondWorkspaceId, OTHER_RUN_ID);
+    const eventsBeforeRefusal = readLifecycleEventTypes();
 
     const error = await captureRejection(() =>
       harness.service.detach({ repoMountId: attached.repoMountId }),
     );
 
     expect(error).toBeInstanceOf(RepoDetachConflictError);
-    // Order is the dependent statement's `created_at ASC, id ASC`: the default
-    // workspace is created during attach and the bound one after it, and the id
-    // tie-break agrees, so the two keys cannot disagree here.
+    // Order is the dependent statement's `created_at ASC, id ASC`: the first
+    // bind precedes the second and the pooled ids ascend, so the two keys agree.
     expect((error as RepoDetachConflictError).busyWorkspaceIds).toEqual([
-      attached.defaultWorkspaceId,
-      bound.workspaceId,
+      firstWorkspaceId,
+      secondWorkspaceId,
     ]);
     expect((error as RepoDetachConflictError).code).toBe("repo.detach_conflict");
 
-    // Nothing moved and nothing was appended: the refusal threw from inside the
-    // prelude, so the transaction took the `repo.detached` row with it.
+    // Nothing moved and nothing was appended.
     expect(requireMountRow(attached.repoMountId).state).toBe("attached");
-    expect(requireWorkspaceRow(attached.defaultWorkspaceId).state).toBe("busy");
-    expect(requireWorkspaceRow(bound.workspaceId).state).toBe("busy");
-    expect(readLifecycleEventTypes()).toEqual([
-      "repo.attached",
-      "workspace.ready",
-      "workspace.ready",
-    ]);
+    expect(requireWorkspaceRow(firstWorkspaceId).state).toBe("busy");
+    expect(requireWorkspaceRow(secondWorkspaceId).state).toBe("busy");
+    expect(readLifecycleEventTypes()).toEqual(eventsBeforeRefusal);
   });
 
   it("emits no second workspace.archived for an already-archived dependent", async () => {
-    const attached = await harness.service.attach({
-      sessionId: SESSION_ID,
-      localPath: gitFixtures.repositoryRoot,
-      nodeId: NODE_ID,
-    });
-    const bound = await harness.workspaces.bind({
-      repoMountId: attached.repoMountId,
-      executionMode: "read-only",
-    });
+    const attached = await harness.service.attach({ localPath: gitFixtures.repositoryRoot });
+    const liveWorkspaceId = await bindWorkspace(attached.repoMountId);
+    const archivedWorkspaceId = await bindWorkspace(attached.repoMountId);
     // Planted directly — a stand-in for a workspace archived on some earlier
     // path. An `archived` row is terminal, so re-archiving it is not a
-    // transition, and forbids an event for a non-transition.
+    // transition, and a non-transition gets no event.
     harness.db
       .prepare("UPDATE workspaces SET state = 'archived' WHERE id = ?")
-      .run(bound.workspaceId);
+      .run(archivedWorkspaceId);
 
     const response = await harness.service.detach({ repoMountId: attached.repoMountId });
 
-    expect(response.archivedWorkspaceIds).toEqual([attached.defaultWorkspaceId]);
+    expect(response.archivedWorkspaceIds).toEqual([liveWorkspaceId]);
     expect(readLifecycleEventTypes()).toEqual([
-      "repo.attached",
-      "workspace.ready",
-      "workspace.ready",
-      "repo.detached",
+      "workspace.provisioning",
+      "workspace.provisioning",
       "workspace.archived",
     ]);
   });
 
   it("is a no-op success on an already-detached mount, with no event", async () => {
-    const attached = await harness.service.attach({
-      sessionId: SESSION_ID,
-      localPath: gitFixtures.repositoryRoot,
-      nodeId: NODE_ID,
-    });
+    const attached = await harness.service.attach({ localPath: gitFixtures.repositoryRoot });
+    await bindWorkspace(attached.repoMountId);
     await harness.service.detach({ repoMountId: attached.repoMountId });
     const eventsAfterFirstDetach = readLifecycleEventTypes();
 
@@ -1237,7 +986,7 @@ describe("RepoMountService.detach", () => {
       harness.service.detach({ repoMountId: UNKNOWN_MOUNT_ID }),
     );
     expect(error).toBeInstanceOf(RepoMountNotFoundError);
-    expect(countRows("repo_mounts")).toBe(0);
+    expect(countMountRows()).toBe(0);
   });
 
   it("announces the remaining dependents when one archived append fails, then rejects", async () => {
@@ -1247,23 +996,11 @@ describe("RepoMountService.detach", () => {
         signingKeySource: new FixedDaemonSigningKeySource(),
       }),
     });
-    const service = new RepoMountService({
-      database: harness.db,
-      events: emitter,
-      workspaces: harness.workspaces,
-      sessions: harness.sessions,
-      newRepoMountId: makeIdSource(MOUNT_ID_POOL, "repo mount"),
-    });
+    const service = createService({ events: emitter });
 
-    const attached = await service.attach({
-      sessionId: SESSION_ID,
-      localPath: gitFixtures.repositoryRoot,
-      nodeId: NODE_ID,
-    });
-    const bound = await harness.workspaces.bind({
-      repoMountId: attached.repoMountId,
-      executionMode: "read-only",
-    });
+    const attached = await service.attach({ localPath: gitFixtures.repositoryRoot });
+    const firstWorkspaceId = await bindWorkspace(attached.repoMountId);
+    const secondWorkspaceId = await bindWorkspace(attached.repoMountId);
 
     const error = await captureRejection(() =>
       service.detach({ repoMountId: attached.repoMountId }),
@@ -1279,22 +1016,20 @@ describe("RepoMountService.detach", () => {
 
     // NOT STRANDED: the loop attempted BOTH announcements. Stopping at the first
     // failure would leave `attemptedWorkspaceIds` one element long.
-    expect(emitter.attemptedWorkspaceIds).toEqual([attached.defaultWorkspaceId, bound.workspaceId]);
+    expect(emitter.attemptedWorkspaceIds).toEqual([firstWorkspaceId, secondWorkspaceId]);
 
     // The rows are the truth and they are all correct — the failure is confined
     // to the log.
     expect(requireMountRow(attached.repoMountId).state).toBe("detached");
-    expect(requireWorkspaceRow(attached.defaultWorkspaceId).state).toBe("archived");
-    expect(requireWorkspaceRow(bound.workspaceId).state).toBe("archived");
+    expect(requireWorkspaceRow(firstWorkspaceId).state).toBe("archived");
+    expect(requireWorkspaceRow(secondWorkspaceId).state).toBe("archived");
 
     // Exactly ONE `workspace.archived` landed, and it is the SECOND workspace —
     // the one whose append ran after the failure. That identity is what proves
     // the loop continued rather than the first append having quietly succeeded.
     expect(readLifecycleEventTypes()).toEqual([
-      "repo.attached",
-      "workspace.ready",
-      "workspace.ready",
-      "repo.detached",
+      "workspace.provisioning",
+      "workspace.provisioning",
       "workspace.archived",
     ]);
     const archivedEnvelopes = readLifecycleEnvelopes().filter(
@@ -1302,7 +1037,7 @@ describe("RepoMountService.detach", () => {
     );
     expect(
       (JSON.parse(archivedEnvelopes[0]?.payload ?? "{}") as { workspaceId?: string }).workspaceId,
-    ).toBe(bound.workspaceId);
+    ).toBe(secondWorkspaceId);
 
     // Calling again does NOT recover the missing event: the mount is already
     // `detached`, so this is the documented no-op. A caller that treats the
@@ -1317,64 +1052,55 @@ describe("RepoMountService.detach", () => {
   });
 
   it("archives a dependent that appeared AFTER the pre-transaction read", async () => {
-    // The race bind-side predicate closes from its end. The interference
+    // The race the bind-side predicate closes from its end. The interference
     // commits a `ready` workspace on this mount in the window between
-    // `detach`'s row read and its prelude — exactly where a bind that passed
+    // `detach`'s row read and its transaction — exactly where a bind that passed
     // the mount's `state = 'attached'` guard would land.
     //
-    // DISCRIMINATING: if the dependent set were read outside the write
-    // transaction, this workspace would not be in it, one workspace would be
-    // archived instead of two, and a live execution root would survive on a
-    // detached mount.
-    const attached = await harness.service.attach({
-      sessionId: SESSION_ID,
-      localPath: gitFixtures.repositoryRoot,
-      nodeId: NODE_ID,
-    });
+    // DISCRIMINATING: if the dependent set were read outside the transaction,
+    // this workspace would not be in it, nothing would be archived, and a live
+    // execution root would survive on a detached mount.
+    const attached = await harness.service.attach({ localPath: gitFixtures.repositoryRoot });
 
-    const service = createInterferingService(() => {
-      harness.db
-        .prepare(
-          `INSERT INTO workspaces (
-             id, session_id, repo_mount_id, execution_mode, fs_root, state, metadata, created_at, updated_at
-           ) VALUES (@id, @session_id, @repo_mount_id, 'read-only', @fs_root, 'ready', '{}', @now, @now)`,
-        )
-        .run({
-          id: INJECTED_WORKSPACE_ID,
-          session_id: SESSION_ID,
-          repo_mount_id: attached.repoMountId,
-          fs_root: gitFixtures.repositoryRoot,
-          now: "2026-08-05T00:00:01.000Z",
-        });
+    const service = createService({
+      now: interferingClock(() => {
+        harness.db
+          .prepare(
+            `INSERT INTO workspaces (
+               id, session_id, repo_mount_id, execution_mode, fs_root, state, metadata,
+               created_at, updated_at
+             ) VALUES (
+               @id, @session_id, @repo_mount_id, 'bound-root', @fs_root, 'ready', '{}', @now, @now
+             )`,
+          )
+          .run({
+            id: INJECTED_WORKSPACE_ID,
+            session_id: SESSION_ID,
+            repo_mount_id: attached.repoMountId,
+            fs_root: gitFixtures.repositoryRoot,
+            now: "2026-08-05T00:00:01.000Z",
+          });
+      }),
     });
 
     const response = await service.detach({ repoMountId: attached.repoMountId });
 
-    expect([...response.archivedWorkspaceIds].sort()).toEqual(
-      [attached.defaultWorkspaceId, INJECTED_WORKSPACE_ID].sort(),
-    );
+    expect(response.archivedWorkspaceIds).toEqual([INJECTED_WORKSPACE_ID]);
     expect(requireWorkspaceRow(INJECTED_WORKSPACE_ID).state).toBe("archived");
-    expect(readLifecycleEventTypes()).toEqual([
-      "repo.attached",
-      "workspace.ready",
-      "repo.detached",
-      "workspace.archived",
-      "workspace.archived",
-    ]);
+    expect(readLifecycleEventTypes()).toEqual(["workspace.archived"]);
   });
 
-  it("appends no second repo.detached when a concurrent detach wins the flip", async () => {
-    const attached = await harness.service.attach({
-      sessionId: SESSION_ID,
-      localPath: gitFixtures.repositoryRoot,
-      nodeId: NODE_ID,
-    });
+  it("rolls back and reports the winner when a concurrent detach wins the flip", async () => {
+    const attached = await harness.service.attach({ localPath: gitFixtures.repositoryRoot });
+    const workspaceId = await bindWorkspace(attached.repoMountId);
 
     // The winner's write, landing after this call read the row as `attached`.
-    const service = createInterferingService(() => {
-      harness.db
-        .prepare("UPDATE repo_mounts SET state = 'detached' WHERE id = ?")
-        .run(attached.repoMountId);
+    const service = createService({
+      now: interferingClock(() => {
+        harness.db
+          .prepare("UPDATE repo_mounts SET state = 'detached' WHERE id = ?")
+          .run(attached.repoMountId);
+      }),
     });
 
     const response = await service.detach({ repoMountId: attached.repoMountId });
@@ -1383,15 +1109,15 @@ describe("RepoMountService.detach", () => {
     // claims to have archived nothing — because it did not.
     expect(response.state).toBe("detached");
     expect(response.archivedWorkspaceIds).toEqual([]);
-    expect(readLifecycleEventTypes()).toEqual(["repo.attached", "workspace.ready"]);
+    expect(readLifecycleEventTypes()).toEqual(["workspace.provisioning"]);
     // The compare-and-swap aborted the whole transaction, so the cascade's
-    // archive writes rolled back with it.
-    expect(requireWorkspaceRow(attached.defaultWorkspaceId).state).toBe("ready");
+    // archive write rolled back with it.
+    expect(requireWorkspaceRow(workspaceId).state).toBe("provisioning");
   });
 });
 
 // ----------------------------------------------------------------------------
-// Construction — the Windows `git` seam (2026-07-25)
+// Construction — the Windows `git` seam
 // ----------------------------------------------------------------------------
 
 describe("RepoMountService construction", () => {
@@ -1440,17 +1166,13 @@ describe("RepoMountService construction", () => {
     const service = createService({ gitExecutablePath: gitFixtures.missingGitExecutable });
 
     const error = await captureRejection(() =>
-      service.attach({
-        sessionId: SESSION_ID,
-        localPath: gitFixtures.repositoryRoot,
-        nodeId: NODE_ID,
-      }),
+      service.attach({ localPath: gitFixtures.repositoryRoot }),
     );
 
     expect(error).toBeInstanceOf(RepoRootResolutionError);
-    // `vcs_error`, never a `none` fallback: a repository whose git could not run
-    // is not a plain directory.
+    // `vcs_error`, never `not_a_git_repository`: a repository whose git could
+    // not run is still a repository.
     expect((error as RepoRootResolutionError).reason).toBe("vcs_error");
-    expect(countRows("repo_mounts")).toBe(0);
+    expect(countMountRows()).toBe(0);
   });
 });

@@ -46,8 +46,9 @@ import type { Database, RunResult, Statement } from "better-sqlite3";
 import type { AppendableEvent, DaemonSessionSnapshot, StoredEvent } from "./types.js";
 import { replay as projectReplay } from "./session-projector.js";
 
-// Hash-chain placeholder bytes — see migrations/0001-initial.ts header
-// for the full forward-declaration rationale.
+// Hash-chain placeholder bytes: the `session_events` integrity columns in
+// `daemon-schema.ts` are NOT NULL and length-checked, so the writer fills them
+// with zeros of the right size.
 const HASH_PLACEHOLDER_LEN: number = 32;
 const SIG_PLACEHOLDER_LEN: number = 64;
 const ZERO_HASH: Buffer = Buffer.alloc(HASH_PLACEHOLDER_LEN);

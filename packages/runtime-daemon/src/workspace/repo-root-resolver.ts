@@ -1,15 +1,14 @@
 // Canonical repo-root resolver — the single place a user-entered local path
-// becomes the `{canonicalRoot, vcsType}` pair Phase 2 persists as
+// becomes the `{canonicalRoot, vcsType}` pair persisted as
 // `repo_mounts.canonical_root` / `repo_mounts.vcs_type`.
 //
 //   * "Repo attach must resolve and persist the canonical repository root, not
 //     only the user-entered path."
 //   * "Repo attach should not assume that the user-selected path is already
 //     the repo root."
-//   * "If a path is not a git repository, the system may bind it as a plain
-//     directory workspace with git-specific features disabled" AND "If
-//     canonical root resolution fails, repo attach must fail explicitly
-//     rather than guessing."
+//   * "If canonical root resolution fails, repo attach must fail explicitly
+//     rather than guessing." A path that is not a git repository is refused
+//     the same way, as `not_a_git_repository`.
 //
 // Invariants enforced here (canonical text):
 //   * Every value this module returns has been through `realpath`, so the
@@ -24,15 +23,14 @@
 //     root inferred by completing an input that does not name one whole
 //     location (a relative path, `~`, or a driveless Windows root) out of
 //     daemon-side state, which the step-1 gate refuses.
-//   * `vcsType: "none"` needs TWO conditions, not one. It is produced ONLY on a
-//     positive "git ran and reported not-a-repository" verdict, ONLY for the
-//     DISCOVERY query on the supplied path, and ONLY when that path visibly
+//   * `not_a_git_repository` needs TWO conditions, not one. It is produced ONLY
+//     on a positive "git ran and reported not-a-repository" verdict, ONLY for
+//     the DISCOVERY query on the supplied path, and ONLY when that path visibly
 //     carries no `.git` entry. Every git-invocation failure — git missing, git
 //     non-executable, git killed, git failing for any other reason — routes to
-//     `vcs_error`. The same verdict from the VERIFICATION query is a refusal
-//     (`root_mismatch`), never a reclassification: a claimed root that is not a
-//     repository at all cannot be attached as a plain directory either, because
-//     it is not the path the operator supplied.
+//     `vcs_error`. The same verdict from the VERIFICATION query is
+//     `root_mismatch`: discovery on the supplied path succeeded, so it is the
+//     claimed root that is wrong.
 //
 // Mechanism, and why it is not a `.git` walk
 // --------------------------------------------------------------------------
@@ -45,7 +43,7 @@
 // wrong root. `rev-parse` answers with git's own discovery rules, which is the
 // only answer that stays correct as those rules evolve.
 //
-// The plain-directory arm's consistency gate is NOT a retreat from that, and
+// The not-a-repository arm's consistency gate is NOT a retreat from that, and
 // the difference is what makes it safe. The rejected walk ASCENDS and
 // INTERPRETS — it climbs parents, and it has to understand a gitfile's
 // `gitdir:` contents to follow it, which is where it goes wrong. The gate does
@@ -75,17 +73,17 @@
 // is-this-a-repository predicate, so a value naming nothing accessible makes
 // EVERY candidate fail it. Either way an ambient value makes git report
 // not-a-repository for a REAL repository, and an attach from a nested
-// subdirectory then persists that subdirectory as `vcsType: "none"` — an breach
-// that is silent, because nothing in git's answer distinguishes it from an
-// honest plain directory. `DISCOVERY_REDIRECTING_GIT_ENV_KEYS` carries the
-// observation and the second, opposite wrong answer. The omission is
-// case-insensitive, which is a Windows correctness requirement rather than
-// fastidiousness; `buildGitEnvironment` states why.
+// subdirectory is then refused as `not_a_git_repository`, with nothing in git's
+// answer to tell it from an honest non-repository.
+// `DISCOVERY_REDIRECTING_GIT_ENV_KEYS` carries the observation and the second,
+// opposite wrong answer. The omission is case-insensitive, which is a Windows
+// correctness requirement rather than fastidiousness; `buildGitEnvironment`
+// states why.
 //
 // Locale is pinned to `C` for the same class of reason: the not-a-repository
 // verdict is read off git's own stderr, and git translates its messages through
 // gettext. An operator running a localized shell must not change how this
-// module classifies a plain directory.
+// module reads that verdict.
 //
 // What the environment cannot reach: the repository's OWN config
 // --------------------------------------------------------------------------
@@ -140,8 +138,8 @@
 // dotfiles-style layout is the familiar example. That is an accepted
 // limitation, not an oversight. Nothing distinguishes a deliberate redirect
 // from a hostile one at this layer, and makes refusing the safe direction; the
-// refusal is an explicit typed error, never a `vcsType: "none"`
-// misclassification. Every shape git produces on its own is unaffected, each
+// refusal is an explicit typed `root_mismatch`. Every shape git produces on its
+// own is unaffected, each
 // pinned against real git in the suite: a plain repository, a nested
 // subdirectory, a linked worktree, a submodule, and a `--separate-git-dir`
 // repository whose gitfile sits in its own toplevel all self-report.
@@ -179,9 +177,9 @@
 // Environment scrubbing cannot close it, because the search is not driven by
 // the environment. The seam that closes it is `gitExecutablePath`: set to an
 // absolute path, it skips the search entirely, and a Windows deployment (V1
-// tier) should set it. Making an absolute path the DEFAULT is Phase 2
-// configuration work — Phase 1 has no daemon config surface to read one from
-// — so this module states the exposure rather than carrying it silently.
+// tier) should set it. Making an absolute path the DEFAULT needs a daemon
+// config surface to read one from, and there is none yet — so this module
+// states the exposure rather than carrying it silently.
 //
 // The input must name ONE COMPLETE LOCATION — step 1 refuses everything else
 // --------------------------------------------------------------------------
@@ -213,7 +211,7 @@
 // Ordering is what makes the gate worth having. `realpath` would happily
 // complete `src/workspace` against the daemon's cwd and return a real,
 // resolvable, entirely plausible root — a silent wrong answer, which is the
-// worst shape for a value Phase 2 persists. Refusing before `realpath` is also
+// worst shape for a value attach persists. Refusing before `realpath` is also
 // what keeps `~`'s refusal honest: unexpanded, `~` is nothing but a literal
 // directory name to the filesystem, so a machine that happened to hold a
 // directory named `~` would RESOLVE it. Gating first makes the outcome a
@@ -245,18 +243,17 @@ import {
 // --------------------------------------------------------------------------
 
 /**
- * The resolver's only successful output — and acceptance criterion,
- * the only value Phase 2 may persist as `canonical_root` / `vcs_type`.
+ * The resolver's only successful output, and the only value attach may persist
+ * as `canonical_root` / `vcs_type`.
  *
  * `canonicalRoot` is always absolute and symlink-resolved, and was openable for
  * enumeration at the moment it was resolved. `finish` proves the first and the
  * third — the third only for that moment (see the probe seam). The second holds
- * by CONSTRUCTION rather than by check: both call sites hand `finish` realpath
+ * by CONSTRUCTION rather than by check: the caller hands `finish` realpath
  * output, so an absolute-but-unresolved alias from a broken realpath seam would
- * pass undetected. `vcsType` composes the closed two-value union
- * (`@ai-sidekicks/contracts`) rather than a local string: pins that union
- * CLOSED, and re-spelling it here would be the widening seam the invariant
- * forbids.
+ * pass undetected. `vcsType` is always `"git"`, since a path git does not call
+ * a repository is refused, and it composes the contracts union rather than a
+ * local string so the vocabulary has one owner.
  */
 export interface RepoRootResolution {
   readonly canonicalRoot: string;
@@ -397,10 +394,11 @@ export interface RepoRootResolverDeps {
    *     `classifyRealpathFailure`, so `EACCES` ⇒ `not_readable` and a vanished
    *     root ⇒ `path_not_found`. See there for why `realpath` does not already
    *     cover it.
-   *   * `hasVisibleGitMetadata`, against `<input>/.git` on the plain-directory
+   *   * `hasVisibleGitMetadata`, against `<input>/.git` on the not-a-repository
    *     arm — "is repository metadata visibly there?". That reading is
-   *     `namesMissingEntry`: `ENOENT` alone means absent, and SUCCESS is a
-   *     refusal rather than a pass. Inverted, deliberately — see both.
+   *     `namesMissingEntry`: `ENOENT` alone means absent (`not_a_git_repository`),
+   *     and SUCCESS means present (`vcs_error`). Inverted, deliberately — see
+   *     both.
    *
    * A stub that resolves unconditionally therefore asserts "every root is
    * enumerable" AND "every directory carries `.git`"; one that rejects
@@ -468,7 +466,7 @@ export const DEFAULT_GIT_EXECUTABLE: string = "git";
  * attach request forever with no recovery. Ten seconds is far above any healthy
  * local invocation and far below a user's patience for a wedged one. Exceeding
  * it kills the child, which surfaces as `vcs_error` (killed ⇒ abnormal), never
- * as a `"none"` classification.
+ * as `not_a_git_repository`.
  */
 export const DEFAULT_GIT_COMMAND_TIMEOUT_MS: number = 10_000;
 
@@ -492,8 +490,8 @@ export const GIT_FATAL_EXIT_CODE: number = 128;
  *
  * The anchor is not cosmetic. An unanchored match would also fire on a
  * different fatal error whose quoted PATH happened to contain the phrase (a
- * directory literally named `not a git repository`), turning a failure into a
- * plain-directory classification — an breach reachable by naming a directory.
+ * directory literally named `not a git repository`), misreporting a git failure
+ * as `not_a_git_repository` for anyone who names a directory that way.
  * git renders control characters in quoted paths in C-style escaped form, so
  * no path can inject a leading newline to defeat the anchor.
  *
@@ -503,8 +501,8 @@ export const GIT_FATAL_EXIT_CODE: number = 128;
 const NOT_A_REPOSITORY_STDERR_MARKER = /^fatal: not a git repository/im;
 
 /**
- * The entry name git's discovery looks for, and the only thing the plain-
- * directory arm's consistency gate examines. A DIRECTORY in an ordinary
+ * The entry name git's discovery looks for, and the only thing the
+ * not-a-repository arm's consistency gate examines. A DIRECTORY in an ordinary
  * checkout; a `gitdir:`-bearing FILE in a linked worktree or a
  * `--separate-git-dir` clone.
  *
@@ -548,13 +546,12 @@ const GIT_METADATA_ENTRY_NAME = ".git";
  * that explanation is INFERENCE from the behaviors above and nothing here rests
  * on it — the strip rests on the observations.
  *
- * Both directions are reachable wrong answers, not merely refusals. The first
- * one is the worse of the two: an attach of a NESTED subdirectory of a real
- * repository takes the plain-directory arm — the consistency gate below looks
- * for `<supplied>/.git`, and a subdirectory has none — so the daemon persists
- * `vcs_type: 'none'` rooted at the subdirectory instead of `'git'` rooted at the
- * repository. The second survives steps 4 and 5 unchallenged, because the
- * fixpoint query runs under the same poisoned environment and self-reports.
+ * Both directions are reachable. The first refuses a real repository attached
+ * from a NESTED subdirectory as `not_a_git_repository` — the consistency gate
+ * below looks for `<supplied>/.git`, and a subdirectory has none. The second is
+ * a wrong answer rather than a refusal: it survives steps 4 and 5 unchallenged,
+ * because the fixpoint query runs under the same poisoned environment and
+ * self-reports.
  *
  * The last two are the env-borne CONFIG-INJECTION channels, and they are
  * INDEPENDENT of each other. `GIT_CONFIG_COUNT` is the switch that makes
@@ -802,7 +799,7 @@ function readProperty(thrown: unknown, key: string): unknown {
  * `vcs_error` is deliberately unreachable from here, and the reason survives
  * the second caller: a filesystem errno is never evidence about the version
  * control query. Called from step 2, no query has been made yet. Called from
- * `finish` on the git arm, one has been made and it SUCCEEDED — what failed
+ * `finish`, one has been made and it SUCCEEDED — what failed
  * afterwards is the filesystem answering for a path, which is precisely what
  * the two reasons above are for.
  *
@@ -830,8 +827,8 @@ function classifyRealpathFailure(thrown: unknown): "path_not_found" | "not_reada
  * something IS there and could not be examined — `EACCES` on a mode-`000`
  * metadata directory, `ENOTDIR` on a `gitdir:` pointer file — which is the
  * opposite of absence and must not be read as it. Anything unrecognized takes
- * the same refusing branch, so a future errno cannot widen the plain-directory
- * classification by surprise. That is the same fail-closed posture
+ * the `vcs_error` branch, so a future errno cannot report damaged metadata as
+ * `not_a_git_repository` by surprise. That is the same fail-closed posture
  * `classifyGitFailure` takes, applied to the filesystem side.
  *
  * `ENAMETOOLONG` deliberately does NOT count as absence: it says the name
@@ -846,13 +843,12 @@ function namesMissingEntry(thrown: unknown): boolean {
  * query fail to complete?
  *
  * The two mistakes are not symmetric. Calling a broken git invocation "not a
- * repository" reclassifies a real repository as a plain directory and every
- * downstream capability projection then lies about git-backed modes — the
- * breach exists to prevent, and one that persists into `repo_mounts.vcs_type`.
- * Calling a genuine plain directory a `vcs_error` merely refuses an attach,
- * loudly, with an explicit typed error. So `"not-a-repository"` is returned
- * ONLY on a positive, three-part verdict, and everything else — including any
- * shape this function does not recognize — is `"abnormal"`:
+ * repository" tells the operator a real repository is not one, and sends them
+ * to fix the wrong thing. Calling a genuine non-repository a `vcs_error` still
+ * refuses the attach, loudly, with an explicit typed error. So
+ * `"not-a-repository"` is returned ONLY on a positive, three-part verdict, and
+ * everything else — including any shape this function does not recognize — is
+ * `"abnormal"`:
  *
  *   1. the child was NOT killed and did NOT die on a signal (so the exit code
  *      below is git's own verdict rather than a corpse's);
@@ -862,18 +858,18 @@ function namesMissingEntry(thrown: unknown): boolean {
  *
  * Consequences worth naming, all of them intended:
  *   * git absent, non-executable, or unreadable ⇒ `ENOENT` / `EACCES` in the
- *     code slot ⇒ abnormal. A host without git cannot silently downgrade a
- *     repository to a plain directory.
+ *     code slot ⇒ abnormal. A host without git cannot report a repository as
+ *     not being one.
  *   * the timeout kill, or any other signal death ⇒ abnormal.
  *   * a bare repository ("this operation must be run in a work tree") and a
  *     `safe.directory` ownership refusal ("detected dubious ownership") both
- *     exit 128 with a DIFFERENT message ⇒ abnormal. Neither is a plain
- *     directory, and neither may be attached as one.
+ *     exit 128 with a DIFFERENT message ⇒ abnormal. Each is a repository git
+ *     declined to use, not the absence of one.
  *   * a `-C` target that is a regular file (git cannot chdir into it) ⇒
  *     abnormal, so a file is never persisted as a canonical root.
  *   * a future git that changed its wording or its exit code ⇒ abnormal, i.e.
- *     plain-directory attach breaks visibly instead of git repositories
- *     silently misclassifying.
+ *     a non-repository is refused as `vcs_error` instead of a repository being
+ *     misreported as not one.
  *
  * One family this function CANNOT catch, by construction: DAMAGED metadata.
  * A checkout whose `.git` is unreadable, empty, or a pointer to nothing makes
@@ -881,9 +877,9 @@ function namesMissingEntry(thrown: unknown): boolean {
  * parts of the verdict hold and this function correctly reports what git said.
  * git is not wrong there — from where it stands there is no repository. The
  * problem is that the answer is only true because something is broken, and
- * nothing in a stderr string distinguishes that from an honest plain
- * directory. That discrimination needs a second observation, so it lives at
- * the plain-directory arm's consistency gate rather than here.
+ * nothing in a stderr string distinguishes that from an honest non-repository.
+ * That discrimination needs a second observation, so it lives at the
+ * not-a-repository arm's consistency gate rather than here.
  */
 function classifyGitFailure(thrown: unknown): "not-a-repository" | "abnormal" {
   if (readProperty(thrown, "killed") === true) {
@@ -946,8 +942,9 @@ function stripSingleLineTerminator(output: string, platformPath: PlatformPathMod
  * zero exit carrying no usable path, a toplevel `realpath` will not resolve —
  * throws `vcs_error` from inside the query, so no caller has to re-derive
  * discrimination. What the two callers do differ on is the not-a-repository
- * verdict: for the discovery query it is the plain-directory classification,
- * and for the verification query it is a refusal.
+ * verdict: for the discovery query it becomes `not_a_git_repository` once the
+ * consistency gate lets it stand, and for the verification query it is
+ * `root_mismatch`.
  */
 type ToplevelQueryOutcome =
   | { readonly kind: "toplevel"; readonly canonicalRoot: string }
@@ -959,8 +956,8 @@ type ToplevelQueryOutcome =
  *
  * Stateless and safe to share: every call reads the environment afresh and
  * keeps no cache. Caching would be a correctness hazard rather than an
- * optimization — a mount's git-ness changes when someone runs `git init`, and a
- * stale `"none"` is exactly the lie forbids.
+ * optimization — a path's git-ness changes when someone runs `git init`, and a
+ * cached refusal would outlive it.
  */
 export class RepoRootResolver {
   private readonly deps: RepoRootResolverDeps;
@@ -978,12 +975,13 @@ export class RepoRootResolver {
    * method the path the operator typed, and `RepoAttachRequest.localPath` keeps
    * that raw value as provenance — this return value is what gets persisted.
    *
-   * A `vcsType: "git"` root is not simply what git reported: it has been proven
-   * to contain the supplied path and to report itself as its own toplevel. The
+   * The returned root is not simply what git reported: it has been proven to
+   * contain the supplied path and to report itself as its own toplevel. The
    * header explains what that refuses and why it must.
    *
-   * @throws {RepoRootResolutionError} on every non-resolution. There is no
-   *   other exit: no fallback to the input, no partial result.
+   * @throws {RepoRootResolutionError} on every non-resolution, including
+   *   `not_a_git_repository` for a path git does not call a repository. There
+   *   is no other exit: no fallback to the input, no partial result.
    */
   public async resolveCanonicalRoot(localPath: string): Promise<RepoRootResolution> {
     // Step 1 — refuse any input that does not name one complete location. This
@@ -1006,8 +1004,7 @@ export class RepoRootResolver {
     // relative file_name, which step 1 refused before this call — so a `0111`
     // final component resolves here and lists for nobody. Proving the root can
     // actually be ENUMERATED is `finish`'s gate, on the value about to be
-    // returned rather than on this one — which on the git arm is a different
-    // path.
+    // returned rather than on this one — which may be a different path.
     const canonicalInputPath = await this.realpathOrThrow(localPath, classifyRealpathFailure);
 
     // Note that the answer is NOT assumed to be `canonicalInputPath`:
@@ -1015,44 +1012,34 @@ export class RepoRootResolver {
     // the reason this query exists at all.
     const discovery = await this.queryCanonicalToplevel(canonicalInputPath);
     if (discovery.kind === "not-a-repository") {
-      // VERDICT CONSISTENCY, before the classification is accepted. git's
-      // not-a-repository answer is positive evidence about GIT's view, and
-      // lets that stand as the plain-directory classification only when
-      // nothing visibly contradicts it. A directory that carries a `.git`
-      // entry contradicts it: git looked, found metadata it could not use, and
-      // said "not a repository" — an answer that is true from where git stands
-      // and false about the directory. Persisting `vcs_type: 'none'` there
-      // records a permission-damaged or corrupt CHECKOUT as a plain directory,
-      // and every capability projection downstream then offers `read-only`
-      // only, for a repository that is merely broken.
+      // VERDICT CONSISTENCY, before the verdict is reported. git's
+      // not-a-repository answer is positive evidence about GIT's view, and it
+      // stands only when nothing visibly contradicts it. A directory that
+      // carries a `.git` entry contradicts it: git looked, found metadata it
+      // could not use, and said "not a repository" — an answer that is true
+      // from where git stands and false about the directory. Reporting
+      // `not_a_git_repository` there would tell the operator a permission-
+      // damaged or corrupt CHECKOUT is not a repository at all.
       //
       // Observed on git 2.50.1, all three exiting 128 with the anchored
-      // marker, i.e. indistinguishable from an honest plain directory by
+      // marker, i.e. indistinguishable from an honest non-repository by
       // stderr alone: a mode-`000` `.git` DIRECTORY; an EMPTY `.git`
       // directory; and a `.git` gitfile whose `gitdir:` target does not exist.
       //
       // The refusal is `vcs_error`, NOT `not_readable`, and not only in the
       // `EACCES` case. In the empty-directory and dangling-pointer shapes
       // nothing is unreadable at all — what failed is the VCS question, whose
-      // answer cannot be trusted. This is a narrowing of when git's verdict
-      // counts as positive, so it lands on the same reason every other
-      // untrustworthy VCS answer does, and the reason union is unchanged.
+      // answer cannot be trusted, so it lands on the reason every other
+      // untrustworthy VCS answer does.
       if (await this.hasVisibleGitMetadata(canonicalInputPath)) {
         throw new RepoRootResolutionError("vcs_error");
       }
 
-      // The root is the already-canonicalized input: a non-git directory IS
-      // its own root, and it has been realpath'd, so this arm returns a
-      // canonical value like every other.
-      //
       // A permission-damaged repository attached from a NESTED subdirectory
-      // still classifies `"none"`, rooted at that subdirectory: git walks UP
-      // to the damaged `.git` while this gate looks only at the supplied path.
-      // Crawling ancestors to close it would be unbounded and racy, and the
-      // answer would still be defensible without it — the subdirectory
-      // genuinely enumerates and genuinely carries no metadata, and the
-      // read-only default workspace bounds what the resulting mount can do.
-      return this.finish(canonicalInputPath, "none");
+      // still lands here: git walks UP to the damaged `.git` while this gate
+      // looks only at the supplied path. Crawling ancestors to close it would
+      // be unbounded and racy, and either reason refuses the attach.
+      throw new RepoRootResolutionError("not_a_git_repository");
     }
     const canonicalRoot = discovery.canonicalRoot;
     // Both comparisons below fold off the REAL `node:path`, never the injected
@@ -1099,9 +1086,9 @@ export class RepoRootResolver {
     // trivially. A bindable root reports ITSELF when discovery starts inside
     // it, so the root is queried a second time and must answer with itself.
     //
-    // The not-a-repository verdict is a refusal here, never a `"none"`
-    // classification — a claimed root that is not a repository at all is the
-    // strongest form of the mismatch, and it is what both observed redirect
+    // The not-a-repository verdict is `root_mismatch` here, never
+    // `not_a_git_repository` — a claimed root that is not a repository at all is
+    // the strongest form of the mismatch, and it is what both observed redirect
     // shapes actually produce (git 2.50.1).
     const verification = await this.queryCanonicalToplevel(canonicalRoot);
     if (
@@ -1114,7 +1101,7 @@ export class RepoRootResolver {
       throw new RepoRootResolutionError("root_mismatch");
     }
 
-    return this.finish(canonicalRoot, "git");
+    return this.finish(canonicalRoot);
   }
 
   /**
@@ -1178,8 +1165,8 @@ export class RepoRootResolver {
    * One targeted open of `<directory>/.git`, never an enumeration of
    * `directory` itself — which matters, because a mode-`0111` directory grants
    * the search this name resolution needs while refusing the listing a
-   * `readdir` would want. The gate must not fail on a directory whose only
-   * problem is that `finish` is about to refuse it for a different reason.
+   * `readdir` would want. An unlistable directory with no metadata must still
+   * read as absence, not as metadata the probe could not examine.
    *
    * TRUE on success and on every rejection but `ENOENT`, which is the whole
    * discrimination:
@@ -1237,9 +1224,9 @@ export class RepoRootResolver {
    * Last gate before any value escapes this module. Two properties are proven
    * of the outgoing root, in this order.
    *
-   * Both call sites have already realpath'd their value, so this can only fire
-   * on a platform or seam that broke that guarantee — which is exactly when a
-   * silent relative root would be most damaging.
+   * The caller has already realpath'd the value, so this can only fire on a
+   * platform or seam that broke that guarantee — which is exactly when a silent
+   * relative root would be most damaging.
    *
    * Deliberately the REAL `node:path`, not the injected `platformPath` — the
    * rule every outgoing-value check follows, step 3's completeness rule and
@@ -1249,11 +1236,10 @@ export class RepoRootResolver {
    *
    * Where this differs from step 3 is the STRENGTH of the check, and only
    * because of what each one sees. Step 3 reads git's raw stdout, which can
-   * still be driveless, so it needs the full completeness rule. Both of THIS
-   * method's call sites pass `realpath` output, and a real `realpath` cannot
-   * return a driveless root, so the stricter rule would add no reachable
-   * coverage here — plain absoluteness is the honest statement of what is left
-   * to catch.
+   * still be driveless, so it needs the full completeness rule. THIS method's
+   * caller passes `realpath` output, and a real `realpath` cannot return a
+   * driveless root, so the stricter rule would add no reachable coverage here —
+   * plain absoluteness is the honest statement of what is left to catch.
    *
    * READABLE — the root can be OPENED FOR ENUMERATION, not merely traversed
    * through. Step 2's `realpath` does not already establish this, and the gap
@@ -1262,18 +1248,12 @@ export class RepoRootResolver {
    * resolves such a directory happily; git needs only search on the root as
    * well, because discovery stats and reads `.git` entries and never LISTS the
    * toplevel, so `rev-parse --show-toplevel` answers normally (git 2.50.1, both
-   * observations pinned by the suite). Absent this probe, both arms return a
-   * successful resolution naming a directory whose contents the daemon cannot
-   * enumerate.
+   * observations pinned by the suite). Absent this probe, the resolution would
+   * name a directory whose contents the daemon cannot enumerate — a mount the
+   * operator can neither browse nor run in, recorded as healthy.
    *
-   * The check sits HERE, at the one chokepoint, rather than on the plain-
-   * directory arm alone, and that placement is the substance of it. has attach
-   * create a default workspace rooted at this value for git and non-git mounts
-   * alike, so an unreadable root births the same unusable workspace either way
-   * — a mount the operator can neither browse nor run in, recorded as healthy.
-   *
-   * What is probed is the OUTGOING root, which on the git arm need not be the
-   * supplied path. Attaching a readable subdirectory of an unreadable
+   * What is probed is the OUTGOING root, which need not be the supplied path.
+   * Attaching a readable subdirectory of an unreadable
    * repository root is exactly the shape that must refuse, since the root — not
    * the input — is what gets persisted and mounted.
    *
@@ -1283,7 +1263,7 @@ export class RepoRootResolver {
    * only — `probeDirectoryReadable` explains why later readability drift is
    * the health projection rather than a resolution failure.
    */
-  private async finish(canonicalRoot: string, vcsType: VcsType): Promise<RepoRootResolution> {
+  private async finish(canonicalRoot: string): Promise<RepoRootResolution> {
     if (!nodePath.isAbsolute(canonicalRoot)) {
       throw new RepoRootResolutionError("vcs_error");
     }
@@ -1295,6 +1275,6 @@ export class RepoRootResolver {
       // the carrier has no channel for one.
       throw new RepoRootResolutionError(classifyRealpathFailure(thrown));
     }
-    return { canonicalRoot, vcsType };
+    return { canonicalRoot, vcsType: "git" };
   }
 }

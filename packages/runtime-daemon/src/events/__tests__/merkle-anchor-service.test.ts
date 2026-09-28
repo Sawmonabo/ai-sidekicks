@@ -56,6 +56,7 @@ import {
 } from "../merkle-anchor-service.js";
 import type { Ed25519PrivateKey, Ed25519PublicKey } from "../signer.js";
 import type { DaemonSigningKeySource } from "../signing-key-source.js";
+import { writeAcrossStrictTyping } from "../../session/__fixtures__/at-rest-tamper.js";
 
 const SESSION: SessionId = SessionIdSchema.parse("22222222-3333-4444-8555-666666666666");
 const NODE: NodeId = NodeIdSchema.parse("node-anchor-0001");
@@ -445,8 +446,7 @@ describe("MerkleAnchorService — anchorRange coverage pre-check", () => {
 
 describe("MerkleAnchorService — the upload drain", () => {
   it("never uploads a daemon-scope sentinel anchor", async () => {
-    // Sentinel-partitioned rows are node-scope. They have no `sessions(id)` row
-    // for `event_log_anchors` to FK against, and node-scope witnessing is a
+    // Sentinel-partitioned rows are node-scope, and node-scope witnessing is a
     // V1.1 extension — so their `uploaded_at` stays NULL BY DESIGN, and this
     // filter is what keeps them from being retried forever.
     seedEvents(3);
@@ -551,20 +551,19 @@ describe("MerkleAnchorService — the upload drain", () => {
     // arm cannot reach, so a silent `continue` would leave the row invisible to
     // every operator surface at once.
     //
-    // `start_sequence` is corrupted to a non-numeric TEXT value: SQLite's
-    // INTEGER affinity converts only text that is losslessly numeric, so 'x'
-    // stays TEXT and comes back from better-sqlite3 as a JS string. That is
-    // what `readAnchorIdentity` refuses (`typeof !== "number"`), and it is
-    // reachable at rest — the column is INTEGER NOT NULL, which constrains
-    // NULL and nothing else.
+    // `start_sequence` is corrupted to a non-numeric TEXT value, as an edit to
+    // the file can leave it, and comes back from better-sqlite3 as a JS string.
+    // That is what `readAnchorIdentity` refuses (`typeof !== "number"`).
     seedEvents(6);
     const transport = new RecordingUploadTransport();
     const service = buildService(transport);
     await service.anchorRange({ sessionId: SESSION, fromSeq: 0, toSeq: 2 });
     await service.anchorRange({ sessionId: SESSION, fromSeq: 3, toSeq: 5 });
-    database
-      .prepare("UPDATE pending_anchor_uploads SET start_sequence = 'x' WHERE start_sequence = 3")
-      .run();
+    writeAcrossStrictTyping(database, "pending_anchor_uploads", () => {
+      database
+        .prepare("UPDATE pending_anchor_uploads SET start_sequence = 'x' WHERE start_sequence = 3")
+        .run();
+    });
 
     expect(await service.uploadPendingAnchors()).toEqual({ flushed: 1, anchorsUnreadable: 1 });
 

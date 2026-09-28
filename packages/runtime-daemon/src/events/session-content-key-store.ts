@@ -159,7 +159,7 @@ const MINT_ROTATION_PASS_LIMIT = 3;
  * user wrap's `"ais.master-wrap.v1"` so a blob from one domain can never
  * authenticate in the other, even under the same master key.
  */
-export const SESSION_CONTENT_WRAP_INFO = "ais.session-content-wrap.v1";
+const SESSION_CONTENT_WRAP_INFO = "ais.session-content-wrap.v1";
 
 /**
  * The daemon master key, supplied by whoever owns its custody ladder.
@@ -471,9 +471,9 @@ export interface SessionContentKeySweepResult {
 /**
  * The sole reader and minter of `session_content_keys`.
  *
- * Every statement is prepared in the constructor, so a handle that never ran
- * migration 13 fails LOUD at construction rather than at the first append
- * against a live database — the convention the compactor states.
+ * Every statement is prepared in the constructor, so a handle without the
+ * `session_content_keys` table fails LOUD at construction rather than at the
+ * first append against a live database — the convention the compactor states.
  */
 export class SessionContentKeyStore
   implements SessionContentKeySource, SessionContentKeyReader, SessionContentKeyDisposer
@@ -549,8 +549,8 @@ export class SessionContentKeyStore
         WHERE session_id = ? AND key_version = ?`,
     );
 
-    // The LIFECYCLE pair. Prepared here with the rest so a handle that never ran
-    // migration 13 still fails at construction rather than at the first sweep.
+    // The LIFECYCLE pair. Prepared here with the rest so a handle without the
+    // table still fails at construction rather than at the first sweep.
     const liveContentStmt = database.prepare(
       `SELECT 1 AS live
          FROM session_events

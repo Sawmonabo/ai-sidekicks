@@ -1,4 +1,4 @@
-// Test doubles for capability-probe transport.
+// Test doubles for the capability-probe transport and the capability declaration sink.
 //
 // Excluded from `tsconfig.json`'s build (`src/**/__fixtures__/**`), so nothing
 // here ships in `dist/` — it exists so every suite that needs a probe surface
@@ -28,7 +28,6 @@ import type { CapabilityDetectionSource, DriverCapabilityFlag } from "@ai-sideki
 
 import {
   CAPABILITY_DETECTION_TABLES,
-  CAPABILITY_PROBE_CHANNELS,
   CAPABILITY_PROBE_NEGATIVE_CONTROLS,
   type CapabilityDetectionMechanism,
   type CapabilityDetectionReading,
@@ -36,6 +35,11 @@ import {
   type CapabilityProbeRequest,
 } from "../capability-probe.js";
 import type { FlooredDriverName } from "../capability-refresh.js";
+import type {
+  DeclareDriverCapabilitiesInput,
+  DeclareDriverCapabilitiesResult,
+  DriverCapabilityDeclarationSink,
+} from "../driver-capabilities-writer.js";
 
 /** The Claude control-response arm for a subtype the dispatcher does not know. */
 export function claudeUnsupportedSubtypeReply(subtype: string): unknown {
@@ -246,7 +250,26 @@ export function fullyProbedDetectionReading(
   return { driverName, boundExecutablePath, detectionSource, withdrawnFlags: [], diagnostics: [] };
 }
 
-/** The channel a driver's probes ride — re-exported so suites need one import. */
-export function probeChannelFor(driverName: FlooredDriverName): CapabilityProbeRequest["channel"] {
-  return CAPABILITY_PROBE_CHANNELS[driverName];
+/**
+ * Records every declaration handed to the capability writer and answers each one with
+ * a fixed verdict. It implements `DriverCapabilityDeclarationSink`, so a signature
+ * change on `DriverCapabilitiesWriter.declare` breaks every suite that uses it.
+ */
+export class RecordingDeclarationSink implements DriverCapabilityDeclarationSink {
+  readonly calls: DeclareDriverCapabilitiesInput[] = [];
+  readonly #verdict: DeclareDriverCapabilitiesResult;
+
+  constructor(
+    verdict: DeclareDriverCapabilitiesResult = {
+      snapshotChange: "created",
+      cliVersionRefreshed: true,
+    },
+  ) {
+    this.#verdict = verdict;
+  }
+
+  declare(input: DeclareDriverCapabilitiesInput): Promise<DeclareDriverCapabilitiesResult> {
+    this.calls.push(input);
+    return Promise.resolve(this.#verdict);
+  }
 }

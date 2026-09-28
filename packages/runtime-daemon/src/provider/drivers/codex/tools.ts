@@ -78,13 +78,18 @@
 // Invariant from the pinned Codex wire census (wire surface at
 // the pinned `codex-cli` build; regenerate-don't-transcribe).
 
-import { McpServerStatusEmissionSchema } from "@ai-sidekicks/contracts";
 import type {
   IdempotencyClass,
   McpServerStatus,
   McpServerStatusEmission,
   NormalizedProviderToolMetadata,
 } from "@ai-sidekicks/contracts";
+
+import {
+  boundMcpServerStatusEmission,
+  type McpServerStatusIngestRejection,
+  type McpServerStatusIngestResult,
+} from "../mcp-server-status-ingest.js";
 
 /**
  *
@@ -406,23 +411,6 @@ export function observeMcpTaskAcceptance(
 // --------------------------------------------------------------------------
 
 /**
- * A raw row or notification this normalizer could not turn into a bounded
- * emission. Rejections are RETURNED, never dropped: the wiring seam routes
- * them to the driver diagnostic surface so a malformed row is visible instead
- * of a silent census gap. (This module stays dependency-free of the
- * diagnostic module — the census is pure normalization.)
- */
-export interface McpServerStatusIngestRejection {
-  readonly reason: string;
-}
-
-/** The outcome of normalizing one raw wire payload into bounded emissions. */
-export interface McpServerStatusIngestResult {
-  readonly emissions: readonly McpServerStatusEmission[];
-  readonly rejections: readonly McpServerStatusIngestRejection[];
-}
-
-/**
  * `McpServerConnectionStatus` (list-row `runtimeStatus`) → unified enum.
  *
  * The mapping is total over the schema-published vocabulary; a value outside
@@ -451,31 +439,6 @@ const CODEX_STARTUP_STATE_MAP: Readonly<Record<string, McpServerStatus>> = {
   failed: "failed",
   cancelled: "failed",
 };
-
-/**
- * Bound one (serverName, status) pair through the CONTRACT schema.
- *
- * `McpServerStatusEmissionSchema` is the trust boundary the plan names:
- * `serverName` is untrusted provider output and is `wireFreeFormString`-
- * bounded (length 1..128, non-whitespace, no NUL) HERE, before the emission
- * can reach the daemon-injected producer.
- */
-function boundEmission(
-  serverName: unknown,
-  status: McpServerStatus,
-): { emission?: McpServerStatusEmission; rejection?: McpServerStatusIngestRejection } {
-  const parsed = McpServerStatusEmissionSchema.safeParse({ serverName, status });
-  if (parsed.success) {
-    return { emission: parsed.data };
-  }
-  return {
-    rejection: {
-      reason: `MCP server-status emission rejected at the wire bound: ${parsed.error.issues
-        .map((issue) => issue.message)
-        .join("; ")}`,
-    },
-  };
-}
 
 /**
  * Normalize a `mcpServerStatus/list` response's `data` rows into bounded
@@ -516,7 +479,7 @@ export function normalizeCodexMcpServerStatusList(rawRows: unknown): McpServerSt
     } else {
       status = row["authStatus"] === "notLoggedIn" ? "needs-auth" : "unknown";
     }
-    const bounded = boundEmission(row["name"], status);
+    const bounded = boundMcpServerStatusEmission(row["name"], status);
     if (bounded.emission !== undefined) {
       emissions.push(bounded.emission);
     }
@@ -559,7 +522,7 @@ export function normalizeCodexMcpServerStatusNotification(
   if (status === "failed" && notification["failureReason"] === "reauthenticationRequired") {
     status = "needs-auth";
   }
-  const bounded = boundEmission(notification["name"], status);
+  const bounded = boundMcpServerStatusEmission(notification["name"], status);
   return {
     emissions: bounded.emission !== undefined ? [bounded.emission] : [],
     rejections: bounded.rejection !== undefined ? [bounded.rejection] : [],

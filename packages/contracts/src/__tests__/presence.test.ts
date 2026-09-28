@@ -1,20 +1,20 @@
 // Presence contract schema tests.
 //
 // Backstops the `PresenceHeartbeat` payload: 2 outer fields
-// `{deviceId, activityState}` plus the 5 required metadata fields
-// `{deviceType, focusedSessionId, focusedChannelId, lastActivityAt, appVisible}`.
+// `{deviceId, activityState}` plus the 4 required metadata fields
+// `{deviceType, focusedSessionId, lastActivityAt, appVisible}`.
 //
 // Test surface enumerated (the "what" each block pins):
 //   * PresenceStateSchema wire-form pin — exactly the 4 canonical literals
 //     `{online, idle, reconnecting, offline}`. `"away"` / `"busy"` rejected.
-//   * PresenceHeartbeatSchema happy path — all 2 outer + 5 metadata fields
+//   * PresenceHeartbeatSchema happy path — all 2 outer + 4 metadata fields
 //     parse cleanly.
 //   * PresenceHeartbeatSchema required-field guards — outer 2 each required
-//     (deviceId, activityState); ALL 5 metadata fields each
-//     required-key-at-parse (deviceType, focusedSessionId, focusedChannelId,
-//     lastActivityAt, appVisible). focusedSessionId and focusedChannelId
-//     additionally accept explicit `null` as their value (.nullable() shape);
-//     `undefined` is rejected to pin against future drift to `.nullish()`.
+//     (deviceId, activityState); ALL 4 metadata fields each
+//     required-key-at-parse (deviceType, focusedSessionId, lastActivityAt,
+//     appVisible). focusedSessionId additionally accepts explicit `null` as
+//     its value (.nullable() shape); `undefined` is rejected to pin against
+//     future drift to `.nullish()`.
 //   * PresenceHeartbeatSchema .strict() anti-leakage — unknown top-level OR
 //     unknown `metadata.*` key rejected.
 //   * PresenceUpdateSchema happy path — `{sessionId, awarenessState}` with
@@ -24,12 +24,10 @@
 //     the read reply is the one user's DEVICE list, not a roster of people.
 //   * UUID composability — branded UUID guards reject malformed strings on
 //     every UUID-typed field.
-//
-// Coverage shape mirrors channels.test.ts.
+
 import { describe, expect, it } from "vitest";
 
 import {
-  ChannelIdSchema,
   DEVICE_ID_MAX_LEN,
   DEVICE_TYPE_MAX_LEN,
   PresenceHeartbeatSchema,
@@ -45,7 +43,6 @@ import {
 // nibble + variant bits in canonical positions; mismatch is rejected at the
 // branded-id schema layer.
 const SESSION_ID = "550e8400-e29b-41d4-a716-446655440000";
-const CHANNEL_ID = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f02";
 
 const DEVICE_ID = "device-7c4a-9b1c-1b7c";
 const SECOND_DEVICE_ID = "device-9b1c-1b7c-7c4a";
@@ -64,7 +61,6 @@ const buildHeartbeatPayload = () => ({
   metadata: {
     deviceType: DEVICE_TYPE,
     focusedSessionId: SESSION_ID,
-    focusedChannelId: CHANNEL_ID,
     lastActivityAt: LAST_ACTIVITY_AT,
     appVisible: true,
   },
@@ -78,20 +74,13 @@ const buildHeartbeatPayload = () => ({
 // would otherwise only surface as a downstream consumer typecheck failure
 // at PR review time.
 
-describe("SessionIdSchema / ChannelIdSchema (re-exported from session.ts)", () => {
-  it("SessionIdSchema parses a valid UUID", () => {
+describe("SessionIdSchema (re-exported from session.ts)", () => {
+  it("parses a valid UUID", () => {
     expect(SessionIdSchema.parse(SESSION_ID)).toBe(SESSION_ID);
   });
 
-  it("ChannelIdSchema parses a valid UUID", () => {
-    expect(ChannelIdSchema.parse(CHANNEL_ID)).toBe(CHANNEL_ID);
-  });
-
-  it.each([
-    ["SessionIdSchema", SessionIdSchema],
-    ["ChannelIdSchema", ChannelIdSchema],
-  ])("%s rejects malformed UUID", (_label, schema) => {
-    expect(schema.safeParse("not-a-uuid").success).toBe(false);
+  it("rejects a malformed UUID", () => {
+    expect(SessionIdSchema.safeParse("not-a-uuid").success).toBe(false);
   });
 });
 
@@ -133,12 +122,12 @@ describe("PresenceStateSchema (wire form is exactly {online, idle, reconnecting,
 //
 // Canonical wire form:
 //   * 2 outer fields `{deviceId, activityState}`
-//   * 5 REQUIRED metadata fields
-//     `{deviceType, focusedSessionId, focusedChannelId, lastActivityAt, appVisible}`
+//   * 4 REQUIRED metadata fields
+//     `{deviceType, focusedSessionId, lastActivityAt, appVisible}`
 //
-// All 5 metadata keys MUST be present at parse time. `focusedSessionId` and
-// `focusedChannelId` are nullable (the value may be `null` when the user is
-// not focused on a session/channel) — the KEYS are always present. The
+// All 4 metadata keys MUST be present at parse time. `focusedSessionId` is
+// nullable (the value may be `null` when the user is not focused on a
+// session) — the KEY is always present. The
 // no-focus case is serialized as `null` on the wire; an absent key is
 // REJECTED. `undefined` is also rejected to pin against future drift to
 // `.nullish()`, which would re-admit the absent-key shape the schema
@@ -149,18 +138,17 @@ describe("PresenceStateSchema (wire form is exactly {online, idle, reconnecting,
 // convention. Explicit NUL-byte regression tests live near the boundary
 // checks below.
 
-describe("PresenceHeartbeatSchema (2 outer + 5 metadata fields)", () => {
+describe("PresenceHeartbeatSchema (2 outer + 4 metadata fields)", () => {
   // ----------------------------------------------------------------------
   // Happy paths
   // ----------------------------------------------------------------------
 
-  it("accepts a fully-populated heartbeat (both outer + all 5 metadata fields)", () => {
+  it("accepts a fully-populated heartbeat (both outer + all 4 metadata fields)", () => {
     const parsed = PresenceHeartbeatSchema.parse(buildHeartbeatPayload());
     expect(parsed.deviceId).toBe(DEVICE_ID);
     expect(parsed.activityState).toBe("online");
     expect(parsed.metadata.deviceType).toBe(DEVICE_TYPE);
     expect(parsed.metadata.focusedSessionId).toBe(SESSION_ID);
-    expect(parsed.metadata.focusedChannelId).toBe(CHANNEL_ID);
     expect(parsed.metadata.lastActivityAt).toBe(LAST_ACTIVITY_AT);
     expect(parsed.metadata.appVisible).toBe(true);
   });
@@ -201,20 +189,13 @@ describe("PresenceHeartbeatSchema (2 outer + 5 metadata fields)", () => {
   );
 
   // ----------------------------------------------------------------------
-  // Metadata fields — ALL 5 keys REQUIRED at parse time.
-  // focusedSessionId / focusedChannelId additionally accept explicit null
-  // as their value (nullable shape); absent key and `undefined` value are
-  // both REJECTED.
+  // Metadata fields — ALL 4 keys REQUIRED at parse time.
+  // focusedSessionId additionally accepts explicit null as its value
+  // (nullable shape); absent key and `undefined` value are both REJECTED.
   // ----------------------------------------------------------------------
 
-  it.each([
-    "deviceType",
-    "focusedSessionId",
-    "focusedChannelId",
-    "lastActivityAt",
-    "appVisible",
-  ] as const)(
-    "rejects heartbeat with metadata field KEY ABSENT: %s (all 5 keys required)",
+  it.each(["deviceType", "focusedSessionId", "lastActivityAt", "appVisible"] as const)(
+    "rejects heartbeat with metadata field KEY ABSENT: %s (all 4 keys required)",
     (field) => {
       const valid = buildHeartbeatPayload();
       const brokenMetadata = { ...valid.metadata } as Record<string, unknown>;
@@ -242,33 +223,6 @@ describe("PresenceHeartbeatSchema (2 outer + 5 metadata fields)", () => {
     }
   });
 
-  it("accepts a heartbeat with focusedChannelId: null (no-focus case is serialized null, not absent)", () => {
-    const valid = buildHeartbeatPayload();
-    const payload = {
-      ...valid,
-      metadata: { ...valid.metadata, focusedChannelId: null },
-    };
-    const result = PresenceHeartbeatSchema.safeParse(payload);
-    expect(result.success).toBe(true);
-    if (result.success) {
-      expect(result.data.metadata.focusedChannelId).toBeNull();
-    }
-  });
-
-  it("accepts a heartbeat with BOTH focusedSessionId AND focusedChannelId set to null", () => {
-    const valid = buildHeartbeatPayload();
-    const payload = {
-      ...valid,
-      metadata: { ...valid.metadata, focusedSessionId: null, focusedChannelId: null },
-    };
-    const result = PresenceHeartbeatSchema.safeParse(payload);
-    expect(result.success).toBe(true);
-    if (result.success) {
-      expect(result.data.metadata.focusedSessionId).toBeNull();
-      expect(result.data.metadata.focusedChannelId).toBeNull();
-    }
-  });
-
   it("rejects heartbeat with focusedSessionId: undefined (.nullable() admits null but NOT undefined)", () => {
     // Pin against future drift to `.nullish()` — that shape would re-admit
     // the absent-key case (zod treats `undefined` as "absent" semantically),
@@ -277,17 +231,6 @@ describe("PresenceHeartbeatSchema (2 outer + 5 metadata fields)", () => {
     const broken = {
       ...valid,
       metadata: { ...valid.metadata, focusedSessionId: undefined },
-    };
-    const result = PresenceHeartbeatSchema.safeParse(broken);
-    expect(result.success).toBe(false);
-  });
-
-  it("rejects heartbeat with focusedChannelId: undefined (.nullable() admits null but NOT undefined)", () => {
-    // Same drift-pin as the focusedSessionId case above.
-    const valid = buildHeartbeatPayload();
-    const broken = {
-      ...valid,
-      metadata: { ...valid.metadata, focusedChannelId: undefined },
     };
     const result = PresenceHeartbeatSchema.safeParse(broken);
     expect(result.success).toBe(false);
@@ -315,15 +258,6 @@ describe("PresenceHeartbeatSchema (2 outer + 5 metadata fields)", () => {
     const broken = {
       ...valid,
       metadata: { ...valid.metadata, focusedSessionId: "not-a-uuid" },
-    };
-    expect(PresenceHeartbeatSchema.safeParse(broken).success).toBe(false);
-  });
-
-  it("rejects heartbeat with malformed non-null focusedChannelId (UUID guard composes on the value branch)", () => {
-    const valid = buildHeartbeatPayload();
-    const broken = {
-      ...valid,
-      metadata: { ...valid.metadata, focusedChannelId: "not-a-uuid" },
     };
     expect(PresenceHeartbeatSchema.safeParse(broken).success).toBe(false);
   });

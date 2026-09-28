@@ -1,5 +1,5 @@
 // Repo-mount + workspace lifecycle event emission — the single seam every
-// Phase-2 state transition appends its event through.
+// mount and workspace state transition appends its event through.
 //
 //   • the six event types this module owns: `repo.attached`, `repo.detached`,
 //     `workspace.provisioning`, `workspace.ready`, `workspace.stale`,
@@ -78,10 +78,9 @@ import { mintUuidV7 } from "../ids/uuid-v7.js";
 // bare string literals in a type position.
 // --------------------------------------------------------------------------
 //
-// Contracts exports no `RepoWorkspaceEventName` union (unlike runtime-node's
-// `RuntimeNodeEventName`), so the names are recovered by indexed access on
-// the six registered variant interfaces — the same idiom event-log-service.ts
-// uses for `EventShreddedEvent["type"]`. A rename or removal in
+// Contracts exports no `RepoWorkspaceEventName` union, so the names are
+// recovered by indexed access on the six registered variant interfaces. A
+// rename or removal in
 // `@ai-sidekicks/contracts` fails THIS module's compile rather than silently
 // leaving an emitter that writes a type the strict layer can no longer
 // interpret. The literals widen losslessly into `EventEnvelope.type`, which
@@ -145,7 +144,7 @@ const REPO_WORKSPACE_EVENT_VERSION: EventEnvelopeVersion = EventEnvelopeVersionS
 // flip back to `interface` keeps the cast compiling and silently falsifies
 // the comment there. Assignability is the discriminating check, so the flip
 // turns this line red in the file that makes the claim. Same `_AssertExtends`
-// idiom as node-event-emitter.ts and contracts' event-core.ts; the `_` prefix
+// idiom as contracts' event-core.ts; the `_` prefix
 // is what the root eslint config's `varsIgnorePattern` exempts from
 // `no-unused-vars`.
 type _AssertExtends<A extends B, B> = A;
@@ -239,9 +238,8 @@ interface WorkspaceEventEmitBase {
   // the producers decide whether a transition is user-, agent-, or
   // system-driven.
   readonly actor?: string | null;
-  // Optional envelope linkage fields. The detach cascade uses them to tie
-  // each dependent `workspace.archived` back to the `repo.detached` that
-  // caused it.
+  // Optional envelope linkage fields. The detach cascade threads the caller's
+  // correlation id onto every `workspace.archived` it appends.
   readonly correlationId?: string | null;
   readonly causationId?: string | null;
   // A SYNCHRONOUS durable write to commit ATOMICALLY with this event row,
@@ -265,12 +263,11 @@ export interface EmitWorkspaceEventInput extends WorkspaceEventEmitBase {
   // The workspace this event describes. Required, for the same reason.
   readonly workspaceId: string;
   // The mount this workspace binds to. Optional, and populated whenever the
-  // event carries the association: the BIRTH events (`workspace.ready` /
-  // `workspace.provisioning` from default-workspace creation and bind, where
-  // the timeline first learns the workspace/mount pairing) and the detach
-  // cascade's `workspace.archived`, which names the mount whose detach caused
-  // the archival — a reader that only knows the mount would otherwise have no
-  // way to attribute it.
+  // event carries the association: the BIRTH event (`workspace.provisioning`
+  // from bind, where the timeline first learns the workspace/mount pairing)
+  // and the detach cascade's `workspace.archived`, which names the mount whose
+  // detach caused the archival — a reader that only knows the mount would
+  // otherwise have no way to attribute it.
   readonly repoMountId?: string;
 }
 
@@ -317,7 +314,7 @@ export class WorkspaceEventEmitter {
   }
 
   /**
-   * Emit `repo.detached` — the mount left the session's active set. The
+   * Emit `repo.detached` — the mount left the active set. The
    * cascade's dependent `workspace.archived` events are separate emits the
    * producer makes explicitly; this method appends one event and only one.
    */

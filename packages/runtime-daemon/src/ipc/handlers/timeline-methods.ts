@@ -519,7 +519,7 @@ export class TimelineSubscriptionScopeError extends Error {
  * subscription and does nothing else with the primitive — it does not cancel
  * transports, does not reach the per-transport index, and cannot.
  */
-export interface TimelineSubscriptionFactory {
+interface TimelineSubscriptionFactory {
   createSubscription<EmissionType>(
     transportId: number,
     valueSchema: ZodType<EmissionType>,

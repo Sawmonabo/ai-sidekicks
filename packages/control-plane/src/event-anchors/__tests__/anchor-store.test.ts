@@ -26,15 +26,13 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { AnchorPayload, NodeId, SessionId } from "@ai-sidekicks/contracts";
 
 import { applyMigrations, type Querier } from "../../sessions/migration-runner.js";
-import { EventLogAnchorStore, UnknownAnchorSessionError } from "../anchor-store.js";
+import { EventLogAnchorStore } from "../anchor-store.js";
 
 // ----------------------------------------------------------------------------
 // Fixtures
 // ----------------------------------------------------------------------------
 
 const SESSION_ID = "01970000-0000-7000-8000-00000000a001" as SessionId;
-const SESSION_OWNER_ID = "01970000-0000-7000-8000-00000000b0ff";
-const ABSENT_SESSION_ID = "01970000-0000-7000-8000-00000000dead" as SessionId;
 const NODE_ID = "node-alpha" as NodeId;
 const ANCHORED_AT = "2026-08-04T00:00:00.000Z";
 
@@ -55,8 +53,7 @@ function anchorFixture(overrides: Partial<AnchorPayload> = {}): AnchorPayload {
 }
 
 // ----------------------------------------------------------------------------
-// PGlite -> Querier adapter (local copy — same rationale as the sibling
-// migration tests: the dispatch contract forbids exporting a shared fixture)
+// PGlite -> Querier adapter
 // ----------------------------------------------------------------------------
 
 function adaptPGlite(pg: PGlite): Querier {
@@ -106,15 +103,8 @@ let ctx: TestContext;
 beforeEach(async () => {
   const pg: PGlite = new PGlite();
   const querier: Querier = adaptPGlite(pg);
-  // Canonical runner — this file's subject is the STORE, so it wants the full
-  // registered schema rather than a hand-stepped subset.
+  // This file's subject is the STORE, so it applies the whole schema.
   await applyMigrations(querier);
-  // A session needs the user who owns it — `owner_user_id` is NOT NULL.
-  await querier.query("INSERT INTO users (id) VALUES ($1)", [SESSION_OWNER_ID]);
-  await querier.query("INSERT INTO sessions (id, owner_user_id) VALUES ($1, $2)", [
-    SESSION_ID,
-    SESSION_OWNER_ID,
-  ]);
   ctx = { pg, querier, store: new EventLogAnchorStore(querier) };
 });
 
@@ -235,7 +225,7 @@ describe("EventLogAnchorStore.upload — metadata-only enforcement", () => {
 });
 
 // ----------------------------------------------------------------------------
-// Storage fidelity + the FK arm
+// Storage fidelity
 // ----------------------------------------------------------------------------
 
 describe("EventLogAnchorStore.upload — storage fidelity", () => {
@@ -264,16 +254,5 @@ describe("EventLogAnchorStore.upload — storage fidelity", () => {
     // of one signed commitment must agree about when it happened.
     expect(row.anchored_at.toISOString()).toBe(ANCHORED_AT);
     expect(row.node_id).toBe(NODE_ID);
-  });
-
-  it("raises UnknownAnchorSessionError for an anchor naming an absent session", async () => {
-    // A terminal client fault, not a retriable server fault: the FK can never be
-    // satisfied by re-sending the same body, so the daemon needs a definitive
-    // answer. This is also the backstop that keeps node-scope sentinel anchors
-    // out of V1 control-plane storage.
-    await expect(
-      ctx.store.upload(anchorFixture({ sessionId: ABSENT_SESSION_ID })),
-    ).rejects.toBeInstanceOf(UnknownAnchorSessionError);
-    expect(await countAnchors()).toBe(0);
   });
 });

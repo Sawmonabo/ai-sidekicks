@@ -1,4 +1,4 @@
-// Phase-2 end-to-end integration — RuntimeBindingStore + ProviderRegistry +
+// End-to-end integration — RuntimeBindingStore + ProviderRegistry +
 // DriverCapabilitiesWriter wired together over ONE real Local SQLite
 // handle.
 //
@@ -8,20 +8,17 @@
 // deliberately does NOT duplicate that per-component coverage. It exercises the
 // round-trip that only emerges when the three are composed over a shared
 // connection plus a single mock at the conceptually-remote provider boundary —
-// the `ProviderDriver`. The composition mirrors the production root:
-//   SessionService(db) → RuntimeNodeEventEmitter({ sessionEvents, newEventId })
-//   → DriverCapabilitiesWriter(db, emitter, now), with RuntimeBindingStore(db)
-//   and ProviderRegistry() over the SAME `db` (wiring contract — the writer's
-//   atomic dual-write depends on the emitter appending on this connection).
+// the `ProviderDriver`. DriverCapabilitiesWriter and RuntimeBindingStore share
+// the SAME `db`, beside a ProviderRegistry.
 //
-// Coverage map (cites are the authoritative contract, not just the ACs):
+// Coverage map:
 //   * `checkCapability` gates the integration boundary across registry-A, the
 //     cold-start re-seeded registry-B, and the refreshed registry.
 //   * `RuntimeBindingStore.create` carries the opaque `resumeHandle` beside the
 //     DAEMON-owned `spawnConfig` record, and the binding round-trips through a
 //     FRESH store over the same `db` with both halves intact.
 //   * The COMPOSITION-level consequence, not the per-component persistence proof
-//     (`driver-capabilities-writer.test.ts` owns that) — a hydration hit now
+//     (`driver-capabilities-writer.test.ts` owns that) — a hydration hit
 //     re-seeds a cold-start registry UNAIDED, and a NULL pair collapses that
 //     path into a `cli_version_missing` miss whose only remedy is a refresh from
 //     the live driver.
@@ -29,7 +26,6 @@
 //     reconstitutes the gating set identically across a daemon restart.
 //   * the gate's SCOPE boundary — `applyIntervention` is NOT pre-gated, so a
 //     `steer:false` driver still receives the steer call and degrades.
-//   * Asserted as the literal `"provider-driver-claude"`.
 //   * The run↔driver binding, the capability cache, and the registry all resolve
 //     to the SAME daemon-local driver identity; no state is sourced from the
 //     mock (conceptually-remote) provider beyond the opaque strings it declared,
@@ -52,16 +48,9 @@ import {
   type GetCapabilitiesResult,
   type ProviderDriver,
   type RunId,
-  type SessionId,
 } from "@ai-sidekicks/contracts";
 
-import { EventLogService } from "../../events/event-log-service.js";
-import { __resetSessionAppendLocksForTest } from "../../events/session-append-lock.js";
-import type { Ed25519PrivateKey, Ed25519PublicKey } from "../../events/signer.js";
-import type { DaemonSigningKeySource } from "../../events/signing-key-source.js";
-import { RuntimeNodeEventEmitter } from "../../node/node-event-emitter.js";
 import { openDatabase } from "../../session/migration-runner.js";
-import { SessionService } from "../../session/session-service.js";
 import {
   DriverCapabilitiesWriter,
   type DriverCapabilityHydrationResult,
@@ -73,30 +62,10 @@ import {
 } from "../provider-registry.js";
 import { RuntimeBindingStore, type RuntimeBindingSpawnConfig } from "../runtime-binding-store.js";
 
-/**
- * Fixed-key {@link DaemonSigningKeySource} — this suite is about the producer's
- * dual-write, not key custody (`signing-key-source.test.ts` owns that).
- */
-class FixedDaemonSigningKeySource implements DaemonSigningKeySource {
-  readonly #privateKey: Ed25519PrivateKey = new Uint8Array(32).fill(7) as Ed25519PrivateKey;
-
-  read(_sessionId: SessionId): Promise<Ed25519PrivateKey> {
-    return Promise.resolve(this.#privateKey);
-  }
-
-  create(_sessionId: SessionId): Promise<{ readonly publicKey: Ed25519PublicKey }> {
-    return Promise.reject(
-      new Error("FixedDaemonSigningKeySource.create is not used by this suite"),
-    );
-  }
-}
-
 // ----------------------------------------------------------------------------
 // Constants
 // ----------------------------------------------------------------------------
 
-const SESSION_ID: string = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f00";
-const NODE_ID: string = "node-01J0ND0000NN5J5J5J5J5J5J";
 const DRIVER_NAME: string = "claude";
 // Canonical semver — accepted by the write-seam `assertValidContractVersion`
 // used by BOTH the capability declare AND the binding `create`. Sharing ONE
@@ -104,9 +73,6 @@ const DRIVER_NAME: string = "claude";
 // (binding.contractVersion === hydrated.contractVersion) hold by
 // construction, not by coincidence.
 const CONTRACT_VERSION: string = "1.2.3";
-// Suffixed capability key for this driver — the literal the writer must emit on
-// every `runtime_node.capability_*` event.
-const CAPABILITY_KEY: string = "provider-driver-claude";
 
 // ----------------------------------------------------------------------------
 // Flag + result fixtures (sourced from the canonical DRIVER_CAPABILITY_FLAGS —
@@ -126,8 +92,8 @@ function makeFlags(
   return { ...base, resume: true, tool_calls: true, ...overrides };
 }
 
-// The REQUIRED `cliVersion` reading every advertised snapshot carries. Post-
-// it is ALSO a durable property of the capability cache: the writer persists
+// The REQUIRED `cliVersion` reading every advertised snapshot carries. It is
+// ALSO a durable property of the capability cache: the writer persists
 // the `driver_contract_meta.cli_version_raw` / `cli_version_semver` pair on
 // every mutating declare, so `hydrate()` reproduces this exact reading and the
 // cold-start re-seeds below carry it out of the CACHE rather than re-attaching
@@ -174,10 +140,9 @@ function makeResult(overrides: Partial<GetCapabilitiesResult> = {}): GetCapabili
  * Narrow a {@link DriverCapabilityHydrationResult} to its HIT arm, throwing a
  * reason-carrying error on a miss.
  *
- * Deliberately a THROW rather than the `expect(x).toBeDefined(); if (x ===
- * undefined) return;` shape this file used pre-: that guard's early return made
- * a hydration failure PASS the test silently. Post- `hydrate()` cannot return
- * `undefined` at all — it returns an explicit miss whose `reason` this helper
+ * Deliberately a THROW rather than an `expect(x).toBeDefined(); if (x ===
+ * undefined) return;` guard, whose early return would let a hydration failure
+ * PASS silently. `hydrate()` returns an explicit miss whose `reason` this helper
  * surfaces in the failure message, so a regression that turns a hit into a miss
  * names its own cause.
  *
@@ -296,7 +261,6 @@ function makeAdvancingClock(): () => string {
 }
 
 interface Stack {
-  readonly sessionService: SessionService;
   readonly writer: DriverCapabilitiesWriter;
   readonly bindingStore: RuntimeBindingStore;
   readonly registry: ProviderRegistry;
@@ -304,26 +268,10 @@ interface Stack {
 
 let db: DatabaseType;
 
-// Wire the Phase-2 object graph over the current `db`. A collision-free
-// deterministic event-id source so `session_events.id` (TEXT PRIMARY KEY) never
-// collides across the multiple emits a declared→updated sequence produces. The
-// seam is ASYNC-TRANSACTIONAL post re-point (node-event-emitter.ts's header
-// owns the contract): `EventLogService.append` over the SAME connection backs
-// it, which is what lets every producer's prelude join the append's
-// transaction.
+// Wire the object graph over the current `db`.
 function makeStack(): Stack {
-  let eventIdCounter: number = 0;
-  const emitter: RuntimeNodeEventEmitter = new RuntimeNodeEventEmitter({
-    // The production append path over the SAME connection every producer in this
-    // graph uses — the preludes must join its transaction.
-    sessionEvents: new EventLogService({
-      db,
-      signingKeySource: new FixedDaemonSigningKeySource(),
-    }),
-    newEventId: () => `evt-${(eventIdCounter++).toString()}`,
-  });
   const clock: () => string = makeAdvancingClock();
-  const writer: DriverCapabilitiesWriter = new DriverCapabilitiesWriter(db, emitter, clock);
+  const writer: DriverCapabilitiesWriter = new DriverCapabilitiesWriter(db, clock);
   const bindingStore: RuntimeBindingStore = new RuntimeBindingStore(db, {
     now: makeAdvancingClock(),
     newId: (() => {
@@ -332,12 +280,7 @@ function makeStack(): Stack {
     })(),
   });
   const registry: ProviderRegistry = new ProviderRegistry();
-  // READ-ONLY SessionService: `readEvents` needs no append opt-in, and the
-  // writes in this stack now go through EventLogService. Constructing it
-  // WITHOUT the capability token is the point — nothing in this graph may reach
-  // the guarded placeholder append any more.
-  const sessionService: SessionService = new SessionService(db);
-  return { sessionService, writer, bindingStore, registry };
+  return { writer, bindingStore, registry };
 }
 
 beforeEach(() => {
@@ -345,9 +288,6 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  // The per-session append lock is a module singleton — reset between cases so
-  // a leftover queue entry cannot stall the next case as an unrelated timeout.
-  __resetSessionAppendLocksForTest();
   if (db.open) {
     db.close();
   }
@@ -359,7 +299,7 @@ afterEach(() => {
 
 describe("Phase 2 integration — capability round-trip + cold-start re-seed", () => {
   it("registry gate, declare, hydrate, and a re-seeded registry-B all agree on the gating set across a daemon restart", async () => {
-    const { sessionService, writer, registry } = makeStack();
+    const { writer, registry } = makeStack();
 
     // The mock advertises: steer:false, resume:true, tool_calls:true, plus a
     // non-empty tools array.
@@ -385,30 +325,18 @@ describe("Phase 2 integration — capability round-trip + cold-start re-seed", (
       );
     }
 
-    // --- declare: persist the snapshot to the durable cache + emit the event ---
+    // --- declare: persist the snapshot to the durable cache ---
     expect(
       await writer.declare({
-        sessionId: SESSION_ID,
-        nodeId: NODE_ID,
         driverName: DRIVER_NAME,
         result: advertised,
       }),
-    ).toEqual({ emitted: "declared", cliVersionRefreshed: true });
-
-    // Read the emitted event back off SessionService (same connection): exactly
-    // one capability_declared carrying suffixed key.
-    const events = sessionService.readEvents(SESSION_ID);
-    expect(events).toHaveLength(1);
-    const declaredEvent = events[0];
-    expect(declaredEvent).toBeDefined();
-    if (declaredEvent === undefined) return;
-    expect(declaredEvent.type).toBe("runtime_node.capability_declared");
-    expect(declaredEvent.payload["capability"]).toBe(CAPABILITY_KEY);
+    ).toEqual({ snapshotChange: "created", cliVersionRefreshed: true });
 
     // --- hydrate: the durable cache reconstructs the nested wrapper faithfully ---
-    // Asserted as the WHOLE `GetCapabilitiesResult` (not member-by-member): post
-    // the hit arm carries `cliVersion` too, so the cache round-trip is now a
-    // whole-object identity against what the driver advertised. A member-wise
+    // Asserted as the WHOLE `GetCapabilitiesResult` (not member-by-member): the
+    // hit arm carries `cliVersion` too, so the cache round-trip is a whole-object
+    // identity against what the driver advertised. A member-wise
     // assertion would let a silently-dropped `cliVersion` pass.
     const hydrated: GetCapabilitiesResult = expectHydrationHit(writer.hydrate(DRIVER_NAME));
     expect(hydrated).toEqual(advertised);
@@ -426,8 +354,8 @@ describe("Phase 2 integration — capability round-trip + cold-start re-seed", (
     // The hydrated snapshot is now a COMPLETE `GetCapabilitiesResult` — the
     // durable version pair means the re-seed hands the cache's own object across
     // UNMODIFIED. It is deliberately NOT spread with a re-attached
-    // `CLI_VERSION_REPORT` any more: doing so would re-inject the live reading
-    // and mask a cache that had dropped it.
+    // `CLI_VERSION_REPORT`: doing so would re-inject the live reading and mask a
+    // cache that had dropped it.
     await registryB.register(DRIVER_NAME, makeMockDriver(hydrated));
     expect(registryB.checkCapability(DRIVER_NAME, "resume")).toBeUndefined();
     try {
@@ -547,8 +475,6 @@ describe("Phase 2 integration — daemon-local authority (binding linkage)", () 
     const advertised: GetCapabilitiesResult = makeResult();
     await registry.register(DRIVER_NAME, makeMockDriver(advertised));
     await writer.declare({
-      sessionId: SESSION_ID,
-      nodeId: NODE_ID,
       driverName: DRIVER_NAME,
       result: advertised,
     });
@@ -602,37 +528,33 @@ describe("Phase 2 integration — daemon-local authority (binding linkage)", () 
 });
 
 // ----------------------------------------------------------------------------
-// (5) Refresh seam coherence — declare 'updated' ties to the registry refresh
+// (5) Refresh seam coherence — a changed declare ties to the registry refresh
 // ----------------------------------------------------------------------------
 
-describe("Phase 2 integration — refresh seam coherence (updated → re-hydrate → registry gate flips)", () => {
-  it("flipping steer false→true emits capability_updated, re-hydrates, and a registry from the refreshed cache now passes steer", async () => {
-    const { sessionService, writer } = makeStack();
+describe("refresh seam coherence (changed → re-hydrate → registry gate flips)", () => {
+  it("steer false→true reports changed and the refreshed registry passes steer", async () => {
+    const { writer } = makeStack();
 
     // Initial declare: steer:false.
     expect(
       await writer.declare({
-        sessionId: SESSION_ID,
-        nodeId: NODE_ID,
         driverName: DRIVER_NAME,
         result: makeResult({
           capabilities: { flags: makeFlags({ steer: false }), contractVersion: CONTRACT_VERSION },
         }),
       }),
-    ).toEqual({ emitted: "declared", cliVersionRefreshed: true });
+    ).toEqual({ snapshotChange: "created", cliVersionRefreshed: true });
 
-    // Refreshed declare: steer:true — a real change → updated.
+    // Refreshed declare: steer:true — a real change → changed.
     expect(
       await writer.declare({
-        sessionId: SESSION_ID,
-        nodeId: NODE_ID,
         driverName: DRIVER_NAME,
         result: makeResult({
           capabilities: { flags: makeFlags({ steer: true }), contractVersion: CONTRACT_VERSION },
         }),
       }),
     ).toEqual({
-      emitted: "updated",
+      snapshotChange: "changed",
       // FALSE, and that is the discriminating value: the capability matrix
       // changed but `makeResult` re-declares the SAME `CLI_VERSION_REPORT`, so
       // the version pair this write restated did NOT differ from the pair the
@@ -640,18 +562,6 @@ describe("Phase 2 integration — refresh seam coherence (updated → re-hydrate
       // ran" rather than "the pair changed" would report `true` here.
       cliVersionRefreshed: false,
     });
-
-    // The timeline carries declared THEN updated, the update bearing the suffixed
-    // capability key.
-    const events = sessionService.readEvents(SESSION_ID);
-    expect(events.map((event) => event.type)).toEqual([
-      "runtime_node.capability_declared",
-      "runtime_node.capability_updated",
-    ]);
-    const updatedEvent = events[1];
-    expect(updatedEvent).toBeDefined();
-    if (updatedEvent === undefined) return;
-    expect(updatedEvent.payload["capability"]).toBe(CAPABILITY_KEY);
 
     // Re-hydrate the refreshed cache and register a registry from it: the gate
     // FLIPS — steer now passes (it was gated before the refresh).
@@ -679,8 +589,6 @@ describe("Phase 2 integration — durable cliVersion currency gates the cold-sta
     const advertised: GetCapabilitiesResult = makeResult();
     await registry.register(DRIVER_NAME, makeMockDriver(advertised));
     await writer.declare({
-      sessionId: SESSION_ID,
-      nodeId: NODE_ID,
       driverName: DRIVER_NAME,
       result: advertised,
     });
@@ -688,9 +596,8 @@ describe("Phase 2 integration — durable cliVersion currency gates the cold-sta
     // --- the hit arm carries the DECLARED reading, out of the durable cache ---
     // `driver-capabilities-writer.test.ts` owns the per-component proof that the
     // pair persists and that a NULL pair reads as a miss. What only the
-    // COMPOSITION can show is the consequence: whether the cold-start re-seed
-    // path is self-sufficient. Pre- it was not — the caller had to re-attach a
-    // live `cliVersion` because the cache held none.
+    // COMPOSITION can show is the consequence: the cold-start re-seed path is
+    // self-sufficient, with no live `cliVersion` re-attached by the caller.
     const hydrated: GetCapabilitiesResult = expectHydrationHit(writer.hydrate(DRIVER_NAME));
     expect(hydrated.cliVersion).toEqual(CLI_VERSION_REPORT);
 
@@ -704,7 +611,7 @@ describe("Phase 2 integration — durable cliVersion currency gates the cold-sta
       DriverCapabilityUnsupportedError,
     );
 
-    // --- the pre- row shape: parent row present, currency pair NULL ---
+    // --- a NULL-pair row: parent row present, currency pair NULL ---
     // Staged by direct SQL because the write seam makes it unrepresentable, and
     // BOTH columns in one statement because the table's both-or-neither CHECK
     // rejects NULLing just one.
@@ -733,17 +640,15 @@ describe("Phase 2 integration — durable cliVersion currency gates the cold-sta
     expect(coldRegistry.checkCapability(DRIVER_NAME, "resume")).toBeUndefined();
 
     // The refresh lands back as a declare with a live reading, which self-heals
-    // the row: the capability snapshot is identical (so no event), but the pair
+    // the row: the capability snapshot is identical (so unchanged), but the pair
     // is repaired and hydration becomes a hit again. Without that side-write the
     // driver would be permanently un-hydratable across every future cold start.
     expect(
       await writer.declare({
-        sessionId: SESSION_ID,
-        nodeId: NODE_ID,
         driverName: DRIVER_NAME,
         result: advertised,
       }),
-    ).toEqual({ emitted: "noop", cliVersionRefreshed: true });
+    ).toEqual({ snapshotChange: "unchanged", cliVersionRefreshed: true });
     expect(expectHydrationHit(writer.hydrate(DRIVER_NAME))).toEqual(advertised);
   });
 });

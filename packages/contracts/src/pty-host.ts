@@ -81,12 +81,10 @@ export interface PtyHost {
    * `recordCrashOncePerChild` MUST NOT be invoked for the
    * shutdown-initiated child exit.
    *
-   * Consumer: `apps/desktop/src/main/sidecar-lifecycle.ts`) calls
-   * `shutdown()` from the Electron `app.on('will-quit',...)` handler
-   * that registers before any other will-quit handler. The two timeouts
-   * are independent budgets so the wiring layer can dimension each
-   * separately (per-session drain dominated by child cleanup; host
-   * drain dominated by sidecar dispatcher wind-down).
+   * The caller is the daemon's own stop: the drain runs only when the
+   * service stops. The two timeouts are independent budgets so the
+   * caller can dimension each separately (per-session drain dominated by
+   * child cleanup; host drain dominated by sidecar dispatcher wind-down).
    */
   shutdown(options: {
     readonly perSessionTimeoutMs: number;
