@@ -21,7 +21,6 @@ function storeHolding(maximumDraftCount: number): {
   let tick = 0;
   const store = new DraftStore({
     maximumDraftCount,
-    restartNoticePending: false,
     now: () => {
       tick += 1;
       return tick;
@@ -77,7 +76,7 @@ describe("the draft store — a ceiling that drops text says so", () => {
     expect(store.evictionNoticePendingFor("composer-a")).toBe(false);
   });
 
-  it("retires it on acknowledgement, the way the restart notice is retired", () => {
+  it("retires it on acknowledgement", () => {
     const { store, typeInto } = storeHolding(1);
     typeInto("composer-a", "the oldest thing anybody typed");
     typeInto("composer-b", "newer");

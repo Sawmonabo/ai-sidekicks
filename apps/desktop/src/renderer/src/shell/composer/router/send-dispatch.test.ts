@@ -123,17 +123,6 @@ describe("ComposerSendRouter — a fulfilled queue-create is not a successful se
 
     expect(outcome).toStrictEqual({ status: "sent", path: "channel-message" });
   });
-
-  it("leaves the stop settled by its fulfilment, because its ack carries nothing", async () => {
-    // The negative control for the parse's SCOPE. `driver.interruptRun` answers with
-    // `DriverAckResult` — the empty object — so a stop that fulfilled is a stop that
-    // was taken, and a parse applied here would refuse nothing a rejection has not
-    // already refused.
-    const call = vi.fn().mockResolvedValue({});
-    const outcome = await routerWith(call).stop(RUN_TARGET);
-
-    expect(outcome).toStrictEqual({ status: "sent", path: "provider-bound" });
-  });
 });
 
 describe("ComposerSendRouter — the next steer is guarded with the answer's own version", () => {

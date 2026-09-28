@@ -101,18 +101,11 @@ describe("the settlement mirrors move at the commit", () => {
       readdress.current?.();
     });
     const afterReaddress = seen.current?.issue("send");
-    const stopAfterReaddress = seen.current?.issue("stop");
 
     expect(afterReaddress).toBeDefined();
-    expect(stopAfterReaddress).toBeDefined();
-    // The send was superseded by the Stop only in the sense that both are current:
-    // they are different operations, so each holds its own entry at this address.
     expect(seen.current?.isCurrent(afterReaddress as NonNullable<typeof afterReaddress>)).toBe(
       true,
     );
-    expect(
-      seen.current?.isCurrent(stopAfterReaddress as NonNullable<typeof stopAfterReaddress>),
-    ).toBe(true);
   });
 
   it("negative control: a committed re-address retires the earlier visit's act", () => {

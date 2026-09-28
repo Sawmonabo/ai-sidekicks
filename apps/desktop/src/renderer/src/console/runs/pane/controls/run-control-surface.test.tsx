@@ -29,7 +29,10 @@ import {
   type RunControlAdmission,
 } from "./run-control-surface.js";
 import { bridgeAnswering } from "../../../bridge/fixture/call-plane/bridge.test-support.js";
-import { OTHER_RUN_ID, RUN_ID } from "../runs-pane.test-support.js";
+import { RUN_ID } from "./run-control-commands.test-support.js";
+
+/** A run that is not {@link RUN_ID}, for the case whose claim is that the latch is per run. */
+const OTHER_RUN_ID = "c4e1b2d3-5f60-4071-9b82-0d3e4f506172";
 
 /**
  * The shipped fixture with a call arm that answers nothing readable.
@@ -93,7 +96,7 @@ describe("one control per run is in flight at a time", () => {
 
     await act(async () => {
       result.current.dispatch(RUN_ID, "interrupt", perform);
-      result.current.dispatch(RUN_ID, "cancel", perform);
+      result.current.dispatch(RUN_ID, "pause", perform);
       result.current.dispatch(OTHER_RUN_ID, "interrupt", perform);
     });
 

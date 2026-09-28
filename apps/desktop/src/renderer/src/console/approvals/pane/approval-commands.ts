@@ -1,10 +1,9 @@
 // The approvals pane's acts, contributed to the command palette.
 //
-// Every operator action is palette-reachable, and this pane holds three: approve a
-// pending request, reject it, and clear the session's goal. Each dispatches the SAME
-// call its on-screen control does, through the same reader and the same mutation hook,
-// so a palette press goes in-flight on the card and settles into the card's own
-// refusal.
+// Every operator action is palette-reachable, and this pane holds two: approve a
+// pending request and reject it. Each dispatches the SAME call its on-screen control
+// does, through the same reader and the same mutation hook, so a palette press goes
+// in-flight on the card and settles into the card's own refusal.
 //
 // APPROVE AND REJECT CARRY WHAT THE CARD CARRIES AND NOTHING MORE. The request is
 // `{ approvalRequestId, decision, effectiveScope: record.requestedScope }`, which
@@ -12,17 +11,9 @@
 // a remembered grant is a policy the user has to SEE before it is minted,
 // and a palette row shows no policy. The scope is the requested one, never wider.
 //
-// WHY THERE IS NO "SET THE GOAL" ROW. Setting a goal needs text, and a palette row
-// has nowhere to type it; the card and the sidebar line both open an editor. Clear
-// is a different act on the wire (`session.goalClear`, never an empty update) and
-// needs no body, so it is the one goal act that can be an act rather than a
-// navigation.
-//
 // EVERY ROW READS ITS CONTROL'S OWN OFFER RULE — the same function, never a mirror
 // of it. `isApprovalAnswerable` decides whether a record's two answers are offered
-// and `approvals/pane/approval-offer.ts` says why it is one function; the goal row
-// asks `canClearSessionGoal`, which is what the card's own clear button is disabled
-// on. A record whose resolve is in flight has its buttons disabled, so it
+// and `approvals/pane/approval-offer.ts` says why it is one function. A record whose resolve is in flight has its buttons disabled, so it
 // contributes no rows either. What this buys over "written twice and agreeing" is
 // that the palette CANNOT offer an act the pane has withdrawn: a settled refusal
 // takes the two buttons off the card and the two rows out of the palette in one
@@ -33,10 +24,8 @@ import { useMemo } from "react";
 import { useConsoleCommandSeat, type ConsoleCommand } from "../../palette/index.js";
 import { useLatestRef } from "../../primitives/index.js";
 import { type ConsoleRefusal } from "../../core/index.js";
-import { type ApprovalRecord, type SessionGoalProjection } from "../../bridge/index.js";
-import { type ApprovalResolveRequest } from "./approvals-wire.js";
+import { type ApprovalRecord, type ApprovalResolveRequest } from "../../bridge/index.js";
 import { isApprovalAnswerable } from "./approval-offer.js";
-import { canClearSessionGoal } from "./goal/goal-clear-eligibility.js";
 
 /** The owner these rows are contributed under. One per family, one live at a time. */
 export const APPROVAL_COMMAND_OWNER = "approvals-family";
@@ -55,9 +44,9 @@ const APPROVAL_COMMAND_WHEN = "sessionActive";
 
 /** One contributed row: which act, against which record. */
 export interface ApprovalCommandRow {
-  readonly kind: "approve" | "reject" | "clear-goal";
-  /** The record answered, or `undefined` on the goal row. */
-  readonly record: ApprovalRecord | undefined;
+  readonly kind: "approve" | "reject";
+  /** The record answered. */
+  readonly record: ApprovalRecord;
   readonly title: string;
 }
 
@@ -75,10 +64,6 @@ export interface ApprovalCommandInput {
    */
   readonly resolveRefusalByApprovalId: ReadonlyMap<string, ConsoleRefusal>;
   readonly resolve: (request: ApprovalResolveRequest) => void;
-  readonly goal: SessionGoalProjection;
-  /** Whether a goal mutation is already settling. One at a time, never queued. */
-  readonly isMutatingGoal: boolean;
-  readonly clearGoal: () => void;
 }
 
 /** Contribute this pane's acts for as long as it is mounted. */
@@ -92,7 +77,7 @@ export function useApprovalCommands(input: ApprovalCommandInput): void {
   const inputRef = useLatestRef(input);
 
   const signature = rows
-    .map((row) => `${row.kind} ${row.record?.approvalRequestId ?? ""} ${row.title}`)
+    .map((row) => `${row.kind} ${row.record.approvalRequestId} ${row.title}`)
     .join("|");
   // Built from THIS render's rows rather than through a ref. The memo runs during the
   // render whose signature changed, which is before that render's layout effect has
@@ -138,9 +123,6 @@ export function approvalCommandRows(input: ApprovalCommandInput): readonly Appro
         : "Reject the pending request",
     });
   }
-  if (canClearSessionGoal(input.goal, input.isMutatingGoal)) {
-    rows.push({ kind: "clear-goal", record: undefined, title: "Clear the session goal" });
-  }
   return rows;
 }
 
@@ -153,13 +135,7 @@ export function approvalCommandRows(input: ApprovalCommandInput): readonly Appro
  * the palette on the next contribution; a press that lands in the gap does nothing.
  */
 export function performApprovalCommand(row: ApprovalCommandRow, input: ApprovalCommandInput): void {
-  if (row.kind === "clear-goal") {
-    if (canClearSessionGoal(input.goal, input.isMutatingGoal)) {
-      input.clearGoal();
-    }
-    return;
-  }
-  const recordId = row.record?.approvalRequestId;
+  const recordId = row.record.approvalRequestId;
   const live = input.pending.find((candidate) => candidate.approvalRequestId === recordId);
   // Re-read at invoke time and not trusted from contribution time: the same
   // reading the row was built from, because a settled refusal can land in the gap
@@ -196,16 +172,13 @@ function buildApprovalCommand(
   row: ApprovalCommandRow,
   inputRef: React.RefObject<ApprovalCommandInput>,
 ): ConsoleCommand {
-  const recordId = row.record?.approvalRequestId;
+  const recordId = row.record.approvalRequestId;
   return {
-    id: recordId === undefined ? `approvals.${row.kind}` : `approvals.${row.kind}.${recordId}`,
+    id: `approvals.${row.kind}.${recordId}`,
     title: row.title,
     group: APPROVAL_COMMAND_GROUP,
     when: APPROVAL_COMMAND_WHEN,
-    keywords:
-      row.record === undefined
-        ? ["goal"]
-        : [row.record.category, row.record.requestedBy, "approval"],
+    keywords: [row.record.category, row.record.requestedBy, "approval"],
     run: () => {
       performApprovalCommand(row, inputRef.current);
     },

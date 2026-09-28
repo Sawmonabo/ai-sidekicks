@@ -9,7 +9,6 @@ import { describe, expect, it } from "vitest";
 import { APPROVAL_FLOW_EVENT_KINDS } from "./approval-flow-projection.js";
 import { APPROVALS_SCENARIO } from "../scenario/approvals/approvals.js";
 import { RUN_LIFECYCLE_EVENT_KINDS } from "../../frame/run-projection/run-lifecycle-projector.js";
-import { SidebarSectionRegistry } from "../../seats/index.js";
 import { ConsoleEntityProjectorRegistry } from "../../store/index.js";
 import { registerComposerFamily } from "../../../shell/index.js";
 import { storeDrivenByScenario, storeOver } from "./approval-flow-projection.test-support.js";
@@ -31,10 +30,6 @@ describe("the scenario's approval beats, folded through the shipped store", () =
 
   it("marks a settled request rather than dropping it", () => {
     const partition = storeDrivenByScenario().snapshot().partitions.approval;
-    // The scenario requests one approval and then expires it. History is a read, so
-    // the expiry marks the row it already has.
-    const expired = Object.values(partition).filter((entity) => entity.state === "expired");
-    expect(expired).toHaveLength(1);
     expect(Object.values(partition).some((entity) => entity.state === "approved")).toBe(true);
     expect(Object.values(partition).some((entity) => entity.state === "pending")).toBe(true);
   });
@@ -64,7 +59,7 @@ describe("the composer family's claim on the board it is handed", () => {
   it("registers exactly the approval kinds, under its own name", () => {
     const projectors = new ConsoleEntityProjectorRegistry();
 
-    registerComposerFamily(projectors, new SidebarSectionRegistry());
+    registerComposerFamily(projectors);
 
     expect(Object.keys(projectors.snapshot()).toSorted()).toStrictEqual(
       [...APPROVAL_FLOW_EVENT_KINDS].toSorted(),
@@ -80,7 +75,7 @@ describe("the composer family's claim on the board it is handed", () => {
     // window. Named here, by kind, instead.
     const projectors = new ConsoleEntityProjectorRegistry();
 
-    registerComposerFamily(projectors, new SidebarSectionRegistry());
+    registerComposerFamily(projectors);
 
     for (const eventKind of RUN_LIFECYCLE_EVENT_KINDS) {
       expect(projectors.ownerOf(eventKind)).toBeUndefined();

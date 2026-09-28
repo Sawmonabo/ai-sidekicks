@@ -10,8 +10,7 @@ import { render } from "@testing-library/react";
 
 import { ApprovalCard } from "./ApprovalCard.js";
 import { type ConsoleRefusal } from "../../../core/index.js";
-import { type ApprovalRecord } from "../../../bridge/index.js";
-import { type ApprovalResolveRequest } from "../approvals-wire.js";
+import { type ApprovalRecord, type ApprovalResolveRequest } from "../../../bridge/index.js";
 
 /** One record waiting on a decision, with every member the card reads. */
 export function pendingRecord(overrides: Partial<ApprovalRecord> = {}): ApprovalRecord {

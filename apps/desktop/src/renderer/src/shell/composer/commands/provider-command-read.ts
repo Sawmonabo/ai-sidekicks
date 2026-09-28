@@ -50,8 +50,8 @@ export type ProviderCommandReadRefusalCode = (typeof PROVIDER_COMMAND_READ_REFUS
 /**
  * Where the enumeration read has got to.
  *
- * `not-checked` is a first-class arm and not an empty list: a composer addressed at a
- * channel has no agent to enumerate, so nobody asked — which rule 8 renders
+ * `not-checked` is a first-class arm and not an empty list: a composer addressed at the
+ * session has no agent to enumerate, so nobody asked — which rule 8 renders
  * differently from a provider that answered with nothing.
  */
 export type ProviderCommandReadState =

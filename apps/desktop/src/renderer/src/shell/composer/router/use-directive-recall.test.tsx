@@ -89,7 +89,6 @@ describe("useDirectiveRecall — the histories map is built once per mount", () 
     built.mockClear();
     const draftStore = new DraftStore({
       maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT,
-      restartNoticePending: false,
     });
     const probe = render(<Probe draftStore={draftStore} />);
     const afterFirstRender = built.mock.calls.length;

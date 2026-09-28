@@ -1,10 +1,9 @@
 // Which daemon-hosted tools an agent can reach, and the difference between "none
 // registered" and "withheld".
 //
-// THIS SURFACE'S OWN THREE-STATE RULE, because no committed document states it —
-// though it is the console's collapse prohibition read for this registry, since a
-// renderer that collapses two of these into one is wrong. Keeping the three apart is
-// the whole job:
+// THREE STATES THAT MUST NOT COLLAPSE, the console's collapse prohibition read for this
+// registry, since a renderer that collapses two of these into one is wrong. Keeping the
+// three apart is the whole job:
 //
 //   • **Capability undeclared** — the section is ABSENT, not empty. A driver that
 //     does not declare `callback_tools` hosts no registry at all, and an empty list
@@ -35,7 +34,7 @@
 import { type DriverCapabilityFlag } from "@ai-sidekicks/contracts";
 
 import type { DriverCapabilityReading } from "../../../bridge/index.js";
-import { InlineRefusal, Nothing, WireFigure } from "../../../primitives/index.js";
+import { Nothing, WireFigure } from "../../../primitives/index.js";
 import { CallbackToolRows } from "./CallbackToolRows.js";
 import { type CallbackToolRegistryReading } from "./callback-tool-registry.js";
 
@@ -63,12 +62,12 @@ export interface CallbackToolsProps {
    * A discriminated reading rather than a `tools` list beside an `isWithheld` flag:
    * withheld and empty are two of the three facts the header refuses to collapse,
    * and a pair of independent props admits the two combinations that mean neither.
-   * The read that produced it is `callback-tool-registry.ts`'s; this component is a
-   * rendering of its arms and derives none of them.
+   * This component is a rendering of its arms and derives none of them.
    */
   readonly registry: CallbackToolRegistryReading | undefined;
 }
 
+/** The daemon-hosted tools section: absent, withheld, or exposed, never merged. */
 export function CallbackTools(props: CallbackToolsProps): React.JSX.Element | null {
   if (props.capability === "undeclared") {
     // Absent, not empty. Returning `null` is the rule rendered.
@@ -93,11 +92,6 @@ export function CallbackTools(props: CallbackToolsProps): React.JSX.Element | nu
       />
     );
   }
-  if (props.registry.kind === "unread") {
-    return (
-      <InlineRefusal code={props.registry.refusal.code} detail={props.registry.refusal.detail} />
-    );
-  }
   if (props.registry.kind === "withheld") {
     return (
       <div className="meridian-callback-tools meridian-callback-tools--withheld">
@@ -109,13 +103,6 @@ export function CallbackTools(props: CallbackToolsProps): React.JSX.Element | nu
           unanswered.
         </p>
         <CallbackToolRows tools={props.registry.tools} deniedTone />
-        {/* The read this surface put, named rather than implied. It says nothing
-            about what the registry holds — the entries above are the ones the
-            contract registers — only that no wire answered a question about them. */}
-        <InlineRefusal
-          code={props.registry.unreadRefusal.code}
-          detail={props.registry.unreadRefusal.detail}
-        />
       </div>
     );
   }

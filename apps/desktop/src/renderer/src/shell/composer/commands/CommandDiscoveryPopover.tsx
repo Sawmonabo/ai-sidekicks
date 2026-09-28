@@ -86,17 +86,6 @@ interface CommandDiscoveryPopoverProps {
   readonly addressed: AddressedProviderBinding;
   readonly stepIntoListToken: number;
   readonly onDismiss: () => void;
-  /**
-   * What the line's own ARGUMENT completes to, where the typed command has one.
-   *
-   * A SLOT rather than a branch, because which commands read arguments and what
-   * their candidates are is each command's own grammar: a popover that knew would be
-   * a second place the workflow grammar is written down. The seat composes the node
-   * and this surface renders it beneath the command list, so the candidates a person
-   * is offered while they type sit in the surface their keystroke opened rather than
-   * in a second panel beside it.
-   */
-  readonly argumentCompletion: React.ReactNode;
 }
 
 /**
@@ -112,7 +101,7 @@ interface CommandDiscoveryPopoverProps {
  */
 export function CommandDiscoveryPopover(props: CommandDiscoveryPopoverProps): React.JSX.Element {
   const { prefix, readSurface, enumeration, addressed, stepIntoListToken } = props;
-  const { onDismiss, argumentCompletion } = props;
+  const { onDismiss } = props;
   const listId = useId();
   const ledeId = `${listId}-lede`;
   const listRef = useRef<HTMLUListElement | null>(null);
@@ -274,7 +263,7 @@ export function CommandDiscoveryPopover(props: CommandDiscoveryPopoverProps): Re
           kind="empty"
           placement="surface"
           title="No command matches what you have typed"
-          detail="Clear the line to see everything on offer, or type // to send a message that really begins with a slash."
+          detail="Clear the line to see everything on offer."
         />
       ) : null}
       {activationNotice === undefined ? null : (
@@ -282,7 +271,6 @@ export function CommandDiscoveryPopover(props: CommandDiscoveryPopoverProps): Re
           {activationNotice}
         </p>
       )}
-      {argumentCompletion}
       <EnumerationState enumeration={enumeration} addressedGroup={addressedGroup} />
       {actionOutcome?.status === "refused" ? (
         <InlineRefusal code={actionOutcome.refusal.code} detail={actionOutcome.refusal.detail} />
@@ -329,7 +317,7 @@ function groupRowsOf(
  * The console's own command surface is local and always settled, so the provider
  * enumeration is the only source with phases and the only one this asks about.
  * `not-checked` counts as answered and not as pending: this composer addresses a
- * channel rather than an agent, so no provider was asked and none is coming — the
+ * session rather than an agent, so no provider was asked and none is coming — the
  * console's own commands are the whole of what could match, and an empty result over
  * them is a finished search. `EnumerationState` says why the provider half is absent
  * beneath it, which is a different sentence rather than a second copy of this one.

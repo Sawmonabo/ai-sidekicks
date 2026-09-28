@@ -6,18 +6,15 @@
 
 import { describe, expect, it, vi } from "vitest";
 
-import { type RunProjection } from "../run-state-projection.js";
-import { quietShell } from "../../../store/shell-condition.test-support.js";
 import { capabilityReadout } from "./driver-capability-readout.test-support.js";
-import { recordingRunControlSurface, runProjection } from "./run-control-commands.test-support.js";
+import { commandRun, recordingRunControlSurface } from "./run-control-commands.test-support.js";
 import {
   dispatchRunControlCommand,
-  performRunStart,
   runControlCommandRows,
   type RunControlCommandInput,
+  type RunControlCommandRun,
 } from "./run-control-commands.js";
 import { type RunControlSurface } from "./run-control-surface.js";
-import { type RunStartOfferReading } from "../run-start-offer.js";
 
 const FIRST_RUN = "b3f0a1c2-4d5e-4f60-8a71-9c2d3e4f5061";
 const SECOND_RUN = "c4a1b2d3-5e6f-4071-8b82-0d3e4f506172";
@@ -26,67 +23,51 @@ const SECOND_RUN = "c4a1b2d3-5e6f-4071-8b82-0d3e4f506172";
 const NO_GONE_RUNS: ReadonlySet<string> = new Set<string>();
 
 const CAPABLE = capabilityReadout(
-  [["claude", ["steer", "rollback"]]],
+  [["claude", ["steer"]]],
   [
     [FIRST_RUN, "claude"],
     [SECOND_RUN, "claude"],
   ],
 );
 
-/** The empty state's reading, defaulting to the arm that offers its act. */
-function startOffer(overrides: Partial<RunStartOfferReading> = {}): RunStartOfferReading {
-  return { seatedRunCount: 0, hasRead: true, openRefusal: undefined, ...overrides };
-}
-
 function inputFor(
-  runs: readonly RunProjection[],
+  runs: readonly RunControlCommandRun[],
   surface: RunControlSurface,
   overrides: Partial<RunControlCommandInput> = {},
 ): RunControlCommandInput {
   return {
     runs,
     driverCapabilities: CAPABLE,
-    // Silence, which closes no row. A case about a closed one hands its own.
-    frameStore: quietShell(),
     surface,
     onRequestSteer: () => undefined,
-    onRequestRewind: () => undefined,
-    startOffer: startOffer(),
-    onRequestComposerFocus: () => undefined,
     ...overrides,
   };
 }
 
 describe("the rows the runs pane contributes", () => {
   it("contributes one row per control the row itself offers", () => {
-    const rows = runControlCommandRows([runProjection(FIRST_RUN)], CAPABLE, NO_GONE_RUNS);
+    const rows = runControlCommandRows([commandRun(FIRST_RUN)], CAPABLE, NO_GONE_RUNS);
 
-    expect(rows.map((row) => row.control)).toEqual([
-      "pause",
-      "interrupt",
-      "steer",
-      "cancel",
-      "rollback",
-    ]);
+    expect(rows.map((row) => row.control)).toEqual(["pause", "interrupt", "steer"]);
   });
 
-  it("drops the gated pair where the bound driver declared neither", () => {
+  it("drops steer where the bound driver did not declare it", () => {
     const bare = capabilityReadout([["codex", []]], [[FIRST_RUN, "codex"]]);
 
-    const rows = runControlCommandRows([runProjection(FIRST_RUN)], bare, NO_GONE_RUNS);
+    const rows = runControlCommandRows([commandRun(FIRST_RUN)], bare, NO_GONE_RUNS);
 
-    expect(rows.map((row) => row.control)).toEqual(["pause", "interrupt", "cancel"]);
+    expect(rows.map((row) => row.control)).toEqual(["pause", "interrupt"]);
   });
 
   it("leaves the run unnamed while the session has only one", () => {
-    const rows = runControlCommandRows([runProjection(FIRST_RUN)], CAPABLE, NO_GONE_RUNS);
+    const rows = runControlCommandRows([commandRun(FIRST_RUN)], CAPABLE, NO_GONE_RUNS);
 
     expect(rows[0]?.title).toBe("Pause the run");
   });
 
   it("names the run as soon as there are two to confuse", () => {
     const rows = runControlCommandRows(
-      [runProjection(FIRST_RUN), runProjection(SECOND_RUN)],
+      [commandRun(FIRST_RUN), commandRun(SECOND_RUN)],
       CAPABLE,
       NO_GONE_RUNS,
     );
@@ -102,32 +83,23 @@ describe("what running a contributed row does", () => {
 
     dispatchRunControlCommand(
       { runId: FIRST_RUN, control: "interrupt", title: "Stop the run" },
-      inputFor([runProjection(FIRST_RUN)], surface),
+      inputFor([commandRun(FIRST_RUN)], surface),
     );
 
     expect(calls).toEqual([{ verb: "interrupt", runId: FIRST_RUN, expectedRunVersion: 7 }]);
   });
 
-  it("opens the composer for steer and rewind rather than sending an empty body", () => {
+  it("opens the composer for steer rather than sending an empty body", () => {
     const { surface, calls } = recordingRunControlSurface();
     const onRequestSteer = vi.fn();
-    const onRequestRewind = vi.fn();
-    const input = inputFor([runProjection(FIRST_RUN)], surface, {
-      onRequestSteer,
-      onRequestRewind,
-    });
+    const input = inputFor([commandRun(FIRST_RUN)], surface, { onRequestSteer });
 
     dispatchRunControlCommand(
       { runId: FIRST_RUN, control: "steer", title: "Steer the run" },
       input,
     );
-    dispatchRunControlCommand(
-      { runId: FIRST_RUN, control: "rollback", title: "Rewind the run" },
-      input,
-    );
 
     expect(onRequestSteer).toHaveBeenCalledWith(FIRST_RUN);
-    expect(onRequestRewind).toHaveBeenCalledWith(FIRST_RUN);
     expect(calls).toEqual([]);
   });
 
@@ -135,40 +107,11 @@ describe("what running a contributed row does", () => {
     const { surface, calls } = recordingRunControlSurface();
 
     dispatchRunControlCommand(
-      { runId: SECOND_RUN, control: "cancel", title: "Cancel the run" },
-      inputFor([runProjection(FIRST_RUN)], surface),
+      { runId: SECOND_RUN, control: "interrupt", title: "Stop the run" },
+      inputFor([commandRun(FIRST_RUN)], surface),
     );
 
     expect(calls).toEqual([]);
-  });
-});
-
-describe("the empty state's act, performed from the palette", () => {
-  it("asks the composer for the caret while the empty state still asks for it", () => {
-    const onRequestComposerFocus = vi.fn();
-    const { surface } = recordingRunControlSurface();
-
-    performRunStart(inputFor([], surface, { onRequestComposerFocus }));
-
-    expect(onRequestComposerFocus).toHaveBeenCalledTimes(1);
-  });
-
-  it("asks for nothing once a run landed between the contribution and the press", () => {
-    // The row leaves the palette on the next contribution, and a press that lands in
-    // the gap does nothing: the pane's own control is already gone, and a palette
-    // still offering to start work in a pane full of runs is the second offer set the
-    // shared reading exists to prevent.
-    const onRequestComposerFocus = vi.fn();
-    const { surface } = recordingRunControlSurface();
-
-    performRunStart(
-      inputFor([], surface, {
-        onRequestComposerFocus,
-        startOffer: startOffer({ seatedRunCount: 1 }),
-      }),
-    );
-
-    expect(onRequestComposerFocus).not.toHaveBeenCalled();
   });
 });
 
@@ -177,7 +120,7 @@ describe("a run the daemon says is gone is contributed against by nobody", () =>
     // The row's own strip withdraws every control for a gone run, and the palette
     // offering them anyway would be the second offer set this module exists to stop.
     const rows = runControlCommandRows(
-      [runProjection(FIRST_RUN), runProjection(SECOND_RUN)],
+      [commandRun(FIRST_RUN), commandRun(SECOND_RUN)],
       CAPABLE,
       new Set([FIRST_RUN]),
     );
@@ -191,7 +134,7 @@ describe("a run the daemon says is gone is contributed against by nobody", () =>
     // gone row still sits on screen carrying its id, so a bare "Pause the run" in
     // the palette would be ambiguous against it.
     const rows = runControlCommandRows(
-      [runProjection(FIRST_RUN), runProjection(SECOND_RUN)],
+      [commandRun(FIRST_RUN), commandRun(SECOND_RUN)],
       CAPABLE,
       new Set([FIRST_RUN]),
     );

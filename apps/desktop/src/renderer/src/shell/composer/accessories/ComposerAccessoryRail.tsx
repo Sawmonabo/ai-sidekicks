@@ -1,97 +1,18 @@
-// The composer's trailing rail: the queue shelf, the `+` menu, and the five seats
-// other plans fill — the two meters, the compaction control, the edit-and-resend
-// editor, and the workflow picker.
+// The composer's trailing rail: the attachment strip and the context meter.
 //
-// WHERE THE FIGURES COME FROM. The rail selects the session's timeline once and
-// folds it two ways under `useMemo` — the newest context reading, and the newest
-// compaction boundary — and BOTH folds are scoped to the ADDRESSED RUN. Two
-// components reading the store separately would be two subscriptions to one
-// selector, and the folds are pure, so one derivation serves both. The address is
-// an input to each rather than a session-wide sweep: a session running two agents
-// at once was showing one run's fullness and the other run's boundary under a
-// control pointed at neither, and offering to compact on the strength of it. A
-// composer addressed to a channel asks both folds for nothing.
-//
-// THE QUOTA CHIPS COME OFF THE ACCOUNT PLANE AND NOT OFF THIS TIMELINE. They used to be
-// a third fold here, over `usage.rate_limit_update` — a row bound to the reserved
-// node-scope sentinel session, so no session store this rail can select from ever holds
-// one. The chips were therefore reachable only under a fixture that put the row in a
-// session's log, and against a daemon the seat would have rendered nothing forever.
-// They now read `console/bridge/quotas/provider-account-quota.ts`, which is one
-// `providerAccount.list` and one `providerAccount.subscribe` per BRIDGE — node-scoped,
-// like the readings — and a read that failed says so beside the meters rather than
-// leaving a quota-shaped silence that reads as healthy.
-//
-// THE SHELF ASKS A NARROWER QUESTION OF THE SESSION'S ONE QUEUE READING. The rows
-// still waiting are what the shelf holds; the runs pane shows the whole queue,
-// including what has left it. That is a filter over one list rather than a second
-// subscription — the composer used to open its own, so a session view holding both
-// surfaces tailed one stream twice.
-//
-// THE FILTER IS THE ONLY THING THE RAIL NARROWS. The reading's PHASE and its
-// snapshot refusal are handed on untouched: a rail that passed rows alone left the
-// shelf unable to tell an empty queue from a queue nobody could read, and the shelf
-// hides itself on the first. The runs pane renders the same two members from the
-// same reading, so the two surfaces answer "could the queue be read" the same way.
-//
-// WHAT THE RAIL DOES NOT DECIDE. It never derives eligibility. The compaction
-// control is handed a capability state and a target run and renders what those say;
-// the rail does not compute whether compaction is allowed, and where it has not read
-// the answer it says so rather than guessing either way.
-//
-// WHERE THE COMPACTION CONTROL'S TWO INPUTS COME FROM. The addressed run is the
-// composer's own address — the same resolution the chip rail renders and the send
-// bar acts on, so a person reading "steer Ada's turn" and pressing Compact reach the
-// same run — and the capability is the BOUND driver's declaration, resolved per
-// driver from the capability read. A composer addressed to a channel has no run to
-// compact and offers nothing, which is the absent-not-disabled discipline rather
-// than a `not-checked` block on every session composer in the console.
-//
-// FOUR OF THE FIVE SLOTS ARE `body: undefined` BY CONSTRUCTION, NOT BY OVERSIGHT. A
-// body arrives by its owning family mounting it here, and until then the seat renders
-// the reserved state — there is no registry to read one out of.
-//
-// THE FIFTH IS FILLED NOW. The workflow picker's body is the workflows family's, and
-// that family has landed the definition enumeration the picker lists from and the start
-// it dispatches — so the seat takes the real body through that family's door instead of
-// the "not built yet" absence it stood at while there was nothing to put there. What
-// this file supplies is unchanged and is the whole of its half: the menu position, the
-// session the run starts in, and the channel this composer is addressed within where it
-// is addressed at one. It authors no body.
-//
-// AND IT ARRIVES BEHIND A LOADER, WHICH IS WHY THAT SEAT IS ITS OWN MODULE. The picker is
-// absent from the tree until the `+` disclosure opens, so it is not painted before a
-// person acts and belongs on its own chunk — and this file named it statically, which put
-// it in every session's entry chunk however the registration beyond the door was written.
-// `plus-menu/WorkflowStartSeat.tsx` holds that boundary and states its terms; the three
-// inputs below are unchanged, and what this rail hands the `+` menu is still one element.
-//
-// WHAT EACH REMAINING RESERVED STATE LOOKS LIKE. The edit-and-resend editor has no
-// shell behind it, so its reserved state is the "not built yet" absence. The three the
-// usage plan owns — the context meter, the rate-limit indicator, and the compaction
-// control — have a FIXTURE SHELL behind them, so what a person meets today is a real
-// meter drawn from real readings and what arrives later replaces the shell rather than
-// filling a hole.
+// WHERE THE FIGURE COMES FROM. The rail selects the session's timeline once and folds
+// it to the newest context reading of the ADDRESSED RUN. The address is an input to
+// the fold rather than a session-wide sweep: a session running two agents at once
+// was showing one run's fullness beside a control pointed at the other. A composer
+// addressed to the session and not to a run asks the fold for nothing.
 
 import { useCallback, useMemo, useState } from "react";
-import {
-  readRefusalOf,
-  readingForDriver,
-  useDriverCapabilities,
-  useProviderQuotas,
-  useQueueFeed,
-} from "../../../console/bridge/index.js";
 import { useAttachmentCarrier } from "../../../console/repos/index.js";
-import type { ComposerArtifactAttachment } from "../../../console/seats/index.js";
-import { RealClock, parseInstant } from "../../../console/core/index.js";
+import type {
+  ComposerArtifactAttachment,
+  ComposerSeatProps,
+} from "../../../console/seats/index.js";
 import {
-  PartialRead,
-  unreadableDeliveryReading,
-  type ReadingState,
-} from "../../../console/primitives/index.js";
-import type { ComposerSeatProps } from "../../../console/seats/index.js";
-import {
-  useDeadlineWake,
   useSessionStore,
   type ConsoleSessionEvent,
   type SessionStoreState,
@@ -99,15 +20,8 @@ import {
 import { useComposerAddress } from "../composer-address.js";
 import { ComposerAttachmentBar } from "./attachments/ComposerAttachmentBar.js";
 import { useAttachmentDropTarget } from "./attachments/use-attachment-drop.js";
-import { CompactionSlot, COMPACTION_SLOT_CONTRACT } from "./compaction/CompactionSlot.js";
-import { ContextMeterSlot, CONTEXT_METER_SLOT_CONTRACT } from "./context-meter/ContextMeterSlot.js";
-import { EditResendSlot, EDIT_RESEND_SLOT_CONTRACT } from "./EditResendSlot.js";
-import { PlusMenu } from "./plus-menu/PlusMenu.js";
-import { WorkflowStartSeat } from "./plus-menu/WorkflowStartSeat.js";
-import { QueueShelf } from "./queue-shelf/QueueShelf.js";
-import { RateLimitSlot, RATE_LIMIT_SLOT_CONTRACT } from "./quotas/RateLimitSlot.js";
-import { waitingQueueRows } from "./queue-shelf/waiting-queue.js";
-import { newestCompactionBoundarySequence, newestContextWindowReading } from "./usage-readings.js";
+import { ContextMeter } from "./context-meter/ContextMeter.js";
+import { newestContextWindowReading } from "./usage-readings.js";
 
 /**
  * The one selector, at module scope so its identity is stable across renders.
@@ -118,17 +32,6 @@ import { newestCompactionBoundarySequence, newestContextWindowReading } from "./
  * every event in the session.
  */
 const selectTimeline = (state: SessionStoreState): readonly ConsoleSessionEvent[] => state.timeline;
-
-/**
- * The clock a countdown is measured against.
- *
- * Module scope and constructed once: a clock built in the render body would be a
- * new object every pass, and `RealClock` holds no state a second instance would
- * fork. Under the fixture the scenario's frozen clock is the one that matters, and
- * the rail prefers it whenever the bridge carries one — which is what keeps a
- * screenshot's relative times byte-stable.
- */
-const HOST_CLOCK = new RealClock();
 
 export interface ComposerAccessoryRailProps extends ComposerSeatProps {
   /**
@@ -143,6 +46,7 @@ export interface ComposerAccessoryRailProps extends ComposerSeatProps {
   readonly region: React.RefObject<HTMLElement | null>;
 }
 
+/** The composer's trailing rail: what the message carries, and how full the conversation is. */
 export function ComposerAccessoryRail(props: ComposerAccessoryRailProps): React.JSX.Element {
   const timeline = useSessionStore(props.sessionStore, selectTimeline);
   // One carrier per composer, opened on the session it is addressed within. The repos
@@ -152,19 +56,11 @@ export function ComposerAccessoryRail(props: ComposerAccessoryRailProps): React.
   // Artifacts a view family put on this message. Held here rather than on the carrier
   // because they never went through this carrier: they were minted inside the owning
   // family's own pipeline and arrive already settled, so the ledger has nothing to
-  // track for them and a fake entry would be a second source of ingest truth.
+  // track for them and a fake entry would be a second source of ingest truth. Nothing
+  // adds one until the attach control is built.
   const [familyAttachments, setFamilyAttachments] = useState<readonly ComposerArtifactAttachment[]>(
     [],
   );
-  const recordFamilyAttachment = useCallback((attachment: ComposerArtifactAttachment) => {
-    setFamilyAttachments((held) =>
-      // Attaching the same page twice is one attachment: the reference is a list of
-      // artifact ids and a repeated id would send the same bytes to the same turn.
-      held.some((candidate) => candidate.artifactId === attachment.artifactId)
-        ? held
-        : [...held, attachment],
-    );
-  }, []);
   const forgetFamilyAttachment = useCallback((artifactId: string) => {
     setFamilyAttachments((held) => held.filter((candidate) => candidate.artifactId !== artifactId));
   }, []);
@@ -173,74 +69,15 @@ export function ComposerAccessoryRail(props: ComposerAccessoryRailProps): React.
     region: props.region,
     onFilesChosen: attachFiles,
   });
-  // Node-scoped and therefore keyed to the BRIDGE rather than to this session: the
-  // registry these readings come from is the machine's, and two sessions open in one
-  // window are served by one read and one tail.
-  const providerQuotas = useProviderQuotas(props.bridge);
-  const queueFeed = useQueueFeed(props.bridge, props.sessionStore.sessionId);
-  // The shelf's own question, asked of the session's one reading: the rows still
-  // waiting. A row the daemon has stopped calling `queued` has left the shelf, and
-  // the runs pane goes on showing it — two questions, one list, one subscription.
-  const waitingItems = useMemo(() => waitingQueueRows(queueFeed.items), [queueFeed.items]);
-  const clock = props.bridge.scenarioEngine?.clock ?? HOST_CLOCK;
   const address = useComposerAddress(props.sessionStore, props.focusedPane);
-  const driverCapabilities = useDriverCapabilities(props.bridge);
-  const addressedRun = address.target.path === "provider-bound" ? address.target : undefined;
-  // Folded AFTER the address, because the address is an input to both: the reading
-  // and the boundary this composer reports are the addressed run's own, and a
-  // composer addressed to a channel asks for neither.
-  const addressedRunId = addressedRun?.targetRunId;
+  // Folded AFTER the address, because the address is an input: the reading this
+  // composer reports is the addressed run's own.
+  const addressedRunId =
+    address.target.path === "provider-bound" ? address.target.targetRunId : undefined;
   const contextReading = useMemo(
     () => newestContextWindowReading(timeline, addressedRunId),
     [timeline, addressedRunId],
   );
-  const compactionBoundary = useMemo(
-    () => newestCompactionBoundarySequence(timeline, addressedRunId),
-    [timeline, addressedRunId],
-  );
-  // Both of the account plane's readings, in the console's one vocabulary. The
-  // refusal's SCOPE is decided here, where the outcomes are counted: a refused read
-  // with chips already on screen is a note beside an answer, and a refused read with
-  // none is the whole of the answer, and the two sentences are not interchangeable.
-  // Every quota window's reset, as the instants a countdown crosses. A window whose
-  // reset the wire did not name, or named unreadably, arms nothing rather than
-  // arming against a value no threshold corresponds to.
-  const quotaResetDeadlines = useMemo(
-    () =>
-      providerQuotas.readings.flatMap((reading) => {
-        if (reading.resetsAt === undefined) {
-          return [];
-        }
-        const reset = parseInstant(reading.resetsAt);
-        return reset.kind === "instant" ? [reset.epochMilliseconds] : [];
-      }),
-    [providerQuotas.readings],
-  );
-  // The instant the chips are measured against, woken once at each reset rather than
-  // read in the render body. `clock.now()` in a render made the rail's output depend
-  // on when React happened to run it — so a countdown froze at whatever it said when
-  // the surface last re-rendered for some unrelated reason, and "resets in 2 minutes"
-  // stayed on screen for the rest of the window's life. This arms one timeout at a
-  // time and none at all once every reset is behind, which is the no-polling rule.
-  const nowMilliseconds = useDeadlineWake(clock, quotaResetDeadlines);
-  // Through the reading's own phase-aware accessor and never off the member: a
-  // registry that refused once and then healed carries the old refusal no longer,
-  // and this rail rendered one beside healthy chips for the life of the window while
-  // it read the member bare.
-  const quotaReadRefusal = readRefusalOf(providerQuotas);
-  const quotaReadings: readonly ReadingState[] = [
-    quotaReadRefusal === undefined
-      ? { kind: "served" }
-      : {
-          kind: "refused",
-          scope: providerQuotas.readings.length === 0 ? "whole-answer" : "beside-an-answer",
-          refusal: quotaReadRefusal,
-        },
-    unreadableDeliveryReading(
-      providerQuotas.unreadableDeliveryCount,
-      providerQuotas.unreadableRefusal,
-    ),
-  ];
 
   return (
     <div className="meridian-composer__rail">
@@ -252,74 +89,11 @@ export function ComposerAccessoryRail(props: ComposerAccessoryRailProps): React.
         onForgetFamilyAttachment={forgetFamilyAttachment}
         isDraggingFiles={isDraggingFiles}
       />
-      <QueueShelf
-        items={waitingItems}
-        snapshotRead={queueFeed}
-        runBindings={queueFeed}
-        pendingCancelIds={queueFeed.pendingCancelIds}
-        cancelRefusalByItemId={queueFeed.cancelRefusalByItemId}
-        onCancel={queueFeed.cancelItem}
-        unreadableDeliveryCount={queueFeed.unreadableDeliveryCount}
-        unreadableRefusal={queueFeed.unreadableRefusal}
-      />
       <div className="meridian-composer__accessories">
         <div className="meridian-composer__meters">
-          <ContextMeterSlot
-            contract={CONTEXT_METER_SLOT_CONTRACT}
-            body={undefined}
-            reading={contextReading}
-          />
-          <RateLimitSlot
-            contract={RATE_LIMIT_SLOT_CONTRACT}
-            body={undefined}
-            readings={providerQuotas.readings}
-            nowMilliseconds={nowMilliseconds}
-          />
-          {/* Beside the chips and never instead of them, and BOTH readings at once:
-              a registry nobody could read must not look like a node whose quotas are
-              all fine, and a tail this build could not parse must not look like a
-              tail that carried nothing. The primitive takes the set, so neither can
-              be reported without the other. */}
-          <PartialRead states={quotaReadings} subject="these quotas" />
-          {addressedRun === undefined ? null : (
-            <CompactionSlot
-              contract={COMPACTION_SLOT_CONTRACT}
-              body={undefined}
-              bridge={props.bridge}
-              sessionId={props.sessionStore.sessionId}
-              capability={readingForDriver(
-                driverCapabilities,
-                addressedRun.driverName,
-                "context_compaction",
-              )}
-              targetRunId={addressedRun.targetRunId}
-              completedBoundarySequence={compactionBoundary}
-            />
-          )}
-        </div>
-        <div className="meridian-composer__actions">
-          {/* The channel is read off the address this rail already resolved, never
-              composed here: a start from a channel is chat-borne and says so, and a
-              start at a running turn carries none rather than a guessed one. */}
-          <PlusMenu
-            bridge={props.bridge}
-            sessionId={props.sessionStore.sessionId}
-            focusedPaneId={props.focusedPaneId}
-            onFilesChosen={attachFiles}
-            onFamilyAttached={recordFamilyAttachment}
-            workflowStartBody={
-              <WorkflowStartSeat
-                growth={props.bridge.growth}
-                sessionId={props.sessionStore.sessionId}
-                channelId={
-                  address.target.path === "channel-message" ? address.target.channelId : undefined
-                }
-              />
-            }
-          />
+          <ContextMeter reading={contextReading} />
         </div>
       </div>
-      <EditResendSlot contract={EDIT_RESEND_SLOT_CONTRACT} body={undefined} />
     </div>
   );
 }

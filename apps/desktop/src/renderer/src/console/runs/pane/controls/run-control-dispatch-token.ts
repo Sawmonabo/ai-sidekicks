@@ -52,7 +52,7 @@ export function mintRunControlDispatchToken(
  * The dispatch ordinal a token carries, or `undefined` where it carries none.
  *
  * Read from the LAST separator rather than by splitting into three: `control` is a
- * closed set of six literals none of which carries the separator, and the ordinal is
+ * closed set of literals none of which carries the separator, and the ordinal is
  * digits, so the final segment is unambiguous even for a run id that carries one.
  * Anything else — a token minted by something other than the function above — reads
  * as absent rather than as a number, and the caller ranks it below every real ordinal

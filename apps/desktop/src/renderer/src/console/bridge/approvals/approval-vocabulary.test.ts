@@ -18,22 +18,18 @@ import {
   SCOPE_KIND_PHRASE,
   STATE_PHRASE,
   STATE_TONE,
-  TRIGGER_PHRASE,
   asApprovalCategory,
   asApprovalState,
-  asInvalidationTrigger,
 } from "./approval-vocabulary.js";
 
 describe("the closed sets are the sets the design fixes", () => {
-  it("carries the nine canonical categories, verbatim", () => {
+  it("carries the seven canonical categories, verbatim", () => {
     expect([...APPROVAL_CATEGORIES]).toStrictEqual([
       "tool_execution",
       "file_write",
       "network_access",
       "destructive_git",
-      "user_input",
       "plan_approval",
-      "mcp_elicitation",
       "gate",
       "human_phase_contribution",
     ]);
@@ -47,27 +43,25 @@ describe("the closed sets are the sets the design fixes", () => {
     expect(APPROVAL_DECISIONS).toHaveLength(2);
   });
 
-  it("carries two scope kinds and three invalidation triggers", () => {
+  it("carries two scope kinds and four invalidation triggers", () => {
     expect([...REMEMBERED_SCOPE_KINDS]).toStrictEqual(["run", "session"]);
     expect([...INVALIDATION_TRIGGERS]).toStrictEqual([
       "explicit",
-      "node_trust_change",
       "session_end",
+      "project_detached",
+      "server_trust_withdrawn",
     ]);
   });
 });
 
 describe("every table is total over its own set", () => {
-  it("names every category, state, tone, trigger, and scope kind", () => {
+  it("names every category, state, tone, and scope kind", () => {
     for (const category of APPROVAL_CATEGORIES) {
       expect(CATEGORY_PHRASE[category]).not.toBe("");
     }
     for (const state of APPROVAL_STATES) {
       expect(STATE_PHRASE[state]).not.toBe("");
       expect(STATE_TONE[state]).toBeTypeOf("string");
-    }
-    for (const trigger of INVALIDATION_TRIGGERS) {
-      expect(TRIGGER_PHRASE[trigger]).not.toBe("");
     }
     for (const kind of REMEMBERED_SCOPE_KINDS) {
       expect(SCOPE_KIND_PHRASE[kind]).not.toBe("");
@@ -91,13 +85,11 @@ describe("the classifiers fail closed", () => {
   it("answers a member for a member", () => {
     expect(asApprovalCategory("destructive_git")).toBe("destructive_git");
     expect(asApprovalState("canceled")).toBe("canceled");
-    expect(asInvalidationTrigger("node_trust_change")).toBe("node_trust_change");
   });
 
   it("answers undefined rather than asserting an unknown value into a member", () => {
     expect(asApprovalCategory("sudo_everything")).toBeUndefined();
     expect(asApprovalState("half-approved")).toBeUndefined();
-    expect(asInvalidationTrigger("vibes")).toBeUndefined();
   });
 
   it("negative control: prototype keys are not members", () => {

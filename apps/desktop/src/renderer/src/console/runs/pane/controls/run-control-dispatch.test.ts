@@ -20,7 +20,7 @@ import {
   bridgeAnswering,
   type RecordedDaemonCall,
 } from "../../../bridge/fixture/call-plane/bridge.test-support.js";
-import { RUN_ID } from "../runs-pane.test-support.js";
+import { RUN_ID } from "./run-control-commands.test-support.js";
 
 /**
  * A pinned mint, so a case asserts the guard rather than a random value. Named
@@ -42,16 +42,9 @@ function dispatcherOver(answer: (call: RecordedDaemonCall) => Promise<unknown>):
 
 const ACK = { runId: RUN_ID, currentState: "paused", runVersion: 7 };
 
-describe("the closed set of six", () => {
-  it("declares exactly six controls", () => {
-    expect([...RUN_CONTROLS]).toStrictEqual([
-      "pause",
-      "resume",
-      "steer",
-      "interrupt",
-      "cancel",
-      "rollback",
-    ]);
+describe("the closed set of controls", () => {
+  it("declares exactly four controls", () => {
+    expect([...RUN_CONTROLS]).toStrictEqual(["pause", "resume", "steer", "interrupt"]);
   });
 });
 
@@ -61,8 +54,10 @@ describe("both guards, on every call", () => {
     await dispatcher.pause({ runId: RUN_ID, expectedRunVersion: 6 });
     await dispatcher.resume({ runId: RUN_ID, expectedRunVersion: 7 });
     expect(calls.map((call) => call.method)).toStrictEqual(["run.pause", "run.resume"]);
-    expect(calls[0]?.params).toMatchObject({ expectedRunVersion: 6 });
-    expect(calls[1]?.params).toMatchObject({ expectedRunVersion: 7 });
+    expect(calls.map((call) => call.params)).toMatchObject([
+      { expectedRunVersion: 6 },
+      { expectedRunVersion: 7 },
+    ]);
   });
 
   it("sends both guards on every intervention arm", async () => {
@@ -74,9 +69,7 @@ describe("both guards, on every call", () => {
     }));
     await dispatcher.steer({ runId: RUN_ID, expectedRunVersion: 7 }, { content: "narrower" });
     await dispatcher.interrupt({ runId: RUN_ID, expectedRunVersion: 7 });
-    await dispatcher.cancel({ runId: RUN_ID, expectedRunVersion: 7 });
-    await dispatcher.rollback({ runId: RUN_ID, expectedRunVersion: 7 }, { targetPosition: 3 });
-    expect(calls).toHaveLength(4);
+    expect(calls).toHaveLength(2);
     for (const call of calls) {
       expect(call.method).toBe("run.intervene");
       expect(call.params).toMatchObject({
@@ -105,25 +98,6 @@ describe("both guards, on every call", () => {
     const outcome = await dispatcher.pause({ runId: "not-a-run", expectedRunVersion: 1 });
     expect(calls).toHaveLength(0);
     expect(refusalCodeOf(outcome)).toBe("identifier-unparseable");
-  });
-});
-
-describe("the composite is selected by presence alone", () => {
-  it("omits `replacementSend` on a bare rollback and carries it on the composite", async () => {
-    const { dispatcher, calls } = dispatcherOver(async () => ({
-      interventionId: "c4e1b2d3-5f60-4071-9b82-0d3e4f506172",
-      interventionType: "rollback",
-      state: "applied",
-      runVersion: 9,
-      result: { disposition: "conversation-only" },
-    }));
-    await dispatcher.rollback({ runId: RUN_ID, expectedRunVersion: 8 }, { targetPosition: 4 });
-    await dispatcher.rollback(
-      { runId: RUN_ID, expectedRunVersion: 9 },
-      { targetPosition: 4, replacementSend: { content: "try this instead" } },
-    );
-    expect(calls[0]?.params).not.toHaveProperty("replacementSend");
-    expect(calls[1]?.params).toMatchObject({ replacementSend: { content: "try this instead" } });
   });
 });
 
@@ -162,14 +136,14 @@ describe("the comparand is the newer of the two readings", () => {
     // The run then advances on `run.subscribeState`, which no control caused and
     // whose advance the cache therefore never saw.
     const comparand = dispatcher.comparandFor(RUN_ID, 8);
-    await dispatcher.resume({ runId: RUN_ID, expectedRunVersion: comparand });
+    await dispatcher.pause({ runId: RUN_ID, expectedRunVersion: comparand });
     expect(calls[1]?.params).toMatchObject({ expectedRunVersion: 8 });
   });
 
   it("negative control: the cached reading alone would have sent the stale version", async () => {
-    // The superseded expression, written out: prefer the cache, fall back to the
-    // stream. Over the same two readings it sends 7 — the version the daemon has
-    // already moved past — and every later guarded control is refused as stale.
+    // The wrong expression, written out: prefer the cache, fall back to the stream.
+    // Over the same two readings it sends 7 — the version the daemon has already
+    // moved past — and every later guarded control is refused as stale.
     const { dispatcher } = dispatcherOver(async () => ACK);
     await dispatcher.pause({ runId: RUN_ID, expectedRunVersion: 6 });
     expect(dispatcher.freshComparandFor(RUN_ID) ?? 8).toBe(7);
@@ -182,7 +156,7 @@ describe("the comparand is the newer of the two readings", () => {
     const { dispatcher, calls } = dispatcherOver(async () => ACK);
     await dispatcher.pause({ runId: RUN_ID, expectedRunVersion: 6 });
     const comparand = dispatcher.comparandFor(RUN_ID, 6);
-    await dispatcher.resume({ runId: RUN_ID, expectedRunVersion: comparand });
+    await dispatcher.pause({ runId: RUN_ID, expectedRunVersion: comparand });
     expect(calls[1]?.params).toMatchObject({ expectedRunVersion: 7 });
   });
 
@@ -203,7 +177,7 @@ describe("the daemon's answer is the only settlement", () => {
     const { dispatcher } = dispatcherOver(async () => {
       throw { code: "intervention.idempotency_conflict", message: "the key was reused" };
     });
-    const outcome = await dispatcher.cancel({ runId: RUN_ID, expectedRunVersion: 6 });
+    const outcome = await dispatcher.interrupt({ runId: RUN_ID, expectedRunVersion: 6 });
     expect(refusalCodeOf(outcome)).toBe("intervention.idempotency_conflict");
     expect(outcome.kind === "refused" ? outcome.refusal.detail : "").toBe("the key was reused");
   });

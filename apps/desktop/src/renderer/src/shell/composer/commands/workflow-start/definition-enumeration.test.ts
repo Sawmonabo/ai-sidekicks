@@ -12,22 +12,20 @@ import { describe, expect, it } from "vitest";
 import { COMPOSER_WORKFLOW_DEFINITION_PAGE_CAP } from "../../composer-bounds.js";
 import { readWorkflowDefinitions } from "./definition-enumeration.js";
 import {
-  fixtureGrowthPort,
+  fixtureWorkflowStartOperations,
   recordedWorkflowCalls,
   WORKFLOW_TEST_SESSION_ID,
 } from "./workflow-start.test-support.js";
 
 /** The names one walk carried back, in the order the pages served them. */
 function namesOf(enumeration: Awaited<ReturnType<typeof readWorkflowDefinitions>>): string[] {
-  return enumeration.status === "served"
-    ? enumeration.definitions.map((definition) => definition.name)
-    : [];
+  return enumeration.definitions.map((definition) => definition.name);
 }
 
 describe("readWorkflowDefinitions", () => {
   it("follows the wire's own cursor to exhaustion", async () => {
     const calls = recordedWorkflowCalls();
-    const growth = fixtureGrowthPort({
+    const operations = fixtureWorkflowStartOperations({
       pages: [
         { definitions: [{ name: "nightly" }] },
         { definitions: [{ name: "release" }] },
@@ -36,10 +34,13 @@ describe("readWorkflowDefinitions", () => {
       calls,
     });
 
-    const enumeration = await readWorkflowDefinitions(growth, WORKFLOW_TEST_SESSION_ID);
+    const enumeration = await readWorkflowDefinitions(
+      operations.readDefinitionPage,
+      WORKFLOW_TEST_SESSION_ID,
+    );
 
     expect(namesOf(enumeration)).toStrictEqual(["nightly", "release", "deploy"]);
-    expect(enumeration.status === "served" && enumeration.complete).toBe(true);
+    expect(enumeration.complete).toBe(true);
     // The cursors were the daemon's, carried back untouched: a walk that minted its
     // own would page through something the wire never offered.
     expect(calls.listed.map((request) => request.cursor)).toStrictEqual([
@@ -52,64 +53,67 @@ describe("readWorkflowDefinitions", () => {
   it("negative control: a first-page-only read misses the later definition", async () => {
     // The shape the defect had. Reading one page and stopping leaves `release`
     // unfound, and the accelerator then refuses a name the session can start.
-    const growth = fixtureGrowthPort({
+    const operations = fixtureWorkflowStartOperations({
       pages: [{ definitions: [{ name: "nightly" }] }, { definitions: [{ name: "release" }] }],
     });
 
-    const firstPageOnly = await growth.workflowDefinitionList({
+    const firstPageOnly = await operations.readDefinitionPage({
       sessionId: WORKFLOW_TEST_SESSION_ID,
     });
 
-    expect(firstPageOnly.status === "served" && firstPageOnly.value.nextCursor).toBe("page-1");
+    expect(firstPageOnly.nextCursor).toBe("page-1");
+    expect(firstPageOnly.definitions.map((definition) => definition.name)).toStrictEqual([
+      "nightly",
+    ]);
+    // And the whole walk, over the same stub, finds it.
     expect(
-      firstPageOnly.status === "served"
-        ? firstPageOnly.value.definitions.map((definition) => definition.name)
-        : [],
-    ).toStrictEqual(["nightly"]);
-    // And the whole walk, over the same port, finds it.
-    expect(namesOf(await readWorkflowDefinitions(growth, WORKFLOW_TEST_SESSION_ID))).toContain(
-      "release",
-    );
+      namesOf(
+        await readWorkflowDefinitions(operations.readDefinitionPage, WORKFLOW_TEST_SESSION_ID),
+      ),
+    ).toContain("release");
   });
 
-  it("carries a refusal on any page as the whole read's refusal", async () => {
+  it("rejects the whole read when any page rejects", async () => {
     // A partial list presented as the answer would resolve a typed name against
     // definitions the daemon never finished listing.
-    const growth = fixtureGrowthPort({
-      pages: [{ definitions: [{ name: "nightly" }] }, { refuses: true }],
+    const operations = fixtureWorkflowStartOperations({
+      pages: [{ definitions: [{ name: "nightly" }] }],
+      onList: (request) => {
+        if (request.cursor !== undefined) {
+          throw new Error("page two is unreachable");
+        }
+      },
+      endless: true,
     });
 
-    const enumeration = await readWorkflowDefinitions(growth, WORKFLOW_TEST_SESSION_ID);
-
-    expect(enumeration.status).toBe("refused");
-    if (enumeration.status !== "refused") {
-      throw new Error("a refused page must not settle as a served list");
-    }
-    // The port's own refusal, carried rather than re-minted: the code says this build
-    // registers no wire for the operation, which is what the console renders.
-    expect(enumeration.refusal.code).toBe("wire-unregistered");
+    await expect(
+      readWorkflowDefinitions(operations.readDefinitionPage, WORKFLOW_TEST_SESSION_ID),
+    ).rejects.toThrow("page two is unreachable");
   });
 
   it("stops at the page cap and says the search did not finish", async () => {
     const calls = recordedWorkflowCalls();
-    const growth = fixtureGrowthPort({
+    const operations = fixtureWorkflowStartOperations({
       pages: [{ definitions: [{ name: "nightly" }] }],
       endless: true,
       calls,
     });
 
-    const enumeration = await readWorkflowDefinitions(growth, WORKFLOW_TEST_SESSION_ID);
+    const enumeration = await readWorkflowDefinitions(
+      operations.readDefinitionPage,
+      WORKFLOW_TEST_SESSION_ID,
+    );
 
     // Bounded: a cursor the daemon keeps handing back is otherwise an unbounded loop
     // on a person's keystroke.
     expect(calls.listed).toHaveLength(COMPOSER_WORKFLOW_DEFINITION_PAGE_CAP);
-    expect(enumeration.status === "served" && enumeration.complete).toBe(false);
+    expect(enumeration.complete).toBe(false);
   });
 
   it("stops paging the moment the reading it was for is superseded", async () => {
     const calls = recordedWorkflowCalls();
     let isLive = true;
-    const growth = fixtureGrowthPort({
+    const operations = fixtureWorkflowStartOperations({
       pages: [{ definitions: [{ name: "nightly" }] }],
       endless: true,
       calls,
@@ -121,13 +125,13 @@ describe("readWorkflowDefinitions", () => {
     });
 
     const enumeration = await readWorkflowDefinitions(
-      growth,
+      operations.readDefinitionPage,
       WORKFLOW_TEST_SESSION_ID,
       () => isLive,
     );
 
     expect(calls.listed).toHaveLength(1);
-    expect(enumeration.status === "served" && enumeration.complete).toBe(false);
+    expect(enumeration.complete).toBe(false);
   });
 
   it("negative control: the same endless port pages to the cap when nothing supersedes it", async () => {
@@ -135,13 +139,17 @@ describe("readWorkflowDefinitions", () => {
     // allows, so the one-call assertion is a claim about cancellation rather than
     // about the fixture running out of pages.
     const calls = recordedWorkflowCalls();
-    const growth = fixtureGrowthPort({
+    const operations = fixtureWorkflowStartOperations({
       pages: [{ definitions: [{ name: "nightly" }] }],
       endless: true,
       calls,
     });
 
-    await readWorkflowDefinitions(growth, WORKFLOW_TEST_SESSION_ID, () => true);
+    await readWorkflowDefinitions(
+      operations.readDefinitionPage,
+      WORKFLOW_TEST_SESSION_ID,
+      () => true,
+    );
 
     expect(calls.listed).toHaveLength(COMPOSER_WORKFLOW_DEFINITION_PAGE_CAP);
   });

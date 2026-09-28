@@ -11,8 +11,8 @@
 //     this shell's own send path rejects. That rule is about the PROVIDER half and
 //     says nothing about the console's own commands, which the prefix is reserved
 //     FOR — and `/workflow start <name>` is one of those, intercepted by the runtime
-//     and never forwarded anywhere. Completing its argument is therefore the opposite
-//     case, and it is the one write this seat makes to the line.
+//     and never forwarded anywhere. Typing its directive onto the line is therefore the
+//     opposite case, and it is the one write this seat makes to the line.
 //   • THE ONE ACT ON A ROW IS THE CONSOLE'S OWN. A console command's row carries a
 //     button — and that button runs the client-command executor, not a send. A
 //     provider row carries no button at all, because there is nothing this console may
@@ -58,12 +58,9 @@
 // is where their attention already is, so speaking through the window-wide region as
 // well would say everything twice.
 //
-// AND THIS SEAT IS WHERE THE WORKFLOW ACCELERATOR'S LINE-FACING HALF LIVES. Its two
-// surfaces both act on the composer's LINE — the palette entry types the directive
-// into it, and the candidate list completes the argument in it — which is this seat's
-// own subject and not the send bar's; the send bar holds the other half, the handler
-// that runs a completed line. Both are registered under one command root, so the
-// palette, the recogniser, and the keyboard page name one command.
+// AND THIS SEAT IS WHERE THE WORKFLOW ACCELERATOR'S LINE-FACING HALF LIVES. The
+// palette entry types the directive into the composer's LINE, which is this seat's
+// own subject and not the send bar's.
 
 import { useCallback, useMemo } from "react";
 import { type ComposerSeatProps } from "../../../console/seats/index.js";
@@ -77,13 +74,7 @@ import {
   type ProviderCommandEnumeration,
 } from "./provider-command-holder.js";
 import { CommandDiscoveryPopover } from "./CommandDiscoveryPopover.js";
-import {
-  WorkflowStartCandidates,
-  WorkflowStartPrefillConfirm,
-  readWorkflowCommandLine,
-  useWorkflowStartPrefill,
-  workflowStartLineFor,
-} from "./workflow-start/index.js";
+import { useWorkflowStartPrefill } from "./workflow-start/index.js";
 
 export type ProviderCommandAutocompleteProps = ComposerSeatProps & {
   /** The composer region whose line this surface watches. It writes to none of it. */
@@ -98,7 +89,7 @@ export type ProviderCommandAutocompleteProps = ComposerSeatProps & {
 
 export function ProviderCommandAutocomplete(
   props: ProviderCommandAutocompleteProps,
-): React.JSX.Element {
+): React.JSX.Element | null {
   const { region, bridge, route, commandEnumeration, draftStore } = props;
   // The address is resolved here rather than handed down, exactly as the chip rail
   // and the send bar resolve it: one hook with three readers is one implementation,
@@ -117,43 +108,19 @@ export function ProviderCommandAutocomplete(
     target,
     isOpen,
   });
-  const prefill = useWorkflowStartPrefill({ draftStore, draftKey });
+  // Contributes the palette entry that types the directive onto the line.
+  useWorkflowStartPrefill({ draftStore, draftKey });
 
   const readSurface = useCallback(() => composerCommandSurface(route), [route]);
   const addressed = useMemo(() => addressedProviderBinding(target), [target]);
-  const completeWorkflowName = useCallback(
-    (definitionName: string) => {
-      draftStore.write(draftKey, workflowStartLineFor(definitionName));
-    },
-    [draftStore, draftKey],
-  );
-
-  // Read off the same line the popover opened on. The reading answers `undefined` for
-  // every line that is not this command's, so no other command pays for this one.
-  const workflowLine = readWorkflowCommandLine(discovery.lineText);
-  return (
-    <>
-      {isOpen ? (
-        <CommandDiscoveryPopover
-          prefix={discovery.prefix ?? ""}
-          readSurface={readSurface}
-          enumeration={enumeration}
-          addressed={addressed}
-          stepIntoListToken={discovery.stepIntoListToken}
-          onDismiss={discovery.dismiss}
-          argumentCompletion={
-            workflowLine?.status === "start" ? (
-              <WorkflowStartCandidates
-                growth={bridge.growth}
-                sessionId={props.sessionStore.sessionId}
-                typedPrefix={workflowLine.definitionName}
-                onComplete={completeWorkflowName}
-              />
-            ) : null
-          }
-        />
-      ) : null}
-      <WorkflowStartPrefillConfirm {...prefill} />
-    </>
-  );
+  return isOpen ? (
+    <CommandDiscoveryPopover
+      prefix={discovery.prefix ?? ""}
+      readSurface={readSurface}
+      enumeration={enumeration}
+      addressed={addressed}
+      stepIntoListToken={discovery.stepIntoListToken}
+      onDismiss={discovery.dismiss}
+    />
+  ) : null;
 }

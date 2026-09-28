@@ -1,7 +1,7 @@
 // A registered approvals row answers through the render that is ON SCREEN.
 //
 // The rows are memoised on what they SAY, so everything that moves underneath them —
-// the pending records, the two dispatchers, whether a goal may be cleared — is read
+// the pending records and the two dispatchers — is read
 // through a ref when a person presses Enter. That makes WHERE the ref is written the
 // whole safety property: a pass React discards has already run this hook, and a pass
 // discarded while the pane was being re-addressed to another session carries that
@@ -16,7 +16,7 @@ import { render } from "@testing-library/react";
 import { useMemo, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 
-import { type ApprovalRecord, type SessionGoalProjection } from "../../bridge/index.js";
+import { type ApprovalRecord, type ApprovalResolveRequest } from "../../bridge/index.js";
 import { type ConsoleRefusal } from "../../core/index.js";
 import { consoleCommands } from "../../palette/index.js";
 import {
@@ -24,11 +24,9 @@ import {
   abandonOneRenderPass,
 } from "../../primitives/abandoned-pass.test-support.js";
 import { useApprovalCommands, type ApprovalCommandInput } from "./approval-commands.js";
-import { type ApprovalResolveRequest } from "./approvals-wire.js";
 
 const PENDING_REQUEST = "3f6b1c2d-4e5f-4061-8273-9a4b5c6d7e8f";
 const APPROVE_COMMAND_ID = `approvals.approve.${PENDING_REQUEST}`;
-const NO_GOAL: SessionGoalProjection = { status: "none", revision: "1" };
 
 /** The one waiting record both renders offer an answer for. */
 function pendingRecord(): ApprovalRecord {
@@ -53,9 +51,6 @@ function inputResolvingThrough(
     resolvingApprovalIds: new Set<string>(),
     resolveRefusalByApprovalId: new Map<string, ConsoleRefusal>(),
     resolve,
-    goal: NO_GOAL,
-    isMutatingGoal: false,
-    clearGoal: () => undefined,
   };
 }
 

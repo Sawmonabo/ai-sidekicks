@@ -19,7 +19,7 @@ import { recognizeClientCommand } from "../client-command-recognizer.js";
 import { composerCommandSurface } from "../console-command-surface.js";
 import type { DirectiveLineHandlers } from "../directive-line-handlers.js";
 import {
-  fixtureGrowthPort,
+  fixtureWorkflowStartOperations,
   recordedWorkflowCalls,
   WORKFLOW_TEST_SESSION_ID,
 } from "./workflow-start.test-support.js";
@@ -32,9 +32,6 @@ const SUPERSEDED_DOTTED_ID = "workflow.start";
 const CHANNEL_TARGET: ComposerTarget = {
   path: "channel-message",
   sessionId: WORKFLOW_TEST_SESSION_ID,
-  channelId: undefined,
-  workspaceId: undefined,
-  channelLabel: undefined,
 };
 
 const registeredIds: string[] = [];
@@ -124,9 +121,11 @@ describe("the documented line, end to end through the recogniser and the router"
         WORKFLOW_COMMAND_ROOT,
         async (line) =>
           await startWorkflowFromLine(line, {
-            growth: fixtureGrowthPort({ definitions: [{ name: "nightly" }], calls }),
+            operations: fixtureWorkflowStartOperations({
+              definitions: [{ name: "nightly" }],
+              calls,
+            }),
             sessionId: WORKFLOW_TEST_SESSION_ID,
-            channelId: undefined,
           }),
       ],
     ]);
@@ -146,17 +145,15 @@ describe("the documented line, end to end through the recogniser and the router"
     ]);
   });
 
-  it("negative control: under the superseded dotted id the documented line is unknown", () => {
+  it("negative control: under the superseded dotted id the documented line is not intercepted", () => {
     // The defect this registration replaced. `directive-syntax.ts` hands the recogniser
     // the FIRST WORD, so with `workflow.start` registered the spec's own line names
-    // `workflow` — an id the console does not hold — and refuses loudly.
+    // `workflow` — an id the console does not hold — and the line goes on as typed
+    // rather than reaching the workflow handler.
     registerRoot(SUPERSEDED_DOTTED_ID);
 
     const resolution = routerOverRegistry().resolve("/workflow start nightly", CHANNEL_TARGET);
 
-    expect(resolution.outcome).toBe("refused");
-    expect(resolution.outcome === "refused" ? resolution.refusal.code : undefined).toBe(
-      "unknown-command",
-    );
+    expect(resolution.outcome).not.toBe("client-command");
   });
 });

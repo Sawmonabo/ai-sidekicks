@@ -12,7 +12,7 @@ import type { ConsoleRefusal } from "../../../console/core/index.js";
 import type { ComposerSendPath } from "../chips/chip-models.js";
 import type { ProviderCatalogEntry } from "../commands/provider-command-catalog.js";
 
-/** The new-turn arm: a message addressed to a channel. */
+/** The new-turn arm: a message addressed to the session. */
 export interface ComposerNewTurnResolution {
   readonly outcome: "new-turn";
   readonly request: QueueItemCreateRequest;

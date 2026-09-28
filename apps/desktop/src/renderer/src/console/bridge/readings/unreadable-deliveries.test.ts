@@ -5,9 +5,8 @@
 // refusal is kept, and a clear resets both together — are asserted here rather than
 // through three layers that have nothing to do with them.
 //
-// AND THE COMPOSER IS ASSERTED HERE TOO, because it is now one function rather than
-// the two identical ones `queue/` and `quotas/` each wrote. What each stream still
-// owns is its own origin and its own sentence; what this module owns is the code and
+// AND THE COMPOSER IS ASSERTED HERE TOO, because it is one function for every stream.
+// What each stream owns is its own origin and its own sentence; what this module owns is the code and
 // the shape, and the cases below are what say which is which.
 
 import { describe, expect, it } from "vitest";

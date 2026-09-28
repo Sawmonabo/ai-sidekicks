@@ -50,7 +50,7 @@ describe("ProviderCommandAutocomplete — the surface follows every write to the
   }
 
   /**
-   * A channel-addressed composer, so an ordinary send settles into the history.
+   * A session-addressed composer, so an ordinary send settles into the history.
    *
    * The scenario scripts no `run.queueCreate`, and an unscripted call is a fixture
    * rejection — which refuses the send and records nothing, leaving the walk below

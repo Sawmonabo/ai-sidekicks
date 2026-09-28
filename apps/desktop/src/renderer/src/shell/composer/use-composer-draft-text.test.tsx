@@ -24,7 +24,6 @@ describe("useComposerDraftText — one subscription, two ways to take it", () =>
   it("renders the key's text and re-renders on a write to it", () => {
     const draftStore = new DraftStore({
       maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT,
-      restartNoticePending: false,
     });
     let latest = { text: "", read: (): string => "" };
     const probe = render(
@@ -53,7 +52,6 @@ describe("useComposerDraftText — one subscription, two ways to take it", () =>
     // key that dismissal to a string the person has already typed past.
     const draftStore = new DraftStore({
       maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT,
-      restartNoticePending: false,
     });
     let latest = { text: "", read: (): string => "" };
     render(
@@ -76,7 +74,6 @@ describe("useComposerDraftText — one subscription, two ways to take it", () =>
   it("ignores a write to another address, so one line never reports another's", () => {
     const draftStore = new DraftStore({
       maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT,
-      restartNoticePending: false,
     });
     const probe = render(<Probe draftStore={draftStore} draftKey={KEY} report={() => undefined} />);
 

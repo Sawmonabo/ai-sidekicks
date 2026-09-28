@@ -31,7 +31,6 @@ import {
   lossyStringify,
   readGuardedProperty,
 } from "../../../../../shared/wire-errors.js";
-import type { GrowthPort } from "../../../console/bridge/index.js";
 import { useLatestRef } from "../../../console/primitives/index.js";
 import type { ConsoleRoute } from "../../../console/routing/index.js";
 import type { CommandExecutor, CommandOutcome, DirectiveLine } from "../router/command-executor.js";
@@ -49,7 +48,6 @@ import { composerCommandSurface, type ComposerCommandSurface } from "./console-c
 import { addressedProviderBinding } from "./provider-command-catalog.js";
 import type { ComposerTarget } from "../chips/chip-models.js";
 import type { DirectiveLineHandlers } from "./directive-line-handlers.js";
-import { useWorkflowStartHandlers } from "./workflow-start/index.js";
 
 /**
  * Build the executor for one composer.
@@ -211,12 +209,14 @@ export function useComposerCommandZone(options: {
    * a name published by one of the others is not a name this send path may recognise.
    */
   readonly target: ComposerTarget;
-  /** The port the accelerators call. Theirs alone; nothing else in this zone asks. */
-  readonly growth: GrowthPort;
-  /** The session an accelerator starts work in, or nothing where there is none. */
-  readonly sessionId: string | undefined;
+  /**
+   * The commands that read arguments off the typed line. They close over what the
+   * composer is addressed at, so they change between renders while the executor built
+   * from them does not.
+   */
+  readonly directiveHandlers: DirectiveLineHandlers;
 }): ComposerCommandZone {
-  const { route, commandEnumeration, target } = options;
+  const { route, commandEnumeration, target, directiveHandlers } = options;
   const readSurface = useCallback(() => composerCommandSurface(route), [route]);
   const recognizeName = useCallback<ClientCommandPredicate>(
     (commandName) =>
@@ -225,36 +225,16 @@ export function useComposerCommandZone(options: {
       }).status === "recognized",
     [readSurface],
   );
-  // Read through a thunk for the same reason the surface is: an accelerator closes
-  // over the session and the port this composer is addressed at, and both move under
-  // a mounted composer.
-  //
-  // THE CHANNEL COMES OFF THE ADDRESS THIS ZONE ALREADY HOLDS. A start typed into a
-  // channel composer is a chat-borne start and carries its originating channel; a
-  // start typed at a running turn carries none, because there is no channel it came
-  // from. Reading it here rather than taking it as an option keeps one answer to
-  // "where is this composer addressed" — the same target the recogniser and the
-  // published-name lookup are already reading.
-  const directiveHandlers = useWorkflowStartHandlers({
-    growth: options.growth,
-    sessionId: options.sessionId,
-    channelId: target.path === "channel-message" ? target.channelId : undefined,
-  });
-  // The console's one latest-ref rather than a second copy of its shape: what makes
-  // the ref sufficient here is the thunk below, which resolves the handlers at call
-  // time instead of closing over them at render time. Why the write is a layout
-  // effect and never a render body — a discarded concurrent pass mutating state the
-  // committed tree keeps, and a passive flush leaving the ref a render behind the
-  // tree on screen — is `console/primitives/latest-ref.ts`'s to state, and it states
-  // it once for every surface that holds a long-lived callback.
-  const handlersRef = useLatestRef<DirectiveLineHandlers>(directiveHandlers);
+  // The executor is memoised and outlives every render, so it reads the handlers through
+  // the latest-ref at call time rather than closing over the ones it was built with.
+  const handlersRef = useLatestRef(directiveHandlers);
   const commandExecutor = useMemo(
     () =>
       createClientCommandExecutor({
         readSurface,
         readDirectiveHandlers: () => handlersRef.current,
       }),
-    [readSurface],
+    [readSurface, handlersRef],
   );
   const addressed = useMemo(() => addressedProviderBinding(target), [target]);
   const recognizePublished = useCallback<ProviderCommandPredicate>(

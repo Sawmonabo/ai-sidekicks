@@ -47,7 +47,6 @@ import { useId, useRef } from "react";
 import { type ComposerSeatProps } from "../console/seats/index.js";
 import { useSubjectScopedResource, type SubjectScopedDisposal } from "../console/store/index.js";
 import { ComposerAccessoryRail } from "./composer/accessories/index.js";
-import { ComposerChipRail } from "./composer/chips/index.js";
 import { ProviderCommandAutocomplete } from "./composer/commands/index.js";
 import { ProviderCommandEnumeration } from "./composer/commands/provider-command-holder.js";
 import { ComposerSendBar } from "./composer/router/index.js";
@@ -110,7 +109,6 @@ export function MessageComposer(props: ComposerSeatProps): React.JSX.Element {
       <p className="meridian-visually-hidden" id={descriptionId}>
         Composing in session {props.sessionStore.sessionId}.
       </p>
-      <ComposerChipRail {...props} />
       <ComposerSendBar {...props} commandEnumeration={commandEnumeration} />
       <ProviderCommandAutocomplete
         {...props}

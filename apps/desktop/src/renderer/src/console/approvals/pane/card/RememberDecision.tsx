@@ -38,7 +38,7 @@ import {
   SCOPE_KIND_PHRASE,
   type RememberedScopeKind,
 } from "../../../bridge/index.js";
-import { type ApprovalResolveRequest } from "../approvals-wire.js";
+import { type ApprovalResolveRequest } from "../../../bridge/index.js";
 
 /** What the user has said about remembering this answer, so far. */
 export interface RememberedGrantIntent {

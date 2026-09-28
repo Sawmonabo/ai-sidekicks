@@ -1,14 +1,12 @@
-// What a run-control contribution suite is handed: a run to contribute for, and a
-// surface that records what a pressed row dispatched.
+// What the run-control suites are handed: a run to contribute for, and a surface that
+// records what a pressed row dispatched.
 //
-// Hoisted out of `run-control-commands.test.ts` on its second use — the abandoned-pass
-// suite beside it drives the same hook and needs the same two collaborators, and a test
-// file may not import another test file, which would make one suite's cases a
-// dependency of another's. A second copy of the recording surface would be two answers
-// to "what did the palette dispatch", and the two would drift the first time the
-// surface's own shape grew a member.
+// One recording surface, so every suite that drives the palette hook answers "what did
+// the palette dispatch" the same way; a test file may not import another test file.
 
-import { type RunProjection } from "../run-state-projection.js";
+import { type RunState } from "@ai-sidekicks/contracts";
+
+import { type RunControlCommandRun } from "./run-control-commands.js";
 import {
   carriedRunControlRefusal,
   type RunControl,
@@ -17,6 +15,9 @@ import {
 } from "./run-control-dispatch.js";
 import { type RunControlSurface } from "./run-control-surface.js";
 
+/** A run identifier the wire's own reader accepts, shared by the suites in this folder. */
+export const RUN_ID = "b3f0a1c2-4d5e-4f60-8a71-9c2d3e4f5061";
+
 /** One dispatch a row made, as the stub dispatcher saw it. */
 export interface RecordedRunControlCall {
   readonly verb: RunControl;
@@ -24,25 +25,9 @@ export interface RecordedRunControlCall {
   readonly expectedRunVersion: number;
 }
 
-/** A projection at rest, carrying the two members the contribution actually reads. */
-export function runProjection(
-  runId: string,
-  state: RunProjection["state"] = "running",
-): RunProjection {
-  return {
-    runId,
-    runVersion: 7,
-    state,
-    trigger: undefined,
-    intendedClose: false,
-    failureCategory: undefined,
-    providerFailureDetail: undefined,
-    rewoundToPosition: undefined,
-    executionPosture: undefined,
-    firstSeenAtIso: "2026-09-02T09:00:00.000Z",
-    updatedAtIso: "2026-09-02T09:00:00.000Z",
-    statusRows: [],
-  };
+/** A run at version 7, which is the comparand a contributed row is expected to carry. */
+export function commandRun(runId: string, state: RunState = "running"): RunControlCommandRun {
+  return { runId, runVersion: 7, state };
 }
 
 /** A surface whose dispatcher records the verb and target it was asked for. */
@@ -66,7 +51,6 @@ export function recordingRunControlSurface(): {
     pause: record("pause"),
     resume: record("resume"),
     interrupt: record("interrupt"),
-    cancel: record("cancel"),
   } as unknown as RunControlDispatcher;
   const surface: RunControlSurface = {
     dispatcher,

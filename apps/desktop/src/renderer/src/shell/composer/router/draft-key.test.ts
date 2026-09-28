@@ -19,7 +19,6 @@ import { composerDraftKey } from "./draft-key.js";
  */
 interface TargetAxes {
   readonly sessionId?: string;
-  readonly channelId?: string;
   readonly agentId?: string;
   readonly targetRunId?: string;
 }
@@ -28,9 +27,6 @@ function channelTarget(axes: TargetAxes = {}): ComposerChannelTarget {
   return {
     path: "channel-message",
     sessionId: axes.sessionId ?? "session-1",
-    channelId: axes.channelId,
-    workspaceId: undefined,
-    channelLabel: undefined,
   };
 }
 
@@ -68,17 +64,15 @@ describe("composerDraftKey — the address the chip names", () => {
     );
   });
 
-  it("separates the session default channel from a named one", () => {
+  it("gives two sessions on the session path different keys", () => {
     expect(composerDraftKey(channelTarget())).not.toBe(
-      composerDraftKey(channelTarget({ channelId: "channel-a" })),
+      composerDraftKey(channelTarget({ sessionId: "session-2" })),
     );
   });
 
-  it("never gives a channel address and a run address the same key", () => {
+  it("never gives a session address and a run address the same key", () => {
     // The discriminator leads the key, so the two arms' key spaces are disjoint by
     // construction rather than by the identifiers happening to differ.
-    expect(composerDraftKey(channelTarget({ channelId: "agent-implementer" }))).not.toBe(
-      composerDraftKey(runTarget()),
-    );
+    expect(composerDraftKey(channelTarget())).not.toBe(composerDraftKey(runTarget()));
   });
 });

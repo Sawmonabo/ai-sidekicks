@@ -18,26 +18,24 @@
 // nothing matched, more than one matched, or exactly one did — and the pin it starts
 // is that entry's own `latestWorkflowVersionId`, never a version this module chose.
 //
-// THE ORIGINATING CHANNEL TRAVELS WITH THE START. A start issued from a channel carries
-// the originating channel as an additive-optional `channelId` on
-// `WorkflowRunStartRequest` — provenance and progress-surface binding only. The
-// composer already knows which channel it is addressed within, so the field is read off
-// that address and never composed here; the daemon validates the start before it binds
-// a surface, and this module neither pre-empts nor re-derives that.
+// THE TWO CALLS ARE ARGUMENTS. The daemon serves neither `workflow.definitionList` nor
+// `workflow.runStart` yet, so this module holds the accelerator's logic and none of the
+// wire: the caller supplies the call that reads a page and the call that starts a run.
 //
-// EVERY DAEMON REFUSAL IS CARRIED VERBATIM. `workflow.start_denied` is the one this
-// path exists to surface, and it reaches the composer as the port's own refusal with
-// its own code and sentence. Nothing here re-words it, and nothing here decides in
-// advance whether a start would be permitted — that is the daemon's answer, and a
-// renderer that pre-empted it would be projecting an eligibility it does not own.
+// NOTHING HERE DECIDES WHETHER A START WOULD BE PERMITTED. That is the daemon's answer,
+// and a renderer that pre-empted it would be projecting an eligibility it does not own.
+// A call that rejects rejects the whole line; the caller that supplies the calls owns
+// what a person is told.
 
 import { useMemo } from "react";
 
-import { settleGrowthRead, type GrowthPort } from "../../../../console/bridge/index.js";
 import type { CommandOutcome, DirectiveLine } from "../../router/command-executor.js";
 import { clientCommandRefusal } from "../client-command-recognizer.js";
 import type { DirectiveLineHandlers } from "../directive-line-handlers.js";
-import { readWorkflowDefinitions } from "./definition-enumeration.js";
+import {
+  readWorkflowDefinitions,
+  type ReadWorkflowDefinitionPage,
+} from "./definition-enumeration.js";
 import { matchWorkflowDefinition } from "./definition-match.js";
 import {
   WORKFLOW_COMMAND_ROOT,
@@ -46,27 +44,31 @@ import {
   readWorkflowCommandLine,
 } from "./grammar.js";
 
+/** The pinned version a start is issued against, and the session it starts in. */
+export interface WorkflowStartRequest {
+  readonly workflowVersionId: string;
+  readonly sessionId: string;
+}
+
+/** The two calls the accelerator makes, both supplied by the caller. */
+export interface WorkflowStartOperations {
+  readonly readDefinitionPage: ReadWorkflowDefinitionPage;
+  /** Starts one run; resolves once the daemon has accepted it. */
+  readonly startRun: (request: WorkflowStartRequest) => Promise<void>;
+}
+
 /** What the accelerator needs to start a run, all of it the composer's own. */
 export interface WorkflowStartInput {
-  readonly growth: GrowthPort;
+  readonly operations: WorkflowStartOperations;
   /** The session this composer is addressed within, or nothing where it has none. */
   readonly sessionId: string | undefined;
-  /**
-   * The channel this composer is addressed within, where it is addressed at one.
-   *
-   * Wire-verbatim and passed through: a start from a channel is chat-borne and says
-   * so, and a start from anywhere else carries no channel rather than a guessed one.
-   */
-  readonly channelId: string | undefined;
 }
 
 /**
  * Run the accelerator for one typed line.
  *
- * Two calls and one settlement. A refusal from either call is carried with its own
- * code and sentence — `workflow.start_denied` among them — and the local refusals
- * name what the person typed rather than what the daemon said, because nothing was
- * asked on those paths.
+ * Two calls and one settlement. The refusals here name what the person typed,
+ * because nothing was asked on those paths.
  */
 export async function startWorkflowFromLine(
   line: DirectiveLine,
@@ -99,10 +101,7 @@ export async function startWorkflowFromLine(
       ),
     };
   }
-  const listed = await readWorkflowDefinitions(input.growth, sessionId);
-  if (listed.status === "refused") {
-    return { status: "refused", refusal: listed.refusal };
-  }
+  const listed = await readWorkflowDefinitions(input.operations.readDefinitionPage, sessionId);
   const match = matchWorkflowDefinition(listed.definitions, definitionName);
   if (match.status === "none") {
     return refusedArgument(
@@ -114,20 +113,13 @@ export async function startWorkflowFromLine(
       `${String(match.count)} workflows this session can start are named ${definitionName}, so nothing was started. Start it from the plus menu, which names the scope each one comes from.`,
     );
   }
-  const started = await settleGrowthRead(
-    input.growth.workflowRunStart({
-      // The entry's own pin, never a version this module chose: a start is against a
-      // pinned version, and the enumeration is what says which version a name is at.
-      workflowVersionId: match.definition.latestWorkflowVersionId,
-      sessionId,
-      ...(input.channelId === undefined ? {} : { channelId: input.channelId }),
-    }),
-  );
-  // Carried whole. `workflow.start_denied` arrives here as the daemon's own refusal,
-  // and the composer renders it beside the line exactly as it renders every other one.
-  return started.status === "served"
-    ? { status: "applied" }
-    : { status: "refused", refusal: started };
+  // The entry's own pin, never a version this module chose: a start is against a
+  // pinned version, and the enumeration is what says which version a name is at.
+  await input.operations.startRun({
+    workflowVersionId: match.definition.latestWorkflowVersionId,
+    sessionId,
+  });
+  return { status: "applied" };
 }
 
 /**
@@ -136,17 +128,20 @@ export async function startWorkflowFromLine(
  * Keyed by the ROOT id, which is the id the recogniser claims and the palette lists,
  * so the map cannot claim a name the console has never heard of.
  */
-export function useWorkflowStartHandlers(input: WorkflowStartInput): DirectiveLineHandlers {
-  const { growth, sessionId, channelId } = input;
+export function useWorkflowStartHandlers(input: {
+  readonly operations: WorkflowStartOperations;
+  readonly sessionId: string | undefined;
+}): DirectiveLineHandlers {
+  const { operations, sessionId } = input;
   return useMemo(
     () =>
       new Map([
         [
           WORKFLOW_COMMAND_ROOT,
-          (line: DirectiveLine) => startWorkflowFromLine(line, { growth, sessionId, channelId }),
+          (line: DirectiveLine) => startWorkflowFromLine(line, { operations, sessionId }),
         ],
       ]),
-    [growth, sessionId, channelId],
+    [operations, sessionId],
   );
 }
 

@@ -38,26 +38,39 @@ describe("ComposerAccessoryRail — absence before assertion", () => {
     expect(meter?.getAttribute("aria-valuenow")).toBe("84");
   });
 
-  it("shows the compaction hint only above the threshold", () => {
-    const above = mountRail([contextWindowEvent(1)], ADDRESSED);
-    expect(above.querySelector(".meridian-context-meter__hint")).not.toBeNull();
-
-    const below = mountRail(
+  it("is never colored and adds no hint at 80% or past the window", () => {
+    // The ring is one figure and one meter, gray on gray: fullness changes the figure
+    // and never the color or the copy beside it.
+    const nearFull = mountRail([contextWindowEvent(1)], ADDRESSED);
+    const pastTheWindow = mountRail(
       [
         {
           ...contextWindowEvent(1),
           payload: {
             runId: RUN_ID,
-            windowUsedTokens: 24_000,
+            windowUsedTokens: 210_000,
             windowMaxTokens: 200_000,
             windowSource: "provider_reported",
-            exceeded: false,
+            exceeded: true,
           },
         },
       ],
       ADDRESSED,
     );
-    expect(below.querySelector(".meridian-context-meter__hint")).toBeNull();
+
+    for (const container of [nearFull, pastTheWindow]) {
+      expect(container.querySelector(".meridian-context-meter__hint")).toBeNull();
+      expect(
+        container.querySelector(".meridian-context-meter__fill")?.getAttributeNames(),
+      ).toStrictEqual(["class", "style"]);
+      expect(container.querySelector('[role="status"]')).toBeNull();
+    }
+    expect(nearFull.querySelector('[role="progressbar"]')?.getAttribute("aria-valuenow")).toBe(
+      "84",
+    );
+    expect(pastTheWindow.querySelector('[role="progressbar"]')?.getAttribute("aria-valuenow")).toBe(
+      "100",
+    );
   });
 
   it("states the provenance the row carried, and what an estimate means", () => {
@@ -94,33 +107,6 @@ describe("ComposerAccessoryRail — absence before assertion", () => {
     expect(container.querySelector(".meridian-context-meter__source-note")).toBeNull();
     expect(container.querySelector(".meridian-context-meter__source")?.textContent).toContain(
       "provider_reported",
-    );
-  });
-
-  it("replaces the near-full advice with the provider's own exhaustion statement", () => {
-    // Advising someone to compact soon is the wrong sentence beside a window the
-    // provider has already declared full, and both at once would be worse.
-    const container = mountRail(
-      [
-        {
-          ...contextWindowEvent(1),
-          payload: {
-            runId: RUN_ID,
-            windowUsedTokens: 210_000,
-            windowMaxTokens: 200_000,
-            windowSource: "provider_reported",
-            exceeded: true,
-          },
-        },
-      ],
-      ADDRESSED,
-    );
-
-    const hints = container.querySelectorAll(".meridian-context-meter__hint");
-    expect(hints).toHaveLength(1);
-    expect(hints[0]?.textContent).toContain("context window is full");
-    expect(container.querySelector('[role="progressbar"]')?.getAttribute("aria-valuenow")).toBe(
-      "100",
     );
   });
 });
@@ -186,10 +172,9 @@ describe("ComposerAccessoryRail — the meter reads the conversation it is addre
     expect(container.querySelector('[role="progressbar"]')?.getAttribute("aria-valuenow")).toBe(
       "10",
     );
-    expect(container.querySelector(".meridian-context-meter__hint")).toBeNull();
   });
 
-  it("negative control: the other run's composer draws the higher reading and its hint", () => {
+  it("negative control: the other run's composer draws the higher reading", () => {
     // Without this the case above would hold over a meter that had simply stopped
     // reading the timeline at all.
     const container = mountRail(BOTH_METERED, {
@@ -200,11 +185,10 @@ describe("ComposerAccessoryRail — the meter reads the conversation it is addre
     expect(container.querySelector('[role="progressbar"]')?.getAttribute("aria-valuenow")).toBe(
       "90",
     );
-    expect(container.querySelector(".meridian-context-meter__hint")).not.toBeNull();
   });
 
   it("renders the not-checked absence rather than a session-wide figure when no run is addressed", () => {
-    // A composer addressed to a channel meters no provider conversation, so there is
+    // A composer addressed to the session meters no provider conversation, so there is
     // no fullness for it to report — and the session's newest row is some run's, not
     // this composer's.
     const container = mountRail(BOTH_METERED, { entities: BOTH_AGENTS });
@@ -233,7 +217,7 @@ describe("ComposerAccessoryRail — a compaction moves the meter off its stale f
 
   it("draws the post-compaction figure the boundary carried", () => {
     // The finding: the meter sat at the pre-compaction 84% after the provider had
-    // compacted, and went on advising a compaction that had already happened.
+    // compacted.
     const container = mountRail(
       [contextWindowEvent(1), compactionRow(2, { postCompactionTokens: 40_000 })],
       ADDRESSED,
@@ -242,7 +226,6 @@ describe("ComposerAccessoryRail — a compaction moves the meter off its stale f
     expect(container.querySelector('[role="progressbar"]')?.getAttribute("aria-valuenow")).toBe(
       "20",
     );
-    expect(container.querySelector(".meridian-context-meter__hint")).toBeNull();
   });
 
   it("returns to the absence where the boundary carried no count", () => {
@@ -259,6 +242,5 @@ describe("ComposerAccessoryRail — a compaction moves the meter off its stale f
     expect(container.querySelector('[role="progressbar"]')?.getAttribute("aria-valuenow")).toBe(
       "84",
     );
-    expect(container.querySelector(".meridian-context-meter__hint")).not.toBeNull();
   });
 });

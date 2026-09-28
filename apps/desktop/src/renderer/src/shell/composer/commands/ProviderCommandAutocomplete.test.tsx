@@ -280,17 +280,6 @@ describe("ProviderCommandAutocomplete", () => {
     expect(list.querySelector('[role="option"][aria-selected="true"]')).not.toBeNull();
   });
 
-  it("negative control: the literal-slash escape opens nothing", async () => {
-    const mounted = await mountComposer({
-      bridge: recordingBridge([]),
-      focusedPane: agentPane(composerAgentIds()[0]!),
-    });
-
-    await typeIntoLine(mounted.line, "//not a command");
-
-    expect(mounted.container.querySelector('[role="listbox"]')).toBeNull();
-  });
-
   it("returns focus to the line when the list is dismissed from inside it", async () => {
     const mounted = await mountComposer({
       bridge: recordingBridge([]),

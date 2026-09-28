@@ -1,5 +1,4 @@
-// What the pane holds for the six controls: one dispatcher, and the record of what
-// it settled.
+// What is held for the run controls: one dispatcher, and the record of what it settled.
 //
 // Split from `run-control-dispatch.ts` because it is a second job: that module is
 // the wire chokepoint and is drivable without React, and this one is the React
@@ -7,14 +6,13 @@
 // lets a test drive every guard and every refusal arm against a stub bridge with no
 // rendered tree at all.
 //
-// AND THE LATCH ANSWERS. `dispatch` used to return `void` and drop a latched call
-// silently, which is right for a control the row disables — the person pressed it
-// twice — and wrong for a form that records a pending baseline of its own before
-// calling. A user could cancel a form with its request still in flight,
-// reopen the same run and control, type a new body, and confirm: the form marked
-// itself pending, the surface dropped the call, and the OLD request's settlement
-// then differed from the new form's baseline and was read as the new body's — an
-// old success closing the form and discarding text that never went anywhere.
+// THE LATCH ANSWERS. A silently dropped latched call is wrong for a form that records
+// a pending baseline of its own before calling: a user could cancel a form with its
+// request still in flight, reopen the same run and control, type a new body, and
+// confirm — the form marked itself pending, the surface dropped the call, and the OLD
+// request's settlement then differed from the new form's baseline and was read as the
+// new body's, an old success closing the form and discarding text that never went
+// anywhere.
 //
 // So the latch returns a verdict. An admitted dispatch carries the token its own
 // settlement will be recorded under, and a refused one carries the reason it was
@@ -102,7 +100,7 @@ export type RunControlAdmission =
   | { readonly admitted: true; readonly dispatchToken: string }
   | { readonly admitted: false; readonly reason: RunControlAdmissionRefusal };
 
-/** What the pane holds for the six controls: the dispatcher and its own record. */
+/** What is held for the run controls: the dispatcher and its own record. */
 export interface RunControlSurface {
   readonly dispatcher: RunControlDispatcher;
   /** Newest last, matching the ledger's reading direction. Bounded. */

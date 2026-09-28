@@ -1,34 +1,34 @@
 // The intervention composer's shared scaffolding.
 //
-// Both suites mount the same form against the same run projection and the same
-// fixture bridge, because the claims are about one composition: a form that composes
-// against a run reads that run's own comparand and dispatches through the router the
-// pane supplies.
+// The suites mount the same form against the same run and the same fixture bridge,
+// because the claims are about one composition: a form that composes against a run
+// reads that run's own comparand and dispatches through the surface it is given.
 
 import { useState } from "react";
 import { act, render } from "@testing-library/react";
 import type { RunState } from "@ai-sidekicks/contracts";
 import type { ConsoleBridge } from "../../../bridge/index.js";
-import { RunInterventionComposer, type ComposedControl } from "./RunInterventionComposer.js";
+import { RunInterventionComposer } from "./RunInterventionComposer.js";
+import type { RunControlCommandRun } from "../controls/run-control-commands.js";
 import { useRunControlSurface } from "../controls/run-control-surface.js";
-import { RunStateProjection, type RunProjection } from "../run-state-projection.js";
 import {
   createFixture,
   withDaemonCall,
   type RecordedDaemonCall,
 } from "../../../bridge/fixture/call-plane/bridge.test-support.js";
-import { RUN_ID } from "../runs-pane.test-support.js";
+
+export const RUN_ID = "b3f0a1c2-4d5e-4f60-8a71-9c2d3e4f5061";
+export const SECOND_RUN_ID = "c4a1b2d3-5e6f-4071-9b82-ad3e4f506172";
 
 /** What the stub daemon answers one call with. Throwing is the refusal arm. */
 export type ScriptedAnswer = () => unknown;
 
 /** The applied settlement every case that is not about settlement rides on. */
-export const APPLIED_ROLLBACK: ScriptedAnswer = () => ({
+export const APPLIED_STEER: ScriptedAnswer = () => ({
   interventionId: "d5f2c3e4-6071-4182-ac93-1e4f50617283",
-  interventionType: "rollback",
+  interventionType: "steer",
   state: "applied",
   runVersion: 9,
-  result: { disposition: "conversation-only" },
 });
 
 /**
@@ -54,35 +54,18 @@ export function interventionDispatchBridge(
   }).bridge;
 }
 
-export function runAt(state: RunState, runVersion = 8, runId: string = RUN_ID): RunProjection {
-  const fold = new RunStateProjection();
-  fold.accept({
-    runId,
-    runVersion,
-    previousState: "queued",
-    currentState: state,
-    timestamp: "2026-01-01T16:00:00.000Z",
-  });
-  const run = fold.runs()[0];
-  if (run === undefined) {
-    throw new Error("the fold produced no run");
-  }
-  return run;
+export function runAt(
+  state: RunState,
+  runVersion = 8,
+  runId: string = RUN_ID,
+): RunControlCommandRun {
+  return { runId, runVersion, state };
 }
 
 export function ComposerHarness(props: {
-  readonly control: ComposedControl;
   readonly calls: RecordedDaemonCall[];
   readonly answer: ScriptedAnswer;
   readonly onDismiss: () => void;
-  /**
-   * The run to compose against, for the case that re-targets one mounted form.
-   *
-   * Deliberately WITHOUT a React key, which is the documented keyless path: the pane
-   * supplies one and this parameter is how a case reaches the composer's own second
-   * defence against a caller that does not.
-   */
-  readonly run?: RunProjection;
 }): React.JSX.Element {
   // Pinned for the harness's whole life: the surface keys its holders on the
   // bridge, so a stub rebuilt on every render would be a new transport each pass.
@@ -91,18 +74,14 @@ export function ComposerHarness(props: {
   return (
     <RunInterventionComposer
       bridge={bridge}
-      run={props.run ?? runAt("paused")}
-      control={props.control}
+      run={runAt("paused")}
       surface={surface}
       onDismiss={props.onDismiss}
     />
   );
 }
 
-export function renderComposer(
-  control: ComposedControl,
-  answer: ScriptedAnswer = APPLIED_ROLLBACK,
-): {
+export function renderComposer(answer: ScriptedAnswer = APPLIED_STEER): {
   container: HTMLElement;
   calls: RecordedDaemonCall[];
   dismissCount: () => number;
@@ -111,7 +90,6 @@ export function renderComposer(
   let dismissals = 0;
   const { container } = render(
     <ComposerHarness
-      control={control}
       calls={calls}
       answer={answer}
       onDismiss={() => {

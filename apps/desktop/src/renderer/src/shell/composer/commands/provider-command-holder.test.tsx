@@ -123,7 +123,7 @@ describe("useProviderCommandEnumeration", () => {
     expect(enumerationCalls(recorded)).toHaveLength(1);
   });
 
-  it("asks nothing for a composer addressed at a channel", async () => {
+  it("asks nothing for a composer addressed at a session, not at a run", async () => {
     const recorded: RecordedDaemonCall[] = [];
     const bridge = recordingBridge(recorded);
     const enumeration = new ProviderCommandEnumeration();
@@ -134,9 +134,6 @@ describe("useProviderCommandEnumeration", () => {
         target: {
           path: "channel-message",
           sessionId: COMPOSER_SCENARIO.sessionId,
-          channelId: undefined,
-          workspaceId: undefined,
-          channelLabel: undefined,
         },
         isOpen: true,
       }),

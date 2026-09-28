@@ -10,7 +10,7 @@
 // rendered is the draft the walk wrote — so putting it in state would re-render the
 // whole bar on a keystroke that changed nothing a person can see.
 //
-// THE HISTORIES ARE PER ADDRESS AND ASKED ON EVERY PASS. A message sent to a channel
+// THE HISTORIES ARE PER ADDRESS AND ASKED ON EVERY PASS. A message sent to a session
 // is not on the way back through an agent's composer, so each address keeps its own
 // record; and the record is resolved in the render body rather than in an effect,
 // because a keystroke arriving before an effect could run must still walk this

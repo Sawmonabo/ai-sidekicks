@@ -6,7 +6,7 @@
 // calling `queued` is exactly the row the shelf drops. So the read is shared and the
 // question stays the shelf's own.
 //
-// `admitted`, `superseded`, `canceled`, and `expired` are all the daemon saying the
+// `admitted`, `superseded`, `canceled`, and `not_delivered` are all the daemon saying the
 // item is no longer waiting, so all four leave the shelf by this one rule rather than
 // by four special cases — and none of them is deleted from the reading, which the
 // pane beside the composer is still rendering.

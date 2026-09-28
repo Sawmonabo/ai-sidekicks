@@ -19,7 +19,7 @@ import { useProviderCommandEnumeration } from "./provider-command-holder.js";
  * What the provider half of the list is, when it is not the whole list.
  *
  * Six outcomes and six different next moves, which is why none of them is an empty
- * list: nobody was asked (this composer addresses a channel, not an agent), the read
+ * list: nobody was asked (this composer addresses the session, not an agent), the read
  * is in flight, the daemon refused, the provider answered in full for this run's
  * binding, it answered for bindings none of which is this run's — an absence about
  * ROUTING rather than about the provider's catalogue, and stated as one — or it

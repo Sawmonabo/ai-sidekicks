@@ -8,22 +8,37 @@
 import { describe, expect, it } from "vitest";
 import type { QueueItemSummary } from "@ai-sidekicks/contracts";
 
-import { fixtureQueueItemId, queueRow } from "./queue-rows.test-support.js";
+import { readQueueItemId } from "../../../../console/bridge/index.js";
 import { waitingQueueRows } from "./waiting-queue.js";
+
+/** A queue-item id the wire admits, or a loud failure. */
+function fixtureQueueItemId(value: string): QueueItemSummary["id"] {
+  const queueItemId = readQueueItemId(value);
+  if (queueItemId === undefined) {
+    throw new Error(`this fixture names a queue-item id the wire would refuse: ${value}`);
+  }
+  return queueItemId;
+}
 
 const WAITING_FIRST = fixtureQueueItemId("1a2b3c4d-5e6f-4071-8283-94a5b6c7d8e9");
 const WAITING_SECOND = fixtureQueueItemId("2b3c4d5e-6f70-4182-9394-a5b6c7d8e9f0");
 const ADMITTED = fixtureQueueItemId("3c4d5e6f-7081-4293-84a5-b6c7d8e9f001");
 const SUPERSEDED = fixtureQueueItemId("4d5e6f70-8192-43a4-95b6-c7d8e9f00112");
 const CANCELED = fixtureQueueItemId("5e6f7081-92a3-44b5-86c7-d8e9f0011223");
-const EXPIRED = fixtureQueueItemId("6f708192-a3b4-45c6-97d8-e9f001122334");
+const NOT_DELIVERED = fixtureQueueItemId("6f708192-a3b4-45c6-97d8-e9f001122334");
 
-/** One row in one state, through the zone's own builder over the registered shape. */
+/** One row in one state, over the registered shape. */
 function rowInState(
   id: QueueItemSummary["id"],
   state: QueueItemSummary["state"],
 ): QueueItemSummary {
-  return queueRow(id, state);
+  return {
+    id,
+    state,
+    priority: 0,
+    createdAt: "2026-09-02T09:00:00.000Z",
+    updatedAt: "2026-09-02T09:00:00.000Z",
+  };
 }
 
 describe("waitingQueueRows", () => {
@@ -41,7 +56,7 @@ describe("waitingQueueRows", () => {
       rowInState(ADMITTED, "admitted"),
       rowInState(SUPERSEDED, "superseded"),
       rowInState(CANCELED, "canceled"),
-      rowInState(EXPIRED, "expired"),
+      rowInState(NOT_DELIVERED, "not_delivered"),
     ];
     expect(waitingQueueRows(rows).map((row) => row.id)).toStrictEqual([WAITING_FIRST]);
   });

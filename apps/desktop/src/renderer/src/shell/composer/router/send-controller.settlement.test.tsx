@@ -1,5 +1,4 @@
-// A send that settles after the composer has been re-addressed, and a success that
-// lands beside another operation's refusal.
+// A send that settles after the composer has been re-addressed.
 //
 // The hook-level half of the settlement-identity rules `send-settlement.test.ts`
 // states over literals. These drive the real hook over a real `DraftStore` and a
@@ -13,61 +12,25 @@ import { ParkedDaemonCalls } from "../parked-daemon-calls.test-support.js";
 import type { ConsoleBridge } from "../../../console/bridge/index.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "../../../console/core/index.js";
 import { DraftStore } from "../../../console/persistence/index.js";
-import type {
-  ComposerChannelTarget,
-  ComposerRunTarget,
-  ComposerTarget,
-} from "../chips/chip-models.js";
+import type { ComposerChannelTarget } from "../chips/chip-models.js";
 import type { SendController } from "./send-controller-contract.js";
 import { useSendController } from "./send-controller.js";
-import { QUEUE_CREATED, SESSION_ID } from "./send-router.test-support.js";
 
-const CHANNEL_A = "1b2c3d4e-5f60-4172-8384-ab5c6d7e8f90";
-const CHANNEL_B = "2c3d4e5f-6071-4283-8495-bc6d7e8f9012";
-/** `RunIdSchema` is a branded UUID and the stop path parses the run before it calls. */
-const RUN_ID = "b3f0a1c2-4d5e-4f60-8a71-9c2d3e4f5061";
-const AGENT_A = "agent-alpha";
-const AGENT_B = "agent-beta";
+const SESSION_A = "1b2c3d4e-5f60-4172-8384-ab5c6d7e8f90";
+const SESSION_B = "2c3d4e5f-6071-4283-8495-bc6d7e8f9012";
 
 const QUEUE_FULL_CODE = "queue.full";
-const QUEUE_FULL_MESSAGE = "That channel's queue is full.";
+const QUEUE_FULL_MESSAGE = "That session's queue is full.";
 
-function channelTarget(channelId: string): ComposerChannelTarget {
-  return {
-    path: "channel-message",
-    sessionId: SESSION_ID,
-    channelId,
-    workspaceId: undefined,
-    channelLabel: undefined,
-  };
-}
-
-/**
- * The other send path, addressed to an agent.
- *
- * Stop is only reachable here: a channel-addressed Stop refuses without a wire call,
- * so a Stop that is still TRAVELLING — which is what the re-address cases are about
- * — cannot be produced on the channel path at all.
- */
-function runTarget(agentId: string): ComposerRunTarget {
-  return {
-    path: "provider-bound",
-    sessionId: SESSION_ID,
-    agentId,
-    agentName: undefined,
-    driverName: undefined,
-    targetRunId: RUN_ID,
-    expectedRunVersion: 4,
-    runState: undefined,
-    providerFailureDetail: undefined,
-  };
+function sessionTarget(sessionId: string): ComposerChannelTarget {
+  return { path: "channel-message", sessionId };
 }
 
 /** Reports the controller out of the tree at whichever address the case supplies. */
 function AddressableProbe(props: {
   readonly bridge: ConsoleBridge;
   readonly draftStore: DraftStore;
-  readonly target: ComposerTarget;
+  readonly target: ComposerChannelTarget;
   readonly onController: (controller: SendController) => void;
 }): null {
   const controller = useSendController({
@@ -84,42 +47,27 @@ interface DrivenComposer {
   latest(): SendController;
   /** Type a body, start its send, and hand back the promise unawaited. */
   beginSend(body: string): Promise<void>;
-  /** Dispatch one exact body without touching the line — the resend offer's path. */
-  beginResend(body: string): Promise<void>;
-  /** Press Stop and hand back the promise unawaited, so the case owns the interval. */
-  beginStop(): Promise<void>;
-  reAddressTo(addressId: string): void;
+  reAddressTo(sessionId: string): void;
 }
 
-/**
- * Mount one composer at an address the case names, and let it be re-addressed.
- *
- * The address axis is a parameter because both send paths have one and the rules
- * under test are about the axis rather than about either path: a channel-addressed
- * composer is re-addressed by its channel, an agent-addressed one by its agent, and
- * `composerDraftKey` reads both as the same kind of move.
- */
-function driveAddressableComposer(
-  targetAt: (addressId: string) => ComposerTarget = channelTarget,
-  initialAddressId: string = CHANNEL_A,
-): DrivenComposer {
+/** Mount one composer on a session the case names, and let it be re-addressed. */
+function driveAddressableComposer(initialSessionId: string = SESSION_A): DrivenComposer {
   const calls = new ParkedDaemonCalls();
   const draftStore = new DraftStore({
     maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT,
-    restartNoticePending: false,
   });
   let latest: SendController | undefined;
-  const renderAt = (addressId: string): React.JSX.Element => (
+  const renderAt = (sessionId: string): React.JSX.Element => (
     <AddressableProbe
       bridge={calls.bridge}
       draftStore={draftStore}
-      target={targetAt(addressId)}
+      target={sessionTarget(sessionId)}
       onController={(controller) => {
         latest = controller;
       }}
     />
   );
-  const view = render(renderAt(initialAddressId));
+  const view = render(renderAt(initialSessionId));
   const latestController = (): SendController => {
     if (latest === undefined) {
       throw new Error("the probe reported no controller");
@@ -148,11 +96,9 @@ function driveAddressableComposer(
       });
       return begin(() => latestController().send());
     },
-    beginResend: (body: string) => begin(() => latestController().resend(body)),
-    beginStop: () => begin(() => latestController().stop()),
-    reAddressTo: (addressId: string) => {
+    reAddressTo: (sessionId: string) => {
       act(() => {
-        view.rerender(renderAt(addressId));
+        view.rerender(renderAt(sessionId));
       });
     },
   };
@@ -160,12 +106,12 @@ function driveAddressableComposer(
 
 describe("useSendController — a settlement is keyed to the address it was sent under", () => {
   it("never renders a refusal for one target under the target the composer moved to", async () => {
-    // The finding: a send to channel A awaiting the daemon while the person
-    // re-addresses to channel B. The refusal that comes back is a verdict on a
+    // The finding: a send to session A awaiting the daemon while the person
+    // re-addresses to session B. The refusal that comes back is a verdict on a
     // message B never carried.
     const driven = driveAddressableComposer();
     const pending = driven.beginSend("ship it");
-    driven.reAddressTo(CHANNEL_B);
+    driven.reAddressTo(SESSION_B);
 
     await act(async () => {
       driven.calls.refuseOldest(QUEUE_FULL_CODE, QUEUE_FULL_MESSAGE);
@@ -187,6 +133,8 @@ describe("useSendController — a settlement is keyed to the address it was sent
     });
 
     expect(driven.latest().refusal?.code).toBe(QUEUE_FULL_CODE);
+    // A refused send keeps its words, so the person can send again.
+    expect(driven.latest().text).toBe("ship it");
   });
 
   it("does not resurrect a discarded settlement when the composer returns to its address", async () => {
@@ -196,13 +144,13 @@ describe("useSendController — a settlement is keyed to the address it was sent
     // written on is still there, because a refused send keeps its text.
     const driven = driveAddressableComposer();
     const pending = driven.beginSend("ship it");
-    driven.reAddressTo(CHANNEL_B);
+    driven.reAddressTo(SESSION_B);
 
     await act(async () => {
       driven.calls.refuseOldest(QUEUE_FULL_CODE, QUEUE_FULL_MESSAGE);
       await pending;
     });
-    driven.reAddressTo(CHANNEL_A);
+    driven.reAddressTo(SESSION_A);
 
     expect(driven.latest().refusal).toBeUndefined();
     expect(driven.latest().text).toBe("ship it");
@@ -219,8 +167,8 @@ describe("useSendController — a settlement is keyed to the address it was sent
     const firstSend = driven.beginSend("ship it");
     expect(driven.calls.parkedCount).toBe(1);
 
-    driven.reAddressTo(CHANNEL_B);
-    driven.reAddressTo(CHANNEL_A);
+    driven.reAddressTo(SESSION_B);
+    driven.reAddressTo(SESSION_A);
     expect(driven.latest().status).toBe("idle");
 
     const secondSend = driven.beginSend("actually, hold on");
@@ -248,56 +196,17 @@ describe("useSendController — a settlement is keyed to the address it was sent
   });
 });
 
-describe("useSendController — one operation's settlement never erases another's", () => {
-  it("keeps a Stop's refusal standing when a send succeeds beside it", async () => {
-    // The shared slot's other half. This composer addresses a channel, so Stop
-    // refuses without reaching the wire — a real settlement of the stop operation —
-    // and the send that follows it succeeds. Under one slot the success cleared the
-    // Stop's refusal; under one slot per operation it clears its own and no other.
-    //
-    // The send travels the RESEND path deliberately: typing would clear every slot
-    // by the edit rule, which is a different clearing from the one under test.
-    const driven = driveAddressableComposer();
-    await act(async () => {
-      await driven.latest().stop();
-    });
-    expect(driven.latest().refusal?.code).toBe("no-running-turn");
-
-    const pending = driven.beginResend("ship it");
-    await act(async () => {
-      driven.calls.resolveOldest(QUEUE_CREATED);
-      await pending;
-    });
-
-    expect(driven.latest().refusal?.code).toBe("no-running-turn");
-  });
-
-  it("negative control: an edit clears every slot, including the Stop's", () => {
-    // The rule the case above must not be read as contradicting: a person composing
-    // again has moved past both acts, so the next keystroke clears the record.
-    const driven = driveAddressableComposer();
-    act(() => {
-      void driven.latest().stop();
-    });
-    act(() => {
-      driven.latest().changeText("a");
-    });
-
-    expect(driven.latest().refusal).toBeUndefined();
-  });
-});
-
 describe("useSendController — an operation's busy state belongs to the address it was issued at", () => {
   it("leaves the next address idle while a send for the previous one is still going", async () => {
     // The finding: the sending status and the single-flight latch were hook-wide, so
-    // a message still travelling to one channel left the composer read-only for the
-    // channel the person had moved to — until the first call settled, and forever
+    // a message still travelling to one session left the composer read-only for the
+    // session the person had moved to — until the first call settled, and forever
     // where it never did.
     const driven = driveAddressableComposer();
     const pending = driven.beginSend("ship it");
     expect(driven.calls.parkedCount).toBe(1);
 
-    driven.reAddressTo(CHANNEL_B);
+    driven.reAddressTo(SESSION_B);
 
     expect(driven.latest().status).toBe("idle");
     await act(async () => {
@@ -323,7 +232,7 @@ describe("useSendController — an operation's busy state belongs to the address
     // The rule the keying must not be read as relaxing: two presses at ONE address
     // inside one tick are still one send.
     const driven = driveAddressableComposer();
-    driven.reAddressTo(CHANNEL_B);
+    driven.reAddressTo(SESSION_B);
     const pending = driven.beginSend("ship it");
     const second = driven.latest().send();
 
@@ -340,48 +249,20 @@ describe("useSendController — an operation's busy state belongs to the address
     // one wedged by its own answered call.
     const driven = driveAddressableComposer();
     const pending = driven.beginSend("ship it");
-    driven.reAddressTo(CHANNEL_B);
+    driven.reAddressTo(SESSION_B);
     await act(async () => {
       driven.calls.resolveOldest({});
       await pending;
     });
 
     expect(driven.latest().status).toBe("idle");
-    driven.reAddressTo(CHANNEL_A);
+    driven.reAddressTo(SESSION_A);
     const resumed = driven.beginSend("ship it again");
 
     expect(driven.calls.parkedCount).toBe(1);
     await act(async () => {
       driven.calls.resolveOldest({});
       await resumed;
-    });
-  });
-
-  it("leaves the next agent's Stop available while the previous agent's is going", async () => {
-    // Stop's own half of the same finding, on the path where a Stop reaches the
-    // wire at all. An interrupt still travelling for one agent marked the control
-    // busy for the agent the composer had moved to.
-    const driven = driveAddressableComposer(runTarget, AGENT_A);
-    const pending = driven.beginStop();
-    expect(driven.calls.parkedCount).toBe(1);
-
-    driven.reAddressTo(AGENT_B);
-
-    expect(driven.latest().isStopping).toBe(false);
-    await act(async () => {
-      driven.calls.resolveOldest({});
-      await pending;
-    });
-  });
-
-  it("negative control: the agent whose Stop is travelling reads stopping", async () => {
-    const driven = driveAddressableComposer(runTarget, AGENT_A);
-    const pending = driven.beginStop();
-
-    expect(driven.latest().isStopping).toBe(true);
-    await act(async () => {
-      driven.calls.resolveOldest({});
-      await pending;
     });
   });
 });

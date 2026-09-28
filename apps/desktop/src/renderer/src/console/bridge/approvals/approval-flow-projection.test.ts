@@ -28,7 +28,7 @@ describe("the kinds the composer family claims", () => {
     expect(categoryKinds.filter((kind) => !APPROVAL_FLOW_EVENT_KINDS.includes(kind))).toStrictEqual(
       ["moderation.review_flagged"],
     );
-    expect(APPROVAL_FLOW_EVENT_KINDS).toHaveLength(7);
+    expect(APPROVAL_FLOW_EVENT_KINDS).toHaveLength(6);
     expect(Object.keys(APPROVAL_FLOW_PROJECTORS).toSorted()).toStrictEqual(
       [...APPROVAL_FLOW_EVENT_KINDS].toSorted(),
     );
@@ -232,7 +232,7 @@ describe("one event, folded", () => {
             category: "network_access",
             scope: "session",
             ruleId: "rule-2",
-            invalidationTrigger: "node_trust_change",
+            invalidationTrigger: "project_detached",
           },
         }),
       ),

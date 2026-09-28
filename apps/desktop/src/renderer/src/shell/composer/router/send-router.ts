@@ -9,10 +9,9 @@
 //
 //   1. **Resolution is pure and separate from dispatch.** `resolve` takes text and
 //      a target and answers with the request it WOULD send. That is what makes the
-//      slash rules, the two-path escape behaviour, and every refusal drivable from
-//      a test without a bridge, and it is what lets the surface render the path
-//      label ("new turn" / "steer") from the same decision that performs it rather
-//      than from a second guess beside it.
+//      slash rules and every refusal drivable from a test without a bridge, and it
+//      is what lets the surface render the path label ("new turn" / "steer") from the
+//      same decision that performs it rather than from a second guess beside it.
 //   2. **Every identifier is read through the bridge family's reader.** The store
 //      holds wire-verbatim strings; `run.queueCreate` and `run.intervene` take
 //      branded ids. Reading here means the console never dispatches a shape the
@@ -29,19 +28,17 @@
 //      projection yet, so the comparand is routinely absent — and the answer to an
 //      absent stale-replay guard is to refuse, never to send a zero, which would be
 //      a guard the caller invented rather than one the daemon verified.
-//   4. **A fulfilled call is not a successful send.** All three send paths reach the
+//   4. **A fulfilled call is not a successful send.** Both send paths reach the
 //      wire through `callDaemon`, which answers `served` or `refused` and never
 //      throws, so a reply that did not parse against its registered shape can no
-//      longer be read as "sent" — the failure this module used to make once per call
-//      site is now structural. On top of that, a SERVED reply is still not
+//      longer be read as "sent". On top of that, a SERVED reply is still not
 //      necessarily a landed message: `run.intervene` answers with a lifecycle STATE,
 //      and two of the six mean the run did not take it, so the state decides and the
 //      answer's `runVersion` is kept — an applied native steer advances the run
 //      version with no state event to broadcast it, so the response is the only place
 //      the fresh comparand exists and a second steer was guaranteed to be refused as
-//      stale without it. The other two settle on the served reply itself:
-//      `run.queueCreate` answers with the queued item, and `driver.interruptRun` with
-//      `DriverAckResult`, the empty object, which carries no member to branch on.
+//      stale without it. `run.queueCreate` settles on the served reply itself: it
+//      answers with the queued item.
 //
 // TRIMMING IS A TEST AND NEVER A TRANSFORM. This module used to resolve against
 // `text.trim()` and hand that trimmed value to both request builders, so the daemon
@@ -57,29 +54,17 @@
 // eligibility is the daemon's and reaches the surface as a typed refusal, which
 // this module carries through verbatim rather than re-deriving.
 
-import type {
-  InterruptRunParams,
-  InterventionRequestPayload,
-  QueueItemCreateRequest,
-} from "@ai-sidekicks/contracts";
+import type { InterventionRequestPayload, QueueItemCreateRequest } from "@ai-sidekicks/contracts";
 
 import {
-  readChannelId,
-  readInterruptRunParams,
   readInterventionRequest,
   readQueueItemCreateRequest,
   readRunId,
   readSessionId,
-  readWorkspaceId,
   type ConsoleBridge,
 } from "../../../console/bridge/index.js";
-import type { ComposerTarget } from "../chips/chip-models.js";
-import {
-  LITERAL_SLASH_ESCAPE,
-  opensDirectiveLine,
-  readDirectiveName,
-  stripLiteralSlashEscape,
-} from "../directive-syntax.js";
+import type { ComposerChannelTarget, ComposerTarget } from "../chips/chip-models.js";
+import { readDirectiveName } from "../directive-syntax.js";
 import type {
   ClientCommandPredicate,
   ComposerRefusedResolution,
@@ -93,7 +78,7 @@ import {
   type ComposerRefusalCode,
 } from "./send-refusals.js";
 import { RunVersionLedger } from "./run-version-ledger.js";
-import { dispatchInterrupt, dispatchIntervention, dispatchQueuedTurn } from "./send-dispatch.js";
+import { dispatchIntervention, dispatchQueuedTurn } from "./send-dispatch.js";
 
 export interface ComposerSendRouterOptions {
   readonly bridge: ConsoleBridge;
@@ -147,20 +132,15 @@ export class ComposerSendRouter {
     // The one place trimming appears, and it decides nothing but blankness: the
     // value below is never what gets sent.
     if (text.trim().length === 0) {
-      return refused(
-        "empty-message",
-        "There is nothing to send yet. Type a message, or press Stop to interrupt the running turn.",
-      );
+      return refused("empty-message", "There is nothing to send yet. Type a message.");
     }
     const slashOutcome = this.#resolveSlashPrefix(text, target);
     if (slashOutcome !== undefined) {
       return slashOutcome;
     }
-    // The escape's single strip, in one place rather than once per branch below.
-    const sendableBody = stripLiteralSlashEscape(text);
     return target.path === "channel-message"
-      ? this.#resolveNewTurn(sendableBody, target)
-      : this.#resolveSteer(sendableBody, target);
+      ? this.#resolveNewTurn(text, target)
+      : this.#resolveSteer(text, target);
   }
 
   /**
@@ -186,83 +166,39 @@ export class ComposerSendRouter {
   }
 
   /**
-   * Stop the addressed run.
-   *
-   * Reachable during any active turn regardless of what is in the input, which is
-   * why it is its own method and takes no text: a person interrupting a turn is not
-   * composing one, and gating Stop on a valid draft would put the control behind
-   * exactly the state it exists to escape.
-   *
-   * What the cut removed is daemon-supplied and arrives on the run's own lifecycle
-   * rows; nothing here derives a cut position.
-   */
-  public async stop(target: ComposerTarget): Promise<ComposerSendOutcome> {
-    if (target.path !== "provider-bound") {
-      return {
-        status: "refused",
-        refusal: composerRefusal(
-          "no-running-turn",
-          "There is no running turn addressed here to stop.",
-        ),
-      };
-    }
-    const runId = readRunId(target.targetRunId);
-    if (runId === undefined) {
-      return { status: "refused", refusal: unparseableIdentifier("the run") };
-    }
-    const params = readInterruptRunParams({ runId } satisfies InterruptRunParams);
-    if (params === undefined) {
-      return { status: "refused", refusal: unparseableIdentifier("the run") };
-    }
-    return await dispatchInterrupt(this.#bridge, params);
-  }
-
-  /**
    * The slash rules, both paths, under the reserved slash prefix.
    *
-   * Returns `undefined` when the text carries no leading slash at all, which is the
-   * ordinary case and the only one that continues to a send. Silent fall-through to
-   * prose never happens: every leading-slash branch below either intercepts,
-   * escapes deliberately, or refuses loudly.
+   * Returns `undefined` when the line names no command or names one nothing claims,
+   * which is the only outcome that continues to a send: a slash word on no list goes
+   * out as typed, and the provider answers it as it does in its own terminal. Every
+   * other branch either intercepts or refuses loudly.
    *
-   * Both questions — is this line claimed, and what does it name — are asked of
-   * `directive-syntax.ts` rather than answered here with a prefix test of this
-   * module's own. The discovery popover asks the same module, so a line the list
-   * opens on and a line this path acts on are one decision rather than two that
-   * agree until somebody edits one of them.
+   * The question "does this line name a command" is asked of `directive-syntax.ts`
+   * rather than answered here with a prefix test of this module's own. The discovery
+   * popover asks the same module, so a line the list opens on and a line this path
+   * acts on are one decision rather than two that agree until somebody edits one.
    */
   #resolveSlashPrefix(body: string, target: ComposerTarget): ComposerSendResolution | undefined {
-    if (!opensDirectiveLine(body)) {
+    const commandName = readDirectiveName(body);
+    if (commandName === undefined) {
       return undefined;
     }
-    const commandName = readDirectiveName(body);
     if (target.path === "provider-bound") {
-      // Every leading slash, the escape included. The provider-bound transport is
-      // the one whose own input surface parses client-side commands, so an escape
-      // that worked on the channel path would be an escape into a parser this
-      // console does not control. The copy carries no internal id.
+      // Every leading slash. The provider-bound transport is the one whose own input
+      // surface parses client-side commands, so a slash line here would reach a
+      // parser this console does not control. The copy carries no internal id.
       return (
         this.#resolveDiscoveryOnly(commandName) ??
         refused(
           "slash-prefix-unsupported",
-          "Text that begins with a slash cannot be sent to a running turn yet. Remove the leading slash, or address this message to the channel instead.",
+          "Text that begins with a slash cannot be sent to a running turn yet. Remove the leading slash.",
         )
       );
-    }
-    if (commandName === undefined) {
-      // The literal-slash escape: a message that really begins with a slash.
-      return undefined;
     }
     if (commandName.length > 0 && this.#recognizeClientCommand(commandName)) {
       return { outcome: "client-command", commandName };
     }
-    return (
-      this.#resolveDiscoveryOnly(commandName) ??
-      refused(
-        "unknown-command",
-        `No command by that name is registered. Type ${LITERAL_SLASH_ESCAPE} to send a message that really starts with a slash.`,
-      )
-    );
+    return this.#resolveDiscoveryOnly(commandName);
   }
 
   /**
@@ -273,10 +209,10 @@ export class ComposerSendRouter {
    * not dispatch a provider command from the line on any path, and the person who
    * typed one read it off a list this composer showed them — so the refusal says what
    * the entry is, rather than telling them to check their spelling (which was right)
-   * or to address the channel (which would not run it either).
+   * or to remove the slash (which would not run it either).
    */
-  #resolveDiscoveryOnly(commandName: string | undefined): ComposerSendResolution | undefined {
-    if (commandName === undefined || commandName.length === 0) {
+  #resolveDiscoveryOnly(commandName: string): ComposerSendResolution | undefined {
+    if (commandName.length === 0) {
       return undefined;
     }
     const published = this.#recognizeProviderCommand(commandName);
@@ -289,27 +225,13 @@ export class ComposerSendRouter {
     );
   }
 
-  #resolveNewTurn(body: string, target: ComposerTarget): ComposerSendResolution {
-    if (target.path !== "channel-message") {
-      return refused("identifier-unparseable", "This message is not addressed to a channel.");
-    }
+  #resolveNewTurn(body: string, target: ComposerChannelTarget): ComposerSendResolution {
     const sessionId = readSessionId(target.sessionId);
     if (sessionId === undefined) {
       return { outcome: "refused", refusal: unparseableIdentifier("the session") };
     }
-    const channelId = target.channelId === undefined ? undefined : readChannelId(target.channelId);
-    if (target.channelId !== undefined && channelId === undefined) {
-      return { outcome: "refused", refusal: unparseableIdentifier("the channel") };
-    }
-    const workspaceId =
-      target.workspaceId === undefined ? undefined : readWorkspaceId(target.workspaceId);
-    if (target.workspaceId !== undefined && workspaceId === undefined) {
-      return { outcome: "refused", refusal: unparseableIdentifier("the workspace") };
-    }
     const request = readQueueItemCreateRequest({
       sessionId,
-      ...(channelId === undefined ? {} : { channelId }),
-      ...(workspaceId === undefined ? {} : { workspaceId }),
       payload: { content: body },
     } satisfies QueueItemCreateRequest);
     if (request === undefined) {

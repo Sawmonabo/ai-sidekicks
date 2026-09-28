@@ -102,10 +102,8 @@ export type ClientCommandRecognition =
  * this module reads nothing else, so taking the whole line here would have forced
  * that caller to compose one — a fabricated line built only to be taken apart again.
  *
- * The refusal names the name and not the literal-slash escape: `send-router.ts`
- * already says the escape to a person who TYPED an unrecognised name, and this arm is
- * only reached after that router claimed the name, so what happened here is that the
- * command left the registry between the claim and the call.
+ * This arm is only reached after the router claimed the name, so what happened here
+ * is that the command left the registry between the claim and the call.
  */
 export function recognizeClientCommand(
   name: string,

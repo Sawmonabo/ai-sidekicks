@@ -1,122 +1,70 @@
-// Cancel-before-admission: the queue's one V1 removal path, and what a surface reads
-// while it is in flight.
+// Cancel-before-admission: the queue's one removal path, and what a surface reads while
+// it is in flight.
 //
-// Split from `queue-reading.ts`, whose first sentence already named this as the third
-// of the three things it held. That module owns the canonical snapshot and the tail
-// that keeps it current — a fold over rows the daemon sends — and this one owns a
-// MUTATION and the two pieces of client memory a mutation needs: which items have a
-// cancel in flight, so a control disables rather than re-fires, and what a cancel
-// came back refused with, keyed by the item it was asked for. The two are separable
-// exactly because neither reads the other's state: nothing here touches the order or
-// the rows, and the fold next door never consults a pending set.
-//
-// CLIENT MEMORY IS NEVER THE QUEUE OF RECORD, which is the rule that keeps the split
-// honest. Cancel does not remove a row and does not change one. `run.queueCancel`
-// answering confirms the REQUEST; the row changes state when the daemon says it did,
-// on the snapshot or on the tail. So this module holds no rows at all, and a reader
-// looking for what the queue contains looks in exactly one place.
-//
-// The runs view offers cancel-before-admission (`run.queueCancel`) on the queue and
-// strikes queue reorder in terms: queue priority overrides are deferred for V1, and
-// the queue's only V1 removal path is `run.queueCancel`. There is no reorder control
-// and no priority control in this file either.
+// A cancel is a MUTATION, not part of the fold over the daemon's rows. This module holds
+// no rows: the call answering confirms the REQUEST, and the row changes state when the
+// daemon says it did, on the snapshot or on the tail. What it does hold is which items
+// have a cancel in flight, so a control disables rather than re-fires.
 
-import { refuse, type ConsoleRefusal } from "../../core/index.js";
-import { QUEUE_REFUSAL_ORIGIN } from "./queue-refusals.js";
-import { callDaemon } from "../daemon/daemon-reply.js";
-import { readQueueItemId } from "../daemon/wire-identifiers.js";
-import type { ConsoleBridge } from "../console-bridge.js";
+/**
+ * Asks the daemon to cancel one queued item before it is admitted. Rejects where the
+ * daemon refuses or cannot be reached.
+ */
+export type QueueCancelCall = (queueItemId: string) => Promise<void>;
 
 /** What a surface reads about cancels, and the control it asks one through. */
 export interface QueueCancellationState {
   /** Items whose cancel is in flight, so the control disables rather than re-fires. */
   readonly pendingCancelIds: ReadonlySet<string>;
-  /** The refusal a cancel came back with, keyed by the item it was asked for. */
-  readonly cancelRefusalByItemId: ReadonlyMap<string, ConsoleRefusal>;
-  readonly cancelItem: (queueItemId: string) => void;
+  /**
+   * Ask for one item's cancel. A second ask while one is in flight does nothing; a
+   * rejected call rejects this promise and frees the item to be asked again.
+   */
+  readonly cancelItem: (queueItemId: string) => Promise<void>;
 }
 
 /**
- * One reading's cancels: what is in flight, what refused, and how one is asked for.
- *
- * A class with private fields rather than two maps the reading passes around, because
- * the pending set and the refusal map move together on every arm — a request adds to
- * one, and its reply removes from that one and may write the other — and a caller
- * that could move one without the other is how a control comes to stay disabled after
- * the cancel it was waiting on has already refused.
+ * One reading's cancels: what is in flight, and how one is asked for.
  *
  * It publishes through a callback rather than holding listeners of its own. The
  * watchers belong to the reading this is part of: two publication paths for one
  * surface would let a cancel's settlement render a frame the rows had not reached.
  */
 export class QueueCancellations {
-  readonly #bridge: ConsoleBridge;
+  readonly #cancel: QueueCancelCall;
   readonly #onChanged: () => void;
   #pendingCancelIds: ReadonlySet<string> = EMPTY_IDS;
-  #cancelRefusalByItemId: ReadonlyMap<string, ConsoleRefusal> = EMPTY_REFUSALS;
 
-  #cancelItem = (rawQueueItemId: string): void => {
-    // Through the family's own reader rather than a schema parsed here: one reading
-    // of what the wire admits as a queue-item identifier, in the module that owns it.
-    const queueItemId = readQueueItemId(rawQueueItemId);
-    if (queueItemId === undefined) {
-      this.#recordRefusal(
-        rawQueueItemId,
-        refuse(
-          QUEUE_REFUSAL_ORIGIN,
-          "queue-item-unreadable",
-          "The console is holding an identifier for this queued message that the daemon would not accept, so it asked for no cancel.",
-        ),
-      );
+  #cancelItem = async (queueItemId: string): Promise<void> => {
+    if (this.#pendingCancelIds.has(queueItemId)) {
+      // Silent: the person pressed Cancel for the cancel already going, and a failure
+      // card would report a failure where they were only early. This is the chokepoint
+      // and not the button, because the set the button disables from is published one
+      // render behind, so two presses inside one frame both see a live control.
       return;
     }
-    if (this.#pendingCancelIds.has(rawQueueItemId)) {
-      // Silent rather than refused: the person pressed Cancel for the cancel that is
-      // already going, and a refusal card would report a failure where the only
-      // thing that happened is that they were early. This is the chokepoint and not
-      // the button, because the set the button disables from is published one render
-      // behind — two presses inside one frame both read a control that was live.
-      return;
-    }
-    this.#pendingCancelIds = withId(this.#pendingCancelIds, rawQueueItemId);
+    this.#pendingCancelIds = withId(this.#pendingCancelIds, queueItemId);
     this.#onChanged();
-    void callDaemon(this.#bridge, "run.queueCancel", { queueItemId }).then((reply) => {
-      this.#pendingCancelIds = withoutId(this.#pendingCancelIds, rawQueueItemId);
-      if (reply.status === "refused") {
-        this.#recordRefusal(rawQueueItemId, reply.refusal);
-        return;
-      }
-      // A served reply changes nothing about the list. It confirms the REQUEST; the
-      // row's state changes when the tail says the daemon changed it.
+    try {
+      await this.#cancel(queueItemId);
+    } finally {
+      this.#pendingCancelIds = withoutId(this.#pendingCancelIds, queueItemId);
       this.#onChanged();
-    });
+    }
   };
 
-  public constructor(bridge: ConsoleBridge, onChanged: () => void) {
-    this.#bridge = bridge;
+  public constructor(cancel: QueueCancelCall, onChanged: () => void) {
+    this.#cancel = cancel;
     this.#onChanged = onChanged;
   }
 
-  /** The three members a feed carries, as they stand. */
+  /** The two members a feed carries, as they stand. */
   public get state(): QueueCancellationState {
-    return {
-      pendingCancelIds: this.#pendingCancelIds,
-      cancelRefusalByItemId: this.#cancelRefusalByItemId,
-      cancelItem: this.#cancelItem,
-    };
-  }
-
-  /** File one refusal under the item it was asked for, and say so. */
-  #recordRefusal(rawQueueItemId: string, refusal: ConsoleRefusal): void {
-    const next = new Map(this.#cancelRefusalByItemId);
-    next.set(rawQueueItemId, refusal);
-    this.#cancelRefusalByItemId = next;
-    this.#onChanged();
+    return { pendingCancelIds: this.#pendingCancelIds, cancelItem: this.#cancelItem };
   }
 }
 
 const EMPTY_IDS: ReadonlySet<string> = new Set<string>();
-const EMPTY_REFUSALS: ReadonlyMap<string, ConsoleRefusal> = new Map<string, ConsoleRefusal>();
 
 function withId(held: ReadonlySet<string>, id: string): ReadonlySet<string> {
   const next = new Set(held);

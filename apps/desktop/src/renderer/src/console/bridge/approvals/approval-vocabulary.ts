@@ -1,6 +1,6 @@
 // The approvals surface's closed sets, declared exactly once.
 //
-// All six — nine canonical categories, five approval states, two decisions, two
+// All six — seven canonical categories, five approval states, two decisions, two
 // remembered-scope kinds, and four invalidation triggers — are vocabularies the
 // daemon owns rather than ones the console may widen. The approvals payload
 // contracts are where they are written, and the approvals view names the scope kinds
@@ -26,15 +26,13 @@
 
 import { type ChipTone } from "../../primitives/index.js";
 
-/** The nine canonical approval categories, verbatim. */
+/** The seven canonical approval categories, verbatim. */
 export const APPROVAL_CATEGORIES = [
   "tool_execution",
   "file_write",
   "network_access",
   "destructive_git",
-  "user_input",
   "plan_approval",
-  "mcp_elicitation",
   "gate",
   "human_phase_contribution",
 ] as const;
@@ -65,10 +63,13 @@ export const REMEMBERED_SCOPE_KINDS = ["run", "session"] as const;
 
 export type RememberedScopeKind = (typeof REMEMBERED_SCOPE_KINDS)[number];
 
-/** The three invalidation triggers, verbatim from that block's `InvalidationTrigger`. */
-export const INVALIDATION_TRIGGERS = ["explicit", "node_trust_change", "session_end"] as const;
-
-export type InvalidationTrigger = (typeof INVALIDATION_TRIGGERS)[number];
+/** The four invalidation triggers, verbatim from that block's `InvalidationTrigger`. */
+export const INVALIDATION_TRIGGERS = [
+  "explicit",
+  "session_end",
+  "project_detached",
+  "server_trust_withdrawn",
+] as const;
 
 /**
  * What a category is called on screen.
@@ -83,9 +84,7 @@ export const CATEGORY_PHRASE: Readonly<Record<ApprovalCategory, string>> = {
   file_write: "Write to a file",
   network_access: "Reach the network",
   destructive_git: "Change git history",
-  user_input: "Ask a person",
   plan_approval: "Approve a plan",
-  mcp_elicitation: "Answer a server's prompt",
   gate: "Pass a gate",
   human_phase_contribution: "Contribute to a phase",
 };
@@ -115,13 +114,6 @@ export const STATE_TONE: Readonly<Record<ApprovalState, ChipTone>> = {
   canceled: "neutral",
 };
 
-/** What an invalidation trigger is called on screen, so revocation is never mysterious. */
-export const TRIGGER_PHRASE: Readonly<Record<InvalidationTrigger, string>> = {
-  explicit: "revoked by a user",
-  node_trust_change: "revoked because the node's trust changed",
-  session_end: "revoked because the session ended",
-};
-
 /**
  * What a remembered scope's kind covers, so a reader knows what they are granting.
  *
@@ -148,11 +140,6 @@ export function asApprovalCategory(value: string): ApprovalCategory | undefined 
 /** Classify a wire-verbatim state. Fail-closed, for `asApprovalCategory`'s reason. */
 export function asApprovalState(value: string): ApprovalState | undefined {
   return isOwnKey(STATE_PHRASE, value) ? (value as ApprovalState) : undefined;
-}
-
-/** Classify a wire-verbatim invalidation trigger. Fail-closed, same reason. */
-export function asInvalidationTrigger(value: string): InvalidationTrigger | undefined {
-  return isOwnKey(TRIGGER_PHRASE, value) ? (value as InvalidationTrigger) : undefined;
 }
 
 /** Classify a wire-verbatim remembered-scope kind. Fail-closed, same reason. */

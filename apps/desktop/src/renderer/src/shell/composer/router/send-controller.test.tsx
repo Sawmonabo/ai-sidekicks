@@ -22,9 +22,6 @@ import { SESSION_ID } from "./send-router.test-support.js";
 const CHANNEL_TARGET: ComposerChannelTarget = {
   path: "channel-message",
   sessionId: SESSION_ID,
-  channelId: undefined,
-  workspaceId: undefined,
-  channelLabel: undefined,
 };
 
 /**
@@ -67,7 +64,6 @@ interface DrivenController {
 function driveController(commandExecutor: CommandExecutor | undefined): DrivenController {
   const draftStore = new DraftStore({
     maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT,
-    restartNoticePending: false,
   });
   let latest: SendController | undefined;
   render(
@@ -138,21 +134,5 @@ describe("useSendController — an intercepted command awaits its executor", () 
 
     expect(driven.draftStore.read(driven.draftKey)?.text).toBe("/clear the deck");
     expect(driven.latest().refusal?.code).toBe("command-unexecutable");
-  });
-
-  it("leaves an unrecognised name to the router's own refusal", async () => {
-    const runCommand = vi.fn<CommandExecutor>(async () => ({ status: "applied" }));
-    const driven = driveController(runCommand);
-
-    act(() => {
-      driven.latest().changeText("/nosuchcommand");
-    });
-    await act(async () => {
-      await driven.latest().send();
-    });
-
-    expect(runCommand).not.toHaveBeenCalled();
-    expect(driven.latest().refusal?.code).toBe("unknown-command");
-    expect(driven.draftStore.read(driven.draftKey)?.text).toBe("/nosuchcommand");
   });
 });

@@ -1,65 +1,45 @@
 // What this session's daemon-hosted tool registry holds, and whether it is exposed.
 //
-// THE READ IS PUT EVEN THOUGH NO WIRE ANSWERS IT. `callbackToolRegistryRead` is a
-// growth-port operation: the registry travels on the driver-facing spawn parameter,
-// which is not a client read, and both bridges answer `wire-unregistered`. Putting
-// the call anyway is what makes this surface a consumer of the seam rather than a
-// hard-coded page — the day the wire lands, the exposed arm below is already its
-// reader — and it is what lets the surface NAME the missing read instead of implying
-// it looked.
+// THE READ IS AN ARGUMENT. The registry travels on the driver-facing spawn parameter,
+// which is not a client read, so no wire answers it yet; the caller supplies the read.
+// A read that rejects propagates to the caller.
 //
-// WHAT THE REFUSAL DOES AND DOES NOT SETTLE. It settles that nothing read the
-// registry. It does not settle that the registry is empty, and this module never
-// reads it that way. What is withheld is a separate fact the corpus states outright:
-// while the daemon's approval-create seam is unregistered, spawn withholds the
-// registry, the tools are not exposed, and a stray invocation is answered `denied` by
-// the host's runtime backstop with a driver diagnostic — never completed without a
-// policy decision and never left unanswered. So the withheld arm carries BOTH: the
-// registry's one born-withheld entry, and the refusal that says no read was answered.
+// WHAT IS WITHHELD IS A SEPARATE FACT the corpus states outright: while the daemon's
+// approval-create seam is unregistered, spawn withholds the registry, the tools are not
+// exposed, and a stray invocation is answered `denied` by the host's runtime backstop
+// with a driver diagnostic — never completed without a policy decision and never left
+// unanswered. The withheld arm still carries the registry's entries, because withholding
+// is about whether an agent can REACH a tool, not whether one is registered.
 //
 // THE ENTRY IS THE CONTRACT'S, NOT AN EXAMPLE. `workflow_run` is the first concrete
 // session callback tool the daemon registers, its name, description and input schema
-// are fixed by the wire contract, and it is born-withheld by the same rule. Rendering
-// it is not the console inventing a registry: it is the console rendering the one
-// entry the contract says is there, in the state the contract says it is in.
+// are fixed by the wire contract, and it is born-withheld by the same rule.
 
 import { useEffect, useState } from "react";
 
 import { type SessionCallbackTool } from "@ai-sidekicks/contracts";
 
-import {
-  isUnbuiltWireRefusal,
-  settleGrowthRead,
-  type ConsoleBridge,
-} from "../../../bridge/index.js";
-import { type ConsoleRefusal } from "../../../core/index.js";
-
 /**
- * The registry, in the three states the surface refuses to collapse.
+ * The registry, in the two states the surface refuses to collapse.
  *
- * `withheld` and `exposed` both carry entries, because withholding is about whether
- * an agent can REACH a tool rather than about whether one is registered. `unread` is
- * the arm for a refusal that is not the unregistered-wire one — a call that rejected,
- * or a fixture with nothing scripted — where the console genuinely does not know.
+ * Both carry entries, because withholding is about whether an agent can REACH a tool
+ * rather than about whether one is registered.
  */
 export type CallbackToolRegistryReading =
-  | { readonly kind: "unread"; readonly refusal: ConsoleRefusal }
-  | {
-      readonly kind: "withheld";
-      readonly tools: readonly SessionCallbackTool[];
-      /** The read that was put and answered with no wire, named rather than implied. */
-      readonly unreadRefusal: ConsoleRefusal;
-    }
+  | { readonly kind: "withheld"; readonly tools: readonly SessionCallbackTool[] }
   | { readonly kind: "exposed"; readonly tools: readonly SessionCallbackTool[] };
+
+/** Reads one session's registry. Required: the daemon serves no registry read yet. */
+export type ReadCallbackToolRegistry = (request: {
+  readonly sessionId: string;
+}) => Promise<CallbackToolRegistryReading>;
 
 /**
  * The registry as the corpus registers it today: one entry, born withheld.
  *
- * Frozen at module scope rather than rebuilt per render, so the reading below is
- * referentially stable for the whole life of the process and a surface holding it
- * re-renders only when the read settles.
+ * @consumedBy the registry read, once the daemon serves it
  */
-const BORN_WITHHELD_REGISTRY: readonly SessionCallbackTool[] = [
+export const BORN_WITHHELD_REGISTRY: readonly SessionCallbackTool[] = [
   {
     name: "workflow_run",
     description:
@@ -77,20 +57,22 @@ const BORN_WITHHELD_REGISTRY: readonly SessionCallbackTool[] = [
 ];
 
 /**
- * Read the registry for one session, once per (bridge, session) pair.
+ * Read the registry for one session, once per (read, session) pair.
  *
  * `undefined` until the read settles, which the caller renders as the not-checked
  * kind of nothing rather than as an empty registry. The settled reading carries its
  * inputs so a pane that rebinds to another session cannot report the previous
  * session's answer for the interval before the replacement lands.
+ *
+ * @consumedBy the composer's daemon-hosted tools section, once the daemon serves the registry
  */
 export function useCallbackToolRegistry(
-  bridge: ConsoleBridge,
+  read: ReadCallbackToolRegistry,
   sessionId: string,
 ): CallbackToolRegistryReading | undefined {
   const [settled, setSettled] = useState<
     | {
-        readonly bridge: ConsoleBridge;
+        readonly read: ReadCallbackToolRegistry;
         readonly sessionId: string;
         readonly reading: CallbackToolRegistryReading;
       }
@@ -100,50 +82,18 @@ export function useCallbackToolRegistry(
   useEffect(() => {
     let abandoned = false;
     void (async () => {
-      const reading = await readRegistry(bridge, sessionId);
+      const reading = await read({ sessionId });
       if (abandoned) {
         return;
       }
-      setSettled({ bridge, sessionId, reading });
+      setSettled({ read, sessionId, reading });
     })();
     return () => {
       abandoned = true;
     };
-  }, [bridge, sessionId]);
+  }, [read, sessionId]);
 
-  return settled !== undefined && settled.bridge === bridge && settled.sessionId === sessionId
+  return settled !== undefined && settled.read === read && settled.sessionId === sessionId
     ? settled.reading
     : undefined;
-}
-
-/**
- * Put the read and map its answer onto the three arms.
- *
- * SETTLED THROUGH THE BRIDGE'S OWN SEAM RATHER THAN CAUGHT HERE. A growth call has a
- * fourth settlement its outcome union has no arm for — the scripted-reply seam throws
- * a DAEMON refusal verbatim, and the live seam will throw the same shape the day the
- * wire lands — and this module used to absorb it with a bare `catch` and substitute
- * one fixed `call-rejected` sentence. That threw away the code the remedy table is
- * keyed on: a session that had gone away arrived here as `session.not_found` and left
- * as a generic seam failure with no next move and nothing for the frame's banner
- * escalation to fire on. `settleGrowthRead` is the console's one reading of that
- * rejection — it carries a thrown refusal through untouched, recovers the dotted
- * project code a JSON-RPC envelope carries at `data.type`, and synthesizes a named
- * refusal only where the thrown value said nothing machine-readable — so the arms
- * below narrow on one value and no failure is renamed on its way past.
- */
-async function readRegistry(
-  bridge: ConsoleBridge,
-  sessionId: string,
-): Promise<CallbackToolRegistryReading> {
-  const outcome = await settleGrowthRead(bridge.growth.callbackToolRegistryRead({ sessionId }));
-  if (outcome.status === "served") {
-    return { kind: "exposed", tools: outcome.value };
-  }
-  // The wire is not registered anywhere in the corpus, which is the standing V1
-  // condition — and the same condition under which spawn withholds the registry.
-  // Both facts are carried; neither is inferred from the other.
-  return isUnbuiltWireRefusal(outcome)
-    ? { kind: "withheld", tools: BORN_WITHHELD_REGISTRY, unreadRefusal: outcome }
-    : { kind: "unread", refusal: outcome };
 }

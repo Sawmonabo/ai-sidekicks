@@ -9,7 +9,6 @@
 // rather than in the seat, which never reads it.
 
 import { WireFigure, formatCount } from "../../../../console/primitives/index.js";
-import { CONTEXT_HINT_PERCENT } from "../accessory-bounds.js";
 import type { ContextWindowReading, ContextWindowSource } from "../usage-readings.js";
 
 /**
@@ -37,9 +36,7 @@ const CONTEXT_SOURCE_NOTES: Readonly<Record<ContextWindowSource, string | undefi
 export function ContextMeterReading(props: {
   readonly reading: ContextWindowReading;
 }): React.JSX.Element {
-  const { usagePercent, windowUsedTokens, windowMaxTokens, windowSource, exceeded } = props.reading;
-  const isExceeded = exceeded === true;
-  const isAboveHint = !isExceeded && usagePercent >= CONTEXT_HINT_PERCENT;
+  const { usagePercent, windowUsedTokens, windowMaxTokens, windowSource } = props.reading;
   const sourceNote = windowSource === undefined ? undefined : CONTEXT_SOURCE_NOTES[windowSource];
   return (
     <div className="meridian-context-meter">
@@ -56,11 +53,8 @@ export function ContextMeterReading(props: {
         <span
           className="meridian-context-meter__fill"
           // The one inline style in this file, and it carries a wire figure into
-          // CSS. A class per band would quantise the bar to the bands, and the bar
-          // is the figure — the bands are only where the copy changes.
+          // CSS. The bar is the figure, and it is the same color at every fullness.
           style={{ inlineSize: `${String(usagePercent)}%` }}
-          data-above-hint={isAboveHint ? "true" : undefined}
-          data-exceeded={isExceeded ? "true" : undefined}
         />
       </span>
       <span className="meridian-context-meter__figures">
@@ -80,16 +74,6 @@ export function ContextMeterReading(props: {
           </span>
         )}
       </span>
-      {isExceeded ? (
-        <p className="meridian-context-meter__hint" role="status">
-          The provider reports this conversation&rsquo;s context window is full.
-        </p>
-      ) : null}
-      {isAboveHint ? (
-        <p className="meridian-context-meter__hint" role="status">
-          The conversation is close to full. Compacting it keeps the thread going.
-        </p>
-      ) : null}
       {sourceNote === undefined ? null : (
         <p className="meridian-context-meter__source-note">{sourceNote}</p>
       )}

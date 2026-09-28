@@ -17,34 +17,28 @@
 
 import { type ConsoleRefusal } from "../../../core/index.js";
 import { type ApprovalRecord } from "../../../bridge/index.js";
-import { type ConsoleEntity } from "../../../store/index.js";
-import { providerAskFor, type ProviderAsk } from "../card/provider-ask.js";
-import { type ReadPhase } from "../approvals-reader.js";
+
+/**
+ * Where one read has got to.
+ *
+ * Four arms because these are four different sentences and collapsing any two of them
+ * is wrong: nobody has asked, a read is in flight, a read answered (with however many
+ * rows, including none), and a read was refused.
+ */
+export type ReadPhase<TRow> =
+  | { readonly status: "not-checked" }
+  | { readonly status: "loading" }
+  | {
+      readonly status: "answered";
+      readonly rows: readonly TRow[];
+      readonly unreadableCount: number;
+    }
+  | { readonly status: "refused"; readonly refusal: ConsoleRefusal };
 
 /** One answered read, split into the cards waiting and the ones already decided. */
 export interface PartitionedApprovals {
   readonly pending: readonly ApprovalRecord[];
   readonly history: readonly ApprovalRecord[];
-}
-
-/**
- * The provider-ask origin of every projected approval, keyed by request id.
- *
- * Built over the whole partition rather than per rendered record: the partition's
- * identity changes only when an approval event lands, so one pass per fold serves
- * both lists, where a per-record lookup would rebuild on every render of either.
- */
-export function providerAsksIn(
-  entities: Readonly<Record<string, ConsoleEntity>>,
-): ReadonlyMap<string, ProviderAsk> {
-  const asks = new Map<string, ProviderAsk>();
-  for (const [approvalRequestId, entity] of Object.entries(entities)) {
-    const ask = providerAskFor(entity);
-    if (ask !== undefined) {
-      asks.set(approvalRequestId, ask);
-    }
-  }
-  return asks;
 }
 
 /** Neither list has a member until a read has answered. */

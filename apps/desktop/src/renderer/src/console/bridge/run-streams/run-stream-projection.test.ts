@@ -254,16 +254,12 @@ describe("run-stream projection — the rollback arm's session, which the payloa
   });
 });
 
-/** The queue item every queue beat below is about, and the row the scripted read carries. */
+/** The queue item every queue beat below is about, and its row. */
 const PROBE_QUEUE_ITEM_ID = "019b79ee-0280-7c11-8110-d1a4c1150092";
-const PROBE_QUEUE_ROW_READ: Readonly<Record<string, unknown>> = {
-  items: [
-    {
-      id: PROBE_QUEUE_ITEM_ID,
-      priority: 0,
-      createdAt: "2026-01-01T14:20:00.420Z",
-    },
-  ],
+const PROBE_QUEUE_ROW: Readonly<Record<string, unknown>> = {
+  id: PROBE_QUEUE_ITEM_ID,
+  priority: 0,
+  createdAt: "2026-01-01T14:20:00.420Z",
 };
 
 /** One `queue_item.created` beat, whose kind announces the `queued` state. */
@@ -293,11 +289,7 @@ describe("run-stream projection — the session every arm's payload names", () =
   const queueArm = {
     name: "queue",
     project: (payload: Readonly<Record<string, unknown>>) =>
-      projectRunStreamDelivery(
-        RUN_QUEUE_EVENT_STREAM,
-        queueBeatEvent(payload),
-        PROBE_QUEUE_ROW_READ,
-      ),
+      projectRunStreamDelivery(RUN_QUEUE_EVENT_STREAM, queueBeatEvent(payload), PROBE_QUEUE_ROW),
     wellFormed: {},
   };
 

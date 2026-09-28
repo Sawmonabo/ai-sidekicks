@@ -29,11 +29,10 @@
 // THE QUEUE STREAM HAS A SECOND SOURCE, AND HAS TO. `QueueItemSummary` is a
 // projection of the `queue_items` ROW, so it requires `priority` and `createdAt`,
 // which the registered queue payload does not carry — the queue event family fixes
-// it at `{sessionId, queueItemId, channelId?, state}`. This module used to demand
-// those two off the beat, which refused every contract-valid queue event and made
-// the only way to pass a beat carrying members no daemon emits. The row now arrives
-// from the scenario's own `run.queueList` reply, which is the read the daemon
-// projects the summary from; `queue-row-source.ts` owns that seam.
+// it at `{sessionId, queueItemId, state}`. This module used to demand those two off
+// the beat, which refused every contract-valid queue event and made the only way to
+// pass a beat carrying members no daemon emits. The row now arrives from the caller,
+// as the row the daemon projects the summary from.
 //
 // THE REGISTERED SCHEMA IS THE VALIDATOR, AND IT RUNS BEFORE DELIVERY. Every
 // candidate this module composes is parsed through the shape the corpus registers
@@ -77,7 +76,6 @@ import type { RunStateChangeEvent } from "@ai-sidekicks/contracts";
 
 import { readWireString } from "../../core/index.js";
 import type { ConsoleSessionEvent } from "../../store/index.js";
-import { RUN_QUEUE_ROW_READ, scriptedQueueRowFor } from "./queue-row-source.js";
 import {
   carriedOptionalMembers,
   projectThroughRegisteredShape,
@@ -143,21 +141,20 @@ const RUN_STATE_CHANGE_CARRIED_OPTIONAL_MEMBERS: Readonly<
  * projection for the fixture to build. Their subscribers get the envelope, which is
  * what those registrations describe.
  *
- * `scriptedQueueRowRead` is the result of the scenario's `run.queueList` reply, the
- * queue arm's second source. Absent for every other subscription, and absent for a
- * scenario that scripts no such reply — which is a refusal on the queue arm rather
- * than a made-up row.
+ * `queueRow` is the queue row the beat is about, the queue arm's second source.
+ * Absent for every other subscription, and absent when the caller has no row — which
+ * is a refusal on the queue arm rather than a made-up row.
  */
 export function projectRunStreamDelivery(
   subscriptionName: string,
   event: ConsoleSessionEvent,
-  scriptedQueueRowRead?: unknown,
+  queueRow?: Readonly<Record<string, unknown>>,
 ): RunStreamProjection | undefined {
   if (subscriptionName === RUN_STATE_EVENT_STREAM) {
     return projectRunStateStreamBeat(event);
   }
   if (subscriptionName === RUN_QUEUE_EVENT_STREAM) {
-    return projectRunQueueStreamBeat(event, scriptedQueueRowRead);
+    return projectRunQueueStreamBeat(event, queueRow);
   }
   return undefined;
 }
@@ -246,7 +243,7 @@ function projectRollback(event: ConsoleSessionEvent): RunStreamProjection {
 /** `QueueItemSummary` — what `run.subscribeQueue` streams for one queue row. */
 function projectRunQueueStreamBeat(
   event: ConsoleSessionEvent,
-  scriptedQueueRowRead: unknown,
+  queueRow: Readonly<Record<string, unknown>> | undefined,
 ): RunStreamProjection {
   const announcedState = runQueueStreamStateFor(event.kind);
   if (announcedState === undefined) {
@@ -267,7 +264,7 @@ function projectRunQueueStreamBeat(
     return unprojectableFor(event, "names no `queueItemId` to find its queue row by");
   }
   // Required, exactly as `newState` is on the state arm above. The queue event
-  // family fixes the payload at `{sessionId, queueItemId, channelId?, state}`, so
+  // family fixes the payload at `{sessionId, queueItemId, state}`, so
   // a beat without one is not a queue event that omitted a check — it is a queue
   // event no daemon emits. Skipping the comparison when the member was absent let
   // the summary take its state from the KIND alone and delivered a valid-looking
@@ -286,24 +283,12 @@ function projectRunQueueStreamBeat(
     );
   }
   // The row, not the beat. `QueueItemSummary` is a projection of `queue_items` and
-  // carries members the registered queue payload does not; `queue-row-source.ts`
-  // carries the whole reasoning, and the short version is that a beat asked for
+  // carries members the registered queue payload does not; a beat asked for
   // `priority` is a beat asked for something no daemon puts on one.
-  const queueRow = scriptedQueueRowFor(scriptedQueueRowRead, queueItemId);
   if (queueRow === undefined) {
     return unprojectableFor(
       event,
-      `is about queue item "${queueItemId}", for which the scenario's \`${RUN_QUEUE_ROW_READ}\` reply carries no row — and the row is where \`priority\` and \`createdAt\` live`,
-    );
-  }
-  const channelId = readWireString(queueRow["channelId"]);
-  const announcedChannelId = readWireString(payload["channelId"]);
-  if (announcedChannelId !== undefined && announcedChannelId !== channelId) {
-    return unprojectableFor(
-      event,
-      `names channel "${announcedChannelId}" while its queue row names ${
-        channelId === undefined ? "none" : `"${channelId}"`
-      }; one queue item sits in one channel`,
+      `is about queue item "${queueItemId}", for which no queue row was supplied — and the row is where \`priority\` and \`createdAt\` live`,
     );
   }
   return projectThroughRegisteredShape(QueueItemSummarySchema, event, {
@@ -314,7 +299,6 @@ function projectRunQueueStreamBeat(
     // `z.number().int()` with no `.nonnegative()`, because the column reads "higher
     // = more urgent" and a negative priority is a deliberate de-prioritization.
     priority: queueRow["priority"],
-    ...(channelId === undefined ? {} : { channelId }),
     createdAt: queueRow["createdAt"],
     // This beat IS the row's newest change, so the moment it occurred is the
     // moment the row was last updated. Sourced, not stamped from a clock.

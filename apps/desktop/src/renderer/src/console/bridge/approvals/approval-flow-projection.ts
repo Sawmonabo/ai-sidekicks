@@ -51,7 +51,7 @@
 // entirely, because the store's merge is a spread and a present-but-`undefined` key
 // erases what an earlier event established.
 //
-// STATE IS MARKED, NEVER DELETED. A resolution, an expiry, and a cancellation set
+// STATE IS MARKED, NEVER DELETED. A resolution and a cancellation set
 // the entity's state and leave the row where it is: history is a read, and what the
 // pane lists is the pane's decision. The state values come from
 // `approval-vocabulary.ts`'s closed five, so this module mints no sixth spelling of
@@ -83,7 +83,7 @@ import { type ApprovalState } from "./approval-vocabulary.js";
  * quietly filtered.
  *
  * `moderation.review_flagged` is registered under `approval_flow` and carries a
- * DISTINCT payload — `{sessionId, channelId, runId, agentId, eventId}` — with no
+ * DISTINCT payload — `{sessionId, runId, agentId, eventId}` — with no
  * `approvalRequestId` anywhere in it. Claiming it here would take the kind off the
  * board for the family that renders moderation, and this fold would answer nothing
  * for it anyway, since it names no approval to key on. `Extract`ed from the census
@@ -110,10 +110,10 @@ export const APPROVAL_FLOW_EVENT_KINDS: readonly string[] = [...SESSION_EVENT_CA
   .map(([eventType]) => eventType);
 
 /**
- * The seven `approval.*` kinds, as a type.
+ * The six `approval.*` kinds, as a type.
  *
  * Extracted from the census union by namespace rather than written out, so the type
- * and the runtime set above are two readings of one source: an eighth `approval.*`
+ * and the runtime set above are two readings of one source: a seventh `approval.*`
  * kind added to the taxonomy lands in this union and fails the `satisfies` on both
  * tables below until someone classifies it.
  */
@@ -122,7 +122,7 @@ type ApprovalEventKind = Extract<SessionEventType, `approval.${string}`>;
 /**
  * The state each kind announces, or `undefined` for a kind that announces none.
  *
- * Total over the seven by `satisfies`, and typed against
+ * Total over the six by `satisfies`, and typed against
  * `approval-vocabulary.ts`'s closed five so a state invented here fails to compile
  * rather than reaching a card that renders it as an unrecognized token.
  *
@@ -139,7 +139,6 @@ const APPROVAL_STATE_BY_EVENT_KIND = {
   "approval.requested": "pending",
   "approval.approved": "approved",
   "approval.rejected": "rejected",
-  "approval.expired": "expired",
   "approval.canceled": "canceled",
   "approval.remembered": undefined,
   "approval.rule_revoked": undefined,
@@ -185,7 +184,7 @@ const SHARED_APPROVAL_BODY_MEMBERS: Readonly<Record<string, WireMemberSchema>> =
 /**
  * The members each kind registers ALONE, and the schema that carries each one.
  *
- * Total over the seven by `satisfies`. Every entry is a member the approval payload
+ * Total over the six by `satisfies`. Every entry is a member the approval payload
  * contracts' per-variant refinement names for that variant and for no other, and a
  * member the shared table already carries would be a
  * second spelling of it — which the co-located test refuses outright rather than
@@ -207,9 +206,8 @@ const APPROVAL_BODY_MEMBERS_BY_EVENT_KIND = {
   // broader than what was requested.
   "approval.approved": { approver: wireStringMember, effectiveScope: wireStringMember },
   "approval.rejected": { approver: wireStringMember, effectiveScope: wireStringMember },
-  // Neither settlement carries anything the request did not already establish. The
+  // A cancellation carries nothing the request did not already establish. The
   // empty table is the registration, not an omission.
-  "approval.expired": {},
   "approval.canceled": {},
   // The full rule projection, so a peer or a replay rebuilds the standing grant:
   // the grantor, the node the grant is bound to, the binding itself, and the rule's
@@ -279,7 +277,7 @@ export const projectApprovalFlowEvent: EntityProjector = (
  * The projector registry the composer family claims its kinds with.
  *
  * One function under every kind rather than one per kind: the fold is the same for
- * all seven, and seven near-copies is how the eighth gets a subtly different one.
+ * all six, and six near-copies is how a seventh gets a subtly different one.
  */
 export const APPROVAL_FLOW_PROJECTORS: EntityProjectorRegistry = buildApprovalFlowProjectors();
 

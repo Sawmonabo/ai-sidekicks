@@ -80,11 +80,6 @@ export function readWorkflowCommandLine(lineText: string): WorkflowCommandReadin
   return { status: "start", definitionName: argument.length === 0 ? undefined : argument };
 }
 
-/** The line a completed candidate puts on the composer, trailing space included. */
-export function workflowStartLineFor(definitionName: string): string {
-  return `${WORKFLOW_START_DIRECTIVE_PREFILL}${definitionName}`;
-}
-
 /** Whether one word is a verb this root takes. Narrows, so no caller re-tests it. */
 function isWorkflowCommandVerb(verb: string): verb is WorkflowCommandVerb {
   return (WORKFLOW_COMMAND_VERBS as readonly string[]).includes(verb);

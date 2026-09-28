@@ -86,12 +86,10 @@
 // its own, the thing it is deciding belongs in the family that owns the decision.
 
 import { registerAgentConsolePane } from "../agents/index.js";
-import { registerApprovalsPane } from "../approvals/index.js";
 import { registerBrowserPanes } from "../browser/index.js";
 import { registerInspectorPane } from "../inspector/index.js";
 import { registerLedgerPanes } from "../ledger/index.js";
 import { registerReposPanes } from "../repos/index.js";
-import { registerRunsPane } from "../runs/index.js";
 import type { ConsolePaneRegistry } from "../seats/index.js";
 import { registerTerminalPanes } from "../terminal/index.js";
 import { registerWorkflowPanes } from "../workflows/index.js";
@@ -106,8 +104,6 @@ import { registerWorkflowPanes } from "../workflows/index.js";
  */
 export function registerConsolePanes(registry: ConsolePaneRegistry): void {
   registerLedgerPanes(registry); // timeline
-  registerRunsPane(registry); // runs
-  registerApprovalsPane(registry); // approvals
   registerInspectorPane(registry); // inspector
   registerAgentConsolePane(registry); // agent-console
   registerReposPanes(registry); // diff artifact

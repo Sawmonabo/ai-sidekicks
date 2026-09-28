@@ -13,7 +13,7 @@
 //   • **Wire strings stay strings.** `category` and `state` are parsed as `string`
 //     and classified at render time through `approval-vocabulary.ts`. Parsing them
 //     as enums would make one unrecognized token drop a whole record, and this
-//     surface's history rule — stated once in `approvals-wire.ts` — is that an
+//     surface's history rule is that an
 //     unfiltered read renders every record it returns and drops nothing. It is also
 //     the fail-closed direction every console surface obeys: an unknown member
 //     renders as the explicit unrecognized row or badge, never as a guess.
@@ -56,7 +56,7 @@ import { REMEMBERED_SCOPE_KINDS, type ApprovalDecision } from "./approval-vocabu
  * Nothing on it edits the requested action: the Approvals View sketch's interactions
  * are approve / deny / remember and no fourth. Beside the two reply readings rather
  * than beside the surface, because a request shape and the reply shape it is answered
- * with are two sides of one seam, and the growth port's signature table names both.
+ * with are two sides of one seam.
  */
 export interface ApprovalResolveRequest {
   readonly approvalRequestId: string;

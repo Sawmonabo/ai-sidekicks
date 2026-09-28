@@ -19,7 +19,6 @@ import type { ConsoleSessionEvent } from "../../../console/store/index.js";
 import {
   CONTEXT_COMPACTED_EVENT_KIND,
   CONTEXT_WINDOW_EVENT_KIND,
-  newestCompactionBoundarySequence,
   newestContextWindowReading,
 } from "./usage-readings.js";
 
@@ -328,67 +327,5 @@ describe("newestContextWindowReading — a compaction supersedes the last update
       FIRST_RUN,
     );
     expect(reading?.usagePercent).toBe(90);
-  });
-});
-
-describe("newestCompactionBoundarySequence", () => {
-  /** Two runs' boundaries in one session, the second run's the newer of the two. */
-  const TWO_RUNS: readonly ConsoleSessionEvent[] = [
-    event(4, CONTEXT_COMPACTED_EVENT_KIND, { runId: FIRST_RUN }),
-    event(11, CONTEXT_COMPACTED_EVENT_KIND, { runId: SECOND_RUN }),
-  ];
-
-  it("finds the newest boundary row of the addressed run", () => {
-    expect(
-      newestCompactionBoundarySequence(
-        [
-          event(4, CONTEXT_COMPACTED_EVENT_KIND, { runId: FIRST_RUN }),
-          event(11, CONTEXT_COMPACTED_EVENT_KIND, { runId: FIRST_RUN }),
-        ],
-        FIRST_RUN,
-      ),
-    ).toBe(11);
-  });
-
-  it("gives each run its own boundary out of a single reading stream", () => {
-    // The defect this replaces, spelled as its own case: the unfiltered fold answered
-    // 11 for BOTH runs, so a composer addressed at the first run reported the second
-    // run's compaction as its own.
-    expect(newestCompactionBoundarySequence(TWO_RUNS, FIRST_RUN)).toBe(4);
-    expect(newestCompactionBoundarySequence(TWO_RUNS, SECOND_RUN)).toBe(11);
-  });
-
-  it("negative control: the newest row in the session is not the first run's", () => {
-    // Without this the case above would pass over a fold that answered the OLDEST
-    // row for everyone, which is a different wrong answer with the same shape.
-    const sequences = TWO_RUNS.map((boundary) => boundary.sequence);
-    expect(Math.max(...sequences)).toBe(11);
-    expect(newestCompactionBoundarySequence(TWO_RUNS, FIRST_RUN)).not.toBe(11);
-  });
-
-  it("reads no boundary from a row carrying no readable run", () => {
-    expect(
-      newestCompactionBoundarySequence(
-        [
-          event(4, CONTEXT_COMPACTED_EVENT_KIND, {}),
-          event(5, CONTEXT_COMPACTED_EVENT_KIND, { runId: "" }),
-          event(6, CONTEXT_COMPACTED_EVENT_KIND, { runId: 7 }),
-        ],
-        FIRST_RUN,
-      ),
-    ).toBeUndefined();
-  });
-
-  it("asks for no boundary when no run is addressed", () => {
-    expect(newestCompactionBoundarySequence(TWO_RUNS, undefined)).toBeUndefined();
-  });
-
-  it("negative control: a timeline with no boundary reports none", () => {
-    expect(
-      newestCompactionBoundarySequence(
-        [event(4, CONTEXT_WINDOW_EVENT_KIND, { windowUsedTokens: 1, windowMaxTokens: 2 })],
-        FIRST_RUN,
-      ),
-    ).toBeUndefined();
   });
 });

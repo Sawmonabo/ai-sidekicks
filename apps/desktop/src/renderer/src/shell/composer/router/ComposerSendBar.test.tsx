@@ -11,8 +11,10 @@ import { describe, expect, it, vi } from "vitest";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "../../../console/core/index.js";
 import { DraftStore } from "../../../console/persistence/index.js";
 import { bridgeAnswering } from "../../../console/bridge/fixture/call-plane/bridge.test-support.js";
-import { CHANNEL_ID, QUEUE_CREATED } from "./send-router.test-support.js";
+import { QUEUE_CREATED } from "./send-router.test-support.js";
 import {
+  FIRST_AGENT_ID,
+  SECOND_AGENT_ID,
   answerSteer,
   mountAddressable,
   mountBar,
@@ -23,7 +25,6 @@ describe("ComposerSendBar — the unsent body lives in the supplied draft store"
   it("restores the text a remount would otherwise have thrown away", () => {
     const draftStore = new DraftStore({
       maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT,
-      restartNoticePending: false,
     });
     const sessionStore = openSessionStore();
     const bridge = bridgeAnswering(async () => undefined).bridge;
@@ -37,35 +38,21 @@ describe("ComposerSendBar — the unsent body lives in the supplied draft store"
   });
 
   it("swaps drafts on an address change rather than carrying text to the new target", () => {
-    const draftStore = new DraftStore({
-      maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT,
-      restartNoticePending: false,
-    });
-    const sessionStore = openSessionStore();
-    const bridge = bridgeAnswering(async () => undefined).bridge;
-
-    const onChannel = mountBar({ bridge, draftStore, sessionStore });
-    fireEvent.change(onChannel.line, { target: { value: "for the session" } });
-    onChannel.result.unmount();
+    const bar = mountAddressable(bridgeAnswering(async () => undefined).bridge);
+    fireEvent.change(bar.line(), { target: { value: "for the first agent" } });
 
     // A different composer address in the same window: its own key, its own draft.
-    const onNamedChannel = mountBar({
-      bridge,
-      draftStore,
-      sessionStore,
-      focusedPane: { kind: "timeline", entity: { kind: "channel", id: CHANNEL_ID } },
-    });
-    expect(onNamedChannel.line.value).toBe("");
-    onNamedChannel.result.unmount();
+    bar.address(SECOND_AGENT_ID);
+    expect(bar.line().value).toBe("");
 
     // …and the first address still holds what was written for it.
-    expect(mountBar({ bridge, draftStore, sessionStore }).line.value).toBe("for the session");
+    bar.address(FIRST_AGENT_ID);
+    expect(bar.line().value).toBe("for the first agent");
   });
 
   it("clears the draft once the send has settled, and not before", async () => {
     const draftStore = new DraftStore({
       maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT,
-      restartNoticePending: false,
     });
     const sessionStore = openSessionStore();
     const settle = vi.fn(async () => QUEUE_CREATED);
@@ -93,7 +80,6 @@ describe("ComposerSendBar — the unsent body lives in the supplied draft store"
   it("keeps the body under its key when the daemon refuses the send", async () => {
     const draftStore = new DraftStore({
       maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT,
-      restartNoticePending: false,
     });
     const sessionStore = openSessionStore();
     const { line, result } = mountBar({
@@ -178,7 +164,6 @@ describe("ComposerSendBar — a refusal about the whole session leaves the bar",
       bridge,
       draftStore: new DraftStore({
         maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT,
-        restartNoticePending: false,
       }),
       sessionStore: openSessionStore(),
     });

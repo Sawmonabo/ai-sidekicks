@@ -1,8 +1,7 @@
-// The card's four hard claims: two answers and no third, an expiry that is either
-// verbatim or explicitly absent, a remember opt-in that sends nothing until it is
-// engaged, and an action row a keyboard can walk.
+// The card's three hard claims: two answers and no third, a remember opt-in that
+// sends nothing until it is engaged, and an action row a keyboard can walk.
 //
-// The fifth claim — that a refusal SETTLING the request withdraws both answers, and
+// The fourth claim — that a refusal SETTLING the request withdraws both answers, and
 // withdraws the pane's palette rows with them — is `ApprovalCard.settled.test.tsx`
 // beside this file. It is a different subject (one offer reading, two surfaces)
 // and it is what took this file past the length the package splits at.
@@ -183,42 +182,6 @@ describe("the remembered-scope opt-in", () => {
   });
 });
 
-describe("expiry is verbatim or explicitly absent", () => {
-  it("shows the wire value exactly as sent", () => {
-    renderCard(pendingRecord({ expiryAt: "2026-01-01T17:30:00.900Z" }));
-    expect(screen.getByText("2026-01-01T17:30:00.900Z")).not.toBeNull();
-  });
-
-  it("says 'no expiry' rather than leaving the field blank", () => {
-    renderCard(pendingRecord());
-    expect(screen.getByText("No expiry")).not.toBeNull();
-    // Negative control: the absent case must not also render a timestamp, or the
-    // two arms would be indistinguishable to this assertion.
-    expect(screen.queryByText("2026-01-01T17:30:00.900Z")).toBeNull();
-  });
-});
-
-describe("the resolved quad", () => {
-  it("renders all four members when the reply carried them", () => {
-    renderCard(
-      pendingRecord({
-        state: "approved",
-        resolvedAt: "2026-01-01T13:30:00.420Z",
-        decision: "approved",
-        approverId: "user-you",
-        effectiveScope: "run",
-      }),
-    );
-    expect(screen.getByText("2026-01-01T13:30:00.420Z")).not.toBeNull();
-    expect(screen.getByText("user-you")).not.toBeNull();
-  });
-
-  it("says the record is incomplete rather than rendering it as whole", () => {
-    renderCard(pendingRecord({ state: "rejected", decision: "rejected" }));
-    expect(screen.getByText(/less than what happened/u)).not.toBeNull();
-  });
-});
-
 describe("the action row is keyboard-walkable", () => {
   it("moves focus with an arrow and with a vim key, and suppresses the page scroll", () => {
     renderCard(pendingRecord());
@@ -300,36 +263,5 @@ describe("the facts the reply requires", () => {
     const changed = screen.getByTitle("2026-01-01T14:05:20.000Z");
     expect(created.textContent).not.toBe("2026-01-01T13:30:00.900Z");
     expect(changed.textContent).not.toBe("");
-  });
-});
-
-describe("a remembered scope on a resolved record", () => {
-  it("names the boundary and the pattern it was narrowed to", () => {
-    renderCard(
-      pendingRecord({
-        state: "approved",
-        resolvedAt: "2026-01-01T13:30:00.420Z",
-        decision: "approved",
-        approverId: "user-you",
-        effectiveScope: "session",
-        rememberedScope: { kind: "run", pattern: "packages/contracts/**" },
-      }),
-    );
-    expect(screen.getByText("This run only")).not.toBeNull();
-    expect(screen.getByText("packages/contracts/**")).not.toBeNull();
-  });
-
-  it("says the grant is category-wide when it carried no pattern", () => {
-    renderCard(
-      pendingRecord({
-        state: "approved",
-        resolvedAt: "2026-01-01T13:30:00.420Z",
-        decision: "approved",
-        approverId: "user-you",
-        effectiveScope: "session",
-        rememberedScope: { kind: "session" },
-      }),
-    );
-    expect(screen.getByText("the whole category inside that boundary")).not.toBeNull();
   });
 });

@@ -1,104 +1,14 @@
-// The directive line's two claims: what it says, and that a walk never eats a draft.
+// The directive line's claim: a recall walk never eats a draft.
 
 import { describe, expect, it } from "vitest";
 
 import { COMPOSER_HISTORY_RECALL_CAP, COMPOSER_RETAINED_ADDRESS_CAP } from "../composer-bounds.js";
-import type { ComposerChannelTarget, ComposerRunTarget } from "../chips/chip-models.js";
 import {
   AddressedDirectiveHistories,
   DirectiveHistory,
   caretAtEnd,
   caretAtStart,
-  composeDirectivePlaceholder,
-  directivePathLabel,
 } from "./directive-line.js";
-
-const CHANNEL_TARGET: ComposerChannelTarget = {
-  path: "channel-message",
-  sessionId: "session",
-  channelId: undefined,
-  workspaceId: undefined,
-  channelLabel: "main",
-};
-
-const RUN_TARGET: ComposerRunTarget = {
-  path: "provider-bound",
-  sessionId: "9d0e1f2a-3b4c-4d5e-8f90-1a2b3c4d5e6f",
-  // An opaque id rather than a friendly word, so the control below is real: a
-  // placeholder that leaked the handle would have to leak THIS, and a fixture id
-  // that read like English would have made the assertion pass on the copy itself.
-  agentId: "01J8ZQ4KX2N7V3T5W9",
-  agentName: "Ada",
-  driverName: "claude",
-  targetRunId: "5e6f7a8b-9c0d-4e1f-8a2b-3c4d5e6f7a8b",
-  expectedRunVersion: 1,
-  runState: "running",
-  providerFailureDetail: undefined,
-};
-
-describe("the placeholder names the target and never an internal handle", () => {
-  it("names the channel and the agent it is addressed to", () => {
-    expect(composeDirectivePlaceholder(CHANNEL_TARGET)).toBe("Message main");
-    expect(composeDirectivePlaceholder(RUN_TARGET)).toBe("Steer Ada's running turn");
-  });
-
-  it("describes an unnamed target rather than printing its id", () => {
-    const unnamed = composeDirectivePlaceholder({ ...RUN_TARGET, agentName: undefined });
-    expect(unnamed).toBe("Steer the agent's running turn");
-    // The negative control: the id is in the target and must not reach the copy.
-    expect(unnamed).not.toContain(RUN_TARGET.agentId);
-  });
-
-  it("says a different thing about an addressed channel than about no address at all", () => {
-    // Two DIFFERENT destinations. The send goes to the named channel in one and to
-    // the session's default in the other, so one sentence cannot serve both.
-    const addressedChannelId = "0f1e2d3c-4b5a-4968-8776-a5b4c3d2e1f0";
-    const addressed = composeDirectivePlaceholder({
-      ...CHANNEL_TARGET,
-      channelId: addressedChannelId,
-      channelLabel: undefined,
-    });
-    const unaddressed = composeDirectivePlaceholder({
-      ...CHANNEL_TARGET,
-      channelId: undefined,
-      channelLabel: undefined,
-    });
-
-    expect(unaddressed).toBe("Message this session");
-    // The negative control. Reading the label first and falling through `??` to the
-    // unaddressed words made these two strings equal, which is the whole defect: the
-    // line stated the destination that was not happening.
-    expect(addressed).not.toBe(unaddressed);
-    // Still no internal handle in operator-facing copy.
-    expect(addressed).not.toContain(addressedChannelId);
-  });
-});
-
-describe("the path label follows the resolution, not the target", () => {
-  it("labels the two send arms and nothing else", () => {
-    expect(
-      directivePathLabel({
-        outcome: "new-turn",
-        request: { sessionId: "s", payload: {} } as never,
-      }),
-    ).toBe("new turn");
-    expect(directivePathLabel({ outcome: "steer", request: {} as never })).toBe("steer");
-  });
-
-  it("labels nothing when the text resolves to no send", () => {
-    // A run-addressed refusal would still be "steer" if the label read the TARGET,
-    // which is the drift this control exists to catch.
-    expect(
-      directivePathLabel({
-        outcome: "refused",
-        refusal: { origin: "composer", code: "run-version-unread", detail: "not read" },
-      }),
-    ).toBeUndefined();
-    expect(
-      directivePathLabel({ outcome: "client-command", commandName: "compact" }),
-    ).toBeUndefined();
-  });
-});
 
 describe("recall walks sent messages and gives the draft back", () => {
   it("stashes the unsent draft on the first step and restores it on the way down", () => {

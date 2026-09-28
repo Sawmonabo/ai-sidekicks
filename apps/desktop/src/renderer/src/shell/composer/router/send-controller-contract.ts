@@ -14,7 +14,7 @@ import type { ConsoleRefusal } from "../../../console/core/index.js";
 import type { DraftStore } from "../../../console/persistence/index.js";
 import type { ComposerTarget } from "../chips/chip-models.js";
 import type { CommandExecutor } from "./command-executor.js";
-import type { DirectiveCaret, DirectivePathLabel } from "./directive-line.js";
+import type { DirectiveCaret } from "./directive-line.js";
 import type { ClientCommandPredicate, ProviderCommandPredicate } from "./send-resolutions.js";
 
 /** Whether the line is accepting text or is locked behind an in-flight dispatch. */
@@ -40,8 +40,7 @@ export interface SendControllerDependencies {
    *
    * Supplied by the same zone and read off the same holder the discovery popover
    * renders from, so a name the list showed and a name the send path recognises are
-   * one reading. Absent, a typed provider command refuses exactly as it did before
-   * the two zones shared one.
+   * one reading. Absent, a typed provider command is treated like any other slash word.
    */
   readonly recognizeProviderCommand?: ProviderCommandPredicate | undefined;
   /**
@@ -60,40 +59,13 @@ export interface SendControllerDependencies {
 export interface SendController {
   readonly text: string;
   readonly placeholder: string;
-  /** "new turn" or "steer", or `undefined` when this text resolves to no send. */
-  readonly pathLabel: DirectivePathLabel | undefined;
   readonly status: SendControllerStatus;
-  /**
-   * Whether an interrupt is in flight, so the surface can mark Stop busy.
-   *
-   * Its own reading rather than a second value of {@link status}: a stop and a send
-   * can be in flight at once, and one status could not say so.
-   */
-  readonly isStopping: boolean;
   /** The last refusal, composer-side or daemon-side, until the person types again. */
   readonly refusal: ConsoleRefusal | undefined;
-  /**
-   * The most recent message sent to THIS address, so a tripped run can be resent
-   * without retyping. `undefined` once the composer is re-addressed, because a body
-   * written for one target is not an offer to send it to another.
-   */
-  readonly resendableText: string | undefined;
-  /**
-   * The store's restart disclosure, while it is armed and there is text to lose.
-   *
-   * The sentence is the store's own — fixed text carrying no user content —
-   * so the composer renders what the store says rather than a second wording of it.
-   */
-  readonly restartNotice: string | undefined;
   changeText(next: string): void;
   send(): Promise<void>;
-  /** Send one exact body again. The tripwire card's offer; never a silent retry. */
-  resend(body: string): Promise<void>;
-  stop(): Promise<void>;
   /** Walk one message older. `false` when the caret is not at the start edge. */
   recallOlder(caret: DirectiveCaret): boolean;
   /** Walk one message newer. `false` when the caret is not at the end edge. */
   recallNewer(caret: DirectiveCaret): boolean;
-  /** Called when the line takes focus, which is what arms the disclosure. */
-  acknowledgeRestartNotice(): void;
 }

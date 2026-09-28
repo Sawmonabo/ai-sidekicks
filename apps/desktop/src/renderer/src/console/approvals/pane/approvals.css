@@ -1,49 +1,8 @@
-/* The approvals pane's sheet. Imported by `approvals/index.ts` — the family's
-   single door — so a body can no more arrive without its CSS than a primitive can,
-   and the seat board six branches each replace one line in is never touched.
+/* The approval card's sheet and the remembered rules' sheet.
 
    Every colour, space, and radius is a Meridian token. Nothing here spends a hue:
    the pending state's amber and a refusal's red arrive through `Chip` and
    `Refusal`, which own those two marks. */
-
-.meridian-approvals {
-  display: flex;
-  flex-direction: column;
-  gap: var(--meridian-space-5);
-  min-width: 0;
-}
-
-.meridian-approvals__section {
-  display: flex;
-  flex-direction: column;
-  gap: var(--meridian-space-2);
-  min-width: 0;
-}
-
-.meridian-approvals__heading {
-  margin: 0;
-  color: var(--meridian-text-muted);
-  font-size: var(--meridian-text-xs);
-  font-weight: 500;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-
-.meridian-approvals__barrier-note,
-.meridian-approvals__unreadable {
-  max-width: 68ch;
-  margin: 0;
-  color: var(--meridian-text-muted);
-  font-size: var(--meridian-text-xs);
-  line-height: 1.5;
-}
-
-.meridian-approvals__cards {
-  display: flex;
-  flex-direction: column;
-  gap: var(--meridian-space-3);
-  min-width: 0;
-}
 
 /* --- one card ---------------------------------------------------------- */
 
@@ -84,11 +43,6 @@
   margin: 0;
 }
 
-.meridian-approval-card__facts--resolved {
-  padding-top: var(--meridian-space-2);
-  border-top: 1px solid var(--meridian-edge);
-}
-
 .meridian-approval-card__fact {
   min-width: 0;
 }
@@ -102,13 +56,6 @@
   min-width: 0;
   margin: 0;
   overflow-wrap: anywhere;
-}
-
-.meridian-approval-card__incomplete {
-  margin: 0;
-  color: var(--meridian-amber-text);
-  font-size: var(--meridian-text-xs);
-  line-height: 1.5;
 }
 
 .meridian-approval-card__disclosure-trigger,
@@ -237,11 +184,7 @@
 .meridian-approval-card__scope-trigger,
 .meridian-approval-card__action,
 .meridian-grants__revoke,
-.meridian-grants__cancel,
-.meridian-goal__open,
-.meridian-goal__save,
-.meridian-goal__clear,
-.meridian-goal__cancel {
+.meridian-grants__cancel {
   padding: var(--meridian-space-1) var(--meridian-space-3);
   font: inherit;
   font-size: var(--meridian-text-sm);
@@ -253,10 +196,7 @@
 .meridian-approval-card__scope-trigger,
 .meridian-approval-card__action--reject,
 .meridian-grants__revoke,
-.meridian-grants__cancel,
-.meridian-goal__open,
-.meridian-goal__clear,
-.meridian-goal__cancel {
+.meridian-grants__cancel {
   color: var(--meridian-text);
   background: var(--meridian-surface);
   border: 1px solid var(--meridian-edge-strong);
@@ -286,9 +226,7 @@
   align-items: center;
 }
 
-.meridian-approval-card__action:disabled,
-.meridian-goal__save:disabled,
-.meridian-goal__clear:disabled {
+.meridian-approval-card__action:disabled {
   cursor: not-allowed;
   opacity: 0.55;
 }
@@ -296,10 +234,6 @@
 .meridian-approval-card__action:focus-visible,
 .meridian-grants__revoke:focus-visible,
 .meridian-grants__cancel:focus-visible,
-.meridian-goal__open:focus-visible,
-.meridian-goal__save:focus-visible,
-.meridian-goal__clear:focus-visible,
-.meridian-goal__cancel:focus-visible,
 .meridian-approval-card__disclosure-trigger:focus-visible,
 .meridian-approval-card__scope-trigger:focus-visible,
 .meridian-callback-tools__schema-trigger:focus-visible {
@@ -328,13 +262,6 @@
   border-radius: var(--meridian-radius-sm);
 }
 
-/* A revoked rule is labelled rather than filtered out, so it reads as history:
-   quieter, never hidden. */
-.meridian-grants__row--revoked {
-  background: var(--meridian-surface-sunken);
-  color: var(--meridian-text-muted);
-}
-
 .meridian-grants__line,
 .meridian-grants__detail,
 .meridian-grants__confirm {
@@ -346,7 +273,6 @@
 }
 
 .meridian-grants__detail,
-.meridian-grants__revoked,
 .meridian-grants__confirm-copy {
   margin: 0;
   color: var(--meridian-text-muted);

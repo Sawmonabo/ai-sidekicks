@@ -3,15 +3,12 @@
 // WHAT PUTS A MODULE HERE. A module that is about the READING rather than about any
 // one wire: the phases a push-driven read passes through and the refusal it settles
 // on, and the ledger that counts a delivery the console could not narrow instead of
-// dropping it. Both were duplicated in `queue/` and in `quotas/` before they had a
-// home — two folds of two different wires that had independently arrived at the same
-// lifecycle — which is what makes this a directory rather than a pair of helpers
-// parked beside one of its readers. The harness that settles a scheduled read sits
+// dropping it. They are not one wire's, which is what makes this a directory rather
+// than a pair of helpers parked beside one of its readers. The harness that settles a scheduled read sits
 // here for the same reason and is published by nobody: it is about when a reading has
 // finished, which is this subject and no one wire's.
 //
-// WHY THE FEEDS ARE NOT HERE. `queue/`, `quotas/` and `driver-capabilities/` each fold
-// ONE wire; this folds none. A directory that held the mechanism and one of its
+// WHY THE FEEDS ARE NOT HERE. `quotas/` and `driver-capabilities/` each fold ONE wire; this folds none. A directory that held the mechanism and one of its
 // consumers would make the second consumer's import read as a borrow from the first.
 //
 // A SUB-MODULE DOOR, NOT A SECOND FAMILY DOOR — `growth-values/index.ts` states the

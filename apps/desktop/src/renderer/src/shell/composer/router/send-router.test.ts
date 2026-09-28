@@ -1,13 +1,13 @@
 // Resolution: what a body and a target WOULD do, before anything is sent.
 //
 // Send is a router rather than a verb, which is the claim every case here reads:
-// the same text resolves differently by target, the reserved prefix is refused on
-// both paths, an enumerated provider entry is named rather than sent, and the text
-// that reaches the daemon is the text the user wrote.
+// the same text resolves differently by target, a slash line is refused at a running
+// turn and a slash word on no list is sent as typed on a new one, an enumerated
+// provider entry is named rather than sent, and the text that reaches the daemon is
+// the text the user wrote.
 
 import { describe, expect, it, vi } from "vitest";
 import {
-  CHANNEL_ID,
   CHANNEL_TARGET,
   PINNED_REQUEST_UUID,
   QUEUE_CREATED,
@@ -26,7 +26,6 @@ describe("ComposerSendRouter — Send is a router, not a verb", () => {
     expect(outcome).toStrictEqual({ status: "sent", path: "channel-message" });
     expect(call).toHaveBeenCalledWith("run.queueCreate", {
       sessionId: SESSION_ID,
-      channelId: CHANNEL_ID,
       payload: { content: "ship the fix" },
     });
   });
@@ -58,29 +57,27 @@ describe("ComposerSendRouter — Send is a router, not a verb", () => {
     // the refusal is a refusal and not a send that also complained.
     expect(call).not.toHaveBeenCalled();
   });
-
-  it("stops the addressed run through the interrupt call and never derives the cut", async () => {
-    const call = vi.fn().mockResolvedValue({});
-    const outcome = await routerWith(call).stop(RUN_TARGET);
-
-    expect(outcome).toStrictEqual({ status: "sent", path: "provider-bound" });
-    expect(call).toHaveBeenCalledWith("driver.interruptRun", { runId: RUN_ID });
-  });
 });
 
-describe("ComposerSendRouter — the reserved slash prefix, on both paths", () => {
-  it("never sends a leading-slash message as prose on either path", async () => {
+describe("ComposerSendRouter — the slash prefix", () => {
+  it("refuses a slash line at a running turn and never sends it", async () => {
     const call = vi.fn().mockResolvedValue({});
-    const router = routerWith(call);
+    const outcome = await routerWith(call).send("/compact now", RUN_TARGET);
 
-    const onChannel = await router.send("/compact now", CHANNEL_TARGET);
-    const onRun = await router.send("/compact now", RUN_TARGET);
-
-    expect(onChannel.status).toBe("refused");
-    expect(onRun.status).toBe("refused");
-    // The lane's own claim, asserted rather than described: no command text of any
-    // shape reaches the wire through the composer.
+    expect(outcome.status).toBe("refused");
+    expect(outcome.status === "refused" && outcome.refusal.code).toBe("slash-prefix-unsupported");
     expect(call).not.toHaveBeenCalled();
+  });
+
+  it("sends a slash word on no list as typed on a new turn", async () => {
+    const call = vi.fn().mockResolvedValue(QUEUE_CREATED);
+    const outcome = await routerWith(call).send("/compact now", CHANNEL_TARGET);
+
+    expect(outcome).toStrictEqual({ status: "sent", path: "channel-message" });
+    expect(call).toHaveBeenCalledWith("run.queueCreate", {
+      sessionId: SESSION_ID,
+      payload: { content: "/compact now" },
+    });
   });
 
   it("intercepts a registered command and composes it into nothing", async () => {
@@ -91,42 +88,35 @@ describe("ComposerSendRouter — the reserved slash prefix, on both paths", () =
     expect(call).not.toHaveBeenCalled();
   });
 
-  it("escapes a doubled slash to one literal slash on the channel path", async () => {
+  it("sends a doubled slash exactly as typed, spacing included", async () => {
     const call = vi.fn().mockResolvedValue(QUEUE_CREATED);
-    await routerWith(call).send("//not-a-command", CHANNEL_TARGET);
+    await routerWith(call, ["not-a-command"]).send("//not-a-command  \n", CHANNEL_TARGET);
 
     expect(call).toHaveBeenCalledWith("run.queueCreate", {
       sessionId: SESSION_ID,
-      channelId: CHANNEL_ID,
-      payload: { content: "/not-a-command" },
+      payload: { content: "//not-a-command  \n" },
     });
   });
 
-  it("keeps the loud refusal on the provider-bound path even for the escape", async () => {
+  it("refuses a doubled slash at a running turn with the same words as any slash line", async () => {
     const call = vi.fn().mockResolvedValue({});
     const outcome = await routerWith(call, ["compact"]).send("//still no", RUN_TARGET);
 
     expect(outcome.status).toBe("refused");
     expect(outcome.status === "refused" && outcome.refusal.code).toBe("slash-prefix-unsupported");
     // The copy names the remedy and carries no internal id — the design's own rule.
-    expect(outcome.status === "refused" && outcome.refusal.detail).not.toMatch(/[A-Z]{2,}-\d/u);
+    expect(outcome.status === "refused" && outcome.refusal.detail).toBe(
+      "Text that begins with a slash cannot be sent to a running turn yet. Remove the leading slash.",
+    );
     expect(call).not.toHaveBeenCalled();
-  });
-
-  it("names the escape when a leading slash matches no registered command", () => {
-    const resolution = routerWith(vi.fn()).resolve("/unknown", CHANNEL_TARGET);
-
-    expect(resolution.outcome).toBe("refused");
-    expect(resolution.outcome === "refused" && resolution.refusal.detail).toContain("//");
   });
 });
 
 describe("ComposerSendRouter — an enumerated provider entry is named, never sent", () => {
   it("refuses a typed provider command as the discovery entry it is", async () => {
     // The gap this closes: the popover listed `review` and the send path answered
-    // "remove the leading slash, or address this message to the channel instead" —
-    // advice for text that is not a command, given to somebody who typed one the
-    // console itself had just shown them. Neither remedy runs it.
+    // "remove the leading slash" — advice for text that is not a command, given to
+    // somebody who typed one the console itself had just shown them.
     const call = vi.fn().mockResolvedValue({});
     const outcome = await routerWith(call, [], ["review"]).send("/review", RUN_TARGET);
 
@@ -139,14 +129,14 @@ describe("ComposerSendRouter — an enumerated provider entry is named, never se
     expect(call).not.toHaveBeenCalled();
   });
 
-  it("negative control: with no enumeration read, the same line keeps the old refusal", async () => {
+  it("negative control: with no enumeration read, the same line gets the plain slash refusal", async () => {
     const call = vi.fn().mockResolvedValue({});
     const outcome = await routerWith(call).send("/review", RUN_TARGET);
 
     expect(outcome.status === "refused" && outcome.refusal.code).toBe("slash-prefix-unsupported");
   });
 
-  it("names a published entry on the channel path too, rather than calling it unknown", () => {
+  it("names a published entry on a new turn too, rather than sending it", () => {
     const resolution = routerWith(vi.fn(), [], ["review"]).resolve("/review", CHANNEL_TARGET);
 
     expect(resolution.outcome === "refused" && resolution.refusal.code).toBe(
@@ -167,13 +157,13 @@ describe("ComposerSendRouter — an enumerated provider entry is named, never se
     expect(call).not.toHaveBeenCalled();
   });
 
-  it("keeps an unpublished, unregistered name at the unknown-command refusal", () => {
+  it("sends an unpublished, unregistered name as typed", () => {
     const resolution = routerWith(vi.fn(), [], ["review"]).resolve("/nothing", CHANNEL_TARGET);
 
-    expect(resolution.outcome === "refused" && resolution.refusal.code).toBe("unknown-command");
+    expect(resolution.outcome).toBe("new-turn");
   });
 
-  it("leaves the literal-slash escape an escape, whatever the provider published", () => {
+  it("does not read a doubled slash as the name the provider published", () => {
     const resolution = routerWith(vi.fn(), [], ["review"]).resolve("//review", CHANNEL_TARGET);
 
     expect(resolution.outcome).toBe("new-turn");
@@ -193,7 +183,6 @@ describe("ComposerSendRouter — the daemon receives the text the user wrote", (
 
     expect(call).toHaveBeenCalledWith("run.queueCreate", {
       sessionId: SESSION_ID,
-      channelId: CHANNEL_ID,
       payload: { content: INDENTED_BODY },
     });
   });
@@ -220,15 +209,14 @@ describe("ComposerSendRouter — the daemon receives the text the user wrote", (
   });
 
   it("sends an indented line beginning with a slash as the prose it is", async () => {
-    // The narrowing the raw read buys: a command opens its line. Pasted code whose
-    // first non-blank character is a slash used to be refused as an unknown command.
+    // A command opens its line, so pasted code whose first non-blank character is a
+    // slash is prose.
     const call = vi.fn().mockResolvedValue(QUEUE_CREATED);
     const outcome = await routerWith(call, ["help"]).send("  /help me read this", CHANNEL_TARGET);
 
     expect(outcome).toStrictEqual({ status: "sent", path: "channel-message" });
     expect(call).toHaveBeenCalledWith("run.queueCreate", {
       sessionId: SESSION_ID,
-      channelId: CHANNEL_ID,
       payload: { content: "  /help me read this" },
     });
   });
@@ -239,17 +227,6 @@ describe("ComposerSendRouter — the daemon receives the text the user wrote", (
 
     expect(outcome).toStrictEqual({ status: "intercepted", commandName: "help" });
     expect(call).not.toHaveBeenCalled();
-  });
-
-  it("strips exactly the escape and leaves the user's spacing alone", async () => {
-    const call = vi.fn().mockResolvedValue(QUEUE_CREATED);
-    await routerWith(call).send("//literal  \n", CHANNEL_TARGET);
-
-    expect(call).toHaveBeenCalledWith("run.queueCreate", {
-      sessionId: SESSION_ID,
-      channelId: CHANNEL_ID,
-      payload: { content: "/literal  \n" },
-    });
   });
 });
 

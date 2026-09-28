@@ -157,11 +157,6 @@ export {
 } from "./pane/pane-kinds.js";
 
 export {
-  // The composer's own attach-menu suite empties the registry between cases. Reached
-  // from a test rather than from a shipped module, so the line carries the claim and
-  // not the exemption — knip needs none.
-  clearComposerAttachMenu,
-  composerAttachMenuEntries,
   registerComposerAttachMenuEntry,
   /** @consumedBy a view family that has not landed yet */
   type ComposerAttachMenuContext,
@@ -248,20 +243,6 @@ export {
 export { PENDING_PANE_BODY_ATTRIBUTE, reservedBodyRegion } from "./pane/pending-pane-body.js";
 export { LoadedLazyBody, type LazyBodyLoader } from "./lazy-body/lazy-body.js";
 
-// The floor seat — the deck's half of "Step in", filled by the family that owns the
-// deck and called by the family that owns the run controls. The release call is on the
-// door and the composer seat's is not, because this handler closes over one live deck
-// and one live transport: the workspace withdraws it on unmount, where the composer's
-// body is registered once for the life of the window.
-export {
-  registerTakeTheFloorHandler,
-  takeTheFloor,
-  unregisterTakeTheFloorHandler,
-  type FloorWorktreeDisposition,
-  type TakeTheFloorHandler,
-  type TakeTheFloorOutcome,
-} from "./slots/take-the-floor-seat.js";
-
 export {
   composerSeatRenderer,
   registerComposerSeat,
@@ -274,13 +255,7 @@ export {
 // The other direction: a surface that told a person to type something asking the
 // mounted composer for the caret. Through the door because the asker and the answerer
 // are two view families that name each other nowhere.
-// The shell's own ingress into that seam rides the same door: main answers the chord
-// an auxiliary window cannot, and the frame is what binds this window to it.
-export {
-  requestComposerFocus,
-  subscribeToComposerFocus,
-  useShellComposerFocusRequests,
-} from "./composer/composer-focus.js";
+export { requestComposerFocus, subscribeToComposerFocus } from "./composer/composer-focus.js";
 
 // `sidebarSectionRenderer` is deliberately absent: the registry hands a mounted sidebar its
 // rows and its one suite takes the declaring module, so the reservation held nothing.

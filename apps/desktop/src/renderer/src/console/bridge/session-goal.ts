@@ -1,5 +1,4 @@
-// The session goal: where the current one comes from, what a valid one is, and the
-// two operations that may change it.
+// The session goal: where the current one comes from and what a valid one is.
 //
 // The session goal is a PROJECTION of the event log — an
 // accepted update emits `session.goal_updated` carrying the canonical goal, there is
@@ -9,29 +8,21 @@
 // of truth for a value the log already orders, and it would show a goal the daemon
 // never appended.
 //
-// TWO OPERATIONS, NEVER ONE. `session.goalUpdate` sets and `session.goalClear`
-// clears, and an update with no goal is malformed rather than a clear. That is why
-// the schema's minimum is one character and not zero.
-//
 // NOTHING HERE IS OPTIMISTIC. Delivery is all-or-nothing across every live binding
 // and the event commits only after all of them acknowledge, so the fold stays on
-// the prior goal until the event lands. A degraded driver result is not an
-// acknowledgement and takes the refusal path.
+// the prior goal until the event lands.
 //
 // IT LIVES IN `bridge/` BECAUSE TWO VIEW FAMILIES READ THE GOAL. The approvals
 // pane renders the card that edits it and the workspace sidebar renders the one
 // line that states it, and those two families may not import one another. Every
-// input this module has is below that: the two payload readers beside it, the
-// bridge itself for the two mutations, `core/`'s instant comparison, and the
-// store's event type. So this is the lowest family that owns them, and both
-// callers take the fold through this family's door rather than each folding the
-// timeline their own way — which is the second projection of one log the goal's
-// own rule forbids.
+// input this module has is below that: the two payload readers beside it,
+// `core/`'s instant comparison, and the store's event type. So this is the lowest
+// family that owns them, and both callers take the fold through this family's door
+// rather than each folding the timeline their own way — which is the second
+// projection of one log the goal's own rule forbids.
 
 import { compareInstants, parseInstant } from "../core/index.js";
 import { readGoalOriginKeys, readGoalPayloadText } from "./wire-shapes/session-goal-payloads.js";
-import { type ConsoleBridge } from "./console-bridge.js";
-import { type GrowthOutcome } from "./growth-port/growth-outcome.js";
 import { type ConsoleSessionEvent } from "../store/index.js";
 
 /** The two projection sources, wire-verbatim. */
@@ -122,31 +113,6 @@ export function foldSessionGoal(timeline: readonly ConsoleSessionEvent[]): Sessi
   return text === undefined
     ? { status: "unreadable", revision }
     : { status: "set", text, revision };
-}
-
-/**
- * Set the session's goal.
- *
- * Through the GROWTH PORT and not `callDaemon`: `session.goalUpdate` is a registered
- * method STRING whose request and reply shapes `@ai-sidekicks/contracts` does not
- * publish, so there is nothing for the call door to parse against and the registered
- * table admits no row for it. The port refuses by name under the live bridge and says
- * that the session plane owes the pair.
- */
-export function updateSessionGoal(
-  bridge: ConsoleBridge,
-  sessionId: string,
-  text: string,
-): Promise<GrowthOutcome<undefined>> {
-  return bridge.growth.sessionGoalUpdate({ sessionId, goal: { text } });
-}
-
-/** Clear the session's goal. The distinct operation, on the same seam. */
-export function clearSessionGoal(
-  bridge: ConsoleBridge,
-  sessionId: string,
-): Promise<GrowthOutcome<undefined>> {
-  return bridge.growth.sessionGoalClear({ sessionId });
 }
 
 /** One origin's latest goal event, with the position that made it latest. */

@@ -10,8 +10,8 @@
 // they need it for different reasons: the popover LISTS what the bound provider
 // publishes, and the send router has to know whether a typed `/name` is one of those
 // entries — because a real provider command typed into the line was reaching a
-// refusal that told the person to remove the slash or address the channel, advice
-// that runs nothing and is wrong about what they typed. A second hook in the send bar
+// refusal that told the person to remove the slash, advice that runs nothing and is
+// wrong about what they typed. A second hook in the send bar
 // would be a second read of one wire and a second answer to one question; a copy
 // cached in the router would be the stored list the lifetime rule forbids. So the
 // host builds one holder and hands it to both zones, exactly as it hands the popover

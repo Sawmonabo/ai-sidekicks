@@ -4,7 +4,7 @@
 // summary of action, target scope, remembered-rule option — which is what this card
 // carries. THAT THE REMEMBERING POLICY IS VISIBLE BEFORE THE ANSWER IS GIVEN is this
 // component's own rule, because no committed document states it: an opt-in whose
-// consequence is disclosed after the click is not an opt-in. Four properties this
+// consequence is disclosed after the click is not an opt-in. Three properties this
 // component keeps that are worth naming because each one is a Never:
 //
 //   • **Two answers, no third.** `APPROVAL_DECISIONS` is closed at two and there is
@@ -18,10 +18,6 @@
 //     file is at the size the package splits at.
 //   • **Scope is never widened.** The effective scope offered is the requested one;
 //     this card renders no control that could broaden it.
-//   • **Expiry is verbatim and arithmetic-free.** `expiryAt` is shown as the daemon
-//     sent it, an absent one says "no expiry" in as many words, and nothing here
-//     counts down or decides that a deadline has passed. `expired` and `canceled`
-//     arrive from the wire or not at all.
 //
 // The action row is a `toolbar` walked with arrows and with `h`/`l`, and both suppress
 // the page scroll they would otherwise cause. Base UI supplies the disclosure under
@@ -34,7 +30,6 @@ import { Collapsible } from "@base-ui/react/collapsible";
 import {
   ACCENT_FILL_CLASS,
   Chip,
-  DerivedFigure,
   RemediedRefusal,
   WireFigure,
   formatClockTime,
@@ -42,21 +37,20 @@ import {
 import { type ConsoleRefusal } from "../../../core/index.js";
 import { isApprovalAnswerable } from "../approval-offer.js";
 import { ApprovalResource } from "./ApprovalResource.js";
-import { isResolvedState, type ApprovalRecord } from "../../../bridge/index.js";
 import {
   CATEGORY_PHRASE,
   STATE_PHRASE,
   STATE_TONE,
   asApprovalCategory,
   asApprovalState,
+  type ApprovalRecord,
+  type ApprovalResolveRequest,
 } from "../../../bridge/index.js";
 import {
   IDLE_REMEMBERED_GRANT_INTENT,
   RememberDecision,
   rememberedScopeFor,
 } from "./RememberDecision.js";
-import { type ApprovalResolveRequest } from "../approvals-wire.js";
-import { ResolvedQuad } from "./ResolvedQuad.js";
 
 export interface ApprovalCardProps {
   readonly record: ApprovalRecord;
@@ -215,16 +209,6 @@ export function ApprovalCard(props: ApprovalCardProps): React.JSX.Element {
             <WireFigure value={formatClockTime(record.updatedAt)} title={record.updatedAt} />
           </dd>
         </div>
-        <div className="meridian-approval-card__fact">
-          <dt>Expires</dt>
-          <dd>
-            {record.expiryAt === undefined ? (
-              <DerivedFigure text="No expiry" />
-            ) : (
-              <WireFigure value={record.expiryAt} />
-            )}
-          </dd>
-        </div>
       </dl>
 
       {props.children}
@@ -237,8 +221,6 @@ export function ApprovalCard(props: ApprovalCardProps): React.JSX.Element {
           <ApprovalResource descriptor={record.resourceDescriptor} />
         </Collapsible.Panel>
       </Collapsible.Root>
-
-      {isResolvedRecord(record) ? <ResolvedQuad record={record} /> : null}
 
       {answerable ? (
         <>
@@ -281,10 +263,6 @@ export function ApprovalCard(props: ApprovalCardProps): React.JSX.Element {
 function actionClassName(action: (typeof ACTION_ORDER)[number]): string {
   const base = `${APPROVAL_CARD_ACTION_CLASS} ${APPROVAL_CARD_ACTION_CLASS}--${action}`;
   return action === PRIMARY_ACTION ? `${base} ${ACCENT_FILL_CLASS}` : base;
-}
-
-function isResolvedRecord(record: ApprovalRecord): boolean {
-  return isResolvedState(record.state);
 }
 
 /** Arrow and vim movement, and nothing else. `0` means this key is not ours. */

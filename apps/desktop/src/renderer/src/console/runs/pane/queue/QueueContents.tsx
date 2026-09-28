@@ -1,17 +1,8 @@
 // What is waiting, in the daemon's order, with a way to take one back.
 //
-// THIS SURFACE'S OWN DENSITY RULE, because no committed document states it: one line
-// per item, with anything secondary one click away and never expanded by default — the
-// shape every console surface takes, where secondary controls live one click away, in a
-// row's hover footer or its context menu. Here there is nothing secondary to fold: the
-// line carries what the wire supplies — id, state, priority, channel, the two
-// timestamps, and the run the row is bound to — and nothing it does not.
-//
-// THE RUN BINDING IS THE ONE FIGURE THE SUMMARY DOES NOT CARRY. `QueueItemSummary`
-// registers no run member, so the durable `queue_items.target_run_id` arrives as its
-// own projection on the feed and is folded onto the row here. A row the projection
-// does not name is unbound and draws no target; a projection that refused says so
-// beside the rows rather than in place of them, on the partial-reading rule below.
+// ONE LINE PER ITEM, with anything secondary one click away and never expanded by
+// default. Here there is nothing secondary to fold: the line carries what the wire
+// supplies — id, state, priority and the two timestamps — and nothing it does not.
 //
 // THE ORDER IS RENDERED, NEVER REORDERED. `bridge/queue/queue-feed.ts` owns the fold that keeps
 // the snapshot's canonical FIFO order; this file maps over it. There is no sort
@@ -21,24 +12,9 @@
 // A CANCELED ROW STAYS. A queue row is durable and never-evented — drained but
 // never deleted — so every one of the five states renders as a row rather than as
 // an absence. Cancel is offered on the one state that can still be taken back.
-//
-// AND A PARTIAL READING SAYS SO BESIDE THE ROWS. A tail delivery this build could
-// not read changed no row, which is exactly why the rows alone cannot show it: the
-// list looks like a queue that has not moved. The feed's own count and its parse
-// refusal render above the list rather than in place of it — the rows are still the
-// best reading there is, and they are no longer offered as a complete one.
 
-import {
-  DerivedFigure,
-  InlineRefusal,
-  Nothing,
-  PartialRead,
-  RefusalCard,
-  unreadableDeliveryReading,
-} from "../../../primitives/index.js";
-import { formatCount } from "../../../primitives/index.js";
+import { DerivedFigure, Nothing, formatCount } from "../../../primitives/index.js";
 import { QUEUE_ROWS_RENDERED_CAP } from "../../../core/index.js";
-import type { ReadingState } from "../../../primitives/index.js";
 import type { QueueFeed } from "../../../bridge/index.js";
 import { QueueRow } from "./QueueRow.js";
 
@@ -48,23 +24,6 @@ export interface QueueContentsProps {
 
 export function QueueContents(props: QueueContentsProps): React.JSX.Element {
   const { feed } = props;
-  // Derived once and branched on twice, so the reading the notice renders and the
-  // reading that decides whether the empty arm may reassure are the same one.
-  const deliveries = deliveryReading(feed);
-
-  if (feed.phase === "refused") {
-    return feed.readRefusal === undefined ? (
-      <Nothing
-        kind="error"
-        placement="surface"
-        title="The queue could not be read."
-        detail="The daemon refused the read and named no reason the console could render."
-      />
-    ) : (
-      <RefusalCard code={feed.readRefusal.code} detail={feed.readRefusal.detail} />
-    );
-  }
-
   if (feed.phase === "reading") {
     return (
       <Nothing
@@ -76,14 +35,7 @@ export function QueueContents(props: QueueContentsProps): React.JSX.Element {
   }
 
   if (feed.items.length === 0) {
-    return deliveries.kind !== "served" ? (
-      // An empty list and an unreadable delivery are both true at once, and the
-      // reassuring arm is unavailable: a row this build could not read is a row
-      // whose existence is unknown, never one known to be absent.
-      <div className="meridian-queue">
-        <PartialRead states={[deliveries]} subject="the queue" />
-      </div>
-    ) : (
+    return (
       <Nothing
         kind="empty"
         placement="surface"
@@ -98,21 +50,12 @@ export function QueueContents(props: QueueContentsProps): React.JSX.Element {
 
   return (
     <div className="meridian-queue">
-      <PartialRead states={[deliveries]} subject="the queue" />
-      {feed.bindingRefusal === undefined ? null : (
-        // Beside the rows and never in place of them: the rows are still the best
-        // reading there is, and they are no longer offered as one that says which run
-        // each is bound to.
-        <InlineRefusal code={feed.bindingRefusal.code} detail={feed.bindingRefusal.detail} />
-      )}
       <ol className="meridian-queue__rows">
         {rendered.map((item) => (
           <QueueRow
             key={item.id}
             item={item}
-            targetRunId={feed.targetRunIdByItemId.get(item.id)}
             isCancelPending={feed.pendingCancelIds.has(item.id)}
-            cancelRefusal={feed.cancelRefusalByItemId.get(item.id)}
             onCancel={feed.cancelItem}
           />
         ))}
@@ -125,17 +68,4 @@ export function QueueContents(props: QueueContentsProps): React.JSX.Element {
       ) : null}
     </div>
   );
-}
-
-/**
- * The tail's deliveries, in the console's one reading vocabulary.
- *
- * What stood here was this file's own notice component — its own box, its own two
- * sentences, and a name that shadowed the primitive it duplicated. The count-to-state
- * step is the model's (`primitives/reading/partial-read.ts`), the sentence is the model's, and
- * a count of zero answers `served`, which renders nothing: the surface no longer has
- * to ask whether it is partial before deciding whether to mount the notice.
- */
-function deliveryReading(feed: QueueFeed): ReadingState {
-  return unreadableDeliveryReading(feed.unreadableDeliveryCount, feed.unreadableRefusal);
 }

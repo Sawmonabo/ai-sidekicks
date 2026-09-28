@@ -29,7 +29,7 @@ export const COMPOSER_HISTORY_RECALL_CAP = 20;
  * makes the map grow with the addresses a person visits, and a window left open all
  * day visits many, so the least recently addressed is dropped past this bound.
  *
- * Sized so an ordinary working set — a session's channel and the agents on it —
+ * Sized so an ordinary working set — a session and the agents on it —
  * never evicts, while a long day of browsing cannot grow the map without end.
  */
 export const COMPOSER_RETAINED_ADDRESS_CAP = 12;

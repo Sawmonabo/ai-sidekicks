@@ -6,7 +6,6 @@
 
 import { describe, expect, it, vi } from "vitest";
 
-import { type SessionGoalProjection } from "../../bridge/index.js";
 import { type ApprovalRecord } from "../../bridge/index.js";
 import { refuse, type ConsoleRefusal } from "../../core/index.js";
 import {
@@ -17,13 +16,6 @@ import {
 
 const FIRST_REQUEST = "3f6b1c2d-4e5f-4061-8273-9a4b5c6d7e8f";
 const SECOND_REQUEST = "4a7c2d3e-5f60-4172-8384-0b5c6d7e8f90";
-
-const GOAL_SET: SessionGoalProjection = {
-  status: "set",
-  text: "Ship the console",
-  revision: "1",
-};
-const NO_GOAL: SessionGoalProjection = { status: "none", revision: "1" };
 
 /** A pending record carrying the members the rows and the request actually read. */
 function pendingRecord(approvalRequestId: string): ApprovalRecord {
@@ -56,9 +48,6 @@ function inputFor(overrides: Partial<ApprovalCommandInput> = {}): ApprovalComman
     resolvingApprovalIds: new Set<string>(),
     resolveRefusalByApprovalId: new Map<string, ConsoleRefusal>(),
     resolve: () => undefined,
-    goal: NO_GOAL,
-    isMutatingGoal: false,
-    clearGoal: () => undefined,
     ...overrides,
   };
 }
@@ -113,16 +102,6 @@ describe("the rows the approvals pane contributes", () => {
 
     expect(rows.map((row) => row.kind)).toEqual(["approve", "reject"]);
   });
-
-  it("offers the goal clear only where a goal is set and nothing is settling", () => {
-    const offered = approvalCommandRows(inputFor({ goal: GOAL_SET }));
-    const empty = approvalCommandRows(inputFor({ goal: NO_GOAL }));
-    const settling = approvalCommandRows(inputFor({ goal: GOAL_SET, isMutatingGoal: true }));
-
-    expect(offered.some((row) => row.kind === "clear-goal")).toBe(true);
-    expect(empty.some((row) => row.kind === "clear-goal")).toBe(false);
-    expect(settling.some((row) => row.kind === "clear-goal")).toBe(false);
-  });
 });
 
 describe("what answering from the palette sends", () => {
@@ -176,19 +155,5 @@ describe("what answering from the palette sends", () => {
     );
 
     expect(resolve).not.toHaveBeenCalled();
-  });
-
-  it("clears the goal only while there is a goal and nothing is settling", () => {
-    const clearGoal = vi.fn();
-    const row = { kind: "clear-goal", record: undefined, title: "Clear the session goal" } as const;
-
-    performApprovalCommand(row, inputFor({ goal: NO_GOAL, clearGoal }));
-    expect(clearGoal).not.toHaveBeenCalled();
-
-    performApprovalCommand(row, inputFor({ goal: GOAL_SET, isMutatingGoal: true, clearGoal }));
-    expect(clearGoal).not.toHaveBeenCalled();
-
-    performApprovalCommand(row, inputFor({ goal: GOAL_SET, clearGoal }));
-    expect(clearGoal).toHaveBeenCalledTimes(1);
   });
 });

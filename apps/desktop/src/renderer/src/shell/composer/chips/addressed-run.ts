@@ -3,11 +3,11 @@
 // A steer is handed to a run that is still going. The daemon settles a run into
 // `completed`, `interrupted`, or `failed` and stops moving it, so a composer that
 // kept pointing at a settled run would resolve every later message to the steer
-// path and every send would come back refused — with the channel path, which is
+// path and every send would come back refused — with the session path, which is
 // what the person actually wanted, unreachable for the rest of the session.
 //
 // SO THE ADDRESSED RUN IS THE NEWEST RUN WHOSE STATE STILL ADMITS A STEER, and
-// when the agent has none the composer addresses the channel instead. That is a
+// when the agent has none the composer addresses the session instead. That is a
 // narrower claim than deciding eligibility: whether a steer is ADMITTED is the
 // daemon's, and it still refuses on the state the run is actually in. What this
 // module answers is which run the composer is pointing AT — a question the

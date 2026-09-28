@@ -1,11 +1,11 @@
 // The one edge into the file-restore disclosure's chunk, and the only one that is
 // asynchronous.
 //
-// WHAT IS ON WHICH SIDE. The primitives door publishes `loadFileRestoreDisclosure`, and
-// `primitives/restore/file-restore-disclosure-loader.ts` says why the door names a loader
-// instead of the component. This module is the half that stays in THIS family: it holds
-// no restore knowledge, imports the disclosure only as a TYPE — a line the compiler
-// erases — and pairs the door's loader with the pending region the substrate draws.
+// WHAT IS ON WHICH SIDE. This module holds no restore knowledge: it imports the
+// disclosure only as a TYPE — a line the compiler erases — fetches the disclosure's
+// chunk through `import()`, and pairs that with the pending region the substrate draws.
+// A static import of the component would put it on the initial graph, because a symbol
+// reachable both statically and dynamically is assigned to the STATIC chunk.
 //
 // A `LoadedLazyBody` RATHER THAN A `lazy()` OF THIS MODULE'S OWN, because that class is
 // already the console's one answer to a loader-backed body: one in-flight promise however
@@ -24,10 +24,7 @@
 // three that did not.
 
 import { LoadedLazyBody, reservedBodyRegion } from "../../../seats/index.js";
-import {
-  loadFileRestoreDisclosure,
-  type FileRestoreDisclosureProps,
-} from "../../../primitives/index.js";
+import type { FileRestoreDisclosureProps } from "../../../primitives/index.js";
 
 /**
  * What a pending disclosure stamps, so a refused capture says WHICH body was loading.
@@ -39,6 +36,7 @@ const FILE_RESTORE_DISCLOSURE_PENDING_BODY = "file-restore-disclosure";
 
 /** The disclosure, mounted from its chunk. The rollback settlement's one reader. */
 export const fileRestoreDisclosureMount: LoadedLazyBody<FileRestoreDisclosureProps> =
-  new LoadedLazyBody(loadFileRestoreDisclosure, () =>
-    reservedBodyRegion(FILE_RESTORE_DISCLOSURE_PENDING_BODY),
+  new LoadedLazyBody(
+    async () => await import("../../../primitives/restore/file-restore-disclosure-body.js"),
+    () => reservedBodyRegion(FILE_RESTORE_DISCLOSURE_PENDING_BODY),
   );

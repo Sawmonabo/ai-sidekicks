@@ -1,16 +1,11 @@
 // One reading of the slash prefix, and the two lines it must not claim.
 //
-// The cases moved here with the function: they were the discovery surface's, and the
-// send router is now the second reader of the same grammar. A rule read by two zones
-// is asserted once.
+// The discovery surface and the send router read the same grammar, so a rule both
+// zones depend on is asserted once, here.
 
 import { describe, expect, it } from "vitest";
 
-import {
-  opensDirectiveLine,
-  readDirectiveName,
-  stripLiteralSlashEscape,
-} from "./directive-syntax.js";
+import { opensDirectiveLine, readDirectiveName } from "./directive-syntax.js";
 
 describe("readDirectiveName", () => {
   it("opens on a leading slash and reports the typed name", () => {
@@ -26,15 +21,14 @@ describe("readDirectiveName", () => {
   });
 
   it("negative control: an indented line is prose, so it names nothing", () => {
-    // The grammar used to trim the line first, which made this "compact". It cannot,
-    // because the router now hands over the user's text untouched: pasted
-    // code whose first non-blank character is a slash would otherwise be claimed as
-    // a command. A command occupies its line from the first byte.
+    // The router hands over the user's text untouched, so pasted code whose first
+    // non-blank character is a slash would otherwise be claimed as a command. A
+    // command occupies its line from the first byte.
     expect(readDirectiveName("  /compact")).toBeUndefined();
   });
 
-  it("negative control: the literal-slash escape names nothing", () => {
-    expect(readDirectiveName("//not a command")).toBeUndefined();
+  it("reads a doubled slash as the name it is, so nothing recognises it", () => {
+    expect(readDirectiveName("//not a command")).toBe("/not");
   });
 
   it("negative control: ordinary prose names nothing", () => {
@@ -43,26 +37,12 @@ describe("readDirectiveName", () => {
 });
 
 describe("opensDirectiveLine", () => {
-  it("claims the trigger at the first byte, the escape included", () => {
+  it("claims the trigger at the first byte", () => {
     expect(opensDirectiveLine("/compact")).toBe(true);
-    expect(opensDirectiveLine("//literal")).toBe(true);
   });
 
   it("negative control: leaves indented and unprefixed text to prose", () => {
     expect(opensDirectiveLine("  /compact")).toBe(false);
     expect(opensDirectiveLine("compact")).toBe(false);
-  });
-});
-
-describe("stripLiteralSlashEscape", () => {
-  it("takes exactly one character off an escaped line and nothing else", () => {
-    expect(stripLiteralSlashEscape("//not-a-command")).toBe("/not-a-command");
-    // Whitespace the person wrote is theirs: the strip is a strip, not a trim.
-    expect(stripLiteralSlashEscape("//  spaced  ")).toBe("/  spaced  ");
-  });
-
-  it("negative control: returns an unescaped line byte-identical", () => {
-    expect(stripLiteralSlashEscape("  /compact  ")).toBe("  /compact  ");
-    expect(stripLiteralSlashEscape("/compact")).toBe("/compact");
   });
 });

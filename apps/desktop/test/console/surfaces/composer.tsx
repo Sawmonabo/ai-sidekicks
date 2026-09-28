@@ -9,16 +9,15 @@
 // they were comparable. `console-harness.tsx` owns HOW the console is mounted, one
 // level down; this owns WHAT of this family is mounted into it.
 //
-// THE FOUR COMPOSER STATES ARE ADDRESSES, NOT VARIANTS. `chip-models.ts` resolves
-// the send path from the FOCUSED PANE and the session store's own partitions, so
-// the composer has no state to be put into — it has an address to be read at. The
-// four below are therefore four `focusedPane` values (and, for the two provider-
-// bound ones, two different prefixes of the same scenario log), which is why they
-// share one store builder and differ in one argument each:
+// THE COMPOSER STATES ARE ADDRESSES, NOT VARIANTS. `chip-models.ts` resolves the send
+// path from the FOCUSED PANE and the session store's own partitions, so the composer
+// has no state to be put into — it has an address to be read at. The three below are
+// therefore three `focusedPane` values (and, for the two provider-bound ones, two
+// different prefixes of the same scenario log), which is why they share one store
+// builder and differ in one argument each:
 //
-//   • the channel path with the session's own default, which is what a composer
-//     addresses when focus is not in the deck;
-//   • the channel path addressed at a named channel;
+//   • the session's own default, which is what a composer addresses when focus is not
+//     in the deck;
 //   • the provider-bound path with the run still `running`;
 //   • the provider-bound path with the run `waiting_for_input`, which is where the
 //     composer scenario ends and the one state the design calls "steer".
@@ -26,55 +25,38 @@
 // EVERY PARTITION IS THE REAL ONE, because every store here opens with the fold the
 // window composes — {@link COMPOSED_CONSOLE_PROJECTORS}, and never a registrar this
 // file picked. A mount that named its own would be deciding which partitions its
-// surface can read, and the approvals mount did exactly that: it registered the
-// approval-flow fold alone, so the run partition was empty and the pane's Execution
-// boundary section rendered "unknown" over a scenario that stamps a posture on its own
-// `run.running` beat. A partition no family projects — the agent binding today — still
-// renders as an absence, and that is now the family's wire-true state rather than a
-// property of this file's import list.
+// surface can read.
 //
 // AND EVERY SURFACE HERE READS, SO EVERY SURFACE HERE SETTLES ITS READS —
 // {@link mountSurfaceSettled} is the one seam that does it, rather than each mount
 // remembering to. Each of these compositions arms at least one `RefreshScheduler` on
 // the fixture's frozen clock, and `renderSettled` moves no clock: without the advance
-// the roster read behind the paying-account chip and the capability read behind the
-// runs pane's controls never perform at all, and both tiers photograph an in-flight
+// the scheduled reads never perform at all, and both tiers photograph an in-flight
 // phase under a name that claims to be the answered composition. The settlement is
 // then ASSERTED rather than assumed — see {@link requireNoReadInFlight} — because a
 // capture of a skeleton is a green case in both tiers.
 
 import { act, waitFor } from "@testing-library/react";
-import type { FunctionComponent, ReactElement } from "react";
+import type { ReactElement } from "react";
 
 import { renderSettled } from "../console-harness.js";
 
-import { APPROVALS_SCENARIO } from "../../../src/renderer/src/console/bridge/scenario/approvals/approvals.js";
 import { COMPOSER_SCENARIO } from "../../../src/renderer/src/console/bridge/scenario/composer/composer.js";
-import { RUNS_SCENARIO } from "../../../src/renderer/src/console/bridge/scenario/runs/runs.js";
 import {
   createFixtureBridge,
   type ConsoleBridge,
 } from "../../../src/renderer/src/console/bridge/index.js";
 import { settleScheduledRead } from "../../../src/renderer/src/console/bridge/readings/scheduled-read.test-support.js";
-import type { ConsoleScenario } from "../../../src/renderer/src/console/bridge/scenario/runtime/index.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "../../../src/renderer/src/console/core/index.js";
 import { crossMacrotaskBoundary } from "../../../src/renderer/src/console/core/macrotask-boundary.test-support.js";
-import { DraftStore, UiStateStore } from "../../../src/renderer/src/console/persistence/index.js";
+import { DraftStore } from "../../../src/renderer/src/console/persistence/index.js";
 import {
   FrameStore,
   SessionStore,
   type ConsoleSessionEvent,
 } from "../../../src/renderer/src/console/store/index.js";
 import { MessageComposer } from "../../../src/renderer/src/shell/MessageComposer.js";
-import { registerApprovalsPane } from "../../../src/renderer/src/console/approvals/index.js";
-import { registerRunsPane } from "../../../src/renderer/src/console/runs/index.js";
-import {
-  ConsolePaneRegistry,
-  type ConsolePaneAddress,
-  type ConsolePaneContext,
-  type PaneKind,
-} from "../../../src/renderer/src/console/seats/index.js";
-import { resolvedPaneBody } from "./pane-body-resolution.js";
+import type { ConsolePaneAddress } from "../../../src/renderer/src/console/seats/index.js";
 import { COMPOSED_CONSOLE_PROJECTORS } from "./projector-composition.js";
 
 /** The element a tier reads, and the bridge it was mounted against. */
@@ -88,7 +70,7 @@ export interface MountedFamilySurface {
  *
  * A second copy of the UUID here would be a constant that agrees with the scenario
  * only by discipline, and the day the scenario's agent changed this mount would go
- * on addressing an agent nobody attached — resolving the channel path and capturing
+ * on addressing an agent nobody attached — resolving the session path and capturing
  * a baseline of the wrong composition under the provider-bound name.
  */
 function composerAgentId(): string {
@@ -193,25 +175,9 @@ async function mountComposerAt(options: {
   return { element: requireRegion(container, "Message composer"), bridge };
 }
 
-/** The composer with focus outside the deck: the session's own default channel. */
+/** The composer with focus outside the deck: addressed at the session. */
 export async function mountComposerChannelDefault(): Promise<MountedFamilySurface> {
   return mountComposerAt({ throughKind: "run.running", focusedPane: undefined });
-}
-
-/** The composer addressed at a named channel rather than at the session default. */
-export async function mountComposerChannelAddressed(): Promise<MountedFamilySurface> {
-  return mountComposerAt({
-    throughKind: "run.running",
-    focusedPane: {
-      kind: "timeline",
-      // A channel the store holds no entity for, which is the ordinary case on this
-      // branch: no channel projector is registered, so the chip states that it read
-      // no label for the channel it is addressed at. It neither invents a label nor
-      // prints the id, and — the reason this surface is pinned beside the default
-      // one — it does not fall through to the words the unaddressed arm uses.
-      entity: { kind: "channel", id: `${COMPOSER_SCENARIO.sessionId}-main` },
-    },
-  });
 }
 
 /** The composer addressed at a working run: the new-turn path against a live agent. */
@@ -277,27 +243,6 @@ function requireStripCarrying(region: HTMLElement, names: readonly string[]): vo
 }
 
 /**
- * The composer with the `+` menu open, which is the only way its panel is on screen.
- *
- * The panel is UNMOUNTED while closed rather than hidden, so a tier that audited the
- * composer without opening it audited a document the panel was not in.
- */
-export async function mountComposerPlusMenuOpen(): Promise<MountedFamilySurface> {
-  const mounted = await mountComposerProviderBoundRunning();
-  const trigger = mounted.element.querySelector<HTMLElement>(".meridian-plus-menu__trigger");
-  if (trigger === null) {
-    throw new Error("the composer rendered no plus-menu trigger to open");
-  }
-  await act(async () => {
-    trigger.click();
-  });
-  if (mounted.element.querySelector(".meridian-plus-menu__panel") === null) {
-    throw new Error("the plus menu did not open");
-  }
-  return mounted;
-}
-
-/**
  * Drop files on the composer the way a person does, and let the ingest settle.
  *
  * `DataTransfer` has no jsdom constructor, so the payload is the array-like shape the
@@ -355,131 +300,6 @@ async function dropFilesOnComposer(region: HTMLElement, files: readonly File[]):
  * enough that only a spool that stopped answering reaches it.
  */
 const ATTACHMENT_INGEST_SETTLE_TIMEOUT_MS = 5_000;
-
-/**
- * A store OPENED at one scenario's own beat range and fed every beat in it.
- *
- * Opening it is not a formality. `useSessionInitialised` is what the runs pane's own
- * `hasRead` reads, and a store nobody opened answers `false` for the window's life —
- * so that pane says "Reading the runs in this session" over a snapshot that was never
- * going to arrive, and both tiers photograph the skeleton. It reached that state with
- * no read in flight and no refusal to render, which is why the mount and not the clock
- * is where it is fixed.
- *
- * The cursor is taken one below the scenario's own lowest sequence rather than from
- * zero: the store admits the batch as the continuation of what it opened at, and a
- * scenario whose log starts at a higher sequence would otherwise be applying beats the
- * store believes it has already seen.
- *
- * THE FOLD IS NOT A PARAMETER, which is the point of it being here at all. It was one,
- * and each caller chose — so the runs pane got the run-lifecycle table and the
- * approvals pane got the approval-flow one, and neither got what a window opens a
- * store with. A caller cannot pick a partition set it is not offered.
- */
-function scenarioSeededStore(scenario: ConsoleScenario): SessionStore {
-  const store = new SessionStore({
-    sessionId: scenario.sessionId,
-    projectors: COMPOSED_CONSOLE_PROJECTORS,
-  });
-  const sequences = scenario.beats.map((beat) => beat.event.sequence);
-  store.initialise({
-    cursor: Math.min(...sequences) - 1,
-    entities: [],
-    userJoinLog: [...scenario.userIdsInJoinOrder],
-  });
-  store.applyBatch(scenario.beats.map((beat) => beat.event as ConsoleSessionEvent));
-  return store;
-}
-
-/**
- * The runs pane, mounted out of the deck's registry rather than by importing its body.
- *
- * A tier that imported the component would capture a component that happens to sit
- * beside the registration; this captures the body the deck would actually mount, and
- * the family's stylesheet arrives on the barrel edge that owns it — which is what
- * makes the captured pixels the ones a person would see.
- */
-export async function mountRunsPane(): Promise<MountedFamilySurface> {
-  const bridge = createFixtureBridge({ scenario: RUNS_SCENARIO });
-  const RunsPaneBody = await paneBodyComponent("runs", registerRunsPane);
-  const container = await mountSurfaceSettled(
-    bridge,
-    <RunsPaneBody
-      kind="runs"
-      paneId="pane-runs-surface"
-      linkedSourcePaneId={undefined}
-      bridge={bridge}
-      sessionStore={scenarioSeededStore(RUNS_SCENARIO)}
-      frameStore={new FrameStore()}
-      uiStateStore={UiStateStore.opening()}
-      draftStore={new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT })}
-      focusHue={undefined}
-    />,
-  );
-  const pane = container.querySelector(".meridian-runs");
-  if (!(pane instanceof HTMLElement)) {
-    throw new Error("the runs pane rendered no .meridian-runs element to capture");
-  }
-  // By class rather than by accessible name, and the exception is worth stating: the
-  // pane's own root is a layout container and the accessible names inside it belong
-  // to its three sections, so there is no one labelled element that IS the pane. The
-  // sections' names are what the accessibility tier then audits.
-  return { element: pane, bridge };
-}
-
-/**
- * The approvals pane, over a store opened with the fold a window composes.
- *
- * TWO PARTITIONS, AND THE PANE READS BOTH. The approval-flow fold is what carries the
- * provider-ask framing, and the run-lifecycle fold is what carries the boundary each
- * pending decision was raised under — `ApprovalsPaneBody` joins the two by the `runId`
- * every approval record spells. Registering only the first left the Execution boundary
- * section reading an empty `run` partition and rendering the chip's absent arm, which
- * is the reading reserved for a run that never reached `running`: a picture of the
- * wrong state, minted as a reference and audited as a surface.
- */
-export async function mountApprovalsPane(): Promise<MountedFamilySurface> {
-  const bridge = createFixtureBridge({ scenario: APPROVALS_SCENARIO });
-  const sessionStore = scenarioSeededStore(APPROVALS_SCENARIO);
-  const ApprovalsPaneBody = await paneBodyComponent("approvals", registerApprovalsPane);
-  const container = await mountSurfaceSettled(
-    bridge,
-    <ApprovalsPaneBody
-      kind="approvals"
-      paneId="pane-approvals-surface"
-      linkedSourcePaneId={undefined}
-      bridge={bridge}
-      sessionStore={sessionStore}
-      frameStore={new FrameStore()}
-      uiStateStore={UiStateStore.opening()}
-      draftStore={new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT })}
-      focusHue={undefined}
-    />,
-  );
-  const pane = container.querySelector(".meridian-approvals");
-  if (!(pane instanceof HTMLElement)) {
-    throw new Error("the approvals pane rendered no .meridian-approvals element to capture");
-  }
-  // By class rather than by accessible name, for `mountRunsPane`'s reason: the pane
-  // root is a layout container and the accessible names inside it belong to its
-  // sections.
-  return { element: pane, bridge };
-}
-
-/**
- * The composer-family pane body the deck holds for a kind, loaded.
- *
- * The resolution — build a family-scoped registry, preload, read the descriptor, throw
- * by name — lives once in `test/console/surfaces/pane-body-resolution.ts`. This family passes its
- * registrar per call rather than registering every family here, so a mount composes the
- * one body it captures.
- */
-async function paneBodyComponent(
-  kind: PaneKind,
-  registerPane: (registry: ConsolePaneRegistry) => void,
-): Promise<FunctionComponent<ConsolePaneContext>> {
-  return await resolvedPaneBody(kind, registerPane);
-}
 
 /**
  * Find the one element a surface renders itself as.

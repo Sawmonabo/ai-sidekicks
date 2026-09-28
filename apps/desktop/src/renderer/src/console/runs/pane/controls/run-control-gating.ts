@@ -1,32 +1,30 @@
-// Which of the six controls a run's BOUND DRIVER offers, and the read that answers.
+// Which run controls a run's BOUND DRIVER offers, and the read that answers.
 //
 // Split from `run-control-dispatch.ts` because it is a second job: that module
 // decides what a control SENDS, and this one decides whether the control is on
 // screen at all. Keeping them apart is what lets the gate be asserted without a
 // bridge and the dispatch be asserted without a capability read.
 //
-// WHICH TWO ARE GATED IS THIS MODULE'S OWN RULE, because no committed document states
-// it: `steer` and `rollback` are gated on the bound driver's declared flags, while
-// pause, resume, interrupt, and cancel are orchestration-layer and are never
-// driver-gated. What a false flag DOES is the console's standing rule — absent, not
-// disabled: such a control is not rendered, because a disabled one asserts the
-// capability exists and is momentarily unavailable, which would be false.
+// WHICH ONE IS GATED IS THIS MODULE'S OWN RULE, because no committed document states
+// it: `steer` is gated on the bound driver's declared flag, while pause and interrupt
+// are orchestration-layer and are never driver-gated. What a false flag DOES is the
+// console's standing rule — absent, not disabled: such a control is not rendered,
+// because a disabled one asserts the capability exists and is momentarily unavailable,
+// which would be false.
 //
 // ON THE BOUND DRIVER — WHICH IS PER RUN, NOT PER SESSION. `driver.listCapabilities`
 // answers with one report PER DRIVER (`DriverCapabilityReport` is keyed by its own
 // `driverName`), and a session may hold runs on more than one. Intersecting those
-// reports with `every` answered a question nobody asked — "do ALL drivers here
-// declare this?" — and its `false` hid Rewind on a capable Claude run merely because
-// some Codex driver in the same session reported `rollback: false`. So the reports
+// reports with `every` would answer a question nobody asked — "do ALL drivers here
+// declare this?" — so the reports
 // are RETAINED BY DRIVER and resolved per run, and one driver's declaration never
 // answers for another driver's run.
 //
 // THE READ ITSELF IS THE BRIDGE'S, NOT THIS FAMILY'S. The declaration is addressed at
-// the node rather than at a run, and the composer's accessory rail gates its own
-// control on the same answer — so `bridge/driver-capabilities/driver-capability-read.ts` performs one
-// call per bridge and both families resolve against the readout it hands back. This
-// module keeps the half that is genuinely the runs pane's: which control is gated on
-// which flag, and which driver a RUN is bound to.
+// the node rather than at a run, so `bridge/driver-capabilities/driver-capability-read.ts`
+// performs one call per bridge and every gate resolves against the readout it hands
+// back. This module keeps which control is gated on which flag, and which driver a RUN
+// is bound to.
 //
 // WHAT NAMES A RUN'S DRIVER. No run-scoped wire shape does: `RunStateChangeEvent` and
 // `RunRolledBackEvent` (the two arms of `run.subscribeState`) and `QueueItemSummary`
@@ -36,9 +34,7 @@
 // and `run.queued` names the agent a run was created for — so the pair is joined
 // through the agent by `bridge/driver-capabilities/run-driver-binding.ts` and reaches this module as
 // `driverNameByRunId`. That join is what makes a node with two drivers installed
-// answerable at all: it used to be empty, and the resolution below then fell through
-// to `undefined` for every run on such a node, taking Rewind and Steer off every row
-// however loudly each run's own driver had declared them.
+// answerable at all.
 //
 // The sole-report fallback stays beneath it, for the session whose join has nothing
 // to say yet: with exactly ONE driver reported for the node, that driver is the only
@@ -64,8 +60,8 @@ import { type RunControl } from "./run-control-dispatch.js";
 /**
  * The driver flag each control is gated on, or `undefined` where it is not gated.
  *
- * Total over the six, so a seventh control has to answer this question rather than
- * silently defaulting to ungated. The two flag names are members of the registered
+ * Total over the controls, so a new one has to answer this question rather than
+ * silently defaulting to ungated. The flag name is a member of the registered
  * `DRIVER_CAPABILITY_FLAGS`, which is what the type annotation pins.
  */
 export const CONTROL_CAPABILITY_GATE: Readonly<
@@ -75,22 +71,18 @@ export const CONTROL_CAPABILITY_GATE: Readonly<
   resume: undefined,
   steer: "steer",
   interrupt: undefined,
-  cancel: undefined,
-  rollback: "rollback",
 };
 
 /**
- * What a row OFFERS for one run, split the way the row draws it.
+ * What is OFFERED for one run: the orchestration controls, and the capability-gated one.
  *
- * Two lists rather than one, because the row's two halves are two different
- * density rules: `primary` is always visible on the run, `overflow` is the
- * one-click-away set. A caller that only wants "every control this run offers"
- * concatenates them, which is what the palette contribution does.
+ * A caller that only wants "every control this run offers" concatenates the two lists,
+ * which is what the palette contribution does.
  */
 export interface OfferedRunControls {
-  /** Always visible on the row: the pause/resume verb the state admits, and stop. */
+  /** Never driver-gated: pause or resume, whichever the state admits, and stop. */
   readonly primary: readonly RunControl[];
-  /** One click away, and capability-gated: steer, cancel, rewind. */
+  /** Capability-gated: steer. */
   readonly overflow: readonly RunControl[];
 }
 
@@ -115,18 +107,11 @@ export function isControlOffered(
 }
 
 /**
- * The controls a run's row offers, as the row itself decides it.
+ * The controls a run offers, decided in one place.
  *
- * ONE READING, TWO READERS, and that is the reason this exists rather than the
- * row keeping the rule to itself. `RunControls.tsx` draws these and the palette
- * contributes exactly the same set, so "every action is palette-reachable under
- * the same when-grammar as the run controls" is a property of one function rather
- * than a claim two files have to keep agreeing about. A second copy is how the
- * palette ends up offering Rewind on a driver that declared none.
- *
- * `pause` and `resume` are mutually exclusive on the state and never both: the
- * row draws pause as `StepIn`, which sends `run.pause` and then takes the floor,
- * so a bare pause beside it would be two buttons for one call.
+ * One function, so the palette cannot offer steer on a driver that declared none.
+ * Pause and resume are mutually exclusive on the state and never both: a paused run
+ * offers resume, any other live run offers pause.
  */
 export function offeredRunControls(
   run: { readonly runId: string; readonly state: RunState },
@@ -140,16 +125,10 @@ export function offeredRunControls(
   }
   return {
     primary,
-    // Not gated on liveness, matching the row: a completed run can still be
-    // rewound, and cancel is refused by the daemon rather than hidden here.
+    // Not gated on liveness: the daemon refuses a steer at a run that cannot take one.
     overflow: OVERFLOW_CONTROLS.filter((control) => isControlOffered(control, readout, run.runId)),
   };
 }
 
-/**
- * The one-click-away half, in the design's own order.
- *
- * `pause`, `resume`, and `interrupt` are the always-visible half and are not on
- * this list; `pause` reaches the row through `StepIn`, which sends it.
- */
-const OVERFLOW_CONTROLS: readonly RunControl[] = ["steer", "cancel", "rollback"];
+/** The capability-gated half. `pause`, `resume` and `interrupt` are never gated and are not on it. */
+const OVERFLOW_CONTROLS: readonly RunControl[] = ["steer"];

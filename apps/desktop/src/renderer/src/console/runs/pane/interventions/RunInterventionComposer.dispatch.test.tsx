@@ -15,7 +15,7 @@ import type { ConsoleBridge } from "../../../bridge/index.js";
 import { RunInterventionComposer } from "./RunInterventionComposer.js";
 import { useRunControlSurface } from "../controls/run-control-surface.js";
 import {
-  APPLIED_ROLLBACK,
+  APPLIED_STEER,
   bodyValue,
   renderComposer,
   runAt,
@@ -27,53 +27,43 @@ import {
 import type { RecordedDaemonCall } from "../../../bridge/fixture/call-plane/bridge.test-support.js";
 
 describe("the composer outlives its dispatch", () => {
-  const REJECTED_ROLLBACK: ScriptedAnswer = () => ({
+  const REJECTED_STEER: ScriptedAnswer = () => ({
     interventionId: "d5f2c3e4-6071-4182-ac93-1e4f50617283",
-    interventionType: "rollback",
+    interventionType: "steer",
     state: "rejected",
-    rejectionReason: "target-position-not-a-boundary",
+    rejectionReason: "run_not_paused",
     runVersion: 9,
   });
 
   const TRANSPORT_REJECTION: ScriptedAnswer = () => {
-    throw { code: "run.invalid_transition", message: "the run is not in a rewindable state" };
+    throw { code: "run.invalid_transition", message: "the run is not in a steerable state" };
   };
 
-  it("keeps the replacement text when the dispatch is refused at transport", async () => {
-    const { container, dismissCount } = renderComposer("rollback", TRANSPORT_REJECTION);
-    typeInto(container.querySelector(".meridian-run-composer__position"), "4");
-    typeInto(container.querySelector(".meridian-run-composer__body"), "try this instead");
-    await submit(container);
-    // The one thing the user cannot reproduce is the one thing that used to
-    // be dropped: the form closed the moment the dispatch STARTED.
-    expect(dismissCount()).toBe(0);
-    expect(bodyValue(container)).toBe("try this instead");
-    expect(container.textContent).toContain("run.invalid_transition");
-  });
-
-  it("keeps the text and shows the daemon's own reason when the intervention is rejected", async () => {
-    const { container, dismissCount } = renderComposer("rollback", REJECTED_ROLLBACK);
-    typeInto(container.querySelector(".meridian-run-composer__position"), "4");
-    typeInto(container.querySelector(".meridian-run-composer__body"), "try this instead");
-    await submit(container);
-    expect(dismissCount()).toBe(0);
-    expect(bodyValue(container)).toBe("try this instead");
-    expect(container.textContent).toContain("target-position-not-a-boundary");
-  });
-
   it("keeps a refused steer's directive rather than dropping it", async () => {
-    const { container, dismissCount } = renderComposer("steer", TRANSPORT_REJECTION);
+    // The one thing the user cannot reproduce is the text, so the form must not close
+    // the moment the dispatch STARTS.
+    const { container, dismissCount } = renderComposer(TRANSPORT_REJECTION);
     typeInto(container.querySelector(".meridian-run-composer__body"), "stop editing that file");
     await submit(container);
     expect(dismissCount()).toBe(0);
     expect(bodyValue(container)).toBe("stop editing that file");
+    expect(container.textContent).toContain("run.invalid_transition");
+  });
+
+  it("keeps the text and shows the daemon's own reason when the intervention is rejected", async () => {
+    const { container, dismissCount } = renderComposer(REJECTED_STEER);
+    typeInto(container.querySelector(".meridian-run-composer__body"), "stop editing that file");
+    await submit(container);
+    expect(dismissCount()).toBe(0);
+    expect(bodyValue(container)).toBe("stop editing that file");
+    expect(container.textContent).toContain("run_not_paused");
   });
 
   it("negative control: a settlement that landed closes the composer", async () => {
-    // Without this the three cases above would pass over a form that never closed at
-    // all, which would leave a landed rewind sitting behind its own composer.
-    const { container, dismissCount } = renderComposer("rollback");
-    typeInto(container.querySelector(".meridian-run-composer__position"), "4");
+    // Without this the cases above would pass over a form that never closed at all,
+    // which would leave a landed steer sitting behind its own composer.
+    const { container, dismissCount } = renderComposer();
+    typeInto(container.querySelector(".meridian-run-composer__body"), "stop editing that file");
     await submit(container);
     expect(dismissCount()).toBe(1);
   });
@@ -81,8 +71,8 @@ describe("the composer outlives its dispatch", () => {
   it("latches the confirm while the dispatch is in flight, so one body sends once", async () => {
     // A never-settling answer holds the form in its sending state; the second submit
     // arrives the way a keyboard one does, through the form rather than the button.
-    const { container, calls } = renderComposer("rollback", () => new Promise(() => undefined));
-    typeInto(container.querySelector(".meridian-run-composer__position"), "4");
+    const { container, calls } = renderComposer(() => new Promise(() => undefined));
+    typeInto(container.querySelector(".meridian-run-composer__body"), "stop editing that file");
     await submit(container);
     const form = container.querySelector(".meridian-run-composer");
     if (!(form instanceof HTMLFormElement)) {
@@ -110,37 +100,36 @@ describe("the comparand is the newer of the two readings", () => {
         key={props.runVersion}
         bridge={props.bridge}
         run={runAt("paused", props.runVersion)}
-        control="rollback"
         surface={surface}
         onDismiss={() => undefined}
       />
     );
   }
 
-  async function rewindAt(container: HTMLElement): Promise<void> {
-    typeInto(container.querySelector(".meridian-run-composer__position"), "4");
+  async function steerAt(container: HTMLElement): Promise<void> {
+    typeInto(container.querySelector(".meridian-run-composer__body"), "stop editing that file");
     await submit(container);
   }
 
   it("sends the stream's version once it has moved past the cached settlement", async () => {
     const calls: RecordedDaemonCall[] = [];
-    const bridge = interventionDispatchBridge(calls, APPLIED_ROLLBACK);
+    const bridge = interventionDispatchBridge(calls, APPLIED_STEER);
     const { container, rerender } = render(<StableHarness bridge={bridge} runVersion={8} />);
-    await rewindAt(container);
+    await steerAt(container);
     expect(calls[0]?.params).toMatchObject({ expectedRunVersion: 8 });
     rerender(<StableHarness bridge={bridge} runVersion={10} />);
-    await rewindAt(container);
+    await steerAt(container);
     expect(calls).toHaveLength(2);
     expect(calls[1]?.params).toMatchObject({ expectedRunVersion: 10 });
   });
 
   it("negative control: the cached settlement still wins over a stream that is behind it", async () => {
     const calls: RecordedDaemonCall[] = [];
-    const bridge = interventionDispatchBridge(calls, APPLIED_ROLLBACK);
+    const bridge = interventionDispatchBridge(calls, APPLIED_STEER);
     const { container, rerender } = render(<StableHarness bridge={bridge} runVersion={8} />);
-    await rewindAt(container);
+    await steerAt(container);
     rerender(<StableHarness bridge={bridge} runVersion={8} />);
-    await rewindAt(container);
+    await steerAt(container);
     expect(calls[1]?.params).toMatchObject({ expectedRunVersion: 9 });
   });
 });

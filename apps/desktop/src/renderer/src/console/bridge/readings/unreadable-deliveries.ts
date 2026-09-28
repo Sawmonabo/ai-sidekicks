@@ -8,18 +8,14 @@
 // delivery moves no row, because the fold never saw it and guessing at it would be
 // worse than ignoring it, and the reading says both halves: live, and behind.
 //
-// HOISTED ON THE SECOND USE. `queue-reading.ts` and `provider-account-quota.ts` each
-// tail a registered union, and each held this same pair of fields, bumped on the same
-// arm, published under the same two member names. One class, so two streams cannot
-// drift into two vocabularies for one fact and a surface that renders both reads one.
+// ONE CLASS FOR EVERY TAILED UNION. Streams that tail a registered union hold this same
+// pair of fields, bumped on the same arm and published under the same two member
+// names, so two streams cannot drift into two vocabularies for one fact.
 //
-// THE CLEARING POLICY IS NOT HERE, and that is the one thing the two streams
-// genuinely disagree about: the queue's snapshot restates its whole list at one
-// moment and supersedes what preceded it, while the account plane's read answers for
-// an instant its tail has already moved past and so may never claim to cover a frame
-// that arrived after it. That disagreement is a CALL each owner makes where its own
-// argument lives — never a mode flag passed in here, which would move the argument
-// away from the reasoning and leave neither site stating it.
+// THE CLEARING POLICY IS NOT HERE. Whether a snapshot supersedes what preceded it is a
+// CALL each owner makes where its own argument lives — never a mode flag passed in
+// here, which would move the argument away from the reasoning and leave neither site
+// stating it.
 //
 // BOUNDED BY CONSTRUCTION. Only the newest refusal is kept, so the refusals do not
 // accumulate, and the sentence names member paths rather than the payload — that
@@ -121,11 +117,8 @@ export class UnreadableDeliveryLedger {
 /**
  * One stream's unreadable-delivery refusal, composed from that stream's own words.
  *
- * HOISTED ON THE SECOND USE, like the ledger below it. `queue/` and `quotas/` each
- * wrote this function out under one name — same code, same member-path sentence, same
- * parameter — differing only in the origin and the noun, and the second one's own
- * header said it was a copy. What actually differs between two streams is what a
- * person reads, and that is what `stream` carries; what is the same is the CODE and
+ * ONE FUNCTION FOR EVERY TAILED UNION, like the ledger below it. What differs between
+ * two streams is what a person reads, and that is what `stream` carries; what is the same is the CODE and
  * the shape of the sentence, and those belong here rather than in however many
  * families tail a registered union next.
  *

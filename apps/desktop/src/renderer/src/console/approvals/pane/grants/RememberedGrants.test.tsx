@@ -1,9 +1,9 @@
-// Standing permissions: labelled rather than filtered, and revocable in two steps.
+// Standing permissions: only those in force are drawn, and they revoke in two steps.
 //
 // The two claims worth a unit are the ones that would be invisible if they broke.
-// A revoked rule that quietly vanished would look exactly like a list that never
-// held it, and a revoke control that mutated on the first click would look exactly
-// like one that mutated on the second — until someone cancelled.
+// An ended rule that stayed on screen would offer a revoke that does nothing, and a
+// revoke control that mutated on the first click would look exactly like one that
+// mutated on the second — until someone cancelled.
 
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
@@ -40,35 +40,11 @@ function renderGrants(
   );
 }
 
-describe("revoked rules are labelled, never filtered", () => {
-  it("renders a revoked rule beside a live one and names the trigger", () => {
-    renderGrants([
-      rule(),
-      rule({
-        ruleId: "rule-02",
-        revokedAt: "2026-01-02T10:00:00.000Z",
-        invalidationTrigger: "node_trust_change",
-      }),
-    ]);
-    expect(screen.getAllByRole("listitem")).toHaveLength(2);
-    expect(screen.getByText(/node.s trust changed/u)).not.toBeNull();
-    // The audit history is the default view, so exactly one row is still live and
-    // offers the control — the revoked one offers none.
+describe("only rules in force are drawn", () => {
+  it("draws no row for a rule that carries revokedAt", () => {
+    renderGrants([rule(), rule({ ruleId: "rule-02", revokedAt: "2026-01-02T10:00:00.000Z" })]);
+    expect(screen.getAllByRole("listitem")).toHaveLength(1);
     expect(screen.getAllByRole("button", { name: "Revoke" })).toHaveLength(1);
-  });
-
-  it("says the reply named no trigger rather than inventing one", () => {
-    renderGrants([rule({ revokedAt: "2026-01-02T10:00:00.000Z" })]);
-    expect(screen.getByText(/named no trigger/u)).not.toBeNull();
-  });
-
-  it("carries an unrecognized trigger verbatim", () => {
-    // Negative control on the phrase table: an unknown token must reach the screen
-    // as itself, or a future trigger would render as a blank sentence.
-    renderGrants([
-      rule({ revokedAt: "2026-01-02T10:00:00.000Z", invalidationTrigger: "heat_death" }),
-    ]);
-    expect(screen.getByText(/heat_death/u)).not.toBeNull();
   });
 });
 

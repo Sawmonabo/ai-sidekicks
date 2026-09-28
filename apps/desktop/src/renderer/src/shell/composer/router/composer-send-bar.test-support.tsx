@@ -112,7 +112,7 @@ export function paneFor(agentId: string): ConsolePaneAddress {
 }
 
 /**
- * One mounted bar, and the three things a case does to it.
+ * One mounted bar, and the things a case does to it.
  *
  * Declared rather than inferred because the shape crosses a module boundary: a
  * reader of a case should be able to see what the harness offers without opening it.
@@ -124,15 +124,12 @@ export interface AddressableBar {
   address(agentId: string): void;
   /** The directive line, or a throw naming what was missing. */
   line(): HTMLTextAreaElement;
-  /** The resend offer, or `null` where the bar is offering none. */
-  resend(): HTMLButtonElement | null;
 }
 
 /** One mounted bar whose focused pane the case moves, without remounting it. */
 export function mountAddressable(bridge: ConsoleBridge): AddressableBar {
   const draftStore = new DraftStore({
     maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT,
-    restartNoticePending: false,
   });
   const sessionStore = storeWithTwoTrippedAgents();
   const enumeration = new ProviderCommandEnumeration();
@@ -160,10 +157,6 @@ export function mountAddressable(bridge: ConsoleBridge): AddressableBar {
         throw new Error("the send bar rendered no directive line");
       }
       return line;
-    },
-    resend: (): HTMLButtonElement | null => {
-      const offer = result.container.querySelector(".meridian-composer__resend");
-      return offer instanceof HTMLButtonElement ? offer : null;
     },
   };
 }

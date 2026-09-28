@@ -1,4 +1,4 @@
-// The three wire calls a resolved send makes, and how each one settles.
+// The two wire calls a resolved send makes, and how each one settles.
 //
 // Split from `send-router.ts` because resolution and dispatch are two different
 // jobs with two different failure modes. Resolution is pure — it reads text and a
@@ -7,13 +7,11 @@
 // a file where half the reader's questions ("can this text be sent?") and the other
 // half ("did it arrive?") were answered in the same breath.
 //
-// THREE PATHS RATHER THAN ONE WITH A FLAG, because the three settle differently and
-// a flag would have made that a branch nobody sets. `driver.interruptRun` answers
-// with `DriverAckResult`, declared as the empty object, so its SERVED reply is the
-// settlement and there is no member to read. `run.queueCreate` answers with a queued
-// item whose shape is the confirmation. And `run.intervene` answers with a LIFECYCLE
-// STATE that may say the run declined the message — a served reply that is still not
-// a delivered directive.
+// TWO PATHS RATHER THAN ONE WITH A FLAG, because the two settle differently and a
+// flag would have made that a branch nobody sets. `run.queueCreate` answers with a
+// queued item whose shape is the confirmation. And `run.intervene` answers with a
+// LIFECYCLE STATE that may say the run declined the message — a served reply that is
+// still not a delivered directive.
 //
 // EVERY REPLY IS PARSED BEFORE ANYTHING IS READ OFF IT. That is the call door's
 // doing rather than this module's, in both directions: a request that does not match
@@ -21,7 +19,6 @@
 // of being read. What this module adds is the settlement each parsed reply means.
 
 import type {
-  InterruptRunParams,
   InterventionRequestPayload,
   InterventionState,
   QueueItemCreateRequest,
@@ -31,25 +28,6 @@ import { callDaemon, type ConsoleBridge } from "../../../console/bridge/index.js
 import { interventionNotApplied } from "./send-refusals.js";
 import type { ComposerSendOutcome } from "./send-resolutions.js";
 import type { RunVersionLedger } from "./run-version-ledger.js";
-
-/**
- * Dispatch the stop, whose SERVED reply IS the settlement.
- *
- * The one send path with nothing to read OFF the reply, and that is its CONTRACT
- * rather than a shortcut: the registered `DriverAckResult` is the empty object, so
- * there is no member a settlement could branch on. The reply is still parsed — the
- * door parses every one — and a shape carrying members is a protocol mismatch this
- * path refuses rather than reads as a stop that happened.
- */
-export async function dispatchInterrupt(
-  bridge: ConsoleBridge,
-  params: InterruptRunParams,
-): Promise<ComposerSendOutcome> {
-  const reply = await callDaemon(bridge, "driver.interruptRun", params);
-  return reply.status === "refused"
-    ? { status: "refused", refusal: reply.refusal }
-    : { status: "sent", path: "provider-bound" };
-}
 
 /**
  * Dispatch one new turn, and READ what came back.

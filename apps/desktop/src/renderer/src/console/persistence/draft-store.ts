@@ -1,8 +1,6 @@
 // Drafts: user-authored text, held in this window's memory and nowhere else.
 //
-// Composer drafts are deliberately NOT persisted — they are user-authored
-// content, and the composer says so on first focus after a restart rather than
-// silently losing them.
+// Composer drafts are deliberately NOT persisted — they are user-authored content.
 //
 // This class is the whole implementation of that rule, and it is deliberately
 // NOT built on `UiStateStore`. It could not be: draft text is prose, so the write
@@ -12,26 +10,19 @@
 //
 // IT LIVES IN `persistence/` AND PERSISTS NOTHING, which is the point rather than a
 // contradiction: this directory owns what the console does about durability, and
-// what it does about drafts is refuse. A `Map` and a disclosure, no adapter, no
+// what it does about drafts is refuse. A `Map`, no adapter, no
 // import at all — the file imports nothing, and it must never start, because acquiring
 // an adapter here is the first move of persisting a draft. A durable copy would need
 // the encrypted, PII-mapped storage user-authored content requires, which the
 // renderer does not have; an IndexedDB copy would put a person's prose in an
 // unencrypted origin-scoped database outside every erasure selector there is.
 //
-// The one durable thing a draft leaves behind is the DISCLOSURE. `restartNotice`
-// is armed at construction and cleared the first time a composer is focused, so the
-// user is told once that unsent text does not survive a restart — which is
-// what makes the non-persistence a stated property rather than a silent loss.
-//
-// EVICTION IS THE SECOND WAY TEXT GOES, AND IT IS DISCLOSED THE SAME WAY. The live
-// ceiling drops the least-recently-typed draft, and a composer mounted on that key
-// used to watch its text vanish mid-session with no notice and no record — which is
-// the silent loss the header above is written against, reached by a different door.
-// So an eviction ARMS a notice keyed to the composer that lost the text, cleared the
-// moment that composer is typed in again or acknowledges it. The set of armed keys
-// carries the same ceiling the drafts do, for the same reason: a bound nothing
-// enforces is a leak with a comment on it.
+// EVICTION IS A WAY TEXT GOES, AND IT IS DISCLOSED. The live ceiling drops the
+// least-recently-typed draft, and a composer mounted on that key would watch its text
+// vanish mid-session with no notice and no record. So an eviction ARMS a notice keyed
+// to the composer that lost the text, cleared the moment that composer is typed in
+// again or acknowledges it. The set of armed keys carries the same ceiling the drafts
+// do, for the same reason: a bound nothing enforces is a leak with a comment on it.
 
 /** One composer's unsent text, keyed by the surface that owns the composer. */
 export interface DraftEntry {
@@ -51,11 +42,6 @@ export interface DraftStoreOptions {
    * a frozen clock to count) and the guarantee it buys is the whole point.
    */
   readonly now?: () => number;
-  /**
-   * Whether the user still needs telling that drafts do not survive a
-   * restart. True for a real window; a test that does not care passes false.
-   */
-  readonly restartNoticePending?: boolean;
   /**
    * Ceiling on live drafts. Oldest is evicted past it, so a long session is bounded.
    *
@@ -83,7 +69,6 @@ export class DraftStore {
    * without being typed in between is one loss to disclose, not two.
    */
   readonly #evictedKeys = new Set<string>();
-  #restartNoticePending: boolean;
 
   public constructor(options: DraftStoreOptions) {
     if (!Number.isInteger(options.maximumDraftCount) || options.maximumDraftCount < 1) {
@@ -92,25 +77,7 @@ export class DraftStore {
       );
     }
     this.#now = options.now ?? (() => Date.now());
-    this.#restartNoticePending = options.restartNoticePending ?? true;
     this.#maximumDraftCount = options.maximumDraftCount;
-  }
-
-  /**
-   * True until a composer has been focused once. The composer renders the notice
-   * while this is true and calls `acknowledgeRestartNotice` when it shows it.
-   */
-  public get restartNoticePending(): boolean {
-    return this.#restartNoticePending;
-  }
-
-  /** The sentence the composer shows. Fixed text; no user content in it. */
-  public get restartNoticeText(): string {
-    return "Unsent text stays in this window and is not saved between restarts.";
-  }
-
-  public acknowledgeRestartNotice(): void {
-    this.#restartNoticePending = false;
   }
 
   /**

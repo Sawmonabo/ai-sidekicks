@@ -1,116 +1,108 @@
-// What both halves of the queue-feed suite build their cases out of.
+// What the queue-feed suites build their cases out of.
 //
-// The subscription's cases and the rows' cases were one file, and these are what they
-// share: the registered row shapes, the scripted bridge, the probe that reports the
-// hook's answer out of the tree, and the two mounts both use. Written once so the two
-// files cannot drift into disagreeing about what a registered row looks like — which
-// is the exact drift this suite exists to catch on the wire.
+// The registered row shapes, the stubbed calls, the probe that reports the hook's answer
+// out of the tree, and the mounts the suites share. Written once so the files cannot
+// drift into disagreeing about what a row looks like.
 
 import { useEffect, type ReactElement } from "react";
 import { act, render } from "@testing-library/react";
+import { QueueItemSummarySchema, type QueueItemSummary } from "@ai-sidekicks/contracts";
 
-import { QUEUE_SUBSCRIBE_STREAM } from "../daemon/daemon-streams.js";
-import { withRecordedStreamLifecycle } from "../daemon/daemon-streams.test-support.js";
-import {
-  createFixture,
-  withCapturedStream,
-  withDaemonCall,
-  type RecordedDaemonCall,
-} from "../fixture/call-plane/bridge.test-support.js";
+import { createFixture } from "../fixture/call-plane/bridge.test-support.js";
 import { settleScheduledRead } from "../readings/scheduled-read.test-support.js";
 import type { ConsoleBridge } from "../console-bridge.js";
 import { useQueueFeed } from "./queue-feed.js";
-import type { QueueFeed } from "./queue-reading.js";
+import type { QueueCalls, QueueFeed } from "./queue-reading.js";
 
+/** The session most cases read. */
 export const SESSION_ID = "0a1b2c3d-4e5f-4061-8273-9a4b5c6d7e8f";
+/** A second session, for cases that need two readings apart. */
 export const SECOND_SESSION_ID = "8b7a6959-4837-4726-8514-3f2e1d0c9b8a";
+/** The queue item the single-row cases use. */
 export const QUEUE_ITEM_ID = "7c6b5a49-3827-4615-9403-2e1d0c9b8a77";
+/** The first of two distinct queue items. */
 export const QUEUE_ITEM_A = "1a2b3c4d-5e6f-4071-8283-94a5b6c7d8e9";
+/** The second of two distinct queue items. */
 export const QUEUE_ITEM_B = "2b3c4d5e-6f70-4182-9394-a5b6c7d8e9f0";
 
-/** One row, exactly as `QueueItemSummarySchema` registers it. */
-export const REGISTERED_ROW_DELIVERY: Readonly<Record<string, unknown>> = {
-  id: QUEUE_ITEM_ID,
-  state: "queued",
-  priority: 0,
-  createdAt: "2026-09-02T09:00:00.000Z",
-  updatedAt: "2026-09-02T09:00:00.000Z",
-};
-
-/** The whole-session envelope, wrapping the very same row. */
-export interface EnvelopeShapedDelivery {
-  readonly sessionId: string;
-  readonly sequence: number;
-  readonly kind: string;
-  readonly occurredAt: string;
-  /** The very row the narrowed stream carries bare — the point of the pair. */
-  readonly payload: Readonly<Record<string, unknown>>;
+/** One row of the registered shape, at one state and one `updatedAt`. */
+export function queueRow(
+  id: string,
+  state: QueueItemSummary["state"],
+  updatedAt: string,
+): QueueItemSummary {
+  return QueueItemSummarySchema.parse({
+    id,
+    state,
+    priority: 0,
+    createdAt: "2026-09-02T09:00:00.000Z",
+    updatedAt,
+  });
 }
 
-export const ENVELOPE_SHAPED_DELIVERY: EnvelopeShapedDelivery = {
-  sessionId: SESSION_ID,
-  sequence: 4,
-  kind: "queue_item.created",
-  occurredAt: "2026-09-02T09:00:00.000Z",
-  payload: REGISTERED_ROW_DELIVERY,
-};
+/** A queued row, as the tail or the snapshot carries it. */
+export const QUEUED_ROW: QueueItemSummary = queueRow(
+  QUEUE_ITEM_ID,
+  "queued",
+  "2026-09-02T09:00:00.000Z",
+);
 
 /**
- * The shipped fixture with the queue snapshot scripted and its stream captured.
+ * The shipped fixture bridge, which supplies the frozen clock and the reconnect signal,
+ * and stub queue calls that record what they were asked.
  *
- * Composed out of the family's own wrappers rather than fabricated. What stood here
- * was an object cast to `ConsoleBridge`, and the cast is what made it wrong in three
- * ways at once: it answered EVERY method with a queue snapshot, it captured EVERY
- * stream rather than the queue's, and it had to carry a hand-made scenario engine
- * because a cast is not a bridge and has no frozen clock for the scheduler to arm on.
- * Each wrapper below names the one thing it replaces, and the fixture answers the
- * rest.
- *
- * The recorder is OUTERMOST, and that ordering is load-bearing: the capture answers
- * the queue stream itself rather than forwarding it, so a recorder inside it would
- * never see that open and would report every case compliant at zero.
- *
- * NAMED FOR WHAT IT ANSWERS. It was `stubBridge`, and so was a wrapper one family
- * away that returns a bare `ConsoleBridge` — same name, same family, two shapes, so a
- * suite reaching for the wrong one got a type error today and a silently different
- * double the moment either return shape widened toward the other. Neither is a stub
- * any more either: both are the shipped fixture with one arm over it.
+ * The record is live: every case destructures at the top and asserts at the bottom, so
+ * each member is an array the calls append to rather than a copy taken up front.
  */
-export function queueFeedBridge(snapshot: readonly unknown[] = []): {
+export function queueFeedBridge(snapshot: readonly QueueItemSummary[] = []): {
   bridge: ConsoleBridge;
-  deliver: (payload: unknown) => void;
-  openedStreams: readonly string[];
-  calls: readonly RecordedDaemonCall[];
+  queueCalls: QueueCalls;
+  deliver: (item: QueueItemSummary) => void;
+  tailedSessionIds: readonly string[];
+  listedSessionIds: readonly string[];
+  cancelledItemIds: readonly string[];
 } {
-  const answered = withDaemonCall(createFixture().bridge, async () => ({ items: snapshot }));
-  const captured = withCapturedStream(answered.bridge, QUEUE_SUBSCRIBE_STREAM);
-  const recorded = withRecordedStreamLifecycle(captured.bridge);
+  const tailedSessionIds: string[] = [];
+  const listedSessionIds: string[] = [];
+  const cancelledItemIds: string[] = [];
+  const tails = new Set<(item: QueueItemSummary) => void>();
   return {
-    bridge: recorded.bridge,
-    deliver: captured.deliver,
-    openedStreams: recorded.openedStreams,
-    calls: answered.calls,
+    bridge: createFixture().bridge,
+    queueCalls: {
+      list: async (sessionId) => {
+        listedSessionIds.push(sessionId);
+        return snapshot;
+      },
+      tail: (sessionId, onItem) => {
+        tailedSessionIds.push(sessionId);
+        tails.add(onItem);
+        return () => {
+          tails.delete(onItem);
+        };
+      },
+      cancel: async (queueItemId) => {
+        cancelledItemIds.push(queueItemId);
+      },
+    },
+    deliver: (item) => {
+      for (const onItem of tails) {
+        onItem(item);
+      }
+    },
+    tailedSessionIds,
+    listedSessionIds,
+    cancelledItemIds,
   };
-}
-
-/**
- * The methods a bridge was asked for, read at assert time off its own record.
- *
- * A function rather than a member, because the record is live: every case here
- * destructures at the top and asserts at the bottom, so a mapped copy taken at
- * destructure time would be empty for the whole of the case.
- */
-export function methodsOf(calls: readonly RecordedDaemonCall[]): readonly string[] {
-  return calls.map((call) => call.method);
 }
 
 /** Reports the feed out of the tree, so a case reads the hook's own answer. */
 export function QueueFeedProbe(props: {
   readonly bridge: ConsoleBridge;
   readonly sessionId: string;
+  readonly queueCalls: QueueCalls;
   readonly onFeed: (feed: QueueFeed) => void;
 }): null {
-  const feed = useQueueFeed(props.bridge, props.sessionId);
+  const feed = useQueueFeed(props.bridge, props.sessionId, props.queueCalls);
   const { onFeed } = props;
   useEffect(() => {
     onFeed(feed);
@@ -118,27 +110,26 @@ export function QueueFeedProbe(props: {
   return null;
 }
 
-export async function openFeed(
-  options: { readonly snapshot?: readonly unknown[]; readonly sessionId?: string } = {},
-): Promise<{
-  deliver: (payload: unknown) => void;
+/** Mounts one surface on a fresh reading, settles the snapshot, and returns the feed it reads. */
+export async function openFeed(snapshot: readonly QueueItemSummary[] = []): Promise<{
+  deliver: (item: QueueItemSummary) => void;
   latest: () => QueueFeed;
-  openedStreams: readonly string[];
 }> {
-  const { bridge, deliver, openedStreams } = queueFeedBridge(options.snapshot ?? []);
+  const { bridge, queueCalls, deliver } = queueFeedBridge(snapshot);
   let held: QueueFeed | undefined;
   render(
     <QueueFeedProbe
       bridge={bridge}
-      sessionId={options.sessionId ?? SESSION_ID}
+      sessionId={SESSION_ID}
+      queueCalls={queueCalls}
       onFeed={(feed) => (held = feed)}
     />,
   );
   await settleScheduledRead(bridge);
   return {
-    deliver: (payload) => {
+    deliver: (item) => {
       act(() => {
-        deliver(payload);
+        deliver(item);
       });
     },
     latest: () => {
@@ -147,22 +138,17 @@ export async function openFeed(
       }
       return held;
     },
-    openedStreams,
   };
 }
 
-// One session's queue is read once, however many surfaces ask for it.
-//
-// The defect this replaces was two modules with the same file name, the same exported
-// symbols, and their own subscriptions: a session view holding the runs pane beside
-// the composer's shelf tailed `run.subscribeQueue` twice and read `run.queueList`
-// twice for one answer. The count is the assertion, so the negative controls below
-// show the counter is capable of reaching two — otherwise a hook that opened NOTHING
-// would pass the first case.
+// One session's queue is read once, however many surfaces ask for it. The count is the
+// assertion, so the negative controls in the suite show the counter is capable of
+// reaching two: a hook that opened nothing would otherwise pass the first case.
 
 /** Two surfaces on one bridge, each asking the hook its own question. */
 export function TwoQueueSurfaces(props: {
   readonly bridge: ConsoleBridge;
+  readonly queueCalls: QueueCalls;
   readonly firstSessionId: string;
   readonly secondSessionId: string;
 }): ReactElement {
@@ -171,11 +157,13 @@ export function TwoQueueSurfaces(props: {
       <QueueFeedProbe
         bridge={props.bridge}
         sessionId={props.firstSessionId}
+        queueCalls={props.queueCalls}
         onFeed={() => undefined}
       />
       <QueueFeedProbe
         bridge={props.bridge}
         sessionId={props.secondSessionId}
+        queueCalls={props.queueCalls}
         onFeed={() => undefined}
       />
     </>

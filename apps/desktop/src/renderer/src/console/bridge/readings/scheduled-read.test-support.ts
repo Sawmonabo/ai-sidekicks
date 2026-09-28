@@ -24,8 +24,8 @@
 // this family is the bridge ITSELF — the contract, the shape claim, the live
 // implementation, the provider — and a harness is none of those. What it is about is
 // the READING: how far one has got and when it has finished getting there, which is
-// this directory's subject and no one wire's. That it is reached by `queue/`,
-// `quotas/` and `driver-capabilities/` alike is the same evidence that put the
+// this directory's subject and no one wire's. That it is reached by `quotas/`
+// and `driver-capabilities/` alike is the same evidence that put the
 // lifecycle here — a mechanism every feed borrows belongs with the ones that fold
 // none, never inside one of its borrowers.
 

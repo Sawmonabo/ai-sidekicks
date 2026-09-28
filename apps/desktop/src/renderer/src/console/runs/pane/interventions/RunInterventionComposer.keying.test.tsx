@@ -9,19 +9,20 @@
 import { useLayoutEffect, useState } from "react";
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { RunInterventionComposer, type ComposedControl } from "./RunInterventionComposer.js";
+import { RunInterventionComposer } from "./RunInterventionComposer.js";
 import { useRunControlSurface } from "../controls/run-control-surface.js";
 import {
-  APPLIED_ROLLBACK,
+  APPLIED_STEER,
   bodyValue,
   renderComposer,
   runAt,
   interventionDispatchBridge,
+  RUN_ID,
+  SECOND_RUN_ID,
   submit,
   type ScriptedAnswer,
   typeInto,
 } from "./run-intervention-composer.test-support.js";
-import { RUN_ID, SECOND_RUN_ID } from "../runs-pane.test-support.js";
 import { crossMacrotaskBoundary } from "../../../core/macrotask-boundary.test-support.js";
 
 describe("the form is keyed by what it is composing against", () => {
@@ -52,7 +53,7 @@ describe("the form is keyed by what it is composing against", () => {
   }
 
   /**
-   * The composer over a target the case can change, with or without the key.
+   * The composer over a run the case can change, with or without the key.
    *
    * Both arms matter: the keyed one is the pane's own shape, and the unkeyed one is
    * what a later caller that drops the key would render — the arm the component's
@@ -60,22 +61,19 @@ describe("the form is keyed by what it is composing against", () => {
    */
   function TargetSwitchHarness(props: {
     readonly runId: string;
-    readonly control: ComposedControl;
     readonly keyed: boolean;
     readonly answer: ScriptedAnswer;
     readonly onCommit?: (committed: { body: string; isConfirmDisabled: boolean }) => void;
   }): React.JSX.Element {
     const [bridge] = useState(() => interventionDispatchBridge([], props.answer));
     const surface = useRunControlSurface(bridge);
-    const identity = `${props.runId}:${props.control}`;
     const { onCommit } = props;
     return (
       <>
         <RunInterventionComposer
-          key={props.keyed ? identity : "fixed"}
+          key={props.keyed ? props.runId : "fixed"}
           bridge={bridge}
           run={runAt("paused", 8, props.runId)}
-          control={props.control}
           surface={surface}
           onDismiss={() => undefined}
         />
@@ -86,21 +84,19 @@ describe("the form is keyed by what it is composing against", () => {
 
   function renderSwitchable(
     keyed: boolean,
-    answer: ScriptedAnswer = APPLIED_ROLLBACK,
+    answer: ScriptedAnswer = APPLIED_STEER,
   ): {
     container: HTMLElement;
-    retarget: (runId: string, control: ComposedControl) => void;
+    retarget: (runId: string) => void;
   } {
     const { container, rerender } = render(
-      <TargetSwitchHarness runId={RUN_ID} control="steer" keyed={keyed} answer={answer} />,
+      <TargetSwitchHarness runId={RUN_ID} keyed={keyed} answer={answer} />,
     );
     return {
       container,
-      retarget: (runId, control) => {
+      retarget: (runId) => {
         act(() => {
-          rerender(
-            <TargetSwitchHarness runId={runId} control={control} keyed={keyed} answer={answer} />,
-          );
+          rerender(<TargetSwitchHarness runId={runId} keyed={keyed} answer={answer} />);
         });
       },
     };
@@ -109,7 +105,7 @@ describe("the form is keyed by what it is composing against", () => {
   it("carries no body from one run to the next", () => {
     const { container, retarget } = renderSwitchable(true);
     typeInto(container.querySelector(".meridian-run-composer__body"), "stop and re-read the diff");
-    retarget(SECOND_RUN_ID, "steer");
+    retarget(SECOND_RUN_ID);
     expect(bodyValue(container)).toBe("");
   });
 
@@ -117,17 +113,16 @@ describe("the form is keyed by what it is composing against", () => {
     // The component's own half of the rule: the same switch with one element reused.
     const { container, retarget } = renderSwitchable(false);
     typeInto(container.querySelector(".meridian-run-composer__body"), "stop and re-read the diff");
-    retarget(SECOND_RUN_ID, "steer");
+    retarget(SECOND_RUN_ID);
     expect(bodyValue(container)).toBe("");
   });
 
   it("carries no refusal from one target to the next", async () => {
     const { container, retarget } = renderSwitchable(false);
-    retarget(RUN_ID, "rollback");
     await submit(container);
-    expect(container.textContent).toContain("target-position-unnamed");
-    retarget(SECOND_RUN_ID, "rollback");
-    expect(container.textContent).not.toContain("target-position-unnamed");
+    expect(container.textContent).toContain("empty-directive");
+    retarget(SECOND_RUN_ID);
+    expect(container.textContent).not.toContain("empty-directive");
   });
 
   it("leaves the new target unlatched while the old one's dispatch is still in flight", async () => {
@@ -136,7 +131,7 @@ describe("the form is keyed by what it is composing against", () => {
     await submit(container);
     const confirm = container.querySelector(".meridian-run-composer__confirm");
     expect(confirm instanceof HTMLButtonElement && confirm.disabled).toBe(true);
-    retarget(SECOND_RUN_ID, "steer");
+    retarget(SECOND_RUN_ID);
     const afterSwitch = container.querySelector(".meridian-run-composer__confirm");
     expect(afterSwitch instanceof HTMLButtonElement && afterSwitch.disabled).toBe(false);
     expect(bodyValue(container)).toBe("");
@@ -145,14 +140,13 @@ describe("the form is keyed by what it is composing against", () => {
   it("shows the new target's own empty form in the commit that re-addresses", async () => {
     // The commit itself, not the settled state after it. A reset implemented as a
     // passive effect is one commit late by construction: the render that first sees
-    // the new run read the PREVIOUS run's body, target position, refusal and pending
+    // the new run read the PREVIOUS run's body, refusal and pending
     // dispatch, nothing disabled the form for that commit, and a submit in it
     // dispatched text authored for one run against another's comparand.
     const committed: { body: string; isConfirmDisabled: boolean }[] = [];
     const { container, rerender } = render(
       <TargetSwitchHarness
         runId={RUN_ID}
-        control="steer"
         keyed={false}
         answer={NEVER_SETTLES}
         onCommit={(reading) => committed.push(reading)}
@@ -172,7 +166,6 @@ describe("the form is keyed by what it is composing against", () => {
       rerender(
         <TargetSwitchHarness
           runId={SECOND_RUN_ID}
-          control="steer"
           keyed={false}
           answer={NEVER_SETTLES}
           onCommit={(reading) => committed.push(reading)}
@@ -187,7 +180,7 @@ describe("the form is keyed by what it is composing against", () => {
     // every render, which would make it impossible to type into at all.
     const { container, retarget } = renderSwitchable(false);
     typeInto(container.querySelector(".meridian-run-composer__body"), "stop and re-read the diff");
-    retarget(RUN_ID, "steer");
+    retarget(RUN_ID);
     expect(bodyValue(container)).toBe("stop and re-read the diff");
   });
 });
@@ -208,8 +201,8 @@ describe("a dispatch is recorded only where the surface admitted one", () => {
   }
 
   /**
-   * The finding's own sequence: one surface, one run and control, and a form the
-   * case can close and reopen while the first request is still in flight.
+   * One surface, one run, and a form the case can close and reopen while the
+   * first request is still in flight.
    *
    * The surface is held across the remount — that is the whole point, since the
    * latch it keeps is what the second form runs into.
@@ -226,7 +219,6 @@ describe("a dispatch is recorded only where the surface admitted one", () => {
         key={props.formKey}
         bridge={bridge}
         run={runAt("paused")}
-        control="steer"
         surface={surface}
         onDismiss={props.onDismiss}
       />
@@ -312,7 +304,7 @@ describe("a dispatch is recorded only where the surface admitted one", () => {
   it("negative control: an admitted dispatch settles and closes the form", async () => {
     // Without this the two cases above would pass over a form that never read a
     // settlement at all, which would leave every intervention open forever.
-    const { container, calls, dismissCount } = renderComposer("steer");
+    const { container, calls, dismissCount } = renderComposer();
     typeInto(container.querySelector(".meridian-run-composer__body"), "keep going");
     await submit(container);
     expect(calls).toHaveLength(1);

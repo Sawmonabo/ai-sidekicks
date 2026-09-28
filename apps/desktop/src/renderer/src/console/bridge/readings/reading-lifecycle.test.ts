@@ -1,10 +1,9 @@
 // The four transitions a reading's phase, refusal, and stream state make together.
 //
 // Driven against the real class rather than against a copy of its rules: every case
-// below is one of the two readings' own call sequences, written out so the sequence
-// can be read without a bridge, a clock, or React. What the readings then DO with
-// these transitions is asserted where they are wired — `queue-feed.test.tsx` and
-// `provider-quota-feed.test.tsx` — because a class that says "openable" and a reading
+// below is a reading's own call sequence, written out so the sequence can be read
+// without a bridge, a clock, or React. What a reading then DOES with these transitions
+// is asserted where it is wired, because a class that says "openable" and a reading
 // that actually re-opens are two claims.
 
 import { describe, expect, it } from "vitest";

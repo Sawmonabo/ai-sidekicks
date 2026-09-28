@@ -1,16 +1,11 @@
 // The composer's input and its one primary action.
 //
-// Send resolves to the one wire call the addressed target admits, and everything
-// visible here is that resolution made legible: the placeholder names the target, the
-// label under the line names the path the send will take, and the refusal that comes
-// back sits beside the control that produced it rather than replacing it.
+// Send resolves to the one wire call the addressed target admits, and the refusal
+// that comes back sits beside the control that produced it rather than replacing it.
 //
-// ONE PRIMARY ACTION. Send is the primary; Stop is a quiet control that appears only
-// while the addressed target is a running turn, because a stop with nothing to stop
-// is a control offered against nothing. Neither derives eligibility: Stop is offered
-// on the ADDRESS and refuses through the daemon, which is the fail-closed direction.
-// Stop's own disabled state says nothing about eligibility either — it says an
-// interrupt this bar issued is still in flight, which is this surface's own fact.
+// ONE SEND BUTTON, NO MODE. Send never becomes anything else, and the composer carries
+// no Stop: interrupting a turn is the working line's. Send derives no eligibility;
+// the daemon refuses, which is the fail-closed direction.
 //
 // THE DISABLED BUTTON COVERS THE POINTER PATH AND ONLY THAT PATH. A read-only
 // textarea still receives key events, so an Enter repeat or a second press before
@@ -24,11 +19,9 @@
 // wiring, and the two absences this surface can honestly show.
 //
 // THE LINE'S TEXT IS THE DRAFT STORE'S. The seat is handed a window-lifetime store
-// and this bar neither owns the body nor copies it; the one thing it owns about the
-// draft is WHEN the store's restart disclosure is taken on, which the store documents
-// as the first focus of a composer.
+// and this bar neither owns the body nor copies it.
 
-import { useCallback, useEffect, useId, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { RefusalCard, RemediedRefusal } from "../../../console/primitives/index.js";
 import { subscribeToComposerFocus, type ComposerSeatProps } from "../../../console/seats/index.js";
 import { useRefusalBannerEscalation } from "../../../console/store/index.js";
@@ -36,9 +29,9 @@ import { COMPOSER_DIRECTIVE_LINE_MAX_ROWS } from "../composer-bounds.js";
 import { useComposerAddress } from "../composer-address.js";
 import { readTextNeutralization } from "../neutralization-tripwire.js";
 import { useComposerCommandZone } from "../commands/client-command-executor.js";
+import { noDirectiveLineHandlers } from "../commands/directive-line-handlers.js";
 import type { ProviderCommandEnumeration } from "../commands/provider-command-holder.js";
 import { useSendController } from "./send-controller.js";
-import { ResendOffer } from "./ResendOffer.js";
 
 export type ComposerSendBarProps = ComposerSeatProps & {
   /**
@@ -53,6 +46,9 @@ export type ComposerSendBarProps = ComposerSeatProps & {
 
 export function ComposerSendBar(props: ComposerSendBarProps): React.JSX.Element {
   const address = useComposerAddress(props.sessionStore, props.focusedPane);
+  // No command here reads its arguments off the line yet; the map is stable so the
+  // zone's latest-ref is not rewritten on every render.
+  const directiveHandlers = useMemo(noDirectiveLineHandlers, []);
   // BOTH HALVES OR NEITHER. The router will not intercept a name its recogniser does
   // not claim, and an intercepted name with no executor refuses rather than running,
   // so the two are supplied together by the zone that owns both.
@@ -63,13 +59,7 @@ export function ComposerSendBar(props: ComposerSendBarProps): React.JSX.Element 
     // published comes from the addressed run's own binding and not from a sibling
     // binding the same agent happens to hold.
     target: address.target,
-    // The accelerators' own inputs. The zone reaches no wire of its own for the
-    // recogniser or the enumeration; these are for the one command that starts work.
-    // The composer's LINE is not among them: the palette entry that types a directive
-    // and the candidate list that completes one are the discovery seat's, and this bar
-    // holds only the handler that runs a line already typed.
-    growth: props.bridge.growth,
-    sessionId: props.sessionStore.sessionId,
+    directiveHandlers,
   });
   const controller = useSendController({
     bridge: props.bridge,
@@ -87,7 +77,6 @@ export function ComposerSendBar(props: ComposerSendBarProps): React.JSX.Element 
   // the node. The hook decides which codes qualify and raises each condition once, so
   // nothing here reads the table and a dismissed banner stays dismissed.
   useRefusalBannerEscalation(props.frameStore, controller.refusal);
-  const pathLabelId = useId();
   const isSending = controller.status === "sending";
   const isProviderBound = address.target.path === "provider-bound";
 
@@ -157,7 +146,6 @@ export function ComposerSendBar(props: ComposerSendBarProps): React.JSX.Element 
         ref={lineRef}
         className="meridian-composer__line"
         aria-label="Message"
-        aria-describedby={controller.pathLabel === undefined ? undefined : pathLabelId}
         placeholder={controller.placeholder}
         value={controller.text}
         rows={1}
@@ -168,44 +156,9 @@ export function ComposerSendBar(props: ComposerSendBarProps): React.JSX.Element 
         onChange={(event) => {
           controller.changeText(event.currentTarget.value);
         }}
-        // The store arms its restart disclosure at construction and consumes it the
-        // first time a composer is focused, so focus is where this composer takes it
-        // on. The sentence itself waits for the line to hold unsent text, which is
-        // what it is about — an untouched composer says nothing about text nobody
-        // has typed.
-        onFocus={() => {
-          controller.acknowledgeRestartNotice();
-        }}
         onKeyDown={onKeyDown}
       />
-      {controller.restartNotice === undefined ? null : (
-        <p className="meridian-composer__notice">{controller.restartNotice}</p>
-      )}
       <div className="meridian-composer__send-row">
-        {controller.pathLabel === undefined ? (
-          <span className="meridian-composer__path" />
-        ) : (
-          <span className="meridian-composer__path" id={pathLabelId}>
-            {controller.pathLabel}
-          </span>
-        )}
-        {isProviderBound ? (
-          <button
-            type="button"
-            className="meridian-composer__stop"
-            // The rendered half of Stop's own single-flight guard: the interrupt is
-            // not idempotent, so a second press must not issue a second one. The
-            // half that holds inside one frame is the controller's synchronous ref,
-            // because this handler reads the status from the render that made it.
-            aria-busy={controller.isStopping}
-            disabled={controller.isStopping}
-            onClick={() => {
-              void controller.stop();
-            }}
-          >
-            Stop
-          </button>
-        ) : null}
         <button
           type="button"
           className="meridian-composer__primary"
@@ -226,11 +179,7 @@ export function ComposerSendBar(props: ComposerSendBarProps): React.JSX.Element 
         <RemediedRefusal refusal={controller.refusal} />
       )}
       {neutralization === undefined ? null : (
-        <RefusalCard
-          code={neutralization.code}
-          detail={neutralization.wireDetail}
-          action={<ResendOffer body={controller.resendableText} onResend={controller.resend} />}
-        />
+        <RefusalCard code={neutralization.code} detail={neutralization.wireDetail} />
       )}
     </div>
   );

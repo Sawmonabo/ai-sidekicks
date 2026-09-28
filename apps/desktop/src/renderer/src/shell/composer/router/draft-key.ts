@@ -33,8 +33,5 @@ export function composerDraftKey(target: ComposerTarget): string {
   if (target.path === "provider-bound") {
     return [target.path, target.sessionId, target.agentId].join(DRAFT_KEY_SEPARATOR);
   }
-  // The empty segment is the session's own default channel — the same absence
-  // `run.queueCreate` reads as "the default", kept distinct from a channel whose
-  // wire id happens to be read later.
-  return [target.path, target.sessionId, target.channelId ?? ""].join(DRAFT_KEY_SEPARATOR);
+  return [target.path, target.sessionId].join(DRAFT_KEY_SEPARATOR);
 }

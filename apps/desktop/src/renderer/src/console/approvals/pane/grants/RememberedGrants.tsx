@@ -4,9 +4,8 @@
 // states them — the corpus registers the `approval.ruleList` / `approval.ruleRevoke`
 // pair and the `RememberedScope` shape, and settles nothing about how they read:
 //
-//   • **Revoked rules are labelled, not filtered.** The read carries
-//     `includeRevoked: true`, so the audit history IS the default view here, and a
-//     dead rule renders beside a live one with the trigger that killed it named.
+//   • **Only rules in force are drawn.** A rule carrying `revokedAt` has ended and
+//     draws no row, so every row on screen offers `Revoke`.
 //   • **The grantor is a grantor.** `userId` is an audit key, never a match key —
 //     the copy says whose grant it is and never implies it covers anyone else's
 //     direction.
@@ -47,12 +46,7 @@ import {
 } from "../../../primitives/index.js";
 import { type ConsoleRefusal } from "../../../core/index.js";
 import { type RememberedRule } from "../../../bridge/index.js";
-import {
-  TRIGGER_PHRASE,
-  asInvalidationTrigger,
-  asRememberedScopeKind,
-  rememberedScopeKindPhrase,
-} from "../../../bridge/index.js";
+import { asRememberedScopeKind, rememberedScopeKindPhrase } from "../../../bridge/index.js";
 import { RevokeControl } from "./RevokeControl.js";
 import { offersRevoke, useRevokeCommands } from "./revoke-commands.js";
 
@@ -69,13 +63,14 @@ export function RememberedGrants(props: RememberedGrantsProps): React.JSX.Elemen
   // Ahead of the two absence arms below, because a hook may not run behind a branch.
   // With no readable rule there is nothing revocable and the contribution is empty,
   // which is the same answer the arms give on screen.
+  const rulesInForce = props.rules.filter((rule) => rule.revokedAt === undefined);
   useRevokeCommands({
-    rules: props.rules,
+    rules: rulesInForce,
     revokingRuleIds: props.revokingRuleIds,
     onAskToRevoke: setConfirmingRuleId,
   });
 
-  if (props.rules.length === 0) {
+  if (rulesInForce.length === 0) {
     return props.unreadableCount > 0 ? (
       <Nothing
         kind="error"
@@ -102,18 +97,10 @@ export function RememberedGrants(props: RememberedGrantsProps): React.JSX.Elemen
         </p>
       ) : null}
       <ul className="meridian-grants__list">
-        {props.rules.map((rule) => {
-          const isRevoked = rule.revokedAt !== undefined;
-          const trigger =
-            rule.invalidationTrigger === undefined
-              ? undefined
-              : asInvalidationTrigger(rule.invalidationTrigger);
+        {rulesInForce.map((rule) => {
           const refusal = props.revokeRefusalByRuleId.get(rule.ruleId);
           return (
-            <li
-              className={`meridian-grants__row${isRevoked ? " meridian-grants__row--revoked" : ""}`}
-              key={rule.ruleId}
-            >
+            <li className="meridian-grants__row" key={rule.ruleId}>
               <div className="meridian-grants__line">
                 <Chip mono label={rule.category} />
                 <Chip
@@ -146,35 +133,24 @@ export function RememberedGrants(props: RememberedGrantsProps): React.JSX.Elemen
                   Node <WireFigure value={rule.nodeId} />
                 </span>
               </div>
-              {isRevoked ? (
-                <p className="meridian-grants__revoked">
-                  Revoked <WireFigure value={rule.revokedAt ?? ""} />
-                  {trigger === undefined
-                    ? rule.invalidationTrigger === undefined
-                      ? " — the reply named no trigger."
-                      : ` — ${rule.invalidationTrigger}.`
-                    : ` — ${TRIGGER_PHRASE[trigger]}.`}
-                </p>
-              ) : (
-                <RevokeControl
-                  isConfirming={confirmingRuleId === rule.ruleId}
-                  // The palette's own reading, read from the same function: inside
-                  // this arm the rule is live, so "not offered" is exactly "a
-                  // revocation is already settling" — which is what the control says
-                  // instead of offering a second press.
-                  isRevoking={!offersRevoke(rule, props.revokingRuleIds)}
-                  onAsk={() => {
-                    setConfirmingRuleId(rule.ruleId);
-                  }}
-                  onCancel={() => {
-                    setConfirmingRuleId(undefined);
-                  }}
-                  onConfirm={() => {
-                    setConfirmingRuleId(undefined);
-                    props.onRevoke(rule.ruleId);
-                  }}
-                />
-              )}
+              <RevokeControl
+                isConfirming={confirmingRuleId === rule.ruleId}
+                // The palette's own reading, read from the same function: every drawn
+                // rule is live, so "not offered" is exactly "a revocation is already
+                // settling" — which is what the control says instead of offering a
+                // second press.
+                isRevoking={!offersRevoke(rule, props.revokingRuleIds)}
+                onAsk={() => {
+                  setConfirmingRuleId(rule.ruleId);
+                }}
+                onCancel={() => {
+                  setConfirmingRuleId(undefined);
+                }}
+                onConfirm={() => {
+                  setConfirmingRuleId(undefined);
+                  props.onRevoke(rule.ruleId);
+                }}
+              />
               {refusal === undefined ? null : <InlineRefusal {...refusal} />}
             </li>
           );

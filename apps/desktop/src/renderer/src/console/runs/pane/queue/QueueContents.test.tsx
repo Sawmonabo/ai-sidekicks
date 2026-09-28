@@ -1,156 +1,92 @@
-// The queue, rendered from the scenario the fixture bridge actually serves.
+// The queue's rows, drawn from a feed the case builds by hand.
 //
-// The point of driving this through `createFixtureBridge` rather than through a
-// hand-built feed is that the scenario is what a person sees when they open the
-// runs surface in the fixture: if the scripted `run.queueList` reply stops parsing
-// through the registered schema, this file fails rather than the pane quietly
-// rendering an empty queue.
+// The feed is the component's whole input, so each case states exactly the reading it
+// renders: no bridge, no subscription, and nothing that has to settle first.
 
-import { render, waitFor } from "@testing-library/react";
+import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { createFixtureBridge, readQueueItemId, type ConsoleBridge } from "../../../bridge/index.js";
-import { settleScheduledRead } from "../../../bridge/readings/scheduled-read.test-support.js";
+import { readQueueItemId } from "../../../bridge/index.js";
 import type { QueueItemSummary } from "@ai-sidekicks/contracts";
 
 import type { QueueFeed } from "../../../bridge/index.js";
-import { RUNS_SCENARIO } from "../../../bridge/scenario/runs/runs.js";
-import { refuse } from "../../../core/index.js";
 import { QueueContents } from "./QueueContents.js";
-import { useQueueFeed } from "../../../bridge/index.js";
 
-/** A one-component harness: the real hook, the real component, the real fixture. */
-function QueueHarness(props: {
-  readonly bridge: ConsoleBridge;
-  readonly sessionId: string;
-}): React.JSX.Element {
-  const feed = useQueueFeed(props.bridge, props.sessionId);
-  return <QueueContents feed={feed} />;
+/** One row of the registered shape in the given state. */
+function queueItem(rawId: string, state: QueueItemSummary["state"]): QueueItemSummary {
+  const id = readQueueItemId(rawId);
+  if (id === undefined) {
+    throw new Error("the queue-row fixture names an item identifier the wire refuses");
+  }
+  return {
+    id,
+    state,
+    priority: 0,
+    createdAt: "2026-09-02T09:00:00.000Z",
+    updatedAt: "2026-09-02T09:00:00.000Z",
+  };
 }
 
-async function renderQueue(): Promise<HTMLElement> {
-  // Built once and OUTSIDE the component. A fresh bridge per render would change the
-  // hook's dependency on every pass and re-open the subscription forever, which is a
-  // defect in the harness rather than in the feed — and one worth stating, because
-  // the symptom (a queue that never settles) looks exactly like a wire fault. It is
-  // built here rather than in a memo because the case has to reach the frozen clock
-  // this bridge carries: the snapshot read is scheduled against it, so a harness that
-  // kept the bridge to itself could never let that read happen.
-  const bridge = createFixtureBridge({ scenario: RUNS_SCENARIO });
-  const { container } = render(
-    <QueueHarness bridge={bridge} sessionId={RUNS_SCENARIO.sessionId} />,
-  );
-  await settleScheduledRead(bridge);
-  await waitFor(() => {
-    expect(container.querySelector(".meridian-queue__row")).not.toBeNull();
-  });
-  return container;
+/** A fully read feed over the given rows, with nothing pending. */
+function readFeed(items: QueueFeed["items"]): QueueFeed {
+  return {
+    items,
+    phase: "read",
+    pendingCancelIds: new Set(),
+    cancelItem: () => Promise.resolve(),
+  };
 }
 
-describe("the queue renders from scenario data", () => {
-  it("draws one row per scripted item, in the daemon's order", async () => {
-    const container = await renderQueue();
+/** The daemon's order: the admitted head first, then the two rows still waiting. */
+const THREE_ROWS: QueueFeed["items"] = [
+  queueItem("3f1c9a52-7e64-4b0d-9a13-5c8e2d7b6f01", "admitted"),
+  queueItem("8a4d2e61-15b3-4c79-8e20-1f9b7c3a5d02", "queued"),
+  queueItem("c2b7f930-6d48-4e15-b7a4-9e0d1c8f3a03", "queued"),
+];
+
+function renderQueue(): HTMLElement {
+  return render(<QueueContents feed={readFeed(THREE_ROWS)} />).container;
+}
+
+describe("the queue renders the rows it is given", () => {
+  it("draws one row per item, in the daemon's order", () => {
+    const container = renderQueue();
     const states = [...container.querySelectorAll(".meridian-queue__identity .meridian-chip")].map(
       (chip) => chip.textContent,
     );
-    // The scenario's canonical FIFO order, unreordered: the admitted head first.
+    // The feed's canonical FIFO order, unreordered: the admitted head first.
     expect(states).toStrictEqual(["admitted", "queued", "queued"]);
   });
 
-  it("keeps a row that is no longer waiting rather than dropping it", async () => {
+  it("keeps a row that is no longer waiting rather than dropping it", () => {
     // A queue row is durable and never-evented — drained but never deleted — so the
     // `admitted` row is a row here, unlike on the composer's shelf.
-    const container = await renderQueue();
+    const container = renderQueue();
     expect(container.textContent).toContain("admitted");
   });
 
-  it("negative control: the empty state is not what rendered", async () => {
+  it("negative control: the empty state is not what rendered", () => {
     // Without this the assertions above would pass over a component that rendered
     // its empty state and happened to contain the word "queued" in the copy.
-    const container = await renderQueue();
+    const container = renderQueue();
     expect(container.querySelector(".meridian-nothing--empty")).toBeNull();
     expect(container.querySelectorAll(".meridian-queue__row")).toHaveLength(3);
   });
 });
 
 describe("cancel before admission", () => {
-  it("offers cancel on exactly the rows that are still waiting", async () => {
-    const container = await renderQueue();
+  it("offers cancel on exactly the rows that are still waiting", () => {
+    const container = renderQueue();
     const rows = [...container.querySelectorAll(".meridian-queue__row")];
     const cancellable = rows.map((row) => row.querySelector(".meridian-queue__cancel") !== null);
     // The `admitted` head cannot be taken back; the two `queued` rows can.
     expect(cancellable).toStrictEqual([false, true, true]);
   });
 
-  it("negative control: the control is a real button, not decoration", async () => {
-    const container = await renderQueue();
+  it("negative control: the control is a real button, not decoration", () => {
+    const container = renderQueue();
     const cancel = container.querySelector(".meridian-queue__cancel");
     expect(cancel).toBeInstanceOf(HTMLButtonElement);
     expect((cancel as HTMLButtonElement).disabled).toBe(false);
-  });
-});
-
-describe("a partial reading is said beside the rows, never in place of them", () => {
-  /** A reading whose tail carried a delivery this build could not read. */
-  function partialFeed(items: QueueFeed["items"]): QueueFeed {
-    return {
-      items,
-      phase: "read",
-      readRefusal: undefined,
-      pendingCancelIds: new Set(),
-      cancelRefusalByItemId: new Map(),
-      cancelItem: () => undefined,
-      targetRunIdByItemId: new Map<string, string>(),
-      bindingRefusal: undefined,
-      unreadableDeliveryCount: 2,
-      unreadableRefusal: refuse(
-        "session-queue",
-        "delivery-unreadable",
-        "A queue delivery did not match the registered row shape, so it changed no row here: state.",
-      ),
-    };
-  }
-
-  const READ_ROW_ID = readQueueItemId("7c6b5a49-3827-4615-9403-2e1d0c9b8a77");
-  if (READ_ROW_ID === undefined) {
-    throw new Error("the queue-row fixture names an item identifier the wire refuses");
-  }
-
-  /** One row of the registered shape, so the list has something to be behind on. */
-  const READ_ROW: QueueItemSummary = {
-    id: READ_ROW_ID,
-    state: "queued",
-    priority: 0,
-    createdAt: "2026-09-02T09:00:00.000Z",
-    updatedAt: "2026-09-02T09:00:00.000Z",
-  };
-
-  it("keeps the rows and names how many deliveries could not be read", () => {
-    const { container } = render(<QueueContents feed={partialFeed([READ_ROW])} />);
-    expect(container.querySelectorAll(".meridian-queue__row")).toHaveLength(1);
-    expect(container.querySelector(".meridian-partial-read")?.textContent).toContain(
-      "2 deliveries could not be read",
-    );
-    expect(container.textContent).toContain("may be behind what the daemon has sent");
-    // The delivery's own refusal, verbatim beneath the count.
-    expect(container.textContent).toContain("delivery-unreadable");
-  });
-
-  it("refuses the reassuring empty state while a delivery is unread", () => {
-    // An empty list and an unreadable delivery are both true at once, and "nothing
-    // is waiting" is the claim that cannot be made from here.
-    const { container } = render(<QueueContents feed={partialFeed([])} />);
-    expect(container.querySelector(".meridian-partial-read")).not.toBeNull();
-    expect(container.textContent).not.toContain("Nothing is waiting.");
-  });
-
-  it("negative control: a fully readable reading says nothing about being behind", () => {
-    // Without this the cases above would pass over a surface that warned on every
-    // reading, and the empty state would be unreachable.
-    const { container } = render(
-      <QueueContents feed={{ ...partialFeed([]), unreadableDeliveryCount: 0 }} />,
-    );
-    expect(container.querySelector(".meridian-partial-read")).toBeNull();
-    expect(container.textContent).toContain("Nothing is waiting.");
   });
 });

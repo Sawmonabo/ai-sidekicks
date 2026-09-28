@@ -1,138 +1,131 @@
 // One session's queue reading: the feed every surface on it reads, the watchers it
-// publishes to, and the scheduler that decides when to ask the daemon again.
+// publishes to, and the scheduler that decides when to ask again.
 //
-// Split from `queue-feed.ts`, which is the window's REGISTRY of these readings and
-// the React door onto one — a second job, and the one that decides how long a reading
-// lives rather than what it says. The conversation with the daemon is
-// `queue-subscription.ts` next door: this module never opens a stream or names a
-// method, and that one never holds a listener.
+// `queue-feed.ts` is the window's registry of these readings and the React door onto
+// one. This module never opens a stream or names a method: the list and the tail are
+// calls it is handed.
 //
-// The runs view renders queue contents and offers cancel-before-admission
-// (`run.queueCancel`) on the queue, which this read serves in all five states of the
-// closed `QueueItemState`. The
-// composer's queue shelf asks a narrower question of the same rows — "what have I got
-// waiting" — and it used to ask it down a second module with the same file name, the
-// same exported symbols and its own subscription, so a session view holding the runs
-// pane beside the composer tailed `run.subscribeQueue` twice and read `run.queueList`
-// twice for one answer.
+// The rows are a fold over what the daemon sends, kept by `QueueOrder`: the order is
+// rendered and never reordered, and a canceled row stays visible. A surface that shows
+// only the waiting rows filters at the point it renders. There is no reorder or
+// priority control; cancel-before-admission is the queue's only removal path.
 //
-// The difference between the two questions is a FILTER over one list and never a
-// second fold: a row the daemon has stopped calling `queued` is exactly the row the
-// shelf drops, and the shelf reads that off the canonical rows rather than off a
-// private map that deleted them. So one reading serves both, and each surface keeps
-// its own question.
+// THE SNAPSHOT IS TAKEN BEHIND THE TAIL AND ONLY BEHIND IT. A list read with no stream
+// up stops being true the moment it lands, so the tail is opened first and the open
+// takes its own read.
 //
-// CLIENT MEMORY IS NEVER THE QUEUE OF RECORD. Cancel is a MUTATION rather than a
-// fold, and `queue-cancellation.ts` owns it and states the rule. It holds no rows at
-// all, so a reader looking for what the queue contains looks at the subscription and
-// only there; this module composes the cancel state onto the feed and publishes when
-// either half moves. The two rules about the rows themselves — that their order is
-// rendered and never reordered, and that a canceled row stays visible — are the
-// subscription's, stated in its header beside the fold that keeps them.
-//
-// ONE PUBLICATION PATH, which is why both collaborators are handed the same callback.
-// A cancel's settlement and a delivery both end at `#publish`, so a watcher is never
-// woken for one half of a frame the other half has not reached.
+// CLIENT MEMORY IS NEVER THE QUEUE OF RECORD. A cancel confirms the request; the row
+// changes when the daemon says it did, on the snapshot or the tail. The cancel state is
+// composed onto the feed, and both halves publish through `#publish`, so a watcher is
+// never woken for one half of a frame the other has not reached.
+
+import type { QueueItemSummary } from "@ai-sidekicks/contracts";
 
 import {
   NO_TRIGGERING_EVENT_KINDS,
+  ReadScope,
   RefreshScheduler,
   type ReadTriggerTarget,
   type RefreshReason,
 } from "../../store/index.js";
-import { QueueCancellations, type QueueCancellationState } from "./queue-cancellation.js";
-import { QueueRunBindings, type QueueRunBindingState } from "./queue-run-binding.js";
-import { SessionQueueSubscription, type QueueSubscriptionReading } from "./queue-subscription.js";
+import {
+  QueueCancellations,
+  type QueueCancelCall,
+  type QueueCancellationState,
+} from "./queue-cancellation.js";
+import { QueueOrder } from "./queue-order.js";
 import { consoleClockFor, type ConsoleBridge } from "../console-bridge.js";
+
+/**
+ * Reads one session's whole queue at one moment, in the daemon's canonical order.
+ */
+export type QueueListCall = (sessionId: string) => Promise<readonly QueueItemSummary[]>;
+
+/**
+ * Opens one session's live queue stream, hands each row change to `onItem` already
+ * parsed, and returns the function that closes it. Throws where the stream cannot open.
+ */
+export type QueueTailCall = (
+  sessionId: string,
+  onItem: (item: QueueItemSummary) => void,
+) => () => void;
+
+/** The three calls one queue reading makes. */
+export interface QueueCalls {
+  readonly list: QueueListCall;
+  readonly tail: QueueTailCall;
+  readonly cancel: QueueCancelCall;
+}
 
 /**
  * What the pane reads off the queue: what the daemon said, and what this client asked.
  *
- * An intersection of the two modules that own the halves rather than a shape restated
- * here — the rows, the phase and the unreadable-delivery count are the subscription's,
- * and the three cancel members are `queue-cancellation.ts`'s. A second declaration
- * would be two places to keep in step with the surfaces that render it.
+ * `phase` is `reading` until the first snapshot lands, so an empty list before it is
+ * never mistaken for an empty queue.
  */
-export type QueueFeed = QueueCancellationState & QueueRunBindingState & QueueSubscriptionReading;
+export interface QueueFeed extends QueueCancellationState {
+  readonly phase: "reading" | "read";
+  /** Canonical order: the snapshot's, with live-only rows appended in arrival order. */
+  readonly items: readonly QueueItemSummary[];
+}
 
 /**
  * One session's live queue reading, and everyone watching it.
  *
  * A class with private fields rather than a hook's state, because every surface in
- * the window asks the same question of the same session: the entry opens the tail
- * and takes the snapshot once, and the second surface to arrive is handed the
- * reading already in hand. The refusals, the fold, and the cancel path are exactly
- * the ones each surface used to own — only where they live has moved.
+ * the window asks the same question of the same session: the first watcher opens the
+ * tail and takes the snapshot once, and a later one is handed the reading in hand.
  */
 export class SessionQueueReading implements ReadTriggerTarget {
   /**
    * Nothing in the timeline says this list changed that its own tail did not.
    *
-   * `run.subscribeQueue` carries every row change, so the empty set is a claim:
-   * this reading goes stale when the window has been away or the connection was
-   * repaired — not because a session event that describes a RUN was appended.
+   * The tail carries every row change, so the empty set is a claim: this reading goes
+   * stale when the window has been away or the connection was repaired, not because a
+   * session event that describes a run was appended.
    */
   public readonly triggeringEventKinds: ReadonlySet<string> = NO_TRIGGERING_EVENT_KINDS;
+  readonly #sessionId: string;
+  readonly #calls: QueueCalls;
   readonly #refresh: RefreshScheduler;
-  readonly #subscription: SessionQueueSubscription;
   readonly #cancellations: QueueCancellations;
-  readonly #runBindings: QueueRunBindings;
+  readonly #order = new QueueOrder();
+  /** The line every snapshot read is on: a newer one supersedes the one it replaced. */
+  readonly #readLine = new ReadScope();
   readonly #listeners = new Set<() => void>();
   readonly #onIdle: () => void;
   /**
    * Whether this reading has been forgotten by the registry that held it.
    *
-   * TERMINAL, and that is the whole point. `watch` used to re-open a reading the
-   * registry had already dropped, so a surface that captured it during a render and
-   * subscribed after the last watcher left revived it OUTSIDE the map — live, with a
-   * tail of its own, and invisible to the next surface, which minted a second reading
-   * for the same session. Two snapshot reads and two tails for one question is exactly
-   * what this module exists to prevent, so the second life is refused rather than
-   * granted and the registry hands out a fresh reading instead.
+   * Terminal. A surface that captured the reading during a render and subscribed after
+   * the last watcher left would otherwise revive it outside the registry, with a tail
+   * of its own, and the next surface would mint a second reading for the same session.
    */
   #isRetired = false;
+  #closeTail: (() => void) | undefined = undefined;
+  #phase: QueueFeed["phase"] = "reading";
+  #items: readonly QueueItemSummary[] = EMPTY_ITEMS;
   #feed: QueueFeed;
 
   /** The reading as it stands. One object for every watcher, stable between changes. */
   public snapshot = (): QueueFeed => this.#feed;
 
-  public constructor(bridge: ConsoleBridge, sessionId: string, onIdle: () => void) {
+  public constructor(
+    bridge: ConsoleBridge,
+    sessionId: string,
+    calls: QueueCalls,
+    onIdle: () => void,
+  ) {
+    this.#sessionId = sessionId;
+    this.#calls = calls;
     this.#onIdle = onIdle;
-    // Both collaborators publish through this reading's own `#publish` rather than
-    // through listeners of their own: one surface, one publication path, so a cancel's
-    // settlement never renders a frame the rows have not reached.
-    this.#cancellations = new QueueCancellations(bridge, () => {
-      this.#publish();
-    });
-    this.#subscription = new SessionQueueSubscription(bridge, sessionId, () => {
-      this.#publish();
-    });
-    // The third collaborator, published through the same callback: a binding arriving
-    // never renders a frame the rows have not reached.
-    this.#runBindings = new QueueRunBindings(bridge, sessionId, () => {
+    this.#cancellations = new QueueCancellations(calls.cancel, () => {
       this.#publish();
     });
     this.#refresh = new RefreshScheduler({
-      // The fixture's frozen clock wherever a scenario is playing and the real one
-      // otherwise, resolved once per reading — the fixture bridge makes the frozen
-      // clock the only clock the renderer reads in fixture mode.
+      // The bridge's clock, resolved once per reading.
       clock: consoleClockFor(bridge),
-      perform: async () => {
-        if (!this.#subscription.isOpen) {
-          // THE REPAIR IS THE OPEN, not a read behind a tail that is not there. An
-          // open that failed on the transport leaves this reading closed and
-          // openable, and the snapshot it would take without a tail stops being true
-          // the moment it lands — so the trigger that asked re-opens, and the open
-          // takes its own read. A reading whose stream can never open answers
-          // `isOpenable` false and this does nothing.
-          this.#subscription.open();
-          return;
-        }
-        await this.#subscription.readSnapshot();
-      },
-      // A read that fails is already recorded as this feed's own `readRefusal`, so
-      // re-throwing would surface the same fact again as an unhandled rejection.
-      onError: () => undefined,
+      perform: () => this.#readSnapshot(),
     });
     this.#feed = this.#composeFeed();
   }
@@ -140,27 +133,14 @@ export class SessionQueueReading implements ReadTriggerTarget {
   /**
    * Ask for a fresh snapshot.
    *
-   * The tail keeps rows current while it is up; this is what answers for the time
-   * it was not. Coalesced by the scheduler, so the surfaces that mount together on
-   * one session still cost one call.
+   * The tail keeps rows current while it is up; this is what answers for the time it
+   * was not. Coalesced by the scheduler, so the surfaces that mount together on one
+   * session still cost one call.
    */
   public requestRead(reason: RefreshReason): void {
-    // THE BINDING READ IS ASKED BEFORE THE SHORT-CIRCUIT, and asks nothing unless its
-    // last attempt refused. It is a separate question from the rows — one projection,
-    // one standing answer — so the subscription's own "a joiner needs no read" rule has
-    // nothing to say about it, and a reading whose binding read failed once would
-    // otherwise render every row unbound for its whole life with no trigger able to
-    // clear it.
-    this.#runBindings.open();
-    if (reason === "subscribe" && this.#subscription.isOpen && this.#feed.phase !== "refused") {
-      // THE OPEN IS THIS READING'S `subscribe` READ, so a surface arriving to an
-      // already-open reading asks for nothing. Two reasons, and both matter: a joiner
-      // needs no read because the tail has been keeping the reading current since the
-      // first one landed, and the first read must not wait on a clock — the fixture's
-      // is frozen and only a scenario beat moves it, so a first read behind the
-      // scheduler's window would never happen at all in fixture mode. A reading
-      // settled as REFUSED falls through: the joiner's arrival is exactly the reason
-      // to try the failed read — or the failed OPEN — again.
+    if (reason === "subscribe" && this.#closeTail !== undefined) {
+      // The open took the first read and the tail has kept the rows current since, so a
+      // surface joining an open reading asks for nothing.
       return;
     }
     this.#refresh.request(reason);
@@ -176,33 +156,56 @@ export class SessionQueueReading implements ReadTriggerTarget {
     if (this.#isRetired) {
       throw new Error("A retired queue reading was watched; ask the registry for a live one");
     }
+    this.#openTail();
     this.#listeners.add(listener);
-    this.#subscription.open();
-    // Asked once for the life of the reading unless it refuses: no stream announces a
-    // binding change and a binding is fixed when the item is queued, so a joiner meeting
-    // a served answer asks nothing — and a joiner meeting a refused one re-asks, which
-    // is what `requestRead` above does for every other trigger.
-    this.#runBindings.open();
     return () => {
       this.#listeners.delete(listener);
       if (this.#listeners.size === 0) {
-        // The last surface left. The stream closes and the reading is forgotten, so
-        // a surface that mounts later reads afresh rather than being handed a list
-        // that stopped being updated when nobody was watching it.
+        // The last surface left. The stream closes and the reading is forgotten, so a
+        // surface that mounts later reads afresh rather than being handed a list that
+        // stopped being updated when nobody was watching it.
         this.#isRetired = true;
         this.#refresh.dispose();
-        this.#subscription.close();
+        this.#readLine.abandon();
+        this.#closeTail?.();
+        this.#closeTail = undefined;
         this.#onIdle();
       }
     };
   }
 
+  /** Open the tail once, then take the snapshot that goes behind it. */
+  #openTail(): void {
+    if (this.#closeTail !== undefined) {
+      return;
+    }
+    this.#closeTail = this.#calls.tail(this.#sessionId, (item) => {
+      this.#order.merge(item);
+      this.#items = this.#order.items();
+      this.#publish();
+    });
+    // Taken now rather than behind the scheduler's window: the tail is already up, and
+    // the fold accounts for the rows it delivers before the snapshot lands.
+    void this.#readSnapshot();
+  }
+
+  async #readSnapshot(): Promise<void> {
+    if (this.#closeTail === undefined) {
+      return;
+    }
+    const round = this.#readLine.openRound();
+    const items = await this.#calls.list(this.#sessionId);
+    // A superseded round and an abandoned line each seat nothing.
+    round.settle(() => {
+      this.#order.seat(items);
+      this.#items = this.#order.items();
+      this.#phase = "read";
+      this.#publish();
+    });
+  }
+
   #composeFeed(): QueueFeed {
-    return {
-      ...this.#cancellations.state,
-      ...this.#runBindings.state,
-      ...this.#subscription.reading,
-    };
+    return { ...this.#cancellations.state, phase: this.#phase, items: this.#items };
   }
 
   #publish(): void {
@@ -212,3 +215,5 @@ export class SessionQueueReading implements ReadTriggerTarget {
     }
   }
 }
+
+const EMPTY_ITEMS: readonly QueueItemSummary[] = Object.freeze([]);

@@ -44,7 +44,7 @@
 // run the composer happens to point at is the same fabrication in the other
 // direction. The wire types that member `runId?`, so the absence is a shape it admits
 // and this module answers with no reading rather than with a guess. A composer
-// addressed to a channel asks for no reading at all.
+// addressed to the session asks for no reading at all.
 //
 // AND A COMPACTION BOUNDARY IS PART OF THE READING, not a separate fact beside it. The
 // consumer obligation is stated on the wire in terms: a compaction invalidates the
@@ -204,30 +204,6 @@ function readingAfterCompaction(
   };
 }
 
-/**
- * The sequence of the newest compaction boundary recorded for ONE run, or
- * `undefined` when that run has none.
- *
- * THE RUN FILTER IS THE WHOLE FOLD, AND THE POSITION IS THE ROW'S OWN SLOT. The
- * registered payload for this type is `{ sessionId, runId, provider,
- * preCompactionTokens?, postCompactionTokens? }` — there is no boundary-position
- * member to read, and the wire's own name for the pathological case is a compaction
- * row with no recoverable timeline slot. So `sequence` IS the position, and what
- * this fold owes is selecting the ADDRESSED run's rows rather than the session's: a
- * session with two runs was showing one run's boundary under the other's control.
- *
- * A row whose `runId` is absent, empty, or not a string yields NO reading, the way
- * every other narrowing in this module does — counting it as the addressed run's
- * would be the console asserting a boundary it was never told belongs here. A
- * composer addressed to no run asks for nothing at all.
- */
-export function newestCompactionBoundarySequence(
-  timeline: readonly ConsoleSessionEvent[],
-  targetRunId: string | undefined,
-): number | undefined {
-  return newestCompactionBoundary(timeline, readWireString(targetRunId))?.sequence;
-}
-
 /** One recorded compaction: where it sits in the log, and what it left behind. */
 interface CompactionBoundary {
   readonly sequence: number;
@@ -238,10 +214,9 @@ interface CompactionBoundary {
 /**
  * The newest compaction boundary recorded for one run.
  *
- * One selection serving two questions — where the control's completed line points,
- * and whether the meter's last update has been superseded — because two loops over
- * the same rows would be two answers to "which row is this run's newest boundary"
- * and they would disagree the first time either was edited.
+ * Whether the meter's last update has been superseded by a compaction is asked of
+ * this one selection, so there is a single answer to "which row is this run's newest
+ * boundary".
  */
 function newestCompactionBoundary(
   timeline: readonly ConsoleSessionEvent[],

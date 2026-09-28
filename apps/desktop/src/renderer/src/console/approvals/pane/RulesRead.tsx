@@ -10,7 +10,7 @@ import { Nothing } from "../../primitives/index.js";
 import { type ConsoleRefusal } from "../../core/index.js";
 import { RememberedGrants } from "./grants/RememberedGrants.js";
 import { type RememberedRule } from "../../bridge/index.js";
-import { type ReadPhase } from "./approvals-reader.js";
+import { type ReadPhase } from "./body/approvals-read-fold.js";
 
 export function RulesRead(props: RulesReadProps): React.JSX.Element {
   if (props.phase.status === "not-checked") {

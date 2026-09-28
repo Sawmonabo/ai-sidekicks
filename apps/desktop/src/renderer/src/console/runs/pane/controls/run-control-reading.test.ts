@@ -10,8 +10,8 @@
 // order is completion order. Each row below names a dispatch order and a settlement
 // order that disagree, and states what the row must be in afterwards — and the row
 // that matters is the first: a newer `run.not_found` followed by an older request's
-// late success used to clear `isGone` and hand back every control on a run the daemon
-// had already said was absent.
+// late success must not clear `isGone` and hand back every control on a run the daemon
+// has already said is absent.
 
 import { describe, expect, it } from "vitest";
 
@@ -95,20 +95,20 @@ interface OrderingCase {
 const ORDERING_CASES: readonly OrderingCase[] = [
   {
     name: "an older request's late success never clears a newer run-loss verdict",
-    settled: [{ ordinal: 2, refusedWith: "run.not_found", control: "cancel" }, { ordinal: 1 }],
+    settled: [{ ordinal: 2, refusedWith: "run.not_found", control: "interrupt" }, { ordinal: 1 }],
     refusalCode: "run.not_found",
     isGone: true,
   },
   {
     name: "an older run-loss verdict settling last does not take the run away",
-    settled: [{ ordinal: 2 }, { ordinal: 1, refusedWith: "run.not_found", control: "cancel" }],
+    settled: [{ ordinal: 2 }, { ordinal: 1, refusedWith: "run.not_found", control: "interrupt" }],
     refusalCode: undefined,
     isGone: false,
   },
   {
     name: "an older refusal settling last does not supersede a newer one",
     settled: [
-      { ordinal: 2, refusedWith: "run.invalid_transition", control: "resume" },
+      { ordinal: 2, refusedWith: "run.invalid_transition", control: "steer" },
       { ordinal: 1, refusedWith: "run.version_conflict" },
     ],
     refusalCode: "run.invalid_transition",
@@ -122,7 +122,7 @@ const ORDERING_CASES: readonly OrderingCase[] = [
   },
   {
     name: "a newer run-loss verdict settling last still takes the run away",
-    settled: [{ ordinal: 1 }, { ordinal: 2, refusedWith: "run.not_found", control: "cancel" }],
+    settled: [{ ordinal: 1 }, { ordinal: 2, refusedWith: "run.not_found", control: "interrupt" }],
     refusalCode: "run.not_found",
     isGone: true,
   },
@@ -181,7 +181,7 @@ describe("which settlement the row is in", () => {
     // walk that compared this run's records against another run's would answer about
     // whichever run dispatched last.
     const surface = surfaceHolding([
-      recordFor(FIRST_RUN, { ordinal: 3, refusedWith: "run.not_found", control: "cancel" }),
+      recordFor(FIRST_RUN, { ordinal: 3, refusedWith: "run.not_found", control: "interrupt" }),
       recordFor(SECOND_RUN, { ordinal: 4 }),
       recordFor(FIRST_RUN, { ordinal: 1 }),
     ]);
@@ -215,7 +215,7 @@ describe("which settlement the row is in", () => {
     // The other side of that fallback: an unreadable token is not evidence of
     // anything, so it must not displace a verdict the surface can actually rank.
     const surface = surfaceHolding([
-      recordFor(FIRST_RUN, { ordinal: 4, refusedWith: "run.not_found", control: "cancel" }),
+      recordFor(FIRST_RUN, { ordinal: 4, refusedWith: "run.not_found", control: "interrupt" }),
       { ...recordFor(FIRST_RUN, { ordinal: 1 }), recordId: "unreadable" },
     ]);
 
@@ -261,7 +261,7 @@ describe("every gone run, as one set", () => {
   it("names each run whose newest settlement said so, once", () => {
     const surface = surfaceHolding([
       recordFor(FIRST_RUN, { ordinal: 1, refusedWith: "run.not_found" }),
-      recordFor(FIRST_RUN, { ordinal: 2, refusedWith: "run.not_found", control: "cancel" }),
+      recordFor(FIRST_RUN, { ordinal: 2, refusedWith: "run.not_found", control: "interrupt" }),
       recordFor(SECOND_RUN, { ordinal: 3, refusedWith: "run.version_conflict" }),
     ]);
 

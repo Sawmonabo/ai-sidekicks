@@ -45,10 +45,6 @@ describe("recognizeClientCommand", () => {
     }
     expect(recognition.refusal.code).toBe("unknown-command");
     expect(recognition.refusal.detail).toContain("nowhere.atAll");
-    // The escape belongs to the router, which is what a person who TYPED an
-    // unrecognised name actually meets; saying it twice would be two owners of one
-    // sentence.
-    expect(recognition.refusal.detail).not.toContain("//");
   });
 
   it("negative control: a partial id is not a match, so prefixes never run a command", () => {

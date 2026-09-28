@@ -9,25 +9,14 @@
 // from `invoke`'s synchronous return would pass every clean case here and still clear
 // a person's line on a command that had not finished.
 
-import { renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { GrowthPort } from "../../../console/bridge/index.js";
 import { consoleCommands } from "../../../console/palette/index.js";
 import { DEFAULT_ROUTE } from "../../../console/routing/index.js";
-import type { ComposerTarget } from "../chips/chip-models.js";
-import { createClientCommandExecutor, useComposerCommandZone } from "./client-command-executor.js";
+import { createClientCommandExecutor } from "./client-command-executor.js";
 import { clientCommandRefusal } from "./client-command-recognizer.js";
 import { type DirectiveLineHandlers, noDirectiveLineHandlers } from "./directive-line-handlers.js";
 import { composerCommandSurface } from "./console-command-surface.js";
-import { ProviderCommandEnumeration } from "./provider-command-holder.js";
-import { FIRST_AGENT, targetForAgent } from "./provider-command-holder.test-support.js";
-import { WORKFLOW_COMMAND_ROOT } from "./workflow-start/grammar.js";
-import {
-  fixtureGrowthPort,
-  recordedWorkflowCalls,
-  WORKFLOW_TEST_SESSION_ID,
-} from "./workflow-start/workflow-start.test-support.js";
 
 const RAN_COMMAND_ID = "composer-executor-test.ran";
 const FAILING_COMMAND_ID = "composer-executor-test.failing";
@@ -300,66 +289,5 @@ describe("a directive handler that fails", () => {
     );
 
     expect(await executor(directiveLine("test.refusingHandler"))).toStrictEqual(handlerRefusal);
-  });
-});
-
-describe("the command zone's accelerator wiring", () => {
-  /** The zone as the send bar builds it, for one address. */
-  function zoneFor(target: ComposerTarget, growth: GrowthPort) {
-    return renderHook(() =>
-      useComposerCommandZone({
-        route: DEFAULT_ROUTE,
-        commandEnumeration: new ProviderCommandEnumeration(),
-        target,
-        growth,
-        sessionId: WORKFLOW_TEST_SESSION_ID,
-      }),
-    ).result.current;
-  }
-
-  const CHANNEL_TARGET: ComposerTarget = {
-    path: "channel-message",
-    sessionId: WORKFLOW_TEST_SESSION_ID,
-    channelId: "channel-nightly-standup",
-    workspaceId: undefined,
-    channelLabel: undefined,
-  };
-
-  it("threads the addressed channel onto a start typed into a channel composer", async () => {
-    // A start issued from a channel carries the originating channel. The zone already
-    // holds that address, so the field is read off it rather than composed anywhere.
-    registerCommand({ id: WORKFLOW_COMMAND_ROOT, run: vi.fn() });
-    const calls = recordedWorkflowCalls();
-    const zone = zoneFor(
-      CHANNEL_TARGET,
-      fixtureGrowthPort({ definitions: [{ name: "nightly" }], calls }),
-    );
-
-    const outcome = await zone.commandExecutor({
-      commandName: WORKFLOW_COMMAND_ROOT,
-      text: "/workflow start nightly",
-    });
-
-    expect(outcome).toStrictEqual({ status: "applied" });
-    expect(calls.started[0]?.channelId).toBe("channel-nightly-standup");
-  });
-
-  it("negative control: a start typed at a running turn carries no channel", async () => {
-    // There is no channel it came from, and a `channelId` the zone invented would be
-    // provenance nobody supplied.
-    registerCommand({ id: WORKFLOW_COMMAND_ROOT, run: vi.fn() });
-    const calls = recordedWorkflowCalls();
-    const zone = zoneFor(
-      targetForAgent(FIRST_AGENT),
-      fixtureGrowthPort({ definitions: [{ name: "nightly" }], calls }),
-    );
-
-    await zone.commandExecutor({
-      commandName: WORKFLOW_COMMAND_ROOT,
-      text: "/workflow start nightly",
-    });
-
-    expect(calls.started).toHaveLength(1);
-    expect(calls.started[0]).not.toHaveProperty("channelId");
   });
 });

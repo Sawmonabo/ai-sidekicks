@@ -1,46 +1,25 @@
-// The six run controls' one chokepoint: guards threaded, keys minted, answers read.
+// The run controls' one chokepoint: guards threaded, keys minted, answers read.
 //
-// THIS MODULE'S OWN RULE, because no committed document states it: guard threading
-// and idempotency-key minting are one chokepoint rather than a per-button
-// convenience. Six buttons each assembling their own request would be six chances
-// to omit a comparand or reuse a key across a changed body, and both of those are
-// silent at the call site and loud on the wire.
+// Guard threading and key minting live here rather than in each button. A button that
+// assembled its own request could omit a comparand or reuse a key across a changed
+// body, and both fail silently at the call site and loudly on the wire.
 //
-// FIVE RULES, EACH STRUCTURAL HERE RATHER THAN CONVENTIONAL.
+//   1. Both guards, always. `expectedRunVersion` is required on every intervention and
+//      on pause and resume alike; an absent one is rejected, not applied. Steer and
+//      interrupt also get a `clientIdempotencyKey` minted per dispatch, never reused
+//      across a changed body (that is `intervention.idempotency_conflict`).
+//   2. The fresh comparand comes from the answer, reconciled against the state stream.
+//      An applied native steer advances the run with no state event, and the run also
+//      advances with no control pressed, so neither reading is freshest alone; the
+//      caller gets the newer, and that maximum is taken once, beside the cache.
+//   3. Eligibility is not projected. Every control is dispatched and the daemon's typed
+//      refusal is what renders: no role, authorship or state check lives here.
+//   4. Capability gating is a read. Steer is gated on the bound driver's declared flag;
+//      pause, resume and interrupt never are. A gated control whose flag is false, or
+//      not yet read, is absent rather than disabled.
 //
-//   1. **Both guards, always.** `expectedRunVersion` is mandatory on every
-//      intervention and on pause and resume alike; an absent comparand is rejected
-//      rather than applied. This module takes the comparand as a REQUIRED argument
-//      and mints `clientIdempotencyKey` itself, so neither can be forgotten.
-//   2. **One key per body.** A key is minted per dispatch and never reused across a
-//      changed body — reuse with a differing body is `intervention.idempotency_conflict`
-//      (422), which is a refusal the caller earned rather than one to render around.
-//   3. **The fresh comparand comes from the answer, reconciled against the stream.**
-//      `InterventionResponseBase.runVersion` and `RunControlAck.runVersion` are
-//      threaded back out on every settlement, because after an applied native steer
-//      the response is the ONLY place the caller can read it — that advance emits no
-//      state event. The run also advances through `run.subscribeState` without any
-//      control being pressed, so neither reading is the freshest on its own and a
-//      caller is answered with the NEWER of the two. That reconciliation lives here,
-//      beside the map that holds the cache, because both callers ask for it and a
-//      maximum written at two call sites would be two claims about one comparand.
-//   4. **Eligibility is not projected.** Every control is dispatched and the
-//      daemon's typed refusal is what renders. There is no role check, no
-//      authorship check, and no state precondition anywhere in this file.
-//   5. **Capability gating is a read, not a rule.** `steer` and `rollback` are
-//      gated on the bound driver's declared flags, read from
-//      `driver.listCapabilities`; pause, resume, interrupt, and cancel are
-//      orchestration-layer and are never driver-gated. A gated control whose flag
-//      is false is ABSENT, not disabled, on the absent-not-disabled discipline —
-//      and a capability read that has not answered yet leaves both gated controls
-//      absent, which is the fail-closed direction.
-//
-// WHAT THIS MODULE NEVER OFFERS. No reorder, no priority, no dequeue distinct from
-// cancel, and no move-to-background: none of the four exists anywhere in the corpus.
-// The Runs View strikes the first three in terms: queue reorder is struck, queue
-// priority overrides are deferred, and the queue's only removal path is
-// `run.queueCancel`. The fourth is this module's own refusal: no wire member anywhere
-// backgrounds a run, so a control for it would be an offer the daemon could not answer.
+// Nothing here reorders the queue, sets a priority, dequeues apart from cancel, or
+// backgrounds a run: no wire member exists for any of them.
 
 import type { InterventionRequestResponse, RunControlAck } from "@ai-sidekicks/contracts";
 
@@ -51,63 +30,19 @@ import {
   readRunId,
   type ConsoleBridge,
 } from "../../../bridge/index.js";
-import { type MutatingDaemonMethod } from "../../../store/index.js";
 
 /** The subsystem name every refusal this module raises carries. */
 export const RUN_CONTROL_REFUSAL_ORIGIN = "run-controls";
 
 /**
- * The six controls, closed and declared once.
- *
- * The Runs View enumerates exactly these six: pause and resume on active runs
- * (`run.pause` / `run.resume`), and steer, interrupt, cancel, and rollback through the
- * generic `run.intervene` dispatch. `cancel` is a first-class arm of the registered
- * `InterventionRequestPayload` union, so six is the correct reading.
+ * The controls, closed and declared once: pause and resume on an active run
+ * (`run.pause`, `run.resume`), and steer and interrupt through the generic
+ * `run.intervene` dispatch.
  */
-export const RUN_CONTROLS = [
-  "pause",
-  "resume",
-  "steer",
-  "interrupt",
-  "cancel",
-  "rollback",
-] as const;
+export const RUN_CONTROLS = ["pause", "resume", "steer", "interrupt"] as const;
 
 /** One control. Derived from the tuple, never restated. */
 export type RunControl = (typeof RUN_CONTROLS)[number];
-
-/**
- * The three daemon methods the six controls reach.
- *
- * An intersection with the store's own roster of methods an outage closes, rather than
- * a bare union, so that a method LEAVING that roster fails here at compile time instead
- * of quietly leaving a run control open through an outage that closes the call behind
- * it.
- */
-export type RunControlMethod = MutatingDaemonMethod &
-  ("run.pause" | "run.resume" | "run.intervene");
-
-/**
- * The method each control reaches, total over the six.
- *
- * DECLARED BESIDE THE DISPATCH THAT SENDS IT, because the row above needs the same
- * fact and must not answer it a second time: whether a control is closed while the
- * supervisor is not serving is a question about the METHOD, and a table written up in
- * `RunControls.tsx` would be free to say `run.interrupt` — which no registry binds —
- * long after this file had stopped agreeing with it.
- *
- * Four of the six collapse onto `run.intervene`: the registered
- * `InterventionRequestPayload` is one method with four arms, and the arm the caller
- * pressed is not part of the method string.
- */
-export const RUN_CONTROL_METHODS: Readonly<Record<RunControl, RunControlMethod>> = {
-  pause: "run.pause",
-  resume: "run.resume",
-  steer: "run.intervene",
-  interrupt: "run.intervene",
-  cancel: "run.intervene",
-  rollback: "run.intervene",
-};
 
 /** What one settled dispatch says. */
 export type RunControlOutcome =
@@ -118,16 +53,6 @@ export type RunControlOutcome =
       readonly response: InterventionRequestResponse;
     }
   | { readonly kind: "refused"; readonly control: RunControl; readonly refusal: ConsoleRefusal };
-
-/** What a rollback dispatch carries beyond the two mandatory guards. */
-export interface RollbackRequest {
-  readonly targetPosition: number;
-  /**
-   * Presence alone selects the atomic edit-and-resend composite and turns on its
-   * four additional structural refusal guards. Absent is a bare rollback.
-   */
-  readonly replacementSend?: { readonly content: string } | undefined;
-}
 
 /** What a steer dispatch carries. */
 export interface SteerRequest {
@@ -205,11 +130,7 @@ export class RunControlDispatcher {
     return this.#dispatchControlVerb("pause", "run.pause", target);
   }
 
-  /**
-   * Resume. Never a reread and never a reattach: the Runs View sketch cited above
-   * binds the word to `run.resume` on an active run, which is the verb that moves a
-   * paused run back to running and no other.
-   */
+  /** Resume. `run.resume` moves a paused run back to running and does nothing else. */
   public resume(target: RunControlTarget): Promise<RunControlOutcome> {
     return this.#dispatchControlVerb("resume", "run.resume", target);
   }
@@ -220,19 +141,6 @@ export class RunControlDispatcher {
 
   public interrupt(target: RunControlTarget, reason?: string): Promise<RunControlOutcome> {
     return this.#dispatchIntervention("interrupt", target, reason === undefined ? {} : { reason });
-  }
-
-  public cancel(target: RunControlTarget, reason?: string): Promise<RunControlOutcome> {
-    return this.#dispatchIntervention("cancel", target, reason === undefined ? {} : { reason });
-  }
-
-  public rollback(target: RunControlTarget, request: RollbackRequest): Promise<RunControlOutcome> {
-    return this.#dispatchIntervention("rollback", target, {
-      targetPosition: request.targetPosition,
-      ...(request.replacementSend === undefined
-        ? {}
-        : { replacementSend: { content: request.replacementSend.content } }),
-    });
   }
 
   /** Pause and resume: one shape, one acknowledgment, one comparand threaded back. */
@@ -257,7 +165,7 @@ export class RunControlDispatcher {
   }
 
   /**
-   * Steer, interrupt, cancel, rollback: one method, four arms.
+   * Steer and interrupt: one method, two arms.
    *
    * The ARM is built and READ here rather than at the door, because the union's
    * discriminant decides which members are required and this is the only place that
@@ -326,7 +234,7 @@ export class RunControlDispatcher {
  * The code the daemon sent is the code a person sees; there is deliberately no table
  * here mapping a wire code onto console prose. The renderer never pre-denies: it calls,
  * and renders the typed refusal code with the daemon's message text and the operator's
- * next move. Every refusal these six controls can reach is registered in
+ * next move. Every refusal these controls can reach is registered in
  * `error-contracts.md` — `run.invalid_transition`, `run.not_found`,
  * `run.limit_exceeded`, `run.recovery_failed`, `intervention.idempotency_conflict`,
  * `auth.principal_mismatch` — and each travels this one path.

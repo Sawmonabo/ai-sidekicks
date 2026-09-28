@@ -20,11 +20,10 @@ import {
   type ComposerSettlementIdentity,
 } from "./send-settlement.js";
 
-const ADDRESS_A = "channel-message|session-1|channel-a";
-const ADDRESS_B = "channel-message|session-1|channel-b";
+const ADDRESS_A = "channel-message|session-1";
+const ADDRESS_B = "channel-message|session-2";
 
-const SEND_REFUSAL = refuse("composer-send", "queue.full", "That channel's queue is full.");
-const STOP_REFUSAL = refuse("composer-send", "run.not_running", "There is no live turn to stop.");
+const SEND_REFUSAL = refuse("composer-send", "queue.full", "That session's queue is full.");
 
 const FIRST_VISIT = 1;
 const SECOND_VISIT = 2;
@@ -82,16 +81,6 @@ describe("composer settlement identity — which completions may be written", ()
     );
   });
 
-  it("negative control: the other operation's newer attempt does not supersede this one", () => {
-    // Without this the attempt guard would hold over a register read across the two
-    // operations, which is exactly the shared slot the per-key register replaces.
-    const act = identity(ADDRESS_A, "send", 3);
-    const otherOperation = identity(ADDRESS_A, "stop", 9);
-    expect(
-      isSettlementCurrent(act, ADDRESS_A, FIRST_VISIT, newestAttempts(act, otherOperation)),
-    ).toBe(true);
-  });
-
   it("negative control: another ADDRESS's newer attempt does not supersede this one", () => {
     // The finding this register was re-keyed for: two slots for the whole window let
     // a send from B retire the attempt made at A, so A's own refusal was dropped
@@ -104,46 +93,31 @@ describe("composer settlement identity — which completions may be written", ()
   });
 });
 
-describe("composer settlement slots — one act never erases another's refusal", () => {
-  it("holds each operation's refusal in its own slot", () => {
+describe("composer settlement slots — a refusal stands until the act settles clean", () => {
+  it("renders the refusal a send settled as", () => {
     const slots = withSettledRefusal(
-      withSettledRefusal(NO_COMPOSER_REFUSALS, identity(ADDRESS_A, "send", 1), SEND_REFUSAL),
-      identity(ADDRESS_A, "stop", 2),
-      STOP_REFUSAL,
+      NO_COMPOSER_REFUSALS,
+      identity(ADDRESS_A, "send", 1),
+      SEND_REFUSAL,
     );
 
     expect(slots.send?.refusal).toStrictEqual(SEND_REFUSAL);
-    expect(slots.stop?.refusal).toStrictEqual(STOP_REFUSAL);
+    expect(renderableRefusal(slots)).toStrictEqual(SEND_REFUSAL);
   });
 
-  it("leaves the other operation's refusal standing when one succeeds", () => {
-    // The second half of the finding: a concurrent success used to clear the one
-    // shared slot, so a Stop refusal nobody had read disappeared because a send
-    // happened to land.
-    const withStopRefusal = withSettledRefusal(
+  it("clears the slot when the next send settles without a refusal", () => {
+    const refused = withSettledRefusal(
       NO_COMPOSER_REFUSALS,
-      identity(ADDRESS_A, "stop", 1),
-      STOP_REFUSAL,
+      identity(ADDRESS_A, "send", 1),
+      SEND_REFUSAL,
     );
     const afterSendSucceeded = withSettledRefusal(
-      withStopRefusal,
+      refused,
       identity(ADDRESS_A, "send", 2),
       undefined,
     );
 
-    expect(afterSendSucceeded.send).toBeUndefined();
-    expect(afterSendSucceeded.stop?.refusal).toStrictEqual(STOP_REFUSAL);
-    expect(renderableRefusal(afterSendSucceeded)).toStrictEqual(STOP_REFUSAL);
-  });
-
-  it("renders the newer attempt where both operations refused at this address", () => {
-    const slots = withSettledRefusal(
-      withSettledRefusal(NO_COMPOSER_REFUSALS, identity(ADDRESS_A, "send", 5), SEND_REFUSAL),
-      identity(ADDRESS_A, "stop", 4),
-      STOP_REFUSAL,
-    );
-
-    expect(renderableRefusal(slots)).toStrictEqual(SEND_REFUSAL);
+    expect(renderableRefusal(afterSendSucceeded)).toBeUndefined();
   });
 
   it("negative control: an empty record renders nothing", () => {
@@ -155,12 +129,11 @@ describe("composer settlement slots — one act never erases another's refusal",
 });
 
 describe("the attempt register is bounded by the address, not by the mount", () => {
-  it("keeps every operation's entry for the address it is narrowed to", () => {
+  it("keeps the entry for the address it is narrowed to", () => {
     const send = identity(ADDRESS_A, "send", 3);
-    const stop = identity(ADDRESS_A, "stop", 4);
 
-    expect(attemptIdsAtAddress(newestAttempts(send, stop), ADDRESS_A, FIRST_VISIT)).toStrictEqual(
-      newestAttempts(send, stop),
+    expect(attemptIdsAtAddress(newestAttempts(send), ADDRESS_A, FIRST_VISIT)).toStrictEqual(
+      newestAttempts(send),
     );
   });
 
@@ -190,15 +163,12 @@ describe("the attempt register is bounded by the address, not by the mount", () 
       const visit = attemptId;
       register = {
         ...register,
-        ...newestAttempts(
-          identity(ADDRESS_A, "send", attemptId, visit),
-          identity(ADDRESS_A, "stop", attemptId, visit),
-        ),
+        ...newestAttempts(identity(ADDRESS_A, "send", attemptId, visit)),
       };
       register = attemptIdsAtAddress(register, ADDRESS_A, visit);
     }
 
-    expect(Object.keys(register)).toHaveLength(2);
+    expect(Object.keys(register)).toHaveLength(1);
   });
 
   it("negative control: an address with no act on it narrows to nothing", () => {
