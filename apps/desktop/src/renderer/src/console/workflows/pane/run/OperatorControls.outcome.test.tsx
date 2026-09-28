@@ -1,32 +1,23 @@
 // What the controls do with an ANSWER, which is the half a press earns.
 //
-// SEPARATE FROM `OperatorControls.test.tsx` BECAUSE THE SUBJECT IS DIFFERENT. That
-// file is about what an operator can compose and submit — the reason field, the
-// picker, the scoping of both to one run. Every case here holds the form still and
-// varies the `WorkflowRunControlOutcome`, which is the input a form cannot produce.
-//
-// AND IT IS WHERE THE FIX IS ASSERTED. Both controls used to be mounted as
-// hand-composed refusals claiming their operations were "not on the bridge yet",
-// while `bridge/growth-operations/workflows.ts` carried both — so the first group's
-// old shape was a refused-control group, and these cases assert its opposite:
-// eligibility is a daemon adjudication nothing here can perform before it asks, so a
-// press puts the question and the answer renders BESIDE the button, never in place of
-// it and never as a pre-press claim about a wire this component never consulted.
+// Every case but the last group holds the form still and varies the
+// `WorkflowRunControlOutcome`, the input a form cannot produce (`OperatorControls.test.tsx`
+// is what an operator can compose). Eligibility is the daemon's, so a press puts the
+// question and the answer renders BESIDE the button, never in place of it and never as a
+// pre-press claim. The last group mounts the controls over the real dispatcher, because
+// which control an answer lands under is decided between the two.
 
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import type { GrowthPort } from "../../../bridge/index.js";
 import { OperatorControls, type OperatorControlsProps } from "./OperatorControls.js";
+import { heldCancelCalls } from "./run-control-dispatch.test-support.js";
+import { useRunControlDispatch, type WorkflowRunControlCalls } from "./run-control-dispatch.js";
 import { IDLE_RUN_CONTROL_OUTCOME, actAlreadyInFlightRefusal } from "./run-controls.js";
+import { settle } from "../../workflows-probe.test-support.js";
 
-/**
- * The one address every case renders at.
- *
- * The port is a subject TOKEN and nothing calls it — this component issues no read —
- * so it is cast rather than built, the idiom the two suites beside this one share.
- */
-const RUN_A_ADDRESS = { growth: {} as GrowthPort, workflowRunId: "run-a" } as const;
+/** The one address every case renders at. */
+const RUN_A_ADDRESS = { workflowRunId: "run-a" } as const;
 
 /** Both controls offered with nothing pressed yet — what an opened pane renders. */
 const NOTHING_PRESSED: OperatorControlsProps = {
@@ -38,9 +29,7 @@ const NOTHING_PRESSED: OperatorControlsProps = {
 describe("a control is offered, and a refusal stands beside it rather than instead of it", () => {
   it("draws both buttons before anything has been pressed", () => {
     render(<OperatorControls {...NOTHING_PRESSED} />);
-    // The whole of the fix. These two used to be mounted as hand-composed refusals
-    // claiming their operations were not on the bridge, while the growth port carried
-    // both — so an operator was told an act was unreachable that nothing had checked.
+    // Nothing is decided in advance: both acts are offered until the daemon answers.
     expect(screen.queryAllByRole("button")).toHaveLength(2);
   });
 
@@ -74,9 +63,8 @@ describe("a control is offered, and a refusal stands beside it rather than inste
 
   it("negative control: the refusal code is the raiser's own and is not reworded", () => {
     // Without this the case above would pass over a component that printed a fixed
-    // sentence of its own for every refusal, which is the second vocabulary this
-    // surface must never grow: the port's `wire-unregistered` and the daemon's
-    // `workflow.*` codes both reach this same renderer untranslated.
+    // sentence of its own for every refusal, a second vocabulary this surface must
+    // never grow.
     const refusal = actAlreadyInFlightRefusal("resume");
     render(
       <OperatorControls
@@ -104,5 +92,56 @@ describe("a control is offered, and a refusal stands beside it rather than inste
     // `cancelled` on the run sees the same string the settlement showed them.
     expect(screen.getByText("cancelled")).toBeDefined();
     expect(screen.getByText("This run is cancelled.")).toBeDefined();
+  });
+});
+
+/** The controls wired to the real dispatcher, at the one run every case presses on. */
+function ControlsOverDispatch(props: {
+  readonly calls: WorkflowRunControlCalls;
+}): React.JSX.Element {
+  const controls = useRunControlDispatch(props.calls, RUN_A_ADDRESS.workflowRunId);
+  return (
+    <OperatorControls
+      {...RUN_A_ADDRESS}
+      cancel={controls.cancel}
+      resume={{ ...controls.resume, versionChain: [] }}
+    />
+  );
+}
+
+/** The outcome line a served press left inside the control that button belongs to. */
+function outcomeLineOf(buttonName: RegExp): Element | null {
+  const control = screen
+    .getByRole("button", { name: buttonName })
+    .closest(".meridian-workflow-run-controls__control");
+  return control?.querySelector(".meridian-workflow-run-controls__outcome") ?? null;
+}
+
+describe("each control carries only the answer to its own press", () => {
+  it("leaves resume carrying no answer after a cancel is pressed and served", async () => {
+    const held = heldCancelCalls();
+    render(<ControlsOverDispatch calls={held.calls} />);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /cancel this run/iu }));
+    });
+    await act(async () => {
+      held.serve();
+    });
+    await settle();
+
+    expect(outcomeLineOf(/cancel this run/iu)?.textContent).toContain("cancelled");
+    expect(outcomeLineOf(/resume this run/iu)).toBeNull();
+  });
+
+  it("leaves cancel carrying no answer after a resume is pressed and served", async () => {
+    const held = heldCancelCalls();
+    render(<ControlsOverDispatch calls={held.calls} />);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /resume this run/iu }));
+    });
+    await settle();
+
+    expect(outcomeLineOf(/resume this run/iu)?.textContent).toContain("running");
+    expect(outcomeLineOf(/cancel this run/iu)).toBeNull();
   });
 });

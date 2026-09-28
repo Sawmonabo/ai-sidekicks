@@ -11,16 +11,10 @@
 // and declares nothing about it.
 //
 // ELIGIBILITY IS NEVER COMPUTED HERE, AND THAT IS WHY THERE IS NO REFUSED CONTROL.
-// Whether a run may be cancelled or resumed is a daemon adjudication reaching the
-// console as a typed refusal — `workflow.control_denied` on either of the two
-// separately grantable actions, `workflow.run_not_cancellable` on a run that reached
-// a terminal, `workflow.resume_not_parked` and the repair codes on resume. Nothing in
-// this console can know any of that before it asks. So a control is OFFERED, its
-// press puts the question, and the answer lands on {@link WorkflowRunControlOutcome}
-// beside the button that asked it — rule 9's shape exactly: nothing changed, the act
-// did not happen, and the control stays beside its refusal. A pre-press `refused`
-// arm would have had to be composed by a caller that had adjudicated nothing, which
-// is how this surface came to claim its wire was missing while the port carried it.
+// Whether a run may be cancelled or resumed is a daemon adjudication, and nothing in
+// this console can know it before it asks. So a control is OFFERED and its press puts
+// the question; an act the daemon served lands on {@link WorkflowRunControlOutcome}
+// beside the button that asked it.
 //
 // THE TWO REFUSALS THIS FAMILY RAISES ITSELF are the reason bound and a second press
 // while the first is still in flight, and both are raised BEFORE a call rather than
@@ -31,18 +25,9 @@
 // first call is still outstanding, a queue would perform an act nobody re-confirmed
 // against a run whose state has moved, and dropping it silently is a button that
 // looks broken.
-//
-// WIRE STATUS — READ THIS BEFORE WIRING A CALLER. `packages/contracts` registers no
-// `workflow.*` method, so both controls travel the growth port instead:
-// `bridge/growth-operations/workflows.ts` carries `workflowRunCancel` and
-// `workflowRunResume` on the `workflow-run-control` slate row, and
-// `bridge/growth-port/growth-port.ts` composes the `wire-unregistered` refusal for a build whose
-// bridge cannot serve them. That refusal is the PORT's and is never composed here: a
-// mount site that built its own would be asserting a wire fact it had not checked,
-// and the port's own builder is unreachable from outside `bridge/` by construction.
 
 import { refuse, type ConsoleRefusal } from "../../../core/index.js";
-import type { GrowthPort } from "../../../bridge/index.js";
+import type { WorkflowRunState } from "../../runs/run-list-rows.js";
 // The console's one byte measurement, through the family door that publishes it.
 // This surface bounds a cancellation reason exactly as the durable path bounds a
 // record, and the chokepoint rule in `apps/desktop/AGENTS.md` gives that one
@@ -70,10 +55,8 @@ export const WORKFLOW_RUN_CONTROL_ORIGIN = "workflow-run-control";
 /**
  * The refusals this surface raises on its own, and no others.
  *
- * Deliberately short and deliberately not the daemon's vocabulary: every
- * `workflow.*` code arrives from the daemon already formed and is rendered verbatim,
- * and the unregistered-wire code is the growth port's own. These two are the cases
- * where there is no daemon in the loop at all — an input this surface can measure
+ * Deliberately short and deliberately not the daemon's vocabulary. These two are the
+ * cases where there is no daemon in the loop at all — an input this surface can measure
  * before it spends anyone's round trip, and a press it can see is a duplicate of one
  * already outstanding.
  *
@@ -86,22 +69,21 @@ export const WORKFLOW_RUN_CONTROL_ORIGIN = "workflow-run-control";
  */
 export type WorkflowRunControlRefusalCode = "reason-past-bound" | "act-already-in-flight";
 
-/**
- * What a served `workflow.runCancel` answers with, taken from the port's signature.
- *
- * DERIVED AND NEVER RESTATED. The reply narrows the run union to the outcomes this
- * operation can actually reach, and a hand-written copy of that narrowing is a second
- * wire vocabulary that agrees until the operation's own `Extract` moves. This module
- * reaches for the port's TYPE only; it calls nothing.
- */
-export type WorkflowRunCancelReply = ServedGrowthValue<
-  Awaited<ReturnType<GrowthPort["workflowRunCancel"]>>
->;
+/** What a served `workflow.runCancel` answers with. */
+export interface WorkflowRunCancelReply {
+  readonly workflowRunId: string;
+  readonly state: Extract<WorkflowRunState, "cancelled">;
+  readonly cancelledEventId: string;
+  readonly alreadyCancelled: boolean;
+}
 
-/** What a served `workflow.runResume` answers with, on the same derivation. */
-export type WorkflowRunResumeReply = ServedGrowthValue<
-  Awaited<ReturnType<GrowthPort["workflowRunResume"]>>
->;
+/** What a served `workflow.runResume` answers with. */
+export interface WorkflowRunResumeReply {
+  readonly workflowRunId: string;
+  readonly state: Extract<WorkflowRunState, "running" | "suspended">;
+  readonly repinnedFromWorkflowVersionId?: string;
+  readonly repinnedToWorkflowVersionId?: string;
+}
 
 /** Every run state either control's served reply can report, and no others. */
 export type WorkflowRunControlRunState =
@@ -133,32 +115,15 @@ export type WorkflowRunControlOutcome =
     }
   | { readonly kind: "refused"; readonly refusal: ConsoleRefusal };
 
-/**
- * The served arm of whatever outcome one growth operation answers with.
- *
- * A conditional rather than `Extract<…>["value"]`, which does not compile: over an
- * unresolved generic the extraction is not yet known to carry a `value` member at all,
- * so the member is inferred out of the matching arm instead.
- */
-type ServedGrowthValue<TOutcome> = TOutcome extends {
-  readonly status: "served";
-  readonly value: infer TValue;
-}
-  ? TValue
-  : never;
-
 /** The outcome a control stands at before anything has been pressed on this run. */
 export const IDLE_RUN_CONTROL_OUTCOME: WorkflowRunControlOutcome = { kind: "idle" };
 
 /**
  * The state a resume answers with when the run re-parks on its next dispatch.
  *
- * ONE HOME BECAUSE TWO SURFACES NAME IT. The resume control warns about this outcome
- * before the press, and the dispatcher reads the reply to decide which sentence the
- * settlement carries after it — two literals of one wire word, and the pair is
- * exactly how a console comes to warn about a state it no longer recognises.
- * Annotated with the derived union, so a word this reply cannot answer with is a
- * compile error rather than a warning about nothing.
+ * The dispatcher reads the reply against it to decide which sentence the settlement
+ * carries. Annotated with the derived union, so a word this reply cannot answer with is a
+ * compile error.
  */
 export const WORKFLOW_RUN_RE_PARKED_STATE: WorkflowRunControlRunState = "suspended";
 

@@ -36,45 +36,30 @@
 // answer and `Array.prototype.sort` may read as anything it likes.
 //
 // ONE PARSE OF THE START, AND EVERY READER TAKES IT. The reading rides the row, so the
-// sort and the surface that PRINTS the start are looking at the same value. They were
-// not: the row printed `run.startedAt` through the figure chokepoint's `formatDateTime`,
-// which reads an instant under the default `"any-offset"` policy, while the sort read
-// it under this plane's declared `"utc-only"` one. A start spelled with a numeric
-// offset is legible to the first and malformed to the second, so the list sorted such a
-// run last — under every run whose start it could read — and then printed a perfectly
+// sort and the surface that PRINTS the start look at the same value. Two readings would
+// split this plane's `"utc-only"` policy from the figure chokepoint's default
+// `"any-offset"` one: a start spelled with a numeric offset is legible to the second and
+// malformed to the first, so the list would sort that run last and still print a
 // readable time on it, with nothing on screen saying its stamp had been refused.
 //
-// AND THE SORT ENDS ON THE RUN'S OWN IDENTITY. Band, then start, then `workflowRunId`
-// — because the first two both admit ties (two runs started in the same millisecond,
-// two unreadable starts) and a comparator that answers zero hands the pair back in
-// enumeration order. A list is read twice, from two responses that need not enumerate
-// alike, so a tie-break on nothing is a list whose rows move under a person between
-// one read and the next.
+// AND THE SORT ENDS ON THE RUN'S OWN IDENTITY. Start, then `workflowRunId` — because
+// the start admits ties (two runs started in the same millisecond, two unreadable
+// starts) and a comparator that answers zero hands the pair back in enumeration order.
+// A list is read twice, from two responses that need not enumerate alike, so a
+// tie-break on nothing is a list whose rows move under a person between one read and
+// the next.
 //
 // THE CLASSIFICATION RIDES THE PARKED PHASE, NOT THE ROW. Whether a park resumes
 // itself is `run-list-rows.ts`'s three-arm `WorkflowParkSchedule`, attached to each
 // parked phase as it is projected — because the surface that says which kind of park
 // this is renders ONE park at a time, and a row-level "something here is unscheduled"
-// cannot tell it which. THREE row members used to carry that fact in aggregate and no
-// renderer consumed any of them: the badge re-derived the answer from `autoResumeAt`'s
-// presence and called a malformed instant a schedule. The last of the three was the
-// soonest armed resume across a run's parks, which every surface that draws a resume
-// reads off the park it is drawing; a row member nothing reads is a derivation run per
-// row for nobody, and neither gate reports one — knip sees unused EXPORTS, not unused
-// members of a used interface.
+// cannot tell it which.
 //
-// THE SHAPES ARE NEXT DOOR AND THE VOCABULARY IS ON THE SUBSTRATE. `run-list-rows.ts`
-// derives the run and phase rows from `bridge/wire-shapes/workflow-projection.ts`, which is where
-// the statuses and park reasons are declared; this module holds the reading — bands,
-// order, and the counts a header shows — and declares exactly one closed set of its
-// own, the attention band, because a band is a reading of a status rather than a
-// status. It re-exports none of those shapes: this module used to forward
-// `parkAwaitsPerson`, `parkSchedule`, `phasePark`, and six types it does not declare,
-// so a reader who followed the park badge's import arrived at a module whose whole
-// subject is the run LIST and found nothing there — the declaration was one more hop
-// away, and the forwarding line was the only thing that said so. Every consumer names
-// the declaring module directly, which is the same rule the family door obeys one
-// level up.
+// THE SHAPES ARE NEXT DOOR. `run-list-rows.ts` derives the run and phase rows from
+// `bridge/wire-shapes/workflow-projection.ts`, which declares the statuses and park
+// reasons; this module holds the reading — order, the parked flag, and the counts a
+// header shows. It re-exports none of those shapes: every consumer names the declaring
+// module directly.
 
 import { compareInstants, type InstantReading } from "../../core/index.js";
 import { foldParkAttention, type WorkflowParkAttentionEntry } from "./park-attention-fold.js";
@@ -85,48 +70,7 @@ import {
   type WorkflowParkedPhase,
   type WorkflowPhaseStateRow,
   type WorkflowRunSnapshot,
-  type WorkflowRunState,
 } from "./run-list-rows.js";
-
-/**
- * The three bands a run sits in, in the order the list shows them.
- *
- * A band is about ATTENTION, not about status: `parked` is where a person may be
- * needed, `active` is where the engine is working, `settled` is where nothing more
- * will happen. Ordering by the six-value status directly would put `pending` above
- * `suspended` because the contract declares it first, which is a fact about the DDL
- * and not about what an operator should look at.
- *
- * MODULE-PRIVATE: the comparator below is the only reader, and the band a surface
- * shows arrives on the row. Published, the tuple invites a second surface to band a
- * run itself rather than reading the one this projection already decided.
- */
-const WORKFLOW_RUN_ATTENTION_BANDS = ["parked", "active", "settled"] as const;
-
-/** One attention band. Derived from the tuple, never restated. */
-export type WorkflowRunAttentionBand = (typeof WORKFLOW_RUN_ATTENTION_BANDS)[number];
-
-/**
- * The band each run status reads as, before its parks are looked at.
- *
- * TOTAL over the substrate's status set, and that totality is this module's own
- * compile-time control: a seventh status added to `bridge/wire-shapes/workflow-projection.ts`
- * fails here until this table places it, where the `pending || running ? … : …`
- * expression it replaces would have banded it `settled` in silence and hidden a live
- * run under the finished ones.
- *
- * `suspended` bands `parked` on its own, with no phase carrying park members: an
- * older daemon emits none of the four, and the run status still says something is
- * waiting.
- */
-const RUN_STATE_ATTENTION_BANDS = {
-  pending: "active",
-  running: "active",
-  suspended: "parked",
-  completed: "settled",
-  failed: "settled",
-  cancelled: "settled",
-} as const satisfies Record<WorkflowRunState, WorkflowRunAttentionBand>;
 
 /** One run's row in the list: the snapshot, plus everything read off it once. */
 export interface WorkflowRunListRow {
@@ -149,7 +93,14 @@ export interface WorkflowRunListRow {
    * because unknown is not stale.
    */
   readonly isPinnedBehindLatestVersion: boolean;
-  readonly attentionBand: WorkflowRunAttentionBand;
+  /**
+   * True when a person may be needed: a phase is parked, or the run's status is
+   * `suspended`.
+   *
+   * The status counts on its own because a `suspended` run can carry no park members,
+   * and the run still says something is waiting.
+   */
+  readonly isParked: boolean;
 }
 
 /**
@@ -183,18 +134,12 @@ export class RunListProjection {
     this.#rows = runs
       .map((run) => projectRun(run))
       .sort((left, right) => {
-        const bandDelta =
-          WORKFLOW_RUN_ATTENTION_BANDS.indexOf(left.attentionBand) -
-          WORKFLOW_RUN_ATTENTION_BANDS.indexOf(right.attentionBand);
-        if (bandDelta !== 0) {
-          return bandDelta;
-        }
-        // Newest first inside a band: a run started a minute ago is the one an
-        // operator scanning a band is looking for. An unreadable start lands last
-        // here as it does in every other direction, because the console's one
-        // comparator holds that arm before it compares numbers at all — below every
-        // legible start, since a run nothing can be said about belongs under every
-        // run that carries a start a person can read.
+        // Newest first: a run started a minute ago is the one an operator scanning the
+        // list is looking for. An unreadable start lands last here as it does in every
+        // other direction, because the console's one comparator holds that arm before
+        // it compares numbers at all — below every legible start, since a run nothing
+        // can be said about belongs under every run that carries a start a person can
+        // read.
         const startDelta = compareInstants(left.startedAt, right.startedAt, "newest-first");
         // And then the run's own id, which is what makes the claim above TRUE rather
         // than usually true. Two runs started in the same millisecond, and two whose
@@ -203,9 +148,9 @@ export class RunListProjection {
         // later read that supplied them the other way round swapped them on screen.
         return startDelta !== 0 ? startDelta : workflowRunIdAscending(left, right);
       });
-    // Folded from the SORTED rows, so the entries come out in the same attention
-    // order the list draws — the fold takes first-encounter order and has no
-    // comparator of its own to disagree with the one above.
+    // Folded from the SORTED rows, so the entries come out in the same order the list
+    // draws — the fold takes first-encounter order and has no comparator of its own to
+    // disagree with the one above.
     this.#parkAttention = foldParkAttention(
       this.#rows.map((row) => ({
         workflowRunId: row.run.workflowRunId,
@@ -214,7 +159,7 @@ export class RunListProjection {
     );
   }
 
-  /** Every row, attention first and newest first inside a band. */
+  /** Every row, newest first. */
   public get rows(): readonly WorkflowRunListRow[] {
     return this.#rows;
   }
@@ -247,16 +192,14 @@ export class RunListProjection {
   }
 
   /**
-   * How many runs the list is showing in its parked band. The header's own reading.
+   * How many runs the list shows as parked. The header's own reading.
    *
-   * Counted off the BAND rather than off the parked phases, because the band is the
-   * one derivation and the two do not agree: an older daemon emits none of the four
-   * park members, so a `suspended` run lands in the parked band with no parked phase
-   * on it. Counting phases reported no parked runs while drawing one under the
-   * heading that says there are none.
+   * Counted off each row's `isParked` rather than off the parked phases, because a
+   * `suspended` run can be parked with no parked phase on it: counting phases would
+   * report no parked runs while the list draws one.
    */
   public get parkedRunCount(): number {
-    return this.#rows.filter((row) => row.attentionBand === "parked").length;
+    return this.#rows.filter((row) => row.isParked).length;
   }
 
   /** How many runs are pinned to a version their definition has moved past. */
@@ -270,15 +213,11 @@ export class RunListProjection {
  *
  * THE PARK PROJECTION, AND THE ONLY ONE. Three surfaces draw a park — the run row's
  * badges, the run pane's stack of cards, and the phase node above that stack — and each
- * used to apply the discriminator and the schedule rule itself. Two of the three then
- * disagreed about the phase's NAME, because one read the row's own member and the other
- * substituted a module-level constant, so one screen named a parked phase and the
- * surface beside it drew the same park with no name at all. That is not a bug in either
- * one: it is the consequence of there being three.
+ * takes the discriminator, the schedule rule and the phase's name from here, so no two
+ * of them can draw the same park differently.
  *
  * Takes the phases rather than the run because two of the three callers hold only a
- * phase list, and a projection that demanded a whole run would have sent them back to
- * deriving it themselves — which is the state this replaces.
+ * phase list.
  */
 export function projectParkedPhases(
   phaseStates: readonly WorkflowPhaseStateRow[],
@@ -318,14 +257,6 @@ function workflowRunIdAscending(left: WorkflowRunListRow, right: WorkflowRunList
   return leftRunId < rightRunId ? -1 : 1;
 }
 
-/** The band a run belongs to, decided by its parks first and its status second. */
-function attentionBandFor(
-  run: WorkflowRunSnapshot,
-  parkedPhases: readonly WorkflowParkedPhase[],
-): WorkflowRunAttentionBand {
-  return parkedPhases.length > 0 ? "parked" : RUN_STATE_ATTENTION_BANDS[run.state];
-}
-
 /** One run's row, with every derived fact read off the snapshot exactly once. */
 function projectRun(run: WorkflowRunSnapshot): WorkflowRunListRow {
   const parkedPhases = projectParkedPhases(run.phaseStates);
@@ -340,6 +271,6 @@ function projectRun(run: WorkflowRunSnapshot): WorkflowRunListRow {
     isPinnedBehindLatestVersion:
       run.definitionLatestWorkflowVersionId !== undefined &&
       run.definitionLatestWorkflowVersionId !== run.workflowVersionId,
-    attentionBand: attentionBandFor(run, parkedPhases),
+    isParked: parkedPhases.length > 0 || run.state === "suspended",
   };
 }

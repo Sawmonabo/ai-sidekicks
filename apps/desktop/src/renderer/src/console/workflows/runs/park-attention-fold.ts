@@ -30,10 +30,9 @@
 // run list's.
 //
 // ORDER IS FIRST ENCOUNTER OVER ROWS THE PROJECTION ALREADY SORTED. The rows arrive
-// attention-first and newest-first inside a band, so walking them gives a stable
-// order with no second comparator to disagree with the first — and an entry folding
-// three runs sits where its FIRST run sits, which is the one an operator scanning the
-// list meets first.
+// newest first, so walking them gives a stable order with no second comparator to
+// disagree with the first — and an entry folding three runs sits where its FIRST run
+// sits, which is the one an operator scanning the list meets first.
 
 import type { WorkflowParkedPhase, WorkflowParkReason } from "./run-list-rows.js";
 import { parkAwaitsPerson } from "./run-list-rows.js";

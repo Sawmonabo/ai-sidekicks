@@ -1,50 +1,16 @@
-// What every suite in this family needs before it can assert anything.
+// What every suite in this family needs before it can assert anything: the shared
+// identities, a definition-row factory, one `settle` boundary, and the runs the suites read.
 //
-// THE NAME IS THE FAMILY'S BECAUSE THE CONTENTS ARE. This module was authored as
-// `WorkflowsBrowser.test-support.tsx` beside the component it was named for, when the
-// browser's four suites were its only readers. By the time the component moved down
-// into `browser/` they were four importers of twenty-six — the other twenty-two spread
-// across `definitions/`, `destination/`, `pane/run/`, `runs/` and the zone above them —
-// so the name claimed the browser's scaffolding for a module whose readers were mostly
-// not browser suites, and claimed it from a directory the browser had left. The mount
-// half went with the component and is `browser/WorkflowsBrowser.test-support.tsx`, a
-// correct name in its new home; what stayed is what any suite in this family needs.
-//
-// THE PROBE IDENTITIES AND THE SETTLE ARE THE FAMILY'S. Suites in every one of this
-// family's directories address the same session and the same user, and every one
-// of them has to let a read settle before it asserts — and each had typed the literal or
-// the helper out for itself. One value in many places is many chances to edit one of
-// them, and a suite addressed at a session its neighbours are not still passes: every
-// assertion it makes is about the value it sent. The bridge family's
-// `scripted-probe.test-support.ts` keeps a session and a user of its own and says
-// why: those are the identities a BRIDGE probe scripts, and a module below this one in
-// the console's order may not reach up here for them.
-//
-// THE ROW FACTORY IS A FACTORY RATHER THAN A FROZEN CONST on purpose. Suites across two
-// directories were each stating the nine members of `WorkflowDefinitionRow` in their own
-// words, so adding a required member to the wire type would have broken some of them and
-// silently left the rest asserting against a differently-shaped row for the same type.
-// One factory with overrides is the shape that cannot do that: a new required member is
-// one edit here, and every caller keeps compiling because it only ever names what it
-// asserts on.
-//
-// `settle` IS ONE `act` BOUNDARY, and what it awaits inside is a MACROTASK boundary
-// rather than a count of microtasks: React's async `act` drains its own queue and the
-// effects that queue schedules on the way out, and `crossMacrotaskBoundary` lets every
-// chain those effects started run to its own end whatever its depth. That is why the
-// copies this module replaced disagreed about how many already-resolved promises to
-// await and every one of them passed — a number tuned against one promise chain stops
-// waiting the day the chain grows a link. One boundary, named once, so a suite waiting
-// on a read is not also asserting a count of turns nobody chose.
-//
-// What is deliberately NOT here is anything one suite reads: the scope-group queries,
-// the two-page port, the recording announcer, and the start slot's spy each have one
-// reader and stay beside it.
+// `settle` is one `act` boundary awaiting a macrotask boundary rather than a count of
+// microtasks, so a suite waiting on a read is not also asserting a count of turns nobody
+// chose. The row factory takes overrides so a new required member of the wire type is one
+// edit here and every caller keeps compiling because it only names what it asserts on.
 
 import { act } from "@testing-library/react";
+import { createElement } from "react";
 
-import { type GrowthPort } from "../bridge/index.js";
-import { createRefusingGrowthPort } from "../bridge/growth-port/growth-port.js";
+import type { WorkflowRunSnapshot } from "../bridge/index.js";
+import type { ConsolePaneOpener } from "../seats/index.js";
 import { crossMacrotaskBoundary } from "../core/macrotask-boundary.test-support.js";
 import type { WorkflowDefinitionRow } from "./definitions/definition-rows.js";
 
@@ -54,14 +20,8 @@ export const PROBE_SESSION_ID = "019b7a12-0280-75e5-8510-ada11a5a3401";
 /** The other session, for a case whose whole claim is that the scope moved off the first. */
 export const SECOND_PROBE_SESSION_ID = "019b7a12-0280-75e5-8510-ada11a5a3402";
 
-/** The one user the family's scripted scenarios join a session with. */
-export const PROBE_USER_ID = "019b7a12-0280-79a4-8110-cca0117a0401";
-
 /** The continuation token the paged cases hand back. */
 export const SECOND_PAGE_CURSOR = "definitions-page-2";
-
-/** One settled page, derived from the port's own answer rather than restated. */
-export type SettledDefinitionPage = Awaited<ReturnType<GrowthPort["workflowDefinitionList"]>>;
 
 /** One definition, as the enumeration carries it. Override only what a case asserts on. */
 export function definition(overrides: Partial<WorkflowDefinitionRow> = {}): WorkflowDefinitionRow {
@@ -79,14 +39,191 @@ export function definition(overrides: Partial<WorkflowDefinitionRow> = {}): Work
   };
 }
 
-/** The real port answering the enumeration one way, and nothing else changed. */
-export function portAnswering(page: SettledDefinitionPage): GrowthPort {
-  return { ...createRefusingGrowthPort(), workflowDefinitionList: async () => page };
-}
-
 /** Let every read a surface put reach its own settlement, so an assertion is about answers. */
 export async function settle(): Promise<void> {
   await act(async () => {
     await crossMacrotaskBoundary();
   });
+}
+
+/** The first phase of every fixture run: drafting. */
+export const PHASE_DRAFT = "019b7a10-0280-7e44-8100-9ba5e1150001";
+
+/** The build phase: running in the working run, parked on a usage window in the parked one. */
+export const PHASE_BUILD = "019b7a10-0280-7e44-8100-9ba5e1150002";
+
+/** The review phase: pending in the working run, skipped in the cancelled one. */
+export const PHASE_REVIEW = "019b7a10-0280-7e44-8100-9ba5e1150003";
+
+/** The phase the parked run waits on a person for. */
+export const PHASE_SIGN_OFF = "019b7a10-0280-7e44-8100-9ba5e1150004";
+
+/** The phase that runs on the sign-off answer; pending in the parked run. */
+export const PHASE_PUBLISH = "019b7a10-0280-7e44-8100-9ba5e1150005";
+
+/** The release checks workflow's latest version, pinned by the working run. */
+export const VERSION_RELEASE_CHECKS_LATEST = "019b7a10-0280-7d22-8100-be5100150004";
+
+/** The ship pipeline's latest version, pinned by the parked run. */
+export const VERSION_SHIP_PIPELINE_LATEST = "019b7a10-0280-7d22-8100-be5100150003";
+
+/** An older ship pipeline version, pinned by the run that trails the latest. */
+export const VERSION_SHIP_PIPELINE_PINNED = "019b7a10-0280-7d22-8100-be5100150001";
+
+/** The incident triage workflow's latest version, pinned by the cancelled run. */
+export const VERSION_INCIDENT_TRIAGE_LATEST = "019b7a10-0280-7d22-8100-be5100150002";
+
+/** A run parked on a provider's usage window and on a person's sign-off. */
+export const PARKED_RUN: WorkflowRunSnapshot = {
+  workflowRunId: "019b7a10-0280-7b33-8100-4011115a0002",
+  sessionId: PROBE_SESSION_ID,
+  workflowVersionId: VERSION_SHIP_PIPELINE_LATEST,
+  state: "suspended",
+  startedAt: "2026-01-01T09:31:00.000Z",
+  phaseStates: [
+    {
+      phaseId: PHASE_DRAFT,
+      phaseRunId: "019b7a10-0280-7aa1-8100-701a11150003",
+      attemptNumber: 1,
+      state: "completed",
+      gateState: "open",
+    },
+    {
+      phaseId: PHASE_BUILD,
+      phaseRunId: "019b7a10-0280-7aa1-8100-701a11150004",
+      attemptNumber: 1,
+      state: "running",
+      gateState: "closed",
+      parkReason: "provider-usage-limited",
+      parkCause:
+        "The provider account reached its five-hour usage window. The next window opens at 10:45 UTC.",
+      autoResumeAt: "2026-01-01T10:45:00.000Z",
+      parkAttentionKey: "019b7a10-0280-7f55-8100-acc0117a0001",
+    },
+    {
+      phaseId: PHASE_SIGN_OFF,
+      phaseRunId: "019b7a10-0280-7aa1-8100-701a11150005",
+      attemptNumber: 1,
+      state: "running",
+      gateState: "closed",
+      formRevision: 0,
+      parkReason: "waiting-human",
+      parkCause: "Waiting on a release sign-off from a person before the publish phase runs.",
+      prompt: "Sign off on this release, or send it back. The publish phase runs on your answer.",
+      inputSchema: {
+        type: "object",
+        title: "Release sign-off",
+        properties: {
+          decision: {
+            type: "string",
+            title: "Decision",
+            enum: ["approve", "send-back"],
+          },
+          notes: {
+            type: "string",
+            format: "long_text",
+            title: "Notes",
+            description: "What the next person needs to know about this decision.",
+          },
+        },
+        required: ["decision"],
+      },
+    },
+    { phaseId: PHASE_PUBLISH, state: "pending", gateState: "closed" },
+  ],
+};
+
+/** The four runs an enumeration ranks: working, parked, cancelled and pinned to an old version. */
+export const PROBE_RUNS: readonly WorkflowRunSnapshot[] = [
+  {
+    workflowRunId: "019b7a10-0280-7b33-8100-4011115a0001",
+    sessionId: PROBE_SESSION_ID,
+    workflowVersionId: VERSION_RELEASE_CHECKS_LATEST,
+    state: "running",
+    startedAt: "2026-01-01T09:52:00.000Z",
+    phaseStates: [
+      {
+        phaseId: PHASE_DRAFT,
+        phaseRunId: "019b7a10-0280-7aa1-8100-701a11150001",
+        attemptNumber: 1,
+        state: "completed",
+        gateState: "open",
+      },
+      {
+        phaseId: PHASE_BUILD,
+        phaseRunId: "019b7a10-0280-7aa1-8100-701a11150002",
+        attemptNumber: 2,
+        state: "running",
+        gateState: "closed",
+      },
+      { phaseId: PHASE_REVIEW, state: "pending", gateState: "closed" },
+    ],
+  },
+  PARKED_RUN,
+  {
+    workflowRunId: "019b7a10-0280-7b33-8100-4011115a0003",
+    sessionId: PROBE_SESSION_ID,
+    workflowVersionId: VERSION_INCIDENT_TRIAGE_LATEST,
+    state: "cancelled",
+    failureReason: "Cancelled: the incident was resolved out of band.",
+    startedAt: "2026-01-01T08:47:00.000Z",
+    endedAt: "2026-01-01T09:04:00.000Z",
+    phaseStates: [
+      {
+        phaseId: PHASE_DRAFT,
+        phaseRunId: "019b7a10-0280-7aa1-8100-701a11150006",
+        attemptNumber: 1,
+        state: "completed",
+        gateState: "open",
+      },
+      { phaseId: PHASE_REVIEW, state: "skipped", gateState: "closed" },
+    ],
+  },
+  {
+    workflowRunId: "019b7a10-0280-7b33-8100-4011115a0004",
+    sessionId: PROBE_SESSION_ID,
+    workflowVersionId: VERSION_SHIP_PIPELINE_PINNED,
+    state: "suspended",
+    startedAt: "2026-01-01T07:12:00.000Z",
+    phaseStates: [
+      {
+        phaseId: PHASE_DRAFT,
+        phaseRunId: "019b7a10-0280-7aa1-8100-701a11150007",
+        attemptNumber: 1,
+        state: "completed",
+        gateState: "open",
+      },
+      {
+        phaseId: PHASE_BUILD,
+        phaseRunId: "019b7a10-0280-7aa1-8100-701a11150008",
+        attemptNumber: 3,
+        state: "running",
+        gateState: "closed",
+        parkReason: "provider-usage-limited",
+        parkCause:
+          "The provider account reached its weekly usage window. No reset boundary was reported, so no resume is scheduled.",
+      },
+    ],
+  },
+];
+
+/**
+ * The destination module as a host suite substitutes it: one `.probe-open-run` button that
+ * opens a run through the opener the host handed down. Returned from a `vi.mock` factory.
+ */
+export function stubDestinationModule(): {
+  readonly WorkflowsDestination: (props: {
+    readonly openPane: ConsolePaneOpener;
+  }) => React.JSX.Element;
+} {
+  return {
+    WorkflowsDestination: (props) =>
+      createElement("button", {
+        type: "button",
+        className: "probe-open-run",
+        onClick: () => {
+          props.openPane({ kind: "workflow-run", entity: { kind: "workflow-run", id: "run-1" } });
+        },
+      }),
+  };
 }

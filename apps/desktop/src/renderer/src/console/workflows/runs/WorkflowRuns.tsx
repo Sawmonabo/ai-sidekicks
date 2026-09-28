@@ -1,49 +1,37 @@
 // The runs this session holds, under the definitions it started them from.
 //
-// WHY THE RUNS SIT ON THE DESTINATION. `RunList` projects an attention-ordered list
-// — parked first, then active, then settled — and until this component nothing
-// mounted it: the list and its projection were reachable only from their own tests,
-// so the four-run attention view the family had built could not be reached by a
-// person at all. The destination is where it belongs rather than in a pane, because
-// the question the list answers ("what in this session is waiting on me") is asked
-// BEFORE a run is chosen, and a pane can only be opened once one has been.
+// WHY THE RUNS SIT ON THE DESTINATION. The question the list answers ("what in this
+// session is waiting on me") is asked BEFORE a run is chosen, and a pane can only be
+// opened once one has been.
 //
 // WHY IT READS SEPARATELY FROM THE BROWSER. Two reads, two subjects, two absences.
 // The definition enumeration answers "what could be started here" and the run
 // enumeration answers "what is running here", and a session can legitimately have
 // definitions and no runs. Folding them into one read state would make either
-// absence look like the other's, and the refusal of one would silence the other.
+// absence look like the other's.
 //
-// THE OPEN CONTROL IS ABSENT, NOT DISABLED, AND THE RAIL NOW SUPPLIES IT. `RunList`
-// takes `onOpenRun` and renders a plain row when a caller supplies none. That was
-// every caller until the destination could address a pane, so a person could read
-// that a run was parked and could not reach the controls that lift it. The action is
-// still the caller's rather than this section's: a runs list mounted somewhere with
-// nowhere to send a row passes none, and gets rows of facts instead of dead buttons.
+// THE OPEN CONTROL IS ABSENT, NOT DISABLED. `RunList` takes `onOpenRun` and renders a
+// plain row when a caller supplies none: a runs list mounted somewhere with nowhere to
+// send a row gets rows of facts instead of dead buttons.
 
 import { useId, useMemo } from "react";
 
-import type { GrowthPort } from "../../bridge/index.js";
 import { useReadSettlementAnnouncement } from "../../primitives/index.js";
 import { RunListProjection, type WorkflowRunListRow } from "./run-list-projection.js";
-import { useWorkflowRunDirectory, type WorkflowRunDirectoryState } from "./run-directory.js";
+import type { WorkflowRunDirectoryState } from "./run-directory.js";
 import { WorkflowRunsReadState } from "./WorkflowRunsReadState.js";
 
+/** What the runs section draws: the state of the session's run read, and how a run opens. */
 export interface WorkflowRunsProps {
-  readonly growth: GrowthPort;
-  /**
-   * The session whose runs these are. Required, unlike the browser's: this section
-   * is mounted only once a scope has settled, so an undefined session here would be
-   * a caller mounting a read it knows cannot be put.
-   */
-  readonly sessionId: string;
+  /** Where the session's run enumeration stands. */
+  readonly directory: WorkflowRunDirectoryState;
   /** Opens one run. Absent while the mounting surface cannot address one. */
   readonly onOpenRun?: ((row: WorkflowRunListRow) => void) | undefined;
 }
 
-/** The session's runs, read once and drawn attention-first. */
+/** The session's runs, drawn newest first. */
 export function WorkflowRuns(props: WorkflowRunsProps): React.JSX.Element {
-  const directory = useWorkflowRunDirectory(props.growth, props.sessionId);
+  const { directory } = props;
   // Memoized on the read state: the projection sorts and derives per-row facts in
   // its constructor, and rebuilding it every render would redo that work and hand
   // `RunList` fresh row identities that defeat its per-row memoization.
@@ -89,5 +77,5 @@ function runReadSentence(
     // reading of it.
     return `Runs in this session: ${String(projection.rows.length)}.`;
   }
-  return directory.status === "unavailable" ? directory.refusal.detail : undefined;
+  return undefined;
 }

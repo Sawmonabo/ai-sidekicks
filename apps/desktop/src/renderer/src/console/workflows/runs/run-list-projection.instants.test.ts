@@ -97,7 +97,7 @@ describe("an instant the console cannot read", () => {
     });
   });
 
-  it("still sorts a run with an unreadable start last inside its band", () => {
+  it("still sorts a run with an unreadable start last", () => {
     // The other direction, and the rule that must not move: descending order puts
     // the run nothing can be said about under every run with a legible start.
     const projection = new RunListProjection([

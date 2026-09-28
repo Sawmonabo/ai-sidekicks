@@ -20,20 +20,19 @@
 // a press. A codec that never arrived at all is `definition-authoring-dispatch.codec-absence.test.ts`,
 // which needs a registry of its own to reproduce.
 //
-// The two acts that reach the growth port are `definition-authoring-port-acts.test.ts`,
+// The import, which rides the create call, is `definition-authoring-port-acts.test.ts`,
 // and the scaffolding both suites press through is the `.test-support.ts` beside them.
 
 import { cleanup, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { WORKFLOWS_SESSION_ID } from "../../../bridge/scenario/workflows/ids.js";
+import { PROBE_SESSION_ID } from "../../workflows-probe.test-support.js";
 import {
+  RELEASE_CHECKS_BODY,
   authoringBridge,
-  expectLocalRefusal,
   mountAuthoring,
   outcomeDetail,
   refusalCode,
-  scriptedBody,
 } from "./definition-authoring-dispatch.test-support.js";
 
 afterEach(cleanup);
@@ -42,18 +41,8 @@ afterEach(cleanup);
 const FILE_MARKER = "ai-sidekicks-schema";
 
 describe("exporting — the bytes outlive the host's answer", () => {
-  it("refuses with `body-unavailable` where the version read answered with no body", async () => {
-    const mounted = mountAuthoring(authoringBridge(), WORKFLOWS_SESSION_ID, undefined);
-    await mounted.press(() => {
-      mounted.current().exportDefinition();
-    });
-
-    expectLocalRefusal(mounted.current().outcomes.export, "body-unavailable");
-    expect(mounted.current().exportedFile).toBeUndefined();
-  });
-
   it("settles with the file where the host took it", async () => {
-    const mounted = mountAuthoring(authoringBridge(), WORKFLOWS_SESSION_ID, scriptedBody());
+    const mounted = mountAuthoring(authoringBridge(), PROBE_SESSION_ID, RELEASE_CHECKS_BODY);
     await mounted.press(() => {
       mounted.current().exportDefinition();
     });
@@ -76,8 +65,8 @@ describe("exporting — the bytes outlive the host's answer", () => {
         copyToClipboard: () =>
           Promise.reject({ code: "session.not_found", message: "This session is gone." }),
       }),
-      WORKFLOWS_SESSION_ID,
-      scriptedBody(),
+      PROBE_SESSION_ID,
+      RELEASE_CHECKS_BODY,
     );
     await mounted.press(() => {
       mounted.current().exportDefinition();
@@ -97,8 +86,8 @@ describe("exporting — the settlement is the host's answer and not the serializ
     // the pane, with no later answer to correct it.
     const mounted = mountAuthoring(
       authoringBridge({ copyToClipboard: () => new Promise<void>(() => undefined) }),
-      WORKFLOWS_SESSION_ID,
-      scriptedBody(),
+      PROBE_SESSION_ID,
+      RELEASE_CHECKS_BODY,
     );
     await mounted.press(() => {
       mounted.current().exportDefinition();
@@ -124,8 +113,8 @@ describe("exporting — the settlement is the host's answer and not the serializ
             takers.push(resolve);
           }),
       }),
-      WORKFLOWS_SESSION_ID,
-      scriptedBody(),
+      PROBE_SESSION_ID,
+      RELEASE_CHECKS_BODY,
     );
     await mounted.press(() => {
       mounted.current().exportDefinition();
@@ -159,8 +148,8 @@ describe("exporting — the settlement is the host's answer and not the serializ
             answers.push({ resolve, reject });
           }),
       }),
-      WORKFLOWS_SESSION_ID,
-      scriptedBody(),
+      PROBE_SESSION_ID,
+      RELEASE_CHECKS_BODY,
     );
     // Each press is let reach the host before the next is made, so the two outstanding
     // writes are in the order the cases below answer them in rather than in whichever

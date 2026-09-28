@@ -1,31 +1,19 @@
-// What both directory suites need before they can watch the hook.
+// What the directory suites need before they can watch the hook.
 //
-// The hook has two halves and a suite each — what one read settles as, and the pages
-// beyond the first — and both watch it the same way: mount a probe that renders
-// nothing, collect every directory it hands back, and read the last one. A copy of
-// that mount per suite would be two places a "the probe never rendered" failure comes
-// from, and two chances for one of them to start observing differently.
-//
-// THE PAGED PORT IS HERE BECAUSE BOTH HALVES ASK FOR TWO PAGES. The settlement suite
-// wants a served list to move a scope away from; the paging suite wants the cursor
-// that reaches the second page. One port answering per cursor serves both, and the
-// value it returns is the registered one, so a page this fixture serves is a page the
-// wire could send.
-//
-// WHAT IS NOT HERE IS WHAT ONE SUITE READS: the scripted-refusal scenario, the second
-// session, the first-render reader, and the continuation press each have one reader
-// and stay beside it.
+// Each suite mounts a probe that renders nothing, collects every directory it hands back,
+// and reads the last one; the mount lives here once so a "the probe never rendered"
+// failure has one source. The two-page call is here because both the settlement and the
+// paging suite want a served list with a cursor that reaches a second page.
 
 import { render } from "@testing-library/react";
 
-import { type GrowthPort } from "../../bridge/index.js";
-import { createRefusingGrowthPort } from "../../bridge/growth-port/growth-port.js";
 import { SECOND_PAGE_CURSOR, definition } from "../workflows-probe.test-support.js";
 import type { WorkflowDefinitionRow } from "./definition-rows.js";
 import {
   useWorkflowDefinitionDirectory,
   type WorkflowDefinitionDirectory,
   type WorkflowDefinitionDirectoryState,
+  type WorkflowDefinitionListCall,
 } from "./definition-directory.js";
 
 /**
@@ -44,36 +32,29 @@ export function definitionWithId(id: string): WorkflowDefinitionRow {
   });
 }
 
-/** The real port with the enumeration answered per cursor, and nothing else changed. */
-export function pagedGrowthPort(
-  answerFor: (cursor: string | undefined) => SettledDefinitionPage,
-): GrowthPort {
-  return {
-    ...createRefusingGrowthPort(),
-    workflowDefinitionList: async (request) => answerFor(request.cursor),
-  };
-}
-
 /** Two pages, the first handing back the cursor that reaches the second. */
-export function twoPagePort(secondPageIds: readonly string[] = ["third", "fourth"]): GrowthPort {
-  return pagedGrowthPort((cursor) =>
-    cursor === undefined
+export function twoPageCall(
+  secondPageIds: readonly string[] = ["third", "fourth"],
+): WorkflowDefinitionListCall {
+  return async (request) =>
+    request.cursor === undefined
       ? {
-          status: "served",
-          value: {
-            definitions: [definitionWithId("first"), definitionWithId("second")],
-            nextCursor: SECOND_PAGE_CURSOR,
-          },
+          definitions: [definitionWithId("first"), definitionWithId("second")],
+          nextCursor: SECOND_PAGE_CURSOR,
         }
-      : { status: "served", value: { definitions: secondPageIds.map(definitionWithId) } },
-  );
+      : { definitions: secondPageIds.map(definitionWithId) };
 }
 
+/**
+ * Mount the probe and return every directory it was handed, oldest first.
+ *
+ * Pass a stable call: the hook re-reads when the call's identity changes.
+ */
 export function observeDirectory(
-  growth: GrowthPort,
+  listDefinitions: WorkflowDefinitionListCall,
   sessionId: string | undefined,
 ): WorkflowDefinitionDirectory[] {
-  return rescopableDirectory(growth, sessionId).observed;
+  return rescopableDirectory(listDefinitions, sessionId).observed;
 }
 
 /**
@@ -83,7 +64,7 @@ export function observeDirectory(
  * re-rendered with a different scope, which is the subject of the rescope case below.
  */
 export function rescopableDirectory(
-  growth: GrowthPort,
+  listDefinitions: WorkflowDefinitionListCall,
   sessionId: string | undefined,
 ): {
   readonly observed: WorkflowDefinitionDirectory[];
@@ -93,15 +74,20 @@ export function rescopableDirectory(
   const collect = (directory: WorkflowDefinitionDirectory): void => {
     observed.push(directory);
   };
-  const view = render(<DirectoryProbe growth={growth} sessionId={sessionId} onObserve={collect} />);
+  const view = render(
+    <DirectoryProbe listDefinitions={listDefinitions} sessionId={sessionId} onObserve={collect} />,
+  );
   return {
     observed,
     rescope: (next) => {
-      view.rerender(<DirectoryProbe growth={growth} sessionId={next} onObserve={collect} />);
+      view.rerender(
+        <DirectoryProbe listDefinitions={listDefinitions} sessionId={next} onObserve={collect} />,
+      );
     },
   };
 }
 
+/** The newest directory the probe was handed. Throws if the probe never rendered. */
 export function latest(
   observed: readonly WorkflowDefinitionDirectory[],
 ): WorkflowDefinitionDirectory {
@@ -112,24 +98,23 @@ export function latest(
   return directory;
 }
 
+/** The newest directory's state. */
 export function lastState(
   observed: readonly WorkflowDefinitionDirectory[],
 ): WorkflowDefinitionDirectoryState {
   return latest(observed).state;
 }
 
+/** The ids of the served rows in order, or none while the read is unsettled. */
 export function definitionIds(state: WorkflowDefinitionDirectoryState): readonly string[] {
   return state.status === "served" ? state.definitions.map((row) => row.id) : [];
 }
 
-/** One settled page, derived from the port's own answer rather than restated. */
-type SettledDefinitionPage = Awaited<ReturnType<GrowthPort["workflowDefinitionList"]>>;
-
 function DirectoryProbe(props: {
-  readonly growth: GrowthPort;
+  readonly listDefinitions: WorkflowDefinitionListCall;
   readonly sessionId: string | undefined;
   readonly onObserve: (directory: WorkflowDefinitionDirectory) => void;
 }): React.JSX.Element {
-  props.onObserve(useWorkflowDefinitionDirectory(props.growth, props.sessionId));
+  props.onObserve(useWorkflowDefinitionDirectory(props.listDefinitions, props.sessionId));
   return <></>;
 }

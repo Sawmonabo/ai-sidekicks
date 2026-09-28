@@ -1,7 +1,7 @@
-// The run list: every run this context holds, attention first.
+// The run list: every run this context holds, newest first.
 //
 // The list renders `RunListProjection`'s rows and derives nothing of its own. That
-// split is the point — the park discriminator, the band order, and the frozen-pin
+// split is the point — the park discriminator, the parked flag, and the frozen-pin
 // inequality are one computation with two readers (this body and its own header),
 // and computing them here would be the second implementation.
 //
@@ -11,32 +11,23 @@
 // until the rule was given an instrument, and the row was the component a reader
 // looking for it could only find by opening the list.
 //
-// WHERE THE ROWS COME FROM, AND WHAT STILL HAS NO WIRE. `packages/contracts` registers
-// no `workflow.*` method and no `workflow.*` event type — true when this was written
-// and true now — but the enumeration is no longer unreachable: it rides the growth
-// port's `workflowRunList` on the `workflow-run-enumeration` slate row, which
-// `runs/run-directory.ts` puts and the workflows scenario answers. That row exists
-// BECAUSE the thirteen-operation workflow registry carries no run enumeration at all —
-// `runStart`, `runRead`, `runCancel`, and `runResume` each address one run by an id
-// the caller must already hold — so the slate names a wire the corpus still owes
-// rather than a method it already has.
-//
-// Either way the projection reaches this component from its caller, and a caller with
-// no answer renders the surface's `not-checked` absence rather than an empty list,
-// because "nobody asked" and "there are none" are different facts.
+// The projection reaches this component from its caller. A served answer of no runs is
+// a real answer and draws the `empty` absence; a caller with no answer does not mount
+// this list, because "nobody asked" and "there are none" are different facts.
 
 import { DerivedFigure, Nothing, formatCount } from "../../primitives/index.js";
 import { RunListItem } from "./RunListItem.js";
 import { RunParkAttention } from "./RunParkAttention.js";
 import type { OpenRun, RunListProjection } from "./run-list-projection.js";
 
+/** What the run list draws and the control that opens one of its rows. */
 export interface RunListProps {
   readonly projection: RunListProjection;
   /** Opens one run. Absent while nothing can address one. */
   readonly onOpenRun?: OpenRun | undefined;
 }
 
-/** Every run, attention first, with each live park said in place. */
+/** Every run, newest first, with each live park said in place. */
 export function RunList(props: RunListProps): React.JSX.Element {
   const { rows, parkedRunCount, frozenPinCount, parkAttention, parkAttentionCount } =
     props.projection;
@@ -98,9 +89,9 @@ export function RunList(props: RunListProps): React.JSX.Element {
       */}
       <RunParkAttention entries={parkAttention} />
       {/*
-        Ordered, because the order is the content: parked runs first, then active,
-        then settled, newest first inside each. A reader who cannot see that sequence
-        cannot tell a list sorted by attention from one sorted by chance.
+        Ordered, because the order is the content: newest first, so the run a person
+        just started is the top row. A reader who cannot see that sequence cannot tell
+        a list sorted by start from one sorted by chance.
       */}
       <ol className="meridian-run-list__rows">
         {rows.map((row) => (

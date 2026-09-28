@@ -2,7 +2,7 @@
 //
 // A MODULE OF ITS OWN BECAUSE FOUR MODULES NEED IT AND ONE OF THEM IS A BODY. The slot
 // wrapper declares the phase it is handed, the submit channel composes the mount, the
-// console's own fixture shell is handed one, and the submit dispatch reads every member
+// console's own shell is handed one, and the submit dispatch reads every member
 // of the request off it — so leaving the type in the wrapper would have made the shell
 // import the wrapper that renders it, and a type-only edge is still an edge:
 // `no-circular` reads the pre-compilation graph. The contract is what all four share, so
@@ -17,12 +17,12 @@
 // that there is no such state: a body is mounted only where the seat has a submit for it.
 //
 // WHAT THE MOUNT OWES, AS A TYPE. Four things the mounting pane knows and the body must
-// not re-derive, and the first three are exactly what the registered submit is addressed
-// by — the seat composes `workflowHumanFormSubmit` out of them so the body never has to:
+// not re-derive, and the first three are exactly what the submit request is addressed
+// by — the channel composes the request out of them so the body never has to:
 //
-//   • **The run**, verbatim as the pane was addressed by it. The registered request
-//     takes `workflowRunId` beside the phase, and `phaseRunId` is opaque and
-//     non-reversible, so a mount without the run could not compose the request at all.
+//   • **The run**, verbatim as the pane was addressed by it. The request takes
+//     `workflowRunId` beside the phase, and `phaseRunId` is opaque and non-reversible, so
+//     a mount without the run could not compose the request at all.
 //   • **The phase reference**, so the submission is addressed at one phase.
 //   • **The optimistic-concurrency token**, passed through verbatim. It is `0` while an
 //     attempt has no accepted submission and `1` after one, and a retry mints a new
@@ -58,7 +58,7 @@ export interface HumanFormPhase {
   readonly workflowRunId: string;
   /** The phase run whose form this is. Opaque and wire-verbatim. */
   readonly phaseRunId: string;
-  /** The phase the form belongs to, for the deep link a park banner offers. */
+  /** The definition's id of the phase the form belongs to. */
   readonly phaseId: string;
   /**
    * The revision this attempt's form is composed against, as the run read reported it.
@@ -93,11 +93,10 @@ export interface HumanFormMount extends HumanFormPhase {
    * Send this answer, whatever input mode composed it.
    *
    * THE CHANNEL IS THE SEAT'S AND NOT THE BODY'S, which is the whole reason it is on
-   * the mount. The registered `workflowHumanFormSubmit`, the single-flight guard, the
-   * revision this attempt was composed against, the re-armed run read and the rendering
-   * of whatever came back are all the run pane's, so a body that dispatched for itself
-   * would be a second implementation of every one of them — and the seat's own rule is
-   * that this console ships the chrome and the typed hole, never the owner's body.
+   * the mount. The submit call, the single-flight guard, the revision this attempt was
+   * composed against, the re-armed run read and the rendering of whatever came back are
+   * all the run pane's, so a body that dispatched for itself would be a second
+   * implementation of every one of them.
    *
    * Bound to the attempt on screen: a body may call it with the answer alone, and the
    * run, the phase and the revision it travels with are the seat's own reading of which
@@ -107,12 +106,11 @@ export interface HumanFormMount extends HumanFormPhase {
 }
 
 /**
- * The body the workflow plan authors: a COMPONENT the slot renders, never a function it
+ * A body that stands in the form slot: a COMPONENT the slot renders, never a function it
  * calls.
  *
- * The distinction is React's, not a preference. `owner-slots.ts` states it once for all
- * five slots; the short of it is that a called body's hooks join the WRAPPER's hook
- * list, and a wrapper that calls conditionally changes that list between renders. A
+ * The distinction is React's, not a preference: a called body's hooks join the WRAPPER's
+ * hook list, and a wrapper that calls conditionally changes that list between renders. A
  * supplied body must therefore be a stable reference — a component composed inline on
  * each render is a different type each time, and React remounts it.
  */

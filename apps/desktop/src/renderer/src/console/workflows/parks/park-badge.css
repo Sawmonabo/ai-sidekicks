@@ -1,13 +1,9 @@
 /*
  * The park badge, and the stack the surfaces that show more than one arrange them in.
  *
- * Owned by `ParkBadge.tsx`, and reached from `workflows/index.ts` — the family DOOR. It
- * entered through `workflows.css` while every reader of it sat behind one of this
- * family's three loaders; the door's pinned region draws a badge per parked phase on the
- * console's flagship pane, which is the first paint, so the rules have to arrive with it
- * rather than with whichever chunk loads first. The stack rule travels with the badge
- * rather than with the run pane that places it, because a stack of badges is only ever
- * a stack of these.
+ * Owned by `ParkBadge.tsx` and imported from the family door, `workflows/index.ts`. The
+ * stack rule travels with the badge rather than with the run pane that places it,
+ * because a stack of badges is only ever a stack of these.
  */
 
 /*
@@ -60,7 +56,7 @@
 /*
  * The engine's own sentence, verbatim. Prose rather than mono: it is bounded at 8 KiB
  * at its source and a paragraph set in mono is a paragraph nobody reads — the same
- * asymmetry rule 9 fixes between a refusal's code and its message.
+ * split a refusal has between its code (mono) and its message (prose).
  */
 .meridian-park__cause {
   margin: 0;
@@ -92,8 +88,8 @@
 /*
  * The route to this phase's own form, where the surface drawing the card can offer
  * one. A control and not an adjudication: pressing it opens the form beside these
- * cards and asks the daemon nothing, which is why it carries the accent rule 3
- * reserves for something a person can act on.
+ * cards and asks the daemon nothing, which is why it carries the accent
+ * reserved for something a person can act on.
  */
 .meridian-park__form-action {
   align-self: flex-start;

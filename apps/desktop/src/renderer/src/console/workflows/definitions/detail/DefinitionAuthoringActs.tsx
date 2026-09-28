@@ -1,11 +1,9 @@
-// The three acts a definition's detail offers, and what each of them settled to.
+// The two acts a definition's detail offers, and what each of them settled to.
 //
 // OFFERED AND NEVER GREYED. Whether this caller may write at a scope is the daemon's
 // adjudication, and nothing here pre-empts it: every control is pressable and the
-// answer — the port's `wire-unregistered`, a daemon's typed code, a parse's reason —
-// renders under the control that asked. That is rule 9 applied to an act rather than
-// to a read, and it is also the only honest shape while the create is on the growth
-// port: a console that disabled the controls would be asserting an eligibility nobody
+// answer — a daemon's typed code, a parse's reason — renders under the control that
+// asked. A console that disabled the controls would be asserting an eligibility nobody
 // asked about.
 //
 // THE PASTE BOX IS PART OF THE IMPORT ACT AND NOT A SEPARATE SURFACE. An import needs
@@ -31,14 +29,14 @@ import {
 const ACT_LABEL: Readonly<Record<WorkflowDetailAct, string>> = {
   export: "Export",
   import: "Import",
-  promote: "Promote to shared",
 };
 
+/** The authoring state and presses the act strip renders and forwards. */
 export interface DefinitionAuthoringActsProps {
   readonly authoring: WorkflowDefinitionAuthoring;
 }
 
-/** The detail's act strip: three controls, each rendering its own last answer. */
+/** The detail's act strip: two controls, each rendering its own last answer. */
 export function DefinitionAuthoringActs(props: DefinitionAuthoringActsProps): React.JSX.Element {
   const { authoring } = props;
   const [pastedFile, setPastedFile] = useState("");
@@ -67,15 +65,6 @@ export function DefinitionAuthoringActs(props: DefinitionAuthoringActsProps): Re
           }}
         >
           {ACT_LABEL.import}
-        </button>
-        <button
-          type="button"
-          className="meridian-definition-detail__act"
-          onClick={() => {
-            authoring.promoteDefinition();
-          }}
-        >
-          {ACT_LABEL.promote}
         </button>
       </div>
       {importOpen ? (

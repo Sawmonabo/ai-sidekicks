@@ -1,7 +1,7 @@
 // The workflow plane's event taxonomy, as the console declares it for itself.
 //
-// OWNER. The workflow plane's event-type enumeration names twenty-four `workflow.*`
-// types across five event categories, and the owning event registry carries no
+// OWNER. The workflow plane's event-type enumeration names twenty-one `workflow.*`
+// types across four event categories, and the owning event registry carries no
 // `workflow` category at all. That registration is the
 // `workflow-event-registration` row on the growth slate, and until it
 // lands `packages/contracts` registers none of these strings: `SessionEventType` does
@@ -36,8 +36,8 @@
 /**
  * `workflow_lifecycle` — the run's own arc, seven types.
  *
- * `workflow.cancelled` is the newest and is the reason the taxonomy reads 24 rather
- * than 23: a cancel appends it in the same unit of work as the status write, so a
+ * `workflow.cancelled` is the newest and is the reason the taxonomy reads 21 rather
+ * than 20: a cancel appends it in the same unit of work as the status write, so a
  * projection rebuild cannot replay the last suspension and resurrect a run somebody
  * cancelled.
  */
@@ -76,31 +76,23 @@ const WORKFLOW_PHASE_LIFECYCLE_EVENT_TYPES = [
 /** `workflow_parallel_coordination` — the sibling cancel a join policy drives, one type. */
 const WORKFLOW_PARALLEL_COORDINATION_EVENT_TYPES = ["workflow.parallel_join_cancellation"] as const;
 
-/** `workflow_channel_coordination` — a phase's own channel opening and closing, three types. */
-const WORKFLOW_CHANNEL_COORDINATION_EVENT_TYPES = [
-  "workflow.channel_created_for_phase",
-  "workflow.channel_closed_with_records_preserved",
-  "workflow.channel_terminated_forcibly",
-] as const;
-
 /** `workflow_gate_resolution` — the gate chain's own extension, one type. */
 const WORKFLOW_GATE_RESOLUTION_EVENT_TYPES = ["workflow.gate_resolved"] as const;
 
 /**
  * Every `workflow.*` event type, in the owning spec's own category order.
  *
- * COMPOSED FROM THE FIVE CATEGORY TUPLES rather than written out flat, because the
+ * COMPOSED FROM THE FOUR CATEGORY TUPLES rather than written out flat, because the
  * categories are the taxonomy's own structure and a flat list would lose which type
  * belongs to which — the split the owning spec made deliberately, against one
- * monolithic `workflow_lifecycle`, so a query can be scoped. The five tuples are
+ * monolithic `workflow_lifecycle`, so a query can be scoped. The four tuples are
  * module-private: nothing outside this file has asked a question about one category,
- * and a door line per category would be five exports with no reader.
+ * and a door line per category would be four exports with no reader.
  */
 export const WORKFLOW_EVENT_TYPES: readonly string[] = [
   ...WORKFLOW_LIFECYCLE_EVENT_TYPES,
   ...WORKFLOW_PHASE_LIFECYCLE_EVENT_TYPES,
   ...WORKFLOW_PARALLEL_COORDINATION_EVENT_TYPES,
-  ...WORKFLOW_CHANNEL_COORDINATION_EVENT_TYPES,
   ...WORKFLOW_GATE_RESOLUTION_EVENT_TYPES,
 ];
 
@@ -120,7 +112,7 @@ const WORKFLOW_RUN_ID_MEMBER = "workflowRunId";
  *
  * WHY A READER AND NOT A DECLARATION. The run pane's live-round reading has to answer
  * "did the run I am showing move", and the kind alone cannot: every one of the
- * twenty-four types is emitted for whichever run the engine advanced, so a pane
+ * twenty-one types is emitted for whichever run the engine advanced, so a pane
  * matching on kind re-reads for every OTHER run in the session too. The one member it
  * needs is the run identifier, which the whole workflow plane spells the same way —
  * every request and every response in the plane's own contract names a run

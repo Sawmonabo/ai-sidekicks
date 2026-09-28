@@ -1,30 +1,15 @@
-// What the chain read offers a picker, and what every arm that is not served does.
-//
-// The claim under test is one rule with four inputs: the chain a picker may offer is
-// what the read ANSWERED and nothing else. So a served reply reaches the caller in the
-// order it arrived with the pin marked by comparison, and each of the three unserved
-// arms — nobody asked, the wire refused, the seam rejected — offers nothing rather
-// than a target synthesized from the one id in hand.
-//
-// THE PORTS ARE THE CONSOLE'S OWN, spread from `createRefusingGrowthPort` with the one
-// operation a case is about. A stand-in shaped like a port would agree with whatever
-// this hook did with it, and the refusing arm in particular is only meaningful because
-// it is the refusal the real port composes from the real slate row.
+// What the chain read offers a picker: what the read ANSWERED, in the order it arrived
+// with the pin marked by comparison, and nothing when no pin names a version.
 
 import { render } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi, type Mock } from "vitest";
 
-import type { GrowthPort, WorkflowVersionChainEntry } from "../../../bridge/index.js";
-import { createRefusingGrowthPort } from "../../../bridge/growth-port/growth-port.js";
-// The console's one settle, rather than a counted microtask loop of this file's own:
-// the read's answer reaches React state from a promise callback, so the wait has to
-// happen inside `act` for the render under assertion to be the one that saw it, and
-// how deep the settlement chain runs is not a number a suite should be pinning.
-import { settle } from "../../../core/settle.test-support.js";
+import type { WorkflowVersionChainEntry } from "../../../bridge/index.js";
+import { settle } from "../../workflows-probe.test-support.js";
 import type { WorkflowVersionChoice } from "./run-controls.js";
-import { useWorkflowVersionChain } from "./version-chain.js";
+import { useWorkflowVersionChain, type WorkflowVersionChainReadCall } from "./version-chain.js";
 
-/** The pin every case reads for, and the chain a served port answers with. */
+/** The pin every case reads for, and the chain the call answers with. */
 const PINNED_VERSION = "wfv-03";
 
 const ANSWERED_CHAIN: readonly WorkflowVersionChainEntry[] = [
@@ -33,41 +18,23 @@ const ANSWERED_CHAIN: readonly WorkflowVersionChainEntry[] = [
   { workflowVersionId: "wfv-01", versionNumber: 1 },
 ];
 
-/** A port that answers the chain read, recording what it was addressed by. */
-function servingPort(): { readonly growth: GrowthPort; readonly requests: string[] } {
-  const requests: string[] = [];
-  return {
-    growth: {
-      ...createRefusingGrowthPort(),
-      workflowVersionChainRead: async (request) => {
-        requests.push(request.workflowVersionId);
-        return { status: "served", value: { versions: ANSWERED_CHAIN } };
-      },
-    },
-    requests,
-  };
-}
-
-/** And one whose call REJECTS, which is the seam's fourth settlement. */
-function rejectingPort(): GrowthPort {
-  return {
-    ...createRefusingGrowthPort(),
-    workflowVersionChainRead: () => Promise.reject(new Error("the bridge closed mid-read")),
-  };
+/** A chain read that answers `ANSWERED_CHAIN` and records what it was addressed by. */
+function servingCall(): Mock<WorkflowVersionChainReadCall> {
+  return vi.fn<WorkflowVersionChainReadCall>(async () => ({ versions: ANSWERED_CHAIN }));
 }
 
 function ChainProbe(props: {
-  readonly growth: GrowthPort;
+  readonly readChain: WorkflowVersionChainReadCall;
   readonly pinnedWorkflowVersionId: string | undefined;
   readonly onObserve: (chain: readonly WorkflowVersionChoice[]) => void;
 }): React.JSX.Element {
-  props.onObserve(useWorkflowVersionChain(props.growth, props.pinnedWorkflowVersionId));
+  props.onObserve(useWorkflowVersionChain(props.readChain, props.pinnedWorkflowVersionId));
   return <></>;
 }
 
 /** The chain as the latest render saw it, plus the handle a re-render needs. */
 function observeChain(
-  growth: GrowthPort,
+  readChain: WorkflowVersionChainReadCall,
   pinnedWorkflowVersionId: string | undefined,
 ): {
   readonly latest: () => readonly WorkflowVersionChoice[];
@@ -77,20 +44,14 @@ function observeChain(
   const collect = (chain: readonly WorkflowVersionChoice[]): void => {
     observed.push(chain);
   };
-  const view = render(
-    <ChainProbe
-      growth={growth}
-      pinnedWorkflowVersionId={pinnedWorkflowVersionId}
-      onObserve={collect}
-    />,
-  );
   const probe = (
     <ChainProbe
-      growth={growth}
+      readChain={readChain}
       pinnedWorkflowVersionId={pinnedWorkflowVersionId}
       onObserve={collect}
     />
   );
+  const view = render(probe);
   return {
     latest: () => {
       const current = observed.at(-1);
@@ -107,8 +68,7 @@ function observeChain(
 
 describe("the version chain a served read offers", () => {
   it("offers every answered version, in the order it was answered", async () => {
-    const port = servingPort();
-    const observed = observeChain(port.growth, PINNED_VERSION);
+    const observed = observeChain(servingCall(), PINNED_VERSION);
 
     await settle();
 
@@ -118,17 +78,16 @@ describe("the version chain a served read offers", () => {
   });
 
   it("addresses the read by the pin and by nothing else", async () => {
-    const port = servingPort();
-    observeChain(port.growth, PINNED_VERSION);
+    const readChain = servingCall();
+    observeChain(readChain, PINNED_VERSION);
 
     await settle();
 
-    expect(port.requests).toStrictEqual([PINNED_VERSION]);
+    expect(readChain.mock.calls).toStrictEqual([[{ workflowVersionId: PINNED_VERSION }]]);
   });
 
   it("marks the current pin by comparison, and marks exactly one", async () => {
-    const port = servingPort();
-    const observed = observeChain(port.growth, PINNED_VERSION);
+    const observed = observeChain(servingCall(), PINNED_VERSION);
 
     await settle();
 
@@ -137,8 +96,7 @@ describe("the version chain a served read offers", () => {
   });
 
   it("labels each version by its own ordinal rather than by its id", async () => {
-    const port = servingPort();
-    const observed = observeChain(port.growth, PINNED_VERSION);
+    const observed = observeChain(servingCall(), PINNED_VERSION);
 
     await settle();
 
@@ -150,55 +108,27 @@ describe("the version chain a served read offers", () => {
   });
 
   it("reads once per pin, so a re-render puts no second question", async () => {
-    const port = servingPort();
-    const observed = observeChain(port.growth, PINNED_VERSION);
+    const readChain = servingCall();
+    const observed = observeChain(readChain, PINNED_VERSION);
     await settle();
 
     observed.rerender();
     await settle();
 
-    expect(port.requests).toStrictEqual([PINNED_VERSION]);
+    expect(readChain).toHaveBeenCalledTimes(1);
   });
 });
 
-describe("the three arms that are not served offer nothing", () => {
+describe("the chain before an answer exists", () => {
   it("offers nothing while no pin names a version, and asks nobody", async () => {
-    const port = servingPort();
-    const observed = observeChain(port.growth, undefined);
+    const readChain = servingCall();
+    const observed = observeChain(readChain, undefined);
 
     await settle();
 
     expect(observed.latest()).toStrictEqual([]);
-    // The absence is a question never put rather than an answer of none: a pane whose
-    // run read has not settled holds no pin, and a read against a fabricated id would
-    // be asking about a version nobody named.
-    expect(port.requests).toStrictEqual([]);
-  });
-
-  it("offers nothing when the port refuses the wire", async () => {
-    const observed = observeChain(createRefusingGrowthPort(), PINNED_VERSION);
-
-    await settle();
-
-    expect(observed.latest()).toStrictEqual([]);
-  });
-
-  it("offers nothing when the call rejects, rather than reading forever", async () => {
-    const observed = observeChain(rejectingPort(), PINNED_VERSION);
-
-    await settle();
-
-    expect(observed.latest()).toStrictEqual([]);
-  });
-
-  it("negative control: the same probe over a serving port offers the whole chain", async () => {
-    // Without this, the three cases above would pass over a hook that answered empty
-    // on every arm — including the served one — which is the surface this read exists
-    // to replace rather than a fix for it.
-    const observed = observeChain(servingPort().growth, PINNED_VERSION);
-
-    await settle();
-
-    expect(observed.latest()).toHaveLength(ANSWERED_CHAIN.length);
+    // A question never put, not an answer of none: a read against a made-up id would ask
+    // about a version nobody named.
+    expect(readChain).not.toHaveBeenCalled();
   });
 });

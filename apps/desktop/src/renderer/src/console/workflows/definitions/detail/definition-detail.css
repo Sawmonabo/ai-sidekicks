@@ -1,17 +1,12 @@
 /*
- * The definition detail, inside the builder pane's body box.
+ * The definition detail, inside the body box of the container that mounts it.
  *
- * Owned by `DefinitionDetail.tsx` and its two siblings, and imported from this
- * directory's own door, `detail/index.ts`, which is its one edge. The door is reached
- * only from `pane/builder/WorkflowBuilderPane.tsx`, which arrives on the builder's own
- * lazily-loaded chunk — so these rules land with the pane a person opened and are
- * charged to no session that never opens one.
+ * Owned by `DefinitionDetail.tsx` and its siblings. Whichever lazily-loaded chunk mounts
+ * the detail imports this sheet, so its rules are charged to no session that never opens
+ * one.
  *
- * EVERY SELECTOR IS THIS SURFACE'S OWN BLOCK. `meridian-definition-detail` appears in
- * no other family; the browser's row block one directory up is `meridian-definition-row`
- * and is deliberately untouched, so no bundle boundary decides how either looks.
- * The module-shape rule in `apps/desktop/AGENTS.md` is where that is stated; a
- * collision is caught by reading it there rather than by a census.
+ * Every selector is this surface's own block: `meridian-definition-detail` appears in no
+ * other family.
  */
 
 .meridian-definition-detail {

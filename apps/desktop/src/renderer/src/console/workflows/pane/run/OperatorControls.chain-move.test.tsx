@@ -14,12 +14,11 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import type { GrowthPort } from "../../../bridge/index.js";
 import { OperatorControls } from "./OperatorControls.js";
 import { IDLE_RUN_CONTROL_OUTCOME, type WorkflowVersionChoice } from "./run-controls.js";
 
 /** The one address every case renders at: the run is what these cases hold still. */
-const RUN_ADDRESS = { growth: {} as GrowthPort, workflowRunId: "run-a" } as const;
+const RUN_ADDRESS = { workflowRunId: "run-a" } as const;
 
 /** The picker's own value for "resume without re-pinning", as the DOM carries it. */
 const NO_REPIN_VALUE = "";
@@ -108,10 +107,8 @@ describe("a chain that moves under a held re-pin target", () => {
   });
 
   it("negative control: a picker handed an unofferable value shows nothing at all", () => {
-    // The finding's premise, asserted on the platform rather than assumed: this is
-    // what the old surface put on screen while the state behind it still held the id,
-    // which is why a stale target read as "Keep the pinned version" and submitted a
-    // re-pin anyway.
+    // The premise, asserted on the platform rather than assumed: a stale held id
+    // would otherwise read as a blank picker while the submit still spent it.
     const picker = document.createElement("select");
     for (const choice of CHAIN_AFTER) {
       const option = document.createElement("option");

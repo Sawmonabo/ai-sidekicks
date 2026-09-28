@@ -1,44 +1,74 @@
-// What a person sees once a browser row opens, and what each of the three acts answers.
-//
-// EVERY CASE DRIVES THE REAL FIXTURE BRIDGE over the workflows scenario, so what is
-// rendered is what that scenario's own tables state. A hand-built port would let this
-// suite agree with whatever the component did with it, and the whole subject here is
-// that the pane now shows a definition the fixture already described.
+// What a person sees once a definition has been read, and what each of the two acts
+// answers.
 //
 // THE ACTS ARE ASSERTED ON THEIR ANSWERS AND NOT ON THEIR CONTROLS. Whether a caller
-// may write at a scope is the daemon's adjudication and arrives as a typed refusal on
-// the press, so every control is pressable and what a case checks is what came back:
-// the export's bytes, the create's refusal, the parse's reason.
+// may write at a scope is the daemon's adjudication, so every control is pressable and
+// what a case checks is what came back: the export's bytes, the create's request, the
+// parse's reason.
 
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { createFixtureBridge, type ConsoleBridge } from "../../../bridge/index.js";
-import {
-  DEFINITION_RELEASE_CHECKS_PROJECT,
-  DEFINITION_RELEASE_CHECKS_SESSION,
-  WORKFLOWS_SESSION_ID,
-} from "../../../bridge/scenario/workflows/ids.js";
-import { WORKFLOWS_SCENARIO } from "../../../bridge/scenario/workflows/workflows.js";
-import { settle } from "../../workflows-probe.test-support.js";
+import type { ConsoleBridge } from "../../../bridge/index.js";
+import { PROBE_SESSION_ID, settle } from "../../workflows-probe.test-support.js";
 import { DefinitionDetail } from "./DefinitionDetail.js";
+import {
+  DEFINITION_ID,
+  RELEASE_CHECKS_BODY,
+  RELEASE_CHECKS_DEFINITION,
+  answeringCreate,
+  authoringBridge,
+} from "./definition-authoring-dispatch.test-support.js";
+import { useWorkflowDefinitionAuthoring } from "./definition-authoring-dispatch.js";
+import type { WorkflowDefinitionCreateCall } from "./definition-authoring-runtime.js";
+import type { WorkflowDefinitionDetailState } from "./definition-detail-read.js";
 
 afterEach(cleanup);
 
-function scriptedBridge(): ConsoleBridge {
-  return createFixtureBridge({ scenario: WORKFLOWS_SCENARIO });
+/** A definition whose three reads all answered. */
+const SERVED: Extract<WorkflowDefinitionDetailState, { status: "served" }> = {
+  status: "served",
+  detail: {
+    definition: RELEASE_CHECKS_DEFINITION,
+    version: RELEASE_CHECKS_BODY,
+    chain: {
+      status: "served",
+      versions: [
+        {
+          workflowVersionId: RELEASE_CHECKS_BODY.workflowVersionId,
+          versionNumber: RELEASE_CHECKS_BODY.versionNumber,
+        },
+      ],
+    },
+  },
+};
+
+/** The detail wired to the real authoring hook, the way a container hands it its props. */
+function DetailWithActs(props: {
+  readonly detail: WorkflowDefinitionDetailState;
+  readonly bridge: ConsoleBridge;
+  readonly createDefinition: WorkflowDefinitionCreateCall;
+}): React.JSX.Element {
+  const authoring = useWorkflowDefinitionAuthoring(
+    props.bridge,
+    props.createDefinition,
+    DEFINITION_ID,
+    PROBE_SESSION_ID,
+    RELEASE_CHECKS_BODY,
+  );
+  return <DefinitionDetail detail={props.detail} authoring={authoring} />;
 }
 
-/** The detail mounted at one definition, with its own bridge. */
+/** The detail mounted on one read state, with a create call the import can reach. */
 function renderDetail(
-  workflowDefinitionId: string,
-  bridge: ConsoleBridge = scriptedBridge(),
+  detail: WorkflowDefinitionDetailState = SERVED,
+  createDefinition: WorkflowDefinitionCreateCall = answeringCreate,
 ): HTMLElement {
   const { container } = render(
-    <DefinitionDetail
-      bridge={bridge}
-      workflowDefinitionId={workflowDefinitionId}
-      sessionId={WORKFLOWS_SESSION_ID}
+    <DetailWithActs
+      detail={detail}
+      bridge={authoringBridge()}
+      createDefinition={createDefinition}
     />,
   );
   return container;
@@ -55,19 +85,9 @@ function control(container: HTMLElement, label: string): HTMLButtonElement {
   return found;
 }
 
-describe("the definition detail — what a browser row now opens on", () => {
-  it("reads rather than reporting the definition as unread", async () => {
-    const container = renderDetail(DEFINITION_RELEASE_CHECKS_SESSION);
-    expect(container.querySelector(".meridian-nothing--not-loaded")).not.toBeNull();
-
-    await settle();
-    expect(container.querySelector(".meridian-definition-detail")).not.toBeNull();
-    expect(container.querySelector(".meridian-nothing--not-loaded")).toBeNull();
-  });
-
-  it("draws the version body's hash, marker and named phases", async () => {
-    const container = renderDetail(DEFINITION_RELEASE_CHECKS_SESSION);
-    await settle();
+describe("the definition detail — a read definition drawn", () => {
+  it("draws the version body's hash, marker and named phases", () => {
+    const container = renderDetail();
     const text = container.textContent ?? "";
 
     expect(text).toContain("b3:");
@@ -79,28 +99,29 @@ describe("the definition detail — what a browser row now opens on", () => {
     expect(text).toContain("Draft the release note");
   });
 
-  it("draws the version chain where the fixture states one", async () => {
-    const container = renderDetail(DEFINITION_RELEASE_CHECKS_SESSION);
-    await settle();
+  it("draws the version chain where the definition read named one", () => {
+    const container = renderDetail();
 
     expect(container.querySelector(".meridian-definition-detail__chain-list")).not.toBeNull();
   });
 
-  it("keeps the identity when a qualifying read refuses, and says so beside it", async () => {
-    // The partial reading, rendered: the project-scoped copy is pinned to by no run, so
-    // the scenario states no chain for it — the definition and its body still stand.
-    const container = renderDetail(DEFINITION_RELEASE_CHECKS_PROJECT);
-    await settle();
+  it("keeps the identity and body when the chain could not be asked for", () => {
+    // The partial reading, rendered: the definition read carried no version id, so no chain
+    // is drawn while the definition and its body still stand.
+    const container = renderDetail({
+      status: "served",
+      detail: { ...SERVED.detail, chain: { status: "unaddressable" } },
+    });
 
     expect(container.querySelector(".meridian-definition-detail__version")).not.toBeNull();
-    expect(container.querySelector(".meridian-refusal--banner")).not.toBeNull();
+    expect(container.querySelector(".meridian-nothing")).toBeNull();
+    expect(container.querySelector(".meridian-definition-detail__chain")).toBeNull();
   });
 });
 
-describe("the definition detail — the three acts and what each answers", () => {
+describe("the definition detail — the two acts and what each answers", () => {
   it("exports the version body into the file form, and leaves the bytes on screen", async () => {
-    const container = renderDetail(DEFINITION_RELEASE_CHECKS_SESSION);
-    await settle();
+    const container = renderDetail();
 
     fireEvent.click(control(container, "Export"));
     // WAITED FOR RATHER THAN SLEPT ON. The file form's writer arrives in its own chunk
@@ -118,23 +139,8 @@ describe("the definition detail — the three acts and what each answers", () =>
     expect(file?.textContent ?? "").toContain("Draft the release note");
   });
 
-  it("refuses a promote through the port rather than composing its own sentence", async () => {
-    // The create is on the growth port and no fixture serves it, so the answer a person
-    // reads is the PORT's — naming the wire and who owes it. A surface that composed its
-    // own refusal here would be asserting a wire fact nobody asked about.
-    const container = renderDetail(DEFINITION_RELEASE_CHECKS_SESSION);
-    await settle();
-
-    fireEvent.click(control(container, "Promote to shared"));
-    await settle();
-
-    const outcomes = container.querySelector(".meridian-definition-detail__outcomes");
-    expect(outcomes?.textContent ?? "").toContain("wire-unregistered");
-  });
-
   it("refuses an unreadable import in the file reader's own words", async () => {
-    const container = renderDetail(DEFINITION_RELEASE_CHECKS_SESSION);
-    await settle();
+    const container = renderDetail();
 
     fireEvent.click(control(container, "Import"));
     const box = container.querySelector("textarea");
@@ -150,13 +156,11 @@ describe("the definition detail — the three acts and what each answers", () =>
     expect(outcomes?.textContent ?? "").toContain("file-unreadable");
   });
 
-  it("sends a WELL-FORMED import to the port, which is where it is refused", async () => {
+  it("puts a WELL-FORMED import to the create call, which is where it settles", async () => {
     // The negative control for the case above: without it, the parse refusal would hold
-    // over an import that refused every input, and no file would ever reach the wire.
-    // This one reaches it, and the refusal that comes back is the port's rather than the
-    // reader's.
-    const container = renderDetail(DEFINITION_RELEASE_CHECKS_SESSION);
-    await settle();
+    // over an import that refused every input, and no file would ever reach the create.
+    const createDefinition = vi.fn(answeringCreate);
+    const container = renderDetail(SERVED, createDefinition);
 
     fireEvent.click(control(container, "Export"));
     const exported = await waitFor(() => {
@@ -177,15 +181,17 @@ describe("the definition detail — the three acts and what each answers", () =>
 
     const outcomes = container.querySelector(".meridian-definition-detail__outcomes");
     expect(outcomes?.textContent ?? "").not.toContain("file-unreadable");
-    expect(outcomes?.textContent ?? "").toContain("wire-unregistered");
+    expect(outcomes?.textContent ?? "").toContain("Release checks was created in this session");
+    expect(createDefinition).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: PROBE_SESSION_ID, name: "Release checks" }),
+    );
   });
 
-  it("says nothing about an act nobody pressed", async () => {
+  it("says nothing about an act nobody pressed", () => {
     // Rule 8's kinds of nothing are about reads a person is waiting on, not controls
     // they have not touched — so an untouched act renders no row at all, and this is
     // the control that keeps the outcome list from narrating the console's inactivity.
-    const container = renderDetail(DEFINITION_RELEASE_CHECKS_SESSION);
-    await settle();
+    const container = renderDetail();
 
     expect(container.querySelectorAll(".meridian-definition-detail__outcome")).toHaveLength(0);
   });

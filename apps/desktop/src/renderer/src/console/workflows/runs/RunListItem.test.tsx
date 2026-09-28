@@ -59,15 +59,8 @@ describe("the parks a row says in place", () => {
 
 /*
  * One wire member, two facts. `failureReason` is preserved on any bound breach AND
- * carries the reason a cancel supplied, so the run's status is the only thing that
- * says which arrived — and the row used to render both in the failure treatment,
- * presenting an outcome somebody asked for as a breach.
- *
- * The cancelled run's sentence is the committed workflows fixture's own, so the case
- * reads what a person actually sees on that scenario. It is built through the shared
- * factory rather than imported from the scenario, on this file's rule: the seam under
- * test is the projection's, and a unit case reaching into the fixture module would be
- * a second import edge for a string.
+ * carries the reason a cancel supplied, so the run's status is the only thing that says
+ * which arrived. The row must not render a requested cancel as a breach.
  */
 describe("the reason a run carries", () => {
   function reasonOf(root: HTMLElement, className: string): string | undefined {

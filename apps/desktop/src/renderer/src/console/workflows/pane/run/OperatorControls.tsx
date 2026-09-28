@@ -20,13 +20,12 @@
 //   4. **Eligibility is the daemon's.** Both controls are OFFERED; this file reads no
 //      run status and computes no permission, and it never decides in advance that an
 //      act is unreachable. The press puts the question and the answer — a served
-//      settlement, or a refusal from the growth port, the daemon or this family's own
-//      single flight — renders INLINE beside the button (rule 9: nothing changed, the
-//      act did not happen, and the control stays beside its refusal).
-//      `RunControlOutcome.tsx` draws it.
+//      settlement, or a refusal from this family's own single flight or reason bound —
+//      renders INLINE beside the button: nothing changed, the act did not happen, and
+//      the control stays beside its refusal. `RunControlOutcome.tsx` draws it.
 //
 // THE CALL IS NOT THIS FILE'S AND THE OUTCOME IS NOT EITHER. What a press puts on the
-// growth port, whether it may be dispatched at all, and what the reply settles to are
+// wire, whether it may be dispatched at all, and what the reply settles to are
 // `run-control-dispatch.ts`; what stands here is the FORM — the reason field and its
 // budget, the re-pin picker, and the two submits. So this component issues no call and
 // holds no single-flight flag of its own: a flag read in a handler is the value from
@@ -64,8 +63,8 @@
 // carried a version id that is in the new run's chain nowhere: the picker fell back to
 // displaying its first option while the state kept run A's id, so pressing Resume sent
 // run B a target the operator had never seen. Both are therefore held against the same
-// `(growth, workflowRunId)` pair the pane's own read is addressed at, so the render
-// that re-addresses already reads an empty field and no target.
+// run id the pane's own read is addressed at, so the render that re-addresses already
+// reads an empty field and no target.
 //
 // SCOPED IS NOT RESOLVED, AND THE RE-PIN NEEDED BOTH. Scoping answers which RUN the
 // target was chosen for; it says nothing about whether that run's chain still offers
@@ -78,7 +77,6 @@
 
 import { useId, useMemo, useRef } from "react";
 
-import type { GrowthPort } from "../../../bridge/index.js";
 import {
   DerivedFigure,
   Glyph,
@@ -90,7 +88,6 @@ import { useSubjectScopedState } from "../../../store/index.js";
 import { GLYPH_SIZE_CHROME } from "../../../tokens/index.js";
 import { RunControlOutcome } from "./RunControlOutcome.js";
 import {
-  WORKFLOW_RUN_RE_PARKED_STATE,
   cancelReasonBudget,
   reasonPastBoundRefusal,
   type WorkflowCancelControl,
@@ -98,36 +95,36 @@ import {
   type WorkflowVersionChoice,
 } from "./run-controls.js";
 
+/**
+ * The subject the typed reason and the chosen re-pin are held against, so the run id
+ * alone re-addresses them.
+ */
+const CONTROL_FIELDS_SUBJECT = {};
+
 /** The picker value that means "resume without re-pinning". Never a version id. */
 const NO_REPIN = "";
 
+/**
+ * What the two run controls are drawn from: each control's press and outcome, and the run
+ * the reason and re-pin fields are held against.
+ */
 export interface OperatorControlsProps {
   readonly cancel: WorkflowCancelControl;
   readonly resume: WorkflowResumeControl;
-  /**
-   * The port the pane's run read is addressed at, taken as a SUBJECT and not called.
-   *
-   * This component calls nothing — the controls arrive carrying the calls their
-   * dispatcher composed — so the port is here for its identity alone. It is in the
-   * pair for the read's own reason: the fixture's scenario switch replaces the bridge
-   * and keeps the run id, so a run-only holder would carry a reason typed against the
-   * previous daemon into the next one.
-   */
-  readonly growth: GrowthPort;
   /** The run whose controls these are, and which the fields below are answers about. */
   readonly workflowRunId: string;
 }
 
 /** The run's two controls, each offered or refused exactly as its caller said. */
 export function OperatorControls(props: OperatorControlsProps): React.JSX.Element {
-  const { growth, workflowRunId } = props;
+  const { workflowRunId } = props;
   const { value: reason, publish: setReason } = useSubjectScopedState<string>(
-    growth,
+    CONTROL_FIELDS_SUBJECT,
     workflowRunId,
     () => "",
   );
   const { value: heldRepinTarget, publish: setRepinTarget } = useSubjectScopedState<string>(
-    growth,
+    CONTROL_FIELDS_SUBJECT,
     workflowRunId,
     () => NO_REPIN,
   );
@@ -336,9 +333,7 @@ function renderResume(control: WorkflowResumeControl, fields: RepinFieldState): 
           Resume this run
         </button>
         <span className="meridian-workflow-run-controls__note">
-          <span>A run that re-parks on its next dispatch answers </span>
-          <WireFigure value={WORKFLOW_RUN_RE_PARKED_STATE} />
-          <span>, which is an outcome and not a failure.</span>
+          A run that re-parks on its next dispatch is an outcome and not a failure.
         </span>
       </div>
       <RunControlOutcome outcome={control.outcome} />

@@ -1,27 +1,17 @@
 // The submit channel the run pane keeps around the body that answers a waiting phase.
 //
-// WHAT IT IS FOR. `owner-slots.ts` names the workflow authoring and execution plan as
-// the author of the human form's body, and the seat's rule is that this console ships
-// the chrome and the typed hole and never the owner's body. A body that dispatched its
-// own submission would be authoring rather more than a form: the registered
-// `workflowHumanFormSubmit`, the single-flight guard, the revision the attempt was
-// composed against, the run read's re-arm, and the rendering of whatever the daemon said
-// are all the pane's, and every one of them would have to be written again by whoever
-// finally fills this seat. So they stay here, and what crosses into the body is one
-// bound `submit` on its mount.
+// WHAT IT IS FOR. A body that dispatched its own submission would author far more than a
+// form: the submit call, the single-flight guard, the revision the attempt was composed
+// against, the run read's re-arm, and the rendering of whatever the daemon said are all the
+// pane's, and every one of them would have to be written again by whoever supplies a body.
+// So they stay here, and what crosses into the body is one bound `submit` on its mount.
 //
-// AND THE SLOT'S OWN CONTRACT ALREADY PUT THEM HERE. `WORKFLOW_HUMAN_FORM_SLOT` says
-// both panes render the daemon's typed refusal and neither derives whether the form may
-// be submitted — a refusal this surface renders is a refusal this surface has to receive,
-// which is only true if the call is this surface's.
-//
-// A COMPONENT BETWEEN THE MOUNT AND THE BODY, rather than a hook in the slot above it.
-// Both the port and the attempt exist only where a phase is open: `useConsoleBridge`
-// throws outside the provider and the submit is addressed by an attempt that may not
-// exist, so a hook in the wrapper would have to run on the render where nothing is
-// waiting. `WorkflowSlotMount` already renders nothing on that arm, so the channel is
-// mounted as the seat's body and the owner's body is composed inside it — which also
-// puts the hook behind the same absence check the reserved shell is behind.
+// A COMPONENT BETWEEN THE MOUNT AND THE BODY, rather than a hook in the slot above it. The
+// submit is addressed by an attempt that exists only where a phase is open, so a hook in the
+// wrapper would have to run on the render where nothing is waiting. `WorkflowSlotMount`
+// renders only its empty frame on that arm, so the channel is mounted as the seat's body and
+// the supplied body is composed inside it, which puts the hook behind the same absence check
+// the empty frame is behind.
 //
 // THE ATTEMPT IS THE BODY'S KEY, AND IT HAS TO BE. A run that branches parks several
 // phases on a person at once and the pane mounts ONE form; pressing another park card
@@ -30,7 +20,7 @@
 // share a member name would show one branch's typed answer under the other's question,
 // and a press would record it against the phase now on screen. A key on `phaseRunId`
 // makes them two elements, which is React's own way of saying they are two forms, and
-// it is applied HERE so it holds for the owner's body as well as for the fixture shell.
+// it is applied HERE so it holds for a supplied body as well as for the console's own shell.
 //
 // `phaseRunId` AND NOT THE PHASE, AND NOT THE REVISION EITHER. The attempt is what the
 // answer is composed against and submitted for — a retry mints a new one — so it is the
@@ -43,37 +33,37 @@
 //
 // THE OUTCOME STANDS BENEATH THE BODY. It is the seat's reading of what the daemon
 // answered and not part of the form, so it sits under whatever the body drew rather than
-// inside it — and a body supplied by another plan gets the settlement rendered for it
-// without owning a line of it.
+// inside it — and a supplied body gets the settlement rendered for it without owning a
+// line of it.
 
-import { useConsoleBridge } from "../../../../bridge/index.js";
 import { InlineRefusal, Nothing, WireFigure } from "../../../../primitives/index.js";
-import { useHumanFormSubmit } from "../human-form-submit.js";
+import { useHumanFormSubmit, type WorkflowHumanFormSubmitCall } from "../human-form-submit.js";
 import { HumanFormShell } from "./HumanFormShell.js";
 import type { HumanFormBody, HumanFormPhase } from "./human-form-mount.js";
 
-/** What the slot hands this channel: the open phase, and the body to mount inside it. */
+/** What the slot hands this channel: the open phase, the body to mount, and the submit call. */
 export interface HumanFormSubmitChannelProps {
   /** The wait this channel is the submit for. Present by construction — see the header. */
   readonly phase: HumanFormPhase;
   /**
-   * The owner's body, or `undefined` while there is none and the fixture shell stands.
+   * The supplied body, or `undefined` while there is none and the console's shell stands.
    *
    * Required-carrying-undefined rather than optional, because the slot above always
    * knows which it has and an absent key would read as one that forgot to say.
    */
   readonly body: HumanFormBody | undefined;
+  /**
+   * The call that submits this phase's form.
+   *
+   * Pass a stable function: a new identity starts the open attempt over.
+   */
+  readonly submitForm: WorkflowHumanFormSubmitCall;
 }
 
 /** The waiting phase's body, with the pane's submit bound to it and its answer beneath. */
 export function HumanFormSubmitChannel(props: HumanFormSubmitChannelProps): React.JSX.Element {
-  const { phase, body } = props;
-  // FROM THE PROVIDER, because the seat gives a body no prop channel: the slot mount
-  // renders `<Body {...mount} />` and the mount is the OWNER's contract, which a
-  // console-local port member would widen with a value the owner's body must not be
-  // handed. Every console surface renders inside the provider.
-  const bridge = useConsoleBridge();
-  const { outcome, submit } = useHumanFormSubmit(bridge.growth, phase);
+  const { phase, body, submitForm } = props;
+  const { outcome, submit } = useHumanFormSubmit(submitForm, phase);
   const MountedBody = body ?? HumanFormShell;
   return (
     <>

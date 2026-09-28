@@ -1,17 +1,13 @@
-// The two acts that reach the growth port: importing a pasted file, and promoting the
-// version on screen to the shared scope.
+// The act that puts the create call: importing a pasted file.
 //
-// ONE MODULE BECAUSE THEY ARE ONE WRITE. Import and promote both call
-// `workflowDefinitionCreate`, which is the one operation all five authoring acts ride:
-// the daemon's operator-scope authorization keys on the target SCOPE the body names and
-// not on which gesture composed it. What differs between them is the body — where it
-// came from and where it is going — so the submission itself is stated once below and
-// each act composes what it submits.
+// The definition create is the one operation all four authoring acts ride: the daemon's
+// operator-scope authorization keys on the target SCOPE the body names and not on which
+// gesture composed it.
 //
 // SINGLE FLIGHT IS THE LATCH'S AND NOT A FLAG'S, for `run-control-dispatch.ts`'s
 // reason: a boolean read inside a press handler is the one from the render that
 // produced that handler, so two presses in one frame both find the act idle and both
-// dispatch. Both acts here take `claim` and not `supersedeAndClaim`, because the first
+// dispatch. The import takes `claim` and not `supersedeAndClaim`, because the first
 // press is already outstanding against the daemon and cannot be recalled — so the
 // honest answer to the second is no, said out loud on the control. The export act
 // beside this one takes the other arm, and `definition-authoring-export.ts` says why.
@@ -25,7 +21,6 @@
 
 import {
   parseWorkflowDefinitionFile,
-  settleGrowthRead,
   type WorkflowDefinitionCreateBody,
 } from "../../../bridge/index.js";
 import {
@@ -34,7 +29,7 @@ import {
   publishOutcome,
   type AuthoringRuntime,
 } from "./definition-authoring-runtime.js";
-import { bodyUnavailable, detailRefusal, type WorkflowDetailAct } from "./definition-authoring.js";
+import { detailRefusal } from "./definition-authoring.js";
 
 /**
  * Read the pasted text and submit what it describes into this session's own scope.
@@ -43,7 +38,6 @@ import { bodyUnavailable, detailRefusal, type WorkflowDetailAct } from "./defini
  * than an omission. A file carries no scope — it is bytes that travelled between
  * machines — so somebody has to say where it lands, and the answer that needs no
  * picker and no authorization argument is the session a person is importing into.
- * Widening it afterwards is the promote act, which is the next control along.
  */
 export async function importDefinitionFile(runtime: AuthoringRuntime, text: string): Promise<void> {
   const { sessionId } = runtime;
@@ -52,7 +46,8 @@ export async function importDefinitionFile(runtime: AuthoringRuntime, text: stri
       kind: "refused",
       refusal: detailRefusal(
         "session-unbound",
-        "This pane is not bound to a session, so there is no scope for an imported definition to land in.",
+        "This pane is not bound to a session, " +
+          "so there is no scope for an imported definition to land in.",
       ),
     });
     return;
@@ -61,49 +56,7 @@ export async function importDefinitionFile(runtime: AuthoringRuntime, text: stri
   if (definition === undefined) {
     return;
   }
-  await submitDefinition(runtime, "import", definition, (versionNumber) => {
-    return `${definition.name} was created in this session at version ${versionNumber}.`;
-  });
-}
-
-/**
- * Submit the body on screen at `shared` scope, byte for byte.
- *
- * NO `parentContentHash`, AND ITS ABSENCE IS THIS ACT'S OWN CLAIM RATHER THAN AN
- * OMISSION. That member is copy-on-write provenance for the OPPOSITE direction: it is
- * reserved for an author editing a `shared` definition, which produces a NARROWER one
- * recording the shared original's hash. A promotion runs the other way and creates the
- * shared definition from the promoted version's exact bytes — there is no shared
- * original to have branched from, so setting it would record every promoted version as
- * a downward fork off a definition that never existed and corrupt the version chain for
- * each one.
- *
- * WHAT TRAVELS IS THE BODY AND THE TARGET SCOPE, AND NO FLAG. The daemon's
- * operator-scope authorization keys on the scope the body names and never on the
- * gesture that composed it, so this is the same write an author typing a shared
- * definition by hand puts.
- */
-export async function promoteDefinition(runtime: AuthoringRuntime): Promise<void> {
-  const { body, sessionId } = runtime;
-  if (body === undefined || sessionId === undefined) {
-    publishOutcome(runtime, "promote", {
-      kind: "refused",
-      refusal: bodyUnavailable("Promoting"),
-    });
-    return;
-  }
-  const request: WorkflowDefinitionCreateBody = {
-    sessionId,
-    name: body.name,
-    // `shared` is daemon-wide and refers to nothing narrower, so the member that names
-    // a scope's identity is deliberately absent rather than empty.
-    scope: "shared",
-    entry: body.entry,
-    phaseDefinitions: body.phaseDefinitions,
-  };
-  await submitDefinition(runtime, "promote", request, (versionNumber) => {
-    return `${body.name} was copied to the shared scope at version ${versionNumber}.`;
-  });
+  await submitDefinition(runtime, definition);
 }
 
 /**
@@ -140,48 +93,46 @@ async function readDefinitionFile(
 }
 
 /**
- * Claim the act's key, put the create, and settle whatever comes back.
+ * Claim the import's key, put the create, and publish what comes back.
  *
- * `settleGrowthRead` and not a bare `await`, because a growth call can also REJECT: a
- * scenario that scripts a daemon refusal throws it verbatim, and the live seam will
- * throw the same shape once the wire lands. A fulfilment handler alone would leave the
- * control reading `dispatching` for the life of the pane over an answer that had
- * already arrived.
+ * A rejected create is not caught: it reaches the caller, and the `finally` gives the
+ * key back so a later press is not refused as a duplicate of a call that ended.
  */
 async function submitDefinition(
   runtime: AuthoringRuntime,
-  act: WorkflowDetailAct,
   request: WorkflowDefinitionCreateBody,
-  describe: (versionNumber: string) => string,
 ): Promise<void> {
-  const claim = runtime.latch.claim(runtime.growth, actKey(act, runtime.workflowDefinitionId));
+  const claim = runtime.latch.claim(
+    runtime.createDefinition,
+    actKey("import", runtime.workflowDefinitionId),
+  );
   if (claim === undefined) {
-    publishOutcome(runtime, act, {
+    publishOutcome(runtime, "import", {
       kind: "refused",
       refusal: detailRefusal(
         "act-in-flight",
-        "A definition is already being submitted here. The first one is outstanding against the daemon and cannot be recalled.",
+        "A definition is already being submitted here. " +
+          "The first one is outstanding against the daemon and cannot be recalled.",
       ),
     });
     return;
   }
-  // Composed from the request that is about to go rather than passed in beside it: both
-  // acts here submit, and a sentence read off the very body being sent cannot describe
-  // a different scope from the one the daemon will adjudicate.
-  publishOutcome(runtime, act, {
+  // Composed from the request that is about to go rather than passed in beside it: a
+  // sentence read off the very body being sent cannot describe a different scope from
+  // the one the daemon will adjudicate.
+  publishOutcome(runtime, "import", {
     kind: "dispatching",
     detail: `Submitting ${request.name} at the ${request.scope} scope.`,
   });
   try {
-    const settlement = await settleGrowthRead(runtime.growth.workflowDefinitionCreate(request));
+    const created = await runtime.createDefinition(request);
     claim.settle(() => {
-      publishOutcome(
-        runtime,
-        act,
-        settlement.status === "served"
-          ? { kind: "settled", detail: describe(String(settlement.value.versionNumber)) }
-          : { kind: "refused", refusal: settlement },
-      );
+      publishOutcome(runtime, "import", {
+        kind: "settled",
+        detail:
+          `${request.name} was created in this session at version ` +
+          `${String(created.versionNumber)}.`,
+      });
     });
     // The key goes back whatever happened, a `publish` that threw included: a key held
     // for the life of the subject would refuse every later press on this definition.

@@ -1,4 +1,4 @@
-// What the port answered one run control, rendered beside the button that asked.
+// What one run control answered, rendered beside the button that asked.
 //
 // A SIBLING RATHER THAN A THIRD RENDER FUNCTION IN `OperatorControls.tsx`, for the
 // reason `RunParks.tsx` and `ParkFormRoute.tsx` beside it state: one component per
@@ -13,11 +13,9 @@
 // nothing to press once the daemon's answer stopped applying, and the surface would
 // have to guess when to put it back.
 //
-// AND THE REFUSAL IS RENDERED VERBATIM. Whatever raised it — the growth port for a
-// wire this build does not carry, the daemon for an act it will not admit, this
-// family for a second press — the code and the sentence are the raiser's own.
-// `InlineRefusal` gives the code the mono signature rule 4 reserves for strings the
-// daemon sent, and this file composes no copy of its own on that arm.
+// AND THE REFUSAL IS RENDERED VERBATIM. It is this family's own — a second press, or a
+// reason past the bound — and the code and the sentence are the raiser's; this file
+// composes no copy of its own on that arm.
 //
 // `idle` DRAWS NOTHING, AND THAT IS NOT AN OMISSION. A control nobody has pressed has
 // no outcome, and an absence primitive there would be the console reporting on a

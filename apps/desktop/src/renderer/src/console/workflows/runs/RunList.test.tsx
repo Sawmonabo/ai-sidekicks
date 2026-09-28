@@ -43,7 +43,7 @@ function startFigures(root: HTMLElement): readonly string[] {
   });
 }
 
-/** One phase parked on a person, which is what puts a run in the parked band. */
+/** One phase parked on a person, which is what makes a run parked. */
 function parkedPhase(phaseId: string): WorkflowPhaseStateRow {
   return phase({
     phaseId,
@@ -70,28 +70,18 @@ describe("an empty list", () => {
 describe("the order the rows come out in", () => {
   it("follows the projection's order rather than the caller's", () => {
     const root = renderList([
-      run({ workflowRunId: "run-active", definitionName: "Active", phaseStates: [] }),
       run({
-        workflowRunId: "run-parked",
-        definitionName: "Parked",
-        phaseStates: [parkedPhase("phase-1")],
+        workflowRunId: "run-older",
+        definitionName: "Older",
+        startedAt: "2026-09-01T09:00:00.000Z",
+      }),
+      run({
+        workflowRunId: "run-newer",
+        definitionName: "Newer",
+        startedAt: "2026-09-01T11:00:00.000Z",
       }),
     ]);
-    expect(rowNames(root)).toStrictEqual(["Parked", "Active"]);
-  });
-
-  it("negative control: the caller's own order is the other one", () => {
-    // Without this the case above would pass over a list that happened to render its
-    // input unchanged, which is exactly what it exists to disprove.
-    const callerOrder = [
-      run({ workflowRunId: "run-active", definitionName: "Active", phaseStates: [] }),
-      run({
-        workflowRunId: "run-parked",
-        definitionName: "Parked",
-        phaseStates: [parkedPhase("phase-1")],
-      }),
-    ].map((snapshot) => snapshot.definitionName);
-    expect(callerOrder).toStrictEqual(["Active", "Parked"]);
+    expect(rowNames(root)).toStrictEqual(["Newer", "Older"]);
   });
 });
 
@@ -128,7 +118,7 @@ describe("the counts the header shows", () => {
  */
 describe("a start spelled with a numeric offset", () => {
   // 10:00Z, so it is genuinely NEWER than the run below it and belongs above it in a
-  // newest-first band — which is what makes its placement last a visible symptom
+  // newest-first list — which is what makes its placement last a visible symptom
   // rather than a coincidence of the values chosen.
   const offsetSpelled = "2026-01-01T12:00:00+02:00";
   const utcSpelled = "2026-01-01T09:00:00Z";
@@ -137,7 +127,6 @@ describe("a start spelled with a numeric offset", () => {
     return renderList([
       run({ workflowRunId: "run-offset", definitionName: "Offset", startedAt: offsetSpelled }),
       run({ workflowRunId: "run-utc", definitionName: "Utc", startedAt: utcSpelled }),
-      // Both unparked and both active, so the band is not what orders them.
     ]);
   }
 

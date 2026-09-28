@@ -1,8 +1,6 @@
 // Every phase parked at the moment the run snapshot was built, as cards.
 //
-// A SIBLING RATHER THAN A SECOND COMPONENT IN `RunReadState.tsx`, for the reason
-// `RunPhaseGraph.tsx` beside it states: one component per `.tsx`, reached by a deep
-// relative import from its host and published through no door line.
+// One component per `.tsx`, for the reason `RunPhaseGraph.tsx` beside it states.
 //
 // THE FORM ROUTE TRAVELS WITH THE CARDS. `formRoutePropsFor` has exactly one caller
 // and it is the component below; splitting the two apart would leave the rule that

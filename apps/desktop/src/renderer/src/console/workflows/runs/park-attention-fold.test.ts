@@ -217,7 +217,7 @@ describe("the park attention fold — the amber", () => {
 
 describe("the park attention fold — order", () => {
   it("places a fold where its FIRST park was met, in the list's own order", () => {
-    // The rows arrive attention-first and newest-first inside a band, so an entry
+    // The rows arrive newest first, so an entry
     // folding several runs sits where the run an operator meets first sits.
     const entries = foldOf([
       run({

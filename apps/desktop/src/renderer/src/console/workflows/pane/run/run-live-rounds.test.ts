@@ -105,7 +105,6 @@ describe("WorkflowRunLiveRounds — what advances the round", () => {
       "workflow.cancelled",
       "workflow.phase_resumed",
       "workflow.parallel_join_cancellation",
-      "workflow.channel_created_for_phase",
       "workflow.gate_resolved",
     ];
     let advancedFor = 0;
@@ -230,7 +229,7 @@ describe("WorkflowRunLiveRounds — which run the frame is about", () => {
     expect(reading.round).toBe(1);
   });
 
-  it("advances on a frame that names no run, which is every frame this wire sends today", async () => {
+  it("advances on a frame that names no run", async () => {
     // The taxonomy is unregistered — `packages/contracts` admits none of these kinds —
     // so nothing establishes that a payload carries the run at all. A frame that does
     // not say which run it is about is a frame this reading cannot rule out, and

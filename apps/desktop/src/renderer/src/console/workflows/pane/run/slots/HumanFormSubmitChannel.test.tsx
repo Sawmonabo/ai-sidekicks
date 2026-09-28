@@ -1,21 +1,6 @@
-// The submit channel around a body another plan authors: what it keeps, and what it
-// hands over.
-//
-// WHAT THESE CASES CLOSE. The console's fixture shell used to hold the port call, the
-// single-flight guard, the revision the attempt was composed against and the settlement
-// rendering — so a body the workflow plan finally supplies would have had to re-implement
-// every one of them, and the shell it replaced would have read as the template for doing
-// so. They are the seat's now: a body is handed one bound act on its mount, and what came
-// back is drawn beneath it.
-//
-// THE BODY HERE IS A PRESS AND NOTHING ELSE, deliberately. A case driven through the
-// fixture shell's own form would be asking whether the schema draws a control — which is
-// `HumanFormShell.test.tsx`'s question — and would pass over a channel that only worked
-// for that one body. This one renders a button, calls `mount.submit`, and reports on
-// nothing, which is exactly the surface an owner's body is promised.
-//
-// The ports, the fixture wait, the render helper and the press are
-// `HumanFormShell.test-support.tsx`'s, shared with the two suites beside this one.
+// The submit channel around a supplied body: what it keeps, and what it hands over. The body
+// here is a press and nothing else, so the cases hold for any body and not only for the
+// console's own shell.
 
 import { cleanup, screen } from "@testing-library/react";
 import { act } from "react";
@@ -23,12 +8,12 @@ import { afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import { settle } from "../../../workflows-probe.test-support.js";
 import {
-  bridgeHoldingSubmits,
-  bridgeWatchingSubmits,
   fixtureWaitPhase,
-  resolveSchemaFormChunks,
+  holdingSubmits,
   pressSubmit,
   renderSwitchableSlot,
+  resolveSchemaFormChunks,
+  watchingSubmits,
 } from "./HumanFormShell.test-support.js";
 import type { HumanFormMount } from "./human-form-mount.js";
 
@@ -36,13 +21,7 @@ afterEach(() => {
   cleanup();
 });
 
-/**
- * A body that presses the mount's own submit and renders nothing about the answer.
- *
- * Declared once outside the cases rather than composed in each, because a component
- * built inline is a new type on every render and React remounts it — the reciprocal
- * obligation `owner-slots.ts` states, and the one a supplied body is held to.
- */
+/** A body that presses the mount's own submit and renders nothing about the answer. */
 function pressingBody(answer: Readonly<Record<string, unknown>>) {
   return function PressingFormBody(mount: HumanFormMount): React.JSX.Element {
     return (
@@ -58,19 +37,16 @@ function pressingBody(answer: Readonly<Record<string, unknown>>) {
   };
 }
 
-// The schema form opens in two chunks: its own body, and the compiler the one act stays
-// closed until. Both are resolved once here, so every case below renders a loaded form
-// whose submit is armed rather than the reserved region its mount would otherwise suspend
-// on — each loader memoises, so this is the state a second form opens in.
+// Resolved once so every case renders a loaded form whose submit is armed.
 beforeAll(resolveSchemaFormChunks);
 
 describe("the seat keeps the submit and the settlement, and the body keeps neither", () => {
   it("composes the registered submit out of the mount when the body presses", async () => {
-    const probe = bridgeWatchingSubmits();
+    const probe = watchingSubmits();
     const phase = fixtureWaitPhase();
     await renderSwitchableSlot({
       phase,
-      bridge: probe.bridge,
+      submitForm: probe.submitForm,
       body: pressingBody({ decision: "approve" }),
     });
     await act(async () => {
@@ -78,8 +54,7 @@ describe("the seat keeps the submit and the settlement, and the body keeps neith
     });
     await settle();
 
-    // Every addressing member read off the mount by the SEAT: the body passed the
-    // answer alone, and could not have composed the rest without re-deriving it.
+    // The body passed the answer alone; the seat read every addressing member.
     expect(probe.requests).toStrictEqual([
       {
         workflowRunId: phase.workflowRunId,
@@ -91,10 +66,10 @@ describe("the seat keeps the submit and the settlement, and the body keeps neith
   });
 
   it("renders what the daemon answered beneath a body that renders no outcome at all", async () => {
-    const probe = bridgeWatchingSubmits();
+    const probe = watchingSubmits();
     const { container } = await renderSwitchableSlot({
       phase: fixtureWaitPhase(),
-      bridge: probe.bridge,
+      submitForm: probe.submitForm,
       body: pressingBody({ decision: "approve" }),
     });
     await act(async () => {
@@ -102,8 +77,7 @@ describe("the seat keeps the submit and the settlement, and the body keeps neith
     });
     await settle();
 
-    // In the live region the settlement has always used, and inside the seat's own slot
-    // rather than inside whatever the body drew.
+    // In the live region, inside the seat's own slot rather than the body's.
     expect(screen.getByRole("status").textContent).toContain(
       "The daemon recorded this answer and one output came of it.",
     );
@@ -113,17 +87,14 @@ describe("the seat keeps the submit and the settlement, and the body keeps neith
   });
 
   it("refuses a second press out loud, so a body needs no guard of its own", async () => {
-    // The single flight is the seat's too. A body that pressed twice in one frame reads
-    // its own render's state both times, which is exactly why the guard is taken at
-    // dispatch and exactly why it must not be the body's to take.
+    // A body pressing twice in one frame reads the same render's state both times, so
+    // the guard is the seat's, taken at dispatch.
     //
-    // Through the HELD port, because the refusal lives in the window between the press
-    // and the answer: a port that served on the calling turn would publish the
-    // settlement over it and the case would be asserting nothing about the guard.
-    const probe = bridgeHoldingSubmits();
+    // Held, because the refusal lives between the press and the answer.
+    const probe = holdingSubmits();
     const { container } = await renderSwitchableSlot({
       phase: fixtureWaitPhase(),
-      bridge: probe.bridge,
+      submitForm: probe.submitForm,
       body: pressingBody({ decision: "approve" }),
     });
     await act(async () => {
@@ -141,10 +112,10 @@ describe("the seat keeps the submit and the settlement, and the body keeps neith
   it("negative control: a body that never presses leaves the seat with nothing to say", async () => {
     // Without this, the cases above would hold over a seat that drew its settlement
     // unconditionally — which would report an answer nobody had given.
-    const probe = bridgeWatchingSubmits();
+    const probe = watchingSubmits();
     const { container } = await renderSwitchableSlot({
       phase: fixtureWaitPhase(),
-      bridge: probe.bridge,
+      submitForm: probe.submitForm,
       body: pressingBody({ decision: "approve" }),
     });
     await settle();

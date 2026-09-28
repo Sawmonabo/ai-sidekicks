@@ -6,47 +6,28 @@
 // reading the file. `primitives/reading/ReadingNotice.tsx` is the precedent — a deep relative
 // import from its host, and no door line, because nothing outside this family
 // composes it.
-//
-// THE SCOPE RESOLUTION TRAVELS WITH THE BODY. `scopedSessionStore` has exactly one
-// caller and it is the component below; splitting the two apart would leave a
-// resolution rule in one module and the only decision it governs in another.
 
 import type {
   ConsolePaneAddress,
   ConsolePaneContext,
   ConsoleSurfaceContext,
 } from "../seats/index.js";
-import { Nothing } from "../primitives/index.js";
-import type { SessionStore } from "../store/index.js";
 
 /**
- * The registered body for one address, or the registry's own absence.
+ * The registered body for one address, or nothing when the kind has none.
  *
- * The store is the SCOPE's — the session the person in front of this surface settled
- * on, which outranks both the route and the window's retention because it is the one
- * of the three they performed deliberately. A pane handed no store renders its own
- * absence, which is the honest shape wherever no session is in scope at all.
- *
- * The BOARD is the composition's, taken off the same context: this surface resolves
- * bodies from the registry the composition around it registered them into, never from
- * the process-wide one.
+ * The pane is handed the surface context's own stores. Its body resolves from the pane
+ * board on that context, the registry the composition around this surface registered
+ * into, never from the process-wide one.
  */
 export function OpenPaneBody(props: {
   readonly address: ConsolePaneAddress;
   readonly context: ConsoleSurfaceContext;
-  readonly scopeSessionId: string | undefined;
 }): React.JSX.Element {
-  const { address, context, scopeSessionId } = props;
+  const { address, context } = props;
   const descriptor = context.paneRegistry.descriptorFor(address.kind);
   if (descriptor === undefined) {
-    return (
-      <Nothing
-        kind="empty"
-        placement="surface"
-        title="That pane has not been built yet."
-        detail={`Nothing is registered for the "${address.kind}" pane. It is reserved, not missing.`}
-      />
-    );
+    return <></>;
   }
   // Through the address's own discriminant: `ConsolePaneAddress` is a kind-scoped
   // union, so a session-scoped arm carries no entity to name a pane after and a bare
@@ -59,7 +40,7 @@ export function OpenPaneBody(props: {
     paneId: `workflows:${address.kind}:${addressedEntityId ?? "new"}`,
     bridge: context.bridge,
     frameStore: context.frameStore,
-    sessionStore: scopedSessionStore(context, scopeSessionId),
+    sessionStore: context.sessionStore,
     uiStateStore: context.uiStateStore,
     draftStore: context.draftStore,
     // Nothing linked this pane to another: this surface opens one pane at a time from
@@ -72,31 +53,4 @@ export function OpenPaneBody(props: {
     focusHue: undefined,
   };
   return <>{descriptor.render(paneContext)}</>;
-}
-
-/**
- * The store for the session in scope, and never another session's.
- *
- * `peek`, never `open`: opening a session is a lifecycle act, and a surface that
- * performed one to render a pane would create state nobody asked for. The route's
- * store serves only where it is the SAME session — it is the one this window is
- * actually in, so where the scope names it there is no reason to prefer a registry
- * entry — and where the scope names a session this window has not opened, the answer
- * is nothing rather than the route's, because handing a body a different session's
- * store is the defect this resolution exists to end.
- *
- * With nothing in scope at all the route's store is all there is, which is the arm
- * that matters the day this host is mounted somewhere that names a session.
- */
-function scopedSessionStore(
-  context: ConsoleSurfaceContext,
-  scopeSessionId: string | undefined,
-): SessionStore | undefined {
-  if (scopeSessionId === undefined) {
-    return context.sessionStore;
-  }
-  return (
-    context.sessionStoreRegistry.peek(scopeSessionId) ??
-    (context.sessionStore?.sessionId === scopeSessionId ? context.sessionStore : undefined)
-  );
 }

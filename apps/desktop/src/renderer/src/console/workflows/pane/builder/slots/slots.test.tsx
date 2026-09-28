@@ -1,8 +1,7 @@
 // The two workflow-engine slots the builder mounts, checked on the two things a slot owes.
 //
-//   1. **The shell stands while nobody has filled it**, and says the feature has
-//      not been built — never a shape that reads as a broken one, and never a word
-//      of the ownership prose the contract carries.
+//   1. **The frame stands while nobody has filled it**, and holds nothing — no copy and
+//      no shape that reads as a broken one.
 //   2. **The mount obligation is delivered.** A slot's props type is a promise
 //      about what the body receives, and a promise nothing checks is prose. Each
 //      case below supplies a body and reads back exactly what arrived.
@@ -18,7 +17,6 @@ import { describe, expect, it, vi } from "vitest";
 
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "../../../../core/index.js";
 import { DraftStore, UiStateStore } from "../../../../persistence/index.js";
-import { WORKFLOW_DRAFT_SLOT, WORKFLOW_GRAPH_SLOT } from "../../../owner-slots.js";
 import { DraftsSlot, type DraftsMount } from "./DraftsSlot.js";
 import { NodeGraphSlot, type NodeGraphMount } from "./NodeGraphSlot.js";
 
@@ -60,31 +58,13 @@ function unfilledSlots(): readonly (readonly [string, React.JSX.Element])[] {
   ];
 }
 
-describe("an unfilled builder slot is reserved, not stubbed", () => {
-  it.each(unfilledSlots())("%s stands in its own mount with an empty absence", (_name, element) => {
+describe("an unfilled builder slot is an empty frame", () => {
+  it.each(unfilledSlots())("%s stands as its own frame and holds nothing", (_name, element) => {
     const { container } = render(element);
-    expect(container.querySelectorAll(".meridian-workflow__slot")).toHaveLength(1);
-    expect(container.querySelector(".meridian-nothing--empty")).not.toBeNull();
-  });
-
-  it.each(unfilledSlots())(
-    "%s renders none of the contract's ownership prose",
-    (_name, element) => {
-      const { container } = render(element);
-      for (const slot of [WORKFLOW_GRAPH_SLOT, WORKFLOW_DRAFT_SLOT]) {
-        expect(container.textContent ?? "").not.toContain(slot.owningTask);
-      }
-    },
-  );
-
-  it("negative control: the contracts really do carry that prose, so the case is not vacuous", () => {
-    // Both contracts name their owning task. If neither did, the assertion above
-    // would hold over a component that rendered the whole contract verbatim. The
-    // owner is named by SUBJECT rather than by number, which is what a runtime string
-    // in this tree may carry, so that is what the control reads.
-    for (const slot of [WORKFLOW_GRAPH_SLOT, WORKFLOW_DRAFT_SLOT]) {
-      expect(slot.owningTask).toContain("workflow authoring and execution plan");
-    }
+    const frames = container.querySelectorAll(".meridian-workflow__slot");
+    expect(frames).toHaveLength(1);
+    expect(frames[0]?.childElementCount).toBe(0);
+    expect(frames[0]?.textContent).toBe("");
   });
 });
 
@@ -110,7 +90,7 @@ describe("a filled builder slot receives exactly what the mount promised", () =>
       workflowDefinitionId: DEFINITION_ID,
       uiStateStore,
     });
-    expect(container.querySelector(".meridian-nothing--empty")).toBeNull();
+    expect(container.querySelector(".meridian-workflow__slot")?.textContent).toBe("canvas body");
   });
 
   it("hands the drafts the definition and the window store, and no durable store", () => {
@@ -124,14 +104,5 @@ describe("a filled builder slot receives exactly what the mount promised", () =>
       workflowDefinitionId: DEFINITION_ID,
       draftStore,
     });
-  });
-
-  it("negative control: an unfilled slot calls nothing and keeps its shell", () => {
-    const body = vi.fn(() => <p>canvas body</p>);
-    const { container } = render(
-      <NodeGraphSlot workflowDefinitionId={DEFINITION_ID} uiStateStore={unopenedUiStateStore()} />,
-    );
-    expect(body).not.toHaveBeenCalled();
-    expect(container.querySelector(".meridian-nothing--empty")).not.toBeNull();
   });
 });

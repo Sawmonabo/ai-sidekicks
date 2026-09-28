@@ -21,13 +21,14 @@
 import { act, cleanup } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { type GrowthPort } from "../../../bridge/index.js";
-import { createRefusingGrowthPort } from "../../../bridge/growth-port/growth-port.js";
+import { unhandledRejectionsDuring } from "../../../core/unhandled-rejection.test-support.js";
 import {
+  CANCEL_FAILURE,
   RUN_A,
   RUN_B,
-  heldCancelPort,
+  heldCancelCalls,
   observeControls,
+  rejectingCancelCalls,
 } from "./run-control-dispatch.test-support.js";
 import { settle } from "../../workflows-probe.test-support.js";
 
@@ -37,8 +38,8 @@ afterEach(() => {
 
 describe("one act per run and action is in flight, and a second press is told so", () => {
   it("refuses the second press instead of dispatching it", async () => {
-    const port = heldCancelPort();
-    const controls = observeControls(port.growth, RUN_A);
+    const held = heldCancelCalls();
+    const controls = observeControls(held.calls, RUN_A);
     // ONE CAPTURED CONTROL, PRESSED TWICE INSIDE ONE `act`, which is the whole subject.
     // Two presses in two `act` scopes are two frames: the second reads a control the
     // first press has already re-rendered, so a rendered `dispatching` flag refuses it
@@ -53,7 +54,7 @@ describe("one act per run and action is in flight, and a second press is told so
     });
     // One call, not two: the daemon would otherwise take two cancellations for one
     // intended act.
-    expect(port.requests).toHaveLength(1);
+    expect(held.requests).toHaveLength(1);
     const { outcome } = controls.latest().cancel;
     expect(outcome.kind).toBe("refused");
     if (outcome.kind !== "refused") {
@@ -63,49 +64,41 @@ describe("one act per run and action is in flight, and a second press is told so
   });
 
   it("frees the key once the first act settles, so the next press dispatches", async () => {
-    const port = heldCancelPort();
-    const controls = observeControls(port.growth, RUN_A);
+    const held = heldCancelCalls();
+    const controls = observeControls(held.calls, RUN_A);
     await act(async () => {
       controls.latest().cancel.cancel(undefined);
     });
     await act(async () => {
-      port.serve();
+      held.serve();
     });
     await settle();
     await act(async () => {
       controls.latest().cancel.cancel(undefined);
     });
-    expect(port.requests).toHaveLength(2);
+    expect(held.requests).toHaveLength(2);
   });
 
   it("negative control: an outstanding cancel does not refuse a resume", async () => {
     // The two controls are separately grantable and separately in flight. A single key
     // for the run would make an outstanding cancel look like a reason to refuse the
     // other act entirely.
-    const resumeRequests: Parameters<GrowthPort["workflowRunResume"]>[0][] = [];
-    const port = heldCancelPort();
-    const growth: GrowthPort = {
-      ...port.growth,
-      workflowRunResume: async (request) => {
-        resumeRequests.push(request);
-        return { status: "served", value: { workflowRunId: RUN_A, state: "running" } };
-      },
-    };
-    const controls = observeControls(growth, RUN_A);
+    const held = heldCancelCalls();
+    const controls = observeControls(held.calls, RUN_A);
     await act(async () => {
       controls.latest().cancel.cancel(undefined);
     });
     await act(async () => {
       controls.latest().resume.resume(undefined);
     });
-    expect(resumeRequests).toHaveLength(1);
+    expect(held.resumeRequests).toHaveLength(1);
   });
 });
 
 describe("an answer is about the run that asked", () => {
   it("drops an in-flight act when the pane is retargeted in place", async () => {
-    const port = heldCancelPort();
-    const controls = observeControls(port.growth, RUN_A);
+    const held = heldCancelCalls();
+    const controls = observeControls(held.calls, RUN_A);
     await act(async () => {
       controls.latest().cancel.cancel(undefined);
     });
@@ -115,7 +108,7 @@ describe("an answer is about the run that asked", () => {
     expect(controls.latest().cancel.outcome.kind).toBe("idle");
 
     await act(async () => {
-      port.serve();
+      held.serve();
     });
     await settle();
     // And run A's answer lands nowhere: settling it under run B would tell an operator
@@ -129,8 +122,8 @@ describe("an answer is about the run that asked", () => {
     // outstanding cancel would refuse run B's FIRST press — a pane that retargets in
     // place would offer a control the operator cannot use, for a reason about a run
     // that is no longer on screen.
-    const port = heldCancelPort();
-    const controls = observeControls(port.growth, RUN_A);
+    const held = heldCancelCalls();
+    const controls = observeControls(held.calls, RUN_A);
     await act(async () => {
       controls.latest().cancel.cancel(undefined);
     });
@@ -138,19 +131,19 @@ describe("an answer is about the run that asked", () => {
     await act(async () => {
       controls.latest().cancel.cancel(undefined);
     });
-    expect(port.requests).toStrictEqual([{ workflowRunId: RUN_A }, { workflowRunId: RUN_B }]);
+    expect(held.requests).toStrictEqual([{ workflowRunId: RUN_A }, { workflowRunId: RUN_B }]);
   });
 
   it("negative control: without a retarget the same act settles on the control", async () => {
     // Without this the case above would be satisfied by a dispatcher whose settlements
     // never installed at all.
-    const port = heldCancelPort();
-    const controls = observeControls(port.growth, RUN_A);
+    const held = heldCancelCalls();
+    const controls = observeControls(held.calls, RUN_A);
     await act(async () => {
       controls.latest().cancel.cancel(undefined);
     });
     await act(async () => {
-      port.serve();
+      held.serve();
     });
     await settle();
     expect(controls.latest().cancel.outcome.kind).toBe("settled");
@@ -159,29 +152,74 @@ describe("an answer is about the run that asked", () => {
 
 describe("the run read's round advances for served acts and for nothing else", () => {
   it("advances once per served act", async () => {
-    const port = heldCancelPort();
-    const controls = observeControls(port.growth, RUN_A);
+    const held = heldCancelCalls();
+    const controls = observeControls(held.calls, RUN_A);
     expect(controls.latest().servedActCount).toBe(0);
     await act(async () => {
       controls.latest().cancel.cancel(undefined);
     });
     await act(async () => {
-      port.serve();
+      held.serve();
     });
     await settle();
     expect(controls.latest().servedActCount).toBe(1);
   });
 
-  it("negative control: a refused act advances no round", async () => {
-    // The re-arm exists because a served act CHANGED the run. A refused one changed
+  it("negative control: a refused press advances no round", async () => {
+    // The re-arm exists because a served act CHANGED the run. A refused press changed
     // nothing, so re-reading after it would be a read nobody's act justified — the
     // first step towards a cadence.
-    const controls = observeControls(createRefusingGrowthPort(), RUN_A);
+    const held = heldCancelCalls();
+    const controls = observeControls(held.calls, RUN_A);
+    const pressed = controls.latest().cancel;
+    await act(async () => {
+      pressed.cancel(undefined);
+      pressed.cancel(undefined);
+    });
+    expect(controls.latest().cancel.outcome.kind).toBe("refused");
+    expect(controls.latest().servedActCount).toBe(0);
+  });
+
+  it("advances the same round for an act recorded outside the controls", async () => {
+    // A submission the daemon recorded moves the run as a served cancel does, so it
+    // advances the one count rather than keeping a second number for the pane to sum.
+    const held = heldCancelCalls();
+    const controls = observeControls(held.calls, RUN_A);
     await act(async () => {
       controls.latest().cancel.cancel(undefined);
     });
+    await act(async () => {
+      controls.latest().recordServedAct();
+    });
+    expect(controls.latest().servedActCount).toBe(1);
+    // An act performed elsewhere answers neither control here.
+    expect(controls.latest().cancel.outcome.kind).toBe("dispatching");
+    expect(controls.latest().resume.outcome.kind).toBe("idle");
+
+    await act(async () => {
+      held.serve();
+    });
     await settle();
-    expect(controls.latest().cancel.outcome.kind).toBe("refused");
+    expect(controls.latest().servedActCount).toBe(2);
+  });
+
+  it("negative control: a call that rejects advances no round and frees the key", async () => {
+    // No reply was served, so the run was not moved and no read is owed; and the key must
+    // go back, or the control would refuse every later press as a duplicate.
+    const failing = rejectingCancelCalls();
+    const controls = observeControls(failing.calls, RUN_A);
+    // The dispatcher does not catch the rejection, so the runner reports it; the witness
+    // reads that report instead of letting it fail the run.
+    const escaped = await unhandledRejectionsDuring(async () => {
+      await act(async () => {
+        controls.latest().cancel.cancel(undefined);
+      });
+      await act(async () => {
+        controls.latest().cancel.cancel(undefined);
+      });
+    });
+    expect(escaped).toStrictEqual([CANCEL_FAILURE, CANCEL_FAILURE]);
+    expect(failing.requests).toHaveLength(2);
     expect(controls.latest().servedActCount).toBe(0);
   });
 });

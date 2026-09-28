@@ -4,8 +4,7 @@
 // OWNED BY THE WORKFLOW ENGINE. A `human` phase's form configuration, a gate's
 // settings and a back-reference target are edited in the inspector, and the
 // in-progress text is user-authored content the console holds and never
-// stores. The editor is the engine's own body; this console frames it. THE SHELL
-// DIES IN THE TASK THAT MOUNTS THE BODY, in the same PR as the mount.
+// stores. The editor is the engine's own body; this console frames it.
 //
 // THE DURABLE STORE IS DELIBERATELY NOT ON THIS MOUNT, and that absence is the
 // whole design rather than an omission. A draft is prose, so the durable store's
@@ -28,7 +27,6 @@
 // under it; the convention lands with the first family that has two writers.
 
 import { WorkflowSlotMount } from "../../../WorkflowSlotMount.js";
-import { WORKFLOW_DRAFT_SLOT } from "../../../owner-slots.js";
 import type { DraftStore } from "../../../../persistence/index.js";
 
 /** What the builder pane hands the inspector's draft body. */
@@ -48,25 +46,18 @@ export interface DraftsMount {
 
 /**
  * The body the workflow engine authors: a COMPONENT this pane renders, never a function
- * it calls. `owner-slots.ts` states the reason once for all five slots.
+ * it calls, because a call would put the body's hooks into the wrapper's hook list.
  */
 export type DraftsBody = (mount: DraftsMount) => React.ReactNode;
 
+/** The drafts mount plus the body, once there is one. */
 export interface DraftsSlotProps extends DraftsMount {
   /** The body, once there is one. Absent everywhere here, so the shell stands. */
   readonly body?: DraftsBody;
 }
 
-/** The inspector's drafts, or the honest statement that they are reserved and unbuilt. */
+/** The inspector's drafts frame: the engine's body once it is supplied, empty until then. */
 export function DraftsSlot(props: DraftsSlotProps): React.JSX.Element {
   const { body, ...mount } = props;
-  return (
-    <WorkflowSlotMount
-      contract={WORKFLOW_DRAFT_SLOT}
-      body={body}
-      mount={mount}
-      title="The phase inspector is not built yet."
-      detail="A phase's form configuration, tool binding and gate open here; nothing typed into them is ever written to disk."
-    />
-  );
+  return <WorkflowSlotMount body={body} mount={mount} />;
 }

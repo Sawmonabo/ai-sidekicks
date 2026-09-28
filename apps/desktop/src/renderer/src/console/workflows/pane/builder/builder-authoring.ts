@@ -1,144 +1,13 @@
-// The builder's authoring vocabulary: the five acts that write a definition, the one
-// this surface draws, and the refusal it renders while none of them can be reached.
-//
-// FIVE ACTS, ONE WIRE. Saving, cutting a new version, importing, promoting, and
-// forking a shared definition into a scope of one's own are five things a person
-// does and one thing the daemon is asked — every one of them submits a definition
-// body and gets a version back, and the authoring surface mints no operation of its
-// own. Enumerating them is what keeps that true: a sixth act that needed a sixth
-// method would have to be added here first, in front of a reviewer.
-//
-// ONE OF THE FIVE IS DRAWN. Rule 7 gives a surface one primary action and puts the
-// rest one click away, so the builder pane's head offers saving and nothing else; the
-// other four are reached from the definitions browser and from the version chain,
-// where the thing they act on is already in front of the person.
-//
-// A MODULE RATHER THAN LITERALS IN THE COMPONENT, for the reason the run pane's own
-// control vocabulary gives: the act set and the refusal-code set are CLOSED, and a
-// closed set spelled inside a component is a set the next surface re-spells. Each
-// producer keeps its own code union and widens into the shared refusal shape at its
-// boundary — `core/refusal.ts` says why it cannot be one union for the console.
-//
-// WIRE STATUS — READ THIS BEFORE WIRING A CALLER. `packages/contracts` still registers
-// no `workflow.*` method, but the create the five acts below all submit IS on
-// `console/bridge/growth-port/growth-port.ts` now, under the
-// `workflow-definition-authoring` slate row — so a build whose bridge cannot serve it
-// gets the port's own refusal, naming the wire and who owes it, rather than a sentence
-// this file composed about a bridge it had not asked.
-//
-// WHICH IS WHY THE REFUSAL BELOW IS NO LONGER ABOUT THE WIRE. What stops SAVING here is
-// upstream of any call: saving submits an EDITED body, and the canvas that edits one is
-// the engine's reserved slot — there is nothing to send. `reservedCanvasAct` says that,
-// and a pane that said "the operation is not on the bridge" would now be asserting
-// something false about a port that carries it. The two acts whose subject is the
-// definition already on screen — importing and promoting — do reach the port, from
-// `definitions/detail/definition-authoring-port-acts.ts`, which is where an act with
-// something to submit belongs.
+// The builder pane's address vocabulary: the one entity kind it authors, and what it says
+// when it is opened with no subject or with the wrong kind.
 
-import { refuse, type ConsoleRefusal } from "../../../core/index.js";
+import type { ConsoleRefusal } from "../../../core/index.js";
 import type { ConsoleEntityRef } from "../../../store/index.js";
 import type { WorkflowStripState } from "../../strip-state.js";
-import { PANE_ADDRESS_INVALID_CODE, misaddressedPane } from "../pane-addressing.js";
-
-/**
- * Every act that writes a definition, and exactly five.
- *
- * The tuple is the declaration and the union derives from it, so the count claim
- * above is countable at runtime rather than asserted in prose.
- */
-export const WORKFLOW_AUTHORING_ACTS = [
-  "save",
-  "new-version",
-  "import",
-  "promote",
-  "fork",
-] as const;
-
-/** One authoring act. Derived from the tuple, never restated. */
-export type WorkflowAuthoringAct = (typeof WORKFLOW_AUTHORING_ACTS)[number];
-
-/**
- * The one act this surface draws.
- *
- * A binding rather than a literal at the call site: rule 7's "one primary action"
- * is a property of the surface, and a second component reaching for a different
- * member would be a second primary action arriving without anyone deciding to add
- * one.
- */
-export const WORKFLOW_BUILDER_PRIMARY_ACT: WorkflowAuthoringAct = "save";
+import { misaddressedPane } from "../pane-addressing.js";
 
 /** The subsystem name every refusal raised in this file carries. */
 export const WORKFLOW_BUILDER_ORIGIN = "workflow-builder";
-
-/**
- * The code an act with nothing to submit refuses under.
- *
- * Declared here rather than imported, because the condition is this surface's own: the
- * canvas that would compose an edited body is a reserved slot in this very directory.
- */
-export const AUTHORING_CANVAS_RESERVED_CODE = "authoring-canvas-reserved" as const;
-
-/**
- * The refusals this surface raises on its own, and no others.
- *
- * Two members, and they refuse at two different moments. Every shape the canvas
- * refuses is refused at the point it is drawn, in the body's own words at the
- * cursor, and every save-time refusal is the daemon's typed code rendered verbatim
- * — neither of those is here. What is left for this pane is the pair of cases with
- * no daemon in the loop at all:
- *
- *   • `authoring-canvas-reserved` — there is a subject, there is a wire, and there is
- *     nothing to send. Saving submits an edited definition body and the canvas that
- *     edits one is not built, so the refusal is about this build's own surface rather
- *     than about the bridge. It deliberately REPLACED `wire-unregistered` here when the
- *     create landed on the growth port: a pane naming a code the port itself owns would
- *     be a second author for a fact the port already reports, and would now be wrong.
- *   • `pane-address-invalid` — there is no well-formed question. The pane was
- *     handed an entity of a kind it does not author, so it refuses BEFORE composing
- *     a read rather than passing a run id off as a definition id and asking about
- *     something that does not exist. Both panes in this family raise it, so the code
- *     itself is declared in `workflows/pane/pane-addressing.ts` and this set names it from
- *     there rather than spelling a second literal.
- */
-export const WORKFLOW_BUILDER_REFUSAL_CODES: readonly [
-  typeof AUTHORING_CANVAS_RESERVED_CODE,
-  typeof PANE_ADDRESS_INVALID_CODE,
-] = [AUTHORING_CANVAS_RESERVED_CODE, PANE_ADDRESS_INVALID_CODE] as const;
-
-/** One locally-raised refusal code. Derived from the tuple, never restated. */
-export type WorkflowBuilderRefusalCode = (typeof WORKFLOW_BUILDER_REFUSAL_CODES)[number];
-
-/** What each act is called where a person reads about it not being reachable. */
-const ACT_PROSE: Readonly<Record<WorkflowAuthoringAct, string>> = {
-  save: "Saving a definition",
-  "new-version": "Cutting a new version",
-  import: "Importing a definition",
-  promote: "Promoting a definition to a wider scope",
-  fork: "Forking a shared definition",
-};
-
-/**
- * The state an authoring act is in while the canvas that composes its body is reserved.
- *
- * "Not checked" and never "denied": nobody put the question to a daemon, so a
- * console that rendered this as a denial would be asserting an adjudication that
- * never happened. The detail names the act in prose rather than naming a method
- * string, because no such method is registered and printing one would be this
- * surface inventing the wire it is reporting the absence of — the create it would
- * ride is on the growth port, and a surface that could reach it would render THAT
- * refusal rather than composing one here.
- */
-export function reservedCanvasAct(act: WorkflowAuthoringAct): ConsoleRefusal {
-  // Bound through the closed vocabulary before it reaches `refuse`, whose `code`
-  // parameter is a deliberately-wide `string` — `core/refusal.ts` cannot close it
-  // without importing every producer and inverting the DAG.
-  const code: WorkflowBuilderRefusalCode = AUTHORING_CANVAS_RESERVED_CODE;
-  return refuse(
-    WORKFLOW_BUILDER_ORIGIN,
-    code,
-    `${ACT_PROSE[act]} is not reachable from this build — the canvas that composes a definition body is reserved and unbuilt.`,
-  );
-}
 
 /**
  * The one entity kind this pane authors.
@@ -171,23 +40,7 @@ export function misaddressedBuilderPane(addressedKind: ConsoleEntityRef["kind"])
 
 /**
  * The state of a pane opened with no definition to author.
- *
- * `empty` and not `not-checked`: nothing was left unasked here, because there is no
- * subject to ask about. `strip-state.ts` reserves this arm for exactly that — a
- * surface whose address names no subject at all — and the two absences point at
- * different next moves, which is why they are different arms.
- *
- * WHY THIS IS AN ABSENCE AND NOT AN AUTHORING CANVAS. Every act that writes a
- * definition submits a definition body, and the canvas that composes one is reserved;
- * the pane can therefore be opened with no subject and can start nothing with one. An
- * ADDRESSED pane is a different case since the reads landed — it opens on the
- * definition it names — which is why this arm still withholds a control the surface
- * that would have opened it never offers.
  */
 export function unaddressedBuilderPane(): WorkflowStripState {
-  return {
-    kind: "empty",
-    title: "This pane was opened without a definition to author.",
-    detail: `${ACT_PROSE[WORKFLOW_BUILDER_PRIMARY_ACT]} is not reachable from this build, so nothing here can start one. Open a definition from the workflows destination to read an existing one.`,
-  };
+  return { kind: "empty", title: "This pane was opened without a definition to author." };
 }

@@ -1,69 +1,49 @@
-// The run enumeration has four endings, and it is always about one session.
+// The run enumeration is always about one session, and about one call.
 //
-// Every case drives a REAL growth port — the refusing one, or the real one with the
-// enumeration answered per session, the shape `definition-directory.test.tsx` already
-// uses. A stand-in port would agree with whatever the hook did with it.
-//
-// EVERY CASE OBSERVES THE COMMITTED STATE, through the probe the store already owns.
-// This hook re-addresses DURING the render, and a render React discards still ran — so
-// a log written from a render body shows a value no commit ever carried, under a
-// correct hook as readily as under a broken one. An effect runs once per COMMIT, which
-// is the frame a surface paints and a screen reader is handed, and
-// `store/subject-read-commits.test-support.tsx` is where that probe lives: a second
-// copy here would be a second answer to when this file's cases are looking.
+// Every case observes the COMMITTED state through the probe the store already owns: this
+// hook re-addresses during the render, and a render React discards still ran, so a log
+// written from a render body shows a value no commit ever carried.
 
 import { cleanup } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { type GrowthPort, type WorkflowRunListEntry } from "../../bridge/index.js";
-import { createRefusingGrowthPort } from "../../bridge/growth-port/growth-port.js";
-import { WORKFLOWS_SCENARIO_RUNS } from "../../bridge/scenario/workflows/runs.js";
+import type { WorkflowRunListEntry } from "../../bridge/index.js";
 import {
   latestCommitted,
   observeSubjectRead,
   type ObservedSubjectRead,
 } from "../../store/subject-read-commits.test-support.js";
 import {
+  PARKED_RUN,
   PROBE_SESSION_ID,
   SECOND_PROBE_SESSION_ID,
   settle,
 } from "../workflows-probe.test-support.js";
-import { useWorkflowRunDirectory, type WorkflowRunDirectoryState } from "./run-directory.js";
+import {
+  useWorkflowRunDirectory,
+  type WorkflowRunDirectoryState,
+  type WorkflowRunListCall,
+} from "./run-directory.js";
 
 /** One enumeration entry per session, so a row can be traced back to what was asked. */
-function entriesFor(sessionId: string): readonly WorkflowRunListEntry[] {
-  const [run] = WORKFLOWS_SCENARIO_RUNS;
-  if (run === undefined) {
-    throw new Error("the workflows fixture carries no runs");
-  }
-  return [{ ...run, sessionId, definitionName: `Definition of ${sessionId}` }];
+function entriesFor(sessionId: string, definitionName: string): readonly WorkflowRunListEntry[] {
+  return [{ ...PARKED_RUN, sessionId, definitionName }];
 }
 
-/** The real port with the enumeration answered per session, and nothing else changed. */
-function sessionScopedGrowthPort(): GrowthPort {
-  return {
-    ...createRefusingGrowthPort(),
-    workflowRunList: async ({ sessionId }) => ({
-      status: "served",
-      value: { runs: entriesFor(sessionId) },
-    }),
-  };
+/** A stub call that answers each session with its own entry, under one definition name. */
+function listRunsNamed(definitionName: string): WorkflowRunListCall {
+  return async ({ sessionId }) => ({ runs: entriesFor(sessionId, definitionName) });
 }
 
-/** This read under the shared commit observer, addressed at one port and one session. */
+/** This read under the shared commit observer, addressed at one call and one session. */
 function observeRunDirectory(
-  growth: GrowthPort,
+  listRuns: WorkflowRunListCall,
   sessionId: string | undefined,
-): ObservedSubjectRead<GrowthPort, WorkflowRunDirectoryState, string> {
-  return observeSubjectRead(useWorkflowRunDirectory, { source: growth, subject: sessionId });
+): ObservedSubjectRead<WorkflowRunListCall, WorkflowRunDirectoryState, string> {
+  return observeSubjectRead(useWorkflowRunDirectory, { source: listRuns, subject: sessionId });
 }
 
-/**
- * The first value a commit carried, for a case whose claim is about the opening frame.
- *
- * Derived from the shared reader rather than written again, so an empty log refuses
- * here with the same sentence it refuses with everywhere else.
- */
+/** The first value a commit carried, for a case whose claim is about the opening frame. */
 function firstCommitted(
   committed: readonly WorkflowRunDirectoryState[],
 ): WorkflowRunDirectoryState {
@@ -74,53 +54,47 @@ function servedSessionIds(state: WorkflowRunDirectoryState): readonly string[] {
   return state.status === "served" ? state.runs.map((run) => run.sessionId) : [];
 }
 
+function servedDefinitionNames(state: WorkflowRunDirectoryState): readonly string[] {
+  return state.status === "served" ? state.runs.map((run) => run.definitionName) : [];
+}
+
 describe("useWorkflowRunDirectory — one read, always about one session", () => {
   afterEach(() => {
     cleanup();
   });
 
-  it("puts no question at all where no session is in scope", () => {
+  it("puts no question at all where no session is in scope", async () => {
     // `unasked` on the FIRST committed frame as well as the last, so the arm that must
     // stay unasked is held to the same moment as the arm below that must not be.
-    const probe = observeRunDirectory(createRefusingGrowthPort(), undefined);
+    const listRuns = vi.fn(listRunsNamed("Ship pipeline"));
+    const probe = observeRunDirectory(listRuns, undefined);
+    await settle();
+
     expect(firstCommitted(probe.committed).status).toBe("unasked");
     expect(latestCommitted(probe.committed).status).toBe("unasked");
+    expect(listRuns).not.toHaveBeenCalled();
   });
 
   it("is already reading on the first frame it commits with a session in scope", () => {
-    // The state was initialised `unasked` and only became `reading` in the effect,
-    // which runs after the commit — so every scoped mount painted one frame claiming
-    // nobody had asked, which the runs surface draws as "no session is in scope".
-    const probe = observeRunDirectory(sessionScopedGrowthPort(), PROBE_SESSION_ID);
+    // A state that started `unasked` and became `reading` only in the effect would paint
+    // one frame claiming nobody had asked, on every scoped mount.
+    const probe = observeRunDirectory(listRunsNamed("Ship pipeline"), PROBE_SESSION_ID);
     expect(firstCommitted(probe.committed).status).toBe("reading");
   });
 
   it("settles on the runs the enumeration served for that session", async () => {
-    const probe = observeRunDirectory(sessionScopedGrowthPort(), PROBE_SESSION_ID);
+    const probe = observeRunDirectory(listRunsNamed("Ship pipeline"), PROBE_SESSION_ID);
     await settle();
     expect(servedSessionIds(latestCommitted(probe.committed))).toEqual([PROBE_SESSION_ID]);
-  });
-
-  it("carries the port's own refusal when no wire is registered", async () => {
-    const probe = observeRunDirectory(createRefusingGrowthPort(), PROBE_SESSION_ID);
-    await settle();
-    const settled = latestCommitted(probe.committed);
-    expect(settled.status).toBe("unavailable");
-    if (settled.status === "unavailable") {
-      expect(settled.refusal.code).toBe("wire-unregistered");
-    }
-    // Never an empty list: that would assert this session holds no runs, a claim
-    // about the daemon that nothing established.
-    expect(probe.committed.map((state) => state.status)).not.toContain("served");
   });
 
   it("shows the previous session's runs nowhere once the scope moves", async () => {
-    const growth = sessionScopedGrowthPort();
-    const probe = observeRunDirectory(growth, PROBE_SESSION_ID);
+    const listRuns = listRunsNamed("Ship pipeline");
+    const probe = observeRunDirectory(listRuns, PROBE_SESSION_ID);
     await settle();
     expect(servedSessionIds(latestCommitted(probe.committed))).toEqual([PROBE_SESSION_ID]);
 
-    probe.readdress({ source: growth, subject: SECOND_PROBE_SESSION_ID });
+    probe.readdress({ source: listRuns, subject: SECOND_PROBE_SESSION_ID });
 
     // Reading, not the first session's rows: before the stamp, those stayed
     // renderable under the second session's name until the effect reset them.
@@ -131,42 +105,21 @@ describe("useWorkflowRunDirectory — one read, always about one session", () =>
   });
 });
 
-/**
- * The real port answering with runs a case can trace back to the bridge that served
- * them, so a swap is observable in the rows and not only in the status.
- */
-function labelledGrowthPort(scenarioLabel: string): GrowthPort {
-  return {
-    ...createRefusingGrowthPort(),
-    workflowRunList: async ({ sessionId }) => ({
-      status: "served",
-      value: {
-        runs: entriesFor(sessionId).map((run) => ({ ...run, definitionName: scenarioLabel })),
-      },
-    }),
-  };
-}
-
-function servedDefinitionNames(state: WorkflowRunDirectoryState): readonly string[] {
-  return state.status === "served" ? state.runs.map((run) => run.definitionName) : [];
-}
-
-describe("useWorkflowRunDirectory — the port is half of what the read is about", () => {
+describe("useWorkflowRunDirectory — the call is half of what the read is about", () => {
   afterEach(() => {
     cleanup();
   });
 
-  it("commits no run from the previous bridge once the port is replaced", async () => {
-    // The fixture's scenario switch mints a new bridge and hands back the same session
-    // id. With the stamp keyed on the session alone the state agreed with itself, so
-    // this render committed the previous scenario's runs under the new one and only the
-    // passive effect afterwards took them down.
-    const probe = observeRunDirectory(labelledGrowthPort("first scenario"), PROBE_SESSION_ID);
+  it("commits no run from the previous call once the call is replaced", async () => {
+    // A replaced call comes with the same session id. A state keyed on the session alone
+    // would agree with itself, so the render would commit the previous call's runs and
+    // only the passive effect afterwards would take them down.
+    const probe = observeRunDirectory(listRunsNamed("first call"), PROBE_SESSION_ID);
     await settle();
-    expect(servedDefinitionNames(latestCommitted(probe.committed))).toEqual(["first scenario"]);
+    expect(servedDefinitionNames(latestCommitted(probe.committed))).toEqual(["first call"]);
     const commitsBeforeSwap = probe.committed.length;
 
-    probe.readdress({ source: labelledGrowthPort("second scenario"), subject: PROBE_SESSION_ID });
+    probe.readdress({ source: listRunsNamed("second call"), subject: PROBE_SESSION_ID });
 
     expect(probe.committed.slice(commitsBeforeSwap).flatMap(servedDefinitionNames)).toStrictEqual(
       [],
@@ -174,19 +127,21 @@ describe("useWorkflowRunDirectory — the port is half of what the read is about
 
     await settle();
     // The reset is only half the claim: a hook that reset and never re-read would leave
-    // the surface reading forever under a bridge that can answer.
-    expect(servedDefinitionNames(latestCommitted(probe.committed))).toEqual(["second scenario"]);
+    // the surface reading forever under a call that can answer.
+    expect(servedDefinitionNames(latestCommitted(probe.committed))).toEqual(["second call"]);
   });
 
-  it("negative control: a re-render at the SAME port keeps the runs it settled on", async () => {
+  it("negative control: a re-render at the SAME call keeps the runs, asks nothing", async () => {
     // Without this, the case above passes for a hook that reset on every render, which
     // would re-read the enumeration forever and never show an answer at all.
-    const growth = labelledGrowthPort("first scenario");
-    const probe = observeRunDirectory(growth, PROBE_SESSION_ID);
+    const listRuns = vi.fn(listRunsNamed("first call"));
+    const probe = observeRunDirectory(listRuns, PROBE_SESSION_ID);
     await settle();
 
-    probe.readdress({ source: growth, subject: PROBE_SESSION_ID });
+    probe.readdress({ source: listRuns, subject: PROBE_SESSION_ID });
+    await settle();
 
-    expect(servedDefinitionNames(latestCommitted(probe.committed))).toEqual(["first scenario"]);
+    expect(servedDefinitionNames(latestCommitted(probe.committed))).toEqual(["first call"]);
+    expect(listRuns).toHaveBeenCalledTimes(1);
   });
 });

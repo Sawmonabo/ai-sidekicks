@@ -53,6 +53,6 @@ export function misaddressedPane(
   return refuse(
     origin,
     PANE_ADDRESS_INVALID_CODE,
-    `This pane's subject is a ${subjectKind} and it was opened on a ${addressedKind}. Nothing was read for it.`,
+    `This pane's subject is a ${subjectKind} and it was opened on a ${addressedKind}.`,
   );
 }

@@ -27,10 +27,10 @@
 // definition's, so a pane retargeted from run A to run B without unmounting resolved
 // A's `sign-off` against B's phases, found the same id there, and opened run B's
 // `sign-off` form for somebody who had asked to see run A's. The id is therefore held
-// against the port and the run the pane is addressed at — the same pair the run read
-// itself is held against — so the render that re-addresses already reads no selection.
+// against the run the pane is addressed at — the same run the run read itself is held
+// against — so the render that re-addresses already reads no selection.
 
-import type { GrowthPort, WorkflowPhaseState, WorkflowRunSnapshot } from "../../../bridge/index.js";
+import type { WorkflowPhaseState, WorkflowRunSnapshot } from "../../../bridge/index.js";
 import { useSubjectScopedState } from "../../../store/index.js";
 import type { HumanFormPhase } from "./slots/human-form-mount.js";
 
@@ -94,6 +94,9 @@ export function humanFormPhaseFor(
       };
 }
 
+/** The subject the selection is held against, so the run id alone re-addresses it. */
+const SELECTION_SUBJECT = {};
+
 /**
  * Hold which addressable human wait is open, defaulting to the first.
  *
@@ -101,39 +104,26 @@ export function humanFormPhaseFor(
  * reads is derived from the snapshot it passes in, so the hook cannot hold an answer
  * about a run it is no longer looking at.
  *
- * `undefined` is every unserved read at once — nobody asked, a read is in flight, the
- * port refused — because all three carry the same fact for this hook: there is no run
- * to resolve a wait against. A caller that passed phases without a run could reach
- * that state with a list in hand, which is exactly the pairing the mount forbids.
+ * `undefined` is every unserved read at once — nobody asked, a read is in flight —
+ * because both carry the same fact for this hook: there is no run to resolve a wait
+ * against. A caller that passed phases without a run could reach that state with a list
+ * in hand, which is exactly the pairing the mount forbids.
  *
- * THE ADDRESS AND THE ANSWER ARE BOTH PASSED, and they are not the same input. The
- * port and the run id are what the selection is HELD against — the pair
- * `useWorkflowRunSnapshot` is addressed at, so the two cannot come apart — and the
- * snapshot is what it is RESOLVED against, which exists only on the served arm. The
- * port is in the pair for that hook's own reason: the fixture's scenario switch
- * replaces the bridge and keeps the run id, so a run-only holder would carry a
- * selection made against the previous scenario's phases into the next one.
+ * THE ADDRESS AND THE ANSWER ARE BOTH PASSED, and they are not the same input. The run
+ * id is what the selection is HELD against — the id `useWorkflowRunSnapshot` is
+ * addressed at, so the two cannot come apart — and the snapshot is what it is RESOLVED
+ * against, which exists only on the served arm.
  *
- * AND `addressedPhaseId` IS THE SEED RATHER THAN A FOURTH SOURCE OF TRUTH. A phase deep
- * link opens this pane already saying which phase it is about, and the honest place for
- * that is where a person's own first choice would have gone: the initial value of the
- * one piece of state this hook holds. It is a SEED and not an override — the very next
- * card a person presses supersedes it, which is right, because they are looking at the
- * pane and the link is not. It re-seeds when the pair the selection is held at moves,
- * so a pane re-addressed at another run takes that run's link and not the previous
- * one's, and the resolution below is unchanged: an addressed phase the run does not park
- * on a person falls back to the first wait exactly as a stale click does, rather than
- * leaving the pane pointing at nothing.
+ * A requested phase the run does not park on a person falls back to the first wait, so
+ * a stale press lands on the run rather than on nothing.
  */
 export function useHumanFormSelection(
-  growth: GrowthPort,
   workflowRunId: string | undefined,
   run: WorkflowRunSnapshot | undefined,
-  addressedPhaseId?: string | undefined,
 ): HumanFormSelection {
   const { value: requestedPhaseId, publish: requestPhaseId } = useSubjectScopedState<
     string | undefined
-  >(growth, workflowRunId, () => addressedPhaseId);
+  >(SELECTION_SUBJECT, workflowRunId, () => undefined);
   const waits = run === undefined ? [] : humanFormPhasesOf(run);
   const openForm = waits.find((wait) => wait.phaseId === requestedPhaseId) ?? waits[0];
   return {

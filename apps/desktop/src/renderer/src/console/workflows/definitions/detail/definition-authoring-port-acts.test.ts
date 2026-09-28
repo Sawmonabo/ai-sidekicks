@@ -1,10 +1,5 @@
-// The two acts that reach the growth port: what settles before a call is put, what the
-// create body carries, and what a second press is answered with.
-//
-// THE PROMOTE CASES ASSERT ON THE REQUEST AND NOT ON THE REPLY, which is the only place
-// the copy-on-write marker is observable at all: `parentContentHash` is provenance the
-// daemon stores and NEITHER read reply returns, so a promotion that recorded itself as a
-// downward fork would be invisible everywhere except in the body this surface sends.
+// The import, the act that puts the create call: what settles before a call is put, and
+// what a second press is answered with.
 //
 // SINGLE FLIGHT IS ASSERTED HERE AND NOT ON THE EXPORT, because the two acts answer a
 // second press differently and for a reason. A create is outstanding against the daemon
@@ -17,93 +12,20 @@ import { cleanup, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { serializeWorkflowDefinitionFile } from "../../../bridge/index.js";
+import { PROBE_SESSION_ID } from "../../workflows-probe.test-support.js";
 import {
-  DEFINITION_RELEASE_CHECKS_SESSION,
-  WORKFLOWS_SESSION_ID,
-} from "../../../bridge/scenario/workflows/ids.js";
-import type { GrowthPort, WorkflowDefinitionCreateBody } from "../../../bridge/index.js";
-import {
+  RELEASE_CHECKS_BODY,
   authoringBridge,
   expectLocalRefusal,
   mountAuthoring,
-  scriptedBody,
 } from "./definition-authoring-dispatch.test-support.js";
+import type { WorkflowDefinitionCreateCall } from "./definition-authoring-runtime.js";
 
 afterEach(cleanup);
 
-/**
- * A create arm that records what was submitted and answers as the daemon would.
- *
- * The REQUEST is the subject of the promote cases, and the refusing port never sees one:
- * its `wire-unregistered` arm answers without being handed a body.
- */
-function recordingCreate(
-  submitted: WorkflowDefinitionCreateBody[],
-): GrowthPort["workflowDefinitionCreate"] {
-  return async (request) => {
-    submitted.push(request);
-    return {
-      status: "served",
-      value: {
-        definitionId: DEFINITION_RELEASE_CHECKS_SESSION,
-        versionNumber: 1,
-        createdAt: "2026-01-01T07:04:00.000Z",
-      },
-    };
-  };
-}
-
-describe("promoting — the promoted bytes, and no copy-on-write marker", () => {
-  it("submits no `parentContentHash`, which is the other direction's provenance", async () => {
-    // A promotion creates the shared definition from the promoted version's exact
-    // bytes, and the marker belongs to the edit that forks a shared definition
-    // DOWNWARD. Setting it here recorded every promoted version as branched from a
-    // shared original that never existed.
-    const body = scriptedBody();
-    const submitted: WorkflowDefinitionCreateBody[] = [];
-    const mounted = mountAuthoring(
-      authoringBridge({ create: recordingCreate(submitted) }),
-      WORKFLOWS_SESSION_ID,
-      body,
-    );
-    await mounted.press(() => {
-      mounted.current().promoteDefinition();
-    });
-
-    const request = submitted[0];
-    expect(request).toBeDefined();
-    // ABSENT rather than present-and-undefined: a member the request carries at all is
-    // a member the daemon reads.
-    expect(Object.keys(request ?? {})).not.toContain("parentContentHash");
-    // And the same request is a promotion of THESE bytes, without which the line above
-    // would hold over an act that submitted nothing recognisable.
-    expect(request?.scope).toBe("shared");
-    expect(request?.name).toBe(body.name);
-    expect(request?.entry).toEqual(body.entry);
-    expect(request?.phaseDefinitions).toEqual(body.phaseDefinitions);
-  });
-
-  it("leaves the member on the create shape, for the direction that owns it", () => {
-    // Reserved and not deleted. An author editing a `shared` definition submits a
-    // NARROWER one carrying the shared original's hash, and that write is the one the
-    // member exists for — a claim this case makes at compile time as much as at run.
-    const body = scriptedBody();
-    const copyOnWrite: WorkflowDefinitionCreateBody = {
-      sessionId: WORKFLOWS_SESSION_ID,
-      name: body.name,
-      scope: "session",
-      scopeRef: WORKFLOWS_SESSION_ID,
-      parentContentHash: body.contentHash,
-      phaseDefinitions: body.phaseDefinitions,
-    };
-
-    expect(copyOnWrite.parentContentHash).toBe(body.contentHash);
-  });
-});
-
 describe("importing — what settles before any call is put", () => {
   it("refuses with `session-unbound` where the pane is bound to no session", async () => {
-    const mounted = mountAuthoring(authoringBridge(), undefined, scriptedBody());
+    const mounted = mountAuthoring(authoringBridge(), undefined, RELEASE_CHECKS_BODY);
     await mounted.press(() => {
       mounted.current().importDefinition("{}");
     });
@@ -111,10 +33,10 @@ describe("importing — what settles before any call is put", () => {
     expectLocalRefusal(mounted.current().outcomes.import, "session-unbound");
   });
 
-  it("negative control: the same text reaches the port once a session is bound", async () => {
+  it("negative control: the same text is read once a session is bound", async () => {
     // Without this, the case above would hold over a hook that refused every import —
     // the right answer for one input, arrived at without reading the session at all.
-    const mounted = mountAuthoring(authoringBridge(), WORKFLOWS_SESSION_ID, scriptedBody());
+    const mounted = mountAuthoring(authoringBridge(), PROBE_SESSION_ID, RELEASE_CHECKS_BODY);
     await mounted.press(() => {
       mounted.current().importDefinition("{}");
     });
@@ -130,47 +52,57 @@ describe("importing — what settles before any call is put", () => {
 
 describe("single flight — one outstanding create per act and definition", () => {
   /** A create that never answers, which is what a press mid-flight is waiting on. */
-  const outstandingCreate: GrowthPort["workflowDefinitionCreate"] = () => {
+  const outstandingCreate: WorkflowDefinitionCreateCall = () => {
     return new Promise(() => undefined);
   };
 
-  it("refuses the second press of one act rather than putting a second create", async () => {
+  it("refuses the second press of the import rather than putting a second create", async () => {
     const mounted = mountAuthoring(
-      authoringBridge({ create: outstandingCreate }),
-      WORKFLOWS_SESSION_ID,
-      scriptedBody(),
+      authoringBridge(),
+      PROBE_SESSION_ID,
+      RELEASE_CHECKS_BODY,
+      outstandingCreate,
     );
+    // The pasted text is a REAL file — the exporter's own output — because an unreadable
+    // one refuses at the parse and never reaches the latch. Composed BEFORE the press
+    // rather than inside it: the writer arrives in its own chunk, so the serializer
+    // answers a promise and a press handed one would import the promise's own text.
+    const exported = await serializeWorkflowDefinitionFile(RELEASE_CHECKS_BODY);
     await mounted.press(() => {
-      mounted.current().promoteDefinition();
+      mounted.current().importDefinition(exported);
     });
-    expect(mounted.current().outcomes.promote.kind).toBe("dispatching");
+    await waitFor(() => {
+      expect(mounted.current().outcomes.import.kind).toBe("dispatching");
+    });
 
     await mounted.press(() => {
-      mounted.current().promoteDefinition();
+      mounted.current().importDefinition(exported);
     });
 
-    expectLocalRefusal(mounted.current().outcomes.promote, "act-in-flight");
+    await waitFor(() => {
+      expectLocalRefusal(mounted.current().outcomes.import, "act-in-flight");
+    });
   });
 
-  it("does not let an outstanding promote refuse an import", async () => {
-    // The two acts take separate keys. Sharing one would answer a person's first press
-    // of a different control with a sentence about a submission they never made.
-    //
-    // The pasted text is a REAL file — the exporter's own output — because an
-    // unreadable one refuses at the parse and never reaches the latch, which would
-    // make this case pass over a hook that shared one key for both acts.
+  it("does not let an export the host never answers refuse an import", async () => {
+    // The two acts take separate keys. Sharing one would answer a person's first press of
+    // the import with a sentence about a submission they never made, for as long as the
+    // host takes to answer the export's clipboard write.
+    const hungClipboard = (): Promise<void> => new Promise(() => undefined);
     const mounted = mountAuthoring(
-      authoringBridge({ create: outstandingCreate }),
-      WORKFLOWS_SESSION_ID,
-      scriptedBody(),
+      authoringBridge({ copyToClipboard: hungClipboard }),
+      PROBE_SESSION_ID,
+      RELEASE_CHECKS_BODY,
+      outstandingCreate,
     );
     await mounted.press(() => {
-      mounted.current().promoteDefinition();
+      mounted.current().exportDefinition();
     });
-    // Composed BEFORE the press rather than inside it: the writer arrives in its own
-    // chunk, so the serializer answers a promise and a press handed one would import
-    // the promise's own text rather than the file.
-    const exported = await serializeWorkflowDefinitionFile(scriptedBody());
+    // The export holds its key while the host is asked, which is the state under test.
+    await waitFor(() => {
+      expect(mounted.current().outcomes.export.kind).toBe("dispatching");
+    });
+    const exported = await serializeWorkflowDefinitionFile(RELEASE_CHECKS_BODY);
     await mounted.press(() => {
       mounted.current().importDefinition(exported);
     });

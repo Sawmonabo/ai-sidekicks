@@ -1,5 +1,5 @@
-// Answering a phase parked on a person: what a press puts on the growth port, and
-// what the answer settles to.
+// Answering a phase parked on a person: what a press puts, and what the answer settles
+// to. The call is the caller's, and a rejected call is not caught here.
 //
 // THE REVISION IS CAPTURED WHEN THE ATTEMPT OPENS, AND NEVER RE-READ AT PRESS TIME.
 // Re-reading it is the whole failure the optimistic-concurrency token exists to catch: a
@@ -19,10 +19,9 @@
 // subject-scoped holder and under the same key, and a new `phaseRunId` captures afresh.
 //
 // NOTHING HERE ADJUDICATES. Whether this user may answer, whether the phase is
-// still waiting, whether the revision is stale — every one of those is the daemon's,
-// and each arrives as a typed refusal rendered verbatim beside the control. A form
-// that predicted any of them would be a second authority on a question it cannot see
-// the inputs to.
+// still waiting, whether the revision is stale — every one of those is the daemon's.
+// A form that predicted any of them would be a second authority on a question it
+// cannot see the inputs to.
 //
 // SINGLE FLIGHT IS THE LATCH'S, on `run-control-dispatch.ts`'s own reasoning: a
 // `submitting` value read inside a press handler is the one from the render that
@@ -36,25 +35,13 @@
 // THE SUBJECT IS THE PHASE RUN AND NOT THE RUN. One run branches into several waits and
 // the pane opens one at a time, so a settlement belongs to the attempt it was made
 // against — a run-keyed holder would carry one branch's refusal onto the next branch's
-// form. The port joins it for the fixture's own reason: a scenario switch replaces the
-// bridge and keeps every id, and a call made through the previous bridge is retired by
-// that replacement.
-//
-// AN ARTIFACT ANSWER TRAVELS TWICE, AND HAS TO. The request carries the answer as
-// `fields` and its attachments as `attachmentArtifactIds` beside it, and only the second
-// reaches the attachment rules — the daemon resolves those ids, persists each as an
-// artifact reference among the phase's outputs, and reports an unresolved one in the
-// position it was declared in. An id sent only as a keyed value is a string in a record
-// and reaches none of that, so the carrier is composed from the phase's own schema
-// (`schema-artifact-members.ts`) and the keyed value stays exactly where the schema asked
-// for it. The member is OMITTED rather than sent empty where the phase asks for no
-// artifact: the wire declares it optional for that case, and an empty list would be this
-// surface saying "no attachments" about a question nobody put.
+// form. The call joins it, so replacing the call retires one made through the previous
+// one.
 //
 // AND A SERVED SUBMISSION RE-ARMS THE RUN READ, which this outcome cannot do for itself.
 // The outcome above is one attempt's settlement; the pane's snapshot is the run, and a
 // daemon that recorded the answer has moved the phase this form is composed against. So
-// the served arm records the act through `served-run-act.ts` — the SAME round a served
+// a served submission records the act through `served-run-act.ts` — the SAME round a served
 // cancel or resume advances, held by `run-control-dispatch.ts` — and the pane asks the
 // daemon once more. Nothing the reply reported is spliced into that snapshot: the run is
 // read again rather than believed twice, so the parked phase either stands or goes on
@@ -62,15 +49,12 @@
 // rendering the old park and its form indefinitely, saying in the same breath that the
 // answer had been recorded.
 
-import {
-  settleGrowthCall,
-  type GrowthPort,
-  type GrowthUnavailable,
-  type SettledReadRefusal,
-} from "../../../bridge/index.js";
 import { refuse, type ConsoleRefusal } from "../../../core/index.js";
-import { useGenerationLatch, useSubjectScopedState } from "../../../store/index.js";
-import { schemaFormChunk } from "../../../seats/index.js";
+import {
+  useGenerationLatch,
+  useSubjectScopedState,
+  type GenerationClaim,
+} from "../../../store/index.js";
 import { useRecordServedRunAct } from "./served-run-act.js";
 import type { HumanFormPhase } from "./slots/human-form-mount.js";
 
@@ -82,13 +66,31 @@ export const WORKFLOW_HUMAN_FORM_ORIGIN = "workflow-human-form";
  *
  * Both are cases where there is no daemon in the loop at all — an answer that is not
  * an object cannot be composed into the request's `fields` at all, and a second press
- * is visibly a duplicate of one already outstanding. Every other refusal a submit can
- * meet is the daemon's or the port's and is rendered verbatim.
+ * is visibly a duplicate of one already outstanding. Any other failure is the call's own
+ * and is not caught here.
  */
 export type WorkflowHumanFormRefusalCode = "answer-not-composed" | "submit-already-in-flight";
 
 /** What a submitted answer carries: the object the phase's schema asked for. */
 export type WorkflowHumanFormFields = Readonly<Record<string, unknown>>;
+
+/**
+ * The call that submits one phase's form.
+ *
+ * Pass a stable function: a new identity starts the attempt over, dropping its outcome and
+ * capturing the revision the form is composed against afresh.
+ */
+export type WorkflowHumanFormSubmitCall = (request: {
+  readonly workflowRunId: string;
+  readonly phaseId: string;
+  readonly fields: WorkflowHumanFormFields;
+  readonly expectedRevision: number;
+}) => Promise<{
+  readonly phaseId: string;
+  readonly phaseRunId: string;
+  readonly outputCount: number;
+  readonly submittedAt: string;
+}>;
 
 /**
  * Where this form's last press got to.
@@ -154,7 +156,10 @@ export function submittableFields(answer: unknown): WorkflowHumanFormFields | un
 }
 
 /**
- * Offer one waiting phase's submit, dispatching it through the growth port.
+ * Offer one waiting phase's submit, dispatching it through the caller's call.
+ *
+ * A rejected or throwing call is not caught here: the key goes back and the failure
+ * propagates.
  *
  * The resolved phase is taken whole rather than as four parameters, because every member
  * of the request is read off it and the four have to be ONE answer: composed from
@@ -166,7 +171,7 @@ export function submittableFields(answer: unknown): WorkflowHumanFormFields | un
  * so a signature naming the mount would be a hook asking for the value it produces.
  */
 export function useHumanFormSubmit(
-  growth: GrowthPort,
+  submitForm: WorkflowHumanFormSubmitCall,
   phase: HumanFormPhase,
 ): WorkflowHumanFormDispatch {
   const latch = useGenerationLatch();
@@ -175,7 +180,7 @@ export function useHumanFormSubmit(
   // `phase.formRevision` under a live attempt re-addresses nothing, so this seed does
   // not run again and the captured number stands until the attempt itself changes.
   const { value: attempt, publish } = useSubjectScopedState<WorkflowHumanFormAttempt>(
-    growth,
+    submitForm,
     phase.phaseRunId,
     () => ({ composedAgainstRevision: phase.formRevision, outcome: IDLE }),
   );
@@ -191,6 +196,45 @@ export function useHumanFormSubmit(
     publish((held) => ({ ...held, outcome }));
   };
 
+  // Puts the call and publishes what comes back. Neither a rejection nor a synchronous throw
+  // is caught: the key goes back either way, so a later press is not refused as a duplicate
+  // of a call that ended.
+  const putSubmission = async (
+    claim: GenerationClaim,
+    fields: WorkflowHumanFormFields,
+  ): Promise<void> => {
+    try {
+      const reply = await submitForm({
+        workflowRunId: phase.workflowRunId,
+        phaseId: phase.phaseId,
+        fields,
+        // The CAPTURED revision, including the `0` a fresh attempt reads, and never
+        // `phase.formRevision` — which a run read may have moved under the form since.
+        // The daemon decides whether it is still current; this surface never compares
+        // it, and a form composed against a revision the run has left behind is
+        // supposed to be refused rather than quietly re-stamped as current.
+        expectedRevision: attempt.composedAgainstRevision,
+      });
+      // Published through the holder's own handle, which carries the addressing it
+      // was captured under: an answer arriving after the pane moved to another
+      // wait writes nowhere rather than settling one phase's submission under
+      // another's form. The claim's own `settle` is the other guard — it asks
+      // whether this round is still the live one, which the unmount path retires.
+      claim.settle(() => {
+        publishOutcome(submittedOutcome(reply));
+        // INSIDE THE SAME GUARD, and after the outcome rather than beside it. A
+        // settlement whose round has been retired settles nothing and must re-arm
+        // nothing either — a read put behind an unmounted pane is a call nobody is
+        // waiting for.
+        recordServedRunAct?.();
+      });
+    } finally {
+      // Whatever happened, a `publish` that threw included: a key held for the life of
+      // the subject would refuse every later press.
+      claim.release();
+    }
+  };
+
   return {
     outcome: attempt.outcome,
     submit: (answer) => {
@@ -199,109 +243,34 @@ export function useHumanFormSubmit(
         publishOutcome({ kind: "refused", refusal: answerNotComposedRefusal() });
         return;
       }
-      const claim = latch.claim(growth, phase.phaseRunId);
+      const claim = latch.claim(submitForm, phase.phaseRunId);
       if (claim === undefined) {
         publishOutcome({ kind: "refused", refusal: submitAlreadyInFlightRefusal() });
         return;
       }
       publishOutcome({ kind: "submitting" });
-      // Through the CALL seam and not the read one, and EVERYTHING the request is
-      // composed from is inside that seam's callback. A port that throws before it
-      // returns would otherwise throw past the settlement and past the `.finally` below
-      // — neither of which exists yet — leaving the key claimed and this attempt at
-      // `submitting` with no answer coming and every later press refused as a duplicate
-      // of a call that never left the window.
-      //
-      // WHICH IS ALSO WHAT MAKES THE KIT'S CHUNK SAFE TO AWAIT HERE. The schema form is
-      // its own chunk, so the reading that walks the phase's schema for its artifact
-      // members arrives with it; by the time anything can be submitted the form that
-      // composed the answer has already resolved that chunk, so the `await` settles in a
-      // microtask. A damaged install is the case that matters, and it is already
-      // answered: a rejected load rejects this callback, and the seam turns a rejection
-      // into the same refusal a thrown call earns — so the attempt settles, the key goes
-      // back, and no arm of this file invents a second sentence for a chunk that did not
-      // arrive.
-      void settleGrowthCall(async () => {
-        const { attachmentArtifactIdsIn } = await schemaFormChunk.load();
-        // Read off the phase's own schema rather than off the answer, so the carrier
-        // lists what was answered in the order the schema declared it — which is the
-        // position an unresolved attachment is reported back in.
-        const attachmentArtifactIds = attachmentArtifactIdsIn(phase.inputSchema, fields);
-        return growth.workflowHumanFormSubmit({
-          workflowRunId: phase.workflowRunId,
-          phaseId: phase.phaseId,
-          fields,
-          // Absent, not empty, where the phase asks for no artifact. The header's reason.
-          ...(attachmentArtifactIds.length === 0 ? {} : { attachmentArtifactIds }),
-          // The CAPTURED revision, including the `0` a fresh attempt reads, and never
-          // `phase.formRevision` — which a run read may have moved under the form since.
-          // The daemon decides whether it is still current; this surface never compares
-          // it, and a form composed against a revision the run has left behind is
-          // supposed to be refused rather than quietly re-stamped as current.
-          expectedRevision: attempt.composedAgainstRevision,
-        });
-      })
-        .then((settlement) => {
-          // Published through the holder's own handle, which carries the addressing it
-          // was captured under: an answer arriving after the pane moved to another
-          // wait writes nowhere rather than settling one phase's submission under
-          // another's form. The claim's own `settle` is the other guard — it asks
-          // whether this round is still the live one, which the unmount path retires.
-          claim.settle(() => {
-            const settled = settledOutcome(settlement);
-            publishOutcome(settled);
-            // INSIDE THE SAME GUARD, and after the outcome rather than beside it. A
-            // settlement whose round has been retired settles nothing and must re-arm
-            // nothing either — a read put behind an unmounted pane is a call nobody is
-            // waiting for. Only the served arm advances the round: a refusal changed
-            // nothing about the run, so asking again would be this surface re-reading
-            // on a refusal it had just been given.
-            if (settled.kind === "submitted") {
-              recordServedRunAct?.();
-            }
-          });
-        })
-        .finally(() => {
-          // The key goes back whatever happened, a `publish` that threw included: a key
-          // held for the life of the subject would refuse every later press.
-          claim.release();
-        });
+      void putSubmission(claim, fields);
     },
   };
 }
 
 /**
- * How a submit call can end.
+ * What one served reply means for the form that asked.
  *
- * Three arms and not two, on the run controls' own reading: the port's refusal for a
- * wire this build cannot serve, the read seam's reading of a REJECTION — a scripted
- * daemon refusal is thrown verbatim and the live seam will throw the same shape — and
- * the served value.
+ * The three members are named rather than spread, so a member this outcome does not
+ * declare cannot arrive by accident — the reply also carries the `phaseId` the caller
+ * supplied, and echoing a request back as though it were news is how a settlement
+ * comes to look like a reading.
  */
-type SubmitSettlement =
-  | Awaited<ReturnType<GrowthPort["workflowHumanFormSubmit"]>>
-  | GrowthUnavailable
-  | SettledReadRefusal;
-
-/**
- * What one settlement means for the form that asked.
- *
- * The three members the reply's own arm carries are named rather than spread, so a
- * member this outcome does not declare cannot arrive by accident — the reply also
- * carries the `phaseId` the caller supplied, and echoing a request back as though it
- * were news is how a settlement comes to look like a reading. A refusal is carried
- * VERBATIM: the port's unregistered-wire sentence names the wire and who owes it, and
- * a daemon's `workflow.*` code is its own adjudication.
- */
-function settledOutcome(settlement: SubmitSettlement): WorkflowHumanFormOutcome {
-  return settlement.status === "served"
-    ? {
-        kind: "submitted",
-        phaseRunId: settlement.value.phaseRunId,
-        outputCount: settlement.value.outputCount,
-        submittedAt: settlement.value.submittedAt,
-      }
-    : { kind: "refused", refusal: settlement };
+function submittedOutcome(
+  reply: Awaited<ReturnType<WorkflowHumanFormSubmitCall>>,
+): WorkflowHumanFormOutcome {
+  return {
+    kind: "submitted",
+    phaseRunId: reply.phaseRunId,
+    outputCount: reply.outputCount,
+    submittedAt: reply.submittedAt,
+  };
 }
 
 /** The refusal an answer that is not a set of named values earns. */

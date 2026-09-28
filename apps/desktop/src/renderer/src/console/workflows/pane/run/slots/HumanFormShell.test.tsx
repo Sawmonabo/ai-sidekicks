@@ -1,55 +1,29 @@
-// The console's own body for the human-form slot, over the wait the fixture parks.
+// The console's own body for the human-form slot, over the wait the probe run parks.
 //
-// WHAT THESE CASES ARE ABOUT. That a phase parked on a person is ANSWERABLE from the
-// pane that shows it: the prompt the run read carried is on screen, the schema draws
-// its controls, a schema outside the drawn set opens the JSON editor rather than a
-// refusal, the press composes the registered submit with the revision the form was
-// composed against, and every refusal — the daemon's, the port's, and this surface's
-// own — renders as itself.
-//
-// AND THE ONE SCHEMA THAT IS ANSWERABLE FROM NOWHERE. A root asking for a single value
-// rather than named fields describes an answer the submit request has no member to carry,
-// so the editor is not offered for it at all and the refusal stands where the act would
-// have. The raw-arm cases below therefore reach the editor through an OBJECT-rooted
-// schema carrying a member outside the drawn set, which is the raw arm a person can
-// actually answer from.
-//
-// THE MOUNT IS DERIVED FROM THE FIXTURE, never written out, and the negative control at
-// the end asserts the fixture really does carry a prompt and a schema, so the first case
-// cannot be vacuous. The scaffolding that resolves it — and the ports, the render
-// helpers, and the press — is `HumanFormShell.test-support.tsx`, shared with the suite
-// beside this one; the reasons each of them is shaped the way it is live there.
-//
-// EVERY CASE DRIVES THE SLOT AND NOT THE SHELL, which is the only way any of them could
-// be about a press: the submit, the single-flight guard and the settlement rendering are
-// the SEAT's, and the shell is the composition standing in the hole. So what these cases
-// assert is what a person meets — the form the schema draws, the request the press puts,
-// and the answer that comes back — over the whole seat rather than over one half of it.
-//
-// WHAT IS DELIBERATELY NOT HERE. What the slot does as its mount MOVES — between two
-// branches' waits, between the two precisions one numeric control admits, and across a
-// run read that refreshes the revision under a live attempt — is
-// `HumanFormShell.transitions.test.tsx`. Those cases drive the same slot through a
-// re-render rather than a fresh mount, which is a different discipline from anything in
-// this file, and one suite holding both was a file doing two jobs. What the seat hands a
-// body another plan authors, and what it renders on that body's behalf, is
+// That a phase parked on a person is answerable from the pane that shows it: the prompt
+// is on screen, the schema draws its controls, a schema outside the drawn set opens the
+// JSON editor, and the press puts the submit with the revision the form was composed
+// against. Every case drives the slot and not the shell, since the submit and the
+// single-flight guard are the seat's. What happens as the mount moves is in
+// `HumanFormShell.transitions.test.tsx`; what a supplied body is handed is in
 // `HumanFormSubmitChannel.test.tsx`.
 
 import { cleanup, fireEvent, screen } from "@testing-library/react";
 import { act } from "react";
-import { afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
+import { unhandledRejectionsDuring } from "../../../../core/unhandled-rejection.test-support.js";
 import { settle } from "../../../workflows-probe.test-support.js";
 import {
-  STALE_REVISION_REFUSAL,
-  SUBMIT_DISPATCH_FAILURE,
-  bridgeHoldingSubmits,
-  bridgeThrowingSubmits,
-  bridgeWatchingSubmits,
+  SUBMIT_FAILURE,
+  failingSubmits,
   fixtureWaitPhase,
-  resolveSchemaFormChunks,
+  holdingSubmits,
   pressSubmit,
   renderSlot,
+  renderSwitchableSlot,
+  resolveSchemaFormChunks,
+  watchingSubmits,
 } from "./HumanFormShell.test-support.js";
 
 afterEach(() => {
@@ -71,10 +45,7 @@ const RAW_ARM_SCHEMA = {
 /** A root asking for a single value, which no submission can carry. */
 const UNANSWERABLE_ROOT_SCHEMA = { type: "string" } as const;
 
-// The schema form opens in two chunks: its own body, and the compiler the one act stays
-// closed until. Both are resolved once here, so every case below renders a loaded form
-// whose submit is armed rather than the reserved region its mount would otherwise suspend
-// on — each loader memoises, so this is the state a second form opens in.
+// Resolved once so every case renders a loaded form whose submit is armed.
 beforeAll(resolveSchemaFormChunks);
 
 describe("a waiting phase is answerable where the pane shows it", () => {
@@ -83,19 +54,14 @@ describe("a waiting phase is answerable where the pane shows it", () => {
     expect(container.querySelector(".meridian-schema-answer__prompt")?.textContent).toBe(
       fixtureWaitPhase().prompt,
     );
-    // The three drawn kinds this fixture's schema names, read as controls rather than
-    // as text: a form that rendered its schema as prose would pass a text assertion.
-    // The yes-or-no is a SELECT and not a box because this phase does not REQUIRE it,
-    // and only a three-state control has a state that leaves the member out.
+    // Read as controls rather than text: a form that rendered its schema as prose would
+    // pass a text assertion.
     expect(screen.getByLabelText(/Decision/u).tagName).toBe("SELECT");
     expect(screen.getByLabelText(/Notes/u).tagName).toBe("TEXTAREA");
-    expect(screen.getByLabelText(/Post the outcome to the channel/u).tagName).toBe("SELECT");
-    expect(container.querySelector(".meridian-nothing--empty")).toBeNull();
   });
 
   it("opens the JSON editor for a schema outside the drawn set, and never a refusal", async () => {
-    // A.4's rule, at the surface a person actually meets: anything the mapper cannot
-    // draw is answered as JSON with the mapper's own reason above it.
+    // Anything the mapper cannot draw is answered as JSON, not refused.
     const container = await renderSlot({ ...fixtureWaitPhase(), inputSchema: RAW_ARM_SCHEMA });
     expect(container.querySelector(".meridian-schema-raw")).not.toBeNull();
     expect(container.querySelector(".meridian-refusal")).toBeNull();
@@ -103,9 +69,7 @@ describe("a waiting phase is answerable where the pane shows it", () => {
   });
 
   it("refuses a root that asks for a single value, and offers no act to answer it with", async () => {
-    // The editor is offered where a submission is possible and nowhere else: every value
-    // this schema accepts is one the request cannot carry, so an editor here would invite
-    // an answer whose only settlement is this surface's own refusal.
+    // Every value this schema accepts is one the request cannot carry, so no editor.
     const container = await renderSlot({
       ...fixtureWaitPhase(),
       inputSchema: UNANSWERABLE_ROOT_SCHEMA,
@@ -119,9 +83,8 @@ describe("a waiting phase is answerable where the pane shows it", () => {
   });
 
   it("says so where the run reported the park and not the question", async () => {
-    // The additive-optional arm: a daemon below the contract revision reports the wait
-    // and carries no schema, so there is nothing to compose an answer against. Absent,
-    // not disabled — the control is not offered at all.
+    // A daemon below the contract revision reports the wait with no schema, so nothing
+    // can be composed and the control is absent rather than disabled.
     const { inputSchema: _unsent, ...withoutTheSchema } = fixtureWaitPhase();
     const container = await renderSlot(withoutTheSchema);
     expect(container.querySelector(".meridian-schema-form")).toBeNull();
@@ -129,18 +92,18 @@ describe("a waiting phase is answerable where the pane shows it", () => {
     expect(container.querySelector(".meridian-nothing--empty")).not.toBeNull();
   });
 
-  it("stands the reserved shell where no phase is waiting on a person", async () => {
+  it("draws only its empty frame where no phase is waiting on a person", async () => {
     const container = await renderSlot(undefined);
     expect(container.querySelector(".meridian-schema-answer")).toBeNull();
-    expect(container.querySelector(".meridian-nothing--empty")).not.toBeNull();
+    expect(container.querySelector(".meridian-workflow__slot")?.textContent).toBe("");
   });
 });
 
 describe("the press composes the registered submit", () => {
   it("carries the run, the phase and the revision the form was composed against", async () => {
-    const probe = bridgeWatchingSubmits();
+    const probe = watchingSubmits();
     const mount = fixtureWaitPhase();
-    await renderSlot(mount, probe.bridge);
+    await renderSlot(mount, probe.submitForm);
     await act(async () => {
       pressSubmit();
     });
@@ -150,23 +113,18 @@ describe("the press composes the registered submit", () => {
       {
         workflowRunId: mount.workflowRunId,
         phaseId: mount.phaseId,
-        // The wait's schema carries one OPTIONAL yes-or-no, which opens unanswered
-        // rather than at the `false` a box would show — so an untouched form sends no
-        // member at all, and an absent member is not the same answer as a no.
+        // An untouched form sends no member: an absent one is not the same answer as a no.
         fields: {},
-        // The fixture's fresh attempt reads `0`, which is the value a falsy
-        // discriminator would drop and the one the daemon adjudicates against.
+        // `0` is the value a falsy check would drop and the one the daemon compares.
         expectedRevision: 0,
       },
     ]);
   });
 
   it("carries a revision of one where that is what the phase reported", async () => {
-    // The negative control on the case above: without it, a submit that hardcoded the
-    // zero every fixture wait carries would pass it. This mount is the same wait after
-    // an accepted submission, which is the state a retry is composed against.
-    const probe = bridgeWatchingSubmits();
-    await renderSlot({ ...fixtureWaitPhase(), formRevision: 1 }, probe.bridge);
+    // Negative control: a submit that hardcoded the fixture's zero would pass the case above.
+    const probe = watchingSubmits();
+    await renderSlot({ ...fixtureWaitPhase(), formRevision: 1 }, probe.submitForm);
     await act(async () => {
       pressSubmit();
     });
@@ -176,8 +134,8 @@ describe("the press composes the registered submit", () => {
   });
 
   it("settles on what the daemon answered", async () => {
-    const probe = bridgeWatchingSubmits();
-    await renderSlot(fixtureWaitPhase(), probe.bridge);
+    const probe = watchingSubmits();
+    await renderSlot(fixtureWaitPhase(), probe.submitForm);
     await act(async () => {
       pressSubmit();
     });
@@ -187,59 +145,27 @@ describe("the press composes the registered submit", () => {
   });
 
   it("speaks the settlement through a status live region", async () => {
-    // The press leaves focus on the submit control, and the pending notice it replaces
-    // says nothing on its own — so a settlement rendered as an ordinary paragraph is
-    // read by nobody using a screen reader. The receipt beside the workflow-start menu
-    // is the shape this follows: the sentence that lands IS the region.
-    const probe = bridgeWatchingSubmits();
-    await renderSlot(fixtureWaitPhase(), probe.bridge);
+    // Focus stays on the submit control, so a plain paragraph would be silent to a
+    // screen reader.
+    const probe = watchingSubmits();
+    await renderSlot(fixtureWaitPhase(), probe.submitForm);
     await act(async () => {
       pressSubmit();
     });
     await settle();
 
-    // Both halves of what the daemon answered — that it was recorded, and how many
-    // outputs came of it — inside the region rather than beside it.
     expect(screen.getByRole("status").textContent).toContain(
       "The daemon recorded this answer and one output came of it.",
     );
   });
 });
 
-describe("every refusal renders as the refusal it is", () => {
-  it("renders the daemon's own code and sentence for a stale revision", async () => {
-    const probe = bridgeWatchingSubmits(STALE_REVISION_REFUSAL);
-    const container = await renderSlot(fixtureWaitPhase(), probe.bridge);
-    await act(async () => {
-      pressSubmit();
-    });
-    await settle();
-
-    // The daemon's message is the primary text, verbatim: it is the only account of
-    // what happened to an answer somebody had already typed.
-    expect(screen.getByText(STALE_REVISION_REFUSAL.message)).not.toBeNull();
-    expect(container.textContent ?? "").toContain(STALE_REVISION_REFUSAL.code);
-  });
-
-  it("renders the port's own refusal where the wire is unregistered", async () => {
-    // The build's true answer rather than a simulated success: the fixture serves the
-    // run read and settles no mutation, so the press reaches the port and the port says
-    // what it says. A mount site that composed its own sentence here would be asserting
-    // a wire fact nobody checked.
-    const container = await renderSlot(fixtureWaitPhase());
-    await act(async () => {
-      pressSubmit();
-    });
-    await settle();
-
-    expect(container.querySelector(".meridian-refusal")).not.toBeNull();
-  });
-
-  it("refuses an answer that is not a set of named values without spending a call", async () => {
-    const probe = bridgeWatchingSubmits();
+describe("an answer that is not a set of named values", () => {
+  it("is refused without spending a call", async () => {
+    const probe = watchingSubmits();
     const container = await renderSlot(
       { ...fixtureWaitPhase(), inputSchema: RAW_ARM_SCHEMA },
-      probe.bridge,
+      probe.submitForm,
     );
     const editor = container.querySelector("textarea");
     if (editor === null) {
@@ -258,12 +184,12 @@ describe("every refusal renders as the refusal it is", () => {
   });
 
   it("negative control: the same editor with an object answer does spend one", async () => {
-    // Without this, the case above would pass over a form that never called the port at
+    // Without this, the case above would pass over a form that never called the submit at
     // all — including one whose submit control did nothing.
-    const probe = bridgeWatchingSubmits();
+    const probe = watchingSubmits();
     const container = await renderSlot(
       { ...fixtureWaitPhase(), inputSchema: RAW_ARM_SCHEMA },
-      probe.bridge,
+      probe.submitForm,
     );
     const editor = container.querySelector("textarea");
     if (editor === null) {
@@ -281,8 +207,8 @@ describe("every refusal renders as the refusal it is", () => {
 
 describe("an answer that is still with the daemon", () => {
   it("says so beside the control, and settles on the reply when it comes", async () => {
-    const held = bridgeHoldingSubmits();
-    const container = await renderSlot(fixtureWaitPhase(), held.bridge);
+    const held = holdingSubmits();
+    const container = await renderSlot(fixtureWaitPhase(), held.submitForm);
     await act(async () => {
       pressSubmit();
     });
@@ -301,10 +227,9 @@ describe("an answer that is still with the daemon", () => {
   });
 
   it("refuses a second press out loud rather than sending the answer twice", async () => {
-    // The revision token refuses a duplicate at the far end, and a form that let one
-    // through would report a stale-revision failure for an answer given once.
-    const held = bridgeHoldingSubmits();
-    const container = await renderSlot(fixtureWaitPhase(), held.bridge);
+    // A duplicate let through would fail the daemon's revision check for an answer given once.
+    const held = holdingSubmits();
+    const container = await renderSlot(fixtureWaitPhase(), held.submitForm);
     await act(async () => {
       pressSubmit();
     });
@@ -328,51 +253,107 @@ describe("an answer that is still with the daemon", () => {
   });
 });
 
-describe("a port that throws before it returns settles like one that rejects", () => {
-  it("renders the normalized refusal rather than leaving the answer in flight", async () => {
-    const probe = bridgeThrowingSubmits();
-    const container = await renderSlot(fixtureWaitPhase(), probe.bridge);
+describe("a submit call that fails", () => {
+  it.each([
+    ["rejects", "rejects"],
+    ["throws before it returns", "throws"],
+  ] as const)(
+    "gives the key back when the call %s, so the next press is admitted",
+    async (_label, failure) => {
+      const probe = failingSubmits(failure);
+      const container = await renderSlot(fixtureWaitPhase(), probe.submitForm);
+      // The failure is not caught by the form, so the runner reports it as the unhandled
+      // rejection it is; the witness reads that report instead of letting it fail the run.
+      const escaped = await unhandledRejectionsDuring(async () => {
+        await act(async () => {
+          pressSubmit();
+        });
+        await settle();
+        await act(async () => {
+          pressSubmit();
+        });
+        await settle();
+      });
+
+      expect(escaped).toStrictEqual([SUBMIT_FAILURE, SUBMIT_FAILURE]);
+      // A key held for the life of the form would have refused the second press as a
+      // duplicate of a call that ended.
+      expect(probe.requests).toHaveLength(2);
+      expect(container.textContent ?? "").not.toContain("This answer is already with the daemon.");
+    },
+  );
+});
+
+describe("a submission moves the run read only when the daemon took it", () => {
+  it("records one served act for an answer the daemon recorded", async () => {
+    const probe = watchingSubmits();
+    const recordServedAct = vi.fn();
+    await renderSwitchableSlot({
+      phase: fixtureWaitPhase(),
+      submitForm: probe.submitForm,
+      recordServedAct,
+    });
     await act(async () => {
       pressSubmit();
     });
     await settle();
 
-    // The thrown text is the only account of what happened, so it reaches the screen
-    // rather than going down with the exception that carried it.
-    expect(container.querySelector(".meridian-refusal")?.textContent ?? "").toContain(
-      SUBMIT_DISPATCH_FAILURE,
-    );
-    // And nothing is left saying the answer is still with the daemon: no reply is
-    // coming, so a pending notice here would be a wait with no end.
-    expect(container.querySelector(".meridian-nothing--not-loaded")).toBeNull();
+    expect(recordServedAct).toHaveBeenCalledTimes(1);
   });
 
-  it("gives the key back, so the next press is admitted rather than refused as a duplicate", async () => {
-    // The half the settlement rendering cannot show. A throw that escapes before the
-    // promise chain exists never reaches the `finally` that returns the key, so the
-    // attempt is stuck in flight for the life of the form and every later press is
-    // refused as a duplicate of a call that never left this window.
-    const probe = bridgeThrowingSubmits();
-    const container = await renderSlot(fixtureWaitPhase(), probe.bridge);
+  it("records one act, and not two, when a duplicate press is refused", async () => {
+    // The refused press changed nothing on the run, so it must not ask for another read.
+    const held = holdingSubmits();
+    const recordServedAct = vi.fn();
+    await renderSwitchableSlot({
+      phase: fixtureWaitPhase(),
+      submitForm: held.submitForm,
+      recordServedAct,
+    });
     await act(async () => {
       pressSubmit();
     });
+    await act(async () => {
+      pressSubmit();
+    });
+    await act(async () => {
+      held.serve();
+    });
     await settle();
+
+    expect(recordServedAct).toHaveBeenCalledTimes(1);
+  });
+
+  it("negative control: an answer refused for not being named values records none", async () => {
+    // Without this the two cases above would hold over a form that re-armed the read on
+    // every press, whether or not anything reached the daemon.
+    const probe = watchingSubmits();
+    const recordServedAct = vi.fn();
+    const slot = await renderSwitchableSlot({
+      phase: { ...fixtureWaitPhase(), inputSchema: RAW_ARM_SCHEMA },
+      submitForm: probe.submitForm,
+      recordServedAct,
+    });
+    const editor = slot.container.querySelector("textarea");
+    if (editor === null) {
+      throw new Error("the raw arm rendered no editor");
+    }
+    fireEvent.change(editor, { target: { value: "[1, 2]" } });
     await act(async () => {
       pressSubmit();
     });
     await settle();
 
-    expect(probe.requests).toHaveLength(2);
-    expect(container.textContent ?? "").not.toContain("This answer is already with the daemon.");
+    expect(slot.container.querySelector(".meridian-refusal")).not.toBeNull();
+    expect(probe.requests).toStrictEqual([]);
+    expect(recordServedAct).not.toHaveBeenCalled();
   });
 });
 
 describe("the mount the cases are driven from is the wire's own", () => {
-  it("negative control: the fixture's waiting phase really carries a prompt and a schema", async () => {
-    // Without this, the first case would hold over a run read that carried neither —
-    // the state this lane closed, where the form had nothing to draw and the slot said
-    // the feature was unbuilt.
+  it("negative control: the probe run's waiting phase carries a prompt and a schema", async () => {
+    // Without this, the first case would hold over a run read that carried neither, and
+    // a form with nothing to draw.
     const mount = fixtureWaitPhase();
     expect(typeof mount.prompt).toBe("string");
     expect(mount.inputSchema).not.toBeUndefined();

@@ -18,8 +18,3 @@
 import "./workflows-destination.css";
 
 export { WorkflowsDestination } from "./WorkflowsDestination.js";
-export {
-  FOLLOWING_WINDOW_RETENTION,
-  scopeSessionIdFor,
-  type WorkflowsScopeState,
-} from "./destination-scope.js";

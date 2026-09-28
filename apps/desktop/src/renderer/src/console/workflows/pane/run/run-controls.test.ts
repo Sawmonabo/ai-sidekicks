@@ -97,9 +97,8 @@ describe("the refusals this surface raises itself", () => {
     const cancel = actAlreadyInFlightRefusal("cancel");
     const resume = actAlreadyInFlightRefusal("resume");
     expect(cancel.detail).not.toBe(resume.detail);
-    // The wire this control travels is the growth port's, and the port composes its
-    // own refusal naming it. A method string printed here would be this module
-    // restating a wire fact whose one home is the slate row.
+    // The wire method name belongs to the daemon contract, so a refusal sentence that
+    // printed "workflow.cancel" would be a second copy of it.
     for (const refusal of [cancel, resume]) {
       expect(refusal.detail).not.toContain("workflow.");
     }

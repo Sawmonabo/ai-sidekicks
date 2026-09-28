@@ -1,46 +1,25 @@
-// The two workflow-engine slots this pane's own directory owns, checked on the two
-// a slot owes.
-//
-//   1. **The shell stands while nobody has filled it**, and says the feature has
-//      not been built — never a shape that reads as a broken one, and never a word
-//      of the ownership prose the contract carries.
-//   2. **The mount obligation is delivered.** A slot's props type is a promise
-//      about what the body receives, and a promise nothing checks is prose. Each
-//      case below supplies a body and reads back exactly what arrived.
-//
-// And on one thing every slot wrapper owes React: a supplied body is RENDERED and
-// never called, so its hooks belong to it. The last describe drives that across the
-// conditional transition where a called body's hooks would first join the wrapper's
-// list, with the call shape the wrappers no longer use as its control.
-//
-// One file for the two because they are one claim asserted twice; two files would be
-// the same imports and the same two cases copied once. The family's third wrapper,
-// the conversational start, is mounted by this pane AND by the definitions browser,
-// so it lives at the family root and is checked in `workflows/ChatStartSlot.test.tsx`
-// — the assertions are there and not also here, because a mount obligation stated in
-// two places is two chances to state it differently.
+// The two slots this directory owns: each draws only its empty frame while it has no body,
+// and hands a supplied body exactly what its mount promised. A supplied body is rendered
+// and never called, so its hooks belong to it; the last describe drives that across the
+// transition where a called body's hooks would first join the wrapper's list.
 
 import { render } from "@testing-library/react";
 import { useEffect, useState } from "react";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
-import type { GrowthPort } from "../../../../bridge/index.js";
-import { WORKFLOW_HUMAN_FORM_SLOT, WORKFLOW_RUN_DETAIL_SLOT } from "../../../owner-slots.js";
-import { WORKFLOWS_PARKED_RUN } from "../../../../bridge/scenario/workflows/runs.js";
+import { PARKED_RUN } from "../../../workflows-probe.test-support.js";
+import type { WorkflowHumanFormSubmitCall } from "../human-form-submit.js";
+import {
+  answerSubmit,
+  renderSwitchableSlot,
+  resolveSchemaFormChunks,
+} from "./HumanFormShell.test-support.js";
 import { HumanFormSlot } from "./HumanFormSlot.js";
-import { resolveSchemaFormChunks, renderSwitchableSlot } from "./HumanFormShell.test-support.js";
 import type { HumanFormMount, HumanFormPhase } from "./human-form-mount.js";
 import { RunDetailSlot, type RunDetailMount } from "./RunDetailSlot.js";
 
-/**
- * The registered submit's request, read off the port rather than restated.
- *
- * `GrowthPort` is generated from `GrowthOperationSignatures`, so this alias is the
- * shape the wire declares and not a second copy of it — which is the whole point of
- * the case below: a mount is a promise that the body can compose THIS, and a promise
- * checked against a hand-written twin would go on holding after the wire moved.
- */
-type WorkflowHumanFormSubmitRequest = Parameters<GrowthPort["workflowHumanFormSubmit"]>[0];
+/** The submit's request, read off the call's own type rather than restated. */
+type WorkflowHumanFormSubmitRequest = Parameters<WorkflowHumanFormSubmitCall>[0];
 
 const OPEN_PHASE: HumanFormPhase = {
   workflowRunId: "019b7a10-0280-7b33-8100-4011115a0002",
@@ -54,37 +33,18 @@ const OPEN_PHASE: HumanFormPhase = {
 /** Each slot's unfilled rendering, as one table so a third cannot skip a case. */
 const UNFILLED_SLOTS: readonly (readonly [string, React.JSX.Element])[] = [
   ["run detail", <RunDetailSlot key="run-detail" workflowRunId="wfr-01" />],
-  ["human form", <HumanFormSlot key="human-form" phase={undefined} />],
+  ["human form", <HumanFormSlot key="human-form" phase={undefined} submitForm={answerSubmit} />],
 ];
 
-// The schema form opens in two chunks: its own body, and the compiler the one act stays
-// closed until. Both are resolved once here, so every case below renders a loaded form
-// whose submit is armed rather than the reserved region its mount would otherwise suspend
-// on — each loader memoises, so this is the state a second form opens in.
+// Resolved once so every case renders a loaded form whose submit is armed.
 beforeAll(resolveSchemaFormChunks);
 
-describe("an unfilled slot is reserved, not stubbed", () => {
-  it.each(UNFILLED_SLOTS)("%s stands in its own mount with an empty absence", (_name, element) => {
+describe("an unfilled slot draws only its frame", () => {
+  it.each(UNFILLED_SLOTS)("%s stands as one empty frame", (_name, element) => {
     const { container } = render(element);
-    expect(container.querySelectorAll(".meridian-workflow__slot")).toHaveLength(1);
-    expect(container.querySelector(".meridian-nothing--empty")).not.toBeNull();
-  });
-
-  it.each(UNFILLED_SLOTS)("%s renders none of the contract's ownership prose", (_name, element) => {
-    const { container } = render(element);
-    for (const slot of [WORKFLOW_RUN_DETAIL_SLOT, WORKFLOW_HUMAN_FORM_SLOT]) {
-      expect(container.textContent ?? "").not.toContain(slot.owningTask);
-    }
-  });
-
-  it("negative control: the contracts really do carry that prose, so the case is not vacuous", async () => {
-    // Every contract names its owning task. If none did, the assertion above would
-    // hold over a component that rendered the whole contract verbatim. The owner is
-    // named by SUBJECT rather than by number, which is what a runtime string in this
-    // tree may carry, so that is what the control reads.
-    for (const slot of [WORKFLOW_RUN_DETAIL_SLOT, WORKFLOW_HUMAN_FORM_SLOT]) {
-      expect(slot.owningTask).toContain("workflow authoring and execution plan");
-    }
+    const frames = container.querySelectorAll(".meridian-workflow__slot");
+    expect(frames).toHaveLength(1);
+    expect(frames[0]?.textContent).toBe("");
   });
 });
 
@@ -101,7 +61,7 @@ describe("a filled slot receives exactly what the mount promised", () => {
     const body = vi.fn((_mount: RunDetailMount) => <p>run detail body</p>);
     const { container } = render(<RunDetailSlot workflowRunId="wfr-01" body={body} />);
     expect(body.mock.calls[0]?.[0]).toStrictEqual({ workflowRunId: "wfr-01" });
-    expect(container.querySelector(".meridian-nothing--empty")).toBeNull();
+    expect(container.textContent).toContain("run detail body");
   });
 
   it("hands the run detail the served snapshot beside the run", async () => {
@@ -111,19 +71,15 @@ describe("a filled slot receives exactly what the mount promised", () => {
     // it on one screen.
     const body = vi.fn((_mount: RunDetailMount) => <p>run detail body</p>);
     render(
-      <RunDetailSlot
-        workflowRunId={WORKFLOWS_PARKED_RUN.workflowRunId}
-        snapshot={WORKFLOWS_PARKED_RUN}
-        body={body}
-      />,
+      <RunDetailSlot workflowRunId={PARKED_RUN.workflowRunId} snapshot={PARKED_RUN} body={body} />,
     );
     expect(body.mock.calls[0]?.[0]).toStrictEqual({
-      workflowRunId: WORKFLOWS_PARKED_RUN.workflowRunId,
-      snapshot: WORKFLOWS_PARKED_RUN,
+      workflowRunId: PARKED_RUN.workflowRunId,
+      snapshot: PARKED_RUN,
     });
     // The same object and not a copy of it: the phases, retries and outputs a body
     // renders are the ones the pane is rendering its parks from.
-    expect(body.mock.calls[0]?.[0].snapshot).toBe(WORKFLOWS_PARKED_RUN);
+    expect(body.mock.calls[0]?.[0].snapshot).toBe(PARKED_RUN);
   });
 
   it("hands the human form the open phase, revision included, and the seat's submit", async () => {
@@ -145,14 +101,7 @@ describe("a filled slot receives exactly what the mount promised", () => {
     const body = vi.fn(() => <p>form body</p>);
     const { container } = await renderSwitchableSlot({ phase: undefined, body });
     expect(body).not.toHaveBeenCalled();
-    expect(container.querySelector(".meridian-nothing--empty")).not.toBeNull();
-  });
-
-  it("negative control: an unfilled slot calls nothing and keeps its shell", async () => {
-    const body = vi.fn(() => <p>run detail body</p>);
-    const { container } = render(<RunDetailSlot workflowRunId="wfr-01" />);
-    expect(body).not.toHaveBeenCalled();
-    expect(container.querySelector(".meridian-nothing--empty")).not.toBeNull();
+    expect(container.querySelector(".meridian-workflow__slot")?.textContent).toBe("");
   });
 });
 
@@ -168,9 +117,8 @@ describe("a body that uses hooks keeps its own hook boundary", () => {
    * A body with state and an effect, which is what makes the boundary observable.
    *
    * Declared once rather than inside a case, because a component composed on each
-   * render is a new type each time and React remounts it — the reciprocal obligation
-   * `owner-slots.ts` states. The effect's teardown is the fact under test: a real
-   * workflow-engine body opens a subscription there.
+   * render is a new type each time and React remounts it. The effect's teardown is the
+   * fact under test: a real workflow-engine body opens a subscription there.
    */
   function statefulFormBody(recordTeardown: () => void) {
     return function StatefulFormBody(mount: HumanFormPhase): React.JSX.Element {
@@ -188,7 +136,7 @@ describe("a body that uses hooks keeps its own hook boundary", () => {
     expect(slot.container.textContent).toContain(OPEN_PHASE.phaseId);
 
     await slot.switchTo(undefined);
-    expect(slot.container.querySelector(".meridian-nothing--empty")).not.toBeNull();
+    expect(slot.container.querySelector(".meridian-workflow__slot")?.textContent).toBe("");
     expect(recordTeardown).toHaveBeenCalledTimes(1);
 
     await slot.switchTo(SECOND_PHASE);
@@ -240,11 +188,9 @@ describe("a body that uses hooks keeps its own hook boundary", () => {
 });
 
 describe("the human-form mount composes the registered submit on its own", () => {
-  // The defect this closes: the mount carried `phaseRunId`, `phaseId` and
-  // `formRevision`, while `workflowHumanFormSubmit` is addressed by `workflowRunId`
-  // and `phaseId`. `phaseRunId` is opaque and non-reversible, so a body handed that
-  // mount could not build the request at all without a lookup the console has no read
-  // for — a seat that hands over a form nobody can send.
+  // The mount carries `workflowRunId`, `phaseId` and `formRevision` because the submit is
+  // addressed by run and phase; `phaseRunId` is opaque and cannot be turned back into
+  // either, so a mount without them would hand a body a form it cannot send.
 
   /**
    * The request a body composes, out of the mount and the person's answers.

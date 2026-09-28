@@ -12,21 +12,16 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import type { GrowthPort } from "../../../bridge/index.js";
 import { WORKFLOW_CANCEL_REASON_BYTE_CAP } from "../../../core/index.js";
 import { OperatorControls } from "./OperatorControls.js";
-import { IDLE_RUN_CONTROL_OUTCOME, type WorkflowVersionChoice } from "./run-controls.js";
+import {
+  IDLE_RUN_CONTROL_OUTCOME,
+  WORKFLOW_RUN_RE_PARKED_STATE,
+  type WorkflowVersionChoice,
+} from "./run-controls.js";
 
-/**
- * The address the controls hold their two fields against.
- *
- * The port is a subject TOKEN and nothing calls it — this component issues no read —
- * so it is cast rather than built, the idiom `WorkflowRunPane.test-support.tsx` states
- * for the pane context: standing a fixture bridge up to supply an identity would make
- * the setup the subject. Every case but the retarget group below renders at this one
- * address, because none of them moves.
- */
-const RUN_A_ADDRESS = { growth: {} as GrowthPort, workflowRunId: "run-a" } as const;
+/** The run the controls hold their two fields against; only the retarget group moves. */
+const RUN_A_ADDRESS = { workflowRunId: "run-a" } as const;
 
 /**
  * The picker's own value for "resume without re-pinning".
@@ -42,6 +37,21 @@ const VERSION_CHAIN: readonly WorkflowVersionChoice[] = [
   { workflowVersionId: "wfv-03", label: "Version 3", isCurrentPin: true },
   { workflowVersionId: "wfv-02", label: "Version 2", isCurrentPin: false },
 ];
+
+describe("no wire spelling reaches the screen", () => {
+  it("does not render the state a re-parked run answers with", () => {
+    const { container } = render(
+      <OperatorControls
+        {...RUN_A_ADDRESS}
+        cancel={{ cancel: vi.fn(), outcome: IDLE_RUN_CONTROL_OUTCOME }}
+        resume={{ resume: vi.fn(), versionChain: [], outcome: IDLE_RUN_CONTROL_OUTCOME }}
+      />,
+    );
+
+    expect(container.textContent ?? "").toContain("re-parks on its next dispatch");
+    expect(container.textContent ?? "").not.toContain(WORKFLOW_RUN_RE_PARKED_STATE);
+  });
+});
 
 describe("cancel is never gated, queued or disabled", () => {
   it("submits with no reason when the operator gave none", () => {
@@ -94,9 +104,8 @@ describe("cancel is never gated, queued or disabled", () => {
   });
 
   it("says so where the operator is looking, even with the disclosure closed", () => {
-    // The finding exactly. The refusal used to live inside the collapsible region, so
-    // an operator who typed a long reason, collapsed it and pressed Cancel saw a
-    // button that did nothing and no word about why.
+    // An operator who typed a long reason, collapsed the region and pressed Cancel must
+    // still be told why nothing was sent.
     const cancel = vi.fn();
     const { container } = render(
       <OperatorControls
@@ -115,8 +124,8 @@ describe("cancel is never gated, queued or disabled", () => {
     });
     // The state the defect needed: the operator never opened it, or closed it again.
     expect(disclosure.open).toBe(false);
-    // The refusal is readable from there, which is a claim about WHERE it is rather
-    // than about whether it exists — the old markup rendered it too, out of sight.
+    // The claim is about WHERE the refusal is, not whether it exists: it stands outside
+    // the collapsed region.
     expect(disclosure.contains(screen.getByText("reason-past-bound"))).toBe(false);
 
     fireEvent.click(screen.getByRole("button", { name: /cancel this run/iu }));
@@ -260,7 +269,6 @@ describe("the two fields are answers about one run", () => {
   }): React.JSX.Element {
     return (
       <OperatorControls
-        growth={RUN_A_ADDRESS.growth}
         workflowRunId={props.workflowRunId}
         cancel={{ cancel: vi.fn(), outcome: IDLE_RUN_CONTROL_OUTCOME }}
         resume={{

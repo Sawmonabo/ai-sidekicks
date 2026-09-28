@@ -1,89 +1,42 @@
-// The run read has four endings, and the pane has to be able to tell them apart.
+// What the run read shows for each address: nothing asked, reading, or served, and never
+// a previous run's or a previous call's answer under a new address.
 //
-// Every case drives a REAL growth port — the fixture's over a scenario that scripts
-// what the case is about, or the refusing one — rather than a promise shaped like one.
-// A stand-in port would agree with whatever the hook did with it.
-//
-// The two subjects this file does NOT carry are next door, each because it varies a
-// different input: `run-snapshot.rounds.test.tsx` holds the answer and the address
-// still and varies the ROUND, and the scaffolding all three suites mount through is
-// `run-snapshot.test-support.tsx`.
+// `run-snapshot.rounds.test.tsx` holds the address still and varies the round.
 
 import { act, cleanup, render } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { createFixtureBridge, type GrowthPort } from "../../../bridge/index.js";
-import { createRefusingGrowthPort } from "../../../bridge/growth-port/growth-port.js";
-import type { ScenarioReply } from "../../../bridge/scenario/runtime/reply.js";
-import type { ConsoleScenario } from "../../../bridge/scenario/runtime/vocabulary.js";
-import {
-  WORKFLOWS_PARKED_RUN,
-  WORKFLOWS_SCENARIO_RUNS,
-} from "../../../bridge/scenario/workflows/runs.js";
-import type { WireErrorEnvelope } from "../../../core/index.js";
 import {
   latestCommitted,
   observeSubjectRead,
 } from "../../../store/subject-read-commits.test-support.js";
-import { useWorkflowRunSnapshot, type WorkflowRunSnapshotState } from "./run-snapshot.js";
-import { FIRST_ROUND, SnapshotProbe, runReadingGrowthPort } from "./run-snapshot.test-support.js";
-import { PROBE_USER_ID, PROBE_SESSION_ID, settle } from "../../workflows-probe.test-support.js";
-
-/** The refusal the scenarios below script, in the envelope a daemon sends. */
-const SCRIPTED_DAEMON_REFUSAL: WireErrorEnvelope = {
-  code: "workflow.run_not_found",
-  message: "That run is not on this node.",
-};
-
-/**
- * A scenario scripting exactly what one case needs for the run read, and no beats.
- *
- * Beats would have to be held to the wire-truth layer for facts no case here asserts,
- * and this hook never reads the event stream at all.
- */
-function scenarioAnsweringTheRunRead(replies: readonly ScenarioReply[]): ConsoleScenario {
-  return {
-    id: "run-snapshot-probe",
-    label: "Run snapshot probe",
-    purpose: "Answers the run read one way, so one settlement at a time is observable.",
-    sessionId: PROBE_SESSION_ID,
-    userIdsInJoinOrder: [PROBE_USER_ID],
-    startedAtIso: "2026-01-01T12:00:00.000Z",
-    beats: [],
-    replies,
-  };
-}
+import { PARKED_RUN, PROBE_RUNS, settle } from "../../workflows-probe.test-support.js";
+import {
+  useWorkflowRunSnapshot,
+  type WorkflowRunReadCall,
+  type WorkflowRunSnapshotState,
+} from "./run-snapshot.js";
+import { FIRST_ROUND, SnapshotProbe, runReadingCall } from "./run-snapshot.test-support.js";
 
 /**
  * The hook at the first round, for the shared commit observer.
  *
- * `observeSubjectRead` drives a `(source, subject)` hook and is the substrate's own —
- * widening it for one caller's third argument would put this read's re-arm rule into a
- * helper four families share. The round is bound here instead, which is exactly what
- * those cases mean: the port and the run move, the round does not.
+ * The observer drives a `(source, subject)` hook, so the round is bound here rather than
+ * widening a helper other suites share.
  */
 function useSnapshotAtFirstRound(
-  growth: GrowthPort,
+  readRun: WorkflowRunReadCall,
   workflowRunId: string | undefined,
 ): WorkflowRunSnapshotState {
-  return useWorkflowRunSnapshot(growth, workflowRunId, FIRST_ROUND);
-}
-
-function observeSnapshot(
-  growth: GrowthPort,
-  workflowRunId: string | undefined,
-): WorkflowRunSnapshotState[] {
-  return retargetableSnapshot(growth, workflowRunId).observed;
+  return useWorkflowRunSnapshot(readRun, workflowRunId, FIRST_ROUND);
 }
 
 /**
- * The same probe, with the handle a retarget needs.
- *
- * A pane is not remounted when the deck points it at another run — it is re-rendered
- * with a different address, which is the whole subject of the retarget case below.
+ * The probe with the handle a retarget needs: a pane is re-rendered at another run
+ * address, not remounted.
  */
 function retargetableSnapshot(
-  growth: GrowthPort,
+  readRun: WorkflowRunReadCall,
   workflowRunId: string | undefined,
 ): {
   readonly observed: WorkflowRunSnapshotState[];
@@ -94,12 +47,12 @@ function retargetableSnapshot(
     observed.push(state);
   };
   const view = render(
-    <SnapshotProbe growth={growth} workflowRunId={workflowRunId} onObserve={collect} />,
+    <SnapshotProbe readRun={readRun} workflowRunId={workflowRunId} onObserve={collect} />,
   );
   return {
     observed,
     retarget: (next) => {
-      view.rerender(<SnapshotProbe growth={growth} workflowRunId={next} onObserve={collect} />);
+      view.rerender(<SnapshotProbe readRun={readRun} workflowRunId={next} onObserve={collect} />);
     },
   };
 }
@@ -120,33 +73,36 @@ function lastState(observed: readonly WorkflowRunSnapshotState[]): WorkflowRunSn
   return state;
 }
 
-describe("useWorkflowRunSnapshot — one read, four answers", () => {
+describe("useWorkflowRunSnapshot — one read, three states", () => {
   afterEach(() => {
     cleanup();
   });
 
-  it("puts no question at all where the pane names no run", () => {
-    // `unasked` on the FIRST render as well as the last, so the arm that must stay
-    // unasked is held to the same moment as the arm below that must not be.
-    const observed = observeSnapshot(createRefusingGrowthPort(), undefined);
+  it("puts no question at all where the pane names no run", async () => {
+    const readRun = vi.fn(runReadingCall());
+    const observed = retargetableSnapshot(readRun, undefined).observed;
+    await settle();
+
+    // `unasked` on the first render as well as the last, so the state that must stay
+    // unasked is held to the same moment as the one below that must not be.
     expect(firstState(observed).status).toBe("unasked");
     expect(lastState(observed).status).toBe("unasked");
+    expect(readRun).not.toHaveBeenCalled();
   });
 
   it("is already reading on the first render an addressed pane commits", () => {
-    // The state was initialised `unasked` and only became `reading` in the effect,
-    // which runs after the commit — so an addressed pane painted one frame reading
-    // "This run has not been read in this window" over a read it had already issued.
-    const observed = observeSnapshot(runReadingGrowthPort(), WORKFLOWS_PARKED_RUN.workflowRunId);
+    // The state is settled during the render, not in the effect after the commit, so an
+    // addressed pane never paints a frame as unasked over a read it has already issued.
+    const observed = retargetableSnapshot(runReadingCall(), PARKED_RUN.workflowRunId).observed;
     expect(firstState(observed).status).toBe("reading");
   });
 
   it("shows the previous run's phases nowhere once the pane is retargeted", async () => {
-    const [firstRun, secondRun] = WORKFLOWS_SCENARIO_RUNS;
+    const [firstRun, secondRun] = PROBE_RUNS;
     if (firstRun === undefined || secondRun === undefined) {
-      throw new Error("the workflows fixture carries fewer than two runs");
+      throw new Error("the probe fixtures carry fewer than two runs");
     }
-    const probe = retargetableSnapshot(runReadingGrowthPort(), firstRun.workflowRunId);
+    const probe = retargetableSnapshot(runReadingCall(), firstRun.workflowRunId);
     await settle();
     expect(lastState(probe.observed).status).toBe("served");
 
@@ -154,8 +110,8 @@ describe("useWorkflowRunSnapshot — one read, four answers", () => {
       probe.retarget(secondRun.workflowRunId);
     });
 
-    // Reading, not run A's snapshot: before the stamp, A's phases and A's park cards
-    // stayed renderable under B's address until the effect got round to resetting.
+    // Reading, not run A's snapshot: A's phases and park cards must not stay renderable
+    // under B's address until an effect resets them.
     expect(lastState(probe.observed).status).toBe("reading");
 
     await settle();
@@ -166,113 +122,51 @@ describe("useWorkflowRunSnapshot — one read, four answers", () => {
     }
   });
 
-  it("starts as a read in flight and settles on the scripted snapshot", async () => {
-    // The control for the refusal cases below: a hook that refused every read would
-    // satisfy them and would replace every served snapshot with a refusal too.
-    const growth = createFixtureBridge({
-      scenario: scenarioAnsweringTheRunRead([
-        { call: "workflow.runRead", result: WORKFLOWS_PARKED_RUN },
-      ]),
-    }).growth;
-
-    const observed = observeSnapshot(growth, WORKFLOWS_PARKED_RUN.workflowRunId);
-    // The state after the mount and before the answer. Every render of it, first
-    // included, because the read is held against the run it is about.
+  it("starts as a read in flight and settles on the served snapshot", async () => {
+    const readRun = vi.fn(runReadingCall());
+    const observed = retargetableSnapshot(readRun, PARKED_RUN.workflowRunId).observed;
     expect(lastState(observed).status).toBe("reading");
 
     await settle();
     const settled = lastState(observed);
     expect(settled.status).toBe("served");
     if (settled.status === "served") {
-      expect(settled.snapshot.workflowRunId).toBe(WORKFLOWS_PARKED_RUN.workflowRunId);
+      expect(settled.snapshot.workflowRunId).toBe(PARKED_RUN.workflowRunId);
     }
-  });
-
-  it("settles a scripted daemon refusal as unavailable, carrying the wire's own code", async () => {
-    // The negative control is the assertion itself: over the `.then`-only hook this
-    // read replaced, the rejection was unhandled and the last state observed here was
-    // `reading` — permanently, with operator controls beside a spinner that never ends.
-    const growth = createFixtureBridge({
-      scenario: scenarioAnsweringTheRunRead([
-        { call: "workflow.runRead", refusal: SCRIPTED_DAEMON_REFUSAL },
-      ]),
-    }).growth;
-
-    const observed = observeSnapshot(growth, WORKFLOWS_PARKED_RUN.workflowRunId);
-
-    await settle();
-    const settled = lastState(observed);
-    expect(settled.status).toBe("unavailable");
-    if (settled.status === "unavailable") {
-      expect(settled.refusal.code).toBe(SCRIPTED_DAEMON_REFUSAL.code);
-      expect(settled.refusal.detail).toBe(SCRIPTED_DAEMON_REFUSAL.message);
-    }
-    // Never an empty run: that would assert the run has no phases, a claim about the
-    // daemon that nothing established.
-    expect(observed.map((state) => state.status)).not.toContain("served");
-  });
-
-  it("carries the port's own refusal when no wire is registered", async () => {
-    const observed = observeSnapshot(
-      createRefusingGrowthPort(),
-      WORKFLOWS_PARKED_RUN.workflowRunId,
-    );
-
-    await settle();
-    const settled = lastState(observed);
-    expect(settled.status).toBe("unavailable");
-    if (settled.status === "unavailable") {
-      expect(settled.refusal.code).toBe("wire-unregistered");
-      expect(settled.refusal.detail).toContain("Not checked");
-    }
+    expect(readRun).toHaveBeenCalledExactlyOnceWith({ workflowRunId: PARKED_RUN.workflowRunId });
   });
 });
 
-/**
- * The real port answering the run read with a phase count a case can trace back to the
- * bridge that served it, so a swap is observable in the snapshot and not only in the
- * status.
- */
-function phaseTruncatingGrowthPort(phaseStateCount: number): GrowthPort {
-  return {
-    ...createRefusingGrowthPort(),
-    workflowRunRead: async () => ({
-      status: "served",
-      value: {
-        ...WORKFLOWS_PARKED_RUN,
-        phaseStates: WORKFLOWS_PARKED_RUN.phaseStates.slice(0, phaseStateCount),
-      },
-    }),
-  };
+/** A call answering the parked run cut to `phaseStateCount` phases, to tell calls apart. */
+function phaseTruncatingCall(phaseStateCount: number): WorkflowRunReadCall {
+  return async () => ({
+    ...PARKED_RUN,
+    phaseStates: PARKED_RUN.phaseStates.slice(0, phaseStateCount),
+  });
 }
 
 function servedPhaseStateCount(state: WorkflowRunSnapshotState): number | undefined {
   return state.status === "served" ? state.snapshot.phaseStates.length : undefined;
 }
 
-describe("useWorkflowRunSnapshot — the port is half of what the read is about", () => {
+describe("useWorkflowRunSnapshot — the call is half of what the read is about", () => {
   afterEach(() => {
     cleanup();
   });
 
-  it("commits no phase from the previous bridge once the port is replaced", async () => {
-    // The fixture's scenario switch mints a new bridge and hands back the same run id.
-    // With the stamp keyed on the run alone the state agreed with itself, so this render
-    // committed the previous scenario's phases and park cards under the new one and only
-    // the passive effect afterwards took them down. The cases here read what each COMMIT
-    // carried, which is the only vantage that can tell the two hooks apart.
+  it("commits no phase from the previous call once the call is replaced", async () => {
+    // Keyed on the run alone, the state agreed with itself: the render after a swap
+    // committed the previous call's phases and only the passive effect took them down.
+    // Reading what each COMMIT carried is the only vantage that tells the two apart.
     const probe = observeSubjectRead(useSnapshotAtFirstRound, {
-      source: phaseTruncatingGrowthPort(2),
-      subject: WORKFLOWS_PARKED_RUN.workflowRunId,
+      source: phaseTruncatingCall(2),
+      subject: PARKED_RUN.workflowRunId,
     });
     await settle();
     expect(servedPhaseStateCount(latestCommitted(probe.committed))).toBe(2);
     const commitsBeforeSwap = probe.committed.length;
 
-    probe.readdress({
-      source: phaseTruncatingGrowthPort(1),
-      subject: WORKFLOWS_PARKED_RUN.workflowRunId,
-    });
+    probe.readdress({ source: phaseTruncatingCall(1), subject: PARKED_RUN.workflowRunId });
 
     expect(probe.committed.slice(commitsBeforeSwap).map((state) => state.status)).not.toContain(
       "served",
@@ -280,21 +174,20 @@ describe("useWorkflowRunSnapshot — the port is half of what the read is about"
 
     await settle();
     // The reset is only half the claim: a hook that reset and never re-read would leave
-    // the pane reading forever under a bridge that can answer.
+    // the pane reading forever.
     expect(servedPhaseStateCount(latestCommitted(probe.committed))).toBe(1);
   });
 
-  it("negative control: a re-render at the SAME port keeps the snapshot it settled on", async () => {
-    // Without this, the case above passes for a hook that reset on every render, which
-    // would re-read the run forever and never show a snapshot at all.
-    const growth = phaseTruncatingGrowthPort(2);
+  it("negative control: a re-render at the SAME call keeps the snapshot it settled on", async () => {
+    // Without this, the case above passes for a hook that reset on every render.
+    const readRun = phaseTruncatingCall(2);
     const probe = observeSubjectRead(useSnapshotAtFirstRound, {
-      source: growth,
-      subject: WORKFLOWS_PARKED_RUN.workflowRunId,
+      source: readRun,
+      subject: PARKED_RUN.workflowRunId,
     });
     await settle();
 
-    probe.readdress({ source: growth, subject: WORKFLOWS_PARKED_RUN.workflowRunId });
+    probe.readdress({ source: readRun, subject: PARKED_RUN.workflowRunId });
 
     expect(servedPhaseStateCount(latestCommitted(probe.committed))).toBe(2);
   });

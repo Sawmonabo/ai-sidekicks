@@ -1,8 +1,8 @@
 // Every strip state renders its own shape, the two grammars stay apart, and the strip
 // names nothing.
 //
-// The first claim is about a SET — five states, five renderings — so the tests drive
-// `WORKFLOW_STRIP_STATES` rather than five hand-listed arms beside it. A sixth arm
+// The first claim is about a SET — four states, four renderings — so the tests drive
+// `WORKFLOW_STRIP_STATES` rather than four hand-listed arms beside it. A fifth arm
 // added to the union and forgotten here fails the exhaustiveness case rather than
 // passing silently, which is the property a hand-listed set cannot have.
 //
@@ -15,11 +15,9 @@
 // chrome: a `<section>`, a kind glyph and an `<h2>`. Every pane in the console wears
 // `seats/ConsolePaneChrome`, whose crumb trail IS the pane's accessible name — so a
 // heading inside the body would name the pane a second time and a region inside the
-// body would give a person navigating by region two stops for one surface. The
-// heading cases that used to live here moved to `WorkflowsSurface.test.tsx`, which is
-// the one surface in this family that is not a pane and therefore still names itself;
-// what is left here asserts the absence, because a heading that crept back would look
-// like an improvement in a diff.
+// body would give a person navigating by region two stops for one surface. So this file
+// asserts the absence of a heading, because one that crept back would look like an
+// improvement in a diff.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -29,16 +27,14 @@ import { WorkflowStateStrip } from "./WorkflowStateStrip.js";
 import {
   WORKFLOW_STRIP_STATES,
   refusedWorkflowStrip,
-  unaskedWorkflowStrip,
   type WorkflowStripState,
   type WorkflowStripStateKind,
 } from "./strip-state.js";
 
-/** One state per arm, so a walk over the closed set can render all five. */
+/** One state per arm, so a walk over the closed set can render all four. */
 const STATE_BY_KIND: Readonly<Record<WorkflowStripStateKind, WorkflowStripState>> = {
-  "not-checked": unaskedWorkflowStrip("Nobody asked.", "The read happens elsewhere."),
   "not-loaded": { kind: "not-loaded", title: "Reading." },
-  empty: { kind: "empty", title: "Nothing here.", detail: "Make one." },
+  empty: { kind: "empty", title: "Nothing here." },
   refused: refusedWorkflowStrip(
     refuse("workflows-test", "workflow.not_found", "That run is gone. Refresh the list."),
   ),
@@ -96,15 +92,11 @@ describe("workflow state strip — one rendering per state", () => {
   });
 
   it("gives each absence its own kind modifier", () => {
-    const modifiers = (["not-checked", "not-loaded", "empty"] as const).map((kind) => {
+    const modifiers = (["not-loaded", "empty"] as const).map((kind) => {
       const absence = renderStrip(STATE_BY_KIND[kind]).querySelector(".meridian-nothing");
       return [...(absence?.classList ?? [])].find((className) => className.endsWith(`--${kind}`));
     });
-    expect(modifiers).toStrictEqual([
-      "meridian-nothing--not-checked",
-      "meridian-nothing--not-loaded",
-      "meridian-nothing--empty",
-    ]);
+    expect(modifiers).toStrictEqual(["meridian-nothing--not-loaded", "meridian-nothing--empty"]);
   });
 
   it("renders a refusal as a refusal, carrying the daemon's code and message", () => {
@@ -121,8 +113,7 @@ describe("workflow state strip — one rendering per state", () => {
   });
 
   it("negative control: the act slot is gone from the type, not merely unsupplied", () => {
-    // Compile-time on purpose, on `WorkflowsSurface.test.tsx`'s own precedent for the
-    // seams it deleted. Removing a dead prop leaves nothing to render, so no rendered
+    // Compile-time on purpose: removing a dead prop leaves nothing to render, so no rendered
     // assertion can tell the deletion from a caller that never passed it. The
     // suppression below has nothing to suppress on the strip as it now stands and
     // `tsc` fails the file for an unused directive, which is the control — and the

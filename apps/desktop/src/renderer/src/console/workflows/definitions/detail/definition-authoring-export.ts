@@ -1,8 +1,8 @@
 // The one act that submits nothing: serialize the version body on screen, show the
 // bytes, and hand them to the host's clipboard.
 //
-// IT REACHES NO GROWTH OPERATION AT ALL, which is why it is its own module beside
-// `definition-authoring-port-acts.ts` rather than a third branch inside it. Exporting
+// IT REACHES NO DAEMON CALL AT ALL, which is why it is its own module beside
+// `definition-authoring-port-acts.ts` rather than a branch inside it. Exporting
 // reaches the host on `runs/pane/controls/enumerated-path-action.ts`'s precedent — the
 // console holds no wire that writes a file, and a control that looked like it had saved
 // one would be worse than the honest copy.
@@ -26,7 +26,7 @@
 // refusal does rather than inventing a second refusal for this surface.
 //
 // THE LATCH IS `supersedeAndClaim` AND NOT `claim`, which is the one place this act
-// differs from the two that submit. A second press means the same bytes again — there
+// differs from the import, which submits. A second press means the same bytes again — there
 // is no durable record to duplicate, so there is nothing to refuse — but two rounds
 // settle in whatever order the chunk fetch and the host return them, and an older
 // answer must not overwrite a newer one: a first press rejecting after a second press
@@ -47,27 +47,22 @@ import {
   publishOutcome,
   type AuthoringRuntime,
 } from "./definition-authoring-runtime.js";
-import { bodyUnavailable, WORKFLOW_DETAIL_ORIGIN } from "./definition-authoring.js";
+import { WORKFLOW_DETAIL_ORIGIN } from "./definition-authoring.js";
 
 /**
  * Serialize the body on screen, show the bytes, and hand them to the host's clipboard.
  *
- * The three steps are three calls rather than one block, so the seam each of them can
- * fail at reads on its own line: the body that is not there, the chunk that did not
- * arrive, and the host that would not take the copy.
+ * The steps are separate calls so the seam each can fail at reads on its own line: the
+ * chunk that did not arrive, and the host that would not take the copy.
  */
 export async function exportDefinitionFile(runtime: AuthoringRuntime): Promise<void> {
   const { body } = runtime;
-  if (body === undefined) {
-    publishOutcome(runtime, "export", { kind: "refused", refusal: bodyUnavailable("Exporting") });
-    return;
-  }
   // Read off the body once and carried, rather than composed at each of the three
   // publishes: the sentence a person reads while the host is asked and the one they
   // read afterwards name the same version because they are the same string.
   const versionLabel = `Version ${String(body.versionNumber)} of ${body.name}`;
   const claim = runtime.latch.supersedeAndClaim(
-    runtime.growth,
+    runtime.createDefinition,
     actKey("export", runtime.workflowDefinitionId),
   );
   try {
@@ -140,7 +135,7 @@ function publishExportedBytes(
 /**
  * Ask the host to take the copy, and settle on whichever answer it gives.
  *
- * WHAT THE HOST SAID, NEVER A PARAPHRASE OF IT — rule 9, and the seam
+ * WHAT THE HOST SAID, NEVER A PARAPHRASE OF IT: the message is the host's own words, and the seam
  * `enumerated-path-action.ts` established for exactly this call. The fallback is
  * reached only where the rejection carried nothing machine-readable, and it says what
  * did not happen and what is still on screen rather than repeating the bytes.

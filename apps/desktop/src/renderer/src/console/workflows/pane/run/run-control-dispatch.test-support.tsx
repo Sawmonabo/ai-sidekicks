@@ -1,21 +1,13 @@
-// What every run-control dispatch suite needs before it can put a press.
-//
-// TWO SUITES, ONE SET OF SCAFFOLDING. The calls and the refusals are one subject; the
-// single flight, the addressing and the re-arm round are another. Both mount the same
-// probe against the same held port, so that lives here rather than in whichever file
-// was written first with the other deep-importing it.
-//
-// THE PORTS ARE THE CONSOLE'S OWN — `createRefusingGrowthPort` spread with the one
-// operation a case is about — rather than objects shaped like a port. A stand-in would
-// agree with whatever the hook did with it, and the refusing arm in particular is only
-// meaningful because it is the refusal the real port composes.
+// What the run-control dispatch suites need before they can put a press: a probe that
+// mounts the hook, and plain calls whose cancel the case settles by hand.
 
 import { render } from "@testing-library/react";
 
-import { type GrowthPort } from "../../../bridge/index.js";
-import { createRefusingGrowthPort } from "../../../bridge/growth-port/growth-port.js";
-import type { WireErrorEnvelope } from "../../../core/index.js";
-import { useRunControlDispatch, type WorkflowRunControls } from "./run-control-dispatch.js";
+import {
+  useRunControlDispatch,
+  type WorkflowRunControlCalls,
+  type WorkflowRunControls,
+} from "./run-control-dispatch.js";
 import type { WorkflowRunCancelReply } from "./run-controls.js";
 
 export const RUN_A = "run-a";
@@ -29,56 +21,67 @@ export const CANCELLED: WorkflowRunCancelReply = {
   alreadyCancelled: false,
 };
 
-/** The refusal a scenario scripts as a daemon's, thrown verbatim by the seam. */
-export const DAEMON_REFUSAL: WireErrorEnvelope = {
-  code: "workflow.run_not_cancellable",
-  message: "That run already reached a terminal state.",
-};
-
-/** One `workflow.runCancel` the case settles by hand, and what it was asked. */
+/** Calls whose cancel stays in flight until the case serves it, and what they were asked. */
 export interface HeldCancel {
-  readonly growth: GrowthPort;
-  readonly requests: Parameters<GrowthPort["workflowRunCancel"]>[0][];
+  readonly calls: WorkflowRunControlCalls;
+  readonly requests: CancelRequest[];
+  readonly resumeRequests: ResumeRequest[];
   readonly serve: () => void;
-  readonly refuseAsDaemon: () => void;
 }
 
 /**
- * A port whose cancel stays in flight until the case settles it.
+ * Calls whose cancel stays in flight until the case serves it.
  *
  * The window between dispatch and answer is where single flight, the retarget drop and
- * the `dispatching` state all live, and a port that answered on the calling turn would
- * close it before any of them could be observed.
+ * the `dispatching` state all live, and a call that answered on the pressing turn
+ * would close it before any of them could be observed. Resume answers at once.
  */
-export function heldCancelPort(): HeldCancel {
-  const requests: Parameters<GrowthPort["workflowRunCancel"]>[0][] = [];
+export function heldCancelCalls(): HeldCancel {
+  const requests: CancelRequest[] = [];
+  const resumeRequests: ResumeRequest[] = [];
   let serveHeld: (() => void) | undefined;
-  let refuseHeld: (() => void) | undefined;
-  const growth: GrowthPort = {
-    ...createRefusingGrowthPort(),
-    workflowRunCancel: async (request) => {
+  const calls: WorkflowRunControlCalls = {
+    cancelRun: async (request) => {
       requests.push(request);
-      return new Promise((resolve, reject) => {
+      return new Promise((resolve) => {
         serveHeld = () => {
-          resolve({ status: "served", value: CANCELLED });
-        };
-        refuseHeld = () => {
-          reject(DAEMON_REFUSAL);
+          resolve(CANCELLED);
         };
       });
     },
+    resumeRun: async (request) => {
+      resumeRequests.push(request);
+      return { workflowRunId: request.workflowRunId, state: "running" };
+    },
   };
-  return {
-    growth,
-    requests,
-    serve: () => serveHeld?.(),
-    refuseAsDaemon: () => refuseHeld?.(),
+  return { calls, requests, resumeRequests, serve: () => serveHeld?.() };
+}
+
+/** What a rejecting call fails with, so a case can tell it from any other failure. */
+export const CANCEL_FAILURE = new Error("the cancel call failed");
+
+/** Calls whose cancel rejects, and what they were asked. */
+export interface RejectingCancel {
+  readonly calls: WorkflowRunControlCalls;
+  readonly requests: CancelRequest[];
+}
+
+/** Calls whose cancel rejects at once; resume is never pressed by the cases that use it. */
+export function rejectingCancelCalls(): RejectingCancel {
+  const requests: CancelRequest[] = [];
+  const calls: WorkflowRunControlCalls = {
+    cancelRun: (request) => {
+      requests.push(request);
+      return Promise.reject(CANCEL_FAILURE);
+    },
+    resumeRun: () => Promise.reject(CANCEL_FAILURE),
   };
+  return { calls, requests };
 }
 
 /** The controls as the latest render saw them, plus the handle a retarget needs. */
 export function observeControls(
-  growth: GrowthPort,
+  calls: WorkflowRunControlCalls,
   workflowRunId: string | undefined,
 ): {
   readonly latest: () => WorkflowRunControls;
@@ -89,7 +92,7 @@ export function observeControls(
     observed.push(controls);
   };
   const view = render(
-    <DispatchProbe growth={growth} workflowRunId={workflowRunId} onObserve={collect} />,
+    <DispatchProbe calls={calls} workflowRunId={workflowRunId} onObserve={collect} />,
   );
   return {
     latest: () => {
@@ -100,20 +103,20 @@ export function observeControls(
       return current;
     },
     retarget: (next) => {
-      view.rerender(<DispatchProbe growth={growth} workflowRunId={next} onObserve={collect} />);
+      view.rerender(<DispatchProbe calls={calls} workflowRunId={next} onObserve={collect} />);
     },
   };
 }
 
+type CancelRequest = Parameters<WorkflowRunControlCalls["cancelRun"]>[0];
+
+type ResumeRequest = Parameters<WorkflowRunControlCalls["resumeRun"]>[0];
+
 function DispatchProbe(props: {
-  readonly growth: GrowthPort;
+  readonly calls: WorkflowRunControlCalls;
   readonly workflowRunId: string | undefined;
   readonly onObserve: (controls: WorkflowRunControls) => void;
 }): React.JSX.Element {
-  // No version chain reaches this hook at all: the chain is a read of its own,
-  // addressed by the pin the run's snapshot reports, and the pane joins the two at the
-  // mount. A case about the chain drives `OperatorControls` directly, where it arrives
-  // on the resume control the pane composes.
-  props.onObserve(useRunControlDispatch(props.growth, props.workflowRunId));
+  props.onObserve(useRunControlDispatch(props.calls, props.workflowRunId));
   return <></>;
 }

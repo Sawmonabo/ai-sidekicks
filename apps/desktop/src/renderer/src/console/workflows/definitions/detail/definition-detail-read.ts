@@ -1,19 +1,16 @@
 // One definition, as the pane that opened it can honestly know it.
 //
-// The builder pane's whole subject is a definition, and until this read it had no way
-// to ask for one: the definition read, the version read and the chain read were on no
-// growth-port row at all, so the addressed pane rendered "this definition has not been
-// read in this window" in every build including the fixture — a true sentence about a
-// question nothing could put. Three operations now exist, and this is what composes
-// them into the one answer a detail surface renders.
+// The builder pane's whole subject is a definition, and this is what composes the
+// definition read, the version read and the chain read into the one answer a detail
+// surface renders. The three calls are the caller's, and a rejected call reaches
+// whoever supplied it.
 //
 // THREE READS AND NOT ONE, BECAUSE THE WIRE IS THREE READS. `workflow.definitionRead`
 // answers the definition's identity and its latest version NUMBER; the body a person
 // actually reads — the content hash, the schema marker, the entry record, the phase
 // sequence — is `workflow.versionRead`, addressed by `(definitionId, versionNumber)`,
 // which is why it cannot be put until the first has answered. The chain is a third
-// question again, addressed by the opaque version id, and the registry resolves no
-// version id at all — so it rides its own slate row.
+// question again, addressed by the opaque version id.
 //
 // AND THE SECOND AND THIRD GO OUT TOGETHER. Each is addressed out of the FIRST read's
 // answer and neither is addressed out of the other's, so the wire orders them against
@@ -22,15 +19,10 @@
 // body open, a chain question that was never put at all while the identity it belongs
 // to had already arrived.
 //
-// AND THE THREE SETTLE INDEPENDENTLY, WHICH IS THE WHOLE SHAPE OF THIS MODULE. The
-// definition read is the subject: without it there is nothing to render and the state
-// is `unavailable`. The other two QUALIFY that subject, so a refused version body
-// leaves the identity on screen with the body's own refusal beside it, and a refused
-// chain leaves both. Folding all three into one refusal would withdraw facts the
-// daemon answered, which is the mistake the definitions browser's own continuation
-// arm exists to avoid one surface up.
+// THE DEFINITION READ IS THE SUBJECT, and the other two QUALIFY it: the detail is
+// served once all three have answered.
 //
-// THE CHAIN HAS A THIRD ARM AND IT IS NOT A REFUSAL. `workflowVersionId` is
+// THE CHAIN HAS A SECOND ARM AND IT IS NOT A REFUSAL. `workflowVersionId` is
 // additive-optional on the definition read — a daemon at this contract revision always
 // sends it, an older one does not — and the chain read is addressed by nothing else.
 // A console that composed an id from `(definitionId, versionNumber)` would be
@@ -44,187 +36,125 @@
 // a second answer to a question whose answer cannot change. Navigating back to the
 // pane remounts and re-reads, which is the moment a person expects a fresh look.
 
-import {
-  settleGrowthRead,
-  useSettledGrowthRead,
-  type GrowthPort,
-  type SettledReadRefusal,
-  type WorkflowDefinitionReadResult,
-  type WorkflowVersionBody,
-  type WorkflowVersionChainEntry,
+import type {
+  WorkflowDefinitionReadResult,
+  WorkflowVersionBody,
+  WorkflowVersionChainEntry,
 } from "../../../bridge/index.js";
 import { subjectReadStart, type SubjectRead } from "../../../store/index.js";
+import { useSubjectRead } from "../../subject-read.js";
 
 /**
- * The version body, or the refusal that stands in its place.
+ * The three calls one definition's detail is composed from.
  *
- * Its own reading rather than an optional member on the detail, because "the body was
- * refused" and "the body is not here" are different things to draw and only one of
- * them carries a daemon sentence.
+ * Pass a stable object: a new identity re-reads the definition.
  */
-export type WorkflowVersionBodyReading =
-  | { readonly status: "served"; readonly body: WorkflowVersionBody }
-  | { readonly status: "unavailable"; readonly refusal: SettledReadRefusal };
+export interface WorkflowDefinitionDetailCalls {
+  readonly readDefinition: (request: {
+    readonly definitionId: string;
+  }) => Promise<WorkflowDefinitionReadResult>;
+  readonly readVersion: (request: {
+    readonly definitionId: string;
+    readonly versionNumber: number;
+  }) => Promise<WorkflowVersionBody>;
+  readonly readChain: (request: {
+    readonly workflowVersionId: string;
+  }) => Promise<{ readonly versions: readonly WorkflowVersionChainEntry[] }>;
+}
 
 /**
- * The version chain, the refusal that stands in its place, or no question at all.
+ * The version chain, or no question at all.
  *
- * THREE ARMS BECAUSE THERE ARE THREE FACTS. Served is the chain. Unavailable is a
- * question that was put and refused, and carries the daemon's own sentence.
- * `unaddressable` is a question that could not be put: the chain read is addressed by
- * the opaque version id and the definition read did not carry one, and a console that
- * synthesized one would be inventing an encoding the wire does not have.
+ * TWO ARMS BECAUSE THERE ARE TWO FACTS. Served is the chain. `unaddressable` is a
+ * question that could not be put: the chain read is addressed by the opaque version id
+ * and the definition read did not carry one, and a console that synthesized one would
+ * be inventing an encoding the wire does not have.
  */
 export type WorkflowVersionChainReading =
   | { readonly status: "served"; readonly versions: readonly WorkflowVersionChainEntry[] }
-  | { readonly status: "unavailable"; readonly refusal: SettledReadRefusal }
   | { readonly status: "unaddressable" };
 
 /** Everything one definition's detail surface renders, from one composed read. */
 export interface WorkflowDefinitionDetail {
   readonly definition: WorkflowDefinitionReadResult;
-  readonly version: WorkflowVersionBodyReading;
+  readonly version: WorkflowVersionBody;
   readonly chain: WorkflowVersionChainReading;
 }
 
 /**
  * What the pane knows about its definition at one moment.
  *
- * Four states and no others; the two unsettled ones come from the shared shape in
- * `store/read/subject-read-start.ts`, which is the rule every growth read on this seam
- * holds to.
+ * Three states and no others; the two unsettled ones come from the shared shape in
+ * `store/read/subject-read-start.ts`.
  */
-export type WorkflowDefinitionDetailState = SubjectRead<SettledDefinitionDetail>;
+export type WorkflowDefinitionDetailState = SubjectRead<{
+  readonly status: "served";
+  readonly detail: WorkflowDefinitionDetail;
+}>;
 
 /**
  * Read one definition, its pinned version body, and its version chain, once.
  *
- * Keyed on the port and the definition id: the port is minted once per bridge and is
- * stable for the life of a window, so a re-render never re-reads, while a bridge
- * swapped underneath — the fixture's scenario switch — and a pane re-addressed at a
- * different definition both do.
+ * Keyed on the calls and the definition id: the calls are stable for the life of a
+ * window, so a re-render never re-reads, while different calls and a pane re-addressed
+ * at a different definition both do.
  */
 export function useWorkflowDefinitionDetail(
-  growth: GrowthPort,
+  calls: WorkflowDefinitionDetailCalls,
   workflowDefinitionId: string | undefined,
 ): WorkflowDefinitionDetailState {
-  return useSettledGrowthRead<DefinitionDetailOutcome, WorkflowDefinitionDetailState>(
-    growth,
+  return useSubjectRead<WorkflowDefinitionDetail, WorkflowDefinitionDetailState>(
+    calls,
     workflowDefinitionId,
-    () => readDefinitionDetail(growth, workflowDefinitionId),
+    () =>
+      workflowDefinitionId === undefined
+        ? undefined
+        : composeDefinitionDetail(calls, workflowDefinitionId),
     {
       unsettled: subjectReadStart,
-      settled: (settlement) =>
-        settlement.status === "served"
-          ? { status: "served", detail: settlement.detail }
-          : { status: "unavailable", refusal: settlement },
+      settled: (detail) => ({ status: "served", detail }),
     },
   ).value;
 }
 
-/** What this read looks like once its subject has an answer, either kind. */
-type SettledDefinitionDetail =
-  | { readonly status: "served"; readonly detail: WorkflowDefinitionDetail }
-  | { readonly status: "unavailable"; readonly refusal: SettledReadRefusal };
-
 /**
- * What the composed read answers with: the whole detail, or the SUBJECT read's refusal.
- *
- * Only the definition read can refuse the whole thing, which is what makes this a
- * two-armed outcome over three calls: the other two answer members of the served arm.
- */
-type DefinitionDetailOutcome =
-  | { readonly status: "served"; readonly detail: WorkflowDefinitionDetail }
-  | SettledReadRefusal;
-
-/**
- * The three reads, in the only order the wire admits, or no question at all.
- *
- * The request carries a required definition id, so a pane naming none has nothing to
- * ask — the `unasked` state — and the absence is answered here, where the request is
- * built.
+ * The three reads, folded into one answer.
  *
  * ONE ORDERING EDGE AND NOT TWO. The version read and the chain read are both put after
  * the DEFINITION read, because each is addressed by something only that read answers —
  * the version number for one, the opaque version id for the other. Neither is addressed
  * by anything the OTHER answers, so there is no wire reason to put them in sequence, and
  * putting them in one made a slow version body hold back a question that was already
- * fully composed.
- */
-function readDefinitionDetail(
-  growth: GrowthPort,
-  workflowDefinitionId: string | undefined,
-): Promise<DefinitionDetailOutcome> | undefined {
-  return workflowDefinitionId === undefined
-    ? undefined
-    : composeDefinitionDetail(growth, workflowDefinitionId);
-}
-
-/**
- * The three reads, settled and folded into one answer.
- *
- * THE TWO QUALIFYING READS ARE STARTED TOGETHER AND AWAITED TOGETHER. Both are
- * addressed entirely out of the subject read's answer, so the second was waiting on a
- * settlement it takes nothing from: a version body that answered slowly — or, on a
- * daemon holding the request open, never — kept the chain request unsent and the whole
- * detail in its `reading` state while the identity beside it had already arrived.
- *
- * `Promise.all` rather than two awaits, and it composes rather than short-circuits: both
- * helpers settle their own refusal into their own arm and neither rejects, so the fold
- * below sees the same three facts it always did, one of which now cost no extra
- * round trip.
+ * fully composed. They are started together and awaited together.
  */
 async function composeDefinitionDetail(
-  growth: GrowthPort,
+  calls: WorkflowDefinitionDetailCalls,
   workflowDefinitionId: string,
-): Promise<DefinitionDetailOutcome> {
-  const definition = await settleGrowthRead(
-    growth.workflowDefinitionRead({ definitionId: workflowDefinitionId }),
-  );
-  if (definition.status !== "served") {
-    return definition;
-  }
+): Promise<WorkflowDefinitionDetail> {
+  const definition = await calls.readDefinition({ definitionId: workflowDefinitionId });
   const [version, chain] = await Promise.all([
-    readVersionBody(growth, definition.value),
-    readVersionChain(growth, definition.value),
+    calls.readVersion({ definitionId: definition.id, versionNumber: definition.versionNumber }),
+    readVersionChain(calls, definition),
   ]);
-  return { status: "served", detail: { definition: definition.value, version, chain } };
-}
-
-/** The body of the version the definition read answered with. */
-async function readVersionBody(
-  growth: GrowthPort,
-  definition: WorkflowDefinitionReadResult,
-): Promise<WorkflowVersionBodyReading> {
-  const settlement = await settleGrowthRead(
-    growth.workflowVersionRead({
-      definitionId: definition.id,
-      versionNumber: definition.versionNumber,
-    }),
-  );
-  return settlement.status === "served"
-    ? { status: "served", body: settlement.value }
-    : { status: "unavailable", refusal: settlement };
+  return { definition, version, chain };
 }
 
 /**
  * The chain that version belongs to, where the definition read named a version id.
  *
  * The absent arm is checked BEFORE the call rather than after it, which is the whole
- * point of the third arm: there is no request to compose without the id, and composing
+ * point of the second arm: there is no request to compose without the id, and composing
  * one from the number would put a well-formed question about a version that does not
  * exist under that name.
  */
 async function readVersionChain(
-  growth: GrowthPort,
+  calls: WorkflowDefinitionDetailCalls,
   definition: WorkflowDefinitionReadResult,
 ): Promise<WorkflowVersionChainReading> {
   const { workflowVersionId } = definition;
   if (workflowVersionId === undefined) {
     return { status: "unaddressable" };
   }
-  const settlement = await settleGrowthRead(growth.workflowVersionChainRead({ workflowVersionId }));
-  return settlement.status === "served"
-    ? { status: "served", versions: settlement.value.versions }
-    : { status: "unavailable", refusal: settlement };
+  const chain = await calls.readChain({ workflowVersionId });
+  return { status: "served", versions: chain.versions };
 }

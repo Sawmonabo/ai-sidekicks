@@ -5,8 +5,7 @@
 // node plus the four phase classes, the gate on a phase's outgoing shoulder, the
 // agent avatars and binding badge inside a node, the labelled back-reference, and
 // the seven shapes a connection may never complete. This console frames that canvas;
-// it does not draw one. THE SHELL DIES IN THE TASK THAT MOUNTS THE BODY, in the same
-// PR as the mount.
+// it does not draw one.
 //
 // THE RENDERING LIBRARY IS IN THE TREE, AND WHAT IT DRAWS HERE IS STILL NOT THIS
 // CANVAS. The console's library ruling adopts a graph-rendering library under named
@@ -41,7 +40,6 @@
 // and answers authoritatively.
 
 import { WorkflowSlotMount } from "../../../WorkflowSlotMount.js";
-import { WORKFLOW_GRAPH_SLOT } from "../../../owner-slots.js";
 import type { UiStateStore } from "../../../../persistence/index.js";
 
 /** What the builder pane hands the node-graph body. */
@@ -60,10 +58,11 @@ export interface NodeGraphMount {
 
 /**
  * The body the workflow engine authors: a COMPONENT this pane renders, never a function
- * it calls. `owner-slots.ts` states the reason once for all five slots.
+ * it calls, because a call would put the body's hooks into the wrapper's hook list.
  */
 export type NodeGraphBody = (mount: NodeGraphMount) => React.ReactNode;
 
+/** The node-graph mount plus the body, once there is one. */
 export interface NodeGraphSlotProps extends NodeGraphMount {
   /**
    * The body, once there is one.
@@ -76,16 +75,8 @@ export interface NodeGraphSlotProps extends NodeGraphMount {
   readonly body?: NodeGraphBody;
 }
 
-/** The node graph, or the honest statement that it is reserved and unbuilt. */
+/** The node graph's frame: the engine's canvas once its body is supplied, empty until then. */
 export function NodeGraphSlot(props: NodeGraphSlotProps): React.JSX.Element {
   const { body, ...mount } = props;
-  return (
-    <WorkflowSlotMount
-      contract={WORKFLOW_GRAPH_SLOT}
-      body={body}
-      mount={mount}
-      title="The node graph is not built yet."
-      detail="Phases, their gates and the sequence edges between them are drawn here once the workflow engine's own canvas ships."
-    />
-  );
+  return <WorkflowSlotMount body={body} mount={mount} />;
 }

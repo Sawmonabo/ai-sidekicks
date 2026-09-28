@@ -8,18 +8,11 @@
 // beside the run read. It declares no status, no park reason, and no second snapshot.
 //
 // WHY DERIVATION AND NOT A MIRROR. A mirrored shape agrees with its original until
-// the original moves, and then it compiles anyway — which is exactly how a list comes
-// to read a stale vocabulary through a growth port that already carries a wider one.
+// the original moves, and then it compiles anyway — which is how a list comes to read
+// a stale vocabulary.
 // Every row below is a `Pick` chosen by a disposition map that is TOTAL over the wire
 // shape's members, so a member added on the substrate fails to compile here until
 // this file says what becomes of it.
-//
-// WIRE STATUS. `packages/contracts` registers no `workflow.*` method, no `workflow.*`
-// event type, and none of these shapes; the substrate declaration this module derives
-// from is itself the console's consumption shape, on the same footing as the growth
-// port's own signature table. It is fixture-fed until the
-// `workflow-event-registration` slate row lands, and a caller wiring these rows to a
-// live bridge before then is a review rejection.
 
 import type {
   WorkflowPhaseState,

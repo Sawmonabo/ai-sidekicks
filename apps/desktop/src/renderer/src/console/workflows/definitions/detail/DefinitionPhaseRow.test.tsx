@@ -6,8 +6,8 @@
 // under different repository roots name two different configured servers, so a row
 // drawing only the provider, the names and the broad scope word leaves an operator
 // unable to say which one the phase will invoke. Each case below drives the real
-// component over a hand-built phase — the fixture's own bodies carry one binding per
-// scope arm and never two that collide, which is exactly the case this pins.
+// component over a hand-built phase, since a definition body with one binding per
+// scope arm never has two that collide, which is exactly the case this pins.
 
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";

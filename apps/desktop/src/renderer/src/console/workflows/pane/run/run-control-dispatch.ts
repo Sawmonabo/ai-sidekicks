@@ -1,15 +1,8 @@
-// The two run controls as CALLS: what a press puts on the growth port, what may be
-// dispatched at all, and what the answer settles to.
+// The two run controls as CALLS: what a press puts, what may be dispatched at all, and
+// what the answer settles to.
 //
-// WHY THIS EXISTS AT ALL. The pane used to mount both controls as hand-composed
-// refusals saying the operation was "not on the bridge yet". That sentence was false:
-// `bridge/growth-operations/workflows.ts` carries `workflowRunCancel` and
-// `workflowRunResume`, and `bridge/growth-port/growth-port.ts` composes the refusal a build whose
-// bridge cannot serve one deserves — naming the wire and who owes it. A mount site
-// that composes its own refusal bypasses the port and asserts a wire fact nobody
-// checked; the honest shape is that the press REACHES the port and renders whatever
-// the port says, which is the same treatment every other console surface gives an
-// unbuilt wire.
+// The calls are the caller's. This hook keeps the single flight, the per-run state and
+// the served-act round, and a rejected call is not caught here.
 //
 // SINGLE FLIGHT IS THE LATCH'S AND NOT A FLAG'S, and the distinction is a real defect
 // rather than a preference. A `dispatching` value read inside a press handler is the
@@ -22,13 +15,12 @@
 // daemon and cannot be recalled, so the honest answer to the second is no — said out
 // loud on the control, rather than queued or dropped.
 //
-// THE KEY IS `(action, run)` AND THE SUBJECT IS THE PORT. Cancelling and resuming are
+// THE KEY IS `(action, run)` AND THE SUBJECT IS THE CALLS. Cancelling and resuming are
 // separately grantable and separately in flight — an outstanding resume must not
 // refuse a cancel — so each action takes its own key, and the run is in the key
 // because this pane is RETARGETED IN PLACE: run A's outstanding call must not refuse
-// run B's first press. The subject is the port because the fixture's scenario switch
-// replaces the bridge and keeps the run id, and a call made through the previous
-// bridge is retired by that replacement.
+// run B's first press. The subject is the calls because replacing them retires a call
+// made through the previous ones.
 //
 // TWO GUARDS ON THE SETTLEMENT, AND THEY ANSWER DIFFERENT QUESTIONS. The claim's
 // `settle` asks whether this round is still the live one — the unmount and teardown
@@ -49,12 +41,6 @@
 // would have to sum.
 
 import {
-  settleGrowthCall,
-  type GrowthPort,
-  type GrowthUnavailable,
-  type SettledReadRefusal,
-} from "../../../bridge/index.js";
-import {
   useGenerationLatch,
   useSubjectScopedState,
   type GenerationLatch,
@@ -66,6 +52,7 @@ import {
   actAlreadyInFlightRefusal,
   type WorkflowCancelControl,
   type WorkflowResumeDispatch,
+  type WorkflowVersionRepin,
   type WorkflowRunControlAction,
   type WorkflowRunControlOutcome,
   type WorkflowRunControlRunState,
@@ -73,6 +60,23 @@ import {
   type WorkflowRunResumeReply,
 } from "./run-controls.js";
 import type { RecordServedRunAct } from "./served-run-act.js";
+
+/**
+ * The two calls the controls put.
+ *
+ * Pass a stable object: a new identity discards both controls' outcomes and the served-act
+ * count.
+ */
+export interface WorkflowRunControlCalls {
+  readonly cancelRun: (request: {
+    readonly workflowRunId: string;
+    readonly reason?: string;
+  }) => Promise<WorkflowRunCancelReply>;
+  readonly resumeRun: (request: {
+    readonly workflowRunId: string;
+    readonly versionRepin?: WorkflowVersionRepin;
+  }) => Promise<WorkflowRunResumeReply>;
+}
 
 /** Both controls for one run, and the re-arm round their settlements advance. */
 export interface WorkflowRunControls {
@@ -104,24 +108,11 @@ export interface WorkflowRunControls {
   readonly recordServedAct: RecordServedRunAct;
 }
 
-/** What one control's press settles to, once the port has answered. */
+/** What one control's press settles to, once the call has answered. */
 interface ServedActReading {
   readonly runState: WorkflowRunControlRunState;
   readonly detail: string;
 }
-
-/**
- * How a growth call for one of these two operations can end.
- *
- * Three arms and not two: the port's own refusal for a wire this build cannot serve,
- * the read seam's reading of a REJECTION — a scripted daemon refusal is thrown
- * verbatim, and the live seam will throw the same shape — and the served value. Both
- * refusals carry `status: "unavailable"`, so one narrowing covers them.
- */
-type ControlSettlement<TValue> =
-  | { readonly status: "served"; readonly value: TValue }
-  | GrowthUnavailable
-  | SettledReadRefusal;
 
 /** Where each action stands, and how many acts on this run have been served. */
 interface RunControlDispatchState {
@@ -149,7 +140,7 @@ interface RunControlDispatchState {
 /** Everything a press needs beyond the call it is about to put. */
 interface RunControlRuntime {
   readonly latch: GenerationLatch;
-  readonly growth: GrowthPort;
+  readonly calls: WorkflowRunControlCalls;
   readonly workflowRunId: string;
   readonly publish: SubjectScopedPublish<RunControlDispatchState>;
 }
@@ -161,24 +152,18 @@ const IDLE_DISPATCH_STATE: RunControlDispatchState = {
 };
 
 /**
- * Offer both run controls for one run, dispatching each through the growth port.
+ * Offer both run controls for one run, dispatching each through the caller's calls.
  *
- * BOTH ARE OFFERED, ALWAYS, because nothing in this console can adjudicate either one
- * before it asks. Eligibility is the daemon's and arrives as a typed refusal on the
- * press, and nothing here reads a run status to decide in advance.
- *
- * Held against `(port, run)` exactly as the pane's own read is: a bridge swapped
- * underneath and a pane retargeted at another run each re-seed this state during the
- * render that brings them, so no frame shows one run's settlement under another's
- * address.
+ * Both are always offered: eligibility is the daemon's and arrives as a typed refusal on
+ * the press. Held against `(calls, run)`, so a retarget shows no other run's settlement.
  */
 export function useRunControlDispatch(
-  growth: GrowthPort,
+  calls: WorkflowRunControlCalls,
   workflowRunId: string | undefined,
 ): WorkflowRunControls {
   const latch = useGenerationLatch();
   const { value, publish } = useSubjectScopedState<RunControlDispatchState>(
-    growth,
+    calls,
     workflowRunId,
     () => IDLE_DISPATCH_STATE,
   );
@@ -188,7 +173,7 @@ export function useRunControlDispatch(
   // composes nothing rather than sending a fabricated id. That arm is unrenderable
   // besides: the pane returns its empty and misaddressed bodies above these controls.
   const runtime: RunControlRuntime | undefined =
-    workflowRunId === undefined ? undefined : { latch, growth, workflowRunId, publish };
+    workflowRunId === undefined ? undefined : { latch, calls, workflowRunId, publish };
   return {
     cancel: {
       cancel: (reason) => {
@@ -199,7 +184,7 @@ export function useRunControlDispatch(
           runtime,
           "cancel",
           () =>
-            growth.workflowRunCancel({
+            calls.cancelRun({
               workflowRunId: runtime.workflowRunId,
               // Spread on the arm that has one rather than passed as an explicit
               // `undefined`: the request's `reason` is optional under
@@ -220,7 +205,7 @@ export function useRunControlDispatch(
           runtime,
           "resume",
           () =>
-            growth.workflowRunResume({
+            calls.resumeRun({
               workflowRunId: runtime.workflowRunId,
               ...(repin === undefined ? {} : { versionRepin: repin }),
             }),
@@ -256,26 +241,18 @@ function advanceServedActRound(runtime: RunControlRuntime): void {
 }
 
 /**
- * Claim this act's key, put the call, and settle whatever comes back.
+ * Claim this act's key, put the call, and publish what comes back.
  *
- * `settleGrowthCall` and not a bare `await`, because a growth call can also REJECT: a
- * scenario that scripts a daemon refusal throws it verbatim and the live seam will
- * throw the same shape once the wire lands. A fulfilment handler alone would leave
- * the control reading `dispatching` for the life of the pane over an answer that had
- * already arrived — the one shape a dispatched act must never take.
- *
- * And the CALL rather than its promise, which covers the other way a port can fail: one
- * that throws before it returns throws out of the argument expression, so the `finally`
- * below still gives the key back but nothing publishes and the control reads
- * `dispatching` for exactly as long. The seam takes both endings to one refusal.
+ * A rejected or throwing call is not caught here: the `finally` gives the key back, so a
+ * later press on this run is not refused as a duplicate of a call that ended.
  */
 async function dispatchAct<TValue>(
   runtime: RunControlRuntime,
   action: WorkflowRunControlAction,
-  call: () => Promise<ControlSettlement<TValue>>,
+  call: () => Promise<TValue>,
   describe: (value: TValue) => ServedActReading,
 ): Promise<void> {
-  const claim = runtime.latch.claim(runtime.growth, actKey(action, runtime.workflowRunId));
+  const claim = runtime.latch.claim(runtime.calls, actKey(action, runtime.workflowRunId));
   if (claim === undefined) {
     publishOutcome(runtime, action, {
       kind: "refused",
@@ -285,32 +262,13 @@ async function dispatchAct<TValue>(
   }
   publishOutcome(runtime, action, { kind: "dispatching" });
   try {
-    const outcome = outcomeOf(await settleGrowthCall(call), describe);
+    const outcome: WorkflowRunControlOutcome = { kind: "settled", ...describe(await call()) };
     claim.settle(() => {
       publishOutcome(runtime, action, outcome);
     });
-    // The key goes back whatever happened, a `publish` that threw included: a key held
-    // for the life of the subject would refuse every later press on this run.
   } finally {
     claim.release();
   }
-}
-
-/**
- * What one settlement means for the control that asked.
- *
- * A refusal is carried VERBATIM — never re-worded and never re-coded here. The port's
- * own `wire-unregistered` sentence names the wire and who owes it, and a daemon's
- * `workflow.*` code is its own adjudication; a console that paraphrased either would
- * be a second vocabulary for one fact.
- */
-function outcomeOf<TValue>(
-  settlement: ControlSettlement<TValue>,
-  describe: (value: TValue) => ServedActReading,
-): WorkflowRunControlOutcome {
-  return settlement.status === "served"
-    ? { kind: "settled", ...describe(settlement.value) }
-    : { kind: "refused", refusal: settlement };
 }
 
 /** One key per `(action, run)`. The action set is closed and carries no colon. */

@@ -1,28 +1,27 @@
 // What both of this dispatch's suites need to press an act and read what came back.
 //
 // TWO SUITES BECAUSE THE MODULE HAS TWO HALVES, and the seam is its own: exporting
-// reaches the HOST and submits nothing, while importing and promoting both ride the one
-// create on the growth port. The two ask different questions of different seams — when
-// a clipboard write may be called settled, and what a create body carries — so they are
-// two files, and everything they share is here rather than typed out twice.
+// reaches the HOST and submits nothing, while importing rides the one create call. The
+// two ask different questions of different seams — when a clipboard write may be called
+// settled, and what a create body carries — so they are two files, and everything they
+// share is here rather than typed out twice.
 //
-// EVERY CASE DRIVES THE REAL HOOK OVER A REAL GROWTH PORT. The port is the refusing one
-// with a single arm replaced, which is what a build with no `workflow.*` wire actually
-// hands this surface; a hand-built port would let a suite agree with whatever the hook
-// did with it.
+// EVERY CASE DRIVES THE REAL HOOK. The create is a plain function the case hands it and
+// the host is the one native seam the export reaches.
 
 import { act, renderHook } from "@testing-library/react";
 import { expect } from "vitest";
 
-import { createRefusingGrowthPort } from "../../../bridge/growth-port/growth-port.js";
-import {
-  workflowDefinitionReadFor,
-  workflowVersionBodyFor,
-} from "../../../bridge/scenario/workflows/bodies.js";
-import { DEFINITION_RELEASE_CHECKS_SESSION } from "../../../bridge/scenario/workflows/ids.js";
-import type { ConsoleBridge, GrowthPort, WorkflowVersionBody } from "../../../bridge/index.js";
+import type {
+  ConsoleBridge,
+  WorkflowDefinitionReadResult,
+  WorkflowVersionBody,
+} from "../../../bridge/index.js";
 import { crossMacrotaskBoundary } from "../../../core/macrotask-boundary.test-support.js";
+import { PROBE_SESSION_ID } from "../../workflows-probe.test-support.js";
 import { useWorkflowDefinitionAuthoring } from "./definition-authoring-dispatch.js";
+import type { WorkflowDefinitionDetailCalls } from "./definition-detail-read.js";
+import type { WorkflowDefinitionCreateCall } from "./definition-authoring-runtime.js";
 import {
   WORKFLOW_DETAIL_REFUSAL_CODES,
   type WorkflowDefinitionAuthoring,
@@ -30,10 +29,70 @@ import {
   type WorkflowDetailRefusalCode,
 } from "./definition-authoring.js";
 
-/** The two seams an act reaches, each replaceable and each optional. */
+/** The definition every case is addressed at. */
+export const DEFINITION_ID = "019b7a10-0280-7c11-8100-def111150001";
+
+/** The one version body the cases open: a single phase, valid as a definition file. */
+export const RELEASE_CHECKS_BODY: WorkflowVersionBody = {
+  definitionId: DEFINITION_ID,
+  versionNumber: 4,
+  workflowVersionId: "019b7a10-0280-7d22-8100-be5100150004",
+  contentHash: "b3:0f3c9a1d7e5b42c8a06d1f93be27540ac1d8e6b3927fa04c5de81b6203794acd",
+  schemaVersion: "1.0",
+  name: "Release checks",
+  entry: { startMode: "manual" },
+  phaseDefinitions: [
+    {
+      phaseId: "phase-draft",
+      name: "Draft the release note",
+      type: "single-agent",
+      gateType: "auto-continue",
+      failureBehavior: "retry",
+    },
+  ],
+  createdAt: "2026-01-01T07:04:00.000Z",
+};
+
+/** The definition read that names `RELEASE_CHECKS_BODY` as its latest version. */
+export const RELEASE_CHECKS_DEFINITION: WorkflowDefinitionReadResult = {
+  id: DEFINITION_ID,
+  name: RELEASE_CHECKS_BODY.name,
+  scope: "session",
+  scopeRef: PROBE_SESSION_ID,
+  versionNumber: RELEASE_CHECKS_BODY.versionNumber,
+  workflowVersionId: RELEASE_CHECKS_BODY.workflowVersionId,
+  phaseDefinitions: RELEASE_CHECKS_BODY.phaseDefinitions,
+  createdAt: RELEASE_CHECKS_BODY.createdAt,
+};
+
+/** The three detail reads, each answering the release-checks definition unless replaced. */
+export function answeringDetailCalls(
+  replacements: Partial<WorkflowDefinitionDetailCalls> = {},
+): WorkflowDefinitionDetailCalls {
+  return {
+    readDefinition: async () => RELEASE_CHECKS_DEFINITION,
+    readVersion: async () => RELEASE_CHECKS_BODY,
+    readChain: async () => ({
+      versions: [
+        {
+          workflowVersionId: RELEASE_CHECKS_BODY.workflowVersionId,
+          versionNumber: RELEASE_CHECKS_BODY.versionNumber,
+        },
+      ],
+    }),
+    ...replacements,
+  };
+}
+
+/** A create that answers, for the cases whose subject is not what the daemon says. */
+export const answeringCreate: WorkflowDefinitionCreateCall = async () => ({
+  definitionId: DEFINITION_ID,
+  versionNumber: 1,
+  createdAt: "2026-01-01T07:05:00.000Z",
+});
+
+/** The host seam an act reaches, replaceable. */
 export interface BridgeParts {
-  /** Replaces the port's create arm. Absent leaves the refusing one in place. */
-  readonly create?: GrowthPort["workflowDefinitionCreate"];
   /** Replaces the host's clipboard write. Absent accepts every write. */
   readonly copyToClipboard?: (file: string) => Promise<void>;
 }
@@ -44,35 +103,10 @@ export interface MountedAuthoring {
   readonly press: (pressed: () => void) => Promise<void>;
 }
 
-/**
- * The body the fixture states for the definition every case is addressed at.
- *
- * The version number is READ off the definition rather than written down: the fixture
- * answers a body for the latest version alone, so a number restated here would be a
- * second copy of a fact that moves whenever the scenario's table does.
- */
-export function scriptedBody(): WorkflowVersionBody {
-  const definition = workflowDefinitionReadFor(DEFINITION_RELEASE_CHECKS_SESSION);
-  const body =
-    definition === undefined
-      ? undefined
-      : workflowVersionBodyFor(definition.id, definition.versionNumber);
-  if (body === undefined) {
-    throw new Error("the fixture states no body for the definition these cases open");
-  }
-  return body;
-}
-
-/** A bridge carrying exactly the two seams an act reaches: the port and the clipboard. */
+/** A bridge carrying exactly the seam an act reaches: the host's clipboard. */
 export function authoringBridge(parts: BridgeParts = {}): ConsoleBridge {
-  const refusing = createRefusingGrowthPort();
-  const growth: GrowthPort = {
-    ...refusing,
-    ...(parts.create === undefined ? {} : { workflowDefinitionCreate: parts.create }),
-  };
   const copyToClipboard = parts.copyToClipboard ?? (async () => undefined);
   return {
-    growth,
     desktopBridge: { native: { copyToClipboard } },
   } as unknown as ConsoleBridge;
 }
@@ -80,18 +114,19 @@ export function authoringBridge(parts: BridgeParts = {}): ConsoleBridge {
 /**
  * Mount the hook against one definition, and give the caller a way to press it.
  *
- * BOTH SUBJECTS ARE REQUIRED AND NEITHER DEFAULTS, which is a decision these suites made
- * the hard way: a default parameter is applied to an argument passed as `undefined`, so
- * the two cases that exist to drive an absent session and an absent body were each
- * getting the present one and passing against the wrong arm.
+ * THE SESSION IS REQUIRED AND DOES NOT DEFAULT: a default parameter is applied to an
+ * argument passed as `undefined`, so a case driving an absent session would get the
+ * present one and pass against the wrong arm. The create call defaults because most
+ * cases never reach it.
  */
 export function mountAuthoring(
   bridge: ConsoleBridge,
   sessionId: string | undefined,
-  body: WorkflowVersionBody | undefined,
+  body: WorkflowVersionBody,
+  createDefinition: WorkflowDefinitionCreateCall = answeringCreate,
 ): MountedAuthoring {
   const mounted = renderHook(() =>
-    useWorkflowDefinitionAuthoring(bridge, DEFINITION_RELEASE_CHECKS_SESSION, sessionId, body),
+    useWorkflowDefinitionAuthoring(bridge, createDefinition, DEFINITION_ID, sessionId, body),
   );
   return {
     current: () => mounted.result.current,
