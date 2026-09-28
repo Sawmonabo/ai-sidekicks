@@ -20,7 +20,6 @@ const ATTACHED_AT = "2026-03-04T08:15:00.000Z";
 const RUNNING: AgentRosterEntry = {
   agentId: "agent-scout",
   name: "Scout",
-  state: "ready",
   driverName: "claude",
   modelId: "claude-sonnet",
 };
@@ -43,7 +42,7 @@ describe("agent card — the row's own lifecycle", () => {
   it("keeps the instant out of the effective binding line", () => {
     // The effective line's members are all provider axes. An instant sitting among
     // them would read as one more axis of the binding rather than as a fact about
-    // the row, which is why it shares the head with the state chip instead.
+    // the row, which is why it shares the head with the name instead.
     const { container } = render(<AgentCard agent={{ ...RUNNING, createdAt: ATTACHED_AT }} />);
 
     const effective = container.querySelector(".meridian-agent-card__effective")?.textContent ?? "";

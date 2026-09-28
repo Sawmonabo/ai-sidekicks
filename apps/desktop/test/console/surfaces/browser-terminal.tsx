@@ -2,7 +2,7 @@
 // look at them.
 //
 // Not a test file — no `include` glob reaches it. The screenshot tier and the
-// accessibility tier both need the same three surfaces this family ships, and a
+// accessibility tier both need the same two surfaces this family ships, and a
 // per-tier copy of the mount would be two chances to compose them differently and
 // then read the results as if they were comparable. That is `console-harness.tsx`'s
 // own reason for existing, one level down: the harness owns HOW the console is
@@ -17,9 +17,9 @@
 //
 // THE TERMINAL IS DRIVEN BY THE SCENARIO, NOT BY A HAND-BUILT LOG. `TERMINAL_SCENARIO`
 // ends on its host going silent under a lease that had just been taken, which is the
-// frame its own header says a baseline should pin: 8.8's degraded state, standing
-// over the whole transition ledger. So the store here is fed the scenario's beats
-// verbatim and the degraded reading is the fixture's, not this file's.
+// frame its own header says a baseline should pin: the degraded state. So the store
+// here is fed the scenario's beats verbatim and the degraded reading is the fixture's,
+// not this file's.
 
 import { waitFor, within } from "@testing-library/react";
 import type { FunctionComponent } from "react";
@@ -27,15 +27,13 @@ import type { FunctionComponent } from "react";
 import { renderSettled } from "../console-harness.js";
 
 import { registerBrowserPanes } from "../../../src/renderer/src/console/browser/index.js";
-import { BrowserCaptureCard } from "../../../src/renderer/src/console/browser/cards/CaptureCard.js";
 import { TERMINAL_SCENARIO } from "../../../src/renderer/src/console/bridge/scenario/terminal/terminal.js";
 import { fixtureSessionSnapshot } from "../../../src/renderer/src/console/bridge/fixture/session/session-snapshot.js";
-import { BROWSER_SCENARIO } from "../../../src/renderer/src/console/bridge/scenario/browser.js";
+import { unscriptedScenario } from "../../../src/renderer/src/console/bridge/fixture/call-plane/bridge.test-support.js";
 import {
   createFixtureBridge,
   type ConsoleBridge,
 } from "../../../src/renderer/src/console/bridge/index.js";
-import { releaseQueuedPaneFrames } from "../../../src/renderer/src/console/browser/pane/BrowserPane.test-support.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "../../../src/renderer/src/console/core/index.js";
 import { DraftStore, UiStateStore } from "../../../src/renderer/src/console/persistence/index.js";
 import {
@@ -98,7 +96,7 @@ function paneBinding(
  *
  * The whole log rather than a prefix: the scenario reaches all five transition
  * reasons and then loses the host holding the lease, so the pane folded off it
- * carries the degraded reading over a full transition ledger — the surface these
+ * carries the degraded reading — the surface these
  * tiers are for.
  *
  * OPENED WITH THE FOLD A WINDOW COMPOSES, never with none. This scenario plays four
@@ -111,7 +109,7 @@ function terminalSessionStore(): SessionStore {
     sessionId: TERMINAL_SCENARIO.sessionId,
     projectors: COMPOSED_CONSOLE_PROJECTORS,
   });
-  // The scenario's own base state, which is what the composition root initialises a
+  // The scenario's own base state, which is what the composition root initializes a
   // store from. An empty one is not a cheaper version of it: the beats below carry
   // only what the scenario plays, so anything a surface reads outside them — the
   // session's own identity and its node binding included — arrives here or nowhere,
@@ -169,9 +167,9 @@ function paneTrailName(sessionId: string | undefined, paneWord: string): string 
   return `${sessionId ?? "No session"} ${paneWord}`;
 }
 
-/** The browser pane, mounted with its navigation subscription settled. */
+/** The browser pane, mounted and settled. */
 export async function mountBrowserPane(): Promise<MountedFamilySurface> {
-  const bridge = createFixtureBridge({ scenario: BROWSER_SCENARIO });
+  const bridge = createFixtureBridge({ scenario: unscriptedScenario("browser-surface") });
   const BrowserPaneBody = await paneBodyComponent("browser");
   const { container } = await renderSettled(
     <BrowserPaneBody
@@ -179,7 +177,6 @@ export async function mountBrowserPane(): Promise<MountedFamilySurface> {
       {...paneBinding({ paneId: "pane-browser-surface", bridge, sessionStore: undefined })}
     />,
   );
-  await releaseQueuedPaneFrames(bridge);
   return {
     element: requireNamedSurface(container, "region", paneTrailName(undefined, "Browser")),
     bridge,
@@ -226,43 +223,4 @@ export async function mountTerminalPane(): Promise<MountedFamilySurface> {
     { timeout: EMULATOR_CHUNK_TIMEOUT_MS },
   );
   return { element: region, bridge };
-}
-
-/**
- * One stored capture, as the browser overflow renders it.
- *
- * A `stored` ingest rather than an in-flight one: the in-flight arm carries a meter
- * whose fill is a function of two numbers, and pinning a moving bar as a baseline
- * would make the tier red on timing rather than on design. The preview control is
- * present and the reveal control is not, which is the pair 12.6 names — a preview is
- * an explicit fetch, and the reveal takes no path.
- */
-export async function mountBrowserCaptureCard(): Promise<MountedFamilySurface> {
-  const bridge = createFixtureBridge({ scenario: BROWSER_SCENARIO });
-  const { container } = await renderSettled(
-    <BrowserCaptureCard
-      artifactId="019b7b30-0280-7c11-8420-b1a5c0de2201"
-      captureName="checkout-step-two.png"
-      // The settled row rather than a transitional one, for the same reason the ingest
-      // arm below is `stored`: a baseline pins the state a person spends their time
-      // looking at, and the two moving states are the ones a card reaches on its way
-      // here.
-      state="published"
-      scope="viewport"
-      mediaType="image/png"
-      ingest={{
-        status: "stored",
-        artifactId: "019b7b30-0280-7c11-8420-b1a5c0de2201",
-        byteLength: 148_512,
-      }}
-      onOpenPreview={() => {
-        // The control is present because a fetch route exists in this composition;
-        // what it opens is the caller's, and a tier opens nothing.
-      }}
-    />,
-  );
-  return {
-    element: requireNamedSurface(container, "article", "Capture checkout-step-two.png"),
-    bridge,
-  };
 }

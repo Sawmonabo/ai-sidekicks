@@ -151,7 +151,7 @@ describe("printed URLs, not just the hyperlinks a program marked", () => {
   });
 
   it("negative control: the recorder sees nothing when no provider is registered", async () => {
-    // Which is also the old adapter's behaviour for every case above — printed text
+    // Which is also the old adapter's behavior for every case above — printed text
     // reached `onActivateLink` through no path, because no provider existed to
     // offer it. Without this the cases above could pass against a recorder that
     // reported a provider the adapter never registered.

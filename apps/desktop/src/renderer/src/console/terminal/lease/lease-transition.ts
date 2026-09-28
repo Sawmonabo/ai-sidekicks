@@ -35,10 +35,9 @@ export const TERMINAL_LEASE_EVENT_KIND = "pty.control_changed";
  * The transition reasons the wire closes the set at.
  *
  * Declared once as a tuple with the union derived from it. No contract package exports
- * this vocabulary yet — the terminal's renderer obligations are still on the growth
- * slate — so this is the console's single declaration of it, and every consumer (the
- * sentence table, the guard, the family's own scenario test) derives from this array
- * rather than restating it.
+ * this vocabulary, so this is the console's single declaration of it, and every
+ * consumer (the sentence table, the guard, the family's own scenario test) derives from
+ * this array rather than restating it.
  */
 export const TERMINAL_LEASE_TRANSITION_REASONS = [
   "taken",
@@ -131,9 +130,9 @@ export function asTerminalLeaseTransitionReason(
 /**
  * Read one transition off an event, or `undefined` when the payload is not one.
  *
- * Both halves have to agree. A recognised reason with a holder shape that
+ * Both halves have to agree. A recognized reason with a holder shape that
  * contradicts it is not a transition this build can read, and returning it with the
- * holder quietly normalised is how a malformed `taken` became a free lease and a
+ * holder quietly normalized is how a malformed `taken` became a free lease and a
  * `released` carrying this device became `held-by-you`.
  */
 export function readTerminalLeaseTransition(
@@ -201,7 +200,7 @@ export function terminalLeaseTransitionSentence(transition: TerminalLeaseTransit
     case "released":
       return "The shell was released.";
     case "auto_released_disconnect":
-      return "The holding window disconnected, so the shell was released.";
+      return "The holding device disconnected, so the shell was released.";
     case "auto_released_authorization_lost":
       return "The hold lost its authorization, so the shell was released.";
     case "auto_released_run_idle":

@@ -2,14 +2,12 @@
 //
 // The fold's ordinary answer — who the log's transitions leave holding the shell, how
 // many there were, and what the ledger keeps when there are more than its cap. The
-// three arms where the fold refuses to answer are
+// two arms where the fold refuses to answer are
 // `lease-model.withheld.test.ts`'s, and they are a different claim: this file is about
-// what a well-formed ordering produces, that one about what an ill-formed or
-// unvouchable one does NOT.
+// what a well-formed ordering produces, that one about what an ill-formed one does NOT.
 //
-// The READER's own claims are `lease-transition.test.ts`'s — a payload's reason and
-// holder shape agreeing, and the five sentences staying distinct, are answerable with
-// one event and no session.
+// The READER's own claim is `lease-transition.test.ts`'s — a payload's reason and
+// holder shape agreeing is answerable with one event and no session.
 
 import { describe, expect, it } from "vitest";
 

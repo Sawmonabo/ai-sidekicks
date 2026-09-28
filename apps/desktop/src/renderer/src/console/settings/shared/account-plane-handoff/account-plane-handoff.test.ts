@@ -40,7 +40,7 @@ describe("the account-plane router", () => {
   });
 
   it("answers nothing for a code that is not the account plane's", () => {
-    // The negative control: the router takes a bare wire string, so a neighbouring
+    // The negative control: the router takes a bare wire string, so a neighboring
     // namespace must not fall through into an accounts handoff.
     expect(isAccountPlaneRefusalCode("driver.capability_unsupported")).toBe(false);
     expect(accountPlaneHandoffFor("driver.capability_unsupported")).toBeUndefined();

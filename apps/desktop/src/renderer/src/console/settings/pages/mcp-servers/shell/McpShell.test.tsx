@@ -1,14 +1,8 @@
-// The MCP shell, driven against the deck it actually ships in.
+// The MCP shell, driven with the daemon verbs handed in as arguments.
 //
-// THE SCENARIO IS THE REAL ONE, so every state asserted below is a state a reviewer
-// can reach from the scenario selector in a running fixture build. The three rows it
-// scripts are the three arms this page has to draw: an ordinary trusted binding, one
-// that needs authorization while a leg of it is fine, and one whose trust store could
-// not be read at all.
-//
-// THE EMPTY INVENTORY IS DRIVEN THROUGH THE PORT rather than through a second
-// scenario, because a node governing no servers is not a story — it is the answer the
-// unscripted fixture already gives, and asserting it here keeps the two agreeing.
+// The three rows below are the three arms this page has to draw: an ordinary trusted
+// binding, one that needs authorization while a leg of it is fine, and one whose trust
+// store could not be read at all.
 
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -16,64 +10,142 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   DesktopBridgeProvider,
   createFixtureBridge,
-  growthUnavailable,
   useConsoleBridge,
-  type ConsoleBridge,
-  type GrowthMcpMutationResult,
-  type GrowthOutcome,
 } from "../../../../bridge/index.js";
-import { settleScriptedRead } from "../../../../bridge/readings/scheduled-read.test-support.js";
-import { SETTINGS_SCENARIO } from "../../../../bridge/scenario/settings/settings.js";
+import type {
+  ConsoleBridge,
+  GrowthMcpInventoryEntry,
+  GrowthMcpMutationResult,
+} from "../../../../bridge/index.js";
+import { unscriptedScenario } from "../../../../bridge/fixture/call-plane/bridge.test-support.js";
+import { settleScheduledRead } from "../../../../bridge/readings/scheduled-read.test-support.js";
 import { crossMacrotaskBoundary } from "../../../../core/macrotask-boundary.test-support.js";
 import { LiveAnnouncerProvider } from "../../../../primitives/index.js";
-import { McpShell } from "./McpShell.js";
+import { McpShell, type McpShellOperations } from "./McpShell.js";
 
 afterEach(() => {
   cleanup();
 });
 
+const FILESYSTEM: GrowthMcpInventoryEntry = {
+  provider: "claude",
+  scope: "user",
+  serverName: "filesystem",
+  effectiveInRuns: true,
+  config: {
+    transport: "stdio",
+    command: "npx",
+    args: ["-y", "@modelcontextprotocol/server-filesystem"],
+    envVarNames: ["FS_ROOT"],
+  },
+  status: "connected",
+  enabled: true,
+  trusted: true,
+  configHash: "hash-filesystem",
+  toolOverrides: [],
+};
+
+const ISSUE_TRACKER: GrowthMcpInventoryEntry = {
+  provider: "codex",
+  scope: "project",
+  scopeRef: "/work/repo",
+  serverName: "issue-tracker",
+  effectiveInRuns: true,
+  config: {
+    transport: "http",
+    url: "https://issues.example.test/mcp",
+    headerNames: ["X-Workspace"],
+    bearerTokenEnvVar: "ISSUES_TOKEN",
+  },
+  status: "needs-auth",
+  legs: [
+    { sessionId: "session-a", bindingId: "leg-a", status: "needs-auth" },
+    { sessionId: "session-b", bindingId: "leg-b", status: "connected" },
+  ],
+  enabled: true,
+  trusted: false,
+  configHash: "hash-issues",
+  toolOverrides: [],
+};
+
+const SCRATCHPAD: GrowthMcpInventoryEntry = {
+  provider: "claude",
+  scope: "local",
+  scopeRef: "/work/repo",
+  serverName: "scratchpad",
+  effectiveInRuns: false,
+  config: { transport: "stdio", command: "./scripts/scratchpad-mcp" },
+  status: "unknown",
+  trustUnavailable: true,
+};
+
+const PARTIAL_APPLICATION: GrowthMcpMutationResult = {
+  server: { ...FILESYSTEM, enabled: false },
+  applied: "live_reconcile",
+  liveResults: [
+    { sessionId: "session-a", bindingId: "leg-a", outcome: "applied" },
+    {
+      sessionId: "session-b",
+      bindingId: "leg-b",
+      outcome: "failed",
+      errorCode: "mcp.config_write_conflict",
+    },
+  ],
+};
+
+function operationsServing(
+  servers: readonly GrowthMcpInventoryEntry[],
+  overrides: Partial<McpShellOperations> = {},
+): McpShellOperations {
+  return {
+    listInventory: async () => await Promise.resolve({ servers }),
+    subscribeInventoryChanges: () => () => undefined,
+    sendEnabled: async () => await Promise.resolve(PARTIAL_APPLICATION),
+    sendTrust: async () => await Promise.resolve(PARTIAL_APPLICATION),
+    ...overrides,
+  };
+}
+
 function fixtureBridge(): ConsoleBridge {
-  return createFixtureBridge({ scenario: SETTINGS_SCENARIO });
+  return createFixtureBridge({ scenario: unscriptedScenario("mcp-shell") });
 }
 
 /**
- * The shell as its seat mounts it: the bridge comes from the provider's resolution.
- *
- * A probe rather than the raw element, because the resolution is what MOVES. The
- * provider replaces it from an effect, one commit after the prop changes, so a tree
- * handing the shell a bridge straight from the outside would put the shell on one
- * transport and its clock on another for that commit — a shape the real seat, which
- * reads `context.bridge`, cannot produce.
+ * The shell as a composition mounts it: the bridge comes from the provider's resolution,
+ * which moves one commit after a prop changes.
  */
-function MountedMcpShell(props: { readonly mintKey?: () => string }): React.JSX.Element {
+function MountedMcpShell(props: {
+  readonly operations: McpShellOperations;
+  readonly mintKey?: () => string;
+}): React.JSX.Element {
   const bridge = useConsoleBridge();
   return props.mintKey === undefined ? (
-    <McpShell bridge={bridge} />
+    <McpShell bridge={bridge} operations={props.operations} />
   ) : (
-    <McpShell bridge={bridge} mintKey={props.mintKey} />
+    <McpShell bridge={bridge} operations={props.operations} mintKey={props.mintKey} />
   );
 }
 
 /**
- * The tree, as an element rather than a render.
- *
- * Split out so a case can re-render the SAME mount at a different bridge, which is
- * what `DesktopBridgeProvider` does on a reconnect or a scenario switch and is the
- * one thing a fresh `render` cannot express.
+ * The tree, as an element rather than a render, so a case can re-render the SAME mount
+ * at a different bridge the way `DesktopBridgeProvider` does on a reconnect.
  */
-function shellTree(bridge: ConsoleBridge, mintKey?: () => string): React.JSX.Element {
+function shellTree(
+  bridge: ConsoleBridge,
+  operations: McpShellOperations,
+  mintKey?: () => string,
+): React.JSX.Element {
   return (
     <DesktopBridgeProvider bridge={bridge}>
       <LiveAnnouncerProvider>
-        {mintKey === undefined ? <MountedMcpShell /> : <MountedMcpShell mintKey={mintKey} />}
+        {mintKey === undefined ? (
+          <MountedMcpShell operations={operations} />
+        ) : (
+          <MountedMcpShell operations={operations} mintKey={mintKey} />
+        )}
       </LiveAnnouncerProvider>
     </DesktopBridgeProvider>
   );
-}
-
-function renderShell(bridge: ConsoleBridge, mintKey?: () => string): HTMLElement {
-  const { container } = render(shellTree(bridge, mintKey));
-  return container;
 }
 
 /**
@@ -93,50 +165,56 @@ function firstEnableButton(container: HTMLElement): HTMLButtonElement {
 }
 
 async function renderSettledShell(
-  bridge: ConsoleBridge,
+  operations: McpShellOperations,
   mintKey?: () => string,
-): Promise<HTMLElement> {
-  const container = renderShell(bridge, mintKey);
-  await settleScriptedRead(bridge);
-  return container;
+): Promise<{ readonly container: HTMLElement; readonly bridge: ConsoleBridge }> {
+  const bridge = fixtureBridge();
+  const { container } = render(shellTree(bridge, operations, mintKey));
+  await settleScheduledRead(bridge);
+  return { container, bridge };
+}
+
+function rowNamed(container: HTMLElement, serverName: string): Element | undefined {
+  return [...container.querySelectorAll(".meridian-mcp__row")].find((row) =>
+    (row.textContent ?? "").includes(serverName),
+  );
 }
 
 describe("McpShell", () => {
   it("draws a loading absence before the inventory answers", () => {
-    const container = renderShell(fixtureBridge());
+    const { container } = render(shellTree(fixtureBridge(), operationsServing([FILESYSTEM])));
     expect(container.textContent).toContain("servers this node governs");
     expect(container.querySelectorAll(".meridian-mcp__row")).toHaveLength(0);
   });
 
   it("lists one row per scope-qualified binding", async () => {
-    const container = await renderSettledShell(fixtureBridge());
+    const { container } = await renderSettledShell(
+      operationsServing([FILESYSTEM, ISSUE_TRACKER, SCRATCHPAD]),
+    );
     expect(container.querySelectorAll(".meridian-mcp__row")).toHaveLength(3);
   });
 
   it("renders the daemon's aggregate status rather than folding the legs itself", async () => {
-    const container = await renderSettledShell(fixtureBridge());
-    const rowWithDisagreeingLegs = [...container.querySelectorAll(".meridian-mcp__row")].find(
-      (row) => (row.textContent ?? "").includes("issue-tracker"),
-    );
+    const { container } = await renderSettledShell(operationsServing([ISSUE_TRACKER]));
     // Its two legs disagree — one `needs-auth`, one `connected` — and the row's own
-    // chip carries the daemon's severity aggregate. A page that folded the legs by
-    // eye would have had to pick one of them.
-    expect(rowWithDisagreeingLegs?.textContent).toContain("needs-auth");
-    expect(rowWithDisagreeingLegs?.textContent).toContain("connected");
+    // chip carries the daemon's aggregate. A page that folded the legs by eye would
+    // have had to pick one of them.
+    expect(rowNamed(container, "issue-tracker")?.textContent).toContain("needs-auth");
+    expect(rowNamed(container, "issue-tracker")?.textContent).toContain("connected");
   });
 
   it("renders names where the wire carries names, and no value anywhere", async () => {
-    const container = await renderSettledShell(fixtureBridge());
+    const { container } = await renderSettledShell(operationsServing([FILESYSTEM, ISSUE_TRACKER]));
     expect(container.textContent).toContain("Environment variables read");
     expect(container.textContent).toContain("Headers sent");
     expect(container.textContent).toContain("Bearer token read from");
   });
 
   it("withholds the trust control on the row whose trust store could not be read", async () => {
-    const container = await renderSettledShell(fixtureBridge());
-    const degradedRow = [...container.querySelectorAll(".meridian-mcp__row")].find((row) =>
-      (row.textContent ?? "").includes("scratchpad"),
+    const { container } = await renderSettledShell(
+      operationsServing([FILESYSTEM, ISSUE_TRACKER, SCRATCHPAD]),
     );
+    const degradedRow = rowNamed(container, "scratchpad");
     expect(degradedRow?.textContent).toContain("trust control is withheld");
     expect(
       [...(degradedRow?.querySelectorAll("button") ?? [])].map((b) => b.textContent),
@@ -146,7 +224,9 @@ describe("McpShell", () => {
   // The negative control for the case above: every other row DOES offer it, so the
   // withholding is about that row's arm and not about the page having no control.
   it("offers the trust control on the rows whose trust arm arrived", async () => {
-    const container = await renderSettledShell(fixtureBridge());
+    const { container } = await renderSettledShell(
+      operationsServing([FILESYSTEM, ISSUE_TRACKER, SCRATCHPAD]),
+    );
     const trustButtons = [...container.querySelectorAll("button")].filter((button) =>
       /trust/iu.test(button.textContent ?? ""),
     );
@@ -154,144 +234,110 @@ describe("McpShell", () => {
   });
 
   it("names no invented status on the degraded row", async () => {
-    const container = await renderSettledShell(fixtureBridge());
-    const degradedRow = [...container.querySelectorAll(".meridian-mcp__row")].find((row) =>
-      (row.textContent ?? "").includes("scratchpad"),
-    );
+    const { container } = await renderSettledShell(operationsServing([SCRATCHPAD]));
+    const degradedRow = rowNamed(container, "scratchpad");
     expect(degradedRow?.textContent).toContain("could not be read");
     expect(degradedRow?.textContent).not.toContain("No tool on this binding carries an override");
   });
 
   it("renders a partial application: one leg applied, one failed", async () => {
-    const bridge = fixtureBridge();
-    const container = await renderSettledShell(bridge);
+    const { container, bridge } = await renderSettledShell(operationsServing([FILESYSTEM]));
     fireEvent.click(firstEnableButton(container));
-    await settleScriptedRead(bridge);
+    await settleScheduledRead(bridge);
     expect(container.textContent).toContain("live_reconcile");
     expect(container.textContent).toContain("mcp.config_write_conflict");
   });
 
   it("sends the key the caller minted for that press", async () => {
-    const bridge = fixtureBridge();
-    const sent: unknown[] = [];
-    const recordingBridge: ConsoleBridge = {
-      ...bridge,
-      growth: {
-        ...bridge.growth,
-        mcpSetEnabled: vi.fn(async (request) => {
-          sent.push(request);
-          return await bridge.growth.mcpSetEnabled(request);
-        }),
-      },
-    };
-    const container = await renderSettledShell(recordingBridge, () => "one-press");
+    const sendEnabled = vi.fn(async () => await Promise.resolve(PARTIAL_APPLICATION));
+    const { container, bridge } = await renderSettledShell(
+      operationsServing([FILESYSTEM], { sendEnabled }),
+      () => "one-press",
+    );
     fireEvent.click(firstEnableButton(container));
-    await settleScriptedRead(recordingBridge);
-    expect(sent).toHaveLength(1);
-    expect((sent[0] as { clientIdempotencyKey: string }).clientIdempotencyKey).toBe("one-press");
+    await settleScheduledRead(bridge);
+    expect(sendEnabled).toHaveBeenCalledTimes(1);
+    expect(sendEnabled).toHaveBeenCalledWith(
+      expect.objectContaining({ serverName: "filesystem", clientIdempotencyKey: "one-press" }),
+    );
   });
 
   it("draws the empty inventory as an ordinary state rather than a failure", async () => {
-    const bridge = fixtureBridge();
-    const emptyBridge: ConsoleBridge = {
-      ...bridge,
-      growth: {
-        ...bridge.growth,
-        mcpList: vi.fn(
-          async () => await Promise.resolve({ status: "served" as const, value: { servers: [] } }),
-        ),
-      },
-    };
-    const container = await renderSettledShell(emptyBridge);
+    const { container } = await renderSettledShell(operationsServing([]));
     expect(container.textContent).toContain("governs no MCP servers");
   });
 
-  it("draws the port's own refusal where the inventory read could not be put", async () => {
-    const bridge = fixtureBridge();
-    const refusingBridge: ConsoleBridge = {
-      ...bridge,
-      growth: {
-        ...bridge.growth,
-        mcpList: vi.fn(async () => await Promise.resolve(growthUnavailable("mcpList"))),
-      },
-    };
-    await renderSettledShell(refusingBridge);
+  it("draws the refusal where the inventory read could not be put", async () => {
+    await renderSettledShell(
+      operationsServing([], {
+        listInventory: async () => await Promise.reject(new Error("the daemon is unreachable")),
+      }),
+    );
     expect(screen.getByRole("button", { name: /try again/iu })).toBeDefined();
   });
 });
 
-/**
- * A bridge whose enablement mutation answers only when the case says so.
- *
- * The whole subject is what happens BETWEEN the press and the settlement, so the
- * scenario's own 80 ms reply is too coarse: the case has to replace the bridge while
- * the first one's call is still out, and then release it.
- */
-function bridgeHoldingItsMutation(): {
-  readonly bridge: ConsoleBridge;
-  readonly settleHeldMutation: () => void;
+/** Operations whose enablement mutation answers only when the case says so. */
+function operationsHoldingTheirMutation(): {
+  readonly operations: McpShellOperations;
+  readonly answerHeldMutation: () => void;
 } {
-  const base = fixtureBridge();
-  const waiting: ((outcome: GrowthOutcome<GrowthMcpMutationResult>) => void)[] = [];
+  const waiting: ((result: GrowthMcpMutationResult) => void)[] = [];
   return {
-    bridge: {
-      ...base,
-      growth: {
-        ...base.growth,
-        mcpSetEnabled: async () =>
-          await new Promise<GrowthOutcome<GrowthMcpMutationResult>>((resolve) => {
-            waiting.push(resolve);
-          }),
-      },
-    },
-    settleHeldMutation: () => {
+    operations: operationsServing([FILESYSTEM], {
+      sendEnabled: async () =>
+        await new Promise<GrowthMcpMutationResult>((resolve) => {
+          waiting.push(resolve);
+        }),
+    }),
+    answerHeldMutation: () => {
       for (const resolve of waiting.splice(0)) {
-        resolve(growthUnavailable("mcpSetEnabled"));
+        resolve(PARTIAL_APPLICATION);
       }
     },
   };
 }
 
-// The refusal the held mutation answers with, as the operator reads it. Asserted by
-// its own sentence rather than by a code, because that is what is on screen.
-const HELD_MUTATION_REFUSAL_TEXT = "not registered on this build yet";
+// What the held mutation's answer prints, as the operator reads it.
+const HELD_MUTATION_OUTCOME_TEXT = "mcp.config_write_conflict";
 
 describe("McpShell — a bridge replaced under a mounted shell", () => {
   it("shows no outcome from a bridge the mount no longer holds", async () => {
-    const superseded = bridgeHoldingItsMutation();
-    const { container, rerender } = render(shellTree(superseded.bridge));
-    await settleScriptedRead(superseded.bridge);
+    const superseded = operationsHoldingTheirMutation();
+    const supersededBridge = fixtureBridge();
+    const { container, rerender } = render(shellTree(supersededBridge, superseded.operations));
+    await settleScheduledRead(supersededBridge);
     fireEvent.click(firstEnableButton(container));
     expect(container.textContent).toContain("Asking the daemon to apply this.");
 
     const replacementBridge = fixtureBridge();
-    rerender(shellTree(replacementBridge));
-    await settleScriptedRead(replacementBridge);
+    rerender(shellTree(replacementBridge, operationsServing([FILESYSTEM, ISSUE_TRACKER])));
+    await settleScheduledRead(replacementBridge);
     // The replacement answered its own inventory, and the superseded bridge's press
     // is not still reported as in flight against it.
-    expect(container.querySelectorAll(".meridian-mcp__row")).toHaveLength(3);
+    expect(container.querySelectorAll(".meridian-mcp__row")).toHaveLength(2);
     expect(container.textContent).not.toContain("Asking the daemon to apply this.");
 
     await act(async () => {
-      superseded.settleHeldMutation();
+      superseded.answerHeldMutation();
       await crossMacrotaskBoundary();
     });
-    expect(container.textContent).not.toContain(HELD_MUTATION_REFUSAL_TEXT);
+    expect(container.textContent).not.toContain(HELD_MUTATION_OUTCOME_TEXT);
   });
 
   // The negative control for the case above: the same held call, the same release, and
   // no replacement — so a clean reading there is about WHOSE settlement it was rather
   // than about this shell never rendering one.
   it("negative control: the same settlement renders while its own bridge still holds", async () => {
-    const held = bridgeHoldingItsMutation();
-    const container = renderShell(held.bridge);
-    await settleScriptedRead(held.bridge);
+    const held = operationsHoldingTheirMutation();
+    const { container, bridge } = await renderSettledShell(held.operations);
     fireEvent.click(firstEnableButton(container));
+    await settleScheduledRead(bridge);
 
     await act(async () => {
-      held.settleHeldMutation();
+      held.answerHeldMutation();
       await crossMacrotaskBoundary();
     });
-    expect(container.textContent).toContain(HELD_MUTATION_REFUSAL_TEXT);
+    expect(container.textContent).toContain(HELD_MUTATION_OUTCOME_TEXT);
   });
 });

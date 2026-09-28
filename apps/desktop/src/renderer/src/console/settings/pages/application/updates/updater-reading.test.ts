@@ -7,27 +7,25 @@
 
 import { describe, expect, it, vi } from "vitest";
 
-import type { DesktopBridge, UpdateState, Unsubscribe } from "@ai-sidekicks/contracts";
+import type { UpdateState, Unsubscribe } from "@ai-sidekicks/contracts";
 
-import { UpdaterReadingHolder } from "./updater-reading.js";
+import { UpdaterReadingHolder, type UpdaterCalls } from "./updater-reading.js";
 
 /**
  * An updater whose read is settled by hand and whose pushes are delivered by hand.
  *
  * The real updater namespace rather than a partial object: the holder takes exactly
- * `DesktopBridge["update"]`, so an arm added upstream fails this file to compile
- * instead of leaving a case driving a shape nobody serves.
+ * `UpdaterCalls`, so an arm added upstream fails this file to compile instead of
+ * leaving a case driving a shape nobody serves.
  */
 function controllableUpdater(): {
-  readonly updater: DesktopBridge["update"];
+  readonly updater: UpdaterCalls;
   readonly settleRead: (state: UpdateState) => void;
-  readonly refuseRead: (rejection: unknown) => void;
   readonly push: (state: UpdateState) => void;
   readonly readCount: () => number;
   readonly releaseCount: () => number;
 } {
   let settle: ((state: UpdateState) => void) | undefined;
-  let refuse: ((rejection: unknown) => void) | undefined;
   let deliver: ((state: UpdateState) => void) | undefined;
   let readCount = 0;
   let releaseCount = 0;
@@ -35,9 +33,8 @@ function controllableUpdater(): {
     updater: {
       getState: () => {
         readCount += 1;
-        return new Promise<UpdateState>((resolve, reject) => {
+        return new Promise<UpdateState>((resolve) => {
           settle = resolve;
-          refuse = reject;
         });
       },
       subscribe: (handler): Unsubscribe => {
@@ -52,9 +49,6 @@ function controllableUpdater(): {
     settleRead: (state) => {
       settle?.(state);
     },
-    refuseRead: (rejection) => {
-      refuse?.(rejection);
-    },
     push: (state) => {
       deliver?.(state);
     },
@@ -63,7 +57,7 @@ function controllableUpdater(): {
   };
 }
 
-/** Let a settled or refused read's continuation run. */
+/** Let a settled read's continuation run. */
 async function drain(): Promise<void> {
   await Promise.resolve();
   await Promise.resolve();
@@ -128,119 +122,6 @@ describe("the updater reading — which source wins", () => {
 
     expect(holder.snapshot().reading).toStrictEqual({ kind: "state", state: { status: "ready" } });
     expect(holder.snapshot().source).toBe("push");
-  });
-
-  it("keeps the push when the opening read is refused behind it", async () => {
-    const updater = controllableUpdater();
-    const holder = new UpdaterReadingHolder(updater.updater);
-    holder.open();
-
-    updater.push({ status: "downloading", percent: 7 });
-    updater.refuseRead(new Error("the updater is busy"));
-    await drain();
-
-    expect(holder.snapshot().reading).toStrictEqual({
-      kind: "state",
-      state: { status: "downloading", percent: 7 },
-    });
-  });
-});
-
-describe("the updater reading — a feed that was not reached", () => {
-  it("settles unreachable in the words the failure arrived in, and asks for no state", () => {
-    // The code is this seam's own, because a thrown `Error` carries none: the two
-    // legs fail for different reasons and the line has to say which.
-    const holder = new UpdaterReadingHolder({
-      getState: () => Promise.reject(new Error("update.getState is not implemented")),
-      subscribe: () => {
-        throw new Error("update.subscribe is not implemented");
-      },
-      requestCheck: () => Promise.resolve(),
-      requestRestart: () => Promise.resolve(),
-    });
-    holder.open();
-
-    expect(holder.snapshot().reading).toStrictEqual({
-      kind: "unreachable",
-      refusal: {
-        code: "updater-subscribe-failed",
-        origin: "updates",
-        detail: "update.subscribe is not implemented",
-      },
-    });
-  });
-
-  it("names the READ when the state call throws on its invocation, and keeps the subscription", () => {
-    // The shipped stub bridge implements every updater method as a synchronous
-    // throw, so this is the live shape rather than a contrived one: `getState()`
-    // fails before it ever returns a promise. Under one `try` around both calls it
-    // was reported as `updater-subscribe-failed` — naming a subscription that had in
-    // fact opened and is still held, which is the one distinction the two codes
-    // exist to draw.
-    let releaseCount = 0;
-    const holder = new UpdaterReadingHolder({
-      getState: () => {
-        throw new Error("update.getState is not implemented");
-      },
-      subscribe: (): Unsubscribe => () => {
-        releaseCount += 1;
-      },
-      requestCheck: () => Promise.resolve(),
-      requestRestart: () => Promise.resolve(),
-    });
-    holder.open();
-
-    expect(holder.snapshot().reading).toStrictEqual({
-      kind: "unreachable",
-      refusal: {
-        code: "updater-read-failed",
-        origin: "updates",
-        detail: "update.getState is not implemented",
-      },
-    });
-    // The subscription the failed read was reported against is live: closing the
-    // holder releases it. A seam that had really failed to subscribe would have
-    // nothing to release here.
-    holder.close();
-    expect(releaseCount).toBe(1);
-  });
-
-  it("keeps a refused read's own code and message rather than a class name", async () => {
-    const updater = controllableUpdater();
-    const holder = new UpdaterReadingHolder(updater.updater);
-    holder.open();
-
-    updater.refuseRead({ code: "update.unavailable", message: "no feed is configured" });
-    await drain();
-
-    // The registered code reaches the reading untouched. It used to be discarded:
-    // `wireRejectionToError` puts it on `Error.name` and this seam read only
-    // `.message`, so every refusal the updater namespace can raise arrived on screen
-    // with the one part rule 9 requires verbatim missing.
-    expect(holder.snapshot().reading).toStrictEqual({
-      kind: "unreachable",
-      refusal: {
-        code: "update.unavailable",
-        origin: "updates",
-        detail: "no feed is configured",
-      },
-    });
-  });
-
-  it("negative control: this leg's own fallback code never displaces a registered one", async () => {
-    // Without this, the case above would hold for a seam that labelled every read
-    // failure `updater-read-failed` and happened to keep the message.
-    const updater = controllableUpdater();
-    const holder = new UpdaterReadingHolder(updater.updater);
-    holder.open();
-
-    updater.refuseRead({ code: "update.unavailable", message: "no feed is configured" });
-    await drain();
-
-    const reading = holder.snapshot().reading;
-    expect(reading.kind === "unreachable" ? reading.refusal.code : undefined).not.toBe(
-      "updater-read-failed",
-    );
   });
 });
 

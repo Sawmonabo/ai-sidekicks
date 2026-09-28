@@ -6,12 +6,10 @@
 // installs the observation and the idle-CPU budget's precondition is that nothing
 // else does. The observation was installed when the binding was MINTED, which put it
 // outside every terminal the publisher has — so this suite reads the airspace's own
-// arming count through the pane, on the four states that separate the two readings:
+// arming count through the pane, on the three states that separate the two readings:
 //
-//   • a window with no view host, where every publish is suppressed and the frame
-//     loop was armed anyway;
 //   • a window whose host is attached, which is the positive control that keeps the
-//     other three from passing over an observation that is never installed at all;
+//     other two from passing over an observation that is never installed at all;
 //   • a pane the host has declared gone, where the publisher disposes itself mid-frame
 //     and the observation used to survive it for the life of the mount;
 //   • two panes, because the cost is per pane and the retirement has to be too.
@@ -24,18 +22,18 @@
 import { act, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { airspaceRegistryFor, type AirspaceRegistry } from "../../core/index.js";
-import { BrowserPane } from "./BrowserPane.js";
+import { airspaceRegistryFor, refuse, type AirspaceRegistry } from "../../core/index.js";
+import { RecordingViewHost } from "../geometry/geometry-publisher.test-support.js";
+import { PANE_VIEW_HOST_REFUSAL_ORIGIN } from "../geometry/view-host.js";
 import {
   browserPaneContext,
+  chromeFor,
   DEFAULT_TEST_PANE_ID,
-  liveBrowserBridge,
-  paneViewHostRefusing,
-  recordingBrowserBridge,
+  recordingActs,
   releaseQueuedPaneFrames,
 } from "./BrowserPane.test-support.js";
 
-/** What the scripted host says when the pane it is addressing has been destroyed. */
+/** What the host says when the pane it is addressing has been destroyed. */
 const PANE_GONE = "This pane was closed while its view was still reporting.";
 
 /** The second pane, for the case that is about the count being per pane. */
@@ -81,29 +79,14 @@ describe("browser pane geometry — who watches this window's overlays move", ()
     return airspaceRegistryFor(document).observedOverlayCount;
   }
 
-  it("arms nothing in a window that has no view host", async () => {
-    // The live bridge publishes no scripted host, so 12.11's wiring table reaches its
-    // unavailable arm and the publisher suppresses every publish. A frame sampler and
-    // a document listener armed for a pane drawing nothing is the idle CPU the budget
-    // forbids — and it is what the binding armed at mint time, before the host had
-    // been consulted at all.
-    registerOverlay();
-    const built = browserPaneContext(liveBrowserBridge());
-    await act(async () => {
-      render(<BrowserPane {...built.context} />);
-    });
-
-    expect(armedOverlayObservations()).toBe(0);
-  });
-
   it("arms one observation for a pane whose host is attached", async () => {
     // The positive control. Without it every other case here is satisfied by a pane
     // that watches nothing ever, which is the same overlay-yield defect from the
     // other side: a native view painted over a dialog that slid across it.
     registerOverlay();
-    const built = browserPaneContext(recordingBrowserBridge(() => undefined));
+    const built = browserPaneContext();
     await act(async () => {
-      render(<BrowserPane {...built.context} />);
+      render(chromeFor(built.context, recordingActs(), new RecordingViewHost()));
     });
 
     expect(armedOverlayObservations()).toBe(1);
@@ -111,9 +94,11 @@ describe("browser pane geometry — who watches this window's overlays move", ()
 
   it("retires the observation when the host says the pane is gone", async () => {
     registerOverlay();
-    const built = browserPaneContext(paneViewHostRefusing(PANE_GONE));
+    const viewHost = new RecordingViewHost();
+    viewHost.rejectNextWith(refuse(PANE_VIEW_HOST_REFUSAL_ORIGIN, "pane-gone", PANE_GONE));
+    const built = browserPaneContext();
     await act(async () => {
-      render(<BrowserPane {...built.context} />);
+      render(chromeFor(built.context, recordingActs(), viewHost));
     });
     expect(armedOverlayObservations()).toBe(1);
 
@@ -129,14 +114,13 @@ describe("browser pane geometry — who watches this window's overlays move", ()
 
   it("costs one observation per pane, and none once both panes are gone", async () => {
     registerOverlay();
-    const bridge = recordingBrowserBridge(() => undefined);
-    const first = browserPaneContext(bridge, DEFAULT_TEST_PANE_ID);
-    const second = browserPaneContext(bridge, SECOND_TEST_PANE_ID);
+    const first = browserPaneContext(undefined, DEFAULT_TEST_PANE_ID);
+    const second = browserPaneContext(first.bridge, SECOND_TEST_PANE_ID);
     let firstPane: ReturnType<typeof render> | undefined;
     let secondPane: ReturnType<typeof render> | undefined;
     await act(async () => {
-      firstPane = render(<BrowserPane {...first.context} />);
-      secondPane = render(<BrowserPane {...second.context} />);
+      firstPane = render(chromeFor(first.context, recordingActs(), new RecordingViewHost()));
+      secondPane = render(chromeFor(second.context, recordingActs(), new RecordingViewHost()));
     });
 
     expect(armedOverlayObservations()).toBe(2);

@@ -3,15 +3,15 @@
 //
 // The agent's tool allowlist is the per-agent control over every tool source at once,
 // the browser's page tool set included, and that control lives on the agent card. The
-// list is applied AT SPAWN from the attach snapshot, which is why this projection
-// reads the resolved configuration the attach echoed back and never the definition
-// registry: a definition edited afterwards reaches no agent that is already attached.
+// list is applied AT SPAWN from the resolved configuration, which is why this projection
+// reads the configuration the roster reports and never the definition registry: a
+// definition edited afterwards reaches no agent that is already running.
 //
 // FOUR POSITIONS, NOT THREE. The registry's own vocabulary keeps three apart — an
-// absent list means the driver's default set, an empty one means no tools, and a
+// absent list means the provider's default set, an empty one means no tools, and a
 // populated one means exactly those — and the roster read adds a fourth that is none
 // of them: a reply carrying identity and lifecycle and NO resolved configuration has
-// said nothing about tools at all. Folding that into "the driver's default set" would
+// said nothing about tools at all. Folding that into "the provider's default set" would
 // be the console answering a question nobody put, which is the one thing the position
 // below exists to refuse.
 //
@@ -20,7 +20,7 @@
 // inside it — and each of them used to read the wire for itself: the line read this
 // projection and the row read `toolAllowlist` alone, which cannot tell a
 // configuration that carried no allowlist from a reply that carried no configuration.
-// So one wire state was called "the driver's default set" on the line and "not
+// So one wire state was called "the provider's default set" on the line and "not
 // reported" a few pixels below it. Both now read this module: the position is
 // resolved once by the card, the words for each position are the table below, and the
 // names ride the populated arm so neither surface re-reads the member.
@@ -43,7 +43,7 @@ import { formatCount } from "../../primitives/index.js";
 import type { AgentRosterEntry } from "../../bridge/index.js";
 
 /**
- * What the attach snapshot says this agent may reach.
+ * What the resolved configuration says this agent may reach.
  *
  * A discriminated union rather than `readonly string[] | undefined`, so the fourth
  * position — the roster reply that carried no configuration at all — is
@@ -52,7 +52,7 @@ import type { AgentRosterEntry } from "../../bridge/index.js";
 export type AgentToolGrantPosition =
   /** The reply carried no resolved configuration. Nothing was said about tools. */
   | { readonly kind: "not-reported" }
-  /** A configuration with no allowlist member: the driver's own default set. */
+  /** A configuration with no allowlist member: the provider's own default set. */
   | { readonly kind: "driver-default" }
   /** A present, empty allowlist: no tools at all, which somebody chose. */
   | { readonly kind: "no-tools" }
@@ -93,17 +93,17 @@ export const NAMELESS_TOOL_GRANT_WORDING: Readonly<
     weight: "absent",
   },
   // Muted, like every other axis whose absence MEANS something: nobody restricted
-  // this agent, and the driver's own set is what it was spawned with.
+  // this agent, and the provider's own set is what it was spawned with.
   "driver-default": {
-    reading: "The driver's default set",
-    lineSentence: "The driver's default tool set. Nothing was withheld at attach.",
+    reading: "The provider's default set",
+    lineSentence: "The provider's default tool set.",
     weight: "absent",
   },
   // Full weight, because an empty allowlist is a restriction somebody chose and is
   // the strictest posture an agent can carry — never an absence.
   "no-tools": {
     reading: "No tools",
-    lineSentence: "No tools. This agent was attached with an empty allowlist.",
+    lineSentence: "No tools.",
     weight: "derived",
   },
 };
@@ -125,21 +125,21 @@ export const NAMELESS_TOOL_GRANT_WORDING: Readonly<
  */
 export function namedToolGrantSentence(toolNames: readonly string[]): string {
   if (toolNames.length === 1) {
-    return "Restricted to the one tool it was attached with, named in the resolved configuration below.";
+    return "Restricted to the one tool, named in the resolved configuration below.";
   }
-  const restriction = `Restricted to the ${formatCount(toolNames.length)} tools it was attached with`;
+  const restriction = `Restricted to the ${formatCount(toolNames.length)} tools`;
   return toolNames.length > TOOL_ALLOWLIST_NAMED_CAP
     ? `${restriction}; the first ${formatCount(TOOL_ALLOWLIST_NAMED_CAP)} are named in the resolved configuration below.`
     : `${restriction}, named in the resolved configuration below.`;
 }
 
 /**
- * Read one agent's grant off the attach echo.
+ * Read one agent's grant off its resolved configuration.
  *
  * The two absences are separated at the top, because they are separated on the wire:
  * `resolvedConfiguration` absent is the roster answering less than the whole row, and
  * `toolAllowlist` absent inside a configuration that IS present is the registry's own
- * "the driver's default set".
+ * "the provider's default set".
  */
 export function agentToolGrantPosition(agent: AgentRosterEntry): AgentToolGrantPosition {
   const resolved = agent.resolvedConfiguration;

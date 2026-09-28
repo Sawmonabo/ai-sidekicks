@@ -1,21 +1,17 @@
-// The mounts page's own harness: a settings context whose wire is a stand-in, and a
-// render that settles the two chained reads behind it.
+// The mounts page's own harness: a settings context, the two inventory calls as plain
+// stubs, and a render that settles the two chained reads behind them.
 //
 // BESIDE `mounts.test-support.ts` RATHER THAN INSIDE IT. That module is the FIXTURE
 // vocabulary — mount ids, the two workspace rows, the shapes a read answers with —
 // and it is a `.ts` because none of it renders. What is here mounts a React tree and
 // holds a live announcer, so it is a `.tsx`, and the two suites that drive this page
-// share it rather than each carrying its own copy of a bridge stub whose call arm
-// decides what every case in both files is actually asserting against.
+// share it rather than each carrying its own copy of the call stubs.
 
-import type { RepoMountReadResponse } from "@ai-sidekicks/contracts";
+import type { RepoMountReadResponse, WorkspaceListResponse } from "@ai-sidekicks/contracts";
 import { act, render } from "@testing-library/react";
 
 import { DesktopBridgeProvider, createFixtureBridge } from "../../../bridge/index.js";
-import {
-  unscriptedScenario,
-  withDaemonCall,
-} from "../../../bridge/fixture/call-plane/bridge.test-support.js";
+import { unscriptedScenario } from "../../../bridge/fixture/call-plane/bridge.test-support.js";
 import { ManualClock } from "../../../core/index.js";
 import { PAST_REFRESH_DEBOUNCE_MS } from "../../../core/settle.test-support.js";
 import { LiveAnnouncer, LiveAnnouncerProvider } from "../../../primitives/index.js";
@@ -25,74 +21,73 @@ import { frozenClockOf } from "../../../bridge/readings/scheduled-read.test-supp
 import { settingsPageContextWith } from "../../settings-page-mount.test-support.js";
 import type { SettingsPageContext } from "../../settings-page-registry.js";
 import { SESSION_ID, mountReadFor, workspaceListWith } from "./mounts.test-support.js";
+import { MountInventoryList } from "./MountInventoryList.js";
+import type { MountInventoryCalls } from "./mount-inventory.js";
 import { WorkspaceMountsPage } from "./WorkspaceMountsPage.js";
 
 /**
- * A settings context whose bridge answers the two registered reads on a clock the
- * test owns.
+ * A settings context on a clock the test owns, and the two calls the inventory reads
+ * through, answered from plain stubs.
  *
- * THE BRIDGE IS THE SHIPPED FIXTURE WITH ONE ARM REPLACED, not an object shaped like
- * one. It used to be a literal ending `as unknown as SettingsPageContext`, which made
- * this the one of the family's three harnesses a widened `SettingsPageContext` would
- * NOT have failed — the cast answered for every member nobody had written yet. The
- * daemon arm is swapped through `bridge/fixture/call-plane/bridge.test-support.ts`'s own
- * `withDaemonCall`, which is the console's one seam for that, and the context is
- * built by the family's one builder.
- *
- * The clock is the fixture engine's, which is where the page looks for one: a fixture
- * bridge supplies the story's clock and a live bridge supplies none, and this test
- * drives the same resolution rather than reaching around it. It is handed back beside
- * the context, because a case that advanced a clock the page was not reading would be
+ * The bridge is the shipped fixture, which is where the page looks for its clock and
+ * its reconnect signal; the calls are separate because they are an argument of the
+ * list and no longer a method of the bridge. The clock is handed back beside the
+ * context, because a case that advanced a clock the page was not reading would be
  * asserting about a timer that never fell due.
  */
 export function contextReading(options: {
   readonly mountIds: readonly string[];
   readonly mountOverrides?: Readonly<Record<string, Partial<RepoMountReadResponse>>>;
-  readonly retainedSessionId?: string | undefined;
   /** The retained session's store, where the window has one open. */
   readonly sessionStore?: SessionStore | undefined;
   /** Counts what the page asked for, so a refresh can be proved rather than assumed. */
-  readonly onCall?: (method: string) => void;
-  /** Makes the enumerating read reject, which is the list's own refused arm. */
-  readonly rejectWith?: { readonly code: string; readonly message: string };
+  readonly onCall?: (call: "workspaceList" | "mountRead") => void;
+  /** Makes the calls reject with this message, which fails the read. */
+  readonly rejectWith?: string;
   /**
-   * How many daemon calls `rejectWith` covers. Unbounded when omitted.
+   * How many calls `rejectWith` covers. Unbounded when omitted.
    *
-   * A bounded count is what drives RECOVERY: a refusal that clears is a first
-   * attempt that fails and a second that answers, and a bridge that refused forever
-   * could not tell a permanent refusal apart from a transient one.
+   * A bounded count is what drives RECOVERY: a first attempt that fails and a second
+   * that answers.
    */
   readonly rejectionCount?: number;
-}): { readonly context: SettingsPageContext; readonly clock: ManualClock } {
-  let refusedCallCount = 0;
+}): {
+  readonly context: SettingsPageContext;
+  readonly clock: ManualClock;
+  readonly calls: MountInventoryCalls;
+} {
+  let rejectedCallCount = 0;
   const fixture = createFixtureBridge({ scenario: unscriptedScenario("workspace-mounts-page") });
   const clock = frozenClockOf(fixture);
-  const { bridge } = withDaemonCall(fixture, async (recorded) => {
-    options.onCall?.(recorded.method);
+  const rejectIfAsked = (): void => {
     if (
       options.rejectWith !== undefined &&
-      refusedCallCount < (options.rejectionCount ?? Number.POSITIVE_INFINITY)
+      rejectedCallCount < (options.rejectionCount ?? Number.POSITIVE_INFINITY)
     ) {
-      refusedCallCount += 1;
-      // A wire ENVELOPE and not a bare `Error`: the call door normalizes a
-      // rejection into the console's refusal shape, and only an envelope
-      // carries a code of its own for it to keep. A bare message would be
-      // normalized under the door's own code, which is a different assertion.
-      throw options.rejectWith;
+      rejectedCallCount += 1;
+      throw new Error(options.rejectWith);
     }
-    if (recorded.method === "repo.workspaceList") {
-      return workspaceListWith(options.mountIds);
-    }
-    const { repoMountId } = recorded.params as { repoMountId: string };
-    return mountReadFor(repoMountId, options.mountOverrides?.[repoMountId] ?? {});
-  });
+  };
+  const calls: MountInventoryCalls = {
+    workspaceList: (): Promise<WorkspaceListResponse> => {
+      options.onCall?.("workspaceList");
+      rejectIfAsked();
+      return Promise.resolve(workspaceListWith(options.mountIds));
+    },
+    mountRead: (request): Promise<RepoMountReadResponse> => {
+      options.onCall?.("mountRead");
+      rejectIfAsked();
+      return Promise.resolve(
+        mountReadFor(request.repoMountId, options.mountOverrides?.[request.repoMountId] ?? {}),
+      );
+    },
+  };
   return {
-    context: settingsPageContextWith(
-      bridge,
-      "retainedSessionId" in options ? options.retainedSessionId : SESSION_ID,
-      { retainedSessionStore: options.sessionStore },
-    ),
+    context: settingsPageContextWith(fixture, SESSION_ID, {
+      retainedSessionStore: options.sessionStore,
+    }),
     clock,
+    calls,
   };
 }
 
@@ -116,13 +111,14 @@ export function mountsPageOf(root: HTMLElement): HTMLElement {
 export async function renderSettledPage(reading: {
   readonly context: SettingsPageContext;
   readonly clock: ManualClock;
+  readonly calls: MountInventoryCalls;
 }): Promise<{
   readonly page: HTMLElement;
   readonly clock: ManualClock;
   readonly politeText: () => string;
   readonly settle: () => Promise<void>;
 }> {
-  const { context, clock } = reading;
+  const { context, clock, calls } = reading;
   // One announcer, on the page's own frozen clock — the resolution `AppFrame` makes
   // in a window. A second time base here would make "was it said again" a question
   // about the runner rather than about the read.
@@ -135,7 +131,14 @@ export async function renderSettledPage(reading: {
   const { container } = render(
     <DesktopBridgeProvider bridge={context.bridge}>
       <LiveAnnouncerProvider announcer={announcer}>
-        <WorkspaceMountsPage context={context} />
+        <WorkspaceMountsPage>
+          <MountInventoryList
+            bridge={context.bridge}
+            calls={calls}
+            sessionId={SESSION_ID}
+            sessionStore={context.retainedSessionStore}
+          />
+        </WorkspaceMountsPage>
       </LiveAnnouncerProvider>
     </DesktopBridgeProvider>,
   );

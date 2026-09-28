@@ -51,7 +51,7 @@ describe("tool grant line — what each position says", () => {
     expect(badgeLabel?.getAttribute("title")).toBeNull();
   });
 
-  it("names the driver's default set as a muted absence, never as a restriction", () => {
+  it("names the provider's default set as a muted absence, never as a restriction", () => {
     const { container } = render(<ToolGrantLine position={{ kind: "driver-default" }} />);
     expect(container.querySelector(".meridian-agent-card__axis-absent")).not.toBeNull();
     expect(lineTextOf(container)).toContain("default tool set");
@@ -78,13 +78,13 @@ describe("tool grant line — what each position says", () => {
     const { container } = render(
       <ToolGrantLine position={{ kind: "named", toolNames: ["read"] }} />,
     );
-    expect(lineTextOf(container)).toContain("the one tool it was attached with");
+    expect(lineTextOf(container)).toContain("the one tool, named in the resolved");
     expect(lineTextOf(container)).not.toContain("1 tools");
   });
 
   it("promises only what the echo below it actually names", () => {
     // The disclosure names the first `TOOL_ALLOWLIST_NAMED_CAP` and folds the rest to
-    // a figure, so an agent attached with fifteen tools was promised all fifteen
+    // a figure, so an agent with fifteen tools was promised all fifteen
     // below a list showing six.
     const { container } = render(
       <ToolGrantLine position={{ kind: "named", toolNames: toolNames(15) }} />,
@@ -129,7 +129,6 @@ describe("tool grant line — it is on the card", () => {
   const ATTACHED_WITH_TOOLS: AgentRosterEntry = {
     agentId: "agent-scout",
     name: "Scout",
-    state: "ready",
     driverName: "claude",
     resolvedConfiguration: { toolAllowlist: ["read", "write"] },
   };
@@ -142,7 +141,7 @@ describe("tool grant line — it is on the card", () => {
   it("negative control: an agent with no configuration draws the unanswered arm", () => {
     // Without this the case above would pass over a card that printed one position
     // unconditionally, which is the failure a governance line can least afford.
-    const { container } = render(<AgentCard agent={{ agentId: "agent-scout", state: "ready" }} />);
+    const { container } = render(<AgentCard agent={{ agentId: "agent-scout" }} />);
     expect(lineTextOf(container)).toContain("Not reported");
     expect(lineTextOf(container)).not.toContain("tools");
   });

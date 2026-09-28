@@ -2,17 +2,14 @@
 //
 // A FILE OF ITS OWN, beside the suite that reads the inventory through its model.
 // That one drives `createMountInventoryRead` and asserts what the page is shown;
-// these cases call the composed read directly and assert what it never does. The two
-// need different bridges — one that scripts an answer and settles it at once, and one
-// that HOLDS both replies so a case can place a departure between them — and a file
-// carrying both was one file answering two questions.
+// these cases call the composed read directly and assert what it never does, with
+// calls whose replies the case settles itself so a departure can land between them.
 
 import { describe, expect, it } from "vitest";
 
 import { ConsoleRefusalError, type ConsoleRefusal } from "../../../core/index.js";
 import { crossMacrotaskBoundary } from "../../../core/macrotask-boundary.test-support.js";
-import type { ConsoleBridge } from "../../../bridge/index.js";
-import { readMountInventory } from "./mount-inventory.js";
+import { readMountInventory, type MountInventoryCalls } from "./mount-inventory.js";
 import {
   MOUNT_A,
   MOUNT_B,
@@ -24,86 +21,68 @@ import {
 /**
  * The two boundaries INSIDE the composed read, and the departure that lands in one.
  *
- * The call door guards its own three points, and this read has two more the door
- * cannot see: the gap after the workspace list settles and before the fan-out starts,
- * and the gap after the fan-out lands and before the rows are folded. An abort in
- * either one reaches no listener the door has left attached — it retires its own the
- * instant a reply wins the race — so the settlement reads `served` while nobody is
- * waiting, one microtask before this frame resumes.
- *
- * DRIVEN AT THE READ'S OWN BOUNDARY rather than through the model above it. The saving
- * a checkpoint buys is work not done, and after the fan-out the two behaviours are
- * indistinguishable from outside the model: with the check the read stops, without it
- * the read folds twelve rows and `PushDrivenRead` discards the answer, and either way
- * nothing is published. Called directly, the difference is the whole settlement — a
- * stop, or an inventory composed for a page that has left.
+ * The gap after the workspace list settles and before the fan-out starts, and the gap
+ * after the fan-out lands and before the rows are folded. Driven at the read's own
+ * boundary rather than through the model above it: after the fan-out the two
+ * behaviors are indistinguishable from outside the model, but called directly the
+ * difference is the whole settlement — a stop, or an inventory composed for a page
+ * that has left.
  */
 describe("mount inventory read — the line is abandoned between its own calls", () => {
-  /** The registered method that names which mounts the session holds. */
-  const WORKSPACE_LIST_METHOD = "repo.workspaceList";
-
-  /** The registered method that answers one mount. */
-  const MOUNT_READ_METHOD = "repo.mountRead";
-
-  /** The code the call door raises for a read whose owner has gone. */
+  /** The code the read raises when its owner has gone. */
   const READ_ABANDONED = "read-abandoned";
 
   /** A reply this suite settles when it chooses, and the act that settles it. */
-  interface HeldReply {
-    readonly promise: Promise<unknown>;
-    readonly serve: (value: unknown) => void;
+  interface HeldReply<TValue> {
+    readonly promise: Promise<TValue>;
+    readonly serve: (value: TValue) => void;
   }
 
-  function heldReply(): HeldReply {
-    let serve: (value: unknown) => void = () => undefined;
-    const promise = new Promise<unknown>((resolve) => {
+  function heldReply<TValue>(): HeldReply<TValue> {
+    let serve: (value: TValue) => void = () => undefined;
+    const promise = new Promise<TValue>((resolve) => {
       serve = resolve;
     });
     return { promise, serve };
   }
 
   /**
-   * A bridge that HOLDS both registered replies, and the record of what it was asked.
+   * Calls that HOLD both replies, and the record of what was asked and of the signal
+   * each call received.
    *
-   * Distinct from the suite's other builder above, which scripts an answer and settles
-   * it at once: these cases place the departure relative to a settlement, so the
-   * settlement has to be the case's own act rather than the bridge's.
+   * Each call abandons `line` after its reply settles and before the read resumes,
+   * which is exactly the gap a checkpoint exists for; `abandonAfter` names which
+   * reply the departure follows, and `undefined` leaves the line live.
    */
-  function bridgeHolding(
-    workspaceList: Promise<unknown>,
-    mountRead: Promise<unknown>,
-  ): { bridge: ConsoleBridge; calls: string[] } {
-    const calls: string[] = [];
-    const bridge = {
-      source: "fixture",
-      desktopBridge: {
-        daemon: {
-          call: (method: string): Promise<unknown> => {
-            calls.push(method);
-            return method === WORKSPACE_LIST_METHOD ? workspaceList : mountRead;
-          },
-        },
+  function callsHolding(
+    workspaceList: Promise<ReturnType<typeof workspaceListWith>>,
+    mountRead: Promise<ReturnType<typeof mountReadFor>>,
+    line: AbortController,
+    abandonAfter: "workspaceList" | "mountRead" | undefined,
+  ): { calls: MountInventoryCalls; asked: string[]; signals: AbortSignal[] } {
+    const asked: string[] = [];
+    const signals: AbortSignal[] = [];
+    const calls: MountInventoryCalls = {
+      workspaceList: async (_request, signal) => {
+        asked.push("workspaceList");
+        signals.push(signal);
+        const reply = await workspaceList;
+        if (abandonAfter === "workspaceList") {
+          line.abort();
+        }
+        return reply;
       },
-    } as unknown as ConsoleBridge;
-    return { bridge, calls };
-  }
-
-  /**
-   * Abandon `line` one microtask behind `settlement`, which is exactly the gap.
-   *
-   * Registered AFTER the read has started, so the door's own handler on that same
-   * promise runs first and the door still sees a live line — it serves, and the
-   * composed read's own boundary is the one left to stop it. Queued one turn deeper
-   * because the door spends a turn resuming and returning its parsed reply; abort in
-   * the same turn and the door's own post-race check answers instead, which is a
-   * different claim and one its suite already makes.
-   */
-  function abandonBehind(settlement: Promise<unknown>, line: AbortController): void {
-    void settlement.then(() => {
-      queueMicrotask(() => {
-        line.abort();
-      });
-    });
+      mountRead: async (_request, signal) => {
+        asked.push("mountRead");
+        signals.push(signal);
+        const reply = await mountRead;
+        if (abandonAfter === "mountRead") {
+          line.abort();
+        }
+        return reply;
+      },
+    };
+    return { calls, asked, signals };
   }
 
   /**
@@ -126,53 +105,73 @@ describe("mount inventory read — the line is abandoned between its own calls",
 
   it("starts no mount read when the line is abandoned before the fan-out", async () => {
     const line = new AbortController();
-    const workspaceList = heldReply();
-    const mountRead = heldReply();
-    const { bridge, calls } = bridgeHolding(workspaceList.promise, mountRead.promise);
+    const workspaceList = heldReply<ReturnType<typeof workspaceListWith>>();
+    const mountRead = heldReply<ReturnType<typeof mountReadFor>>();
+    const { calls, asked } = callsHolding(
+      workspaceList.promise,
+      mountRead.promise,
+      line,
+      "workspaceList",
+    );
 
-    const reading = readMountInventory(bridge, SESSION_ID, line.signal);
-    abandonBehind(workspaceList.promise, line);
+    const reading = readMountInventory(calls, SESSION_ID, line.signal);
     workspaceList.serve(workspaceListWith([MOUNT_A, MOUNT_B]));
 
     expect((await abandonedRefusalOf(reading)).code).toBe(READ_ABANDONED);
     // The claim the record makes and the settlement alone cannot: the fan-out was
     // never put. Two mounts were named and neither was asked for.
-    expect(calls).toStrictEqual([WORKSPACE_LIST_METHOD]);
+    expect(asked).toStrictEqual(["workspaceList"]);
   });
 
   it("folds no rows when the line is abandoned after the fan-out lands", async () => {
     const line = new AbortController();
-    const workspaceList = heldReply();
-    const mountRead = heldReply();
-    const { bridge, calls } = bridgeHolding(workspaceList.promise, mountRead.promise);
+    const workspaceList = heldReply<ReturnType<typeof workspaceListWith>>();
+    const mountRead = heldReply<ReturnType<typeof mountReadFor>>();
+    const { calls, asked, signals } = callsHolding(
+      workspaceList.promise,
+      mountRead.promise,
+      line,
+      "mountRead",
+    );
 
-    const reading = readMountInventory(bridge, SESSION_ID, line.signal);
+    const reading = readMountInventory(calls, SESSION_ID, line.signal);
     workspaceList.serve(workspaceListWith([MOUNT_A]));
     await crossMacrotaskBoundary();
     // The first checkpoint passed with the line live, so this case is about the
     // second one and cannot be satisfied by the first.
-    expect(calls).toStrictEqual([WORKSPACE_LIST_METHOD, MOUNT_READ_METHOD]);
+    expect(asked).toStrictEqual(["workspaceList", "mountRead"]);
 
-    abandonBehind(mountRead.promise, line);
     mountRead.serve(mountReadFor(MOUNT_A));
 
     expect((await abandonedRefusalOf(reading)).code).toBe(READ_ABANDONED);
+    // Both calls were handed the read's own signal, so the departure cancelled them
+    // in flight rather than only being noticed after they settled.
+    expect(signals).toHaveLength(2);
+    expect(signals[0]).toBe(line.signal);
+    expect(signals[1]).toBe(line.signal);
+    expect(line.signal.aborted).toBe(true);
   });
 
   it("negative control: the same interleaving on a live line composes the inventory", async () => {
     // Without this both cases above would hold over a read that refused every pass,
     // and the checkpoints would be indistinguishable from a broken fan-out.
-    const workspaceList = heldReply();
-    const mountRead = heldReply();
-    const { bridge, calls } = bridgeHolding(workspaceList.promise, mountRead.promise);
+    const line = new AbortController();
+    const workspaceList = heldReply<ReturnType<typeof workspaceListWith>>();
+    const mountRead = heldReply<ReturnType<typeof mountReadFor>>();
+    const { calls, asked } = callsHolding(
+      workspaceList.promise,
+      mountRead.promise,
+      line,
+      undefined,
+    );
 
-    const reading = readMountInventory(bridge, SESSION_ID, new AbortController().signal);
+    const reading = readMountInventory(calls, SESSION_ID, line.signal);
     workspaceList.serve(workspaceListWith([MOUNT_A]));
     await crossMacrotaskBoundary();
     mountRead.serve(mountReadFor(MOUNT_A));
 
     const inventory = await reading;
-    expect(inventory.readings.map((row) => row.kind)).toStrictEqual(["read"]);
-    expect(calls).toStrictEqual([WORKSPACE_LIST_METHOD, MOUNT_READ_METHOD]);
+    expect(inventory.readings.map((mount) => mount.id)).toStrictEqual([MOUNT_A]);
+    expect(asked).toStrictEqual(["workspaceList", "mountRead"]);
   });
 });

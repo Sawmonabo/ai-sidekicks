@@ -1,21 +1,10 @@
-import type { ReactNode } from "react";
-import { Chip, InlineRefusal, WireFigure, formatDateTime } from "../../../primitives/index.js";
-import { type MountReading } from "./mount-inventory.js";
 import type { RepoMountReadResponse } from "@ai-sidekicks/contracts";
+import type { ReactNode } from "react";
+import { Chip, WireFigure, formatDateTime } from "../../../primitives/index.js";
 
-/** One row: the path, the two axes, and whatever the read had to say about it. */
-export function MountRow(props: { readonly reading: MountReading }): ReactNode {
-  if (props.reading.kind === "refused") {
-    return (
-      <div className="meridian-mount-list__row">
-        <span className="meridian-mount-list__path">
-          <WireFigure value={props.reading.repoMountId} />
-        </span>
-        <InlineRefusal code={props.reading.refusal.code} detail={props.reading.refusal.detail} />
-      </div>
-    );
-  }
-  const { mount } = props.reading;
+/** One row: the path, the two axes, and when the mount was last probed. */
+export function MountRow(props: { readonly mount: RepoMountReadResponse }): ReactNode {
+  const { mount } = props;
   return (
     <div className="meridian-mount-list__row">
       <span className="meridian-mount-list__path">
@@ -44,7 +33,7 @@ export function MountRow(props: { readonly reading: MountReading }): ReactNode {
 /**
  * How the lifecycle axis is toned. A PRESENTATION of the daemon's own value and
  * never a verdict: the value renders verbatim beside the tone, so a reader is never
- * shown a colour in place of a state name.
+ * shown a color in place of a state name.
  */
 export function attachmentTone(mount: RepoMountReadResponse): "neutral" | "attention" {
   return mount.state === "attached" ? "neutral" : "attention";

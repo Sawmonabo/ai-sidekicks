@@ -16,35 +16,20 @@
 // one frame would both find the plane idle and both dispatch — which is the defect one
 // layer down from the one this module exists to close.
 //
-// AND IT HOLDS NO WIRE. The two calls are handed in bound, on
-// `channels/mutation-coordinator.ts`'s precedent: a class that publishes a
-// snapshot AND holds a `ConsoleBridge` is a READING, and the console requires every
-// one of those to be refreshable through a scheduler and the trigger contract. This
-// is a mutation carrier — a start and a cancel are acts a person takes, not answers
-// that go stale — so it takes the operations rather than the connection, and the
-// distinction is enforced rather than merely written down.
-//
-// AND A REFUSED START IS NOT A FLOW. `SignInStartOutcome`'s refused arm cannot be
-// installed as the tracked flow, by type: it lands on the row that asked, in a map
-// keyed by account. The card that watches a flow is shared across every readiness row,
-// so a refusal rendered there is a refusal about no particular account — and the
-// account is the only thing a person can act on.
+// AND IT HOLDS NO WIRE. The two calls are handed in bound: a class that publishes a
+// snapshot AND holds a `ConsoleBridge` is a reading, and the console requires every one
+// of those to be refreshable through a scheduler and the trigger contract. A start and a
+// cancel are acts a person takes, not answers that go stale, so this takes the
+// operations rather than the connection.
 //
 // AND WHAT IS IN THE WAY IS SAID ONCE. Two surfaces say it — the disabled control's
 // reason, and the refusal a press that got past that control is answered with — so the
 // words are composed here and the caller hands in the label it holds. Two spellings of
 // one fact drift apart, and the drift is invisible because both of them render.
 //
-// AND A REFUSED CANCEL IS NOT AN ENDING. The daemon declining the cancel, or the
-// transport failing to carry it, says nothing about the provider's own login process —
-// which the daemon spawned, does not read, and cannot stop by being asked twice. This
-// plane used to install the refusal as the flow, which superseded the single-flight
-// claim and replaced the live attempt: the verification URI and code went off screen,
-// the cancel control went with them, and every start control came back — over a process
-// that may still have been running, so the next start would have raced it. The refusal
-// is therefore an ARM of the live attempt, the key stays claimed, and exactly two things
-// end a flow: a cancel that answered `cancelled` or `notFound`, and the registry's own
-// tail reporting that attempt completed ({@link SignInPlane.noteLoginCompleted}).
+// Exactly two things end a flow: a cancel that answered `cancelled` or `notFound`, and
+// the registry's own tail reporting that attempt completed
+// ({@link SignInPlane.noteLoginCompleted}).
 
 import type { ProviderAccountId, ProviderAccountLoginResponse } from "@ai-sidekicks/contracts";
 
@@ -93,9 +78,9 @@ const NOTHING_STARTED: SignInPlaneSnapshot = {
 };
 
 export interface SignInPlaneOptions {
-  /** Start one brokered sign-in. Bound to a bridge by the caller, never held here. */
+  /** Start one brokered sign-in. Supplied by the caller, never held here. */
   readonly startSignIn: (accountId: ProviderAccountId) => Promise<SignInStartOutcome>;
-  /** Cancel the flow this plane is tracking. Likewise bound by the caller. */
+  /** Cancel the flow this plane is tracking. Likewise supplied by the caller. */
   readonly cancelSignIn: (attempt: ProviderAccountLoginResponse) => Promise<SignInCancelOutcome>;
   /**
    * Called once a cancelled flow has settled, either way.
@@ -124,8 +109,8 @@ export class SignInPlane {
    * Which flow this plane is on, through the console's one single-flight register.
    *
    * The key is held from the start that took it until the flow leaves the plane —
-   * settled, cancelled, or refused — so a settlement arriving for a round something
-   * has superseded installs nothing and a disposed plane installs nothing at all.
+   * ended or cancelled — so a settlement arriving for a round something has
+   * superseded installs nothing and a disposed plane installs nothing at all.
    */
   readonly #flows = new GenerationLatch();
   /**
@@ -187,28 +172,16 @@ export class SignInPlane {
     });
     void this.#startSignIn(accountId).then((outcome) => {
       claim.settle(() => {
-        if (outcome.kind === "live") {
-          if (outcome.attempt.attemptId === this.#completedAttemptId) {
-            // The registry reported this very attempt finished while its start reply
-            // was still travelling, which the registered ordering makes ordinary: the
-            // tail is open before the call goes out. Seating it would put a card on
-            // screen for a flow that is over and hold the key until somebody cancelled
-            // a process that had already stopped.
-            claim.release();
-            this.#settleEndedFlow(SIGN_IN_ENDED_BY_REGISTRY);
-            return;
-          }
-          this.#publish({ flow: outcome });
+        if (outcome.attempt.attemptId === this.#completedAttemptId) {
+          // The registry reported this very attempt finished while its start reply was
+          // still travelling, which the registered ordering makes ordinary: the tail is
+          // open before the call goes out. Seating it would put a card on screen for a
+          // flow that is over.
+          claim.release();
+          this.#settleEndedFlow(SIGN_IN_ENDED_BY_REGISTRY);
           return;
         }
-        // The start never became a flow, so the plane returns to idle and the reason
-        // goes to the row that asked. Released in the same act: nothing is running,
-        // so nothing may go on holding the key.
-        claim.release();
-        this.#publish({
-          flow: IDLE_SIGN_IN_FLOW,
-          refusalByAccountId: this.#refusalsWith(accountId, outcome.refusal),
-        });
+        this.#publish({ flow: outcome });
       });
     });
   }
@@ -216,15 +189,8 @@ export class SignInPlane {
   /**
    * Cancel the live flow.
    *
-   * THE TWO ARMS ARE NOT SYMMETRIC, AND THAT IS THE WHOLE RULE. `cancelled` and
-   * `notFound` are both the daemon telling this window there is no flow of its making
-   * left, so both end the flow and free the key. A REFUSAL is neither: the console
-   * could not put the request, or the node declined it, and the provider's own login
-   * process — spawned unmodified, read by nobody — is unaffected by either. So the
-   * refusal lands as an arm of the attempt that is still live, the key stays claimed,
-   * and the operator keeps the verification details and the control that is their way
-   * out. What ends the flow instead is a later cancel that answers, or the registry's
-   * own tail reporting the attempt completed.
+   * `cancelled` and `notFound` are both the daemon telling this window there is no flow
+   * of its making left, so both end the flow and free the key.
    */
   public cancel(): void {
     const { flow } = this.#snapshot;
@@ -233,17 +199,9 @@ export class SignInPlane {
     }
     const { accountId, attempt } = flow;
     const round = this.#flows.currentClaim(this, SIGN_IN_FLOW_KEY);
-    this.#publish({
-      flow: { kind: "cancelling", accountId, attempt, cancelRefusal: flow.cancelRefusal },
-    });
+    this.#publish({ flow: { kind: "cancelling", accountId, attempt } });
     void this.#cancelSignIn(attempt).then((outcome) => {
       round.settle(() => {
-        if (outcome.kind === "refused") {
-          this.#publish({
-            flow: { kind: "live", accountId, attempt, cancelRefusal: outcome.refusal },
-          });
-          return;
-        }
         this.#flows.supersede(this, SIGN_IN_FLOW_KEY);
         this.#publish({ flow: outcome });
         this.#onFlowSettled();
@@ -256,8 +214,7 @@ export class SignInPlane {
    *
    * THE SECOND OF THE TWO THINGS THAT END A FLOW, and the one that is evidence rather
    * than a reply: `providerAccount.subscribe` carries `login_completed` correlated on
-   * the attempt id, so a plane still holding an attempt after a refused cancel is
-   * released by the node rather than staying claimed for the life of the window.
+   * the attempt id, so a plane still holding an attempt is released by the node.
    *
    * CORRELATED AND NEVER ASSUMED. Another window's brokered flow completes on this same
    * node-scoped tail, and taking that as this card's ending would clear a live

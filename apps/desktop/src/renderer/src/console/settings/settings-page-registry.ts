@@ -7,10 +7,9 @@
 //
 // WHY A REGISTRY RATHER THAN A SWITCH
 //
-// The fourteen sections are built by four lanes at once and three of them are bodies
-// this repository does not author at all. A `switch` over section ids would be one
-// file every lane edits — the conflict the console's seat boards exist to avoid,
-// one level down. A page claims its section through {@link registerSettingsPage}
+// Some sections are bodies this repository does not author at all. A `switch` over
+// section ids would be one file every page edits — the conflict the console's seat boards
+// exist to avoid, one level down. A page claims its section through {@link registerSettingsPage}
 // and the surface resolves the current section against the table.
 //
 // WHY THE MATCHER IS BORROWED AND NOT WRITTEN
@@ -59,7 +58,7 @@ export interface SettingsPageContext {
    * A BARE STRING AND NEVER A NARROWED ONE. `routing/` sits below this family and owns
    * only the grammar; what the segment MEANS is the page's, and the page that reads it
    * narrows it against its own vocabulary fail-closed. A selection this build does not
-   * recognise is therefore a page opened for nothing, which is what the rail hands it
+   * recognize is therefore a page opened for nothing, which is what the rail hands it
    * anyway — never a page that refuses to open.
    *
    * It authorizes nothing and selects nothing on its own: a page reads it to say what
@@ -131,7 +130,7 @@ export type SettingsPageBody = (context: SettingsPageContext) => ReactNode;
 
 export interface SettingsPageDescriptor {
   readonly section: SettingsSectionId;
-  /** The lane that owns it, so an unfilled section names someone. */
+  /** Who registered the page. Only the same owner may replace it. */
   readonly owner: string;
   /** The page's own heading. The rail shows {@link SETTINGS_SECTION_LABELS}. */
   readonly label: string;
@@ -149,7 +148,7 @@ export interface SettingsPageDescriptor {
  * What a page hands {@link SettingsPageRegistrar.register}, in one of exactly two forms.
  *
  * THE DECK'S AND THE FRAME'S OWN UNION, applied to a rail section, decided by the same
- * product fact and normalised by the same `LoadedLazyBody`. `seats/pane/pane-registry.ts`
+ * product fact and normalized by the same `LoadedLazyBody`. `seats/pane/pane-registry.ts`
  * states the reasoning; what makes it apply here is that a settings page is not painted
  * before a person acts — settings is a destination somebody navigates to, and a section
  * inside it is a second act after that.
@@ -182,10 +181,7 @@ export type SettingsPageRegistration =
  *
  * Published through the family's door so a root composition file registers a page
  * without holding the registry class, the section vocabulary, or the descriptor
- * shape — which are this family's intra-family contract and stay deep. A door that
- * withheld the whole registry left `agents-settings-page.ts` reaching around it,
- * which inverts the decision rather than respecting it: the registration this file
- * performs is exactly the public surface a door exists to expose.
+ * shape, which are this family's intra-family contract and stay deep.
  */
 export interface SettingsPageRegistrar {
   register(registration: SettingsPageRegistration): void;
@@ -201,7 +197,7 @@ export interface SettingsEntryMatch {
 
 export class SettingsPageRegistry implements SettingsPageRegistrar {
   // `"owner-scoped"`, for `seats/surface/surface-registry.ts`'s reason: a hot reload re-runs
-  // the owning lane's module and must replace, while two lanes on one section is a
+  // the owner's module and must replace, while two owners on one section is a
   // conflict rather than a swap decided by module import order.
   readonly #descriptorsBySection = new KeyedRegistry<SettingsSectionId, SettingsPageDescriptor>({
     duplicatePolicy: "owner-scoped",
@@ -225,8 +221,8 @@ export class SettingsPageRegistry implements SettingsPageRegistrar {
   /**
    * Claim a section. A second claim by a different owner is an error, not a swap.
    *
-   * A loader-form registration is normalised here exactly as the deck's and the frame's
-   * boards normalise theirs: one `LoadedLazyBody` per registration — one memoised promise
+   * A loader-form registration is normalized here exactly as the deck's and the frame's
+   * boards normalize theirs: one `LoadedLazyBody` per registration — one memoised promise
    * and one stable lazy component — and a descriptor whose `render` mounts it. So
    * `descriptorFor` answers the same shape for both forms, `entries` ranks both the same
    * way, and neither `SettingsPane` nor the search index branches on how a body arrived.
@@ -267,26 +263,15 @@ export class SettingsPageRegistry implements SettingsPageRegistrar {
   /**
    * Start this section's body loading, without opening it.
    *
-   * The two `seats/` boards' `preload`, with its reasoning unchanged: idempotent by
-   * construction, because the promise is memoised on the registration, and a
-   * component-form or unregistered section settles immediately with nothing to do — so a
-   * caller never has to ask first whether a section is loader-backed.
+   * The two `seats/` boards' `preload`: idempotent by construction, because the promise
+   * is memoised on the registration, and a component-form or unregistered section settles
+   * immediately with nothing to do — so a caller never has to ask first whether a section
+   * is loader-backed.
    *
-   * TWO PRODUCTION CALLERS, which are the two the boards in `seats/` have. The shared
-   * section-opening callback calls it before it navigates, so the rail's row and a search
-   * hit warm the same page through one line — `frame/composition/rail-navigation.ts` warms a
-   * destination at that same moment and for that same reason — and an idle walk covers
-   * the board before either of them reaches it.
-   *
-   * THE WALK IS HERE NOW, AND THE ARGUMENT AGAINST IT WAS WRONG. It ran: this registry is
-   * composed per mount, so by the time it exists the destination is already open and
-   * there is no earlier moment to use. The registration union above answers that in its
-   * own words — "settings is a destination somebody navigates to, and a section inside it
-   * is a second act after that" — so the board's lifetime begins at the FIRST act and the
-   * interval before the second one is exactly the idle a warm is charged to. A board
-   * holding only `render:` pages walks in one step and fetches nothing, which is what
-   * makes arming it unconditional honest. `settings-page-warm.ts` binds that walk to a
-   * MOUNT rather than to a window, because so is this board.
+   * ONE PRODUCTION CALLER: the mount's idle walk, which covers the board after the first
+   * frame. A load that fails is reported where the page mounts, inside the surface error
+   * boundary, where somebody is waiting for it; the walk drops its own rejection because
+   * nobody is.
    */
   public async preload(section: SettingsSectionId): Promise<void> {
     await this.#loadedBodiesBySection.get(section)?.load();
@@ -297,7 +282,7 @@ export class SettingsPageRegistry implements SettingsPageRegistrar {
    *
    * The two boards' `unloadedKeys`, with their ordering reason read one level down: what
    * the walk warms first is observable in what a person never waits for, and registration
-   * order would make it depend on which page lane the chunk root evaluated first.
+   * order would make it depend on which page module the chunk root evaluated first.
    * Already-resolved sections drop out, so a second walk over a warm board does nothing
    * rather than re-entering every memo.
    */

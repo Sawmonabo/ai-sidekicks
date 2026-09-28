@@ -16,7 +16,7 @@ import {
 // `element-motion.ts` already owned — two bodies for one seam, free to drift in
 // feature detection and in whether they disconnect, with nothing that would fail
 // when they did. The arm runs through the seam now, and these are the two
-// behaviours that had to survive the move.
+// behaviors that had to survive the move.
 describe("PaneGeometryPublisher — the size source", () => {
   afterEach(() => {
     vi.unstubAllGlobals();

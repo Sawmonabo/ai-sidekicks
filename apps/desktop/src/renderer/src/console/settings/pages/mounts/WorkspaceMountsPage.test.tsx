@@ -1,5 +1,4 @@
-// The mounts page renders both health axes separately, offers no detach, and says
-// which session it is reading for.
+// The mounts page renders both health axes separately and offers no detach.
 //
 // The refresh signals and the refused read are the suite next door
 // (`WorkspaceMountsPage.refresh.test.tsx`); both drive the page through the harness
@@ -71,14 +70,6 @@ describe("workspace mounts page", () => {
     expect(container.querySelectorAll(".meridian-mount-list__item")).toHaveLength(2);
   });
 
-  it("says this window has opened no session rather than reading for one", async () => {
-    const { page: container } = await renderSettledPage(
-      contextReading({ mountIds: [MOUNT_A], retainedSessionId: undefined }),
-    );
-    expect(container.textContent ?? "").toContain("Mounts belong to a session");
-    expect(container.querySelector(".meridian-mount-list")).toBeNull();
-  });
-
   it("reports an empty session as empty and not as unread", async () => {
     const { page: container } = await renderSettledPage(contextReading({ mountIds: [] }));
     expect(container.querySelector(".meridian-nothing--empty")).not.toBeNull();
@@ -132,7 +123,7 @@ describe("workspace mounts page — the read says it landed, once", () => {
     const { page, politeText } = await renderSettledPage(
       contextReading({
         mountIds: [MOUNT_A],
-        rejectWith: { code: "repo.node_not_attached", message: "that node is not attached" },
+        rejectWith: "that node is not attached",
       }),
     );
     expect(politeText()).toBe("that node is not attached");

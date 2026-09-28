@@ -154,8 +154,8 @@
 }
 
 /* An act whose consequence is not undone by pressing it again — an abandoned run, a
-   restart mid-turn. Toned rather than shaped: it is the same button as its neighbours
-   because it sits in the same row, and what marks it is the colour the palette
+   restart mid-turn. Toned rather than shaped: it is the same button as its neighbors
+   because it sits in the same row, and what marks it is the color the palette
    reserves for a loss. */
 .meridian-settings-page__action--destructive {
   border-color: var(--meridian-red-mark);
@@ -177,7 +177,7 @@
 /* --- A wire vocabulary: the closed set a page's rows will speak ----------- */
 /* Two columns rather than the `__facts` grid, because a term here is a value the
    daemon sends and `__facts` upper-cases its terms — which would re-case a wire
-   string, and rule 4 is that a wire string renders verbatim. The term column sizes
+   string, and a wire string renders verbatim. The term column sizes
    to its content so the definitions share one left edge and read as a list. */
 
 .meridian-settings-page__vocabulary {

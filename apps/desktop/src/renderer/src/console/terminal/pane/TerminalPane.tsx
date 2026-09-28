@@ -13,25 +13,19 @@
 // by its whole trail — the session it holds the shell of, then "Terminal" — and the
 // emulator's own name inside it is the one accessible name this family still spells.
 //
-// WHAT IS LIVE HERE AND WHAT IS NOT. The lease is wire-true today —
-// `pty.control_changed` is a registered event type carrying the holder, the holder it
-// replaced, and a closed five-member reason — so the holding line, the transition
-// ledger, and every state the fold settles into come from the session log by
-// `lease-model.ts` and are not fixtures. The OUTPUT is not: the byte stream, the
-// scrollback, and the resize report are a growth-slate row the growth port refuses by
-// name. `terminal/pane/output-stream.ts` holds that read and the deletion obligation
-// that retires it.
+// The lease is wire-true: `pty.control_changed` carries the holder, the holder it replaced
+// and a closed reason, so the holding line comes from the session log through
+// `lease-model.ts`. The output stream is not built, so the emulator mounts with nothing
+// to show.
 
 import { Nothing } from "../../primitives/index.js";
 import { BoundTerminalPane } from "./BoundTerminalPane.js";
 import { ConsolePaneChrome, type PaneContextOf } from "../../seats/index.js";
 
+/** The registered terminal body: the bound pane, or a sentence that no session was addressed. */
 export function TerminalPane(context: PaneContextOf<"terminal">): React.JSX.Element {
-  // Three members of the context, and the three the body reads. `paneId` is not one of
-  // them: the shell this pane shows is keyed by the SESSION — `BoundTerminalPane.tsx`
-  // states why — and a destructured binding nothing uses reads as a claim that the body
-  // uses it.
-  const { bridge, sessionStore, focusHue } = context;
+  // The shell this pane shows is keyed by the SESSION, so the pane's own id is not read.
+  const { sessionStore, focusHue } = context;
   return (
     <ConsolePaneChrome kind="terminal" sessionId={sessionStore?.sessionId} focusHue={focusHue}>
       <div className="meridian-terminal-pane">
@@ -43,7 +37,7 @@ export function TerminalPane(context: PaneContextOf<"terminal">): React.JSX.Elem
             detail="A session's shared shell is reached through the session it belongs to, and this pane was opened without one. Nothing here says the session has no terminal — only that none was addressed."
           />
         ) : (
-          <BoundTerminalPane bridge={bridge} sessionStore={sessionStore} />
+          <BoundTerminalPane sessionStore={sessionStore} />
         )}
       </div>
     </ConsolePaneChrome>

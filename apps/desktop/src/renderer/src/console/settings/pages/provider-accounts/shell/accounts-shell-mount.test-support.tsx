@@ -1,95 +1,215 @@
-// Mounting the accounts shell against the deck it ships in, and reading it back.
+// Mounting the accounts shell over a registry reading built here, and reading it back.
 //
-// HOISTED ON THE SECOND USE, which is the package rule. Three suites drive this page —
-// what the registry read renders, what the node's tail does to it once that read has
-// settled, and what the sign-in plane does while a flow is running — and all three need
-// the same deck, the same providers, the same settled mount, and the same handful of
-// readers over the rendered list. A second copy of the mount would be a second set of
-// defaults, and a case reading a default it did not write is the hardest kind of test
-// to correct.
-//
-// THE DECK IS THE REAL ONE. `SETTINGS_SCENARIO` is the story the scenario selector
-// opens, so every state a case reaches here is a state a reviewer can reach in a
-// running fixture build. Nothing in this module hand-builds a registry reply.
+// Hoisted because three suites drive this page — what the registry reading renders, and
+// what the sign-in plane does while a flow is running or after it has ended — and all
+// three need the same registry, the same mount and the same readers over the rendered
+// list. The registry is built from the contract types, so every state a case reaches is
+// one the wire can carry.
 
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render } from "@testing-library/react";
+import { vi } from "vitest";
 
-import type { ProviderAccount } from "@ai-sidekicks/contracts";
+import type {
+  ProviderAccount,
+  ProviderAccountId,
+  ProviderAccountUsageWindow,
+  ProviderReadiness,
+} from "@ai-sidekicks/contracts";
 
-import {
-  DesktopBridgeProvider,
-  createFixtureBridge,
-  type ConsoleBridge,
-} from "../../../../bridge/index.js";
-import { PROVIDER_ACCOUNT_SUBSCRIBE_STREAM } from "../../../../bridge/daemon/daemon-streams.js";
-import {
-  withCapturedStream,
-  withDaemonCall,
-  type BridgeUnderTest,
-  type StreamUnderTest,
-} from "../../../../bridge/fixture/call-plane/bridge.test-support.js";
-import { settleScriptedRead } from "../../../../bridge/readings/scheduled-read.test-support.js";
-import { SETTINGS_PROVIDER_ACCOUNT_LIST } from "../../../../bridge/scenario/settings/account-plane.js";
-import { SETTINGS_SCENARIO } from "../../../../bridge/scenario/settings/settings.js";
+import { DesktopBridgeProvider, createFixtureBridge } from "../../../../bridge/index.js";
+import { unscriptedScenario } from "../../../../bridge/fixture/call-plane/bridge.test-support.js";
 import { LiveAnnouncerProvider } from "../../../../primitives/index.js";
-import { AccountsShell } from "./AccountsShell.js";
+import { NEVER_SETTLES } from "../../../../primitives/abandoned-pass.test-support.js";
+import {
+  AccountsShell,
+  type AccountRegistryReading,
+  type AccountsShellOperations,
+} from "./AccountsShell.js";
 
-/** The deck's own bridge, with nothing overridden. */
-export function fixtureBridge(): ConsoleBridge {
-  return createFixtureBridge({ scenario: SETTINGS_SCENARIO });
+/** A mounted shell, and the handles a case needs to change what it is handed. */
+export interface MountedShell {
+  readonly container: HTMLElement;
+  /** Re-render the same mount with another registry reading. */
+  readonly showRegistry: (registry: AccountRegistryReading) => void;
+  /** Called each time the shell asks for a fresh registry read. */
+  readonly requestRegistryRead: ReturnType<typeof vi.fn<() => void>>;
 }
 
-/** Mount the shell under the two providers every console surface renders inside. */
-export function renderShell(bridge: ConsoleBridge): HTMLElement {
-  const { container } = render(
-    <DesktopBridgeProvider bridge={bridge}>
-      <LiveAnnouncerProvider>
-        <AccountsShell bridge={bridge} />
-      </LiveAnnouncerProvider>
-    </DesktopBridgeProvider>,
-  );
-  return container;
+const WORK_ACCOUNT_ID = "pa-0001" as ProviderAccountId;
+const PERSONAL_ACCOUNT_ID = "pa-0002" as ProviderAccountId;
+const BATCH_ACCOUNT_ID = "pa-0003" as ProviderAccountId;
+
+/** Provider-published limit identifiers, which the page must never draw. */
+export const WIRE_LIMIT_IDS = ["weekly_all", "weekly_opus", "weekly_code"] as const;
+
+/** An account the daemon observed and found signed in. */
+const WORK_ACCOUNT: ProviderAccount = {
+  accountId: WORK_ACCOUNT_ID,
+  provider: "claude",
+  displayLabel: "Claude — work",
+  credentialGeneration: 3,
+  billingMode: "subscription",
+  isDefault: true,
+  healthState: "authenticated",
+  healthObservedAt: "2026-01-01T07:00:00.000Z",
+  observedAuthMode: "oauth_subscription",
+  loggedInAt: "2025-12-02T09:00:00.000Z",
+  expectedReloginAtEstimate: "2026-01-01T09:00:00.000Z",
+  probeEnabled: true,
+};
+
+/** An account nothing has ever observed. */
+const PERSONAL_ACCOUNT: ProviderAccount = {
+  accountId: PERSONAL_ACCOUNT_ID,
+  provider: "codex",
+  displayLabel: "Codex — personal",
+  credentialGeneration: 1,
+  billingMode: "metered",
+  isDefault: true,
+  healthState: "indeterminate",
+  healthObservedAt: null,
+  observedAuthMode: null,
+  loggedInAt: null,
+  expectedReloginAtEstimate: null,
+  probeEnabled: true,
+};
+
+/** An account whose credential has moved on since its stored quota readings were taken. */
+const BATCH_ACCOUNT: ProviderAccount = {
+  ...WORK_ACCOUNT,
+  accountId: BATCH_ACCOUNT_ID,
+  displayLabel: "Claude — batch runs",
+  credentialGeneration: 5,
+  billingMode: "metered",
+  isDefault: false,
+};
+
+/** One limit's stored reading, on a window length several limits share. */
+function usageWindow(
+  overrides: Partial<ProviderAccountUsageWindow> & { readonly limitId: string },
+): ProviderAccountUsageWindow {
+  return {
+    accountId: WORK_ACCOUNT_ID,
+    windowMins: 10080,
+    usedPercent: 40,
+    resetsAt: "2026-01-05T00:00:00.000Z",
+    observedAt: "2026-01-01T09:00:00.000Z",
+    observedCredentialGeneration: 3,
+    source: "run",
+    ...overrides,
+  };
 }
 
-/** Mount, carry the debounced read past its window and past the reply's latency. */
-export async function renderSettledShell(bridge: ConsoleBridge): Promise<HTMLElement> {
-  const container = renderShell(bridge);
-  await settleScriptedRead(bridge);
-  return container;
-}
+const READINESS: readonly ProviderReadiness[] = [
+  {
+    provider: "claude",
+    state: "authenticated",
+    resolvedAccountId: WORK_ACCOUNT_ID,
+    observedAt: "2026-01-01T07:00:00.000Z",
+  },
+  {
+    provider: "codex",
+    state: "indeterminate",
+    resolvedAccountId: PERSONAL_ACCOUNT_ID,
+    remedy: {
+      kind: "sign_in",
+      accountId: PERSONAL_ACCOUNT_ID,
+      signInInvocation: "codex login",
+      credentialHomePath: "/home/person/.sidekicks/homes/pa-0002",
+    },
+  },
+];
 
-/** The deck, with the account plane's live tail in this case's hands. */
-export function bridgeHoldingTheTail(): StreamUnderTest {
-  return withCapturedStream(fixtureBridge(), PROVIDER_ACCOUNT_SUBSCRIBE_STREAM);
-}
+/** A registry that has answered: three accounts, two providers, four stored readings. */
+export const ACCOUNT_REGISTRY: AccountRegistryReading = {
+  phase: "read",
+  accounts: [WORK_ACCOUNT, PERSONAL_ACCOUNT, BATCH_ACCOUNT],
+  readiness: READINESS,
+  usageWindows: [
+    usageWindow({ limitId: "weekly_all", label: "Weekly, all models", usedPercent: 88 }),
+    usageWindow({ limitId: "weekly_opus", label: "Weekly, Opus" }),
+    usageWindow({ limitId: "weekly_code" }),
+    usageWindow({
+      accountId: BATCH_ACCOUNT_ID,
+      limitId: "weekly_all",
+      label: "Weekly, all models",
+      observedCredentialGeneration: 3,
+    }),
+  ],
+  newestLoginCompletion: undefined,
+};
 
-/** The deck, with every daemon call answered by the deck and counted on the way. */
-export function bridgeCountingItsCalls(): BridgeUnderTest {
-  return withDaemonCall(fixtureBridge(), async (_call, passThrough) => await passThrough());
+/** A registry whose first read has not landed. */
+export const UNREAD_ACCOUNT_REGISTRY: AccountRegistryReading = {
+  phase: "reading",
+  accounts: [],
+  readiness: [],
+  usageWindows: [],
+  newestLoginCompletion: undefined,
+};
+
+/** The registry, reporting the brokered attempt with this id finished. */
+export function registryReportingCompleted(attemptId: string): AccountRegistryReading {
+  return {
+    ...ACCOUNT_REGISTRY,
+    newestLoginCompletion: {
+      kind: "login_completed",
+      attemptId,
+      accountId: PERSONAL_ACCOUNT_ID,
+      outcome: "succeeded",
+    },
+  };
 }
 
 /**
- * The deck with BOTH: the live tail in this case's hands, and every call counted.
+ * Mount the shell under the two providers every console surface renders inside.
  *
- * Composed rather than a third stand-alone deck, because the claim that needs both is
- * one claim — a frame arriving on the tail causing a call to go out — and a case that
- * could only hold one of the two would be asserting the frame or the call, never the
- * link between them.
+ * A verb the case does not supply never answers. The operations object is created once so
+ * a re-render does not rebuild the sign-in plane.
  */
-export function bridgeHoldingTheTailAndCountingCalls(): StreamUnderTest & BridgeUnderTest {
-  const tail = bridgeHoldingTheTail();
-  const counted = withDaemonCall(tail.bridge, async (_call, passThrough) => await passThrough());
-  return { bridge: counted.bridge, calls: counted.calls, deliver: tail.deliver };
+export function mountShell(options: {
+  readonly registry: AccountRegistryReading;
+  readonly operations?: Partial<AccountsShellOperations>;
+}): MountedShell {
+  const bridge = createFixtureBridge({ scenario: unscriptedScenario("accounts-shell") });
+  const operations: AccountsShellOperations = {
+    login: () => NEVER_SETTLES,
+    cancelLogin: () => NEVER_SETTLES,
+    register: () => NEVER_SETTLES,
+    ...options.operations,
+  };
+  const requestRegistryRead = vi.fn<() => void>();
+  const tree = (registry: AccountRegistryReading): React.JSX.Element => (
+    <DesktopBridgeProvider bridge={bridge}>
+      <LiveAnnouncerProvider>
+        <AccountsShell
+          registry={registry}
+          requestRegistryRead={requestRegistryRead}
+          operations={operations}
+        />
+      </LiveAnnouncerProvider>
+    </DesktopBridgeProvider>
+  );
+  const { container, rerender } = render(tree(options.registry));
+  return {
+    container,
+    requestRegistryRead,
+    showRegistry: (registry) => {
+      rerender(tree(registry));
+    },
+  };
 }
 
 /** Every start-sign-in control the readiness list is currently offering. */
-export function startControls(): HTMLButtonElement[] {
-  return screen.getAllByRole<HTMLButtonElement>("button", { name: /start sign-in/iu });
+export function startControls(container: HTMLElement): HTMLButtonElement[] {
+  return [...container.querySelectorAll<HTMLButtonElement>("button")].filter((button) =>
+    /start sign-in/iu.test(button.textContent ?? ""),
+  );
 }
 
 /** Press the first of them, the way a person reaching the remedy does. */
-export function pressFirstStartControl(): void {
-  const [control] = startControls();
+export function pressFirstStartControl(container: HTMLElement): void {
+  const [control] = startControls(container);
   if (control === undefined) {
     throw new Error("the readiness list offered no sign-in control to press");
   }
@@ -101,29 +221,7 @@ export function selectAccount(container: HTMLElement, displayLabel: string): voi
   const rows = [...container.querySelectorAll<HTMLButtonElement>(".meridian-accounts__row")];
   const row = rows.find((button) => (button.textContent ?? "").includes(displayLabel));
   if (row === undefined) {
-    throw new Error(`the registry rendered no account row labelled ${displayLabel}`);
+    throw new Error(`the registry rendered no account row labeled ${displayLabel}`);
   }
   fireEvent.click(row);
-}
-
-/** One account off the deck's own reply, so no case invents a registry row. */
-export function registryAccountAt(ordinal: number): ProviderAccount {
-  const account = SETTINGS_PROVIDER_ACCOUNT_LIST.accounts[ordinal];
-  if (account === undefined) {
-    throw new Error(`the settings deck holds no registry account at ordinal ${String(ordinal)}`);
-  }
-  return account;
-}
-
-/** How many rows the list is currently drawing for one account's label. */
-export function rowsLabelled(container: HTMLElement, displayLabel: string): number {
-  return [...container.querySelectorAll(".meridian-accounts__row")].filter((row) =>
-    (row.textContent ?? "").includes(displayLabel),
-  ).length;
-}
-
-/** The quota table's rendered cells for one limit, by the identifier it is keyed on. */
-export function quotaRowText(container: HTMLElement, limitId: string): string {
-  const rows = [...container.querySelectorAll(".meridian-accounts__quota tbody tr")];
-  return rows.find((row) => (row.textContent ?? "").includes(limitId))?.textContent ?? "";
 }

@@ -22,7 +22,7 @@
 // TIE rather than to the emulator — so a detached binding reports the shut gate and
 // re-opens it, without being told again, on the host that takes the emulator next.
 // Storing the lease's answer and composing it with the host is what makes that one
-// answer rather than two fields a caller has to re-synchronise.
+// answer rather than two fields a caller has to re-synchronize.
 //
 // WHAT IT DOES NOT DO. It never decides who may write: it is handed that answer by a
 // surface that read it off the lease. An emulator that consulted a lease would be a

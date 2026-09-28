@@ -1,11 +1,7 @@
 // The registry reading the account axis's two model suites are driven with.
 //
-// TYPED ROWS, WHERE `account-registry.test-support.ts` HOLDS A WIRE REPLY. That module
-// answers what a scripted daemon puts on `providerAccount.list`, which is untyped by
-// construction because the bridge's own parser is what turns it into rows. This one
-// answers the other side of that parse: the rows a model suite hands the axis
-// directly, in the registered shape and nothing narrower. Two roles, so two modules —
-// and one home each, which is why neither suite writes a row of its own.
+// TYPED ROWS: the rows a model suite hands the axis directly, in the registered shape and
+// nothing narrower, so neither suite writes a row of its own.
 //
 // A FUNCTION PER FIXTURE rather than a held object, so one case's reading is never the
 // object a previous case was handed: nothing here mutates one today, and a fixture

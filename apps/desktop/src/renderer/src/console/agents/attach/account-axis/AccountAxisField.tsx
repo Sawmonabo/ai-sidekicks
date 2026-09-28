@@ -1,38 +1,35 @@
-// The attach form's provider-account axis: a picker over the node's registry, with
+// The provider-account axis: a picker over the node's registry, with
 // what the registry stored about the chosen account beside it.
 //
 // A SECOND COMBOBOX BESIDE `AxisCombobox` AND NOT A WIDENING OF IT. That component
 // renders a provider-published vocabulary of bare strings and takes exactly one
 // disposition for an absent one — no vocabulary, no control — which is right for an
 // axis the daemon will refuse to set at all. This axis is three things it is not: its
-// choices carry a LABEL a person recognises beside the opaque handle the wire takes,
+// choices carry a LABEL a person recognizes beside the opaque handle the wire takes,
 // its advisory is composed per chosen account rather than fixed by the caller, and
 // "nothing to choose" is a state that still has to say WHY — a registry not yet read,
 // a read refused, a driver naming no provider this build knows, and a provider with
 // no accounts are four different answers, and a picker that simply vanished would
 // report all four as the same absence.
 //
-// THE READ IS OPENED HERE, WHICH IS WHY THE FIELD TAKES A BRIDGE. `bridge/quotas/`
-// holds the node's ONE account-plane reading and opens it when the first watcher
-// arrives; this field is that watcher and it is mounted only while the attach dialog
-// is open, so a window that never attaches holds no registry subscription and a
-// dialog that closes gives it up. A read hoisted to the column above would be held
-// for the life of every agent console instead, for a picker most of them never draw.
+// THE READING IS THE CALLER'S. The node has one account-plane reading and the surface that
+// mounts this field holds it, so the field takes the registry as a prop and a way to ask
+// for it again, and holds no subscription of its own.
 //
 // AND IT IS OPTIONAL, WHICH IS WHY IT CAN BE CLEARED. An absent account resolves at
 // the daemon to the provider's registered default; a pinned one that has left the
 // registry refuses rather than falling back. Both are legible states, so the field
 // offers the way back to the first and says what the second costs — and it does
-// neither by removing the caller's own value, which is theirs and not this form's.
+// neither by removing the caller's own value, which is theirs and not this field's.
 //
 // BUT "CLEARED" IS THE WIRE'S WORD AND NOT THIS FORM'S. Dropping the caller's own
 // entry does not always reach the provider default: the registered request has no
 // null arm for this member, so an absent member means "take the definition's value"
 // rather than "take no value". The four states that follow from that are what
 // {@link AccountAxisProvenance} names, and the reset control below is rendered — and
-// labelled — from them rather than from whether the field happens to hold a string.
+// labeled — from them rather than from whether the field happens to hold a string.
 //
-// AND THE READINGS FOLLOW THE ACCOUNT THE ATTACH WILL USE, NOT ONLY THE ONE IT PINS.
+// AND THE READINGS FOLLOW THE ACCOUNT THE RUN WILL USE, NOT ONLY THE ONE IT PINS.
 // Pinning nothing is the state a person meets this field in, and it is a request for
 // the provider's registered default — an account the readiness entry already names. A
 // field that spoke only for a pinned value therefore said nothing at all in the common
@@ -45,13 +42,8 @@
 // own sign-in invocation or the credential home it writes into, which reach the
 // operator surface that owns them and no form.
 
-import { useCallback, useId } from "react";
+import { useId } from "react";
 
-import {
-  useProviderAccountRefresh,
-  useProviderQuotas,
-  type ConsoleBridge,
-} from "../../../bridge/index.js";
 import { WireFigure } from "../../../primitives/index.js";
 import { accountAdvisoriesFor, unresolvedDefaultAdvisoryIn } from "./account-advisories.js";
 import {
@@ -59,12 +51,17 @@ import {
   attachAccountAxisReadingFor,
   chosenAccountIn,
   registryCarriesAccount,
+  type AttachAccountRegistryReading,
 } from "./account-axis.js";
 import { AccountChoiceAbsence } from "./AccountChoiceAbsence.js";
 import { AccountChoiceList } from "./AccountChoiceList.js";
 
+/** What the account field reads from the caller, and what it hands back. */
 export interface AccountAxisFieldProps {
-  readonly bridge: ConsoleBridge;
+  /** The node's account registry, as the caller last read it. */
+  readonly registry: AttachAccountRegistryReading;
+  /** Asks the caller to read the registry again. Pressed from the absence states. */
+  readonly onReopenRegistry: () => void;
   /** The driver the form resolved to, entered or inherited. Decides the provider. */
   readonly driverName: string | undefined;
   /** The account the form currently carries, entered or inherited. */
@@ -86,10 +83,9 @@ export interface AccountAxisFieldProps {
   readonly overlayContainer?: HTMLElement | null | undefined;
 }
 
+/** The provider-account axis: a picker over the registry, or why there is none. */
 export function AccountAxisField(props: AccountAxisFieldProps): React.JSX.Element {
-  const { bridge, value } = props;
-  const registry = useProviderQuotas(bridge);
-  const refreshRegistry = useProviderAccountRefresh(bridge);
+  const { registry, value } = props;
   const reading = attachAccountAxisReadingFor(registry, props.driverName);
   const chosen = chosenAccountIn(reading, value);
   const provenance = accountAxisProvenanceOf(props);
@@ -102,13 +98,6 @@ export function AccountAxisField(props: AccountAxisFieldProps): React.JSX.Elemen
   const pinnedAccountId = isPinned ? value : undefined;
   const advisoryChoice = advisoryChoiceIn(reading, pinnedAccountId);
   const unresolvedDefaultAdvisory = unresolvedDefaultAdvisoryIn(reading, pinnedAccountId);
-  // The REASON is this call site's and never inferred downstream: a person pressing
-  // "Try again" is a user request, and stamping it as anything else would
-  // report an act somebody performed as a window event nobody did.
-  const reopenRegistry = useCallback((): void => {
-    refreshRegistry("user-request");
-  }, [refreshRegistry]);
-
   // THE FIELD NAMES ITS OWN CONTROL, EXPLICITLY. This field's root is a `div` rather
   // than the `<label>` its sibling axes use — it has to hold a reset control, a retry
   // control, and four absence states, none of which belongs inside a label element —
@@ -137,7 +126,7 @@ export function AccountAxisField(props: AccountAxisFieldProps): React.JSX.Elemen
           overlayContainer={props.overlayContainer}
         />
       ) : (
-        <AccountChoiceAbsence reading={reading} onReopen={reopenRegistry} />
+        <AccountChoiceAbsence reading={reading} onReopen={props.onReopenRegistry} />
       )}
 
       {/* THE CALLER'S OWN VALUE, WHEREVER THE PICKER CANNOT SHOW IT. A definition can
@@ -153,16 +142,15 @@ export function AccountAxisField(props: AccountAxisFieldProps): React.JSX.Elemen
 
       {isPinned && !registryCarriesAccount(reading, value ?? "") ? (
         <span className="meridian-axis-field__advisory">
-          This provider&rsquo;s registry does not carry that account. The attach refuses rather than
-          falling back to a default, so nothing silently changes who pays.
+          This provider&rsquo;s registry does not carry that account.
         </span>
       ) : null}
 
       {/* WHICH ACCOUNT THE READINGS BELOW ARE ABOUT, SAID BEFORE THEM. An axis that
           pins nothing asks the daemon for the provider's registered default, so the
-          readings that bear on this attach are that account's — and a list opening
+          readings that bear on this run are that account's — and a list opening
           with them unannounced would read as the health of an account the form had
-          pinned. Naming the account this attach resolves to is not the same act as
+          pinned. Naming the account this run resolves to is not the same act as
           pinning it: nothing here writes the value, and the request still carries no
           account from this path. */}
       {advisoryChoice === undefined ? null : (
@@ -170,7 +158,7 @@ export function AccountAxisField(props: AccountAxisFieldProps): React.JSX.Elemen
           <span className="meridian-axis-field__advisory">
             {isPinned
               ? `What follows is about ${advisoryChoice.displayLabel}, the account this form pins.`
-              : `Nothing is pinned, so this attach resolves to ${advisoryChoice.displayLabel}. What follows is that account’s reading, and the request still names no account.`}
+              : `Nothing is pinned, so this run resolves to ${advisoryChoice.displayLabel}. What follows is that account’s reading, and the request still names no account.`}
           </span>
           <ul className="meridian-axis-field__advisories">
             {accountAdvisoriesFor(advisoryChoice).map((advisory) => (
@@ -199,7 +187,7 @@ export function AccountAxisField(props: AccountAxisFieldProps): React.JSX.Elemen
           The label names the value this press RESOLVES TO, which the registered
           request decides rather than this field: an explicitly-present member
           overrides that axis alone, an absent one means "take the definition's
-          value", and the attach request carries no null arm for the account the way
+          value", and the registered request carries no null arm for the account the way
           `agent.configUpdate` carries one for the default node. So dropping an entry
           made over a definition that pins an account returns THAT account, and only
           an entry standing over nothing reaches the provider's registered default.
@@ -224,8 +212,7 @@ export function AccountAxisField(props: AccountAxisFieldProps): React.JSX.Elemen
       {provenance === "inherited" ? (
         <span className="meridian-axis-field__advisory">
           This account is the definition&rsquo;s. Choosing another overrides it for this agent —
-          including whichever the registry marks default — but an attach from a definition cannot
-          ask for no account at all.
+          including whichever the registry marks default.
         </span>
       ) : null}
     </div>

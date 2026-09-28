@@ -7,7 +7,7 @@
 // THE HANDLE IS THE ITEM AND THE LABEL IS A PROJECTION OF IT. What the request
 // carries is the daemon-minted opaque `accountId`, so that is what the combobox holds
 // and hands back — a picker whose items were labels would put the operator's own
-// mutable word where the wire's identity belongs, and two accounts relabelled alike
+// mutable word where the wire's identity belongs, and two accounts relabeled alike
 // would become indistinguishable to it. The label is what a person reads, filters on,
 // and sees in the trigger, and it is resolved through the library's own label seam
 // rather than by a second list beside the items.
@@ -35,7 +35,7 @@ export function AccountChoiceList(props: AccountChoiceListProps): React.JSX.Elem
   const { reading, value } = props;
   const accountIds = reading.choices.map((choice) => choice.accountId);
   // An id the registry does not carry falls back to ITSELF rather than to an empty
-  // string, so a value this form is holding is never rendered blank — an empty
+  // string, so a value this field is holding is never rendered blank — an empty
   // trigger over a set member would read as "no account pinned", which is the one
   // thing it is not.
   const labelFor = (accountId: string): string =>

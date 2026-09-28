@@ -18,7 +18,7 @@ import type { SessionStore } from "../../store/index.js";
 import { createChildRunLinkage, createDriverCatalog } from "./agent-console-reads.js";
 import { initialisedStore } from "../../store/session-store-registry.test-support.js";
 import { eventOfKind } from "../../store/session-event.test-support.js";
-import { unscriptedBridge } from "./run-console.test-support.js";
+import { REJECTING_AGENT_CONSOLE_CALLS, unscriptedBridge } from "./run-console.test-support.js";
 
 const PARENT_RUN_ID = "run-7";
 
@@ -28,10 +28,10 @@ function startedLinkage(
   clock: ManualClock,
 ): ReturnType<typeof createChildRunLinkage> {
   const read = createChildRunLinkage(
-    unscriptedBridge("agent-linkage-signal"),
     sessionStore,
     PARENT_RUN_ID,
     clock,
+    REJECTING_AGENT_CONSOLE_CALLS.readChildRunLinks,
   );
   read.start();
   return read;

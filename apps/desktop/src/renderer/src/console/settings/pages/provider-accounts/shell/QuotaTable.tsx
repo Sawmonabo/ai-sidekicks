@@ -4,7 +4,6 @@ import {
   Chip,
   DerivedFigure,
   Nothing,
-  WireFigure,
   formatDateTime,
   formatDuration,
   formatPercent,
@@ -16,9 +15,10 @@ import type { AccountQuotaRow } from "./quota-rows.js";
  * One account's per-limit quota table, one row per limit the provider publishes.
  *
  * KEYED BY LIMIT AND NEVER BY WINDOW LENGTH. Three of a pinned provider's limits share
- * one 10080-minute window, so the limit identifier is the row's identity and the window
- * length is an attribute of the reading — which is why both are columns and only one is
- * the key.
+ * one 10080-minute window, so the limit identifier is the row's key and the window
+ * length is an attribute of the reading. The identifier is a wire spelling and is never
+ * drawn: a row is named by the provider's own label, or by its window length where the
+ * provider published none.
  *
  * THE PERCENTAGE IS CLAMPED FOR DISPLAY AND THE WIRE FIGURE IS NOT. A provider may
  * report over-consumption against a soft limit, so the bar stops at full while the
@@ -56,17 +56,9 @@ export function QuotaTable(props: { readonly rows: readonly AccountQuotaRow[] })
       <tbody>
         {props.rows.map(({ window, behindAccountGeneration }) => (
           <tr key={window.limitId}>
-            <th scope="row">
-              {window.label === undefined ? (
-                <WireFigure value={window.limitId} />
-              ) : (
-                <>
-                  <span>{window.label}</span> <WireFigure value={window.limitId} />
-                </>
-              )}
-            </th>
+            <th scope="row">{window.label ?? <DerivedFigure text={windowLength(window)} />}</th>
             <td>
-              <DerivedFigure text={formatDuration(window.windowMins * MILLISECONDS_PER_MINUTE)} />
+              <DerivedFigure text={windowLength(window)} />
             </td>
             <td>
               <progress
@@ -95,4 +87,9 @@ export function QuotaTable(props: { readonly rows: readonly AccountQuotaRow[] })
       </tbody>
     </table>
   );
+}
+
+/** How long a window runs, as the table draws it. */
+function windowLength(window: AccountQuotaRow["window"]): string {
+  return formatDuration(window.windowMins * MILLISECONDS_PER_MINUTE);
 }

@@ -1,47 +1,26 @@
-// How every settings-page suite builds the context its page reads, and mounts a page
-// it can move between sessions.
+// How every settings-page suite builds the context its page reads, and mounts a
+// registered page.
 //
 // ONE CONTEXT BUILDER FOR THE FAMILY. `SettingsPageContext` is the shape every page
 // in this family is handed, so a member added to it has to reach every harness that
-// builds one. Three page harnesses had written their own — two byte-identical, and
-// the third through `as unknown as SettingsPageContext`, which is the one of the three
-// a widened context would NOT have failed. That is the drift this module exists to
-// end: the builder is here, the cast is gone, and a new member is one compile error
-// in one file.
-//
-// AND ONE MOVABLE MOUNT. Two harnesses also carried the same thirty-line recorder
-// mount, differing only in which page element they composed — so it takes the page as
-// a function of the context, which is the only thing that ever differed.
+// builds one: the builder is here, and a new member is one compile error in one file.
 //
 // AND ONE RESOLUTION OF A REGISTERED PAGE'S DEFERRED BODY. Every settings registration
 // this console ships takes the registry's LOADER form, so a suite that renders a page
 // through the board it is registered on has to preload the chunk, resolve the descriptor,
-// mount it inside the announcer, and settle the reads the body puts in flight. Two suites
-// had written that sequence themselves — `browser-settings-page.test.tsx` and
-// `agents-settings-page.test.tsx` — which is the second use a shared helper is
-// hoisted on, and the drift that rule guards against is the one that matters here:
-// three
-// suites that await the loader and a fourth that settles generously look identical in a
-// diff, and the fourth passes against a body that had not arrived. The pair below is that
-// sequence and its other half — the reservation the same registration draws BEFORE the
-// chunk lands, which is what makes the awaited case a claim about a body that landed
-// rather than about one that was there all along. `test/console/surfaces/
+// mount it inside the announcer, and settle the reads the body puts in flight. The pair
+// below is that sequence and its other half: the reservation the same registration draws
+// BEFORE the chunk lands, which is what makes the awaited case a claim about a body that
+// landed rather than about one that was there all along. `test/console/surfaces/
 // pane-body-resolution.ts` is the same rule on the two boards in `seats/`; this is that
 // rule on the settings board, which is the settings family's own.
 
 import { render } from "@testing-library/react";
-import type { ReactNode } from "react";
 
 import { consoleClockFor, type ConsoleBridge } from "../bridge/index.js";
 import { MemoryPersistenceAdapter, UiStateStore } from "../persistence/index.js";
 import { LiveAnnouncerProvider } from "../primitives/index.js";
-import {
-  SessionStore,
-  UNREPORTED_SHELL_STATE,
-  type ConsoleEntity,
-  type ShellState,
-} from "../store/index.js";
-import { CommittedFrameRecorder } from "../core/committed-frame.test-support.js";
+import { SessionStore, UNREPORTED_SHELL_STATE, type ShellState } from "../store/index.js";
 import { settle } from "../core/settle.test-support.js";
 // The scheduler wait by its own leaf specifier: a family door publishes what a
 // PRODUCTION module reads, and the barrel census fails a line written for a harness.
@@ -70,15 +49,6 @@ export interface SettingsPageContextOverrides {
   readonly uiStateStore?: UiStateStore | undefined;
 }
 
-/** What one mounted page exposes to a case that moves it between sessions. */
-export interface MountedMovablePage {
-  readonly container: HTMLElement;
-  /** Every frame committed since the last {@link MountedMovablePage.forgetFrames}. */
-  readonly frames: readonly string[];
-  readonly forgetFrames: () => void;
-  readonly showSession: (retainedSessionId: string | undefined) => void;
-}
-
 /**
  * The context a settings page is handed, over a bridge and a retained session.
  *
@@ -88,7 +58,7 @@ export interface MountedMovablePage {
  *
  * `shellState` defaults to the seeded unreported value rather than to a healthy one: a
  * page mounted by a case that says nothing about the shell is a page in a window nobody
- * has told anything, which is the state every shipped build is in until the wire lands.
+ * has told anything.
  * A case that renders a degraded arm names its own.
  *
  * `selection` is absent for the same reason and to the same effect: a page reached from
@@ -132,110 +102,6 @@ export function consoleTestUiStateStore(
   adapter: MemoryPersistenceAdapter = new MemoryPersistenceAdapter(),
 ): UiStateStore {
   return new UiStateStore({ adapter });
-}
-
-/**
- * Mount a page beside a recorder, so a case can read the frames it committed.
- *
- * The subject move this supports is one commit long — see
- * `core/committed-frame.test-support.tsx` — so the case cannot look at the DOM
- * afterwards and see it.
- *
- * The page arrives as a function OF the context rather than as an element, because
- * the whole point is re-composing it under a different session on every re-render:
- * an element handed in would carry the session it was built with forever.
- */
-export function renderMovablePage(
-  pageFor: (context: SettingsPageContext) => ReactNode,
-  bridge: ConsoleBridge,
-  retainedSessionId: string | undefined,
-): MountedMovablePage {
-  const frames: string[] = [];
-  const tree = (sessionId: string | undefined): ReactNode => (
-    <LiveAnnouncerProvider>
-      <CommittedFrameRecorder
-        id="settings-page"
-        onFrame={(committedText) => {
-          frames.push(committedText);
-        }}
-      >
-        {pageFor(settingsPageContextWith(bridge, sessionId))}
-      </CommittedFrameRecorder>
-    </LiveAnnouncerProvider>
-  );
-  const { container, rerender } = render(tree(retainedSessionId));
-  return {
-    container,
-    frames,
-    forgetFrames: () => {
-      frames.length = 0;
-    },
-    showSession: (nextSessionId) => {
-      rerender(tree(nextSessionId));
-    },
-  };
-}
-
-/**
- * A session store holding a fixed set of entities, for a page that reads a partition.
- *
- * HERE RATHER THAN IN ONE PAGE'S HARNESS. Two suites in this family need a store to
- * hand `settingsPageContextWith` — the restart confirmation, which names the runs a
- * restart interrupts, and the diagnostics page, which picks which run it inspects —
- * and the second one is what turns a four-line local helper into the second copy the
- * package rule forbids. The context builder for this family already lives here, and a
- * store the context carries belongs beside it.
- */
-export function sessionStoreHolding(
-  sessionId: string,
-  entities: readonly ConsoleEntity[],
-): SessionStore {
-  const sessionStore = new SessionStore({ sessionId });
-  sessionStore.initialise({ cursor: 0, entities, userJoinLog: [] });
-  return sessionStore;
-}
-
-/**
- * One run entity in the shape the store's `run` partition holds.
- *
- * `state` is a bare string because that is what the store holds — the wire's own word,
- * unvalidated — which is exactly what lets a case drive a state this build has never
- * heard of and assert that the surface neither counts it nor asserts it finished.
- */
-export function runEntity(id: string, state: string, touchedAt?: string): ConsoleEntity {
-  return touchedAt === undefined
-    ? { kind: "run", id, state }
-    : { kind: "run", id, state, touchedAt };
-}
-
-/**
- * The regions a settings page composes ITSELF, with any seat body left out.
- *
- * A page whose seat carries a body renders two things at once: the frame's own words —
- * the lede, the posture chips, and the labelled blocks — and, below them, a body the
- * frame did not author. A claim about what THE PAGE says, or offers, or refuses to put
- * on screen is a claim about the first of those, so it is read from the first of those;
- * reading the whole container would make such a case an assertion about whichever body
- * happened to be mounted, which is the drift the seat exists to prevent.
- *
- * Scoped by the frame's own regions rather than by subtracting the seat, because a seat
- * body may render a fragment and then has no single node to subtract. The frame's
- * blocks carry an `aria-label` — each is a landmark a screen reader announces — and a
- * seat body's sections do not, which is what makes the two separable from here.
- */
-export function pageChromeRegions(container: HTMLElement): readonly HTMLElement[] {
-  return [
-    ...container.querySelectorAll<HTMLElement>(
-      ".meridian-settings-page__lede, .meridian-settings-page__chips, .meridian-settings-page__block[aria-label]",
-    ),
-  ];
-}
-
-/** Everything the page's own regions say, as one string. */
-export function pageChromeText(container: HTMLElement): string {
-  return pageChromeRegions(container)
-    .map((region) => region.textContent ?? "")
-    .join(" ");
 }
 
 /**

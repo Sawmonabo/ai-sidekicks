@@ -9,7 +9,7 @@
 // drawing on two contexts.
 //
 // See `webgl-fallback.test-support.ts` for what is stood in and why this is a file of
-// its own rather than a block in that neighbour.
+// its own rather than a block in that neighbor.
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 

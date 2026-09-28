@@ -1,76 +1,15 @@
-// The receipt's one property, and the only arithmetic the cost page is allowed.
+// The cost receipt's one property: each of its three axes partitions the session figure.
 //
-// A receipt is answerable rather than merely itemised because each of its three
-// axes is a PARTITION of the same figure: every row belongs to exactly one bucket
-// on each axis, and the buckets together account for the whole. `GrowthCostReceipt`
-// states that identity in its own comment — each axis totals to
-// `sessionTotal.committedSpendCents` — and a surface that renders three tables
-// without ever checking it is a surface that would render a double-counted row and
-// a dropped row identically.
-//
-// THE SUM IS COMPUTED AND NEVER SHOWN
-//
-// This is the distinction the page's own rules turn on. The renderer never produces
-// a cost figure — the
-// accountant produces the number a session is charged, and a table that added its
-// own column up would be a second accountant reaching a second answer. What happens
-// here is not that: the total is compared against the one the daemon sent and then
-// discarded. No caller can render it, because none is returned — the verdict is a
-// boolean per axis and nothing else. That is deliberate, and it is why this
-// verification is not the arithmetic the page forbids.
-//
-// WHERE THE CENTS FORMATTER WENT
-//
-// `formatCentsAsCurrency` was declared here while this page was its only reader. The
-// session session header renders the same committed figure from the same accountant, and
-// `workspace/` and `settings/` are sibling view families that may not import each
-// other — so the adapter is hoisted to `console/primitives/figures/wire-figures.ts`,
-// which `apps/desktop/AGENTS.md` already makes the one module that formats a wire
-// value. What it added was the unit conversion, which is a fact about the receipt's
-// wire shape; that fact now sits beside the money formatter it adapts, where both
-// readers reach it and neither owns it.
+// The sum is computed and never shown: the renderer produces no cost figure, and the
+// verdict is a boolean per axis and nothing else.
 
 import type { ConsoleBridge } from "../../../bridge/index.js";
-import type { GrowthReading } from "../../../bridge/index.js";
-import { formatCount } from "../../../primitives/index.js";
-
-/**
- * What one `orchestrationCostReceiptRead` call answers.
- *
- * Derived off the port rather than restated: the bridge door exports the bridge and
- * not the port's vocabulary, and a
- * hand-written copy of a reply shape is a second declaration nothing checks against
- * the first.
- */
-export type CostReceiptOutcome = Awaited<
-  ReturnType<ConsoleBridge["growth"]["orchestrationCostReceiptRead"]>
->;
-
-/** What the page holds for one read. See {@link GrowthReading} for the second arm. */
-export type CostReceiptReading = GrowthReading<CostReceiptOutcome>;
 
 /** The receipt itself: one session figure, decomposed three ways. */
-export type CostReceipt = Extract<CostReceiptOutcome, { readonly status: "served" }>["value"];
-
-/**
- * The last receipt this page was served, and when it was served.
- *
- * Held BESIDE the current reading rather than inside it, which is the whole of what
- * it is for: a re-read that is in flight, and a re-read that was refused, both used
- * to replace the figure on screen with an absence — so a window coming back from
- * elsewhere lost the number it was showing and gave a person nothing to compare the
- * refusal against. Retaining it turns both of those into the same, honest statement:
- * here is what was last true, here is when, and here is why it is not being confirmed
- * right now.
- *
- * The instant is an ISO string rather than the clock's own milliseconds because that
- * is what `formatClockTime` takes, and the console formats every wire instant through
- * that one module.
- */
-export interface RetainedReceipt {
-  readonly receipt: CostReceipt;
-  readonly readAtIso: string;
-}
+export type CostReceipt = Extract<
+  Awaited<ReturnType<ConsoleBridge["growth"]["orchestrationCostReceiptRead"]>>,
+  { readonly status: "served" }
+>["value"];
 
 /** One run's line. Derived, so the row type has exactly one home. */
 export type CostReceiptRunRow = CostReceipt["runs"][number];
@@ -85,7 +24,7 @@ export type CostReceiptAccountRow = CostReceipt["byAccount"][number];
 export type CostReceiptBillingMode = CostReceiptAccountRow["billingMode"];
 
 /**
- * The three axes, in the order the page renders them.
+ * The three axes, in display order.
  *
  * A tuple with the union derived from it, on the console's standing rule for closed
  * sets: the claim is that a receipt has exactly three partitions, and a claim about
@@ -108,9 +47,7 @@ export type ReceiptPartitionVerdicts = Readonly<Record<ReceiptAxisId, boolean>>;
  * Exact integer equality, with no tolerance: the wire counts in whole cents, so a
  * partition that misses by one cent has genuinely dropped or double-counted a row,
  * and an epsilon here would be forgiving a defect rather than a rounding this fold
- * does not have. A non-integer or non-finite row cost fails the same way, which is
- * the honest outcome — the page then withholds that table rather than presenting
- * rows it cannot vouch for.
+ * does not have. A non-integer or non-finite row cost fails the same way.
  */
 export function verifyReceiptPartitions(receipt: CostReceipt): ReceiptPartitionVerdicts {
   const sessionFigureCents = receipt.sessionTotal.committedSpendCents;
@@ -153,37 +90,5 @@ function accountsFor(
 export const BILLING_MODE_CLAUSES: Readonly<Record<CostReceiptBillingMode, string>> = {
   subscription: "Usage included in a plan. This figure is not currency owed.",
   metered: "Billed per unit against this account.",
-  unknown: "This account is not labelled, so how it is charged was never established.",
+  unknown: "This account is not labeled, so how it is charged was never established.",
 };
-
-/**
- * What a settled read says out loud, once.
- *
- * A refusal is carried VERBATIM — the daemon's own sentence, never paraphrased and
- * never softened into a house phrasing that would say less than what was refused.
- * The served arm names what was read and how many rows each split holds, phrased so
- * no count needs a plural: "0 by run" and "1 by run" both read as English.
- */
-export function announcementFor(outcome: CostReceiptOutcome): string {
-  if (outcome.status === "unavailable") {
-    return outcome.detail;
-  }
-  const { runs, causedBy, byAccount } = outcome.value;
-  return `Cost receipt read. Rows: ${formatCount(runs.length)} by run, ${formatCount(causedBy.length)} by party, ${formatCount(byAccount.length)} by account.`;
-}
-
-/**
- * What one reading says out loud, or `undefined` while nothing has settled.
- *
- * The scalar the console's one settlement announcer takes, composed from the whole
- * reading rather than from an outcome: the page has TWO settled arms — the port
- * answering, and a call that produced no answer at all — and only the first has an
- * outcome to describe. `undefined` is the "still reading" arm and is deliberately not
- * an empty string, which is what the announcer publishes to CLEAR a region.
- */
-export function settlementSentenceFor(reading: CostReceiptReading | undefined): string | undefined {
-  if (reading === undefined) {
-    return undefined;
-  }
-  return reading.kind === "unreadable" ? reading.refusal.detail : announcementFor(reading.outcome);
-}

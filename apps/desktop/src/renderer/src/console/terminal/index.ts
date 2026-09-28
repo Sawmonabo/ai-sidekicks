@@ -1,11 +1,9 @@
 // The terminal family's door.
 //
 // The family owns the session's one shared shell: the emulator wrapper, the watch
-// mode every non-holder gets, the lease line, and the transition ledger. All four
-// are built. What is NOT built is the OUTPUT — the byte stream, the scrollback, and
-// the resize report are a growth-slate row the growth port refuses by name — so the
-// pane mounts a real emulator with nothing to show and says so, and the row's arrival
-// is a drain into a surface that is already there rather than a new mount.
+// mode every non-holder gets, and the lease line. The output (the byte stream, the
+// scrollback, and the resize report) is not connected, so the pane mounts a real
+// emulator with nothing to show and says so.
 //
 // The registration lives here, and so does the pane BODY (`terminal/pane/`), for
 // `console/browser/index.ts`'s reason: the seat board composes families, not bodies,
@@ -29,17 +27,16 @@
 //     surface can render (`emulator-state.ts`), the page-wide WebGL slot allocator
 //     (`renderer-pool.ts`), the link scheme guard (`link-guard.ts`), and the mount
 //     point (`XtermHost.tsx`).
-//   • `lease/` — where the write lease is held and how this window asks for it: the
+//   • `lease/` — where the write lease is held and how this device asks for it: the
 //     fold (`lease-model.ts`) over the one-event reader beneath it
 //     (`lease-transition.ts`), the read of which device this is (`viewer-identity.ts`),
 //     the acquisition terms (`lease-acquisition.ts`), the one wire call
-//     (`lease-claim.ts`), and the line that renders all of it (`LeaseLine.tsx`) with
-//     its ledger, its holding statement, and its withheld-claim control.
+//     (`lease-claim.ts`), and the line that renders it (`LeaseLine.tsx`) with its
+//     holding statement and its claim control (`LeaseClaimControl.tsx`).
 //   • `pane/` — the deck's terminal body and the reads only it makes: the pane
 //     (`TerminalPane.tsx`) and its bound half (`BoundTerminalPane.tsx`), the
-//     body the door below loads (`pane/terminal-pane-body.ts`), the host-presence
-//     fold (`node-presence-model.ts`), and the output subscription
-//     (`output-stream.ts`).
+//     body the door below loads (`pane/terminal-pane-body.ts`), and the output
+//     subscription (`output-stream.ts`).
 //
 // The pane body reaches the other two through deep imports inside the family — the
 // door below is the SEAT BOARD's, and a body importing its own family through it
@@ -56,13 +53,13 @@
 // placement the LIBRARY's sheet already had: `@xterm/xterm/css/xterm.css` is imported
 // by `emulator/xterm-adapter.ts`, reached only across the `import()` in
 // `emulator/emulator-loader.ts`, so the grid's geometry has always ridden the chunk
-// that draws the grid. Four hand-authored sheets sitting on the initial document while
+// that draws the grid. The family's own sheets sitting on the initial document while
 // the library's sheet did not was the inconsistency, and this is which way it resolved.
 //
 // ADMITTED BY THE COLLISION CENSUS. A sheet may travel behind a chunk boundary only if
 // no other family declares a class it declares — load order decides equal-specificity
 // conflicts, so deferring such a sheet restyles somebody else's surface, which
-// `runs/index.ts` records happening. None of this family's four sheets does, checked
+// `runs/index.ts` records happening. None of this family's sheets does, checked
 // against the tree.
 
 import type { ConsolePaneRegistry } from "../seats/index.js";

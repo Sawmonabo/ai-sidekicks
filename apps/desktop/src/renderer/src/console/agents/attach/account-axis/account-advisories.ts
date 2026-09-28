@@ -45,7 +45,7 @@ import {
  * TOTAL over the contract's own union, so a fifth health state cannot land upstream
  * and leave this field rendering a term it never explains. It is a reading and never
  * a verdict: every sentence says what was OBSERVED, and none of them says the account
- * will or will not work — the spawn probe decides that and this form never does.
+ * will or will not work — the spawn probe decides that and this field never does.
  *
  * EVERY ARM TAKES THE INSTANT rather than one of them appending it, because the age of
  * a reading is part of what the reading says: an account whose home went missing a
@@ -105,7 +105,7 @@ function storedHealthAdvisoryFor(choice: AttachAccountChoice, locale: string | u
  * TOTAL over the registered remedy kinds, and deliberately naming only the ACT. The
  * remedy's content — the credential home a sign-in authenticates into and the
  * provider's own first-party invocation — is the daemon's, it travels on the reply,
- * and it belongs on the operator surface that owns it. An attach form printing a
+ * and it belongs on the operator surface that owns it. A field printing a
  * command a person is invited to run would be this console composing a remedy, which
  * the account plane's own rule forbids.
  *
@@ -164,7 +164,7 @@ export function accountAdvisoriesFor(
  * account's readings would invite exactly the confusion the leading sentence exists to
  * prevent.
  *
- * @param accountId The account this form PINS, or `undefined` where it pins none.
+ * @param accountId The account this field PINS, or `undefined` where it pins none.
  */
 export function unresolvedDefaultAdvisoryIn(
   reading: AttachAccountAxisReading,

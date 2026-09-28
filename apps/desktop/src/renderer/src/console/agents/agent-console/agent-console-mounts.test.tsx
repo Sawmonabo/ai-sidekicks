@@ -1,43 +1,34 @@
-// The two mounts wear two frames, and only one of them is the deck's.
+// The deck's mount wears the console's one chrome, and the body adds no name of its own.
 //
-// THIS IS THE CLAIM THE SPLIT WAS MADE FOR. While one component was both mounts it drew
-// a section and a head of its own, and the deck never wrapped it in
-// `seats/ConsolePaneChrome` — so `agent-console`, one of exactly two kinds
-// `isDetachablePaneKind` admits, was the one whose deck pane could not show the control
-// that opens it in a window. Nothing failed: the chrome's own suite proves that control
-// renders for every detachable kind, and it was right, because the chrome was never
-// reached. The gap was in the REGISTRAR, so every case below drives a registrar rather
-// than either component.
+// THIS IS THE CLAIM THE SPLIT WAS MADE FOR. While one component drew its own section and
+// head, the deck never wrapped it in `seats/ConsolePaneChrome`. Nothing failed: the
+// chrome's own suite proves what it renders, and it was right, because the chrome was
+// never reached. The gap was in the REGISTRAR, so every case below drives the registrar
+// rather than the component.
 //
 // WHAT IS REAL HERE AND WHAT IS CAST, AND WHY THE LINE IS DRAWN THERE. The bridge is
-// real: the machines column dispatches through it on mount, so a cast one would be a
-// column reading `undefined` as a function, and that column is exactly what a
-// frame-shaped case would not notice. The deck pane's session store is real for a
-// different reason — its id is what the registrar reads off it and hands the chrome, so
-// a cast or absent store would leave every case below passing over a registrar that
-// passed no session at all. What IS cast is the frame store, the UI-state store, the
-// draft store and the session-store registry, which neither registrar reads: standing
-// them up would be a fixture built to satisfy a type nothing under test looks at, which
-// is the line `ConsolePaneChrome.test.tsx` draws for the same reason.
+// real: the roster reads through it on mount, so a cast one would be a column reading
+// `undefined` as a function. The deck pane's session store is real for a different
+// reason — its id is what the registrar reads off it and hands the chrome, so a cast or
+// absent store would leave every case below passing over a registrar that passed no
+// session at all. What IS cast is the frame store, the UI-state store, the draft store
+// and the session-store registry, which the registrar does not read: standing them up
+// would be a fixture built to satisfy a type nothing under test looks at, which is the
+// line `ConsolePaneChrome.test.tsx` draws for the same reason.
 
-import { render, screen } from "@testing-library/react";
+import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
-import { SETTINGS_SCENARIO } from "../../bridge/scenario/settings/settings.js";
-import { ConsoleSurfaceRegistry, type ConsoleSurfaceContext } from "../../seats/index.js";
+import { unscriptedScenario } from "../../bridge/fixture/call-plane/bridge.test-support.js";
 import { SessionStore } from "../../store/index.js";
-import { ConsolePaneRegistry, PaneControlsContext } from "../../seats/index.js";
-import { registerAgentConsolePane, registerAgentConsoleSurface } from "./agent-console-mounts.js";
+import { ConsolePaneRegistry } from "../../seats/index.js";
+import { registerAgentConsolePane } from "./agent-console-mounts.js";
 import { settleReads } from "./agent-console.test-support.js";
 
-/** The tick this scenario's two machines are both attached at. */
-const BOTH_MACHINES_ONLINE_MS = 200;
+const PLAYED_SESSION_ID = "session-agent-console-mounts";
 
-/** The session the fixture plays, so the roster read is answered rather than refused. */
-const PLAYED_SESSION_ID = SETTINGS_SCENARIO.sessionId;
-
-/** The agent both mounts are addressed at, wherever a case addresses one. */
+/** The agent the mount is addressed at, wherever a case addresses one. */
 const ADDRESSED_AGENT_ID = "agent-scout";
 
 /**
@@ -53,13 +44,11 @@ type DeckPaneContext = Parameters<
 >[0];
 
 function fixtureBridge(): ConsoleBridge {
-  const bridge = createFixtureBridge({ scenario: SETTINGS_SCENARIO });
-  bridge.scenarioEngine?.advance(BOTH_MACHINES_ONLINE_MS);
-  return bridge;
+  return createFixtureBridge({ scenario: unscriptedScenario("agent-console-mounts") });
 }
 
 /**
- * The store the deck's pane is open on: the session the fixture actually plays.
+ * The store the deck's pane is open on.
  *
  * A real store rather than an absent one, because the session id is what the registrar
  * reads OFF it and hands the chrome — a pane mounted with no store would leave the
@@ -85,65 +74,23 @@ function deckPaneContext(agentId: string | undefined, bridge: ConsoleBridge): De
   } as unknown as DeckPaneContext;
 }
 
-/** The address the Window menu opens the auxiliary window at. */
-function windowSurfaceContext(
-  agentId: string | undefined,
-  bridge: ConsoleBridge,
-): ConsoleSurfaceContext {
-  return {
-    route: { kind: "auxiliary", route: "agent-console", sessionId: PLAYED_SESSION_ID, agentId },
-    bridge,
-    sessionStore: undefined,
-  } as unknown as ConsoleSurfaceContext;
-}
-
-/** Mount the deck's pane and let both of the columns that read settle. */
-async function renderDeckPane(
-  agentId: string | undefined,
-  hostControls?: { readonly onClose: () => void; readonly onOpenInWindow: () => void },
-): Promise<HTMLElement> {
+/** Mount the deck's pane and let its reads settle. */
+async function renderDeckPane(agentId: string | undefined): Promise<HTMLElement> {
   const registry = new ConsolePaneRegistry();
   registerAgentConsolePane(registry);
   // The body is loader-backed, so it is fetched before the mount rather than during it —
   // which is what a window does too, through the idle warm after its first frame. Without
-  // it every case below would be waiting on a dynamic import inside a bounded `findBy`,
-  // and would report the roster as never arriving whenever the import took longer than
-  // the wait.
+  // it every case below would be waiting on a dynamic import inside a bounded wait.
   await registry.preload("agent-console");
   const descriptor = registry.descriptorFor("agent-console");
   if (descriptor === undefined) {
     throw new Error("the agent console registered no pane descriptor");
   }
   const bridge = fixtureBridge();
-  const pane = descriptor.render(deckPaneContext(agentId, bridge));
-  const { container } = render(
-    hostControls === undefined ? (
-      <>{pane}</>
-    ) : (
-      <PaneControlsContext.Provider value={hostControls}>{pane}</PaneControlsContext.Provider>
-    ),
-  );
-  await screen.findByLabelText("node-roster-loaded");
-  // The binding column's own reads are scheduled through the refresh chokepoint, so
-  // they land only once the scenario clock has passed its debounce. Without this they
-  // settle after the case has ended, which is a state update outside `act`.
-  await settleReads(bridge);
-  return container;
-}
-
-/** Mount the auxiliary window's surface and let the same column settle. */
-async function renderWindowSurface(agentId: string | undefined): Promise<HTMLElement> {
-  const registry = new ConsoleSurfaceRegistry();
-  registerAgentConsoleSurface(registry);
-  // Fetched before the mount, for the pane's reason above.
-  await registry.preload("agent-console");
-  const descriptor = registry.descriptorFor("agent-console");
-  if (descriptor === undefined) {
-    throw new Error("the agent console registered no surface descriptor");
-  }
-  const bridge = fixtureBridge();
-  const { container } = render(<>{descriptor.render(windowSurfaceContext(agentId, bridge))}</>);
-  await screen.findByLabelText("node-roster-loaded");
+  const { container } = render(<>{descriptor.render(deckPaneContext(agentId, bridge))}</>);
+  // The column's reads are scheduled through the refresh chokepoint, so they land only
+  // once the scenario clock has passed its debounce. Without this they settle after the
+  // case has ended, which is a state update outside `act`.
   await settleReads(bridge);
   return container;
 }
@@ -186,68 +133,10 @@ describe("the deck's mount — the body inside the console's one chrome", () => 
     const pane = requireElement(container, ".meridian-pane");
 
     // All three of the address members the registrar hands the chrome, read back off
-    // the one element the pane names itself by. The agent is a CRUMB of that name,
-    // which is why the subject sentence the body used to draw is the window mount's
-    // and not this one's: here it would repeat the id one element from the trail.
+    // the one element the pane names itself by. The agent is a CRUMB of that name.
     expect(accessibleName(pane)).toContain(PLAYED_SESSION_ID);
     expect(accessibleName(pane)).toContain(ADDRESSED_AGENT_ID);
     expect(accessibleName(pane)).toContain("Agent console");
     expect(pane.querySelectorAll("h1, h2")).toHaveLength(0);
-  });
-
-  it("offers the detach control once the deck provides one", async () => {
-    // The reason this lane exists. `agent-console` is one of the two kinds the window
-    // model can open, and the deck hands every pane it lays out the same two handlers
-    // — so reaching the chrome at all is what decides whether the control is drawn.
-    const container = await renderDeckPane(ADDRESSED_AGENT_ID, {
-      onClose: () => undefined,
-      onOpenInWindow: () => undefined,
-    });
-
-    const labels = [...container.querySelectorAll(".meridian-pane__control")].map((control) =>
-      control.getAttribute("aria-label"),
-    );
-    expect(labels).toStrictEqual(["Open this agent console in its own window", "Close this pane"]);
-  });
-
-  it("negative control: no host, no controls — absent rather than disabled", async () => {
-    // Without this the case above would pass over a chrome that drew both buttons
-    // whatever the host offered, which is the disabled-looking strip the rule forbids.
-    const container = await renderDeckPane(ADDRESSED_AGENT_ID);
-    expect(container.querySelectorAll(".meridian-pane__control")).toHaveLength(0);
-  });
-});
-
-describe("the auxiliary window's mount — the same body under its own heading", () => {
-  it("draws no deck chrome, because a window does not detach from itself", async () => {
-    const container = await renderWindowSurface(ADDRESSED_AGENT_ID);
-
-    expect(container.querySelector(".meridian-pane")).toBeNull();
-    expect(container.querySelector(".meridian-pane__control")).toBeNull();
-    expect(container.querySelector(".meridian-agent-console__columns")).not.toBeNull();
-  });
-
-  it("names itself by the heading it shows, and says which agent it holds", async () => {
-    const container = await renderWindowSurface(ADDRESSED_AGENT_ID);
-    const surface = requireElement(container, ".meridian-agent-console-window");
-
-    expect(accessibleName(surface)).toBe("Agent console");
-    const subject = requireElement(surface, ".meridian-agent-console-window__subject");
-    expect(subject.querySelector(".meridian-figure--wire")?.textContent).toBe(ADDRESSED_AGENT_ID);
-  });
-
-  it("says so when the address named a session and no agent", async () => {
-    // Reachable: the frame's context picker resolves a bare auxiliary address by
-    // choosing a session, and the agent-console grammar carries its agent with its
-    // session — so a picked session arrives here with no agent named.
-    const container = await renderWindowSurface(undefined);
-    expect(container.textContent ?? "").toContain("not yet on one of its agents");
-  });
-
-  it("negative control: the subject line is not the same in both cases", async () => {
-    // Without this, the two cases above would pass over a window that drew one fixed
-    // sentence and never the id.
-    const container = await renderWindowSurface(ADDRESSED_AGENT_ID);
-    expect(container.textContent ?? "").not.toContain("not yet on one of its agents");
   });
 });

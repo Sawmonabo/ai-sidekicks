@@ -1,27 +1,22 @@
 // What every browser-pane suite needs before it can ask the pane anything.
 //
-// One home for the four roles more than one of the sibling suites plays: the pane
-// context and the mount that lets its navigation subscription settle, the refusal
-// banner read by role rather than by text, the address field read by its label, and
-// a bridge whose navigation subscription is served with the readings pushed one at a
-// time. It holds nothing a single suite uses — the close-tab modifier, the rejecting
-// overrides, and the view hosts each concern builds stay beside their reader.
+// One home for the roles more than one of the sibling suites plays: the pane context
+// and the mount, the refusal banner read by role rather than by text, the address
+// field read by its label, and the fixture bridge the geometry suites share. It holds
+// nothing a single suite uses.
 
 import { act, render, screen, waitFor, type RenderResult } from "@testing-library/react";
 import { expect } from "vitest";
 
-import { BROWSER_SCENARIO } from "../../bridge/scenario/browser.js";
+import { unscriptedScenario } from "../../bridge/fixture/call-plane/bridge.test-support.js";
 import { consoleClockFor, createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
 import { ManualClock } from "../../core/index.js";
 import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
-// Both deep, and both because the bridge door publishes neither: the console
-// resolves the live bridge inside that family, and the transport marker's readers
-// are this module and the two suites beside it.
-import { SCRIPTED_PANE_VIEW_HOST_TRANSPORT } from "../../bridge/fixture/pane-view-host-script.js";
-import { createLiveBridge } from "../../bridge/live-bridge.js";
+import { RecordingViewHost } from "../geometry/geometry-publisher.test-support.js";
+import type { AttachedPaneViewHost } from "../geometry/view-host.js";
 import type { PaneContextOf } from "../../seats/index.js";
 import { paneContext } from "../../seats/pane/pane-context.test-support.js";
-import { BrowserPane } from "./BrowserPane.js";
+import { BrowserPaneChrome, type BrowserChromeActs } from "./BrowserPaneChrome.js";
 
 /**
  * The refusal banner the pane raises — a plain group, since the frame's announcer
@@ -49,63 +44,11 @@ export async function findRefusalBanner(): Promise<HTMLElement> {
 /**
  * The bridge a fixture or end-to-end run hands this pane.
  *
- * Named rather than inlined at each mount, because three suites now need to reach
- * for the SAME window: the pane's view host is resolved from the bridge, so a case
- * about geometry and a case about navigation have to be describing one bridge or
- * they are describing two different windows.
+ * Named rather than inlined at each mount, so suites that mount the same pane share one
+ * window.
  */
 export function fixtureBrowserBridge(): ConsoleBridge {
-  return createFixtureBridge({ scenario: BROWSER_SCENARIO });
-}
-
-/**
- * The bridge a live window hands this pane, over the same preload contract.
- *
- * The fixture's own `desktopBridge` namespace IS that contract, so this is the real live
- * wrapper answering for a window with no view host — 12.11's third arm, reached
- * through the wiring table rather than asserted about it.
- */
-export function liveBrowserBridge(): ConsoleBridge {
-  return createLiveBridge(fixtureBrowserBridge().desktopBridge);
-}
-
-/**
- * A fixture bridge whose scripted host says the pane it is asked about is gone.
- *
- * The arm no scenario can script — a pane's destruction is not a session event —
- * and the one a surface has to render, because the publisher disposes itself over
- * it and the viewport would otherwise go on offering "no page yet" forever.
- */
-export function paneViewHostRefusing(detail: string): ConsoleBridge {
-  return {
-    ...fixtureBrowserBridge(),
-    paneViewHostScript: {
-      transport: SCRIPTED_PANE_VIEW_HOST_TRANSPORT,
-      holdsPane: () => ({ holds: false, detail }),
-    },
-  };
-}
-
-/**
- * A fixture bridge whose scripted host takes every rectangle and records who published.
- *
- * The recorder is a callback rather than an array because the two questions asked of
- * this bridge are different questions about one act: which PANE published, and which
- * WINDOW did. A second builder for the second question would be this one with a
- * different line inside it — and the pair drifted the first time either grew, which
- * is what the one home rule exists to stop.
- */
-export function recordingBrowserBridge(recordPublish: (paneId: string) => void): ConsoleBridge {
-  return {
-    ...fixtureBrowserBridge(),
-    paneViewHostScript: {
-      transport: SCRIPTED_PANE_VIEW_HOST_TRANSPORT,
-      holdsPane: (paneId) => {
-        recordPublish(paneId);
-        return { holds: true };
-      },
-    },
-  };
+  return createFixtureBridge({ scenario: unscriptedScenario("browser-pane-test") });
 }
 
 /**
@@ -116,11 +59,8 @@ export function recordingBrowserBridge(recordPublish: (paneId: string) => void):
  * `StrictMode`, which is a wrapper no shared mount can impose on the suites that do
  * not want it.
  *
- * The bridge is handed BACK beside the context because that is what every caller
- * here is really after: the pane's view host is resolved from the bridge, so a case
- * about geometry and a case about navigation have to be holding one bridge or they
- * are describing two windows — and a default argument the caller did not pass is a
- * bridge it cannot otherwise name.
+ * The bridge is handed BACK beside the context because a default argument the caller
+ * did not pass is a bridge it cannot otherwise name.
  *
  * The address arm carries no `entity` member: `browser` is session-scoped, so the
  * union's arm has none and the seat refuses one at this call site.
@@ -138,21 +78,50 @@ export function browserPaneContext(
   };
 }
 
+/** Acts that record the destinations they were asked to navigate to and do nothing else. */
+export function recordingActs(navigations: string[] = []): BrowserChromeActs {
+  const nothing = (): void => undefined;
+  return {
+    navigate: (url) => {
+      navigations.push(url);
+    },
+    goBack: nothing,
+    goForward: nothing,
+    reload: nothing,
+    stopLoading: nothing,
+    selectPage: nothing,
+    closePage: nothing,
+    reorderPage: nothing,
+  };
+}
+
+/** The chrome over no reported location, no pages, the given acts and the given host. */
+export function chromeFor(
+  context: PaneContextOf<"browser">,
+  acts: BrowserChromeActs,
+  viewHost: AttachedPaneViewHost,
+): React.JSX.Element {
+  return (
+    <BrowserPaneChrome
+      {...context}
+      navigation={{ kind: "reading" }}
+      pages={{ kind: "reading" }}
+      acts={acts}
+      viewHost={viewHost}
+    />
+  );
+}
+
 /** The pane a suite mounts when it is not about which pane this is. */
 export const DEFAULT_TEST_PANE_ID = "pane-browser-1";
 
 /**
- * The two swaps a mounted pane can be put through without being remounted.
- *
- * Both are things a real composition does and neither is a fresh tree: a deck moves
- * a slot to another pane, and a window hands the tree another bridge. They are named
- * together because the pane's state has to say WHOSE it is against both, and a suite
- * that could only reach one of them would leave the other's stale-subject case
- * untested.
+ * The swap a mounted pane can be put through without being remounted: a deck moves a
+ * slot to another pane. The pane's state has to say whose it is against it, and a suite
+ * that could only mount a fresh tree could not reach the stale-subject case.
  */
 export interface BrowserPaneSubjectMount {
   readonly rebindTo: (nextPaneId: string) => Promise<void>;
-  readonly rebindToBridge: (nextBridge: ConsoleBridge) => Promise<void>;
 }
 
 /**
@@ -167,8 +136,11 @@ export async function mountBrowserPaneForSubject(
   bridge: ConsoleBridge,
   paneId: string,
   ProbeComponent?: React.ComponentType,
+  acts: BrowserChromeActs = recordingActs(),
 ): Promise<BrowserPaneSubjectMount> {
   const built = browserPaneContext(bridge, paneId);
+  // One host for the whole mount: a new one per render would re-mint the publisher.
+  const viewHost = new RecordingViewHost();
   let mounted: RenderResult | undefined;
   // A component type rather than a ready-made node, and that is load-bearing: React
   // skips re-rendering a child whose element is referentially identical, so a probe
@@ -176,7 +148,7 @@ export async function mountBrowserPaneForSubject(
   // to observe. Instantiated here, each render hands it a fresh element.
   const tree = (subject: { readonly context: PaneContextOf<"browser"> }): React.JSX.Element => (
     <>
-      <BrowserPane {...subject.context} />
+      {chromeFor(subject.context, acts, viewHost)}
       {ProbeComponent === undefined ? null : <ProbeComponent />}
     </>
   );
@@ -187,17 +159,13 @@ export async function mountBrowserPaneForSubject(
   if (rendered === undefined) {
     throw new Error("the browser pane did not mount");
   }
-  const rerenderFor = async (nextBridge: ConsoleBridge, nextPaneId: string): Promise<void> => {
-    const rebound = browserPaneContext(nextBridge, nextPaneId);
+  const rebindTo = async (nextPaneId: string): Promise<void> => {
+    const rebound = browserPaneContext(bridge, nextPaneId);
     await act(async () => {
       rendered.rerender(tree(rebound));
     });
   };
-  return {
-    rebindTo: async (nextPaneId: string): Promise<void> => rerenderFor(bridge, nextPaneId),
-    rebindToBridge: async (nextBridge: ConsoleBridge): Promise<void> =>
-      rerenderFor(nextBridge, paneId),
-  };
+  return { rebindTo };
 }
 
 /**
@@ -211,9 +179,6 @@ export async function mountBrowserPaneForSubject(
  */
 const UNBOUND_BROWSER_PANE_NAME = "No session Browser";
 
-export type NavigationEvent =
-  NavigationStream["events"] extends AsyncIterable<infer Event> ? Event : never;
-
 /**
  * The mounted pane's region, read by role and name.
  *
@@ -226,19 +191,18 @@ export function browserPaneRegion(): HTMLElement {
 }
 
 /**
- * Mount the pane and let its navigation subscription settle.
- *
- * The `await act` is not ceremony: the subscription resolves in a microtask after the
- * render, and a test that asserted before it landed would be asserting against a pane
- * one state transition younger than the one an operator ever sees.
+ * Mount the pane's chrome and let its first effects settle.
  */
-export async function renderBrowserPane(bridge?: ConsoleBridge): Promise<{
+export async function renderBrowserPane(
+  bridge?: ConsoleBridge,
+  acts: BrowserChromeActs = recordingActs(),
+): Promise<{
   readonly region: HTMLElement;
   readonly bridge: ConsoleBridge;
 }> {
   const built = browserPaneContext(bridge);
   await act(async () => {
-    render(<BrowserPane {...built.context} />);
+    render(chromeFor(built.context, acts, new RecordingViewHost()));
   });
   return { region: browserPaneRegion(), bridge: built.bridge };
 }
@@ -275,85 +239,3 @@ export async function releaseQueuedPaneFrames(bridge: ConsoleBridge): Promise<vo
 export function addressField(): HTMLInputElement {
   return screen.getByLabelText("Destination") as HTMLInputElement;
 }
-/** One reading, with the fields a case does not care about held at their quiet value. */
-export function reportedState(
-  url: string,
-  overrides: Partial<NavigationEvent> = {},
-): NavigationEvent {
-  return {
-    url,
-    title: url,
-    isLoading: false,
-    canGoBack: false,
-    canGoForward: false,
-    loadProgress: null,
-    ...overrides,
-  };
-}
-/**
- * A bridge whose navigation subscription is SERVED, with the readings pushed one at
- * a time by the test.
- *
- * The pushing is the point rather than a convenience: what the address field owes is
- * a behaviour ACROSS two readings — a second one arriving while somebody is typing,
- * and the same one arriving while nobody is — and a stream that yields its whole
- * script before the first assertion cannot tell those apart. `browserNavigate` is
- * left as the fixture port's own refusing arm, because a submit's job here is to
- * return the field to following whether the navigation lands or not.
- */
-export function navigationReportingBridge(): {
-  readonly bridge: ConsoleBridge;
-  readonly report: (state: NavigationEvent) => void;
-  /** End the producer's side, the way a daemon that has finished reporting would. */
-  readonly endReporting: () => void;
-} {
-  const base = fixtureBrowserBridge();
-  const queued: NavigationEvent[] = [];
-  let wake: (() => void) | undefined;
-  let closed = false;
-  const stream: NavigationStream = {
-    events: {
-      async *[Symbol.asyncIterator](): AsyncGenerator<NavigationEvent> {
-        while (!closed) {
-          const next = queued.shift();
-          if (next === undefined) {
-            await new Promise<void>((resolve) => {
-              wake = resolve;
-            });
-            continue;
-          }
-          yield next;
-        }
-      },
-    },
-    close: () => {
-      closed = true;
-      wake?.();
-    },
-  };
-  return {
-    report: (state) => {
-      queued.push(state);
-      wake?.();
-      wake = undefined;
-    },
-    endReporting: () => {
-      // The producer's own end rather than the consumer's `close`: the iterator runs
-      // out, which is the case a pane holding the last frame gets wrong.
-      closed = true;
-      wake?.();
-      wake = undefined;
-    },
-    bridge: {
-      ...base,
-      growth: {
-        ...base.growth,
-        browserSubscribeNavigation: async () => ({ status: "served" as const, value: stream }),
-      },
-    },
-  };
-}
-
-type SubscribeOutcome = Awaited<ReturnType<ConsoleBridge["growth"]["browserSubscribeNavigation"]>>;
-
-type NavigationStream = Extract<SubscribeOutcome, { readonly status: "served" }>["value"];

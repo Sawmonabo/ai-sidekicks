@@ -1,112 +1,96 @@
-// Who the lease fold is told is looking, and what the pane does with each answer.
+// The viewer-identity hook, driven with a plain read function.
 //
-// Three arms, and the pane behaves differently on all three: this window's own hold
-// offers the handback and names the surface "no input channel"; a hold from another
-// window offers the claim; and a REFUSED identity read withholds the control entirely
-// rather than offering an act the console could not attribute — while still saying
-// where the log says the shell is held, because the withholding is about the control
-// and not about the reading.
+// The identity belongs to the inputs that produced it: a pane handed a different session
+// reverts to `not-loaded` on the first frame that sees it, and a read that lands after
+// its inputs were left settles nothing. The read is held by hand so each case chooses
+// when it answers.
 
-import { waitFor } from "@testing-library/react";
+import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { TERMINAL_SCENARIO_CAST } from "../../bridge/scenario/terminal/terminal.js";
+import { unscriptedScenario } from "../../bridge/fixture/call-plane/bridge.test-support.js";
+import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
 import {
-  bridgeAnsweringCallerWith,
-  bridgeRefusingCaller,
-  renderPane,
-  storeThrough,
-} from "./TerminalPane.test-support.js";
+  useTerminalViewerIdentity,
+  type ReadTerminalViewerUser,
+} from "../lease/viewer-identity.js";
 
-describe("terminal pane — the device the lease fold is told about", () => {
-  /** The claim control, or `null` — which is the whole point of two of these cases. */
-  function claimControl(region: HTMLElement): Element | null {
-    return region.querySelector(".meridian-lease-line__claim");
-  }
+function freshBridge(): ConsoleBridge {
+  return createFixtureBridge({ scenario: unscriptedScenario("terminal-viewer-identity") });
+}
 
-  function writeEnabled(region: HTMLElement): string | null | undefined {
-    return region.querySelector(".meridian-terminal-host")?.getAttribute("data-write-enabled");
-  }
+/** A read the case answers by hand, keyed by the order the reads were made in. */
+function heldRead(): {
+  readonly readViewerUser: ReadTerminalViewerUser;
+  readonly answer: (callIndex: number, userId: string) => Promise<void>;
+} {
+  const answers: ((user: { readonly userId: string }) => void)[] = [];
+  return {
+    readViewerUser: () =>
+      new Promise((resolve) => {
+        answers.push(resolve);
+      }),
+    answer: async (callIndex, userId) => {
+      const resolve = answers[callIndex];
+      if (resolve === undefined) {
+        throw new Error(`no identity read number ${String(callIndex)} is out`);
+      }
+      resolve({ userId });
+      await act(async () => {
+        await Promise.resolve();
+      });
+    },
+  };
+}
 
-  /**
-   * The emulator surface's accessible name, which carries the host's write gate.
-   *
-   * Read rather than `data-write-enabled`, because that attribute answers only
-   * whether the surface is writable and this pane's is not: the byte stream is a
-   * growth-slate row, so `XtermHost` has nowhere to send a keystroke and holds the
-   * surface read-only whatever the lease says. The NAME tells the two read-only
-   * states apart, which is exactly the distinction the lease's device identity decides.
-   */
-  async function surfaceName(region: HTMLElement): Promise<string | null> {
-    let name: string | null = null;
-    await waitFor(() => {
-      name =
-        region.querySelector(".meridian-terminal-host__surface")?.getAttribute("aria-label") ??
-        null;
-      expect(name).not.toBeNull();
-    });
-    return name;
-  }
+interface IdentityProps {
+  readonly sessionId: string;
+}
 
-  it("reads this window's own take as its own, and offers the handback", async () => {
-    // The scenario's first transition is a `taken`. Told that this window is the
-    // user it named, the fold answers `held-by-you` — which is exactly what the
-    // hard-coded `undefined` made unreachable.
-    const region = renderPane(
-      storeThrough(1),
-      bridgeAnsweringCallerWith(TERMINAL_SCENARIO_CAST.owner),
+describe("the terminal viewer identity", () => {
+  it("is not loaded until the read lands, then names the user it returned", async () => {
+    const held = heldRead();
+    const bridge = freshBridge();
+    const { result } = renderHook(() =>
+      useTerminalViewerIdentity(bridge, "session-one", held.readViewerUser),
     );
-    await waitFor(() => {
-      expect(region.textContent).toContain("You may type into the shared shell.");
-    });
-    expect(claimControl(region)?.textContent).toBe("Release the shell");
-    // The lease reached the host: the read-only state is now "nowhere to send what
-    // you type" rather than "somebody else holds it".
-    expect(await surfaceName(region)).toBe("Terminal output, read-only: no input channel");
+    expect(result.current).toStrictEqual({ status: "not-loaded" });
+
+    await held.answer(0, "user-one");
+
+    expect(result.current).toStrictEqual({ status: "read", userId: "user-one" });
   });
 
-  it("negative control: the same log read from another window is not this one's hold", async () => {
-    // Without this the case above would pass against a pane that reported every held
-    // lease as this window's. Same store, same transition, a different answer to the
-    // one read that changed.
-    const region = renderPane(
-      storeThrough(1),
-      bridgeAnsweringCallerWith(TERMINAL_SCENARIO_CAST.otherDevice),
+  it("reverts to not-loaded for a different session, then reads that session's user", async () => {
+    const held = heldRead();
+    const bridge = freshBridge();
+    const { result, rerender } = renderHook(
+      (props: IdentityProps) =>
+        useTerminalViewerIdentity(bridge, props.sessionId, held.readViewerUser),
+      { initialProps: { sessionId: "session-one" } },
     );
-    await waitFor(() => {
-      expect(claimControl(region)).not.toBeNull();
-    });
-    expect(region.textContent).toContain("The shell is held from another window.");
-    expect(region.textContent).not.toContain("You may type into the shared shell.");
-    expect(claimControl(region)?.textContent).toBe("Claim the shell");
-    expect(writeEnabled(region)).toBe("false");
-    expect(await surfaceName(region)).toBe("Terminal output, read-only");
+    await held.answer(0, "user-one");
+    expect(result.current).toStrictEqual({ status: "read", userId: "user-one" });
+
+    rerender({ sessionId: "session-another" });
+    expect(result.current).toStrictEqual({ status: "not-loaded" });
+
+    await held.answer(1, "user-another");
+    expect(result.current).toStrictEqual({ status: "read", userId: "user-another" });
   });
 
-  it("withholds the claim control and renders the refusal when the read is refused", async () => {
-    // The port's own refusal — the answer a live bridge gives while the identity
-    // wire is unregistered. A pane that offered the control anyway would be
-    // offering an act it could not attribute — and the daemon would honour it.
-    const region = renderPane(storeThrough(1), bridgeRefusingCaller());
-    await waitFor(() => {
-      expect(region.querySelector(".meridian-lease-line .meridian-refusal--inline")).not.toBeNull();
-    });
-    expect(claimControl(region)).toBeNull();
-    // The wire's own code and sentence, and the console's next move beside them.
-    expect(region.textContent).toContain("not registered on this build yet");
-    expect(region.textContent).toContain("offered again once the console can say");
-    expect(writeEnabled(region)).toBe("false");
-  });
+  it("writes nothing when the read for the session it left lands late", async () => {
+    const held = heldRead();
+    const bridge = freshBridge();
+    const { result, rerender } = renderHook(
+      (props: IdentityProps) =>
+        useTerminalViewerIdentity(bridge, props.sessionId, held.readViewerUser),
+      { initialProps: { sessionId: "session-one" } },
+    );
+    rerender({ sessionId: "session-another" });
 
-  it("negative control: a refused identity still says the shell is held", async () => {
-    // The withholding is about the CONTROL, not about the reading. A pane that had
-    // blanked the lease line would pass the case above and say nothing at all about
-    // where the shell is.
-    const region = renderPane(storeThrough(1), bridgeRefusingCaller());
-    await waitFor(() => {
-      expect(region.querySelector(".meridian-lease-line .meridian-refusal--inline")).not.toBeNull();
-    });
-    expect(region.textContent).toContain("Held");
-    expect(region.textContent).toContain("The shell is held from another window.");
+    await held.answer(0, "user-one");
+
+    expect(result.current).toStrictEqual({ status: "not-loaded" });
   });
 });

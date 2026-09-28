@@ -1,7 +1,7 @@
 // The family claims what it says it claims, and composes into the caller's registry.
 //
 // This is the one place the subtrees are visible as one family, so it is the place
-// to assert the property the seat board depends on: three distinct slots, three
+// to assert the property the seat board depends on: two distinct slots, two
 // distinct owners, and no reach for a module-scope singleton. A family that registered
 // globally would leave a test's own registry empty while still "working" in a running
 // window, which is exactly the failure the registry-as-parameter signature exists to
@@ -24,10 +24,10 @@ import type { SessionsSurfaceComposition } from "./sessions/index.js";
 const standInComposition: SessionsSurfaceComposition = { newSessionControl: () => null };
 
 describe("session surfaces family — composition", () => {
-  it("claims the three slots this family owns", () => {
+  it("claims the two slots this family owns", () => {
     const surfaces = new ConsoleSurfaceRegistry();
     registerSessionSurfacesFamily(surfaces, standInComposition);
-    expect(surfaces.registeredSlots()).toStrictEqual(["sessions", "settings", "agent-console"]);
+    expect(surfaces.registeredSlots()).toStrictEqual(["sessions", "settings"]);
   });
 
   it("claims each one under an owner of its own", () => {

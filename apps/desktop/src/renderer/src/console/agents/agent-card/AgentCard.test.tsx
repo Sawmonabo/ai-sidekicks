@@ -1,8 +1,5 @@
-// The card keeps two lines apart, and each of these cases is one way of blurring them.
-//
-// The effective binding moves only when a terminal event lands; the pending line is
-// a promise. And three absences on this card each MEAN something specific, so none
-// of them may render as blank, as "off", or as the value beside it.
+// Three absences on this card each MEAN something specific, so none of them may render
+// as blank, as "off", or as the value beside it.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -15,7 +12,6 @@ import type { AgentRosterEntry } from "../../bridge/index.js";
 const RUNNING: AgentRosterEntry = {
   agentId: "agent-scout",
   name: "Scout",
-  state: "ready",
   driverName: "claude",
   modelId: "claude-sonnet",
   config: { effort: "high", outputSpeed: "fast" },
@@ -60,11 +56,11 @@ describe("agent card — the effective binding", () => {
 
   it("says what an absent axis MEANS rather than leaving it blank", () => {
     const { container } = render(
-      <AgentCard agent={{ agentId: "agent-scout", state: "ready", driverName: "claude" }} />,
+      <AgentCard agent={{ agentId: "agent-scout", driverName: "claude" }} />,
     );
     const effective = container.querySelector(".meridian-agent-card__effective")?.textContent ?? "";
     expect(effective).toContain("the provider's registered default");
-    expect(effective).toContain("the driver's default for this model");
+    expect(effective).toContain("the provider's default for this model");
   });
 
   it("negative control: a carried axis does not print its absence sentence", () => {
@@ -72,20 +68,7 @@ describe("agent card — the effective binding", () => {
     // absence meaning unconditionally.
     const { container } = render(<AgentCard agent={RUNNING} />);
     const effective = container.querySelector(".meridian-agent-card__effective")?.textContent ?? "";
-    expect(effective).not.toContain("the driver's default for this model");
-  });
-
-  it("names the machine a `configured` agent is waiting on", () => {
-    const { container } = render(
-      <AgentCard agent={{ ...RUNNING, state: "configured", defaultNodeId: "node-2" }} />,
-    );
-    expect(container.textContent ?? "").toContain("waiting on its pinned machine to attach");
-    expect(container.textContent ?? "").toContain("node-2");
-  });
-
-  it("renders a state it does not know as itself", () => {
-    const { container } = render(<AgentCard agent={{ ...RUNNING, state: "quarantined" }} />);
-    expect(container.textContent ?? "").toContain("quarantined");
+    expect(effective).not.toContain("the provider's default for this model");
   });
 });
 
@@ -114,80 +97,8 @@ describe("agent card — the declared output speed is never the requested one", 
   });
 });
 
-describe("agent card — the pending line is separate from the effective one", () => {
-  it("carries the promised axes, the boundary, and the displaced id", () => {
-    const { container } = render(
-      <AgentCard
-        agent={{
-          ...RUNNING,
-          pendingSwitch: {
-            switchId: "switch-8",
-            appliesAt: "run_boundary",
-            interruptRequested: false,
-            pendingAxes: [{ axis: "driverName", value: "codex" }],
-            replacedSwitchId: "switch-7",
-          },
-        }}
-      />,
-    );
-    const pending = container.querySelector(".meridian-agent-card__pending")?.textContent ?? "";
-    expect(pending).toContain("codex");
-    expect(pending).toContain("at the next run boundary");
-    expect(pending).toContain("switch-7");
-    // The promise did not move the binding the agent runs under.
-    const effective = container.querySelector(".meridian-agent-card__effective")?.textContent ?? "";
-    expect(effective).toContain("claude");
-    expect(effective).not.toContain("codex");
-  });
-
-  it("reads the interrupt from its own field, not from the boundary", () => {
-    const interrupting = render(
-      <AgentCard
-        agent={{
-          ...RUNNING,
-          pendingSwitch: {
-            switchId: "switch-9",
-            appliesAt: "turn_boundary",
-            interruptRequested: true,
-            pendingAxes: [{ axis: "effort", value: "low" }],
-          },
-        }}
-      />,
-    );
-    expect(
-      interrupting.container.querySelector(".meridian-agent-card__pending")?.textContent ?? "",
-    ).toContain("interrupting the run now");
-  });
-
-  it("negative control: the same boundary without the flag says nothing about an interrupt", () => {
-    // A deferred and an interrupted switch both read `turn_boundary`, so a card
-    // deriving one from the other would pass the case above and be wrong here.
-    const { container } = render(
-      <AgentCard
-        agent={{
-          ...RUNNING,
-          pendingSwitch: {
-            switchId: "switch-9",
-            appliesAt: "turn_boundary",
-            interruptRequested: false,
-            pendingAxes: [{ axis: "effort", value: "low" }],
-          },
-        }}
-      />,
-    );
-    expect(
-      container.querySelector(".meridian-agent-card__pending")?.textContent ?? "",
-    ).not.toContain("interrupting the run now");
-  });
-
-  it("carries no pending line at all where nothing is promised", () => {
-    const { container } = render(<AgentCard agent={RUNNING} />);
-    expect(container.querySelector(".meridian-agent-card__pending")).toBeNull();
-  });
-});
-
-describe("agent card — the attach echo", () => {
-  it("renders the snapshot and says it is one", () => {
+describe("agent card — the resolved configuration", () => {
+  it("renders the snapshot", () => {
     const { container } = render(
       <AgentCard
         agent={{
@@ -201,33 +112,28 @@ describe("agent card — the attach echo", () => {
         }}
       />,
     );
-    // The DISCLOSURE rather than the list: the note is prose about the echo and sits
-    // beside the `<dl>`, whose content model admits only term/description groups.
     const disclosure =
       container.querySelector(".meridian-agent-card__disclosure")?.textContent ?? "";
     expect(disclosure).toContain("definition-scout");
     expect(disclosure).toContain("worktree");
     expect(disclosure).toContain("Survey the repository");
-    expect(disclosure).toContain("snapshot taken when the agent was attached");
   });
 
-  it("negative control: an agent attached inline shows no echo", () => {
+  it("negative control: an agent with no resolved configuration shows no echo", () => {
     const { container } = render(<AgentCard agent={RUNNING} />);
     expect(container.querySelector(".meridian-agent-card__resolved")).toBeNull();
   });
 
   it("claims no definition for an echo that names none", () => {
-    // An inline attach resolves a configuration and names no definition. Calling
-    // that "attached from a definition" invented a row, and the note then promised
-    // something about editing or deleting one that does not exist.
+    // A configuration resolved inline names no definition. A Definition row would
+    // invent one.
     const { container } = render(
       <AgentCard agent={{ ...RUNNING, resolvedConfiguration: FULLY_REPORTED }} />,
     );
     const disclosure =
       container.querySelector(".meridian-agent-card__disclosure")?.textContent ?? "";
     expect(disclosure).toContain("Resolved configuration");
-    expect(disclosure).not.toContain("Attached from a definition");
-    expect(disclosure).not.toContain("Editing or deleting the definition");
+    expect(disclosure).not.toContain("Definition");
   });
 
   it("negative control: an echo that DOES name one is attributed to it", () => {
@@ -244,9 +150,8 @@ describe("agent card — the attach echo", () => {
     );
     const disclosure =
       container.querySelector(".meridian-agent-card__disclosure")?.textContent ?? "";
-    expect(disclosure).toContain("Attached from a definition");
+    expect(disclosure).toContain("Definition");
     expect(disclosure).toContain("definition-scout");
-    expect(disclosure).toContain("Editing or deleting the definition");
   });
 
   it("renders an empty allowlist as the restriction it is", () => {
@@ -270,58 +175,6 @@ describe("agent card — the attach echo", () => {
     );
     expect(toolsRowTextOf(container)).not.toContain("empty allowlist");
     expect(toolsRowTextOf(container)).not.toContain("No tools");
-  });
-
-  it("keeps the snapshot note out of the definition list's content model", () => {
-    // A `<dl>` admits term/description pairs and the `<div>` groups that wrap them.
-    // A `<p>` among them is content axe's `definition-list` rule flags and that a
-    // screen reader may fold into the description above it — so the note would be
-    // heard as part of the goal rather than as prose about the whole list.
-    const { container } = render(
-      <AgentCard
-        agent={{
-          ...RUNNING,
-          resolvedFromDefinitionId: "definition-scout",
-          resolvedConfiguration: { ...FULLY_REPORTED, toolAllowlist: ["read"] },
-        }}
-      />,
-    );
-    expect(container.querySelectorAll(".meridian-agent-card__resolved > p")).toHaveLength(0);
-    expect(container.querySelectorAll(".meridian-agent-card__resolved > :not(div)")).toHaveLength(
-      0,
-    );
-  });
-
-  it("still renders the note, beside the list rather than inside it", () => {
-    // Without this the assertion above would pass over a card that had dropped the
-    // note entirely, which is the other way to satisfy an emptiness claim.
-    const { container } = render(
-      <AgentCard
-        agent={{
-          ...RUNNING,
-          resolvedFromDefinitionId: "definition-scout",
-          resolvedConfiguration: { ...FULLY_REPORTED, toolAllowlist: ["read"] },
-        }}
-      />,
-    );
-    const note = container.querySelector(".meridian-agent-card__snapshot-note");
-    expect(note?.textContent ?? "").toContain("Editing or deleting the definition");
-    expect(note?.parentElement?.className).not.toContain("meridian-agent-card__resolved");
-  });
-
-  it("negative control: the sweep bites on a paragraph planted in a definition list", () => {
-    // The selectors above return nothing on a card that failed to render its echo at
-    // all, so the checker is driven once against a tree whose verdict is known.
-    const { container } = render(
-      <dl className="meridian-agent-card__resolved">
-        <div className="meridian-agent-card__resolved-row">
-          <dt>Goal</dt>
-          <dd>Survey the repository</dd>
-        </div>
-        <p>A note that does not belong here.</p>
-      </dl>,
-    );
-    expect(container.querySelectorAll(".meridian-agent-card__resolved > p")).toHaveLength(1);
   });
 
   it("counts the unnamed tail through the console's own figure formatter", () => {
@@ -369,7 +222,7 @@ describe("agent card — the attach echo", () => {
 describe("agent card — one wire state, one reading of it", () => {
   it("gives an echo with no allowlist member the same reading in both places", () => {
     // The line read the grant projection and the Tools row read `toolAllowlist` for
-    // itself, so one wire state was "the driver's default tool set" on the line and
+    // itself, so one wire state was "the provider's default tool set" on the line and
     // "not reported" three lines below it — a card contradicting itself about the one
     // axis its whole tool-governance section exists to state.
     const { container } = render(
@@ -377,7 +230,7 @@ describe("agent card — one wire state, one reading of it", () => {
     );
 
     expect(grantLineTextOf(container)).toContain("default tool set");
-    expect(toolsRowTextOf(container)).toContain("driver's default set");
+    expect(toolsRowTextOf(container)).toContain("provider's default set");
     expect(grantLineTextOf(container)).not.toContain("reported");
     expect(toolsRowTextOf(container)).not.toContain("reported");
   });
@@ -386,7 +239,7 @@ describe("agent card — one wire state, one reading of it", () => {
     // Without this the case above would pass over a card that had stopped saying
     // "not reported" anywhere at all — which loses the fourth position outright and
     // is the same conflation the projection was built to refuse.
-    const { container } = render(<AgentCard agent={{ agentId: "agent-scout", state: "ready" }} />);
+    const { container } = render(<AgentCard agent={{ agentId: "agent-scout" }} />);
 
     expect(grantLineTextOf(container)).toContain("Not reported");
     expect(container.querySelector(".meridian-agent-card__resolved")).toBeNull();
@@ -394,8 +247,8 @@ describe("agent card — one wire state, one reading of it", () => {
 
   it("says the empty-allowlist sentence once on the card, not once per surface", () => {
     // Both renderers spelled the whole sentence, so the `no-tools` arm printed
-    // "No tools. This agent was attached with an empty allowlist." twice on one card.
-    // The line states the position; the disclosure adds only what the line left out.
+    // "No tools." twice on one card. The line states the position; the disclosure adds
+    // only what the line left out.
     const { container } = render(
       <AgentCard
         agent={{ ...RUNNING, resolvedConfiguration: { ...FULLY_REPORTED, toolAllowlist: [] } }}
@@ -403,21 +256,7 @@ describe("agent card — one wire state, one reading of it", () => {
     );
     const wholeCard = container.textContent ?? "";
 
-    expect(wholeCard.split("attached with an empty allowlist")).toHaveLength(2);
-    expect(grantLineTextOf(container)).toContain("attached with an empty allowlist");
-  });
-});
-
-describe("agent card — actions are offered only where the caller supplied one", () => {
-  it("draws each action it was handed", () => {
-    const { container } = render(
-      <AgentCard agent={RUNNING} onFollow={() => {}} onChangeBinding={() => {}} />,
-    );
-    expect(container.querySelectorAll(".meridian-agent-card__action").length).toBe(2);
-  });
-
-  it("negative control: a card handed none draws none", () => {
-    const { container } = render(<AgentCard agent={RUNNING} />);
-    expect(container.querySelectorAll(".meridian-agent-card__action").length).toBe(0);
+    expect(wholeCard.split("No tools.")).toHaveLength(2);
+    expect(grantLineTextOf(container)).toContain("No tools.");
   });
 });

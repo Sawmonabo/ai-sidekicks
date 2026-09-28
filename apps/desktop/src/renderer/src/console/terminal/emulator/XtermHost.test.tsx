@@ -1,6 +1,6 @@
 // The mount point: the chunk it waits for, one adapter per mount, and disposal.
 //
-// WHAT THIS FILE IS FOR AND WHAT IT IS NOT. The emulator's behaviour is
+// WHAT THIS FILE IS FOR AND WHAT IT IS NOT. The emulator's behavior is
 // `xterm-adapter.test.ts`'s subject; this one owns what the COMPONENT decides about the
 // emulator's LIFE — that its code is fetched rather than statically linked, so the box
 // stands in as a read-in-flight absence until it lands; that an adapter is built once

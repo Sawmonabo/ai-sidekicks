@@ -1,46 +1,20 @@
 /* The agents family's own styles: the agent card, and the control shape every surface
  * in the family wears.
  *
- * WHAT IS HERE AND WHAT IS NOT. Six sub-surfaces carry their own sheets beside their
- * components — `axis-field.css`, `attach/attach.css`, `peer-invocation.css`,
- * `provider-switch/provider-switch.css`, `run-console/run-console.css`, and
- * `definitions/agent-definitions-page.css` — so a reader looking for one surface's
- * rules is not scrolling past five others'. What stays here is what is genuinely the
- * FAMILY's: the agent card, and the grouped rules that give the card, both forms, the
- * grant, and the linkage one button, one label, one focus ring, and one disabled state.
- *
- * Those grouped rules are deliberately NOT split along with their surfaces. A
- * selector list naming a card action, an attach arm, a switch apply, and a linkage
- * open is one decision about how a control in this family looks; copying it into
- * four sheets is four decisions that agree until one of them stops. That is also why
- * the list-reset block below stays here rather than travelling to the attach sheet it
- * used to sit inside: it names an attach list, a peer list, and two linkage lists, and
- * it is one decision about how a bare list in this family reads.
- *
- * ORDER IS LOAD-BEARING AND THE FAMILY OWNS IT. This sheet is imported FIRST of the
- * family's own, ahead of the five beside their components, so a surface sheet may
- * refine a selector the grouped rules above declare — `.meridian-attach__definition-
- * button` is the live case, wearing the shared control shape here and its own layout
- * there. Both import roots (`agent-console/agent-console-pane-body.ts` and
- * `agent-console-surface-body.ts`) name the sheets in that order, and the split below
- * was a MOVE: every rule kept its relative position, so no pinned image shifts.
+ * WHAT IS HERE AND WHAT IS NOT. Two sub-surfaces carry their own sheets beside their
+ * components — `axis-field.css` and `definitions/agent-definitions-page.css` — and the
+ * agent console has `agent-console/agent-console.css`, so a reader looking for one
+ * surface's rules is not scrolling past the others'. What stays here is what is
+ * genuinely the FAMILY's: the agent card, and the grouped rules that give the card and
+ * the grant note one button, one label, and one focus ring.
  *
  * Hand-authored composition over generated values, like every other console sheet —
- * no literal colour below, and the only literal length is the hairline that separates
+ * no literal color below, and the only literal length is the hairline that separates
  * two cards.
  *
- * Three decisions the design forces:
- *
- *   • **The effective line and the pending line are different lines, and they look
- *     it.** The effective binding is body text on the card's own ground; a pending
- *     switch is set off by a leading edge, because it is a promise rather than a
- *     fact and the eye has to be able to tell them apart at a glance.
- *   • **An absent axis is text, never a gap.** Every absence carries a sentence, so
- *     the row keeps its rhythm and a reader never has to work out whether a blank
- *     means "default" or "nobody asked".
- *   • **A caution is one arm and one arm only.** The failed settlement takes the red
- *     mark; the memo settlement does not, because it is a real switch with a real
- *     loss and decorating it as a failure would be false.
+ * An absent axis is text, never a gap. Every absence carries a sentence, so the row
+ * keeps its rhythm and a reader never has to work out whether a blank means "default"
+ * or "nobody asked".
  */
 
 .meridian-agent-card {
@@ -69,15 +43,8 @@
   color: var(--meridian-text);
 }
 
-.meridian-agent-card__state {
-  display: inline-flex;
-  align-items: baseline;
-  gap: var(--meridian-space-2);
-  flex-wrap: wrap;
-}
-
-/* Lifecycle, not binding: it shares the head with the state chip and is pushed to the
-   end of it, so the name and the state stay the first two things read. */
+/* Lifecycle, not binding: it shares the head with the name and is pushed to the end
+   of it, so the name stays the first thing read. */
 .meridian-agent-card__created {
   display: inline-flex;
   align-items: baseline;
@@ -85,7 +52,6 @@
   margin-inline-start: auto;
 }
 
-.meridian-agent-card__state-reason,
 .meridian-agent-card__observed-reason,
 .meridian-agent-card__axis-absent {
   color: var(--meridian-text-muted);
@@ -99,7 +65,6 @@
 
 .meridian-agent-card__effective,
 .meridian-agent-card__observed,
-.meridian-agent-card__pending,
 .meridian-agent-card__tool-grant {
   margin: 0;
   font-size: var(--meridian-text-sm);
@@ -108,11 +73,6 @@
   flex-wrap: wrap;
   gap: var(--meridian-space-2);
   align-items: baseline;
-}
-
-.meridian-agent-card__pending {
-  border-inline-start: 2px solid var(--meridian-amber-mark);
-  padding-inline-start: var(--meridian-space-3);
 }
 
 .meridian-agent-card__line-label,
@@ -128,11 +88,6 @@
   display: inline-flex;
   align-items: baseline;
   gap: var(--meridian-space-1);
-}
-
-.meridian-agent-card__pending-when,
-.meridian-agent-card__pending-superseded {
-  color: var(--meridian-text-muted);
 }
 
 .meridian-agent-card__disclosure-summary {
@@ -173,96 +128,8 @@
   min-width: 0;
 }
 
-.meridian-agent-card__snapshot-note,
-.meridian-agents__grant-note,
-.meridian-attach__snapshot,
-.meridian-attach__catalog-note,
-.meridian-switch__cache-note,
-.meridian-peer__visibility {
+.meridian-agents__grant-note {
   margin: var(--meridian-space-2) 0 0;
   font-size: var(--meridian-text-xs);
   color: var(--meridian-text-muted);
-}
-
-.meridian-agent-card__actions,
-.meridian-attach__actions,
-.meridian-switch__actions {
-  display: flex;
-  gap: var(--meridian-space-2);
-  flex-wrap: wrap;
-}
-
-.meridian-agent-card__action,
-.meridian-attach__arm,
-.meridian-attach__submit,
-.meridian-switch__apply,
-.meridian-peer__action,
-.meridian-linkage__open,
-.meridian-attach__definition-button {
-  font: inherit;
-  color: var(--meridian-text);
-  background: var(--meridian-surface-raised);
-  border: 1px solid var(--meridian-edge);
-  border-radius: var(--meridian-radius-sm);
-  padding: var(--meridian-space-1) var(--meridian-space-3);
-  cursor: pointer;
-  transition: background var(--meridian-motion-quick) var(--meridian-ease-settle);
-}
-
-.meridian-agent-card__action:focus-visible,
-.meridian-attach__arm:focus-visible,
-.meridian-attach__submit:focus-visible,
-.meridian-switch__apply:focus-visible,
-.meridian-peer__action:focus-visible,
-.meridian-linkage__open:focus-visible,
-.meridian-attach__definition-button:focus-visible {
-  outline: 2px solid var(--meridian-focus-ring);
-  outline-offset: 2px;
-}
-
-.meridian-attach__arm[aria-pressed="true"],
-.meridian-attach__definition-button[aria-pressed="true"] {
-  border-color: var(--meridian-accent);
-  color: var(--meridian-accent-text);
-}
-
-.meridian-attach__submit:disabled,
-.meridian-attach__arm:disabled,
-.meridian-agent-card__action:disabled,
-.meridian-switch__apply:disabled {
-  cursor: not-allowed;
-  color: var(--meridian-text-faint);
-}
-
-/* ------------------------------------------- lists this family draws bare */
-
-.meridian-attach__definitions,
-.meridian-attach__resolved,
-.meridian-peer__tools,
-.meridian-linkage__links,
-.meridian-linkage__refusal-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--meridian-space-1);
-}
-
-/* The refusal list's own scroll ceiling, here rather than in `run-console/`: this
-   sheet carries the bare-list treatment the class shares with four siblings, and a
-   box split across two sheets is the split load order decides. */
-.meridian-linkage__refusal-list {
-  max-height: 22rem;
-  overflow-y: auto;
-  margin-block-start: var(--meridian-space-2);
-}
-
-/* Same reason, read the other way: the definition button wears the family's action
-   chrome above, so its own box is stated beside that chrome and not in `attach/`. */
-.meridian-attach__definition-button {
-  display: flex;
-  flex-direction: column;
-  gap: var(--meridian-space-1);
-  width: 100%;
 }

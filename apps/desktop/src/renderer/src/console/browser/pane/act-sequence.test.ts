@@ -9,7 +9,7 @@
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { BROWSER_SCENARIO } from "../../bridge/scenario/browser.js";
+import { unscriptedScenario } from "../../bridge/fixture/call-plane/bridge.test-support.js";
 import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
 import { refuse, type ConsoleRefusal } from "../../core/index.js";
 import { settle as settleReactWork } from "../../core/settle.test-support.js";
@@ -17,8 +17,8 @@ import { useBrowserPaneActs, type BrowserPaneActs } from "./act-sequence.js";
 
 /** The fallback a rejection with no code of its own is rendered as. */
 const FALLBACK = {
-  code: "navigation-call-failed",
-  detail: "The call into the browser never answered.",
+  code: "open-external-failed",
+  detail: "The system browser could not be reached from this window.",
 } as const;
 
 /** One act the test settles by hand, in whichever order the case needs. */
@@ -60,7 +60,10 @@ interface ActSubject {
 }
 
 function subject(paneId: string, bridge?: ConsoleBridge): ActSubject {
-  return { bridge: bridge ?? createFixtureBridge({ scenario: BROWSER_SCENARIO }), paneId };
+  return {
+    bridge: bridge ?? createFixtureBridge({ scenario: unscriptedScenario("browser-pane-test") }),
+    paneId,
+  };
 }
 
 /**
@@ -169,7 +172,7 @@ describe("the browser pane's act sequence", () => {
     pending.reject(new Error("the call never answered"));
     await settleReactWork();
 
-    expect(result.current.refusal?.code).toBe("navigation-call-failed");
+    expect(result.current.refusal?.code).toBe("open-external-failed");
   });
 
   it("negative control: the newest act's own rejection is rendered", async () => {

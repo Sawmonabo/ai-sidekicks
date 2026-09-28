@@ -1,6 +1,6 @@
 // Who wins a keystroke.
 //
-// Correct behaviour on this surface is the absence of a complaint, which is exactly
+// Correct behavior on this surface is the absence of a complaint, which is exactly
 // why it needs adversarial cases rather than a happy path: a claim rule that is one
 // modifier too broad takes `S` away from a page's own search box, and a claim rule
 // that is one too narrow silently kills the operator's whole chord set inside a pane.

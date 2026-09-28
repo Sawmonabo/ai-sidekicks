@@ -2,7 +2,7 @@
 // words each position gets.
 //
 // Every case here is one way of collapsing a distinction the wire draws: a reply
-// that said nothing about tools read as "the driver's default set", a chosen empty
+// that said nothing about tools read as "the provider's default set", a chosen empty
 // list read as an absence, or a capped echo promised whole.
 
 import { describe, expect, it } from "vitest";
@@ -16,7 +16,7 @@ import {
   namedToolGrantSentence,
 } from "./tool-grant.js";
 
-const IDENTITY_ONLY: AgentRosterEntry = { agentId: "agent-scout", state: "ready" };
+const IDENTITY_ONLY: AgentRosterEntry = { agentId: "agent-scout" };
 
 /** A list of exactly `count` distinct tool names, which is all these cases need. */
 function toolNames(count: number): readonly string[] {
@@ -28,7 +28,7 @@ describe("agent tool grant — the four positions", () => {
     expect(agentToolGrantPosition(IDENTITY_ONLY)).toStrictEqual({ kind: "not-reported" });
   });
 
-  it("reads a configuration with no allowlist member as the driver's default set", () => {
+  it("reads a configuration with no allowlist member as the provider's default set", () => {
     expect(
       agentToolGrantPosition({
         ...IDENTITY_ONLY,
@@ -69,7 +69,7 @@ describe("agent tool grant — the four positions", () => {
 
 describe("agent tool grant — one position, one set of words", () => {
   it("gives the driver-default position a reading that never says 'reported'", () => {
-    // The defect this table closes: the line called this state the driver's default
+    // The defect this table closes: the line called this state the provider's default
     // set while the echo's Tools row, reading the member for itself, called the same
     // state "not reported" three lines below it.
     const wording = NAMELESS_TOOL_GRANT_WORDING["driver-default"];
@@ -102,7 +102,7 @@ describe("agent tool grant — one position, one set of words", () => {
 
 describe("agent tool grant — a populated allowlist is never promised whole", () => {
   it('names one tool as one tool, never as "1 tools"', () => {
-    expect(namedToolGrantSentence(toolNames(1))).toContain("the one tool it was attached with");
+    expect(namedToolGrantSentence(toolNames(1))).toContain("the one tool, named in the resolved");
     expect(namedToolGrantSentence(toolNames(1))).not.toContain("1 tools");
   });
 
@@ -135,6 +135,6 @@ describe("agent tool grant — a populated allowlist is never promised whole", (
     // the qualified clause appended to the unqualified one — which promises the whole
     // list in the same breath as promising the first six of it.
     const sentence = namedToolGrantSentence(toolNames(TOOL_ALLOWLIST_NAMED_CAP + 1));
-    expect(sentence).not.toContain("tools it was attached with, named in the resolved");
+    expect(sentence).not.toContain("tools, named in the resolved");
   });
 });

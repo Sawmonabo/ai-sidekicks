@@ -16,7 +16,7 @@ export function ObservedOutputSpeed(props: {
     return (
       <p className="meridian-agent-card__observed">
         <span className="meridian-agent-card__line-label">Output speed, as declared</span> not yet
-        observed — the driver declares no output-speed axis, no turn-bearing exchange has carried
+        observed — the provider declares no output-speed axis, no turn-bearing exchange has carried
         the handshake, or no binding is live.
       </p>
     );

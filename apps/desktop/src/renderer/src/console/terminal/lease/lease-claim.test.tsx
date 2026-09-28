@@ -1,4 +1,4 @@
-// The claim hook's two renderer-local facts, and the subject they belong to.
+// The claim hook's renderer-local fact, and the subject it belongs to.
 //
 // Its own file rather than a block in `LeaseLine.claim.test.tsx` because the subject
 // is different: that file asserts what the SURFACE renders for a claim, and this one
@@ -7,22 +7,22 @@
 //
 // WHY THE CASES READ A LOG OF FRAMES RATHER THAN THE SETTLED TREE. The reset used to
 // run in a passive effect while the hook returned unstamped values, so session B's
-// first COMMITTED render inherited A's disabled control or A's refusal and the
-// correction arrived one frame later. A test that reads the DOM after the rerender
+// first COMMITTED render inherited A's disabled control and the correction arrived
+// one frame later. A test that reads the DOM after the rerender
 // reads the corrected frame and sees nothing wrong; the frame a person actually sees
 // is the one the render produced, so the probe below records every frame and the
 // cases name the one they are about. The stamp makes that frame idle by
 // construction, with no pass left to be wrong on.
 //
-// The wire is the fixture bridge with its lease calls held, which is the only way to
-// have a call genuinely still out across a rerender — and the only way to settle the
-// call for the session the pane LEFT rather than the one it moved to.
+// The calls are held, which is the only way to have a call genuinely still out across a
+// rerender — and the only way to settle the call for the session the pane LEFT rather
+// than the one it moved to.
 
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { settle as settleReactWork } from "../../core/settle.test-support.js";
-import { HeldLeaseWire, OTHER_SESSION_ID, SESSION_ID } from "./LeaseLine.test-support.js";
+import { HeldLeaseCalls, OTHER_SESSION_ID, SESSION_ID } from "./LeaseLine.test-support.js";
 import { useTerminalLeaseClaim, type TerminalLeaseClaim } from "./lease-claim.js";
 
 /**
@@ -58,32 +58,34 @@ class ClaimFrameLog {
 
 /** The hook, driven with nothing else in the way, recording what it returns. */
 function ClaimProbe(props: {
-  readonly heldWire: HeldLeaseWire;
+  readonly heldCalls: HeldLeaseCalls;
   readonly sessionId: string;
   readonly log: ClaimFrameLog;
 }): React.JSX.Element {
-  props.log.record(useTerminalLeaseClaim(props.heldWire.bridge, props.sessionId));
+  props.log.record(
+    useTerminalLeaseClaim(props.heldCalls.bridge, props.sessionId, props.heldCalls.calls),
+  );
   return <span />;
 }
 
 function renderClaim(
-  heldWire: HeldLeaseWire,
+  heldCalls: HeldLeaseCalls,
   log: ClaimFrameLog,
 ): ReturnType<typeof render> & { readonly showSession: (sessionId: string) => void } {
-  const view = render(<ClaimProbe heldWire={heldWire} sessionId={SESSION_ID} log={log} />);
+  const view = render(<ClaimProbe heldCalls={heldCalls} sessionId={SESSION_ID} log={log} />);
   return {
     ...view,
     showSession: (sessionId: string): void => {
-      view.rerender(<ClaimProbe heldWire={heldWire} sessionId={sessionId} log={log} />);
+      view.rerender(<ClaimProbe heldCalls={heldCalls} sessionId={sessionId} log={log} />);
     },
   };
 }
 
 describe("the terminal lease claim, stamped to its subject", () => {
   it("hands the new session an idle control on its FIRST committed frame", async () => {
-    const heldWire = new HeldLeaseWire();
+    const heldCalls = new HeldLeaseCalls();
     const log = new ClaimFrameLog();
-    const view = renderClaim(heldWire, log);
+    const view = renderClaim(heldCalls, log);
     act(() => {
       log.newestFrame.acquire();
     });
@@ -97,21 +99,18 @@ describe("the terminal lease claim, stamped to its subject", () => {
     // for a call about a shell they were no longer looking at.
     const firstFrameOnTheNewSession = log.frameAt(framesBeforeTheSwitch);
     expect(firstFrameOnTheNewSession.isInFlight).toBe(false);
-    expect(firstFrameOnTheNewSession.refusal).toBeUndefined();
 
-    heldWire.rejectCall(0);
+    heldCalls.settleCall(0);
     await settleReactWork();
 
-    // And the answer to the question about the session it left is never rendered
-    // against the one it is on.
-    expect(log.newestFrame.refusal).toBeUndefined();
+    // The settlement of the session it left retires nothing on the one it is on.
     expect(log.newestFrame.isInFlight).toBe(false);
   });
 
   it("issues the new session's own request from that same frame", async () => {
-    const heldWire = new HeldLeaseWire();
+    const heldCalls = new HeldLeaseCalls();
     const log = new ClaimFrameLog();
-    const view = renderClaim(heldWire, log);
+    const view = renderClaim(heldCalls, log);
     act(() => {
       log.newestFrame.acquire();
     });
@@ -124,23 +123,20 @@ describe("the terminal lease claim, stamped to its subject", () => {
 
     // The call built during the render that first saw the new session carries that
     // session, so a press in the very first frame reaches the right shell.
-    expect(heldWire.heldCallCount).toBe(2);
-    expect(heldWire.sessionIdOfCall(1)).toBe(OTHER_SESSION_ID);
+    expect(heldCalls.heldCallCount).toBe(2);
+    expect(heldCalls.sessionIdOfCall(1)).toBe(OTHER_SESSION_ID);
     expect(log.newestFrame.isInFlight).toBe(true);
 
-    heldWire.rejectCall(0);
+    heldCalls.settleCall(0);
     await settleReactWork();
 
-    // The old session's settlement retires nothing: the new session's call is still
-    // out, and its refusal is not the other session's.
+    // The old session's settlement retires nothing: the new session's call is still out.
     expect(log.newestFrame.isInFlight).toBe(true);
-    expect(log.newestFrame.refusal).toBeUndefined();
 
-    heldWire.rejectCall(1);
+    heldCalls.settleCall(1);
     await settleReactWork();
 
     expect(log.newestFrame.isInFlight).toBe(false);
-    expect(log.newestFrame.refusal?.code).toBe(HeldLeaseWire.LEASE_CONFLICT.code);
   });
 
   it("hands a RETURNING visit a control whose press reaches the wire", async () => {
@@ -150,9 +146,9 @@ describe("the terminal lease claim, stamped to its subject", () => {
     // `(bridge, sessionId)` would still be holding the FIRST visit's round: the press
     // was refused by a key the control cannot see, no request went out, nothing was
     // said, and the button stayed enabled for as long as the first call stayed out.
-    const heldWire = new HeldLeaseWire();
+    const heldCalls = new HeldLeaseCalls();
     const log = new ClaimFrameLog();
-    const view = renderClaim(heldWire, log);
+    const view = renderClaim(heldCalls, log);
     act(() => {
       log.newestFrame.acquire();
     });
@@ -168,31 +164,30 @@ describe("the terminal lease claim, stamped to its subject", () => {
       firstFrameBack.acquire();
     });
 
-    expect(heldWire.heldCallCount).toBe(2);
-    expect(heldWire.sessionIdOfCall(1)).toBe(SESSION_ID);
+    expect(heldCalls.heldCallCount).toBe(2);
+    expect(heldCalls.sessionIdOfCall(1)).toBe(SESSION_ID);
     expect(log.newestFrame.isInFlight).toBe(true);
 
     // And the FIRST visit's answer still installs nowhere: it is about a round the
     // holder has retired, so the returning visit's own call goes on being the one
     // the control is waiting for.
-    heldWire.rejectCall(0);
+    heldCalls.settleCall(0);
     await settleReactWork();
 
     expect(log.newestFrame.isInFlight).toBe(true);
-    expect(log.newestFrame.refusal).toBeUndefined();
   });
 
   it("drops a settlement that lands after the pane closed", async () => {
-    const heldWire = new HeldLeaseWire();
+    const heldCalls = new HeldLeaseCalls();
     const log = new ClaimFrameLog();
-    const view = renderClaim(heldWire, log);
+    const view = renderClaim(heldCalls, log);
     act(() => {
       log.newestFrame.acquire();
     });
     const framesBeforeTheClose = log.frameCount;
 
     view.unmount();
-    heldWire.rejectCall(0);
+    heldCalls.settleCall(0);
     await settleReactWork();
 
     // No flag of its own: an unmounted hook has no committed state for a late
@@ -200,24 +195,22 @@ describe("the terminal lease claim, stamped to its subject", () => {
     expect(log.frameCount).toBe(framesBeforeTheClose);
   });
 
-  it("negative control: the session it is still on keeps both of its facts", async () => {
+  it("negative control: the session it is still on keeps its in-flight fact", async () => {
     // Without this, a hook that reported idle for every subject would satisfy every
-    // case above — which is a claim control that never says a call is out and never
-    // renders what refused it.
-    const heldWire = new HeldLeaseWire();
+    // case above — a claim control that never says a call is out.
+    const heldCalls = new HeldLeaseCalls();
     const log = new ClaimFrameLog();
-    renderClaim(heldWire, log);
+    renderClaim(heldCalls, log);
 
     act(() => {
       log.newestFrame.acquire();
     });
     expect(log.newestFrame.isInFlight).toBe(true);
 
-    heldWire.rejectCall(0);
+    heldCalls.settleCall(0);
     await settleReactWork();
 
     expect(log.newestFrame.isInFlight).toBe(false);
-    expect(log.newestFrame.refusal?.code).toBe(HeldLeaseWire.LEASE_CONFLICT.code);
   });
 
   it("negative control: a second press while a call is out starts nothing", async () => {
@@ -227,31 +220,31 @@ describe("the terminal lease claim, stamped to its subject", () => {
     // shape this replaced could not say so: it dispatched a second call and let the
     // earlier settlement clear the in-flight flag the later press had just set,
     // bringing the control back enabled while a take was still out.
-    const heldWire = new HeldLeaseWire();
+    const heldCalls = new HeldLeaseCalls();
     const log = new ClaimFrameLog();
-    renderClaim(heldWire, log);
+    renderClaim(heldCalls, log);
     act(() => {
       log.newestFrame.acquire();
     });
     act(() => {
       log.newestFrame.acquire();
     });
-    expect(heldWire.heldCallCount).toBe(1);
+    expect(heldCalls.heldCallCount).toBe(1);
+    expect(heldCalls.sessionIdOfCall(0)).toBe(SESSION_ID);
     expect(log.newestFrame.isInFlight).toBe(true);
 
     // And the one call that WAS dispatched still settles: refusing the second claim
     // must not orphan the first, which is the failure a bare "ignore while busy"
     // guard makes when it forgets to release.
-    heldWire.rejectCall(0);
+    heldCalls.settleCall(0);
     await settleReactWork();
 
     expect(log.newestFrame.isInFlight).toBe(false);
-    expect(log.newestFrame.refusal?.code).toBe(HeldLeaseWire.LEASE_CONFLICT.code);
 
     // The key is back, so the next press dispatches.
     act(() => {
       log.newestFrame.acquire();
     });
-    expect(heldWire.heldCallCount).toBe(2);
+    expect(heldCalls.heldCallCount).toBe(2);
   });
 });

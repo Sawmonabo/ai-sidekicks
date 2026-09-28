@@ -8,7 +8,7 @@
 // ledger family owns does not exist in this tree yet — so a scroll writer minted
 // here would be exactly the second one that rule exists to prevent. Focus is not a
 // scroll writer: it is what a keyboard reader needs anyway, and the viewport
-// following it is the browser's own behaviour rather than this module's.
+// following it is the browser's own behavior rather than this module's.
 //
 // AND WHY THE SETTLE IS AN ANIMATION RATHER THAN A TIMER. A highlight cleared on a
 // timer would be a second clock in a console whose timers are chokepointed; the
@@ -18,7 +18,6 @@
 
 import { useEffect, useRef, useState } from "react";
 
-import { Nothing } from "../primitives/index.js";
 import type { SettingsPageContext, SettingsPageRegistry } from "./settings-page-registry.js";
 import { SETTINGS_SECTION_LABELS, type SettingsSectionId } from "./settings-sections.js";
 
@@ -39,8 +38,8 @@ export interface SettingsSectionPageProps {
  *
  * Its own component because the hooks below may not be called from the arms above:
  * an address naming no section renders no page, and a component that ran the settle
- * effect anyway would be reaching for a heading that is not on screen. The surface's
- * three absence arms stay hook-free, which is what makes that safe by construction
+ * effect anyway would be reaching for a heading that is not on screen. The pane's
+ * absence arms stay hook-free, which is what makes that safe by construction
  * rather than by an early-return convention.
  */
 export function SettingsSectionPage(props: SettingsSectionPageProps): React.JSX.Element {
@@ -76,18 +75,7 @@ export function SettingsSectionPage(props: SettingsSectionPageProps): React.JSX.
       <h2 className="meridian-settings__page-heading" ref={headingRef} tabIndex={-1}>
         {descriptor?.label ?? label}
       </h2>
-      <div className="meridian-settings__page-body">
-        {descriptor === undefined ? (
-          <Nothing
-            kind="empty"
-            placement="surface"
-            title={`The ${label.toLowerCase()} page has not been built yet.`}
-            detail="It is reserved rather than missing — the section exists and its page is still being built. Nothing was asked of the daemon for it."
-          />
-        ) : (
-          descriptor.render(props.context)
-        )}
-      </div>
+      <div className="meridian-settings__page-body">{descriptor?.render(props.context)}</div>
     </article>
   );
 }

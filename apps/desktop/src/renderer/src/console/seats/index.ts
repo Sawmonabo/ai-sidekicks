@@ -62,14 +62,6 @@
 //
 // NOTHING ELSE HERE RENDERS. No store, no scenario, no second console component.
 //
-// `seats/surface/absorbed-surfaces.ts` is the one module here that BUILDS elements, and every
-// component it builds is owned by a renderer subtree outside the console: the three
-// pre-console families the console absorbed by import. That is not a sibling's
-// body — it is a component with no owner left to mount it, handed to whichever
-// console surface absorbed it. Three view families reach for one of those mounts, so
-// the mounts sit here for exactly the reason every other seat does.
-//
-//
 // THE `@consumedBy` TAGS BELOW are the dead-code gate's one exemption, on the terms
 // `apps/desktop/AGENTS.md` sets: every seat is reached by a task that has not landed,
 // so each specifier names the task or tasks that will import it. The tag rides the
@@ -358,34 +350,6 @@ export { consoleRefusalFrom, servedValueOrRaise } from "./read/served-value.js";
 // file changes. Its call-side twin is gone — `bridge/daemon/daemon-reply.ts` names the
 // methods and parses both directions, so no seat casts a call any more.
 export { subscribeDaemonEvent } from "./read/wire-access.js";
-
-// The mounts for the pre-console runtime-node family the console absorbed.
-//
-// In this family because a mount reads the console's own bridge and nothing above
-// `bridge/`, and on this door because the surfaces that mount them are view families.
-export {
-  renderAbsorbedAttachFlow,
-  renderAbsorbedCapabilityDeclaration,
-  renderAbsorbedMixedVersionStatus,
-  renderAbsorbedNodeRoster,
-} from "./surface/absorbed-surfaces.js";
-
-// What the absorbed roster's own read answered, for a surface that renders beside it.
-//
-// The mount above is the only caller that needs the read SEAM, and it takes it by its
-// own specifier; what leaves this family is the OBSERVATION — a settings page renders a
-// node's declared capabilities and its version from the response that view already read,
-// rather than putting a second `runtimenode.roster` on the wire that could disagree with
-// what is on screen beside it.
-export {
-  useNodeRosterObservation,
-  type NodeRosterObservation,
-} from "./node-roster/node-roster-seam.js";
-
-// When that roster is asked to read again. Beside the observation because the settings
-// page takes both — it renders from the recorded read and owes that read the signals
-// the absorbed view's own presence channel does not carry.
-export { useNodeRosterReReadTriggers } from "./node-roster/node-roster-triggers.js";
 
 // THE JSON-SCHEMA FORM SEAT — the mapper, the six Meridian field controls, the two
 // composed surfaces and the schema-validated raw editor behind them. Here for the reason

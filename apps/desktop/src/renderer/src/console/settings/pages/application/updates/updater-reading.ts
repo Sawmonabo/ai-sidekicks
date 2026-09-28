@@ -19,7 +19,7 @@
 // THE OPENING IS RE-OPENABLE, SO `close()` IS NOT TERMINAL
 //
 // A React effect's cleanup runs between the two invocations StrictMode makes of one
-// effect, and a bridge swap tears an opening down and builds another. A holder whose
+// effect, and a change of updater tears an opening down and builds another. A holder whose
 // teardown were terminal would answer the second invocation with a dead object and
 // the block would read nothing for the rest of the window's life. So an opening is a
 // GENERATION: `close()` releases the subscription and invalidates every reply still
@@ -34,35 +34,16 @@
 
 import type { DesktopBridge, UpdateState } from "@ai-sidekicks/contracts";
 
-import { Emitter, type ConsoleRefusal, type Unsubscribe } from "../../../../core/index.js";
-import { consoleRefusalFrom } from "../../../../seats/index.js";
+import { Emitter, type Unsubscribe } from "../../../../core/index.js";
 import { GenerationLatch, type GenerationClaim } from "../../../../store/index.js";
 
-/**
- * What this module names a failure it could not read a code off.
- *
- * Two codes rather than one, because the two legs fail for different reasons and a
- * person reading the line needs to know which: the stream would not open, or the
- * state would not be read. Neither is a translation — a rejection that arrives
- * carrying a registered daemon code keeps it.
- */
-const UPDATER_SUBSCRIBE_FAILED = "updater-subscribe-failed";
-const UPDATER_READ_FAILED = "updater-read-failed";
+/** The updater's calls: the state read, its subscription, and the two controls. */
+export type UpdaterCalls = DesktopBridge["update"];
 
-/** Names this seam in a refusal, so a failure says which conversation failed. */
-const UPDATER_ORIGIN = "updates";
-
-/**
- * What the block knows about the updater. Total; every arm renders something.
- *
- * `unreachable` is deliberately NOT one of `UpdateState`'s arms: it is the state of
- * the CONVERSATION rather than of the update, and folding it into `error` would
- * attribute a failure to an updater that was never asked.
- */
+/** What the block knows about the updater: nothing read yet, or the state it reported. */
 export type UpdateReading =
   | { readonly kind: "not-read" }
-  | { readonly kind: "state"; readonly state: UpdateState }
-  | { readonly kind: "unreachable"; readonly refusal: ConsoleRefusal };
+  | { readonly kind: "state"; readonly state: UpdateState };
 
 /** The held reading, rebuilt on every accepted observation and held by identity. */
 export interface UpdaterReadingSnapshot {
@@ -105,7 +86,7 @@ const OPENING_KEY = "open";
  * answer installs. The React binding lives in `UpdatesBlock.tsx` and holds nothing.
  */
 export class UpdaterReadingHolder {
-  readonly #updater: DesktopBridge["update"];
+  readonly #updater: UpdaterCalls;
   readonly #changes = new Emitter<void>("updater reading change");
   #snapshot: UpdaterReadingSnapshot = NOTHING_READ;
   #release: (() => void) | undefined = undefined;
@@ -114,7 +95,7 @@ export class UpdaterReadingHolder {
   /** Reset per opening, because each opening subscribes afresh. */
   #hasObservedPush = false;
 
-  public constructor(updater: DesktopBridge["update"]) {
+  public constructor(updater: UpdaterCalls) {
     this.#updater = updater;
   }
 
@@ -131,42 +112,19 @@ export class UpdaterReadingHolder {
    *
    * Subscribe-before-read for the reason every push-driven read in this console
    * gives: a transition landing after the read and before the handler attaches would
-   * be lost, and the worst case the other way round is one redundant render. A
-   * subscription that cannot be opened at all settles the whole reading as
-   * unreachable and asks for no state, because there is nothing left to keep current.
-   *
-   * TWO BOUNDARIES AND NOT ONE, because the two codes are the whole point of the
-   * pair above. A shipped bridge implements these methods as synchronous throws, so
-   * `getState()` fails on its INVOCATION rather than on its promise — and under one
-   * boundary that failure was reported as a subscription that had in fact opened and
-   * is still held in `this.#release`, which is the one thing the two codes exist to
-   * tell apart. The read's synchronous and asynchronous failures now land on the
-   * same code, because they are the same failure.
+   * be lost, and the worst case the other way round is one redundant render. A call
+   * that throws or rejects is not caught here.
    */
   public open(): void {
     this.close();
     const opening = this.#openings.supersedeAndClaim(this, OPENING_KEY);
     this.#hasObservedPush = false;
-    try {
-      this.#release = this.#updater.subscribe((state) => {
-        this.#observePush(opening, state);
-      });
-    } catch (subscribeRejection: unknown) {
-      this.#observeOpening(opening, unreachableFrom(subscribeRejection, UPDATER_SUBSCRIBE_FAILED));
-      return;
-    }
-    try {
-      void this.#updater
-        .getState()
-        .then((state) => {
-          this.#observeOpening(opening, { kind: "state", state });
-        })
-        .catch((readRejection: unknown) => {
-          this.#observeOpening(opening, unreachableFrom(readRejection, UPDATER_READ_FAILED));
-        });
-    } catch (readRejection: unknown) {
-      this.#observeOpening(opening, unreachableFrom(readRejection, UPDATER_READ_FAILED));
-    }
+    this.#release = this.#updater.subscribe((state) => {
+      this.#observePush(opening, state);
+    });
+    void this.#updater.getState().then((state) => {
+      this.#observeOpening(opening, state);
+    });
   }
 
   /** Release the current opening. Not terminal: {@link open} starts another. */
@@ -181,47 +139,29 @@ export class UpdaterReadingHolder {
   #observePush(opening: GenerationClaim, state: UpdateState): void {
     opening.settle(() => {
       this.#hasObservedPush = true;
-      this.#install({ kind: "state", state }, "push");
+      this.#install(state, "push");
     });
   }
 
   /**
-   * The opening leg's own answer, installed only while nothing has been pushed.
-   *
-   * One entry point for both of its arms — the state it read and the failure that
-   * stopped it — because they are the same fact about sequence: both describe the
-   * moment the block opened, and a push is newer than either.
+   * The opening read's answer, installed only while nothing has been pushed: it
+   * describes the moment the block opened, and a push is newer.
    */
-  #observeOpening(opening: GenerationClaim, reading: UpdateReading): void {
+  #observeOpening(opening: GenerationClaim, state: UpdateState): void {
     opening.settle(() => {
       if (this.#hasObservedPush) {
         return;
       }
-      this.#install(reading, "opening");
+      this.#install(state, "opening");
     });
   }
 
-  #install(reading: UpdateReading, source: UpdateReadingSource): void {
-    this.#snapshot = { reading, source, sequence: this.#snapshot.sequence + 1 };
+  #install(state: UpdateState, source: UpdateReadingSource): void {
+    this.#snapshot = {
+      reading: { kind: "state", state },
+      source,
+      sequence: this.#snapshot.sequence + 1,
+    };
     this.#changes.emit();
   }
-}
-
-/**
- * The reading a rejection settles on, in the words AND the code it arrived with.
- *
- * Through the console's one refusal converter rather than `wireRejectionToError`:
- * that helper puts the daemon's registered code on `Error.name` and this seam read
- * only `.message`, so every refusal the updater namespace can raise reached the
- * screen with its code discarded — which is the one part of a refusal that must
- * always reach a person verbatim. The converter
- * hands a `ConsoleRefusalError`'s refusal back untouched and normalizes everything
- * else under the fallback code this leg names, so a registered code is never
- * relabelled on its way through.
- */
-function unreachableFrom(rejection: unknown, fallbackCode: string): UpdateReading {
-  return {
-    kind: "unreachable",
-    refusal: consoleRefusalFrom(rejection, UPDATER_ORIGIN, fallbackCode),
-  };
 }

@@ -4,11 +4,10 @@
 // THREE RULES THIS FILE IS THE ENFORCEMENT OF
 //
 //   • **No entry is hidden because its wire is unavailable.** The rail is the
-//     closed section tuple, always all fourteen. A section whose page has not landed
-//     renders its own reservation in the PANE; a section whose page landed and
-//     whose wire refused renders that refusal in the pane. Neither ever costs a
-//     rail entry, because a rail that shrinks when a daemon is unreachable is a
-//     rail that teaches a person the setting does not exist.
+//     closed section tuple, always all ten. A section whose page module is still
+//     loading renders its reservation in the PANE. A section never costs a rail
+//     entry, because a rail that shrinks when a daemon is unreachable is a rail that
+//     teaches a person the setting does not exist.
 //   • **The rail never blocks on a section read.** Nothing here awaits anything.
 //     The rail is rendered from a closed tuple and the pane's read is the page's.
 //   • **No second copy of a value a wire read owns.** The only state this surface
@@ -75,25 +74,9 @@ export function SettingsSurface(props: SettingsSurfaceProps): React.JSX.Element 
 
   const openSection = useCallback(
     (section: SettingsSectionId): void => {
-      // WARMED BEFORE THE ROUTE COMMITS, which is `frame/composition/rail-navigation.ts`'s rule one
-      // level down: this is the moment the intent is legible and the act has not
-      // happened. It sits in the SHARED callback rather than beside either control,
-      // because the rail's row, a search hit, and a page that navigates to a sibling
-      // section all reach a section through this one line — so none of them can be the
-      // path that forgot, and a person who clicks a deferred page cold does not watch
-      // its reservation after an explicit act.
-      //
-      // A `render:`-form or unregistered section settles immediately with nothing done,
-      // so the line asks no question about how the page it is opening was registered.
-      //
-      // Fire-and-forget with the rejection dropped, on the idle walk's own reasoning: a
-      // chunk that will not load is a damaged install, and the honest place to say so is
-      // the mount, inside the surface error boundary, where somebody is waiting for it.
-      // Awaiting here would stall a navigation the person has already made.
-      void pages.preload(section).catch(() => undefined);
       context.frameStore.navigate({ kind: "settings", page: section });
     },
-    [context.frameStore, pages],
+    [context.frameStore],
   );
 
   /**

@@ -7,7 +7,7 @@
 // region the body will fill.
 //
 // NOT ONE OF THE FIVE KINDS OF NOTHING. `seats/pane/PendingPaneBody.tsx` states the reasoning
-// and it holds here unchanged: rule 8's five absences are claims about the ENTITY, and
+// and it holds here unchanged: the five absences are claims about the ENTITY, and
 // none of them is true of a module that has not landed. `not loaded` would say the page's
 // read had not come back, which is a different sentence and a false one — the page has not
 // been mounted, so it has asked the daemon for nothing.
@@ -16,7 +16,7 @@
 // The question a capture asks is a single question — is anything on this page still
 // loading — and a second attribute would be a second sweep that agreed with the first
 // until somebody forgot it. The marker's VALUE is the section id, so a refusal names the
-// rail entry a person would recognise rather than the count of things pending.
+// rail entry a person would recognize rather than the count of things pending.
 //
 // The marker rides a `hidden` element for that module's reason: `display: none`
 // contributes no box, so what the reserved region costs the layout is nothing.

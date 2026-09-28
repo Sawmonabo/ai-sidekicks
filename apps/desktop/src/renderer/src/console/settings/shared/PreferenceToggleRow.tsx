@@ -1,27 +1,18 @@
-// One preference, one switch, and the three things that can be true beside it.
-//
-// Every settings toggle in this console renders the same four regions — a label, a
-// sentence saying what the setting governs, the control, and whatever the carrier
-// had to say about the last attempt. Three pages need it, so it is written once — a
-// shared helper is hoisted on the second use — and each page supplies text.
+// One preference and one switch: a label, a sentence saying what the setting governs, and
+// the control. Three pages need it, so it is written once and each page supplies text.
 //
 // THE CONTROL IS `@base-ui/react`'s SWITCH, not a bare checkbox and not our own.
 // That package is the console's one adopted widget family; it renders a `<span>` plus
 // a hidden `<input>`, so the row associates a
 // real `<label>` with the input's id and the switch is reachable by keyboard,
-// labelled, and focus-visible without this file re-deriving any of it.
+// labeled, and focus-visible without this file re-deriving any of it.
 //
-// THE ROW NEVER DECIDES WHETHER A SETTING MAY CHANGE. `checked`, `disabled`, the
-// held-locally note, and the refusal all arrive as props from the page, which reads
-// them off the carrier. A row that computed its own eligibility would be a second
-// authority on a question the daemon and the carrier answer.
+// The row never decides whether a setting may change: `checked` and `isPending` arrive as
+// props from the page, which reads them off the carrier.
 
 import { useId } from "react";
 
 import { Switch } from "@base-ui/react/switch";
-
-import { InlineRefusal } from "../../primitives/index.js";
-import type { ConsoleRefusal } from "../../core/index.js";
 
 export interface PreferenceToggleRowProps {
   readonly label: string;
@@ -31,13 +22,6 @@ export interface PreferenceToggleRowProps {
   /** True while a write for this key is in flight. The switch stops taking presses. */
   readonly isPending?: boolean | undefined;
   readonly onCheckedChange: (checked: boolean) => void;
-  /**
-   * A quiet line under the row — what this window did with a choice no carrier took.
-   * Never an error: nothing failed, so nothing here reads as a failure.
-   */
-  readonly note?: string | undefined;
-  /** The carrier's own refusal, rendered verbatim beside the control that raised it. */
-  readonly refusal?: ConsoleRefusal | undefined;
 }
 
 export function PreferenceToggleRow(props: PreferenceToggleRowProps): React.JSX.Element {
@@ -52,12 +36,6 @@ export function PreferenceToggleRow(props: PreferenceToggleRowProps): React.JSX.
         <p className="meridian-settings-row__description" id={descriptionId}>
           {props.description}
         </p>
-        {props.note === undefined ? null : (
-          <p className="meridian-settings-row__note">{props.note}</p>
-        )}
-        {props.refusal === undefined ? null : (
-          <InlineRefusal code={props.refusal.code} detail={props.refusal.detail} />
-        )}
       </div>
       <Switch.Root
         id={switchId}

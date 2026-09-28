@@ -13,7 +13,7 @@
 //     type is only useful if it survives that round trip intact. The strip's writer
 //     and its two readers are one seam, and this drives all three ends of it.
 //   • THE CASCADE. The drop marker and the selected-tab mark are both one declaration
-//     in `browser/pane/pane.css`, and a rule whose selector matches nothing computes to the
+//     in `browser/pane/chrome/chrome.css`, and a rule whose selector matches nothing computes to the
 //     same value as a rule that was never written. No unit tier can tell those apart,
 //     and the selected-tab rule was in exactly that state — keyed on an `aria-current`
 //     the item never carries, because the attribute belongs on the face inside it.
@@ -57,7 +57,6 @@ async function mountStrip(): Promise<DraggedStrip> {
       reading={threeBrowserPages()}
       onSelect={() => undefined}
       onClose={() => undefined}
-      onCreate={() => undefined}
       onReorder={(pageId, toIndex) => {
         reordered.push({ pageId, toIndex });
       }}
@@ -111,7 +110,7 @@ describe("dragging a tab, against the browser's own drag store", () => {
     // store kept it under exactly that key.
     //
     // `effectAllowed` is deliberately NOT asserted, and the reason is a limit of this
-    // harness rather than a gap in the writer. Chromium honours that setter only while
+    // harness rather than a gap in the writer. Chromium honors that setter only while
     // a genuine user drag is in flight; a `DragEvent` this file constructs and
     // dispatches is not one, so the assignment is dropped and the property reads
     // `"none"` however the writer behaves. An assertion that cannot fail for the right
@@ -143,16 +142,16 @@ describe("dragging a tab, against the browser's own drag store", () => {
     expect(borderStartColorOf(target)).toBe(atRest);
   });
 
-  it("draws the selected tab differently from its neighbours", async () => {
+  it("draws the selected tab differently from its neighbors", async () => {
     const strip = await mountStrip();
     const selected = strip.tabs[0] as HTMLElement;
-    const neighbour = strip.tabs[1] as HTMLElement;
-    // The neighbour is asserted at the base rule's own transparent value rather than
+    const neighbor = strip.tabs[1] as HTMLElement;
+    // The neighbor is asserted at the base rule's own transparent value rather than
     // only as "different from the selected one". Inequality alone passes for a rule
     // that stopped matching in EITHER direction — the defect this case was written
     // after was a selector that matched nothing — so the unselected side is pinned to
     // a value and the selected side is held away from it.
-    expect(getComputedStyle(neighbour).borderTopColor).toBe(TRANSPARENT_BORDER);
+    expect(getComputedStyle(neighbor).borderTopColor).toBe(TRANSPARENT_BORDER);
     expect(getComputedStyle(selected).borderTopColor).not.toBe(TRANSPARENT_BORDER);
   });
 

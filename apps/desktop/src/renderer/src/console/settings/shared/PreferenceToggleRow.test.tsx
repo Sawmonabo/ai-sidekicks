@@ -65,34 +65,4 @@ describe("preference toggle row", () => {
     (switchOf(container) as HTMLElement | null)?.click();
     expect(onCheckedChange).not.toHaveBeenCalled();
   });
-
-  it("renders the carrier's note and its refusal verbatim", () => {
-    const { container } = render(
-      <PreferenceToggleRow
-        label="Held"
-        description="d"
-        checked={true}
-        note="Held in this window."
-        refusal={{ code: "preference.read_only", detail: "the store refused", origin: "test" }}
-        onCheckedChange={() => undefined}
-      />,
-    );
-    const text = container.textContent ?? "";
-    expect(text).toContain("Held in this window.");
-    expect(text).toContain("preference.read_only");
-    expect(text).toContain("the store refused");
-  });
-
-  it("negative control: a row with neither renders neither", () => {
-    // Without this, the case above would pass over a row that always drew a note.
-    const { container } = render(
-      <PreferenceToggleRow
-        label="Plain"
-        description="d"
-        checked={true}
-        onCheckedChange={() => undefined}
-      />,
-    );
-    expect(container.querySelector(".meridian-settings-row__note")).toBe(null);
-  });
 });

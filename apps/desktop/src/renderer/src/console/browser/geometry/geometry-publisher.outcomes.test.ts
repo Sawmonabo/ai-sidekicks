@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { AirspaceRegistry, ManualClock, refuse } from "../../core/index.js";
 import { PaneGeometryPublisher } from "./geometry-publisher.js";
-import { PANE_VIEW_HOST_REFUSAL_ORIGIN, unavailablePaneViewHost } from "./view-host.js";
+import { PANE_VIEW_HOST_REFUSAL_ORIGIN } from "./view-host.js";
 import { elementWithRect, RecordingViewHost, rect } from "./geometry-publisher.test-support.js";
 
 // Who finds out what the host said.
@@ -87,19 +87,6 @@ describe("PaneGeometryPublisher outcome subscription", () => {
       status: "suppressed",
       refusal: refuse(PANE_VIEW_HOST_REFUSAL_ORIGIN, "pane-gone", "The pane was destroyed."),
     });
-  });
-
-  it("announces the unavailable host's suppression, which is recorded before any frame", () => {
-    const clock = new ManualClock();
-    const publisher = new PaneGeometryPublisher({
-      host: unavailablePaneViewHost("no host in this window"),
-      clock,
-      occlusion: new AirspaceRegistry(),
-    });
-    const listener = countingSubscriber(publisher);
-    publisher.observe(elementWithRect(rect(0, 0, 100, 100)));
-    expect(listener.count()).toBe(1);
-    expect(publisher.lastOutcome()?.status).toBe("suppressed");
   });
 
   it("reaches its terminal state even when a sink throws on the rejection", () => {

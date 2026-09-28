@@ -14,11 +14,7 @@ import { describe, expect, it } from "vitest";
 
 import { AirspaceRegistry, ManualClock, refuse } from "../../core/index.js";
 import { PaneGeometryPublisher } from "./geometry-publisher.js";
-import {
-  PANE_VIEW_HOST_REFUSAL_ORIGIN,
-  unavailablePaneViewHost,
-  type AttachedPaneViewHost,
-} from "./view-host.js";
+import { PANE_VIEW_HOST_REFUSAL_ORIGIN, type AttachedPaneViewHost } from "./view-host.js";
 import { elementWithRect, RecordingViewHost, rect } from "./geometry-publisher.test-support.js";
 
 describe("PaneGeometryPublisher", () => {
@@ -31,20 +27,6 @@ describe("PaneGeometryPublisher", () => {
     const occlusion = new AirspaceRegistry();
     return { publisher: new PaneGeometryPublisher({ host, clock, occlusion }), clock, occlusion };
   }
-
-  it("arms nothing at all on an unavailable host, and says why", () => {
-    const clock = new ManualClock();
-    const publisher = new PaneGeometryPublisher({
-      host: unavailablePaneViewHost("no host in this window"),
-      clock,
-      occlusion: new AirspaceRegistry(),
-    });
-    publisher.observe(elementWithRect(rect(0, 0, 100, 100)));
-    expect(publisher.armedSourceCount).toBe(0);
-    expect(clock.pendingCount).toBe(0);
-    expect(publisher.lastOutcome()?.status).toBe("suppressed");
-    expect(publisher.publishCount).toBe(0);
-  });
 
   it("reads on invalidation but does not write until the frame runs", () => {
     const host = new RecordingViewHost();

@@ -42,18 +42,15 @@ import {
 } from "../../../primitives/index.js";
 import { KeybindingRowBody } from "./KeybindingRowBody.js";
 import { ResetAllChords } from "./ResetAllChords.js";
-import { StaleKeybindingOverrides } from "./StaleKeybindingOverrides.js";
 import {
   composeKeybindingRows,
-  composeStaleOverrideRows,
   matchKeybindingRows,
   type AppliedChordRecording,
   type KeybindingRow,
-  type StaleKeybindingOverrideRow,
 } from "./keybinding-map.js";
 import type { SettingsPageRegistry } from "../../settings-page-registry.js";
 
-/** The lane that owns this page, so an unfilled section names someone. */
+/** The owner this page registers under. */
 const OWNER = "settings-keyboard";
 
 /** The filter field's id, so its label points at it rather than wrapping it. */
@@ -92,16 +89,6 @@ export function KeyboardPage(): ReactNode {
     overrides: consoleKeybindingOverrides.overrides,
   });
   const audit = useMemo(() => auditKeybindings(keybindingSurface.bindings), [keybindingSurface]);
-  // The chords this window is holding for commands it cannot find. Composed from the
-  // SHIPPED table rather than the effective one, which is that table with these very
-  // entries already appended — and read off the surface rather than out of the
-  // frame's own half, because a chord a view family contributed is a shipped default
-  // too, and printing only the frame's would report a family's binding as stale.
-  const staleOverrideRows = composeStaleOverrideRows({
-    commands,
-    shippedBindings: keybindingSurface.shippedBindings,
-    overrides: consoleKeybindingOverrides.overrides,
-  });
   const visibleRows = matchKeybindingRows(rows, query);
   const changedRows = rows.filter((row) => row.overridden);
 
@@ -150,19 +137,6 @@ export function KeyboardPage(): ReactNode {
     [announce],
   );
 
-  const removeStaleOverride = useCallback(
-    async (staleRow: StaleKeybindingOverrideRow): Promise<void> => {
-      const unsaved = await consoleKeybindingOverrides.reset(staleRow.commandId);
-      setReport(undefined);
-      announce(
-        unsaved === undefined
-          ? `The chord kept for ${staleRow.commandId} has been removed.`
-          : `The chord kept for ${staleRow.commandId} has been removed for this window only. ${unsaved.detail}`,
-      );
-    },
-    [announce],
-  );
-
   const resetEveryRow = useCallback(async (): Promise<void> => {
     const unsaved = await consoleKeybindingOverrides.resetAll();
     setReport(undefined);
@@ -200,20 +174,12 @@ export function KeyboardPage(): ReactNode {
             }}
           />
         </div>
-        {visibleRows.length === 0 ? (
+        {rows.length > 0 && visibleRows.length === 0 ? (
           <Nothing
             kind="empty"
             placement="surface"
-            title={
-              rows.length === 0
-                ? "This window has registered no commands."
-                : `No command matches "${query.trim()}".`
-            }
-            detail={
-              rows.length === 0
-                ? "Commands are contributed by the surfaces that own them, and this window has none registered yet. A row appears here as soon as one does."
-                : "The filter matches a command's name, its id, its category, the chord it runs on, and the scope that chord is live in. Clearing the field brings every command back."
-            }
+            title={`No command matches "${query.trim()}".`}
+            detail="The filter matches a command's name, its id, its category, the chord it runs on, and the scope that chord is live in. Clearing the field brings every command back."
           />
         ) : (
           <ul className="meridian-keymap">
@@ -241,17 +207,6 @@ export function KeyboardPage(): ReactNode {
           </ul>
         )}
       </section>
-
-      {/* Absent when there are none: a region explaining a failure nobody has is a
-          failure a person then goes looking for. */}
-      {staleOverrideRows.length === 0 ? null : (
-        <StaleKeybindingOverrides
-          rows={staleOverrideRows}
-          onRemove={(staleRow) => {
-            void removeStaleOverride(staleRow);
-          }}
-        />
-      )}
 
       <section className="meridian-settings-page__block" aria-label="Changing a chord">
         <h3 className="meridian-settings-page__block-title">Changing a chord</h3>
@@ -331,19 +286,13 @@ export function KeyboardPage(): ReactNode {
             it has no row here and cannot be changed. It stays live while a chord is being recorded
             too, which makes it the one chord a recorder here cannot receive.
           </p>
-          <p>
-            The application menu owns chords too, and they are not listed: the menu is built outside
-            this window and nothing in here can read it. A chord the menu already holds will reach
-            the menu and never the console, so the absence of a chord from this list is not a
-            promise that it is free.
-          </p>
         </div>
       </section>
     </div>
   );
 }
 
-/** Claim the keyboard section. See `RuntimeNodesPage.tsx` on the seam's shape. */
+/** Claim the keyboard section. */
 export function registerKeyboardPage(registry: SettingsPageRegistry): void {
   registry.register({
     section: "keyboard",

@@ -1,18 +1,18 @@
-// Which provider accounts the attach form may pin, which one its advisories speak
+// Which provider accounts the account field may pin, which one its advisories speak
 // for, and what the registry stored about each one.
 //
 // THE ACCOUNT AXIS IS A REGISTRY AXIS, NOT A TEXT FIELD. It was one — an untyped
 // input beside a standing sentence — and an untyped input is the one shape that
 // cannot be wrong in the renderer and always wrong at the daemon: a typo composes a
 // request naming an account the registry has never held, which is refused in the
-// account plane's own namespace after the attach has been submitted. The registry is
-// read once per window already (`bridge/quotas/`), so the choices exist and this
-// module is what turns them into an axis.
+// account plane's own namespace after the request has been submitted. The registry
+// reading is handed in, so the choices exist and this module is what turns them into
+// an axis.
 //
 // AND IT IS PROVIDER-SCOPED, WHICH IS WHY THE DRIVER DECIDES IT. An account belongs
 // to exactly one provider and a run is admitted against exactly one account, so the
 // accounts a form may offer are the ones belonging to the provider the chosen driver
-// speaks for. That is why `../attach-model.ts` drops a pinned account on a driver change
+// speaks for. That is why a form drops a pinned account on a driver change
 // unconditionally, and it is why an unchosen driver here answers with no choices at
 // all rather than with every account on the node.
 //
@@ -33,7 +33,7 @@
 // else, and this module keeps those apart rather than attributing a provider's
 // verdict to a row it was not computed for.
 //
-// WHICH IS ALSO WHY THE ENTRY IS WHAT AN UNPINNED AXIS IS ABOUT. An attach that pins
+// WHICH IS ALSO WHY THE ENTRY IS WHAT AN UNPINNED AXIS IS ABOUT. A run that pins
 // nothing is asking the daemon for the provider's registered default, and the entry
 // is that resolution's own answer — so {@link advisoryChoiceIn} reads the entry where
 // nothing is pinned rather than leaving a form silent about the account it is going
@@ -71,7 +71,7 @@ export interface AttachAccountRegistryReading extends WireReadState {
 /** One account the axis may take, with the stored reading that renders beside it. */
 export interface AttachAccountChoice {
   readonly accountId: string;
-  /** Operator-chosen. What a person recognises the account by. */
+  /** Operator-chosen. What a person recognizes the account by. */
   readonly displayLabel: string;
   readonly isProviderDefault: boolean;
   readonly healthState: ProviderAccount["healthState"];
@@ -179,7 +179,7 @@ export function chosenAccountIn(
  * naming a value the picker cannot show and the registry-membership caveat are both
  * about the caller's own entry, and a default nobody typed would make each of them
  * false. This one answers which account the readings beside the field are ABOUT, which
- * is a different question the moment nothing is pinned: an unpinned attach asks the
+ * is a different question the moment nothing is pinned: an unpinned run asks the
  * daemon for the provider's registered default, so the readings that bear on it are
  * that account's.
  *
@@ -187,13 +187,13 @@ export function chosenAccountIn(
  * is what the registry MARKS default; the entry is what resolution REACHED, computed
  * by the same resolution the spawn path performs. Where the two disagree the entry is
  * the spawn path's answer, so a field keyed on the flag would report the health of an
- * account this attach is not going to use.
+ * account this run is not going to use.
  *
  * A PINNED VALUE THE REGISTRY DOES NOT CARRY ANSWERS NOTHING, deliberately, rather
  * than falling through to the default: the readings would then be about an account the
  * caller did not ask for, rendered under a value they did.
  *
- * @param accountId The account this form PINS, or `undefined` where it pins none.
+ * @param accountId The account this field PINS, or `undefined` where it pins none.
  */
 export function advisoryChoiceIn(
   reading: AttachAccountAxisReading,

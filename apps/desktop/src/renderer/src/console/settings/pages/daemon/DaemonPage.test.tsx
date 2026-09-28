@@ -1,28 +1,23 @@
 // The local-runtime page: the supervisor's numbers, and the two controls that confirm.
 //
-// The page's honesty rests on five things, and each has a case with its control:
-// the numbers it shows are the ones it was told and never invented, a control names
-// what it will interrupt before it does anything, a confirmation answered once
-// dispatches once, a refused control says so instead of looking like it worked, and
-// the daemon's own reported line is asked again once it can have changed.
+// The page's honesty rests on four things: the numbers it shows are the ones it was told
+// and never invented, a control names what it will interrupt before it does anything, a
+// confirmation answered once dispatches once, and the daemon's own reported line is asked
+// again once it can have changed.
 //
-// THE FIFTH IS TWO CLAIMS AT ONCE and needs both halves driven. A read that never
-// happens again leaves a stopped runtime beside `Reported state: connected` for the
-// rest of the visit; a read that happens on every render, or on every retry the
-// supervisor's ladder makes, is the interval poll wearing a different coat. So the
-// cases below drive a settled control and a supervisor transition — and the control
-// drives an advancing retry ATTEMPT, which changes the state object and must change
-// nothing else.
-//
-// WHAT THE PORT DOES WHEN IT BREAKS ITS OWN CONTRACT is `DaemonPage.rejections.test.tsx`
-// beside this, over the same mount from `daemon-page.test-support.tsx`. Every case here
-// drives a port that keeps it: it answers, and the answer is served or refused.
+// The last is two claims. A read that never happens again leaves a stopped runtime beside
+// `Reported state: connected`; a read on every render, or on every retry the supervisor's
+// ladder makes, is an interval poll. So the cases drive a settled control and a
+// supervisor transition, and an advancing retry attempt that must change nothing.
 
-import { act, fireEvent, waitFor } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { act, fireEvent, renderHook, waitFor } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 
+import { createFixtureBridge } from "../../../bridge/index.js";
+import { unscriptedScenario } from "../../../bridge/fixture/call-plane/bridge.test-support.js";
 import { settle } from "../../../core/settle.test-support.js";
 import { UNREPORTED_SHELL_STATE } from "../../../store/index.js";
+import { useDaemonControl, type DaemonOperations } from "./daemon-controls.js";
 import { getButton, renderPage } from "./daemon-page.test-support.js";
 
 describe("DaemonPage — the supervisor's numbers", () => {
@@ -71,16 +66,9 @@ describe("DaemonPage — the supervisor's numbers", () => {
 
 describe("DaemonPage — the reported status", () => {
   it("renders what the read answered", async () => {
-    const { container } = renderPage({ servesStatus: true });
+    const { container } = renderPage({});
     await waitFor(() => {
       expect(container.textContent).toContain("2026-04-30-read-1");
-    });
-  });
-
-  it("renders the refusal where the build carries no wire — the control", async () => {
-    const { container } = renderPage({ servesStatus: false });
-    await waitFor(() => {
-      expect(container.textContent).toContain("wire-unregistered");
     });
   });
 
@@ -160,6 +148,51 @@ describe("DaemonPage — the two controls", () => {
     });
   });
 
+  it("releases the dispatch once a call settles, so the same control works again", async () => {
+    // The single-flight latch must clear when the call ends. A latch that stayed held
+    // would leave the runtime's controls dead for the rest of the visit.
+    const { container, ledger } = renderPage({});
+    fireEvent.click(getButton(container, "Stop the local runtime"));
+    fireEvent.click(getButton(container, "Stop the local runtime"));
+    await waitFor(() => {
+      expect(ledger.calls).toStrictEqual(["stop"]);
+    });
+    await settle();
+
+    fireEvent.click(getButton(container, "Stop the local runtime"));
+    fireEvent.click(getButton(container, "Stop the local runtime"));
+    await waitFor(() => {
+      expect(ledger.calls).toStrictEqual(["stop", "stop"]);
+    });
+  });
+
+  it("hands a rejected call to the caller and still releases the dispatch", async () => {
+    // A dispatch key that outlived a failed call would leave the destructive controls dead
+    // for the rest of the visit: the second press must reach the call, and each failure
+    // must reach whoever pressed.
+    const calls: string[] = [];
+    const failure = new Error("the transport went away");
+    const operations: DaemonOperations = {
+      readStatus: () => Promise.resolve({ state: "connected", version: "unread" }),
+      stop: () => {
+        calls.push("stop");
+        return Promise.reject(failure);
+      },
+      restart: () => Promise.resolve(),
+    };
+    const bridge = createFixtureBridge({ scenario: unscriptedScenario("daemon-page") });
+    const { result } = renderHook(() => useDaemonControl(bridge, operations, vi.fn()));
+
+    await act(async () => {
+      await expect(result.current.put("stop")).rejects.toBe(failure);
+    });
+    await act(async () => {
+      await expect(result.current.put("stop")).rejects.toBe(failure);
+    });
+
+    expect(calls).toStrictEqual(["stop", "stop"]);
+  });
+
   it("dispatches once when the confirmation is answered twice in one frame", async () => {
     const { container, ledger } = renderPage({ holdsControls: true });
     fireEvent.click(getButton(container, "Stop the local runtime"));
@@ -216,15 +249,6 @@ describe("DaemonPage — the two controls", () => {
       expect(container.textContent).toContain("sent");
     });
     expect(container.textContent).not.toContain("stopped.");
-  });
-
-  it("renders a refused control's refusal", async () => {
-    const { container } = renderPage({});
-    fireEvent.click(getButton(container, "Restart the local runtime"));
-    fireEvent.click(getButton(container, "Restart the local runtime"));
-    await waitFor(() => {
-      expect(container.textContent).toContain("wire-unregistered");
-    });
   });
 
   it("offers no start control — starting is a shell act and not a call", () => {

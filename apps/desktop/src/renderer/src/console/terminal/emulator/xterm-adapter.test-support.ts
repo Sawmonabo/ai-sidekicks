@@ -4,7 +4,7 @@
 // Every case in this directory drives `@xterm/xterm` itself — no stand-in, no mock
 // terminal. A local fake would prove that the wrapper calls the methods the fake
 // declares, which is the one thing worth nothing: the constraints these modules exist
-// to keep are all properties of the library's behaviour (a scrollback that evicts, a
+// to keep are all properties of the library's behavior (a scrollback that evicts, a
 // `disableStdin` that gates, an addon that throws without WebGL2), and a fake keeps
 // whichever of them it was written to keep.
 //
@@ -13,7 +13,7 @@
 // context, a data listener, and a scrollback ring surviving into the next case. One
 // registry here rather than a copy per suite: parallel teardown loops drift into
 // several ideas of what "cleaned up" means, and the suite whose loop is weaker leaks
-// into its neighbour. The number of consumers is deliberately not stated — it moves
+// into its neighbor. The number of consumers is deliberately not stated — it moves
 // with every case file the directory adds, and a count in prose is a claim nothing
 // checks.
 //

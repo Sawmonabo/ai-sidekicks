@@ -52,9 +52,9 @@ const SESSION_ECHO_CLASS = "settings-surface-test__session";
 function sessionEchoPages(): SettingsPageRegistry {
   const pages = new SettingsPageRegistry();
   pages.register({
-    section: "cost",
+    section: "mounts",
     owner: "settings-surface-test",
-    label: "Cost",
+    label: "Mounts",
     keywords: [],
     render: (pageContext) => (
       <p className={SESSION_ECHO_CLASS}>{pageContext.retainedSessionId ?? "no session"}</p>
@@ -137,39 +137,22 @@ describe("settings rail — every section, always", () => {
   });
 });
 
-describe("settings pane — the three ways there is no page", () => {
+describe("settings pane", () => {
   it("invites a choice when the address names none", async () => {
     const { container } = await renderSurface(contextFor(undefined));
     expect(container.textContent ?? "").toContain("Choose a section.");
   });
 
-  it("names an address it does not recognise back to the reader", async () => {
+  it("names an address it does not recognize back to the reader", async () => {
     const { container } = await renderSurface(contextFor("not-a-section"));
     const text = container.textContent ?? "";
     expect(text).toContain("not-a-section");
     expect(text).toContain("does not name a section");
   });
 
-  it("says a section's page is reserved rather than drawing an empty pane", async () => {
-    // An EMPTY registry rather than the shipped one. The claim is the pane's — a
-    // section whose page nobody registered says so — and pinning it to whichever
-    // section happens to be unbuilt this week made it fail the moment that
-    // section's lane landed, which is a stale test rather than a real regression.
-    const { container } = await renderSurface(contextFor("keyboard"), new SettingsPageRegistry());
-    expect(container.textContent ?? "").toContain("has not been built yet");
-  });
-
-  it("renders a registered page instead of the reservation", async () => {
-    // Negative control for the case above: it would pass over a pane that rendered
-    // the reservation for every section, registered or not. The foil is a registry
-    // this case OWNS, exactly as the empty one above is — the branch under test is the
-    // pane's, and pinning the claim to whichever shipped section happened to carry a
-    // page made it fail the moment a lane filled that section's seat, which is a stale
-    // test rather than a real regression.
+  it("renders a registered page in the pane", async () => {
     const { container } = await renderSurface(contextFor("keyboard"), registeredProbePage());
-    const text = container.textContent ?? "";
-    expect(text).toContain(PROBE_PAGE_MARKER);
-    expect(text).not.toContain("has not been built yet");
+    expect(container.textContent ?? "").toContain(PROBE_PAGE_MARKER);
   });
 });
 
@@ -205,7 +188,7 @@ describe("settings search — one field above the rail", () => {
    * that it reach the pane, and that it settle there with one brief highlight. The
    * first is the hit row's own text and is covered above; these cases cover the other
    * two. The reach is asserted as FOCUS rather than as a scroll because focus is what
-   * this module writes: the viewport following it is the platform's own behaviour, and
+   * this module writes: the viewport following it is the platform's own behavior, and
    * a case asserting a scroll offset in a layout-free DOM would be asserting nothing.
    */
   function pressHit(container: HTMLElement, label: string): void {
@@ -220,12 +203,12 @@ describe("settings search — one field above the rail", () => {
   }
 
   it("lands the reader on the page a hit names, and settles it once", async () => {
-    const { container } = await renderSurface(contextFor("cost"), sessionEchoPages());
+    const { container } = await renderSurface(contextFor("mounts"), sessionEchoPages());
     const page = container.querySelector(".meridian-settings__page");
     expect(page?.className).not.toContain("--settling");
 
-    searchFor(container, "cost");
-    pressHit(container, "Cost");
+    searchFor(container, "mounts");
+    pressHit(container, "Mounts");
 
     const heading = container.querySelector(".meridian-settings__page-heading");
     expect(document.activeElement).toBe(heading);
@@ -235,9 +218,9 @@ describe("settings search — one field above the rail", () => {
   it("settles again on a second hit into the section already open", async () => {
     // The case a boolean could not express: the state is already true, so a second
     // press would change nothing downstream and the reader would be told nothing.
-    const { container } = await renderSurface(contextFor("cost"), sessionEchoPages());
-    searchFor(container, "cost");
-    pressHit(container, "Cost");
+    const { container } = await renderSurface(contextFor("mounts"), sessionEchoPages());
+    searchFor(container, "mounts");
+    pressHit(container, "Mounts");
     const page = container.querySelector(".meridian-settings__page");
     // The animation's end is what clears it, and jsdom runs no animation — so the
     // case fires the event the browser would, and then asserts the second press
@@ -249,14 +232,14 @@ describe("settings search — one field above the rail", () => {
       "--settling",
     );
 
-    pressHit(container, "Cost");
+    pressHit(container, "Mounts");
     expect(container.querySelector(".meridian-settings__page")?.className).toContain("--settling");
   });
 
   it("negative control: opening a section from the rail settles nothing", async () => {
     // Without this, the two cases above would pass over a page that flashed on every
     // arrival — which would say "you landed here" to someone who navigated by hand.
-    const { container } = await renderSurface(contextFor("cost"), sessionEchoPages());
+    const { container } = await renderSurface(contextFor("mounts"), sessionEchoPages());
     const railEntry = container.querySelector(".meridian-settings__section");
     act(() => {
       (railEntry as HTMLButtonElement).click();
@@ -272,7 +255,7 @@ describe("settings search — one field above the rail", () => {
 
 describe("the session a settings page is handed", () => {
   it("hands down the session this window opened, on an address that names none", async () => {
-    const settingsWindow = windowAt("cost", ["session-alpha"]);
+    const settingsWindow = windowAt("mounts", ["session-alpha"]);
     const { container } = await renderSurface(settingsWindow.context, sessionEchoPages());
     expect(echoedSession(container)).toBe("session-alpha");
     // The negative control on the projection this surface used to read: it is
@@ -283,7 +266,7 @@ describe("the session a settings page is handed", () => {
   });
 
   it("hands down nothing in a window that has opened no session", async () => {
-    const { container } = await renderSurface(windowAt("cost").context, sessionEchoPages());
+    const { container } = await renderSurface(windowAt("mounts").context, sessionEchoPages());
     expect(echoedSession(container)).toBe("no session");
   });
 
@@ -291,7 +274,7 @@ describe("the session a settings page is handed", () => {
     // The subscription is the claim. A getter read during render answers whatever
     // the store held on that pass and notifies nobody afterwards, so this case
     // fails on a snapshot and passes only on a store subscription.
-    const settingsWindow = windowAt("cost", ["session-alpha"]);
+    const settingsWindow = windowAt("mounts", ["session-alpha"]);
     const { container } = await renderSurface(settingsWindow.context, sessionEchoPages());
     act(() => {
       settingsWindow.frameStore.navigate({ kind: "workspace", sessionId: "session-beta" });
@@ -303,7 +286,7 @@ describe("the session a settings page is handed", () => {
     // Without this, the case above would pass over a surface that re-read the store
     // on every notification and reported whatever it found — the palette opening is
     // a frame change that says nothing about which session this window is in.
-    const settingsWindow = windowAt("cost", ["session-alpha"]);
+    const settingsWindow = windowAt("mounts", ["session-alpha"]);
     const { container } = await renderSurface(settingsWindow.context, sessionEchoPages());
     act(() => {
       settingsWindow.frameStore.setPaletteOpen(true);

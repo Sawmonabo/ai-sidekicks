@@ -2,7 +2,7 @@
 //
 // A `.ts` module rather than a table inside whichever component happened to need it
 // first: the row's aggregate chip and each leg's own chip both key on this, and two
-// tables would be two answers to one question the moment a status changed colour.
+// tables would be two answers to one question the moment a status changed color.
 //
 // A TOTAL `Record` RATHER THAN A SWITCH. A sixth status is then a compile error here
 // rather than a chip that silently renders neutral, which is the difference between a
@@ -15,7 +15,7 @@ import type { GrowthMcpServerStatus } from "../../../../bridge/index.js";
  * The mapping.
  *
  * `unknown` is `attention` and deliberately not `failure`: lost observability is not
- * a fault, and colouring it as one would tell an operator that a binding which may be
+ * a fault, and coloring it as one would tell an operator that a binding which may be
  * perfectly healthy had broken. `starting` is neutral for the same reason in the
  * other direction — a transition is not news.
  */

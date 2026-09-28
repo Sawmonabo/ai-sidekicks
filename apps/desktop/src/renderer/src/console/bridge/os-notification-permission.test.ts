@@ -1,39 +1,20 @@
 // Overlapping probes of one machine's permission, and which answer is allowed to show.
 //
-// The reading is driven directly rather than through either surface it feeds, for the
-// reason its consumers' own suites state: what is under test is which of two calls
-// decides the answer, and a rendered surface can only show the outcome after the fact.
-// The probes are HELD by hand because a probe is only genuinely outstanding if the case
-// decides when it answers, and nothing else makes the overlap observable.
-//
-// THE DEFECT WAS A TRIP OUT OF THE WINDOW AND BACK. Granting a notification permission
-// happens in the operating system, so the mount probe, the focus probe and the
-// reconnect probe arrive within moments of each other. Every trigger called the port
-// directly and published whatever it got, so an older `denied` landing after a newer
-// `granted` put the stale answer back and left it there until some later trigger
-// happened to fire. The remedy is two rules and the cases are split along them: the
-// scheduler means a second reason never becomes a second concurrent call, and the
-// generation latch means a settlement that outlived its round installs nothing.
+// The probes are held by hand so the case decides when each answers. The scheduler means
+// a second reason never becomes a second concurrent call, and the generation latch means
+// a settlement that outlived its round installs nothing.
 
 import { describe, expect, it } from "vitest";
 
-import {
-  fixtureBridgeWithGrowth,
-  unscriptedScenario,
-} from "./fixture/call-plane/bridge.test-support.js";
-import type { ConsoleBridge } from "./console-bridge.js";
 import { ManualClock, REFRESH_MAX_WAIT_MS } from "../core/index.js";
 import { crossMacrotaskBoundary } from "../core/macrotask-boundary.test-support.js";
-import { OsNotificationPermissionRead } from "./os-notification-permission.js";
-
-const SCENARIO = unscriptedScenario("os-notification-permission-read-test");
-
-/** What one held probe answers, once a case decides it has. */
-type PermissionState = "granted" | "denied" | "not-determined";
+import {
+  OsNotificationPermissionRead,
+  type OsNotificationPermissionState,
+} from "./os-notification-permission.js";
 
 interface HeldProbe {
-  serve(state: PermissionState): void;
-  reject(rejection: unknown): void;
+  serve(state: OsNotificationPermissionState): void;
 }
 
 interface ProbeHarness {
@@ -42,27 +23,15 @@ interface ProbeHarness {
   readonly clock: ManualClock;
 }
 
-/**
- * A reading over a bridge whose permission probe is answered by hand.
- *
- * The real fixture bridge with the one operation these cases drive overridden, so what
- * they assert is what a release build's port shape produces.
- */
+/** A reading whose permission probe is answered by hand. */
 function probeHarness(): ProbeHarness {
   const held: HeldProbe[] = [];
   const clock = new ManualClock();
-  const bridge: ConsoleBridge = fixtureBridgeWithGrowth(SCENARIO, {
-    shellNotificationPermissionRead: async () =>
-      await new Promise((resolve, reject) => {
-        held.push({
-          serve: (state) => {
-            resolve({ status: "served", value: { state } });
-          },
-          reject,
-        });
-      }),
-  });
-  return { read: new OsNotificationPermissionRead({ bridge, clock }), held, clock };
+  const probe = async (): Promise<OsNotificationPermissionState> =>
+    await new Promise((resolve) => {
+      held.push({ serve: resolve });
+    });
+  return { read: new OsNotificationPermissionRead({ probe, clock }), held, clock };
 }
 
 /** Let the scheduler's window elapse and whatever it fired reach the wire. */
@@ -72,7 +41,7 @@ async function performScheduledProbe(harness: ProbeHarness): Promise<void> {
 }
 
 /** The state a surface would render from the reading as it stands. */
-function shownState(read: OsNotificationPermissionRead): PermissionState | undefined {
+function shownState(read: OsNotificationPermissionRead): OsNotificationPermissionState | undefined {
   const reading = read.snapshot();
   return reading.kind === "read" ? reading.state : undefined;
 }
@@ -136,25 +105,6 @@ describe("the OS permission probe — a stale answer never overwrites a fresh on
 
     expect(shownState(harness.read)).toBe("granted");
     expect(shownState(harness.read)).not.toBe("denied");
-  });
-
-  it("says the machine would not answer, rather than staying on the last thing it said", async () => {
-    // The rejection arm, and it is the arm that must not be silent: a probe that
-    // fails leaves a surface describing a machine nobody has asked since, and
-    // silence there reads as `granted` — the one thing this console must not claim
-    // on nobody's behalf.
-    const harness = probeHarness();
-    harness.read.requestRead("subscribe");
-    await performScheduledProbe(harness);
-    probeAt(harness, 0).serve("granted");
-    await crossMacrotaskBoundary();
-
-    harness.read.requestRead("reconnect");
-    await performScheduledProbe(harness);
-    probeAt(harness, 1).reject(new Error("the host went away"));
-    await crossMacrotaskBoundary();
-
-    expect(harness.read.snapshot()).toStrictEqual({ kind: "unavailable" });
   });
 
   it("publishes nothing at all once the surface is gone", async () => {

@@ -3,14 +3,13 @@
 // The page's own file asserts what a person sees; this one asserts the state machine
 // underneath, because the property that matters here is about two calls in flight and
 // a rendered surface can only show the second half of it. The registry stub, the
-// records, and the flush are the page's own — one home per role, and a carrier test
-// that hand-rolled a second registry would be asserting against a bridge no window
-// builds.
+// records, and the flush are the page's own — one home per role, and a view test
+// that hand-rolled a second registry would be asserting against calls no window makes.
 
 import { describe, expect, it } from "vitest";
 
 import { AGENT_REGISTRY_REFUSAL_ORIGIN, AgentRegistryView } from "./definition-registry-view.js";
-import { RegistryStub, definition, served, settle } from "./agent-definitions-page.test-support.js";
+import { RegistryStub, definition, settle } from "./agent-definitions-page.test-support.js";
 
 const REVIEWER = definition();
 const AUDITOR = definition({ definitionId: "definition-2", name: "Auditor" });
@@ -21,10 +20,10 @@ function viewOverHeldDeletes(): {
   readonly stub: RegistryStub;
 } {
   const stub = new RegistryStub({
-    lists: [served([REVIEWER, AUDITOR]), served([AUDITOR])],
+    lists: [[REVIEWER, AUDITOR], [AUDITOR]],
     holdsDeletes: true,
   });
-  return { view: new AgentRegistryView(stub.bridge()), stub };
+  return { view: new AgentRegistryView(stub.bridge, stub.calls), stub };
 }
 
 describe("the agent registry view — one delete at a time", () => {
@@ -92,9 +91,9 @@ describe("the agent registry view — one delete at a time", () => {
     // delete after the first for the life of the page — which would leave a person
     // unable to delete anything else without reloading the window.
     const stub = new RegistryStub({
-      lists: [served([REVIEWER, AUDITOR]), served([AUDITOR]), served([])],
+      lists: [[REVIEWER, AUDITOR], [AUDITOR], []],
     });
-    const view = new AgentRegistryView(stub.bridge());
+    const view = new AgentRegistryView(stub.bridge, stub.calls);
     view.start();
     await settle();
 
@@ -104,6 +103,35 @@ describe("the agent registry view — one delete at a time", () => {
     await settle();
 
     expect(stub.deletedIds).toStrictEqual([REVIEWER.definitionId, AUDITOR.definitionId]);
+    expect(view.snapshot().refusalByDefinitionId.size).toBe(0);
+  });
+});
+
+describe("the agent registry view — a delete the daemon rejects", () => {
+  it("surfaces the rejection and gives the lock back so the next delete is performed", async () => {
+    // A held lock would leave every delete control disabled for the life of the page,
+    // and a caught rejection would show the person nothing went wrong.
+    const stub = new RegistryStub({ lists: [[REVIEWER, AUDITOR]] });
+    const attempts: string[] = [];
+    const view = new AgentRegistryView(stub.bridge, {
+      listDefinitions: stub.calls.listDefinitions,
+      deleteDefinition: async (request) => {
+        attempts.push(request.definitionId);
+        throw new Error("the daemon refused the delete");
+      },
+    });
+    view.start();
+    await settle();
+
+    await expect(view.confirmDeletion(REVIEWER.definitionId)).rejects.toThrow(
+      "the daemon refused the delete",
+    );
+
+    expect(view.snapshot().deletingId).toBeUndefined();
+    await expect(view.confirmDeletion(AUDITOR.definitionId)).rejects.toThrow(
+      "the daemon refused the delete",
+    );
+    expect(attempts).toStrictEqual([REVIEWER.definitionId, AUDITOR.definitionId]);
     expect(view.snapshot().refusalByDefinitionId.size).toBe(0);
   });
 });

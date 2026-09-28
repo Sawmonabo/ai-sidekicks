@@ -15,28 +15,18 @@
 
 import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import { act, render } from "@testing-library/react";
-import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
+import {
+  createFixtureBridge,
+  type AgentDefinition,
+  type ConsoleBridge,
+} from "../../bridge/index.js";
+import { unscriptedScenario } from "../../bridge/fixture/call-plane/bridge.test-support.js";
 import { settleScheduledRead } from "../../bridge/readings/scheduled-read.test-support.js";
 import { LIVE_ANNOUNCEMENT_HOLD_MS, ManualClock } from "../../core/index.js";
 import { settle as settleReactWork } from "../../core/settle.test-support.js";
 import { LiveAnnouncerProvider } from "../../primitives/index.js";
 import { AgentDefinitionsPage } from "./AgentDefinitionsPage.js";
-import type { AgentDefinitionRecord } from "./definition-rows.js";
-
-type FixtureScenario = Parameters<typeof createFixtureBridge>[0]["scenario"];
-type ListOutcome = Awaited<ReturnType<ConsoleBridge["growth"]["agentDefinitionList"]>>;
-type DeleteOutcome = Awaited<ReturnType<ConsoleBridge["growth"]["agentDefinitionDelete"]>>;
-
-const EMPTY_SCENARIO: FixtureScenario = {
-  id: "agents-definitions-test",
-  label: "Sidekick definitions, with nothing scripted",
-  purpose: "Drives the agent definitions page against a registry whose replies this file supplies.",
-  sessionId: "session-agents",
-  userIdsInJoinOrder: [],
-  beats: [],
-  replies: [],
-  startedAtIso: "2026-01-01T10:05:00.000Z",
-};
+import type { AgentRegistryCalls } from "./definition-registry-view.js";
 
 /**
  * A registry that answers, and counts what it was asked.
@@ -47,16 +37,16 @@ const EMPTY_SCENARIO: FixtureScenario = {
  * asserted at all: "the row is gone" is also true of a page that removed it itself.
  */
 export class RegistryStub {
-  readonly #lists: readonly ListOutcome[];
-  readonly #deleteOutcome: DeleteOutcome;
+  public readonly bridge: ConsoleBridge;
+  public readonly calls: AgentRegistryCalls;
+  readonly #lists: readonly (readonly AgentDefinition[])[];
   readonly #holdsDeletes: boolean;
   #listCallCount = 0;
   #deletedIds: string[] = [];
   #heldDeletes: (() => void)[] = [];
 
   public constructor(options: {
-    readonly lists: readonly ListOutcome[];
-    readonly deleteOutcome?: DeleteOutcome;
+    readonly lists: readonly (readonly AgentDefinition[])[];
     /**
      * Hold every delete open until {@link releaseDeletes} is called.
      *
@@ -68,8 +58,27 @@ export class RegistryStub {
     readonly holdsDeletes?: boolean;
   }) {
     this.#lists = options.lists;
-    this.#deleteOutcome = options.deleteOutcome ?? { status: "served", value: { deleted: true } };
     this.#holdsDeletes = options.holdsDeletes ?? false;
+    this.bridge = createFixtureBridge({ scenario: unscriptedScenario("agents-definitions-test") });
+    this.calls = {
+      listDefinitions: async () => {
+        const index = Math.min(this.#listCallCount, this.#lists.length - 1);
+        this.#listCallCount += 1;
+        return await Promise.resolve(this.#lists[index] as readonly AgentDefinition[]);
+      },
+      deleteDefinition: async (request) => {
+        this.#deletedIds = [...this.#deletedIds, request.definitionId];
+        if (!this.#holdsDeletes) {
+          return;
+        }
+        await new Promise<void>((resolve) => {
+          this.#heldDeletes = [...this.#heldDeletes, resolve];
+        });
+      },
+    };
+    // Recorded so {@link settle} can reach the frozen clock this bridge's reads are
+    // scheduled against — see that function.
+    bridgeUnderTest = this.bridge;
   }
 
   /** Let every held delete answer. Safe with none held. */
@@ -89,42 +98,9 @@ export class RegistryStub {
   public get deletedIds(): readonly string[] {
     return this.#deletedIds;
   }
-
-  public bridge(): ConsoleBridge {
-    const fixture = createFixtureBridge({ scenario: EMPTY_SCENARIO });
-    const built: ConsoleBridge = {
-      ...fixture,
-      growth: {
-        ...fixture.growth,
-        agentDefinitionList: async () => {
-          const index = Math.min(this.#listCallCount, this.#lists.length - 1);
-          this.#listCallCount += 1;
-          return await Promise.resolve(this.#lists[index] as ListOutcome);
-        },
-        agentDefinitionDelete: async (request: { readonly definitionId: string }) => {
-          this.#deletedIds = [...this.#deletedIds, request.definitionId];
-          if (!this.#holdsDeletes) {
-            return await Promise.resolve(this.#deleteOutcome);
-          }
-          return await new Promise<DeleteOutcome>((resolve) => {
-            this.#heldDeletes = [
-              ...this.#heldDeletes,
-              () => {
-                resolve(this.#deleteOutcome);
-              },
-            ];
-          });
-        },
-      },
-    };
-    // Recorded so {@link settle} can reach the frozen clock this bridge's reads are
-    // scheduled against — see that function.
-    bridgeUnderTest = built;
-    return built;
-  }
 }
 
-export function definition(overrides: Partial<AgentDefinitionRecord> = {}): AgentDefinitionRecord {
+export function definition(overrides: Partial<AgentDefinition> = {}): AgentDefinition {
   return {
     definitionId: "definition-1",
     name: "Reviewer",
@@ -143,10 +119,6 @@ export function definition(overrides: Partial<AgentDefinitionRecord> = {}): Agen
   };
 }
 
-export function served(definitions: readonly AgentDefinitionRecord[]): ListOutcome {
-  return { status: "served", value: definitions };
-}
-
 /**
  * Mount inside the announcer the page speaks through, on a clock that never runs
  * unless a test runs it.
@@ -157,17 +129,14 @@ export function served(definitions: readonly AgentDefinitionRecord[]): ListOutco
  * announcement from two. Advancing past the hold is what makes the difference
  * observable.
  */
-export function renderPage(
-  bridge: ConsoleBridge,
-  retainedSessionId: string | undefined = undefined,
-): {
+export function renderPage(stub: RegistryStub): {
   readonly container: HTMLElement;
   readonly clock: ManualClock;
 } {
   const clock = new ManualClock();
   const { container } = render(
     <LiveAnnouncerProvider clock={clock}>
-      <AgentDefinitionsPage bridge={bridge} retainedSessionId={retainedSessionId} />
+      <AgentDefinitionsPage bridge={stub.bridge} calls={stub.calls} />
     </LiveAnnouncerProvider>,
   );
   return { container, clock };
@@ -185,9 +154,9 @@ export async function releaseAnnouncementHold(clock: ManualClock): Promise<void>
  * The bridge the page or the view under test is reading through.
  *
  * Module state rather than a parameter because {@link settle} is called from forty-odd
- * places across this page's three suites and from {@link RegistryStub} itself, and
- * threading a bridge through every one of them would state nothing a reader needs:
- * exactly one page is mounted at a time here, over the bridge the stub just minted.
+ * places across this page's suites, and threading a bridge through every one of them
+ * would state nothing a reader needs: exactly one page is mounted at a time here, over
+ * the bridge the stub just minted.
  */
 let bridgeUnderTest: ConsoleBridge | undefined;
 
@@ -201,9 +170,8 @@ let bridgeUnderTest: ConsoleBridge | undefined;
  * without the second leaves the reply uncommitted, and the second without the first
  * asserts against a page that was never given a chance to ask.
  *
- * No depth is stated, which is the point: this page's chain used to be counted at six
- * and the seventh link would have gone unwaited for. `core/`'s settle crosses a
- * boundary instead — see that module.
+ * No depth is stated, which is the point: `core/`'s settle crosses a boundary instead of
+ * counting links — see that module.
  */
 export async function settle(): Promise<void> {
   if (bridgeUnderTest !== undefined) {

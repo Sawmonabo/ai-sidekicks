@@ -28,14 +28,9 @@
 //
 // THE ONE PAGE REGISTERED FROM OUTSIDE THIS FAMILY takes `SettingsPageRegistrar`, a
 // one-method view of the registry declared beside it in `settings-page-registry.ts`.
-// It is deliberately not re-exported HERE: the chunk root imports
-// `../agents-settings-page.js` to compose that page, so a type line pointing the
-// other way closes a module cycle and `no-circular` fails. The family still declares
-// what crosses its boundary — it is the narrow interface and not the registry class —
-// and the page holds `register` and nothing else: no rail read, no `unregister`, and no
-// section vocabulary. A lane edits that module for one reason only: the design placed a
-// page in settings and named no section id for it, which is why `agents` and `daemon`
-// are there and why the other twelve are the design's own.
+// It is deliberately not re-exported HERE: the chunk root imports the outside page's
+// module to compose it, so a type line pointing the other way closes a module cycle and
+// `no-circular` fails. The page holds `register` and nothing else.
 
 import type { ConsoleSurfaceRegistry } from "../seats/index.js";
 
@@ -43,13 +38,13 @@ import type { ConsoleSurfaceRegistry } from "../seats/index.js";
  * Claim the settings surface slot.
  *
  * A LOADER AND NOT A `render`. Settings is reached by pressing a rail destination, so
- * nothing paints it before a person asks for it, and every page it composes — fourteen
- * forms, their tables, the combobox stack two of them mount, and eleven stylesheets —
+ * nothing paints it before a person asks for it, and every page it composes — its
+ * forms, their tables, the combobox stack two of them mount, and their stylesheets —
  * rides the chunk `settings-surface-body.ts` roots rather than the initial import
  * graph. `apps/desktop/AGENTS.md` states the rule beside the seat-board one.
  *
  * The page registry moved behind that boundary with them and is composed there, per
- * mount: composing it here would mean importing all fourteen pages from this door, which
+ * mount: composing it here would mean importing every page from this door, which
  * is the whole of what the boundary exists to defer.
  */
 export function registerSettingsSurface(registry: ConsoleSurfaceRegistry): void {

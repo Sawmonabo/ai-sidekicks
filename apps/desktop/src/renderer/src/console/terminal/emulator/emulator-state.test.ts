@@ -123,7 +123,7 @@ describe("the emulator reading, when the chunk refuses", () => {
   });
 
   it("keeps a code the rejection carried, rather than replacing it with this seam's", async () => {
-    // A refusal that crossed the preload boundary as a plain envelope. Rule 9: the
+    // A refusal that crossed the preload boundary as a plain envelope. The
     // console renders the producer's code, because a code is the half a person acts
     // on and a synthesized one names only where it was caught.
     const refusal = await refusalFor({ code: "renderer.chunk_denied", message: "Blocked." });

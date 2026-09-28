@@ -20,7 +20,7 @@
 // legs on a row, and the per-leg outcomes a mutation answers with. Two spellings would
 // drift the moment a member moved, and the two lists would then key one leg two ways.
 // It stays inside this shell rather than beside the leg SHAPES, because both readers are
-// this directory's and the whole directory is deleted by the task that fills the slot.
+// this directory's.
 
 import { structuralKey } from "../../../../core/index.js";
 

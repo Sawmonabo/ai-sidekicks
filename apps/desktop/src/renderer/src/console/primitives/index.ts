@@ -69,7 +69,6 @@ import "./accent-fill.css";
 import "./chord/chord.css";
 import "./surface-absence.css";
 import "./surface-failure.css";
-import "./confirmation-dialog.css";
 import "./refusal.css";
 import "./partial-read.css";
 import "./posture/posture.css";
@@ -135,7 +134,7 @@ export {
 } from "./chord/chord-format.js";
 
 // The surface-scale absence wrapper. In this family rather than in `frame/` because
-// it is a presentational shell with no family of its own — a centred measure, a body
+// it is a presentational shell with no family of its own — a centered measure, a body
 // slot, and one hint — and because both of its producers now sit BELOW the frame:
 // `frame/composition/RouteSurface.tsx` reaches down to it like any other consumer, and
 // `seats/surface/absorbed-surfaces.ts` could not have reached up at all.
@@ -173,16 +172,8 @@ export { useLatestRef } from "./latest-ref.js";
 
 export { Nothing } from "./absence/Nothing.js";
 
-// The confirming dialog, and the tone its confirming act wears. Through the door
-// because two view families were composing the same eight Base UI parts and neither
-// could import the other's — siblings do not reach across — so a shared composition
-// has nowhere to live but a layer below both. What the callers keep is their own copy
-// and their own trigger class; the parts are here.
-export type { ConfirmationTone } from "./ConfirmationDialog.js";
-export { ConfirmationDialog } from "./ConfirmationDialog.js";
-
 // The incomplete-reading vocabulary and its one notice. Through the door for the
-// reason every family lane needs them: six families each wrote their own notice for
+// reason every view family needs them: six families each wrote their own notice for
 // this case and the sentences disagreed, so a family that reached past the barrel for
 // a local copy would be one more of them.
 export type {

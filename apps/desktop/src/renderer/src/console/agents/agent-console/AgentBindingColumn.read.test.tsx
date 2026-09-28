@@ -54,7 +54,7 @@ describe("agent binding column — a refused roster read", () => {
     const scriptedDaemon = new RefusingRosterDaemon(1);
     const bridge = bridgeCalling(scriptedDaemon);
     const { container } = render(
-      <AgentBindingColumn models={modelsOver(bridge)} agentId={undefined} />,
+      <AgentBindingColumn models={modelsOver(bridge, scriptedDaemon)} agentId={undefined} />,
     );
     await settleReads(bridge);
     expect(container.textContent ?? "").toContain("read-failed");
@@ -75,9 +75,10 @@ describe("agent binding column — a refused roster read", () => {
     // Without this, the case above would pass over a column that rendered the control
     // on every arm — a retry beside a roster that is already current, which reads as a
     // refresh this surface does not have.
-    const bridge = bridgeCalling(new RefusingRosterDaemon(0));
+    const scriptedDaemon = new RefusingRosterDaemon(0);
+    const bridge = bridgeCalling(scriptedDaemon);
     const { container } = render(
-      <AgentBindingColumn models={modelsOver(bridge)} agentId={undefined} />,
+      <AgentBindingColumn models={modelsOver(bridge, scriptedDaemon)} agentId={undefined} />,
     );
     await settleReads(bridge);
 

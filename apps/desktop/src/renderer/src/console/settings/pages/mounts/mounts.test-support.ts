@@ -11,12 +11,9 @@
 // the event they apply to it is `store/session-event.test-support.ts`'s. Neither is
 // re-declared here: this module is the mounts cast, not a second store cast.
 //
-// THE IDS ARE UUIDS rather than readable strings, because the call door parses the
-// REQUEST against the registered schema before it sends: `sessionId`, `repoMountId`,
-// and a workspace id are branded UUID scalars, so a readable `mount-007` is refused
-// as `request-unsendable` and the daemon is never asked at all — every case in the
-// cap block would fail on the request rather than exercise the cap. Named, so the
-// cases still read as "the first mount" rather than as a hex string.
+// THE IDS ARE UUIDS rather than readable strings, because the request ids are branded
+// UUID scalars and a shipped call parses them. Named, so the cases still read as "the
+// first mount" rather than as a hex string.
 
 import type { RepoMountReadResponse, WorkspaceListResponse } from "@ai-sidekicks/contracts";
 

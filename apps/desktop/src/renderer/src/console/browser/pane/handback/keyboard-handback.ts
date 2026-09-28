@@ -1,6 +1,6 @@
 // Keeping the application's chords alive inside a page the application does not own.
 //
-// Nothing here renders: correct behaviour on this surface is the absence of a
+// Nothing here renders: correct behavior on this surface is the absence of a
 // complaint. Four rules, and each one is a
 // decision about who wins a keystroke:
 //

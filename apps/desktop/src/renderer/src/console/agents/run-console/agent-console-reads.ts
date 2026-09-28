@@ -1,4 +1,4 @@
-// The four reads behind the agent console, and what refreshes each one.
+// The three reads behind the agent console, and what refreshes each one.
 //
 // One factory per read, and each one is a claim about a REFRESH STORY rather than
 // about a lifetime — which is the seam that separates this module from
@@ -8,15 +8,14 @@
 // changes how it mounts, and a refresh story moves when the wire grows a signal.
 //
 //   • **The roster is push-driven.** Its refresh signal is the session store's own
-//     admitted events, filtered to the three REGISTERED agent lifecycle kinds. No
+//     admitted events, filtered to the REGISTERED agent lifecycle kind. No
 //     `agent.subscribe` exists on any transport, and inventing one would be a method
 //     string with nothing behind it, so the signal is taken from the stream the
 //     console already has.
-//   • **The driver catalog and the definition list have no signal at all, honestly.**
-//     Nothing on the wire announces that a provider's model list or the node-local
-//     definition registry moved, so each read is performed once and its subscription
-//     is a stated no-op rather than a timer. A poll there would be the console
-//     inventing a refresh policy for a fact it cannot observe.
+//   • **The driver catalog has no signal at all, honestly.** Nothing on the wire
+//     announces that a provider's model list moved, so the read is performed once and
+//     its subscription is a stated no-op rather than a timer. A poll there would be the
+//     console inventing a refresh policy for a fact it cannot observe.
 //   • **Child links are per parent run**, and push-driven too. A child created later
 //     and a create the daemon refused both arrive on the same session stream, so the
 //     linkage takes the roster's signal filtered to its own two registered kinds
@@ -35,14 +34,13 @@ import {
   type ConsoleBridge,
   type AgentDefinition,
 } from "../../bridge/index.js";
-import { PushDrivenRead, servedGrowthValueOrRaise, servedValueOrRaise } from "../../seats/index.js";
+import { PushDrivenRead, servedValueOrRaise } from "../../seats/index.js";
 import { subscribeToSessionEventKinds, type SessionStore } from "../../store/index.js";
 import {
   AGENT_LIFECYCLE_EVENT_KINDS,
   CHILD_RUN_LINKAGE_EVENT_KINDS,
   DRIVER_LIST_CAPABILITIES_METHOD,
   DRIVER_LIST_MODELS_METHOD,
-  type AgentDefinitionListReading,
 } from "../agent-wire.js";
 import type { DriverCatalogReading } from "../driver-catalog.js";
 
@@ -50,26 +48,46 @@ import type { DriverCatalogReading } from "../driver-catalog.js";
 export const AGENT_ROSTER_ORIGIN = "agent-roster";
 export const DRIVER_CATALOG_ORIGIN = "driver-catalog";
 export const CHILD_RUN_LINKAGE_ORIGIN = "child-run-linkage";
-export const AGENT_DEFINITION_ORIGIN = "agent-definitions";
+
+/**
+ * Lists the agents of one session.
+ */
+export type ListSessionAgents = (request: {
+  readonly sessionId: string;
+}) => Promise<AgentRosterReading>;
+
+/**
+ * Reads one parent run's child-run links and refused creates.
+ */
+export type ReadChildRunLinks = (request: {
+  readonly parentRunId: string;
+}) => Promise<ChildRunLinkReading>;
+
+/**
+ * Lists the saved agent definitions.
+ */
+export type ListAgentDefinitions = () => Promise<readonly AgentDefinition[]>;
+
+/** The calls the agent console's models drive. Held stable by the caller. */
+export interface AgentConsoleCalls {
+  readonly listAgents: ListSessionAgents;
+  readonly readChildRunLinks: ReadChildRunLinks;
+}
 
 export type AgentRosterRead = PushDrivenRead<AgentRosterReading>;
 export type DriverCatalogRead = PushDrivenRead<DriverCatalogReading>;
 export type ChildRunLinkageRead = PushDrivenRead<ChildRunLinkReading>;
-export type AgentDefinitionRead = PushDrivenRead<AgentDefinitionListReading>;
 
 /** The roster read, refreshed by the three registered lifecycle events. */
 export function createAgentRoster(
-  bridge: ConsoleBridge,
   sessionStore: SessionStore,
   clock: ConsoleClock,
+  listAgents: ListSessionAgents,
 ): AgentRosterRead {
   return new PushDrivenRead<AgentRosterReading>({
     clock,
     origin: AGENT_ROSTER_ORIGIN,
-    read: async () =>
-      servedGrowthValueOrRaise(
-        await bridge.growth.agentList({ sessionId: sessionStore.sessionId }),
-      ),
+    read: async () => await listAgents({ sessionId: sessionStore.sessionId }),
     subscribe: (onChangeSignal) =>
       subscribeToSessionEventKinds(sessionStore, AGENT_LIFECYCLE_EVENT_KINDS, onChangeSignal),
   });
@@ -98,27 +116,6 @@ export function createDriverCatalog(bridge: ConsoleBridge, clock: ConsoleClock):
 }
 
 /**
- * The definition picker's read.
- *
- * No signal either: the definition registry is node-local and nothing on the session
- * stream announces an edit to it. A stale picker is refused by the daemon at attach —
- * a definition that has left the registry refuses rather than resolving to something
- * else — so the console does not need a freshness policy of its own to be correct.
- */
-export function createAgentDefinitions(
-  bridge: ConsoleBridge,
-  clock: ConsoleClock,
-): AgentDefinitionRead {
-  return new PushDrivenRead<AgentDefinitionListReading>({
-    clock,
-    origin: AGENT_DEFINITION_ORIGIN,
-    read: async () =>
-      pickerReadingFor(servedGrowthValueOrRaise(await bridge.growth.agentDefinitionList({}))),
-    subscribe: () => () => undefined,
-  });
-}
-
-/**
  * One parent run's links and refusal fold, refreshed by the two kinds that move it.
  *
  * A child created after this read settled and a create the daemon refused both
@@ -129,44 +126,16 @@ export function createAgentDefinitions(
  * one refresh chokepoint is introduced.
  */
 export function createChildRunLinkage(
-  bridge: ConsoleBridge,
   sessionStore: SessionStore,
   parentRunId: string,
   clock: ConsoleClock,
+  readChildRunLinks: ReadChildRunLinks,
 ): ChildRunLinkageRead {
   return new PushDrivenRead<ChildRunLinkReading>({
     clock,
     origin: CHILD_RUN_LINKAGE_ORIGIN,
-    read: async () =>
-      servedGrowthValueOrRaise(await bridge.growth.orchestrationChildRunLinkRead({ parentRunId })),
+    read: async () => await readChildRunLinks({ parentRunId }),
     subscribe: (onChangeSignal) =>
       subscribeToSessionEventKinds(sessionStore, CHILD_RUN_LINKAGE_EVENT_KINDS, onChangeSignal),
   });
-}
-
-/**
- * The picker's projection of the definition registry's own rows.
- *
- * The registry answers `AgentDefinition`, whose nullable axes are `T | null`
- * because a stored row never omits one — `null` IS how it says "inherit". The picker
- * renders absence, which is `undefined`, so the two grammars meet here in one place
- * rather than at each field a row is read through. It is a PROJECTION and not a
- * second shape for the wire: nothing is dropped, nothing is defaulted, and a row that
- * pinned nothing arrives with nothing pinned.
- */
-function pickerReadingFor(definitions: readonly AgentDefinition[]): AgentDefinitionListReading {
-  return {
-    definitions: definitions.map((definition) => ({
-      definitionId: definition.definitionId,
-      name: definition.name,
-      driverName: definition.driverName,
-      modelId: definition.modelId,
-      providerAccountId: definition.providerAccountId ?? undefined,
-      effort: definition.effort ?? undefined,
-      instructions: definition.instructions,
-      goal: definition.goal ?? undefined,
-      toolAllowlist: definition.toolAllowlist ?? undefined,
-      executionPostureMode: definition.executionPostureMode ?? undefined,
-    })),
-  };
 }

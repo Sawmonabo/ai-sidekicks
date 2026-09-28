@@ -11,14 +11,13 @@
 
 import { describe, expect, it } from "vitest";
 
-import { growthUnavailable } from "../../bridge/index.js";
+import type { AgentDefinition } from "../../bridge/index.js";
 import {
   NO_SAVED_DEFINITIONS,
   describeDefinitionSettlement,
   describeDeletionQuestion,
   projectDefinitionRows,
-  readDefinitionOutcome,
-  type AgentDefinitionRecord,
+  readDefinitions,
 } from "./definition-rows.js";
 
 /**
@@ -28,7 +27,7 @@ import {
  * below measure the real shape: a helper that defaulted a member would hide exactly
  * the axis a projection had forgotten.
  */
-function definition(overrides: Partial<AgentDefinitionRecord> = {}): AgentDefinitionRecord {
+function definition(overrides: Partial<AgentDefinition> = {}): AgentDefinition {
   return {
     definitionId: "definition-1",
     name: "Reviewer",
@@ -80,7 +79,7 @@ describe("the registry projection — what a row carries", () => {
   });
 
   it("says whose default an unpinned axis takes, in the console's own voice", () => {
-    // `null` is the materialised inherit state, and the sentence that explains it is
+    // `null` is the materialized inherit state, and the sentence that explains it is
     // ours — rendering it as a wire figure would attribute our words to the daemon.
     const [row] = projectDefinitionRows([
       definition({ providerAccountId: null, effort: null, executionPostureMode: null }),
@@ -195,21 +194,13 @@ describe("the registry projection — the order", () => {
   });
 });
 
-describe("the registry projection — reading one outcome", () => {
-  it("keeps a refusal a refusal rather than an empty registry", () => {
-    const reading = readDefinitionOutcome(growthUnavailable("agentDefinitionList"));
-    expect(reading.kind).toBe("refused");
-    expect(reading.kind === "refused" ? reading.refusal.code : "").toBe("wire-unregistered");
-  });
-
-  it("negative control: a served empty registry IS the empty reading", () => {
-    // Without this, the case above would pass over a reader that answered "refused"
-    // for everything, which conflates the two absences in the other direction.
-    expect(readDefinitionOutcome({ status: "served", value: [] }).kind).toBe("empty");
+describe("the registry projection — reading the stored rows", () => {
+  it("reads an empty registry as the empty reading", () => {
+    expect(readDefinitions([]).kind).toBe("empty");
   });
 
   it("answers with rows when there are rows", () => {
-    const reading = readDefinitionOutcome({ status: "served", value: [definition()] });
+    const reading = readDefinitions([definition()]);
     expect(reading.kind).toBe("rows");
     expect(reading.kind === "rows" ? reading.rows.length : 0).toBe(1);
   });
@@ -235,44 +226,21 @@ describe("the registry projection — what a settlement says out loud", () => {
     expect(describeDefinitionSettlement({ kind: "empty" })).toBe(`${NO_SAVED_DEFINITIONS}.`);
   });
 
-  it("speaks the refusal's sentence and not its code", () => {
-    // Read aloud, a code is a token nobody can act on, ahead of the sentence that
-    // matters. It stays on the screen, in mono, where it can be copied.
-    const refusal = growthUnavailable("agentDefinitionList");
-    const spoken = describeDefinitionSettlement({ kind: "refused", refusal });
-    expect(spoken).toBe(refusal.detail);
-    expect(spoken).not.toContain(refusal.code);
-  });
-
-  it("negative control: the three settlements do not all say one thing", () => {
+  it("negative control: the two settlements do not say one thing", () => {
     // Without this, the cases above would pass over a describer that returned a
     // constant that happened to match one of them.
     const spoken = new Set([
       describeDefinitionSettlement({ kind: "empty" }),
       describeDefinitionSettlement({ kind: "rows", rows: projectDefinitionRows([definition()]) }),
-      describeDefinitionSettlement({
-        kind: "refused",
-        refusal: growthUnavailable("agentDefinitionList"),
-      }),
     ]);
-    expect(spoken.size).toBe(3);
+    expect(spoken.size).toBe(2);
   });
 });
 
 describe("the registry projection — the delete question", () => {
-  it("names the record and states what deleting it does not reach", () => {
+  it("names the record", () => {
     const [row] = projectDefinitionRows([definition({ name: "Reviewer" })]);
     expect(row).toBeDefined();
-    const question = describeDeletionQuestion(row!);
-    expect(question).toContain("Reviewer");
-    expect(question).toContain("keeps the configuration it was given");
-  });
-
-  it("negative control: it does not ask a bare are-you-sure", () => {
-    // Without this, the case above would pass over a question that named the record
-    // and left a person weighing a consequence the registry does not have.
-    const [row] = projectDefinitionRows([definition()]);
-    expect(row).toBeDefined();
-    expect(describeDeletionQuestion(row!).length).toBeGreaterThan(40);
+    expect(describeDeletionQuestion(row!)).toContain("Reviewer");
   });
 });

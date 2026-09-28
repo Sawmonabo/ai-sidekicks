@@ -1,191 +1,62 @@
-// The three answers a preference carrier can give, and what each one leaves on screen.
-//
-// The interesting one is the middle arm: a carrier that was never asked is not a
-// carrier that refused, and collapsing the two would either lose a person's choice
-// or claim a refusal nobody made. Both other arms are asserted beside it so the
-// distinction is proved rather than described.
+// What a preference carrier's answers leave on screen: the stored value over the default,
+// an accepted write applied into the carrier's own record, and the races between an
+// opening read and a choice, and between keys.
 
 import { describe, expect, it, vi } from "vitest";
 
-import {
-  fixtureBridgeWithGrowth,
-  growthRefusing,
-  growthServing,
-  unscriptedScenario,
-} from "../../../bridge/fixture/call-plane/bridge.test-support.js";
+import { createFixtureBridge } from "../../../bridge/index.js";
+import { unscriptedScenario } from "../../../bridge/fixture/call-plane/bridge.test-support.js";
 import { settleScheduledRead } from "../../../bridge/readings/scheduled-read.test-support.js";
-import { ShellPreferenceStore } from "./shell-preferences-store.js";
-import { SHELL_PREFERENCE_DEFAULTS, effectivePreference } from "./shell-preference-snapshot.js";
-import type { GrowthPort } from "../../../bridge/index.js";
+import { ShellPreferenceStore, type ShellPreferenceCarrier } from "./shell-preferences-store.js";
+import { effectivePreference } from "./shell-preference-snapshot.js";
 
-/**
- * The scenario behind every bridge below.
- *
- * Nothing is scripted, and nothing needs to be: the store reaches the growth port
- * alone, and each case replaces exactly the two operations it exercises. What the
- * scenario buys is that every OTHER namespace is the shipped fixture's rather than a
- * cast object literal, so a store that started reading a third seam would find a real
- * answer rather than `undefined`.
- */
-const SCENARIO = unscriptedScenario("shell-preferences-test");
+/** The bridge the store takes its clock from; nothing is scripted and nothing needs to be. */
+function fixtureBridge(): ReturnType<typeof createFixtureBridge> {
+  return createFixtureBridge({ scenario: unscriptedScenario("shell-preferences-test") });
+}
 
-/**
- * The carrier nobody has registered: both operations answer the port's own refusal.
- *
- * A stub OTHER_DEVICE, not a stand-in for the store: every assertion below drives the
- * real `ShellPreferenceStore`, and what is replaced is the wire it talks to, which is
- * the only part a unit test cannot have. The refusal is built by the shipped
- * `growthUnavailable` rather than written out here, so what the store is asserted
- * against is what a release build actually returns.
- */
-const REFUSING_CARRIER: Partial<GrowthPort> = {
-  shellConfigRead: growthRefusing("shellConfigRead"),
-  shellConfigWrite: growthRefusing("shellConfigWrite"),
-};
-
-describe("shell preferences — a carrier nobody asked", () => {
-  it("reads as unavailable rather than as an empty preference set", async () => {
-    const bridge = fixtureBridgeWithGrowth(SCENARIO, REFUSING_CARRIER);
-    const store = new ShellPreferenceStore(bridge);
-    store.start();
-    await settleScheduledRead(bridge);
-    expect(store.snapshot().reading.kind).toBe("unavailable");
-  });
-
-  it("holds a choice the carrier never took, and says which window holds it", async () => {
-    const store = new ShellPreferenceStore(fixtureBridgeWithGrowth(SCENARIO, REFUSING_CARRIER));
-    await store.choose("updates.automatic", false);
-    const snapshot = store.snapshot();
-    expect(effectivePreference(snapshot, "updates.automatic")).toBe(false);
-    expect(Object.hasOwn(snapshot.heldLocally, "updates.automatic")).toBe(true);
-    // Held is not refused: nothing was rejected, so nothing renders a code.
-    expect(snapshot.refusalByKey).toStrictEqual({});
-  });
-
-  it("negative control: an untouched key answers its default, not the last choice", () => {
-    // Without this, the case above would pass over a store that flipped every key
-    // whenever any key was chosen.
-    const store = new ShellPreferenceStore(fixtureBridgeWithGrowth(SCENARIO, REFUSING_CARRIER));
-    expect(effectivePreference(store.snapshot(), "updates.automatic")).toBe(
-      SHELL_PREFERENCE_DEFAULTS["updates.automatic"],
-    );
-    expect(effectivePreference(store.snapshot(), "notifications.osToastsMuted")).toBe(
-      SHELL_PREFERENCE_DEFAULTS["notifications.osToastsMuted"],
-    );
-  });
-});
+/** A carrier holding `values`, whose write is accepted. */
+function carrierHolding(
+  values: Readonly<Record<string, boolean>>,
+  write: ShellPreferenceCarrier["write"] = async () => await Promise.resolve(undefined),
+): ShellPreferenceCarrier {
+  return { read: async () => await Promise.resolve(values), write };
+}
 
 describe("shell preferences — a carrier that answers", () => {
   it("prefers the carrier's stored value over the default", async () => {
-    const bridge = fixtureBridgeWithGrowth(SCENARIO, {
-      shellConfigRead: growthServing({ "diagnostics.crashReports": false }),
-      shellConfigWrite: growthServing(undefined),
-    });
-    const store = new ShellPreferenceStore(bridge);
+    const bridge = fixtureBridge();
+    const store = new ShellPreferenceStore(
+      bridge,
+      carrierHolding({ "diagnostics.crashReports": false }),
+    );
     store.start();
     await settleScheduledRead(bridge);
     expect(effectivePreference(store.snapshot(), "diagnostics.crashReports")).toBe(false);
   });
 
-  it("applies a served write into the carrier's own record, holding nothing locally", async () => {
-    const write = vi.fn(growthServing(undefined));
-    const bridge = fixtureBridgeWithGrowth(SCENARIO, {
-      shellConfigRead: growthServing({}),
-      shellConfigWrite: write,
-    });
-    const store = new ShellPreferenceStore(bridge);
+  it("applies an accepted write into the carrier's own record", async () => {
+    const write = vi.fn(async () => await Promise.resolve(undefined));
+    const bridge = fixtureBridge();
+    const store = new ShellPreferenceStore(bridge, carrierHolding({}, write));
     store.start();
     await settleScheduledRead(bridge);
     await store.choose("notifications.osToastsMuted", true);
-    const snapshot = store.snapshot();
     expect(write).toHaveBeenCalledWith({ key: "notifications.osToastsMuted", enabled: true });
-    expect(effectivePreference(snapshot, "notifications.osToastsMuted")).toBe(true);
-    expect(snapshot.heldLocally).toStrictEqual({});
+    expect(effectivePreference(store.snapshot(), "notifications.osToastsMuted")).toBe(true);
   });
 
-  it("leaves the stored value and renders the code when a present carrier refuses", async () => {
-    const bridge = fixtureBridgeWithGrowth(SCENARIO, {
-      shellConfigRead: growthServing({ "updates.automatic": true }),
-      shellConfigWrite: () => Promise.reject(new Error("the preference store is read-only")),
-    });
-    const store = new ShellPreferenceStore(bridge);
+  it("negative control: a rejected write leaves the stored value and stops pending", async () => {
+    const bridge = fixtureBridge();
+    const store = new ShellPreferenceStore(
+      bridge,
+      carrierHolding({ "updates.automatic": true }, () => Promise.reject(new Error("read-only"))),
+    );
     store.start();
     await settleScheduledRead(bridge);
-    await store.choose("updates.automatic", false);
-    const snapshot = store.snapshot();
-    expect(effectivePreference(snapshot, "updates.automatic")).toBe(true);
-    expect(snapshot.refusalByKey["updates.automatic"]?.detail).toBe(
-      "the preference store is read-only",
-    );
-    // The dismiss a person presses on the notice clears exactly that key.
-    store.dismiss("updates.automatic");
-    expect(store.snapshot().refusalByKey).toStrictEqual({});
-  });
-
-  it("negative control: a refused write does not become a held local choice", async () => {
-    // Without this, the case above would pass over a store that both refused AND
-    // applied — which would show the new position beside the reason it was rejected.
-    const store = new ShellPreferenceStore(
-      fixtureBridgeWithGrowth(SCENARIO, {
-        shellConfigRead: growthServing({}),
-        shellConfigWrite: () => Promise.reject(new Error("no")),
-      }),
-    );
-    await store.choose("updates.automatic", false);
-    expect(store.snapshot().heldLocally).toStrictEqual({});
-  });
-});
-
-/**
- * A rejection no bare `String(...)` can render.
- *
- * `Object.create(null)` has no prototype, so it carries no `toString`, no `valueOf`,
- * and no `Symbol.toPrimitive` — and ToPrimitive throws rather than answering. It is
- * built here rather than mocked because the value is the whole subject: what the
- * catch path has to survive is a rejection whose own rendering fails.
- */
-function unrenderableRejection(): unknown {
-  return Object.create(null) as unknown;
-}
-
-describe("shell preferences — a rejection the catch path cannot stringify", () => {
-  it("clears the pending key and publishes the refusal anyway", async () => {
-    // The defect: composing the sentence threw INSIDE the catch that exists to
-    // publish the failure, so `choose` rejected with the key still pending — the
-    // toggle spun for the life of the window with nothing on screen saying why. On
-    // the partial normalizer this case does not merely assert wrongly, it throws.
-    const store = new ShellPreferenceStore(
-      fixtureBridgeWithGrowth(SCENARIO, {
-        shellConfigRead: growthServing({}),
-        shellConfigWrite: () => Promise.reject(unrenderableRejection()),
-      }),
-    );
-
-    await store.choose("updates.automatic", false);
-
-    const snapshot = store.snapshot();
-    expect(snapshot.pendingKeys.size).toBe(0);
-    expect(snapshot.refusalByKey["updates.automatic"]?.code).toBe("preference-write-failed");
-    expect(typeof snapshot.refusalByKey["updates.automatic"]?.detail).toBe("string");
-  });
-
-  it("negative control: an ordinary rejection still renders its own words", async () => {
-    // Without this, the case above would pass over a normalizer that answered the
-    // same placeholder for every rejection — which would hide every reason a
-    // carrier ever gives behind the one sentence written for the value that has
-    // none.
-    const store = new ShellPreferenceStore(
-      fixtureBridgeWithGrowth(SCENARIO, {
-        shellConfigRead: growthServing({}),
-        shellConfigWrite: () => Promise.reject(new Error("the carrier is read-only")),
-      }),
-    );
-
-    await store.choose("updates.automatic", false);
-
-    expect(store.snapshot().refusalByKey["updates.automatic"]?.detail).toBe(
-      "the carrier is read-only",
-    );
+    await expect(store.choose("updates.automatic", false)).rejects.toThrow("read-only");
+    expect(effectivePreference(store.snapshot(), "updates.automatic")).toBe(true);
+    expect(store.snapshot().pendingKeys.size).toBe(0);
   });
 });
 
@@ -196,24 +67,19 @@ describe("shell preferences — a rejection the catch path cannot stringify", ()
  * builders resolve immediately, so a case built from them could never put a choice
  * between a read's start and its answer.
  */
-type ServedShellConfig = Extract<
-  Awaited<ReturnType<GrowthPort["shellConfigRead"]>>,
-  { status: "served" }
->;
-
-/** The served arm of one carrier read, resolved when a case decides to resolve it. */
+/** One carrier read, resolved when a case decides to resolve it. */
 function heldRead(): {
-  readonly answer: GrowthPort["shellConfigRead"];
+  readonly answer: ShellPreferenceCarrier["read"];
   readonly serve: (values: Readonly<Record<string, boolean>>) => void;
 } {
-  let settle: (outcome: ServedShellConfig) => void = () => undefined;
-  const held = new Promise<ServedShellConfig>((resolve) => {
+  let settle: (values: Readonly<Record<string, boolean>>) => void = () => undefined;
+  const held = new Promise<Readonly<Record<string, boolean>>>((resolve) => {
     settle = resolve;
   });
   return {
     answer: () => held,
     serve: (values) => {
-      settle({ status: "served", value: values });
+      settle(values);
     },
   };
 }
@@ -224,11 +90,11 @@ describe("shell preferences — the opening read never lands on a newer choice",
     // read's continuation then replaced the whole record with the snapshot from
     // before the choice — so the switch reverted moments after it was saved.
     const opening = heldRead();
-    const bridge = fixtureBridgeWithGrowth(SCENARIO, {
-      shellConfigRead: opening.answer,
-      shellConfigWrite: growthServing(undefined),
+    const bridge = fixtureBridge();
+    const store = new ShellPreferenceStore(bridge, {
+      read: opening.answer,
+      write: async () => await Promise.resolve(undefined),
     });
-    const store = new ShellPreferenceStore(bridge);
     store.start();
     await settleScheduledRead(bridge);
 
@@ -242,11 +108,11 @@ describe("shell preferences — the opening read never lands on a newer choice",
 
   it("installs a read that settled with no choice against it", async () => {
     const opening = heldRead();
-    const bridge = fixtureBridgeWithGrowth(SCENARIO, {
-      shellConfigRead: opening.answer,
-      shellConfigWrite: growthServing(undefined),
+    const bridge = fixtureBridge();
+    const store = new ShellPreferenceStore(bridge, {
+      read: opening.answer,
+      write: async () => await Promise.resolve(undefined),
     });
-    const store = new ShellPreferenceStore(bridge);
     store.start();
     await settleScheduledRead(bridge);
 
@@ -263,11 +129,11 @@ describe("shell preferences — the opening read never lands on a newer choice",
     // read — including one that settled before anybody chose — which would make the
     // carrier's record unreachable rather than merely superseded.
     const opening = heldRead();
-    const bridge = fixtureBridgeWithGrowth(SCENARIO, {
-      shellConfigRead: opening.answer,
-      shellConfigWrite: growthServing(undefined),
+    const bridge = fixtureBridge();
+    const store = new ShellPreferenceStore(bridge, {
+      read: opening.answer,
+      write: async () => await Promise.resolve(undefined),
     });
-    const store = new ShellPreferenceStore(bridge);
     store.start();
     await settleScheduledRead(bridge);
 
@@ -290,7 +156,7 @@ describe("shell preferences — the opening read never lands on a newer choice",
  * is what lets the supersession rule be observed rather than assumed.
  */
 function heldWrite(): {
-  readonly answer: GrowthPort["shellConfigWrite"];
+  readonly answer: ShellPreferenceCarrier["write"];
   readonly serve: (key: string) => void;
 } {
   const settlersByKey = new Map<string, (() => void)[]>();
@@ -300,7 +166,7 @@ function heldWrite(): {
         settlersByKey.set(key, [
           ...(settlersByKey.get(key) ?? []),
           () => {
-            resolve({ status: "served", value: undefined });
+            resolve(undefined);
           },
         ]);
       }),
@@ -323,12 +189,10 @@ describe("shell preferences — one key's write never discards another's", () =>
     // this store reads once and never refreshes, so the window showed A's old value
     // for the rest of its life.
     const write = heldWrite();
-    const store = new ShellPreferenceStore(
-      fixtureBridgeWithGrowth(SCENARIO, {
-        shellConfigRead: growthServing({}),
-        shellConfigWrite: write.answer,
-      }),
-    );
+    const store = new ShellPreferenceStore(fixtureBridge(), {
+      read: async () => await Promise.resolve({}),
+      write: write.answer,
+    });
     const chosenA = store.choose("updates.automatic", false);
     const chosenB = store.choose("diagnostics.crashReports", false);
     expect(store.snapshot().pendingKeys).toStrictEqual(
@@ -347,12 +211,10 @@ describe("shell preferences — one key's write never discards another's", () =>
 
   it("clears only the settled key's spinner, not every key writing", async () => {
     const write = heldWrite();
-    const store = new ShellPreferenceStore(
-      fixtureBridgeWithGrowth(SCENARIO, {
-        shellConfigRead: growthServing({}),
-        shellConfigWrite: write.answer,
-      }),
-    );
+    const store = new ShellPreferenceStore(fixtureBridge(), {
+      read: async () => await Promise.resolve({}),
+      write: write.answer,
+    });
     const chosenA = store.choose("updates.automatic", false);
     const chosenB = store.choose("diagnostics.crashReports", false);
 
@@ -371,12 +233,10 @@ describe("shell preferences — one key's write never discards another's", () =>
     // superseding at all — which would let a stale reply for one key land over the
     // value a person chose for it a moment later.
     const write = heldWrite();
-    const store = new ShellPreferenceStore(
-      fixtureBridgeWithGrowth(SCENARIO, {
-        shellConfigRead: growthServing({}),
-        shellConfigWrite: write.answer,
-      }),
-    );
+    const store = new ShellPreferenceStore(fixtureBridge(), {
+      read: async () => await Promise.resolve({}),
+      write: write.answer,
+    });
     const first = store.choose("updates.automatic", false);
     const second = store.choose("updates.automatic", true);
 
@@ -384,6 +244,29 @@ describe("shell preferences — one key's write never discards another's", () =>
     // is genuinely discarded rather than merely never reaching its settlement.
     write.serve("updates.automatic");
     await Promise.all([first, second]);
+
+    expect(effectivePreference(store.snapshot(), "updates.automatic")).toBe(true);
+    expect(store.snapshot().pendingKeys).toStrictEqual(new Set());
+  });
+
+  it("lands nothing from an older write that is answered after a newer one for the same key", async () => {
+    // The two writes are answered newest first, so the older continuation runs AFTER the
+    // newer one has settled and would put its own value over the one chosen later.
+    const answers: (() => void)[] = [];
+    const store = new ShellPreferenceStore(fixtureBridge(), {
+      read: async () => await Promise.resolve({}),
+      write: async () =>
+        await new Promise<void>((resolve) => {
+          answers.push(resolve);
+        }),
+    });
+    const older = store.choose("updates.automatic", false);
+    const newer = store.choose("updates.automatic", true);
+
+    answers[1]?.();
+    await newer;
+    answers[0]?.();
+    await older;
 
     expect(effectivePreference(store.snapshot(), "updates.automatic")).toBe(true);
     expect(store.snapshot().pendingKeys).toStrictEqual(new Set());

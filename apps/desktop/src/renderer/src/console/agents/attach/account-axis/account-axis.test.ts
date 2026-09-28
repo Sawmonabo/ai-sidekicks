@@ -4,7 +4,7 @@
 // answers. The axis it replaced was a free-text input, so every one of them rendered
 // identically — as a blank field — and the case that matters is the one where a
 // person types an account under the wrong driver and the form composes a request the
-// daemon can only refuse after the attach has been submitted.
+// daemon can only refuse after the request has been submitted.
 //
 // AND WHICH ACCOUNT A SENTENCE IS ABOUT IS ASKED HERE TOO, because it is a selection
 // over the same reading rather than a wording question. What those sentences SAY is
@@ -30,7 +30,7 @@ import { account, registryAccountId, resolvedTo, served } from "./account-readin
 /** The origin every refusal in this suite is attributed to. */
 const ACCOUNT_PLANE = "account-plane";
 
-describe("the attach form's account axis — which accounts it may offer", () => {
+describe("the account axis — which accounts it may offer", () => {
   it("offers only the accounts belonging to the chosen driver's provider", () => {
     const reading = attachAccountAxisReadingFor(
       served([
@@ -131,7 +131,7 @@ describe("the attach form's account axis — which accounts it may offer", () =>
   });
 });
 
-describe("the attach form's account axis — which account a readiness entry is about", () => {
+describe("the account axis — which account a readiness entry is about", () => {
   it("attributes a readiness entry only to the account it resolved to", () => {
     const resolved = resolvedTo("acct-team");
     const reading = attachAccountAxisReadingFor(
@@ -183,12 +183,12 @@ describe("the attach form's account axis — which account a readiness entry is 
   });
 });
 
-describe("the attach form's account axis — the account an unpinned attach resolves to", () => {
+describe("the account axis — the account an unpinned run resolves to", () => {
   it("speaks for the entry's resolved account where the form pins nothing", () => {
     // The defect this exists for: pinning nothing is the state a person meets the
     // field in and it is a REQUEST for the provider's default, so an axis that
     // answered `undefined` here left a known-unhealthy default unmentioned until the
-    // daemon refused the attach.
+    // daemon refused the request.
     const reading = attachAccountAxisReadingFor(
       served(
         [
@@ -212,7 +212,7 @@ describe("the attach form's account axis — the account an unpinned attach reso
     // The flag is what the registry MARKS default; the entry is what resolution
     // REACHED, computed by the same resolution the spawn path performs. Where they
     // disagree the entry is the spawn path's answer, so a field keyed on the flag
-    // would report the health of an account this attach is not going to use.
+    // would report the health of an account this run is not going to use.
     const reading = attachAccountAxisReadingFor(
       served(
         [
@@ -290,7 +290,7 @@ describe("the attach form's account axis — the account an unpinned attach reso
   });
 });
 
-describe("the attach form's account axis — a value the registry does not carry", () => {
+describe("the account axis — a value the registry does not carry", () => {
   it("reports a pinned account the served registry lacks", () => {
     const reading = attachAccountAxisReadingFor(
       served([account({ accountId: registryAccountId("acct-team") })]),

@@ -169,7 +169,7 @@ describe("the account axis's advisories — where resolution reached no account"
     );
   }
 
-  it("names the remedy where an unpinned attach asks for a default that does not exist", () => {
+  it("names the remedy where an unpinned run asks for a default that does not exist", () => {
     // The state that rendered NOTHING before this rule: there is no resolved row whose
     // readings could carry the remedy, so the form went on asking for a default the
     // daemon would refuse and the refusal was the first thing that said so.

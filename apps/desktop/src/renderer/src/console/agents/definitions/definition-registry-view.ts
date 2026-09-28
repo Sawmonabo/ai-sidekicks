@@ -1,26 +1,20 @@
 // What the agent definitions page HOLDS: the registry read, the delete in flight, and which
-// record the editor's seat is open on.
+// record the editor is open on.
 //
 // It is a module of its own rather than a class at the top of `AgentDefinitionsPage.tsx`
-// because the two are different jobs — one owns a state machine over the growth
-// port, the other renders whatever that machine settled on — which is the seam the
+// because the two are different jobs — one owns a state machine over the registry calls,
+// the other renders whatever that machine settled on — which is the seam the
 // module-shape rule in `apps/desktop/AGENTS.md` splits on. The page imports the hook
-// and reads a snapshot; it never calls the port itself.
+// and reads a snapshot; it never makes the calls itself.
 //
 // ONE CLASS RATHER THAN THREE PIECES OF COMPONENT STATE, because the three move
 // together: a delete the daemon applied clears the row, re-reads the list, and
-// closes the seat if it was open on the record that just stopped existing. Three
+// closes the editor if it was open on the record that just stopped existing. Three
 // `useState` calls updated in sequence is that same machine with its illegal
 // intermediate states reachable and unnamed.
 //
-// IT IS NOT `channels/mutation-coordinator.ts`, and the reason is the seam
-// rather than the shape: that coordinator's failure arm normalizes a REJECTION,
-// because the daemon gateway it drives throws, while the growth port refuses by
-// RETURNING a value that already is the console's refusal shape
-// (`bridge/growth-port/growth-outcome.ts` extends `ConsoleRefusal`). Routing one through the
-// other would mean raising a refusal in order to parse it back into what it started
-// as. `settings/shared/shell-preferences/shell-preferences-store.ts` is the precedent followed instead: a
-// growth-port carrier owning its own pending key, refusal map, and generation.
+// A REJECTED CALL IS NOT CAUGHT HERE. It reaches whoever pressed or mounted; the delete
+// gives its lock back on the way out so the page does not stay disabled.
 
 import { useEffect, useMemo, useSyncExternalStore } from "react";
 
@@ -35,12 +29,37 @@ import {
   type RefreshReason,
 } from "../../store/index.js";
 import { useSettlementAnnouncement } from "../../primitives/index.js";
+import type { ListAgentDefinitions } from "../run-console/agent-console-reads.js";
 import {
   describeDefinitionSettlement,
-  readDefinitionOutcome,
+  readDefinitions,
   type AgentDefinitionReading,
 } from "./definition-rows.js";
-import type { AgentDefinitionEditorSubject } from "./AgentDefinitionRecordEditorMount.js";
+
+/**
+ * Deletes one saved definition. Rejects when the daemon refuses.
+ */
+export type DeleteAgentDefinition = (request: {
+  readonly definitionId: string;
+}) => Promise<unknown>;
+
+/** The registry calls the view drives. Held stable by the caller. */
+export interface AgentRegistryCalls {
+  readonly listDefinitions: ListAgentDefinitions;
+  readonly deleteDefinition: DeleteAgentDefinition;
+}
+
+/**
+ * Which record the editor is open on.
+ *
+ * A closed two-arm union rather than an optional id, because "edit this stored
+ * definition" and "compose one that does not exist yet" are different acts with
+ * different daemon verbs behind them. `definitionId` and never `name`: the name is a
+ * mutable label a person may change at any time.
+ */
+export type AgentDefinitionEditorSubject =
+  | { readonly kind: "stored"; readonly definitionId: string }
+  | { readonly kind: "new" };
 
 /** Everything the page renders from, in one value. */
 export interface AgentRegistrySnapshot {
@@ -48,7 +67,7 @@ export interface AgentRegistrySnapshot {
   /** The row whose delete has been asked but not confirmed. One at a time. */
   readonly armedDeletionId: string | undefined;
   readonly deletingId: string | undefined;
-  /** The last refusal per row, dropped when that row is attempted again. */
+  /** The view's own refusal per row, dropped when that row is attempted again. */
   readonly refusalByDefinitionId: ReadonlyMap<string, ConsoleRefusal>;
   readonly editorSubject: AgentDefinitionEditorSubject | undefined;
   /** Bumped on every transition, so `useSyncExternalStore` sees a new identity. */
@@ -91,14 +110,14 @@ export class AgentRegistryView implements ReadTriggerTarget {
   /**
    * No terminal event refreshes this read, and the empty set states it.
    *
-   * The definition registry is node-local and its verbs are growth operations: the
-   * corpus registers no `agent.*` event type, so there is no kind a store could
-   * admit and none this view could listen for. The window triggers are therefore the
-   * whole refresh story — which is why the read goes through a scheduler rather than
-   * firing once from `start` and never again.
+   * The definition registry is node-local and nothing on the session stream announces a
+   * change to it, so there is no kind a store could admit and none this view could
+   * listen for. The window triggers are therefore the whole refresh story — which is why
+   * the read goes through a scheduler rather than firing once from `start` and never
+   * again.
    */
   public readonly triggeringEventKinds: ReadonlySet<string> = NO_TRIGGERING_EVENT_KINDS;
-  readonly #bridge: ConsoleBridge;
+  readonly #calls: AgentRegistryCalls;
   readonly #changes = new Emitter<AgentRegistrySnapshot>("agent registry change");
   #snapshot: AgentRegistrySnapshot = NOTHING_READ;
   #hasStarted = false;
@@ -113,17 +132,13 @@ export class AgentRegistryView implements ReadTriggerTarget {
   readonly #reads = new GenerationLatch();
   readonly #scheduler: RefreshScheduler;
 
-  public constructor(bridge: ConsoleBridge) {
-    this.#bridge = bridge;
+  public constructor(bridge: ConsoleBridge, calls: AgentRegistryCalls) {
+    this.#calls = calls;
     this.#scheduler = new RefreshScheduler({
       clock: consoleClockFor(bridge),
       perform: async () => {
         await this.#read();
       },
-      // `#read` publishes the port's refusal itself and never rejects, so this arm
-      // is for a defect in the publish rather than for anything about the wire —
-      // the console's other readings carry it for the same reason.
-      onError: () => undefined,
     });
   }
 
@@ -218,23 +233,23 @@ export class AgentRegistryView implements ReadTriggerTarget {
       // again does not read last time's reason beside this time's spinner.
       refusalByDefinitionId: this.#refusalsWithout(definitionId),
     });
-    const outcome = await this.#bridge.growth.agentDefinitionDelete({ definitionId });
+    try {
+      await this.#calls.deleteDefinition({ definitionId });
+    } catch (error) {
+      if (!this.#isDisposed && this.#snapshot.deletingId === definitionId) {
+        this.#publish({ deletingId: undefined });
+      }
+      throw error;
+    }
     // The lock is still this record's, or this settlement is no longer the page's
     // to fold in — the same belt the disposal flag beside it is.
     if (this.#isDisposed || this.#snapshot.deletingId !== definitionId) {
       return;
     }
-    if (outcome.status === "unavailable") {
-      this.#publish({
-        deletingId: undefined,
-        refusalByDefinitionId: this.#refusalsWith(definitionId, outcome),
-      });
-      return;
-    }
     this.#publish({
       deletingId: undefined,
-      // A seat open on the record that just stopped existing is a subject with
-      // nothing behind it, so it closes with the record; a seat on another is left.
+      // An editor open on the record that just stopped existing is a subject with
+      // nothing behind it, so it closes with the record; one on another is left.
       editorSubject: subjectSurviving(this.#snapshot.editorSubject, definitionId),
     });
     await this.#read();
@@ -250,12 +265,12 @@ export class AgentRegistryView implements ReadTriggerTarget {
    */
   async #read(): Promise<void> {
     const read = this.#reads.supersedeAndClaim(this, REGISTRY_READ_KEY);
-    const outcome = await this.#bridge.growth.agentDefinitionList({});
+    const definitions = await this.#calls.listDefinitions();
     if (this.#isDisposed) {
       return;
     }
     read.settle(() => {
-      this.#publish({ reading: readDefinitionOutcome(outcome) });
+      this.#publish({ reading: readDefinitions(definitions) });
     });
     read.release();
   }
@@ -295,11 +310,14 @@ export class AgentRegistryView implements ReadTriggerTarget {
  * must not happen during render, so a memo React discards costs a discarded object
  * and no request.
  */
-export function useAgentRegistryView(bridge: ConsoleBridge): {
+export function useAgentRegistryView(
+  bridge: ConsoleBridge,
+  calls: AgentRegistryCalls,
+): {
   readonly view: AgentRegistryView;
   readonly snapshot: AgentRegistrySnapshot;
 } {
-  const view = useMemo(() => new AgentRegistryView(bridge), [bridge]);
+  const view = useMemo(() => new AgentRegistryView(bridge, calls), [bridge, calls]);
   useEffect(() => {
     view.start();
     return () => {
@@ -323,10 +341,8 @@ export function useAgentRegistryView(bridge: ConsoleBridge): {
  * COMPOSES A SENTENCE AND GUARDS NOTHING. The repetition rule belongs to
  * `primitives/announce/settlement-announcement.ts` and is keyed on the SENTENCE, which is
  * the only key that is correct here: a flag held once for the life of the mount
- * silences everything after the first settlement, so the refusal that follows a
- * re-read — the delete this page performs, then fails to re-list — was never
- * spoken at all, and the surface that could not be read said so only to people
- * who could see it.
+ * silences everything after the first settlement, so the shorter list a re-read lands
+ * on after a delete would never be spoken.
  *
  * `undefined` while the read is in flight, which is that hook's "still reading"
  * arm; `describeDefinitionSettlement` is narrowed to a settled reading and is
@@ -355,7 +371,7 @@ function deleteAlreadyRunning(isTheSameRecord: boolean): ConsoleRefusal {
   );
 }
 
-/** Close a seat open on a record that has just been deleted; leave any other. */
+/** Close an editor open on a record that has just been deleted; leave any other. */
 function subjectSurviving(
   subject: AgentDefinitionEditorSubject | undefined,
   deletedDefinitionId: string,

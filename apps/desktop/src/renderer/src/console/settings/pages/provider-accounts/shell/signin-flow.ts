@@ -1,11 +1,9 @@
 // The brokered sign-in and the non-interactive token registration: what each call
 // answers, and what the surface holds while it is in flight.
 //
-// WHY A FLOW STATE AND NOT A BOOLEAN. A sign-in has four outcomes a person can act on
-// and they are not degrees of one thing: nothing has been started; a request is out; a
-// flow is live and the operator is at the provider's own page with a code and a
-// deadline; and the daemon refused. A boolean would collapse the last two, which are
-// the two that need different words on screen.
+// WHY A FLOW STATE AND NOT A BOOLEAN. A sign-in has outcomes a person can act on and
+// they are not degrees of one thing: nothing has been started; a request is out; a flow
+// is live and the operator is at the provider's own page with a code and a deadline.
 //
 // COMPLETION IS NOT A VERDICT, AND THIS MODULE CANNOT MINT ONE. A brokered flow ending
 // means the flow ended — never that the account is authenticated — so nothing here
@@ -22,13 +20,13 @@ import {
   PROVIDER_NAMES,
   type BillingMode,
   type ProviderAccountId,
+  type ProviderAccountLoginCancelResponse,
   type ProviderAccountLoginResponse,
   type ProviderAccountRegisterRequest,
   type ProviderAccountRegisterResponse,
   type ProviderName,
 } from "@ai-sidekicks/contracts";
 
-import { settleGrowthRead, type ConsoleBridge } from "../../../../bridge/index.js";
 import { refuse, type ConsoleRefusal } from "../../../../core/index.js";
 
 /**
@@ -39,14 +37,6 @@ import { refuse, type ConsoleRefusal } from "../../../../core/index.js";
  * running and never which account was running it — so a second row's control could be
  * disabled with no reason a person could act on, which is worse than one that stays
  * pressable and refuses.
- *
- * AND A REFUSED CANCELLATION IS AN ARM OF THE LIVE ATTEMPT RATHER THAN A REPLACEMENT
- * FOR IT. A cancel that the transport could not carry, or that the daemon declined,
- * establishes nothing about the provider's own login process — so the attempt is still
- * the thing on screen, and the refusal is rendered beside its verification details and
- * its cancel control rather than instead of them. Installing it as `refused` took away
- * the code the operator was typing and the only way to stop the flow, and re-offered
- * every start control, over a process that may well still be running.
  */
 export type SignInFlowState =
   | { readonly kind: "idle" }
@@ -55,18 +45,13 @@ export type SignInFlowState =
       readonly kind: "live";
       readonly accountId: ProviderAccountId;
       readonly attempt: ProviderAccountLoginResponse;
-      /** A cancellation this machine refused. The attempt is still running. */
-      readonly cancelRefusal?: ConsoleRefusal | undefined;
     }
   | {
       readonly kind: "cancelling";
       readonly accountId: ProviderAccountId;
       readonly attempt: ProviderAccountLoginResponse;
-      /** The previous cancellation's refusal, still shown while this one travels. */
-      readonly cancelRefusal?: ConsoleRefusal | undefined;
     }
-  | { readonly kind: "ended"; readonly because: string }
-  | { readonly kind: "refused"; readonly refusal: ConsoleRefusal };
+  | { readonly kind: "ended"; readonly because: string };
 
 /** The state a shell starts in and returns to. Shared so it has one spelling. */
 export const IDLE_SIGN_IN_FLOW: SignInFlowState = { kind: "idle" };
@@ -89,8 +74,8 @@ export const SIGN_IN_ENDED_BY_REGISTRY =
  *
  * THE CLOSED SET, DECLARED ONCE. A `Record` over the union's own discriminant rather
  * than a list of the three kinds that hold: the compiler refuses a missing key and
- * refuses an unknown one, so a seventh arm added to the state above is a compile error
- * here rather than a control that silently stays pressable through it. A predicate
+ * refuses an unknown one, so an arm added to the state above is a compile error here
+ * rather than a control that silently stays pressable through it. A predicate
  * spelled at each call site is how two surfaces come to disagree about what "running"
  * means, which for this plane is the difference between one flow and two.
  */
@@ -100,30 +85,23 @@ const SIGN_IN_PLANE_HELD_BY_KIND: Readonly<Record<SignInFlowState["kind"], boole
   live: true,
   cancelling: true,
   ended: false,
-  refused: false,
 };
 
 /**
- * What one start attempt answered.
- *
- * NARROWER THAN THE FLOW STATE, AND THE NARROWING IS THE RULE. A start either produced
- * a flow or it did not, and a refusal is the second — so it cannot be installed as the
- * tracked flow, because there is no flow to track and the card that renders one is
- * shared across every readiness row. The caller routes the refused arm to the row that
- * asked; the type is what stops it going anywhere else.
+ * What one start attempt answered: a live flow. It carries the account so the plane
+ * can seat it, and it is the only arm because a start that never became a flow raises.
  */
-export type SignInStartOutcome =
-  | {
-      readonly kind: "live";
-      readonly accountId: ProviderAccountId;
-      readonly attempt: ProviderAccountLoginResponse;
-    }
-  | { readonly kind: "refused"; readonly refusal: ConsoleRefusal };
+export interface SignInStartOutcome {
+  readonly kind: "live";
+  readonly accountId: ProviderAccountId;
+  readonly attempt: ProviderAccountLoginResponse;
+}
 
-/** What one cancel answered. Both arms ARE about the tracked flow, so both install. */
-export type SignInCancelOutcome =
-  | { readonly kind: "ended"; readonly because: string }
-  | { readonly kind: "refused"; readonly refusal: ConsoleRefusal };
+/** What one cancel answered: the flow is over. */
+export interface SignInCancelOutcome {
+  readonly kind: "ended";
+  readonly because: string;
+}
 
 /** What a token registration did, as far as this shell may claim. */
 export type TokenRegistrationOutcome =
@@ -131,6 +109,27 @@ export type TokenRegistrationOutcome =
   | { readonly kind: "submitting" }
   | { readonly kind: "registered"; readonly account: ProviderAccountRegisterResponse["account"] }
   | { readonly kind: "refused"; readonly refusal: ConsoleRefusal };
+
+/**
+ * Starts a brokered sign-in for one account.
+ */
+export type ProviderAccountLoginCall = (request: {
+  readonly accountId: ProviderAccountId;
+}) => Promise<ProviderAccountLoginResponse>;
+
+/**
+ * Cancels a sign-in that is still in flight.
+ */
+export type ProviderAccountLoginCancelCall = (request: {
+  readonly attemptId: string;
+}) => Promise<ProviderAccountLoginCancelResponse>;
+
+/**
+ * Registers an account, optionally carrying the one write-only token member.
+ */
+export type ProviderAccountRegisterCall = (
+  request: ProviderAccountRegisterRequest,
+) => Promise<ProviderAccountRegisterResponse>;
 
 /** Whether this flow is holding the plane. The one reading of the table above. */
 export function isSignInPlaneHeld(flow: SignInFlowState): boolean {
@@ -148,21 +147,12 @@ export function signInPlaneHolderAccountId(flow: SignInFlowState): ProviderAccou
   return "accountId" in flow ? flow.accountId : undefined;
 }
 
-/**
- * Start a brokered sign-in for one account.
- *
- * Answers an outcome rather than throwing, so every arm — including the daemon's own
- * refusal, which is what `provideraccount.signin_unsupported` and
- * `provideraccount.signin_in_flight` arrive as — renders on the control that raised it.
- */
+/** Start a brokered sign-in for one account. */
 export async function startSignIn(
-  bridge: ConsoleBridge,
+  login: ProviderAccountLoginCall,
   accountId: ProviderAccountId,
 ): Promise<SignInStartOutcome> {
-  const settlement = await settleGrowthRead(bridge.growth.providerAccountLogin({ accountId }));
-  return settlement.status === "served"
-    ? { kind: "live", accountId, attempt: settlement.value }
-    : { kind: "refused", refusal: settlement };
+  return { kind: "live", accountId, attempt: await login({ accountId }) };
 }
 
 /**
@@ -175,19 +165,14 @@ export async function startSignIn(
  * stopped something it did not.
  */
 export async function cancelSignIn(
-  bridge: ConsoleBridge,
+  cancel: ProviderAccountLoginCancelCall,
   attempt: ProviderAccountLoginResponse,
 ): Promise<SignInCancelOutcome> {
-  const settlement = await settleGrowthRead(
-    bridge.growth.providerAccountLoginCancel({ attemptId: attempt.attemptId }),
-  );
-  if (settlement.status !== "served") {
-    return { kind: "refused", refusal: settlement };
-  }
+  const reply = await cancel({ attemptId: attempt.attemptId });
   return {
     kind: "ended",
     because:
-      settlement.value.status === "cancelled"
+      reply.status === "cancelled"
         ? "The sign-in was cancelled. Nothing about this account has changed until the registry is read again."
         : "There was no sign-in left to cancel — it had already finished or expired. Read the registry again to see what became of the account.",
   };
@@ -270,13 +255,10 @@ export function readRegistrationFields(typed: {
  * nothing else — which is all the reply carries either.
  */
 export async function submitTokenRegistration(
-  bridge: ConsoleBridge,
+  register: ProviderAccountRegisterCall,
   request: ProviderAccountRegisterRequest,
 ): Promise<TokenRegistrationOutcome> {
-  const settlement = await settleGrowthRead(bridge.growth.providerAccountRegister(request));
-  return settlement.status === "served"
-    ? { kind: "registered", account: settlement.value.account }
-    : { kind: "refused", refusal: settlement };
+  return { kind: "registered", account: (await register(request)).account };
 }
 
 /** One refusal of the form's own, so the origin is written once. */

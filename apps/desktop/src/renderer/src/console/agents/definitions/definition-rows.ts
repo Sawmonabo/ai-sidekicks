@@ -1,26 +1,17 @@
 // The saved-definition registry, projected into what a page can render — and nothing
-// else. No React, no bridge call, no state: a function from what the port answered
-// to what the rows say.
-//
-// WHY THE RECORD TYPE IS DERIVED AND NOT RESTATED
-//
-// `bridge/wire-shapes/agent-definition.ts` declares the stored row, and the bridge's door
-// publishes the bridge rather than the port's vocabulary. So the shape is taken off
-// the operation itself — the `SentInvites` precedent — and a hand-written copy of a
-// wire shape, which is what a view family would otherwise grow, is a second
-// declaration nothing checks against the first. When the contracts package registers
-// these types the derivation follows the port there without this module moving.
-//
+// else. No React, no bridge call, no state: a function from the stored rows to what the
+// rows say.
+
 // WHAT AN AXIS IS, AND WHY EACH ONE CARRIES ITS SOURCE
 //
 // A row is the record's identity (the id and its label) plus one axis per remaining
 // member, and every axis says whether what it shows came off the wire or is the
-// console's own reading. That is rule 4's provenance signature made a value rather
-// than a rendering decision taken twice: the page maps `wire` to the mono figure and
-// `console` to the derived one, and no component has to know which axis is which.
+// console's own reading. That is a provenance signature made a value rather than a
+// rendering decision taken twice: the page maps `wire` to the mono figure and `console`
+// to the derived one, and no component has to know which axis is which.
 //
 // The distinction is load-bearing exactly where the stored grammar is. Every
-// nullable axis materialises the inherit state as `null`, so "this row pins nothing
+// nullable axis materializes the inherit state as `null`, so "this row pins nothing
 // here" is a fact the record states and the console REPHRASES — "The provider's
 // default" is our sentence, not the daemon's, and rendering it in mono would claim
 // the registry sent those words.
@@ -36,23 +27,10 @@
 // fixes to hours, minutes, and seconds because a ledger's day divider carries the
 // date. A saved record has no day divider and its two instants span whatever period
 // the person has been tuning agents over, so the formatted reading would be
-// wrong rather than merely terse — and a wire string rendered exactly as it arrived
-// is what rule 4 asks for anyway.
+// wrong rather than merely terse — and a wire string is rendered exactly as it arrived.
 
-import type { ConsoleBridge } from "../../bridge/index.js";
-import type { ConsoleRefusal } from "../../core/index.js";
+import type { AgentDefinition } from "../../bridge/index.js";
 import { formatCount } from "../../primitives/index.js";
-
-/** One saved definition, exactly as the registry serves it. */
-export type AgentDefinitionRecord = Extract<
-  AgentDefinitionListOutcome,
-  { readonly status: "served" }
->["value"][number];
-
-/** What one `agentDefinitionList` call answers, derived off the port. */
-type AgentDefinitionListOutcome = Awaited<
-  ReturnType<ConsoleBridge["growth"]["agentDefinitionList"]>
->;
 
 /**
  * Where an axis's text came from. Declared once; the page derives its rendering.
@@ -89,14 +67,12 @@ export interface AgentDefinitionRow {
 /**
  * What the page knows about the registry right now.
  *
- * Four arms, and the first three are rule 8's absences kept apart: a read in
- * flight, a read the port refused, and a read that came back with nothing in it.
- * Collapsing any two would let the page tell a person they have saved no definitions
- * on the strength of a question that was never answered.
+ * Three arms, and the first two are absences kept apart: a read in flight and a read
+ * that came back with nothing in it. Collapsing them would let the page tell a person
+ * they have saved no definitions on the strength of a question that was never answered.
  */
 export type AgentDefinitionReading =
   | { readonly kind: "not-loaded" }
-  | { readonly kind: "refused"; readonly refusal: ConsoleRefusal }
   | { readonly kind: "empty" }
   | { readonly kind: "rows"; readonly rows: readonly AgentDefinitionRow[] };
 
@@ -115,23 +91,14 @@ export type SettledAgentDefinitionReading = Exclude<
 /** The empty registry's own sentence, so the page and its announcement agree. */
 export const NO_SAVED_DEFINITIONS = "You have saved no sidekicks on this node";
 
-/**
- * Read one outcome into what the page renders.
- *
- * The refusal travels as the outcome itself, which already IS the console's refusal
- * shape (`bridge/growth-port/growth-outcome.ts` extends `ConsoleRefusal`), so nothing here
- * rewrites a code or a sentence the port composed.
- */
-export function readDefinitionOutcome(
-  outcome: AgentDefinitionListOutcome,
+/** Read the registry's rows into what the page renders. */
+export function readDefinitions(
+  definitions: readonly AgentDefinition[],
 ): SettledAgentDefinitionReading {
-  if (outcome.status === "unavailable") {
-    return { kind: "refused", refusal: outcome };
-  }
-  if (outcome.value.length === 0) {
+  if (definitions.length === 0) {
     return { kind: "empty" };
   }
-  return { kind: "rows", rows: projectDefinitionRows(outcome.value) };
+  return { kind: "rows", rows: projectDefinitionRows(definitions) };
 }
 
 /**
@@ -150,7 +117,7 @@ export function readDefinitionOutcome(
  * collating one would be treating an identifier as text in a language.
  */
 export function projectDefinitionRows(
-  definitions: readonly AgentDefinitionRecord[],
+  definitions: readonly AgentDefinition[],
   locale?: string,
 ): readonly AgentDefinitionRow[] {
   const collator = new Intl.Collator(locale);
@@ -167,12 +134,6 @@ export function projectDefinitionRows(
 
 /** What a settled read says out loud, once. */
 export function describeDefinitionSettlement(reading: SettledAgentDefinitionReading): string {
-  if (reading.kind === "refused") {
-    // The port's own sentence, verbatim. The console never paraphrases a refusal,
-    // and the code stays out of the spoken form: read aloud it is a token nobody
-    // can act on, ahead of the sentence that matters.
-    return reading.refusal.detail;
-  }
   if (reading.kind === "empty") {
     return `${NO_SAVED_DEFINITIONS}.`;
   }
@@ -180,19 +141,12 @@ export function describeDefinitionSettlement(reading: SettledAgentDefinitionRead
   return `Read ${formatCount(count)} saved ${count === 1 ? "sidekick" : "sidekicks"}.`;
 }
 
-/**
- * The question the two-step delete asks before it asks the daemon anything.
- *
- * It names the record and states the one fact that makes the answer easy: deleting
- * a saved definition reaches nothing already running, because an attach COPIES the
- * definition rather than referencing it. A confirmation that only asked "are you
- * sure" would leave a person weighing a consequence the registry does not have.
- */
+/** The question the two-step delete asks, naming the record, before it asks the daemon. */
 export function describeDeletionQuestion(row: AgentDefinitionRow): string {
-  return `Delete “${row.name}”? A sidekick already attached from it keeps the configuration it was given.`;
+  return `Delete “${row.name}”?`;
 }
 
-function projectDefinitionRow(definition: AgentDefinitionRecord): AgentDefinitionRow {
+function projectDefinitionRow(definition: AgentDefinition): AgentDefinitionRow {
   return {
     definitionId: definition.definitionId,
     name: definition.name,
@@ -200,8 +154,7 @@ function projectDefinitionRow(definition: AgentDefinitionRecord): AgentDefinitio
     // Every member of the record the header does not already carry, in the order
     // the stored shape declares them, so a reader can check the projection against
     // the shape by reading down. An axis for a member that is not there would be a
-    // field invented in a view family, which is the whole failure the growth port
-    // exists to prevent.
+    // field invented in a view family.
     axes: [
       wireAxis("driver", "Driver", definition.driverName),
       wireAxis("model", "Model", definition.modelId),

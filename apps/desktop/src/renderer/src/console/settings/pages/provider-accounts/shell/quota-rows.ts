@@ -66,7 +66,7 @@ export interface AccountQuotaRow {
  * the wrong key for a table that is already about one account.
  */
 export function accountQuotaRowsFrom(
-  registry: ProviderQuotaReadout,
+  registry: Pick<ProviderQuotaReadout, "usageWindows">,
   account: ProviderAccount,
 ): readonly AccountQuotaRow[] {
   return registry.usageWindows

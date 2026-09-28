@@ -148,7 +148,7 @@ describe("keyboard page — a command registered after the page first rendered",
     expect(() => rowOf(container, "app.checkForUpdates")).toThrow();
   });
 
-  it("negative control: with nothing registered the page says so rather than drawing rows", () => {
+  it("negative control: with nothing registered the page draws no rows", () => {
     // Without this the cases above would pass over a page that drew a row for every
     // id it was ever asked about, which would prove nothing about the read.
     for (const commandId of TEST_COMMAND_IDS) {
@@ -157,6 +157,5 @@ describe("keyboard page — a command registered after the page first rendered",
     const { container } = renderPage();
 
     expect(container.querySelectorAll(".meridian-keymap__row")).toHaveLength(0);
-    expect(container.textContent ?? "").toContain("This window has registered no commands.");
   });
 });

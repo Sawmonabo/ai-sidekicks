@@ -1,28 +1,21 @@
-// The stores, bridges, and readers the pane's five suites share.
-//
-// The pane composes four modules — the session binding, the lease fold, the host's
-// reported reachability, and the output subscription — and each has its own suite
-// beside the module it is about. What they have in common is the SETUP: a real
-// `SessionStore` fed the terminal scenario's own beats, and a fixture bridge with one
-// growth read swapped. A hand-built timeline would let the pane pass against events
-// the fixture does not produce, and five copies of the store builder would drift into
-// five slightly different logs.
+// The stores and bridges the pane's suites share: a real `SessionStore` fed the terminal
+// scenario's own beats, so the pane is never tested against events the fixture does not
+// produce.
 
 import { render } from "@testing-library/react";
 
 import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
 import { fixtureSessionSnapshot } from "../../bridge/fixture/session/session-snapshot.js";
-import { growthUnavailable } from "../../bridge/growth-port/growth-refusals.js";
 import { TERMINAL_SCENARIO } from "../../bridge/scenario/terminal/terminal.js";
-import { terminalScenarioEventId } from "../../bridge/scenario/terminal/beats.js";
 import type { PaneContextOf } from "../../seats/index.js";
 import { paneContext } from "../../seats/pane/pane-context.test-support.js";
 import { SessionStore, type ConsoleSessionEvent } from "../../store/index.js";
 import { TerminalPane } from "./TerminalPane.js";
 
+/** The terminal scenario's session id. */
 export const SESSION_ID: string = TERMINAL_SCENARIO.sessionId;
 
-/** The fixture bridge every suite starts from, before it swaps one growth read. */
+/** The fixture bridge every suite starts from. */
 export function paneBridge(): ConsoleBridge {
   return createFixtureBridge({ scenario: TERMINAL_SCENARIO });
 }
@@ -64,125 +57,6 @@ export function storeThrough(transitionOrdinal: number): SessionStore {
 }
 
 /**
- * A store holding EVERY beat the scenario scripts, degraded final beat included.
- *
- * `storeThrough` stops at a lease transition, and the scenario's last beat is not
- * one — the host goes silent after the final take, authoring no `pty.control_changed`
- * because a roster read transitions nothing. So the frame the screenshot tier pins,
- * and the frame the degraded cases are about, is reachable only from the whole script.
- */
-export function storeThroughEveryBeat(
-  extraEvents: readonly ConsoleSessionEvent[] = [],
-): SessionStore {
-  const store = new SessionStore({ sessionId: SESSION_ID });
-  store.initialise(fixtureSessionSnapshot(TERMINAL_SCENARIO, SESSION_ID));
-  const scripted = TERMINAL_SCENARIO.beats.map((beat) => beat.event as ConsoleSessionEvent);
-  store.applyBatch([...scripted, ...extraEvents]);
-  return store;
-}
-
-/** A host the scenario does not script, so the session reads as attaching two. */
-const SECOND_NODE_ID = "node-laptop";
-
-/**
- * A second host attaching after everything the script plays.
- *
- * The registered lifecycle payload and nothing more: the node and the state it moved
- * to. Its sequence follows the script's own last beat, so the store admits it in log
- * order rather than as a gap.
- */
-export function secondNodeOnlineEvent(): ConsoleSessionEvent {
-  const lastScripted = TERMINAL_SCENARIO.beats.at(-1);
-  if (lastScripted === undefined) {
-    throw new Error("the terminal scenario scripts no beats");
-  }
-  const sequence = lastScripted.event.sequence + 1;
-  return {
-    id: terminalScenarioEventId(sequence),
-    sessionId: SESSION_ID,
-    sequence,
-    kind: "runtime_node.online",
-    occurredAt: "2026-01-01T16:40:06.000Z",
-    payload: { sessionId: SESSION_ID, nodeId: SECOND_NODE_ID, newState: "online" },
-  };
-}
-
-/**
- * A bridge whose output subscribe REJECTS with whatever the caller hands it.
- *
- * `LeaseLine.test-support.tsx`'s shape, applied to the other bridge-facing read on
- * this pane. The growth port ANSWERS a refusal, so a rejection means the bridge itself
- * failed — and the standard wire envelope is what a failing bridge sends across the
- * preload boundary (`src/shared/wire-errors.ts` owns that shape).
- */
-export function bridgeRejectingOutputWith(rejection: unknown): ConsoleBridge {
-  const base = paneBridge();
-  return {
-    ...base,
-    growth: {
-      ...base.growth,
-      terminalSubscribeOutput: () => Promise.reject(rejection),
-    },
-  };
-}
-
-/**
- * A bridge that answers the caller-identity read with one of the cast.
- *
- * The scenario names the owner as its device identity, but a case that depends on WHO is
- * looking says so itself rather than inheriting it: the three arms the lease fold can
- * reach — the claimant's own hold, somebody else's, and no identity at all — are each
- * chosen by the case, so a scenario edit cannot silently move one onto a different arm
- * than the one its name claims.
- */
-export function bridgeAnsweringCallerWith(userId: string): ConsoleBridge {
-  const base = paneBridge();
-  return {
-    ...base,
-    growth: {
-      ...base.growth,
-      callerUserRead: async () => ({
-        status: "served" as const,
-        value: { userId },
-      }),
-    },
-  };
-}
-
-/**
- * A bridge whose caller-identity read is refused — the port's own "not checked"
- * refusal, taken through the same constructor the fixture port uses when a scenario
- * has named no device identity, so the sentences the cases assert are the wire's and not a copy
- * that could drift from it.
- */
-export function bridgeRefusingCaller(): ConsoleBridge {
-  const base = paneBridge();
-  return {
-    ...base,
-    growth: {
-      ...base.growth,
-      callerUserRead: async () => growthUnavailable("callerUserRead"),
-    },
-  };
-}
-
-/**
- * The output line's refusal, told from the lease line's own.
- *
- * Both render through the same inline primitive, and the pane has two reads that can
- * refuse — the output stream and the caller's identity. A bare class query would match
- * whichever landed first, so every output case scopes itself OUT of the lease line
- * rather than asserting on a count.
- */
-export function outputRefusal(region: HTMLElement): Element | null {
-  return (
-    [...region.querySelectorAll(".meridian-refusal--inline")].find(
-      (refusal) => refusal.closest(".meridian-lease-line") === null,
-    ) ?? null
-  );
-}
-
-/**
  * The pane's region, or a raise. One reader, because three suites reach for it.
  *
  * The section is `seats/ConsolePaneChrome`'s now, so the query stays on the element
@@ -203,9 +77,8 @@ export function paneRegionOf(container: HTMLElement): HTMLElement {
  * The context the deck hands this pane, over the shared builder.
  *
  * Exported because two suites outside this module mount the pane themselves rather
- * than through `renderPane` — the output subscription's rebind cases, which need the
- * `rerender` this function does not hand back, and the browser tier's box measurement,
- * which mounts the pane inside a sized slot.
+ * than through `renderPane`: the browser tier's box measurement and its deck fill
+ * check, which mount the pane inside a sized slot.
  *
  * The address arm carries no `entity` member: `terminal` is session-scoped, so the
  * union's arm has none and the seat refuses one at this call site. The pane id is the
@@ -219,6 +92,7 @@ export function terminalPaneContext(
   return paneContext({ kind: "terminal" }, { bridge: consoleBridge, sessionStore });
 }
 
+/** Mount the pane over the store and return its region. */
 export function renderPane(
   sessionStore: SessionStore | undefined,
   consoleBridge: ConsoleBridge = paneBridge(),

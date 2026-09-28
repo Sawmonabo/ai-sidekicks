@@ -1,17 +1,13 @@
 // Who holds the store, and when the binding acquires one.
 //
-// The store next door is proved against its own methods; what is proved here is
-// WHOSE store a page is on and WHEN the holder mints or disposes one — the two
-// questions the module split apart from the state machine. The binding used to acquire the store from a `useMemo` over
-// the bridge, and acquiring disposes: a replacement bridge disposed the store the
-// committed tree was subscribed to and installed a successor, so a render React
-// replayed or abandoned left every mounted page reading and choosing into a disposed
-// store while the holder held one that was never committed.
+// The store next door is proved against its own methods; what is proved here is WHOSE
+// store a page is on and WHEN the holder mints or disposes one. Acquiring disposes, so
+// a render React replays or abandons must never dispose the store the committed tree
+// is subscribed to.
 //
-// The last case is about a render that never commits, which is why these cases are
-// in a `.tsx` file rather than beside the store's own unit cases: an abandoned render
-// has to be a real React render, and it is produced the only way a test can produce
-// one — a sibling that throws after the probe has already rendered.
+// The last case is about a render that never commits, which is why these cases are in
+// a `.tsx` file: an abandoned render has to be a real React render, produced by a
+// sibling that throws after the probe has already rendered.
 
 import { settleScheduledRead } from "../../../bridge/readings/scheduled-read.test-support.js";
 import { crossMacrotaskBoundary } from "../../../core/macrotask-boundary.test-support.js";
@@ -19,29 +15,33 @@ import { act, render } from "@testing-library/react";
 import { StrictMode } from "react";
 import { describe, expect, it, vi } from "vitest";
 
-import {
-  fixtureBridgeWithGrowth,
-  growthRefusing,
-  unscriptedScenario,
-} from "../../../bridge/fixture/call-plane/bridge.test-support.js";
-import type { ConsoleBridge, GrowthPort } from "../../../bridge/index.js";
+import { unscriptedScenario } from "../../../bridge/fixture/call-plane/bridge.test-support.js";
+import { createFixtureBridge, type ConsoleBridge } from "../../../bridge/index.js";
+import { NEVER_SETTLES } from "../../../primitives/abandoned-pass.test-support.js";
 import { consoleShellPreferences, useShellPreferences } from "./shell-preferences-holder.js";
 import { SHELL_PREFERENCE_DEFAULTS, effectivePreference } from "./shell-preference-snapshot.js";
+import type { ShellPreferenceCarrier } from "./shell-preferences-store.js";
 
-/** The carrier nobody has registered, which is every carrier this console has. */
-const REFUSING_CARRIER: Partial<GrowthPort> = {
-  shellConfigRead: growthRefusing("shellConfigRead"),
-  shellConfigWrite: growthRefusing("shellConfigWrite"),
+/** A carrier whose read and write never answer. */
+const UNANSWERING_CARRIER: ShellPreferenceCarrier = {
+  read: () => NEVER_SETTLES,
+  write: () => NEVER_SETTLES,
+};
+
+/** A carrier that accepts every write. */
+const ACCEPTING_CARRIER: ShellPreferenceCarrier = {
+  read: () => Promise.resolve({}),
+  write: () => Promise.resolve(undefined),
 };
 
 /** A fresh bridge each call, so one case's holder state is never another's. */
-function refusingBridge(): ConsoleBridge {
-  return fixtureBridgeWithGrowth(unscriptedScenario("shell-preferences-binding"), REFUSING_CARRIER);
+function freshBridge(): ConsoleBridge {
+  return createFixtureBridge({ scenario: unscriptedScenario("shell-preferences-binding") });
 }
 
 /** The smallest page there is: it binds the preferences and renders the reading. */
 function PreferenceProbe(props: { readonly bridge: ConsoleBridge }): React.JSX.Element {
-  const preferences = useShellPreferences(props.bridge);
+  const preferences = useShellPreferences(props.bridge, UNANSWERING_CARRIER);
   return <span data-testid="reading">{preferences.snapshot.reading.kind}</span>;
 }
 
@@ -51,8 +51,7 @@ function AbandoningSibling(): React.JSX.Element {
 }
 
 /**
- * Let the acquiring effect run, the store's scheduled opening read fire, and the
- * carrier's refusal land.
+ * Let the acquiring effect run and the store's scheduled opening read fire.
  *
  * The bridge travels because the read is armed on the clock `consoleClockFor`
  * resolves off it — the fixture's frozen one — so a settle that only crossed
@@ -67,7 +66,7 @@ async function settle(bridge: ConsoleBridge): Promise<void> {
 
 describe("shell preferences binding — acquisition happens after the commit", () => {
   it("acquires the window's store from an effect and reads what it answers", async () => {
-    const bridge = refusingBridge();
+    const bridge = freshBridge();
 
     const { getByTestId } = render(
       <StrictMode>
@@ -82,18 +81,19 @@ describe("shell preferences binding — acquisition happens after the commit", (
     const acquired = consoleShellPreferences.storeIfCurrent(bridge);
     expect(acquired).toBeDefined();
     expect(acquired?.isDisposed).toBe(false);
-    expect(getByTestId("reading").textContent).toBe("unavailable");
+    // The carrier never answers, so the read stays open.
+    expect(getByTestId("reading").textContent).toBe("not-read");
   });
 
   it("disposes the superseded store exactly once when the bridge is replaced", async () => {
-    const firstBridge = refusingBridge();
+    const firstBridge = freshBridge();
     const { rerender } = render(<PreferenceProbe bridge={firstBridge} />);
     await settle(firstBridge);
     const firstStore = consoleShellPreferences.storeIfCurrent(firstBridge);
     expect(firstStore).toBeDefined();
     const disposals = vi.spyOn(firstStore as { dispose: () => void }, "dispose");
 
-    const secondBridge = refusingBridge();
+    const secondBridge = freshBridge();
     rerender(<PreferenceProbe bridge={secondBridge} />);
     await settle(secondBridge);
 
@@ -105,13 +105,13 @@ describe("shell preferences binding — acquisition happens after the commit", (
     // The negative control on the `useMemo` form. Under it the probe's render-time
     // lookup disposed `firstStore` and installed a successor for a pass that never
     // committed, so this case fails on the old code and passes on the new one.
-    const firstBridge = refusingBridge();
+    const firstBridge = freshBridge();
     const { rerender } = render(<PreferenceProbe bridge={firstBridge} />);
     await settle(firstBridge);
     const firstStore = consoleShellPreferences.storeIfCurrent(firstBridge);
     expect(firstStore).toBeDefined();
 
-    const abandonedBridge = refusingBridge();
+    const abandonedBridge = freshBridge();
     // The failure is left UNCAUGHT rather than wrapped in a surface boundary: the
     // boundary's record of a render failure is a tripwire, and this tier throws on
     // one, so catching the throw here would replace the case's subject with the
@@ -139,56 +139,51 @@ describe("shell preferences — the store belongs to the window, not to a page",
     // component died with the page, so a choice made on the updates section was
     // gone by the time the notifications section asked for it — while the row said
     // it was held for the window.
-    const bridge = refusingBridge();
-    const firstPagesStore = consoleShellPreferences.acquire(bridge);
-    await firstPagesStore.choose("updates.automatic", false);
+    const bridge = freshBridge();
+    const firstPagesStore = consoleShellPreferences.acquire(bridge, UNANSWERING_CARRIER);
 
-    const secondPagesStore = consoleShellPreferences.acquire(bridge);
+    const secondPagesStore = consoleShellPreferences.acquire(bridge, UNANSWERING_CARRIER);
 
     expect(secondPagesStore).toBe(firstPagesStore);
-    expect(effectivePreference(secondPagesStore.snapshot(), "updates.automatic")).toBe(false);
-    expect(Object.hasOwn(secondPagesStore.snapshot().heldLocally, "updates.automatic")).toBe(true);
   });
 
-  it("gives two bridges two stores, and disposes the one it superseded exactly once", async () => {
+  it("gives two bridges two stores, and disposes the one it superseded exactly once", () => {
     // The fixture's scenario swap replaces the bridge. A store built against the old
     // one would keep answering with the old one's reading, so it is superseded
     // rather than reused — and it is dropped, so asking again mints a live store
     // rather than returning a terminal one whose replies write nothing.
-    const firstBridge = refusingBridge();
-    const secondBridge = refusingBridge();
-    const firstStore = consoleShellPreferences.acquire(firstBridge);
+    const firstBridge = freshBridge();
+    const secondBridge = freshBridge();
+    const firstStore = consoleShellPreferences.acquire(firstBridge, UNANSWERING_CARRIER);
     // Counted rather than read off the flag: `dispose` is idempotent, so a holder
     // that disposed the same store on every ask would leave `isDisposed` looking
     // exactly as it does here.
     const disposals = vi.spyOn(firstStore, "dispose");
 
-    const secondStore = consoleShellPreferences.acquire(secondBridge);
-    consoleShellPreferences.acquire(secondBridge);
+    const secondStore = consoleShellPreferences.acquire(secondBridge, UNANSWERING_CARRIER);
+    consoleShellPreferences.acquire(secondBridge, UNANSWERING_CARRIER);
 
     expect(secondStore).not.toBe(firstStore);
     expect(disposals).toHaveBeenCalledTimes(1);
     expect(firstStore.isDisposed).toBe(true);
     expect(secondStore.isDisposed).toBe(false);
 
-    const rebuilt = consoleShellPreferences.acquire(firstBridge);
+    const rebuilt = consoleShellPreferences.acquire(firstBridge, UNANSWERING_CARRIER);
     expect(rebuilt).not.toBe(firstStore);
     expect(rebuilt.isDisposed).toBe(false);
-    await rebuilt.choose("updates.automatic", false);
-    expect(effectivePreference(rebuilt.snapshot(), "updates.automatic")).toBe(false);
   });
+});
 
+describe("shell preferences — a superseded store", () => {
   it("negative control: a superseded store's own reply writes nothing", async () => {
-    // Without this, the disposal above would be a flag nobody reads — and a reply
-    // landing after the swap would publish the old bridge's answer over the new
-    // bridge's store, which is the state a person cannot debug.
-    const firstBridge = refusingBridge();
-    const firstStore = consoleShellPreferences.acquire(firstBridge);
-    consoleShellPreferences.acquire(refusingBridge());
+    // Without this, the disposal above would be a flag nobody reads: a reply landing after
+    // the swap would publish the old bridge's answer over the new bridge's store.
+    const firstStore = consoleShellPreferences.acquire(freshBridge(), ACCEPTING_CARRIER);
+    consoleShellPreferences.acquire(freshBridge(), ACCEPTING_CARRIER);
 
     await firstStore.choose("updates.automatic", false);
 
-    expect(firstStore.snapshot().heldLocally).toStrictEqual({});
+    expect(firstStore.snapshot().reading.kind).toBe("not-read");
     expect(effectivePreference(firstStore.snapshot(), "updates.automatic")).toBe(
       SHELL_PREFERENCE_DEFAULTS["updates.automatic"],
     );
@@ -197,8 +192,8 @@ describe("shell preferences — the store belongs to the window, not to a page",
 
 describe("shell preferences — the lookup a render body performs", () => {
   it("answers the live store for the bridge it is on", () => {
-    const bridge = refusingBridge();
-    const acquired = consoleShellPreferences.acquire(bridge);
+    const bridge = freshBridge();
+    const acquired = consoleShellPreferences.acquire(bridge, UNANSWERING_CARRIER);
 
     expect(consoleShellPreferences.storeIfCurrent(bridge)).toBe(acquired);
   });
@@ -208,9 +203,9 @@ describe("shell preferences — the lookup a render body performs", () => {
     // body makes, and a render body may run for a pass React replays or abandons.
     // The acquiring form disposed the committed store and installed a successor
     // right here, so an abandoned render left the mounted pages on a disposed store.
-    const committedBridge = refusingBridge();
-    const committed = consoleShellPreferences.acquire(committedBridge);
-    const replacementBridge = refusingBridge();
+    const committedBridge = freshBridge();
+    const committed = consoleShellPreferences.acquire(committedBridge, UNANSWERING_CARRIER);
+    const replacementBridge = freshBridge();
 
     expect(consoleShellPreferences.storeIfCurrent(replacementBridge)).toBeUndefined();
     expect(committed.isDisposed).toBe(false);
@@ -220,10 +215,10 @@ describe("shell preferences — the lookup a render body performs", () => {
   it("negative control: acquiring the replacement is what disposes, so the two differ", () => {
     // Without this, the case above would pass over a holder that never disposed
     // anything at all — and the lookup would be pure because nothing was.
-    const committedBridge = refusingBridge();
-    const committed = consoleShellPreferences.acquire(committedBridge);
+    const committedBridge = freshBridge();
+    const committed = consoleShellPreferences.acquire(committedBridge, UNANSWERING_CARRIER);
 
-    consoleShellPreferences.acquire(refusingBridge());
+    consoleShellPreferences.acquire(freshBridge(), UNANSWERING_CARRIER);
 
     expect(committed.isDisposed).toBe(true);
   });

@@ -1,4 +1,4 @@
-// The address guard, and the one reading the chrome is allowed to derive from.
+// The address guard.
 //
 // The guard gets exhaustive cases because it has exactly one catastrophic failure and
 // it is silent: a spelling it misses is a page navigated to a local file, which looks
@@ -9,13 +9,9 @@
 // paste carries, and beside them the ordinary web destinations the field exists to
 // accept, including the one that carries a colon of its own.
 
-import { renderHook, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { BROWSER_SCENARIO } from "../../bridge/scenario/browser.js";
-import { createFixtureBridge } from "../../bridge/index.js";
-import { isFilesystemDestination, useReportedNavigation } from "./navigation-state.js";
-import { refusalOf, reportedStateOf } from "./navigation-state.test-support.js";
+import { isFilesystemDestination } from "./navigation-state.js";
 
 /**
  * Every local-path spelling, named by its FORM and paired with the verdict the
@@ -92,25 +88,5 @@ describe("isFilesystemDestination", () => {
 
   it("does not mistake a scheme that merely starts with the same letters", () => {
     expect(isFilesystemDestination("filesystem-notes.example.invalid")).toBe(false);
-  });
-});
-
-describe("useReportedNavigation", () => {
-  it("reports the port's refusal and no state, which is what the wire answers today", async () => {
-    const bridge = createFixtureBridge({ scenario: BROWSER_SCENARIO });
-    const { result } = renderHook(() => useReportedNavigation(bridge, "pane-browser-1"));
-    await waitFor(() => {
-      expect(refusalOf(result.current)).toBeDefined();
-    });
-    expect(refusalOf(result.current)?.code).toBe("wire-unregistered");
-    // The half that matters to the chrome: no state means no navigability, so every
-    // history control stays disabled rather than optimistically live.
-    expect(reportedStateOf(result.current)).toBeUndefined();
-  });
-
-  it("starts with neither, so nothing renders a reading before one arrives", () => {
-    const bridge = createFixtureBridge({ scenario: BROWSER_SCENARIO });
-    const { result } = renderHook(() => useReportedNavigation(bridge, "pane-browser-1"));
-    expect(result.current).toStrictEqual({ kind: "reading" });
   });
 });

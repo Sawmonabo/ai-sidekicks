@@ -44,7 +44,7 @@
  * `getKeyframes()` answers in camel case (`backgroundColor`) while a stylesheet is
  * authored in kebab (`background-color`), and one declaration has to cover both
  * spellings. The normalization runs at COMPARISON time on both sides, which is what
- * lets the entries below stay the authored spellings a reader recognises.
+ * lets the entries below stay the authored spellings a reader recognizes.
  */
 export const PAINT_ONLY_ANIMATED_PROPERTIES = [
   "opacity",

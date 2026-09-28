@@ -2,7 +2,7 @@
 //
 // The reader is driveable with a single payload and no session, which is the whole
 // reason it is a module: every case below states what ONE `pty.control_changed`
-// obliges, without a device, a holding node, or an ordering standing between the
+// obliges, without a device or an ordering standing between the
 // payload and the answer. The fold's response to a refusal is `lease-model.test.ts`'s
 // — those are two different claims, and asserting the reader only through the fold is
 // what made the second one carry both.
@@ -120,7 +120,7 @@ describe("reading one transition — the holder is the wire's, and both halves a
 
   it("negative control: a holder member of the wrong TYPE is not a holder", () => {
     // The tolerant read turned every non-string into the free lease, so a numeric,
-    // empty, or absent holder on a take was the same silent normalisation in a second
+    // empty, or absent holder on a take was the same silent normalization in a second
     // shape. Without this control the cases above would pass against a reader that
     // only ever checked the reason.
     for (const holderUserId of ["", 4, null, undefined]) {

@@ -4,7 +4,7 @@
 // line, and the acquisition rule all name the same two users, and every suite
 // that drives the reader or the fold authors a `pty.control_changed` event. Written
 // per suite, the cast came out under three spellings for two identities — one file's
-// `OTHER` was the neighbouring file's `HOLDER` — and the builder came out twice with
+// `OTHER` was the neighboring file's `HOLDER` — and the builder came out twice with
 // different signatures, which on this fold is exactly the distinction under test: the
 // malformed-shape cases are only meaningful against a builder whose default IS well
 // formed.

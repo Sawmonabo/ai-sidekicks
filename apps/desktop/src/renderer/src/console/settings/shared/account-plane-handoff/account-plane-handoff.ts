@@ -11,10 +11,9 @@
 // remedy: the remedy's content — the credential home a sign-in authenticates into,
 // the provider's own first-party invocation, the candidate accounts a default is
 // chosen from — is the daemon's, travels on `providerAccount.list`'s readiness
-// entry, and is display-only when it gets here. `ProviderAccountsPage.tsx` states
-// that rule in terms, and this module is inside it rather than an exception to it:
-// a refusal code is a fact about which act is missing, and naming the act is not
-// naming how to perform it.
+// entry, and is display-only when it gets here. This module is inside that rule
+// rather than an exception to it: a refusal code is a fact about which act is
+// missing, and naming the act is not naming how to perform it.
 //
 // AND IT NEVER PERFORMS ONE. The action this router names is a navigation — open
 // the settings section where the act lives. No sign-in command is run, no path is

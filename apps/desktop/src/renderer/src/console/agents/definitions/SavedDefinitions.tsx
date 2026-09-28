@@ -1,26 +1,14 @@
-import { Nothing, RefusalCard } from "../../primitives/index.js";
-import type { AttachHandoffControl } from "../attach/attach-handoff/index.js";
+import { Nothing } from "../../primitives/index.js";
 import { type AgentRegistrySnapshot, type AgentRegistryView } from "./definition-registry-view.js";
 import { NO_SAVED_DEFINITIONS } from "./definition-rows.js";
 import { SavedDefinitionRow } from "./SavedDefinitionRow.js";
 
-/** The saved column's four answers, one per arm of the reading. */
+/** The saved column's three answers, one per arm of the reading. */
 export function SavedDefinitions(props: {
   readonly snapshot: AgentRegistrySnapshot;
   readonly view: AgentRegistryView;
-  /** This window's one attach handoff, which every row offers into. */
-  readonly handoff: AttachHandoffControl;
-  /**
-   * The session a row may attach into, or `undefined` where this window holds none.
-   *
-   * The whole column's answer rather than each row's, which is why the sentence below
-   * is written once: "there is no session open" is a fact about this window, and a row
-   * repeating it as many times as there are definitions would read as a fault in the
-   * definitions.
-   */
-  readonly attachTargetSessionId: string | undefined;
 }): React.JSX.Element {
-  const { snapshot, view, handoff, attachTargetSessionId } = props;
+  const { snapshot, view } = props;
   const { reading } = snapshot;
   if (reading.kind === "not-loaded") {
     return (
@@ -30,9 +18,6 @@ export function SavedDefinitions(props: {
         title="Reading the sidekicks saved on this node."
       />
     );
-  }
-  if (reading.kind === "refused") {
-    return <RefusalCard code={reading.refusal.code} detail={reading.refusal.detail} />;
   }
   if (reading.kind === "empty") {
     return (
@@ -46,12 +31,6 @@ export function SavedDefinitions(props: {
   }
   return (
     <>
-      {attachTargetSessionId === undefined ? (
-        <p className="meridian-agent-definitions__attach-note">
-          Attaching happens in a session, and this window has none open. Opening one puts an{" "}
-          <strong>Attach from here</strong> action on every row.
-        </p>
-      ) : null}
       <ul className="meridian-agent-definitions__rows">
         {reading.rows.map((row) => (
           <li key={row.definitionId}>
@@ -66,8 +45,6 @@ export function SavedDefinitions(props: {
               }
               refusal={snapshot.refusalByDefinitionId.get(row.definitionId)}
               view={view}
-              handoff={handoff}
-              attachTargetSessionId={attachTargetSessionId}
             />
           </li>
         ))}

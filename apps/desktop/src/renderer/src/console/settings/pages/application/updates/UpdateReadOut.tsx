@@ -1,15 +1,9 @@
 import { useId } from "react";
-import {
-  DerivedFigure,
-  InlineRefusal,
-  Nothing,
-  WireFigure,
-  formatPercent,
-} from "../../../../primitives/index.js";
+import { DerivedFigure, Nothing, WireFigure, formatPercent } from "../../../../primitives/index.js";
 import { LastCheckedLine } from "./LastCheckedLine.js";
 import { type UpdateReading } from "./updater-reading.js";
 
-/** The five arms, plus the conversation's own absence. One render per arm. */
+/** The five arms, plus the read not having landed. One render per arm. */
 export function UpdateReadOut(props: { readonly reading: UpdateReading }): React.JSX.Element {
   const { reading } = props;
   // Generated rather than written: two windows can render this block at once, and a
@@ -17,19 +11,6 @@ export function UpdateReadOut(props: { readonly reading: UpdateReading }): React
   const progressId = useId();
   if (reading.kind === "not-read") {
     return <Nothing kind="not-loaded" placement="inline" title="Reading the updater’s state." />;
-  }
-  if (reading.kind === "unreachable") {
-    // Quiet, and informational. Nothing failed: the update feed was not reached, and
-    // saying otherwise would put words in an updater's mouth — so the sentence stays
-    // an aside and the refusal takes the console's INLINE shape, whose grammar is
-    // "nothing changed, the control stays" and whose role is `status` rather than
-    // `alert`. What that buys is the part the aside could not say: the refuser's own
-    // code, which rule 9 requires verbatim and which this arm used to discard.
-    return (
-      <p className="meridian-settings-page__aside">
-        The update feed was not reached from this window. <InlineRefusal {...reading.refusal} />
-      </p>
-    );
   }
   const { state } = reading;
   switch (state.status) {

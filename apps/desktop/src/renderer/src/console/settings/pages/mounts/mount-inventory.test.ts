@@ -1,13 +1,15 @@
-// The inventory composes two registered reads, settles each mount independently,
-// and never asks for more mounts than its cap.
+// The inventory composes two calls, fails whole when either rejects, and never asks
+// for more mounts than its cap.
 
 import { describe, expect, it } from "vitest";
 
-import { ConsoleRefusalError, ManualClock, refuse } from "../../../core/index.js";
-import type { ConsoleBridge } from "../../../bridge/index.js";
-import { MOUNT_INVENTORY_READ_CAP } from "../../../core/index.js";
+import { ManualClock, MOUNT_INVENTORY_READ_CAP } from "../../../core/index.js";
 import type { SessionStore } from "../../../store/index.js";
-import { createMountInventoryRead, distinctMountIds } from "./mount-inventory.js";
+import {
+  createMountInventoryRead,
+  distinctMountIds,
+  type MountInventoryCalls,
+} from "./mount-inventory.js";
 import {
   MOUNT_A,
   MOUNT_B,
@@ -36,38 +38,27 @@ async function settle(): Promise<void> {
 }
 
 /**
- * A bridge whose daemon call answers the two registered methods and records every
- * call it was asked to make.
+ * Plain stubs for the two calls, and the record of what was asked.
  *
- * The CALL is stubbed and the inventory is real — the module under test composes
- * the two reads, and that composition is what is being asserted.
+ * The CALLS are stubbed and the inventory is real — the module under test composes
+ * the two, and that composition is what is being asserted.
  */
-function bridgeAnswering(options: {
-  readonly mountIds: readonly string[];
-  readonly refuseMountIds?: readonly string[];
-}): { bridge: ConsoleBridge; calls: { method: string; request: unknown }[] } {
-  const calls: { method: string; request: unknown }[] = [];
-  const bridge = {
-    source: "fixture",
-    desktopBridge: {
-      daemon: {
-        call: async (method: string, request: unknown): Promise<unknown> => {
-          calls.push({ method, request });
-          if (method === "repo.workspaceList") {
-            return workspaceListWith(options.mountIds);
-          }
-          const { repoMountId } = request as { repoMountId: string };
-          if (options.refuseMountIds?.includes(repoMountId) === true) {
-            throw new ConsoleRefusalError(
-              refuse("daemon", "repo.mount_not_found", `No mount ${repoMountId}.`),
-            );
-          }
-          return mountReadFor(repoMountId);
-        },
-      },
+function callsAnswering(options: { readonly mountIds: readonly string[] }): {
+  calls: MountInventoryCalls;
+  asked: string[];
+} {
+  const asked: string[] = [];
+  const calls: MountInventoryCalls = {
+    workspaceList: () => {
+      asked.push("workspaceList");
+      return Promise.resolve(workspaceListWith(options.mountIds));
     },
-  } as unknown as ConsoleBridge;
-  return { bridge, calls };
+    mountRead: (request) => {
+      asked.push("mountRead");
+      return Promise.resolve(mountReadFor(request.repoMountId));
+    },
+  };
+  return { calls, asked };
 }
 
 describe("distinct mount ids", () => {
@@ -89,9 +80,9 @@ describe("distinct mount ids", () => {
 describe("mount inventory read", () => {
   it("reads each distinct mount once, after listing the session's workspaces", async () => {
     const clock = new ManualClock();
-    const { bridge, calls } = bridgeAnswering({ mountIds: [MOUNT_A, MOUNT_B, MOUNT_A] });
+    const { calls, asked } = callsAnswering({ mountIds: [MOUNT_A, MOUNT_B, MOUNT_A] });
     const read = createMountInventoryRead({
-      bridge,
+      calls,
       sessionId: SESSION_ID,
       clock,
       sessionStore: undefined,
@@ -99,21 +90,24 @@ describe("mount inventory read", () => {
     read.start();
     clock.advance(PAST_REFRESH_DEBOUNCE_MS);
     await settle();
-    expect(calls[0]?.method).toBe("repo.workspaceList");
-    expect(calls.filter((call) => call.method === "repo.mountRead")).toHaveLength(2);
+    expect(asked[0]).toBe("workspaceList");
+    expect(asked.filter((call) => call === "mountRead")).toHaveLength(2);
     expect(read.state.kind).toBe("loaded");
     read.dispose();
     expect(clock.pendingCount).toBe(0);
   });
 
-  it("keeps a refused mount as its own row rather than failing the list", async () => {
+  it("fails the whole read when one mount's call rejects", async () => {
     const clock = new ManualClock();
-    const { bridge } = bridgeAnswering({
-      mountIds: [MOUNT_A, MOUNT_B],
-      refuseMountIds: [MOUNT_B],
-    });
+    const { calls } = callsAnswering({ mountIds: [MOUNT_A, MOUNT_B] });
     const read = createMountInventoryRead({
-      bridge,
+      calls: {
+        ...calls,
+        mountRead: (request, signal) =>
+          request.repoMountId === MOUNT_B
+            ? Promise.reject(new Error("no such mount"))
+            : calls.mountRead(request, signal),
+      },
       sessionId: SESSION_ID,
       clock,
       sessionStore: undefined,
@@ -121,35 +115,15 @@ describe("mount inventory read", () => {
     read.start();
     clock.advance(PAST_REFRESH_DEBOUNCE_MS);
     await settle();
-    const state = read.state;
-    expect(state.kind).toBe("loaded");
-    if (state.kind !== "loaded") {
-      return;
-    }
-    expect(state.value.readings.map((reading) => reading.kind)).toStrictEqual(["read", "refused"]);
-    const refused = state.value.readings[1];
-    expect(refused?.kind === "refused" ? refused.refusal.code : undefined).toBe(
-      "repo.mount_not_found",
-    );
+    expect(read.state.kind).toBe("failed");
     read.dispose();
   });
 
-  it("negative control: a failing workspace list fails the whole read", async () => {
-    // The per-mount arms above are only meaningful because the LIST has no such
-    // arm — there is no partial inventory when nothing named the mounts.
+  it("fails the read when the workspace list rejects, naming no partial inventory", async () => {
     const clock = new ManualClock();
-    const bridge = {
-      source: "fixture",
-      desktopBridge: {
-        daemon: {
-          call: async (): Promise<unknown> => {
-            throw new Error("transport closed");
-          },
-        },
-      },
-    } as unknown as ConsoleBridge;
+    const { calls } = callsAnswering({ mountIds: [MOUNT_A] });
     const read = createMountInventoryRead({
-      bridge,
+      calls: { ...calls, workspaceList: () => Promise.reject(new Error("transport closed")) },
       sessionId: SESSION_ID,
       clock,
       sessionStore: undefined,
@@ -166,9 +140,9 @@ describe("mount inventory read", () => {
     const mountIds = Array.from({ length: MOUNT_INVENTORY_READ_CAP + 3 }, (_unused, index) =>
       mountIdAt(index),
     );
-    const { bridge, calls } = bridgeAnswering({ mountIds });
+    const { calls, asked } = callsAnswering({ mountIds });
     const read = createMountInventoryRead({
-      bridge,
+      calls,
       sessionId: SESSION_ID,
       clock,
       sessionStore: undefined,
@@ -177,9 +151,7 @@ describe("mount inventory read", () => {
     clock.advance(PAST_REFRESH_DEBOUNCE_MS);
     await settle();
     const state = read.state;
-    expect(calls.filter((call) => call.method === "repo.mountRead")).toHaveLength(
-      MOUNT_INVENTORY_READ_CAP,
-    );
+    expect(asked.filter((call) => call === "mountRead")).toHaveLength(MOUNT_INVENTORY_READ_CAP);
     expect(state.kind === "loaded" ? state.value.unreadMountCount : undefined).toBe(3);
   });
 
@@ -187,9 +159,9 @@ describe("mount inventory read", () => {
     // The one honest absence left: no store open means no stream to bind. What must
     // still hold is that nothing is armed behind the page once it leaves.
     const clock = new ManualClock();
-    const { bridge } = bridgeAnswering({ mountIds: [MOUNT_A] });
+    const { calls } = callsAnswering({ mountIds: [MOUNT_A] });
     const read = createMountInventoryRead({
-      bridge,
+      calls,
       sessionId: SESSION_ID,
       clock,
       sessionStore: undefined,
@@ -219,15 +191,15 @@ describe("what refreshes the inventory", () => {
     readonly listCallCount: () => number;
   }> {
     const clock = new ManualClock();
-    const { bridge, calls } = bridgeAnswering({ mountIds: [MOUNT_A] });
-    const read = createMountInventoryRead({ bridge, sessionId: SESSION_ID, clock, sessionStore });
+    const { calls, asked } = callsAnswering({ mountIds: [MOUNT_A] });
+    const read = createMountInventoryRead({ calls, sessionId: SESSION_ID, clock, sessionStore });
     read.start();
     clock.advance(PAST_REFRESH_DEBOUNCE_MS);
     await settle();
     return {
       clock,
       read,
-      listCallCount: () => calls.filter((call) => call.method === "repo.workspaceList").length,
+      listCallCount: () => asked.filter((call) => call === "workspaceList").length,
     };
   }
 

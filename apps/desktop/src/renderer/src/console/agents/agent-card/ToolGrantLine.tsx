@@ -1,19 +1,19 @@
 // The per-agent tool grant, on the card, as one line.
 //
 // The per-agent tool control belongs here and the node-wide one in settings. Neither
-// half is a control on this card: a person changes the first by attaching with a
-// different definition and the second on the browser settings page.
+// half is a control on this card: the first is set when a sidekick starts from a
+// definition and the second on the browser settings page.
 //
 // WHY THIS IS ITS OWN LINE AND NOT A ROW IN THE ECHO. The echo answers "what did the
-// attach resolve to", and every axis in it is a provider axis a switch can later
-// move. This answers "what may this agent reach", which is a governance question with
+// configuration resolve to", and every axis in it is a provider axis a switch can
+// later move. This answers "what may this agent reach", which is a governance question with
 // a ceiling above it, and it is the only one of the two a reader needs without
 // opening a disclosure. The tool NAMES stay in the echo and are not repeated here —
 // `tool-grant.ts` records why this line carries a count instead.
 //
 // THE CEILING IS NOT HERE, AND THAT IS THE POINT. The node-wide switch that withholds
 // the browser page tool set is a fact about the NODE, true of every agent in the
-// roster and of agents nobody has attached yet. Stated under each card it was three
+// roster and of agents nobody has started yet. Stated under each card it was three
 // lines repeated per agent, and under the unanswered position it asserted that an
 // allowlist had been applied to a reply that named none. `ToolGrantCeiling.tsx` states
 // it once, beside the roster, with the mechanism as its subject.
@@ -30,6 +30,7 @@ import {
 } from "./tool-grant.js";
 import { ToolGrantReading } from "./ToolGrantReading.js";
 
+/** The tool grant line: what this agent may reach, worded by the grant table. */
 export function ToolGrantLine(props: {
   readonly position: AgentToolGrantPosition;
 }): React.JSX.Element {

@@ -32,17 +32,9 @@
 //
 // WHAT THIS PAGE DOES NOT OFFER. No theme editor and no accent picker — the design
 // closes this release at the mode choice in terms ("and nothing else in this
-// release"), and every colour a person could otherwise pick would have to clear the
+// release"), and every color a person could otherwise pick would have to clear the
 // contrast gate the token registry applies at generation time, which is the work
 // that buys less than the surfaces this release owes.
-//
-// AND ONE THING IT REPORTS RATHER THAN OFFERS. The scheme block says the choice is
-// "remembered for the next start", and whether that is true is the STORE's answer
-// rather than this page's: on the in-memory adapter the choice applies to this
-// window and is gone at the next launch. This page is where that report belongs —
-// the console runs on an in-memory adapter and reports that state in its own settings
-// page — and until `store-state/` nothing read it, so a person
-// learned it by restarting and finding the choice gone.
 
 import { useCallback, useState, useSyncExternalStore } from "react";
 import type { ReactNode } from "react";
@@ -59,10 +51,9 @@ import {
   isSchemePreference,
   type SchemePreference,
 } from "../../../tokens/index.js";
-import type { SettingsPageContext, SettingsPageRegistry } from "../../settings-page-registry.js";
-import { StoreStateBlock } from "./store-state/StoreStateBlock.js";
+import type { SettingsPageRegistry } from "../../settings-page-registry.js";
 
-/** The lane that owns this page, so an unfilled section names someone. */
+/** The owner this page registers under. */
 const OWNER = "settings-appearance";
 
 /** The subsystem name every refusal this module raises carries. */
@@ -107,7 +98,7 @@ const SCHEME_OPTIONS: readonly SchemeOption[] = [
   },
 ];
 
-export function AppearancePage(props: { readonly context: SettingsPageContext }): ReactNode {
+export function AppearancePage(): ReactNode {
   const appliedScheme = useSyncExternalStore(
     subscribeToAppliedScheme,
     readAppliedScheme,
@@ -132,7 +123,7 @@ export function AppearancePage(props: { readonly context: SettingsPageContext })
         : refuse(
             APPEARANCE_REFUSAL_ORIGIN,
             "scheme-command-unavailable",
-            `The colour scheme was not changed: this window offers no "${option.label}" command right now.`,
+            `The color scheme was not changed: this window offers no "${option.label}" command right now.`,
           ),
     );
   }, []);
@@ -145,11 +136,11 @@ export function AppearancePage(props: { readonly context: SettingsPageContext })
         keep in step. The choice belongs to this machine and is remembered for the next start.
       </p>
 
-      <section className="meridian-settings-page__block" aria-label="Colour scheme">
-        <h3 className="meridian-settings-page__block-title">Colour scheme</h3>
+      <section className="meridian-settings-page__block" aria-label="Color scheme">
+        <h3 className="meridian-settings-page__block-title">Color scheme</h3>
         <RadioGroup
           className="meridian-scheme-choice"
-          aria-label="Colour scheme"
+          aria-label="Color scheme"
           value={appliedScheme ?? null}
           onValueChange={(value: unknown) => {
             if (isSchemePreference(value)) {
@@ -182,15 +173,13 @@ export function AppearancePage(props: { readonly context: SettingsPageContext })
         )}
       </section>
 
-      <StoreStateBlock uiStateStore={props.context.uiStateStore} />
-
       <section className="meridian-settings-page__block" aria-label="Themes">
         <h3 className="meridian-settings-page__block-title">Themes</h3>
         <div className="meridian-settings-page__prose">
           <p>
             There is no theme editor here, and that is a decision rather than an omission. Every
-            colour this console paints is checked for contrast when the palette is generated, and a
-            colour typed in by hand would either bypass that check or need it re-run on every
+            color this console paints is checked for contrast when the palette is generated, and a
+            color typed in by hand would either bypass that check or need it re-run on every
             keystroke — so the release ships the two schemes that pass it and nothing that could
             fail it.
           </p>
@@ -200,14 +189,14 @@ export function AppearancePage(props: { readonly context: SettingsPageContext })
   );
 }
 
-/** Claim the appearance section. See `RuntimeNodesPage.tsx` on the seam's shape. */
+/** Claim the appearance section. */
 export function registerAppearancePage(registry: SettingsPageRegistry): void {
   registry.register({
     section: "appearance",
     owner: OWNER,
     label: "Appearance",
-    keywords: ["theme", "dark", "light", "colour", "color", "scheme", "contrast", "display"],
-    render: (context) => <AppearancePage context={context} />,
+    keywords: ["theme", "dark", "light", "color", "scheme", "contrast", "display"],
+    render: () => <AppearancePage />,
   });
 }
 
@@ -234,11 +223,11 @@ function subscribeToAppliedScheme(onSchemeChange: () => void): () => void {
 
 /**
  * What the document is carrying, or `undefined` when it is carrying something this
- * console does not recognise.
+ * console does not recognize.
  *
  * The absent attribute is `"system"` — that is the frame's own encoding, stated in
  * `frame/bindings/token-installation.ts`, and reading it any other way would make this page
- * disagree with the module that wrote it. An unrecognised VALUE is neither a
+ * disagree with the module that wrote it. An unrecognized VALUE is neither a
  * preference nor the system choice, so it answers `undefined` and the page says so
  * rather than lighting up an option nobody chose.
  */

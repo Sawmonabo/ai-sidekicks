@@ -63,7 +63,7 @@ import { TERMINAL_WEBGL_POOL_CAP } from "../../core/index.js";
  * makes the allocation per CONTEXT rather than per terminal: two panes on one
  * session hold two of these, and each hands back only its own.
  *
- * Compared by IDENTITY and never by its contents. A ledger honours the objects it
+ * Compared by IDENTITY and never by its contents. A ledger honors the objects it
  * minted, so a value a caller assembled itself — or one minted by a different
  * ledger — is refused, and the terminal it names is carried for the grouping
  * readings below rather than as a key anything is stored under.

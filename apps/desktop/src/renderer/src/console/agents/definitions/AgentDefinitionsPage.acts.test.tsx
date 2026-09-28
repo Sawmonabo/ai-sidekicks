@@ -3,22 +3,18 @@
 // The act worth the file is the delete: it is the only one here with no undo, so it
 // asks first, it sends the identifier rather than the label, and it RE-READS instead
 // of dropping the row — because a screen that agrees with a delete that may not have
-// happened is worse than one that waits. The rows stay legible while it runs, and a
-// refusal lands on the row rather than replacing it.
+// happened is worse than one that waits. The rows stay legible while it runs.
 //
-// The editor seat is here for the same reason: what a press opens, and on which
+// The editor subject is here for the same reason: what a press selects, and on which
 // record, is an act and not a reading.
 //
 // What the page reads, shows, and announces is `AgentDefinitionsPage.read.test.tsx`.
 //
 // The registry, the announcer and the presses live in the support module beside this
-// one; the bridge behind them is the shipped fixture bridge with the two operations
-// this page calls overridden — the `SentInvites` shape — so the refusals asserted
-// are the port's own `growthUnavailable` values rather than envelopes written here.
+// one; the registry calls are plain functions the stub there answers.
 
 import { describe, expect, it } from "vitest";
 
-import { growthUnavailable } from "../../bridge/index.js";
 import {
   RegistryStub,
   buttonNamed,
@@ -28,15 +24,12 @@ import {
   pressWithoutSettling,
   renderPage,
   savedRegionOf,
-  served,
   settle,
 } from "./agent-definitions-page.test-support.js";
 
-describe("the agent definitions page — the editor's seat", () => {
-  it("opens the seat on the record whose edit was pressed", async () => {
-    const { container } = renderPage(
-      new RegistryStub({ lists: [served([definition()])] }).bridge(),
-    );
+describe("the agent definitions page — the editor's subject", () => {
+  it("selects the record whose edit was pressed", async () => {
+    const { container } = renderPage(new RegistryStub({ lists: [[definition()]] }));
     await settle();
     const edit = buttonNamed(container, "Edit Reviewer");
     expect(edit.getAttribute("aria-pressed")).toBe("false");
@@ -45,10 +38,8 @@ describe("the agent definitions page — the editor's seat", () => {
     expect(container.querySelector(".meridian-saved-definition-row--open")).not.toBeNull();
   });
 
-  it("opens the same seat in its compose arm for a new definition", async () => {
-    const { container } = renderPage(
-      new RegistryStub({ lists: [served([definition()])] }).bridge(),
-    );
+  it("selects the compose arm for a new definition", async () => {
+    const { container } = renderPage(new RegistryStub({ lists: [[definition()]] }));
     await settle();
     const create = container.querySelector<HTMLButtonElement>(".meridian-agent-definitions__new");
     expect(create?.getAttribute("aria-pressed")).toBe("false");
@@ -58,48 +49,34 @@ describe("the agent definitions page — the editor's seat", () => {
     ).toBe("true");
   });
 
-  it("negative control: opening one record's seat does not mark its neighbour's", async () => {
+  it("negative control: selecting one record does not mark its neighbor's", async () => {
     // Without this, both cases above would pass over a page that marked every row
-    // as soon as any seat was open.
+    // as soon as any record was selected.
     const { container } = renderPage(
       new RegistryStub({
-        lists: [
-          served([definition(), definition({ definitionId: "definition-2", name: "Auditor" })]),
-        ],
-      }).bridge(),
+        lists: [[definition(), definition({ definitionId: "definition-2", name: "Auditor" })]],
+      }),
     );
     await settle();
     await press(buttonNamed(container, "Edit Reviewer"));
     expect(buttonNamed(container, "Edit Auditor").getAttribute("aria-pressed")).toBe("false");
     expect(container.querySelectorAll(".meridian-saved-definition-row--open")).toHaveLength(1);
   });
-
-  it("says the editor has not been built rather than drawing a form", async () => {
-    const { container } = renderPage(
-      new RegistryStub({ lists: [served([definition()])] }).bridge(),
-    );
-    await settle();
-    await press(buttonNamed(container, "Edit Reviewer"));
-    const detail = container.querySelector('[aria-label="Sidekick detail"]');
-    expect(detail?.textContent ?? "").toContain("sidekick editor has not been built here yet");
-    expect(detail?.querySelector("input, select, textarea")).toBeNull();
-  });
 });
 
 describe("the agent definitions page — deleting one", () => {
   it("asks before it asks the daemon anything", async () => {
-    const stub = new RegistryStub({ lists: [served([definition()])] });
-    const { container } = renderPage(stub.bridge());
+    const stub = new RegistryStub({ lists: [[definition()]] });
+    const { container } = renderPage(stub);
     await settle();
     await press(buttonNamed(container, "Delete Reviewer"));
     expect(container.textContent ?? "").toContain("Delete “Reviewer”?");
-    expect(container.textContent ?? "").toContain("keeps the configuration it was given");
     expect(stub.deletedIds).toStrictEqual([]);
   });
 
   it("keeps the record when the question is answered no", async () => {
-    const stub = new RegistryStub({ lists: [served([definition()])] });
-    const { container } = renderPage(stub.bridge());
+    const stub = new RegistryStub({ lists: [[definition()]] });
+    const { container } = renderPage(stub);
     await settle();
     await press(buttonNamed(container, "Delete Reviewer"));
     const keep = [...container.querySelectorAll<HTMLButtonElement>("button")].find(
@@ -114,8 +91,8 @@ describe("the agent definitions page — deleting one", () => {
     // The re-read is the assertion that matters: "the row is gone" is also true of
     // a page that dropped it locally, which would agree with a delete that may have
     // been applied differently or not at all.
-    const stub = new RegistryStub({ lists: [served([definition()]), served([])] });
-    const { container } = renderPage(stub.bridge());
+    const stub = new RegistryStub({ lists: [[definition()], []] });
+    const { container } = renderPage(stub);
     await settle();
     await press(buttonNamed(container, "Delete Reviewer"));
     await press(confirmDeleteIn(container));
@@ -131,52 +108,17 @@ describe("the agent definitions page — deleting one", () => {
     // is looking at while they wait.
     const stub = new RegistryStub({
       lists: [
-        served([definition(), definition({ definitionId: "definition-2", name: "Auditor" })]),
-        served([definition({ definitionId: "definition-2", name: "Auditor" })]),
+        [definition(), definition({ definitionId: "definition-2", name: "Auditor" })],
+        [definition({ definitionId: "definition-2", name: "Auditor" })],
       ],
     });
-    const { container } = renderPage(stub.bridge());
+    const { container } = renderPage(stub);
     await settle();
     await press(buttonNamed(container, "Delete Reviewer"));
     await pressWithoutSettling(confirmDeleteIn(container));
     expect(savedRegionOf(container).querySelector(".meridian-nothing--not-loaded")).toBeNull();
     expect(container.querySelectorAll(".meridian-saved-definition-row").length).toBeGreaterThan(0);
     await settle();
-  });
-
-  it("renders the daemon's refusal on the row and keeps the record", async () => {
-    const stub = new RegistryStub({
-      lists: [served([definition()])],
-      deleteOutcome: growthUnavailable("agentDefinitionDelete"),
-    });
-    const { container } = renderPage(stub.bridge());
-    await settle();
-    await press(buttonNamed(container, "Delete Reviewer"));
-    await press(confirmDeleteIn(container));
-    const saved = savedRegionOf(container);
-    expect(saved.querySelector(".meridian-refusal--inline")?.textContent ?? "").toContain(
-      "wire-unregistered",
-    );
-    expect(saved.querySelector(".meridian-saved-definition-row__name")?.textContent).toBe(
-      "Reviewer",
-    );
-    // Nothing was re-read, because nothing changed.
-    expect(stub.listCallCount).toBe(1);
-  });
-
-  it("negative control: a refused delete does not leave the row looking deleted", async () => {
-    // Without this, the case above would pass over a page that removed the row and
-    // then rendered the refusal beside an empty list.
-    const stub = new RegistryStub({
-      lists: [served([definition()])],
-      deleteOutcome: growthUnavailable("agentDefinitionDelete"),
-    });
-    const { container } = renderPage(stub.bridge());
-    await settle();
-    await press(buttonNamed(container, "Delete Reviewer"));
-    await press(confirmDeleteIn(container));
-    expect(savedRegionOf(container).textContent ?? "").not.toContain("You have saved no sidekicks");
-    expect(container.querySelectorAll(".meridian-saved-definition-row")).toHaveLength(1);
   });
 });
 
@@ -187,12 +129,12 @@ describe("the agent definitions page — while one delete is running", () => {
     // route every one of them into a refusal, which is a belt rather than a design.
     const stub = new RegistryStub({
       lists: [
-        served([definition(), definition({ definitionId: "definition-2", name: "Auditor" })]),
-        served([definition({ definitionId: "definition-2", name: "Auditor" })]),
+        [definition(), definition({ definitionId: "definition-2", name: "Auditor" })],
+        [definition({ definitionId: "definition-2", name: "Auditor" })],
       ],
       holdsDeletes: true,
     });
-    const { container } = renderPage(stub.bridge());
+    const { container } = renderPage(stub);
     await settle();
 
     await press(buttonNamed(container, "Delete Reviewer"));
@@ -214,11 +156,11 @@ describe("the agent definitions page — while one delete is running", () => {
     // delete anything else without reloading the window.
     const stub = new RegistryStub({
       lists: [
-        served([definition(), definition({ definitionId: "definition-2", name: "Auditor" })]),
-        served([definition({ definitionId: "definition-2", name: "Auditor" })]),
+        [definition(), definition({ definitionId: "definition-2", name: "Auditor" })],
+        [definition({ definitionId: "definition-2", name: "Auditor" })],
       ],
     });
-    const { container } = renderPage(stub.bridge());
+    const { container } = renderPage(stub);
     await settle();
 
     await press(buttonNamed(container, "Delete Reviewer"));

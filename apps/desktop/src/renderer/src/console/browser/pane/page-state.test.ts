@@ -1,15 +1,11 @@
-// `pagesOf`, and the sentence it refuses to say.
+// `pagesOf` and the two claims it keeps apart.
 //
-// The whole reason this helper exists rather than a ternary at three call sites is
-// that "this session owns no pages" and "nobody has answered yet" are different
-// claims, and an empty array is the shape both would take. So the cases below pair
-// the served-and-empty reading with the three arms that are NOT it, and each caller
-// still branches on the reading itself — which is what the surfaces' own suites
-// assert.
+// "This session owns no pages" and "nobody has answered yet" are different claims, and
+// an empty array is the shape both take. So the cases pair the served-and-empty reading
+// with the arms that are not it, and each caller still branches on the reading itself.
 
 import { describe, expect, it } from "vitest";
 
-import { refuse } from "../../core/index.js";
 import { pagesOf, type BrowserPage, type PageListReading } from "./page-state.js";
 
 const PAGE: BrowserPage = {
@@ -42,19 +38,9 @@ describe("the pages a reading carries", () => {
     expect(pagesOf({ kind: "ended" })).toEqual([]);
   });
 
-  it("carries none for a refused subscription", () => {
-    expect(
-      pagesOf({
-        kind: "refused",
-        scope: "whole-answer",
-        refusal: refuse("browser-pages", "page-subscription-failed", "The subscription broke."),
-      }),
-    ).toEqual([]);
-  });
-
   it("negative control: a served reading with no pages is the same array as the others", () => {
-    // Which is exactly why every caller branches on the READING and not on this
-    // result: the four arms above are indistinguishable here by construction.
+    // Which is why every caller branches on the reading and not on this result: the
+    // arms above are indistinguishable here by construction.
     expect(pagesOf({ kind: "served", frame: { contextName: null, pages: [] } })).toEqual([]);
   });
 });

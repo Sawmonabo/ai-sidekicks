@@ -26,7 +26,7 @@ import { act } from "@testing-library/react";
 import { startTransition } from "react";
 
 /** Nothing settles it, so the pass that suspends on it never resumes. */
-const NEVER_SETTLES: Promise<void> = new Promise<void>(() => undefined);
+export const NEVER_SETTLES: Promise<never> = new Promise<never>(() => undefined);
 
 /**
  * Suspend the tree the moment `suspend` turns true, and render nothing otherwise.

@@ -3,19 +3,15 @@
 //
 // WHAT IS ON THIS PAGE TODAY: THE REGISTRY, READ
 //
-// `agentDefinitionList` is registered on the growth port beside its create,
-// update, and delete verbs, so the page puts one read in flight on mount and
-// renders whichever of four answers comes back — a read still going, the port's own
-// refusal with its code, a served empty registry, or the rows. Those four stay
-// apart because they are different facts: "nobody has answered yet", "the answer
-// was no", and "there are none" are three separate things, and a page that showed
-// an empty list for either of the first two would assert something nothing on this
-// machine established.
+// The page puts one read in flight on mount and renders whichever of three answers
+// comes back — a read still going, a served empty registry, or the rows. Those stay
+// apart because they are different facts: "nobody has answered yet" and "there are
+// none" are two separate things, and a page that showed an empty list for the first
+// would assert something nothing on this machine established.
 //
 // ONE READ, AND A RE-READ ONLY WHERE SOMETHING MOVED. The list is read on mount and
 // again after a delete the daemon applied, which is the one moment this page knows
-// the registry changed. Nothing polls, and `store/read/refresh-scheduler.ts` is where a refresh
-// cadence would land if one were ever wanted. The `not-loaded` absence is entered
+// the registry changed. Nothing polls. The `not-loaded` absence is entered
 // once and never re-entered: a re-read that blanked the list would take rows off the
 // screen to show a spinner for data the page is already holding.
 //
@@ -23,49 +19,31 @@
 // the call goes out. There is no browser dialog in this console and no dialog of our
 // own either — the subject of the question is the row, so the question belongs on
 // the row, where a person can still read what they are about to delete. The pending
-// state, the daemon's refusal, and the re-read on success all land there too.
+// state and the re-read on success land there too.
 //
-// EDIT AND NEW OPEN THE SAME SEAT. `AgentDefinitionRecordEditorMount.tsx` declares a subject
-// with exactly two arms — a stored record, or one being composed — and this page
-// supplies whichever was asked for. The body filling the seat is another plan's and
-// has not arrived, so both controls reach the seat's reserved treatment, which says
-// the editor has not been built rather than drawing a form that cannot save. That is
-// a deliberate difference from a control whose VERB is unregistered, which this page
-// still declines to draw: here the seat exists and the subject is real, and what is
-// missing is a body this console does not author.
+// EDIT AND NEW SELECT THE SAME SUBJECT. The view holds a subject with exactly two arms
+// — a stored record, or one being composed — and this page supplies whichever was
+// asked for. The editor that reads it is not part of this page.
 //
-// THE THREE STANDING FACTS STAY. They need no wire to be true, they are what people
-// get wrong about a registry like this one, and the third is what makes the delete
-// question answerable at all.
-//
-// ATTACHING FROM A ROW IS A HANDOFF, NOT A NAVIGATION. The registry is node-local and
-// an agent joins a session, so "attach from here" has to name one — and the only
-// session this page can name is the one this window is working in, handed down rather
-// than chosen. What the press does is OFFER the definition to that session's attach
-// form through `attach/attach-handoff/`, which is renderer-local, holds one offer at a
-// time, and is spent the moment the form claims it. The page navigates nowhere: it
-// does not know whether the session's agent console is open, and a control that moved
-// somebody somewhere and left them looking at a surface it had not opened would be
-// asserting an act it did not perform. Where this window has opened no session there
-// is nothing to attach into, so the control is ABSENT and the column says why once.
+// THE TWO STANDING FACTS STAY. They need no wire to be true, and they are what people
+// get wrong about a registry like this one.
 //
 // THE STATE IS NOT HERE. Everything this page holds — the read, the delete in
-// flight, the refusal per row, and which record the seat is open on — lives in
-// `definition-registry-view.ts`, because a state machine over the growth port and a
-// body that renders what it settled on are two jobs. This file calls no port method
+// flight, the view's refusal per row, and which record the editor is open on — lives in
+// `definition-registry-view.ts`, because a state machine over the registry calls and a
+// body that renders what it settled on are two jobs. This file makes no call
 // and holds no `useState`: it reads one snapshot and hands presses back to the view.
 
+import type { ReactNode } from "react";
+
 import type { ConsoleBridge } from "../../bridge/index.js";
-import { useAttachHandoff } from "../attach/attach-handoff/index.js";
 import {
   useDefinitionSettlementAnnouncement,
   useAgentRegistryView,
+  type AgentRegistryCalls,
 } from "./definition-registry-view.js";
-import {
-  SIDEKICK_DEFINITION_RECORD_EDITOR_SLOT,
-  AgentDefinitionRecordEditorMount,
-} from "./AgentDefinitionRecordEditorMount.js";
 import { SavedDefinitions } from "./SavedDefinitions.js";
+
 /** One standing fact about the registry, in the two halves a description list wants. */
 interface AgentRegistryRule {
   readonly term: string;
@@ -73,10 +51,10 @@ interface AgentRegistryRule {
 }
 
 /**
- * The three facts, declared once and rendered in order.
+ * The two facts, declared once and rendered in order.
  *
- * A list rather than three hand-written blocks so the page's claim — that there are
- * exactly three things to know before tuning one — is countable by a test rather
+ * A list rather than hand-written blocks so the page's claim — that there are
+ * exactly two things to know before tuning one — is countable by a test rather
  * than asserted in a comment.
  */
 const AGENT_REGISTRY_RULES: readonly AgentRegistryRule[] = [
@@ -90,32 +68,25 @@ const AGENT_REGISTRY_RULES: readonly AgentRegistryRule[] = [
     statement:
       "A name is a label, not an identifier. Renaming a sidekick changes nothing that is already running under it.",
   },
-  {
-    term: "What editing reaches",
-    statement:
-      "Nothing already attached. A sidekick keeps the configuration it was given when it joined a session, for the rest of its life — so editing or deleting one here is safe.",
-  },
 ];
 
+/** What the page needs: the bridge for its clock and triggers, and the registry calls. */
 export interface AgentDefinitionsPageProps {
   readonly bridge: ConsoleBridge;
-  /**
-   * The session this window is working in, which is the one a row can attach into.
-   *
-   * Required and carrying `undefined` rather than optional: a window that has opened
-   * no session is a real answer this page renders, and an optional member would read
-   * identically whether the composition decided there was none or forgot to pass one.
-   */
-  readonly retainedSessionId: string | undefined;
+  /** Held stable by the caller: a new object restarts the read. */
+  readonly calls: AgentRegistryCalls;
 }
 
-export function AgentDefinitionsPage(props: AgentDefinitionsPageProps): React.JSX.Element {
-  const { view, snapshot } = useAgentRegistryView(props.bridge);
-  useDefinitionSettlementAnnouncement(snapshot.reading);
-  // The window's one handoff, subscribed rather than read: an offer this page made
-  // and the session's form then claimed has to stop reading as a standing promise.
-  const handoff = useAttachHandoff(props.bridge);
-
+/**
+ * The page's frame: the heading, the lede and the two standing facts.
+ *
+ * `actions` sit beside the heading and `children` under the facts; both are what the
+ * registry read supplies.
+ */
+export function AgentDefinitionsFrame(props: {
+  readonly actions?: ReactNode;
+  readonly children?: ReactNode;
+}): React.JSX.Element {
   return (
     <section className="meridian-agent-definitions" aria-label="Sidekicks">
       <header className="meridian-agent-definitions__head">
@@ -124,20 +95,7 @@ export function AgentDefinitionsPage(props: AgentDefinitionsPageProps): React.JS
           A sidekick you have tuned once — its provider, its instructions, its goal, the tools it
           may reach — kept so the next session starts from it instead of from nothing.
         </p>
-        <button
-          type="button"
-          className="meridian-agent-definitions__new"
-          // Pressed rather than merely styled: the detail column is a single seat,
-          // so which subject it is holding is state a person has to be able to read
-          // — and a control that opens a region without saying it is the one that
-          // opened it leaves the two columns looking unrelated.
-          aria-pressed={snapshot.editorSubject?.kind === "new"}
-          onClick={() => {
-            view.openEditor({ kind: "new" });
-          }}
-        >
-          New sidekick
-        </button>
+        {props.actions}
       </header>
 
       <dl className="meridian-agent-definitions__rules">
@@ -149,25 +107,39 @@ export function AgentDefinitionsPage(props: AgentDefinitionsPageProps): React.JS
         ))}
       </dl>
 
+      {props.children}
+    </section>
+  );
+}
+
+/** The saved-definitions page: the registry read, its rows, and the delete on each. */
+export function AgentDefinitionsPage(props: AgentDefinitionsPageProps): React.JSX.Element {
+  const { view, snapshot } = useAgentRegistryView(props.bridge, props.calls);
+  useDefinitionSettlementAnnouncement(snapshot.reading);
+
+  return (
+    <AgentDefinitionsFrame
+      actions={
+        <button
+          type="button"
+          className="meridian-agent-definitions__new"
+          // Pressed rather than merely styled: which subject is selected is state a
+          // person has to be able to read.
+          aria-pressed={snapshot.editorSubject?.kind === "new"}
+          onClick={() => {
+            view.openEditor({ kind: "new" });
+          }}
+        >
+          New sidekick
+        </button>
+      }
+    >
       <div className="meridian-agent-definitions__columns">
         <section className="meridian-agent-definitions__column" aria-label="Saved sidekicks">
           <h3 className="meridian-agent-definitions__column-title">Saved</h3>
-          <SavedDefinitions
-            snapshot={snapshot}
-            view={view}
-            handoff={handoff}
-            attachTargetSessionId={props.retainedSessionId}
-          />
-        </section>
-
-        <section className="meridian-agent-definitions__column" aria-label="Sidekick detail">
-          <h3 className="meridian-agent-definitions__column-title">Detail</h3>
-          <AgentDefinitionRecordEditorMount
-            slot={SIDEKICK_DEFINITION_RECORD_EDITOR_SLOT}
-            subject={snapshot.editorSubject}
-          />
+          <SavedDefinitions snapshot={snapshot} view={view} />
         </section>
       </div>
-    </section>
+    </AgentDefinitionsFrame>
   );
 }

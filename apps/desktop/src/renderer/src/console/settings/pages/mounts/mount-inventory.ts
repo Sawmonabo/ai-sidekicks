@@ -1,124 +1,70 @@
-// The mount inventory: two registered reads composed into one list of mounts.
+// The mount inventory: one list of a session's mounts, each with its path and its two
+// health axes, composed from two calls the caller supplies.
 //
-// One row per mount with its path and its two health axes, read through
-// `repo.mountRead` and re-read on focus, on reconnect, and on run-terminal events. The
-// two mount health axes are never collapsed, and the surface never polls.
+// The list is session-scoped because the only call that names mount ids is the
+// workspace list, whose every item carries the mount its workspace belongs to. The
+// inventory is the distinct ids that call names, each then read for its path and its
+// health. The two axes are never collapsed, and nothing here polls.
 //
-// WHY TWO READS AND NOT ONE
+// It re-reads on focus and on reconnect (both bound in `MountInventoryList`), and on
+// the session events below, taken from the session store the window already has open
+// rather than from a second subscription to the same stream. Without a store the read
+// refreshes on focus alone.
 //
-// `repo.mountRead` takes ONE mount id and answers that mount. Nothing in
-// `packages/contracts` enumerates mounts: there is no mount-list method, and the
-// only registered read that names mount ids at all is `repo.workspaceList`, whose
-// every item carries the `repoMountId` its workspace belongs to. So the inventory
-// is the distinct mount ids that read names, each then read for the path and the
-// health the design's row needs. Inventing a `repo.mountList` string would be
-// composing a method the corpus does not register, which the console never does.
-//
-// The consequence is stated rather than hidden: the list is SESSION-scoped, because
-// `repo.workspaceList` is, and the page says so. A node-scoped inventory — every
-// mount this machine holds, across sessions — is not reachable from any registered
-// read, and a page claiming to show one would be claiming a completeness nothing
-// established.
-//
-// A REFUSED MOUNT IS A ROW, NOT A BLANK PAGE
-//
-// The per-mount reads settle independently. One mount whose read refuses renders
-// its own refusal on its own row while its neighbours render normally — which is
-// what "refusals are rendered on the row" requires, and what a single `Promise.all`
-// would make impossible by rejecting the whole inventory on the first failure.
-//
-// WHICH SIGNALS REFRESH IT, AND THE ONE THE CONSOLE DOES NOT HAVE
-//
-// The section names three: focus, reconnect, and run-terminal events. Two of the
-// three are bound, and the third is absent from the whole console rather than from
-// this read.
-//
-//   • **Focus** is the page's, installed beside the read (`WorkspaceMountsPage`).
-//   • **The session's own event stream** carries every kind that can change what
-//     this list says. Nine of them, and each is a registered `SessionEventType`
-//     rather than a guess — the mount's own attachment lifecycle, the workspace
-//     lifecycle the inventory is DERIVED from, and the three run terminals the
-//     section names, since a run ending is what re-probes a worktree's health.
-//     The signal arrives through the console's own session store rather than
-//     through a second `daemon.subscribe`, exactly as the channel directory takes
-//     its own: the store is already the one subscriber to that stream, and opening
-//     another would be a second copy of the same feed arriving in a different
-//     order.
-//   • **Reconnect** is the console's one transport signal, taken from
-//     `ConsoleBridge.transportReconnect` and bound beside the focus listener in
-//     `MountInventoryList`. It is a different fact from the two above it: a window
-//     that never lost focus, in a session that never went degraded, can still have
-//     had its transport drop and come back — and every mount health this list is
-//     showing was read before that gap. The signal is OBSERVED rather than guessed:
-//     the live half is what the session-event binder saw happen to the one
-//     subscription this window takes, and the fixture half is a scenario's scripted
-//     outage. This module still composes nothing of its own; it asks for a read.
-//
-// THE STORE IS OPTIONAL, AND ITS ABSENCE IS A REAL STATE. Settings is reachable
-// with no session open, and the retained session's store is `undefined` until the
-// window opens it. The read still performs — the wire call needs only a session id
-// — and refreshes on focus alone until a store arrives, which is one signal fewer
-// rather than a stale list nothing can correct.
+// A rejected call is not caught here. It rejects the whole read, and `PushDrivenRead`
+// settles it as the read's failed state.
 
 import type {
   RepoMountReadRequest,
   RepoMountReadResponse,
   SessionEventType,
+  WorkspaceListRequest,
   WorkspaceListResponse,
 } from "@ai-sidekicks/contracts";
 
 import {
   ConsoleRefusalError,
+  MOUNT_INVENTORY_READ_CAP,
   type ConsoleClock,
-  type ConsoleRefusal,
   type Unsubscribe,
 } from "../../../core/index.js";
-import {
-  abandonedReadRefusal,
-  callDaemon,
-  heldIdAsWireId,
-  type ConsoleBridge,
-} from "../../../bridge/index.js";
-import { MOUNT_INVENTORY_READ_CAP } from "../../../core/index.js";
-import { PushDrivenRead, servedValueOrRaise } from "../../../seats/index.js";
+import { abandonedReadRefusal, heldIdAsWireId } from "../../../bridge/index.js";
+import { PushDrivenRead } from "../../../seats/index.js";
 import {
   isReadAbandoned,
   subscribeToSessionEventKinds,
   type SessionStore,
 } from "../../../store/index.js";
 
-/** The registered method that names which mounts a session holds. */
-const WORKSPACE_LIST_METHOD = "repo.workspaceList";
-
-/** The registered method that answers one mount's path and health. */
-const MOUNT_READ_METHOD = "repo.mountRead";
-
 /** Names this read in a refusal, so a failure says which read failed. */
 export const MOUNT_INVENTORY_ORIGIN = "mount-inventory";
 
+/** The call that lists a session's workspaces, each naming the mount it belongs to. */
+export type WorkspaceListCall = (
+  request: WorkspaceListRequest,
+  signal: AbortSignal,
+) => Promise<WorkspaceListResponse>;
+
+/** The call that answers one mount's path and health. */
+export type MountReadCall = (
+  request: RepoMountReadRequest,
+  signal: AbortSignal,
+) => Promise<RepoMountReadResponse>;
+
+/** The two calls the inventory is composed from. */
+export interface MountInventoryCalls {
+  readonly workspaceList: WorkspaceListCall;
+  readonly mountRead: MountReadCall;
+}
+
 /**
- * Every registered event kind that can change what this list says.
+ * Every session event kind that can change what this list says.
  *
- * Three groups, and each earns its place from what the inventory is BUILT from
- * rather than from what sounds related:
- *
- *   • `repo.attached` / `repo.detached` — the attachment axis one row renders. A
- *     mount that detaches while this page is open is a row whose first chip is now
- *     wrong.
- *   • The four `workspace.*` lifecycle kinds — the inventory's mount ids come from
- *     `repo.workspaceList`, so a workspace arriving or being archived changes WHICH
- *     mounts this session names, not merely how one of them is doing.
- *   • `run.completed` / `run.failed` / `run.interrupted` — the section's own named
- *     trigger. A run ending is what re-probes the worktree it was executing in, so
- *     the reachability axis moves at exactly these three instants.
- *
- * `run.queued`, `run.starting` and the rest of the transitions are deliberately
- * absent: a run beginning changes neither axis, and a subscription that woke on
- * every transition would re-read the whole inventory through a run's lifetime for
- * two readings that did not move.
- *
- * Typed as the contract's own census member, so a kind this console invents fails
- * to compile rather than subscribing to a name the daemon never sends.
+ * `repo.attached` and `repo.detached` move the attachment axis; the `workspace.*`
+ * lifecycle kinds change which mounts the workspace list names; a run ending re-probes
+ * the worktree it executed in, so the health axis moves at exactly those three. A run
+ * beginning changes neither axis and is left out. Typed as the contract's own census,
+ * so a kind the daemon never sends fails to compile.
  */
 const MOUNT_AFFECTING_EVENT_KINDS: readonly SessionEventType[] = [
   "repo.attached",
@@ -132,22 +78,9 @@ const MOUNT_AFFECTING_EVENT_KINDS: readonly SessionEventType[] = [
   "run.interrupted",
 ];
 
-/**
- * One mount's outcome. Two arms, because a mount that could not be read is still a
- * mount this session holds — dropping it would under-report the inventory, and
- * failing the whole list would over-report the damage.
- */
-export type MountReading =
-  | { readonly kind: "read"; readonly mount: RepoMountReadResponse }
-  | {
-      readonly kind: "refused";
-      readonly repoMountId: string;
-      readonly refusal: ConsoleRefusal;
-    };
-
 /** What one inventory read answers. */
 export interface MountInventory {
-  readonly readings: readonly MountReading[];
+  readonly readings: readonly RepoMountReadResponse[];
   /**
    * Mounts the workspace list named and this read did not open, because the cap
    * was reached. Rendered as a count; never silently dropped.
@@ -180,7 +113,7 @@ export function distinctMountIds(response: WorkspaceListResponse): readonly stri
  * render body — and disposed with that owner.
  */
 export function createMountInventoryRead(options: {
-  readonly bridge: ConsoleBridge;
+  readonly calls: MountInventoryCalls;
   readonly sessionId: string;
   readonly clock: ConsoleClock;
   /**
@@ -191,11 +124,11 @@ export function createMountInventoryRead(options: {
    */
   readonly sessionStore: SessionStore | undefined;
 }): MountInventoryRead {
-  const { bridge, sessionId, clock, sessionStore } = options;
+  const { calls, sessionId, clock, sessionStore } = options;
   return new PushDrivenRead<MountInventory>({
     clock,
     origin: MOUNT_INVENTORY_ORIGIN,
-    read: async (signal: AbortSignal) => await readMountInventory(bridge, sessionId, signal),
+    read: async (signal: AbortSignal) => await readMountInventory(calls, sessionId, signal),
     // One re-read per burst, never one per event: the signal goes to the read's own
     // `RefreshScheduler`, which debounces with an absolute deadline, so a run ending
     // three worktrees at once costs one inventory read rather than three.
@@ -208,108 +141,48 @@ export function createMountInventoryRead(options: {
 }
 
 /**
- * The fan-out read, and the one in this console with most to gain from abandonment.
+ * The fan-out read: the workspace list, then up to `MOUNT_INVENTORY_READ_CAP` mount
+ * reads.
  *
- * It is a list read followed by up to `MOUNT_INVENTORY_READ_CAP` mount reads, every
- * one of them parsed against its registered schema and every one of them folded into
- * a row. A person who opens the mounts page and leaves it before it lands used to pay
- * for all of that; the signal reaches each call, so an abandoned pass parses nothing
- * it has not already parsed and folds nothing at all.
- *
- * AND THE SIGNAL IS READ AGAIN BETWEEN THE CALLS, which is what the door cannot do
- * for a composed read. `callDaemon` guards its own three points; the two `await`
- * boundaries HERE are this function's, and an abort landing in either of them reaches
- * no listener the door has left attached — the list call resolves `settled` one
- * microtask before the departure, and this frame resumes one microtask after it. The
- * first check is what keeps a page that has left from starting a twelve-call fan-out;
- * the second is what keeps it from folding twelve abandoned refusals into rows for a
- * surface that is gone.
- *
- * Exported so its two checkpoints are drivable at their own boundary. Nothing outside
- * this module's own test reaches it: what a page consumes is the model above.
+ * The signal reaches every call, so a page that has left cancels the ones in flight. It
+ * is read again between the calls, because an abort landing in either gap would
+ * otherwise start a fan-out, or fold rows, for a page that has left. Exported so both
+ * checkpoints are drivable at their own boundary.
  */
 export async function readMountInventory(
-  bridge: ConsoleBridge,
+  calls: MountInventoryCalls,
   sessionId: string,
   signal: AbortSignal,
 ): Promise<MountInventory> {
-  const workspaces = servedValueOrRaise(
-    await callDaemon(
-      bridge,
-      WORKSPACE_LIST_METHOD,
-      {
-        sessionId: heldIdAsWireId(sessionId),
-      },
-      { signal },
-    ),
-  );
+  const workspaces = await calls.workspaceList({ sessionId: heldIdAsWireId(sessionId) }, signal);
   if (isReadAbandoned(signal)) {
     raiseAbandonedInventoryRead();
   }
   const mountIds = distinctMountIds(workspaces);
   const admittedMountIds = mountIds.slice(0, MOUNT_INVENTORY_READ_CAP);
-  // `Promise.all` and not `allSettled`, because the call door answers a refusal as a
-  // VALUE: one mount refusing no longer rejects, so there is no settled-outcome
-  // wrapper left to unwrap and no `reason` left to normalize a second time.
-  const replies = await Promise.all(
-    admittedMountIds.map(async (repoMountId) => await readOneMount(bridge, repoMountId, signal)),
+  const readings = await Promise.all(
+    admittedMountIds.map(
+      async (repoMountId) =>
+        await calls.mountRead({ repoMountId: heldIdAsWireId(repoMountId) }, signal),
+    ),
   );
   if (isReadAbandoned(signal)) {
     raiseAbandonedInventoryRead();
   }
-  const readings = replies.map((reply, index): MountReading => {
-    // The id is taken from the request rather than from the reply, because the
-    // refused arm has no reply to take it from and both arms must name the same
-    // mount for a row to be stable across a refresh.
-    const repoMountId = admittedMountIds[index] ?? "";
-    return reply.status === "served"
-      ? { kind: "read", mount: reply.value }
-      : { kind: "refused", repoMountId, refusal: reply.refusal };
-  });
   return { readings, unreadMountCount: mountIds.length - admittedMountIds.length };
 }
 
 /**
- * Stop the composed read where nobody is waiting for the mounts any more.
+ * Stop the read where nobody is waiting for the mounts any more.
  *
- * RAISED AND NOT RETURNED, and this is the settlement this read already has rather
- * than a new one: where the abandonment lands before or during the list call, the
- * door answers `read-abandoned` and `servedValueOrRaise` throws exactly this refusal
- * two lines above. `PushDrivenRead` catches it, sees the round's own signal aborted,
- * and reports nothing — so no surface ever meets the sentence, and returning an empty
- * inventory instead would be composing a reading of a session that was never taken.
- *
- * It names the per-mount method because that is the work both checkpoints are about:
- * the first stops the fan-out before it starts, the second stops the fold of what it
- * answered.
+ * Raised rather than returned: `PushDrivenRead` sees its own round's signal aborted
+ * and reports nothing, where an empty inventory would be a reading never taken.
  */
 function raiseAbandonedInventoryRead(): never {
-  throw new ConsoleRefusalError(abandonedReadRefusal(MOUNT_READ_METHOD));
+  throw new ConsoleRefusalError(abandonedReadRefusal("mount inventory"));
 }
 
-/**
- * One mount read, as its own function so the branded request infers in one place.
- *
- * The request is a NAMED local carrying the contracts type rather than an object
- * literal in the argument position. Written inline, the widening sits inside a
- * generic call whose own method parameter is still being inferred, the brand
- * resolves to bare `string`, and the widening does nothing. It fails loudly — the
- * assignment is the error above — but the fix belongs at the site rather than in a
- * reader's memory, so the type is written where it is decided.
- */
-async function readOneMount(bridge: ConsoleBridge, repoMountId: string, signal: AbortSignal) {
-  const request: RepoMountReadRequest = { repoMountId: heldIdAsWireId(repoMountId) };
-  return await callDaemon(bridge, MOUNT_READ_METHOD, request, { signal });
-}
-
-/**
- * The subscribe for a window with no session store open, named rather than inline.
- *
- * A function that opens nothing and returns an unsubscribe that closes nothing. It
- * exists so the honest fact has a name at the call site: there is no stream to bind
- * because this window has no store for the session, NOT because the console has no
- * signal for a mount — it has nine, and they are bound the moment a store arrives.
- */
+/** The subscribe for a window with no session store open: nothing to bind, nothing to release. */
 function noSessionStoreOpen(): Unsubscribe {
   return () => undefined;
 }

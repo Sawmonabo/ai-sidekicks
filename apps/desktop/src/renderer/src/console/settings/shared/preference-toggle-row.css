@@ -38,16 +38,11 @@
   cursor: pointer;
 }
 
-.meridian-settings-row__description,
-.meridian-settings-row__note {
+.meridian-settings-row__description {
   margin: 0;
   color: var(--meridian-text-muted);
   font-size: var(--meridian-text-xs);
   line-height: 1.5;
-}
-
-.meridian-settings-row__note {
-  color: var(--meridian-text-faint);
 }
 
 /* The switch is a `<span>` with a hidden `<input>` beside it, so the track and the

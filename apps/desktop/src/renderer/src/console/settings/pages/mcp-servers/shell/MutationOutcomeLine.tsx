@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-import { Chip, InlineRefusal, Nothing, WireFigure } from "../../../../primitives/index.js";
+import { Chip, Nothing, WireFigure } from "../../../../primitives/index.js";
 import type { GrowthMcpLiveApplicationResult } from "../../../../bridge/index.js";
 import { mcpLiveLegKeyOf } from "./live-leg-key.js";
 import type { McpMutationOutcome } from "./mcp-mutation.js";
@@ -33,16 +33,6 @@ export function MutationOutcomeLine(props: { readonly outcome: McpMutationOutcom
   if (outcome.kind === "sending") {
     return (
       <Nothing kind="not-loaded" placement="inline" title="Asking the daemon to apply this." />
-    );
-  }
-  if (outcome.kind === "refused") {
-    return (
-      <p
-        className="meridian-settings-page__state meridian-settings-page__state--failed"
-        role="alert"
-      >
-        <InlineRefusal {...outcome.refusal} />
-      </p>
     );
   }
   const { result } = outcome;

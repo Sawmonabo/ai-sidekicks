@@ -6,7 +6,7 @@
 // COMPOSE one terminal surface, and this owns a different question — which library
 // objects that surface loads, which of them the page's WebGL budget lets it keep,
 // and what happens when the host takes a context away. Every constraint below is a
-// property of `@xterm/xterm`'s own behaviour, so it is testable through the adapter
+// property of `@xterm/xterm`'s own behavior, so it is testable through the adapter
 // against the real library rather than against a mirror of it.
 //
 // TWO OF THE WRAPPER'S FIVE CONSTRAINTS LIVE HERE, and each one is

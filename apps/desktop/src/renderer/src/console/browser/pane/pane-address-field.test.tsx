@@ -10,37 +10,30 @@
 import { fireEvent, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { BROWSER_SCENARIO } from "../../bridge/scenario/browser.js";
-import { createFixtureBridge, growthUnavailable, type ConsoleBridge } from "../../bridge/index.js";
 import {
   addressField,
   DEFAULT_TEST_PANE_ID,
+  fixtureBrowserBridge,
   mountBrowserPaneForSubject,
+  recordingActs,
 } from "./BrowserPane.test-support.js";
 
 const SECOND_PANE_ID = "pane-browser-2";
 const DRAFT = "example.invalid/typed-into-the-first-pane";
 
-/** A bridge that records every navigation the chrome dispatches, and refuses it. */
-function navigationRecordingBridge(): {
-  readonly bridge: ConsoleBridge;
-  readonly dispatched: readonly { readonly paneId: string; readonly url: string }[];
-} {
-  const base = createFixtureBridge({ scenario: BROWSER_SCENARIO });
-  const dispatched: { readonly paneId: string; readonly url: string }[] = [];
-  return {
-    dispatched,
-    bridge: {
-      ...base,
-      growth: {
-        ...base.growth,
-        browserNavigate: async (request: { paneId: string; url: string }) => {
-          dispatched.push({ paneId: request.paneId, url: request.url });
-          return growthUnavailable("browserNavigate");
-        },
-      },
-    },
-  };
+/** Mount the chrome over acts that record every destination it navigates to. */
+async function mountRecording(): Promise<{
+  readonly rebindTo: (nextPaneId: string) => Promise<void>;
+  readonly dispatched: readonly string[];
+}> {
+  const dispatched: string[] = [];
+  const { rebindTo } = await mountBrowserPaneForSubject(
+    fixtureBrowserBridge(),
+    DEFAULT_TEST_PANE_ID,
+    undefined,
+    recordingActs(dispatched),
+  );
+  return { rebindTo, dispatched };
 }
 
 function submitAddress(): void {
@@ -49,8 +42,7 @@ function submitAddress(): void {
 
 describe("the address draft belongs to the pane it was typed for", () => {
   it("renders the replacement pane following, not the previous pane's draft", async () => {
-    const { bridge } = navigationRecordingBridge();
-    const { rebindTo } = await mountBrowserPaneForSubject(bridge, DEFAULT_TEST_PANE_ID);
+    const { rebindTo } = await mountRecording();
     fireEvent.change(addressField(), { target: { value: DRAFT } });
     expect(addressField().value).toBe(DRAFT);
 
@@ -63,40 +55,34 @@ describe("the address draft belongs to the pane it was typed for", () => {
   });
 
   it("never dispatches the previous pane's draft to the pane that replaced it", async () => {
-    const { bridge, dispatched } = navigationRecordingBridge();
-    const { rebindTo } = await mountBrowserPaneForSubject(bridge, DEFAULT_TEST_PANE_ID);
+    const { rebindTo, dispatched } = await mountRecording();
     fireEvent.change(addressField(), { target: { value: DRAFT } });
 
     await rebindTo(SECOND_PANE_ID);
     submitAddress();
 
-    expect(dispatched.map((call) => call.url)).not.toContain(DRAFT);
-    for (const call of dispatched) {
-      expect(call.paneId).toBe(SECOND_PANE_ID);
-    }
+    expect(dispatched).not.toContain(DRAFT);
   });
 
   it("negative control: the draft survives a re-render that keeps the same pane", async () => {
     // Without it every case above would pass against a field that discarded the
     // draft on any re-render at all — which is a chrome nobody can type a
     // destination into, since a reported navigation re-renders the pane mid-edit.
-    const { bridge, dispatched } = navigationRecordingBridge();
-    const { rebindTo } = await mountBrowserPaneForSubject(bridge, DEFAULT_TEST_PANE_ID);
+    const { rebindTo, dispatched } = await mountRecording();
     fireEvent.change(addressField(), { target: { value: DRAFT } });
 
     await rebindTo(DEFAULT_TEST_PANE_ID);
 
     expect(addressField().value).toBe(DRAFT);
     submitAddress();
-    expect(dispatched).toStrictEqual([{ paneId: DEFAULT_TEST_PANE_ID, url: DRAFT }]);
+    expect(dispatched).toStrictEqual([DRAFT]);
   });
 
   it("negative control: the field is still the pane's own, so typing reaches it", async () => {
     // A stamp compared with the wrong subject would read `following` on every pass
     // and swallow every keystroke. The Escape path is the witness that the two
     // states are both reachable under one subject.
-    const { bridge } = navigationRecordingBridge();
-    await mountBrowserPaneForSubject(bridge, DEFAULT_TEST_PANE_ID);
+    await mountRecording();
     fireEvent.change(addressField(), { target: { value: DRAFT } });
     expect(addressField().value).toBe(DRAFT);
     fireEvent.keyDown(addressField(), { key: "Escape" });

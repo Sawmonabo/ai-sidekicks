@@ -171,7 +171,7 @@ function descriptorKeyToken(descriptor: ChordDescriptor): string {
 }
 
 /**
- * The chord's key, normalised through the console's one decoder so `KeyW`, `w`, and
+ * The chord's key, normalized through the console's one decoder so `KeyW`, `w`, and
  * `W` are one keystroke.
  */
 function closeTabKeyToken(descriptor: ChordDescriptor): string {

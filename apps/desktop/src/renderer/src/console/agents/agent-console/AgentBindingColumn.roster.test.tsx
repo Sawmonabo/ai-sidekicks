@@ -13,7 +13,7 @@ import { settleReads } from "./agent-console.test-support.js";
 import {
   AGENT_ON_CLAUDE,
   AGENT_ON_CODEX,
-  HeldBindingMoveDaemon,
+  RosterDaemon,
   bridgeCalling,
   disposeOpenedModels,
   modelsOver,
@@ -30,9 +30,10 @@ function ceilingCountIn(container: HTMLElement): number {
 }
 
 async function columnOver(roster: readonly unknown[]): Promise<HTMLElement> {
-  const bridge = bridgeCalling(new HeldBindingMoveDaemon(roster));
+  const scriptedDaemon = new RosterDaemon(roster);
+  const bridge = bridgeCalling(scriptedDaemon);
   const { container } = render(
-    <AgentBindingColumn models={modelsOver(bridge)} agentId={undefined} />,
+    <AgentBindingColumn models={modelsOver(bridge, scriptedDaemon)} agentId={undefined} />,
   );
   await settleReads(bridge);
   return container;

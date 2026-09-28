@@ -11,11 +11,10 @@
 // wrong one.
 //
 // WHICH READING IS CURRENT IS ASSERTED ELSEWHERE, ON PURPOSE. That rule belongs to
-// `bridge/quotas/provider-quota-fold.ts`, which has its own suite, and to
-// `AccountsShell.quota-supersession.test.tsx`, which drives the whole path from the
-// node's tail to the rendered cell. What is asserted HERE is that this module makes no
-// such decision of its own — the case that hands it two readings for one limit is the
-// foil for exactly that, and its input is one the readout's contract does not produce.
+// `bridge/quotas/provider-quota-fold.ts`, which has its own suite. What is asserted HERE
+// is that this module makes no such decision of its own — the case that hands it two
+// readings for one limit is the foil for exactly that, and its input is one the
+// readout's contract does not produce.
 
 import { describe, expect, it } from "vitest";
 

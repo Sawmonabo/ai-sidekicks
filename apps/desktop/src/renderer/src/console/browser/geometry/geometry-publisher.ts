@@ -11,11 +11,8 @@
 //   * READ NOW, WRITE NEXT FRAME. Mutating layout from inside resize-observer delivery
 //     drops the remaining notifications on at least one shipped engine.
 //
-// WHAT IS NOT INVENTED HERE. The publish is `browser.setRect`. That method is on the
-// growth slate under `browser-pane-namespace` with no growth-port operation registered
-// for it — the port carries the five navigation verbs and the navigation subscription,
-// and nothing else — so the publish target is the host seam in `view-host.ts` rather
-// than a fabricated method string.
+// The rectangle goes to the host seam in `view-host.ts`; this module names no method of
+// its own.
 
 import {
   Emitter,
@@ -36,7 +33,7 @@ import {
   type PaneRect,
   roundPaneRect,
 } from "./pane-geometry.js";
-import type { PaneViewHost } from "./view-host.js";
+import type { AttachedPaneViewHost } from "./view-host.js";
 
 /** What the last publish attempt did. Rendered by the pane; never inferred. */
 export type PaneGeometryOutcome =
@@ -45,7 +42,7 @@ export type PaneGeometryOutcome =
   | { readonly status: "suppressed"; readonly refusal: ConsoleRefusal };
 
 export interface PaneGeometryPublisherOptions {
-  readonly host: PaneViewHost;
+  readonly host: AttachedPaneViewHost;
   readonly clock: ConsoleClock;
   readonly occlusion: PaneOverlaySource;
 }
@@ -56,7 +53,7 @@ export interface PaneGeometryPublisherOptions {
  * rejection — are properties of that state and need a single owner.
  */
 export class PaneGeometryPublisher {
-  readonly #host: PaneViewHost;
+  readonly #host: AttachedPaneViewHost;
   readonly #clock: ConsoleClock;
   readonly #occlusion: PaneOverlaySource;
   readonly #outcomeEmitter = new Emitter<void>("pane geometry outcome");
@@ -88,18 +85,9 @@ export class PaneGeometryPublisher {
    * Every one of them lands on the same `invalidate`, which reads immediately and
    * queues ONE write, so three observers firing on a single relayout still cost one
    * publish.
-   *
-   * On an unavailable host it arms NOTHING and records why: 12.3's empty state is "no
-   * view attached, publishes are suppressed", and rectangles a host cannot take are
-   * work thrown away. The overlay MOTION observation is inside that guarantee rather
-   * than beside it, which is what the overlay-source arm below records.
    */
   public observe(hostElement: HTMLElement): Unsubscribe {
     if (this.#disposed) {
-      return () => undefined;
-    }
-    if (this.#host.state === "unavailable") {
-      this.#recordOutcome({ status: "suppressed", refusal: this.#host.refusal });
       return () => undefined;
     }
     this.#hostElement = hostElement;
@@ -124,7 +112,7 @@ export class PaneGeometryPublisher {
    */
   public invalidate(reason: GeometryInvalidationReason): void {
     const element = this.#hostElement;
-    if (this.#disposed || element === undefined || this.#host.state === "unavailable") {
+    if (this.#disposed || element === undefined) {
       return;
     }
     this.#pendingSample = composePaneGeometrySample({
@@ -203,7 +191,7 @@ export class PaneGeometryPublisher {
   #flush(): void {
     const sample = this.#pendingSample;
     this.#pendingSample = undefined;
-    if (this.#disposed || sample === undefined || this.#host.state === "unavailable") {
+    if (this.#disposed || sample === undefined) {
       return;
     }
     if (sample.key === this.#lastPublishedKey) {
@@ -212,8 +200,8 @@ export class PaneGeometryPublisher {
     }
     const outcome = this.#host.setRect(sample);
     if (outcome.status === "rejected") {
-      // 12.3's degraded arm. Retrying would publish a rectangle for a pane that no
-      // longer exists, once per frame, forever.
+      // Retrying would publish a rectangle for a pane that no longer exists, once per
+      // frame, forever.
       //
       // THE TERMINAL STATE IS RESTORED FIRST, AND THE ORDER IS THE FIX. Recording
       // announces, `Emitter` re-raises what a sink threw, and a single throwing
@@ -250,14 +238,9 @@ export class PaneGeometryPublisher {
    * The two overlay sources: the set's own change stream, and the per-frame motion
    * observation only a consumer drawing a native view needs.
    *
-   * BOTH ARMED HERE, AND THAT IS THE CORRECTION. The observation used to be installed
-   * by whoever minted this publisher, which put it outside every terminal this class
-   * has: a window with no view host armed a document listener and a frame sampler per
-   * moving overlay while `observe` was suppressing every publish, the self-disposal
-   * after a `pane-gone` rejection left it running for the life of the mount, and each
-   * pane paid for it whether or not it was drawing anything. Armed beside the other
-   * invalidation sources it is retired by `dispose` on every path there is, and a
-   * window drawing no view samples nothing.
+   * Armed beside the other invalidation sources so `dispose` retires them on every
+   * path, the self-disposal after a `pane-gone` rejection included; a window drawing no
+   * view samples nothing.
    */
   #armOverlaySources(): void {
     this.#detachers.push(

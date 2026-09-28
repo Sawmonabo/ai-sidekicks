@@ -12,9 +12,7 @@ export interface SettingsSearchResultsProps {
 /**
  * Ranked hits, each naming the section it landed in.
  *
- * A miss names the query and what was searched, which is the difference between "no
- * such setting" and "this console has not built that page yet" — and only the
- * second is true here, so the copy says the second.
+ * A miss names the query and what was searched.
  */
 export function SettingsSearchResults(props: SettingsSearchResultsProps): React.JSX.Element {
   if (props.matches.length === 0) {
@@ -23,7 +21,7 @@ export function SettingsSearchResults(props: SettingsSearchResultsProps): React.
         kind="empty"
         placement="surface"
         title={`Nothing in settings matches “${props.query}”.`}
-        detail="Every section was searched by its name, its page heading, and its aliases. A section whose page has not been built here yet carries no searchable text."
+        detail="Every section was searched by its name, its page heading, and its aliases."
       />
     );
   }

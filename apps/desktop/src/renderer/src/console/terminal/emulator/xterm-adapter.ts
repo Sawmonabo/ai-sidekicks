@@ -279,7 +279,7 @@ export class XtermTerminalAdapter {
       // region that make it readable ONLY under this option, whose default is off.
       // `XtermHost.tsx` names the region and deliberately announces nothing of its
       // own, so with this off a screen reader reaches a named group with no
-      // contents — the shell would be unreadable rather than merely unlabelled.
+      // contents — the shell would be unreadable rather than merely unlabeled.
       screenReaderMode: true,
       convertEol: true,
       linkHandler: buildTerminalLinkHandler(this.#onActivateLink),

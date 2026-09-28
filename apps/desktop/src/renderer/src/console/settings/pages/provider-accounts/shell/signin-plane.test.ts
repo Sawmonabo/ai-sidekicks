@@ -5,18 +5,21 @@
 // courtesy, and these cases assert what happens to a press it did not stop — a stale
 // frame, a keyboard activation racing the commit that disabled it.
 //
-// EVERY CASE DRIVES THE REAL `SignInPlane` over the real account-plane calls. The
-// single-flight guard under test is `store/read/generation-latch.ts`, reached exactly as
-// the shipped module reaches it, so a case here fails if that register's refusal
-// contract changes.
+// EVERY CASE DRIVES THE REAL `SignInPlane` over the real `startSignIn` and `cancelSignIn`
+// with stub calls. The single-flight guard under test is `store/read/generation-latch.ts`,
+// reached exactly as the shipped module reaches it, so a case here fails if that
+// register's refusal contract changes.
 
 import { describe, expect, it, vi } from "vitest";
 
 import type { ProviderAccountId } from "@ai-sidekicks/contracts";
 
-import type { ConsoleBridge } from "../../../../bridge/index.js";
 import { crossMacrotaskBoundary } from "../../../../core/macrotask-boundary.test-support.js";
-import { bridgeAnswering, SIGN_IN_ATTEMPT } from "./account-plane-bridge.test-support.js";
+import {
+  accountPlaneCalls,
+  SIGN_IN_ATTEMPT,
+  type AccountPlaneCalls,
+} from "./account-plane-bridge.test-support.js";
 import { cancelSignIn, startSignIn } from "./signin-flow.js";
 import { SignInPlane, signInHeldSentence, signInPlaneHolder } from "./signin-plane.js";
 
@@ -24,36 +27,31 @@ const RUNNING_ACCOUNT_ID = "pa-0001" as ProviderAccountId;
 const WAITING_ACCOUNT_ID = "pa-0002" as ProviderAccountId;
 
 /**
- * A plane over one bridge, bound the way the shell binds it.
+ * A plane over stub calls, bound the way the shell binds it.
  *
- * The real `startSignIn` and `cancelSignIn` rather than stubs, so a case here drives
- * the outcome narrowing those functions perform as well as the plane's own rule.
+ * The real `startSignIn` and `cancelSignIn` rather than stubs of them, so a case here
+ * drives the outcome narrowing those functions perform as well as the plane's own rule.
  */
 function planeOver(
-  bridge: ConsoleBridge,
+  calls: AccountPlaneCalls,
   onFlowSettled: () => void = (): void => undefined,
 ): SignInPlane {
   return new SignInPlane({
-    startSignIn: async (accountId) => await startSignIn(bridge, accountId),
-    cancelSignIn: async (attempt) => await cancelSignIn(bridge, attempt),
+    startSignIn: async (accountId) => await startSignIn(calls.login, accountId),
+    cancelSignIn: async (attempt) => await cancelSignIn(calls.cancelLogin, attempt),
     onFlowSettled,
   });
 }
 
-/** A plane whose start is served and whose cancel is honoured. */
+/** A plane whose start is served and whose cancel is honored. */
 function planeOverServedCalls(): {
   readonly plane: SignInPlane;
+  readonly calls: AccountPlaneCalls;
   readonly onFlowSettled: ReturnType<typeof vi.fn>;
 } {
   const onFlowSettled = vi.fn();
-  const plane = planeOver(
-    bridgeAnswering({
-      login: { status: "served", value: SIGN_IN_ATTEMPT },
-      cancel: { status: "served", value: { status: "cancelled" } },
-    }),
-    onFlowSettled,
-  );
-  return { plane, onFlowSettled };
+  const calls = accountPlaneCalls({ login: SIGN_IN_ATTEMPT, cancel: { status: "cancelled" } });
+  return { plane: planeOver(calls, onFlowSettled), calls, onFlowSettled };
 }
 
 describe("SignInPlane", () => {
@@ -87,8 +85,7 @@ describe("SignInPlane", () => {
   });
 
   it("sends nothing for the refused start", async () => {
-    const bridge = bridgeAnswering({ login: { status: "served", value: SIGN_IN_ATTEMPT } });
-    const plane = planeOver(bridge);
+    const { plane, calls } = planeOverServedCalls();
 
     plane.start(RUNNING_ACCOUNT_ID);
     plane.start(WAITING_ACCOUNT_ID);
@@ -96,10 +93,8 @@ describe("SignInPlane", () => {
 
     // The refusal is the console's own and the daemon was never asked, which is what
     // makes it arrive in the same tick as the press rather than a round trip later.
-    expect(bridge.growth.providerAccountLogin).toHaveBeenCalledTimes(1);
-    expect(bridge.growth.providerAccountLogin).toHaveBeenCalledWith({
-      accountId: RUNNING_ACCOUNT_ID,
-    });
+    expect(calls.login).toHaveBeenCalledTimes(1);
+    expect(calls.login).toHaveBeenCalledWith({ accountId: RUNNING_ACCOUNT_ID });
   });
 
   it("names the account in the way, and says something different when it is your own", async () => {
@@ -152,74 +147,11 @@ describe("SignInPlane", () => {
     expect(plane.snapshot().refusalByAccountId.has(WAITING_ACCOUNT_ID)).toBe(false);
   });
 
-  it("releases the plane when a start is refused by the daemon", async () => {
-    // Nothing scripted, so the login verb answers the port's own unavailable refusal.
-    const plane = planeOver(bridgeAnswering({}));
-
-    plane.start(RUNNING_ACCOUNT_ID);
-    await crossMacrotaskBoundary();
-
-    expect(plane.snapshot().flow.kind).toBe("idle");
-    expect(plane.snapshot().refusalByAccountId.has(RUNNING_ACCOUNT_ID)).toBe(true);
-    expect(signInPlaneHolder(plane.snapshot())).toBeUndefined();
-
-    // A start that never became a flow leaves nothing holding the plane, so the next
-    // press is admitted rather than refused by a key nothing is using.
-    plane.start(WAITING_ACCOUNT_ID);
-    expect(plane.snapshot().flow).toEqual({ kind: "starting", accountId: WAITING_ACCOUNT_ID });
-  });
-
-  it("keeps the attempt live when the cancel is refused, and goes on holding the plane", async () => {
-    // A refused cancel says the console could not ask, or that the daemon declined —
-    // neither of which establishes that the provider's login process stopped. Replacing
-    // the attempt with the refusal took the verification URI, the code, and the cancel
-    // control off the screen and re-offered every start, over a flow that may still be
-    // running.
-    const plane = planeOver(
-      bridgeAnswering({ login: { status: "served", value: SIGN_IN_ATTEMPT } }),
-    );
-
-    plane.start(RUNNING_ACCOUNT_ID);
-    await crossMacrotaskBoundary();
-    plane.cancel();
-    await crossMacrotaskBoundary();
-
-    const { flow } = plane.snapshot();
-    expect(flow.kind).toBe("live");
-    expect(flow).toMatchObject({ accountId: RUNNING_ACCOUNT_ID, attempt: SIGN_IN_ATTEMPT });
-    expect("cancelRefusal" in flow ? flow.cancelRefusal : undefined).toBeDefined();
-    expect(signInPlaneHolder(plane.snapshot())).toBe(RUNNING_ACCOUNT_ID);
-
-    // And the single flight is still claimed, so a start raised against the plane is
-    // refused rather than dispatched beside a flow nobody has established is over.
-    plane.start(WAITING_ACCOUNT_ID);
-    expect(plane.snapshot().refusalByAccountId.has(WAITING_ACCOUNT_ID)).toBe(true);
-  });
-
-  it("offers the cancel again after one was refused", async () => {
-    // The way out of a refused cancel is the same control, so the flow has to be back
-    // in a state the plane admits a cancel from — `cancelling` refuses one, and a plane
-    // stuck there would have taken the operator's only remedy away.
-    const plane = planeOver(
-      bridgeAnswering({
-        login: { status: "served", value: SIGN_IN_ATTEMPT },
-        cancel: { status: "served", value: { status: "notFound" } },
-      }),
-    );
-
-    plane.start(RUNNING_ACCOUNT_ID);
-    await crossMacrotaskBoundary();
-    plane.cancel();
-    await crossMacrotaskBoundary();
-    expect(plane.snapshot().flow.kind).toBe("ended");
-    expect(signInPlaneHolder(plane.snapshot())).toBeUndefined();
-  });
-
   it("clears the flow when the registry reports the attempt finished", async () => {
     // The second of the two things that end a flow. `providerAccount.subscribe` carries
     // `login_completed` correlated on the attempt id, and that IS evidence the process
-    // stopped — so a plane holding an attempt after a refused cancel is released by the
-    // registry rather than staying claimed for the life of the window.
+    // stopped — so a plane still holding an attempt is released by the registry rather
+    // than staying claimed for the life of the window.
     const { plane, onFlowSettled } = planeOverServedCalls();
 
     plane.start(RUNNING_ACCOUNT_ID);

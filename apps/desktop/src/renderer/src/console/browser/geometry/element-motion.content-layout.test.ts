@@ -29,7 +29,7 @@ afterEach(() => {
  * the sibling is auto-sized, so a text-node rewrite or a nested insertion inside it
  * changes ITS box and pushes the element across the screen.
  */
-function attachedNeighbourhood(): {
+function attachedNeighborhood(): {
   readonly ancestor: HTMLElement;
   readonly element: HTMLElement;
   readonly sibling: HTMLElement;
@@ -48,7 +48,7 @@ function attachedNeighbourhood(): {
 describe("observeElementPosition — content-driven layout", () => {
   it("reports an auto-sized sibling growing, which moves the element and resizes none of its boxes", () => {
     const resizeObserver = installFakeResizeObserver();
-    const { element, sibling } = attachedNeighbourhood();
+    const { element, sibling } = attachedNeighborhood();
     const onMove = vi.fn();
 
     const detach = observeElementPosition({ element, clock: new ManualClock(), onMove });
@@ -62,7 +62,7 @@ describe("observeElementPosition — content-driven layout", () => {
 
   it("watches a box that becomes a sibling after the observation was installed", () => {
     const resizeObserver = installFakeResizeObserver();
-    const { ancestor, element } = attachedNeighbourhood();
+    const { ancestor, element } = attachedNeighborhood();
     const onMove = vi.fn();
 
     const detach = observeElementPosition({ element, clock: new ManualClock(), onMove });
@@ -82,7 +82,7 @@ describe("observeElementPosition — content-driven layout", () => {
     // case would fire on every render of whatever the pane contains — the per-row
     // layout cost the bounded sibling reading exists to avoid.
     const resizeObserver = installFakeResizeObserver();
-    const { element } = attachedNeighbourhood();
+    const { element } = attachedNeighborhood();
     const child = document.createElement("span");
     element.append(child);
     const onMove = vi.fn();
@@ -97,7 +97,7 @@ describe("observeElementPosition — content-driven layout", () => {
 
   it("releases every sibling observer when the observation is detached", () => {
     const resizeObserver = installFakeResizeObserver();
-    const { element, sibling } = attachedNeighbourhood();
+    const { element, sibling } = attachedNeighborhood();
     const onMove = vi.fn();
 
     const detach = observeElementPosition({ element, clock: new ManualClock(), onMove });

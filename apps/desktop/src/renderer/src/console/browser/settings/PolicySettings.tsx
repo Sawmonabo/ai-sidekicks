@@ -1,65 +1,50 @@
 // The two node-wide browser switches, and nothing else about the browser.
 //
-// The scope is emphatic: this row pair is the WHOLE of the browser's presence in
-// settings, and the other end is closed just as tightly — policy is invisible until it
-// refuses, and the two settings rows live here. So a navigation refusal renders in the
-// pane and never here, and a policy row renders here and nowhere else.
+// This pair is the whole of the browser's presence in settings, and no policy row is
+// placed anywhere else: a navigation refusal renders in the pane and never here.
 //
-// THREE DECISIONS THIS COMPONENT MAKES.
+// Each switch's consequence is written in the traits table beside the switch it belongs
+// to, so the sentence cannot be edited without the control moving. The file-boundary
+// label says what turning it on stops enforcing; the page-tools label says that off
+// withholds the tools from every subsequent spawn and that running sessions keep the
+// tool set they were spawned with.
 //
-//   • **The label says what turning it on stops enforcing.** 13.16 requires it of
-//     the file-boundary switch in terms, and the page-tools switch carries the same
-//     obligation in the other direction — "Off withholds the tools from every
-//     subsequent spawn; running sessions keep the registry they were spawned with,
-//     and the row says so." Both sentences are in the traits table below, beside the
-//     switch they belong to, because a consequence written anywhere else is a
-//     consequence that can be edited without the control moving.
+// The switch ids are the console's own, not the wire's: a toggle hands one back, and the
+// renderer names no preference key.
 //
-//   • **An unread switch renders fail-closed AND says it was not read.** The two are
-//     not the same claim and the row makes both. The rendered position is the safe
-//     one — the boundary enforced, the tools withheld — because a control whose
-//     state nobody established must not draw the permissive position; and the
-//     refusal beside it carries the daemon's own code and sentence, so nobody reads
-//     the safe position as a reading. "Nobody asked" and "the answer is no" are
-//     different facts, and the row keeps them apart.
-//
-//   • **The switch id is the console's, not the wire's.** The shell-config
-//     preference KEYS are unregistered — they are a `settings-key` prerequisite on
-//     the growth slate's shell-config row — so this component names its two switches
-//     with console-local identifiers and hands one back on toggle. Inventing the key
-//     strings here would put a wire vocabulary in the renderer ahead of the wire that
-//     owns minting it.
-//
-// The component reads nothing and writes nothing: readings arrive as props and a
-// toggle leaves as a callback. That is what keeps it a projection of daemon state
-// rather than a second place the node's policy is decided.
+// The component reads nothing and writes nothing: positions arrive as props and a toggle
+// leaves as a callback, so it stays a projection of daemon state rather than a second
+// place the node's policy is decided.
 
 import { PolicyRow } from "./PolicyRow.js";
 import {
   BROWSER_POLICY_SWITCHES,
   type BrowserPolicySwitchId,
-  type BrowserPolicySwitchReading,
   type BrowserPolicySwitchWriter,
 } from "./policy-switches.js";
 
 export interface BrowserPolicySettingsProps {
-  /** Total over the switch set — a row with no reading is not representable. */
-  readonly readings: Readonly<Record<BrowserPolicySwitchId, BrowserPolicySwitchReading>>;
-  /** Absent while no writer is registered — the rows then render read-only. */
-  readonly onToggle?: BrowserPolicySwitchWriter | undefined;
+  /** The position the node reported for each switch, total over the switch set. */
+  readonly positions: Readonly<Record<BrowserPolicySwitchId, boolean>>;
+  /** Called with the switch pressed and the position it asks for. */
+  readonly onToggle: BrowserPolicySwitchWriter;
 }
 
+/** The policy section: one switch row per browser policy switch. */
 export function BrowserPolicySettings(props: BrowserPolicySettingsProps): React.JSX.Element {
   return (
-    <ul className="meridian-browser-policy">
-      {BROWSER_POLICY_SWITCHES.map((switchId) => (
-        <PolicyRow
-          key={switchId}
-          switchId={switchId}
-          reading={props.readings[switchId]}
-          onToggle={props.onToggle}
-        />
-      ))}
-    </ul>
+    <section className="meridian-browser-settings__section" aria-label="Browser policy">
+      <h3 className="meridian-browser-settings__section-title">Policy</h3>
+      <ul className="meridian-browser-policy">
+        {BROWSER_POLICY_SWITCHES.map((switchId) => (
+          <PolicyRow
+            key={switchId}
+            switchId={switchId}
+            enabled={props.positions[switchId]}
+            onToggle={props.onToggle}
+          />
+        ))}
+      </ul>
+    </section>
   );
 }

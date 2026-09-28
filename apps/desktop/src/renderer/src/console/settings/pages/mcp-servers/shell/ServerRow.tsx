@@ -26,10 +26,9 @@ import type { McpMutationOutcome } from "./mcp-mutation.js";
  * exactly that reason.
  *
  * EVERY CONTROL IS OFFERED AND NONE IS ELIGIBILITY-GATED. The governing surface says
- * so in terms: eligibility is not projected at all, no field reports it, and the
- * daemon's typed refusal renders in place. So this row disables a control only while
- * its own call is in flight — which is about this press and not about permission — and
- * a refusal lands under the control that raised it.
+ * so in terms: eligibility is not projected at all and no field reports it. So this
+ * row disables a control only while its own call is in flight — which is about this
+ * press and not about permission.
  *
  * EXCEPT WHERE THE TRUST STORE IS UNREACHABLE, WHICH IS STRUCTURAL. On that arm
  * `trusted`, `configHash`, and the overrides are ABSENT from the wire rather than

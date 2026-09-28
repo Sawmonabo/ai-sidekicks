@@ -4,7 +4,7 @@ import { InlineRefusal, WireFigure } from "../../../../primitives/index.js";
 import type { TokenRegistrationOutcome } from "./signin-flow.js";
 
 /**
- * What the registration did, in the daemon's own words where it refused.
+ * What the registration did, and the form's own words where it refused the fields.
  *
  * A module of its own rather than a private declaration beside the form: a `.tsx` file
  * declares exactly one component, private ones counted.

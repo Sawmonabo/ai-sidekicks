@@ -1,9 +1,6 @@
 // What the three account-plane calls answer with, and what they never answer with.
 //
-// EVERY CASE DRIVES THE REAL FUNCTIONS through a bridge whose growth port answers.
-// The refusal arms take the shipped port's own builder, so a case asserting on a
-// refusal is asserting on the code and sentence a release build produces rather than
-// on an envelope written here.
+// Every case drives the real functions with plain stubs standing in for the calls.
 
 import { describe, expect, it } from "vitest";
 
@@ -11,7 +8,7 @@ import type { ProviderAccountId, ProviderAccountRegisterResponse } from "@ai-sid
 
 import type { ConsoleRefusal } from "../../../../core/index.js";
 
-import { bridgeAnswering, SIGN_IN_ATTEMPT } from "./account-plane-bridge.test-support.js";
+import { accountPlaneCalls, SIGN_IN_ATTEMPT } from "./account-plane-bridge.test-support.js";
 import {
   cancelSignIn,
   readRegistrationFields,
@@ -47,9 +44,9 @@ function endedBecause(state: SignInFlowState): string {
 }
 
 describe("startSignIn", () => {
-  it("answers a live flow carrying the provider's own attempt and the account it is for", async () => {
+  it("answers a live flow carrying the attempt and the account it is for", async () => {
     const state = await startSignIn(
-      bridgeAnswering({ login: { status: "served", value: SIGN_IN_ATTEMPT } }),
+      accountPlaneCalls({ login: SIGN_IN_ATTEMPT }).login,
       ACCOUNT_ID,
     );
     // The account rides the outcome because the plane is what disables the OTHER rows,
@@ -57,23 +54,12 @@ describe("startSignIn", () => {
     // without saying which account was running it.
     expect(state).toEqual({ kind: "live", accountId: ACCOUNT_ID, attempt: SIGN_IN_ATTEMPT });
   });
-
-  it("answers a refusal rather than throwing", async () => {
-    const state = await startSignIn(bridgeAnswering({}), ACCOUNT_ID);
-    expect(state.kind).toBe("refused");
-  });
-
-  // The negative control for the case above: the refusal is a STATE and not a
-  // rejection, so a caller that only awaits it never sees an unhandled promise.
-  it("never rejects on the refusal arm", async () => {
-    await expect(startSignIn(bridgeAnswering({}), ACCOUNT_ID)).resolves.toBeDefined();
-  });
 });
 
 describe("cancelSignIn", () => {
   it("says the sign-in was cancelled when the daemon cancelled one", async () => {
     const state = await cancelSignIn(
-      bridgeAnswering({ cancel: { status: "served", value: { status: "cancelled" } } }),
+      accountPlaneCalls({ cancel: { status: "cancelled" } }).cancelLogin,
       SIGN_IN_ATTEMPT,
     );
     expect(endedBecause(state)).toContain("was cancelled");
@@ -81,7 +67,7 @@ describe("cancelSignIn", () => {
 
   it("says there was nothing to cancel when the daemon found none", async () => {
     const state = await cancelSignIn(
-      bridgeAnswering({ cancel: { status: "served", value: { status: "notFound" } } }),
+      accountPlaneCalls({ cancel: { status: "notFound" } }).cancelLogin,
       SIGN_IN_ATTEMPT,
     );
     expect(endedBecause(state)).toContain("no sign-in left to cancel");
@@ -92,7 +78,7 @@ describe("cancelSignIn", () => {
   // something it did not.
   it("does not report a notFound as a cancellation", async () => {
     const state = await cancelSignIn(
-      bridgeAnswering({ cancel: { status: "served", value: { status: "notFound" } } }),
+      accountPlaneCalls({ cancel: { status: "notFound" } }).cancelLogin,
       SIGN_IN_ATTEMPT,
     );
     expect(endedBecause(state)).not.toContain("was cancelled");
@@ -100,7 +86,7 @@ describe("cancelSignIn", () => {
 
   it("never claims the account is authenticated", async () => {
     const state = await cancelSignIn(
-      bridgeAnswering({ cancel: { status: "served", value: { status: "cancelled" } } }),
+      accountPlaneCalls({ cancel: { status: "cancelled" } }).cancelLogin,
       SIGN_IN_ATTEMPT,
     );
     expect(endedBecause(state)).not.toMatch(/authenticated/iu);
@@ -108,15 +94,17 @@ describe("cancelSignIn", () => {
 });
 
 describe("submitTokenRegistration", () => {
+  const REQUEST = {
+    provider: "codex",
+    displayLabel: "Metered",
+    billingMode: "metered",
+    nonInteractiveToken: "a-vendor-minted-token",
+  } as const;
+
   it("answers with the account the daemon created", async () => {
     const outcome = await submitTokenRegistration(
-      bridgeAnswering({ register: { status: "served", value: REGISTERED } }),
-      {
-        provider: "codex",
-        displayLabel: "Metered",
-        billingMode: "metered",
-        nonInteractiveToken: "a-vendor-minted-token",
-      },
+      accountPlaneCalls({ register: REGISTERED }).register,
+      REQUEST,
     );
     expect(outcome).toEqual({ kind: "registered", account: REGISTERED.account });
   });
@@ -126,24 +114,10 @@ describe("submitTokenRegistration", () => {
   // because that is the shape a devtools inspection would read.
   it("carries no token anywhere in the outcome it answers with", async () => {
     const outcome = await submitTokenRegistration(
-      bridgeAnswering({ register: { status: "served", value: REGISTERED } }),
-      {
-        provider: "codex",
-        displayLabel: "Metered",
-        billingMode: "metered",
-        nonInteractiveToken: "a-vendor-minted-token",
-      },
+      accountPlaneCalls({ register: REGISTERED }).register,
+      REQUEST,
     );
     expect(JSON.stringify(outcome)).not.toContain("a-vendor-minted-token");
-  });
-
-  it("answers a refusal rather than throwing", async () => {
-    const outcome = await submitTokenRegistration(bridgeAnswering({}), {
-      provider: "codex",
-      displayLabel: "Metered",
-      billingMode: "metered",
-    });
-    expect(outcome.kind).toBe("refused");
   });
 });
 

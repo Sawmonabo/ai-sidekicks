@@ -1,91 +1,78 @@
-// The fixture shell that stands in for the provider-account body.
+// The provider-account shell: the states the account registry can be in — an account
+// nothing has ever observed, a reading months old, a readiness entry carrying a sign-in
+// remedy, three quota limits sharing one window — drawn from the reading and the calls
+// it is handed. It authors no rule: no eligibility, no health verdict, no remedy.
 //
-// WHAT A SHELL IS HERE, AND WHAT IT IS NOT. The seat next door declares who owns this
-// body, what the mount owes it, and where the shell dies. This module is the third of
-// those: a `define`-gated stand-in that reads the SAME registered wire the owning body
-// will read, renders every state that wire can answer with, and is deleted whole in the
-// PR that fills the slot. It authors no rule the body would inherit — no eligibility,
-// no health verdict, no remedy — so what it leaves behind when it goes is nothing.
-//
-// AND IT IS NOT A PLACEHOLDER. Every figure on this page came off `providerAccount.list`
-// and every one of them is rendered as it arrived. What the shell exists for is that
-// the states of that reply — an account nothing has ever observed, a reading months
-// old, a readiness entry carrying a sign-in remedy, three quota limits sharing one
-// window — were reachable from nowhere at all while this slot rendered its reservation,
-// which means nobody had drawn them.
-
-// AND THE SIGN-IN PLANE IS ONE FLOW, NOT ONE PER ROW. This machine runs one brokered
-// sign-in at a time, so every start control is disabled — with its reason, never
-// hidden — while one is running, and `signin-plane.ts` beside this module owns both
-// that rule and where a refused start lands.
-
-// AND THE REGISTRY IS WHAT SAYS A FLOW ENDED WHEN A CANCEL COULD NOT. The plane keeps a
-// live attempt through a refused cancellation — the node declining to stop a process is
-// not the process stopping — so the completion frame on the account plane's own tail is
-// what releases it, correlated by attempt id.
-
-// THE REGISTRY IS READ ONCE PER WINDOW AND THIS PAGE IS NOT THE READER. `bridge/quotas/`
-// holds the node's one account-plane reading: one `providerAccount.list`, one
-// `providerAccount.subscribe` behind it, and one fold. This shell used to run a SECOND
-// list read of its own with a subscription that opened nothing, so a push on the live
-// tail — an account removed, a credential generation rotated — moved the composer's
-// chips and left this page showing the registry as it had been at its own last read,
-// with nothing on screen saying the two disagreed. It reads that one reading instead,
-// and asks it for a fresh read at the one moment no window trigger names: a brokered
-// flow that has just ended.
+// The sign-in plane is one flow, not one per row: this machine runs one brokered
+// sign-in at a time, so every start control is disabled, with its reason, while one is
+// running. `signin-plane.ts` owns that rule. The registry's completion report is what
+// releases a flow the node ended on its own, correlated by attempt id.
 
 import type { ProviderAccount } from "@ai-sidekicks/contracts";
 import { useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
 
-import {
-  readRefusalOf,
-  useConsoleClock,
-  useProviderAccountRefresh,
-  useProviderQuotas,
-  type ConsoleBridge,
-} from "../../../../bridge/index.js";
+import { useConsoleClock, type ProviderQuotaReadout } from "../../../../bridge/index.js";
 import { Nothing } from "../../../../primitives/index.js";
 import { AccountDetail } from "./AccountDetail.js";
 import { AccountRow } from "./AccountRow.js";
 import { accountQuotaRowsFrom, readinessForProvider } from "./quota-rows.js";
 import { QuotaTable } from "./QuotaTable.js";
 import { ReadinessRow } from "./ReadinessRow.js";
-import { cancelSignIn, startSignIn } from "./signin-flow.js";
+import {
+  cancelSignIn,
+  startSignIn,
+  type ProviderAccountLoginCall,
+  type ProviderAccountLoginCancelCall,
+  type ProviderAccountRegisterCall,
+} from "./signin-flow.js";
 import { SignInCard } from "./SignInCard.js";
 import { SignInPlane, signInHeldSentence, signInPlaneHolder } from "./signin-plane.js";
 import { TokenRegistrationForm } from "./TokenRegistrationForm.js";
 
-export function AccountsShell(props: { readonly bridge: ConsoleBridge }): ReactNode {
-  const { bridge } = props;
-  // The scenario's frozen clock under the fixture, the real one otherwise, so a story
-  // advances this read's coalescing window exactly when it advances everything else's —
-  // and so an observation's age is measured on the clock the scenario is driving.
+/** The daemon verbs the shell drives. Held stable by the caller. */
+export interface AccountsShellOperations {
+  readonly login: ProviderAccountLoginCall;
+  readonly cancelLogin: ProviderAccountLoginCancelCall;
+  readonly register: ProviderAccountRegisterCall;
+}
+
+/**
+ * What the shell renders the account list from: the registry's accounts, readiness
+ * projection and quota rows, and whether the first read has landed.
+ */
+export interface AccountRegistryReading extends Pick<
+  ProviderQuotaReadout,
+  "accounts" | "readiness" | "usageWindows" | "newestLoginCompletion"
+> {
+  readonly phase: "reading" | "read";
+}
+
+/**
+ * The provider-account shell: the registry, the sign-in flow and the token registration
+ * form, drawn from the reading and the verbs it is handed.
+ */
+export function AccountsShell(props: {
+  readonly registry: AccountRegistryReading;
+  /** Asks for a fresh registry read once a sign-in flow has ended. Held stable by the caller. */
+  readonly requestRegistryRead: () => void;
+  readonly operations: AccountsShellOperations;
+}): ReactNode {
+  const { registry, requestRegistryRead, operations } = props;
+  // The scenario's frozen clock under the fixture, the real one otherwise, so an
+  // observation's age is measured on the clock the scenario is driving.
   const clock = useConsoleClock();
   const [selectedAccountId, setSelectedAccountId] = useState<string | undefined>(undefined);
-  // The node's one account-plane reading. Its three window triggers and its live tail
-  // are wired inside it, so this page installs neither and cannot install a second of
-  // either.
-  const registry = useProviderQuotas(bridge);
-  const requestRegistryRead = useProviderAccountRefresh(bridge);
-  // Constructed in a memo and DISPOSED in an effect, the split every carrier in this
-  // console takes: building it owns nothing, and a memo React discards costs a
-  // discarded object rather than a call in flight.
+  // Built in a memo and disposed in an effect, so a memo React discards costs an object
+  // rather than a call in flight.
   const signInPlane = useMemo(
     () =>
       new SignInPlane({
-        // The two calls are bound HERE and the plane holds no bridge, so it stays a
-        // mutation carrier rather than becoming a reading the console would then owe
-        // a scheduler and the trigger contract — see the header beside the class.
-        startSignIn: async (accountId) => await startSignIn(bridge, accountId),
-        cancelSignIn: async (attempt) => await cancelSignIn(bridge, attempt),
-        // A flow ending says nothing about the account — the daemon reads nothing the
-        // provider's login binary writes — so the page asks the registry rather than
-        // assuming, which is the whole of what "completion is not a verdict" means.
-        onFlowSettled: () => {
-          requestRegistryRead("terminal-event");
-        },
+        startSignIn: async (accountId) => await startSignIn(operations.login, accountId),
+        cancelSignIn: async (attempt) => await cancelSignIn(operations.cancelLogin, attempt),
+        // A flow ending says nothing about the account, so the registry is read again.
+        onFlowSettled: requestRegistryRead,
       }),
-    [bridge, requestRegistryRead],
+    [operations, requestRegistryRead],
   );
   useEffect(
     () => () => {
@@ -98,13 +85,8 @@ export function AccountsShell(props: { readonly bridge: ConsoleBridge }): ReactN
     () => signInPlane.snapshot(),
     () => signInPlane.snapshot(),
   );
-  // THE OTHER THING THAT ENDS A BROKERED FLOW, and the reason this page reads it here.
-  // A cancellation the node refused is not evidence the provider's login process
-  // stopped, so the plane goes on holding its single-flight claim through one — and
-  // `providerAccount.subscribe`'s completion frame is the node's own word that the
-  // attempt is over. Keyed on the ATTEMPT ID rather than on the frame, so a re-render
-  // over the same completion re-runs nothing; the plane correlates it against whatever
-  // it is tracking and does nothing where the two do not match.
+  // The registry's completion report ends a flow the node finished on its own. Keyed on
+  // the attempt id so a re-render over the same completion re-runs nothing.
   const completedAttemptId = registry.newestLoginCompletion?.attemptId;
   useEffect(() => {
     if (completedAttemptId !== undefined) {
@@ -112,32 +94,6 @@ export function AccountsShell(props: { readonly bridge: ConsoleBridge }): ReactN
     }
   }, [completedAttemptId, signInPlane]);
 
-  const readRefusal = readRefusalOf(registry);
-  if (readRefusal !== undefined) {
-    return (
-      <Nothing
-        kind="error"
-        placement="surface"
-        title={readRefusal.code}
-        detail={readRefusal.detail}
-        action={
-          <button
-            type="button"
-            className="meridian-settings-page__action"
-            onClick={() => {
-              // A press is a reason of its own, and the reading admits one while it is
-              // refused — asking again is exactly what a person pressing this means.
-              // Nothing is re-mounted: the reading is the window's, so a second page
-              // watching it does not get its flow thrown away by this press.
-              requestRegistryRead("user-request");
-            }}
-          >
-            Try again
-          </button>
-        }
-      />
-    );
-  }
   if (registry.phase === "reading") {
     return (
       <Nothing
@@ -240,7 +196,7 @@ export function AccountsShell(props: { readonly bridge: ConsoleBridge }): ReactN
 
       <section className="meridian-settings-page__block">
         <h3 className="meridian-settings-page__block-title">Register an account</h3>
-        <TokenRegistrationForm bridge={bridge} />
+        <TokenRegistrationForm register={operations.register} />
       </section>
     </>
   );

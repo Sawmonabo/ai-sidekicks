@@ -24,7 +24,6 @@ import type { ConsoleRefusal } from "../../core/index.js";
 
 /** A host that records what it was handed, and can be told to reject. */
 export class RecordingViewHost implements AttachedPaneViewHost {
-  public readonly state = "attached" as const;
   public readonly transport = "recording";
   public readonly samples: PaneGeometrySample[] = [];
   #rejection: ConsoleRefusal | undefined;

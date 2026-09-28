@@ -9,7 +9,7 @@
 //
 // THE REFUSAL RENDERS VERBATIM AND CARRIES ITS OWN WAY OUT. A refused registry read
 // is terminal until something asks again, so without the re-read this field would say
-// one line of error text for the life of the dialog.
+// one line of error text for the life of the field.
 
 import { InlineRefusal, Nothing } from "../../../primitives/index.js";
 import type { AttachAccountAxisReading } from "./account-axis.js";
@@ -26,8 +26,8 @@ export function AccountChoiceAbsence(props: AccountChoiceAbsenceProps): React.JS
     return (
       <Nothing
         kind="not-checked"
-        title="Choose a driver first."
-        detail="An account belongs to one provider, so which accounts may be pinned follows from the driver."
+        title="Choose a provider first."
+        detail="An account belongs to one provider, so which accounts may be pinned follows from the provider."
       />
     );
   }
@@ -51,16 +51,10 @@ export function AccountChoiceAbsence(props: AccountChoiceAbsenceProps): React.JS
     return (
       <Nothing
         kind="not-checked"
-        title="This driver names no provider the account registry knows."
+        title="No provider the account registry knows."
         detail="Nothing is offered rather than another provider's accounts, which would pin a run to an account nobody chose for it."
       />
     );
   }
-  return (
-    <Nothing
-      kind="empty"
-      title="No account is registered for this provider on this node."
-      detail="Attaching without one is what asks the daemon for the provider's registered default."
-    />
-  );
+  return <Nothing kind="empty" title="No account is registered for this provider on this node." />;
 }

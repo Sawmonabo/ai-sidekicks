@@ -1,41 +1,38 @@
 // The local-runtime page: the supervisor's detail, one click behind the frame's chip.
 //
-// The daemon's state belongs in the frame as a chip, with its DETAIL — the attempt
-// count and the last heartbeat — one click away, diagnostic only and never editable.
-// This is that click. The tray carrying the same three states outside the window is
-// main-process work for a later phase; nothing here reaches for it.
+// The daemon's state belongs in the frame as a chip, with its DETAIL (the attempt count
+// and the last heartbeat) one click away, diagnostic only and never editable. This is
+// that click. Starting a stopped runtime is a shell spawn rather than a call, and that
+// control lives on the frame's own offline banner, beside the state that makes it the
+// right thing to press.
 //
-// TWO CONTROLS AND NO THIRD. Stop and restart are calls to a runtime that is running.
-// Starting a stopped one is a shell spawn rather than a call — a stopped daemon has
-// no server to receive one — and that control lives on the frame's own offline
-// banner, beside the state that makes it the right thing to press.
+// The page draws the supervisor's facts, which arrive on its context. What calls the
+// daemon is `DaemonOperationsBlocks`, passed to the page as `children`: the daemon's own
+// reported status line, and two controls, stop and restart, which are calls to a runtime
+// that is running. The two readings answer different questions and are rendered apart,
+// but a stop the blocks dispatched and a supervisor transition they merely watched both
+// make the status line old, so the state on the context is half of what says when to put
+// it again. Nothing here polls to find that out.
 //
-// AND THE TWO READINGS ON IT ARE ONE ANSWER, NOT TWO. The supervisor's state is the
-// window's, arriving on this page's context; the daemon's own reported status line is
-// this page's read. They answer different questions and they are rendered apart — but
-// a stop this page dispatched, and a supervisor transition it merely watched, both
-// make the second one old, so the state on the context is handed to that read as half
-// of what says when to put it again. Nothing here polls to find that out.
+// EVERY CONTROL CONFIRMS, and the confirmation names what it will interrupt rather than
+// asking "are you sure": stopping the runtime ends every run on this machine, and a
+// person who reads only the verb has not been told that.
 //
-// EVERY CONTROL CONFIRMS, and the confirmation names what it will interrupt rather
-// than asking "are you sure": stopping the runtime ends every run on this machine,
-// and a person who reads only the verb has not been told that.
+// AND IT CONFIRMS ONCE. A confirmation is the record of one intended act, so once it has
+// been answered both of its actions are refused until the dispatch settles; otherwise a
+// double-click on a destructive verb sends two of them. The refusal itself is decided in
+// the handler's own tick by `daemon-controls.ts`; what this file owns is saying so on
+// screen rather than leaving a control that quietly does nothing.
 //
-// AND IT CONFIRMS ONCE. A confirmation is the record of one intended act, so once it
-// has been answered both of its actions are refused until the dispatch settles —
-// otherwise a double-click on a destructive verb sends two of them. The refusal
-// itself is decided in the handler's own tick by `daemon-controls.ts`; what this file
-// owns is saying so on screen rather than leaving a control that quietly does nothing.
-//
-// THE PAGE DERIVES NO ELIGIBILITY. It offers both controls in every state and lets
-// the refusal render, which is the same discipline the operator surfaces are held to:
-// no field reports whether an operation would be permitted, so a page that greyed one
-// out would be inventing the answer. The disable above is not that: whether THIS page
-// has a dispatch outstanding is a fact it holds rather than a permission it guessed.
+// THE BLOCKS DERIVE NO ELIGIBILITY. They offer both controls in every state: no field
+// reports whether an operation would be permitted, so a page that grayed one out would be
+// inventing the answer. Disabling both confirmation actions
+// while a dispatch is outstanding is not that: whether the blocks have a dispatch
+// outstanding is a fact they hold rather than a permission they guessed.
 
 import { useCallback, useState, type ReactNode } from "react";
 
-import { Chip, InlineRefusal, Nothing, WireFigure } from "../../../primitives/index.js";
+import { Chip, Nothing, WireFigure } from "../../../primitives/index.js";
 import {
   UNREPORTED_SHELL_NOTICE,
   describeShellConnection,
@@ -47,17 +44,18 @@ import {
   useDaemonStatus,
   type DaemonControl,
   type DaemonControlSettlement,
+  type DaemonOperations,
   type DaemonStatusReading,
 } from "./daemon-controls.js";
 
-/** The lane that owns this page, so an unfilled section names someone. */
+/** The owner this page registers under. */
 const OWNER = "settings-daemon";
 
 /**
  * Why both confirmation actions are refused once one dispatch has gone out.
  *
  * A SENTENCE AND NEVER A BARE DISABLE, on the rule the join form states: a control
- * greyed out with no cause reads as broken. Cancel is disabled beside the primary
+ * grayed out with no cause reads as broken. Cancel is disabled beside the primary
  * rather than left live, because nothing behind the bridge is cancellable — a Cancel
  * offered after the call went out would read as retracting it, and it retracts
  * nothing. Both actions leave together when the settlement clears the confirmation.
@@ -83,27 +81,18 @@ const CONTROL_COPY: Readonly<
 
 export interface DaemonPageProps {
   readonly context: SettingsPageContext;
+  /** What sits under the supervisor's facts: the blocks that call the daemon. */
+  readonly children?: ReactNode;
 }
 
-export function DaemonPage(props: DaemonPageProps): ReactNode {
-  const { shellState } = props.context;
-  const [confirming, setConfirming] = useState<DaemonControl | undefined>(undefined);
-  const [settlement, setSettlement] = useState<DaemonControlSettlement | undefined>(undefined);
-  const onSettled = useCallback((next: DaemonControlSettlement) => {
-    setSettlement(next);
-    setConfirming(undefined);
-  }, []);
-  const control = useDaemonControl(props.context.bridge.growth, onSettled);
-  // Read AFTER the controls, because what stales its answer is partly theirs. The page
-  // composes the two facts and decides neither: which moments change the runtime's own
-  // status line is `daemon-controls.ts`'s claim, and this supplies the two it names —
-  // the supervisor's reported state, off the one subscription the frame keeps live for
-  // the window, and the settlements this page's own dispatches produced.
-  const status = useDaemonStatus(props.context.bridge.growth, {
-    connection: shellState.connection,
-    settledControlCount: control.settledCount,
-  });
+export interface DaemonOperationsBlocksProps {
+  readonly context: SettingsPageContext;
+  /** Held stable by the caller: a new object restarts the status read. */
+  readonly operations: DaemonOperations;
+}
 
+/** The page: the lede and what the supervisor reports about the runtime. */
+export function DaemonPage(props: DaemonPageProps): ReactNode {
   return (
     <section className="meridian-settings-page" aria-label="Local runtime">
       <p className="meridian-settings-page__lede">
@@ -113,9 +102,37 @@ export function DaemonPage(props: DaemonPageProps): ReactNode {
 
       <section className="meridian-settings-page__block">
         <h3 className="meridian-settings-page__block-title">Supervisor</h3>
-        <dl className="meridian-settings-page__facts">{renderSupervisorFacts(shellState)}</dl>
+        <dl className="meridian-settings-page__facts">
+          {renderSupervisorFacts(props.context.shellState)}
+        </dl>
       </section>
 
+      {props.children}
+    </section>
+  );
+}
+
+/** The two blocks that call the daemon: its own reported status, and stop and restart. */
+export function DaemonOperationsBlocks(props: DaemonOperationsBlocksProps): ReactNode {
+  const { shellState } = props.context;
+  const [confirming, setConfirming] = useState<DaemonControl | undefined>(undefined);
+  const [settlement, setSettlement] = useState<DaemonControlSettlement | undefined>(undefined);
+  const onSettled = useCallback((next: DaemonControlSettlement) => {
+    setSettlement(next);
+    setConfirming(undefined);
+  }, []);
+  const control = useDaemonControl(props.context.bridge, props.operations, onSettled);
+  // Read AFTER the controls, because what stales its answer is partly theirs. This
+  // supplies the two facts `daemon-controls.ts` names: the supervisor's reported state,
+  // and the settlements this page's own dispatches produced.
+  const status = useDaemonStatus(
+    props.context.bridge,
+    { connection: shellState.connection, settledControlCount: control.settledCount },
+    props.operations,
+  );
+
+  return (
+    <>
       <section className="meridian-settings-page__block">
         <h3 className="meridian-settings-page__block-title">Reported status</h3>
         {renderStatusRegion(status)}
@@ -149,7 +166,7 @@ export function DaemonPage(props: DaemonPageProps): ReactNode {
             confirming,
             control.inFlight === undefined ? undefined : DISPATCHED_REASON,
             () => {
-              control.put(confirming);
+              void control.put(confirming);
             },
             () => {
               setConfirming(undefined);
@@ -158,11 +175,11 @@ export function DaemonPage(props: DaemonPageProps): ReactNode {
         )}
         {renderControlSettlement(settlement)}
       </section>
-    </section>
+    </>
   );
 }
 
-/** Claim the local-runtime section. See `RuntimeNodesPage.tsx` on the seam's shape. */
+/** Claim the local-runtime section. */
 export function registerDaemonPage(registry: SettingsPageRegistry): void {
   registry.register({
     section: "daemon",
@@ -271,7 +288,7 @@ function renderFact(term: string, value: ReactNode): ReactNode {
   );
 }
 
-/** The daemon's own status line, on whichever of the read's three phases applies. */
+/** The daemon's own status line, on whichever of the read's two phases applies. */
 function renderStatusRegion(reading: DaemonStatusReading): ReactNode {
   switch (reading.phase) {
     case "reading":
@@ -283,8 +300,6 @@ function renderStatusRegion(reading: DaemonStatusReading): ReactNode {
           detail="The status the daemon reports about itself, which is a different question from what the supervisor observed."
         />
       );
-    case "refused":
-      return <InlineRefusal {...reading.refusal} />;
     case "read":
       return (
         <dl className="meridian-settings-page__facts">
@@ -347,9 +362,6 @@ function renderControlConfirm(
 function renderControlSettlement(settlement: DaemonControlSettlement | undefined): ReactNode {
   if (settlement === undefined) {
     return null;
-  }
-  if (settlement.outcome === "refused") {
-    return <InlineRefusal {...settlement.refusal} />;
   }
   return (
     <p className="meridian-settings-page__state">

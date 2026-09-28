@@ -9,15 +9,15 @@
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import type { GrowthMcpInventoryEntry } from "../../../../bridge/index.js";
 import { ConfigReadBack } from "./ConfigReadBack.js";
+import type { GrowthMcpInventoryEntry } from "../../../../bridge/index.js";
+
+/** Indexed off the entry rather than imported: the config view has no door of its own. */
+type McpServerConfigView = GrowthMcpInventoryEntry["config"];
 
 afterEach(() => {
   cleanup();
 });
-
-/** Indexed off the entry rather than imported: the config view has no door of its own. */
-type McpServerConfigView = GrowthMcpInventoryEntry["config"];
 
 function stdioConfigWithArguments(args: readonly string[]): McpServerConfigView {
   return { transport: "stdio", command: "./scripts/scratchpad-mcp", args };

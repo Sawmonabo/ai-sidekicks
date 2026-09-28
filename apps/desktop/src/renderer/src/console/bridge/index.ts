@@ -314,6 +314,13 @@ export type { GrowthPort } from "./growth-port/growth-port.js";
 // leaves through `growth-port/growth-entry.js`, the module that declares it.
 export type { GrowthOperationId } from "./growth-port/growth-entry.js";
 export type { GrowthSessionSummary } from "./growth-values/sessions.js";
+// What a browser pane reports about its page and its pages. Published because the
+// browser family types its readings from these shapes instead of restating them.
+export type {
+  GrowthBrowserPage,
+  GrowthBrowserPageList,
+  GrowthNavigationState,
+} from "./growth-values/panes.js";
 // What a provider-session import reports as it runs. Published because the import
 // panel drains the progress subscription and renders the producer's own turn count
 // and state verbatim; a shape read only inside the fixture would leave the surface

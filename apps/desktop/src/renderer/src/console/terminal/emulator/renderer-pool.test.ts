@@ -5,7 +5,7 @@
 // environment — which is the whole reason the ledger is not a section of the
 // adapter. The cases that DO need an adapter (which of the two hand-backs a
 // teardown performs, and that a host with no WebGL2 spends nothing) live with
-// teardown in that file, where the behaviour is.
+// teardown in that file, where the behavior is.
 //
 // THE CLAIM THE CHURN CASES BELOW EXIST FOR. A disposed `WebglAddon` leaves its
 // WebGL2 context behind, so the reading the cap has to be checked against is how

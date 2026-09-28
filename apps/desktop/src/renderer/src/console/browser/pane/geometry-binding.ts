@@ -1,6 +1,6 @@
 // This pane's rectangle, published to the host that draws its page.
 //
-// Split from `BrowserPane.tsx`, which is the surface: this is the binding underneath
+// Split from `BrowserPaneChrome.tsx`, which is the surface: this is the binding underneath
 // it — one publisher, the host it writes to, and the subject both were resolved under
 // — and the three rules that keep it honest across a subject swap. None of them is a
 // rendering decision, and all three are the kind of thing a reader who came for the
@@ -10,10 +10,10 @@
 // it a different bridge or the deck hands it a different pane, so every rule here is
 // about the pass where the state still holds the PREVIOUS binding.
 
-import { useCallback, useEffect, useRef, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 
 import { PaneGeometryPublisher, type PaneGeometryOutcome } from "../geometry/geometry-publisher.js";
-import { resolvePaneViewHost, type PaneViewHost } from "../geometry/view-host.js";
+import type { AttachedPaneViewHost } from "../geometry/view-host.js";
 import { useSubjectScopedResource, type SubjectScopedDisposal } from "../../store/index.js";
 import { airspaceRegistryFor, type AirspaceRegistry } from "../../core/index.js";
 import { consoleClockFor, type ConsoleBridge } from "../../bridge/index.js";
@@ -23,10 +23,11 @@ import { consoleClockFor, type ConsoleBridge } from "../../bridge/index.js";
  *
  * Both members, because both decide where an act goes: every pane-keyed call is made
  * on ONE bridge with ONE `paneId`, so a publisher produced under either of the other
- * combinations is not a publisher for this one. It is the argument
- * {@link createGeometryBinding} takes rather than a stamp anything compares — the
- * console's subject-scoped holder addresses a resource by its subject during the
- * render that first sees a new one, so there is nothing left here to compare.
+ * combinations is not a publisher for this one. The holder also keys on the view host
+ * the publisher writes to. It is the argument {@link createGeometryBinding} takes rather
+ * than a stamp anything compares — the console's subject-scoped holder addresses a
+ * resource by its subject during the render that first sees a new one, so there is
+ * nothing left here to compare.
  */
 export interface PaneSubject {
   readonly bridge: ConsoleBridge;
@@ -34,73 +35,28 @@ export interface PaneSubject {
 }
 
 /**
- * One publisher over the host this window actually has, for the pane it is for, and
- * the subject it was resolved under.
+ * One publisher over the given host, for the pane it is for, and the subject both were
+ * resolved under.
  *
- * The bridge and the pane id are what 12.11's wiring table selects on, and passing
- * them is the whole correction: this called the table with an empty options bag, so
- * under the fixture and the end-to-end runs it could only reach the unavailable arm
- * and every publish was suppressed — with the pane's own suites mocking the table, so
- * nothing on either side reported the gap.
+ * The clock comes off the bridge, so a frozen scenario freezes this publisher's frame
+ * with every other timer in the pane. The airspace comes off the document, which an
+ * overlay element and this pane share when they are in one window.
  *
- * The host is kept BESIDE the publisher rather than being resolved a second time by
- * whoever needs to know what it said: one resolution per binding is what makes "this
- * pane's viewport is describing this pane's host" a fact rather than two lookups that
- * agree today.
+ * The motion observation is the publisher's, not this function's: a self-disposal after a
+ * `pane-gone` rejection ends the frame loop.
  *
- * THE CLOCK COMES OFF THE BRIDGE. The fixture clock is the only clock the renderer
- * reads in fixture mode, and the console has one answer to which clock a window reads.
- * A privately minted
- * `RealClock` here was invisible to `ManualClock` — the instrument the budgets are
- * counted with — so under a frozen scenario this publisher's frame and its
- * `sampledAtMs` ran on wall time while every other timer in the same pane was stopped,
- * and whether a screenshot caught the first publish was decided by how fast the runner
- * was.
- *
- * THE AIRSPACE COMES OFF THE DOCUMENT, and that is the same rule read the other way.
- * The overlay set is `core/`'s so that the overlay primitives — which sit below
- * `bridge/` and cannot name a bridge — can register into the same one this pane reads.
- * A document is what an overlay element and this pane's host already share when they
- * are in one window and do not share when they are not, so it is the key both sides can
- * name (`core/airspace-registries.ts`).
- *
- * AND THE MOTION OBSERVATION IS THE PUBLISHER'S, not this function's. Only a consumer
- * drawing a native view needs an overlay carried across the screen sampled per frame,
- * and the publisher is that consumer: it arms the observation with its other five
- * invalidation sources and retires it with them, so an unavailable host arms none and
- * a self-disposal after a `pane-gone` rejection ends the frame loop rather than
- * leaving it running under a binding nothing will dispose until the mount ends. The
- * airspace still comes from here because the publisher is handed it as its overlay
- * source, which is the one reading of it both halves share.
- *
- * Pure: it arms nothing at all. Every source this binding costs is armed by the
- * publisher's own `observe` and retired by its own `dispose`.
+ * Pure: it arms nothing at all.
  */
-export function createGeometryBinding(subject: PaneSubject): BoundGeometryPublisher {
-  const host = resolvePaneViewHost(subject);
+export function createGeometryBinding(
+  subject: PaneSubject,
+  host: AttachedPaneViewHost,
+): BoundGeometryPublisher {
   const clock = consoleClockFor(subject.bridge);
   const airspace: AirspaceRegistry = airspaceRegistryFor(document);
   return {
     ...subject,
-    host,
     publisher: new PaneGeometryPublisher({ host, clock, occlusion: airspace }),
   };
-}
-
-/**
- * What a binding says before its first publish — the host's own refusal where the
- * wiring table has none, and nothing where it has one.
- *
- * The resting value exists because a binding is minted in a render and armed in an
- * effect, so there is always one committed pass with no recorded outcome. On an
- * unavailable host that pass has a fact to report and reporting nothing would make it
- * indistinguishable from a pane nobody has told anything yet, which is rule 8's
- * collapse. On an attached host it genuinely has none: the first sample has not been
- * taken. `observe` records the same suppression a frame later, so this is the same
- * sentence early rather than a second author of it.
- */
-function restingGeometryOutcome(host: PaneViewHost): PaneGeometryOutcome | undefined {
-  return host.state === "unavailable" ? { status: "suppressed", refusal: host.refusal } : undefined;
 }
 
 /** Ends a binding. Terminal: `dispose` is what the publisher documents it as. */
@@ -128,9 +84,8 @@ const GEOMETRY_BINDING_DISPOSAL: SubjectScopedDisposal<BoundGeometryPublisher> =
   isClosed: isGeometryBindingClosed,
 };
 
-/** One publisher, the host it writes to, and the subject both were resolved under. */
+/** One publisher and the subject it was resolved under. */
 export interface BoundGeometryPublisher extends PaneSubject {
-  readonly host: PaneViewHost;
   readonly publisher: PaneGeometryPublisher;
 }
 
@@ -141,21 +96,20 @@ export interface BoundGeometryPublisher extends PaneSubject {
  * The outcome is subscribed rather than copied. `observe` only queues the first
  * write, so a value read straight after it is `undefined` by construction — and
  * everything after it, the `pane-gone` rejection above all, would then land in the
- * publisher and reach nobody, leaving the viewport saying "no page yet" over a host
- * that has said this pane is destroyed. `useSyncExternalStore` rather than a
+ * publisher and reach nobody, leaving the viewport silent over a host that has said
+ * this pane is destroyed. `useSyncExternalStore` rather than a
  * `useState` an effect writes into, for `LiveAnnouncerProvider`'s reason: an outcome
  * recorded between this component's render and its subscription is missed by the
  * effect shape, and a missed refusal is silent by construction.
  *
- * THE BINDING IS HELD BY THE CONSOLE'S SUBJECT-SCOPED RESOURCE HOLDER, which is what
- * this hook used to hand-roll. A binding outlives its subject — React keeps the
- * instance while the window hands it a different bridge or the deck hands it a
- * different pane — and the three arms that follow from it are all the holder's:
+ * THE BINDING IS HELD BY THE CONSOLE'S SUBJECT-SCOPED RESOURCE HOLDER. A binding
+ * outlives its subject: React keeps the instance while the window hands it a different
+ * bridge or the deck hands it a different pane. The three arms that follow are the
+ * holder's:
  *
- *   • A CHANGED SUBJECT opens its own binding DURING THE RENDER that first sees it, so
- *     there is no pass on which this hook holds the previous window's publisher and
- *     nothing to compare on the way out. The stamp-and-suppress this replaced was
- *     correct and one concept wider than it had to be.
+ *   • A CHANGED SUBJECT (another bridge, pane or view host) opens its own binding
+ *     DURING THE RENDER that first sees it, so there is no pass on which this hook holds
+ *     the previous subject's publisher and nothing to compare on the way out.
  *   • A DOUBLE MOUNT is answered by `isGeometryBindingClosed`. React runs the cleanup
  *     and mounts the same instance again, so the second mount would otherwise be
  *     handed the corpse the first one's teardown just disposed; the holder re-mints
@@ -173,17 +127,21 @@ export interface BoundGeometryPublisher extends PaneSubject {
 export function useGeometryPublisher(
   bridge: ConsoleBridge,
   paneId: string,
+  viewHost: AttachedPaneViewHost,
 ): {
   readonly hostRef: React.RefObject<HTMLDivElement | null>;
   readonly outcome: PaneGeometryOutcome | undefined;
 } {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const openBinding = useCallback(
-    () => createGeometryBinding({ bridge, paneId }),
-    [bridge, paneId],
+    () => createGeometryBinding({ bridge, paneId }, viewHost),
+    [bridge, paneId, viewHost],
   );
+  // The host is part of the subject: a publisher writes to one host for life, so a
+  // new host for the same pane needs a new publisher.
+  const subject = useMemo(() => ({ bridge, viewHost }), [bridge, viewHost]);
   const { value: bound } = useSubjectScopedResource(
-    bridge,
+    subject,
     paneId,
     openBinding,
     GEOMETRY_BINDING_DISPOSAL,
@@ -194,8 +152,7 @@ export function useGeometryPublisher(
     [publisher],
   );
   const readOutcome = useCallback(() => publisher.lastOutcome(), [publisher]);
-  const publishedOutcome = useSyncExternalStore(subscribe, readOutcome, readOutcome);
-  const outcome = publishedOutcome ?? restingGeometryOutcome(bound.host);
+  const outcome = useSyncExternalStore(subscribe, readOutcome, readOutcome);
 
   useEffect(() => {
     const hostElement = hostRef.current;

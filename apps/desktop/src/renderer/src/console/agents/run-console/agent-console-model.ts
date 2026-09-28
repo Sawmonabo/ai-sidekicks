@@ -10,10 +10,9 @@
 // A CACHE OF ONE, TWICE OVER. A console shows one session at a time and one run's
 // links at a time, so both caches hold exactly one entry and switching disposes what
 // they held. That is a bound stated by construction rather than a cap with a
-// rationale: neither can grow. The roster, the driver catalog, and the definition
-// list are built once with the models and live as long as they do; one run's child
-// links are built on demand and cached one at a time — asking for a different run
-// disposes the previous read.
+// rationale: neither can grow. The roster is built once with the models and lives as
+// long as they do; one run's child links are built on demand and cached one at a
+// time — asking for a different run disposes the previous read.
 //
 // ACQUIRING A LINKAGE READ IS NOT STARTING ONE, AND THAT SPLIT IS THE POINT. Starting
 // opens a subscription and arms a scheduler, which React's render phase may abandon
@@ -31,32 +30,16 @@
 import { useEffect, useState } from "react";
 
 import type { ConsoleClock } from "../../core/index.js";
-import {
-  consoleClockFor,
-  type AgentAttachReading,
-  type AgentConfigUpdateReading,
-  type ConsoleBridge,
-  type PeerInvocationReading,
-} from "../../bridge/index.js";
-import {
-  isCurrentSessionSubject,
-  servedGrowthValueOrRaise,
-  type SessionSubject,
-} from "../../seats/index.js";
+import { consoleClockFor, type ConsoleBridge } from "../../bridge/index.js";
+import { isCurrentSessionSubject, type SessionSubject } from "../../seats/index.js";
 import type { SessionStore } from "../../store/index.js";
-import { requestAgentConfigUpdate } from "../provider-switch/provider-switch-host.js";
-import type { AxisDraft } from "../provider-switch/provider-switch-draft.js";
 import {
   createAgentRoster,
   createChildRunLinkage,
-  createDriverCatalog,
-  createAgentDefinitions,
+  type AgentConsoleCalls,
   type AgentRosterRead,
   type ChildRunLinkageRead,
-  type DriverCatalogRead,
-  type AgentDefinitionRead,
 } from "./agent-console-reads.js";
-import type { AttachRequest } from "../attach/attach-readiness.js";
 
 /**
  * One holder's grant of a parent run's child-link read.
@@ -98,28 +81,24 @@ export class AgentConsoleModels {
    */
   public readonly subject: SessionSubject;
   public readonly roster: AgentRosterRead;
-  public readonly driverCatalog: DriverCatalogRead;
-  public readonly definitions: AgentDefinitionRead;
 
   readonly #clock: ConsoleClock;
+  readonly #calls: AgentConsoleCalls;
   #linkage: HeldChildRunLinkage | undefined;
   #outstandingLinkageLeaseCount = 0;
   #disposed = false;
 
-  public constructor(bridge: ConsoleBridge, sessionStore: SessionStore) {
+  public constructor(bridge: ConsoleBridge, sessionStore: SessionStore, calls: AgentConsoleCalls) {
     this.subject = { bridge, sessionStore };
+    this.#calls = calls;
     // Through the bridge family's own door rather than resolved here. The rule — a
     // fixture bridge running an engine shares that engine's FROZEN clock, and only a
     // running engine owns one — is `bridge/console-bridge.ts`, and a second copy of it
     // is how a window ends up with stores on wall time while its scenario beats advance
     // on frozen time, which is the exact drift that seam was minted to end.
     this.#clock = consoleClockFor(bridge);
-    this.roster = createAgentRoster(bridge, sessionStore, this.#clock);
-    this.driverCatalog = createDriverCatalog(bridge, this.#clock);
-    this.definitions = createAgentDefinitions(bridge, this.#clock);
+    this.roster = createAgentRoster(sessionStore, this.#clock, calls.listAgents);
     this.roster.start();
-    this.driverCatalog.start();
-    this.definitions.start();
   }
 
   /**
@@ -131,52 +110,6 @@ export class AgentConsoleModels {
    */
   public get sessionId(): string {
     return this.subject.sessionStore.sessionId;
-  }
-
-  /**
-   * Attach an agent. Zero-residue on refusal: no agent row, no partial
-   * configuration, no run — which is the daemon's guarantee and the reason this
-   * method neither pre-creates anything nor cleans anything up.
-   */
-  public async attach(request: AttachRequest): Promise<AgentAttachReading> {
-    return servedGrowthValueOrRaise(await this.subject.bridge.growth.agentAttach(request));
-  }
-
-  /**
-   * Move provider axes on a running agent. Never a second run control.
-   *
-   * DELEGATED RATHER THAN COMPOSED HERE. The composer's target chip issues the same
-   * mutation and holds no models, so the call itself lives in
-   * `provider-switch/provider-switch-host.ts` where both families reach it — one home
-   * for which operation is asked, how the axes ride it, and how a refusal is raised.
-   * What stays here is the LIFETIME claim: this set's own bridge answers it.
-   */
-  public async updateConfig(
-    agentId: string,
-    axes: AxisDraft,
-    interruptAndSwitch: boolean,
-  ): Promise<AgentConfigUpdateReading> {
-    return await requestAgentConfigUpdate(this.subject.bridge, agentId, axes, interruptAndSwitch);
-  }
-
-  /** Move an agent to `disabled`. Reversible by re-attaching. */
-  public async detach(agentId: string): Promise<void> {
-    servedGrowthValueOrRaise(await this.subject.bridge.growth.agentDetach({ agentId }));
-  }
-
-  /**
-   * Set the session-scoped peer-invocation grant.
-   *
-   * The caller renders the REPLY's `enabled`, read back from the post-append
-   * projected value, rather than echoing what it asked for.
-   */
-  public async setPeerInvocation(enabled: boolean): Promise<PeerInvocationReading> {
-    return servedGrowthValueOrRaise(
-      await this.subject.bridge.growth.agentPeerInvocationSet({
-        sessionId: this.sessionId,
-        enabled,
-      }),
-    );
   }
 
   /** Which run the held linkage answers for, or `undefined` while none is held. */
@@ -207,10 +140,10 @@ export class AgentConsoleModels {
     const linkage: HeldChildRunLinkage = {
       parentRunId,
       read: createChildRunLinkage(
-        this.subject.bridge,
         this.subject.sessionStore,
         parentRunId,
         this.#clock,
+        this.#calls.readChildRunLinks,
       ),
     };
     this.#linkage = linkage;
@@ -225,8 +158,6 @@ export class AgentConsoleModels {
     }
     this.#disposed = true;
     this.roster.dispose();
-    this.driverCatalog.dispose();
-    this.definitions.dispose();
     this.#releaseLinkage();
   }
 
@@ -276,26 +207,24 @@ export class AgentConsoleModels {
  * A MODEL NEVER BELONGS TO A SUBJECT IT IS NOT FOR. State replaced from an effect
  * lags its own inputs by one committed frame, so a console moving directly from one
  * open session to another renders once with the previous session's models under the
- * new session's store. That frame is not merely a stale roster: the binding column
- * would dispatch `agent.attach`, `agent.configUpdate`, and `agent.detach` through the
- * session the console has LEFT while naming the agent of the one it arrived at. So
- * the held set is answered only while it matches the subject it was asked about, and
- * the mismatched frame answers `undefined` — the absence every consumer already
- * renders, and the one honest thing to say about a session nothing has been read for
- * yet.
+ * new session's store. That frame is not merely a stale roster: the column would
+ * read through the session the console has LEFT while naming the agent of the one it
+ * arrived at. So the held set is answered only while it matches the subject it was
+ * asked about, and the mismatched frame answers `undefined` — the absence every
+ * consumer already renders.
  *
- * THE SUBJECT IS THE PAIR AND NOT THE SESSION ID, which is what this guard used to
- * compare. A replacement bridge or a rebuilt store for the SAME session passes an id
- * comparison, so the first committed render after either replacement handed back
- * models whose reads are bound to the transport and the projection that were just
- * retired — and the binding column dispatched through the superseded bridge before
- * the effect installed the replacement. `seats/session-subject.ts` owns the
- * comparison, because the channels family's holder had written the same guard
- * with the same defect and two copies of a predicate drift.
+ * THE SUBJECT IS THE PAIR AND NOT THE SESSION ID. A replacement bridge or a rebuilt
+ * store for the SAME session passes an id comparison, so the first committed render
+ * after either replacement would hand back models whose reads are bound to the
+ * transport and the projection that were just retired. `seats/session-subject.ts`
+ * owns the comparison, so the predicate has one copy.
+ *
+ * `calls` is held stable by the caller: a new object rebuilds the models.
  */
 export function useAgentConsoleModels(
   bridge: ConsoleBridge | undefined,
   sessionStore: SessionStore | undefined,
+  calls: AgentConsoleCalls,
 ): AgentConsoleModels | undefined {
   const [models, setModels] = useState<AgentConsoleModels | undefined>(undefined);
 
@@ -304,13 +233,13 @@ export function useAgentConsoleModels(
       setModels(undefined);
       return undefined;
     }
-    const built = new AgentConsoleModels(bridge, sessionStore);
+    const built = new AgentConsoleModels(bridge, sessionStore, calls);
     setModels(built);
     return () => {
       built.dispose();
       setModels(undefined);
     };
-  }, [bridge, sessionStore]);
+  }, [bridge, sessionStore, calls]);
 
   return isCurrentSessionSubject(models?.subject, bridge, sessionStore) ? models : undefined;
 }

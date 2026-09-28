@@ -1,4 +1,4 @@
-// The tab strip: four readings, the two controls, and the drop arithmetic in place.
+// The tab strip: what a served frame marks, its controls, and the drop arithmetic in place.
 //
 // The drag cases here are the ones `tab-reorder.test.ts` cannot make: that file proves
 // `pageMoveIndex` computes the right number, and these prove the strip feeds it the
@@ -9,7 +9,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi, type Mock } from "vitest";
 
-import { refuse } from "../../../core/index.js";
 import type { PageListReading } from "../page-state.js";
 import { browserPage as page, threeBrowserPages } from "../page-state.test-support.js";
 import { TabStrip, type TabStripProps } from "./TabStrip.js";
@@ -18,7 +17,7 @@ import { BROWSER_TAB_DRAG_MEDIA_TYPE } from "./tab-reorder.js";
 const THREE_PAGES: PageListReading = threeBrowserPages();
 
 /**
- * The four handlers, typed by the props they satisfy.
+ * The three handlers, typed by the props they satisfy.
  *
  * `TabStripProps` supplies each signature, so a mock declared against it is checked
  * against the real contract — an untyped `vi.fn()` would satisfy nothing and a handler
@@ -28,7 +27,6 @@ const THREE_PAGES: PageListReading = threeBrowserPages();
 interface StripHandlers {
   readonly onSelect: Mock<TabStripProps["onSelect"]>;
   readonly onClose: Mock<TabStripProps["onClose"]>;
-  readonly onCreate: Mock<TabStripProps["onCreate"]>;
   readonly onReorder: Mock<TabStripProps["onReorder"]>;
 }
 
@@ -36,7 +34,6 @@ function renderStrip(reading: PageListReading): StripHandlers {
   const handlers: StripHandlers = {
     onSelect: vi.fn<TabStripProps["onSelect"]>(),
     onClose: vi.fn<TabStripProps["onClose"]>(),
-    onCreate: vi.fn<TabStripProps["onCreate"]>(),
     onReorder: vi.fn<TabStripProps["onReorder"]>(),
   };
   render(<TabStrip reading={reading} {...handlers} />);
@@ -85,49 +82,16 @@ function trailingSlot(): HTMLElement {
   return tail;
 }
 
-describe("the tab strip's readings", () => {
-  it("distinguishes an unread page list from an empty one", () => {
-    renderStrip({ kind: "reading" });
-    const label = screen.getByText("Pages not read");
-    expect(screen.queryByText("No pages open")).toBeNull();
-    // A badge has room for one line, so its second sentence rides the tooltip — and
-    // that sentence is the DENIAL rather than a restatement: without it the badge
-    // says only that nothing answered, and a person reading a strip with no tabs in
-    // it supplies the missing half themselves, wrongly.
-    expect(label.getAttribute("title")).toContain("Nothing here says this session owns no pages");
-  });
-
-  it("says the producer finished rather than that the pages closed", () => {
-    renderStrip({ kind: "ended" });
-    expect(screen.getByText("Pages no longer reported")).toBeTruthy();
-  });
-
-  it("renders a refused list as a refusal", () => {
-    renderStrip({
-      kind: "refused",
-      scope: "whole-answer",
-      refusal: refuse("browser-pages", "page-subscription-failed", "The subscription broke."),
-    });
-    expect(screen.getByText(/The subscription broke\./)).toBeTruthy();
-  });
-
-  it("says the session owns no pages only where it owns none", () => {
-    renderStrip({ kind: "served", frame: { contextName: null, pages: [] } });
-    expect(screen.getByText("No pages open")).toBeTruthy();
-    expect(screen.getByText("Unnamed context")).toBeTruthy();
-  });
-
-  it("renders the agent's context name where it set one", () => {
-    renderStrip(THREE_PAGES);
-    expect(screen.getByText("Research")).toBeTruthy();
-  });
-
+describe("the tab strip's frame", () => {
   it("marks a background page and a loading one from the reported frame", () => {
     renderStrip({
       kind: "served",
       frame: {
         contextName: null,
-        pages: [page({ pageId: "page-a", isLoading: true, isShown: false, isSelected: true })],
+        pages: [
+          page({ pageId: "page-a", isLoading: true, isShown: false, isSelected: true }),
+          page({ pageId: "page-b", isShown: true }),
+        ],
       },
     });
     expect(screen.getByText("Loading")).toBeTruthy();
@@ -149,15 +113,33 @@ describe("the tab strip's readings", () => {
   });
 });
 
+describe("the tab strip's presence", () => {
+  it("draws nothing for one page, and a strip for two", () => {
+    const one = render(
+      <TabStrip
+        reading={{ kind: "served", frame: { contextName: null, pages: [page({ pageId: "a" })] } }}
+        onSelect={vi.fn()}
+        onClose={vi.fn()}
+        onReorder={vi.fn()}
+      />,
+    );
+    expect(one.container.querySelector(".meridian-browser-tabs")).toBeNull();
+    one.unmount();
+    renderStrip({
+      kind: "served",
+      frame: { contextName: null, pages: [page({ pageId: "a" }), page({ pageId: "b" })] },
+    });
+    expect(document.querySelectorAll(".meridian-browser-tab")).toHaveLength(2);
+  });
+});
+
 describe("the tab strip's controls", () => {
-  it("selects, closes, and creates through the acts it was handed", () => {
+  it("selects and closes through the acts it was handed", () => {
     const handlers = renderStrip(THREE_PAGES);
     fireEvent.click(tabFace(1));
     fireEvent.click(screen.getByRole("button", { name: "Close Title page-c" }));
-    fireEvent.click(screen.getByRole("button", { name: "New page" }));
     expect(handlers.onSelect).toHaveBeenCalledWith("page-b");
     expect(handlers.onClose).toHaveBeenCalledWith("page-c");
-    expect(handlers.onCreate).toHaveBeenCalledOnce();
   });
 });
 

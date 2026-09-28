@@ -2,11 +2,11 @@ import { BILLING_MODES, PROVIDER_NAMES } from "@ai-sidekicks/contracts";
 import { useId, useRef, useState, type FormEvent, type ReactNode } from "react";
 
 import { RegistrationOutcomeLine } from "./RegistrationOutcomeLine.js";
-import type { ConsoleBridge } from "../../../../bridge/index.js";
 import {
   IDLE_TOKEN_REGISTRATION,
   readRegistrationFields,
   submitTokenRegistration,
+  type ProviderAccountRegisterCall,
   type TokenRegistrationOutcome,
 } from "./signin-flow.js";
 
@@ -30,8 +30,10 @@ import {
  * the screen; keeping it out of renderer state is the ref above, and the two are
  * different guarantees against different observers.
  */
-export function TokenRegistrationForm(props: { readonly bridge: ConsoleBridge }): ReactNode {
-  const { bridge } = props;
+export function TokenRegistrationForm(props: {
+  readonly register: ProviderAccountRegisterCall;
+}): ReactNode {
+  const { register } = props;
   const labelFieldId = useId();
   const providerFieldId = useId();
   const billingFieldId = useId();
@@ -66,18 +68,13 @@ export function TokenRegistrationForm(props: { readonly bridge: ConsoleBridge })
       tokenInput.current.value = "";
     }
     setOutcome({ kind: "submitting" });
-    void submitTokenRegistration(bridge, {
+    void submitTokenRegistration(register, {
       ...reading.fields,
       // Absent rather than empty when nothing was typed: the member is optional on the
       // wire and an empty string is a token the daemon would have to refuse, which
       // would report a field left blank as a rejected credential.
       ...(nonInteractiveToken === "" ? {} : { nonInteractiveToken }),
-    }).then(setOutcome, () => {
-      // Unreachable through the growth seam, which settles its own rejections — but a
-      // promise this component drops would leave the form reading "submitting" forever,
-      // so the arm exists and says the one true thing it can.
-      setOutcome(IDLE_TOKEN_REGISTRATION);
-    });
+    }).then(setOutcome);
   };
 
   return (

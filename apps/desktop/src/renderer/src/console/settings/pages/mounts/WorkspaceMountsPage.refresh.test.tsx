@@ -1,7 +1,7 @@
 // What makes the mounts page read again, and what it offers when a read refused.
 //
 // Split from `WorkspaceMountsPage.test.tsx`, which covers what the page RENDERS.
-// These two are about the page's behaviour over time — which signals reach the
+// These two are about the page's behavior over time — which signals reach the
 // refresh chokepoint, and whether a refusal is the end of the conversation — and
 // both drive the page through the harness in
 // `workspace-mounts-page.test-support.tsx`.
@@ -32,7 +32,7 @@ describe("the page's refresh signals", () => {
       },
     });
     const { clock, settle } = await renderSettledPage(context);
-    const listReadsBefore = listMethods.filter((method) => method === "repo.workspaceList").length;
+    const listReadsBefore = listMethods.filter((method) => method === "workspaceList").length;
     expect(listReadsBefore).toBe(1);
 
     await act(async () => {
@@ -41,7 +41,7 @@ describe("the page's refresh signals", () => {
       await settle();
     });
 
-    expect(listMethods.filter((method) => method === "repo.workspaceList")).toHaveLength(2);
+    expect(listMethods.filter((method) => method === "workspaceList")).toHaveLength(2);
   });
 
   it("re-reads the inventory when the transport comes back", async () => {
@@ -57,7 +57,7 @@ describe("the page's refresh signals", () => {
       },
     });
     const { settle } = await renderSettledPage(reading);
-    expect(listMethods.filter((method) => method === "repo.workspaceList")).toHaveLength(1);
+    expect(listMethods.filter((method) => method === "workspaceList")).toHaveLength(1);
 
     await act(async () => {
       // Through the signal's own edge detection rather than by calling a refresh:
@@ -68,7 +68,7 @@ describe("the page's refresh signals", () => {
       await settle();
     });
 
-    expect(listMethods.filter((method) => method === "repo.workspaceList")).toHaveLength(2);
+    expect(listMethods.filter((method) => method === "workspaceList")).toHaveLength(2);
   });
 
   it("negative control: a transport that never went away re-reads nothing", async () => {
@@ -90,7 +90,7 @@ describe("the page's refresh signals", () => {
       await settle();
     });
 
-    expect(listMethods.filter((method) => method === "repo.workspaceList")).toHaveLength(1);
+    expect(listMethods.filter((method) => method === "workspaceList")).toHaveLength(1);
   });
 
   it("negative control: the same event moves nothing when the window holds no store", async () => {
@@ -112,7 +112,7 @@ describe("the page's refresh signals", () => {
       await settle();
     });
 
-    expect(listMethods.filter((method) => method === "repo.workspaceList")).toHaveLength(1);
+    expect(listMethods.filter((method) => method === "workspaceList")).toHaveLength(1);
   });
 });
 
@@ -125,7 +125,7 @@ describe("the mounts list — a refused read is not the end of it", () => {
     const { page, settle } = await renderSettledPage(
       contextReading({
         mountIds: [MOUNT_A],
-        rejectWith: { code: "repo.node_not_attached", message: "that node is not attached" },
+        rejectWith: "that node is not attached",
         rejectionCount: 1,
       }),
     );
@@ -156,7 +156,7 @@ describe("the mounts list — a refused read is not the end of it", () => {
     const { page, settle } = await renderSettledPage(
       contextReading({
         mountIds: [MOUNT_A],
-        rejectWith: { code: "repo.node_not_attached", message: "that node is not attached" },
+        rejectWith: "that node is not attached",
       }),
     );
 

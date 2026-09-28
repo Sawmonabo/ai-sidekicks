@@ -1,22 +1,9 @@
 // The store that folds one carrier's answers into a shell preference snapshot.
 //
-// The vocabulary it folds into — the closed key set, the defaults, the three
-// readings, and the pure functions over a snapshot — is `shell-preference-snapshot.ts`
-// beside it. Who owns a store for how long, and how React acquires one, is
-// `shell-preferences-holder.ts`. Three modules because a value's SHAPE, a store's
-// BEHAVIOUR, and a store's LIFETIME are reviewed against three different questions.
-//
-// WHY AN UNAVAILABLE CARRIER IS NOT A REJECTED TOGGLE
-//
-// The carrier is not registered, so every write answers `wire-unregistered` today.
-// Snapping the switch back on that answer would tell a person their choice was
-// refused, which is false — nobody was asked. So an UNAVAILABLE carrier holds the
-// value for this window and the row says so. A carrier that is PRESENT and rejects
-// is the other fact, and that one does leave the stored value and render the code.
-// Both arms are implemented; only the first is reachable today, which is why the
-// second is driven by a stub port in this module's own test.
+// The vocabulary it folds into is `shell-preference-snapshot.ts`; who owns a store for
+// how long, and how React acquires one, is `shell-preferences-holder.ts`.
 
-import { Emitter, withoutKey, type Unsubscribe } from "../../../core/index.js";
+import { Emitter, type Unsubscribe } from "../../../core/index.js";
 import {
   GenerationLatch,
   NO_TRIGGERING_EVENT_KINDS,
@@ -26,24 +13,24 @@ import {
   type RefreshReason,
 } from "../../../store/index.js";
 import { consoleClockFor, type ConsoleBridge } from "../../../bridge/index.js";
-// The console's ONE rejection-to-refusal converter. This module held a second copy
-// of it — the same two verbatim arms over a different fallback code — and a second
-// copy is what `apps/desktop/AGENTS.md` calls a duplicate refusal constructor. The
-// fallback code is still this store's own word, which is all that was ever local
-// about it; a carrier that named its own code now KEEPS it, reversing the note this
-// replaces, on the console-wide rule that folding a wire code into a generic one
-// throws away the one thing a person needs — which refusal it was.
-import { consoleRefusalFrom } from "../../../seats/index.js";
 import {
   NOTHING_CHOSEN,
   OPENING_READ_KEY,
-  PREFERENCE_WRITE_FAILED,
-  SHELL_PREFERENCE_REFUSAL_ORIGIN,
   appliedReading,
-  type ShellConfigReadOutcome,
   type ShellPreferenceKey,
   type ShellPreferenceSnapshot,
 } from "./shell-preference-snapshot.js";
+
+/**
+ * The machine's settings file, as the store reads and writes it.
+ */
+export interface ShellPreferenceCarrier {
+  readonly read: () => Promise<Readonly<Record<string, boolean>>>;
+  readonly write: (request: {
+    readonly key: ShellPreferenceKey;
+    readonly enabled: boolean;
+  }) => Promise<unknown>;
+}
 
 /**
  * The shell preference set for one window.
@@ -53,16 +40,9 @@ import {
  * the React binding and holds nothing of its own.
  */
 export class ShellPreferenceStore implements ReadTriggerTarget {
-  /**
-   * No terminal event refreshes this read, and the empty set states it.
-   *
-   * The shell config is per-user durable state behind a growth carrier, and the
-   * corpus registers no event for a preference write — so there is no kind a store
-   * could admit. The window triggers are the whole refresh story, which is what
-   * makes a second window's choice reach this one at all.
-   */
+  /** No terminal event refreshes this read; the window triggers are the whole story. */
   public readonly triggeringEventKinds: ReadonlySet<string> = NO_TRIGGERING_EVENT_KINDS;
-  readonly #bridge: ConsoleBridge;
+  readonly #carrier: ShellPreferenceCarrier;
   readonly #changes = new Emitter<void>("shell preference change");
   #snapshot: ShellPreferenceSnapshot = NOTHING_CHOSEN;
   #started = false;
@@ -95,17 +75,13 @@ export class ShellPreferenceStore implements ReadTriggerTarget {
   readonly #pendingWriteKeys = new Set<ShellPreferenceKey>();
   readonly #scheduler: RefreshScheduler;
 
-  public constructor(bridge: ConsoleBridge) {
-    this.#bridge = bridge;
+  public constructor(bridge: ConsoleBridge, carrier: ShellPreferenceCarrier) {
+    this.#carrier = carrier;
     this.#scheduler = new RefreshScheduler({
       clock: consoleClockFor(bridge),
       perform: async () => {
         await this.#read();
       },
-      // `#read` folds the carrier's own refusal into the snapshot and never rejects,
-      // so this arm is for a defect in that fold rather than for anything about the
-      // wire — the console's other readings carry it for the same reason.
-      onError: () => undefined,
     });
   }
 
@@ -160,10 +136,9 @@ export class ShellPreferenceStore implements ReadTriggerTarget {
   /**
    * Choose one preference.
    *
-   * The value is offered to the carrier; what happens next is the carrier's answer,
-   * and the three arms are kept apart because the next move differs — see the
-   * header. Nothing is written twice: a second press while one is in flight
-   * supersedes it rather than queueing behind it.
+   * The value is offered to the carrier and applied on its answer. A second press while
+   * one is in flight supersedes it rather than queueing behind it. A rejected write is
+   * not caught; the key stops pending and the stored value stands.
    */
   public async choose(key: ShellPreferenceKey, enabled: boolean): Promise<void> {
     this.#acts.supersede(this, OPENING_READ_KEY);
@@ -172,67 +147,24 @@ export class ShellPreferenceStore implements ReadTriggerTarget {
     this.#publish({
       ...this.#snapshot,
       pendingKeys: this.#pendingKeys(),
-      // The prior refusal for THIS key is dropped on the attempt rather than on its
-      // settlement, so a person pressing again does not read last time's reason
-      // beside this time's spinner.
-      refusalByKey: withoutKey(this.#snapshot.refusalByKey, key),
       revision: this.#snapshot.revision + 1,
     });
+    let isApplied = false;
     try {
-      const outcome = await this.#bridge.growth.shellConfigWrite({ key, enabled });
-      if (!this.#settle(key, write)) {
-        return;
-      }
-      if (outcome.status === "unavailable") {
-        // Held, not lost. The carrier was never asked, so the console applies the
-        // choice here and the row says where it stops.
+      await this.#carrier.write({ key, enabled });
+      isApplied = true;
+    } finally {
+      if (this.#settle(key, write)) {
         this.#publish({
           ...this.#snapshot,
-          heldLocally: { ...this.#snapshot.heldLocally, [key]: enabled },
+          reading: isApplied
+            ? appliedReading(this.#snapshot.reading, key, enabled)
+            : this.#snapshot.reading,
           pendingKeys: this.#pendingKeys(),
           revision: this.#snapshot.revision + 1,
         });
-        return;
       }
-      this.#publish({
-        ...this.#snapshot,
-        reading: appliedReading(this.#snapshot.reading, key, enabled),
-        heldLocally: withoutKey(this.#snapshot.heldLocally, key),
-        pendingKeys: this.#pendingKeys(),
-        revision: this.#snapshot.revision + 1,
-      });
-    } catch (rejection: unknown) {
-      if (!this.#settle(key, write)) {
-        return;
-      }
-      // A present carrier that rejected. The stored value stands and the code
-      // renders beside the control that asked for the change.
-      this.#publish({
-        ...this.#snapshot,
-        pendingKeys: this.#pendingKeys(),
-        refusalByKey: {
-          ...this.#snapshot.refusalByKey,
-          [key]: consoleRefusalFrom(
-            rejection,
-            SHELL_PREFERENCE_REFUSAL_ORIGIN,
-            PREFERENCE_WRITE_FAILED,
-          ),
-        },
-        revision: this.#snapshot.revision + 1,
-      });
     }
-  }
-
-  /** Drop one key's refusal — the dismiss a person presses on the notice. */
-  public dismiss(key: ShellPreferenceKey): void {
-    if (!Object.hasOwn(this.#snapshot.refusalByKey, key)) {
-      return;
-    }
-    this.#publish({
-      ...this.#snapshot,
-      refusalByKey: withoutKey(this.#snapshot.refusalByKey, key),
-      revision: this.#snapshot.revision + 1,
-    });
   }
 
   /** Whether this settled write is still its key's latest, and retire it if it is. */
@@ -251,59 +183,24 @@ export class ShellPreferenceStore implements ReadTriggerTarget {
   }
 
   /**
-   * The opening read, whose result a later choice DISCARDS rather than installs.
+   * The opening read, whose result a later choice discards rather than installs.
    *
-   * The captured round is what makes that checkable. A served write applies the
-   * accepted value into the carrier's own record; this read, if it settled
-   * afterwards and installed anyway, would replace that whole record with the
-   * snapshot from before the choice — so the switch reverted moments after the
-   * carrier had taken it, with nothing on screen to say why.
-   *
-   * Discarding costs the OTHER keys their stored values, because this store reads
-   * once and never refreshes: they fall back to their defaults for the rest of the
-   * window. That is the trade `sessions/durable-view/durable-view-state.ts` already makes for the
-   * same race, and it is the right one — a stale record installed over an accepted
-   * choice is a value nothing on the wire claims, and a default is at least what a
-   * key reads as before anybody asks.
+   * A read that settled after a choice would replace the carrier's whole record with
+   * the snapshot from before it, and the switch would revert moments after the carrier
+   * took it. Discarding costs the other keys their stored values until the next read.
    */
   async #read(): Promise<void> {
     // A joiner's handle rather than a taken key: this read holds nothing a later act
-    // has to wait for, and settling through it ends the round it minted, so the
-    // register is empty again the moment the read is done with it.
+    // has to wait for, and settling through it ends the round it minted.
     const opening = this.#acts.currentClaim(this, OPENING_READ_KEY);
-    let outcome: ShellConfigReadOutcome;
-    try {
-      outcome = await this.#bridge.growth.shellConfigRead({});
-    } catch (rejection: unknown) {
-      if (this.#disposed) {
-        return;
-      }
-      opening.settle(() => {
-        this.#publish({
-          ...this.#snapshot,
-          reading: {
-            kind: "unavailable",
-            refusal: consoleRefusalFrom(
-              rejection,
-              SHELL_PREFERENCE_REFUSAL_ORIGIN,
-              PREFERENCE_WRITE_FAILED,
-            ),
-          },
-          revision: this.#snapshot.revision + 1,
-        });
-      });
-      return;
-    }
+    const values = await this.#carrier.read();
     if (this.#disposed) {
       return;
     }
     opening.settle(() => {
       this.#publish({
         ...this.#snapshot,
-        reading:
-          outcome.status === "served"
-            ? { kind: "read", values: outcome.value }
-            : { kind: "unavailable", refusal: outcome },
+        reading: { kind: "read", values },
         revision: this.#snapshot.revision + 1,
       });
     });

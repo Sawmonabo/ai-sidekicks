@@ -9,7 +9,7 @@
 // SO THE SUBJECT IS THE MECHANISM AND NEVER THIS AGENT. "A tool allowlist is applied
 // at spawn" is true of every spawn on this node, including the ones nobody has made
 // yet; "applied at spawn" with an agent as its implied subject was a claim about a
-// particular attach, and the card is where a claim about a particular attach belongs.
+// particular agent, and the card is where a claim about a particular agent belongs.
 //
 // IT IS NOT A CONTROL AND OFFERS NONE. The switch it names lives on the browser
 // settings page, and a second control for it here would be a second answer to a

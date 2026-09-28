@@ -1,18 +1,11 @@
-// The fixture shell that stands in for the MCP governance body.
+// The MCP servers shell: the server list, the per-leg disclosure, the tool overrides and
+// the mutation outcomes, drawn from the reading and the calls it is handed.
 //
-// WHAT A SHELL IS HERE, AND WHAT IT IS NOT. The seat next door declares who owns this
-// body, what the mount owes it, and where the shell dies. This module is the third of
-// those: a `define`-gated stand-in that reads the registered wire the owning body will
-// read, renders every state that wire can answer with, and is deleted whole in the PR
-// that fills the slot.
-//
-// AND IT AUTHORS NONE OF THE THINGS THE SEAT SAYS A BODY HERE MUST NOT AUTHOR. It
-// composes no aggregate status — the daemon's arrives on the row and is rendered. It
-// derives no eligibility — every control is offered and a refusal renders where it was
-// raised. It renders no configuration value, environment-variable value, header value,
-// token, or authorization URL — the wire carries names in place of all of them, so
-// there is nothing here to withhold. What it adds is that the states those rules
-// describe were reachable from nowhere at all while this slot rendered its reservation.
+// IT AUTHORS NONE OF THE THINGS THE MCP PAGE MUST NOT AUTHOR. It composes no aggregate
+// status — the daemon's arrives on the row and is rendered. It derives no eligibility —
+// every control is offered. It renders no configuration value, environment-variable
+// value, header value, token, or authorization URL — the wire carries names in place of
+// all of them, so there is nothing here to withhold.
 //
 // THE OUTCOME LEDGER IS PER BINDING AND BOUNDED BY THE INVENTORY. One entry per row,
 // keyed by the row's own scope-qualified identity and replaced in place, so a page
@@ -24,7 +17,7 @@
 // fixture's scenario switch — and it does so IN PLACE, with no remount. A ledger held
 // in ordinary component state survived that, so a settled outcome, or a call still out
 // through the retired transport, rendered beside the replacement's inventory for the
-// same binding and reported that the new transport had applied or refused a mutation
+// same binding and reported that the new transport had applied a mutation
 // it had never been asked to perform. The map therefore rides the console's one
 // subject-scoped holder with the bridge as its subject: it re-seeds DURING the render
 // that first sees a new bridge, so no committed frame carries the previous one's
@@ -35,12 +28,20 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
-import { mcpBindingKeyOf, useConsoleClock, type ConsoleBridge } from "../../../../bridge/index.js";
-import type { GrowthMcpBindingRef } from "../../../../bridge/index.js";
+import {
+  mcpBindingKeyOf,
+  useConsoleClock,
+  type ConsoleBridge,
+  type GrowthMcpBindingRef,
+} from "../../../../bridge/index.js";
 import { Nothing } from "../../../../primitives/index.js";
 import { usePushDrivenRead } from "../../../../seats/index.js";
 import { useSubjectScopedState } from "../../../../store/index.js";
-import { createMcpInventoryRead } from "./mcp-inventory-reading.js";
+import {
+  createMcpInventoryRead,
+  type ListMcpInventory,
+  type SubscribeMcpInventoryChanges,
+} from "./mcp-inventory-reading.js";
 import {
   IDLE_MCP_MUTATION,
   mintIdempotencyKey,
@@ -48,15 +49,28 @@ import {
   setBindingTrust,
   type IdempotencyKeyMinter,
   type McpMutationOutcome,
+  type SendMcpEnabled,
+  type SendMcpTrust,
 } from "./mcp-mutation.js";
 import { ServerRow } from "./ServerRow.js";
 
+/** The daemon verbs the shell drives. */
+export interface McpShellOperations {
+  readonly listInventory: ListMcpInventory;
+  readonly subscribeInventoryChanges: SubscribeMcpInventoryChanges;
+  readonly sendEnabled: SendMcpEnabled;
+  readonly sendTrust: SendMcpTrust;
+}
+
+/** The MCP servers list with its per-row controls, driven by the calls in `operations`. */
 export function McpShell(props: {
   readonly bridge: ConsoleBridge;
+  /** Held stable by the caller: a new object restarts the inventory read. */
+  readonly operations: McpShellOperations;
   /** Injected so a suite can assert that one press reused one key. */
   readonly mintKey?: IdempotencyKeyMinter;
 }): ReactNode {
-  const { bridge } = props;
+  const { bridge, operations } = props;
   const mintKey = props.mintKey ?? mintIdempotencyKey;
   // The scenario's frozen clock under the fixture, the real one otherwise, so a story
   // advances this read's coalescing window exactly when it advances everything else's.
@@ -67,9 +81,17 @@ export function McpShell(props: {
   const { value: outcomes, publish: publishOutcomes } = useSubjectScopedState<
     ReadonlyMap<string, McpMutationOutcome>
   >(bridge, undefined, () => new Map());
+  // The bridge is a dependency although the read takes none: the clock forwards to
+  // whichever bridge is current, so a read armed under a retired bridge would wait on a
+  // clock nothing advances.
   const inventoryRead = useMemo(
-    () => createMcpInventoryRead({ bridge, clock }),
-    [bridge, clock, openingOrdinal],
+    () =>
+      createMcpInventoryRead({
+        listInventory: operations.listInventory,
+        subscribeInventoryChanges: operations.subscribeInventoryChanges,
+        clock,
+      }),
+    [bridge, operations, clock, openingOrdinal],
   );
   useEffect(() => {
     inventoryRead.start();
@@ -177,12 +199,17 @@ export function McpShell(props: {
             pending={outcome.kind === "sending"}
             onSetEnabled={(binding, enabled) => {
               dispatch(binding, (idempotencyKey) =>
-                setBindingEnabled({ bridge, binding, enabled, idempotencyKey }),
+                setBindingEnabled({
+                  send: operations.sendEnabled,
+                  binding,
+                  enabled,
+                  idempotencyKey,
+                }),
               );
             }}
             onSetTrust={(binding, trusted) => {
               dispatch(binding, (idempotencyKey) =>
-                setBindingTrust({ bridge, binding, trusted, idempotencyKey }),
+                setBindingTrust({ send: operations.sendTrust, binding, trusted, idempotencyKey }),
               );
             }}
           />

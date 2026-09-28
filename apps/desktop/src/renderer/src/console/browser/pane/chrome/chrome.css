@@ -1,40 +1,14 @@
 /*
- * Chapter 12.2's pane chrome: the tab strip, the load hairline, the page picker, and
- * the overflow disclosure.
+ * The pane chrome's tab strip.
  *
- * One of the browser family's seven sheets. The family's own discipline holds in
- * every one of them: no literal colour, every value read back out of a Meridian
- * custom property, and the two hues spent only on their one meaning each — amber
- * where a person is needed, red where something failed. Grep any of these files for
- * `amber` and `red` and
- * every hit is one of those.
+ * No literal color: every value is read back out of a Meridian custom property, and
+ * the two hues are spent only on their one meaning each: amber where a person is
+ * needed, red where something failed.
  *
- * SPLIT OUT OF `../pane.css` BY WHO DRAWS WHAT, which is a claim a grep answers.
  * Every root here is drawn by a component in this directory: `.meridian-browser-tabs*`
- * and `.meridian-browser-tab*` by `TabStrip.tsx`, `BrowsingContextChip.tsx`, and
- * `tab-reorder.ts`; `.meridian-browser-hairline*` by `LoadHairline.tsx`;
- * `.meridian-browser-picker*` by `PagePicker.tsx`; and the overflow disclosure with
- * its body by `PaneOverflow.tsx`.
- *
- * ONE SELECTOR NAMES A SHAPE DRESSED NEXT DOOR, and it is the split's rule rather
- * than a leftover from it. `.meridian-browser-pane__overflow` carries the pane's block prefix while
- * `PaneOverflow.tsx` is what draws it — the split follows the DRAWER and not the
- * prefix, because the drawer is the half a reader can check. The pane's own
- * `__ceiling` twin stays next door for the same reason read the other way.
- *
- * The regions this disclosure holds are NOT here. `.meridian-browser-region*` is drawn
- * by `PaneOverflow.tsx` and by `pane/handback/HandbackReading.tsx`, so on this sheet's
- * own rule it belongs to neither directory and stays with the shell.
- *
- * ORDER: this sheet is imported after `../pane.css` and BEFORE `../../controls.css`, and
- * the one override above wins on specificity (0,2,0 over 0,1,0) rather than on that
- * order, which is what let the shared sheet move onto the chunk root at all. This
- * directory carries no `index.ts`, so the door above it owns it —
- * `../browser-pane-body.ts`, the pane's chunk root and one of this family's two — and
- * this sheet enters there beside the one it left.
+ * and `.meridian-browser-tab*` by `TabStrip.tsx` and `tab-reorder.ts`. It enters at
+ * `../browser-pane-body.ts`.
  */
-
-/* ------------------------------------------------------------ chrome bar */
 
 /* --------------------------------------------------------------- tab strip */
 
@@ -49,32 +23,6 @@
   padding: var(--meridian-space-1) var(--meridian-space-2);
   border-block-end: 1px solid var(--meridian-edge);
   overflow-x: auto;
-}
-
-.meridian-browser-tabs__context {
-  flex: 0 0 auto;
-  font-family: var(--meridian-font-mono);
-  font-size: var(--meridian-text-xs);
-  color: var(--meridian-text-muted);
-}
-
-.meridian-browser-tabs__context--unnamed {
-  color: var(--meridian-text-faint);
-  font-style: italic;
-}
-
-/* A DIFFERENT FACT FROM THE ONE ABOVE, so it is drawn differently rather than folded
-   into it: `--unnamed` is a frame that arrived carrying no name, and this is no frame
-   at all — the page-list read pending, refused, or ended. The sentence is the
-   console's own rather than a wire value, so it leaves the mono the base rule sets,
-   and it takes the dotted treatment `../../../primitives/absence/nothing.css` gives
-   `not-checked` for the same reason that file gives: a dotted boundary says the
-   question is still open rather than answered. */
-.meridian-browser-tabs__context--unreported {
-  font-family: var(--meridian-font-sans);
-  font-style: italic;
-  color: var(--meridian-text-faint);
-  border-block-end: 1px dotted var(--meridian-edge-strong);
 }
 
 .meridian-browser-tabs__list {
@@ -165,121 +113,4 @@
 .meridian-browser-tab__close:focus-visible {
   outline: 2px solid var(--meridian-focus-ring);
   outline-offset: 1px;
-}
-
-/* --------------------------------------------------------- load progress */
-
-/* A hairline and not a bar: it sits under the address field, it is the whole of the
-   pane's loading chrome, and it must not take vertical space the page could use. */
-
-.meridian-browser-hairline {
-  block-size: 2px;
-  background: var(--meridian-surface-sunken);
-  overflow: hidden;
-}
-
-.meridian-browser-hairline__fill {
-  block-size: 100%;
-  background: var(--meridian-accent);
-  transition: inline-size var(--meridian-motion-quick) var(--meridian-ease-settle);
-}
-
-/* The indeterminate arm shows motion and never a figure, because a fraction nobody
-   reported would be an invented one. */
-.meridian-browser-hairline--indeterminate .meridian-browser-hairline__fill {
-  inline-size: 35%;
-  animation: meridian-browser-hairline-sweep 1.1s linear infinite;
-}
-
-@keyframes meridian-browser-hairline-sweep {
-  from {
-    transform: translateX(-100%);
-  }
-
-  to {
-    transform: translateX(340%);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .meridian-browser-hairline--indeterminate .meridian-browser-hairline__fill {
-    animation: none;
-    inline-size: 100%;
-    opacity: 0.5;
-  }
-}
-
-/* ------------------------------------------------------------- page picker */
-
-.meridian-browser-picker {
-  display: flex;
-  flex-direction: column;
-  gap: var(--meridian-space-2);
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.meridian-browser-picker__row {
-  display: flex;
-  flex-direction: column;
-  gap: var(--meridian-space-1);
-  padding: var(--meridian-space-2);
-  border: 1px solid var(--meridian-edge);
-  border-radius: var(--meridian-radius-md);
-}
-
-.meridian-browser-picker__identity {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: var(--meridian-space-2);
-}
-
-.meridian-browser-picker__label {
-  font-size: var(--meridian-text-sm);
-  color: var(--meridian-text);
-}
-
-.meridian-browser-picker__unlabelled {
-  font-size: var(--meridian-text-sm);
-  font-style: italic;
-  color: var(--meridian-text-faint);
-}
-
-.meridian-browser-picker__title,
-.meridian-browser-picker__host {
-  font-size: var(--meridian-text-xs);
-  color: var(--meridian-text-muted);
-}
-
-.meridian-browser-picker__background {
-  font-size: var(--meridian-text-xs);
-  color: var(--meridian-text-faint);
-}
-
-.meridian-browser-picker__controls {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--meridian-space-2);
-}
-/* ---------------------------------------------------- overflow disclosure */
-
-/* The fold itself. The regions it holds are dressed in `../pane.css`, which is
-   where a root two directories draw belongs. */
-.meridian-browser-pane__overflow {
-  border-block-start: 1px solid var(--meridian-edge);
-}
-
-.meridian-browser-pane__overflow > summary {
-  padding: var(--meridian-space-2);
-}
-
-.meridian-browser-pane__overflow-body {
-  display: flex;
-  flex-direction: column;
-  padding-inline: var(--meridian-space-2);
-  padding-block-end: var(--meridian-space-2);
-  max-block-size: 22rem;
-  overflow-y: auto;
 }

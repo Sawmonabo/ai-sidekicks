@@ -1,4 +1,4 @@
-// What the lease is, from this window's seat, in words.
+// What the lease is, from this device's seat, in words.
 //
 // Split from `LeaseLine.tsx` so that module declares one component. The arm ORDER is
 // the content: `unrecognized-transition` is answered before the null-holder arm,
@@ -7,18 +7,20 @@
 // the first is the one thing here that is certainly wrong.
 //
 // NO HOLDER IS NAMED, and that is the whole shape of this surface. The shell belongs to
-// the one person using this machine, so a hold this window does not have is a hold one
-// of their OTHER windows has — which is a fact about where the keyboard is and not
+// the one person using this machine, so a hold this device does not have is a hold one
+// of their OTHER devices has — which is a fact about where the keyboard is and not
 // about who somebody is. Naming an identifier here would be answering a question nobody
 // asked with a value nobody can act on.
 
 import { DerivedFigure } from "../../primitives/index.js";
 import type { TerminalLeaseHolding } from "./lease-model.js";
 
+/** The holding the statement words. */
 export interface LeaseHoldingStatementProps {
   readonly holding: TerminalLeaseHolding;
 }
 
+/** One sentence saying where the shared shell is held. */
 export function LeaseHoldingStatement(props: LeaseHoldingStatementProps): React.JSX.Element {
   switch (props.holding) {
     case "not-checked":
@@ -33,6 +35,6 @@ export function LeaseHoldingStatement(props: LeaseHoldingStatementProps): React.
     case "held-by-you":
       return <DerivedFigure text="You may type into the shared shell." />;
     case "held-by-another":
-      return <DerivedFigure text="The shell is held from another window." />;
+      return <DerivedFigure text="The shell is held from another device." />;
   }
 }

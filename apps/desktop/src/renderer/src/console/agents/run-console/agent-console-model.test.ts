@@ -22,7 +22,7 @@ import { REFRESH_MAX_WAIT_MS } from "../../core/index.js";
 import { SessionStore } from "../../store/index.js";
 import { AgentConsoleModels, useAgentConsoleModels } from "./agent-console-model.js";
 import { initialisedStore } from "../../store/session-store-registry.test-support.js";
-import { unscriptedBridge } from "./run-console.test-support.js";
+import { REJECTING_AGENT_CONSOLE_CALLS, unscriptedBridge } from "./run-console.test-support.js";
 
 const PARENT_RUN_ID = "run-7";
 const OTHER_PARENT_RUN_ID = "run-9";
@@ -38,7 +38,7 @@ function recordedModelSessionIds(
   const answered: (string | undefined)[] = [];
   const view = renderHook(
     (sessionStore: SessionStore) => {
-      const models = useAgentConsoleModels(bridge, sessionStore);
+      const models = useAgentConsoleModels(bridge, sessionStore, REJECTING_AGENT_CONSOLE_CALLS);
       answered.push(models?.sessionId);
       return models;
     },
@@ -84,7 +84,7 @@ function useHeldAgentConsoleModels(
 ): AgentConsoleModels | undefined {
   const [models, setModels] = useState<AgentConsoleModels | undefined>(undefined);
   useEffect(() => {
-    const built = new AgentConsoleModels(bridge, sessionStore);
+    const built = new AgentConsoleModels(bridge, sessionStore, REJECTING_AGENT_CONSOLE_CALLS);
     setModels(built);
     return () => {
       built.dispose();
@@ -129,7 +129,9 @@ describe("the agent console's models — the session they belong to", () => {
 
   it("answers nothing at all where the mount resolved no session", () => {
     const bridge = unscriptedBridge("agent-models-storeless");
-    const view = renderHook(() => useAgentConsoleModels(bridge, undefined));
+    const view = renderHook(() =>
+      useAgentConsoleModels(bridge, undefined, REJECTING_AGENT_CONSOLE_CALLS),
+    );
     expect(view.result.current).toBeUndefined();
   });
 });
@@ -141,6 +143,7 @@ describe("the agent console's models — the linkage lease", () => {
     const models = new AgentConsoleModels(
       unscriptedBridge("agent-linkage-acquire"),
       initialisedStore("session-lease"),
+      REJECTING_AGENT_CONSOLE_CALLS,
     );
     const lease = models.acquireLinkage(PARENT_RUN_ID);
 
@@ -160,6 +163,7 @@ describe("the agent console's models — the linkage lease", () => {
     const models = new AgentConsoleModels(
       unscriptedBridge("agent-linkage-release"),
       initialisedStore("session-lease"),
+      REJECTING_AGENT_CONSOLE_CALLS,
     );
     const first = models.acquireLinkage(PARENT_RUN_ID);
     const second = models.acquireLinkage(PARENT_RUN_ID);
@@ -183,6 +187,7 @@ describe("the agent console's models — the linkage lease", () => {
     const models = new AgentConsoleModels(
       unscriptedBridge("agent-linkage-rekey"),
       initialisedStore("session-lease"),
+      REJECTING_AGENT_CONSOLE_CALLS,
     );
     const first = models.acquireLinkage(PARENT_RUN_ID);
     first.read.start();
@@ -218,7 +223,11 @@ function answersAfterReplacing(
   const answered: (AgentConsoleModels | undefined)[] = [];
   const view = renderHook(
     (inputs: ModelsProbeInputs) => {
-      const models = useAgentConsoleModels(inputs.bridge, inputs.sessionStore);
+      const models = useAgentConsoleModels(
+        inputs.bridge,
+        inputs.sessionStore,
+        REJECTING_AGENT_CONSOLE_CALLS,
+      );
       answered.push(models);
       return models;
     },
@@ -323,7 +332,7 @@ describe("the agent console's models — whose clock their reads run on", () => 
     // whose scenario beats advance on frozen time, and nothing here would fall due.
     const bridge = unscriptedBridge("agent-models-clock");
     const sessionStore = initialisedStore("session-clock");
-    const models = new AgentConsoleModels(bridge, sessionStore);
+    const models = new AgentConsoleModels(bridge, sessionStore, REJECTING_AGENT_CONSOLE_CALLS);
     await settleWithoutCrossingATimer();
     expect(models.roster.readCount).toBe(0);
 
@@ -340,13 +349,12 @@ describe("the agent console's models — whose clock their reads run on", () => 
     // consults, and would make the advance above incidental rather than the subject.
     const bridge = unscriptedBridge("agent-models-clock-held");
     const sessionStore = initialisedStore("session-clock-held");
-    const models = new AgentConsoleModels(bridge, sessionStore);
+    const models = new AgentConsoleModels(bridge, sessionStore, REJECTING_AGENT_CONSOLE_CALLS);
 
     await settleWithoutCrossingATimer();
     await settleWithoutCrossingATimer();
 
     expect(models.roster.readCount).toBe(0);
-    expect(models.driverCatalog.readCount).toBe(0);
     models.dispose();
   });
 });

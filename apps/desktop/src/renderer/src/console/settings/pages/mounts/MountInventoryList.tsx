@@ -3,26 +3,29 @@ import type { ReactNode } from "react";
 import { useConsoleClock } from "../../../bridge/index.js";
 import { Nothing, formatCount, useSettlementAnnouncement } from "../../../primitives/index.js";
 import { usePushDrivenRead } from "../../../seats/index.js";
-import { createMountInventoryRead } from "./mount-inventory.js";
 import type { SettingsPageContext } from "../../settings-page-registry.js";
 import { MountRow } from "./MountRow.js";
 import { type PushDrivenReadState } from "../../../seats/index.js";
-import { type MountInventory, type MountReading } from "./mount-inventory.js";
+import {
+  createMountInventoryRead,
+  type MountInventory,
+  type MountInventoryCalls,
+} from "./mount-inventory.js";
 
 /**
- * The list itself, mounted only when there is a session to read for.
+ * The list itself: the session's mounts, read and kept current.
  *
  * A separate component because the read's lifetime is this component's: it is
  * constructed on the session it reads, started in an effect, and disposed when the
- * pane leaves — none of which can be arranged from a parent that renders the
- * absence instead.
+ * pane leaves.
  */
 export function MountInventoryList(props: {
   readonly bridge: SettingsPageContext["bridge"];
+  readonly calls: MountInventoryCalls;
   readonly sessionId: string;
   readonly sessionStore: SettingsPageContext["retainedSessionStore"];
 }): ReactNode {
-  const { bridge, sessionId, sessionStore } = props;
+  const { bridge, calls, sessionId, sessionStore } = props;
   // The scenario's frozen clock under the fixture, the real one otherwise, so a story
   // advances this read's coalescing window exactly when it advances everything else's.
   //
@@ -39,11 +42,11 @@ export function MountInventoryList(props: {
   // the effect below re-runs only when the session or the transport moves.
   const [openingOrdinal, setOpeningOrdinal] = useState(0);
   const inventoryRead = useMemo(
-    () => createMountInventoryRead({ bridge, sessionId, clock, sessionStore }),
+    () => createMountInventoryRead({ calls, sessionId, clock, sessionStore }),
     // `openingOrdinal` is the re-open. Moving it builds a fresh read, and the effect
     // below disposes the previous one before starting it, so the release and the
     // re-subscribe are one act rather than two paths to keep in step.
-    [bridge, sessionId, clock, sessionStore, openingOrdinal],
+    [calls, sessionId, clock, sessionStore, openingOrdinal],
   );
   useEffect(() => {
     inventoryRead.start();
@@ -132,9 +135,9 @@ export function MountInventoryList(props: {
   return (
     <>
       <ul className="meridian-mount-list">
-        {state.value.readings.map((reading) => (
-          <li key={mountKeyOf(reading)} className="meridian-mount-list__item">
-            <MountRow reading={reading} />
+        {state.value.readings.map((mount) => (
+          <li key={mount.id} className="meridian-mount-list__item">
+            <MountRow mount={mount} />
           </li>
         ))}
       </ul>
@@ -147,17 +150,6 @@ export function MountInventoryList(props: {
       ) : null}
     </>
   );
-}
-
-/**
- * The row's key: the mount id on both arms.
- *
- * The refused arm has no reply to take an id from, which is exactly why the read
- * carries the requested id on it — so a mount that refuses on one read and answers
- * on the next keeps its row rather than remounting as a different one.
- */
-export function mountKeyOf(reading: MountReading): string {
-  return reading.kind === "read" ? reading.mount.id : reading.repoMountId;
 }
 
 /**

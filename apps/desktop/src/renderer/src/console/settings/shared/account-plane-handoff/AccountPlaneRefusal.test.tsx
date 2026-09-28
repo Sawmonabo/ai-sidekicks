@@ -58,8 +58,8 @@ describe("an account-plane refusal on a console surface", () => {
   });
 
   it("negative control: a refusal from another namespace adds nothing", () => {
-    const { container } = renderRefusal("growth-port.unavailable");
-    expect(container.textContent ?? "").toContain("growth-port.unavailable");
+    const { container } = renderRefusal("example.refused");
+    expect(container.textContent ?? "").toContain("example.refused");
     expect(container.querySelector(".meridian-account-handoff")).toBeNull();
   });
 });

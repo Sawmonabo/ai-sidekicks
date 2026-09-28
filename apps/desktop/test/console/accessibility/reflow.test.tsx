@@ -82,7 +82,7 @@ const UNBREAKABLE_SESSION_ID = "b3a7c1d95e2f48a06b1c3d5e7f9012345678abcdef012345
  * narrowest line the segments alone can draw is still wider than the column.
  */
 const UNBREAKABLE_COMMAND_ID =
-  "console.workspace.deck.pane.terminal.lease.releaseAndReclaimEverySeatedViewer";
+  "console.example.group.command.aVeryLongIdentifierWithNoBreakOpportunityInsideItAtAll";
 
 beforeEach(() => {
   document.location.hash = "";
@@ -186,7 +186,7 @@ describe("reflow — the console at 320 CSS px", () => {
       <KeybindingRowBody
         row={{
           commandId: UNBREAKABLE_COMMAND_ID,
-          title: "Release every seated viewer's terminal lease",
+          title: "A command with a long identifier",
           group: "Workspace",
           chord: "⌘⇧L",
           whenExpression: undefined,

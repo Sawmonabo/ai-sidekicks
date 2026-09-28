@@ -73,12 +73,7 @@ export {
   INGEST_STALL_DISCLOSURE_MS,
   INGEST_STREAM_LIFETIME_CEILING_MS,
 } from "./constants/attachment-caps.js";
-export {
-  CAPTURED_OBJECT_ROW_CAP,
-  PARTITION_FOLD_THRESHOLD,
-  POSITION_SIBLING_OBSERVER_CAP,
-  RELAYED_TOOL_CALL_ROW_CAP,
-} from "./constants/browser-caps.js";
+export { POSITION_SIBLING_OBSERVER_CAP } from "./constants/browser-caps.js";
 export {
   DIFF_FILE_LIST_SCROLL_THRESHOLD,
   DIFF_INTRALINE_CACHE_ENTRY_CAP,

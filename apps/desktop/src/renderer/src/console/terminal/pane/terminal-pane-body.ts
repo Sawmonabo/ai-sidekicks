@@ -9,12 +9,10 @@
 // Split from the component beside it for that file's reason too: the registration terms
 // are assertable without rendering anything, and a module rather than a sub-module door.
 
-// THE FAMILY'S FOUR STYLESHEETS ENTER HERE, which finishes the split the emulator
+// THE FAMILY'S STYLESHEETS ENTER HERE, which finishes the split the emulator
 // already had half of: `@xterm/xterm/css/xterm.css` has always ridden the emulator's own
-// chunk, and these four sat on the initial document beside it. The family registers one
+// chunk, and these sat on the initial document beside it. The family registers one
 // kind, as a loader, so this module is the only way into any of it — rules included.
-// The focus ring is at the family root because two directories spend it; it travels
-// here with the rest because both of them are behind this boundary.
 import "./pane.css";
 import "../lease/lease.css";
 import "../emulator/emulator.css";
@@ -28,7 +26,7 @@ import { TerminalPane } from "./TerminalPane.js";
  * IT ADVERTISES NO DETACH either, and for a different reason from the browser
  * pane's: this body does not hold a host view, it holds a process lease. A torn-off
  * terminal would put the one shared shell — one per session, not one per node and not
- * one per pane — behind two mount points, while the write lease is held from one window
+ * one per pane — behind two mount points, while the write lease is held from one device
  * at a time regardless of how many surfaces are showing it.
  * `seats/pane/pane-kinds.ts` answers that for the kind
  * through `isDetachablePaneKind`, so the reason is recorded here and the answer is

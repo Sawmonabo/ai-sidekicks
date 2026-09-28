@@ -2,7 +2,7 @@
 //
 // The rail is the closed section tuple and the search is one shared matcher. Both
 // are claims about SETS, so the cases drive the sets rather than a hand-listed copy
-// beside them — a test that restated the fourteen sections would be one more place to
+// beside them — a test that restated the sections would be one more place to
 // widen and the first one to go stale.
 
 import { describe, expect, it } from "vitest";
@@ -51,7 +51,7 @@ describe("settings sections — the closed set the rail renders", () => {
 describe("settings page registry — one page per section", () => {
   it("answers in rail order rather than registration order", () => {
     // Rail order is what a person reads. Registration order would make it depend
-    // on which lane's module the bundler evaluated first.
+    // on which page's module the bundler evaluated first.
     const registry = new SettingsPageRegistry();
     registry.register(pageFor("keyboard"));
     registry.register(pageFor("accounts"));
@@ -63,15 +63,15 @@ describe("settings page registry — one page per section", () => {
   });
 
   it("replaces under one owner and refuses a second", () => {
-    // The owner-scoped policy: a hot reload re-runs a lane's module and must
-    // replace; two lanes on one section is a conflict rather than a swap decided
+    // The owner-scoped policy: a hot reload re-runs the owner's module and must
+    // replace; two owners on one section is a conflict rather than a swap decided
     // by import order.
     const registry = new SettingsPageRegistry();
-    registry.register(pageFor("nodes", { label: "First" }));
-    registry.register(pageFor("nodes", { label: "Second" }));
-    expect(registry.descriptorFor("nodes")?.label).toBe("Second");
+    registry.register(pageFor("mounts", { label: "First" }));
+    registry.register(pageFor("mounts", { label: "Second" }));
+    expect(registry.descriptorFor("mounts")?.label).toBe("Second");
     expect(() => {
-      registry.register(pageFor("nodes", { owner: "another-lane" }));
+      registry.register(pageFor("mounts", { owner: "another-owner" }));
     }).toThrow();
   });
 
@@ -102,7 +102,7 @@ describe("settings page registry — what is left to warm", () => {
   it("names the sections still to load, in rail order", () => {
     // Rail order rather than registration order, for the two boards' reason: what a walk
     // warms first is observable, and registration order would make it depend on which
-    // page lane the chunk root evaluated first.
+    // page module the chunk root evaluated first.
     const registry = new SettingsPageRegistry();
     registry.register(deferredPageFor("keyboard"));
     registry.register(deferredPageFor("accounts"));
@@ -130,7 +130,7 @@ describe("settings page registry — what is left to warm", () => {
 describe("settings search — one matcher, shared with the palette", () => {
   const entries = [
     pageFor("keyboard", { label: "Keyboard", keywords: ["shortcuts", "chords"] }),
-    pageFor("nodes", { label: "Nodes", keywords: ["machines"] }),
+    pageFor("mounts", { label: "Mounts", keywords: ["machines"] }),
   ];
 
   it("answers every entry in rail order for an empty query", () => {
@@ -155,7 +155,7 @@ describe("settings search — one matcher, shared with the palette", () => {
   it("negative control: the ranking is the scorer's and not insertion order", () => {
     // Without this the alias case would pass over a matcher that returned every
     // entry it was given, in the order it was given them.
-    const ranked = matchSettingsEntries(entries, "nodes");
-    expect(ranked[0]?.descriptor.section).toBe("nodes");
+    const ranked = matchSettingsEntries(entries, "mounts");
+    expect(ranked[0]?.descriptor.section).toBe("mounts");
   });
 });

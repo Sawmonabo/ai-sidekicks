@@ -1,63 +1,21 @@
-// The appearance page projects the applied scheme, chooses through the frame's own
-// registered commands, and reports whether this window will remember the choice.
+// The appearance page projects the applied scheme and chooses through the frame's own
+// registered commands.
 //
-// The store block is asked at mount, so every render here goes through one helper
-// that settles it. A bare `render` would leave the health reply landing after the
-// case had finished, which is a warning in one case and a state update on an
-// unmounted tree in the next.
-//
-// SETTLING IT MEANS ADVANCING A CLOCK, and that is why the mount is inside the bridge
-// provider. The store block's read is scheduled through `store/read/refresh-scheduler.ts` — one
-// debounced, serialized read per burst of triggers, so a mount and a focus cannot put
-// two quota estimates in flight — and a scheduler arms a timeout on the WINDOW's
-// clock, which is the fixture engine's frozen one. The page still reads no wire: the
-// bridge is here for the clock, and a case that reached a namespace would be reaching
-// a real fixture rather than the `undefined` this harness used to hand over.
+// The page reads no wire and holds no store, so the mount needs nothing beside it.
 
 import { crossMacrotaskBoundary } from "../../../core/macrotask-boundary.test-support.js";
-import { act, cleanup, render } from "@testing-library/react";
+import { act, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { AppearancePage, registerAppearancePage } from "./AppearancePage.js";
-import { DesktopBridgeProvider, createFixtureBridge } from "../../../bridge/index.js";
-import { unscriptedScenario } from "../../../bridge/fixture/call-plane/bridge.test-support.js";
 import { consoleCommands } from "../../../palette/index.js";
 import { SCHEME_ATTRIBUTE } from "../../../tokens/index.js";
 import { SettingsPageRegistry } from "../../settings-page-registry.js";
-import {
-  consoleTestUiStateStore,
-  settingsPageContextWith,
-} from "../../settings-page-mount.test-support.js";
-import { MemoryPersistenceAdapter, type UiStateStore } from "../../../persistence/index.js";
-import { PAST_REFRESH_DEBOUNCE_MS } from "../../../core/settle.test-support.js";
-import { formatByteQuantity } from "../../../primitives/index.js";
 
-/**
- * Mount the page over a store, and let its one read land before anything is asserted.
- *
- * THE SCENARIO SCRIPTS NOTHING, which is the claim this harness still makes about the
- * page: it reads no wire, so a scenario with replies and beats would be a collaborator
- * nothing calls, and one that scripted a reply would answer a call this page never
- * makes. What the fixture supplies is the window's frozen CLOCK — the engine owns it,
- * the store block's schedule arms on it, and advancing it is what makes the health
- * reading land inside the case rather than after it.
- */
-async function renderAppearancePage(
-  uiStateStore: UiStateStore = consoleTestUiStateStore(),
-): Promise<HTMLElement> {
-  const bridge = createFixtureBridge({ scenario: unscriptedScenario("appearance-page") });
-  const engine = bridge.scenarioEngine;
-  if (engine === undefined) {
-    throw new Error("the fixture bridge built no scenario engine, so there is no clock to advance");
-  }
-  const context = settingsPageContextWith(bridge, undefined, { uiStateStore });
-  const { container } = render(
-    <DesktopBridgeProvider bridge={bridge}>
-      <AppearancePage context={context} />
-    </DesktopBridgeProvider>,
-  );
+/** Mount the page and let its first effects land before anything is asserted. */
+async function renderAppearancePage(): Promise<HTMLElement> {
+  const { container } = render(<AppearancePage />);
   await act(async () => {
-    engine.advance(PAST_REFRESH_DEBOUNCE_MS);
     await crossMacrotaskBoundary();
   });
   return container;
@@ -100,23 +58,6 @@ function registerRecordingSchemeCommands(chosen: string[]): () => void {
 afterEach(() => {
   document.documentElement.removeAttribute(SCHEME_ATTRIBUTE);
 });
-
-/** The store block's own text, so a case never matches a word from the page around it. */
-function storeBlockTextIn(container: HTMLElement): string {
-  return (
-    container.querySelector<HTMLElement>('section[aria-label="What this window remembers"]')
-      ?.textContent ?? ""
-  );
-}
-
-/** The two gauge figures, in the order the block draws them: in use, then allowed. */
-function gaugeFiguresIn(container: HTMLElement): string[] {
-  return [
-    ...(container
-      .querySelector<HTMLElement>('section[aria-label="What this window remembers"]')
-      ?.querySelectorAll<HTMLElement>(".meridian-figure--wire") ?? []),
-  ].map((element) => element.textContent ?? "");
-}
 
 describe("appearance page", () => {
   it("offers exactly the three modes and no fourth control", async () => {
@@ -189,69 +130,6 @@ describe("appearance page", () => {
     });
     expect(container.querySelector(".meridian-refusal--inline")).not.toBeNull();
     expect(container.textContent ?? "").toContain("scheme-command-unavailable");
-  });
-
-  it("says the choice will not survive a restart when the store is this window only", async () => {
-    // The scheme block promises the choice is "remembered for the next start". On the
-    // adapter the console falls back to, that is false — and this is the only place a
-    // person can learn it without restarting and finding the choice gone.
-    const container = await renderAppearancePage();
-    const text = storeBlockTextIn(container);
-    expect(text).toContain("this window only");
-    // In the store's OWN sentence, from the one table that owns the reason vocabulary.
-    expect(text).toContain("Durable storage was not requested for this window.");
-    // And the adapter it is actually on, verbatim rather than paraphrased.
-    expect(text).toContain("memory");
-  });
-
-  it("names the reason the durable store is not in use, in that reason's own words", async () => {
-    const container = await renderAppearancePage(
-      consoleTestUiStateStore(new MemoryPersistenceAdapter({ unavailableReason: "open-refused" })),
-    );
-    expect(storeBlockTextIn(container)).toContain(
-      "The browser refused to open the database for this window.",
-    );
-  });
-
-  it("negative control: it leaves the figure blank where no reading was taken", async () => {
-    // A store with no ceiling measures what it holds and measures no ALLOWANCE, so
-    // rendering "0 B" under Allowed would present a measurement nobody made.
-    const container = await renderAppearancePage();
-    const figures = gaugeFiguresIn(container);
-    // Through the console's one byte formatter, whose own suite owns how a count
-    // reads — what is claimed here is that the block renders THROUGH it and leaves the
-    // unmeasured slot blank, not what 0 looks like.
-    expect(figures[0]).toBe(formatByteQuantity(0).text);
-    expect(figures[1]).toBe("\u2014");
-  });
-
-  it("renders both figures once the store has a ceiling to measure against", async () => {
-    // The positive control for the arm above: the same two slots, both measured.
-    const container = await renderAppearancePage(
-      consoleTestUiStateStore(new MemoryPersistenceAdapter({ capacityBytes: 2048 })),
-    );
-    expect(gaugeFiguresIn(container)).toStrictEqual([
-      formatByteQuantity(0).text,
-      formatByteQuantity(2048).text,
-    ]);
-  });
-
-  it("counts a refused write in the store's own refusal code, and only once it happens", async () => {
-    // A ceiling of one byte, so the store refuses on its own quota path rather than
-    // on the caller's — which is the half of the refusal table that is nobody's
-    // defect and therefore fires no tripwire.
-    const uiStateStore = consoleTestUiStateStore(
-      new MemoryPersistenceAdapter({ capacityBytes: 1 }),
-    );
-    const before = await renderAppearancePage(uiStateStore);
-    expect(storeBlockTextIn(before)).not.toContain("quota-exceeded");
-    cleanup();
-
-    // Through the real chokepoint, so what is counted is what a release build counts.
-    const result = await uiStateStore.writeGlobal("scheme", "scheme", "dark");
-    expect(result.outcome).toBe("refused");
-    const after = await renderAppearancePage(uiStateStore);
-    expect(storeBlockTextIn(after)).toContain("quota-exceeded");
   });
 
   it("claims the appearance section with a search vocabulary", () => {

@@ -1,254 +1,16 @@
-// The accounts page: which provider accounts this node keeps, and what has to be
-// true before a run is admitted against one.
+// The accounts page: an empty frame under the section heading.
 //
-// A registry list and a detail pane belong on this page, and beside them the flow that
-// gets an account from unusable to usable — sign-in, token registration, and the
-// readiness handoff. Both of
-// those are the account plane's BODY, and this repository authors none of it — the
-// page frame, the vocabulary, and the discipline are here, and the body arrives
-// through `provider-accounts-slot.ts`.
-//
-// WHY THE VOCABULARY IS RENDERED AND THE ROWS ARE NOT
-//
-// The registry read is not a wire this console has. Its payload types are, which is
-// a real difference and not a technicality: the closed sets a row will speak — how
-// an account is billed, what the last observation found, and what run admission
-// will answer — are declared once in `@ai-sidekicks/contracts` and imported here,
-// so the page can say what it will show without inventing a single row of it. A
-// seventh readiness arm added upstream is a compile error in this file rather than
-// a term that quietly stops being explained.
-//
-// What is deliberately NOT rendered is the mapping from a readiness state to the
-// action that closes it. That mapping is the daemon's, it travels on the reply, and
-// a copy of it here would be this console composing a remedy — which the design
-// forbids in terms, because the remedy carries a credential-home path and a
-// first-party sign-in command that only the node that owns the home can name.
-//
-// ONE READ THIS PAGE DOES MAKE, AND WHY IT IS NOT A ROW
-//
-// The node's account-plane reading is already taken once per window at the bridge —
-// `useProviderQuotas`, whose own door says a settings surface listing accounts asks
-// the same question of the same registry. What this page renders off it is exactly
-// one thing: the REFUSAL, where that read failed. A refused registry read is why the
-// rows below are missing, and rendering the page's vocabulary above an empty slot
-// with nothing saying the read failed is the dead end the post-refusal handoff
-// exists to end. The readings themselves stay the slot owner's; nothing here draws a
-// registry row, and a served read renders nothing extra at all.
+// The registry and the sign-in flow are `shell/AccountsShell.tsx`, which takes its calls
+// as arguments; nothing mounts it until a composition has calls to give.
 
-import {
-  BILLING_MODES,
-  PROVIDER_ACCOUNT_HEALTH_STATES,
-  PROVIDER_ACCOUNT_REDACTED_WIRE_MEMBERS,
-  PROVIDER_ACCOUNT_USAGE_WINDOW_SOURCES,
-  PROVIDER_NAMES,
-  PROVIDER_READINESS_STATES,
-  type BillingMode,
-  type ProviderAccountHealthState,
-  type ProviderAccountUsageWindowSource,
-  type ProviderReadinessState,
-} from "@ai-sidekicks/contracts";
 import type { ReactNode } from "react";
 
-import { readRefusalOf, useProviderQuotas } from "../../../bridge/index.js";
-import { Chip, WireFigure } from "../../../primitives/index.js";
-import { AccountPlaneRefusal } from "../../shared/account-plane-handoff/AccountPlaneRefusal.js";
-import { PROVIDER_ACCOUNTS_PAGE } from "./provider-accounts-slot.js";
-import { renderOwnerSlotPage } from "../../owner-slot-page.js";
-import type { SettingsPageContext, SettingsPageRegistry } from "../../settings-page-registry.js";
-import { WireVocabulary } from "./WireVocabulary.js";
+import type { SettingsPageRegistry } from "../../settings-page-registry.js";
 
-/** The lane that owns this page, so an unfilled section names someone. */
+/** The owner recorded for this page, so an unfilled section names someone. */
 const OWNER = "settings-accounts";
 
-/**
- * What each billing mode means beside a money figure.
- *
- * TOTAL over the contract's own union, so a fourth mode cannot land upstream and
- * leave this page rendering a term it never explains. `unknown` is the honest
- * absence and is never worded as a synonym for metered: it labels a figure the
- * daemon could not attribute, and calling it billed would attach a spend claim
- * nobody made.
- */
-const BILLING_MODE_MEANINGS: Readonly<Record<BillingMode, string>> = {
-  subscription: "Usage is included in a plan. A figure beside it is not currency owed.",
-  metered: "Usage is billed per unit against this account.",
-  unknown: "How this account is charged was not established. The figure carries no claim.",
-};
-
-/** What the last stored observation found. Never a claim about right now. */
-const HEALTH_STATE_MEANINGS: Readonly<Record<ProviderAccountHealthState, string>> = {
-  authenticated: "The last observation found this credential home signed in.",
-  reauth_required: "The provider asked for a fresh sign-in on this home.",
-  home_missing: "The credential home the registry expects was not there.",
-  indeterminate: "Nothing decided. Treated as not signed in, which is not the same as a failure.",
-};
-
-/**
- * The answer run admission will reach, pre-computed. It authorizes nothing.
- *
- * The onboarding walkthrough holds a second table over this same closed union, and
- * the two are kept apart on REGISTER: these are an operator's reference and say what
- * admission WOULD do; those are a first-run step and say what is true of the provider
- * now. The union itself has one home in `packages/contracts`, so an arm added there is
- * a compile error in both.
- */
-const READINESS_STATE_MEANINGS: Readonly<Record<ProviderReadinessState, string>> = {
-  authenticated: "A run would be admitted against the account this resolved to.",
-  reauth_required: "An account resolved, and its home needs signing in again.",
-  home_missing: "An account resolved, and its credential home is not there.",
-  indeterminate: "An account resolved, and no observation has decided about it.",
-  no_account: "No account is registered for this provider at all.",
-  no_default: "Accounts are registered and none of them is the provider's default.",
-};
-
-/** Where a quota reading came from. Never the background observer, which reads none. */
-const QUOTA_SOURCE_MEANINGS: Readonly<Record<ProviderAccountUsageWindowSource, string>> = {
-  probe: "A deliberate re-observation of this account, asked for from here.",
-  run: "Real traffic. The provider reported the window while a run was using it.",
-};
-
-/**
- * The provider this page was opened FOR, where the address named one this build knows.
- *
- * NARROWED AGAINST THE CONTRACT'S OWN SET and never rendered as it arrived. The
- * selection is a path segment anyone can type, and a page that printed it back would
- * put an arbitrary string on screen in the position a provider name occupies. An
- * unrecognised one resolves to `undefined`, which is the same state the rail hands
- * this page — opened for nothing in particular — rather than a refusal: nothing here
- * depends on the selection, so there is nothing for it to fail.
- */
-function openedForProvider(selection: string | undefined): string | undefined {
-  return PROVIDER_NAMES.find((provider) => provider === selection);
-}
-
-/**
- * What the reserved region says when a first-run row sent somebody here.
- *
- * IT NAMES THE CONSEQUENCE AND NOT THE WORK. A person arrives having pressed an action
- * on a provider whose remedy was "register an account", and the region below the
- * vocabulary is a reservation — so without this the page they land on says the registry
- * has not been built and never says which provider they came for or what happens if
- * they leave it. The second sentence is this page's own wording of what is true of a
- * node that finishes setup with nothing registered; the walkthrough
- * says the same thing in the second person, and the two are kept apart on voice
- * exactly as the readiness-state tables are.
- */
-const OPENED_FOR_LEDE =
-  "You were sent here from setting up this node, for the provider below. Registering an account is what the registry body will do, and it is not built here yet.";
-
-const OPENED_FOR_CONSEQUENCE =
-  "Leaving it unregistered is a finished setup rather than a failure. What it costs is that the first run against this provider is refused, and the refusal names the same thing this page does.";
-
-export function ProviderAccountsPage(props: { readonly context: SettingsPageContext }): ReactNode {
-  const openedFor = openedForProvider(props.context.selection);
-  const registryReadRefusal = readRefusalOf(useProviderQuotas(props.context.bridge));
-  return (
-    <div className="meridian-settings-page">
-      <p className="meridian-settings-page__lede">
-        A provider account is one credential home this machine keeps, and a run is admitted against
-        exactly one of them. The registry is node-local: it never leaves this machine, it never
-        totals across sessions, and every reading on it was stored earlier rather than obtained by
-        starting a provider now.
-      </p>
-
-      <div className="meridian-settings-page__chips">
-        {PROVIDER_NAMES.map((provider) => (
-          <Chip key={provider} tone="neutral" label={provider} mono glyph="agent" />
-        ))}
-        <Chip tone="neutral" label="Node-local registry" glyph="dot" />
-      </div>
-
-      <WireVocabulary
-        label="What an account is charged as"
-        terms={BILLING_MODES}
-        meanings={BILLING_MODE_MEANINGS}
-      />
-
-      <WireVocabulary
-        label="What the last observation found"
-        terms={PROVIDER_ACCOUNT_HEALTH_STATES}
-        meanings={HEALTH_STATE_MEANINGS}
-      />
-
-      <WireVocabulary
-        label="What run admission will answer"
-        terms={PROVIDER_READINESS_STATES}
-        meanings={READINESS_STATE_MEANINGS}
-      />
-
-      <WireVocabulary
-        label="Where a quota reading came from"
-        terms={PROVIDER_ACCOUNT_USAGE_WINDOW_SOURCES}
-        meanings={QUOTA_SOURCE_MEANINGS}
-        note="One row per limit an account has, and for each limit the newest observation is the one that stands."
-      />
-
-      <section className="meridian-settings-page__block" aria-label="Signing in">
-        <h3 className="meridian-settings-page__block-title">Signing in</h3>
-        <div className="meridian-settings-page__prose">
-          <p>
-            Sign-in is brokered, never held here. The daemon starts the provider&rsquo;s own
-            first-party login against one credential home and streams back the address to visit and
-            the code to type; this window reads nothing that flow writes and stores nothing it
-            produces.
-          </p>
-          <p>
-            What is inside a credential home never reaches this screen. The one path shown anywhere
-            is the display-only one the daemon puts on the action it composed, and a completed
-            sign-in is the end of a flow rather than a verdict — readiness is read again afterwards.
-          </p>
-          <p>
-            Which action closes a given state — register one, choose a default, or sign in — is
-            composed by the daemon when the registry is read and travels beside the state. This page
-            derives none of it, because the action names a credential home and a first-party command
-            that only the machine holding them can name.
-          </p>
-          <p>
-            A non-interactive credential is submitted on one input that appears on no reply. Its
-            wire member is{" "}
-            {PROVIDER_ACCOUNT_REDACTED_WIRE_MEMBERS.map((member) => (
-              <WireFigure key={member} value={member} />
-            ))}
-            , and it is write-only in both directions: it is never echoed back, never held in state
-            this window could serialize, and never rendered.
-          </p>
-          <p>
-            Readiness is advisory. It is a stored observation rather than a live check, it never
-            blocks a run, and admission re-validates on its own — so a state here is a reading and
-            never a verdict.
-          </p>
-        </div>
-      </section>
-
-      {openedFor === undefined ? null : (
-        <section className="meridian-settings-page__block" aria-label="Opened for a provider">
-          <h3 className="meridian-settings-page__block-title">
-            Opened for <WireFigure value={openedFor} />
-          </h3>
-          <div className="meridian-settings-page__prose">
-            <p>{OPENED_FOR_LEDE}</p>
-            <p>{OPENED_FOR_CONSEQUENCE}</p>
-          </div>
-        </section>
-      )}
-
-      {registryReadRefusal === undefined ? null : (
-        <section className="meridian-settings-page__block" aria-label="Reading the registry">
-          <h3 className="meridian-settings-page__block-title">Reading the registry</h3>
-          <AccountPlaneRefusal
-            refusal={registryReadRefusal}
-            openSection={props.context.openSection}
-            currentSection="accounts"
-          />
-        </section>
-      )}
-
-      {renderOwnerSlotPage(PROVIDER_ACCOUNTS_PAGE, props.context)}
-    </div>
-  );
-}
-
-/** Claim the accounts section. See `RuntimeNodesPage.tsx` on the seam's shape. */
+/** Claim the accounts section. */
 export function registerProviderAccountsPage(registry: SettingsPageRegistry): void {
   registry.register({
     section: "accounts",
@@ -265,6 +27,11 @@ export function registerProviderAccountsPage(registry: SettingsPageRegistry): vo
       "default account",
       "readiness",
     ],
-    render: (context) => <ProviderAccountsPage context={context} />,
+    render: () => <ProviderAccountsPage />,
   });
+}
+
+/** The accounts page: an empty frame under the section heading. */
+function ProviderAccountsPage(): ReactNode {
+  return <div className="meridian-settings-page" />;
 }

@@ -14,17 +14,10 @@
 //
 // NOTHING HERE DECIDES WHETHER A CONTROL MAY BE PRESSED. The governing surface makes
 // that explicit: eligibility is not projected at all, no field reports it, every
-// control is offered, and the daemon's typed refusal renders in place. So this module
-// has no precondition to check and no arm for "not allowed" — a refusal is a refusal
-// like any other, and it arrives from the daemon rather than from a guess made here.
+// control is offered. So this module has no precondition to check and no arm for
+// "not allowed".
 
-import { settleGrowthRead } from "../../../../bridge/index.js";
-import type {
-  ConsoleBridge,
-  GrowthMcpBindingRef,
-  GrowthMcpMutationResult,
-} from "../../../../bridge/index.js";
-import type { ConsoleRefusal } from "../../../../core/index.js";
+import type { GrowthMcpBindingRef, GrowthMcpMutationResult } from "../../../../bridge/index.js";
 
 /** How a mutation this shell sent has settled. */
 export type McpMutationOutcome =
@@ -34,11 +27,6 @@ export type McpMutationOutcome =
       readonly kind: "settled";
       readonly binding: GrowthMcpBindingRef;
       readonly result: GrowthMcpMutationResult;
-    }
-  | {
-      readonly kind: "refused";
-      readonly binding: GrowthMcpBindingRef;
-      readonly refusal: ConsoleRefusal;
     };
 
 /** The outcome a shell starts in and returns to. Shared so it has one spelling. */
@@ -46,6 +34,22 @@ export const IDLE_MCP_MUTATION: McpMutationOutcome = { kind: "idle" };
 
 /** Mints the key one press carries. Injected so a test can drive a retry. */
 export type IdempotencyKeyMinter = () => string;
+
+/** Sends a binding's enablement change to the daemon. */
+export type SendMcpEnabled = (
+  request: GrowthMcpBindingRef & {
+    readonly enabled: boolean;
+    readonly clientIdempotencyKey: string;
+  },
+) => Promise<GrowthMcpMutationResult>;
+
+/** Sends a binding's trust change to the daemon. */
+export type SendMcpTrust = (
+  request: GrowthMcpBindingRef & {
+    readonly trusted: boolean;
+    readonly clientIdempotencyKey: string;
+  },
+) => Promise<GrowthMcpMutationResult>;
 
 /** The default minter: the platform's own identifier source. */
 export function mintIdempotencyKey(): string {
@@ -55,24 +59,21 @@ export function mintIdempotencyKey(): string {
 /**
  * Turn a binding's toggle press into a settled outcome.
  *
- * The binding travels back on every arm because this shell renders per-binding
- * outcomes: a page holding one aggregate verdict could not say WHICH row a refusal
- * was about, and a governance surface where one row's refusal appears to belong to
- * another is worse than one that reported nothing.
+ * The binding travels back so this shell renders per-binding outcomes: one aggregate
+ * verdict could not say WHICH row a result was about.
  */
 export async function setBindingEnabled(options: {
-  readonly bridge: ConsoleBridge;
+  readonly send: SendMcpEnabled;
   readonly binding: GrowthMcpBindingRef;
   readonly enabled: boolean;
   readonly idempotencyKey: string;
 }): Promise<McpMutationOutcome> {
-  const { bridge, binding, enabled, idempotencyKey } = options;
-  const settlement = await settleGrowthRead(
-    bridge.growth.mcpSetEnabled({ ...binding, enabled, clientIdempotencyKey: idempotencyKey }),
-  );
-  return settlement.status === "served"
-    ? { kind: "settled", binding, result: settlement.value }
-    : { kind: "refused", binding, refusal: settlement };
+  const { send, binding, enabled, idempotencyKey } = options;
+  return {
+    kind: "settled",
+    binding,
+    result: await send({ ...binding, enabled, clientIdempotencyKey: idempotencyKey }),
+  };
 }
 
 /**
@@ -84,16 +85,15 @@ export async function setBindingEnabled(options: {
  * result shape carries both, and the surface says where a change took effect.
  */
 export async function setBindingTrust(options: {
-  readonly bridge: ConsoleBridge;
+  readonly send: SendMcpTrust;
   readonly binding: GrowthMcpBindingRef;
   readonly trusted: boolean;
   readonly idempotencyKey: string;
 }): Promise<McpMutationOutcome> {
-  const { bridge, binding, trusted, idempotencyKey } = options;
-  const settlement = await settleGrowthRead(
-    bridge.growth.mcpSetTrust({ ...binding, trusted, clientIdempotencyKey: idempotencyKey }),
-  );
-  return settlement.status === "served"
-    ? { kind: "settled", binding, result: settlement.value }
-    : { kind: "refused", binding, refusal: settlement };
+  const { send, binding, trusted, idempotencyKey } = options;
+  return {
+    kind: "settled",
+    binding,
+    result: await send({ ...binding, trusted, clientIdempotencyKey: idempotencyKey }),
+  };
 }
