@@ -9,8 +9,6 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { DesktopBridgeProvider, createFixtureBridge } from "../../../bridge/index.js";
-import { LEDGER_QUIET_SCENARIO } from "../../../bridge/scenario/ledger/ledger-quiet.js";
 import { SessionStoreRegistry, type SessionStore } from "../../../store/index.js";
 import { eventOfKind } from "../../../store/session-event.test-support.js";
 import { emptySnapshot } from "../../../store/session-store-registry.test-support.js";
@@ -64,13 +62,11 @@ function openHole(sessionStore: SessionStore): void {
   ]);
 }
 
-/** The surface, under a bridge whose growth port is the one a fixture window holds. */
-function renderFill(registry: SessionStoreRegistry, sessionStore: SessionStore): void {
-  render(
-    <DesktopBridgeProvider bridge={createFixtureBridge({ scenario: LEDGER_QUIET_SCENARIO })}>
-      <LedgerGapFill registry={registry} sessionStore={sessionStore} />
-    </DesktopBridgeProvider>,
-  );
+/** The surface, with a call that accepts every ask. */
+function renderFill(registry: SessionStoreRegistry, sessionStore: SessionStore): HTMLElement {
+  const fillGap = (): Promise<unknown> => Promise.resolve(undefined);
+  return render(<LedgerGapFill registry={registry} sessionStore={sessionStore} fillGap={fillGap} />)
+    .container;
 }
 
 describe("LedgerGapFill", () => {
@@ -78,29 +74,20 @@ describe("LedgerGapFill", () => {
     const registry = registryAcknowledging(ACKNOWLEDGED_CURSOR);
     const sessionStore = await openAndRead(registry);
 
-    const { container } = render(
-      <DesktopBridgeProvider bridge={createFixtureBridge({ scenario: LEDGER_QUIET_SCENARIO })}>
-        <LedgerGapFill registry={registry} sessionStore={sessionStore} />
-      </DesktopBridgeProvider>,
-    );
-
     // The negative control for both arms below: an ordinary window says nothing at all
-    // here, so neither absence can be rendering for a reason other than the hole.
-    expect(container.innerHTML).toBe("");
+    // here, so neither notice can be rendering for a reason other than the hole.
+    expect(renderFill(registry, sessionStore).innerHTML).toBe("");
   });
 
-  it("says the replay is not available on a build with no seam to send the position", async () => {
+  it("says the missing entries are being replayed once the ask has been put", async () => {
     const registry = registryAcknowledging(ACKNOWLEDGED_CURSOR);
     const sessionStore = await openAndRead(registry);
     openHole(sessionStore);
 
     renderFill(registry, sessionStore);
 
-    // The port's own sentence travels verbatim beside the console's, which is rule 9:
-    // the refusal names who owes the wire and this surface does not paraphrase it.
-    expect(
-      await screen.findByText("Replaying from a kept position is not available on this build."),
-    ).not.toBeNull();
+    expect(await screen.findByText("Replaying the missing entries.")).not.toBeNull();
+    expect(screen.queryByText("There is no position to replay from.")).toBeNull();
   });
 
   it("says there is no position to replay from when no read acknowledged one", async () => {
@@ -110,12 +97,9 @@ describe("LedgerGapFill", () => {
 
     renderFill(registry, sessionStore);
 
-    // A different fact from the arm above, and the distinction is the whole point: one
-    // window could ask and this build cannot carry the ask, and this one has nothing to
-    // ask with. Reporting them alike would tell a person the console had tried.
+    // A different fact from the replay above: that window could ask, and this one has
+    // nothing to ask with. Reporting them alike would tell a person the console had tried.
     expect(await screen.findByText("There is no position to replay from.")).not.toBeNull();
-    expect(
-      screen.queryByText("Replaying from a kept position is not available on this build."),
-    ).toBeNull();
+    expect(screen.queryByText("Replaying the missing entries.")).toBeNull();
   });
 });

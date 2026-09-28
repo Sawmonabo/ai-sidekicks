@@ -1,4 +1,4 @@
-// What the shell knows about itself, and what that costs the window.
+// What the shell knows about itself.
 //
 // The console's honest chrome has three facts behind it and they arrive together:
 // which step of the daemon supervisor's own state machine this window is on, which
@@ -9,28 +9,20 @@
 // connection state from one report beside a keystore state from another.
 //
 // IT LIVES IN `store/` RATHER THAN IN `frame/`, and the reason is who reads it. The
-// frame publishes it and renders most of it, but the palette reads it to say the
-// window is read-only, a settings page reads it for the supervisor detail, and a
-// view family reads it to disable a control it is about to offer — and `palette/`
-// and every view family sit ABOVE `frame/` or below it in the console DAG, so a
-// vocabulary declared there is one none of them may import. `store/` is the lowest
-// family that owns the frame store this value is published into.
+// settings pages read it for the supervisor detail, and every view family sits ABOVE
+// `frame/` or below it in the console DAG, so a vocabulary declared there is one none
+// of them may import. `store/` is the lowest family that owns the frame store this
+// value is published into.
 //
 // NOTHING HERE READS A CLOCK, A TIMER, OR A WIRE. This module is the vocabulary and
-// the comparison every consumer shares; what a condition COSTS is derived next door in
-// `shell-mutation-block.ts`, the subscription that fills the value lives in
-// `frame/shell-state/`, and the fold over open session stores lives there too.
+// the comparison every consumer shares.
 //
 // THE UNREPORTED ARM IS THE ONE THAT MAKES THIS HONEST. No bridge namespace carries the
 // shell's status yet, so the ordinary state of a shipped window is "nobody has said".
 // That is not `connected` and it is not `offline`: a window that synthesised
 // `connected` from a call that happened to succeed would be doing exactly what the
-// console's trust stance forbids, and one that assumed `offline` would disable every
-// mutating control in a console that works. So the arm exists, it renders as the _not
-// checked_ kind of nothing, and it blocks nothing.
-
-import type { ConsoleRoute } from "../../routing/index.js";
-import type { SessionDegradedCause } from "../degradation.js";
+// console's trust stance forbids, and one that assumed `offline` would report a working
+// console as down. So the arm exists and it renders as the _not checked_ kind of nothing.
 
 /**
  * What the handshake settled, as `DaemonHelloAck` carries it.
@@ -38,9 +30,9 @@ import type { SessionDegradedCause } from "../degradation.js";
  * The members are the ack's own (`packages/contracts/src/jsonrpc-negotiation.ts`):
  * whether the daemon called this build compatible, the version it chose, its full
  * supported set where it sent one, and the reason string on the incompatible arm.
- * The console renders them and compares nothing — the version banner is a
- * rendering of a verdict the daemon reached, and a floor comparison performed here
- * would be the second source of truth the corpus forbids.
+ * The console renders them and compares nothing — what it shows is a
+ * verdict the daemon reached, and a floor comparison performed here would be the
+ * second source of truth the corpus forbids.
  */
 export interface ShellNegotiation {
   readonly compatible: boolean;
@@ -116,15 +108,6 @@ export interface ShellState {
   readonly lastHeartbeatAt: string | undefined;
   readonly transport: ShellTransport | undefined;
   readonly keystore: ShellKeystoreState | undefined;
-  /**
-   * The worst degraded cause standing across this window's open session stores.
-   *
-   * Folded from the stores the window already holds rather than reported by the
-   * shell: `store/degradation.ts` owns the ladder and the stores own the causes, so
-   * this is the one place the two meet a person. It is what "recovering, catching up"
-   * is rendered from, and it clears when a re-pull completes and by nothing else.
-   */
-  readonly sessionRecovery: SessionDegradedCause | undefined;
 }
 
 /** What a window holds before anything has reported. The store is born on it. */
@@ -134,28 +117,19 @@ export const UNREPORTED_SHELL_STATE: ShellState = {
   lastHeartbeatAt: undefined,
   transport: undefined,
   keystore: undefined,
-  sessionRecovery: undefined,
 };
-
-/**
- * The half of {@link ShellState} the shell itself reports.
- *
- * A derived type rather than a second interface: the state is one value with two
- * owners — the shell's own report and the window's fold over its open session
- * stores — and writing the members out again would be the set declared twice.
- */
-export type ShellReport = Omit<ShellState, "sessionRecovery">;
 
 /**
  * Whether two reports say the same thing.
  *
  * The subscription that fills this state answers with a fresh object per frame, so
- * without a comparison every heartbeat would re-render the rail, the banner stack,
- * the chip, and every control that reads the block — for a value that did not move.
- * Written over the union rather than as a deep equality, so a new arm is a compile
- * error here rather than a silent "always different".
+ * without a comparison every heartbeat would re-render every reader of the state for
+ * a value that did not move.
+ *
+ * Written over the union rather than as a deep equality, so a new arm is a compile error
+ * here rather than a silent "always different".
  */
-export function shellReportsAreEqual(left: ShellReport, right: ShellReport): boolean {
+export function shellReportsAreEqual(left: ShellState, right: ShellState): boolean {
   return (
     left.lastHeartbeatAt === right.lastHeartbeatAt &&
     left.transport === right.transport &&
@@ -168,11 +142,9 @@ export function shellReportsAreEqual(left: ShellReport, right: ShellReport): boo
 /**
  * One supervisor state in a person's words.
  *
- * HERE RATHER THAN IN THE FRAME because two families render it — the frame's chip and
- * the local-runtime settings page's state row — and the console's family DAG runs one
- * way, so a sentence declared in `frame/` is one a view family cannot reach without
- * a second spelling of it. Its neighbour {@link shellMutationBlock} already carries
- * prose for the same reason.
+ * HERE RATHER THAN IN THE FRAME because the local-runtime settings page renders it
+ * and the console's family DAG runs one way, so a sentence declared in `frame/` is one
+ * a view family cannot reach without a second spelling of it.
  */
 export function describeShellConnection(connection: ShellConnection): string {
   switch (connection.kind) {
@@ -246,59 +218,11 @@ function shellNegotiationsAreEqual(
 /**
  * What a window with no report says about the runtime, in one place.
  *
- * Two surfaces render this absence — the frame's chip and the settings page's state
- * row — and it is one fact, so it has one spelling.
+ * The settings page's state row renders this absence, and it is one fact, so it has one
+ * spelling.
  */
 export const UNREPORTED_SHELL_NOTICE: { readonly title: string; readonly detail: string } = {
   title: "Local runtime",
   detail:
     "This build has no channel carrying the supervisor's state, so this window has not been told whether the local runtime is running.",
-};
-
-/**
- * Where the supervisor's own detail lives, and what a control opening it promises.
- *
- * Named rather than written inline on the constant below, and deliberately NOT
- * exported: nothing outside this module names the shape, and a door line for a type
- * with no production reader is the dead export the barrel census fails.
- */
-interface ShellDetailDestination {
-  /** The settings section id, which the settings rail lists and this console owns. */
-  readonly section: "daemon";
-  /** That section as a route value — what a control navigates to, never a hash. */
-  readonly route: ConsoleRoute;
-  /** What the control opening it says it will do, for its accessible name. */
-  readonly openLabel: string;
-}
-
-/** The section id, bound once so the route and the rail entry cannot spell it twice. */
-const SHELL_DETAIL_SECTION = "daemon";
-
-/**
- * The supervisor's detail page, as one value every reader of it shares.
- *
- * HERE FOR THE REASON ITS NEIGHBOURS ABOVE ARE HERE. The frame's chip navigates to
- * this page, and `frame/` may not import a view family at all — so the destination
- * cannot live beside the settings rail that renders it, and a literal spelled at the
- * chip would be one more surface deciding for itself where the supervisor lives.
- * `store/` is the lowest family the readers can reach and already owns the two
- * sentences both sides say.
- *
- * ITS COUPLING TO THE SETTINGS RAIL IS PINNED BY A TEST AND NOT BY AN IMPORT, which
- * is the direction the DAG leaves open: `settings/settings-sections.ts` is the closed
- * enumeration of section ids and it is deliberately a leaf, while consuming this
- * constant from there would make an exported `as const` tuple carry a property access
- * that `--isolatedDeclarations` cannot type. So `frame/shell-state/ShellChrome.test.tsx`
- * asserts that this section is one the rail lists, and a rename on either side fails
- * there rather than shipping a chip that opens a page nothing answers for.
- *
- * A ROUTE AND NOT AN ADDRESS. `#/settings/daemon` composed by hand would be a second
- * implementation of `routing/`'s own formatter, and the one place a segment could be
- * escaped differently from every other; a route value goes through the frame store,
- * and the hash follows from there.
- */
-export const SHELL_DETAIL_DESTINATION: ShellDetailDestination = {
-  section: SHELL_DETAIL_SECTION,
-  route: { kind: "settings", page: SHELL_DETAIL_SECTION },
-  openLabel: "open the local runtime page",
 };

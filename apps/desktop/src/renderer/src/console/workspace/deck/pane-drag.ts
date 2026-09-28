@@ -45,7 +45,7 @@ import type { DeckLayout } from "./model/deck-layout.js";
  * Namespaced rather than a bare `paneId`, because the element adapter's monitor
  * sees every element drag on the page: a `deck.paneId` key is what lets the deck's
  * monitor tell a pane header from a ledger row somebody else made draggable, and a
- * payload it does not recognise is one it declines to act on rather than one it
+ * payload it does not recognize is one it declines to act on rather than one it
  * misreads.
  */
 export const DECK_PANE_DRAG_KEY = "deck.paneId";

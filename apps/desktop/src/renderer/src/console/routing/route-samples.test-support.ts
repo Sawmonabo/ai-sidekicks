@@ -35,12 +35,3 @@ export const MAIN_WINDOW_ROUTES: readonly ConsoleRoute[] = [
   { kind: "pane-harness", paneKind: "terminal", sessionId: "session-1" },
   { kind: "not-found", attempted: "#/nowhere" },
 ];
-
-/** Auxiliary routes as values, for the predicates. Never parsed from a hash here. */
-export const AUXILIARY_ROUTES: readonly ConsoleRoute[] = [
-  { kind: "auxiliary", route: "timeline" },
-  { kind: "auxiliary", route: "timeline", sessionId: "session-1" },
-  { kind: "auxiliary", route: "agent-console", sessionId: "session-1", agentId: "agent-1" },
-];
-
-export const EVERY_KIND: readonly ConsoleRoute[] = [...MAIN_WINDOW_ROUTES, ...AUXILIARY_ROUTES];

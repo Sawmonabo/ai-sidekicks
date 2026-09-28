@@ -18,7 +18,6 @@ import { describe, expect, it } from "vitest";
 
 import {
   CONSOLE_SESSION_EVENT_STREAMS,
-  PRESENCE_EVENT_STREAM,
   RUN_QUEUE_EVENT_STREAM,
   RUN_STATE_EVENT_STREAM,
   SESSION_EVENT_STREAM,
@@ -29,8 +28,6 @@ import {
   EVERY_REGISTERED_EVENT_KIND,
   ROLLED_BACK_KIND,
   carriedKindsOf,
-  registeredKindsIn,
-  sorted,
 } from "./session-event-streams.test-support.js";
 
 /** A stream name that reads like a registered subscription and is not one. */
@@ -47,19 +44,10 @@ describe("session-event streams — what a subscription name delivers", () => {
     expect(subscriptionDeliversEventKind(RUN_STATE_EVENT_STREAM, "run.starting")).toBe(true);
     expect(subscriptionDeliversEventKind(RUN_STATE_EVENT_STREAM, ROLLED_BACK_KIND)).toBe(true);
     expect(subscriptionDeliversEventKind(RUN_STATE_EVENT_STREAM, "queue_item.created")).toBe(false);
-    expect(subscriptionDeliversEventKind(RUN_QUEUE_EVENT_STREAM, "queue_item.expired")).toBe(true);
-    expect(subscriptionDeliversEventKind(RUN_QUEUE_EVENT_STREAM, "run.starting")).toBe(false);
-  });
-
-  it("holds the Awareness stream to the presence transitions and to nothing else", () => {
-    // Its kinds are the log-borne half of what moves the room. What it DELIVERS is a
-    // payload-free signal rather than any of them — the fixture's own seam owns that —
-    // and the other half, what a person is doing, rides on no registered event at all.
-    expect(sorted(carriedKindsOf(PRESENCE_EVENT_STREAM))).toStrictEqual(
-      sorted(registeredKindsIn("presence").filter((kind) => kind.startsWith("presence."))),
+    expect(subscriptionDeliversEventKind(RUN_QUEUE_EVENT_STREAM, "queue_item.not_delivered")).toBe(
+      true,
     );
-    expect(subscriptionDeliversEventKind(PRESENCE_EVENT_STREAM, "presence.idle")).toBe(true);
-    expect(subscriptionDeliversEventKind(PRESENCE_EVENT_STREAM, "run.starting")).toBe(false);
+    expect(subscriptionDeliversEventKind(RUN_QUEUE_EVENT_STREAM, "run.starting")).toBe(false);
   });
 
   it("treats a name that is not a stream as a subscription to that one event type", () => {

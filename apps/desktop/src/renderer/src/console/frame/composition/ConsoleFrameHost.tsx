@@ -20,19 +20,15 @@
 // The resolution is decided once per provider and does not change afterwards, so
 // this boundary never remounts the frame under a running window.
 
-import { useLayoutEffect, type ReactNode } from "react";
+import { useLayoutEffect } from "react";
 
 import { useBridgeResolution } from "../../bridge/index.js";
 import { Nothing } from "../../primitives/index.js";
 import { ConsoleFrame } from "./ConsoleFrame.js";
-import { type ConsoleSurfaceContext } from "../../seats/index.js";
 import { installMeridianTokens } from "../bindings/index.js";
+import { sessionReadThroughDaemon } from "../session/session-read.js";
 
-export interface ConsoleFrameHostProps {
-  readonly renderOverlays?: (context: ConsoleSurfaceContext) => ReactNode;
-}
-
-export function ConsoleFrameHost(props: ConsoleFrameHostProps): React.JSX.Element {
+export function ConsoleFrameHost(): React.JSX.Element {
   useMeridianTokenSheet();
   const resolution = useBridgeResolution();
   if (resolution.status === "unavailable") {
@@ -49,7 +45,7 @@ export function ConsoleFrameHost(props: ConsoleFrameHostProps): React.JSX.Elemen
   return (
     <ConsoleFrame
       bridge={resolution.bridge}
-      {...(props.renderOverlays === undefined ? {} : { renderOverlays: props.renderOverlays })}
+      readSession={sessionReadThroughDaemon(resolution.bridge)}
     />
   );
 }

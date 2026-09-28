@@ -11,11 +11,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   FIND_STEP_DIRECTIONS,
-  LEDGER_FIND_TRUNCATION_NOTE,
-  LEDGER_FIND_SCOPE_NOTE,
   emptyFindResult,
   findInLedger,
-  isFindWalkCapped,
   stepFindMatch,
 } from "./find-model.js";
 import { generalRow, runRow } from "../timeline-rows.test-support.js";
@@ -50,10 +47,6 @@ function searchWindow(): readonly TimelineRow[] {
 }
 
 describe("find — the boundary is a member of the result", () => {
-  it("states its scope in one sentence the field and this test both read", () => {
-    expect(LEDGER_FIND_SCOPE_NOTE).toBe("Searched loaded rows only.");
-  });
-
   it("reports what was searched even with no query", () => {
     const result = emptyFindResult(3);
     expect(result.searchedRowCount).toBe(3);
@@ -135,20 +128,11 @@ describe("find — the cap bounds the walk and never the count", () => {
     expect(result.searchedRowCount).toBe(FIND_MATCH_CAP + 5);
   });
 
-  it("names the capped walk through one predicate both surfaces read", () => {
-    // The counter draws its second figure and the field draws its cap sentence off
-    // this one answer, so the two can never disagree about whether a walk is
-    // bounded.
-    expect(isFindWalkCapped(findInLedger(oversizedWindow(), "recurring"))).toBe(true);
-    expect(LEDGER_FIND_TRUNCATION_NOTE).toContain(String(FIND_MATCH_CAP));
-  });
-
   it("negative control: under the cap the two numbers agree", () => {
     // Which is what shows the divergence above is the cap reporting itself rather
     // than the counter being wrong.
     const result = findInLedger(searchWindow(), "e");
     expect(result.totalMatchCount).toBe(result.matches.length);
-    expect(isFindWalkCapped(result)).toBe(false);
   });
 });
 

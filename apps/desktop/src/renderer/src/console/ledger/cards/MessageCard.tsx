@@ -18,9 +18,9 @@
 //     what the wire carries. `user.message` is a registered event type with NO payload
 //     variant: a user's words are sealed in the per-user encrypted column
 //     and the hydrated content projection covers the machine-authored one. There is no
-//     timeline carrier for user text and no growth-slate row for one, so the card
-//     renders what exists rather than reaching for what does not — and never captions
-//     the summary as if it were the message.
+//     timeline carrier for user text, so the card renders what exists rather than
+//     reaching for what does not — and never captions the summary as if it were the
+//     message.
 //
 // AND A REASONING BODY IS NOT A MACHINE BODY. The reasoning family renders the
 // four-arm availability surface rather than the hydrated content projection: those
@@ -31,18 +31,13 @@
 // this card decides layout, and what a row is allowed to show is decided by the
 // surface that performed the read.
 //
-// THE EDIT AFFORDANCE IS A SLOT, NOT A CONTROL THIS FILE WRITES. The pencil that opens
-// an inline editor belongs to the plan that owns run controls, and the console never
-// re-authors a body another plan owns. `OwnerSlotProps` is the declaration of that
-// arrangement, and this card mounts it in the row's hover footer.
+// THE EDIT AFFORDANCE IS NOT A CONTROL THIS FILE WRITES. The pencil that opens an inline
+// editor belongs to the run controls, and this card never re-authors a body they own. It
+// mounts whatever element it is handed in the row's hover footer.
 
 import { readWireString } from "../../core/index.js";
 import { Glyph, LedgerRow } from "../../primitives/index.js";
-import {
-  type InlineCardSeatProps,
-  type OwnerSlotContract,
-  type OwnerSlotProps,
-} from "../../seats/index.js";
+import { type InlineCardSeatProps } from "../../seats/index.js";
 import { LedgerRowGroup } from "../frame/index.js";
 import { classifyCardFamily } from "./card-family.js";
 import type { LedgerCardProps } from "./card-props.js";
@@ -52,22 +47,7 @@ import { MessageReceipt } from "./MessageReceipt.js";
 import { UserBody } from "./bodies/index.js";
 import { projectedPayload, readWireCount } from "./wire-payload.js";
 
-/**
- * Who owns the edit affordance, what this card owes it, and when the empty slot dies.
- *
- * Developer-facing and never rendered, which is what `OwnerSlotContract` is for. It
- * names the FEATURE rather than the governance record that plans it, because a string
- * in shipped code is read by whoever opens the file next and the record is read
- * somewhere else entirely.
- */
-export const EDIT_AFFORDANCE_SLOT: OwnerSlotContract = {
-  owningTask: "the rewind-and-resend edit affordance",
-  mountObligation:
-    "the hover-revealed footer of a user message row, given the row and its eligibility",
-  deleteShellIn:
-    "the change that mounts the affordance — there is no shell to delete, only an empty slot to fill",
-};
-
+/** What a mount hands a message card, beyond the row itself. */
 export interface MessageCardProps extends LedgerCardProps {
   /**
    * The inline cards this message carries.
@@ -78,24 +58,25 @@ export interface MessageCardProps extends LedgerCardProps {
    */
   readonly inlineCards?: readonly InlineCardSeatProps[] | undefined;
   /**
-   * The edit affordance's slot.
+   * The edit affordance, or `undefined` while none is supplied.
    *
-   * Required and carrying `undefined` rather than optional, on `OwnerSlotProps`' own
-   * terms: a mount that forgot the slot is then a compile error at the construction
-   * site instead of an absent key that renders identically to an unfilled one.
+   * Required and carrying `undefined` rather than optional, so a mount that forgot it is a
+   * compile error at the construction site instead of an absent key that renders
+   * identically to a deliberate "none".
    */
-  readonly editAffordance: OwnerSlotProps<React.ReactNode>;
+  readonly editAffordance: React.ReactNode | undefined;
   /**
    * The reasoning row's body, composed by the mount.
    *
-   * Required and carrying `undefined` rather than optional, on the same terms as the
-   * slot above: a mount that composed no reasoning surface for a reasoning row is a
+   * Required and carrying `undefined` rather than optional, on the same terms as the edit
+   * affordance above: a mount that composed no reasoning surface for a reasoning row is a
    * compile error at the construction site rather than a row that silently falls back
    * to the machine body and reports a policy redaction as an unreadable one.
    */
   readonly reasoningSurface: React.ReactNode | undefined;
 }
 
+/** A user or agent message row: the sender's frame around its body, receipt and cards. */
 export function MessageCard(props: MessageCardProps): React.JSX.Element {
   const family = classifyCardFamily(props.row);
   const isUser = family.family === "user-message";
@@ -112,11 +93,11 @@ export function MessageCard(props: MessageCardProps): React.JSX.Element {
         actorLabel={props.row.actor ?? family.label}
         kindLabel={props.row.type}
         isSuperseded={props.isSuperseded}
-        footer={isUser ? renderEditAffordance(props.editAffordance) : undefined}
+        footer={isUser ? props.editAffordance : undefined}
       >
         <div className={`meridian-message-card meridian-message-card--${family.family}`}>
           <span className="meridian-message-card__family">
-            <Glyph name={family.glyph} title={family.label} />
+            {family.glyph === undefined ? null : <Glyph name={family.glyph} title={family.label} />}
             {family.label}
           </span>
           {isUser ? (
@@ -150,17 +131,4 @@ export function MessageCard(props: MessageCardProps): React.JSX.Element {
       </LedgerRow>
     </LedgerRowGroup>
   );
-}
-
-/**
- * The row's hover-revealed footer, or nothing at all.
- *
- * RESERVED, NOT STUBBED — and the empty answer here is silence rather than a named
- * absence, which is the opposite of what a surface-sized slot does. A named absence in
- * every user row's footer would repeat one sentence about unbuilt work down the
- * whole length of a session's log, which is noise where a mounted surface's absence is
- * information. The declaration above is where the three facts live.
- */
-function renderEditAffordance(slot: OwnerSlotProps<React.ReactNode>): React.ReactNode {
-  return slot.body;
 }

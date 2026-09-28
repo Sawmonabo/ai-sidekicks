@@ -1,13 +1,23 @@
 import { useId } from "react";
 import { GLYPH_SIZE_CHROME } from "../../tokens/index.js";
-import { Chip, DerivedFigure, Glyph, WireFigure, formatCount } from "../figures/index.js";
+import { Chip, Glyph } from "../figures/index.js";
 import type { ChipTone } from "../figures/index.js";
 import type { RollbackInterventionResult } from "@ai-sidekicks/contracts";
-import { RestoreEnumerationLists } from "./RestoreEnumerationLists.js";
-import { restoreEnumerations } from "./restore-enumerations.js";
 
-/** One rollback disposition, as the contract's own union names them. */
-type RollbackDisposition = RollbackInterventionResult["disposition"];
+/** The rollback results this disclosure draws, as the contract's own union names them. */
+type DisclosedRollbackResult = Extract<
+  RollbackInterventionResult,
+  {
+    disposition:
+      | "files-restored"
+      | "conversation-only"
+      | "files-unrestored"
+      | "nothing-applied"
+      | "resend-unapplied";
+  }
+>;
+
+type RollbackDisposition = DisclosedRollbackResult["disposition"];
 
 /** What a disposition means for the working tree, and how loudly it reads. */
 interface DispositionPresentation {
@@ -17,13 +27,7 @@ interface DispositionPresentation {
   readonly meaning: string;
 }
 
-/**
- * Total over the contract's nine dispositions by construction.
- *
- * `files-partially-restored` and `files-unrestored` carry deliberately different
- * sentences — the first says earlier effects are on disk, the second says the tree was
- * not touched — because that difference is the one this surface exists not to collapse.
- */
+/** Total over the dispositions this disclosure draws, by construction. */
 const DISPOSITION_PRESENTATION: Readonly<Record<RollbackDisposition, DispositionPresentation>> = {
   "files-restored": {
     tone: "neutral",
@@ -33,74 +37,36 @@ const DISPOSITION_PRESENTATION: Readonly<Record<RollbackDisposition, Disposition
     tone: "neutral",
     meaning: "The rewind moved the conversation only. No file was restored and none was touched.",
   },
-  "files-partially-restored": {
-    tone: "failure",
-    meaning:
-      "The restore sequence failed part way. It mutates incrementally, so every effect applied before the failing step is still on disk.",
-  },
   "files-unrestored": {
     tone: "failure",
     meaning: "No file was restored. The working tree is as it was before the rewind was requested.",
-  },
-  "pause-only": {
-    tone: "attention",
-    meaning: "The run was paused and nothing was rewound. No file was touched.",
   },
   "nothing-applied": {
     tone: "attention",
     meaning: "Nothing was applied. No file was touched.",
   },
-  "position-mismatch": {
-    tone: "attention",
-    meaning:
-      "The run had moved past the requested position, so nothing was rewound and no file was touched.",
-  },
-  "boundary-diverged": {
-    tone: "attention",
-    meaning:
-      "The target sits across a context-compaction boundary, so the rewind was refused before any mutation and no file was touched.",
-  },
   "resend-unapplied": {
     tone: "failure",
     meaning:
-      "The rewind succeeded and the replacement message was not sent. The restore DID mutate the working tree, so its enumerations stand.",
+      "The rewind succeeded and the replacement message was not sent. " +
+      "The restore DID mutate the working tree.",
   },
 };
 
-/**
- * What an empty pair means, and why it is not an all-clear.
- *
- * Two sentences, one per arm of the ambiguity the contract states. `failedStep` is
- * what separates them, which is why the degraded arm names it and the applied arm
- * does not claim it.
- */
-const EMPTY_ENUMERATIONS_WITH_STEP =
-  "Both enumerations are empty. That is not an all-clear: it reads either as a failure before any mutation, or as a rewrite that had nothing to enumerate. The failed step above is what names how far the sequence got.";
-
-const EMPTY_ENUMERATIONS_APPLIED =
-  "Both enumerations are empty. That is not an all-clear: it reads either as a restore that overwrote nothing ignored and diverged no submodule, or as a whole-worktree rewrite that had nothing to enumerate.";
-
-/** What the boundary arm says when the crossing carries no position to compare against. */
-const NO_BOUNDARY_POSITION_COPY =
-  "The compaction row carries no position, so it classifies as crossing for every target of this run.";
-
+/** What the disclosure draws: one rollback result. */
 export interface FileRestoreDisclosureProps {
-  readonly result: RollbackInterventionResult;
-  /**
-   * What the mounting surface does with one enumerated path. Absent where it
-   * offers nothing, in which case every path renders as text rather than as a
-   * dead control.
-   */
-  readonly onOpenPath?: ((path: string) => void) | undefined;
-  /** The verb in each path control's accessible name, supplied with the action. */
-  readonly pathActionLabel?: string | undefined;
+  readonly result: DisclosedRollbackResult;
 }
 
+/**
+ * What a rewind did to the working tree: the disposition and what it means for the files.
+ *
+ * @consumedBy the composer's undo readout
+ */
 export function FileRestoreDisclosure(props: FileRestoreDisclosureProps): React.JSX.Element {
   const { result } = props;
   const headingId = useId();
   const presentation = DISPOSITION_PRESENTATION[result.disposition];
-  const enumerations = restoreEnumerations(result);
 
   return (
     <section
@@ -116,48 +82,6 @@ export function FileRestoreDisclosure(props: FileRestoreDisclosureProps): React.
         <Chip tone={presentation.tone} label={result.disposition} mono />
       </header>
       <p className="meridian-restore-disclosure__meaning">{presentation.meaning}</p>
-
-      {result.disposition === "files-partially-restored" ? (
-        <p className="meridian-restore-disclosure__step">
-          Failed at <WireFigure value={result.failedStep} />
-        </p>
-      ) : null}
-
-      {result.disposition === "boundary-diverged" ? (
-        <p className="meridian-restore-disclosure__step">
-          Confirmed at <DerivedFigure text={formatCount(result.confirmedPosition)} />;{" "}
-          {result.newestBoundaryPosition === null ? (
-            // Required-and-nullable on the wire, and the null is a STATED cause rather
-            // than a missing value: a position-less compaction row. Rendering it as an
-            // absence would report the console's silence as the daemon's.
-            <DerivedFigure text={NO_BOUNDARY_POSITION_COPY} />
-          ) : (
-            <>
-              newest boundary at <DerivedFigure text={formatCount(result.newestBoundaryPosition)} />
-            </>
-          )}
-        </p>
-      ) : null}
-
-      {enumerations === undefined ? (
-        // No enumerations on this disposition, and that is the type's answer rather
-        // than a read that came back empty — so it is stated, not drawn as two empty
-        // lists that would read as "nothing was mutated".
-        <p className="meridian-restore-disclosure__no-enumerations">
-          This disposition mutated no file, so it carries no path enumerations.
-        </p>
-      ) : (
-        <RestoreEnumerationLists
-          enumerations={enumerations}
-          emptyCopy={
-            result.disposition === "files-partially-restored"
-              ? EMPTY_ENUMERATIONS_WITH_STEP
-              : EMPTY_ENUMERATIONS_APPLIED
-          }
-          onOpenPath={props.onOpenPath}
-          pathActionLabel={props.pathActionLabel}
-        />
-      )}
     </section>
   );
 }

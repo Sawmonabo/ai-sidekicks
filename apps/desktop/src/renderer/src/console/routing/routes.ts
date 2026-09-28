@@ -4,40 +4,15 @@
 // from a custom `sidekicks-renderer://` scheme through a bundle handler that resolves
 // exactly one document (`src/main/protocol.ts`). A history-API route would ask that
 // handler for a path that is not a file; a hash route asks for the same document every
-// time and carries its state after the `#`. The auxiliary-window factory already relies
-// on this — `createAuxiliaryWindow` loads `…/index.html#/window/<route>`.
+// time and carries its state after the `#`.
 //
-// Two families of route:
+// The routes are one per icon-rail destination plus the session workspace. The
+// workspace is a route and NOT a rail destination: a session is reached from the
+// sessions destination, which is why `railDestinationFor` answers `sessions` for it.
 //
-//   • **Main-window routes**, one per icon-rail destination plus the session
-//     workspace. The workspace is a route and NOT a rail destination: a session is
-//     reached from the sessions destination, which is why `railDestinationFor`
-//     answers `sessions` for it.
-//   • **Auxiliary-window routes**, `#/window/<route>[/<sessionId>[/<agentId>]]`.
-//     These are the routes a detached pane opens into, and they are the reason the
-//     grammar has optional trailing segments at all.
-//
-// An auxiliary route arriving BARE — no session id — is not an error. A person can
-// open the timeline window from the Window menu before choosing anything, and that
-// case gets a context picker rather than an empty window. A route arriving MALFORMED
-// (an unknown route name, too many segments, an empty segment) is different: it
-// resolves to the not-found route, which says what it could not open rather than
-// rendering blank.
-//
-// THE AUXILIARY GRAMMAR IS NOT DECLARED HERE. `src/shared/auxiliary-routes.ts`
-// owns the route names, their labels, and the `#/window/…` producer/consumer pair,
-// because the main process PRODUCES those fragments (the Window menu, the
-// auxiliary-window factory) and this module CONSUMES them — two halves in two
-// processes, which is exactly the pair that drifts when each writes its own. This
-// module keeps the console-wide grammar (`#/sessions`, `#/session/<id>`,
-// `#/workflows`, `#/settings`) and delegates the one arm it shares with main, so
-// the console cannot accept a fragment the menu cannot produce or the reverse.
-
-import {
-  formatAuxiliaryFragment,
-  parseAuxiliaryFragment,
-  type AuxiliaryRouteTarget,
-} from "../../../../shared/auxiliary-route-fragment.js";
+// A route arriving MALFORMED (an unknown route name, too many segments, an empty
+// segment) resolves to the not-found route, which says what it could not open rather
+// than rendering blank.
 
 /** Where the console currently is. A closed union — every arm renders something. */
 export type ConsoleRoute =
@@ -90,25 +65,13 @@ export type ConsoleRoute =
   // has nowhere to put a page-scoped selection: such a pair is a value
   // {@link formatRoute} cannot write down, and a route that cannot be written down is
   // one {@link parseRoute} can never give back. The split makes it unrepresentable
-  // rather than merely undocumented — the same disposition the auxiliary arm takes to
-  // half-supplied context.
+  // rather than merely undocumented.
   //
   // The selection is a bare `string` for `pane-harness`' reason, the DAG: `settings/`
   // sits above this module, so WHAT a page does with the segment is that page's to
   // decide. Routing owns the grammar and never the meaning.
   | { readonly kind: "settings"; readonly page: undefined }
   | { readonly kind: "settings"; readonly page: string; readonly selection?: string }
-  // The shared target with a kind tag, INTERSECTED rather than restated. That
-  // target is route-discriminated — an agent console carries its agent with its
-  // session or not at all, a timeline carries no agent — and writing the arm out
-  // here as two independent optionals would reintroduce the half-supplied context
-  // the shared grammar exists to make unrepresentable, in the one module that
-  // delegates both directions of that grammar precisely so it cannot drift.
-  //
-  // Distributing over the union gives four auxiliary arms rather than one, so
-  // `route.sessionId` reads only where a session is actually carried and the
-  // `"agentId" in route` test narrows instead of merely testing for `undefined`.
-  | ({ readonly kind: "auxiliary" } & AuxiliaryRouteTarget)
   // Fixture builds only. The arm exists in the type in every build — types are
   // erased — but {@link parseRoute} can only PRODUCE it behind
   // `__SIDEKICKS_CONSOLE_FIXTURES__`, so a release renderer resolves this address
@@ -155,9 +118,6 @@ export function parseRoute(hash: string): ConsoleRoute {
 
   const segments = path.split("/");
   const [head, ...rest] = segments;
-  // One refusal covering both grammars: the main-window arms below and the
-  // auxiliary fragment re-composed for the shared parser read the same segments,
-  // so an empty one cannot be malformed for one and invisible to the other.
   // `String.prototype.split` never answers an empty array, so `head` is present —
   // the `undefined` arm is the compiler's obligation, answered the same way.
   if (head === undefined || segments.includes("")) {
@@ -218,29 +178,6 @@ export function parseRoute(hash: string): ConsoleRoute {
       : { kind: "pane-harness", paneKind, sessionId };
   }
 
-  if (head === "window") {
-    // Re-composed from the already-split segments rather than passed through as
-    // `hash`, so this module keeps its own tolerance for a leading `#` or `#/`
-    // while the SEGMENTS are read by the shared grammar: segment-count bounds,
-    // the closed route-name check, and the per-segment decode. That decode is the
-    // reason to delegate rather than to re-derive — the arm this replaced called
-    // `decodeURIComponent` directly, and a malformed escape
-    // (`#/window/timeline/%zz`) throws `URIError` out of a function whose own
-    // contract is that every input produces a route. The empty-segment refusal is
-    // enforced once above for both grammars, and again by the shared parser, which
-    // also serves the main process and cannot rely on this caller.
-    const target = parseAuxiliaryFragment(`#/window/${rest.join("/")}`);
-    if (target === null) {
-      return notFound(hash);
-    }
-    // A bare auxiliary route is legitimate and gets the context picker; only an
-    // unparseable one is not-found. The target is spread whole rather than
-    // destructured field by field, which is what keeps this arm honest as the
-    // shared grammar grows a route: a third route's context keys arrive here with
-    // no edit, where a field list would have silently dropped them.
-    return { kind: "auxiliary", ...target };
-  }
-
   return notFound(hash);
 }
 
@@ -272,14 +209,6 @@ export function formatRoute(route: ConsoleRoute): string {
     }
     case "pane-harness":
       return `#/pane-harness/${encodeURIComponent(route.paneKind)}/${encodeURIComponent(route.sessionId)}`;
-    case "auxiliary": {
-      // Encoded by the shared producer, which keeps this the exact inverse of the
-      // parse above — both sides of one grammar, written once. Only the kind tag
-      // is dropped; the rest of the route IS the target, so there is no arm-by-arm
-      // reconstruction here to disagree with the grammar it is reconstructing.
-      const { kind: _consoleRouteKind, ...target } = route;
-      return formatAuxiliaryFragment(target);
-    }
     case "not-found":
       return route.attempted;
   }
@@ -292,9 +221,7 @@ export function formatRoute(route: ConsoleRoute): string {
  * `URIError` on an escape like `%zz`, and {@link parseRoute}'s contract is that
  * every input produces a route — a promise that holds only while EVERY decode in
  * this module answers a malformed escape the same way. A guard pasted per site is
- * how the next arm to grow a segment ships without one. The auxiliary arm reaches
- * the same discipline through the shared grammar, which decodes its own segments
- * and answers `null`, so it needs no third call here.
+ * how the next arm to grow a segment ships without one.
  *
  * `undefined` rather than a raised refusal, because the caller has an answer for
  * this: a hash anyone can type into the address bar is a probe, not an incident,

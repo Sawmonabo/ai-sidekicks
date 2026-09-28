@@ -14,7 +14,6 @@ import { createFixture } from "../../bridge/fixture/call-plane/bridge.test-suppo
 import { SessionStore } from "../../store/index.js";
 import { ConsolePaneRegistry } from "../../seats/index.js";
 // The declaring module rather than the door: the predicate is read only from suites.
-import { isDetachablePaneKind } from "../../seats/pane/pane-kinds.js";
 import { type PaneContextOf } from "../../seats/index.js";
 import { paneContext } from "../../seats/pane/pane-context.test-support.js";
 import { registerInspectorPane } from "../index.js";
@@ -36,8 +35,8 @@ const UNUSED_BRIDGE: ConsoleBridge = createFixture().bridge;
  * The entity an inspector is addressed at.
  *
  * Read off the address union rather than widened to `ConsoleEntityRef`: the
- * inspector's arm admits the five sidebar-card kinds the spec enumerates, so a run
- * or a channel reference is refused at the address and never reaches this pane.
+ * inspector's arm admits a workspace or a worktree, so a run or a repo
+ * reference is refused at the address and never reaches this pane.
  */
 type InspectedRef = PaneContextOf<"inspector">["entity"];
 
@@ -77,7 +76,6 @@ function storeWithWorktree(): SessionStore {
   store.initialise({
     cursor: 1,
     entities: [{ kind: "worktree", id: "worktree-1", state: "dirty" }],
-    userJoinLog: [],
   });
   return store;
 }
@@ -109,7 +107,6 @@ describe("the inspector with an entity and a session", () => {
     store.initialise({
       cursor: 1,
       entities: [{ kind: "worktree", id: "worktree-1", state: "dirty" }],
-      userJoinLog: [],
     });
     const container = renderPane({ kind: "worktree", id: "worktree-1" }, store);
     expect(container.querySelector(".meridian-entity-record")?.textContent).toContain("Worktree");
@@ -174,13 +171,10 @@ describe("a linked inspector says which pane opened it", () => {
 });
 
 describe("the pane's registration", () => {
-  it("claims the inspector kind, and the window model refuses it a tear-off", () => {
+  it("claims the inspector kind", () => {
     const registry = new ConsolePaneRegistry();
     registerInspectorPane(registry);
     expect(registry.descriptorFor("inspector")?.owner).toBe("inspector-pane");
-    // The descriptor advertises no detach: `isDetachablePaneKind` is derived from
-    // the auxiliary-route set, and the inspector is not one of the two it names.
-    expect(isDetachablePaneKind("inspector")).toBe(false);
   });
 
   it("negative control: it claims nothing else", () => {

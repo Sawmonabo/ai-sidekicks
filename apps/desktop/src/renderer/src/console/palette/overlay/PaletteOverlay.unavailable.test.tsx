@@ -31,7 +31,6 @@ const ON_WORKSPACE: WhenClauseContext = {
   onWorkspace: true,
   onWorkflows: false,
   onSettings: false,
-  inAuxiliaryWindow: false,
 };
 
 const COMMAND_ID = "test.pauseTheRun";

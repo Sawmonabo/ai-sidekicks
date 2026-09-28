@@ -19,15 +19,9 @@
 
 import { createStore, type StoreApi } from "zustand/vanilla";
 import type { ConsoleRefusal } from "../../core/index.js";
-import type { SessionDegradedCause } from "../degradation.js";
 import { ModalSurfaceClaims } from "./modal-surface-claims.js";
 import { toReadableStore, type ConsoleReadableStore } from "../readable.js";
-import {
-  UNREPORTED_SHELL_STATE,
-  shellReportsAreEqual,
-  type ShellReport,
-  type ShellState,
-} from "./shell-state.js";
+import { UNREPORTED_SHELL_STATE, shellReportsAreEqual, type ShellState } from "./shell-state.js";
 import {
   DEFAULT_ROUTE,
   parseRoute,
@@ -70,7 +64,7 @@ export interface FrameStoreState {
    * unreachable is the worst of the three states.
    *
    * WHY IT IS NOT PERSISTED. It is window-lifetime state, beside `isPaletteOpen`
-   * and `isWindowFocused` rather than beside the colour scheme. After a reload
+   * and `isWindowFocused` rather than beside the color scheme. After a reload
    * nothing is open — the registry is fresh — so a restored id would offer a way
    * back into a session this window is not in, which may since have been deleted,
    * archived, or moved to another node; the frame would be promising something only
@@ -127,21 +121,6 @@ export interface FrameStoreState {
    * in `frame/` is one none of them may import.
    */
   readonly shellState: ShellState;
-  /**
-   * How many sessions the attention projection reports as needing a person, or
-   * `undefined` where nothing is reading the projection.
-   *
-   * `undefined` IS NOT ZERO, and the distinction is the whole reason this is not a
-   * number. The sessions destination carries an attention count taken from the daemon's
-   * attention projection and never counted in the renderer, and the count is suppressed
-   * while the projection is unreachable — "the rail says nothing rather than showing a
-   * stale number". A zero would say the daemon answered and nothing needs you.
-   *
-   * The count is PUBLISHED by whoever holds the projection read rather than read
-   * here, because the console performs that read exactly once per window and a second
-   * one would be a second answer to "what needs me".
-   */
-  readonly railAttentionCount: number | undefined;
 }
 
 export interface FrameStoreOptions {
@@ -175,7 +154,6 @@ export class FrameStore {
       banners: [],
       isWindowFocused: documentReportsWindowFocus(),
       shellState: UNREPORTED_SHELL_STATE,
-      railAttentionCount: undefined,
     }));
     this.#modalSurfaceClaims = new ModalSurfaceClaims((isAnyHeld) => {
       this.#setModalSurfaceOpen(isAnyHeld);
@@ -241,53 +219,17 @@ export class FrameStore {
    * Record what the shell says about itself.
    *
    * Compared before it is written, because the subscription behind it answers with a
-   * fresh object per frame: an unguarded write on every heartbeat would re-render the
-   * chip, the banner stack, and every control that reads the block for a value that
-   * did not move. The comparison is written over the connection union in
-   * `shell-state.ts`, so a new arm fails to compile there rather than comparing
-   * false forever.
-   *
-   * The window's own recovery fold is NOT overwritten here: the report is the shell's
-   * half of the value and {@link publishSessionRecovery} is the window's, so neither
-   * owner has to carry the other's fields to write its own.
+   * fresh object per frame: an unguarded write on every heartbeat would re-render
+   * every reader of the state for a value that did not move. The comparison is written
+   * over the connection union in `shell-state.ts`, so a new arm fails to compile there
+   * rather than comparing false forever.
    */
-  public publishShellReport(report: ShellReport): void {
+  public publishShellReport(report: ShellState): void {
     const { shellState } = this.#store.getState();
     if (shellReportsAreEqual(shellState, report)) {
       return;
     }
-    this.#store.setState({
-      shellState: { ...report, sessionRecovery: shellState.sessionRecovery },
-    });
-  }
-
-  /**
-   * Record the worst degraded cause standing across this window's open sessions.
-   *
-   * The store-layer ladder finally reaching a person: `worstDegradedCause` decides
-   * which of several standing causes survives, the session stores decide when one is
-   * standing, and this is where the answer becomes something the frame can render.
-   */
-  public publishSessionRecovery(sessionRecovery: SessionDegradedCause | undefined): void {
-    const { shellState } = this.#store.getState();
-    if (shellState.sessionRecovery === sessionRecovery) {
-      return;
-    }
-    this.#store.setState({ shellState: { ...shellState, sessionRecovery } });
-  }
-
-  /**
-   * Record how many sessions the attention projection reports as needing a person.
-   *
-   * `undefined` clears it, which is what a surface publishes when it stops reading
-   * the projection or when the read refused — the rail then says nothing rather than
-   * holding the last number it was given.
-   */
-  public publishRailAttentionCount(railAttentionCount: number | undefined): void {
-    if (this.#store.getState().railAttentionCount === railAttentionCount) {
-      return;
-    }
-    this.#store.setState({ railAttentionCount });
+    this.#store.setState({ shellState: report });
   }
 
   public setWindowFocused(isWindowFocused: boolean): void {

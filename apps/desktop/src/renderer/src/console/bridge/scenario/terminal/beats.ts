@@ -3,7 +3,7 @@
 // Split out of `terminal.ts` on the same seam `scenario.ts` split from
 // `scenario-engine.ts`: that file declares WHAT this session does, in order, and
 // this one owns the envelope every beat of it is built from. The script reads as a
-// table once the envelope stops being retyped twenty times.
+// table once the envelope stops being retyped on every beat.
 //
 // THE INSTANT IS DERIVED FROM THE TICK, and that is the point rather than a
 // convenience. Every beat used to carry `atMs` and an `occurredAt` that had to agree
@@ -18,11 +18,11 @@
 // daemon's own opaque identifier for the event — the member the hydrated-event read
 // is keyed by, and the one canonical member that names THIS event rather than its
 // position — so it is a fact of its own and not a second spelling of the sequence.
-// What the stamp below asserts is only that this script's twenty beats each carry a
+// What the stamp below asserts is only that this script's beats each carry a
 // distinct, stable, UUID-shaped id under the scenario's own prefix, which is exactly
 // the value a hand-written table would have held: a v7 id minted one beat after
 // another differs in its tail and nowhere else. The beats state their `sequence`
-// already, so the tail is read from there rather than written twenty more times.
+// already, so the tail is read from there rather than written again.
 
 import type { ScenarioBeat } from "../runtime/index.js";
 import { TERMINAL_SCENARIO_SESSION_ID } from "./cast.js";
@@ -55,29 +55,12 @@ const TERMINAL_EVENT_ID_PREFIX = "019b7b30-0280-7ea1-8110-e5e0d115";
 /** The event kind every lease transition arrives on. A registered wire type. */
 const LEASE_TRANSITION_KIND = "pty.control_changed";
 
-/**
- * The tick the shell's host node attached at.
- *
- * A tick and not an instant, because two surfaces report it — the `runtime_node.online`
- * beat and the roster reply's `attachedAt` — and they were two hand-written copies of
- * one timestamp. Both now read it here and pass it through the clock below.
- */
-export const TERMINAL_HOST_NODE_ATTACHED_AT_MS = 160;
-
-/**
- * The tick of the host node's last heartbeat before it went silent.
- *
- * Three surfaces report this one: the roster reply, the `runtime_node.offline` beat's
- * `lastHeartbeatAt`, and — through the beat — the degraded line a person reads.
- */
-export const TERMINAL_HOST_NODE_LAST_HEARTBEAT_AT_MS = 3_780;
-
 /** What one beat says beyond the envelope this module stamps. */
 export interface TerminalScenarioBeatInput {
   /** The tick this beat is due at, measured from scenario start. */
   readonly atMs: number;
   readonly sequence: number;
-  /** Wire-verbatim event type. Held to the registered taxonomy by `scenarios.test.ts`. */
+  /** Wire-verbatim event type. Held to the registered taxonomy by the wire-truth checks. */
   readonly kind: string;
   /** Who the log attributes the event to. Omitted where the daemon acted alone. */
   readonly actorId?: string;
@@ -97,7 +80,7 @@ export interface TerminalLeaseTransitionBeatInput {
    */
   readonly holderUserId: string | null;
   readonly previousHolderUserId: string | null;
-  /** One of the five reasons the wire closes the set at. */
+  /** One of the reasons the wire closes the set at. */
   readonly reason: string;
   /** Omitted for a take the daemon's own lease authority performed. */
   readonly actorId?: string;
@@ -131,7 +114,7 @@ export function terminalScenarioEventId(sequence: number): string {
  * stamped.
  *
  * All three stamped rather than written per beat: the session id is the same string
- * twenty times over, the instant is `atMs` in the other spelling, and the row id is
+ * on every beat, the instant is `atMs` in the other spelling, and the row id is
  * the scenario's prefix with this beat's own position on the end.
  */
 export function terminalScenarioBeat(beat: TerminalScenarioBeatInput): ScenarioBeat {
@@ -153,9 +136,9 @@ export function terminalScenarioBeat(beat: TerminalScenarioBeatInput): ScenarioB
  * One `pty.control_changed` beat.
  *
  * Its own builder rather than a `terminalScenarioBeat` call with a payload literal,
- * because nine of this script's twenty beats are this shape and the transitions are
+ * because many of this script's beats are this shape and the transitions are
  * what a reader comes to the script for. Written as a table, the hand-off sequence
- * reads off the page; written as nine payload literals, it did not.
+ * reads off the page; written as payload literals, it did not.
  */
 export function terminalLeaseTransitionBeat(
   transition: TerminalLeaseTransitionBeatInput,

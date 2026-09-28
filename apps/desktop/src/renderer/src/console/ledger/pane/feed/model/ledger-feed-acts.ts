@@ -10,21 +10,14 @@
 // the viewport binding's. That is what lets the whole set be driven by a test with no
 // render at all.
 //
-// ONE OF THE SIX CAN REFUSE, AND IT DOES NOT REFUSE AN ABSENT SURFACE.
-// "Clear ledger filters" USED TO answer that this ledger had no filter surface at
-// all, which was true while `filters.ts` had no caller: the model was complete and
-// unreachable, so the press could only pretend. The facet bar reaches it now, so the
-// act clears, and the one thing left to refuse is the state a person can still put
-// the ledger in — nothing is narrowed, so there is nothing to widen. A no-op there
-// would report success for work that did not happen, which is what the banner exists
-// to prevent.
+// ONE OF THE SIX CAN REFUSE, AND IT DOES NOT REFUSE AN ABSENT SURFACE. "Clear ledger
+// filters" refuses when nothing is narrowed, so there is nothing to widen: a no-op there
+// would report success for work that did not happen, which is what the banner exists to
+// prevent.
 //
-// "Collapse all finished run chapters" USED TO BE A SECOND SUCH REFUSAL, on the
-// reasoning that every finished chapter was already folded and no control opened
-// one. That reasoning was true of a ledger that drew no chapter header and false the
-// moment one existed: the headers are disclosures, a person can open any of them,
-// and this act now folds exactly the ones they opened. A typed refusal for a thing
-// that exists is worse than no refusal at all.
+// "Collapse all finished run chapters" never refuses. The chapter headers are
+// disclosures, a person can open any of them, and this act folds exactly the ones they
+// opened.
 
 import { useMemo } from "react";
 

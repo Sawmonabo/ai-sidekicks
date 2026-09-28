@@ -12,12 +12,7 @@
 import { SESSION_EVENT_CATEGORY_BY_TYPE, type TimelineRow } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
 
-import {
-  generalRow,
-  legacyStubRow,
-  rollbackBoundaryRow,
-  runRow,
-} from "../timeline-rows.test-support.js";
+import { generalRow, rollbackBoundaryRow, runRow } from "../timeline-rows.test-support.js";
 import { SWITCH_CONTINUITY_MEMO } from "./seam-vocabulary.js";
 import { LedgerSeamIndex, type LedgerSeam } from "./seams.js";
 
@@ -118,23 +113,6 @@ describe("seams — one row's classification", () => {
       }),
     );
     expect(seam.boundaryPosition).toBe(3);
-  });
-
-  it("negative control: a compacted stub carries no position, and renders an absence", () => {
-    // The `legacy_stub` arm structurally has no position — it is the one shape a
-    // compaction row can take without one — so this is the absence the row draws
-    // rather than a zero.
-    const seam = classifyOne(
-      legacyStubRow({
-        id: "c2",
-        sequence: 4,
-        type: "usage.context_compacted",
-        category: "usage_telemetry",
-        runId: "run-a",
-      }),
-    );
-    expect(seam.kind).toBe("compaction");
-    expect(seam.boundaryPosition).toBeUndefined();
   });
 
   it("carries a memo switch's declared losses verbatim", () => {

@@ -5,28 +5,24 @@
 // so a violation names the surface that owns it.
 //
 // Both schemes, for `frame-axe.test.tsx`'s reason: contrast is the rule most likely
-// to pass in one and fail in the other, and this family renders two things the
+// to pass in one and fail in the other, and this family renders something the
 // palette's own contrast test cannot reach — a chip whose tone is chosen from a
-// wire state, and a run row whose state chip carries the `failure` tone.
+// wire state.
 //
 // THE COMPOSER IS THE CASE WORTH HAVING. It is the one surface in the console that
 // is always on screen while a person is typing, and it carries the most controls per
 // pixel of anything the family ships: two chips, a growing input, a send router, and
-// an accessory rail. Its four addresses differ in which of those are offered, so a
-// name or a label lost on one address is invisible on the other three.
+// an accessory rail. Its addresses differ in which of those are offered, so a name
+// or a label lost on one address is invisible on the others.
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { emulateSystemScheme } from "../console-harness.js";
 import {
-  mountApprovalsPane,
-  mountComposerChannelAddressed,
   mountComposerChannelDefault,
-  mountComposerPlusMenuOpen,
   mountComposerProviderBoundRunning,
   mountComposerProviderBoundWaiting,
   mountComposerWithAttachments,
-  mountRunsPane,
   type MountedFamilySurface,
 } from "../surfaces/composer.js";
 import {
@@ -44,18 +40,13 @@ const AUDITED_SURFACES: readonly {
   readonly label: string;
   readonly mount: () => Promise<MountedFamilySurface>;
 }[] = [
-  { label: "the composer on the session's default channel", mount: mountComposerChannelDefault },
-  { label: "the composer addressed at a channel", mount: mountComposerChannelAddressed },
+  { label: "the composer on the session", mount: mountComposerChannelDefault },
   { label: "the composer addressed at a working run", mount: mountComposerProviderBoundRunning },
   { label: "the composer addressed at a waiting run", mount: mountComposerProviderBoundWaiting },
-  // Two zones the four addresses above never put on screen. The attachment strip is
-  // absent while a message carries nothing, and the `+` menu unmounts its panel
-  // rather than hiding it — so the strip's own label, each chip's progress bar, the
-  // refusal a chip renders, and the whole panel were reachable by no tier at all.
+  // A zone the addresses above never put on screen: the attachment strip is absent
+  // while a message carries nothing, so its own label, each chip's progress bar and
+  // the refusal a chip renders were reachable by no tier at all.
   { label: "the composer carrying attachments", mount: mountComposerWithAttachments },
-  { label: "the composer with the `+` menu open", mount: mountComposerPlusMenuOpen },
-  { label: "the runs pane", mount: mountRunsPane },
-  { label: "the approvals pane", mount: mountApprovalsPane },
 ];
 
 beforeEach(() => {
@@ -67,7 +58,7 @@ afterEach(async () => {
   await emulateSystemScheme("light");
 });
 
-describe("accessibility — the composer and runs surfaces", () => {
+describe("accessibility — the composer surfaces", () => {
   for (const surface of AUDITED_SURFACES) {
     for (const scheme of CONSOLE_SCHEMES) {
       it(`has no axe violation on ${surface.label} in the ${scheme} scheme`, async () => {
@@ -78,27 +69,6 @@ describe("accessibility — the composer and runs surfaces", () => {
       });
     }
   }
-
-  it("has no axe violation on the target chip's open axis popover", async () => {
-    // Scoped to the POPUP rather than to the surface that opened it: the popover
-    // portals out of the composer into the window's overlay root, so a run over the
-    // mounted surface would report clean over a form it never reached.
-    await mountComposerProviderBoundRunning();
-    const trigger = [...document.querySelectorAll("button")].find(
-      (candidate) => candidate.textContent === "Change provider axes",
-    );
-    expect(trigger).not.toBeUndefined();
-    trigger?.click();
-    const popup = await vi.waitFor(() => {
-      const found = document.querySelector<HTMLElement>(".meridian-composer__axes-popover");
-      if (found === null || found.querySelector(".meridian-switch") === null) {
-        throw new Error("the axis form has not mounted into the popover yet");
-      }
-      return found;
-    });
-
-    expect(describeViolations(await runTierAxe(popup))).toStrictEqual([]);
-  });
 
   it("finds a planted violation, so a clean result means something", async () => {
     // Negative control for this file's own runs: every case above expects an

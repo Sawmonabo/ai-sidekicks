@@ -9,7 +9,7 @@
 // is the fixture's doing: the engine answers `session.create` with the same scripted
 // id every time, so a second session is indistinguishable from the first BY ITS
 // RESULT. The count is the only reading that tells one session from two — and, one
-// leg down, one attach from two.
+// leg down, one queued turn from two.
 
 import { describe, expect, it } from "vitest";
 
@@ -20,30 +20,14 @@ import {
   sentMethod,
   CREATED_SESSION_ID,
 } from "./new-session-draft.test-support.js";
-// The methods the SEND names, taken from the module that sends them: a count asserted
+// The method the SEND names, taken from the module that sends it: a count asserted
 // against the suite's own copy of a wire string proves nothing about the string that
 // reached the wire.
-import { RUN_QUEUE_CREATE_METHOD, SESSION_CREATE_METHOD } from "./new-session-settlement.js";
+import { SESSION_CREATE_METHOD } from "./new-session-settlement.js";
 
 describe("NewSessionDraft — what it holds", () => {
   it("starts empty and says so", () => {
     const draft = draftFor({ scriptsCreate: true });
-    expect(draft.snapshot().isEmpty).toBe(true);
-  });
-
-  it("replaces a second selection of the same definition rather than adding it twice", () => {
-    const draft = draftFor({ scriptsCreate: true });
-    draft.selectAgent({ definitionId: "definition-1", providerAccountId: undefined });
-    draft.selectAgent({ definitionId: "definition-1", providerAccountId: "account-9" });
-    expect(draft.snapshot().agents).toStrictEqual([
-      { definitionId: "definition-1", providerAccountId: "account-9" },
-    ]);
-  });
-
-  it("ignores a paying account for an agent that was never selected", () => {
-    const draft = draftFor({ scriptsCreate: true });
-    draft.setPayingAccount("definition-unknown", "account-9");
-    expect(draft.snapshot().agents).toStrictEqual([]);
     expect(draft.snapshot().isEmpty).toBe(true);
   });
 
@@ -129,41 +113,34 @@ describe("NewSessionDraft — one draft object, at most one session", () => {
 
   it("resumes at the first unmade call rather than repeating the ones that landed", async () => {
     // The per-leg memory, which is the invariant one leg down from "one draft, one
-    // session": a retry that re-attached would put two agents on the session for one
-    // the person chose once, and one that re-queued would send their words twice.
-    const draft = draftFor({ scriptsCreate: true, scriptsAttach: true, scriptsFirstTurn: true });
-    draft.selectAgent({ definitionId: "definition-1", providerAccountId: undefined });
+    // session": a retry that re-queued would send the person's words twice.
+    const draft = draftFor({ scriptsCreate: true, scriptsFirstTurn: true });
+    draft.setPosture("trusted");
     const stopped = await draft.send();
     expect(stopped.refusal?.code).toBe("first-turn-missing");
-    expect(stopped.completedCalls).toStrictEqual(["session.create", "agent.attach"]);
+    expect(stopped.completedCalls).toStrictEqual(["session.create"]);
 
     // What a person does after reading that: type the message, press again.
     draft.setFirstTurn("Start on the parser.");
     const finished = await draft.send();
 
     expect(finished.outcome).toBe("sent");
-    // Every leg named once. The create and the attach are named because they EXIST,
-    // not because this press made them — the slot's job is to say what is there.
-    expect(finished.completedCalls).toStrictEqual([
-      "session.create",
-      "agent.attach",
-      "run.queueCreate",
-    ]);
+    // Every leg named once. The create is named because it EXISTS, not because this
+    // press made it — the slot's job is to say what is there.
+    expect(finished.completedCalls).toStrictEqual(["session.create", "run.queueCreate"]);
   });
 
-  it("negative control: the second press re-attaches nothing the first one landed", async () => {
-    // Without this the case above would pass over a build that re-issued the attach,
-    // since a second attach the fixture also answers changes no result it asserts.
+  it("negative control: the second press re-issues nothing the first one landed", async () => {
+    // Without this the case above would pass over a build that re-issued the create,
+    // since a second create the fixture also answers changes no result it asserts.
     const counted = countedDraftFor({ scriptsCreate: true, scriptsFirstTurn: true });
     counted.draft.setPosture("trusted");
     await counted.draft.send();
     counted.draft.setFirstTurn("Start on the parser.");
     await counted.draft.send();
 
-    expect(counted.calls.map(sentMethod)).toStrictEqual([
-      SESSION_CREATE_METHOD,
-      RUN_QUEUE_CREATE_METHOD,
-    ]);
+    expect(counted.calls.map(sentMethod)).toStrictEqual([SESSION_CREATE_METHOD]);
+    expect(counted.firstTurns).toHaveLength(1);
   });
 
   it("retries the create when the first attempt never landed one", async () => {

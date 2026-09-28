@@ -1,14 +1,14 @@
-// What every one of the six controls is handed, declared once.
+// What every one of the five controls is handed, declared once.
 //
-// A LEAF BECAUSE SIX MODULES READ IT and the chrome that renders them reads it too.
-// Declared inside any one of the six it would make the other five import from a sibling
+// A LEAF BECAUSE FIVE MODULES READ IT and the chrome that renders them reads it too.
+// Declared inside any one of the five it would make the other four import from a sibling
 // control, which is how one field's module becomes the home of the shape all of them
-// share — and the day a member moved, five files would follow it by hand.
+// share — and the day a member moved, four files would follow it by hand.
 //
 // THE CONTROL OWNS THE VALUE AND NOTHING ELSE. The label, the description, the required
 // mark and the schema's verdict are the field chrome's, one module up: a control that
-// drew its own label would draw it six different ways, and a control that read the
-// report would be six readers of one verdict.
+// drew its own label would draw it five different ways, and a control that read the
+// report would be five readers of one verdict.
 //
 // `value` IS `unknown` ON PURPOSE. The answer is a JSON value composed from a schema the
 // wire delivered, so nothing has proved what sits at a member yet — a number control
@@ -18,7 +18,7 @@
 // AND A CONTROL REPORTS A DRAFT NODE RATHER THAN A VALUE, which is what lets it say the
 // one thing a value cannot: that it is displaying text it could not read. The node is
 // `schema-draft.ts`'s (`answeredScalar` / `unansweredScalar` / `UNANSWERED_SCALAR`), so
-// what an unanswered control is WORTH is settled once by the projection rather than six
+// what an unanswered control is WORTH is settled once by the projection rather than five
 // times here — and the text it could not read travels with the member it belongs to
 // instead of living in component state that a list re-key would move to another row.
 
@@ -59,7 +59,7 @@ export interface SchemaChoiceOption {
   readonly memberValue: unknown;
 }
 
-/** The value read as text, which is what five of the six controls bind to. */
+/** The value read as text, which is what the two text controls bind to. */
 export function textValueOf(value: unknown): string {
   return typeof value === "string" ? value : "";
 }

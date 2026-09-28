@@ -20,7 +20,7 @@ import { normalizeWireRejection } from "./wire-rejection.js";
 
 describe("normalizeWireRejection — the retry bound the wire registered", () => {
   it("reads seconds and a reset instant off a JSON-RPC fields payload", () => {
-    const refusal = normalizeWireRejection("channels", {
+    const refusal = normalizeWireRejection("sessions", {
       code: -32603,
       message: "Too many requests.",
       data: {
@@ -36,7 +36,7 @@ describe("normalizeWireRejection — the retry bound the wire registered", () =>
 
   it("reads the same pair off a flat envelope", () => {
     expect(
-      normalizeWireRejection("channels", {
+      normalizeWireRejection("sessions", {
         code: "ratelimit.exceeded",
         message: "Slow down.",
         retryAfter: 5,
@@ -57,7 +57,7 @@ describe("normalizeWireRejection — the retry bound the wire registered", () =>
     // is a producer defect; the surface renders no countdown rather than a countdown
     // to a date that does not exist.
     expect(
-      normalizeWireRejection("channels", {
+      normalizeWireRejection("sessions", {
         code: "ratelimit.exceeded",
         message: "…",
         resetAt: "2026-02-30T12:00:00Z",
@@ -67,10 +67,10 @@ describe("normalizeWireRejection — the retry bound the wire registered", () =>
 
   it("ignores a negative or non-finite second count", () => {
     expect(
-      normalizeWireRejection("channels", { code: "x", message: "y", retryAfter: -1 }).retry,
+      normalizeWireRejection("sessions", { code: "x", message: "y", retryAfter: -1 }).retry,
     ).toBeUndefined();
     expect(
-      normalizeWireRejection("channels", { code: "x", message: "y", retryAfter: "soon" }).retry,
+      normalizeWireRejection("sessions", { code: "x", message: "y", retryAfter: "soon" }).retry,
     ).toBeUndefined();
   });
 });
@@ -101,49 +101,5 @@ describe("normalizeWireRejection — the failed bindings a goal refusal names", 
     });
     expect(Object.hasOwn(refusal, "driverCode")).toBe(false);
     expect(readRefusalExtensions(refusal)).toStrictEqual({});
-  });
-});
-
-describe("normalizeWireRejection — the manifests a blocked delete names", () => {
-  it("reads the details off `data.fields` on the JSON-RPC arm", () => {
-    const refusal = normalizeWireRejection("repos", {
-      code: -32603,
-      message: "Delete the derivatives first, or keep the source.",
-      data: {
-        type: "artifact.delete_blocked",
-        fields: {
-          referencingArtifactIds: ["artifact-02", "artifact-03"],
-          referencingArtifactTotal: 51,
-        },
-      },
-    });
-    expect(refusal.code).toBe("artifact.delete_blocked");
-    expect(readRefusalExtensions(refusal).referencingArtifacts).toStrictEqual({
-      ids: ["artifact-02", "artifact-03"],
-      total: 51,
-    });
-  });
-
-  it("reads them off `details` on the flat envelope arm", () => {
-    // The two positions the corpus registers for one shape. A reader bound to one of
-    // them would drop the whole list on the other transport.
-    const refusal = normalizeWireRejection("repos", {
-      code: "artifact.delete_blocked",
-      message: "Delete the derivatives first, or keep the source.",
-      details: { referencingArtifactIds: ["artifact-02"], referencingArtifactTotal: 1 },
-    });
-    expect(readRefusalExtensions(refusal).referencingArtifacts).toStrictEqual({
-      ids: ["artifact-02"],
-      total: 1,
-    });
-  });
-
-  it("negative control: an envelope naming no referencing manifest carries no reading", () => {
-    const refusal = normalizeWireRejection("repos", {
-      code: "artifact.delete_forbidden",
-      message: "The caller may not delete this artifact.",
-      details: { role: "read-only" },
-    });
-    expect(Object.hasOwn(refusal, "referencingArtifacts")).toBe(false);
   });
 });

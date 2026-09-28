@@ -1,11 +1,10 @@
-// The one caller of `native.showNotification`.
+// Which attention items are news, and what has been announced already.
 //
-// OS emission belongs to the notification center, and until now the console had none:
-// the centre rendered the projection and nothing ever left the window. A person with
-// the console behind another application learned that a run had failed by coming back
-// and looking.
+// The operating-system banner is raised by the main process, only while the app is not
+// in front, so nothing here decides whether a window is focused or which screen it is
+// on. This module keeps the memory that decides what is NEW.
 //
-// WHEN ONE IS RAISED, and the whole of it:
+// WHEN AN ITEM IS NEW, and the whole of it:
 //
 //   • The item is LIVE. A resolved item is already dropped by the plane, so nothing
 //     here re-checks `resolvedAt`; what reaches this class is what needs a person.
@@ -26,12 +25,6 @@
 //     narrower fix and the wrong one: a session-scoped item is not always an
 //     aggregate over runs, and a rule that dropped every item without a `runId`
 //     would silence the ones that are nobody's run.
-//   • The item is NOT already on screen. Interrupting someone about the thing in
-//     front of them is the one case where the banner is strictly worse than silence,
-//     and a focused window is on screen in two different ways: it may be parked on
-//     the item's own session, and it may be on the destination that renders EVERY
-//     session's attention. An unfocused window announces everything, including the
-//     session it is parked on, because nobody is reading it.
 //
 // AND THE FIRST SETTLED READ OF A SESSION RAISES NOTHING FOR IT. Opening a window is
 // not an event: the projection's first answer about a session is the state of the
@@ -57,39 +50,16 @@
 //
 // WHAT THIS CLASS DELIBERATELY DOES NOT DO. It applies no preference filter and no
 // quiet-hours rule. Non-matching events are dropped at the control plane before they
-// are ever emitted, and the shell honours the OS do-not-disturb setting, so either one
+// are ever emitted, and the shell honors the OS do-not-disturb setting, so either one
 // re-implemented here would be a second authority over a decision already made — and
 // a second authority that cannot see the inputs the first one had.
 
-import { useEffect, useState } from "react";
-
 import { ATTENTION_NOTIFIED_ITEM_CAP } from "../../core/index.js";
-import type { AttentionItem, ConsoleBridge } from "../../bridge/index.js";
-import { routeSessionId } from "../../routing/index.js";
-import type { FrameStore } from "../../store/index.js";
-import { type AnsweredAttentionReading, type AttentionReading } from "./attention-plane.js";
-import { type OsNotificationDelivery } from "./os-notification-delivery.js";
-
-/** What the window looks like at the moment a projection settles. */
-export interface AttentionNotifierAudience {
-  /** The session the route names, or `undefined` where it names none. */
-  readonly activeSessionId: string | undefined;
-  /**
-   * Whether the route names the destination that renders the notification centre.
-   *
-   * A SECOND MEMBER RATHER THAN A SECOND READING OF THE FIRST, because there is no
-   * session id that describes this window. The sessions destination names no session,
-   * so {@link activeSessionId} is `undefined` there — and an audience rule that
-   * inferred visibility from a session id alone answered "nothing is on screen" for
-   * the one screen showing every session's attention at once, and raised a banner
-   * about each item the person was already looking at.
-   */
-  readonly isAttentionSurfaceRouted: boolean;
-  readonly isWindowFocused: boolean;
-}
+import type { AttentionItem } from "../../bridge/index.js";
+import { type AnsweredAttentionReading } from "./attention-plane.js";
 
 /**
- * Which items a window should announce, and what it has announced already.
+ * Which items are news to a window, and what it has announced already.
  *
  * An encapsulated class rather than a ref beside an effect, because "already
  * announced" is state with an eviction rule and a baseline, and a hook body that grew
@@ -118,15 +88,14 @@ export class AttentionNotifier {
    * ONE fan-out. What the read contained, which sessions it asked about, and which of
    * those refused are three facts about one settlement, and a caller composing them
    * from separate holdings could pair this read's items with the address set of the
-   * next one — which is the shape the audience rule beside this already avoids by
-   * taking a single snapshot of the window.
+   * next one.
    *
    * AT MOST ONE ARRIVAL PER CANONICAL EVENT. Two items over one `sourceEventId` are
    * two views of one thing that happened — the run-scoped item and the session
    * aggregate that represents it are exactly that pair — so the first of them stands
    * for both and the rest are folded into it silently. Which one comes first is the
    * projection's order and it changes nothing a person sees: items sharing an event
-   * share its session too, so the audience rule below answers the same either way.
+   * share its session too, so the baseline answers the same either way.
    *
    * AND ONLY FROM A SESSION THIS WINDOW HAS ALREADY COVERED. The baseline is read
    * BEFORE this read re-derives it, so a session appearing in the address set for the
@@ -137,18 +106,14 @@ export class AttentionNotifier {
    * just happened.
    *
    * Every live event is remembered whether or not it is announced — an item the
-   * audience rule held back is still news this window has seen, and announcing it
-   * later because the person happened to navigate elsewhere would be a banner about
-   * something that did not just happen.
+   * baseline held back is still news this window has seen, and announcing it later
+   * would be a banner about something that did not just happen.
    *
    * The projection's own events are collected as the fold runs, because what the cap
    * may forget afterwards is decided against THIS read and never against the
    * remembered set alone — the rule the eviction below states.
    */
-  public arrivalsToAnnounce(
-    reading: AnsweredAttentionReading,
-    audience: AttentionNotifierAudience,
-  ): readonly AttentionItem[] {
+  public arrivalsToAnnounce(reading: AnsweredAttentionReading): readonly AttentionItem[] {
     const liveSourceEventIds = new Set<string>();
     const arrivals: AttentionItem[] = [];
     for (const item of reading.plane.liveItems) {
@@ -157,7 +122,7 @@ export class AttentionNotifier {
         continue;
       }
       this.#announcedSourceEventIds.add(item.sourceEventId);
-      if (this.#baselinedSessionIds.has(item.sessionId) && this.#reachesAPerson(item, audience)) {
+      if (this.#baselinedSessionIds.has(item.sessionId)) {
         arrivals.push(item);
       }
     }
@@ -204,26 +169,6 @@ export class AttentionNotifier {
   }
 
   /**
-   * Whether a banner about this item tells its reader something the screen does not.
-   *
-   * Three answers over two facts, in the order they stop being questions. Nobody is
-   * reading an unfocused window, so it announces everything. A focused window sitting
-   * on the notification centre is already showing every session's attention, so it
-   * announces nothing — the case that has no session id to compare against, and the
-   * one this rule used to get exactly backwards. Anywhere else, the route names at
-   * most one session and only that session's items are already in front of a person.
-   */
-  #reachesAPerson(item: AttentionItem, audience: AttentionNotifierAudience): boolean {
-    if (!audience.isWindowFocused) {
-      return true;
-    }
-    if (audience.isAttentionSurfaceRouted) {
-      return false;
-    }
-    return item.sessionId !== audience.activeSessionId;
-  }
-
-  /**
    * Bring the remembered events back under the cap by forgetting CLEARED ones, oldest
    * first.
    *
@@ -256,79 +201,4 @@ export class AttentionNotifier {
       }
     }
   }
-}
-
-/**
- * Mount the emitter for as long as a destination holds the projection read.
- *
- * The audience is read IMPERATIVELY off the frame store rather than subscribed to,
- * and that is the difference between a rule and a re-render: what decides a banner is
- * where the window was when the item ARRIVED, so focus moving afterwards must change
- * nothing, and a subscription would both re-run this effect on every focus change and
- * make the answer depend on the last one instead of the right one.
- *
- * `NotificationOptions` CARRIES NO MEMBER YET, and that is a decision already made
- * elsewhere rather than a gap this surface may close: it is `packages/contracts`'
- * Stub for Electron's own `NotificationConstructorOptions`, and its comment
- * schedules the real shape for the tier that gives that package an `electron` devDep.
- * So the call supplies the only value the contract admits. What a person reads on the
- * banner is the shell's to compose until then; the item's own words are on the centre
- * either way, and writing a title here would neither compile nor be this console's to
- * write.
- */
-export function useAttentionNotifications(options: {
-  readonly reading: AttentionReading;
-  readonly delivery: OsNotificationDelivery;
-  readonly frameStore: FrameStore;
-  readonly bridge: ConsoleBridge;
-}): void {
-  const { bridge, delivery, frameStore, reading } = options;
-  // Minted once per mount and held in state rather than in a memo: a memo is a hint
-  // React may discard, and a discarded notifier forgets every event it has announced
-  // and re-raises the whole projection on the next settlement.
-  const [notifier] = useState(() => new AttentionNotifier());
-  const isWithheld = delivery.status === "withheld";
-  useEffect(() => {
-    if (reading.phase !== "read") {
-      return;
-    }
-    const arrivals = notifier.arrivalsToAnnounce(reading, audienceFor(frameStore));
-    if (isWithheld) {
-      // Remembered and not raised. The read says this machine will show nothing, so
-      // the call is spent for no one — and the events are still taken, because a
-      // permission that is granted later must not replay a backlog as though every
-      // one of those items had just arrived.
-      return;
-    }
-    // One call per arrival rather than one per settlement, because the emission is
-    // per item on the wire the blueprint names — so the day the options shape lands,
-    // each of these calls is already the one that carries its own item's words.
-    arrivals.forEach(() => {
-      bridge.desktopBridge.native.showNotification({});
-    });
-  }, [bridge, frameStore, isWithheld, notifier, reading]);
-}
-
-/**
- * What this window is putting in front of a person, at the moment a read settles.
- *
- * ONE SNAPSHOT AND TWO ANSWERS OFF IT, rather than two reads of the store. Both
- * route-derived members come from the same `route`, so a navigation landing between
- * two reads cannot compose an audience describing a window that never existed — the
- * shape this replaced took the session id through one getter and the focus flag
- * through a second `getState()`.
- *
- * The destination is read as the route's own kind rather than through
- * `railDestinationFor`, which folds a workspace route onto the sessions rail too: a
- * person in a workspace is looking at one session's timeline, not at the centre that
- * lists every session's attention, and suppressing their banners would be the
- * over-broad half of the same mistake this rule exists to correct.
- */
-function audienceFor(frameStore: FrameStore): AttentionNotifierAudience {
-  const { isWindowFocused, route } = frameStore.getState();
-  return {
-    activeSessionId: routeSessionId(route),
-    isAttentionSurfaceRouted: route.kind === "sessions",
-    isWindowFocused,
-  };
 }

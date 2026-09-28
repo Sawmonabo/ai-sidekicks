@@ -217,8 +217,6 @@ export function surfaceSlotFor(route: ConsoleRoute): ConsoleSurfaceSlot | undefi
       return "settings";
     case "pane-harness":
       return "pane-harness";
-    case "auxiliary":
-      return route.route === "timeline" ? "timeline" : "agent-console";
     case "not-found":
       return undefined;
   }

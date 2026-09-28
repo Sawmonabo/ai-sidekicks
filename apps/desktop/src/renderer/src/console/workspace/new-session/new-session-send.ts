@@ -1,47 +1,28 @@
-// The first send: three wire calls, in order, reported as one act.
+// The first send: two calls, in order, reported as one act.
 //
-// SPLIT FROM THE DRAFT THAT COMPOSES ONE, on `aux-handoff-contract.ts`'s reading of
-// the same line. `new-session-draft.ts` owns what a person has CHOSEN — the agents,
-// the mount, the posture, the first turn — and the coalescing that keeps one draft to
-// one session. This module owns what those choices become on the wire, in what order,
-// and which answer ends the send; the WORDS it settles in are
+// SPLIT FROM THE DRAFT THAT COMPOSES ONE. `new-session-draft.ts` owns what a person has
+// CHOSEN — the mount, the posture, the first turn — and the coalescing that keeps one
+// draft to one session. This module owns what those choices become on the wire, in what
+// order, and which answer ends the send; the WORDS it settles in are
 // `new-session-settlement.ts`'s. It holds no state at all, so every rule in it can be
 // checked without constructing a draft.
 //
-// "The first send coalesces `session.create`, one `agent.attach` per agent, and
-// `run.queueCreate`; a failure in any of the three renders in the error slot with the
-// calls that succeeded named, and the draft stays editable."
+// ORDERED AND NOT PARALLEL, because the turn needs the session the create returns:
+// issuing them together would mean inventing the id before the daemon minted it. So the
+// send stops at the first call it cannot make, and what it reports is the prefix that
+// landed — never a rollback, because a renderer cannot undo a `session.create` the
+// daemon accepted and pretending otherwise would leave a real session the person
+// believes was never made.
 //
-// ORDERED AND NOT PARALLEL, because the two calls after the create need the session it
-// returns: issuing them together would mean inventing the id before the daemon minted
-// it. So the send stops at the first call it cannot make, and what it reports is the
-// prefix that landed — never a rollback, because a renderer cannot undo a
-// `session.create` the daemon accepted and pretending otherwise would leave a real
-// session the person believes was never made.
-//
-// AND THE ATTACH LEG GOES THROUGH THE GROWTH PORT RATHER THAN REFUSING LOCALLY.
-// `agent.attach` is on the console growth slate's `agent-snapshot-axes` row and
-// reaches the console as a growth operation the fixture serves from a script, so
-// a draft that refused it by name was refusing a call it could have made — and, on
-// the live bridge, was minting a second sentence for the refusal the port already
-// composes. The port's own refusal travels instead, which is what names the document
-// that owes the wire.
-//
-// EVERY CALL SETTLES. `callDaemon` never throws and the attach rides
-// `settledGrowthCall`, so a leg that rejects becomes a refusal on the same arm as one
-// that was refused — the alternative leaves a Send that answers a press by doing
-// nothing while the fault reaches only an unhandled rejection a shipped window does
-// not report.
+// EVERY CALL SETTLES. `callDaemon` never throws and the first-turn call's rejection is
+// caught, so a leg that fails becomes a refusal on the same arm as one that was refused
+// — the alternative leaves a Send that answers a press by doing nothing while the fault
+// reaches only an unhandled rejection a shipped window does not report.
 
+import { callDaemon, type ConsoleBridge, type DaemonReplyRefusalCode } from "../../bridge/index.js";
+import { consoleRefusalFrom, type FirstTurnQueueCall } from "../../seats/index.js";
 import {
-  callDaemon,
-  readQueueItemCreateRequest,
-  settledGrowthCall,
-  type ConsoleBridge,
-  type DaemonReplyRefusalCode,
-} from "../../bridge/index.js";
-import {
-  AGENT_ATTACH_METHOD,
+  NEW_SESSION_DRAFT_REFUSAL_ORIGIN,
   RUN_QUEUE_CREATE_METHOD,
   SESSION_CREATE_METHOD,
   refuseAmbiguousCreate,
@@ -50,28 +31,20 @@ import {
   type NewSessionSendResult,
 } from "./new-session-settlement.js";
 
-/** One agent the send attaches, by definition, with the account that pays. */
-export interface NewSessionAgentLeg {
-  readonly definitionId: string;
-  readonly providerAccountId: string | undefined;
-}
-
 /**
  * Everything the send needs from the draft, and what it already did.
  *
- * `alreadyAttachedDefinitionIds` and `firstTurnAlreadyQueued` are what make a repeat
- * press resume at the first UNMADE call rather than repeat the ones that landed. A
- * send that re-issued a completed attach would put a second agent on the session for
- * one the person chose once; one that re-issued the turn would send their words twice.
+ * `sessionId` and `firstTurnAlreadyQueued` are what make a repeat press resume at the
+ * first UNMADE call rather than repeat the ones that landed. A send that re-issued the
+ * turn would send the person's words twice.
  */
 export interface NewSessionSendRequest {
   readonly bridge: ConsoleBridge;
+  /** Queues the first message on the session, once it exists. */
+  readonly queueFirstTurn: FirstTurnQueueCall;
   readonly sessionId: string | undefined;
-  readonly agents: readonly NewSessionAgentLeg[];
-  readonly alreadyAttachedDefinitionIds: ReadonlySet<string>;
   readonly firstTurnAlreadyQueued: boolean;
   readonly firstTurn: string;
-  readonly executionPostureMode: string | undefined;
   /**
    * Which revision of the draft the caller read this request out of.
    *
@@ -95,12 +68,11 @@ export interface NewSessionSendProgress {
    * acts. The draft records this one and never issues a create again.
    */
   readonly createAnsweredUnreadably: boolean;
-  readonly attachedDefinitionIds: readonly string[];
   readonly firstTurnQueued: boolean;
 }
 
 /**
- * Issue the three calls in order, and report the prefix that landed.
+ * Issue the two calls in order, and report the prefix that landed.
  *
  * Takes the session it already has rather than creating unconditionally: a repeat
  * press after a partial addresses the session the first press made, because minting a
@@ -120,7 +92,6 @@ export async function sendNewSessionDraft(
       result: refuseAmbiguousCreate(request.draftRevision),
       sessionId: undefined,
       createAnsweredUnreadably: true,
-      attachedDefinitionIds: [],
       firstTurnQueued: false,
     };
   }
@@ -135,60 +106,10 @@ export async function sendNewSessionDraft(
       },
       sessionId: undefined,
       createAnsweredUnreadably: false,
-      attachedDefinitionIds: [],
       firstTurnQueued: false,
     };
   }
   const { sessionId } = created;
-
-  const attached: string[] = [];
-  for (const agent of request.agents) {
-    if (request.alreadyAttachedDefinitionIds.has(agent.definitionId)) {
-      // Named as completed even though this press did not issue it, on the create
-      // leg's rule: the slot says what EXISTS, and an agent put on the session by
-      // the previous press is as much on it as one put there by this one.
-      completedCalls.push(AGENT_ATTACH_METHOD);
-      continue;
-    }
-    // Sequential and not `Promise.all`: the daemon stamps an agent's snapshot axes at
-    // attach, and a partial batch reported as one rejection would leave the draft
-    // unable to say WHICH agents are on the session — which is the fact a person
-    // needs before deciding whether to press again.
-    const answer = await settledGrowthCall("agentAttach", async () =>
-      request.bridge.growth.agentAttach({
-        sessionId,
-        definitionId: agent.definitionId,
-        ...(agent.providerAccountId === undefined
-          ? {}
-          : { providerAccountId: agent.providerAccountId }),
-        ...(request.executionPostureMode === undefined
-          ? {}
-          : { executionPostureMode: request.executionPostureMode }),
-      }),
-    );
-    if (answer.status === "unavailable") {
-      return {
-        result: {
-          outcome: "partial",
-          sessionId,
-          completedCalls,
-          // The PORT's own sentence, carried rather than paraphrased: it names the
-          // wire and the document that owes it, which is more than this module knows.
-          refusal: refuseDraft(
-            "agent-attach-failed",
-            `The session was created, but a sidekick could not be attached, so no first turn was queued either. ${answer.detail}`,
-          ),
-          sentRevision: request.draftRevision,
-        },
-        sessionId,
-        createAnsweredUnreadably: false,
-        attachedDefinitionIds: attached,
-        firstTurnQueued: false,
-      };
-    }
-    attached.push(agent.definitionId);
-    completedCalls.push(AGENT_ATTACH_METHOD);
-  }
 
   const turn = await queueFirstTurn(request, sessionId, completedCalls);
   return {
@@ -201,7 +122,6 @@ export async function sendNewSessionDraft(
     },
     sessionId,
     createAnsweredUnreadably: false,
-    attachedDefinitionIds: attached,
     firstTurnQueued: turn.queued,
   };
 }
@@ -282,33 +202,25 @@ async function queueFirstTurn(
       queued: false,
       refusal: refuseDraft(
         "first-turn-missing",
-        "The session was created and its sidekicks are on it, but nothing was said yet — type the first message and press Send again.",
+        "The session was created, but nothing was said yet — type the first message and press Send again.",
       ),
     };
   }
-  // Read through the bridge family's own reader rather than cast: the store holds
-  // wire-verbatim strings and `run.queueCreate` takes a branded id, so an id the wire
-  // would refuse becomes a rendered refusal here instead of a rejected round trip.
-  const queueRequest = readQueueItemCreateRequest({
-    sessionId,
-    payload: { content: request.firstTurn },
-  });
-  if (queueRequest === undefined) {
+  try {
+    await request.queueFirstTurn({ sessionId, content: request.firstTurn });
+  } catch (error: unknown) {
+    // The session exists whatever happened here, so the failure is reported as a
+    // partial send that a second press resumes, and never as a send that made nothing.
+    const { detail } = consoleRefusalFrom(
+      error,
+      NEW_SESSION_DRAFT_REFUSAL_ORIGIN,
+      "first-turn-failed",
+    );
     return {
       queued: false,
       refusal: refuseDraft(
         "first-turn-failed",
-        "The session was created, but the console could not build a first turn the daemon would accept, so it sent none.",
-      ),
-    };
-  }
-  const reply = await callDaemon(request.bridge, RUN_QUEUE_CREATE_METHOD, queueRequest);
-  if (reply.status === "refused") {
-    return {
-      queued: false,
-      refusal: refuseDraft(
-        "first-turn-failed",
-        `The session was created and its sidekicks are on it, but the first turn was not queued. ${reply.refusal.detail}`,
+        `The session was created, but the first turn was not queued. ${detail}`,
       ),
     };
   }

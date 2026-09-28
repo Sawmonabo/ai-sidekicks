@@ -142,7 +142,7 @@ describe("paneAddressKey", () => {
 
   it("is the rule addressesMatch answers with", () => {
     // The predicate is DEFINED as key equality — there is one implementation, not
-    // two that agree — and these rows pin the behaviour that definition gives, so a
+    // two that agree — and these rows pin the behavior that definition gives, so a
     // future re-fork would have to reproduce it exactly rather than approximately.
     const pane = paneAt("inspector", { kind: "run", id: "run-01" }, "pane-a");
     expect(addressesMatch(pane, { kind: "inspector", entity: { kind: "run", id: "run-01" } })).toBe(

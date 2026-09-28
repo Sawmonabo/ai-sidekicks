@@ -169,7 +169,7 @@ export function useDeckPersistence(options: DeckPersistenceOptions): readonly Co
   // AND THE WRITER ITSELF IS HELD PER STORE. The partition axis above is the session;
   // this is the other one. The store handed down is replaced on a reconnect without
   // remounting this surface, and a writer that closed over the first one goes on
-  // writing into it — so the holder retires that writer, draining what it had queued,
+  // writing into it — so the holder retires that writer, flushing what it had queued,
   // and the render that first sees the new store builds the writer bound to it.
   const { value: writer } = useSubjectScopedResource<CoalescingLayoutWriter<PersistedLayoutRecord>>(
     uiStateStore,
@@ -207,9 +207,9 @@ export function useDeckPersistence(options: DeckPersistenceOptions): readonly Co
   // Closed until the read has landed, and re-armed for the session arriving rather than
   // for the store: the deck is the subject and the session is the key, so a `UiStateStore`
   // replacement leaves this exactly as it was. It is a write gate and a dispatch gate and
-  // nothing else, which is why it is held here rather than on the deck: the sidebar's
-  // `hasSettled` is a rendered fact its surface announces on, so hoisting one of the two
-  // onto the other would give a persistence gate a place in a rendered state shape, or an
+  // nothing else, which is why it is held here rather than on the deck: a rendered
+  // `hasSettled` is a fact a surface announces on, so hoisting one of the two onto the
+  // other would give a persistence gate a place in a rendered state shape, or an
   // announcement a place in a hook.
   const { value: restore } = useSubjectScopedState(layout, sessionId, () => new RestoreProgress());
 
@@ -319,8 +319,7 @@ export function useDeckPersistence(options: DeckPersistenceOptions): readonly Co
       return;
     }
     return layout.subscribe(() => {
-      // Nothing is written before the restore has landed — the ordering the sidebar's
-      // persistence states in the same words. A write from the transient deck would
+      // Nothing is written before the restore has landed. A write from the transient deck would
       // replace the very record the read above is still resolving, and the person would
       // find a first-run window where their arrangement had been.
       if (!restore.hasSettled) {

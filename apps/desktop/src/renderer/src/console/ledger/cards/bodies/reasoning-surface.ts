@@ -27,24 +27,7 @@
 // answer to a question the daemon already answers.
 
 import type { ConsoleRefusal } from "../../../core/index.js";
-import type { OwnerSlotContract } from "../../../seats/index.js";
 import type { ReasoningSurfaceReadResponse, RunId, TimelineRow } from "@ai-sidekicks/contracts";
-
-/**
- * Who owns the reasoning body, what this card owes it, and where the shell dies.
- *
- * Developer-facing and never rendered, which is what `OwnerSlotContract` is for. The
- * owning task is named by its subject rather than by its governance number, on the
- * rule the sibling slots in this console state: a runtime string carries no
- * governance id, and the record that plans the work is read somewhere else.
- */
-export const REASONING_SURFACE_SLOT: OwnerSlotContract = {
-  owningTask: "the timeline plan's reasoning surface (the four-arm availability read)",
-  mountObligation:
-    "the reasoning row's body, given the row's run identity, the live text the reveal engine is publishing for it, and the reading this card holds — the card performs the read and never decides an arm of its own",
-  deleteShellIn:
-    "the change that authors the reasoning body deletes this shell rather than leaving it beside the body",
-};
 
 /** One arm of the contract's closed availability discriminant. */
 export type ReasoningAvailability = ReasoningSurfaceReadResponse["availability"];

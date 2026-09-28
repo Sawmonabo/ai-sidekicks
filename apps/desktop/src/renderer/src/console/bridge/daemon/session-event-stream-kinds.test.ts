@@ -90,7 +90,7 @@ describe("session-event streams — the table carries what the wire registers", 
 
   it("carries only kinds the census registers", () => {
     const carried = Object.values(CONSOLE_SESSION_EVENT_STREAMS).flatMap((stream) =>
-      stream.scope === "whole-session" ? [] : [...stream.carriedKinds],
+      stream.scope === "selected-kinds" ? [...stream.carriedKinds] : [],
     );
 
     expect(carried.length).toBeGreaterThan(0);

@@ -17,10 +17,4 @@
 // the component that draws every rule in it — so the sheet, its renderer, and the
 // door that carries it are one place.
 
-// The sheet this directory owns, imported by its own door.
-import "./row-offers.css";
-
-export { LedgerRowMenu } from "./LedgerRowMenu.js";
-export { LedgerRowOffersMenu } from "./LedgerRowOffersMenu.js";
-
 export { useLedgerRowOffers, type LedgerRowOffersBinding } from "./ledger-row-offers-binding.js";

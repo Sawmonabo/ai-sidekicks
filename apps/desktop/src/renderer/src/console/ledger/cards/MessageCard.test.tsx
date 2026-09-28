@@ -1,22 +1,13 @@
-// Three families, one layout — and the slot this card holds open for another plan.
+// Three families, one layout — and the edit affordance this card mounts on a user row.
 
 import type { HydratedSessionEventContent } from "@ai-sidekicks/contracts";
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import {
-  inlineCardSeatRegistry,
-  type InlineCardSeatProps,
-  type OwnerSlotProps,
-} from "../../seats/index.js";
-import { EDIT_AFFORDANCE_SLOT, MessageCard } from "./MessageCard.js";
+import { inlineCardSeatRegistry, type InlineCardSeatProps } from "../../seats/index.js";
+import { MessageCard } from "./MessageCard.js";
 import { FootnoteRegistry } from "./markdown/index.js";
 import { sampleRunRow } from "./row-samples.test-support.js";
-
-const EMPTY_SLOT: OwnerSlotProps<React.ReactNode> = {
-  contract: EDIT_AFFORDANCE_SLOT,
-  body: undefined,
-};
 
 function renderMessageCard(
   overrides: {
@@ -26,7 +17,7 @@ function renderMessageCard(
     readonly content?: HydratedSessionEventContent;
     readonly liveText?: string;
     readonly inlineCards?: readonly InlineCardSeatProps[];
-    readonly editAffordance?: OwnerSlotProps<React.ReactNode>;
+    readonly editAffordance?: React.ReactNode;
     readonly reasoningSurface?: React.ReactNode;
   } = {},
 ): HTMLElement {
@@ -45,7 +36,7 @@ function renderMessageCard(
       {...(overrides.content === undefined ? {} : { content: overrides.content })}
       {...(overrides.liveText === undefined ? {} : { liveText: overrides.liveText })}
       {...(overrides.inlineCards === undefined ? {} : { inlineCards: overrides.inlineCards })}
-      editAffordance={overrides.editAffordance ?? EMPTY_SLOT}
+      editAffordance={overrides.editAffordance}
     />,
   );
   return container;
@@ -106,39 +97,27 @@ describe("the three families this card serves", () => {
   });
 });
 
-describe("the edit affordance slot", () => {
-  it("renders the owning plan's body once it is supplied", () => {
+describe("the edit affordance", () => {
+  it("renders the supplied element on a user row", () => {
     const container = renderMessageCard({
       type: "user.message",
-      editAffordance: {
-        contract: EDIT_AFFORDANCE_SLOT,
-        body: <button type="button">Edit</button>,
-      },
+      editAffordance: <button type="button">Edit</button>,
     });
     expect(container.querySelector("button")?.textContent).toBe("Edit");
   });
 
-  it("renders nothing at all while the slot is empty", () => {
+  it("renders nothing at all while none is supplied", () => {
     const container = renderMessageCard({ type: "user.message" });
     expect(container.querySelector("button")).toBeNull();
   });
 
-  it("offers no slot on a machine row", () => {
+  it("offers none on a machine row", () => {
     // The affordance edits a user's own boundary; a reply has none to edit.
     const container = renderMessageCard({
       type: "assistant.message",
-      editAffordance: {
-        contract: EDIT_AFFORDANCE_SLOT,
-        body: <button type="button">Edit</button>,
-      },
+      editAffordance: <button type="button">Edit</button>,
     });
     expect(container.querySelector("button")).toBeNull();
-  });
-
-  it("names its owner, its obligation, and when the slot dies", () => {
-    expect(EDIT_AFFORDANCE_SLOT.owningTask).not.toBe("");
-    expect(EDIT_AFFORDANCE_SLOT.mountObligation).not.toBe("");
-    expect(EDIT_AFFORDANCE_SLOT.deleteShellIn).not.toBe("");
   });
 });
 

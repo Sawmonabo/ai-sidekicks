@@ -91,7 +91,6 @@ import {
 } from "../../../src/renderer/src/console/workflows/index.js";
 import {
   ConsolePaneRegistry,
-  PinnedPaneRegionRegistry,
   type ConsolePaneAddress,
   type ConsolePaneContext,
   type PaneKind,
@@ -208,14 +207,7 @@ function requirePaneNamed(container: HTMLElement, paneTitle: string): HTMLElemen
 async function surfaceBodyComponent(): Promise<
   FunctionComponent<{ context: ConsoleSurfaceContext }>
 > {
-  // A pinned-region board built here and thrown away. The family's surface seat also
-  // claims the `timeline` pane's region, and this helper mounts the DESTINATION — so the
-  // board is what the second parameter needs and not what this tier reads. The
-  // process-wide one is deliberately not passed: it is owner-scoped state, and a helper
-  // writing into it would make one tier's mount depend on whether another had run.
-  const render = await resolvedSurfaceBody("workflows", (registry) => {
-    registerWorkflowSurfaces(registry, new PinnedPaneRegionRegistry());
-  });
+  const render = await resolvedSurfaceBody("workflows", registerWorkflowSurfaces);
   return ({ context }) => render(context);
 }
 

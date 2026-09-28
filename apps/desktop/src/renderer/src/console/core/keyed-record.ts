@@ -1,22 +1,17 @@
 // One keyed record with one key gone, rebuilt rather than mutated.
 //
-// The rule every store snapshot in the console needs and three of them had each written
-// for themselves — `settings/shared/shell-preferences/shell-preference-snapshot.ts` as an
-// exported generic, `channels/mutation-coordinator.ts` as a private one narrowed to
-// its own refusal map, and the schema-form answer module as a third spelling nothing
-// ever called. One rule, three bodies, and no instrument holding them together, which
-// is what the shared-code rule in `apps/desktop/AGENTS.md` forbids.
+// The rule every store snapshot in the console needs; one body keeps the copies from
+// drifting apart. Its reader today is
+// `settings/shared/shell-preferences/shell-preferences-store.ts`.
 //
-// IT LIVES AT THE FLOOR AND NOT IN THE FAMILY THAT NEEDED IT FIRST. Its readers are
-// `settings/` and `channels/`, two VIEW families, and a view family never imports
-// another — so neither could have taken the other's copy however the first was written.
-// `core/` is the only home both can reach, and this rule needs nothing to sit there: no
-// store type, no schema, no React, no clock.
+// IT LIVES AT THE FLOOR AND NOT IN THE FAMILY THAT NEEDED IT FIRST, because a view
+// family never imports another. `core/` is the only home every family can reach, and
+// this rule needs nothing to sit there: no store type, no schema, no React, no clock.
 //
 // REBUILT AND NEVER MUTATED, because every caller holds the record a `useSyncExternalStore`
 // snapshot is read from: a `delete` in place leaves the same object identity and the
 // surface does not repaint. That is a rule about this function rather than about any of
-// its callers, which is why it is stated once here instead of three times over there.
+// its callers, which is why it is stated once here instead of once per caller.
 //
 // AND THE SAME RECORD BACK WHERE THE KEY IS ABSENT, which is the other half of the same
 // concern. A rebuild that always allocates makes every no-op removal a new snapshot

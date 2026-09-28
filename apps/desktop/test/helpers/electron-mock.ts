@@ -36,7 +36,7 @@
 // `src/main/renderer-assets.test.ts`, `src/main/load-failure-document.test.ts`,
 // `src/main/renderer-scheme.test.ts` — need no mock at all.
 //
-// The reading helpers the four window suites share (the `MockBrowserWindow`
+// The reading helpers the three window suites share (the `MockBrowserWindow`
 // cast, the listener accessors, the policy-operation prefix) live beside this
 // module in `./window-test-harness.ts`.
 

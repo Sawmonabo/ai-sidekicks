@@ -64,7 +64,7 @@
 // It reads no wire itself. The `read` performer is supplied by the composition
 // root, which is what keeps this family below `bridge/` in the console's DAG.
 
-import { RealClock, type ConsoleClock, type ConsoleRefusal } from "../../core/index.js";
+import { RealClock, type ConsoleClock } from "../../core/index.js";
 import type { EntityProjectorRegistry } from "../entities/index.js";
 // Deep rather than through `read/index.js`, and `store/read/read-triggers.ts`'s own reach
 // back into `session/` is why: that door is an edge to the trigger surface, which reads
@@ -85,10 +85,9 @@ import {
 /**
  * The read a refresh performs.
  *
- * Returns the snapshot to establish, or `undefined` for "nothing was read" — the
- * honest answer while a session's wire is unregistered, and deliberately not an
- * empty snapshot, which would tell the store the session is genuinely empty and
- * clear its degraded flag on a read that never happened.
+ * Returns the snapshot to establish, or `undefined` for "nothing was read" —
+ * deliberately not an empty snapshot, which would tell the store the session is
+ * genuinely empty and clear its degraded flag on a read that never happened.
  *
  * `resumeFromCursor` is where the reader is asked to start: the position the previous
  * read acknowledged, or `undefined` for the beginning of the window.
@@ -110,25 +109,6 @@ export type SessionSnapshotReader = (
 ) => Promise<SessionSnapshot | undefined>;
 
 /**
- * What a caller does about reads: perform one, or carry the refusal that says why
- * it cannot.
- *
- * A refusal rather than a reason-less sentinel, and the two are not the same
- * mechanism wearing different names. Both answer the question a function-shaped
- * placeholder cannot be asked — can a store opened here ever be initialised? — and
- * a stream bound to one that cannot is a stream buffered forever and projected
- * never. The refusal answers it and also names the operation that would have served
- * the read and the document that owes the wire, which is what a surface renders as
- * the `not-checked` kind of nothing. One mechanism, and the strictly more
- * informative one.
- *
- * Still deliberately distinct from a reader that resolves `undefined`: that is a
- * read that HAPPENED and found nothing — transient, and the next refresh may well
- * succeed.
- */
-export type SessionSnapshotRead = SessionSnapshotReader | ConsoleRefusal;
-
-/**
  * Everything one open session needs.
  *
  * Declared HERE, in the lower of the two modules, rather than in the registry that
@@ -141,11 +121,9 @@ export type SessionSnapshotRead = SessionSnapshotReader | ConsoleRefusal;
 export interface OpenSessionEntryOptions {
   /**
    * The read every session's refresh scheduler performs. REQUIRED, and required
-   * on purpose: a refresh path with no read is a timer that fires into nothing,
-   * so a caller with no wire yet passes the refusal it would have rendered and
-   * says so at the call site rather than getting that behaviour by default.
+   * on purpose: a refresh path with no read is a timer that fires into nothing.
    */
-  readonly read: SessionSnapshotRead;
+  readonly read: SessionSnapshotReader;
   /**
    * Called after every read that settles a resume decision, so a reading can
    * subscribe to the decision rather than to a store transition that may not happen.
@@ -231,13 +209,6 @@ export class OpenSessionEntry {
     this.refreshScheduler = new RefreshScheduler({
       clock,
       perform: async (reasons) => {
-        if (typeof options.read !== "function") {
-          // A refusal, not a reader. Nothing to perform, and nothing to report
-          // either: the refusal is a STANDING fact the caller already renders,
-          // not an error this read discovered, so `onError` stays for reads that
-          // were attempted and failed.
-          return;
-        }
         await this.#performRead(options.read, sessionId, reasons);
       },
       // A failed read is a real degradation with a named cause, not an unhandled

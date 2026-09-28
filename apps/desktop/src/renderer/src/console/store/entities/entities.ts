@@ -30,7 +30,6 @@
 export const CONSOLE_ENTITY_KINDS = [
   "session",
   "user",
-  "channel",
   "run",
   "agent",
   "workspace",
@@ -56,11 +55,10 @@ export const CONSOLE_ENTITY_KINDS = [
   //
   // NO PROJECTOR IS OWED BY THIS ENTRY. A kind here is a valid REFERENCE kind and a
   // partition that exists; it is not a promise that some family projects rows into
-  // it. An inspector card for a repo reads the row from its own family's reader — the
-  // growth port's repo operations — exactly as it would if it had a partition full of
-  // rows, and the empty partition costs one `Map` per session. The alternative was a
-  // second kind vocabulary for references that the store does not fill, which is two
-  // closed sets for one idea.
+  // it. An inspector card for a repo reads the row from its own family's reader, exactly
+  // as it would if it had a partition full of rows, and the empty partition costs one
+  // `Map` per session. The alternative was a second kind vocabulary for references that
+  // the store does not fill, which is two closed sets for one idea.
   "repo",
 ] as const;
 

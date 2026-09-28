@@ -1,14 +1,7 @@
-// The pane context, the render, and the log both timeline-pane suites are driven over.
+// The pane context, the render, and the log the timeline-pane suite is driven over.
 //
-// ONE HOME, because the two suites next door ask different questions of the same
-// mount: `TimelinePane.test.tsx` asks what the CHROME and the row slot do, and
-// `TimelinePaneScope.test.tsx` asks what a channel address narrows. A second
-// `paneContext` would be a second answer to which members of the context this pane
-// really reads, and the cast is exactly the part that must not be written twice.
-//
-// The seat teardown is NOT here. It is an `afterEach`, so a home shared by two files
-// would register it once per importer and hide which suite owns its own cleanup —
-// each suite states it beside its own cases.
+// The seat teardown is NOT here: it is an `afterEach`, which the suite states beside its
+// own cases.
 
 import { render } from "@testing-library/react";
 
@@ -84,7 +77,7 @@ export function renderTimelinePane(props: TimelinePaneProps): HTMLElement {
  */
 export function openSessionStoreWithPaneLog(): SessionStore {
   const sessionStore = new SessionStore({ sessionId: TIMELINE_PANE_SESSION_ID });
-  sessionStore.initialise({ cursor: -1, entities: [], userJoinLog: [] });
+  sessionStore.initialise({ cursor: -1, entities: [] });
   sessionStore.applyBatch([
     {
       id: "event-0",

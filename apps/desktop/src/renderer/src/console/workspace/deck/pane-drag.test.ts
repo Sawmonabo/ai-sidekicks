@@ -38,7 +38,7 @@ function elementSpanning(left: number, width: number): Element {
 }
 
 describe("reading a drag payload", () => {
-  it("recognises a pane drag by its namespaced key", () => {
+  it("recognizes a pane drag by its namespaced key", () => {
     expect(paneIdFromDragData({ [DECK_PANE_DRAG_KEY]: "pane-2" })).toBe("pane-2");
   });
 

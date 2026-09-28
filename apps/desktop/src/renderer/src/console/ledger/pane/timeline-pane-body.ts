@@ -14,19 +14,18 @@
 // the only module anywhere that calls `timelineRowRenderer()`, so the seat's reader and
 // the seat's shell now arrive together: filling it from `registerLedger` instead put the
 // whole card subtree — and every markdown dependency behind it — on the initial graph for
-// the sake of a seat nothing outside this chunk reads. The two calls run at module scope
+// the sake of a seat nothing outside this chunk reads. The call runs at module scope
 // and not from a registrar, which is what makes that true: a function the family's door
 // called would be an edge from the door to these modules again, which is the edge this
 // boundary exists to remove. Once per realm is also exactly the right number — the seat
-// is a process-wide single slot rather than one of the composed boards, the calls are
+// is a process-wide single slot rather than one of the composed boards, the call is
 // idempotent under its owner scoping, and a suite that wants the rows without the pane
 // around them calls `registerFixtureShellRows` itself (`test/console/accessibility/
 // ledger-axe.test.tsx` does).
 //
-// AND BOTH CALLS DIE WITH THE SHELL, exactly as they did at the door:
+// AND THE CALL DIES WITH THE SHELL, exactly as it did at the door:
 // `seats/slots/timeline-row-slot.ts` states the absorb-by-import rule, and the change that
-// registers the timeline subtree's real rows deletes these two lines with the modules
-// they name.
+// registers the timeline subtree's real rows deletes this line with the module it names.
 //
 // WHY THIS DIRECTORY IS INSIDE THE FAMILY, carried here from the door this module
 // replaced. The pane body is ledger view code: the feed, the window derivations, the find
@@ -61,12 +60,10 @@
 import { createElement } from "react";
 
 import { paneBodyForKind, type ConsolePaneContext } from "../../seats/index.js";
-import { registerFixtureShellRowFooter } from "../cards/shell/FixtureShellRowFooter.js";
 import { registerFixtureShellRows } from "../cards/shell/FixtureShellRows.js";
 import { TimelinePane } from "./TimelinePane.js";
 
 registerFixtureShellRows();
-registerFixtureShellRowFooter();
 
 /**
  * The ledger, at an address the deck resolved to this kind.

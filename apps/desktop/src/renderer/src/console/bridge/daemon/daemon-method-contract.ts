@@ -23,77 +23,15 @@ import type {
   DriverCompactionResult,
   DriverAckResult,
   CompactContextRequest,
-  ChannelListRequest,
-  ChannelListResponse,
-  ExecutionModeSelectRequest,
-  ExecutionModeSelectResponse,
-  InterventionRequestPayload,
-  InterventionRequestResponse,
   PresenceReadRequest,
   PresenceReadResponse,
-  ProviderAccountListRequest,
-  ProviderAccountListResponse,
-  ProviderAccountProbeRequest,
-  ProviderAccountProbeResponse,
-  QueueItemCancelRequest,
-  QueueItemCancelResponse,
-  QueueItemCreateRequest,
-  QueueItemCreateResponse,
-  QueueItemListRequest,
-  QueueItemListResponse,
-  EphemeralCloneDisposeRequest,
-  EphemeralCloneDisposeResponse,
-  EphemeralClonePrepareRequest,
-  EphemeralClonePrepareResponse,
-  ExecutionRootPrepareRequest,
-  ExecutionRootPrepareResponse,
-  RepoAttachRequest,
-  RepoAttachResponse,
-  RepoMountReadRequest,
-  RepoMountReadResponse,
-  RunControlAck,
-  RunPauseRequest,
-  RunResumeRequest,
   SessionCreateRequest,
   SessionCreateResponse,
+  SessionReadRequest,
+  SessionReadResponse,
   TimelineReadRequest,
   TimelineReadResponse,
-  WorkspaceExecutionModeCapabilitiesReadRequest,
-  WorkspaceExecutionModeCapabilitiesReadResponse,
-  WorkspaceBindRequest,
-  WorkspaceBindResponse,
-  WorkspaceListRequest,
-  WorkspaceListResponse,
-  WorktreeRetireRequest,
-  WorktreeRetireResponse,
-  WorktreeReuseCheckRequest,
-  WorktreeReuseCheckResponse,
-  WorktreeStatusReadRequest,
-  WorktreeStatusReadResponse,
 } from "@ai-sidekicks/contracts";
-
-/**
- * What one call does on the far side.
- *
- * TWO ARMS AND NO THIRD. A method that reads and writes is a RECORD: the question this
- * answers is whether the call may be dispatched through a supervisor that is not
- * serving (supervision blocks mutating operations while it is not serving and keeps
- * read-only subscriptions live), and a call that writes anything may not.
- *
- * HERE RATHER THAN AT THE REGISTRY, beside the method set it is a fact about: a
- * method's kind is part of WHAT it is, which is this module's half, while binding a
- * schema to it is the registry's. The VALUE for each method rides that registry's own
- * row, so the classification is a column the same annotation already makes mandatory
- * rather than a second list of these method strings.
- *
- * A method's NAME is not its kind, which is why each row's value is quoted from the
- * operation's own `query` / `mutation` cell in
- * `docs/architecture/contracts/api-payload-contracts.md`: `repo.worktreeReuseCheck`
- * ends in a word that reads like a write and is a `query`, `providerAccount.probe`
- * reads like a read and writes the probed account's health row and its credential
- * generation, and `driver.respondToRequest` names neither direction.
- */
-export type DaemonMethodKind = "read" | "record";
 
 /**
  * Every registered daemon method a console surface calls, bound to the request it
@@ -101,34 +39,13 @@ export type DaemonMethodKind = "read" | "record";
  *
  * Keyed by the method STRING rather than by a symbolic name, so a call site spells
  * the wire's own word and `ConsoleDaemonMethodContract[MethodName]` resolves for a
- * generic parameter. The method strings are quoted verbatim from
- * `docs/architecture/contracts/api-payload-contracts.md`; nothing here invents one.
+ * generic parameter. The method strings are quoted verbatim from the payload
+ * contracts; nothing here invents one.
  *
  * Grouped by namespace, and within a namespace in the registry table's own row
  * order, so a reader comparing the two reads them top to bottom.
  */
 export interface ConsoleDaemonMethodContract {
-  // run — the queue and the five run controls that reach the wire as calls.
-  readonly "run.queueCreate": {
-    readonly request: QueueItemCreateRequest;
-    readonly response: QueueItemCreateResponse;
-  };
-  readonly "run.queueList": {
-    readonly request: QueueItemListRequest;
-    readonly response: QueueItemListResponse;
-  };
-  readonly "run.queueCancel": {
-    readonly request: QueueItemCancelRequest;
-    readonly response: QueueItemCancelResponse;
-  };
-  readonly "run.pause": { readonly request: RunPauseRequest; readonly response: RunControlAck };
-  readonly "run.resume": { readonly request: RunResumeRequest; readonly response: RunControlAck };
-  /** Steer, interrupt, cancel, rollback: one method, four arms of one payload union. */
-  readonly "run.intervene": {
-    readonly request: InterventionRequestPayload;
-    readonly response: InterventionRequestResponse;
-  };
-
   // driver — the five client-facing verbs a composer, a run control, or a picker
   // reaches, registered together because they are one plane rather than five
   // decisions. Two of the replies are the empty object and one of the requests is:
@@ -183,79 +100,14 @@ export interface ConsoleDaemonMethodContract {
     readonly response: ReasoningSurfaceReadResponse;
   };
 
-  // repo — the mounts, workspaces, and execution roots the repos section reads AND
-  // mutates. One namespace and two registry tables behind it: the six mount-and-
-  // workspace rows and the seven worktree-and-clone rows are registered in the repo
-  // method-name registry as one `repo` root, and the rows below are in those tables'
-  // own order.
-  //
-  // TWELVE OF THE THIRTEEN. `repo.detach` is the one registered method this console
-  // deliberately does not bind, and its absence is a rule rather than a gap:
-  // the desktop renderer has no detach surface in V1, so binding the shape would make
-  // the call one import away from a
-  // surface that must not offer it. The mount card DISCLOSES where detach lives
-  // instead of being silent about it.
-  readonly "repo.attach": {
-    readonly request: RepoAttachRequest;
-    readonly response: RepoAttachResponse;
-  };
-  readonly "repo.mountRead": {
-    readonly request: RepoMountReadRequest;
-    readonly response: RepoMountReadResponse;
-  };
-  readonly "repo.workspaceBind": {
-    readonly request: WorkspaceBindRequest;
-    readonly response: WorkspaceBindResponse;
-  };
-  readonly "repo.executionModeCapabilitiesRead": {
-    readonly request: WorkspaceExecutionModeCapabilitiesReadRequest;
-    readonly response: WorkspaceExecutionModeCapabilitiesReadResponse;
-  };
-  readonly "repo.workspaceList": {
-    readonly request: WorkspaceListRequest;
-    readonly response: WorkspaceListResponse;
-  };
-  readonly "repo.executionModeSelect": {
-    readonly request: ExecutionModeSelectRequest;
-    readonly response: ExecutionModeSelectResponse;
-  };
-  readonly "repo.executionRootPrepare": {
-    readonly request: ExecutionRootPrepareRequest;
-    readonly response: ExecutionRootPrepareResponse;
-  };
-  readonly "repo.worktreeReuseCheck": {
-    readonly request: WorktreeReuseCheckRequest;
-    readonly response: WorktreeReuseCheckResponse;
-  };
-  readonly "repo.ephemeralClonePrepare": {
-    readonly request: EphemeralClonePrepareRequest;
-    readonly response: EphemeralClonePrepareResponse;
-  };
-  readonly "repo.ephemeralCloneDispose": {
-    readonly request: EphemeralCloneDisposeRequest;
-    readonly response: EphemeralCloneDisposeResponse;
-  };
-  /**
-   * The worktree plane's one mutation the console sends. Bound because the sidebar's
-   * bulk retire is its caller — a row bound ahead of a caller is the shape this
-   * registry's own header forbids, and this one arrives with the surface that sends it.
-   */
-  readonly "repo.worktreeRetire": {
-    readonly request: WorktreeRetireRequest;
-    readonly response: WorktreeRetireResponse;
-  };
-  readonly "repo.worktreeStatusRead": {
-    readonly request: WorktreeStatusReadRequest;
-    readonly response: WorktreeStatusReadResponse;
-  };
-  // session, channels, presence — the session plane.
+  // session and presence — the session plane.
   readonly "session.create": {
     readonly request: SessionCreateRequest;
     readonly response: SessionCreateResponse;
   };
-  readonly "channel.list": {
-    readonly request: ChannelListRequest;
-    readonly response: ChannelListResponse;
+  readonly "session.read": {
+    readonly request: SessionReadRequest;
+    readonly response: SessionReadResponse;
   };
   readonly "presence.read": {
     readonly request: PresenceReadRequest;
@@ -286,34 +138,5 @@ export interface ConsoleDaemonMethodContract {
   readonly "timeline.read": {
     readonly request: TimelineReadRequest;
     readonly response: TimelineReadResponse;
-  };
-
-  // providerAccount — the node-local registry read. The subscription beside it is a
-  // stream and so is not here; see this module's header.
-  /**
-   * Live. `provider-account-quota.ts` calls it and the composer's accessory rail
-   * renders the reading, so the row is bound by a caller rather than ahead of one.
-   * The run-start account selector the composer carries is a second reader of the
-   * same registry, not the first.
-   */
-  readonly "providerAccount.list": {
-    readonly request: ProviderAccountListRequest;
-    readonly response: ProviderAccountListResponse;
-  };
-  /**
-   * Live. The onboarding provider-readiness step's re-check control calls it: the
-   * readiness `providerAccount.list` serves is read from a STORED observation, so a
-   * person who has just signed a provider in out-of-band needs a way to ask again,
-   * and re-reading the registry would only re-serve the same stored reading.
-   *
-   * It is a MUTATING verb by the account plane's own reckoning — it writes back the
-   * health state and its timestamp, and crosses `credentialGeneration` where the
-   * probe changes an account's authenticated-ness — so the step offers it as a
-   * deliberate act and never on a cadence. This console reads nothing from its reply
-   * except that it settled; the readiness that follows is the registry read's.
-   */
-  readonly "providerAccount.probe": {
-    readonly request: ProviderAccountProbeRequest;
-    readonly response: ProviderAccountProbeResponse;
   };
 }

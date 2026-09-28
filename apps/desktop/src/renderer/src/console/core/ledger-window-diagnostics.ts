@@ -15,13 +15,12 @@
 // which is the render the frame's budget exists to avoid. So a mount registers a
 // FUNCTION and the reading is taken at the instant somebody asks for one.
 //
-// LAST WRITER WINS, AND AN UNREGISTER IS IDENTITY-CHECKED. One session can be on
-// screen in two places — the session's own ledger and a channel pane's — and a route
-// change remounts a pane before React has run the outgoing mount's cleanup. A throwing
-// registry would turn either of those into a defect; a blind `delete` on cleanup would
-// let the OUTGOING mount remove the incoming one's reader and leave the session
-// reading absent for the rest of the window's life. `SessionDiagnosticsHandle.remove`
-// makes the same check for the same reason.
+// LAST WRITER WINS, AND AN UNREGISTER IS IDENTITY-CHECKED. A route change remounts a
+// pane before React has run the outgoing mount's cleanup. A throwing registry would
+// turn that into a defect; a blind `delete` on cleanup would let the OUTGOING mount
+// remove the incoming one's reader and leave the session reading absent for the rest
+// of the window's life. `SessionDiagnosticsHandle.remove` makes the same check for the
+// same reason.
 
 import { type Unsubscribe } from "./emitter.js";
 

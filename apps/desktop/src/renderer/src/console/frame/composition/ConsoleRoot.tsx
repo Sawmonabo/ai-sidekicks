@@ -5,13 +5,11 @@
 // `ConsoleFrameHost.tsx` beside it is the bridge gate and the token sheet above it,
 // `ConsoleFrame.tsx` beside it is the window itself, `RouteSurface.tsx` beside it
 // resolves a route to a surface, and the command surface, the rail, the session
-// registry, the durable store's life and the colour scheme are the family root,
+// registry, the durable store's life and the color scheme are the family root,
 // `composition/`, `session/` and `bindings/` between them.
 //
 // What stays here is the one thing that has to happen before any window renders,
 // and the provider that has to wrap every one of them.
-
-import { type ReactNode } from "react";
 
 import { DesktopBridgeProvider } from "../../bridge/index.js";
 import {
@@ -24,11 +22,7 @@ import { consoleEntityProjectorRegistry } from "../../store/index.js";
 import {
   consolePaneRegistry,
   consoleSurfaceRegistry,
-  frameBindingRegistry,
   inlineCardSeatRegistry,
-  pinnedPaneRegionRegistry,
-  sidebarSectionRegistry,
-  type ConsoleSurfaceContext,
 } from "../../seats/index.js";
 import { ConsoleFrameHost } from "./ConsoleFrameHost.js";
 
@@ -48,36 +42,22 @@ import { ConsoleFrameHost } from "./ConsoleFrameHost.js";
 // registry refuses a second OWNER on one slot, so a hot reload replaces and a
 // collision raises.
 //
-// All seven process-wide boards are named HERE rather than reached for inside the
+// The four process-wide boards are named HERE rather than reached for inside the
 // composition, which is what makes this the composition site: a test or an auxiliary
 // window calls the same function with boards of its own and touches none of these.
 //
-// The sidebar and inline-card boards are named even though no family fills either
-// yet, and that is the reason to name them: both ship a module-scope registrar that
-// writes into the singleton, so a family reaching for one would compose into
-// production from inside a composition that was handed something else. Passing them
-// here is what makes that reach unnecessary.
+// The inline-card board is named even though no family fills it yet, and that is the
+// reason to name it: it ships a module-scope registrar that writes into the singleton,
+// so a family reaching for it would compose into production from inside a composition
+// that was handed something else. Passing it here is what makes that reach unnecessary.
 //
-// The pinned-region board is named on the same terms, and it is the one board a family
-// already fills for a pane it does not own — the workflows family pins a channel's run
-// progress above the channel-scoped timeline. The chrome that draws that region falls
-// back to this same singleton when a host passes none, so this line is what makes the
-// production frame and the production composition the same board.
+// The projector board's ORDER against the window below is the reason it is composed at
+// module scope with the others: a family claims the event kinds it folds here, and a
+// window opens its first session store during render, which is strictly after. A store
+// therefore opens with the fold the composition claimed rather than with whatever had
+// registered by the time the first event arrived.
 //
-// The projector board is the third, and its ORDER against the window below is the
-// reason it is composed at module scope with the other two: a family claims the
-// event kinds it folds here, and a window opens its first session store during
-// render, which is strictly after. A store therefore opens with the fold the
-// composition claimed rather than with whatever had registered by the time the
-// first event arrived.
-//
-// The frame-binding board is the sixth, and the one whose claims are mounted by the
-// frame rather than by a route. It is composed here with the rest for the projector
-// board's reason: a binding is registered before any window renders, so the frame
-// wraps its first subtree in every binding a family claimed rather than in whichever
-// ones had evaluated by then.
-//
-// The eighth thing composed here is a wire rather than a board — every tripwire this
+// The fifth thing composed here is a wire rather than a board — every tripwire this
 // process reports reaches the diagnostic capture — and it is armed FIRST, above the
 // families. A registrar can report during composition (the boards refuse a second
 // owner on one slot, and a projector claim can collide), so a route armed below this
@@ -119,17 +99,12 @@ registerConsoleFamilies(
   consoleSurfaceRegistry,
   consolePaneRegistry,
   consoleEntityProjectorRegistry,
-  sidebarSectionRegistry,
   inlineCardSeatRegistry,
-  frameBindingRegistry,
-  pinnedPaneRegionRegistry,
 );
 
 export interface ConsoleRootProps {
   /** Which fixture scenario to play. Ignored when fixtures are compiled out. */
   readonly scenarioId?: string;
-  /** Window-scoped overlays — the command palette, dialogs. */
-  readonly renderOverlays?: (context: ConsoleSurfaceContext) => ReactNode;
 }
 
 /** The console's mount point. `App.tsx` renders exactly this. */
@@ -139,9 +114,7 @@ export function ConsoleRoot(props: ConsoleRootProps): React.JSX.Element {
       {...(props.scenarioId === undefined ? {} : { scenarioId: props.scenarioId })}
       clockToRebind={consoleTripwireRouteClock}
     >
-      <ConsoleFrameHost
-        {...(props.renderOverlays === undefined ? {} : { renderOverlays: props.renderOverlays })}
-      />
+      <ConsoleFrameHost />
     </DesktopBridgeProvider>
   );
 }

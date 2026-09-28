@@ -1,9 +1,8 @@
 // The fixture-bridge shape claim, as a test.
 //
 // The claim: the fixture bridge is typed from the same `packages/contracts`
-// desktop-bridge types as the live bridge, is shape-identical to `DesktopBridge`
-// namespace for namespace, and the scenario manifest's live-status field is checked
-// against the growth slate.
+// desktop-bridge types as the live bridge, and is shape-identical to `DesktopBridge`
+// namespace for namespace.
 //
 // WHY A RUNTIME TEST FOR SOMETHING THE TYPES ALREADY SAY. Both bridges are declared
 // `DesktopBridge`, so a namespace added to the contract breaks the fixture at
@@ -20,15 +19,6 @@
 // hand-list also forgot. The comparison enumerates both objects at runtime, and the
 // only listing anywhere is `bridge-shape.ts`'s namespace table, which is keyed by
 // `keyof DesktopBridge` and therefore cannot go stale.
-//
-// WHAT THIS FILE DOES NOT COVER. `failure-modes.test.ts` next door already drives the growth
-// ledger's internal coherence — every slate row covered, no orphaned row id, every
-// entry `fixture-only` while its row is unregistered, one port method per operation
-// entry. Repeating those here would be two tests failing for one cause. What is
-// left, and what this file adds, is the join between the ledger and an actual
-// `ConsoleBridge`: that the operations the manifest carries a live status for are
-// reachable on the port BOTH bridges expose, and that every row a ledger entry
-// names resolves to a row object rather than throwing.
 
 import { createStubBridge, type DesktopBridge } from "@ai-sidekicks/contracts";
 import { afterEach, describe, expect, it } from "vitest";
@@ -41,11 +31,8 @@ import {
 } from "./bridge-shape.js";
 import type { ConsoleBridge } from "./console-bridge.js";
 import { createFixtureBridge } from "./fixture/call-plane/bridge.js";
-import { GROWTH_OPERATIONS } from "./growth-operations/index.js";
-import { GROWTH_PREREQUISITES } from "./growth-port/growth-prerequisites.js";
-import { growthSlateRow } from "./growth-port/growth-slate.js";
 import { createLiveBridge, readInstalledBridge } from "./live-bridge.js";
-import { consoleScenario, consoleScenarioManifest } from "./scenario/index.js";
+import { CONSOLE_SCENARIOS, consoleScenario } from "./scenario/index.js";
 import { FIRST_RUN_SCENARIO_ID } from "./scenario/first-run.js";
 
 /**
@@ -194,62 +181,9 @@ describe("the fixture bridge is shape-identical to the live bridge", () => {
   });
 });
 
-describe("the growth ledger's live status is checked against the slate", () => {
-  it("exposes every ledgered operation on the growth port of BOTH bridges", () => {
-    // The manifest carries a `liveStatus` per operation. A status for an operation
-    // no bridge exposes is a claim about a method that does not exist — the ledger
-    // would go on reporting "fixture-only" for a wire no surface could ever call.
-    const live = resolveLiveBridgeFrom(createStubBridge());
-    const fixture = fixtureBridge();
-    expect(live).toBeDefined();
-
-    for (const entry of consoleScenarioManifest().growthOperations) {
-      expect(Object.keys(fixture.growth)).toContain(entry.id);
-      if (live !== undefined) {
-        expect(Object.keys(live.growth)).toContain(entry.id);
-      }
-    }
-  });
-
-  it("keeps prerequisites off the port, since a method that dispatches nothing is a fiction", () => {
-    const portMethodNames = new Set(Object.keys(fixtureBridge().growth));
-    for (const entry of consoleScenarioManifest().prerequisites) {
-      expect(portMethodNames.has(entry.id)).toBe(false);
-    }
-  });
-
-  it("resolves every slate row a ledger entry names", () => {
-    for (const entry of [
-      ...consoleScenarioManifest().growthOperations,
-      ...consoleScenarioManifest().prerequisites,
-    ]) {
-      expect(growthSlateRow(entry.slateRow).id).toBe(entry.slateRow);
-    }
-  });
-
-  it("serves only operations it has entries for", () => {
-    // `fixtureServedOperations` is the fixture's claim about which growth wires it
-    // scripts. An id here that the ledger does not carry would be a served wire
-    // with no slate row and therefore no owner.
-    for (const operationId of consoleScenarioManifest().fixtureServedOperations) {
-      expect(Object.keys(GROWTH_OPERATIONS)).toContain(operationId);
-    }
-  });
-
-  it("negative control: the port-membership check notices an id that is not on the port", () => {
-    // Proves the three checks above are reading the port rather than passing over
-    // whatever they are handed. A prerequisite id is the right probe: it is a real
-    // ledger id that must never be a method.
-    const portMethodNames = Object.keys(fixtureBridge().growth);
-    const prerequisiteId = Object.keys(GROWTH_PREREQUISITES)[0];
-
-    expect(prerequisiteId).toBeDefined();
-    expect(portMethodNames).not.toContain(prerequisiteId);
-    expect(portMethodNames.length).toBeGreaterThan(0);
-  });
-
-  it("resolves every scenario the manifest lists", () => {
-    for (const scenario of consoleScenarioManifest().scenarios) {
+describe("the scenario lookup", () => {
+  it("resolves every scenario on the board", () => {
+    for (const scenario of CONSOLE_SCENARIOS) {
       expect(consoleScenario(scenario.id).id).toBe(scenario.id);
     }
   });

@@ -26,10 +26,4 @@
 
 export { CONSOLE_SCENARIOS } from "./corpus.js";
 
-export {
-  consoleScenario,
-  consoleScenarioManifest,
-  findOrphanedLedgerRowIds,
-  mapSlateRowCoverage,
-  type ConsoleScenarioManifest,
-} from "./manifest.js";
+export { consoleScenario } from "./manifest.js";

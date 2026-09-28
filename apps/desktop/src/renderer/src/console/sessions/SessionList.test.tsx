@@ -1,7 +1,6 @@
 // What a session row says about WHEN it was last touched.
 //
-// The list groups by tier — the front tier a person pinned, and everything else —
-// and it carries no day divider anywhere. So the touched-at reading is the only
+// The list carries no day divider anywhere. So the touched-at reading is the only
 // thing on the row that can say which day it belongs to, and a clock-only reading
 // made two sessions a week apart at the same minute identical on screen. That is a
 // property no type can state and one this file asserts directly.
@@ -29,14 +28,7 @@ function row(overrides: Partial<SessionListRow> = {}): SessionListRow {
 }
 
 function renderList(rows: readonly SessionListRow[]): HTMLElement {
-  const { container } = render(
-    <SessionList
-      rows={rows}
-      tierBySessionId={{}}
-      onOpen={() => undefined}
-      onSetTier={() => undefined}
-    />,
-  );
+  const { container } = render(<SessionList rows={rows} pinned={{}} onOpen={() => undefined} />);
   return container;
 }
 

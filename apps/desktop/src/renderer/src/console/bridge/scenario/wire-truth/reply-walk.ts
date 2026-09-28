@@ -13,61 +13,26 @@
 // transcribe: a scenario answering `workflow.runList` renders a surface that looks
 // served, ships a reference image of it, and reaches the daemon on the day the
 // fixture define flips to find that nothing by that name was ever registered. The
-// two registries are the corpus's own — the daemon call set the console binds and
-// the growth slate's expected wire methods — so nothing here is a second list.
-//
-// AND THE REACHABILITY CLAIM HAS A SECOND HALF. A call the corpus registers can
-// still be answered by nothing: the growth port refuses an operation outside
-// `FIXTURE_SERVED_GROWTH_OPERATION_IDS` WITHOUT consulting the script, so a scenario
-// scripting one writes a reply no caller can reach. Four scenarios shipped an
-// `agent.list` roster in exactly that state, and the composer's target chip rendered
-// its refusal on every provider-bound surface while the script sat unread. The
-// served set is imported rather than restated, so the two cannot disagree.
+// registry is the corpus's own — the daemon call set the console binds — so nothing
+// here is a second list.
 
 import { CONSOLE_DAEMON_METHODS } from "../../daemon/index.js";
-import { FIXTURE_SERVED_GROWTH_OPERATION_IDS } from "../../fixture/call-plane/served-operations.js";
-import { GROWTH_OPERATIONS } from "../../growth-operations/index.js";
-import type { GrowthOperationId } from "../../growth-port/growth-entry.js";
 import type { ScenarioWireTruthDefect } from "./defect.js";
 import type { ConsoleScenario } from "../runtime/vocabulary.js";
 
-/**
- * How a growth row with no registered wire method is keyed by a scripted reply.
- *
- * The one admitted shape that is manifestly not a method string, and it exists
- * because a growth operation whose wire the corpus has NOT registered has no name to
- * transcribe: the slate row is the whole of what is known about it. Keying its
- * reply on the operation id is honest about that, and the prefix is what keeps the
- * two vocabularies from colliding — a caller cannot accidentally spell a method this
- * way, and a reader cannot mistake one for the other.
- *
- * Deliberately NOT admitted for a growth row that DOES declare an expected wire
- * method: that row has a registered name, and answering it under an operation id
- * would script the fixture against a key the live transport never sends.
- */
-const GROWTH_REPLY_PREFIX = "growth:";
-
 // Wire names the CORPUS registers that this console binds no DAEMON shape for.
 //
-// Two hand-written lists, which is what everything else in this tier exists to avoid,
-// and they are written by hand here because there is nothing to derive them from:
+// One hand-written list, which is what everything else in this tier exists to avoid,
+// and it is written by hand here because there is nothing to derive it from:
 // `packages/contracts` publishes `METHOD_NAME_FORMAT` and no enumerable method union,
-// so the only complete record of a registered wire is a table in
-// `docs/architecture/contracts/api-payload-contracts.md`, which no renderer module can
-// read. Both are transcriptions, kept honest by being tiny and by each entry naming why
-// it is not in the binding table instead. What neither class admits is an invented
-// name, and that is the whole of the claim they serve.
-//
-// They are TWO constants rather than one because their admission rules differ and only
-// one of them expires. A single flat list can state neither: an entry in it reads as
-// transient or permanent only through the comment beside it, so the class an entry
-// belongs to is invisible to every reader and to every test. Splitting them makes the
-// transient list assertable — it is empty, and a case below says so, which is what
-// turns "no unbound daemon method is scripted today" from prose into a check.
+// so the only complete record of a registered wire is a table in a document, which no
+// renderer module can read. It is a transcription, kept honest by being tiny. What it
+// does not admit is an invented name, and that is the whole of the claim it serves. It
+// is assertable — it is empty, and a case in the test beside this file says so, which
+// is what turns "no unbound daemon method is scripted today" from prose into a check.
 
 /**
- * The TRANSIENT class: a daemon method the corpus registers that no console surface
- * calls yet.
+ * A daemon method the corpus registers that no console surface calls yet.
  *
  * That is exactly the state which keeps a method out of `ConsoleDaemonMethodContract`,
  * whose admission rule is a surface that calls it — so a scenario may script such a
@@ -81,26 +46,8 @@ const GROWTH_REPLY_PREFIX = "growth:";
 export const CORPUS_DAEMON_METHODS_NOT_YET_BOUND: readonly string[] = [];
 
 /**
- * The PERMANENT class: a control-plane procedure, which no surface can ever move
- * across.
- *
- * `ConsoleDaemonMethodContract` enumerates DAEMON methods, and the fixture's own
- * contract assertion runs on the daemon arm alone for the same reason, so a procedure
- * reached over the control-plane arm has no binding row to graduate to however many
- * surfaces call it. An entry here is not waiting on anything.
- */
-export const CORPUS_CONTROL_PLANE_PROCEDURES: readonly string[] = [
-  // The registered runtime-node attach mutation, reached over the CONTROL-PLANE arm by
-  // the absorbed attach flow the settings nodes page mounts
-  // (`runtime-node-attach/attach-request.ts` names it, and owns it as the one home for
-  // the string). Dual-transport in the corpus and control-plane-only in this renderer,
-  // so it is a procedure rather than a daemon method and the binding table — which is
-  // the daemon's — could not hold it whatever calls it.
-  "runtimenode.attach",
-];
-
-/**
- * Every reply defect in one scenario: unreachable entries, unspendable latencies.
+ * Every reply defect in one scenario: unreachable entries, unregistered calls,
+ * unspendable latencies.
  *
  * A duplicate entry is reported and then skipped rather than also measured for its
  * latency: `replyFor` answers with the first match, so a second entry for one call
@@ -126,10 +73,6 @@ export function findReplyDefects(scenario: ConsoleScenario): readonly ScenarioWi
     const callReason = describeCallDefect(reply.call);
     if (callReason !== undefined) {
       defects.push({ scenarioId: scenario.id, subject, reason: callReason });
-    }
-    const servedReason = describeUnservedGrowthDefect(reply.call);
-    if (servedReason !== undefined) {
-      defects.push({ scenarioId: scenario.id, subject, reason: servedReason });
     }
     const latencyReason = describeLatencyDefect(reply.afterMs);
     if (latencyReason !== undefined) {
@@ -188,105 +131,22 @@ function describeLatencyDefect(afterMs: number | undefined): string | undefined 
 /**
  * A call the corpus registers nowhere, or `undefined` when it registers one.
  *
- * ADMITTED, in the order a reader would check them: a registered daemon method; a
- * growth operation's declared expected wire method; and `growth:<operationId>` for a
- * growth row that declares none.
- *
- * The registries are read rather than restated. `CONSOLE_DAEMON_METHODS` is the keys
- * of the frozen binding table, so a method added to the console's call set is
- * scriptable the same day; `GROWTH_OPERATIONS` is the slate itself. Only the two
- * corpus-registered-but-unbound lists above are written by hand, for the reason stated
- * there, and they are unioned into the same admission because a caller cannot tell
- * which class answered it — the classes differ in what becomes of an entry, not in
- * what a scenario may script.
+ * The registry is read rather than restated. `CONSOLE_DAEMON_METHODS` is the keys of
+ * the frozen binding table, so a method added to the console's call set is scriptable
+ * the same day. Only the corpus-registered-but-unbound list above is written by hand,
+ * for the reason stated there, and it is unioned into the same admission.
  */
 function describeCallDefect(call: string): string | undefined {
   if (
     (CONSOLE_DAEMON_METHODS as readonly string[]).includes(call) ||
-    CORPUS_DAEMON_METHODS_NOT_YET_BOUND.includes(call) ||
-    CORPUS_CONTROL_PLANE_PROCEDURES.includes(call)
-  ) {
-    return undefined;
-  }
-  if (call.startsWith(GROWTH_REPLY_PREFIX)) {
-    return describeGrowthKeyDefect(call.slice(GROWTH_REPLY_PREFIX.length));
-  }
-  if (growthOperationKeyedBy(call) !== undefined) {
-    return undefined;
-  }
-  return (
-    `it answers "${call}", which the corpus registers nowhere — neither as a daemon ` +
-    "method the console binds a request and response shape for, nor as a growth " +
-    "operation's expected wire method. A scenario answering an invented name renders a " +
-    "surface that looks served and reaches nothing on the day the fixture define flips. " +
-    "Script the registered method, or the growth row's own `growth:<operationId>` key."
-  );
-}
-
-/** Whether an operation-id-keyed reply names a row entitled to be keyed that way. */
-function describeGrowthKeyDefect(operationId: string): string | undefined {
-  if (!Object.hasOwn(GROWTH_OPERATIONS, operationId)) {
-    return (
-      `it answers "${GROWTH_REPLY_PREFIX}${operationId}", and the growth slate registers no ` +
-      "operation by that id. The prefix keys a reply on the operation rather than on a wire " +
-      "name, so the id has to be one the slate carries."
-    );
-  }
-  const { expectedWireMethod } = GROWTH_OPERATIONS[operationId as GrowthOperationId];
-  if (expectedWireMethod === undefined) {
-    return undefined;
-  }
-  return (
-    `it answers "${GROWTH_REPLY_PREFIX}${operationId}", but that growth row declares the ` +
-    `expected wire method "${expectedWireMethod}". A row with a registered name is scripted ` +
-    "under that name, so the fixture answers the key the live transport would send."
-  );
-}
-
-/**
- * A reply the growth port would refuse without ever reading, or `undefined`.
- *
- * The port is built as the refusing port with the served operations spread over it,
- * so an operation outside the served set answers `wire-unregistered` and the script
- * is never consulted. A scenario scripting one has written an answer nothing asks
- * for — and worse than dead weight, because the surface reading that operation
- * renders its refusal while the repo carries a reply that looks like coverage.
- *
- * A call the console BINDS is exempt: `fixture/call-plane/bridge.ts` answers `daemon.call` from
- * the same script, so a method a surface reaches through `callDaemon` is reachable
- * whatever the port does with an operation of the same name.
- */
-function describeUnservedGrowthDefect(call: string): string | undefined {
-  if ((CONSOLE_DAEMON_METHODS as readonly string[]).includes(call)) {
-    return undefined;
-  }
-  const operationId = growthOperationKeyedBy(call);
-  if (
-    operationId === undefined ||
-    (FIXTURE_SERVED_GROWTH_OPERATION_IDS as readonly string[]).includes(operationId)
+    CORPUS_DAEMON_METHODS_NOT_YET_BOUND.includes(call)
   ) {
     return undefined;
   }
   return (
-    `it answers the growth operation "${operationId}", which the fixture port does not ` +
-    "serve — it refuses that operation without consulting the script, so this reply is " +
-    "reachable from nothing and the surface reading it renders a refusal. Serve the " +
-    "operation from `fixture/growth/growth-port.ts`, or drop the reply."
+    `it answers "${call}", which the corpus registers nowhere — not as a daemon method ` +
+    "the console binds a request and response shape for. A scenario answering an " +
+    "invented name renders a surface that looks served and reaches nothing on the day " +
+    "the fixture define flips. Script the registered method."
   );
-}
-
-/** Which growth operation a scripted call keys, under either of the two spellings. */
-function growthOperationKeyedBy(call: string): GrowthOperationId | undefined {
-  if (call.startsWith(GROWTH_REPLY_PREFIX)) {
-    const operationId = call.slice(GROWTH_REPLY_PREFIX.length);
-    return Object.hasOwn(GROWTH_OPERATIONS, operationId)
-      ? (operationId as GrowthOperationId)
-      : undefined;
-  }
-  return growthOperationIds().find((id) => GROWTH_OPERATIONS[id].expectedWireMethod === call);
-}
-
-/** The slate's operation ids, narrowed the way the record's annotation allows. */
-function growthOperationIds(): readonly GrowthOperationId[] {
-  return Object.keys(GROWTH_OPERATIONS) as GrowthOperationId[];
 }

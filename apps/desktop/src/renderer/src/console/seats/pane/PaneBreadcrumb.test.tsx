@@ -16,7 +16,6 @@ import { PaneBreadcrumb, paneScopeCrumbs, type PaneScopeAddress } from "./PaneBr
 
 const NO_ADDRESS: PaneScopeAddress = {
   sessionId: undefined,
-  channelId: undefined,
   runId: undefined,
   entity: undefined,
 };
@@ -39,20 +38,18 @@ function crumbTexts(crumbs: HTMLElement): readonly (string | null)[] {
 }
 
 describe("paneScopeCrumbs — what the address carries, and nothing else", () => {
-  it("orders the crumbs session, channel, run, entity", () => {
+  it("orders the crumbs session, run, entity", () => {
     // Every id is DISTINCT on purpose: two crumbs sharing a string cannot witness "in
     // order", because the assertion holds over either arrangement. The colliding case
     // is a claim about KEYS rather than about order, and is made below.
     expect(
       paneScopeCrumbs({
         sessionId: "session-1",
-        channelId: "channel-2",
         runId: "run-03",
         entity: { kind: "agent", id: "agent-04" },
       }),
     ).toStrictEqual([
       { scope: "session", value: "session-1" },
-      { scope: "channel", value: "channel-2" },
       { scope: "run", value: "run-03" },
       { scope: "entity", value: "agent-04" },
     ]);
@@ -67,7 +64,6 @@ describe("paneScopeCrumbs — what the address carries, and nothing else", () =>
     // arrangement of identifiers.
     const collided = paneScopeCrumbs({
       sessionId: "shared-id",
-      channelId: "shared-id",
       runId: "shared-id",
       entity: { kind: "run", id: "shared-id" },
     });
@@ -75,18 +71,16 @@ describe("paneScopeCrumbs — what the address carries, and nothing else", () =>
       "shared-id",
       "shared-id",
       "shared-id",
-      "shared-id",
     ]);
     const scopes = collided.map((crumb) => crumb.scope);
     expect(new Set(scopes).size, "two crumbs of one address share a scope").toBe(scopes.length);
-    expect(scopes).toStrictEqual(["session", "channel", "run", "entity"]);
+    expect(scopes).toStrictEqual(["session", "run", "entity"]);
   });
 
   it("leaves out what the address does not carry", () => {
     expect(
       paneScopeCrumbs({
         sessionId: "session-1",
-        channelId: undefined,
         runId: undefined,
         entity: { kind: "run", id: "run-10" },
       }),
@@ -133,7 +127,6 @@ describe("PaneBreadcrumb — two scopes may carry one identifier", () => {
     const { value: crumbs, reported } = await reportsWhileReactRan(() =>
       renderTrail({
         sessionId: "shared-id",
-        channelId: undefined,
         runId: "shared-id",
         entity: undefined,
       }),
@@ -170,7 +163,6 @@ describe("PaneBreadcrumb — two scopes may carry one identifier", () => {
     // reconciler does with a duplicate, and nothing else asserts it.
     const shared: PaneScopeAddress = {
       sessionId: "shared-id",
-      channelId: undefined,
       runId: "shared-id",
       entity: undefined,
     };
@@ -193,7 +185,6 @@ describe("PaneBreadcrumb — the trail", () => {
     const crumbs = renderTrail(
       {
         sessionId: "session-1",
-        channelId: undefined,
         runId: "run-01",
         entity: { kind: "agent", id: "agent-01" },
       },

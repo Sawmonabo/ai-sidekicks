@@ -18,7 +18,7 @@ import type {
   GrowthNotificationPermission,
   GrowthSessionSummary,
 } from "../growth-values/index.js";
-import type { SessionSnapshot, ShellReport } from "../../store/index.js";
+import type { SessionSnapshot, ShellState } from "../../store/index.js";
 
 export interface SessionGrowthSignatures {
   sessionRename: { request: { readonly sessionId: string; readonly title: string }; value: void };
@@ -179,10 +179,10 @@ export interface SessionGrowthSignatures {
     request: Record<string, never>;
     value: GrowthNotificationPermission;
   };
-  // The shell's own condition. The value is `ShellReport` rather than a shape
+  // The shell's own condition. The value is `ShellState` rather than a shape
   // declared beside it, because the console already has one: `store/shell/shell-state.ts`
   // owns the vocabulary every reader of this feed narrows on, and a second
   // declaration here would be the same closed set written twice — the case the
   // `growth-values/` door names as belonging to the module that already declares it.
-  shellStatusSubscribe: { request: Record<string, never>; value: GrowthStream<ShellReport> };
+  shellStatusSubscribe: { request: Record<string, never>; value: GrowthStream<ShellState> };
 }

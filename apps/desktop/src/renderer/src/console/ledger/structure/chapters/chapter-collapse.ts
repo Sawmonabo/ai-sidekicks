@@ -1,5 +1,4 @@
-// WHICH CHAPTERS ARE OPEN — the collapse state, and the four conditions an
-// auto-collapse is conjunctive on.
+// WHICH CHAPTERS ARE OPEN — the collapse state.
 //
 // Its own module beside `chapters.ts` because the two change on different clocks: the
 // fold changes when rows arrive and this changes when a person clicks. The behaviour is
@@ -13,28 +12,6 @@
 // chapters are folded by default, and everything else follows.
 
 import { type LedgerChapter } from "./chapters.js";
-
-/**
- * What the console knows about a chapter's place on screen, at the moment an
- * auto-collapse is considered.
- *
- * Every member is an OBSERVATION the caller made, never something this class
- * derives: this module makes auto-collapse conditional on geometry — only when the
- * chapter is off screen and only after one fresh geometry sample since the pane
- * was last hidden — and on engagement, and both live where the DOM is. A class
- * that guessed either would auto-collapse the chapter somebody was reading.
- */
-export interface ChapterAutoCollapseObservation {
-  readonly isOffScreen: boolean;
-  /**
-   * Whether the caller has measured this chapter since the pane was last hidden.
-   * A pane that was hidden reports every chapter as off screen, so collapsing on
-   * a stale sample would fold the whole log the moment a person came back to it.
-   */
-  readonly hasFreshGeometrySample: boolean;
-  /** An open card, a selection, or focus inside the chapter. Never auto-collapses. */
-  readonly isEngaged: boolean;
-}
 
 /**
  * Which chapters are open.
@@ -96,28 +73,6 @@ export class ChapterCollapseState {
       }
     }
     return folded;
-  }
-
-  /**
-   * Fold a terminal chapter that has scrolled away, if every condition holds.
-   *
-   * Returns whether it folded, so the caller never has to re-derive the rule to
-   * find out. All four conditions are conjunctive and each one is a separate way
-   * the fold would be wrong: a live chapter is still being written, an on-screen
-   * chapter is being read, a stale sample is a measurement of a hidden pane, and
-   * an engaged chapter has somebody in it.
-   */
-  public autoCollapse(
-    chapter: LedgerChapter,
-    observation: ChapterAutoCollapseObservation,
-  ): boolean {
-    if (chapter.lifecycle === "live") {
-      return false;
-    }
-    if (!observation.isOffScreen || !observation.hasFreshGeometrySample || observation.isEngaged) {
-      return false;
-    }
-    return this.#openedTerminalRunIds.delete(chapter.runId);
   }
 
   /**

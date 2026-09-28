@@ -38,9 +38,9 @@ import {
 
 /** A refusal wide enough for a banner: what the whole room can do has changed. */
 const REFUSAL_BANNER: FrameBanner = {
-  id: "banner-node-detached",
-  code: "runtimenode.permission_denied",
-  detail: "That runtime node is no longer attached, so no run can start here.",
+  id: "banner-session-not-found",
+  code: "session.not_found",
+  detail: "That session could not be found, so no run can start here.",
   dismissible: false,
 };
 

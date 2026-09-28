@@ -67,15 +67,10 @@
 // consumed for its leaf helpers rather than for this.
 
 import { normalizeWireRejection, refuse, type ConsoleRefusal } from "../../core/index.js";
-import {
-  isReadAbandoned,
-  settleUnlessAbandoned,
-  type ShellMutationBlock,
-} from "../../store/index.js";
+import { isReadAbandoned, settleUnlessAbandoned } from "../../store/index.js";
 import type { ConsoleBridge } from "../console-bridge.js";
 import {
   CONSOLE_DAEMON_METHOD_BINDINGS,
-  isRecordDaemonMethod,
   type ConsoleDaemonMethod,
   type DaemonRequestOf,
   type DaemonResponseOf,
@@ -209,25 +204,6 @@ export async function callDaemon<MethodName extends ConsoleDaemonMethod>(
     return abandonedRead(method);
   }
 
-  // THE SUPERVISOR BLOCK, ENFORCED ONCE AND HERE. Mutating operations are blocked
-  // while the supervisor is not serving and reads stay live, and before this guard
-  // existed the rule was applied by
-  // whichever surfaces remembered to ask: a run control, a repo write, or a composer
-  // send pressed during an outage went out through a stopped supervisor and came back
-  // as a transport refusal the design says it must never send. Enforced at the door,
-  // no surface can forget it — and the READ ARM IS UNTOUCHED, so a read stays live
-  // through every shell condition, which is the other half of the same sentence.
-  //
-  // BEFORE THE REQUEST PARSE, deliberately: a blocked call is not sent, so what it
-  // would have sent is not a question worth answering, and a caller whose request was
-  // also malformed should meet the condition that actually stopped it.
-  if (isRecordDaemonMethod(method)) {
-    const shellBlock = bridge.shellCondition.currentBlock();
-    if (shellBlock !== undefined) {
-      return shellBlockedCall(method, shellBlock);
-    }
-  }
-
   const sendable = binding.requestSchema.safeParse(request);
   if (!sendable.success) {
     return {
@@ -306,29 +282,6 @@ export async function callDaemon<MethodName extends ConsoleDaemonMethod>(
   // registered schema admits, so a member the contract does not carry cannot reach
   // a component even when the wire sent one.
   return { status: "served", value: readable.data };
-}
-
-/**
- * The block's own code, as the door's refusal code.
- *
- * NOT A MEMBER OF THE TUPLE ABOVE, and the omission is the design. Those four name
- * failures that are the console's own to describe; a shell block is the SUPERVISOR's
- * condition, and `store/shell/shell-mutation-block.ts` already owns the four
- * `shell-*` codes and the sentence each one carries. Re-labelling one of them with a
- * code minted here would give one condition two names — the disabled control saying
- * `shell-stopped` and the refused dispatch saying something else about the same
- * moment — so the block's own code and detail travel verbatim, and the origin is
- * this door's because this door is what refused.
- */
-function shellBlockedCall(method: string, block: ShellMutationBlock): DaemonReply<never> {
-  return {
-    status: "refused",
-    refusal: refuse(
-      DAEMON_REPLY_REFUSAL_ORIGIN,
-      block.code,
-      `${method} was not sent. ${block.detail}`,
-    ),
-  };
 }
 
 /** That refusal as the door's own answer, so every arm here returns one shape. */

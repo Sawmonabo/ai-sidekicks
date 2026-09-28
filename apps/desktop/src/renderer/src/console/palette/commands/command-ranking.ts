@@ -17,15 +17,11 @@ import { PALETTE_RESULT_CAP } from "../../core/index.js";
 import type { ConsoleCommand } from "./contributions.js";
 import { scoreSubsequence, type SubsequenceMatch } from "./subsequence-score.js";
 
-/** Which text of a command a result matched on. Rendered as provenance, not just rank. */
-export type CommandMatchField = "title" | "keyword" | "group";
-
 /** One ranked row. */
 export interface CommandSearchResult {
   readonly command: ConsoleCommand;
   /** Higher is better. Comparable only within one `search` call. */
   readonly score: number;
-  readonly field: CommandMatchField;
   /**
    * Character positions in `command.title` to emphasise, when the match was on the
    * title. Deliberately a required member typed `| undefined` rather than an
@@ -41,7 +37,6 @@ export interface CommandSearchResult {
 /** The best field a command matched a query on, with what that match is worth. */
 export interface CommandFieldMatch {
   readonly score: number;
-  readonly field: CommandMatchField;
   readonly titleMatch: SubsequenceMatch | undefined;
 }
 
@@ -96,7 +91,7 @@ export function scoreCommandAgainstQuery(
 ): CommandFieldMatch | undefined {
   const titleMatch = scoreSubsequence(command.title, query);
   let best: CommandFieldMatch | undefined =
-    titleMatch === undefined ? undefined : { score: titleMatch.score, field: "title", titleMatch };
+    titleMatch === undefined ? undefined : { score: titleMatch.score, titleMatch };
 
   for (const keyword of command.keywords ?? []) {
     const keywordMatch = scoreSubsequence(keyword, query);
@@ -105,7 +100,7 @@ export function scoreCommandAgainstQuery(
     }
     const score = keywordMatch.score - COMMAND_KEYWORD_FIELD_PENALTY;
     if (best === undefined || score > best.score) {
-      best = { score, field: "keyword", titleMatch: undefined };
+      best = { score, titleMatch: undefined };
     }
   }
 
@@ -113,7 +108,7 @@ export function scoreCommandAgainstQuery(
   if (groupMatch !== undefined) {
     const score = groupMatch.score - COMMAND_GROUP_FIELD_PENALTY;
     if (best === undefined || score > best.score) {
-      best = { score, field: "group", titleMatch: undefined };
+      best = { score, titleMatch: undefined };
     }
   }
 
@@ -162,7 +157,6 @@ export function rankCommandsForQuery(
     results.push({
       command,
       score: scored.score + recencyBonus,
-      field: scored.field,
       titleMatch: scored.titleMatch,
       recentRank,
     });
@@ -189,7 +183,6 @@ export function rankCommandsForEmptyQuery(
     const result: CommandSearchResult = {
       command,
       score: 0,
-      field: "title",
       titleMatch: undefined,
       recentRank,
     };

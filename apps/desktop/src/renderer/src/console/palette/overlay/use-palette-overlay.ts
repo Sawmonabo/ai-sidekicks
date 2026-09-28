@@ -25,7 +25,6 @@ import {
   formatCount,
   type ChordPlatform,
 } from "../../primitives/index.js";
-import type { ShellMutationBlock } from "../../store/index.js";
 import type { CommandRegistry, CommandSearchResult } from "../commands/index.js";
 import {
   chordMatchesEvent,
@@ -43,6 +42,7 @@ import {
   type PaletteRowPressOutcome,
 } from "./palette-latch.js";
 
+/** What the mount hands the palette overlay: the registry, the live context, and the acts. */
 export interface PaletteOverlayProps {
   readonly registry: CommandRegistry;
   /**
@@ -65,15 +65,6 @@ export interface PaletteOverlayProps {
    * what it said at the moment they summoned this, and what runs is what it named.
    */
   readonly scopeLabel?: string;
-  /**
-   * Why the shell is refusing mutating operations, where it is.
-   *
-   * NAMED AND NEVER ENFORCED HERE. The palette still lists every mutating command
-   * while the shell is read-only, because hiding them would hide the cause and
-   * leave a person hunting for a control that is on screen everywhere else. The
-   * dispatch renders the refusal; this line says in advance what it will say.
-   */
-  readonly shellBlock?: ShellMutationBlock;
   readonly readiness?: PaletteReadiness;
   /**
    * Bump to recompute results after late registration. The registry is a mutable

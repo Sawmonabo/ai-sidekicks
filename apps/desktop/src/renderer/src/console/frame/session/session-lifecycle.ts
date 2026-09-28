@@ -14,12 +14,8 @@
 // nowhere to deliver. Holding them in one piece of state makes "one without the
 // other" unrepresentable rather than merely unlikely.
 //
-// WHAT THE BINDER BINDS is a separate question from whether it exists, and the
-// answer now depends on the bridge: a build whose bridge serves the growth port's
-// session read gets a registry that can reach a base state and a binder that feeds
-// it; a build whose bridge refuses gets the refusal itself as the registry's read,
-// and no stream is bound at all. `createWindowSessionPlumbing` below carries that
-// reasoning.
+// THE READ IS THE CALLER'S. The call that reads a session's base state is taken as an
+// argument, so this module keeps only how the registry and its binder are held.
 //
 // Two of the console's own rules decide the shape here, and both are about the render
 // phase:
@@ -77,21 +73,13 @@
 
 import { useEffect } from "react";
 
-import { ConsoleRefusalError } from "../../core/index.js";
-import {
-  consoleClockFor,
-  growthUnavailable,
-  useConsoleBridge,
-  type ConsoleBridge,
-} from "../../bridge/index.js";
+import { consoleClockFor, useConsoleBridge, type ConsoleBridge } from "../../bridge/index.js";
 import {
   SessionStoreRegistry,
   useOpenSessionStore,
   useSubjectScopedResource,
   type ConsoleEntityProjectorRegistry,
-  type RefreshReason,
-  type SessionSnapshot,
-  type SessionSnapshotRead,
+  type SessionSnapshotReader,
   type SessionStore,
   type SubjectScopedDisposal,
 } from "../../store/index.js";
@@ -125,20 +113,22 @@ import { SessionEventBinder } from "./session-event-binder.js";
  */
 export function useSessionStoreRegistry(
   projectorRegistry: ConsoleEntityProjectorRegistry,
+  readSession: SessionSnapshotReader,
 ): SessionStoreRegistry {
   // Resolved from context rather than taken as an argument, so every caller of this
   // hook gets the same bridge the rest of the frame renders against and no surface
   // has to thread one through. The bridge is provided, never reached for, which is the
   // same rule one layer down.
   const bridge = useConsoleBridge();
-  // The bridge alone is the subject, and the projector registry deliberately is not:
-  // the plumbing takes a SNAPSHOT of that table at construction, exactly so a later
-  // registration cannot make one open store fold two events of one kind two ways. A
-  // value the resource does not read live is not part of what the resource is about.
+  // The bridge alone is the subject, and the projector registry and the read call
+  // deliberately are not: the plumbing takes a SNAPSHOT of that table at construction,
+  // exactly so a later registration cannot make one open store fold two events of one
+  // kind two ways, and takes the call once. A value the resource does not read live is
+  // not part of what the resource is about.
   const { value: plumbing } = useSubjectScopedResource<WindowSessionPlumbing>(
     bridge,
     undefined,
-    () => createWindowSessionPlumbing(bridge, projectorRegistry),
+    () => createWindowSessionPlumbing(bridge, projectorRegistry, readSession),
     WINDOW_SESSION_PLUMBING_DISPOSAL,
   );
   // THE SUBSCRIPTION, KEYED ON THE PLUMBING AND NOTHING ELSE. Anything else in this
@@ -188,22 +178,6 @@ interface WindowSessionPlumbing {
 /**
  * The registry and its binder, for one window.
  *
- * THE READ IS THE BRIDGE'S ANSWER, NOT A PLACEHOLDER EITHER WAY. A bridge that
- * serves the growth port's `sessionRead` gets the adapter below; one that refuses
- * gets the refusal itself, which names the operation, the slate row, and the
- * document that owes the wire — the same value a surface renders as the
- * `not-checked` kind of nothing. Neither arm is a reader resolving `undefined`,
- * which says something different: that one read happened and found nothing, and
- * the next may not.
- *
- * The binder acts on the difference. A store admits nothing until a read gives it
- * a base state, so a stream bound to a registry that can perform no read fills a
- * buffer nothing will ever drain: every event retained, none projected, for as
- * long as the window is open. `attach` reads
- * `SessionStoreRegistry.canInitialiseSessionStores` and takes no subscription at
- * all on that arm. The binder is still MINTED and attached on it — it is what
- * installs the window's session diagnostics.
- *
  * THE CLOCK COMES FROM THE BRIDGE, and it has to. The registry gives every apply
  * queue and refresh scheduler it opens one clock, and left to its own default that
  * clock is the wall clock — so under the fixture, coalescing windows and refresh
@@ -215,9 +189,10 @@ interface WindowSessionPlumbing {
 function createWindowSessionPlumbing(
   bridge: ConsoleBridge,
   projectorRegistry: ConsoleEntityProjectorRegistry,
+  readSession: SessionSnapshotReader,
 ): WindowSessionPlumbing {
   const registry = new SessionStoreRegistry({
-    read: createSessionSnapshotRead(bridge),
+    read: readSession,
     clock: consoleClockFor(bridge),
     // THE PROJECTORS ARE PART OF THE PLUMBING, not an optional extra. The registry
     // has taken them since it was written and this root registered none, so every
@@ -276,56 +251,3 @@ const WINDOW_SESSION_PLUMBING_DISPOSAL: SubjectScopedDisposal<WindowSessionPlumb
   dispose: disposeWindowSessionPlumbing,
   isClosed: (plumbing) => plumbing.registry.isDisposed,
 };
-
-/**
- * The read a window performs, resolved from what its bridge actually serves.
- *
- * The availability question is answered SYNCHRONOUSLY, off the bridge's served
- * set, and it has to be: the registry is built before any call can be awaited, and
- * a registry built optimistically would bind a stream under a live bridge whose
- * `daemon.subscribe` throws — a crash inside a mount effect rather than a refusal
- * a surface can render.
- *
- * A refusal from a bridge that DID claim to serve the read is a different fact and
- * takes a different path: it is raised, so the refresh scheduler's error arm marks
- * the store degraded rather than the adapter reporting "read nothing", which would
- * clear no degraded flag and look like a quiet success.
- *
- * AND THE RESUME POSITION IS FORWARDED, which is the half this adapter was missing.
- * `open-session-entry.ts` decides where the next read starts and hands the position
- * over as the reader's third argument; an adapter that named one parameter took the
- * decision and dropped it on the floor, and every read went on opening wherever it
- * opened before. TypeScript does not report that — a function of fewer parameters is
- * assignable to a function type with more — so the whole signature is written out here
- * and the behavioural gate in `session-lifecycle.resume-forwarding.test.tsx` is what holds
- * the forwarding, not the arity.
- *
- * `reasons` is deliberately UNREAD rather than absent: it is why this read was asked
- * for, which is the scheduler's own bookkeeping and no part of what the daemon is
- * being asked. Naming it is what makes the third parameter reachable at all, and
- * naming it without using it is the honest record that this seam has nothing to say
- * about it.
- *
- * The member is spread conditionally because `exactOptionalPropertyTypes` makes an
- * explicit `undefined` a different value from an absent member — and the absence IS
- * the meaning: no acknowledged position, so the read starts at the window's beginning.
- */
-function createSessionSnapshotRead(bridge: ConsoleBridge): SessionSnapshotRead {
-  if (!bridge.growthServedOperations.has("sessionRead")) {
-    return growthUnavailable("sessionRead");
-  }
-  return async (
-    sessionId: string,
-    _reasons: readonly RefreshReason[],
-    resumeFromCursor: string | undefined,
-  ): Promise<SessionSnapshot> => {
-    const outcome = await bridge.growth.sessionRead({
-      sessionId,
-      ...(resumeFromCursor === undefined ? {} : { fromCursor: resumeFromCursor }),
-    });
-    if (outcome.status === "served") {
-      return outcome.value;
-    }
-    throw new ConsoleRefusalError(outcome);
-  };
-}

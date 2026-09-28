@@ -41,10 +41,10 @@ const projectors: EntityProjectorRegistry = {
       entity: { kind: "run", id: runIdOf(event), state: `state-${String(event.sequence)}` },
     },
   ],
-  "channel.created": (event) => [
+  "artifact.published": (event) => [
     {
       operation: "upsert",
-      entity: { kind: "channel", id: runIdOf(event), state: "open" },
+      entity: { kind: "artifact", id: runIdOf(event), state: "open" },
     },
   ],
 };
@@ -86,10 +86,10 @@ interface PartitionProps {
 }
 
 /** A list subscribed to a whole kind. Re-renders when THAT kind changes. */
-function ChannelList(props: PartitionProps): React.JSX.Element {
-  const channels = useSessionPartition(props.store, "channel");
-  props.tally.record("channel-list");
-  return <span data-testid="channel-count">{String(Object.keys(channels).length)}</span>;
+function ArtifactList(props: PartitionProps): React.JSX.Element {
+  const artifacts = useSessionPartition(props.store, "artifact");
+  props.tally.record("artifact-list");
+  return <span data-testid="artifact-count">{String(Object.keys(artifacts).length)}</span>;
 }
 
 function StoreHeader(props: PartitionProps): React.JSX.Element {
@@ -117,7 +117,6 @@ describe("useSessionEntity — a row re-renders for its own entity and no other"
         { kind: "run", id: "run-1", state: "queued" },
         { kind: "run", id: "run-2", state: "queued" },
       ],
-      userJoinLog: [],
     });
     const tally = new RenderTally();
 
@@ -160,29 +159,28 @@ describe("useSessionEntity — a row re-renders for its own entity and no other"
     store.initialise({
       cursor: 0,
       entities: [{ kind: "run", id: "run-1", state: "queued" }],
-      userJoinLog: [],
     });
     const tally = new RenderTally();
 
     const view = render(
       <>
         <RunRow store={store} runId="run-1" tally={tally} />
-        <ChannelList store={store} tally={tally} />
+        <ArtifactList store={store} tally={tally} />
       </>,
     );
     const rowRenders = tally.countFor("row-run-1");
-    const listRenders = tally.countFor("channel-list");
+    const listRenders = tally.countFor("artifact-list");
 
     act(() => {
-      registry.enqueue("session-1", [eventAt(1, "channel.created", "channel-1")]);
+      registry.enqueue("session-1", [eventAt(1, "artifact.published", "artifact-1")]);
       clock.runFrame();
     });
 
     // The partition subscriber re-rendered — which is the negative control that
     // makes the row's silence meaningful rather than a store that stopped
     // notifying anybody.
-    expect(tally.countFor("channel-list")).toBe(listRenders + 1);
-    expect(view.getByTestId("channel-count").textContent).toBe("1");
+    expect(tally.countFor("artifact-list")).toBe(listRenders + 1);
+    expect(view.getByTestId("artifact-count").textContent).toBe("1");
     expect(tally.countFor("row-run-1")).toBe(rowRenders);
 
     view.unmount();
@@ -198,7 +196,7 @@ describe("useSessionEntity — a row re-renders for its own entity and no other"
       applyCoalesceMs: 0,
     });
     const store = registry.open("session-1");
-    store.initialise({ cursor: 0, entities: [], userJoinLog: [] });
+    store.initialise({ cursor: 0, entities: [] });
     const tally = new RenderTally();
 
     const view = render(<RunRow store={store} runId="run-1" tally={tally} />);
@@ -233,7 +231,7 @@ describe("useSessionInitialised / useSessionStore — the store's own facts", ()
     expect(view.getByTestId("header").textContent).toBe("loading:-1");
 
     act(() => {
-      store.initialise({ cursor: 4, entities: [], userJoinLog: [] });
+      store.initialise({ cursor: 4, entities: [] });
     });
 
     expect(view.getByTestId("header").textContent).toBe("ready:4");

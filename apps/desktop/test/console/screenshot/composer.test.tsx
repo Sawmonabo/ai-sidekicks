@@ -12,20 +12,11 @@
 // too. That claim is invisible to a DOM assertion reading one attribute and is
 // exactly what an image holds, so the addresses are captured rather than described:
 //
-//   • the session's own default channel, which is what focus outside the deck
-//     addresses — the composition a person meets first;
-//   • a named channel, where the chip states that it read no label rather than
-//     inventing one AND rather than falling through to the words the default arm
-//     uses, which is the difference these two images exist to hold apart;
+//   • the session's own composer, which is what focus outside the deck addresses —
+//     the composition a person meets first;
 //   • a working run, the new-turn path;
 //   • a run waiting on a person, which is the one address that sketch labels
 //     _steer_ and the state the composer scenario deliberately ends on.
-//
-// The pane surfaces ride the same table on their own scenarios, their claims
-// likewise pictorial: the runs pane's nine wire-verbatim states and
-// waiting-is-not-pausing that `runs/pane/run-status.ts` states with the
-// rendered-never-reordered queue order that `bridge/queue/queue-feed.ts` states, and the
-// approvals pane's own.
 //
 // HOW MANY CAPTURES THERE ARE IS DERIVED AND NEVER WRITTEN DOWN — one per surface
 // per scheme, off the table below. A number in this header is a claim no gate reads,
@@ -35,12 +26,9 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { emulateSystemScheme } from "../console-harness.js";
 import {
-  mountApprovalsPane,
-  mountComposerChannelAddressed,
   mountComposerChannelDefault,
   mountComposerProviderBoundRunning,
   mountComposerProviderBoundWaiting,
-  mountRunsPane,
   type MountedFamilySurface,
 } from "../surfaces/composer.js";
 import { captureSettled } from "./settled-capture.js";
@@ -60,11 +48,8 @@ const PINNED_SURFACES: readonly {
   readonly mount: () => Promise<MountedFamilySurface>;
 }[] = [
   { captureName: "composer-channel-default", mount: mountComposerChannelDefault },
-  { captureName: "composer-channel-addressed", mount: mountComposerChannelAddressed },
   { captureName: "composer-provider-bound-running", mount: mountComposerProviderBoundRunning },
   { captureName: "composer-provider-bound-waiting", mount: mountComposerProviderBoundWaiting },
-  { captureName: "runs-pane-live", mount: mountRunsPane },
-  { captureName: "approvals-pane-live", mount: mountApprovalsPane },
 ];
 
 beforeEach(() => {
@@ -96,7 +81,7 @@ const PINNED_CAPTURES: readonly {
   })),
 );
 
-describe("screenshot — the composer, runs, and approvals surfaces", () => {
+describe("screenshot — the composer surfaces", () => {
   // This one runs everywhere, including off the pinned platform: it reads the table
   // rather than the renderer. A duplicate capture name is silent on the machine
   // that mints — the second capture overwrites the first and both cases go green

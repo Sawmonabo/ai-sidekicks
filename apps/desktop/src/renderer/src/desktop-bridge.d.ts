@@ -15,10 +15,6 @@
 // and test) sees `window.desktopBridge` as `DesktopBridge`-typed without
 // importing anything.
 //
-// Hoisted out of `session-bootstrap/SessionBootstrap.tsx`: the declaration was
-// originally colocated in the first renderer consumer and lives here now that
-// the renderer has more than one.
-//
 // The top-level `import type` makes this file a module, so `declare global` is
 // the correct augmentation form (a script-scoped `interface Window` would
 // merge into the global scope without the `declare global` wrapper, but the

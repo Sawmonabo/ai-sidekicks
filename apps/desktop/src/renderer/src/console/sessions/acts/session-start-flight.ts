@@ -28,11 +28,10 @@
 // is the failure `settings/pages/daemon/daemon-controls.ts` records having shipped
 // once already.
 //
-// AND WHERE NOTHING IS DISPATCHED, NOTHING IS HELD. Under the fixture the probe's
-// guard renders an absence and puts no call, so there is no act to single-flight and
-// no settlement will ever arrive; a slot taken there would never come back. The
-// caller passes `seats/surface/absorbed-surfaces.ts`' own predicate rather than re-deriving
-// it, and this hook is a no-op that always admits.
+// AND WHERE NOTHING IS DISPATCHED, NOTHING IS HELD. When the caller's mount puts no
+// call there is no act to single-flight and no settlement will ever arrive; a slot
+// taken there would never come back. The caller says so with `putsTheCall`, and this
+// hook is then a no-op that always admits.
 
 import { useCallback, useMemo, useRef, useState } from "react";
 
@@ -45,10 +44,6 @@ import { useGenerationLatch, type GenerationClaim } from "../../store/index.js";
  * `store/read/generation-latch.ts`: one window creates one session at a time.
  */
 const SESSION_CREATE_KEY = "session-create";
-
-/** What a control carries while a create this window put is still running. */
-export const SESSION_CREATE_OUTSTANDING_SENTENCE =
-  "A session is being created. The control comes back as soon as the runtime answers, and pressing again would create a second session.";
 
 /** The single-flight slot the start act takes, as a surface reads and drives it. */
 export interface SessionStartFlight {
@@ -70,9 +65,9 @@ export interface SessionStartFlight {
  * Hold one session-create slot for the life of a mount.
  *
  * `putsTheCall` is the caller's answer to whether the mount it drives dispatches
- * anything in this window — `seats/surface/absorbed-surfaces.ts` owns that condition — and a
- * `false` makes every press admissible and holds nothing, because a slot released by
- * a settlement that will never arrive is a control that dies on its first press.
+ * anything in this window, and a `false` makes every press admissible and holds
+ * nothing, because a slot released by a settlement that will never arrive is a control
+ * that dies on its first press.
  */
 export function useSessionStartFlight(subject: object, putsTheCall: boolean): SessionStartFlight {
   const latch = useGenerationLatch();

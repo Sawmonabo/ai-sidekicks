@@ -4,13 +4,12 @@
 // `nodeIntegration: true` or `sandbox: false` in any window is a build error,
 // never a runtime surprise.
 //
-// The exactly-once conjunct is what keeps the check honest now that the module
-// builds MORE THAN ONE KIND OF WINDOW. A presence check alone is satisfied by
-// the main window's block while a second factory carries an unchecked one
-// beside it — `sandbox: false` in an auxiliary window would be a build-time
-// PASS. Counting both the locked block and the `new BrowserWindow(` call sites
-// closes that: the module is required to have exactly one of each, which is the
-// structural form of "one private function owns the literal".
+// The exactly-once conjunct is what keeps the check honest. A presence check
+// alone is satisfied by the locked block while a second factory carries an
+// unchecked one beside it — `sandbox: false` in a second window would be a
+// build-time PASS. Counting both the locked block and the `new BrowserWindow(`
+// call sites closes that: the module is required to have exactly one of each,
+// which is the structural form of "one private function owns the literal".
 //
 // The exactly-once count is scoped to ONE FILE, though, and a count in one file
 // says nothing about a second file. `src/main/menu.ts` could construct a window
@@ -233,7 +232,10 @@ function collectSourceFiles(root: string): string[] {
  * failure: a scan that silently found nothing to scan would report success for a
  * check it never ran, which is the one direction this script may never take.
  */
-function findConstructionsOutsideLockedModule(scanRoot: string, lockedModulePath: string): string[] {
+function findConstructionsOutsideLockedModule(
+  scanRoot: string,
+  lockedModulePath: string,
+): string[] {
   let sourceFiles: string[];
   try {
     sourceFiles = collectSourceFiles(scanRoot);

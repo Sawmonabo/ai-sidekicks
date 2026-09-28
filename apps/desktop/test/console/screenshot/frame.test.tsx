@@ -76,8 +76,8 @@ describe("screenshot — the frame under the first-run scenario", () => {
     // context row, the grouped command list, and the chord hints in the footer.
     await emulateSystemScheme("light");
     const { container } = await renderSettled(<ConsoleRoot scenarioId={FIRST_RUN_SCENARIO_ID} />);
-    await pressKeys("{Control>}k{/Control}");
-    await pressKeys("{Meta>}k{/Meta}");
+    await pressKeys("{Control>}{Shift>}p{/Shift}{/Control}");
+    await pressKeys("{Meta>}{Shift>}p{/Shift}{/Meta}");
 
     requireCapturedElement(container, FRAME_SELECTOR);
     expect(document.querySelector("[role='dialog']")).not.toBeNull();

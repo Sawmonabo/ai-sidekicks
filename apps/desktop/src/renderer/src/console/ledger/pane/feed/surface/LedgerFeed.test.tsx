@@ -14,7 +14,6 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { ActorHueAllocator } from "../../../../tokens/index.js";
 import { renderFeed, withLaidOutViewport } from "./LedgerFeedFixtures.test-support.js";
 import {
   EARLY_JOINER,
@@ -41,19 +40,6 @@ describe("the ledger feed — one wheel", () => {
     );
     expect(stepByActor.get(LATE_JOINER)).toBe(
       sessionStore.hueAllocator.assignmentFor(LATE_JOINER)?.step,
-    );
-  });
-
-  it("negative control: allocating over first-event order gives the other answer", () => {
-    // Without this the case above would pass over a ledger that kept its own wheel,
-    // because two allocators agree wherever the two orders do. These two ids prefer
-    // the same step, so the order decides who gets it — and the orders disagree.
-    const byFirstEvent = new ActorHueAllocator();
-    byFirstEvent.admit(LATE_JOINER);
-    byFirstEvent.admit(EARLY_JOINER);
-    const sessionStore = openStoreWhereJoinOrderIsNotEventOrder();
-    expect(byFirstEvent.assignmentFor(EARLY_JOINER)?.step).not.toBe(
-      sessionStore.hueAllocator.assignmentFor(EARLY_JOINER)?.step,
     );
   });
 });

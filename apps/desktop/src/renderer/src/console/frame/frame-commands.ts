@@ -47,12 +47,7 @@ import {
   type FrameCommand,
   type WhenClauseContext,
 } from "../palette/index.js";
-import {
-  RAIL_DESTINATIONS,
-  isAuxiliaryRoute,
-  routeSessionId,
-  type ConsoleRoute,
-} from "../routing/index.js";
+import { RAIL_DESTINATIONS, type ConsoleRoute } from "../routing/index.js";
 import type { UiStateStore } from "../persistence/index.js";
 import type { FrameStore } from "../store/index.js";
 import type { SchemePreference } from "../tokens/index.js";
@@ -66,8 +61,7 @@ export interface FrameCommandSurfaceInput {
   /**
    * The session this window has in hand, which OUTLIVES a route that names none —
    * see `FrameStore`'s own field. `sessionActive` is derived from it rather than
-   * from the route, so "Go to Workspace" stays offered from Settings, which is
-   * precisely where a person reaches for it.
+   * from the route.
    */
   readonly lastOpenedSessionId: string | undefined;
   readonly frameStore: FrameStore;
@@ -113,7 +107,6 @@ export function useFrameCommandSurface(input: FrameCommandSurfaceInput): FrameCo
       onWorkspace: route.kind === "workspace",
       onWorkflows: route.kind === "workflows",
       onSettings: route.kind === "settings",
-      inAuxiliaryWindow: isAuxiliaryRoute(route),
     }),
     [route, lastOpenedSessionId],
   );
@@ -260,12 +253,6 @@ export function describeScope(route: ConsoleRoute): string {
       return "Workflows";
     case "settings":
       return "Settings";
-    case "auxiliary": {
-      const sessionId = routeSessionId(route);
-      return sessionId === undefined
-        ? `${route.route} — no session chosen`
-        : `${route.route} — session ${sessionId}`;
-    }
     case "pane-harness":
       // The session is named for the same reason the workspace arm names it: a
       // command run from here acts on the session the harness's panes are bound to.
@@ -321,31 +308,6 @@ function buildFrameCommands(
       },
     })),
     {
-      // Beside the destinations rather than among them: the session workspace is
-      // reached from the sessions list, so it is an act on the session this window
-      // has in hand and not a place the rail can send anyone. `sessionActive` is
-      // read from the RETAINED session, which is why the command stays offered
-      // from Settings — precisely where a person reaches for it.
-      id: "frame.goToWorkspace",
-      title: "Go to Workspace",
-      group: "Navigate",
-      when: "sessionActive",
-      preload: () => {
-        void surfaceRegistry.preload("workspace");
-      },
-      run: () => {
-        // Read at RUN time, not closed over: this list is built once per window and
-        // the session it returns to changes with every navigation.
-        const sessionId = frameStore.lastOpenedSessionId;
-        if (sessionId !== undefined) {
-          // Warmed on the run path too, for the destination walk's reason: a chord
-          // reaches this command without the palette's highlight ever firing.
-          void surfaceRegistry.preload("workspace");
-          frameStore.navigate({ kind: "workspace", sessionId });
-        }
-      },
-    },
-    {
       // The chord's act, and the palette row for people who do not know the chord.
       //
       // IT ASKS RATHER THAN FOCUSES. The composer's input element belongs to the
@@ -369,7 +331,7 @@ function buildFrameCommands(
     },
     {
       id: "frame.useLightScheme",
-      title: "Use the light colour scheme",
+      title: "Use the light color scheme",
       group: "Appearance",
       run: () => {
         chooseScheme("light");
@@ -377,7 +339,7 @@ function buildFrameCommands(
     },
     {
       id: "frame.useDarkScheme",
-      title: "Use the dark colour scheme",
+      title: "Use the dark color scheme",
       group: "Appearance",
       run: () => {
         chooseScheme("dark");
@@ -385,7 +347,7 @@ function buildFrameCommands(
     },
     {
       id: "frame.useSystemScheme",
-      title: "Follow the system colour scheme",
+      title: "Follow the system color scheme",
       group: "Appearance",
       run: () => {
         chooseScheme("system");

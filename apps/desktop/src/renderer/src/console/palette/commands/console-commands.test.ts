@@ -35,7 +35,6 @@ const NO_CONTEXT: ConsoleWhenClauseContext = {
   onWorkspace: false,
   onWorkflows: false,
   onSettings: false,
-  inAuxiliaryWindow: false,
 };
 
 /**

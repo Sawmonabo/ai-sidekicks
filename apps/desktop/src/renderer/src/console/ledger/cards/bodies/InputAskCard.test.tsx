@@ -11,12 +11,7 @@ import { fireEvent, render } from "@testing-library/react";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 
-import {
-  ASK_ANSWER_UNSENT,
-  INPUT_ASK_SLOT,
-  type DriverAskDelivery,
-  type DriverAskReading,
-} from "./input-ask.js";
+import { ASK_ANSWER_UNSENT, type DriverAskDelivery, type DriverAskReading } from "./input-ask.js";
 import { InputAskCard } from "./InputAskCard.js";
 
 /**
@@ -67,7 +62,7 @@ function renderCard(
 ): HTMLElement {
   const { container } = render(
     <InputAskCard
-      slot={{ contract: INPUT_ASK_SLOT, body: overrides.body }}
+      body={overrides.body}
       ask={ask}
       nowEpochMilliseconds={overrides.nowEpochMilliseconds ?? NOW_MILLISECONDS}
       delivery={overrides.delivery ?? ASK_ANSWER_UNSENT}
@@ -212,7 +207,7 @@ function MountedWithDelivery(props: {
   const [delivery, setDelivery] = useState<DriverAskDelivery>(ASK_ANSWER_UNSENT);
   return (
     <InputAskCard
-      slot={{ contract: INPUT_ASK_SLOT, body: undefined }}
+      body={undefined}
       ask={props.ask}
       nowEpochMilliseconds={NOW_MILLISECONDS}
       delivery={delivery}

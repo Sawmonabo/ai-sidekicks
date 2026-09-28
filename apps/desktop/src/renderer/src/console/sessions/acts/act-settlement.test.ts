@@ -1,4 +1,4 @@
-// The four states an act reaches, and the one press that is answered rather than sent.
+// The states an act reaches, and the one press that is answered rather than sent.
 //
 // Every case here fails without the class: a form holding a boolean renders the
 // unattempted and the settled states identically, and a form with no single-flight
@@ -7,20 +7,17 @@
 import { describe, expect, it } from "vitest";
 
 import { SessionAct } from "./act-settlement.js";
-import { refuse } from "../../core/index.js";
 
 /** An attempt whose settlement the case releases when it chooses. */
 function heldAttempt(): {
-  readonly attempt: (request: string) => Promise<{ status: "served"; value: string }>;
+  readonly attempt: (request: string) => Promise<string>;
   readonly release: (value: string) => void;
 } {
   let release: ((value: string) => void) | undefined;
   return {
     attempt: async () =>
-      await new Promise<{ status: "served"; value: string }>((resolve) => {
-        release = (value) => {
-          resolve({ status: "served", value });
-        };
+      await new Promise<string>((resolve) => {
+        release = resolve;
       }),
     release: (value) => {
       release?.(value);
@@ -31,7 +28,7 @@ function heldAttempt(): {
 describe("one act's settlement", () => {
   it("starts unattempted, which is not the same as settled with nothing", () => {
     const act = new SessionAct<string, string>({
-      attempt: async () => await Promise.resolve({ status: "served", value: "answered" }),
+      attempt: async () => await Promise.resolve("answered"),
       describeWhat: "The act",
     });
 
@@ -40,27 +37,13 @@ describe("one act's settlement", () => {
 
   it("runs, then settles with the answer", async () => {
     const act = new SessionAct<string, string>({
-      attempt: async (request) => await Promise.resolve({ status: "served", value: request }),
+      attempt: async (request) => await Promise.resolve(request),
       describeWhat: "The act",
     });
 
     await act.run("asked");
 
     expect(act.settlement()).toStrictEqual({ status: "settled", answer: "asked" });
-  });
-
-  it("carries the refusal through rather than re-minting one", async () => {
-    const refusal = refuse("daemon", "session.not_found", "No session by that identifier.");
-    const act = new SessionAct<string, string>({
-      attempt: async () => await Promise.resolve({ status: "refused", refusal }),
-      describeWhat: "The act",
-    });
-
-    await act.run("asked");
-
-    // The same object, not a copy: a refusal re-minted on the way past loses the
-    // daemon's own code, which is the only thing telling a person what went wrong.
-    expect(act.settlement()).toStrictEqual({ status: "refused", refusal });
   });
 
   it("is running between the press and the settlement", async () => {
@@ -105,9 +88,9 @@ describe("one act's settlement", () => {
 
   it("leaves the first request in flight while it refuses the second", async () => {
     // The defect: publishing the duplicate refusal as the SETTLEMENT replaced
-    // `running` with `refused` while the first call was still out. Every form
-    // reading this act then saw a settled state, re-enabled its control, and
-    // admitted a press whose call raced the first to overwrite the settlement.
+    // `running` while the first call was still out. Every form reading this act
+    // then saw a settled state, re-enabled its control, and admitted a press whose
+    // call raced the first to overwrite the settlement.
     const held = heldAttempt();
     const act = new SessionAct<string, string>({
       attempt: held.attempt,
@@ -128,7 +111,7 @@ describe("one act's settlement", () => {
     expect(notifications).toBe(1);
 
     // And the first request still settles normally, which is the half a form
-    // re-enabled by the old behaviour could no longer be told about.
+    // re-enabled by the old behavior could no longer be told about.
     held.release("answered");
     await running;
     expect(act.settlement()).toStrictEqual({ status: "settled", answer: "answered" });
@@ -139,7 +122,7 @@ describe("one act's settlement", () => {
     // and answers no refusal — so the reading above is a single-flight reading
     // rather than a class that refuses every second call for any reason.
     const act = new SessionAct<string, string>({
-      attempt: async (request) => await Promise.resolve({ status: "served", value: request }),
+      attempt: async (request) => await Promise.resolve(request),
       describeWhat: "The join",
     });
 
@@ -158,7 +141,7 @@ describe("one act's settlement", () => {
     const act = new SessionAct<string, string>({
       attempt: async () => {
         attemptCount += 1;
-        return await Promise.resolve({ status: "served", value: "answered" });
+        return await Promise.resolve("answered");
       },
       describeWhat: "The act",
     });
@@ -171,7 +154,7 @@ describe("one act's settlement", () => {
 
   it("clears back to unattempted, and says nothing new when already there", () => {
     const act = new SessionAct<string, string>({
-      attempt: async () => await Promise.resolve({ status: "served", value: "answered" }),
+      attempt: async () => await Promise.resolve("answered"),
       describeWhat: "The act",
     });
     let notifications = 0;

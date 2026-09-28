@@ -53,7 +53,6 @@ import {
   type ConsoleSurfaceRegistry,
 } from "../seats/index.js";
 import { SessionResumeDegraded } from "./SessionResumeDegraded.js";
-import { LedgerGapFill } from "./pane/window/LedgerGapFill.js";
 import { registerLedgerCommands } from "./structure/structure-commands.js";
 
 // THIS DOOR IMPORTS ITS OWN SHEET AND NO OTHER. A directory that carries a door has an
@@ -163,14 +162,10 @@ export function registerLedger(
  * up to this door.
  *
  * The descriptor says WHO owns the kind and WHAT mounts for it, and nothing else.
- * Whether a full-screen timeline may be torn off into an auxiliary window is a
- * property of the KIND — `seats/pane/pane-kinds.ts` derives it from the window model's own
- * closed set through `isDetachablePaneKind` — so a family answering it per descriptor
- * would be six families answering a question the window model settles.
  *
- * The body is mounted with no close and no open-in-window handler: both are the
- * deck's acts, they reach the chrome through the host context the deck provides, and
- * a control whose act nobody can perform is left out rather than drawn disabled.
+ * The body is mounted with no close handler: closing is the deck's act, it reaches the
+ * chrome through the host context the deck provides, and a control whose act nobody can
+ * perform is left out rather than drawn disabled.
  */
 export function registerLedgerPanes(registry: ConsolePaneRegistry): void {
   registry.register({
@@ -244,21 +239,6 @@ function mountWorkspace(
       : createElement(SessionResumeDegraded, {
           registry: context.sessionStoreRegistry,
           sessionId,
-        }),
-    // Beside it and for the same reason: this is the one position holding the store
-    // and the registry together, and the gap fill needs both — the hole from the
-    // store, the position a read acknowledged from the registry. It renders nothing
-    // for a window that is not missing anything, which is nearly always.
-    //
-    // Keyed on the STORE rather than on the route's session id, which is the sibling
-    // above's key: a route naming a session this window has not opened has no store to
-    // read a hole out of, and the two absences are the same conditional written from
-    // the side each surface reads from.
-    context.sessionStore === undefined
-      ? null
-      : createElement(LedgerGapFill, {
-          registry: context.sessionStoreRegistry,
-          sessionStore: context.sessionStore,
         }),
     createElement(Workspace, {
       key: sessionId ?? "no-session",

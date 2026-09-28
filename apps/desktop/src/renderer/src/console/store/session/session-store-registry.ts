@@ -333,32 +333,6 @@ export class SessionStoreRegistry {
     return this.#disposed;
   }
 
-  /**
-   * Whether a store this registry opens can ever reach a base state.
-   *
-   * `false` when the caller passed a refusal instead of a reader: every refresh
-   * reason a session raises — focus, reconnect, a gap re-pull — resolves nothing,
-   * so `initialise` is never called and the store buffers what it is given and
-   * projects none of it. Read by whatever would otherwise feed it, which is the
-   * one decision this fact exists to inform.
-   */
-  public get canInitialiseSessionStores(): boolean {
-    return typeof this.#options.read === "function";
-  }
-
-  /**
-   * Why no store here can be initialised, or `undefined` when one can.
-   *
-   * The other half of the boolean above, and the half a surface renders. Kept as a
-   * read on the registry rather than left with the composition root, so the one
-   * object that knows a store cannot reach a base state is also the one that can
-   * say why — a caller holding the boolean and hunting for the reason elsewhere is
-   * how two answers to one question get out of step.
-   */
-  public get readRefusal(): ConsoleRefusal | undefined {
-    return typeof this.#options.read === "function" ? undefined : this.#options.read;
-  }
-
   /** Close every session and drop every listener. The window is going away. */
   public disposeAll(): void {
     for (const sessionId of [...this.#entriesBySessionId.keys()]) {

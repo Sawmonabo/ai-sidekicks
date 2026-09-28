@@ -17,9 +17,8 @@
 //      policy and before `loadURL` — asserted as an ORDER, because the property
 //      is the sequence and not the fact that both happened.
 //
-// The three neighbouring suites own the rest: `./window-navigation.test.ts` the
-// policy's verdicts, `./window-load-failure.test.ts` the rejected-load ladder,
-// and `./auxiliary-window.test.ts` the second factory.
+// The two neighboring suites own the rest: `./window-navigation.test.ts` the
+// policy's verdicts and `./window-load-failure.test.ts` the rejected-load ladder.
 //
 // The `electron` module is mocked because a real `BrowserWindow` needs a
 // running Electron process; these are `main-unit` tests (node environment), not
@@ -104,7 +103,7 @@ describe("the main window factory", () => {
     });
 
     // An empty string is a set-but-meaningless variable; treating it as set
-    // would produce `loadURL("#/window/timeline")`, which is not a URL at all.
+    // would produce `loadURL("#/sessions")`, which is not a URL at all.
     it("refuses the dev-server URL when the variable is set to an empty string", async () => {
       electronMock.setPackaged(false);
       process.env["ELECTRON_RENDERER_URL"] = "";

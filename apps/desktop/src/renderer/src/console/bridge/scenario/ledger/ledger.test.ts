@@ -14,7 +14,6 @@
 import { describe, expect, it } from "vitest";
 
 import { RUN_ARCHITECT_CHILD, RUN_IMPLEMENTER, SUBAGENT_REVIEWER } from "./ledger-cast.js";
-import { LEDGER_FIRST_SIXTY_SCENARIO, LEDGER_FIRST_SIXTY_SPAN_MS } from "./ledger-first-sixty.js";
 import { LEDGER_QUIET_SCENARIO } from "./ledger-quiet.js";
 import { LEDGER_SCENARIO } from "./ledger.js";
 import { findScenarioWireTruthDefects } from "../wire-truth/wire-truth.js";
@@ -26,11 +25,7 @@ import { projectFixtureShellRows } from "../../../ledger/cards/shell/fixture-she
 import { ChildRunIndex } from "../../../ledger/structure/child-runs/child-run-entries.js";
 import { deriveSupersededBands } from "../../../ledger/structure/seams/superseded-bands.js";
 
-const LEDGER_SCENARIOS: readonly ConsoleScenario[] = [
-  LEDGER_SCENARIO,
-  LEDGER_FIRST_SIXTY_SCENARIO,
-  LEDGER_QUIET_SCENARIO,
-];
+const LEDGER_SCENARIOS: readonly ConsoleScenario[] = [LEDGER_SCENARIO, LEDGER_QUIET_SCENARIO];
 
 /** The run one beat belongs to, or `undefined` when it names none. */
 function runIdOf(beat: ScenarioBeat): string | undefined {
@@ -147,29 +142,6 @@ describe("the three-lane ledger scenario", () => {
     expect(typeof boundary.event.payload?.["targetPosition"]).toBe("number");
   });
 
-  it("gives a channel-addressed pane something to be a log of", () => {
-    // A timeline pane addressed to a channel is a log of THAT channel, and no beat
-    // of any shipped scenario named one — so every channel pane in the fixture
-    // bridge rendered its empty state and the composition could not be seen. One
-    // lane speaks in the channel and the other two do not, which is the whole point:
-    // the scope has to be visible as a difference.
-    const channelIds = new Set(
-      LEDGER_SCENARIO.beats
-        .map((beat) => beat.event.payload?.["channelId"])
-        .filter((channelId): channelId is string => typeof channelId === "string"),
-    );
-    expect(channelIds.size).toBe(1);
-    const [channelId] = [...channelIds];
-    const spokenIn = LEDGER_SCENARIO.beats.filter(
-      (beat) => beat.event.payload?.["channelId"] === channelId,
-    );
-    // The channel's own creation, and the turns spoken in it.
-    expect(spokenIn.some((beat) => beat.event.kind === "channel.created")).toBe(true);
-    expect(spokenIn.length).toBeGreaterThan(1);
-    // Negative control: the session is not one channel wearing a session's name.
-    expect(spokenIn.length).toBeLessThan(LEDGER_SCENARIO.beats.length);
-  });
-
   it("streams two agents' turns before either run reaches a terminal state", () => {
     const firstTerminalIndex = LEDGER_SCENARIO.beats.findIndex(
       (beat) => newStateOf(beat) === "completed",
@@ -249,36 +221,8 @@ describe("the ledger scenario's folded bodies", () => {
   });
 });
 
-describe("the first-sixty-seconds scenario", () => {
-  it("is paced across a full minute rather than fired at tick zero", () => {
-    // The span is read off the scenario rather than restated here: the number the
-    // claim is about lives beside the script it paces, so a script edit that moved the
-    // last beat fails this rather than quietly disagreeing with a copy.
-    const lastBeat = LEDGER_FIRST_SIXTY_SCENARIO.beats.at(-1);
-    expect(lastBeat?.atMs).toBe(LEDGER_FIRST_SIXTY_SPAN_MS);
-    expect(LEDGER_FIRST_SIXTY_SCENARIO.beats[0]?.atMs).toBe(0);
-  });
-
-  it("has a run landing past tense and another still going when it ends", () => {
-    expect([...finalRunStates(LEDGER_FIRST_SIXTY_SCENARIO).values()].sort()).toStrictEqual([
-      "completed",
-      "running",
-    ]);
-  });
-
-  it("opens a child thread under a run and settles it", () => {
-    const kinds = LEDGER_FIRST_SIXTY_SCENARIO.beats.map((beat) => beat.event.kind);
-    expect(kinds.indexOf("subagent.started")).toBeGreaterThan(-1);
-    expect(kinds.indexOf("subagent.completed")).toBeGreaterThan(kinds.indexOf("subagent.started"));
-  });
-});
-
 describe("the quiet ledger scenario", () => {
   it("plays no beats at all, which is the one state a script cannot reach", () => {
     expect(LEDGER_QUIET_SCENARIO.beats).toStrictEqual([]);
-  });
-
-  it("still carries a roster, because an empty log is not an empty room", () => {
-    expect(LEDGER_QUIET_SCENARIO.userIdsInJoinOrder.length).toBeGreaterThanOrEqual(3);
   });
 });

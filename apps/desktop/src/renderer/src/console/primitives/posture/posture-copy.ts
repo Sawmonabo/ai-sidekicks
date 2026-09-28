@@ -1,15 +1,10 @@
 // The two sentences a posture surface says in words rather than in figures.
 //
-// THEIR OWN MODULE BECAUSE SEVERAL COMPONENTS SAY THEM. The card presentation lives
-// in `ExecutionPostureChip.tsx` and the row presentation in `PostureRow.tsx`, and a
-// caveat written twice is a caveat that can be softened in one place and not the
-// other — which is exactly the drift the enforcement sentence exists to prevent.
-//
-// THE ABSENT SENTENCE HAS A THIRD READER AND SO TAKES A DOOR LINE. The composer's
-// own posture chip renders no facts and cannot mount the chip above, and it used to
-// carry a sentence of its own for the same fact — so the copy travels to it through
-// `primitives/index.ts` rather than being restated there. The enforcement caveat has
-// no reader outside this family and takes no door line.
+// THE ABSENT SENTENCE HAS TWO READERS AND SO TAKES A DOOR LINE. The composer's own
+// posture chip renders no facts and cannot mount the chip in this family, so the copy
+// travels to it through `primitives/index.ts` rather than being restated there, where a
+// second copy could be softened without the first. The enforcement caveat has no reader
+// outside this family and takes no door line.
 
 /**
  * What an absent posture means, said once so no arm reads it as permissive.

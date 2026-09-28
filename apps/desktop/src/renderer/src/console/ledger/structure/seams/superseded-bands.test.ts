@@ -11,12 +11,7 @@
 import { type TimelineRow } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
 
-import {
-  generalRow,
-  legacyStubRow,
-  rollbackBoundaryRow,
-  runRow,
-} from "../timeline-rows.test-support.js";
+import { generalRow, rollbackBoundaryRow, runRow } from "../timeline-rows.test-support.js";
 import { SupersededIndex, deriveSupersededBands, supersededBandKey } from "./superseded-bands.js";
 
 describe("superseded bands — the rewind floor is EXCEEDS and nothing else", () => {
@@ -74,14 +69,12 @@ describe("superseded bands — the rewind floor is EXCEEDS and nothing else", ()
     expect(index.isSuperseded("b9")).toBe(false);
   });
 
-  it("never ranks a legacy stub or a session-scoped row", () => {
-    // Structural, not filtered: neither arm carries a position at all.
+  it("never ranks a session-scoped row", () => {
+    // Structural, not filtered: the arm carries no position at all.
     const index = new SupersededIndex([
       ...rewoundWindow(),
-      legacyStubRow({ id: "stub", sequence: 7, type: "event.compacted", runId: "run-a" }),
       generalRow({ id: "g1", sequence: 8, type: "session.renamed", category: "session_lifecycle" }),
     ]);
-    expect(index.isSuperseded("stub")).toBe(false);
     expect(index.isSuperseded("g1")).toBe(false);
   });
 

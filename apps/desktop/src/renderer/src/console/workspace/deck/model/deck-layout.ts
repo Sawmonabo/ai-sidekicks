@@ -91,7 +91,7 @@ export class DeckLayout {
    * find the pane it asked for.
    *
    * TWO SEATINGS, AND THE ADDRESS DECIDES WHICH. An address naming no source pane is
-   * an open FROM A LIST — the sidebar, the palette, a rail destination — and lands at
+   * an open FROM A LIST — the palette, a rail destination — and lands at
    * the end of the deck at an equal share, which is where a person's eye expects a
    * pane they just opened. An address naming one is the SPLIT act — the deck offers
    * open, close, focus, resize, reorder and split — so the pane arrives immediately

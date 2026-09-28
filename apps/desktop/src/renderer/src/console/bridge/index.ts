@@ -93,7 +93,6 @@ export {
 // parse per call site of exactly the kind the call door next door exists to end.
 export {
   isLiveRunState,
-  readChannelId,
   readProviderAccountId,
   readQueueItemId,
   readRunId,
@@ -128,10 +127,8 @@ export {
   SCOPE_KIND_PHRASE,
   STATE_PHRASE,
   STATE_TONE,
-  TRIGGER_PHRASE,
   asApprovalCategory,
   asApprovalState,
-  asInvalidationTrigger,
   asRememberedScopeKind,
   rememberedScopeKindPhrase,
   type RememberedScopeKind,
@@ -334,24 +331,9 @@ export {
   type AttentionSeverity,
   type AttentionTrigger,
 } from "./wire-shapes/attention-projection.js";
-// The durable intervention row the corpus registers as columns and no read returns —
-// its origin, the admitting principal on the user arm, the queue item it
-// admitted, and the directive where the key still opens it. Published from the module
-// that declares it, never through the sub-module door. Its sibling projection — the
-// queue row's run binding — stays off this door: it is folded onto the queue feed
-// inside this family, so what leaves is the reading's own pair above and no surface
-// outside names the wire shape.
-export type { GrowthInterventionRecord } from "./wire-shapes/run-record-projections.js";
 // The outcome union itself. A caller outside this family narrows on it; its refusal
 // ARM does not travel, for the reason stated above the growth-port block.
 export type { GrowthOutcome } from "./growth-port/growth-outcome.js";
-// The auxiliary-window plane's two answer shapes. The workspace family's hand-off
-// narrows every answer on the outcome union and translates the refusal into its own
-// vocabulary, so both are reached from outside this family. The PORT type itself is
-// not: the one module that names it takes it off `ConsoleBridge["auxiliaryWindows"]`,
-// which is the member a bridge actually carries — and the shell adapter and the
-// fixture's arm selection stay in here, because a bridge is what builds those.
-export type { AuxiliaryWindowOutcome, AuxiliaryWindowRefusal } from "./auxiliary-window-port.js";
 // The served shape of a growth SUBSCRIPTION, published beside the outcome for the
 // same reason: the deep-link path's owner drains one, and a view family that had to
 // name the shape itself would be declaring a second reading of what this port
@@ -537,26 +519,6 @@ export { WIRE_UNREGISTERED_REFUSAL_CODE } from "./growth-port/growth-outcome.js"
 export { growthSlateRow } from "./growth-port/growth-slate.js";
 export type { GrowthSlateRow } from "./growth-port/growth-slate-row.js";
 
-// How a growth read ENDS when its seam can also REJECT. It lives in this family
-// because it settles a promise the growth port returned and knows nothing about any
-// surface, and in `readings/` because what it is about is the READING rather than any
-// one wire. It leaves through this door and through no inner one, and the rule for
-// that is stated once — in `readings/read-settlement.ts`'s own header, where a reader
-// meets the module: no `bridge/` sibling reads these, so an inner barrel would
-// publish a name nothing inside the family takes, which is the dead export
-// `structure:dead-code` reports. `settleGrowthCall` is that same seam entered through
-// a THUNK, for the dispatches that must give a key back whichever way a port fails.
-// `READ_SETTLEMENT_REFUSAL_ORIGIN` deliberately stays off this door for the same
-// rule from the other side: its only readers are the suites that assert who a
-// synthesized refusal names, and a door line no production reader uses is a dead
-// export rather than a convenience.
-export {
-  settleGrowthCall,
-  settleGrowthRead,
-  useSettledGrowthRead,
-} from "./readings/read-settlement.js";
-export type { SettledReadRefusal } from "./readings/read-settlement.js";
-
 // The workflow plane's read shapes, for the family that renders them. Declared on
 // this substrate because no code package registers a `workflow.*` type yet, and
 // re-exported here rather than deep-imported because a view family reaches another
@@ -679,22 +641,6 @@ export { readRollbackBoundaryPayload } from "./daemon/rollback-boundary-payload.
 // `TimelineRow`.
 export { readEarlierTimelinePage } from "./daemon/timeline-page.js";
 
-// The body read that narrows a wire shape, through the door because it has a
-// production reader above this family. `stampedExecutionPostureOf` is the composer's
-// posture chip's: it parses the candidate against the registered
-// `RunStateChangeEvent` shape, which is the whole point — a surface checking two
-// members loosely and asserting the type admitted a body with no `networkAccess`, and
-// the chip then rendered an empty label beside two full ones. This door line waited on
-// a production consumer and now has one, in `shell/composer/chips/chip-models.ts`.
-export { stampedExecutionPostureOf } from "./daemon/entity-body-reads.js";
-
-// The reported node state a payload member carries. Through the door for the reason
-// the line above is: the narrowing runs against the contract's own schema, which this
-// family admits and no view family may import, so the read belongs here and travels
-// out — and the terminal's host-presence fold is the production reader that makes the
-// line a door line rather than a claim.
-export { readNodeState } from "./daemon/node-state-read.js";
-
 // The Awareness activity field's readings, through the door because the
 // channels family folds a snapshot of them into its indicator registry and a
 // view family may not reach past a barrel into this one. They leave through
@@ -704,29 +650,6 @@ export type {
   GrowthActivitySnapshot,
   GrowthAgentActivityReading,
 } from "./growth-values/presence.js";
-
-// The WebAuthn ceremony seam. Through the door because the sign-in family is the
-// reader and this family is where the seam has to live: the fixture WRITES an
-// outcome and the sign-in family READS one, so the union sits below both — the
-// "two sides of one seam share a module" rule, applied across a bridge. The
-// encoder is deliberately absent: a renderer that could compose an `authenticated`
-// arm could assert an identity nothing established, so the writer is published to
-// the fixture through that directory's own door and to nobody else.
-//
-// THE THREE VALUE TUPLES ARE DELIBERATELY NOT HERE. They are the reader's own
-// vocabulary, narrowed against inside the declaring module and driven by its suite
-// from there; the sign-in family reads the TYPES, whose totality is what makes its
-// copy tables complete. Publishing the tuples would put three names on this door
-// whose only reader is a test.
-export {
-  readCeremonyOutcome,
-  type DeviceGrantHandoff,
-  type UserIdentityClaims,
-  type WebAuthnCeremonyOutcome,
-  type WebAuthnCustody,
-  type WebAuthnProbeResult,
-  type WebAuthnRefusalReason,
-} from "./web-authn/ceremony-outcome.js";
 
 // The session goal: the fold that says what it is, and the two operations that change
 // it. Through this door because two VIEW families read it — the approvals pane's card

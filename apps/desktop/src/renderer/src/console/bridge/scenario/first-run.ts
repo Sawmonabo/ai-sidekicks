@@ -8,9 +8,9 @@
 // not an error.
 //
 // It scripts exactly one beat, the session the user is about to create not
-// existing yet, and the replies the frame's opening reads need. Everything else the
-// first-run frame shows comes from the growth port refusing, which is the honest
-// rendering of a console whose onboarding wire is not registered.
+// existing yet, and the reply the frame's opening read needs. Everything else the
+// first-run frame shows comes from an unanswered call being refused, which is the
+// honest rendering of a console whose onboarding wire is not registered.
 //
 // Its beat and its replies are held to the shipped wire contract by
 // `scenario/wire-truth/wire-truth.ts`, exactly as the flagship's are; that file's header
@@ -74,6 +74,5 @@ export const FIRST_RUN_SCENARIO: ConsoleScenario = {
         timelineCursors: { latest: "first-run-cursor-1" },
       },
     },
-    { call: "agent.list", result: { agents: [] } },
   ],
 };

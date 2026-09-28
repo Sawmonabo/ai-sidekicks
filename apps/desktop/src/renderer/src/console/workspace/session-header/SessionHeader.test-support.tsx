@@ -2,9 +2,8 @@
 // mount that hands back the header element.
 //
 // One module rather than a copy in each, because the suites assert against the SAME
-// header — one about the readings it renders, the others about the absences it must not
-// dress up — and two spellings of "a session in this state" would let one file pass
-// against a header the others never build.
+// header, and two spellings of "a session in this state" would let one file pass against
+// a header the others never build.
 
 import { render } from "@testing-library/react";
 
@@ -29,9 +28,7 @@ export interface StoreWithOptions {
    * The position the read was performed FROM, where it submitted one.
    *
    * Present, the window opens partway through the log and the rows below it were
-   * never delivered here — which is the whole subject of `SessionHeader.resumed-window.test.tsx`.
-   * Absent, the read opened at the beginning of the log, which is what every other
-   * case in this family is written under.
+   * never delivered here. Absent, the read opened at the beginning of the log.
    */
   readonly readFromCursor?: string;
   /** Entities the read carried, for a case about what the base state authoritatively holds. */
@@ -51,7 +48,6 @@ export function storeWith(
   store.initialise({
     cursor: timeline.length,
     entities: options.entities ?? [],
-    userJoinLog: [USER_YOU],
     ...(options.readFromCursor === undefined ? {} : { readFromCursor: options.readFromCursor }),
     timeline: timeline.map((row) => ({
       id: `event-${String(row.sequence)}`,
@@ -67,21 +63,15 @@ export function storeWith(
 }
 
 /**
- * A scenario that answers none of the header's three reads.
+ * A scenario that scripts no reply at all.
  *
- * The header puts an identity read, a health read and a spend read the moment it mounts,
- * so every case here renders inside a bridge whether it is about those reads or not.
- * This is the one that keeps the other cases about what they are about: it scripts no
- * reply at all, so all three refuse, and a case that says nothing about a reading gets
- * a header whose readings are all honestly absent rather than one carrying a figure some
- * other suite's scenario happened to declare.
- *
- * `SessionHeader.readings.test.tsx` is where a scenario that DOES answer them lives.
+ * The header reads nothing through the bridge, but the mount still needs one, so every
+ * case renders inside a bridge whose scenario declares no answer.
  */
 export const CAST_BAR_SILENT_SCENARIO: ConsoleScenario = {
   id: "session-header-silent",
-  label: "Session header, nothing read",
-  purpose: "A session whose identity, health and spend reads all refuse.",
+  label: "Session header, nothing scripted",
+  purpose: "A session with no scripted replies.",
   sessionId: SESSION_ID,
   userIdsInJoinOrder: [USER_YOU],
   startedAtIso: "2026-01-01T14:20:00.000Z",
@@ -90,7 +80,7 @@ export const CAST_BAR_SILENT_SCENARIO: ConsoleScenario = {
 };
 
 export interface RenderBarOptions {
-  /** Which scenario the header's reads are answered from. Silent by default. */
+  /** Which scenario the bridge is built from. Silent by default. */
   readonly scenario?: ConsoleScenario;
 }
 

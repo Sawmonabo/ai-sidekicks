@@ -1,12 +1,12 @@
-/* The session shell: the workspace element itself, its banners, its composer slot,
- * the new-session draft, and the split that holds the deck beside the sidebar.
+/* The session shell: the workspace element itself, its banners, its composer slot, and
+ * the new-session draft.
  *
- * The family's other three sheets — `session-header.css`, `deck/deck.css` and
- * `sidebar/sidebar.css`, each beside the modules it styles — are imported from
- * `workspace/index.ts` beside this one, so the whole family's rules land once per
- * bundle and cascade after the primitives' and the frame's.
+ * The family's other sheets — `session-header.css` and `deck/deck.css`, each beside the
+ * modules it styles — are imported from `workspace/index.ts` beside this one, so the
+ * whole family's rules land once per bundle and cascade after the primitives' and the
+ * frame's.
  *
- * Every colour is a Meridian custom property and every space a step on the scale,
+ * Every color is a Meridian custom property and every space a step on the scale,
  * so the family follows the scheme attribute with no conditional in JSX and its
  * rhythm is a decision made once in `tokens/palette.ts`.
  */
@@ -117,7 +117,7 @@
   outline-offset: 2px;
 }
 
-/* What already exists after a partial send. Muted rather than coloured: it is a
+/* What already exists after a partial send. Muted rather than colored: it is a
    statement of fact beside the refusal above it, not a second fault. */
 .meridian-new-session__completed {
   margin: 0;
@@ -135,58 +135,4 @@
 .meridian-new-session__actions {
   display: flex;
   gap: var(--meridian-space-2);
-}
-
-/* --- The workspace split: the deck, and the session sidebar -------------- */
-
-/*
- * The outer panel group. Same treatment as the deck's own group and for the same
- * reason: `react-resizable-panels` fixes `display`, `flex-direction`, `flex-wrap`,
- * and `overflow` here and documents that they cannot be overridden, so nothing below
- * tries. What is set is the one thing the library leaves to the caller — that the row
- * may shrink, so the panes inside the deck are what scroll.
- */
-.meridian-workspace__split {
-  min-width: 0;
-  min-height: 0;
-}
-
-/*
- * The split's separator. The deck's chrome verbatim, rotated to no degree because both
- * groups are horizontal: a resize handle one pixel different from the deck's reads as a
- * different kind of handle, and a person who has learned one has learned both.
- */
-.meridian-workspace__separator {
-  width: var(--meridian-space-2);
-  border: 0;
-  background: linear-gradient(
-    to right,
-    transparent 40%,
-    var(--meridian-edge) 40% 60%,
-    transparent 60%
-  );
-  cursor: col-resize;
-}
-
-.meridian-workspace__separator:hover,
-.meridian-workspace__separator:focus-visible {
-  background: linear-gradient(
-    to right,
-    transparent 30%,
-    var(--meridian-accent) 30% 70%,
-    transparent 70%
-  );
-}
-
-.meridian-workspace__separator:focus-visible {
-  outline: 2px solid var(--meridian-focus-ring);
-  outline-offset: -2px;
-}
-
-.meridian-workspace__sidebar {
-  display: flex;
-  min-width: 0;
-  min-height: 0;
-  border-inline-start: 1px solid var(--meridian-edge);
-  background: var(--meridian-surface);
 }

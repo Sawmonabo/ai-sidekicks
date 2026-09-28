@@ -43,7 +43,6 @@ function snapshotAt(cursor: number, acknowledged?: string): SessionSnapshot {
   return {
     cursor,
     entities: [],
-    userJoinLog: [],
     timelineCursors: {
       latest: "9_1723291500000000000",
       ...(acknowledged === undefined ? {} : { acknowledged }),

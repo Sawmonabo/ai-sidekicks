@@ -129,7 +129,7 @@ export function runIdOf(event: ConsoleSessionEvent): string | undefined {
 export const REQUEST_LIFECYCLES: readonly RequestLifecycle[] = [
   {
     openedBy: "approval.requested",
-    closedBy: ["approval.approved", "approval.rejected", "approval.expired", "approval.canceled"],
+    closedBy: ["approval.approved", "approval.rejected", "approval.canceled"],
     correlationMember: "approvalRequestId",
   },
   {

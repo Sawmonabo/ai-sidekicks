@@ -1,23 +1,14 @@
 // Find in ledger — the matcher behind the field.
 //
 // The subsequence scorer shared by the palette, settings search, sidebar filter, and
-// find is own-built. THE FIELD'S RULE IS THIS MODULE'S: find runs over the
-// loaded rows with a match count and next and previous, and states its boundary in the
-// field — "searched loaded rows only". The boundary is a statement and not a control:
-// the act that reaches rows before the window's head is the viewport's backward read.
-// Search across sessions is growth, not a widening of this.
+// find is own-built. THE FIELD'S RULE IS THIS MODULE'S: find runs over the loaded rows
+// with a match count and next and previous. Reaching rows before the window's head is
+// the viewport's backward read, and search across sessions is growth, not a widening
+// of this.
 //
-// THE BOUNDARY IS THE FEATURE. A find field that searched what it had and said
-// nothing would let a person conclude a session does not contain something it
-// does. So the boundary is a member of the result — `searchedRowCount` — rather
-// than a caption the surface remembers to add, and `LEDGER_FIND_SCOPE_NOTE` is the
-// one sentence both the field and its test read.
-//
-// WHETHER ROWS EXIST BEFORE THE WINDOW IS THE VIEWPORT'S READING AND NOT A MEMBER
-// HERE. `VisibleLedgerWindow.hasEarlierRows` is what the window's own truncation
-// sentence is drawn from, and the find surface offers no act on it — so a copy of it
-// on this result would be a second home for one fact, read by nothing, with the
-// field's own scope sentence rendered unconditionally either way.
+// THE BOUNDARY IS A MEMBER OF THE RESULT — `searchedRowCount` — rather than a caption
+// the surface remembers to add, so a find that searched what it had cannot be read as
+// a statement about the whole session.
 //
 // WHAT IS SEARCHED. A row's `summary`, which is the human-readable line the daemon
 // composed, and its `type`, which is the wire-verbatim event kind — so typing
@@ -27,15 +18,6 @@
 // person cannot see the match in.
 
 import type { TimelineRow } from "@ai-sidekicks/contracts";
-
-/**
- * The sentence the field states its boundary in.
- *
- * One string, read by the component and by the test that asserts it is shown —
- * two copies would let the field drop the caption while the test kept passing
- * against its own literal.
- */
-export const LEDGER_FIND_SCOPE_NOTE = "Searched loaded rows only.";
 
 /**
  * Which way a walk through the matches moves. Closed.
@@ -53,16 +35,6 @@ export const FIND_STEP_DIRECTIONS = ["next", "previous"] as const;
 /** One direction of a walk. Derived from the enumeration, never restated. */
 export type FindStepDirection = (typeof FIND_STEP_DIRECTIONS)[number];
 
-/**
- * The sentence a capped walk states, beside the scope note and never instead of it.
- *
- * A different boundary from the scope note's, and the difference is why it is its
- * own string: the scope note bounds what was SEARCHED, and this bounds what can be
- * STEPPED THROUGH. Composed from `FIND_MATCH_CAP` rather than restating the number,
- * for the same one-value-one-home reason the constant carries its own rationale.
- */
-export const LEDGER_FIND_TRUNCATION_NOTE: string = `Only the first ${String(FIND_MATCH_CAP)} matches can be stepped through. Narrow the query to reach the rest.`;
-
 /** One row the query matched, and where. */
 export interface LedgerFindMatch {
   readonly rowId: string;
@@ -79,21 +51,19 @@ export interface LedgerFindResult {
    */
   readonly matches: readonly LedgerFindMatch[];
   /**
-   * The TRUE match count, uncapped. Reported honestly beside a capped walk: a
-   * count that silently equalled the cap would tell a person their query is
-   * narrower than it is.
+   * The TRUE match count, uncapped: a count that silently equalled the cap would tell
+   * a person their query is narrower than it is.
    *
    * It is not the counter's denominator, though. The walk is over `matches`, so
    * naming this as the total a position is "of" advertised results the walk can
-   * never reach — "500 of 700", then a wrap to "1 of 700", with 501–700 sitting
-   * behind nothing on screen. It rides BESIDE the walkable figure instead.
+   * never reach.
    */
   readonly totalMatchCount: number;
-  /** Rows the query was actually run over. The stated boundary. */
+  /** Rows the query was actually run over. */
   readonly searchedRowCount: number;
 }
 
-/** The result an empty query produces: no matches, and the boundary still stated. */
+/** The result an empty query produces: no matches over the rows searched. */
 export function emptyFindResult(searchedRowCount: number): LedgerFindResult {
   return { query: "", matches: [], totalMatchCount: 0, searchedRowCount };
 }
@@ -136,17 +106,6 @@ export function findInLedger(rows: readonly TimelineRow[], query: string): Ledge
     totalMatchCount,
     searchedRowCount: rows.length,
   };
-}
-
-/**
- * Whether the cap kept matches out of the walk.
- *
- * Derived rather than carried as a result member — the two counts already say it —
- * and read by both surfaces that have to agree about it: the counter, which names a
- * second figure only here, and the cap sentence, which is rendered only here.
- */
-export function isFindWalkCapped(result: LedgerFindResult): boolean {
-  return result.totalMatchCount > result.matches.length;
 }
 
 /** Which field a row matched on, summary first because that is what a person reads. */

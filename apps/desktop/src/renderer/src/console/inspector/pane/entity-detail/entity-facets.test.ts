@@ -12,7 +12,6 @@ import {
   byteFacet,
   countAttributedTo,
   countFacet,
-  composedCountFacet,
   expiryFacet,
   instantFacet,
   readBodyMember,
@@ -73,13 +72,6 @@ describe("a count", () => {
     expect(countFacet("Run version", Number.POSITIVE_INFINITY, "run version").value.form).toBe(
       "unrecorded",
     );
-  });
-
-  it("a composed count is always present, because the console did the counting", () => {
-    expect(composedCountFacet("Runs", 0).value).toStrictEqual({
-      form: "derived",
-      text: new Intl.NumberFormat().format(0),
-    });
   });
 });
 

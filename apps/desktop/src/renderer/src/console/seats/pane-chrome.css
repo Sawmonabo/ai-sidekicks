@@ -5,7 +5,7 @@
    `--meridian-pane-hue` is set per pane by the chrome, from the actor the pane's entity
    is attributed to, and is absent where there is no actor. It is read only by the two
    focus rules below, each with its own neutral fallback: the hue answers "who", and a
-   pane that is not about anybody answers nothing rather than borrowing a colour. */
+   pane that is not about anybody answers nothing rather than borrowing a color. */
 
 /* `flex: 1 1 auto` because a pane is a flex CHILD as often as it is a grid one, and the
    initial `0 1 auto` is only harmless under the grid. The deck is a column flex chain
@@ -186,24 +186,4 @@
   flex-direction: column;
   min-height: 0;
   overflow: auto;
-}
-
-/*
- * The pinned region between the head and the body.
- *
- * It never scrolls and never grows: `flex: 0 0 auto` is what makes it PINNED rather
- * than the first row of the body — a region that shared the body's scroller would
- * leave the screen the moment a person read past the top of a feed, which is the one
- * property this region exists to have. It carries the frame's own inline padding so
- * a region body writes its own card and not its own gutter, and a hairline beneath it
- * rather than above, because the head already draws its own edge and two rules
- * stacked one line apart read as a mistake.
- *
- * No rule draws it when it is absent: the chrome emits no element at all for an
- * unfilled region, so there is nothing here to collapse.
- */
-.meridian-pane__pinned {
-  border-bottom: 1px solid var(--meridian-edge);
-  flex: 0 0 auto;
-  padding: var(--meridian-space-2) var(--meridian-space-3);
 }

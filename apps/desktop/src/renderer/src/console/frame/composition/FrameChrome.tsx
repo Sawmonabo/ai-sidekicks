@@ -7,10 +7,6 @@
 // families ship in parallel, and it is why `surfaces` is a prop rather than an
 // import: an import would make the frame depend on all six.
 //
-// Auxiliary windows get NO rail. They are single-purpose windows with their own bridge
-// instance and no shared store, and a rail whose destinations belong to another window
-// would be three controls that navigate the wrong frame.
-//
 // THE BACKGROUND WRAPPER IS THE SHELL'S `inert` GUARD, and it is why the rail and the
 // column are wrapped rather than left as direct children. The adopted dialog family
 // runs under `modal="trap-focus"`, which traps focus and deliberately does not lock the
@@ -34,12 +30,7 @@ import { RefusalBanner, SurfaceErrorBoundary } from "../../primitives/index.js";
 import { type FrameBanner } from "../../store/index.js";
 import { useRefusalBannerAnnouncements } from "./banner-announcements.js";
 import { IconRail, type RailEntry } from "./IconRail.js";
-import {
-  formatRoute,
-  isAuxiliaryRoute,
-  type ConsoleRoute,
-  type RailDestination,
-} from "../../routing/index.js";
+import { formatRoute, type ConsoleRoute, type RailDestination } from "../../routing/index.js";
 
 export interface FrameChromeProps {
   readonly route: ConsoleRoute;
@@ -48,45 +39,6 @@ export interface FrameChromeProps {
   readonly onSelectDestination: (destination: RailDestination) => void;
   readonly banners: readonly FrameBanner[];
   readonly onDismissBanner: (bannerId: string) => void;
-  /**
-   * Extra content one banner draws beneath its row, or nothing for that banner.
-   *
-   * A SLOT BECAUSE `FrameBanner` IS STORE DATA. That shape is what the frame store
-   * holds — `store/shell/frame-store.ts` keeps its React import type-only — so a banner
-   * whose producer has more to say than a code and a sentence cannot say it on the
-   * banner itself. The version mismatch is the case: its protocol pair and the
-   * runtime's published set are facts a `FrameBanner` has no member for, and drawing
-   * them in the surface tree instead is how that refusal was reaching the frame
-   * without ever reaching the announcer.
-   *
-   * The caller matches on the banner's own id, so a supplement belongs to exactly one
-   * row rather than to whichever row happens to be raised.
-   */
-  readonly renderBannerSupplement?: (banner: FrameBanner) => React.ReactNode;
-  /**
-   * Controls that address THIS WINDOW rather than anything in it.
-   *
-   * Above the banners and OUTSIDE the surface's error boundary, which is the whole
-   * reason it is a slot on the chrome rather than something a surface draws: a window
-   * whose surface threw is the state in which being unable to give its pane back
-   * would matter most, and a control mounted inside that boundary would be the first
-   * thing to disappear.
-   *
-   * A prop for the reason `surfaces` is one — the frame renders what it is handed and
-   * owns no act — and the one filler today is the auxiliary window's return control,
-   * which draws nothing at all on a window that no deck is holding a slot for.
-   */
-  readonly windowControls?: React.ReactNode;
-  /**
-   * Standing chrome about the shell itself, above the raised-banner stack.
-   *
-   * A slot rather than a render, for the same reason `surfaces` is: the frame owns
-   * chrome and does not know what a supervisor is. And ABOVE the banner stack
-   * rather than inside it, because these lines clear when their condition clears
-   * while a raised banner is a queue entry a person dismisses — one stack holding
-   * both would make an outage dismissible.
-   */
-  readonly shellChrome?: React.ReactNode;
   /** The surface the route resolves to. Mounted inside its own error boundary. */
   readonly children: React.ReactNode;
   /** Rendered above the surface: the palette, dialogs, anything window-scoped. */
@@ -104,32 +56,19 @@ export interface FrameChromeProps {
 }
 
 export function FrameChrome(props: FrameChromeProps): React.JSX.Element {
-  const isAuxiliary = isAuxiliaryRoute(props.route);
   useRefusalBannerAnnouncements(props.banners);
   return (
-    <div className={isAuxiliary ? "meridian-frame meridian-frame--auxiliary" : "meridian-frame"}>
+    <div className="meridian-frame">
       <div className="meridian-frame__background" inert={props.modalOverlayOpen === true}>
-        {isAuxiliary ? null : (
-          <IconRail
-            entries={props.railEntries}
-            current={props.railDestination}
-            onSelect={props.onSelectDestination}
-          />
-        )}
+        <IconRail
+          entries={props.railEntries}
+          current={props.railDestination}
+          onSelect={props.onSelectDestination}
+        />
         <div className="meridian-frame__column">
-          {/* This window's own controls sit above the shell's standing chrome: one
-              addresses the window a person is looking at and the other reports on the
-              runtime behind every window, and the narrower subject reads first. Both
-              are above the raised-banner stack for the reasons their props give. */}
-          {props.windowControls}
-          {props.shellChrome}
           {props.banners.length === 0 ? null : (
             <div className="meridian-frame__banners">
               {props.banners.map((banner) => (
-                // Wrapped whether or not a supplement is drawn, so one banner is one
-                // element of the column either way: a row that grew a supplement would
-                // otherwise become two children of a gapped flex column and read as
-                // two separate notices about two separate things.
                 <div key={banner.id} className="meridian-frame__banner">
                   {banner.dismissible ? (
                     <RefusalBanner
@@ -142,7 +81,6 @@ export function FrameChrome(props: FrameChromeProps): React.JSX.Element {
                   ) : (
                     <RefusalBanner code={banner.code} detail={banner.detail} />
                   )}
-                  {props.renderBannerSupplement?.(banner)}
                 </div>
               ))}
             </div>
@@ -184,8 +122,6 @@ function surfaceNameFor(route: ConsoleRoute): string {
       return "Workflows";
     case "settings":
       return "Settings";
-    case "auxiliary":
-      return route.route === "timeline" ? "The timeline" : "The agent console";
     case "pane-harness":
       // Fixture-only, and named the way a person driving it would: the boundary's
       // copy reads "The pane harness could not be rendered", which is the truth

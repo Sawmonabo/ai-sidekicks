@@ -22,10 +22,11 @@ import { NewSessionControl } from "./NewSessionControl.js";
 import { CREATED_SESSION_ID } from "./new-session-draft.test-support.js";
 import {
   CREATE_REPLY,
-  NOTHING_BLOCKS_THE_ACT,
+  REJECTING_FIRST_TURN,
   bridgeFor,
   bridgeHoldingCreate,
   bridgeQueueingCreates,
+  completingFirstTurn,
   openDraftWithFirstTurn,
   politeText,
   press,
@@ -133,10 +134,11 @@ describe("the composed new-session draft — the composition a completed send cl
     // threw away the only copy of it. The send is slow here because that is the whole
     // window the defect lives in.
     const settledSessionIds: string[] = [];
-    const held = bridgeHoldingCreate({ scriptsFirstTurn: true });
-    const container = renderControlOn(held.bridge, (sessionId) =>
-      settledSessionIds.push(sessionId),
-    );
+    const held = bridgeHoldingCreate();
+    const container = renderControlOn(held.bridge, {
+      onSessionCreated: (sessionId) => settledSessionIds.push(sessionId),
+      queueFirstTurn: completingFirstTurn().call,
+    });
     await openDraftWithFirstTurn();
     await press("Send");
     // The frame between the press and the render that closes the field: the control
@@ -174,8 +176,8 @@ describe("the composed new-session draft — the composition a completed send cl
     // The structural half is the revision above; this is the affordance half, and it is
     // `readOnly` rather than `disabled` on purpose — a disabled control loses focus, so
     // a person typing when the press landed would find their place gone.
-    const held = bridgeHoldingCreate({ scriptsFirstTurn: true });
-    renderControlOn(held.bridge);
+    const held = bridgeHoldingCreate();
+    renderControlOn(held.bridge, { queueFirstTurn: completingFirstTurn().call });
     await openDraftWithFirstTurn();
     await press("Send");
 
@@ -195,10 +197,11 @@ describe("the composed new-session draft — the composition a completed send cl
     // above — and every completed send would leave a form standing over a session the
     // console had already started.
     const settledSessionIds: string[] = [];
-    const held = bridgeHoldingCreate({ scriptsFirstTurn: true });
-    const container = renderControlOn(held.bridge, (sessionId) =>
-      settledSessionIds.push(sessionId),
-    );
+    const held = bridgeHoldingCreate();
+    const container = renderControlOn(held.bridge, {
+      onSessionCreated: (sessionId) => settledSessionIds.push(sessionId),
+      queueFirstTurn: completingFirstTurn().call,
+    });
     await openDraftWithFirstTurn();
     await press("Send");
 
@@ -233,9 +236,8 @@ function bridgeCountingCreates(): {
   readonly createCount: () => number;
 } {
   let creates = 0;
-  // Scoped to the create by name: a composed draft's send makes the turn's call too,
-  // and an arm that counted every call would report one send as two creates — and
-  // would answer `run.queueCreate` with a reply the create's own schema shapes.
+  // Scoped to the create by name, so any other call reaches the fixture's own answer
+  // and is never counted as a create.
   const { bridge } = withDaemonCall(
     bridgeFor({ scriptsCreate: true }),
     async (call, passThrough) => {
@@ -264,7 +266,7 @@ describe("the composed new-session draft — the transport it would send through
       <LiveAnnouncerProvider>
         <NewSessionControl
           bridge={retired.bridge}
-          blockedAct={NOTHING_BLOCKS_THE_ACT}
+          queueFirstTurn={REJECTING_FIRST_TURN}
           onSessionCreated={recordNothing}
           onSessionDirectoryRecheck={recordNothing}
         />
@@ -276,7 +278,7 @@ describe("the composed new-session draft — the transport it would send through
       <LiveAnnouncerProvider>
         <NewSessionControl
           bridge={live.bridge}
-          blockedAct={NOTHING_BLOCKS_THE_ACT}
+          queueFirstTurn={REJECTING_FIRST_TURN}
           onSessionCreated={recordNothing}
           onSessionDirectoryRecheck={recordNothing}
         />
@@ -301,7 +303,7 @@ describe("the composed new-session draft — the transport it would send through
       <LiveAnnouncerProvider>
         <NewSessionControl
           bridge={composed.bridge}
-          blockedAct={NOTHING_BLOCKS_THE_ACT}
+          queueFirstTurn={REJECTING_FIRST_TURN}
           onSessionCreated={recordNothing}
           onSessionDirectoryRecheck={recordNothing}
         />

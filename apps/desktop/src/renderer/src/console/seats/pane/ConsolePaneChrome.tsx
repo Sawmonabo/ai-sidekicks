@@ -8,32 +8,20 @@
 // the focus ring goes. So the frame is drawn once, here, and a pane body is what a family writes.
 //
 // WHY IT LIVES IN `seats/`. Every pane BODY lives inside the family that owns it, a
-// view family may not import another view family, and the deck that provides the two
-// host controls is itself a view family. So the chrome cannot sit in the deck, and it
+// view family may not import another view family, and the deck that provides the
+// host control is itself a view family. So the chrome cannot sit in the deck, and it
 // cannot sit in whichever family happened to need it first. `seats/` is "the contracts
 // through which view families hand each other bodies" — the lowest family that already
 // owns `PaneKind` and sits above `store/` for `ConsoleEntityRef` — and it is where a
 // contract six siblings share belongs.
 //
 // THE CONTROL STRIP IS THIS MODULE'S, because no committed document enumerates it: the
-// kind's own actions, open-in-window where the host permits it (the two auxiliary
-// windows the console ships), and close. Both host controls arrive either explicitly, from
-// a caller that owns the pane's lifetime, or from `pane-controls.ts`'s context, which
-// the deck provides around every pane body. Explicit wins, so a host that mounts a pane
-// outside a deck and still owns its lifetime is not forced through a context. Both
-// absent, NEITHER CONTROL RENDERS: a control whose act nobody can perform is left out
-// rather than drawn disabled — the absent-not-disabled rule
-// `src/shared/auxiliary-routes.ts` applies to the Window menu, applied here.
-//
-// AND SUPPLYING `onOpenInWindow` IS NEVER ENOUGH TO SHOW THE DETACH CONTROL. Only a
-// kind the window model can actually open in a window wears it, which is
-// `isDetachablePaneKind`'s single answer and not a set restated here. The handler is a
-// permission from the HOST and the kind is a fact about the WINDOW MODEL, and a
-// control needs both: the deck supplies its controls through one context, so a host
-// doing the ordinary thing hands every pane it lays out the same handler, and without
-// this a `runs` pane would offer a button whose act has no route. A family passing the
-// handler for a non-detachable kind is not making an error to be reported — it is the
-// expected shape — so the control is simply absent.
+// kind's own actions and close. The close arrives either explicitly, from a caller that
+// owns the pane's lifetime, or from `pane-controls.ts`'s context, which the deck
+// provides around every pane body. Explicit wins, so a host that mounts a pane outside a
+// deck and still owns its lifetime is not forced through a context. With neither, THE
+// CONTROL DOES NOT RENDER: a control whose act nobody can perform is left out rather
+// than drawn disabled.
 //
 // AND THE HEAD IS ALSO THE DRAG HANDLE. Pointer reorder runs on
 // `@atlaskit/pragmatic-drag-and-drop`, which binds to an element. The head is the
@@ -51,13 +39,6 @@
 // `display: contents` on it to stop the deck seeing a box; the prop below is what it
 // was standing in for.
 //
-// AND BETWEEN THE HEAD AND THE BODY THERE IS ONE PINNED REGION, filled through
-// `seats/pane/pinned-pane-regions.ts` rather than by a prop. A pane can carry a block above
-// its body that belongs to a family that does not own the pane — channel-scoped
-// workflow progress on a channel-scoped timeline is the first — and a sibling import
-// is what the layering rules refuse. An unfilled region draws no element at all, so a
-// pane nobody pinned anything on is a head directly above a body.
-//
 // ITS STYLESHEET IS IMPORTED BY THE FAMILY DOOR, `seats/index.ts`, which is where
 // every other console family imports its own — `primitives/index.ts` and
 // `frame/index.ts` are the precedent and `apps/desktop/AGENTS.md` is the rule. The
@@ -71,9 +52,8 @@ import { type ConsoleEntityRef } from "../../store/index.js";
 import { GLYPH_DEFAULT_SIZE, GLYPH_SIZE_CHROME, type GlyphName } from "../../tokens/index.js";
 import { PaneBreadcrumb } from "./PaneBreadcrumb.js";
 import { usePaneControls } from "./pane-controls.js";
-import { isDetachablePaneKind, type PaneKind } from "./pane-kinds.js";
+import { type PaneKind } from "./pane-kinds.js";
 import { type ConsolePaneContext } from "./pane-context.js";
-import { pinnedPaneRegionRegistry, type PinnedPaneRegionRegistry } from "./pinned-pane-regions.js";
 
 /**
  * The glyph each pane kind wears, total over the closed set.
@@ -102,10 +82,10 @@ export const GLYPH_BY_PANE_KIND: Readonly<Record<PaneKind, GlyphName>> = {
 /**
  * What a pane kind is called, everywhere it is called anything.
  *
- * One spelling serves the heading, the trail's current crumb, the open-in-window
- * label, and the mismatch refusal, which is why the ledger's `title` prop is gone
- * rather than kept as an override: a caller able to pass "Runs" to one pane and "Run
- * list" to the next is a deck that reads as two products.
+ * One spelling serves the heading, the trail's current crumb, and the mismatch
+ * refusal, which is why the ledger's `title` prop is gone rather than kept as an
+ * override: a caller able to pass "Runs" to one pane and "Run list" to the next is a
+ * deck that reads as two products.
  *
  * Total for `GLYPH_BY_PANE_KIND`'s reason, and separate from the kind string because
  * the kind is a wire-shaped identifier (`workflow-run`) and a person reads a phrase
@@ -152,6 +132,7 @@ export type PaneContextOf<TKind extends PaneKind> = Extract<ConsolePaneContext, 
  */
 declare const PANE_BODY_TAKES_ITS_OWN_KINDS_CONTEXT: unique symbol;
 
+/** What one pane's frame needs: its kind, the address it is scoped to, and its body. */
 export interface ConsolePaneChromeProps {
   readonly kind: PaneKind;
   /**
@@ -165,39 +146,18 @@ export interface ConsolePaneChromeProps {
    */
   readonly headingId?: string;
   readonly sessionId: string | undefined;
-  readonly channelId?: string | undefined;
   readonly runId?: string | undefined;
   readonly entity?: ConsoleEntityRef | undefined;
   /**
-   * The focus treatments' colour as a `var()` reference, or `undefined` where the deck
+   * The focus treatments' color as a `var()` reference, or `undefined` where the deck
    * has no actor to attribute the pane to. Undefined takes the neutral ring, which is
    * the fail-closed answer: an unattributed pane never borrows someone's hue.
    */
   readonly focusHue: string | undefined;
-  /** The kind's own actions, rendered before the two host controls. */
+  /** The kind's own actions, rendered before the close control. */
   readonly actions?: React.ReactNode;
-  /**
-   * Which board the pinned region above the body is resolved out of.
-   *
-   * Optional and defaulted to the process-wide board, on the shape
-   * `workspace/sidebar/Sidebar.tsx` already takes for the sidebar's sections: every
-   * production host draws the console's own composition, and a test — or an auxiliary
-   * window composing a subset — passes the board it owns rather than reaching around
-   * this frame to register into production. It is a BOARD rather than a node, because
-   * a node prop would put every host of every pane in the business of couriering a
-   * body from a family it may not import.
-   */
-  readonly pinnedRegions?: PinnedPaneRegionRegistry;
   /** Overrides the host's close, where the caller owns this pane's lifetime. */
   readonly onClose?: () => void;
-  /**
-   * Overrides the host's detach, on the same terms.
-   *
-   * Supplying it is necessary and NOT sufficient: the control renders only for a kind
-   * `isDetachablePaneKind` admits, so a handler passed for a `runs` or `browser` pane
-   * is silently unused rather than drawing a button the window model cannot serve.
-   */
-  readonly onOpenInWindow?: () => void;
   /**
    * A pane-level key claim, bound on the chrome's own `<section>`.
    *
@@ -274,33 +234,8 @@ export function ConsolePaneChrome(props: ConsolePaneChromeProps): React.JSX.Elem
   const headingId = props.headingId ?? mintedHeadingId;
   const hostControls = usePaneControls();
   const onClose = props.onClose ?? hostControls?.onClose;
-  // GATED ON THE KIND AND NOT ON THE HANDLER ALONE. A host that provides one
-  // `onOpenInWindow` to every pane it lays out — the ordinary shape, since the deck
-  // supplies its controls through one context — would otherwise put a detach button on
-  // a `runs` or `browser` pane, and pressing it asks for a window the model has no
-  // route to open. `isDetachablePaneKind` is the ONE answer to which kinds may be torn
-  // off; the set is not restated here, so a kind added to the auxiliary routes reaches
-  // this control without an edit.
-  const requestedOpenInWindow = props.onOpenInWindow ?? hostControls?.onOpenInWindow;
-  const onOpenInWindow = isDetachablePaneKind(props.kind) ? requestedOpenInWindow : undefined;
   const registerDragHandle = hostControls?.registerDragHandle;
   const title = TITLE_BY_PANE_KIND[props.kind];
-  // Resolved during the render that draws the frame, and handed the pane's own
-  // address: a region keyed on a channel answers by rendering nothing on a pane
-  // addressed at a session, and the seat collapses "nobody filled this kind" and
-  // "the body had nothing to say here" into one answer so the branch below is one
-  // question rather than two.
-  const pinnedRegion = (props.pinnedRegions ?? pinnedPaneRegionRegistry).render({
-    kind: props.kind,
-    sessionId: props.sessionId,
-    channelId: props.channelId,
-    runId: props.runId,
-    // Forwarded from the host's own acts rather than minted here: the region's route
-    // has to land in the deck that drew this pane, and a chrome that reached for a
-    // process-wide opener would open it in whichever deck was composed last. A host
-    // that opens no panes forwards nothing, and the region draws no route.
-    openPane: hostControls?.openPane,
-  });
   const focusRingStyle: PaneFocusRingStyle | undefined =
     props.focusHue === undefined ? undefined : { "--meridian-pane-hue": props.focusHue };
 
@@ -320,22 +255,11 @@ export function ConsolePaneChrome(props: ConsolePaneChromeProps): React.JSX.Elem
           crumbsId={headingId}
           currentCrumb={title}
           sessionId={props.sessionId}
-          channelId={props.channelId}
           runId={props.runId}
           entity={props.entity}
         />
         <span className="meridian-pane__controls">
           {props.actions}
-          {onOpenInWindow === undefined ? null : (
-            <button
-              type="button"
-              className="meridian-pane__control"
-              onClick={onOpenInWindow}
-              aria-label={`Open this ${title.toLowerCase()} in its own window`}
-            >
-              <Glyph name="external" size={GLYPH_SIZE_CHROME} />
-            </button>
-          )}
           {onClose === undefined ? null : (
             <button
               type="button"
@@ -348,9 +272,6 @@ export function ConsolePaneChrome(props: ConsolePaneChromeProps): React.JSX.Elem
           )}
         </span>
       </header>
-      {pinnedRegion === undefined ? null : (
-        <div className="meridian-pane__pinned">{pinnedRegion}</div>
-      )}
       <div className="meridian-pane__body">{props.children}</div>
     </section>
   );

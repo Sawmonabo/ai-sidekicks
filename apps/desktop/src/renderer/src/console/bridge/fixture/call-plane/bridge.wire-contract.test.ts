@@ -20,7 +20,7 @@ import { FLAGSHIP_SCENARIO } from "../../scenario/flagship/flagship.js";
 /** A registered method the registry binds, so a scripted reply is checkable. */
 const REGISTERED_CALL = "presence.read";
 
-/** A growth-slate call the registry deliberately does not bind. */
+/** A call the registry deliberately does not bind. */
 const UNREGISTERED_CALL = "gitflow.branchContextRead";
 
 /** The reply `presence.read` registers: devices, each with the five members. */
@@ -82,9 +82,8 @@ describe("fixture bridge — a scripted reply is held to the registered shape", 
   });
 
   it("leaves a call the registry does not bind untouched", async () => {
-    // The corpus registers no shape for a growth-slate wire, so there is nothing to
-    // check against and the honest answer is to pass it through. A check that
-    // refused here would break every scenario driving the growth port.
+    // The corpus registers no shape for this wire, so there is nothing to check
+    // against and the honest answer is to pass it through.
     const offContractForNoContract = { anything: "the slate row owes the shape" };
     const fixture = createFixture(scenarioAnswering(UNREGISTERED_CALL, offContractForNoContract));
 

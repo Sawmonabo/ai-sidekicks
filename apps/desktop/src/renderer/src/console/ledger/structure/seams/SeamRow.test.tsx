@@ -10,7 +10,7 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { legacyStubRow, rollbackBoundaryRow, runRow } from "../timeline-rows.test-support.js";
+import { rollbackBoundaryRow, runRow } from "../timeline-rows.test-support.js";
 import { SeamRow } from "./SeamRow.js";
 import { SEAM_WIRE_BINDINGS } from "./seam-vocabulary.js";
 import { LedgerSeamIndex, type LedgerSeam } from "./seams.js";
@@ -203,21 +203,5 @@ describe("the seam row — a kind the wire does not register says so", () => {
       />,
     );
     expect(container.textContent).not.toContain("does not register that event type");
-  });
-
-  it("draws a compaction stub's missing boundary as an absence, never as zero", () => {
-    const line = renderSeam(
-      seamOf(
-        legacyStubRow({
-          id: "c2",
-          sequence: 11,
-          type: "usage.context_compacted",
-          category: "usage_telemetry",
-          runId: "run-a",
-        }),
-      ),
-    );
-    expect(line.textContent).toContain("carries no boundary position");
-    expect(line.textContent).not.toContain("Boundary 0");
   });
 });

@@ -2,7 +2,7 @@
 // and the control that drops one.
 //
 // SPLIT FROM THE VOCABULARY BECAUSE THIS IS PROSE AND THAT IS A TYPE SYSTEM.
-// `schema-fields.ts` says what a drawn form is made of — the six kinds, the three
+// `schema-fields.ts` says what a drawn form is made of — the five kinds, the three
 // descriptors, and the one rule about what an unanswered member is worth; nothing here
 // answers any of that. These three compose the sentences a person hears, and holding both
 // jobs in one module was what took it to the length at which a reader stops seeing two.

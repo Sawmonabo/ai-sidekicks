@@ -1,6 +1,6 @@
 // A daemon reply, unwrapped into the value it served or the refusal it is.
 //
-// SPLIT OUT OF `push-driven-read.ts` because these three answer a different question
+// SPLIT OUT OF `push-driven-read.ts` because these two answer a different question
 // from the model beside them. The model owns a subscription, a scheduler, and a
 // teardown; these are free functions over a reply's own discriminant, and a MUTATION
 // — which has no read to route through — needs exactly the same translation. They sat
@@ -18,7 +18,7 @@ import {
   type ConsoleRefusal,
 } from "../../core/index.js";
 import { wireRejectionToError } from "../../../../../shared/wire-errors.js";
-import type { DaemonReply, GrowthOutcome } from "../../bridge/index.js";
+import type { DaemonReply } from "../../bridge/index.js";
 import { READ_FAILED } from "./read-failure-codes.js";
 
 /**
@@ -26,11 +26,10 @@ import { READ_FAILED } from "./read-failure-codes.js";
  *
  * TWO ARMS, and the first is the whole reason this function still exists beside
  * `core/wire-rejection.ts`. A refusal this console already built and threw is handed
- * back BY REFERENCE: a `GrowthUnavailable` carries `operationId`, `slateRow`, and
- * `owningDocument` beside the three members every refusal has, and the normalizer
- * REBUILDS from the three it reads — deliberately, so nothing of a hostile rejection
- * survives onto the answer — which would drop exactly the part that says who owes
- * the wire. So a value that is already a `ConsoleRefusal` is not renormalized.
+ * back BY REFERENCE: the normalizer REBUILDS from the three members it reads —
+ * deliberately, so nothing of a hostile rejection survives onto the answer — which
+ * would drop any member a console-built refusal carries beyond those. So a value that
+ * is already a `ConsoleRefusal` is not renormalized.
  *
  * Everything else goes to `normalizeWireRejection`, which is total and owns every
  * other reading: a daemon envelope keeps its own code (folding those into
@@ -88,26 +87,4 @@ export function servedValueOrRaise<TValue>(reply: DaemonReply<TValue>): TValue {
     throw new ConsoleRefusalError(reply.refusal);
   }
   return reply.value;
-}
-
-/**
- * The value a growth operation served, raised as a throw where it refused instead.
- *
- * {@link servedValueOrRaise}'s twin, and two functions rather than one over both
- * unions: the two seams discriminate on different words (`refused` against
- * `unavailable`) because they refuse for different reasons — a registered wire that
- * answered badly, against a wire the corpus has not registered at all — and one
- * helper spanning them would have to accept either word, which is how a caller ends
- * up unable to tell those apart.
- *
- * `GrowthUnavailable` IS a `ConsoleRefusal`, so the throw carries the port's own
- * refusal whole: its code, its sentence, and the operation and owning document a
- * growth refusal names. Rebuilding it would drop exactly the part that says who owes
- * the wire.
- */
-export function servedGrowthValueOrRaise<TValue>(outcome: GrowthOutcome<TValue>): TValue {
-  if (outcome.status === "unavailable") {
-    throw new ConsoleRefusalError(outcome);
-  }
-  return outcome.value;
 }

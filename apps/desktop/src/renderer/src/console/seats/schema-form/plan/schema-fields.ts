@@ -1,13 +1,12 @@
 // What a human phase's input schema turns into, and where it stops turning into one.
 //
 // THE RENDER SET IS THE ENGINE'S, NOT THIS MODULE'S. The field types a `human` phase
-// form may declare are fixed elsewhere — text, long text, number, integer, boolean,
-// enum, and an optional artifact field naming an already-ingested artifact — so the six
-// kinds below are that set with `number` and `integer` sharing one control and differing
-// by a flag. A seventh kind would be this renderer inventing a field the engine has no
-// way to ask for.
+// form may declare are fixed elsewhere — text, long text, number, integer, boolean and
+// enum — so the five kinds below are that set with `number` and `integer` sharing one
+// control and differing by a flag. A sixth kind would be this renderer inventing a field
+// the engine has no way to ask for.
 //
-// A CONTAINER IS NOT A FIELD. A one-level object and an array of one of those six are
+// A CONTAINER IS NOT A FIELD. A one-level object and an array of one of those five are
 // both admitted, and neither is a kind: they GROUP fields. Spelling them as kinds would
 // have put the whole render set behind one dispatch and made "one level" a rule nothing
 // could check, because a group holding groups is exactly the shape that has no bottom.
@@ -21,15 +20,8 @@
 
 import type { SchemaMemberPath } from "../../../bridge/index.js";
 
-/** The six controls a human phase's form may ask through. */
-export const SCHEMA_FIELD_KINDS = [
-  "text",
-  "long-text",
-  "number",
-  "checkbox",
-  "choice",
-  "artifact-reference",
-] as const;
+/** The five controls a human phase's form may ask through. */
+export const SCHEMA_FIELD_KINDS = ["text", "long-text", "number", "checkbox", "choice"] as const;
 
 /** One control. Derived from the tuple, so the vocabulary has one home. */
 export type SchemaFieldKind = (typeof SCHEMA_FIELD_KINDS)[number];
@@ -51,7 +43,7 @@ export type SchemaFieldKind = (typeof SCHEMA_FIELD_KINDS)[number];
  * else.
  *
  * Declared beside the vocabulary rather than at its one caller, because it IS the
- * vocabulary — the six kinds and the values they stand for are one fact.
+ * vocabulary — the five kinds and the values they stand for are one fact.
  */
 export function valueSuitsField(field: SchemaFieldDescriptor, value: unknown): boolean {
   switch (field.kind) {
@@ -66,7 +58,6 @@ export function valueSuitsField(field: SchemaFieldDescriptor, value: unknown): b
       return typeof value === "string" && (field.choices ?? []).includes(value);
     case "text":
     case "long-text":
-    case "artifact-reference":
       return typeof value === "string";
   }
 }
@@ -74,7 +65,7 @@ export function valueSuitsField(field: SchemaFieldDescriptor, value: unknown): b
 /**
  * Whether this member is drawn as a two-state box rather than as a three-state choice.
  *
- * THE ONE RULE ABOUT BOOLEANS, STATED ONCE. Five of the six controls have an empty state a
+ * THE ONE RULE ABOUT BOOLEANS, STATED ONCE. Four of the five controls have an empty state a
  * person reads as "not answered": a blank text box, a number box with nothing in it, a
  * select showing its unanswered option. A checkbox has none — unchecked is NO, and it says
  * so before anybody touches it. So the box is right exactly where the answer must hold a
@@ -83,7 +74,7 @@ export function valueSuitsField(field: SchemaFieldDescriptor, value: unknown): b
  * and a schema that tells those two apart (an optional member under `const: true`, which
  * accepts an absent one and refuses a false one) then had no answer the drawn form could
  * compose. An optional one is therefore drawn through the choice control — unanswered,
- * yes, no — which is a third state and not a seventh kind.
+ * yes, no — which is a third state and not a sixth kind.
  *
  * `canBeUnanswered` and not `isRequired`, because a list ENTRY is neither: the position
  * exists the moment somebody adds it, so absence is not available to it whatever the
@@ -108,7 +99,7 @@ const NO_ENTRIES: readonly unknown[] = [];
  *
  * ONE TABLE, AND EVERY PLACE AN OPENING VALUE IS DECIDED READS IT. It is the value that
  * control's own `onChange` writes for its empty display — `""` from the two text boxes,
- * `false` from a box that cannot be blank, and NOTHING at all from the three whose empty
+ * `false` from a box that cannot be blank, and NOTHING at all from the two whose empty
  * state is the member being absent: a number box shows nothing for a string, and a
  * select's unanswered option is deliberately worth no member value, so `""` at either is
  * a payload holding what no control on the screen is displaying.
@@ -122,7 +113,6 @@ export function emptyControlValue(kind: SchemaFieldKind): unknown {
       return false;
     case "number":
     case "choice":
-    case "artifact-reference":
       return undefined;
   }
 }
@@ -132,7 +122,7 @@ export function emptyControlValue(kind: SchemaFieldKind): unknown {
  *
  * A MEMBER IS PRESENT IN THE ANSWER EXACTLY WHILE SOMETHING ON THE SCREEN IS DISPLAYING A
  * VALUE FOR IT, AND WHERE THE SURFACE HAS NO WAY TO DISPLAY ABSENCE, REQUIREDNESS DECIDES.
- * Five of the six controls have an empty state a person reads as "not answered" — a blank
+ * Four of the five controls have an empty state a person reads as "not answered" — a blank
  * text box, a number box with nothing in it, a select on its unanswered option — so a
  * member drawn through one of them is absent until somebody answers it and RETURNS to
  * absent when they clear it, whatever the enclosing level requires of it. A box, a
@@ -190,17 +180,13 @@ export function unansweredListValue(list: SchemaListDescriptor): unknown {
 }
 
 /**
- * The `format` annotations the two non-obvious kinds are declared by.
+ * The `format` annotation the long-text kind is declared by.
  *
- * Draft-07 gives a string type exactly one open extension point, and these are the
- * corpus's own field-type names spelled into it: a long-form answer and a reference to
- * an artifact are both strings on the wire, and nothing else in the schema distinguishes
- * them from a one-line answer.
+ * Draft-07 gives a string type exactly one open extension point, and this is the
+ * corpus's own field-type name spelled into it: a long-form answer is a string on the
+ * wire, and nothing else in the schema distinguishes it from a one-line answer.
  */
 export const LONG_TEXT_FORMAT = "long_text";
-
-/** The artifact field's `format`, naming an artifact ingested out of band. */
-export const ARTIFACT_REFERENCE_FORMAT = "artifact";
 
 /** One control the form draws, with everything it needs to draw itself. */
 export interface SchemaFieldDescriptor {

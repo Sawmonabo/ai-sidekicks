@@ -189,12 +189,12 @@ async function settle(): Promise<void> {
 
 describe("CoalescingLayoutWriter — one writer, two records", () => {
   it("carries a record that is not the deck's, under its own key", async () => {
-    // The generalisation this class was moved out of `deck/` for. Without it the
-    // sidebar would need a second coalescing writer, which is the one thing this
-    // module exists to be — and a second one is how two write paths start
-    // disagreeing about what "the newest arrangement" means.
-    const seen: { readonly partition: string; readonly snapshot: SidebarRecord }[] = [];
-    const writer = new CoalescingLayoutWriter<SidebarRecord>({
+    // The generalisation this class was moved out of `deck/` for. Without it a second
+    // record would need a second coalescing writer, which is the one thing this module
+    // exists to be — and a second one is how two write paths start disagreeing about
+    // what "the newest arrangement" means.
+    const seen: { readonly partition: string; readonly snapshot: SecondRecord }[] = [];
+    const writer = new CoalescingLayoutWriter<SecondRecord>({
       write: async (partition, snapshot) => {
         seen.push({ partition, snapshot });
       },
@@ -203,46 +203,46 @@ describe("CoalescingLayoutWriter — one writer, two records", () => {
       },
     });
 
-    writer.request(SESSION_A, { $sidebar: { version: 1, widthPercent: 24, isCollapsed: false } });
+    writer.request(SESSION_A, { $second: { version: 1, widthPercent: 24, isCollapsed: false } });
     await settle();
 
     expect(seen).toHaveLength(1);
-    expect(seen[0]?.snapshot["$sidebar"]?.["widthPercent"]).toBe(24);
+    expect(seen[0]?.snapshot["$second"]?.["widthPercent"]).toBe(24);
   });
 
   it("negative control: two records in flight coalesce independently of each other", async () => {
     // Without this the case above would pass over a writer holding one static slot
-    // for every caller — which would make a sidebar drag drop the deck's queued
-    // arrangement, and the deck's drag drop the sidebar's.
+    // for every caller — which would make one record's write drop the deck's queued
+    // arrangement, and the deck's drop the other's.
     const deckWrites: DeckSnapshotRecord[] = [];
-    const sidebarWrites: SidebarRecord[] = [];
+    const secondWrites: SecondRecord[] = [];
     const deckWriter = new CoalescingLayoutWriter<DeckSnapshotRecord>({
       write: async (_partition, snapshot) => {
         deckWrites.push(snapshot);
       },
       onFailed: () => undefined,
     });
-    const sidebarWriter = new CoalescingLayoutWriter<SidebarRecord>({
+    const secondWriter = new CoalescingLayoutWriter<SecondRecord>({
       write: async (_partition, snapshot) => {
-        sidebarWrites.push(snapshot);
+        secondWrites.push(snapshot);
       },
       onFailed: () => undefined,
     });
 
     deckWriter.request(SESSION_A, snapshotAt(1));
-    sidebarWriter.request(SESSION_A, { $sidebar: { version: 1, widthPercent: 30 } });
+    secondWriter.request(SESSION_A, { $second: { version: 1, widthPercent: 30 } });
     await settle();
 
     expect(deckWrites).toHaveLength(1);
-    expect(sidebarWrites).toHaveLength(1);
+    expect(secondWrites).toHaveLength(1);
   });
 });
 
-/** The second record the writer now carries, in the shape the sidebar keeps it. */
-type SidebarRecord = Record<string, Record<string, number | boolean | string>>;
+/** A second record the writer carries, beside the deck's. */
+type SecondRecord = Record<string, Record<string, number | boolean | string>>;
 
 describe("CoalescingLayoutWriter — the terminal a replaced store retires it through", () => {
-  it("drains what was waiting rather than dropping it", async () => {
+  it("flushes what was waiting rather than dropping it", async () => {
     // A retirement that cancelled would throw away the newest arrangement — the one
     // act the person performed last, and the one they expect to find on the way back.
     const held = heldWrite();

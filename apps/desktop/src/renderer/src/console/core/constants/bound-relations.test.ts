@@ -59,12 +59,6 @@ import {
 } from "./persistence-caps.js";
 import { APPLY_COALESCE_MS, REFRESH_DEBOUNCE_MS, REFRESH_MAX_WAIT_MS } from "./refresh-caps.js";
 import {
-  RESTORE_PATH_ROW_HEIGHT_PX,
-  RESTORE_PATH_VIRTUALIZATION_THRESHOLD,
-  RESTORE_PATH_VISIBLE_ROW_CAP,
-  RESTORE_PATH_WINDOW_MAX_BLOCK_SIZE_PX,
-} from "./restore-caps.js";
-import {
   MAX_REPAIRABLE_SEQUENCE_GAP,
   PRE_INITIALISATION_BUFFER_CAP,
 } from "./session-store-caps.js";
@@ -99,10 +93,6 @@ const COUNTING_BOUNDS: readonly (readonly [string, number])[] = [
   ["DIFF_INTRALINE_LINE_CHARACTER_CAP", DIFF_INTRALINE_LINE_CHARACTER_CAP],
   ["DIFF_INTRALINE_PAIR_CHARACTER_PRODUCT_CAP", DIFF_INTRALINE_PAIR_CHARACTER_PRODUCT_CAP],
   ["INLINE_DIFF_CARD_HEIGHT_CAP_PX", INLINE_DIFF_CARD_HEIGHT_CAP_PX],
-  ["RESTORE_PATH_ROW_HEIGHT_PX", RESTORE_PATH_ROW_HEIGHT_PX],
-  ["RESTORE_PATH_VIRTUALIZATION_THRESHOLD", RESTORE_PATH_VIRTUALIZATION_THRESHOLD],
-  ["RESTORE_PATH_VISIBLE_ROW_CAP", RESTORE_PATH_VISIBLE_ROW_CAP],
-  ["RESTORE_PATH_WINDOW_MAX_BLOCK_SIZE_PX", RESTORE_PATH_WINDOW_MAX_BLOCK_SIZE_PX],
   ["WORKFLOW_CANCEL_REASON_BYTE_CAP", WORKFLOW_CANCEL_REASON_BYTE_CAP],
   ["LEDGER_WINDOW_ROW_CAP", LEDGER_WINDOW_ROW_CAP],
   ["LEDGER_EARLIER_PAGE_ROWS", LEDGER_EARLIER_PAGE_ROWS],
@@ -243,24 +233,6 @@ function base64Length(decodedByteLength: number): number {
 function isInsideRange(value: number, lowest: number, highest: number): boolean {
   return value >= lowest && value <= highest;
 }
-
-describe("console bounds — the restore enumerations' four describe one list", () => {
-  it("windows only an enumeration longer than the window would show", () => {
-    // Below the threshold the whole list is shorter than the container, so windowing
-    // would add a scrollbar and a focus stop and remove no node. A threshold at or
-    // under the visible-row cap would make the scroll container decorative.
-    expect(RESTORE_PATH_VIRTUALIZATION_THRESHOLD).toBeGreaterThan(RESTORE_PATH_VISIBLE_ROW_CAP);
-  });
-
-  it("keeps the window shorter than the enumeration that opens it", () => {
-    // The height cap is the row height times the visible-row cap, and the point of it
-    // is that a threshold-length enumeration does not fit: if it did, the first
-    // windowed list would render whole and the window would never be exercised.
-    const thresholdListHeightPx =
-      RESTORE_PATH_VIRTUALIZATION_THRESHOLD * RESTORE_PATH_ROW_HEIGHT_PX;
-    expect(RESTORE_PATH_WINDOW_MAX_BLOCK_SIZE_PX).toBeLessThan(thresholdListHeightPx);
-  });
-});
 
 describe("console bounds — the intraline diff's two cost bounds", () => {
   it("bounds the pair by more than one admissible line can reach alone", () => {

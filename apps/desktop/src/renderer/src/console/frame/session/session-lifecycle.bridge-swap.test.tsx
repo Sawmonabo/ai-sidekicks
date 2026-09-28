@@ -17,34 +17,28 @@
 // already committed in between. An assertion about the end state passes on both, so
 // every case here records what each RENDER was handed and asserts over all of them.
 //
-// The witness is `canInitialiseSessionStores`, a DIRECT reading of which bridge the
-// registry's read was built from: `createSessionSnapshotRead` asks the bridge whether
-// it serves `sessionRead` at construction and keeps that answer for the registry's
-// life. Two bridges that differ on exactly that field are two bridges a registry can
-// be told apart by, with no scenario data, no event, and no timing in the assertion.
+// The witness is which bridge each render was handed alongside which registry: two
+// distinct fixture bridges, and the pairing read in the render body, with no scenario
+// data, no event, and no timing in the assertion.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import {
-  createFixture,
-  withDaemonCall,
-} from "../../bridge/fixture/call-plane/bridge.test-support.js";
+import { createFixture } from "../../bridge/fixture/call-plane/bridge.test-support.js";
 import { DesktopBridgeProvider, useConsoleBridge, type ConsoleBridge } from "../../bridge/index.js";
-import { ConsoleEntityProjectorRegistry, type SessionStoreRegistry } from "../../store/index.js";
+import {
+  ConsoleEntityProjectorRegistry,
+  type SessionSnapshotReader,
+  type SessionStoreRegistry,
+} from "../../store/index.js";
 import { useSessionStoreRegistry } from "./session-lifecycle.js";
+
+const readNothing: SessionSnapshotReader = () => Promise.resolve(undefined);
 
 /** What one committed render was handed, read in the render body rather than after. */
 interface Observation {
   readonly bridge: ConsoleBridge;
   readonly registry: SessionStoreRegistry;
-  /**
-   * Whether the registry could read, AT the moment this render used it.
-   *
-   * Captured here rather than asked afterwards on purpose: every settled-state
-   * reading is taken after the frames this file is about have already gone by.
-   */
-  readonly canInitialiseAtRender: boolean;
 }
 
 interface RegistryProbeProps {
@@ -55,12 +49,8 @@ interface RegistryProbeProps {
 /** A component that owns a window's plumbing and reports what it was handed. */
 function RegistryProbe(props: RegistryProbeProps): null {
   const bridge = useConsoleBridge();
-  const registry = useSessionStoreRegistry(props.projectorRegistry);
-  props.onObserve({
-    bridge,
-    registry,
-    canInitialiseAtRender: registry.canInitialiseSessionStores,
-  });
+  const registry = useSessionStoreRegistry(props.projectorRegistry, readNothing);
+  props.onObserve({ bridge, registry });
   return null;
 }
 
@@ -136,87 +126,14 @@ function mountAgainst(bridge: ConsoleBridge): SwapHarness {
   };
 }
 
-/**
- * A bridge that answers no growth operation at all, and is asked nothing either.
- *
- * The live bridge's posture, reached without importing it: `growthServedOperations`
- * is the one field the composition root reads before it can build a registry, and
- * the interface that declares it says so in as many words. Overriding exactly that
- * field is what makes the two bridges here distinguishable BY the property under
- * test rather than by something standing in for it.
- *
- * Composed from `bridge/`'s two shared overrides rather than spread by hand here:
- * `withDaemonCall` takes a bridge precisely so a suite that has already replaced one
- * namespace adds the call arm to THAT bridge instead of minting a second builder to
- * hold both.
- *
- * The call arm is a tripwire, not scaffolding. This file's header claims the registry
- * settles what it can read AT CONSTRUCTION, from the flag — so a bridge serving no
- * growth operation is never asked for the data at all. Measured today: no case here
- * reaches the wire. An arm that refuses is what keeps that true, naming the method
- * the day some path starts attempting a call and falling back, which would make the
- * flag a hint rather than the answer the registry keeps for its life.
- */
-function bridgeServingNoGrowthOperation(): ConsoleBridge {
-  return withDaemonCall(
-    { ...createFixture().bridge, growthServedOperations: new Set() },
-    (call) => {
-      throw new Error(
-        `a bridge serving no growth operation was asked ${call.method}: the registry's ` +
-          "refusal is decided at construction from the flag, never by attempting a call",
-      );
-    },
-  ).bridge;
-}
-
-/** The frames whose registry was built from a bridge other than the one rendering. */
-function mismatchedFrames(observed: readonly Observation[]): readonly string[] {
-  return observed
-    .map((observation, index) => ({ observation, index }))
-    .filter(
-      ({ observation }) =>
-        observation.canInitialiseAtRender !==
-        observation.bridge.growthServedOperations.has("sessionRead"),
-    )
-    .map(
-      ({ index, observation }) =>
-        `frame ${String(index)}: a bridge serving sessionRead=${String(
-          observation.bridge.growthServedOperations.has("sessionRead"),
-        )} rendered against a registry that reads=${String(observation.canInitialiseAtRender)}`,
-    );
-}
-
 describe("useSessionStoreRegistry — the plumbing follows the bridge", () => {
-  it("negative control: the two bridges really do differ on what the registry reads", () => {
-    // Without this every binding assertion below would hold over two bridges the
-    // registry could not have told apart, and a hook that ignored the replacement
-    // entirely would pass all of them.
-    const serving = createFixture().bridge;
-    const refusing = bridgeServingNoGrowthOperation();
-
-    expect(serving.growthServedOperations.has("sessionRead")).toBe(true);
-    expect(refusing.growthServedOperations.has("sessionRead")).toBe(false);
-  });
-
-  it("commits no frame that reads a session through a bridge it was not built from", () => {
-    // The case the previous shape failed: it re-minted one commit late, so the
-    // render that first saw the new bridge was handed the old registry.
-    const harness = mountAgainst(createFixture().bridge);
-
-    harness.renderAgainst(bridgeServingNoGrowthOperation());
-    harness.renderAgainst(createFixture().bridge);
-
-    expect(mismatchedFrames(harness.observed)).toStrictEqual([]);
-    harness.unmount();
-  });
-
   it("never hands one registry to two different bridges", () => {
     // The same claim from the resource's side, and it holds without knowing what a
     // registry reads: a plumbing that outlived its bridge is one object two bridges
     // both rendered against.
     const harness = mountAgainst(createFixture().bridge);
 
-    harness.renderAgainst(bridgeServingNoGrowthOperation());
+    harness.renderAgainst(createFixture().bridge);
 
     const bridgesPerRegistry = new Map<SessionStoreRegistry, Set<ConsoleBridge>>();
     for (const observation of harness.observed) {
@@ -237,15 +154,12 @@ describe("useSessionStoreRegistry — the plumbing follows the bridge", () => {
     if (retired === undefined) {
       return;
     }
-    expect(retired.canInitialiseSessionStores).toBe(true);
 
-    harness.renderAgainst(bridgeServingNoGrowthOperation());
+    harness.renderAgainst(createFixture().bridge);
 
     const current = harness.registries().at(-1);
     expect(harness.registries()).toHaveLength(2);
     expect(current).not.toBe(retired);
-    expect(current?.canInitialiseSessionStores).toBe(false);
-    expect(current?.readRefusal?.code).toBe("wire-unregistered");
     // The old one is not merely dropped. A registry owns apply queues and refresh
     // schedulers, so a hook that let go of it without disposing it would leave those
     // running against a bridge nobody is reading.
@@ -280,7 +194,7 @@ describe("useSessionStoreRegistry — the plumbing follows the bridge", () => {
     const harness = mountAgainst(serving);
     const first = harness.registries().at(-1);
 
-    harness.renderAgainst(bridgeServingNoGrowthOperation());
+    harness.renderAgainst(createFixture().bridge);
     harness.renderAgainst(serving);
 
     const registries = harness.registries();
@@ -288,7 +202,6 @@ describe("useSessionStoreRegistry — the plumbing follows the bridge", () => {
     expect(registries).toHaveLength(3);
     expect(third).not.toBe(first);
     expect(third?.isDisposed).toBe(false);
-    expect(third?.canInitialiseSessionStores).toBe(true);
     expect(registries.slice(0, 2).every((registry) => registry.isDisposed)).toBe(true);
 
     harness.unmount();
@@ -316,7 +229,7 @@ describe("useSessionStoreRegistry — the plumbing follows the bridge", () => {
     // Negative control: the subject that IS the plumbing's still retires it, so the
     // claim above is about which dependency decided rather than about a hook that
     // stopped re-minting at all.
-    harness.renderAgainst(bridgeServingNoGrowthOperation());
+    harness.renderAgainst(createFixture().bridge);
     expect(harness.registries()).toHaveLength(2);
     expect(live?.isDisposed).toBe(true);
 
@@ -325,7 +238,7 @@ describe("useSessionStoreRegistry — the plumbing follows the bridge", () => {
 
   it("disposes the registry it is holding when the window goes away", () => {
     const harness = mountAgainst(createFixture().bridge);
-    harness.renderAgainst(bridgeServingNoGrowthOperation());
+    harness.renderAgainst(createFixture().bridge);
     expect(harness.registries().at(-1)?.isDisposed).toBe(false);
 
     harness.unmount();

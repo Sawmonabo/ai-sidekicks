@@ -33,27 +33,8 @@ export type { ScenarioReply } from "./reply.js";
 // through `scenario.ts`, which imports them to compose the shape and re-exports none:
 // a door names the declaring module, which is what keeps one symbol reachable by one
 // path rather than by a chain a rename can silently reroute.
-export type {
-  ScenarioActivityFrame,
-  ScenarioRuntimeNodeRosterFrame,
-  ScenarioShellStatusFrame,
-  ScenarioTransportOutage,
-} from "./frames.js";
 
 export { ScenarioEngine } from "./engine.js";
-
-// The `incident` class's two seams, from the modules that DECLARE them. The pair lives
-// in the `incident/` sub-module — a directory grouping and not a sub-module DOOR, since
-// no sibling of `incident/` inside this directory reads it and the family door has to
-// re-export from the declaring module regardless. `scenarios/` holds the instances and
-// takes exactly these: the recorded shape its frames are written in, and the composer
-// that turns a recording into a scenario. The PLAYER stays off this door on the rule
-// above — a door publishes what a sibling takes, and every reader of it takes it by its
-// declaring specifier: `incident/`'s own composer and suites, and one `scenarios/`
-// suite.
-export type { IncidentRecording, IncidentWireDelta } from "./incident/incident-recording.js";
-
-export { composeIncidentScenario } from "./incident/incident-replay.js";
 
 export { composeScenarioEventEnvelope } from "./envelope.js";
 

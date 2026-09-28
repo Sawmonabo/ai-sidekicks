@@ -10,7 +10,7 @@ import { describe, expect, it, vi } from "vitest";
 import { DECK_RESTORED_PANE_CAP } from "../../../core/index.js";
 import type { Announce } from "../../../primitives/index.js";
 import { DeckLayout } from "../model/deck-layout.js";
-import { NO_FOCUSED_PANE_SENTENCE, deckActsOn, detachedPaneCloseRefusal } from "./deck-acts.js";
+import { NO_FOCUSED_PANE_SENTENCE, deckActsOn } from "./deck-acts.js";
 
 /** A layout holding a timeline, a runs list, and an approvals pane, in that order. */
 function threePaneLayout(): DeckLayout {
@@ -20,14 +20,6 @@ function threePaneLayout(): DeckLayout {
   layout.open({ kind: "approvals", entity: undefined });
   return layout;
 }
-
-/**
- * No pane is in a window of its own — the reading every case but the two below takes.
- *
- * Declared once rather than inlined, so the cases that are not ABOUT detachment say so
- * by naming this and a reader can see at a glance which two are.
- */
-const NOTHING_IS_DETACHED = (): boolean => false;
 
 function announcer(): Announce & { readonly said: string[][] } {
   const said: string[][] = [];
@@ -41,7 +33,7 @@ describe("focusing the next and previous pane", () => {
   it("cycles the deck and says which pane, and where it sits", () => {
     const layout = threePaneLayout();
     const announce = announcer();
-    const acts = deckActsOn(layout, announce, NOTHING_IS_DETACHED);
+    const acts = deckActsOn(layout, announce);
     const [first, second] = layout.snapshot().panes;
     layout.focus(first?.paneId ?? "");
 
@@ -54,7 +46,7 @@ describe("focusing the next and previous pane", () => {
   it("wraps backwards from the first pane to the last", () => {
     const layout = threePaneLayout();
     const announce = announcer();
-    const acts = deckActsOn(layout, announce, NOTHING_IS_DETACHED);
+    const acts = deckActsOn(layout, announce);
     const panes = layout.snapshot().panes;
     layout.focus(panes[0]?.paneId ?? "");
 
@@ -69,7 +61,7 @@ describe("focusing the next and previous pane", () => {
     layout.open({ kind: "timeline", entity: undefined });
     const announce = announcer();
 
-    deckActsOn(layout, announce, NOTHING_IS_DETACHED).focusNextPane();
+    deckActsOn(layout, announce).focusNextPane();
 
     expect(announce.said).toStrictEqual([
       ["The timeline pane is the only pane open.", "assertive"],
@@ -83,7 +75,6 @@ describe("focusing the next and previous pane", () => {
     deckActsOn(
       new DeckLayout({ restoredPaneCap: DECK_RESTORED_PANE_CAP }),
       announce,
-      NOTHING_IS_DETACHED,
     ).focusNextPane();
     expect(announce.said).toStrictEqual([]);
   });
@@ -96,7 +87,7 @@ describe("closing the focused pane", () => {
     const second = layout.snapshot().panes[1];
     layout.focus(second?.paneId ?? "");
 
-    deckActsOn(layout, announce, NOTHING_IS_DETACHED).closeFocusedPane();
+    deckActsOn(layout, announce).closeFocusedPane();
 
     expect(layout.snapshot().panes.map((pane) => pane.kind)).toStrictEqual([
       "timeline",
@@ -109,46 +100,9 @@ describe("closing the focused pane", () => {
     const layout = new DeckLayout({ restoredPaneCap: DECK_RESTORED_PANE_CAP });
     const announce = announcer();
 
-    deckActsOn(layout, announce, NOTHING_IS_DETACHED).closeFocusedPane();
+    deckActsOn(layout, announce).closeFocusedPane();
 
     expect(announce.said).toStrictEqual([[NO_FOCUSED_PANE_SENTENCE, "assertive"]]);
-  });
-
-  it("refuses a pane that is in a window of its own, and names the way back", () => {
-    // The stranding case: `layout.close` removes the slot the auxiliary window returns
-    // INTO, so the shell goes on holding a window whose placeholder is gone and its
-    // return signal names a pane the deck no longer has. The act refuses instead, and
-    // the sentence names the control the placeholder already offers.
-    const layout = threePaneLayout();
-    const announce = announcer();
-    const detached = layout.snapshot().panes[1];
-    layout.focus(detached?.paneId ?? "");
-
-    deckActsOn(layout, announce, (paneId) => paneId === detached?.paneId).closeFocusedPane();
-
-    expect(layout.snapshot().panes.map((pane) => pane.kind)).toStrictEqual([
-      "timeline",
-      "runs",
-      "approvals",
-    ]);
-    expect(announce.said).toStrictEqual([[detachedPaneCloseRefusal("runs"), "assertive"]]);
-  });
-
-  it("negative control: a detached pane that is not the focused one closes as usual", () => {
-    // Without this the case above would pass over a guard that refused every close the
-    // moment ANY pane was in a window of its own, which is a deck nobody can tidy.
-    const layout = threePaneLayout();
-    const announce = announcer();
-    const [first, second] = layout.snapshot().panes;
-    layout.focus(second?.paneId ?? "");
-
-    deckActsOn(layout, announce, (paneId) => paneId === first?.paneId).closeFocusedPane();
-
-    expect(layout.snapshot().panes.map((pane) => pane.kind)).toStrictEqual([
-      "timeline",
-      "approvals",
-    ]);
-    expect(announce.said).toStrictEqual([["Closed the runs pane.", "polite"]]);
   });
 });
 
@@ -159,7 +113,7 @@ describe("moving the focused pane", () => {
     const [first] = layout.snapshot().panes;
     layout.focus(first?.paneId ?? "");
 
-    deckActsOn(layout, announce, NOTHING_IS_DETACHED).moveFocusedPaneRight();
+    deckActsOn(layout, announce).moveFocusedPaneRight();
 
     expect(layout.snapshot().panes.map((pane) => pane.kind)).toStrictEqual([
       "runs",
@@ -177,7 +131,7 @@ describe("moving the focused pane", () => {
     const [first] = layout.snapshot().panes;
     layout.focus(first?.paneId ?? "");
 
-    deckActsOn(layout, announce, NOTHING_IS_DETACHED).moveFocusedPaneLeft();
+    deckActsOn(layout, announce).moveFocusedPaneLeft();
 
     expect(layout.snapshot().panes.map((pane) => pane.kind)).toStrictEqual([
       "timeline",
@@ -191,7 +145,7 @@ describe("moving the focused pane", () => {
     const layout = new DeckLayout({ restoredPaneCap: DECK_RESTORED_PANE_CAP });
     const announce = announcer();
 
-    deckActsOn(layout, announce, NOTHING_IS_DETACHED).moveFocusedPaneLeft();
+    deckActsOn(layout, announce).moveFocusedPaneLeft();
 
     expect(announce.said).toStrictEqual([[NO_FOCUSED_PANE_SENTENCE, "assertive"]]);
   });

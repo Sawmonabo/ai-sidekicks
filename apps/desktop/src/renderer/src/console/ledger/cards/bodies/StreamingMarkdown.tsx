@@ -46,21 +46,19 @@
 //
 // WHAT A RE-RENDER WITH NO NEW TEXT COSTS: NOTHING. The segmenter's split is memoised on
 // the snapshot it was taken from, so every derivation below it — both parse passes, the
-// declared-identifier set, the preamble, the uncited walk, and the definition
-// registration — is keyed on an identity that only a change in this body's own text can
-// move. A re-render caused by the viewport, the layout, or a neighbouring row therefore
-// walks none of them. That property was the whole point of the committed prefix and it
-// was lost the moment one of these derivations depended on an array rebuilt per render.
+// declared-identifier set, the preamble, and the definition registration — is keyed on an
+// identity that only a change in this body's own text can move. A re-render caused by the
+// viewport, the layout, or a neighbouring row therefore walks none of them. That property
+// was the whole point of the committed prefix and it was lost the moment one of these
+// derivations depended on an array rebuilt per render.
 
 import type { RootContent } from "mdast";
 import { useEffect, useMemo, useRef } from "react";
 
 import {
-  FootnotePopoverHost,
   MarkdownBlockSegmenter,
   MarkdownNodes,
   collectFootnoteDefinitions,
-  collectFootnoteReferences,
   footnoteDefinitionPreamble,
   parseSettledBlock,
   parseVolatileTail,
@@ -78,9 +76,6 @@ import { SettledBlock } from "./SettledBlock.js";
  * `apps/desktop/AGENTS.md` rejects.
  */
 const NO_NODES: readonly RootContent[] = Object.freeze([]);
-
-/** No uncited definitions, once — a streaming body allocates none asking. */
-const NO_IDENTIFIERS: readonly string[] = Object.freeze([]);
 
 /** Nothing registered yet, once — the state a freshly mounted body starts in. */
 const NO_NODE_LISTS: readonly (readonly RootContent[])[] = Object.freeze([]);
@@ -168,16 +163,6 @@ export function StreamingMarkdown(props: StreamingMarkdownProps): React.JSX.Elem
     [segmentation.volatileTail, definitionPreamble, declaredVolatileNodes],
   );
 
-  // Asked of a FINISHED body only. On a streaming one a definition ahead of its own
-  // reference is the ordinary case, so the answer would be wrong — and the walk is deep,
-  // unlike the definition walk beside it, so asking per frame would be the re-parse the
-  // committed-and-volatile split exists to avoid.
-  const uncitedFootnoteIdentifiers = useMemo(
-    () =>
-      props.isComplete ? uncitedIdentifiersOf(settledNodeLists, volatileNodes) : NO_IDENTIFIERS,
-    [settledNodeLists, volatileNodes, props.isComplete],
-  );
-
   const settledContext = useMemo<MarkdownRenderContext>(
     () => ({ isSettled: true, definedFootnoteIdentifiers }),
     [definedFootnoteIdentifiers],
@@ -197,25 +182,18 @@ export function StreamingMarkdown(props: StreamingMarkdownProps): React.JSX.Elem
   });
 
   return (
-    <FootnotePopoverHost
-      sourceId={props.sourceId}
-      footnotes={props.footnotes}
-      uncitedIdentifiers={uncitedFootnoteIdentifiers}
-      definedFootnoteIdentifiers={definedFootnoteIdentifiers}
-    >
-      <div className="meridian-markdown">
-        {segmentation.settledBlocks.map((block, index) => (
-          <SettledBlock
-            key={settledBlockKey(block, index)}
-            nodes={settledNodeLists[index] ?? NO_NODES}
-            context={settledContext}
-          />
-        ))}
-        {volatileNodes.length === 0 ? null : (
-          <MarkdownNodes nodes={volatileNodes} context={volatileContext} />
-        )}
-      </div>
-    </FootnotePopoverHost>
+    <div className="meridian-markdown">
+      {segmentation.settledBlocks.map((block, index) => (
+        <SettledBlock
+          key={settledBlockKey(block, index)}
+          nodes={settledNodeLists[index] ?? NO_NODES}
+          context={settledContext}
+        />
+      ))}
+      {volatileNodes.length === 0 ? null : (
+        <MarkdownNodes nodes={volatileNodes} context={volatileContext} />
+      )}
+    </div>
   );
 }
 
@@ -311,30 +289,6 @@ function registerDefinitionsIn(
       bodyNodes: definition.children,
     });
   }
-}
-
-/**
- * The definitions this body declared that nothing in it points at.
- *
- * Both halves are read from the same nodes in one pass over the body, so the two sets
- * can never be answers about different snapshots — which is the same reason the
- * definitions and the defined-identifier set are collected by one walk.
- */
-function uncitedIdentifiersOf(
-  settledNodeLists: readonly (readonly RootContent[])[],
-  volatileNodes: readonly RootContent[],
-): readonly string[] {
-  const defined = collectDefinedIdentifiers(settledNodeLists, volatileNodes);
-  if (defined.size === 0) {
-    return NO_IDENTIFIERS;
-  }
-  const referenced = new Set<string>();
-  for (const nodes of [...settledNodeLists, volatileNodes]) {
-    for (const identifier of collectFootnoteReferences(nodes)) {
-      referenced.add(identifier);
-    }
-  }
-  return [...defined].filter((identifier) => !referenced.has(identifier));
 }
 
 /** Every footnote identifier defined anywhere in this body. */

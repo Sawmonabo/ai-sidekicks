@@ -100,8 +100,8 @@ export const NOTHING_DRAFTED: SchemaFormDraft = {};
 /**
  * A control showing nothing at all, with no text behind it.
  *
- * Held rather than composed at each of its call sites, because five of the six controls
- * report exactly this value and a literal repeated six times is six places for the empty
+ * Held rather than composed at each of its call sites, because three of the five controls
+ * report exactly this value and a literal repeated three times is three places for the empty
  * text to become something else.
  */
 export const UNANSWERED_SCALAR: SchemaScalarDraft = {

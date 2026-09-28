@@ -4,8 +4,7 @@
 // still answered something the live bridge never would: `ScenarioReply` carried a
 // `result` and nothing else, so no scenario could script a call that refuses — and
 // every typed daemon refusal the console renders was unreachable through the
-// fixture, leaving the refusal renderings drivable only from the growth port's one
-// typed absence.
+// fixture, leaving the refusal renderings undrivable.
 //
 // Two properties make the arm worth having rather than one. The refusal a caller
 // catches has to BE the daemon's envelope, recognised by `src/shared/`'s own wire

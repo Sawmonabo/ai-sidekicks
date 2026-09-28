@@ -9,9 +9,7 @@
 //
 // WHAT AN ESCAPED REJECTION COSTS, which is why this is worth a file. That handler is
 // the last one on the chain, so a rejection leaving it is unhandled: the process dies
-// through Node's own path instead of `app.exit`, `app.quit`'s hooks never run, and
-// the sidecar drain `registerSidecarLifecycle` registers at position 0 is skipped —
-// a startup failure orphaning the children a clean exit would have reaped.
+// through Node's own path instead of `app.exit` and `app.quit`'s hooks never run.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 

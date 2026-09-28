@@ -43,8 +43,8 @@ export interface PendingPaneBodyProps {
  * flex line to a column that is otherwise empty. What the marker costs the layout is
  * nothing, which is the property this whole fallback exists to have.
  *
- * The two host controls are deliberately not passed. They reach the chrome through the
- * deck's own context exactly as they do for a loaded body, so the control strip is
+ * The host's close control is deliberately not passed. It reaches the chrome through the
+ * deck's own context exactly as it does for a loaded body, so the control strip is
  * identical across the swap rather than growing a button when the body lands.
  */
 export function PendingPaneBody(props: PendingPaneBodyProps): React.JSX.Element {

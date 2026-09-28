@@ -1,10 +1,9 @@
 // The workspace family's door.
 //
 // The family holds the SESSION WORKSPACE itself: the session header, the deck that holds
-// the panes the seats hand it, the auxiliary-window hand-off, and the new-session
-// draft. Those are bodies rather than seams, and they live together because the deck
-// and the seat contracts are two halves of one thing — the seats declare what may be
-// mounted and the deck is what mounts it.
+// the panes the seats hand it, and the new-session draft. Those are bodies rather than
+// seams, and they live together because the deck and the seat contracts are two halves of
+// one thing — the seats declare what may be mounted and the deck is what mounts it.
 //
 // The seat contracts themselves are NOT here. They live in the `seats/` family, which
 // sits directly above `bridge/` and below `frame/`, because a contract two view
@@ -14,48 +13,31 @@
 // would be a chain — the structure gate names that shape and fails it — and would
 // also let a sibling reach a seat through a view family's door.
 //
-// SEVEN SUB-MODULES AND THE WORKSPACE ITSELF. `session-header/` is who is in the session and
-// what still waits on a person, with the chip press that follows an actor; `deck/` is
-// the pane board, its drag, and its rect discipline; `sidebar/` is the session's own
-// list of sections; `layout/` is how a deck and a sidebar are written down and read
-// back; `auxiliary/` is a pane moved into a window of its own and the signal that says
-// its window died; `new-session/` is the draft and the control that sends it; and
-// `banners/` is what the surface says when something is wrong with the session as a
-// whole. `Workspace.tsx` composes them and owns nothing else.
+// FIVE SUB-MODULES AND THE WORKSPACE ITSELF. `session-header/` is which session this is;
+// `deck/` is the pane board, its drag, and its rect discipline; `layout/` is how a deck
+// is written down and read back; `new-session/` is the draft and the control that sends
+// it; and `banners/` is what the surface says when something is wrong with the session
+// as a whole. `Workspace.tsx` composes them and owns nothing else.
 //
-// The root held all of that as one list of forty-three modules, each one `./` from
-// every other, which recorded nothing about which of them were allowed to know about
-// which — the condition `ledger/pane/timeline-pane-body.ts` says the DAG rule exists to prevent,
-// one level down and with no rule reaching it. The ceiling is the console's rather
-// than this family's, and `apps/desktop/AGENTS.md` is where it is stated — for every
-// family, this one included.
-//
-// NONE OF THE SEVEN CARRIES A DOOR, which is a decision rather than an omission. A
-// sub-module door is permitted and not required, and this family's two oldest
-// sub-modules do without one: `deck/` is read by five modules outside itself and is
-// reached deep, module by module, every time. A door on the five this split created
-// would have made one family speak two conventions, and it would have
-// published a wider surface than any caller asked for — a barrel exports whatever it
-// lists, whether or not anything imports it. Every reader here names the module it
-// wants.
+// NONE OF THE FIVE CARRIES A DOOR, which is a decision rather than an omission. A
+// sub-module door is permitted and not required, and a barrel exports whatever it lists,
+// whether or not anything imports it. Every reader here names the module it wants.
 //
 // The family's stylesheets are imported HERE and nowhere else, so a surface can never
-// render a workspace element that arrived without its rules. There are four of them —
-// the shell, the session header, the deck, and the sidebar — each beside the modules it
-// styles, and imported together so the family's rules stay one contiguous block in
-// the bundle's cascade.
+// render a workspace element that arrived without its rules. There are three of them —
+// the shell, the session header, and the deck — each beside the modules it styles, and
+// imported together so the family's rules stay one contiguous block in the bundle's
+// cascade.
 //
 // WHAT THE DOOR CARRIES IS WHAT LEAVES THE FAMILY, AND NOTHING MORE. The deck's
-// layout, its snapshot grammar, its density presets, its rect discipline, the
-// hand-off, and the draft are all reached from inside this family by their own
-// modules; re-exporting them here would publish a surface no consumer has asked
-// for, and the dead-code gate reports exactly that. A view family that needs one
-// adds its line in the commit that imports it.
+// layout, its snapshot grammar, its density presets, its rect discipline, and the draft
+// are all reached from inside this family by their own modules; re-exporting them here
+// would publish a surface no consumer has asked for, and the dead-code gate reports
+// exactly that. A view family that needs one adds its line in the commit that imports it.
 
 import "./workspace.css";
 import "./session-header/session-header.css";
 import "./deck/deck.css";
-import "./sidebar/sidebar.css";
 
 // "+ New" is a control on the all-sessions list rather than inside a session, so it
 // leaves the family through the same door the workspace itself does. `families.ts`
@@ -69,17 +51,9 @@ import "./sidebar/sidebar.css";
 // live in `seats/slots/new-session-seat.ts` and both sides import them from there.
 export { NewSessionControl } from "./new-session/NewSessionControl.js";
 
+export {
+  /** @consumedBy the session header's title */
+  useSessionHeaderIdentity,
+} from "./session-header/model/session-header-readings.js";
+
 export { Workspace } from "./Workspace.js";
-
-// The window-lifetime binding this family keeps, through the same door for the same
-// reason: `families.ts` fills the binding board and the frame mounts what it holds,
-// and neither of them may import a view family. Which panes are showing in windows of
-// their own outlives every navigation, so the registry behind it cannot be held by a
-// surface a route unmounts — `auxiliary/aux-handoff-registry.ts` says why at length.
-export { registerWorkspaceFrameBindings } from "./auxiliary/workspace-frame-binding.js";
-
-// The sidebar sections this family fills, through the seat like every other family.
-// It ships through this door because the composition root that calls it sits
-// outside the console and reaches a family through its barrel — and it is a CALL
-// rather than a module side effect, so importing anything here fills no seat.
-export { registerComposerSidebarSections } from "./sidebar/sections/section-registration.js";

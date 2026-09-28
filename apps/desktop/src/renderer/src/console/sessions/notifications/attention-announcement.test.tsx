@@ -15,17 +15,16 @@ import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-suppo
 import { act, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { growthUnavailable } from "../../bridge/index.js";
-import { ManualClock } from "../../core/index.js";
+import type { AttentionItem } from "../../bridge/index.js";
+import { ManualClock, refuse } from "../../core/index.js";
 import { LiveAnnouncer, LiveAnnouncerProvider } from "../../primitives/index.js";
 import { AttentionPlane, type AttentionReading } from "./attention-plane.js";
-import { narrowAttentionProjection } from "./attention-projection-read.js";
 import { useAttentionSettlementAnnouncement } from "./attention-read.js";
 
 const CREATED_AT = "2026-01-01T10:00:00.000Z";
 
 /** One live item, built the way the projection would hand it over. */
-function itemNeeding(id: string): Record<string, unknown> {
+function itemNeeding(id: string): AttentionItem {
   return {
     id,
     sessionId: "session-a",
@@ -39,16 +38,20 @@ function itemNeeding(id: string): Record<string, unknown> {
 
 /** A settled read that answered, with whatever coverage a case names. */
 function answered(options: {
-  readonly items?: readonly Record<string, unknown>[];
+  readonly items?: readonly AttentionItem[];
   readonly refusedSessionIds?: readonly string[];
 }): AttentionReading {
   return {
     phase: "read",
-    plane: new AttentionPlane(narrowAttentionProjection(options.items ?? []).items),
+    plane: new AttentionPlane(options.items ?? []),
     droppedCount: 0,
     refusedSessions: (options.refusedSessionIds ?? []).map((sessionId) => ({
       sessionId,
-      refusal: growthUnavailable("attentionProjectionRead"),
+      refusal: refuse(
+        "attention-plane",
+        "session.not_found",
+        "That session is not known to the daemon.",
+      ),
     })),
     addressedSessionIds: options.refusedSessionIds ?? [],
   };
@@ -150,13 +153,5 @@ describe("the attention reading announces its settlement", () => {
     const [spoken] = probe.spoken();
     expect(spoken).toContain("One item needs you.");
     expect(spoken).toContain("2 sessions could not be checked.");
-  });
-
-  it("speaks a refused read in the port's own words", async () => {
-    const refusal = growthUnavailable("attentionProjectionRead");
-    const probe = mountProbe({ phase: "reading" });
-    await probe.rerender({ phase: "refused", refusal });
-
-    expect(probe.spoken()).toStrictEqual([refusal.detail]);
   });
 });

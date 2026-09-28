@@ -28,10 +28,9 @@
 //                              first seam closes.
 //   `setWindowOpenHandler`   — a popup / `window.open` / `target="_blank"`.
 //
-// Popups are denied UNCONDITIONALLY, same origin included. A second window is
-// only ever created here by `createAuxiliaryWindow`, which runs the locked
-// factory; a renderer-opened one would be created by Chromium with options this
-// process never reviewed, and there is no console surface that needs one.
+// Popups are denied UNCONDITIONALLY, same origin included. A renderer-opened
+// window would be created by Chromium with options this process never reviewed,
+// and there is no console surface that needs one.
 //
 // External `http(s)` targets are not simply dropped: a dropped link is a dead
 // link, and the console has legitimate ones (docs, a provider's sign-in page,
@@ -233,9 +232,8 @@ export function installNavigationPolicy(browserWindow: BrowserWindow): void {
   });
 
   browserWindow.webContents.setWindowOpenHandler(({ url }: { url: string }) => {
-    // Every popup is denied. The only second window this process creates is
-    // `createAuxiliaryWindow`'s, which runs the locked factory; a
-    // Chromium-created one would carry options nothing here reviewed.
+    // Every popup is denied: a Chromium-created window would carry options
+    // nothing here reviewed.
     const verdict = classifyNavigation(url, inWindowOrigins());
     if (verdict.kind === "external") {
       openExternalUrl(url);

@@ -90,7 +90,6 @@ export const CONSOLE_WHEN_CLAUSE_KEYS = [
   "onWorkspace",
   "onWorkflows",
   "onSettings",
-  "inAuxiliaryWindow",
 ] as const;
 
 export type ConsoleWhenClauseKey = (typeof CONSOLE_WHEN_CLAUSE_KEYS)[number];

@@ -10,7 +10,7 @@ import { describe, expect, it } from "vitest";
 
 import { LedgerChapterIndex, foldChapters } from "./chapters.js";
 import { chapterFor, mixedWindow } from "./chapters.test-support.js";
-import { generalRow, legacyStubRow, runRow } from "../timeline-rows.test-support.js";
+import { generalRow, runRow } from "../timeline-rows.test-support.js";
 
 describe("chapters — rows join a chapter by runId and by nothing else", () => {
   it("groups each run's rows and leaves an unattributed row out of every chapter", () => {
@@ -231,15 +231,6 @@ describe("chapters — the index folds once and answers from the fold", () => {
   it("names only the finished chapters as collapsible", () => {
     const index = new LedgerChapterIndex(mixedWindow());
     expect(index.terminalChapters().map((chapter) => chapter.runId)).toStrictEqual(["run-b"]);
-  });
-
-  it("chapters a legacy stub by its preserved runId", () => {
-    // The stub arm carries no position and no epoch but does carry `runId`, so it
-    // belongs in its run's chapter and is never swept into the unattributed list.
-    const fold = foldChapters([
-      legacyStubRow({ id: "stub", sequence: 1, type: "event.compacted", runId: "run-c" }),
-    ]);
-    expect(chapterFor(fold.chapters, "run-c").rowIds).toStrictEqual(["stub"]);
   });
 });
 

@@ -1,27 +1,17 @@
 // The replay ask: what a window with a hole in its log can request, and what it does
 // with the answer.
 //
-// The decision is driven with no React and no bridge, because it is a rule over three
-// facts. The hook is driven under a real fixture bridge rather than a stand-in port:
-// the claim worth holding is what happens when the wire is not registered, and the
-// fixture is the thing that actually refuses it — a scripted port would be this suite
-// asserting against its own idea of a refusal.
+// The decision is driven with no React, because it is a rule over three facts. The hook
+// is driven with a plain function for the call, which records the asks put through it.
 
 import { renderHook, waitFor } from "@testing-library/react";
-import { createElement } from "react";
 import { describe, expect, it } from "vitest";
 
-import {
-  DesktopBridgeProvider,
-  createFixtureBridge,
-  isUnbuiltWireRefusal,
-  type ConsoleBridge,
-} from "../../../bridge/index.js";
-import { LEDGER_QUIET_SCENARIO } from "../../../bridge/scenario/ledger/ledger-quiet.js";
 import {
   ledgerGapFillSubjectKey,
   resolveLedgerGapFill,
   useLedgerGapFill,
+  type LedgerGapFillCall,
   type LedgerGapFillInput,
   type LedgerGapFillRequest,
   type LedgerGapFillState,
@@ -30,30 +20,21 @@ import {
 const SESSION_ID = "session-gap-fill";
 const KEPT_CURSOR = "cursor-kept-by-the-last-read";
 
-/** A bridge that counts the replay asks put through it, and puts the real ones. */
-function countingBridge(asks: LedgerGapFillRequest[]): ConsoleBridge {
-  const bridge = createFixtureBridge({ scenario: LEDGER_QUIET_SCENARIO });
-  return {
-    ...bridge,
-    growth: {
-      ...bridge.growth,
-      timelineSubscribe: (request) => {
-        asks.push(request);
-        return bridge.growth.timelineSubscribe(request);
-      },
-    },
+/** A call that records the replay asks put through it and acknowledges each one. */
+function recordingCall(asks: LedgerGapFillRequest[]): LedgerGapFillCall {
+  return (request) => {
+    asks.push(request);
+    return Promise.resolve();
   };
 }
 
-/** The hook over inputs the caller can move, under one bridge that outlives the moves. */
+/** The hook over inputs the caller can move, under one call that outlives the moves. */
 function mountFill(
-  bridge: ConsoleBridge,
+  call: LedgerGapFillCall,
   initialProps: LedgerGapFillInput,
 ): ReturnType<typeof renderHook<LedgerGapFillState, LedgerGapFillInput>> {
-  return renderHook((props: LedgerGapFillInput) => useLedgerGapFill(props), {
+  return renderHook((props: LedgerGapFillInput) => useLedgerGapFill(props, call), {
     initialProps,
-    wrapper: ({ children }: { readonly children?: React.ReactNode }) =>
-      createElement(DesktopBridgeProvider, { bridge, children }),
   });
 }
 
@@ -120,7 +101,7 @@ describe("ledgerGapFillSubjectKey", () => {
 describe("useLedgerGapFill", () => {
   it("puts no ask for a window with nothing missing", async () => {
     const asks: LedgerGapFillRequest[] = [];
-    const fill = mountFill(countingBridge(asks), {
+    const fill = mountFill(recordingCall(asks), {
       sessionId: SESSION_ID,
       missingFromSequence: undefined,
       keptCursor: KEPT_CURSOR,
@@ -134,7 +115,7 @@ describe("useLedgerGapFill", () => {
 
   it("puts no ask for a hole it holds no position to ask from", async () => {
     const asks: LedgerGapFillRequest[] = [];
-    const fill = mountFill(countingBridge(asks), {
+    const fill = mountFill(recordingCall(asks), {
       sessionId: SESSION_ID,
       missingFromSequence: 7,
       keptCursor: undefined,
@@ -147,35 +128,31 @@ describe("useLedgerGapFill", () => {
     expect(asks).toStrictEqual([]);
   });
 
-  it("asks once per hole, and settles on the refusal this build actually gives", async () => {
+  it("asks once per hole, and reports the replay once the ask is acknowledged", async () => {
     const asks: LedgerGapFillRequest[] = [];
-    const fill = mountFill(countingBridge(asks), {
+    const call = recordingCall(asks);
+    const fill = mountFill(call, {
       sessionId: SESSION_ID,
       missingFromSequence: 7,
       keptCursor: KEPT_CURSOR,
     });
 
     await waitFor(() => {
-      expect(fill.result.current.status).toBe("unavailable");
+      expect(fill.result.current.status).toBe("replaying");
     });
-    const settled = fill.result.current;
-    // The wire is registered and the seam that would carry its request is not, so the
-    // honest answer is the port's own "nobody asked" refusal — which is what the
-    // surface renders as the `not-checked` kind of nothing rather than as a failure.
-    expect(settled.status === "unavailable" && isUnbuiltWireRefusal(settled.refusal)).toBe(true);
     expect(asks).toStrictEqual([{ sessionId: SESSION_ID, afterCursor: KEPT_CURSOR }]);
 
     // A render that changes nothing about the hole re-asks nothing.
     fill.rerender({ sessionId: SESSION_ID, missingFromSequence: 7, keptCursor: KEPT_CURSOR });
     await waitFor(() => {
-      expect(fill.result.current.status).toBe("unavailable");
+      expect(fill.result.current.status).toBe("replaying");
     });
     expect(asks).toHaveLength(1);
   });
 
   it("asks again for a second hole, and clears when the store repairs the first", async () => {
     const asks: LedgerGapFillRequest[] = [];
-    const fill = mountFill(countingBridge(asks), {
+    const fill = mountFill(recordingCall(asks), {
       sessionId: SESSION_ID,
       missingFromSequence: 7,
       keptCursor: KEPT_CURSOR,

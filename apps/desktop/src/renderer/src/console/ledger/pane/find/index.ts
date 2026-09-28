@@ -19,7 +19,6 @@
 // the door buys is not concealment but a name: a sibling reads one seam instead of
 // five files, and a name added here is a decision rather than a reachable file.
 
-export { LedgerEventIdJump } from "./LedgerEventIdJump.js";
 export { matchWalkReading } from "./ledger-find-readings.js";
 export { useLedgerFind, type LedgerFindState } from "./ledger-find.js";
 export {

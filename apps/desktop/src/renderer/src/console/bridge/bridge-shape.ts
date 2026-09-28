@@ -36,7 +36,6 @@ const BRIDGE_NAMESPACE_PRESENCE: Readonly<Record<DesktopBridgeNamespace, true>> 
   daemon: true,
   controlPlane: true,
   native: true,
-  webAuthn: true,
   shell: true,
   window: true,
   update: true,

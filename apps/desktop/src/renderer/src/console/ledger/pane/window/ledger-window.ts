@@ -62,7 +62,6 @@ import {
   LedgerChapterIndex,
   LedgerSeamIndex,
   SupersededIndex,
-  scopeLedgerRowsToChannel,
   type ChildRunEntry,
   type HandoffEntry,
   type LedgerChapter,
@@ -195,28 +194,13 @@ export function deriveLedgerWindow(
   timeline: readonly ConsoleSessionEvent[],
   hasUnreceivedEntries: boolean,
   retention: LedgerRowRetention = new LedgerRowRetention(),
-  channelId?: string,
 ): LedgerWindowModel {
   const projection = projectFixtureShellRows(timeline);
-  // THE PANE'S SCOPE, APPLIED BEFORE ANY INDEX READS A ROW — before the chapters
-  // are folded, before the seams are classified, before the superseded bands are
-  // ranked, and so before the facet bar, the viewport cap and find. Every figure
-  // this window publishes is therefore a figure about the channel, and no piece
-  // below has to remember that a scope exists.
-  //
-  // The LOG is projected whole and the ROWS are narrowed, rather than the events
-  // being filtered on the way in: a run's ordinal and epoch are counted across its
-  // own rows, and dropping a rollback out of that count would leave every row after
-  // it at a position no rewind ever reached.
-  const scopedRows =
-    channelId === undefined
-      ? projection.rows
-      : scopeLedgerRowsToChannel(projection.rows, channelId);
   // BEFORE the indexes below read a row, so every one of them — and the feed, and
   // every memo under it — sees the object this window is actually publishing. A
   // fresh retention retains nothing, which is exactly what a one-shot caller wants.
   retention.beginPass();
-  const rows = scopedRows.map((row) => retention.retainRow(row));
+  const rows = projection.rows.map((row) => retention.retainRow(row));
   const chapterIndex = new LedgerChapterIndex(rows);
   const supersededIndex = new SupersededIndex(rows);
   // The seam vocabulary has one classifier; this is the instance that reads the whole
@@ -225,7 +209,7 @@ export function deriveLedgerWindow(
   // are one classification rather than two.
   const seamIndex = new LedgerSeamIndex();
   const seams = seamIndex.seams(rows);
-  // Child runs and handoffs, over the same scoped window every other index reads.
+  // Child runs and handoffs, over the same rows every other index reads.
   const childRunIndex = new ChildRunIndex(rows);
   const rowsByKey = new Map<string, TimelineRow>();
   const viewportRows: LedgerViewportRow[] = [];
@@ -271,16 +255,8 @@ export function deriveLedgerWindow(
  * away. This is the window a narrowing is applied to, so a facet count and a
  * narrowing both see a finished run's messages, tools and users rather than
  * only the receipt its fold would have left.
- *
- * A NAMED CHANNEL IS THE EXCEPTION, and it is not a narrowing of this window but
- * the definition of it: a channel-scoped pane is a log of that channel, so the
- * scope is applied inside the derivation and everything downstream — the facets
- * included — is a fact about the channel.
  */
-export function useLedgerProjection(
-  sessionStore: SessionStore,
-  channelId?: string,
-): LedgerWindowModel {
+export function useLedgerProjection(sessionStore: SessionStore): LedgerWindowModel {
   const timeline = useSessionStore(sessionStore, readTimeline);
   const hasUnreceivedEntries = useSessionStore(sessionStore, readHasGaps);
   // One table per SESSION, so a pass has a predecessor to retain from — and so a
@@ -297,8 +273,8 @@ export function useLedgerProjection(
   );
   const heldRetention = retention.value;
   return useMemo(
-    () => deriveLedgerWindow(timeline, hasUnreceivedEntries, heldRetention, channelId),
-    [timeline, hasUnreceivedEntries, heldRetention, channelId],
+    () => deriveLedgerWindow(timeline, hasUnreceivedEntries, heldRetention),
+    [timeline, hasUnreceivedEntries, heldRetention],
   );
 }
 /**

@@ -50,9 +50,9 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — console came up blank", () => {
   it("boots the frame with its rail, a mounted surface, and a composed absence", async () => {
     // The scenario is NAMED rather than defaulted, and that is this case's premise
     // rather than a detail of it: every claim below is about the first-run
-    // composition — an empty directory, a readable session, an unowned pane kind —
-    // and a window that names no scenario now plays the demo and opens into it, which
-    // is the first-launch rule doing exactly what it was built to do. Naming the
+    // composition — a readable session, an unowned pane kind —
+    // and a window that names no scenario now plays the default scenario and opens into
+    // it, which is the first-launch rule doing exactly what it was built to do. Naming the
     // scenario is also what stands that rule down, on the same principle the rule
     // applies to an explicit hash: a launch that said what it wanted is not overridden.
     await withLaunchedConsole({ scenarioId: FIRST_RUN_SCENARIO.id }, async (consoleApplication) => {
@@ -66,9 +66,7 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — console came up blank", () => {
       expect(railButtonCount).toBeGreaterThan(0);
 
       // The sessions destination has an owner — the frame's own all-sessions
-      // surface, which creates nothing on mount and builds the absorbed
-      // session-bootstrap probe only when a user presses "Start a
-      // session". The claim is that the OWNER rendered and the frame's
+      // surface. The claim is that the OWNER rendered and the frame's
       // reserved-slot arm did not fire: the owner's section is present and the
       // frame's composed absence wrapper is not.
       await consoleWindow.locator(".meridian-frame").waitFor({
@@ -81,40 +79,6 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — console came up blank", () => {
       });
       expect(await consoleWindow.locator(".meridian-surface-absence").count()).toBe(0);
 
-      // And the directory read has a PRODUCER, which is what this destination
-      // could not have in any build before it: the only session set the renderer
-      // could name was the set this window happened to have opened, and a fresh
-      // window had opened none.
-      //
-      // A launched shell plays the first-run scenario — a fresh install with no
-      // sessions on the node — so the answer here is a served-and-empty directory,
-      // and the surface renders the EMPTY kind of nothing: "no sessions yet", a
-      // stated fact with a next action. The claim is that kind SPECIFICALLY, which
-      // is what separates it from the two absences either side of it: a refused
-      // directory renders `not-checked` ("the console never asked", which is what a
-      // build with no producer shows) and a read still in flight renders
-      // `not-loaded`. Waited for rather than counted immediately, because the read
-      // is asynchronous and a bare count would race it into the `not-loaded` arm.
-      //
-      // Scoped to the list region rather than to the whole surface: the aside
-      // beside it puts ANOTHER read on screen — the attention panel — which renders
-      // its own honest absence, so an unscoped exclusion would be asserting that
-      // that read had answered rather than that this one had.
-      await consoleWindow.locator(".meridian-sessions__list .meridian-nothing--empty").waitFor({
-        state: "visible",
-        timeout: consoleApplication.bodyAllowance.boundedMs(IN_WINDOW_STEP_TIMEOUT_MS),
-      });
-      expect(
-        await consoleWindow
-          .locator(".meridian-sessions__list .meridian-nothing--not-checked")
-          .count(),
-      ).toBe(0);
-      expect(
-        await consoleWindow
-          .locator(".meridian-sessions__list .meridian-nothing--not-loaded")
-          .count(),
-      ).toBe(0);
-
       // The COMPOSED absence, in a real window, which is the half of the pair that
       // makes the other half mean something: without it, "no absence wrapper on
       // sessions" would also pass over a frame that had stopped rendering that arm
@@ -123,14 +87,13 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — console came up blank", () => {
       //
       // IT IS THE HARNESS'S ADMISSION REFUSAL, AND NO LONGER ITS RESERVED ARM. Every
       // previous revision of this probe pointed at a destination nobody owned — off
-      // `#/settings` when the channels family took it, off `#/workflows` when the
-      // workflows family took that, off `#/window/timeline/…` once the ledger claimed
-      // the last unowned SURFACE slot, and then one layer down at a pane kind the deck
-      // declared and no family rendered. That last address is gone too: `registeredPaneKinds()`
-      // now answers with all eleven of `PANE_KINDS`, so no address anywhere in a built
-      // console reaches a reserved arm, and each earlier revision's own instruction —
-      // re-point it, do not delete it — ends here, at the point it named: there is no
-      // slot left to be told to reserve.
+      // `#/workflows` when the workflows family took it, off `#/window/timeline/…` once the
+      // ledger claimed the last unowned SURFACE slot, and then one layer down at a pane
+      // kind the deck declared and no family rendered. That last address is gone too:
+      // `registeredPaneKinds()` now answers with all eleven of `PANE_KINDS`, so no address
+      // anywhere in a built console reaches a reserved arm, and each earlier revision's
+      // own instruction — re-point it, do not delete it — ends here, at the point it
+      // named: there is no slot left to be told to reserve.
       //
       // What replaces it is an absence a family can never claim away, because it does
       // not fire on a pane kind at all: `PaneHarnessSurface` holds the address segment
@@ -145,9 +108,8 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — console came up blank", () => {
       // declared in `PANE_KINDS` ahead of the family that renders it.
       //
       // BOTH address segments are required by that route's grammar, and the session
-      // is the scenario's own: the first-run DIRECTORY is empty, which is what the
-      // assertion above is about, while the session it holds is readable, which is
-      // what gets the store open and the route as far as the surface.
+      // is the scenario's own: the session it holds is readable, which is what gets
+      // the store open and the route as far as the surface.
       await consoleWindow.evaluate((sessionId: string) => {
         window.location.hash = `#/pane-harness/not-a-pane-kind/${sessionId}`;
       }, FIRST_RUN_SCENARIO.sessionId);

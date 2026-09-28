@@ -22,34 +22,17 @@
 //     committed document states one: the workspace shows the ledger alone at full
 //     width, which is a `timeline` pane rather than a special case in the renderer.
 //   • **Refusals are rendered where they happened.** What a restore dropped belongs
-//     to the deck and renders inside it; what a detach or a save refused changes
-//     what the whole surface can do and takes the workspace banner: the refusal
-//     grammar renders a refusal of that reach as a BANNER across the workspace when
-//     it changes what the whole room can do.
-//   • **The sidebar is the outer split, and the deck's own group is untouched.**
-//     The workspace is a session header on top, the deck of panes below it, and a
-//     collapsible session sidebar. Two
-//     nested panel groups rather than one: the deck owns the arrangement of its panes
-//     and this surface owns the split between the deck and the sidebar, so a sidebar
-//     resize is not a deck layout and never reaches the deck's own record.
-//   • **A detached pane keeps its slot.** The main window shows the moved pane's slot
-//     as a placeholder with a focus control. That
-//     suppresses the BODY, not the pane: closing the pane would delete its width and
-//     its position, and the window closing or crashing would then have nowhere to put
-//     it back. The hand-off's own lifecycle — its detached set, its crash records, and
-//     the four acts a slot offers — is `workspace/auxiliary/auxiliary-panes.ts`'; this surface
-//     passes what that publishes down to the deck and raises what it refuses.
-//   • **And a banner belongs to the session it was raised in.** This surface is NOT
+//     to the deck and renders inside it; what a save refused changes what the whole
+//     surface can do and takes the workspace banner.
+//   • **A banner belongs to the session it was raised in.** This surface is NOT
 //     remounted between two open sessions, so a column held for the life of the mount
-//     went on saying what a save or a detach refused in the session somebody left,
-//     over the deck of the one they are looking at — a sentence about an act nobody
-//     performed here, with nothing on screen tying it to where it came from. The
-//     column rides `seats/session-subject.ts` on `(bridge, session)`, so the render
-//     that first sees the arriving session already reads an empty one, and a bridge
-//     replacement — which retires every call the refusals describe — clears it too.
+//     went on saying what a save refused in the session somebody left, over the deck
+//     of the one they are looking at. The column rides `seats/session-subject.ts` on
+//     `(bridge, session)`, so the render that first sees the arriving session already
+//     reads an empty one, and a bridge replacement — which retires every call the
+//     refusals describe — clears it too.
 
-import { useCallback, useMemo, useRef } from "react";
-import { Group, Panel, Separator } from "react-resizable-panels";
+import { useCallback, useMemo } from "react";
 
 import { DECK_RESTORED_PANE_CAP, type ConsoleRefusal } from "../core/index.js";
 import { type ConsoleBridge } from "../bridge/index.js";
@@ -58,31 +41,19 @@ import { routeSessionId, type ConsoleRoute } from "../routing/index.js";
 import { type FrameStore, type SessionStore } from "../store/index.js";
 import { type DraftStore, type UiStateStore } from "../persistence/index.js";
 
-import {
-  DECK_MINIMUM_WIDTH_PERCENT,
-  SIDEBAR_COLLAPSED_WIDTH_PX,
-  SIDEBAR_MINIMUM_WIDTH_PERCENT,
-} from "./workspace-bounds.js";
 import { SessionHeader } from "./session-header/SessionHeader.js";
 import { WorkspaceBannerRow } from "./banners/WorkspaceBannerRow.js";
-import { useAuxiliaryPanes } from "./auxiliary/auxiliary-panes.js";
 import { Deck } from "./deck/Deck.js";
 import { registerDeckCommands } from "./deck/commands/deck-command-seat.js";
-import { useTakeTheFloorSeat } from "./deck/take-the-floor.js";
 import { useDeckLayout, useDeckLayoutState } from "./deck/model/deck-layout.js";
 import type { DeckPane } from "./deck/model/deck-model.js";
-import { useSeparatorValueBoundsCorrection } from "./deck/separator-aria.js";
 import { useDeckPersistence } from "./layout/layout-persistence.js";
-import { Sidebar } from "./sidebar/Sidebar.js";
-import { registerSidebarCommands } from "./sidebar/commands/sidebar-command-seat.js";
-import { useSidebarLayout } from "./sidebar/persistence/use-sidebar-layout.js";
 import {
   composerSeatRenderer,
   parseConsolePaneAddress,
   useSessionScopedState,
   type ConsolePaneAddress,
   type ConsolePaneContext,
-  type ConsolePaneOpener,
   type ConsolePaneRegistry,
 } from "../seats/index.js";
 import {
@@ -96,34 +67,15 @@ import {
 /**
  * The deck's five palette rows, contributed the moment this module is evaluated.
  *
- * Composition time, for the reason stated below the sidebar's own call: a family's
- * commands are in the palette from the first frame rather than arriving on the first
- * navigation into a session. The rows claim no chord — the deck binds its own five
- * keystrokes on its own element, where the wide editable-target guard is, and
- * `deck/commands/deck-command-seat.ts` records why a window-table binding on the same
- * keystrokes would take a listbox's arrow keys.
+ * Composition time: a family's commands are in the palette from the first frame rather
+ * than arriving on the first navigation into a session. The rows claim no chord — the
+ * deck binds its own five keystrokes on its own element, where the wide editable-target
+ * guard is, and `deck/commands/deck-command-seat.ts` records why a window-table binding
+ * on the same keystrokes would take a listbox's arrow keys.
  */
 registerDeckCommands(consoleCommandSurface);
 
-/**
- * The sidebar's two palette rows, contributed the moment this module is evaluated.
- *
- * COMPOSITION TIME, and this is the module that reaches it. A family's commands are
- * contributed before any window renders, so they are in the palette and its chord
- * table from the first frame and the frame's single revision bump covers them; a
- * registration made later from an effect would land after that bump on every
- * navigation into a session. The ledger's barrel is where a family ordinarily makes
- * this call, and it cannot make this one: `ledger/` and `workspace/` are sibling VIEW
- * families and `console-view-family-isolation` fails an import between two of them, so
- * the surface that owns the acts contributes them itself. The composition root imports
- * this module, so "when this module is evaluated" is that same moment.
- */
-registerSidebarCommands(consoleCommandSurface);
-
-/** The panel ids the outer split reports its layout under. */
-const DECK_PANEL_ID = "workspace-deck";
-const SIDEBAR_PANEL_ID = "workspace-sidebar";
-
+/** What the workspace is handed: the stores it reads and the pane board it mounts. */
 export interface WorkspaceProps {
   readonly bridge: ConsoleBridge;
   readonly frameStore: FrameStore;
@@ -141,6 +93,7 @@ export interface WorkspaceProps {
   readonly paneRegistry: ConsolePaneRegistry;
 }
 
+/** The session workspace: header, deck of panes, composer seat, and the banner column. */
 export function Workspace(props: WorkspaceProps): React.JSX.Element {
   const sessionId = routeSessionId(props.route);
   const registry = props.paneRegistry;
@@ -155,8 +108,8 @@ export function Workspace(props: WorkspaceProps): React.JSX.Element {
   >(props.bridge, sessionId, () => NO_WORKSPACE_BANNERS);
 
   // CAPTURED WHEN THE REFUSAL LANDS, not when the raiser was handed over, and that is
-  // forced rather than chosen: both save writers are held per STORE and built once, so
-  // each closes over the raiser from the render that seeded it. A publisher captured at
+  // forced rather than chosen: the save writer is held per STORE and built once, so
+  // it closes over the raiser from the render that seeded it. A publisher captured at
   // that render names the session that was on screen then and would go on refusing
   // every later session's refusals in silence — `settle` names the visit committed at
   // the moment of the call instead, so the column stays writable for the life of the
@@ -207,7 +160,7 @@ export function Workspace(props: WorkspaceProps): React.JSX.Element {
         linkedSourcePaneId: pane.sourcePaneId,
         // Fail-closed, per the seat's own rule: the ring takes an actor's hue only
         // where the pane's entity is a run or an agent, and an unattributed pane takes
-        // the neutral boundary rather than somebody else's colour. Resolving that hue
+        // the neutral boundary rather than somebody else's color. Resolving that hue
         // belongs to the lane that renders run and agent panes; nothing here guesses.
         focusHue: undefined,
       };
@@ -215,43 +168,8 @@ export function Workspace(props: WorkspaceProps): React.JSX.Element {
     [props.bridge, props.frameStore, props.sessionStore, props.uiStateStore, props.draftStore],
   );
 
-  const auxiliaryPanes = useAuxiliaryPanes({ sessionId, onRefused: raise });
-  // The deck's half of Step in, filled for as long as this workspace is mounted. The
-  // run controls that press it live in another view family and reach this deck through
-  // the seat rather than through an import.
-  useTakeTheFloorSeat({ layout, bridge: props.bridge, sessionStore: props.sessionStore });
-
   const composer = composerSeatRenderer();
   const focusedPane = useFocusedPaneAddress(deckState.panes, deckState.focusedPaneId);
-
-  // How a sidebar section opens a pane: through THIS deck, handed down rather than
-  // reached for, so a sidebar rendered in an auxiliary window opens panes in that
-  // window's deck. The address arrives kind-scoped, so the entity is read where the
-  // arm carries one and is absent where the kind has none.
-  const openPane = useCallback<ConsolePaneOpener>(
-    (address, link) => {
-      layout.open({
-        kind: address.kind,
-        entity: "entity" in address ? address.entity : undefined,
-        ...(link === undefined ? {} : { sourcePaneId: link.linkedSourcePaneId }),
-      });
-    },
-    [layout],
-  );
-
-  const sidebar = useSidebarLayout({
-    uiStateStore: props.uiStateStore,
-    sessionId,
-    onSaveRefused: raise,
-  });
-  const splitReference = useRef<HTMLDivElement>(null);
-  // The deck's own correction, reused over the outer group rather than written again.
-  // `separator-aria.ts` swaps only a CROSSED pair, so running it across a subtree the
-  // deck has already corrected leaves the deck's separators exactly as they are. The
-  // outer group holds exactly ONE separator, which is the first — the position the
-  // library gets right — so this is the same guard applied to a second group and not a
-  // second claim about it.
-  useSeparatorValueBoundsCorrection(splitReference, deckState.revision);
 
   return (
     <div className="meridian-workspace">
@@ -263,68 +181,12 @@ export function Workspace(props: WorkspaceProps): React.JSX.Element {
         />
       ))}
       <SessionHeader sessionId={sessionId} sessionStore={props.sessionStore} />
-      <Group
-        className="meridian-workspace__split"
-        elementRef={splitReference}
-        orientation="horizontal"
-        onLayoutChanged={(percentages) => {
-          const sidebarPercent = percentages[SIDEBAR_PANEL_ID];
-          if (sidebarPercent !== undefined) {
-            sidebar.model.recordWidthPercent(sidebarPercent);
-          }
-        }}
-      >
-        <Panel id={DECK_PANEL_ID} minSize={`${String(DECK_MINIMUM_WIDTH_PERCENT)}%`}>
-          <Deck
-            layout={layout}
-            registry={registry}
-            paneContextFor={paneContextFor}
-            onOpenInWindow={auxiliaryPanes.openInWindow}
-            restoreRefusals={restoreRefusals}
-            detachedPaneIds={auxiliaryPanes.paneIds}
-            onFocusDetachedWindow={auxiliaryPanes.focusWindow}
-            onReturnToDeck={auxiliaryPanes.returnToDeck}
-            lostWindowNoticesByPaneId={auxiliaryPanes.lostWindowNoticesByPaneId}
-            onDismissLostWindow={auxiliaryPanes.dismissLostWindow}
-            {...(auxiliaryPanes.signalRefusal === undefined
-              ? {}
-              : { detachedSignalRefusal: auxiliaryPanes.signalRefusal })}
-          />
-        </Panel>
-        {props.sessionStore === undefined ? null : (
-          <>
-            <Separator
-              className="meridian-workspace__separator"
-              aria-label="Resize the session sidebar"
-            />
-            {/* One panel in both states rather than two arrangements: a collapsed
-                sidebar is this panel pinned to the rail's width, so collapsing never
-                adds or removes a panel and the deck beside it is never remounted. */}
-            <Panel
-              id={SIDEBAR_PANEL_ID}
-              className="meridian-workspace__sidebar"
-              defaultSize={`${String(sidebar.snapshot.state.widthPercent)}%`}
-              minSize={
-                sidebar.snapshot.state.isCollapsed
-                  ? SIDEBAR_COLLAPSED_WIDTH_PX
-                  : `${String(SIDEBAR_MINIMUM_WIDTH_PERCENT)}%`
-              }
-              {...(sidebar.snapshot.state.isCollapsed
-                ? { maxSize: SIDEBAR_COLLAPSED_WIDTH_PX }
-                : {})}
-            >
-              <Sidebar
-                sessionStore={props.sessionStore}
-                bridge={props.bridge}
-                frameStore={props.frameStore}
-                openPane={openPane}
-                model={sidebar.model}
-                snapshot={sidebar.snapshot}
-              />
-            </Panel>
-          </>
-        )}
-      </Group>
+      <Deck
+        layout={layout}
+        registry={registry}
+        paneContextFor={paneContextFor}
+        restoreRefusals={restoreRefusals}
+      />
       {composer === undefined || props.sessionStore === undefined ? null : (
         <div className="meridian-workspace__composer">
           {composer({

@@ -14,8 +14,8 @@
 // the family is drawn from. So a name takes the Tabler face when Tabler publishes the
 // same picture out of those parts, and stays signature when the governing text reserves
 // it, when Tabler softens a corner with an explicit radius instead of with the stroke
-// join, or when Tabler's icon of that name is a different picture. Eleven names are
-// borrowed; twenty-five are ours.
+// join, or when Tabler's icon of that name is a different picture. Ten names are
+// borrowed; twenty-three are ours.
 //
 // BOTH HALVES COMPILE THE SAME WAY. `~icons/signature/<name>` resolves against
 // `glyph-faces/signature/<name>.svg` and `~icons/tabler/<name>` against the
@@ -38,7 +38,7 @@ import WorkspaceFace from "~icons/signature/workspace";
 import SettingsFace from "~icons/tabler/adjustments-horizontal";
 
 // --- Entity and pane kinds — the breadcrumb's kind glyph.
-// A user, which the governing text reserves; the hexagon reads against `member`'s circle only if both are ours.
+// An agent, which the governing text reserves.
 import AgentFace from "~icons/signature/agent";
 // Runs are reserved by the governing text, and Tabler's `activity` is near-identical — which is why the pairing must be from one hand.
 import RunFace from "~icons/signature/run";
@@ -50,8 +50,6 @@ import ArtifactFace from "~icons/signature/artifact";
 import WorktreeFace from "~icons/signature/worktree";
 // A provenance kind, and a container Tabler rounds at two units (rule 2).
 import RepoFace from "~icons/signature/repo";
-// Two rules crossing two rules; there is no second way to draw a hash.
-import ChannelFace from "~icons/tabler/hash";
 // A picture of the surface it opens; Tabler's `timeline` is a line chart and its `list` has no rail.
 import TimelineFace from "~icons/signature/timeline";
 // A container; Tabler rounds its frame at two units (rule 2).
@@ -64,10 +62,6 @@ import WorkflowFace from "~icons/signature/workflow";
 import InspectorFace from "~icons/signature/inspector";
 // A provenance kind; Tabler's `git-compare` and `file-diff` are different pictures.
 import DiffFace from "~icons/signature/diff";
-// A user, reserved by the governing text and paired with `agent`.
-import MemberFace from "~icons/signature/member";
-// Two rings and a centre dot; Tabler's `target` draws three rings, which is a different picture.
-import GoalFace from "~icons/signature/goal";
 
 // --- State marks.
 // A circle and two hands, built from the parts rule 2 names.
@@ -131,15 +125,12 @@ export const GLYPH_FACES: Readonly<Record<GlyphName, GlyphFace>> = {
   artifact: ArtifactFace,
   worktree: WorktreeFace,
   repo: RepoFace,
-  channel: ChannelFace,
   timeline: TimelineFace,
   terminal: TerminalFace,
   browser: BrowserFace,
   workflow: WorkflowFace,
   inspector: InspectorFace,
   diff: DiffFace,
-  member: MemberFace,
-  goal: GoalFace,
   clock: ClockFace,
   alert: AlertFace,
   check: CheckFace,

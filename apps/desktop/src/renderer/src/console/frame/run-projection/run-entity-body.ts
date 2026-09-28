@@ -57,13 +57,11 @@ const RUN_BODY_MEMBER_READERS = {
   newState: "string",
   /** The agent the run was created for, carried by `run.queued`. */
   agentId: "string",
-  channelId: "string",
   /** The turn-boundary anchor a rollback landed at, off `run.rolled_back`. */
   targetPosition: "number",
   failureCategory: "string",
   recoveryCondition: "string",
   recoverySpanClassification: "string",
-  healthSignal: "string",
   providerFailureDetail: "string",
   completionKind: "string",
   intendedClose: "boolean",
@@ -73,7 +71,6 @@ const RUN_BODY_MEMBER_READERS = {
   trigger: "string",
   parentRunId: "string",
   internalHelper: "boolean",
-  producingNodeId: "string",
   admittedUnpricedCapCents: "number",
   admittedModelFamily: "string",
 } as const satisfies Readonly<Record<DurableRunMemberName, WireMemberReaderName>>;
@@ -109,12 +106,10 @@ type RunKindWithUndeclaredMembers = Extract<
 const UNDECLARED_RUN_BODY_MEMBER_READERS: Readonly<
   Record<RunKindWithUndeclaredMembers, Readonly<Record<string, WireMemberReaderName>>>
 > = Object.freeze({
-  // The creation row's orchestration linkage and the account it was admitted
-  // against. `linkType` and `effectiveRunConfig` are typed by symbols no
-  // TypeScript in this workspace declares — `runControl.ts` says so itself and
-  // omits them for exactly that reason — and the account stamp rides the same row.
+  // The creation row's provenance, its admission-resolved configuration, and the
+  // account it was admitted against. No contracts shape declares them.
   "run.queued": Object.freeze({
-    linkType: "string",
+    reachedBy: "string",
     effectiveRunConfig: "object",
     admittedProviderAccountId: "string",
   }),

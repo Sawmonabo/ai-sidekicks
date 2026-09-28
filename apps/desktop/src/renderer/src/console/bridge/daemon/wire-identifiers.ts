@@ -1,7 +1,7 @@
 // The console's one reading of a wire identifier.
 //
 // EVERY IDENTIFIER THE STORE HOLDS IS A `string`, AND EVERY REQUEST TAKES A BRAND.
-// `SessionId`, `RunId`, `ChannelId` and `WorkspaceId` are branded in
+// `SessionId`, `RunId` and `WorkspaceId` are branded in
 // `@ai-sidekicks/contracts`, so the only way from one to the other is the registered
 // schema — and before this module, seven surfaces reached for that schema
 // themselves. That is the same defect the call door closed one layer up, arriving by
@@ -26,14 +26,12 @@
 // bridge family where no surface can read them.
 
 import {
-  ChannelIdSchema,
   ProviderAccountIdSchema,
   QueueItemIdSchema,
   RunIdSchema,
   RunStateSchema,
   SessionIdSchema,
   WorkspaceIdSchema,
-  type ChannelId,
   type ProviderAccountId,
   type QueueItemId,
   type RunId,
@@ -57,12 +55,6 @@ export function readRunId(value: string): RunId | undefined {
 /** The queue-item identifier the wire admits, or `undefined` where it admits none. */
 export function readQueueItemId(value: string): QueueItemId | undefined {
   const parsed = QueueItemIdSchema.safeParse(value);
-  return parsed.success ? parsed.data : undefined;
-}
-
-/** The channel identifier the wire admits, or `undefined` where it admits none. */
-export function readChannelId(value: string): ChannelId | undefined {
-  const parsed = ChannelIdSchema.safeParse(value);
   return parsed.success ? parsed.data : undefined;
 }
 

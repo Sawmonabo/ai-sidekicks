@@ -1,11 +1,10 @@
 // How far a wire reading has got, why it did not get further, and whether its tail
 // can be opened again.
 //
-// A PHASE AND ITS REFUSAL ARE ONE FACT. A reading that keeps a three-value phase, a
-// `readRefusal` beside it, one refusing writer that sets both, and a served arm that
-// sets the phase and leaves the refusal standing publishes `phase: "read"` with a
-// refusal from a read two triggers ago, because a consumer reading the member bare
-// has no way to know the two are coupled.
+// THE PAIR MUST MOVE TOGETHER. A phase and a `readRefusal` beside it, set by separate
+// writers, let a registry that refused once and then healed publish `phase: "read"`
+// with populated rows and a refusal from a read two triggers ago, because a consumer
+// reading the member bare has no way to know the two are coupled.
 //
 // THE COUPLING IS THE WHOLE SUBJECT, so it lives in one class with one meaning:
 // `readRefusal` says the NEWEST read failed, never that a read has failed at some
@@ -14,19 +13,21 @@
 // trusting the clear — two independent statements of one rule, so a later arm that
 // forgets the clear still renders honestly.
 //
-// AND A STREAM THAT WOULD NOT OPEN IS NOT THE SAME AS ONE THAT CANNOT. A reading opens a tail
-// before its first read and settles refused when the open throws, and a stream flag still claiming
-// to be up would make every later trigger a no-op, or let a later read publish a current-looking
-// reading with no live tail behind it. The two failing opens are different facts and are named as
-// such — a transport that refused this time may serve the next, and a registered request this
-// reading's own scope does not satisfy will never parse — so the first leaves the reading
-// re-openable and the second does not.
+// AND A STREAM THAT WOULD NOT OPEN IS NOT THE SAME AS ONE THAT CANNOT. A reading opens
+// a tail before its first read and settles refused when the open throws; with the
+// stream flag still claiming to be up, every later focus, repair, and mount trigger
+// would be a guaranteed no-op, or a later read could serve and publish a
+// current-looking reading with no live tail behind it. The two failing opens are
+// different facts and are named as such — a transport that refused this time may serve
+// the next, and a registered request this reading's own scope does not satisfy will
+// never parse — so the first leaves the reading re-openable and the second does not,
+// and neither leaves a read reachable without the tail it depends on.
 //
 // WHAT THIS IS NOT. It is not the scheduler: when a re-read is asked for is
 // `store/read/refresh-scheduler.ts`'s, and which moments ask is `store/read/read-triggers.ts`'s. It
-// holds no bridge, opens no stream, and publishes nothing — the reading that owns it does all
-// three, and calls one method here per outcome so that the outcome and the state it leaves behind
-// cannot be spelled two ways.
+// holds no bridge, opens no stream, and publishes nothing — the reading that owns it
+// does all three, and calls one method here per outcome so that the outcome and the
+// state it leaves behind cannot be spelled two ways.
 
 import type { ConsoleRefusal } from "../../core/index.js";
 

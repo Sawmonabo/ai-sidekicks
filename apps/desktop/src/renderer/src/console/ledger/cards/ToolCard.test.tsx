@@ -6,7 +6,6 @@ import { describe, expect, it } from "vitest";
 import { TOOL_SUMMARY_MAX_CHARACTERS } from "../../core/index.js";
 import { FootnoteRegistry } from "./markdown/index.js";
 import { sampleRunRow } from "./row-samples.test-support.js";
-import { TOOL_SUB_FAMILY_SLOT } from "./tool-families/index.js";
 import { ToolCard, clampSummary } from "./ToolCard.js";
 
 function renderToolCard(
@@ -30,7 +29,7 @@ function renderToolCard(
       isSuperseded={false}
       density={overrides.density ?? "collapsed"}
       footnotes={new FootnoteRegistry()}
-      subFamily={{ contract: TOOL_SUB_FAMILY_SLOT, body: undefined }}
+      subFamily={undefined}
       {...(overrides.body === undefined
         ? {}
         : { content: { status: "available", body: overrides.body } as const })}
@@ -73,7 +72,7 @@ describe("a collapsed tool row", () => {
   });
 
   it("negative control: an ordinary result takes neither hue", () => {
-    // Without this, a card that coloured every chip would pass the case above while
+    // Without this, a card that colored every chip would pass the case above while
     // making the two-hue rule meaningless.
     const container = renderToolCard({ type: "tool.result" });
     expect(container.textContent).toContain("Ok");

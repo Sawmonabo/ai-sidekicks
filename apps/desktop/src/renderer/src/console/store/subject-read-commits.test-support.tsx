@@ -1,8 +1,8 @@
 // What a subject-keyed read COMMITS, recorded across a change of source or subject.
 //
 // AT THE FAMILY ROOT AND NOT IN `subject-scoped/`, for `session-event.test-support.ts`'s
-// reason: every reader is outside this family — the channels and workflows suites
-// that drive a subject-keyed read — so it is the family's scaffolding rather than one
+// reason: every reader is outside this family — the workflows suites that
+// drive a subject-keyed read — so it is the family's scaffolding rather than one
 // sub-module's.
 //
 // THE PROBE RECORDS COMMITTED STATES AND NOT RENDER CALLS, which is the difference the

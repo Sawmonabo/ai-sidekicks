@@ -1,24 +1,7 @@
-// The find field, and the boundary it states.
+// The find field.
 //
 // `find-model.ts` owns the rule this field renders: find runs over the loaded rows with
-// a match count and next and previous, and states its boundary in the field.
-//
-// THE BOUNDARY IS RENDERED, NOT REMEMBERED. `LEDGER_FIND_SCOPE_NOTE` is one string
-// in `find-model.ts` and this is its only renderer, so the field cannot ship
-// without the sentence and the sentence cannot drift from what the matcher
-// actually did. The sentence is the whole offer: the field states the boundary and
-// hands over no act on it, and the sentence is therefore rendered unconditionally.
-// The viewport's own `hasEarlierRows` is true when its CAP took rows this store
-// still holds, so a control here would fetch rows the console already has, and the
-// backward read that fetches the ones it does NOT is the viewport's — see
-// `ledger/pane/feed/surface/LedgerFeed.tsx`, which owns that decision. That is why the find
-// result carries no copy of that clip: nothing here would branch on one.
-//
-// TWO BOUNDARIES, NOT ONE. `LEDGER_FIND_SCOPE_NOTE` bounds what was SEARCHED; the
-// cap sentence beside it bounds what can be STEPPED THROUGH, and appears only when
-// the query found more matches than the walk holds. Collapsing them would leave the
-// second boundary unstated, which is exactly what let the counter advertise a total
-// containing matches no press could reach.
+// a match count and next and previous.
 //
 // COUNTS ARE THE CONSOLE'S OWN READING, not wire figures: "3 of 17" is derived by
 // this console from rows it holds, so it renders proportionally through
@@ -28,14 +11,9 @@ import { useEffect, useRef, type RefObject } from "react";
 
 import { DerivedFigure, Glyph } from "../../../primitives/index.js";
 import { GLYPH_SIZE_CHROME } from "../../../tokens/index.js";
-import {
-  LEDGER_FIND_TRUNCATION_NOTE,
-  LEDGER_FIND_SCOPE_NOTE,
-  isFindWalkCapped,
-  type FindStepDirection,
-  type LedgerFindResult,
-} from "./find-model.js";
+import { type FindStepDirection, type LedgerFindResult } from "./find-model.js";
 
+/** The query, its result, and the acts the field offers. */
 export interface FindInLedgerProps {
   readonly query: string;
   readonly result: LedgerFindResult;
@@ -56,10 +34,10 @@ export interface FindInLedgerProps {
   readonly onClose: () => void;
 }
 
+/** The find field: query, match count, step and close controls. */
 export function FindInLedger(props: FindInLedgerProps): React.JSX.Element {
   const { result } = props;
   const inputRef = useCaretOnOpen(props.openRequestCount);
-  const hasQuery = result.query.length > 0;
   const hasMatches = result.matches.length > 0;
 
   return (
@@ -122,14 +100,6 @@ export function FindInLedger(props: FindInLedgerProps): React.JSX.Element {
         <Glyph name="chevron-right" size={GLYPH_SIZE_CHROME} />
       </button>
 
-      <p className="meridian-find__scope">
-        <span>{LEDGER_FIND_SCOPE_NOTE}</span>
-        {/* Two boundaries, two sentences: the note above bounds what was searched
-            and this bounds what can be stepped through, and only the second one
-            depends on how many matches this particular query found. */}
-        {isFindWalkCapped(result) ? <span>{LEDGER_FIND_TRUNCATION_NOTE}</span> : null}
-      </p>
-
       <button
         type="button"
         className="meridian-find__close"
@@ -138,10 +108,6 @@ export function FindInLedger(props: FindInLedgerProps): React.JSX.Element {
       >
         <Glyph name="close" size={GLYPH_SIZE_CHROME} />
       </button>
-
-      {hasQuery && !hasMatches ? (
-        <p className="meridian-find__empty">No loaded row matches that.</p>
-      ) : null}
     </div>
   );
 }
@@ -172,14 +138,9 @@ function useCaretOnOpen(openRequestCount: number): RefObject<HTMLInputElement | 
  * Three readings, and each is a different fact: nothing typed, nothing found, and
  * a position within a total.
  *
- * THE DENOMINATOR IS THE SET THE WALK CAN REACH. It used to be `totalMatchCount`,
- * on the reasoning that a capped walk "says so by the two numbers differing" —
- * which it cannot, because only one number was ever rendered. The field read
- * "500 of 700", the next step wrapped to "1 of 700", and matches 501–700 were
- * unreachable with nothing on screen saying the walk was bounded. So the position
- * is of the walkable count, which is this module's own doctrine that a boundary is
- * a member of the result, and the honest uncapped total rides beside it as a
- * second figure exactly when the two differ.
+ * THE DENOMINATOR IS THE SET THE WALK CAN REACH: the position is of the walkable
+ * count, so a step never wraps into a total that contains matches no press could
+ * reach.
  */
 function matchCountText(result: LedgerFindResult, currentMatchIndex: number): string {
   if (result.query.length === 0) {
@@ -189,8 +150,5 @@ function matchCountText(result: LedgerFindResult, currentMatchIndex: number): st
     return "No matches";
   }
   const position = currentMatchIndex < 0 ? 1 : currentMatchIndex + 1;
-  const walkable = `${String(position)} of ${String(result.matches.length)}`;
-  return isFindWalkCapped(result)
-    ? `${walkable} (${String(result.totalMatchCount)} matched)`
-    : walkable;
+  return `${String(position)} of ${String(result.matches.length)}`;
 }

@@ -30,10 +30,9 @@
 
 import { describe, expect, it } from "vitest";
 
-import { BASE_STATE_CURSOR } from "../../fixture/session/session-snapshot.js";
 import { ScenarioEngine } from "./engine.js";
 import type { ConsoleScenario } from "./vocabulary.js";
-import { SessionStore } from "../../../store/index.js";
+import { BASE_STATE_CURSOR, SessionStore } from "../../../store/index.js";
 import type { ConsoleSessionEvent } from "../../../store/index.js";
 
 const SESSION_ID = "019b79ee-0280-75e5-8510-ada11a5a99a9";
@@ -167,7 +166,7 @@ describe("ScenarioEngine — a whole-session subscription that attaches late", (
    */
   function storeAtBaseState(scenario: ConsoleScenario): SessionStore {
     const store = new SessionStore({ sessionId: scenario.sessionId });
-    store.initialise({ cursor: BASE_STATE_CURSOR, entities: [], userJoinLog: [] });
+    store.initialise({ cursor: BASE_STATE_CURSOR, entities: [] });
     return store;
   }
 
@@ -332,13 +331,13 @@ describe("ScenarioEngine — the computed-reply ordinal", () => {
     const engine = new ScenarioEngine({ scenario: scenarioWithBeatsDueAt([]) });
 
     const minted = [
-      engine.nextComputedReplyOrdinal("channel.create"),
-      engine.nextComputedReplyOrdinal("channel.create"),
-      engine.nextComputedReplyOrdinal("channel.create"),
+      engine.nextComputedReplyOrdinal("session.create"),
+      engine.nextComputedReplyOrdinal("session.create"),
+      engine.nextComputedReplyOrdinal("session.create"),
     ];
 
     expect(minted).toStrictEqual([1, 2, 3]);
-    expect(engine.nextComputedReplyOrdinal("channel.archive")).toBe(1);
+    expect(engine.nextComputedReplyOrdinal("session.read")).toBe(1);
   });
 
   it("negative control: the frozen clock cannot stand in for it", () => {
@@ -350,9 +349,9 @@ describe("ScenarioEngine — the computed-reply ordinal", () => {
     const engine = new ScenarioEngine({ scenario: scenarioWithBeatsDueAt([]) });
 
     const firstInstant = engine.clock.now();
-    const firstOrdinal = engine.nextComputedReplyOrdinal("channel.create");
+    const firstOrdinal = engine.nextComputedReplyOrdinal("session.create");
     const secondInstant = engine.clock.now();
-    const secondOrdinal = engine.nextComputedReplyOrdinal("channel.create");
+    const secondOrdinal = engine.nextComputedReplyOrdinal("session.create");
 
     expect(secondInstant).toBe(firstInstant);
     expect(secondOrdinal).not.toBe(firstOrdinal);

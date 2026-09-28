@@ -10,20 +10,13 @@
 // those two pin is a COMPOSITION: the rail, the session header, the deck, the chapters,
 // and the attribution hues all have to be true at once and in the right
 // relationship to each other. A shot cropped to the ledger's own box would still be
-// green the day the rail overlapped it. Being whole frames is also what makes the
-// sidebar's own hazard theirs: `workspace.test.tsx`'s header states it — a collapse
-// is durable, so a restored arrangement moves a frame neither of these captures
-// was taken with — which is why both take `requireSidebarExpanded` before they are
-// photographed, out of the same module that file reads it from.
+// green the day the rail overlapped it.
 //
 // AND WHY THE QUIET ARM IS THE LEDGER'S OWN REGION AND NOT THE FRAME. Its claim is
 // the opposite one: the copy and the shape of an absence, which is a claim about a
-// surface rather than about a composition. Captured whole, it pinned a frame with an
-// empty ledger in it — which is exactly the frame `workspace.test.tsx` pins for its
-// expanded sidebar, over this same scenario and this same route, and the two
-// captures were byte-identical. So the quiet arm captures the element the session
-// route mounts the ledger into, and the sidebar-arm hazard above is moot for it:
-// there is no sidebar in the image to be in the wrong arm.
+// surface rather than about a composition. Captured whole, it would pin a frame with
+// an empty ledger in it rather than the absence. So the quiet arm captures the
+// element the session route mounts the ledger into.
 //
 // WHY THE FLAGSHIP AND NOT THE THREE-LANE LEDGER. The tier's sentence names the
 // FLAGSHIP frame, and this capture used to pin `ledger.ts` instead — a fine frame,
@@ -66,7 +59,6 @@ import {
 } from "../console-harness.js";
 import { requireScenarioControl, walkScenarioToFrozenTick } from "../scenario-clock.js";
 import { requireCapturedElement } from "./captured-element.js";
-import { requireSidebarExpanded } from "./sidebar-arm.js";
 
 import {
   ConsoleRoot,
@@ -153,10 +145,6 @@ describe("screenshot — the console under the flagship scenario", () => {
         FLAGSHIP_SCENARIO_ID,
         FLAGSHIP_SCENARIO.sessionId,
       );
-      // This capture is a whole frame, so the sidebar is in it — the header says why
-      // that makes the durable-collapse hazard this file's as much as the workspace
-      // file's, even though neither of these captures is about the sidebar.
-      requireSidebarExpanded(container);
 
       const deliveredBeatCount = await walkScenarioToFrozenTick(
         FLAGSHIP_SCENARIO.beats.at(-1)?.atMs ?? 0,

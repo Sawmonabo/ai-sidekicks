@@ -19,12 +19,6 @@ export interface MockBrowserWindowOptions {
   readonly webPreferences: Record<string, unknown>;
 }
 
-/** One message `webContents.send` carried, as a test reads it. */
-export interface MockWebContentsMessage {
-  readonly channel: string;
-  readonly payload: unknown;
-}
-
 /** The `webContents` surface the main process actually touches. */
 export interface MockWebContents {
   readonly id: number;
@@ -40,16 +34,6 @@ export interface MockWebContents {
   readonly once: ReturnType<typeof vi.fn>;
   readonly setWindowOpenHandler: ReturnType<typeof vi.fn>;
   readonly executeJavaScript: ReturnType<typeof vi.fn>;
-  /**
-   * Every `send` this `WebContents` was given, in order.
-   *
-   * Recorded per `WebContents` rather than on the mock, because WHICH renderer a
-   * report reached is the property the auxiliary-window handler owes: a report
-   * broadcast to every window would tell three decks that a pane none of them holds
-   * has come back, and a log kept on the mock could not tell those apart.
-   */
-  readonly sent: readonly MockWebContentsMessage[];
-  readonly send: ReturnType<typeof vi.fn>;
   /** Mark this `WebContents` destroyed, the way a closed window's is. */
   destroy(): void;
   isDestroyed(): boolean;
@@ -128,19 +112,10 @@ export class MockBrowserWindowImpl implements MockBrowserWindow {
     this.#mock = mock;
     this.id = mock.mintWindowId();
     const handlers = new Map<string, (...args: never[]) => unknown>();
-    const sent: MockWebContentsMessage[] = [];
     let isDestroyed = false;
     const webContents: MockWebContents = {
       id: this.id * 1000,
       handlers,
-      sent,
-      send: vi.fn((channel: string, payload: unknown) => {
-        if (isDestroyed) {
-          // Electron throws here, and the production code is written to check first.
-          throw new Error("Object has been destroyed");
-        }
-        sent.push({ channel, payload });
-      }),
       destroy: () => {
         isDestroyed = true;
       },

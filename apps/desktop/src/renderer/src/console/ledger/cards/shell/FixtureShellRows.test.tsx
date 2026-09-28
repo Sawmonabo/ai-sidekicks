@@ -6,19 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { DesktopBridgeProvider, createFixtureBridge } from "../../../bridge/index.js";
 import { LEDGER_QUIET_SCENARIO } from "../../../bridge/scenario/ledger/ledger-quiet.js";
-import {
-  LedgerRowLeaseProvider,
-  LedgerShellConditionProvider,
-  type LedgerRowLease,
-} from "../../frame/index.js";
-// The condition that closes no control, from the one module that builds shell
-// conditions: an ask row dispatches a mutating call and reads the window's supervisor
-// through the ledger, so a harness without one is a mount this shell refuses.
-import { quietShell } from "../../../store/shell-condition.test-support.js";
-// Deeply, at the modules that DECLARE them: the family door imports the cards' sheet,
-// and a suite has no reason to pull one in to reach a fold and a provider.
-import { LedgerAskTerminalProvider } from "../bodies/AskTerminalProvider.js";
-import { deriveDriverAskTerminals } from "../bodies/input-ask.js";
+import { LedgerRowLeaseProvider, type LedgerRowLease } from "../../frame/index.js";
 import {
   registerTimelineRowRenderer,
   timelineRowRenderer,
@@ -31,15 +19,7 @@ import {
   FixtureShellRow,
   registerFixtureShellRows,
 } from "./FixtureShellRows.js";
-import { sampleGeneralRow, sampleRunRow } from "../row-samples.test-support.js";
-
-/**
- * A second run, for the one property one run cannot state.
- *
- * ULID-shaped like the builder's own default, so the two rows differ in exactly the
- * member the fold keys on.
- */
-const SECOND_RUN_ID = "01J0000000000000000000000C";
+import { sampleRunRow } from "../row-samples.test-support.js";
 
 afterEach(() => {
   unregisterTimelineRowRenderer();
@@ -52,9 +32,8 @@ function slotProps(row: TimelineRowSlotProps["row"]): TimelineRowSlotProps {
 /**
  * The bridge every row now renders inside.
  *
- * The shell's rows hold two registered daemon calls — the reasoning-surface read a
- * reasoning row offers, and the answer an ask row delivers — so a row rendered
- * outside the provider is a row whose hooks cannot resolve a bridge at all. The
+ * A reasoning row holds a registered daemon call — the reasoning-surface read — so a row
+ * rendered outside the provider is a row whose hooks cannot resolve a bridge at all. The
  * quiet scenario is the one with no beats: the harness needs a bridge to exist and
  * needs it to answer nothing, and a scripted session would put a log behind rows
  * these cases hand in one at a time.
@@ -79,23 +58,8 @@ function MountedInAList(props: {
   readonly row: TimelineRowSlotProps["row"];
   readonly listDensity: TimelineRowSlotProps["density"];
   readonly onLeaseWritten?: (rowKey: string, lease: LedgerRowLease) => void;
-  /**
-   * The window this row sits in, where a case is about one.
-   *
-   * Folded through the real derivation rather than a hand-built map: the rule under
-   * test is what the fold decides, and a map written here would be this file asserting
-   * against its own copy of it. Absent, the row is mounted with no window around it —
-   * which is what every routing case above is, and what a bare row genuinely is.
-   */
-  readonly windowRows?: readonly TimelineRowSlotProps["row"][];
 }): React.JSX.Element {
   const [leased, setLeased] = useState<LedgerRowLease | undefined>(undefined);
-  // Minted once and kept: a fresh store on every render would be a fresh subscription
-  // on every render for the ask row that reads it.
-  const [frameStore] = useState(quietShell);
-  const row = (
-    <FixtureShellRow {...slotProps(props.row)} density={leased?.density ?? props.listDensity} />
-  );
   return (
     <InBridge>
       <LedgerRowLeaseProvider
@@ -106,17 +70,7 @@ function MountedInAList(props: {
           },
         }}
       >
-        <LedgerShellConditionProvider channel={{ frameStore }}>
-          {props.windowRows === undefined ? (
-            row
-          ) : (
-            <LedgerAskTerminalProvider
-              terminalsByAskIdentity={deriveDriverAskTerminals(props.windowRows)}
-            >
-              {row}
-            </LedgerAskTerminalProvider>
-          )}
-        </LedgerShellConditionProvider>
+        <FixtureShellRow {...slotProps(props.row)} density={leased?.density ?? props.listDensity} />
       </LedgerRowLeaseProvider>
     </InBridge>
   );
@@ -159,126 +113,6 @@ describe("routing a row to its card", () => {
     // through the hydrated-content body and reported a policy redaction as a body
     // that could not be opened.
     expect(container.querySelector(".meridian-machine-body")).toBeNull();
-  });
-
-  it("sends an input ask to the ask card ahead of the family table", () => {
-    const { container } = render(
-      <MountedInAList
-        row={sampleRunRow({
-          type: "driver_ask.requested",
-          payload: { askId: "ask-01", kind: "input", prompt: "Which branch?" },
-        })}
-        listDensity="collapsed"
-      />,
-    );
-    expect(container.textContent).toContain("Which branch?");
-    // The classifier answers `receipt` for this type, which is the right answer for
-    // the family table and the wrong surface for a run blocked on a question.
-    expect(container.querySelector(".meridian-receipt-row")).toBeNull();
-  });
-
-  it("retires the request's controls once the window holds its terminal", () => {
-    const request = sampleRunRow({
-      id: "row-01",
-      type: "driver_ask.requested",
-      payload: { askId: "ask-09", kind: "input", prompt: "Which branch?" },
-    });
-    const response = sampleRunRow({
-      id: "row-02",
-      type: "driver_ask.responded",
-      payload: { askId: "ask-09", kind: "input", response: "develop" },
-    });
-    const { container } = render(
-      <MountedInAList row={request} listDensity="collapsed" windowRows={[request, response]} />,
-    );
-    // The question stays on screen — it is the request row's and the terminal row
-    // carries none — and the disposition is what replaces the controls.
-    expect(container.textContent).toContain("Which branch?");
-    expect(container.textContent).toContain("This ask was answered");
-    expect(container.querySelector(".meridian-input-ask__arms")).toBeNull();
-    expect(container.querySelector("textarea")).toBeNull();
-  });
-
-  it("negative control: the same request keeps its controls while nothing has settled it", () => {
-    // Without this, a card that retired its controls on the presence of a window
-    // rather than on its own ask's terminal would pass the case above and leave every
-    // open ask unanswerable.
-    const request = sampleRunRow({
-      id: "row-01",
-      type: "driver_ask.requested",
-      payload: { askId: "ask-09", kind: "input", prompt: "Which branch?" },
-    });
-    const otherAnswer = sampleRunRow({
-      id: "row-02",
-      type: "driver_ask.responded",
-      payload: { askId: "ask-10", kind: "input", response: "develop" },
-    });
-    const { container } = render(
-      <MountedInAList row={request} listDensity="collapsed" windowRows={[request, otherAnswer]} />,
-    );
-    expect(container.querySelector(".meridian-input-ask__arms")).not.toBeNull();
-    expect(container.textContent).not.toContain("This ask was answered");
-  });
-
-  it("keeps a second run's ask open when another run settled the same ask id", () => {
-    // A provider mints its ask ids per provider session, so two runs blocked at once
-    // legitimately raise `ask-09` each. Keyed on that id alone, the first run's answer
-    // settled the second run's card: it read as answered and lost its arms while its
-    // own run was still blocked with nobody able to answer it.
-    const answeredElsewhere = sampleRunRow({
-      id: "row-01",
-      runId: SECOND_RUN_ID,
-      type: "driver_ask.responded",
-      payload: { askId: "ask-09", kind: "input", response: "develop" },
-    });
-    const request = sampleRunRow({
-      id: "row-02",
-      type: "driver_ask.requested",
-      payload: { askId: "ask-09", kind: "input", prompt: "Which branch?" },
-    });
-    const { container } = render(
-      <MountedInAList
-        row={request}
-        listDensity="collapsed"
-        windowRows={[answeredElsewhere, request]}
-      />,
-    );
-    expect(container.querySelector(".meridian-input-ask__arms")).not.toBeNull();
-    expect(container.textContent).not.toContain("This ask was answered");
-  });
-
-  it("negative control: a permission ask is not drawn here", () => {
-    const { container } = render(
-      <MountedInAList
-        row={sampleRunRow({
-          type: "driver_ask.requested",
-          payload: { askId: "ask-02", kind: "permission", prompt: "Run this command?" },
-        })}
-        listDensity="collapsed"
-      />,
-    );
-    expect(container.querySelector(".meridian-input-ask")).toBeNull();
-  });
-
-  it("sends everything else to the one-line receipt row", () => {
-    const { container } = render(
-      <MountedInAList
-        row={sampleGeneralRow({ type: "session.created" })}
-        listDensity="collapsed"
-      />,
-    );
-    expect(container.querySelector(".meridian-receipt-row")?.textContent).toBe(
-      "The session was created.",
-    );
-    expect(container.querySelector(".meridian-message-card")).toBeNull();
-  });
-
-  it("names an empty receipt rather than rendering a blank line", () => {
-    const { container } = render(
-      <MountedInAList row={sampleGeneralRow({ summary: "" })} listDensity="collapsed" />,
-    );
-    expect(container.querySelector(".meridian-receipt-row")).toBeNull();
-    expect(container.textContent).toContain("no summary");
   });
 });
 

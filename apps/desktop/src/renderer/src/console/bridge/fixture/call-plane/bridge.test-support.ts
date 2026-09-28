@@ -2,10 +2,9 @@
 //
 // One home for the roles more than one of the sibling suites plays: the fixture and
 // the engine driving it, the two ways a surface reaches that bridge — a subscription
-// and a call — the bridge whose call arm a suite decides the answer for, and the same
-// fixture with named growth operations replaced. It holds nothing a single suite
-// uses: the scripts each concern re-writes, and the constants only one of them reads,
-// stay beside their reader.
+// and a call — and the bridge whose call arm a suite decides the answer for. It
+// holds nothing a single suite uses: the scripts each concern re-writes, and the
+// constants only one of them reads, stay beside their reader.
 //
 // The macrotask drain the settling cases wait on is deliberately NOT here. It is a
 // timing helper rather than a fixture one, and two families below `bridge/` wait on
@@ -21,10 +20,6 @@ import type {
 
 import type { ConsoleBridge } from "../../console-bridge.js";
 import { createFixtureBridge } from "./bridge.js";
-import type { GrowthOperationId } from "../../growth-port/growth-entry.js";
-import type { GrowthServed, GrowthUnavailable } from "../../growth-port/growth-outcome.js";
-import type { GrowthPort } from "../../growth-port/growth-port.js";
-import { growthUnavailable } from "../../growth-port/growth-refusals.js";
 import type {
   ConsoleScenario,
   ScenarioBeat,
@@ -168,12 +163,12 @@ export function callThroughBridge(fixture: FixtureUnderTest, method: string): Pr
  * it reached a bridge at all.
  *
  * Takes the bridge rather than building one, so a suite that has already overridden a
- * different namespace — a growth port answering its own operation, say — composes the
- * two instead of minting a second builder to hold both.
+ * different namespace composes the two instead of minting a second builder to hold
+ * both.
  *
  * THE ANSWER IS HANDED THE WRAPPED BRIDGE'S OWN CALL, which is what lets a suite
  * decide ONE method and leave every other one scripted by the scenario. Without it a
- * suite that only cares about `agent.list` has to answer for `presence.read` too, and
+ * suite that only cares about `session.read` has to answer for `driver.listModels` too, and
  * the only shape available is a hand-written stub — which is exactly what this helper
  * exists to keep out of a suite that means to reach a real bridge. Delegation lives
  * here once rather than being spelled at each site that needs it.
@@ -311,116 +306,6 @@ export function bridgeAnswering(
   scenario?: ConsoleScenario,
 ): BridgeUnderTest {
   return withDaemonCall(createFixture(scenario).bridge, answer);
-}
-
-/* ---------------------------------------------------------------------------
- * The same fixture with named growth operations replaced.
- *
- * Folded in from a second support module rather than kept beside it: both files
- * answered one question — how a suite gets a real `ConsoleBridge` it can steer — and
- * a reader had to know which of the two held the arm they wanted. What follows is
- * the growth half of that answer, and `withDaemonCall` above is the same shape for
- * the daemon's call arm; the two compose, so a suite needing both spreads one over
- * the other's bridge.
- *
- * WHAT THE HAND-BUILT PORT COST. Families were writing
- * `{ growth: { …four methods… } } as unknown as ConsoleBridge` from nothing, at
- * twenty sites in one family alone. Three defects follow from that shape and none of
- * them is visible in the suite that has it:
- *
- *   • Every namespace but `growth` is `undefined`, so a surface that started reaching
- *     the daemon door THROWS in the case rather than being caught by an assertion —
- *     and a screenshot tier pinning such a composition is pinning images no bridge
- *     produces.
- *   • An operation the script did not name answers `undefined`, which a caller
- *     narrowing on `status` reads as neither served nor refused. The port's whole
- *     contract is that every arm answers a typed outcome.
- *   • The cast erases the port type, so a script whose member name has drifted from
- *     the signature table still compiles.
- *
- * WHY THE REFUSAL IS BUILT AND NOT WRITTEN DOWN. Three suites once carried their own
- * `CARRIER_UNAVAILABLE` literal — four fields, hand-typed, checked against nothing.
- * `growthRefusing` calls the shipped `growthUnavailable`, so what a test asserts
- * against is what a release build actually produces: the same code, the same origin,
- * the same sentence composed from the operation's own slate row. A literal that
- * drifted from the port would make a green test a claim about a value the console
- * never emits.
- *
- * WHY THESE ARE FUNCTIONS AND NOT CONSTANTS. Each call mints a fresh bridge, so one
- * test's engine is never another test's engine — a property a shared constant cannot
- * have.
- * ------------------------------------------------------------------------- */
-
-/**
- * The real fixture bridge for one scenario, with the named growth operations
- * replaced.
- *
- * Takes the scenario rather than a bridge because that is what every call site has:
- * a family scripting its own operations is choosing which session the fixture plays,
- * and the port it is overriding is that scenario's. A suite that also needs the
- * daemon arm wraps the result in {@link withDaemonCall}.
- *
- * `Partial<GrowthPort>` rather than a per-operation parameter: a caller replaces the
- * operations its surface reads and inherits the fixture's answer for every other one,
- * and the compiler holds each replacement to that operation's own request and value
- * types. Every other namespace — `desktopBridge`, `growthServedOperations`, the scenario
- * engine — is the fixture's untouched, so a surface that starts reading one finds the
- * shipped answer rather than a hole.
- *
- * `growthServedOperations` is deliberately NOT recomputed from the overrides. It is
- * the FIXTURE's declaration of what it serves, read by composition roots that must
- * decide before a call can be awaited, and a test that quietly widened it would be
- * asserting against a bridge no window ever builds.
- */
-export function fixtureBridgeWithGrowth(
-  scenario: ConsoleScenario,
-  overrides: Partial<GrowthPort>,
-): ConsoleBridge {
-  const fixture = createFixtureBridge({ scenario });
-  return { ...fixture, growth: { ...fixture.growth, ...overrides } };
-}
-
-/**
- * An operation that answers with this value.
- *
- * The request is accepted and ignored — typed `unknown` so the builder fits every
- * operation's own request shape, and so a caller that wraps it in `vi.fn` can still
- * assert what the surface asked for.
- */
-export function growthServing<TValue>(
-  value: TValue,
-): (request: unknown) => Promise<GrowthServed<TValue>> {
-  return async () => await Promise.resolve({ status: "served", value });
-}
-
-/**
- * An operation that answers with whatever a scripted daemon hands back for it.
- *
- * `growthServing`'s lazy sibling: that one closes over a value decided before the
- * surface asked, and a suite holding a call OPEN — the shape every double-press case
- * needs — has to decide the answer at the moment of the call instead. The value is
- * cast because the answer is the SUITE's claim about that operation's shape, exactly
- * as a scripted `daemon.call` reply is: the growth port stands in for a wire the
- * corpus has not registered, so there is nothing to parse it against.
- */
-export function growthAnswering<TValue>(
-  answer: (request: unknown) => Promise<unknown>,
-): (request: unknown) => Promise<GrowthServed<TValue>> {
-  return async (request) => ({ status: "served", value: (await answer(request)) as TValue });
-}
-
-/**
- * An operation that answers with the shipped port's own refusal for it.
- *
- * The operation id is the refusal's subject as well as the method's name, which is
- * why it is a parameter rather than inferred: `growthUnavailable` composes the
- * sentence from that operation's slate row, so passing the wrong id would produce a
- * refusal naming a wire the surface never asked for.
- */
-export function growthRefusing(
-  operationId: GrowthOperationId,
-): (request: unknown) => Promise<GrowthUnavailable> {
-  return async () => await Promise.resolve(growthUnavailable(operationId));
 }
 
 /**

@@ -1,9 +1,7 @@
-// One record per entity kind, and four states for every one of them.
+// One record per kind that has one, and four states for every one of them.
 //
-// The cases run over `CONSOLE_ENTITY_KINDS` itself rather than over a list written
-// here: a thirteenth kind added to the store's enumeration has to arrive in this file
-// as a failure, and a list restated beside the closed set would let it arrive as
-// nothing at all.
+// The cases run over the table's own keys rather than over a list written here, so a
+// kind given a record arrives in this file as cases.
 //
 // The four states are asserted through the REAL store — `initialise` and
 // `markDegraded` are what a session does to itself — rather than through
@@ -13,12 +11,8 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import {
-  CONSOLE_ENTITY_KINDS,
-  SessionStore,
-  type ConsoleEntityKind,
-} from "../../../store/index.js";
-import { ENTITY_DETAIL_BY_KIND } from "./entity-detail-registry.js";
+import { SessionStore, type ConsoleEntityKind } from "../../../store/index.js";
+import { ENTITY_DETAIL_BY_KIND, type EntityDetailKind } from "./entity-detail-registry.js";
 import { InspectedEntity } from "./InspectedEntity.js";
 
 const SESSION_ID = "session-inspector";
@@ -63,14 +57,13 @@ function readStore(kind: ConsoleEntityKind): SessionStore {
         },
       },
     ],
-    userJoinLog: ["user-1"],
   });
   return store;
 }
 
 function renderRecord(
   store: SessionStore,
-  kind: ConsoleEntityKind,
+  kind: EntityDetailKind,
   id: string,
   linkedSourcePaneId?: string,
 ): HTMLElement {
@@ -84,22 +77,9 @@ function renderRecord(
   return container;
 }
 
-describe("the detail table is total over the entity kinds", () => {
-  it("carries one record body per declared kind, and no other key", () => {
-    expect(Object.keys(ENTITY_DETAIL_BY_KIND).sort()).toStrictEqual(
-      [...CONSOLE_ENTITY_KINDS].sort(),
-    );
-  });
+const KINDS_WITH_A_RECORD = Object.keys(ENTITY_DETAIL_BY_KIND) as EntityDetailKind[];
 
-  it("negative control: a table missing a kind is rejected", () => {
-    // Without this the case above would also pass over a comparison that ignored
-    // its right-hand side.
-    const { session: _session, ...withoutSession } = ENTITY_DETAIL_BY_KIND;
-    expect(Object.keys(withoutSession).sort()).not.toStrictEqual([...CONSOLE_ENTITY_KINDS].sort());
-  });
-});
-
-describe.each([...CONSOLE_ENTITY_KINDS])("the %s record", (kind) => {
+describe.each(KINDS_WITH_A_RECORD)("the %s record", (kind) => {
   it("says the read is in flight before the store has answered", () => {
     const container = renderRecord(unreadStore(), kind, PRESENT_ID);
     expect(container.querySelector(".meridian-nothing--not-loaded")).not.toBeNull();
@@ -140,62 +120,5 @@ describe.each([...CONSOLE_ENTITY_KINDS])("the %s record", (kind) => {
     expect(withLink.querySelector(".meridian-entity-record__link")?.textContent).toContain(
       "pane-source",
     );
-  });
-});
-
-describe("the session record, which is composed rather than projected", () => {
-  it("counts what the session holds instead of reading a count off a row", () => {
-    const store = new SessionStore({ sessionId: SESSION_ID });
-    store.initialise({
-      cursor: 1,
-      entities: [
-        { kind: "user", id: "user-1" },
-        { kind: "user", id: "user-2" },
-        { kind: "run", id: "run-1" },
-      ],
-      userJoinLog: ["user-1", "user-2"],
-    });
-    const container = renderRecord(store, "session", SESSION_ID);
-    const facets = [...container.querySelectorAll(".meridian-entity-record__facet")].map(
-      (facet) => facet.textContent ?? "",
-    );
-    expect(facets.find((facet) => facet.startsWith("Users"))).toContain("2");
-    expect(facets.find((facet) => facet.startsWith("Runs"))).toContain("1");
-  });
-
-  it("negative control: the store's own session is a record even with no projected row", () => {
-    // And an id that is NOT the open session's is still an absence, so the arm
-    // above is a fact about this session rather than a body that always renders.
-    const store = new SessionStore({ sessionId: SESSION_ID });
-    store.initialise({ cursor: 1, entities: [], userJoinLog: [] });
-    expect(
-      renderRecord(store, "session", SESSION_ID).querySelector(".meridian-entity-record"),
-    ).not.toBeNull();
-    expect(
-      renderRecord(store, "session", ABSENT_ID).querySelector(".meridian-entity-record"),
-    ).toBeNull();
-  });
-});
-
-describe("a member the record does not carry", () => {
-  it("is named as not recorded rather than left blank or shown as a zero", () => {
-    const store = new SessionStore({ sessionId: SESSION_ID });
-    store.initialise({
-      cursor: 1,
-      entities: [{ kind: "artifact", id: PRESENT_ID }],
-      userJoinLog: [],
-    });
-    const container = renderRecord(store, "artifact", PRESENT_ID);
-    expect(container.querySelectorAll(".meridian-nothing--not-checked").length).toBeGreaterThan(0);
-    expect(container.textContent).toContain("Not recorded");
-  });
-
-  it("negative control: a member the record DOES carry is a figure, not an absence", () => {
-    const container = renderRecord(readStore("artifact"), "artifact", PRESENT_ID);
-    const size = [...container.querySelectorAll(".meridian-entity-record__facet")].find((facet) =>
-      (facet.textContent ?? "").startsWith("Size"),
-    );
-    expect(size?.textContent).toContain("KiB");
-    expect(size?.querySelector(".meridian-nothing")).toBeNull();
   });
 });

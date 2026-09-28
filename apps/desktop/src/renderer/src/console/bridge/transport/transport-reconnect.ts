@@ -41,7 +41,7 @@
 // compensates for it. `DesktopBridge.daemon.subscribe` is `(event, handler) =>
 // Unsubscribe`: the handler is a payload sink with no error, end, or close arm, the
 // handle only cancels, and no member anywhere on that bridge — `daemon`,
-// `controlPlane`, `native`, `webAuthn`, `update`, `app` — reports connection state.
+// `controlPlane`, `native`, `update`, `app` — reports connection state.
 // There is nothing an observer could listen to. The alternatives are the two this file
 // already refuses: a heartbeat probe is the interval polling the design forbids, and
 // treating a failed unrelated call as a loss is a connection state this renderer would

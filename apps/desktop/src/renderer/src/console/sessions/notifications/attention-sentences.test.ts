@@ -8,18 +8,15 @@
 
 import { describe, expect, it } from "vitest";
 
-import { growthUnavailable } from "../../bridge/index.js";
-import { AttentionPlane } from "./attention-plane.js";
-import {
-  narrowAttentionProjection,
-  type RefusedAttentionSession,
-} from "./attention-projection-read.js";
+import type { AttentionItem } from "../../bridge/index.js";
+import { refuse } from "../../core/index.js";
+import { AttentionPlane, type RefusedAttentionSession } from "./attention-plane.js";
 import { describeAttentionSettlement } from "./attention-sentences.js";
 
 const CREATED_AT = "2026-01-01T10:00:00.000Z";
 
 /** One live item, built the way the projection would hand it over. */
-function itemNeeding(id: string): Record<string, unknown> {
+function itemNeeding(id: string): AttentionItem {
   return {
     id,
     sessionId: "session-a",
@@ -33,21 +30,25 @@ function itemNeeding(id: string): Record<string, unknown> {
 
 /** One session the fan-out never got an answer for. */
 function refusedSession(sessionId: string): RefusedAttentionSession {
-  return { sessionId, refusal: growthUnavailable("attentionProjectionRead") };
+  return {
+    sessionId,
+    refusal: refuse(
+      "attention-plane",
+      "session.not_found",
+      "That session is not known to the daemon.",
+    ),
+  };
 }
 
 /** A settled read that answered, with whatever coverage a case names. */
 function answered(options: {
-  readonly items?: readonly Record<string, unknown>[];
+  readonly items?: readonly AttentionItem[];
   readonly refusedSessions?: readonly RefusedAttentionSession[];
   readonly droppedCount?: number;
 }): Parameters<typeof describeAttentionSettlement>[0] {
   return {
     phase: "read",
-    // Through the real boundary rather than cast past it: a case that hand-built an
-    // item the narrowing would have dropped would be describing a plane this console
-    // cannot actually produce.
-    plane: new AttentionPlane(narrowAttentionProjection(options.items ?? []).items),
+    plane: new AttentionPlane(options.items ?? []),
     droppedCount: options.droppedCount ?? 0,
     refusedSessions: options.refusedSessions ?? [],
     // The sentence is composed from what the read FOUND and from how much of it went
@@ -101,24 +102,6 @@ describe("what one settled attention read says", () => {
       ),
     ).toBe(
       "2 items need you. One session could not be checked. 2 deliveries could not be read, so what needs you may be behind what the daemon has sent.",
-    );
-  });
-
-  it("speaks a refusal in the port's own words and never its code", () => {
-    const refusal = growthUnavailable("attentionProjectionRead");
-    const spoken = describeAttentionSettlement({ phase: "refused", refusal });
-
-    expect(spoken).toBe(refusal.detail);
-    // Read aloud a code is a token nobody can act on, ahead of the sentence that
-    // matters. It stays on screen, where it can be copied.
-    expect(spoken).not.toContain(refusal.code);
-  });
-
-  it("does not let a question nobody put sound like an answer", () => {
-    // The installed bridge settles here and stays. Silence would leave a person
-    // hearing nothing at all, which is indistinguishable from the all-clear.
-    expect(describeAttentionSettlement({ phase: "not-asked" })).toBe(
-      "The attention projection has not been read, so this is not an all-clear.",
     );
   });
 });

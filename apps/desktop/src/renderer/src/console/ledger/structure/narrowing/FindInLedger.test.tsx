@@ -1,22 +1,13 @@
-// The find field, and the sentence that is the feature.
+// The find field.
 //
-// The boundary note is asserted here against the model's own constant rather than
-// against a literal typed twice, because two copies would let the field drop the
-// caption while this file kept passing against its own string. The counter gets the
-// same treatment from the other side: the honest total and the capped walk are
-// different numbers, and the field must show the honest one.
+// The counter is asserted from the side of the walk: the walkable set and the true
+// total are different numbers, and the position is of the walkable one.
 
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { FindInLedger } from "./FindInLedger.js";
-import {
-  LEDGER_FIND_TRUNCATION_NOTE,
-  LEDGER_FIND_SCOPE_NOTE,
-  emptyFindResult,
-  findInLedger,
-  type LedgerFindResult,
-} from "./find-model.js";
+import { emptyFindResult, findInLedger, type LedgerFindResult } from "./find-model.js";
 import { runRow } from "../timeline-rows.test-support.js";
 
 /** More matches than the three-row window below can walk, so the cap arm is real. */
@@ -91,20 +82,12 @@ function renderField(
   };
 }
 
-describe("find field — the boundary is rendered, never remembered", () => {
-  it("states the scope in the model's own sentence", () => {
-    const { field } = renderField();
-    expect(field.textContent).toContain(LEDGER_FIND_SCOPE_NOTE);
-  });
-
-  it("states the boundary over a partial window and offers no act on it", () => {
-    // The sentence is this field's whole answer, and it is stated unconditionally:
-    // the act that would fetch what is missing belongs to the viewport's backward
-    // read and is offered there; a second entry point here would read the CAP —
-    // rows this store still holds — and send the daemon after them. Which is why
-    // the result carries no clip member for this field to branch on.
-    const { field } = renderField({ result: matchingResult() });
-    expect(field.textContent).toContain(LEDGER_FIND_SCOPE_NOTE);
+describe("find field — no act on a partial window", () => {
+  it("offers no load act over a partial window", () => {
+    // The act that would fetch what is missing belongs to the viewport's backward
+    // read and is offered there; a second entry point here would read the CAP — rows
+    // this store still holds — and send the daemon after them.
+    renderField({ result: matchingResult() });
     expect(screen.queryByRole("button", { name: "Load earlier" })).toBeNull();
   });
 });
@@ -120,47 +103,20 @@ describe("find field — the counter is the console's own reading", () => {
     expect(field.textContent).toContain("2 of 3");
   });
 
-  it("names the walkable set, and the true total beside it, when the walk is capped", () => {
+  it("names the walkable set as the denominator when the walk is capped", () => {
     // The denominator is the set the next/previous walk can actually reach. It read
     // "1 of 940" over a three-match walk, so the walk wrapped at three while the
     // field advertised 940 and matches 4-940 were unreachable in silence.
     const capped: LedgerFindResult = { ...matchingResult(), totalMatchCount: UNCAPPED_TOTAL };
     const { field } = renderField({ result: capped, currentMatchIndex: 0 });
     expect(field.textContent).toContain("1 of 3");
-    expect(field.textContent).toContain(`(${String(UNCAPPED_TOTAL)} matched)`);
     expect(field.textContent).not.toContain(`1 of ${String(UNCAPPED_TOTAL)}`);
   });
 
-  it("states the cap as its own sentence, beside the scope note", () => {
-    const capped: LedgerFindResult = { ...matchingResult(), totalMatchCount: UNCAPPED_TOTAL };
-    const { field } = renderField({ result: capped, currentMatchIndex: 0 });
-    expect(field.textContent).toContain(LEDGER_FIND_TRUNCATION_NOTE);
-    expect(field.textContent).toContain(LEDGER_FIND_SCOPE_NOTE);
-    expect(LEDGER_FIND_TRUNCATION_NOTE).toContain(String(FIND_MATCH_CAP));
-  });
-
-  it("negative control: an uncapped result shows one figure and no cap sentence", () => {
-    // Without this the two cases above would pass over a field that always drew the
-    // second figure and the cap sentence, which would report every ordinary query
-    // as truncated.
-    const { field } = renderField({ currentMatchIndex: 0 });
-    expect(field.textContent).toContain("1 of 3");
-    expect(field.textContent).not.toContain("matched)");
-    expect(field.textContent).not.toContain(LEDGER_FIND_TRUNCATION_NOTE);
-  });
-
-  it("negative control: with nothing found it says so, and says it once", () => {
+  it("negative control: with nothing found it says so", () => {
     const empty = findInLedger([], "nothing here");
     const { field } = renderField({ result: empty, query: "nothing here" });
     expect(field.textContent).toContain("No matches");
-    expect(field.textContent).toContain("No loaded row matches that.");
-  });
-
-  it("negative control: an untouched field shows no empty state", () => {
-    // The empty state is a fact about a QUERY. Showing it before one is typed
-    // would report a failed search nobody ran.
-    const { field } = renderField({ result: emptyFindResult(3), query: "" });
-    expect(field.textContent).not.toContain("No loaded row matches that.");
   });
 });
 
@@ -300,4 +256,3 @@ describe("find field — the query and the close", () => {
     expect(harness.acts).toStrictEqual(["close"]);
   });
 });
-import { FIND_MATCH_CAP } from "../../../core/index.js";

@@ -1,29 +1,18 @@
-// The tool sub-family decision, as a slot rather than as a paragraph.
+// The tool sub-family vocabulary and the reader over a row's own payload.
 //
-// WHAT WAS DECIDED, AND WHY IT NEEDED A HOME. `card-family.ts` refuses to read a tool
-// FAMILY out of the tool's name: `ToolActivityPayload` carries `toolName`,
-// `toolCallId` and `durationMs`, and no member says what kind of tool ran, so a
-// console that decided "this one is an MCP call" from the string would be asserting a
-// fact the daemon never sent. That refusal is right and it is not the whole answer.
-// The design names six tool treatments, and until this module the decision not to
-// build them lived in a comment — which meant the sub-family had no owner, no shape,
-// and no place for the wire member to land when one is registered.
+// `card-family.ts` refuses to read a tool kind out of the tool's name:
+// `ToolActivityPayload` carries `toolName`, `toolCallId` and `durationMs`, and no member
+// says what kind of tool ran, so deciding "this one is an MCP call" from the string would
+// assert a fact the daemon never sent. The design names six tool treatments, so the
+// vocabulary is declared here as data and the reading is one function over the payload.
 //
-// SO THE DECISION IS A SLOT. The vocabulary is declared here as data, the reading is
-// one function over the row's own payload, and the body is an owner slot another
-// change fills. The row seat next door is the same arrangement one level up: a
-// contract, a fixture shell, and a named owner who replaces it.
-//
-// THE READER IS FAIL-CLOSED IN BOTH DIRECTIONS, which is the property that makes it
-// worth having before the member exists. An ABSENT declaration reads as no sub-family
-// at all, which is every row the daemon sends today and is exactly the tool layout
-// this console already draws. An UNRECOGNIZED one reads as unrecognized and says so —
-// an unknown enum member renders as the explicit unrecognized badge and never as a
-// guess, and collapsing it
-// into "no sub-family" would be that guess wearing an absence's clothes.
+// The reader is fail-closed in both directions. An ABSENT declaration reads as no
+// sub-family, which is the tool layout this console already draws. An UNRECOGNIZED one
+// reads as unrecognized and says so: an unknown enum member renders as the explicit
+// unrecognized badge and never as a guess, and collapsing it into "no sub-family" would
+// be that guess wearing an absence's clothes.
 
 import { readWireString } from "../../../core/index.js";
-import { type OwnerSlotContract } from "../../../seats/index.js";
 
 /**
  * The tool treatments the design names. Closed.
@@ -78,28 +67,13 @@ export type ToolSubFamilyReading =
       readonly declared: string;
     };
 
-/** What the slot's body is handed. */
+/** What a sub-family renderer is handed. */
 export interface ToolSubFamilySlotProps {
   readonly reading: ToolSubFamilyReading;
 }
 
 /** The sub-family treatment. Returns `React.ReactNode` so the card renders it directly. */
 export type ToolSubFamilyRenderer = (props: ToolSubFamilySlotProps) => React.ReactNode;
-
-/**
- * Who owns the six treatments, what this card owes them, and when the shell dies.
- *
- * Developer-facing and never rendered, which is what `OwnerSlotContract` is for. It
- * names the FEATURE rather than the governance record that plans it: a string in
- * shipped code is read by whoever opens the file next.
- */
-export const TOOL_SUB_FAMILY_SLOT: OwnerSlotContract = {
-  owningTask: "the timeline subtree's tool sub-family treatments",
-  mountObligation:
-    "the tool card renders this beside the tool's name, given the row's own declared sub-family reading and nothing derived from the tool's name",
-  deleteShellIn:
-    "the change that registers a declared sub-family on the timeline read and builds the six treatments behind it",
-};
 
 /**
  * What one row declares about its treatment, or `undefined` for a row declaring none.

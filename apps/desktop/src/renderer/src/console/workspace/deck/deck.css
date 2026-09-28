@@ -3,7 +3,7 @@
  * Imported from `workspace/index.ts` beside the family's other sheets, so the rules
  * land once per bundle and in the family's own order.
  *
- * Every colour is a Meridian custom property and every space a step on the scale,
+ * Every color is a Meridian custom property and every space a step on the scale,
  * so the deck follows the scheme attribute with no conditional in JSX.
  */
 
@@ -48,41 +48,6 @@
   flex-direction: column;
   gap: var(--meridian-space-1);
   padding: var(--meridian-space-2) var(--meridian-space-4);
-}
-
-/* The pane whose body is showing in a window of its own. The slot stays and
-   only the projection is suppressed, so this is the absence plus its two ways back.
-   The controls take the shipped `.meridian-new-session__open` shape verbatim — same
-   padding, edge, radius, and `cursor: default` — because a control one pixel
-   different reads as a different KIND of control. */
-
-.meridian-deck__detached {
-  display: flex;
-  flex-direction: column;
-  gap: var(--meridian-space-2);
-  padding: var(--meridian-space-3);
-}
-
-.meridian-deck__detached-control {
-  padding: var(--meridian-space-1) var(--meridian-space-3);
-  border: 1px solid var(--meridian-edge-strong);
-  border-radius: var(--meridian-radius-md);
-  background: var(--meridian-surface);
-  color: var(--meridian-text);
-  font: inherit;
-  cursor: default;
-}
-
-.meridian-deck__detached-control:focus-visible {
-  outline: 2px solid var(--meridian-focus-ring);
-  outline-offset: 2px;
-}
-
-/* The pane's error slot — what happened to the window this pane came back from.
-   Above the body rather than over it: the pane works again, and a note that covered
-   it would be reporting the pane as broken instead of the window that was. */
-.meridian-deck__pane-error {
-  padding: var(--meridian-space-2) var(--meridian-space-3);
 }
 
 /*

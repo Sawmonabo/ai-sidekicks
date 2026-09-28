@@ -19,8 +19,4 @@ import "./tool-families.css";
 
 export { ToolSubFamilyBadge } from "./ToolSubFamilyBadge.js";
 
-export {
-  TOOL_SUB_FAMILY_SLOT,
-  declaredToolSubFamily,
-  type ToolSubFamilyRenderer,
-} from "./tool-sub-families.js";
+export { declaredToolSubFamily, type ToolSubFamilyRenderer } from "./tool-sub-families.js";

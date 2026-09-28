@@ -16,7 +16,7 @@
 //     to its first caller to find out whether it reads the right query.
 //
 // The browser tier owns the cascade half of this (a custom property that resolves
-// to a real colour); happy-dom resolves nothing, so what is asserted here is
+// to a real color); happy-dom resolves nothing, so what is asserted here is
 // strictly the DOM manipulation, which is the half a shim can answer honestly.
 
 import { afterEach, describe, expect, it } from "vitest";

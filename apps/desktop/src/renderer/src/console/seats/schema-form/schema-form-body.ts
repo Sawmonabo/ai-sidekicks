@@ -24,17 +24,16 @@
 // styles and enters at this root, which is the module the chunk is rooted at. It loads
 // with the first schema form and never before.
 //
-// WHAT IT PUBLISHES IS WHAT THE DOOR PUBLISHED, unchanged: the two composed surfaces and
-// the attachment carrier's reading. `useSchemaForm` and `planSchemaForm` stay inside for
-// the reason `seats/index.ts` gives — a caller assembling them itself would be a second
-// answer to what a schema draws. The schema COMPILER is not one of them and never was one
-// of this kit's exports: it lives in `bridge/`, which is the family that may hold a
-// validator, and this kit reaches it through the loader that door publishes — a second
-// chunk fetched when a form is first drawn, which is why the module list this root pulls
-// onto the initial graph never included the schema library.
+// WHAT IT PUBLISHES IS WHAT THE DOOR PUBLISHED, unchanged: the two composed surfaces.
+// `useSchemaForm` and `planSchemaForm` stay inside for the reason `seats/index.ts`
+// gives — a caller assembling them itself would be a second answer to what a schema
+// draws. The schema COMPILER is not one of them and never was one of this kit's
+// exports: it lives in `bridge/`, which is the family that may hold a validator, and
+// this kit reaches it through the loader that door publishes — a second chunk fetched
+// when a form is first drawn, which is why the module list this root pulls onto the
+// initial graph never included the schema library.
 
 import "./schema-form.css";
 
 export { SchemaFormAnswer } from "./containers/SchemaFormAnswer.js";
 export { SchemaFormPreview } from "./containers/SchemaFormPreview.js";
-export { attachmentArtifactIdsIn } from "./answer/schema-artifact-members.js";

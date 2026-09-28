@@ -25,13 +25,13 @@
 // renderer to make this observable.
 //
 // Each locator names a STRUCTURE only its own route mounts, and both routes have
-// shipped their surface now. The settings destination is the channels family's
-// settings frame, so its locator is that frame's own section rail; the session
-// workspace is the ledger, so its locator is the scroll container the whole surface
-// is built around. Neither was always so: each was an absence class while its
-// surface was a reserved slot, and the pair stopped being route-exclusive the moment
-// either family shipped — the ledger renders its own `empty` when a session has no
-// rows yet, and the settings pages render `not-checked` absences of their own.
+// shipped their surface now. The settings destination is the settings frame, so its
+// locator is that frame's own section rail; the session workspace is the ledger, so
+// its locator is the scroll container the whole surface is built around. Neither was
+// always so: each was an absence class while its surface was a reserved slot, and the
+// pair stopped being route-exclusive the moment either family shipped — the ledger
+// renders its own `empty` when a session has no rows yet, and the settings pages
+// render `not-checked` absences of their own.
 //
 // When either surface changes shape, its locator stops matching and this tier fails
 // on a wait timeout naming the selector. That is the right direction: a driver that

@@ -1,16 +1,6 @@
-// The supervisor states both shell suites drive over, and the state one arm makes.
-//
-// Hoisted on second use, per `apps/desktop/AGENTS.md`. The vocabulary suite asserts a
-// sentence per state and the mutation-block suite asserts a cause per state, so both
-// need the same enumeration — and two copies of it would let one suite quietly stop
-// covering an arm the other still did.
+// The supervisor states the shell suite drives over.
 
-import { UNREPORTED_SHELL_STATE, type ShellConnection, type ShellState } from "./shell-state.js";
-
-/** A window holding one connection and nothing else reported. */
-export function stateWith(connection: ShellConnection): ShellState {
-  return { ...UNREPORTED_SHELL_STATE, connection };
-}
+import type { ShellConnection } from "./shell-state.js";
 
 /**
  * Every arm a supervisor actually reports, `unreported` excluded.

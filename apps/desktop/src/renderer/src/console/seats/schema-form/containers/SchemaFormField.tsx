@@ -1,7 +1,7 @@
 // One drawn field: what it is called, what it asks, what is wrong with the answer.
 //
-// THE CHROME IS HERE AND NOT IN THE SIX CONTROLS. A label a control drew for itself would
-// be drawn six ways, and the six would each have to decide how a description is attached
+// THE CHROME IS HERE AND NOT IN THE FIVE CONTROLS. A label a control drew for itself would
+// be drawn five ways, and the five would each have to decide how a description is attached
 // and how a verdict is announced. One module owns it, and each control owns its value.
 //
 // THE ISSUES ARE THE SCHEMA'S SENTENCES, VERBATIM. Nothing here paraphrases a validation

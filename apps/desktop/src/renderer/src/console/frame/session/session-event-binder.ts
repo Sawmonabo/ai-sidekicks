@@ -33,14 +33,6 @@
 //     would silently miss a session opened between construction and attachment,
 //     and the symptom — one session that never updates — looks like a wire fault
 //     rather than a wiring one.
-//   • **No stream into a store that cannot be initialised.** A store buffers
-//     rather than applies until a read gives it a base state, so binding a stream
-//     to a registry whose `read` is a refusal rather than a reader feeds a buffer
-//     nothing will ever drain — a long-running session retains its whole event
-//     stream and projects none of it. `attach` reads
-//     `SessionStoreRegistry.canInitialiseSessionStores` and takes no subscription
-//     at all when the answer is no. Structural rather than a check the composition
-//     root makes: every caller gets it, and it cannot be forgotten by the next one.
 //   • **No subscription without the read that makes it mean something.** The
 //     converse of the rule above, and it was the half that was missing: binding a
 //     stream and never asking for a base state leaves the store buffering exactly
@@ -147,13 +139,7 @@ export class SessionEventBinder {
    * unobserved; taking the subscription first can at worst bind a session twice,
    * and `#bindSession` is idempotent by session id.
    *
-   * A registry that can initialise no store gets NEITHER subscription — not the
-   * registry's change feed and not the wire's — because every delivery would land
-   * in a pre-initialisation buffer nothing can ever drain. The diagnostics handle
-   * is still installed on that arm: "bound: none, applied: zero" is a reading, and
-   * an absent handle is indistinguishable from a build with no binder at all.
-   *
-   * A THIRD SUBSCRIPTION IS TAKEN ON THAT SAME ARM: the transport's returning edge,
+   * A THIRD SUBSCRIPTION IS TAKEN: the transport's returning edge,
    * which is what re-attempts the sessions whose open threw. ONE subscription for this
    * binder's whole life, taken at its single lifecycle door rather than per session
    * bind or per render — the retained set is what a returning edge is walked against,
@@ -171,20 +157,18 @@ export class SessionEventBinder {
       return;
     }
     this.#attached = true;
-    if (this.#registry.canInitialiseSessionStores) {
-      this.#unsubscribeFromRegistry = this.#registry.subscribe((change) => {
-        if (change.change === "opened") {
-          this.#bindSession(change.sessionId);
-          return;
-        }
-        this.#unbindSession(change.sessionId);
-      });
-      this.#unsubscribeFromTransportReconnect = this.#bridge.transportReconnect.subscribe(() => {
-        this.#retry.runOnePass();
-      });
-      for (const sessionId of this.#registry.openSessionIds) {
-        this.#bindSession(sessionId);
+    this.#unsubscribeFromRegistry = this.#registry.subscribe((change) => {
+      if (change.change === "opened") {
+        this.#bindSession(change.sessionId);
+        return;
       }
+      this.#unbindSession(change.sessionId);
+    });
+    this.#unsubscribeFromTransportReconnect = this.#bridge.transportReconnect.subscribe(() => {
+      this.#retry.runOnePass();
+    });
+    for (const sessionId of this.#registry.openSessionIds) {
+      this.#bindSession(sessionId);
     }
     this.#diagnosticsHandle.install(this.#buildFixtureDiagnostics());
   }

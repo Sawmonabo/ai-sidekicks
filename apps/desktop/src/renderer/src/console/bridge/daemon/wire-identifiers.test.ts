@@ -7,14 +7,13 @@ import type { RunState } from "@ai-sidekicks/contracts";
 
 import {
   isLiveRunState,
-  readChannelId,
   readRunId,
   readRunState,
   readSessionId,
   readWorkspaceId,
 } from "./wire-identifiers.js";
 
-/** A registered identifier, in the shape all four brands are declared over. */
+/** A registered identifier, in the shape all three brands are declared over. */
 const REGISTERED_UUID = "019b7a11-1100-75e5-8510-ada11a5a33a5";
 
 /** A label, which is what a store holds before anything has parsed it. */
@@ -24,7 +23,6 @@ describe("the identifier readers answer the wire's own value", () => {
   it("returns the identifier a registered shape admits", () => {
     expect(readSessionId(REGISTERED_UUID)).toBe(REGISTERED_UUID);
     expect(readRunId(REGISTERED_UUID)).toBe(REGISTERED_UUID);
-    expect(readChannelId(REGISTERED_UUID)).toBe(REGISTERED_UUID);
     expect(readWorkspaceId(REGISTERED_UUID)).toBe(REGISTERED_UUID);
   });
 
@@ -34,7 +32,6 @@ describe("the identifier readers answer the wire's own value", () => {
     // surface can render instead.
     expect(readSessionId(NOT_AN_IDENTIFIER)).toBeUndefined();
     expect(readRunId(NOT_AN_IDENTIFIER)).toBeUndefined();
-    expect(readChannelId(NOT_AN_IDENTIFIER)).toBeUndefined();
     expect(readWorkspaceId(NOT_AN_IDENTIFIER)).toBeUndefined();
   });
 });

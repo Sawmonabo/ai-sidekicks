@@ -35,7 +35,6 @@ function establish(
         touchedAt: options.touchedAtIso,
       },
     ],
-    userJoinLog: [],
   });
 }
 

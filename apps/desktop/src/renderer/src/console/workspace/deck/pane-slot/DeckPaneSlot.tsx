@@ -16,14 +16,10 @@ import { Panel } from "react-resizable-panels";
 import { type ConsoleRefusal } from "../../../core/index.js";
 import {
   PaneControlsContext,
-  isDetachablePaneKind,
   type ConsolePaneContext,
   type ConsolePaneRegistry,
   type PaneControls,
 } from "../../../seats/index.js";
-import { DetachedPaneBody } from "./DetachedPaneBody.js";
-import { LostWindowNotice } from "./LostWindowNotice.js";
-import { MissingPaneBody } from "./MissingPaneBody.js";
 import { PaneBody } from "./PaneBody.js";
 import { PERMILLE_PER_PERCENT, type DeckPane } from "../model/deck-model.js";
 import { type DeckDensity } from "../../workspace-bounds.js";
@@ -55,22 +51,6 @@ export interface DeckPaneSlotProps {
   readonly dropIndicator: PaneDropIndicator["edge"] | undefined;
   readonly onFocus: (paneId: string) => void;
   readonly onClose: (paneId: string) => void;
-  readonly onOpenInWindow?: (pane: DeckPane) => void;
-  /** True while this pane's body is showing in a window of its own. */
-  readonly isDetached: boolean;
-  readonly onFocusDetachedWindow?: (paneId: string) => void;
-  readonly onReturnToDeck?: (paneId: string) => void;
-  /** Why the crashed-window signal is not being received, where it is not. */
-  readonly detachedSignalRefusal?: ConsoleRefusal;
-  /**
-   * The crash this pane came back from, where it came back from one.
-   *
-   * A crashed auxiliary window returns its pane to the deck with the crash noted in
-   * the pane's error slot. The body is drawn as usual — the pane works again — and
-   * the note sits above it until it is dismissed.
-   */
-  readonly lostWindowNotice?: ConsoleRefusal;
-  readonly onDismissLostWindow?: (paneId: string) => void;
   readonly trackElement: (paneId: string, element: Element) => void;
   readonly untrackElement: (paneId: string) => void;
 }
@@ -84,20 +64,8 @@ export interface DeckPaneSlotProps {
  */
 export const DeckPaneSlot: React.NamedExoticComponent<DeckPaneSlotProps> = memo(
   function DeckPaneSlot(props: DeckPaneSlotProps): React.JSX.Element {
-    const {
-      dragCoordinator,
-      pane,
-      onClose,
-      onFocus,
-      onOpenInWindow,
-      trackElement,
-      untrackElement,
-    } = props;
+    const { dragCoordinator, pane, onClose, onFocus, trackElement, untrackElement } = props;
     const descriptor = props.registry.descriptorFor(pane.kind);
-    // Whether this pane may be torn off is a property of its KIND, answered once by the
-    // window model's own closed set — never a member the descriptor carries, which
-    // would let a family advertise a detach path no auxiliary route can serve.
-    const canOpenInWindow = isDetachablePaneKind(pane.kind) && onOpenInWindow !== undefined;
 
     // The panel's own root element, which is the one the library sizes. It is the
     // element the rect discipline measures and the element a drop is aimed at, so
@@ -112,15 +80,8 @@ export const DeckPaneSlot: React.NamedExoticComponent<DeckPaneSlotProps> = memo(
           onClose(pane.paneId);
         },
         registerDragHandle,
-        ...(canOpenInWindow
-          ? {
-              onOpenInWindow: (): void => {
-                onOpenInWindow?.(pane);
-              },
-            }
-          : {}),
       }),
-      [canOpenInWindow, onClose, onOpenInWindow, pane, registerDragHandle],
+      [onClose, pane.paneId, registerDragHandle],
     );
 
     const onFocusCapture = useCallback(() => {
@@ -138,6 +99,11 @@ export const DeckPaneSlot: React.NamedExoticComponent<DeckPaneSlotProps> = memo(
       },
       [pane.paneId, trackElement, untrackElement],
     );
+
+    // A kind with no registered body is a composition defect, not something to draw around.
+    if (descriptor === undefined) {
+      throw new Error(`no body is registered for the ${pane.kind} pane kind`);
+    }
 
     const paneClassName = [
       "meridian-deck__pane",
@@ -159,33 +125,7 @@ export const DeckPaneSlot: React.NamedExoticComponent<DeckPaneSlotProps> = memo(
         onFocusCapture={onFocusCapture}
       >
         <PaneControlsContext.Provider value={controls}>
-          {props.lostWindowNotice === undefined ? null : (
-            <LostWindowNotice
-              paneId={pane.paneId}
-              notice={props.lostWindowNotice}
-              {...(props.onDismissLostWindow === undefined
-                ? {}
-                : { onDismiss: props.onDismissLostWindow })}
-            />
-          )}
-          {props.isDetached ? (
-            <DetachedPaneBody
-              paneId={pane.paneId}
-              {...(props.onFocusDetachedWindow === undefined
-                ? {}
-                : { onFocusWindow: props.onFocusDetachedWindow })}
-              {...(props.onReturnToDeck === undefined
-                ? {}
-                : { onReturnToDeck: props.onReturnToDeck })}
-              {...(props.detachedSignalRefusal === undefined
-                ? {}
-                : { signalRefusal: props.detachedSignalRefusal })}
-            />
-          ) : descriptor === undefined ? (
-            <MissingPaneBody kind={pane.kind} />
-          ) : (
-            <PaneBody descriptor={descriptor} context={props.paneContextFor(pane)} />
-          )}
+          <PaneBody descriptor={descriptor} context={props.paneContextFor(pane)} />
         </PaneControlsContext.Provider>
       </Panel>
     );

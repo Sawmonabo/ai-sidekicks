@@ -1,7 +1,7 @@
 // The deck's pane kinds, as one closed set.
 //
 // The console's design fixes this set and fixes its members: "Pane kinds, a closed
-// set: `timeline` (session- or channel-scoped), `inspector`, `runs`, `approvals`,
+// set: `timeline`, `inspector`, `runs`, `approvals`,
 // `diff`, `artifact`, `workflow-run`, `workflow-builder`, `browser`, `terminal`,
 // `agent-console`." The order below is that bullet's own order, and
 // `pane-kinds.test.ts` compares the two by string equality rather than by eye.
@@ -18,15 +18,6 @@
 // The tuple is the declaration and the union is derived from it, for the reason
 // `seats/surface/surface-registry.ts` gives about its own slots: a union written beside a
 // hand-repeated array is two closed sets that agree until someone widens one.
-//
-// WHICH KINDS MAY BE TORN OFF IS DECIDED HERE TOO, AND DERIVED RATHER THAN DECLARED.
-// The detachable panes and the auxiliary windows are named together: `timeline` and
-// `agent-console` panes can be moved into their own hardened `BrowserWindow`, and
-// those are the two auxiliary windows the main process owns — so the two sets are one
-// set, and `src/shared/auxiliary-routes.ts` already declares it for the main process's
-// menu and the renderer's route table.
-
-import { AUXILIARY_ROUTE_NAMES } from "../../../../../shared/auxiliary-routes.js";
 
 /**
  * Every kind of pane the deck can hold, in the design's own order.
@@ -68,30 +59,6 @@ export function isPaneKind(value: unknown): value is PaneKind {
 }
 
 /**
- * The pane kinds that may be torn off into an auxiliary window.
- *
- * The `readonly PaneKind[]` annotation is the load-bearing part, not decoration:
- * it is a compile error the day an auxiliary route names something this deck has
- * no pane kind for, which is the one way the window model and the deck could come
- * apart. Writing the two names again here instead would be a third copy of a
- * two-member set that agrees until someone widens one of the three.
- */
-export const DETACHABLE_PANE_KINDS: readonly PaneKind[] = AUXILIARY_ROUTE_NAMES;
-
-/**
- * Whether a pane of this kind may be torn off into a window of its own.
- *
- * A property of the KIND, answered once, and never a member a descriptor carries.
- * A pane whose body holds a main-process view (`browser`) or a process lease
- * (`terminal`) cannot follow a detach without its owning plan saying how — and a
- * per-descriptor boolean let each of the six view families answer that for itself,
- * which is six answers to a question the window model settles.
- */
-export function isDetachablePaneKind(kind: PaneKind): boolean {
-  return DETACHABLE_PANE_KINDS.includes(kind);
-}
-
-/**
  * The pane kinds a layout snapshot never carries.
  *
  * The browser pane is EPHEMERAL: it is opened for a task and it is not part of the
@@ -100,20 +67,18 @@ export function isDetachablePaneKind(kind: PaneKind): boolean {
  * spend a paying account's memory for a session nobody has opened yet, on every cold
  * start, forever.
  *
- * A PROPERTY OF THE KIND, for the reason stated above `isDetachablePaneKind`: a
- * per-descriptor boolean lets each view family answer for itself a question the layout
- * model settles, and six answers to one question is how a snapshot ends up holding a
- * pane one family thought was durable. The annotation is load-bearing the same way —
- * a name here that stops being a pane kind is a compile error.
+ * A PROPERTY OF THE KIND: a per-descriptor boolean lets each view family answer for
+ * itself a question the layout model settles, and six answers to one question is how a
+ * snapshot ends up holding a pane one family thought was durable. The annotation is
+ * load-bearing: a name here that stops being a pane kind is a compile error.
  */
 export const EPHEMERAL_PANE_KINDS: readonly PaneKind[] = ["browser"];
 
 /**
  * Whether a pane of this kind is dropped from a layout snapshot rather than written.
  *
- * Both sides of the seam consult it — `layout-snapshot.ts` filters the write with it
- * and drops against it on the read — so a snapshot written by an older build that did
- * not have this rule still does not re-open the pane.
+ * Both sides of the seam consult it, the write and the read, so a snapshot written by an
+ * older build that did not have this rule still does not re-open the pane.
  */
 export function isEphemeralPaneKind(kind: PaneKind): boolean {
   return EPHEMERAL_PANE_KINDS.includes(kind);

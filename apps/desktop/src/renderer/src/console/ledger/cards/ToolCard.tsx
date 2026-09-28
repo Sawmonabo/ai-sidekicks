@@ -21,19 +21,16 @@
 // no shape for a tool result, so it is drawn as prose rather than as terminal output
 // guessed at from the tool that produced it.
 //
-// AND WHAT IT NOW HOLDS INSTEAD OF THAT REFUSAL'S CONSEQUENCE. The refusal used to end
-// there, which left the design's six tool treatments — command output, file edits, read
-// folds, MCP calls with a server badge and a typed argument summary, web-search result
-// lists, image results — with no owner, no shape, and nowhere for the wire member to
-// land. `tool-families/` is that home: the vocabulary as data, one fail-closed reading
-// off this row's own payload, and a slot the treatments fill. The refusal is unchanged
-// — this card still derives nothing from the tool's name — and what changed is that
-// the sub-family a row DECLARES now has somewhere to be drawn.
+// AND WHAT IT HOLDS INSTEAD OF THAT REFUSAL'S CONSEQUENCE. The design's six tool
+// treatments — command output, file edits, read folds, MCP calls with a server badge and a
+// typed argument summary, web-search result lists, image results — need a home for the
+// wire member. `tool-families/` is that home: the vocabulary as data, one fail-closed
+// reading off this row's own payload, and a renderer the treatments supply. The refusal is
+// unchanged — this card still derives nothing from the tool's name.
 
 import { TOOL_SUMMARY_MAX_CHARACTERS, readWireString } from "../../core/index.js";
 import { Chip, Glyph, LedgerRow, formatDuration, type ChipTone } from "../../primitives/index.js";
 import { LedgerRowGroup } from "../frame/index.js";
-import { type OwnerSlotProps } from "../../seats/index.js";
 import { cardFamilyDescriptor, toolResultState, type ToolResultState } from "./card-family.js";
 import type { LedgerCardProps } from "./card-props.js";
 import { MachineBody } from "./bodies/index.js";
@@ -44,6 +41,7 @@ import {
 } from "./tool-families/index.js";
 import { projectedPayload, readWireCount } from "./wire-payload.js";
 
+/** What a mount hands a tool card, beyond the row itself. */
 export interface ToolCardProps extends LedgerCardProps {
   /**
    * Open or close this row.
@@ -55,19 +53,18 @@ export interface ToolCardProps extends LedgerCardProps {
    */
   readonly onDensityToggle?: (() => void) | undefined;
   /**
-   * The sub-family treatment's slot.
+   * The sub-family treatment's renderer, or `undefined` while the built-in badge stands in.
    *
-   * Required and carrying `undefined` rather than optional, on `OwnerSlotProps`' own
-   * reasoning and `MessageCard`'s precedent: an optional member reads identically
-   * whether the caller decided the slot is unfilled or forgot to pass it, and only
-   * one of those is a deliberate answer.
+   * Required and carrying `undefined` rather than optional, so a caller that forgot it is
+   * a compile error at the construction site instead of an absent key that reads the same
+   * as a deliberate "none".
    */
-  readonly subFamily: OwnerSlotProps<ToolSubFamilyRenderer>;
+  readonly subFamily: ToolSubFamilyRenderer | undefined;
 }
 
 /** How each result state reads, and in which of the console's two hues. */
 const RESULT_STATE_CHIPS: Readonly<Record<ToolResultState, { label: string; tone: ChipTone }>> = {
-  // The two-hue rule is why only one of these five is coloured. Red means a failure;
+  // The two-hue rule is why only one of these five is colored. Red means a failure;
   // amber means a person is needed. A truncated body and an unreadable one are neither —
   // nobody is being asked for anything and nothing failed — so they say what they are in
   // words and take the neutral chip. `MachineBody` renders the one genuinely red case,
@@ -79,6 +76,7 @@ const RESULT_STATE_CHIPS: Readonly<Record<ToolResultState, { label: string; tone
   "body-unavailable": { label: "Body unavailable", tone: "neutral" },
 };
 
+/** A tool-call row: the family's glyph and label around its declared arguments and result. */
 export function ToolCard(props: ToolCardProps): React.JSX.Element {
   const family = cardFamilyDescriptor("tool-activity");
   const state = toolResultState(props.row.type, props.content);
@@ -113,7 +111,7 @@ export function ToolCard(props: ToolCardProps): React.JSX.Element {
           {/* BEFORE THE SUMMARY, because the treatment qualifies WHICH tool ran and
               the summary says what it did. Draws nothing at all for a row declaring
               no sub-family, which is every row this build can receive. */}
-          <ToolSubFamilyBadge slot={props.subFamily} reading={declaredToolSubFamily(payload)} />
+          <ToolSubFamilyBadge body={props.subFamily} reading={declaredToolSubFamily(payload)} />
           <span className="meridian-tool-card__summary">{clampSummary(props.row.summary)}</span>
           {durationMs === undefined ? null : (
             <span className="meridian-tool-card__elapsed">{formatDuration(durationMs)}</span>

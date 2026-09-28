@@ -1,11 +1,8 @@
 // What the shell reported, and whether two reports say the same thing.
-//
-// The vocabulary half. What a reported condition COSTS a control is asserted beside
-// this in `shell-mutation-block.test.ts`, against the module that derives it.
 
 import { describe, expect, it } from "vitest";
 
-import { describeShellConnection, shellReportsAreEqual, type ShellReport } from "./shell-state.js";
+import { describeShellConnection, shellReportsAreEqual, type ShellState } from "./shell-state.js";
 import { REPORTED_CONNECTIONS } from "./shell-state.test-support.js";
 
 describe("describeShellConnection", () => {
@@ -23,7 +20,7 @@ describe("describeShellConnection", () => {
 });
 
 describe("shellReportsAreEqual", () => {
-  const base: ShellReport = {
+  const base: ShellState = {
     connection: { kind: "reconnecting", attempt: 1, attemptLimit: 5 },
     negotiation: undefined,
     lastHeartbeatAt: "2026-01-01T10:00:00.000Z",

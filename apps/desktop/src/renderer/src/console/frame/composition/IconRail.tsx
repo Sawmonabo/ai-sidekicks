@@ -10,19 +10,16 @@
 //   • **Absent, not disabled.** A destination the window cannot reach is not
 //     rendered greyed out; it is not rendered. This rail renders exactly the
 //     entries it is handed and carries no availability flag of its own — an
-//     unreachable destination is one its caller left out — and an auxiliary window
-//     has no rail at all rather than a rail of dead icons.
-//   • **The two-hue rule.** The rail carries no colour except the accent on the
-//     current destination and, when something needs a person, one amber count. It
-//     is the console's most-seen surface, so it is the one that most has to stay
-//     quiet — which is also why the count is absent rather than zero when nothing
-//     is waiting, and absent rather than stale when nothing is reading.
+//     unreachable destination is one its caller left out.
+//   • **Quiet.** The rail carries no color except the accent on the current
+//     destination. It is the console's most-seen surface, so it is the one that most
+//     has to stay quiet.
 
 import type { GlyphName } from "../../primitives/index.js";
 import { Glyph } from "../../primitives/index.js";
 import type { RailDestination } from "../../routing/index.js";
 
-/** What one destination shows. Availability and attention are decided elsewhere. */
+/** What one destination shows. Availability is decided elsewhere. */
 export interface RailEntryTemplate {
   readonly label: string;
   readonly glyph: GlyphName;
@@ -30,17 +27,6 @@ export interface RailEntryTemplate {
 
 export interface RailEntry extends RailEntryTemplate {
   readonly destination: RailDestination;
-  /**
-   * How many things behind this destination are waiting for a person.
-   *
-   * A COUNT AND NOT A FLAG, which the surface set asks for and which the rail can
-   * honour without becoming a second source of truth: the number is published by
-   * whoever performed the read, and this component renders it. Absent means either
-   * nothing is waiting or nothing is currently reading — two conditions the rail
-   * deliberately does not distinguish, because it has the same thing to say about both:
-   * nothing.
-   */
-  readonly attentionCount?: number;
 }
 
 export interface IconRailProps {
@@ -65,25 +51,13 @@ export function IconRail(props: IconRailProps): React.JSX.Element {
                     : "meridian-rail__button"
                 }
                 aria-current={isCurrent ? "page" : undefined}
-                aria-label={
-                  entry.attentionCount === undefined
-                    ? entry.label
-                    : `${entry.label}, ${String(entry.attentionCount)} waiting`
-                }
+                aria-label={entry.label}
                 title={entry.label}
                 onClick={() => {
                   props.onSelect(entry.destination);
                 }}
               >
                 <Glyph name={entry.glyph} />
-                {entry.attentionCount === undefined ? null : (
-                  // `aria-hidden`, because the number is already in the button's
-                  // accessible name above: read out twice a reader hears the label,
-                  // then the label again with a bare number after it.
-                  <span className="meridian-rail__attention" aria-hidden="true">
-                    {entry.attentionCount}
-                  </span>
-                )}
               </button>
             </li>
           );

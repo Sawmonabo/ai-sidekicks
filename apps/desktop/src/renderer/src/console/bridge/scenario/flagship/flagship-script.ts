@@ -16,7 +16,6 @@ import {
   AGENT_REVIEWER,
   AGENT_SCOUT,
   FLAGSHIP_AGENTS,
-  USER_PRIYA,
   USER_YOU,
   RUN_ARCHITECT,
   RUN_ARCHITECT_HELPER,
@@ -72,7 +71,7 @@ export const FLAGSHIP_SCRIPT: readonly LedgerScriptEntry[] = [
     runVersion: 1,
     newState: "queued",
     agentId: AGENT_REVIEWER,
-    actorId: USER_PRIYA,
+    actorId: USER_YOU,
   }),
   lane.transition(RUN_REVIEWER, {
     atMs: 650,
@@ -244,7 +243,7 @@ export const FLAGSHIP_SCRIPT: readonly LedgerScriptEntry[] = [
     atMs: 1_800,
     runId: RUN_REVIEWER,
     costCents: 21,
-    causedBy: USER_PRIYA,
+    causedBy: USER_YOU,
   }),
   approvalEntry({
     atMs: 1_840,

@@ -28,7 +28,7 @@ describe("prepareBindings — which rows are well formed at all", () => {
     // no timer on its input path. Refusing at install is the whole point: the
     // alternative is a binding that looks installed and never fires.
     const { prepared, diagnostics } = prepareBindings([
-      binding("$mod+k", "palette.open"),
+      binding("$mod+Shift+p", "palette.open"),
       binding("g d", "goto.definition"),
     ]);
 
@@ -40,7 +40,7 @@ describe("prepareBindings — which rows are well formed at all", () => {
 
   it("drops a scope that does not parse, and does not drop the rest of the set", () => {
     const { prepared, diagnostics } = prepareBindings([
-      binding("$mod+k", "palette.open"),
+      binding("$mod+Shift+p", "palette.open"),
       binding("$mod+j", "jump.next", "sessionOpen &&"),
     ]);
 

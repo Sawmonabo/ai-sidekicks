@@ -19,18 +19,14 @@
 // EVERY CLEAN CASE IS PARSED THROUGH THE REGISTERED SCHEMA. A hand-written assertion
 // on a few members would pass over a projection that dropped a required one, which is
 // exactly the half-built shape the refusal arm exists to prevent — so the projections
-// go through `RunStateChangeEventSchema`, `RunRolledBackEventSchema`, and
-// `QueueItemSummarySchema` themselves. Those are `.strict()`, so an envelope member
-// leaking through fails too. A test file is not bundled, so it can import the schemas
-// as values where the projector deliberately imports the types only.
+// go through `RunStateChangeEventSchema` and `RunRolledBackEventSchema` themselves.
+// Those are `.strict()`, so an envelope member leaking through fails too. A test file
+// is not bundled, so it can import the schemas as values where the projector
+// deliberately imports the types only.
 
 import { describe, expect, it } from "vitest";
 
-import {
-  QueueItemSummarySchema,
-  RunRolledBackEventSchema,
-  RunStateChangeEventSchema,
-} from "@ai-sidekicks/contracts";
+import { RunRolledBackEventSchema, RunStateChangeEventSchema } from "@ai-sidekicks/contracts";
 
 import { ConsoleRefusalError } from "../../../core/index.js";
 import {
@@ -40,7 +36,6 @@ import {
   runTransitionBeat,
   subscribeThroughBridge,
 } from "./bridge.test-support.js";
-import { RUN_QUEUE_ROW_READ } from "../../run-streams/queue-row-source.js";
 import type { ConsoleScenario } from "../../scenario/runtime/vocabulary.js";
 import { FLAGSHIP_SCENARIO } from "../../scenario/flagship/flagship.js";
 import { findScenarioWireTruthDefects } from "../../scenario/wire-truth/wire-truth.js";
@@ -53,56 +48,18 @@ import {
 /** Past the flagship script's last beat, read off the script so it cannot go stale. */
 const PAST_EVERY_BEAT_MS = lastScriptedBeatMs(FLAGSHIP_SCENARIO) + 100;
 
-/** The tick the probe's queue beat falls due at. Past the flagship's last. */
-const QUEUE_BEAT_MS = lastScriptedBeatMs(FLAGSHIP_SCENARIO) + 40;
-
 /** The tick the probe's rollback beat falls due at. */
 const ROLLBACK_BEAT_MS = lastScriptedBeatMs(FLAGSHIP_SCENARIO) + 60;
 
-const PROBE_QUEUE_ITEM_ID = "019b79ee-0280-7c11-8110-d1a4c1150092";
-
 /**
- * When the probe's queue ROW was created — deliberately not when any beat about it
- * occurred.
+ * The flagship script plus one rollback row.
  *
- * `createdAt` is a row member, and the only way to prove it is SOURCED from the row
- * rather than stamped from the beat is to make the two instants different.
+ * The flagship plays run transitions and no rollback, so the state stream's second
+ * arm would go untested. The added beat names a registered event type and carries the
+ * members its registered PROJECTION names, so the probe is a script the daemon could
+ * have produced.
  */
-const PROBE_QUEUE_ROW_CREATED_AT = "2026-01-01T14:20:00.420Z";
-
-/** The scripted `run.queueList` reply carrying one row, as the wire shapes it. */
-function queueRowReadReply(row: Readonly<Record<string, unknown>>): {
-  readonly call: string;
-  readonly result: unknown;
-} {
-  return { call: RUN_QUEUE_ROW_READ, result: { items: [row] } };
-}
-
-/** The probe's queue row, with the row-only members the summary needs. */
-function probeQueueRow(
-  overrides: Readonly<Record<string, unknown>> = {},
-): Readonly<Record<string, unknown>> {
-  return {
-    id: PROBE_QUEUE_ITEM_ID,
-    state: "queued",
-    priority: 0,
-    createdAt: PROBE_QUEUE_ROW_CREATED_AT,
-    updatedAt: PROBE_QUEUE_ROW_CREATED_AT,
-    ...overrides,
-  };
-}
-
-/**
- * The flagship script plus one queue row and one rollback row.
- *
- * The flagship alone leaves both narrowed streams half-tested: it plays two run
- * transitions and no queue row at all, so a queue subscriber's empty result would be
- * indistinguishable from a filter that drops everything. Both added beats name
- * registered event types and carry the members their registered PROJECTIONS name, so
- * the probe is a script the daemon could have produced and a stream the fixture can
- * actually build a payload for.
- */
-function scenarioWithQueueAndRollbackBeats(): ConsoleScenario {
+function scenarioWithRollbackBeat(): ConsoleScenario {
   const lastFlagshipBeat = FLAGSHIP_SCENARIO.beats[FLAGSHIP_SCENARIO.beats.length - 1];
   if (lastFlagshipBeat === undefined) {
     throw new Error("the flagship scenario plays no beats, so there is nothing to extend");
@@ -112,35 +69,14 @@ function scenarioWithQueueAndRollbackBeats(): ConsoleScenario {
   return {
     ...FLAGSHIP_SCENARIO,
     id: "flagship-stream-routing-probe",
-    // The row read the daemon projects `QueueItemSummary` from. Scripted beside the
-    // beats because the fixture's stand-in for a daemon read is a scripted reply,
-    // and the summary needs members no queue event carries.
-    replies: [...FLAGSHIP_SCENARIO.replies, queueRowReadReply(probeQueueRow())],
     beats: [
       ...FLAGSHIP_SCENARIO.beats,
-      {
-        atMs: QUEUE_BEAT_MS,
-        event: {
-          id: "019b79ee-0280-7ea1-8110-e5e0d1150009",
-          sessionId,
-          sequence: nextSequence,
-          kind: "queue_item.created",
-          occurredAt: "2026-01-01T14:20:00.440Z",
-          // Exactly what the queue event family registers, and nothing more. The
-          // row-only members ride the scripted row read above.
-          payload: {
-            sessionId,
-            queueItemId: PROBE_QUEUE_ITEM_ID,
-            state: "queued",
-          },
-        },
-      },
       {
         atMs: ROLLBACK_BEAT_MS,
         event: {
           id: "019b79ee-0280-7ea1-8110-e5e0d1150010",
           sessionId,
-          sequence: nextSequence + 1,
+          sequence: nextSequence,
           kind: "run.rolled_back",
           occurredAt: "2026-01-01T14:20:00.460Z",
           // The forward, non-state arm the same stream carries: no transition, and
@@ -209,7 +145,7 @@ describe("run streams — the registered payload reaches the subscriber", () => 
   });
 
   it("carries the rollback arm as `RunRolledBackEvent`, which is a different shape", () => {
-    const fixture = createFixture(scenarioWithQueueAndRollbackBeats());
+    const fixture = createFixture(scenarioWithRollbackBeat());
     const received = subscribeThroughBridge<unknown>(fixture, RUN_STATE_EVENT_STREAM);
 
     fixture.engine.advance(PAST_EVERY_BEAT_MS);
@@ -226,32 +162,12 @@ describe("run streams — the registered payload reaches the subscriber", () => 
     expect(RunStateChangeEventSchema.safeParse(rollback).success).toBe(false);
   });
 
-  it("hands the queue stream a `QueueItemSummary` built from the beat and its row", () => {
-    const fixture = createFixture(scenarioWithQueueAndRollbackBeats());
-    const received = subscribeThroughBridge<unknown>(fixture, RUN_QUEUE_EVENT_STREAM);
-
-    fixture.engine.advance(PAST_EVERY_BEAT_MS);
-
-    expect(received).toHaveLength(1);
-    const summary = QueueItemSummarySchema.parse(received[0]);
-    expect(summary.id).toBe(PROBE_QUEUE_ITEM_ID);
-    // The state comes from the beat's own KIND through the same table that routed
-    // it here — `queue_item.created` announces `queued`, which is the one row where
-    // the name and the state it announces are different strings.
-    expect(summary.state).toBe("queued");
-    // Row members off the row, beat members off the beat. The two instants differ,
-    // so a projection that stamped `createdAt` from the beat fails here.
-    expect(summary.createdAt).toBe(PROBE_QUEUE_ROW_CREATED_AT);
-    expect(summary.priority).toBe(0);
-    expect(summary.updatedAt).toBe("2026-01-01T14:20:00.440Z");
-  });
-
   it("negative control: the whole-session stream still receives the envelope", () => {
     // Two things at once, and both are needed. A projector applied to every
     // subscription would break the console's one real subscriber, whose
     // registration IS the envelope; and a bridge that delivered nothing anywhere
     // would satisfy every exact-set case above by delivering the empty set.
-    const probe = scenarioWithQueueAndRollbackBeats();
+    const probe = scenarioWithRollbackBeat();
     const fixture = createFixture(probe);
     const received = subscribeThroughBridge(fixture, SESSION_EVENT_STREAM);
 
@@ -285,6 +201,8 @@ describe("run streams — the registered payload reaches the subscriber", () => 
 /** When the single-beat queue probes below play their beat. */
 const QUEUE_REFUSAL_PROBE_OCCURRED_AT = "2026-01-01T14:20:00.500Z";
 
+const PROBE_QUEUE_ITEM_ID = "019b79ee-0280-7c11-8110-d1a4c1150092";
+
 /** The one contract-valid queue payload the probes below vary from. */
 const PROBE_QUEUE_PAYLOAD: Readonly<Record<string, unknown>> = {
   sessionId: FLAGSHIP_SCENARIO.sessionId,
@@ -292,23 +210,14 @@ const PROBE_QUEUE_PAYLOAD: Readonly<Record<string, unknown>> = {
   state: "admitted",
 };
 
-/**
- * A scenario playing exactly one queue beat, with whatever replies the case under
- * test wants scripted, over the contract-valid payload unless it says otherwise.
- *
- * One shape for every queue probe below, so each case varies exactly one thing —
- * whether the row read is scripted, what the row says, or what the beat itself
- * carries.
- */
+/** A scenario playing exactly one queue beat over the given payload. */
 function queueScenario(
   scenarioId: string,
-  replies: readonly { readonly call: string; readonly result: unknown }[],
   payload: Readonly<Record<string, unknown>> = PROBE_QUEUE_PAYLOAD,
 ): ConsoleScenario {
   return {
     ...FLAGSHIP_SCENARIO,
     id: scenarioId,
-    replies: [...replies],
     beats: [
       {
         atMs: 0,
@@ -350,57 +259,6 @@ describe("run streams — a beat that cannot be projected refuses, loudly", () =
     }).toThrow(ConsoleRefusalError);
   });
 
-  it("names the beat and the missing row read in the refusal, so an author can find it", () => {
-    // The row-only members `QueueItemSummary` requires — `priority` and `createdAt`
-    // — are on no queue event payload, so the refusal has to point at the read the
-    // daemon projects them from and never at the beat. This scenario plays a
-    // contract-valid beat and scripts no row read.
-    const fixture = createFixture(queueScenario("queue-row-read-unscripted-probe", []));
-    subscribeThroughBridge<unknown>(fixture, RUN_QUEUE_EVENT_STREAM);
-
-    expect(() => {
-      fixture.engine.advance(PAST_EVERY_BEAT_MS);
-    }).toThrow(/queue_item\.admitted[\s\S]*run\.queueList/u);
-  });
-
-  it("negative control: the same beat projects once the row read is scripted", () => {
-    // Without it, a projector that refused every queue beat would pass the case
-    // above — and a stream that refuses everything is indistinguishable, from the
-    // surface, from one that has nothing to say.
-    const fixture = createFixture(
-      queueScenario("queue-row-read-scripted-probe", [
-        queueRowReadReply(probeQueueRow({ state: "admitted" })),
-      ]),
-    );
-    const received = subscribeThroughBridge<unknown>(fixture, RUN_QUEUE_EVENT_STREAM);
-
-    fixture.engine.advance(PAST_EVERY_BEAT_MS);
-
-    const summary = QueueItemSummarySchema.parse(received[0]);
-    // The state is the beat's, through its kind; the row's own `state` is stale by
-    // construction here and must not win.
-    expect(summary.state).toBe("admitted");
-    expect(summary.createdAt).toBe(PROBE_QUEUE_ROW_CREATED_AT);
-    expect(summary.updatedAt).toBe(QUEUE_REFUSAL_PROBE_OCCURRED_AT);
-  });
-
-  it("projects a row whose priority is negative rather than refusing it", () => {
-    // `queue_items.priority` reads "higher = more urgent" and the registered schema
-    // types it `z.number().int()` with no `.nonnegative()`, so a de-prioritized row
-    // is a real row. Read through a non-negative counter, as it used to be, it was
-    // unprojectable.
-    const fixture = createFixture(
-      queueScenario("queue-row-negative-priority-probe", [
-        queueRowReadReply(probeQueueRow({ state: "admitted", priority: -3 })),
-      ]),
-    );
-    const received = subscribeThroughBridge<unknown>(fixture, RUN_QUEUE_EVENT_STREAM);
-
-    fixture.engine.advance(PAST_EVERY_BEAT_MS);
-
-    expect(QueueItemSummarySchema.parse(received[0]).priority).toBe(-3);
-  });
-
   it("refuses a queue beat that names no state rather than deriving one from its kind", () => {
     // `state` is required on every queue payload, and the strict layer registers no
     // variant for the five `queue_item.*` kinds — so nothing the contracts package
@@ -408,11 +266,10 @@ describe("run streams — a beat that cannot be projected refuses, loudly", () =
     // when the member was absent and take the state from the KIND alone, which
     // delivered a valid-looking `QueueItemSummary` assembled from half a payload.
     const fixture = createFixture(
-      queueScenario(
-        "queue-beat-stateless-probe",
-        [queueRowReadReply(probeQueueRow({ state: "admitted" }))],
-        { sessionId: FLAGSHIP_SCENARIO.sessionId, queueItemId: PROBE_QUEUE_ITEM_ID },
-      ),
+      queueScenario("queue-beat-stateless-probe", {
+        sessionId: FLAGSHIP_SCENARIO.sessionId,
+        queueItemId: PROBE_QUEUE_ITEM_ID,
+      }),
     );
     subscribeThroughBridge<unknown>(fixture, RUN_QUEUE_EVENT_STREAM);
 
@@ -426,11 +283,10 @@ describe("run streams — a beat that cannot be projected refuses, loudly", () =
     // announces `admitted`; a payload saying `queued` routes by one key and renders
     // by the other, exactly as the run-state arm's disagreement does.
     const fixture = createFixture(
-      queueScenario(
-        "queue-beat-state-disagreement-probe",
-        [queueRowReadReply(probeQueueRow({ state: "admitted" }))],
-        { ...PROBE_QUEUE_PAYLOAD, state: "queued" },
-      ),
+      queueScenario("queue-beat-state-disagreement-probe", {
+        ...PROBE_QUEUE_PAYLOAD,
+        state: "queued",
+      }),
     );
     subscribeThroughBridge<unknown>(fixture, RUN_QUEUE_EVENT_STREAM);
 
@@ -469,6 +325,6 @@ describe("run streams — the probe is a script the daemon could have produced",
   it("plays only registered types carrying payloads the strict layer accepts", () => {
     // Held to the same predicate every shipped scenario is held to, so the cases
     // above are about a real wire rather than a plausible-looking invention.
-    expect(findScenarioWireTruthDefects([scenarioWithQueueAndRollbackBeats()])).toStrictEqual([]);
+    expect(findScenarioWireTruthDefects([scenarioWithRollbackBeat()])).toStrictEqual([]);
   });
 });

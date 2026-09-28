@@ -1,11 +1,9 @@
 // The accessibility tier for the agents family.
 //
 // The card is audited as a component rather than through a destination, because the
-// host that mounts an agent roster has not landed — the same position the three
-// sidebar surfaces in this tier's channels file are in, and the family's
-// stylesheet is imported for the same reason: contrast is measured on the rendered
-// composition rather than on the token table, so a card audited unstyled would
-// report a palette nobody ships.
+// host that mounts an agent roster has not landed. The family's stylesheet is imported
+// because contrast is measured on the rendered composition rather than on the token
+// table, so a card audited unstyled would report a palette nobody ships.
 //
 // ONE STRUCTURAL RULE IS THE POINT OF THIS FILE. The resolved-configuration echo is
 // a `<dl>`, and axe's `definition-list` rule carries `wcag2a`, which is already in
@@ -33,7 +31,6 @@ import type { AgentRosterEntry } from "../../../src/renderer/src/console/bridge/
 const AGENT_WITH_FULL_ECHO: AgentRosterEntry = {
   agentId: "agent-scout",
   name: "Scout",
-  state: "ready",
   driverName: "claude",
   modelId: "claude-sonnet",
   config: { effort: "high", outputSpeed: "fast" },

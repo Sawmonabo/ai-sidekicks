@@ -12,8 +12,7 @@
 //
 // A SURFACE is what a route mounts — one per navigable destination, at most one on
 // screen. A PANE is what the deck holds — several at once, opened by the sidebar,
-// keyed by the entity they are a view of, and torn off into an auxiliary window
-// where the kind allows it. The two tables answer different questions and are
+// keyed by the entity they are a view of. The two tables answer different questions and are
 // keyed by different closed sets, so folding them together would mean one key
 // space in which a route and a pane could collide.
 //
@@ -21,17 +20,12 @@
 // `KeyedRegistry` with `duplicatePolicy: "owner-scoped"` rather than two
 // hand-rolled tables that agree today.
 //
-// WHICH KINDS DETACH IS NOT THIS TABLE'S ANSWER. A descriptor says who owns a kind
-// and what mounts for it; whether that kind may be torn off into an auxiliary window
-// is a property of the kind, and `pane-kinds.ts` derives it from the window model's
-// own closed set through `isDetachablePaneKind`.
-//
 // PANES CAN NAME THE PANE THEY WERE OPENED FROM, AND STILL NOT HOLD IT. A deck
 // links two panes when one opens the other — an inspector opened from a ledger row
 // is a view OF that row's pane — and the link travels as an identifier passed in at
 // mount (`ConsolePaneContext.linkedSourcePaneId`), never as a handle held. That is
-// the design's independence rule made structural: a linked pane is still moved,
-// detached, and closed on its own, because the only thing it has of its source is a
+// the design's independence rule made structural: a linked pane is still moved
+// and closed on its own, because the only thing it has of its source is a
 // string, and a string cannot be dereferenced into a body.
 
 import { createElement } from "react";
@@ -42,16 +36,7 @@ import { PendingPaneBody } from "./PendingPaneBody.js";
 import { type ConsolePaneContext } from "./pane-context.js";
 import { PANE_KINDS, type PaneKind } from "./pane-kinds.js";
 
-/**
- * What a family registers to claim a pane kind.
- *
- * IT CARRIES NO DETACH MEMBER, deliberately. Whether a kind may be torn off into
- * an auxiliary window is `pane-kinds.ts`'s `isDetachablePaneKind` — one answer,
- * derived from the window model's own closed set. A boolean here would be asked
- * of every descriptor independently, so `browser`, `terminal`, or `artifact` could
- * each advertise a detach path the window model cannot serve, and neither this
- * registration nor the type system would notice.
- */
+/** What a family registers to claim a pane kind. */
 export interface ConsolePaneDescriptor {
   readonly kind: PaneKind;
   /** The task or family that owns it, so an unrendered kind names someone. */

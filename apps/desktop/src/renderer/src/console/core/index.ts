@@ -79,7 +79,6 @@ export {
   POSITION_SIBLING_OBSERVER_CAP,
   RELAYED_TOOL_CALL_ROW_CAP,
 } from "./constants/browser-caps.js";
-export { AGENT_RUNS_NAMED_CAP } from "./constants/channels-caps.js";
 export {
   DIFF_FILE_LIST_SCROLL_THRESHOLD,
   DIFF_INTRALINE_CACHE_ENTRY_CAP,
@@ -140,29 +139,19 @@ export {
   REFRESH_MAX_WAIT_MS,
 } from "./constants/refresh-caps.js";
 export {
-  RESTORE_PATH_ROW_HEIGHT_PX,
-  RESTORE_PATH_VIRTUALIZATION_THRESHOLD,
-  RESTORE_PATH_WINDOW_MAX_BLOCK_SIZE_PX,
-} from "./constants/restore-caps.js";
-export {
   AWAITING_RUN_IDS_NAMED_CAP,
   INTERVENTION_OUTCOME_CAP,
   PROJECTED_RUN_CAP,
   QUEUE_ROWS_RENDERED_CAP,
   RUN_STATUS_ROW_CAP,
   SEATED_KNOWN_RUN_CAP,
-  STUCK_RUN_ESCALATION_MS,
-  STUCK_RUN_NOTICE_MS,
 } from "./constants/runs-caps.js";
 export { SESSION_GOAL_MAX_LENGTH, SESSION_GOAL_MIN_LENGTH } from "./constants/session-goal-caps.js";
 export {
   MAX_REPAIRABLE_SEQUENCE_GAP,
   PRE_INITIALISATION_BUFFER_CAP,
 } from "./constants/session-store-caps.js";
-export {
-  ATTENTION_NOTIFIED_ITEM_CAP,
-  SESSION_BACK_TIER_VISIBLE_CAP,
-} from "./constants/sessions-caps.js";
+export { ATTENTION_NOTIFIED_ITEM_CAP } from "./constants/sessions-caps.js";
 export { MOUNT_INVENTORY_READ_CAP } from "./constants/settings-caps.js";
 export { INTERRUPTED_RUN_IDS_NAMED_CAP } from "./constants/shell-caps.js";
 export {
@@ -175,12 +164,7 @@ export {
   PHASE_GRAPH_MIN_ZOOM,
   WORKFLOW_CANCEL_REASON_BYTE_CAP,
 } from "./constants/workflows-caps.js";
-export {
-  DECK_RESTORED_PANE_CAP,
-  LOAD_PROGRESS_MAX,
-  LOAD_PROGRESS_MIN,
-  SIDEBAR_MAXIMUM_WIDTH_PERCENT,
-} from "./constants/workspace-caps.js";
+export { DECK_RESTORED_PANE_CAP } from "./constants/workspace-caps.js";
 export { Emitter, type EmitterSink, type Unsubscribe } from "./emitter.js";
 // The two fixture-global names whose installers live ABOVE this family and so
 // reach them through this door. The tripwire registry's name is not re-exported
@@ -264,11 +248,7 @@ export {
 // outside this family. They were reserved for consuming tasks that landed and imported
 // neither, and a reservation that outlives its task is a door line the barrel census
 // fails. The family that first names either one publishes it in its own diff.
-export {
-  type ExtendedConsoleRefusal,
-  type WireReferencingArtifacts,
-  readRefusalExtensions,
-} from "./refusal-extensions.js";
+export { type ExtendedConsoleRefusal, readRefusalExtensions } from "./refusal-extensions.js";
 // What a surface DOES about a named refusal, beside rendering the daemon's words:
 // the shape its blast radius calls for, the operator's next move, and whether the
 // control it answered has anything left to do. Through the door because the codes
@@ -355,10 +335,11 @@ export { lossyStringify } from "../../../../shared/wire-errors.js";
 export { readWireErrorEnvelopeWithCode } from "../../../../shared/wire-errors.js";
 
 // The shell's shutdown budget, on the same rule and for the same reason. It is
-// DECLARED in `src/shared/shutdown-budget.ts` because `src/main/sidecar-lifecycle.ts`
-// races the quit drain against it, and a value main reads cannot live in a console
-// file. The console's stake is one sentence, so it takes the figure through the floor
-// rather than reaching past the DAG to the cross-process leaf that holds it.
+// DECLARED in `src/shared/shutdown-budget.ts` because the main process's quit path
+// holds the quit open for the daemon's flush and gives up at this figure, and a value
+// main reads cannot live in a console file. The console's stake is one sentence, so it
+// takes the figure through the floor rather than reaching past the DAG to the
+// cross-process leaf that holds it.
 export { DAEMON_SHUTDOWN_FLUSH_BUDGET_MS } from "../../../../shared/shutdown-budget.js";
 
 // The console's one airspace: which overlays are on screen in a window, so a native view

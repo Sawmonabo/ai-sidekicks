@@ -2,15 +2,9 @@
 //
 // `NewSessionDraft` shipped with a co-located test and no consumer — no control
 // anywhere constructed one, so none of the draft selection, discard, or first-send
-// behaviour it holds could be reached by a person. This is that consumer, on the
-// sessions destination, which is where the corpus puts starting a session.
-//
-// WHY IT IS A SECOND CONTROL BESIDE "START A SESSION" AND NOT A REPLACEMENT. They
-// are two acts. "Start a session" mounts the pre-console probe, which creates one
-// immediately with nothing chosen. A DRAFT is a session a person composes before it
-// exists — no daemon row until the first send, and closing it empty leaves nothing
-// behind. Replacing the probe would delete a path that works today; hiding the draft
-// behind it would leave the composed path unreachable, which is the defect.
+// behavior it holds could be reached by a person. This is that consumer, mounted
+// through `seats/slots/new-session-seat.ts` by whichever composition supplies the
+// first-message call.
 //
 // WHAT IT OFFERS, AND WHY THAT AND NOT MORE. The first message, and nothing else: the
 // draft cannot compose `run.queueCreate` without the turn's own body, and a session
@@ -20,20 +14,13 @@
 // absence rather than in a picker with nothing behind it.
 //
 // AND THE POSTURE PICKER IS GONE FOR THE SHARPER VERSION OF THAT RULE: a control whose
-// choice cannot be honoured is worse than an absent one, because it reports success for
-// a decision nothing acted on. The posture travelled only inside `sendNewSessionDraft`'s
-// `agentAttach` loop, which iterates `request.agents` — empty on every send this build
-// can make, since no surface calls `NewSessionDraft.selectAgent`. And the two calls that
-// ARE made carry nowhere to put it: the registered `SessionCreateRequest` is
-// `{ config?, metadata? }` and `QueueItemCreateRequest` is
-// `{ sessionId, channelId?, workspaceId?, priority?, payload }`, both `.strict()`, and
-// the only request member in the corpus that carries an execution posture is
-// `AgentResolvedConfiguration.executionPostureMode` on the growth-slate `agent.attach`.
-// So the axis comes back with the agent picker that makes the attach leg reachable —
-// `NewSessionDraft` keeps `setPosture` beside `selectAgent` for exactly that lane, and
-// the send already honours it on the leg that can carry it.
+// choice cannot be honored is worse than an absent one, because it reports success for
+// a decision nothing acted on. The two calls the send makes carry nowhere to put it: the
+// registered `SessionCreateRequest` is `{ config?, metadata? }` and
+// `QueueItemCreateRequest` is `{ sessionId, workspaceId?, priority?, payload }`, both
+// `.strict()`.
 //
-// AND A PARTIAL SEND NAMES WHAT LANDED, not only what did not. All three of the
+// AND A PARTIAL SEND NAMES WHAT LANDED, not only what did not. Both of the
 // draft's calls are reachable, so a send that stops part way leaves a real session
 // with some of what was asked for on it — and the person deciding whether to press
 // again is reading for exactly that. The refusal says what could not be done; the
@@ -196,10 +183,9 @@ export function NewSessionControl(props: NewSessionControlProps): React.JSX.Elem
             composition.draftState.isEmpty ||
             composition.isSending ||
             composition.isAmbiguousCreate ||
-            composition.unsentEditsSentence !== undefined ||
-            props.blockedAct.sentence !== undefined
+            composition.unsentEditsSentence !== undefined
           }
-          title={props.blockedAct.sentence ?? composition.unsentEditsSentence}
+          title={composition.unsentEditsSentence}
           onClick={composition.send}
         >
           Send

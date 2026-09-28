@@ -141,7 +141,7 @@ describe("resolveRendererAsset misses", () => {
     ["a directory", "sidekicks-renderer://app/assets"],
     ["the bare root, since there is no index.html fallback", "sidekicks-renderer://app/"],
     ["a URL with no path component", "sidekicks-renderer://app"],
-    ["a URL that is only a query", "sidekicks-renderer://app?route=timeline"],
+    ["a URL that is only a query", "sidekicks-renderer://app?route=sessions"],
   ];
 
   it.each(NOT_FOUND_ROWS)("answers 'not found' for %s", async (_label, url) => {
@@ -223,7 +223,7 @@ describe("resolveRendererAsset content types", () => {
   it("resolves a nested asset and returns a path inside the root", async () => {
     const resolution = await resolveRendererAsset(
       rendererRoot,
-      "sidekicks-renderer://app/assets/app.js?v=abc#/window/timeline",
+      "sidekicks-renderer://app/assets/app.js?v=abc#/sessions",
     );
     expect(resolution.outcome).toBe("resolved");
     if (resolution.outcome !== "resolved") return;

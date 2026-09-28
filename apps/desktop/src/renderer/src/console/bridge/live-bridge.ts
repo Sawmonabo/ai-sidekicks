@@ -10,23 +10,16 @@
 // are the same SHAPE is a runtime one and is checked by `bridge-shape.test.ts` beside
 // this file.
 //
-// The preload not having run is a real state, not a theoretical one: an auxiliary
-// window whose preload path is wrong, a renderer loaded before the bridge is
-// installed. So `readInstalledBridge` returns `undefined` rather than throwing, and
-// the caller renders the "error" kind of nothing — a stated failure with a next
-// step — instead of a blank window.
+// The preload not having run is a real state, not a theoretical one: a window whose
+// preload path is wrong, a renderer loaded before the bridge is installed. So
+// `readInstalledBridge` returns `undefined` rather than throwing, and the caller
+// renders the "error" kind of nothing — a stated failure with a next step — instead
+// of a blank window.
 
 import type { DesktopBridge } from "@ai-sidekicks/contracts";
 import { isWireRecord } from "../core/index.js";
-import { createShellAuxiliaryWindowPort } from "./auxiliary-window-port.js";
 import { DESKTOP_BRIDGE_NAMESPACES } from "./bridge-shape.js";
 import type { ConsoleBridge } from "./console-bridge.js";
-import { ShellConditionGate } from "./daemon/shell-condition-gate.js";
-import { createRefusingGrowthPort } from "./growth-port/index.js";
-import {
-  readRuntimeNodeRosterOverControlPlane,
-  subscribeRuntimeNodePresence,
-} from "./runtime-nodes/index.js";
 import { TransportReconnectSignal } from "./transport/transport-reconnect.js";
 
 /** The installed preload bridge, or `undefined` when the preload did not run. */
@@ -38,56 +31,23 @@ export function readInstalledBridge(): DesktopBridge | undefined {
   return isBridgeShaped(candidate) ? candidate : undefined;
 }
 
-/**
- * Wrap the installed preload bridge for console use.
- *
- * The growth port is the refusing one: under the live bridge every slate wire is
- * unregistered by definition, so each call resolves to a typed refusal the surface
- * renders as "not checked".
- */
+/** Wrap the installed preload bridge for console use. */
 export function createLiveBridge(desktopBridge: DesktopBridge): ConsoleBridge {
   return {
     desktopBridge,
-    growth: createRefusingGrowthPort(),
-    // Empty, and built fresh rather than shared: a frozen module-level set would
-    // be a singleton the console's own rules reject, and the allocation is one
-    // empty set per window.
-    growthServedOperations: new Set(),
-    // The two registered runtime-node wires, forwarded to the surfaces that serve
-    // them: the roster read to `controlPlane.call`, because it is control-plane
-    // tRPC only, and the presence subscription to `daemon.subscribe`, because the
-    // daemon is what authors the `runtime_node.*` lifecycle events. Neither is
-    // refused here the way a growth operation is — both are on the wire.
-    runtimeNodeRosterRead: async (request) =>
-      readRuntimeNodeRosterOverControlPlane(desktopBridge, request),
-    runtimeNodePresenceSubscribe: (sessionId, onPresenceChange) =>
-      subscribeRuntimeNodePresence(desktopBridge, sessionId, onPresenceChange),
-    // The auxiliary-window plane, over the preload namespace the shell serves. Not
-    // refused the way a growth operation is, for the roster read's reason: this one
-    // is on the wire, and a console that refused it would be declining to use a
-    // handler its own main process has registered.
-    auxiliaryWindows: createShellAuxiliaryWindowPort(desktopBridge),
     // No attention signal, and that is this bridge's honest answer rather than a
-    // stub. The attention projection is a growth-slate wire, so the refusing port
-    // above declines the read outright here — a signal that woke that read would be
-    // a wake-up for a question nothing on this transport can answer. The day the
-    // wire lands, the daemon's own event stream is what this line becomes.
+    // stub. The attention projection is not a wire this transport serves yet, so a
+    // signal that woke that read would be a wake-up for a question nothing on this
+    // transport can answer. The day the wire lands, the daemon's own event stream is
+    // what this line becomes.
     attentionSubscribe: () => () => undefined,
-    // No view host, which is 12.11's third arm rather than an omission: this task
-    // mints no main-process host, so a pane in a live window reports its rectangle
-    // to nothing and renders the sentence that says so.
-    paneViewHostScript: undefined,
     // Minted here and REPORTED INTO by every subscription this window opens, through
     // `transport/observed-subscription.ts`: whether `daemon.subscribe` returned or
     // threw is the only connection state a live renderer has. Built fresh per window
-    // rather than shared, on the served-set rule beside it: a module-level signal
+    // rather than shared: a module-level signal
     // would make two windows in one process share a transport reading only one of
     // them observed.
     transportReconnect: new TransportReconnectSignal(),
-    // Minted here and BOUND by the frame, on the reconnect signal's own rule beside
-    // it: one gate per window, so two windows in one process never share a supervisor
-    // reading only one of them was told about.
-    shellCondition: new ShellConditionGate(),
     source: "live",
     scenarioEngine: undefined,
   };

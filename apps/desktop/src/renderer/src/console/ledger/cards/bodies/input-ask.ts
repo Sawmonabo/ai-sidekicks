@@ -38,25 +38,8 @@ import {
   structuralKey,
   type ConsoleRefusal,
 } from "../../../core/index.js";
-import type { OwnerSlotContract } from "../../../seats/index.js";
 import type { RunId, TimelineRow } from "@ai-sidekicks/contracts";
 import { projectedPayload } from "../wire-payload.js";
-
-/**
- * Who owns the ask body, what this card owes it, and where the shell dies.
- *
- * Developer-facing and never rendered. The obligation names the ingress explicitly
- * because it is the one thing about this surface that is easy to get wrong: the
- * answer travels an ALREADY-REGISTERED method, so no wire is minted for it and no
- * growth-slate row is owed.
- */
-export const INPUT_ASK_SLOT: OwnerSlotContract = {
-  owningTask: "the timeline plan's input-ask card (the structured-input ask surface)",
-  mountObligation:
-    "the ask row's body, given the ask read wire-verbatim off the row, a dispatcher for the registered driver answer method, and where the answer that dispatcher last sent has got to — the card composes the answer, renders what the wire said about it, and never invents the ask's state",
-  deleteShellIn:
-    "the change that authors the ask card deletes this shell rather than leaving it beside the body",
-};
 
 /** The four event types this surface renders, and the only ones it renders. */
 export const DRIVER_ASK_EVENT_TYPES = [

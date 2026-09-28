@@ -26,7 +26,6 @@ const CONTEXT: WhenClauseContext = {
   onWorkspace: false,
   onWorkflows: false,
   onSettings: false,
-  inAuxiliaryWindow: false,
 };
 
 /** What each command was asked to do, in the order it was asked. */
@@ -56,7 +55,7 @@ function commandsUnder(ledger: WarmLedger): readonly ConsoleCommand[] {
     declare("test.goToWorkflows", "Go to Workflows", true),
     // The common case: a command whose act opens nothing loadable declares no warm,
     // and the palette must not require one.
-    declare("test.useLightScheme", "Use the light colour scheme", false),
+    declare("test.useLightScheme", "Use the light color scheme", false),
   ];
 }
 
@@ -141,11 +140,11 @@ describe("the palette — the highlighted row's warm", () => {
     const ledger: WarmLedger = { warmed: [], ran: [] };
     await openPaletteOver(ledger);
 
-    typeQuery("light colour");
+    typeQuery("light color");
     await settle();
 
     expect(ledger.warmed).toStrictEqual([]);
-    expect(screen.getByRole("option", { name: /Use the light colour scheme/u })).toBeTruthy();
+    expect(screen.getByRole("option", { name: /Use the light color scheme/u })).toBeTruthy();
   });
 
   it("negative control: registering a command warms nothing on its own", async () => {

@@ -1,27 +1,13 @@
-// The workspace's named figures that are not ceilings.
+// The workspace's named figures that are not ceilings: the density presets and their pane
+// widths, and the visibility threshold a native view hides at.
 //
-// THE CEILINGS ARE NOT HERE. The config single-sourcing rule in
-// `apps/desktop/AGENTS.md` names `core/constants/` the one DIRECTORY a bound may be
-// DECLARED in, so the restored-pane cap and the sidebar's width ceiling are declared
-// there and read through the core door — the ceiling by this module too, since the
-// deck's own floor is its complement and one band still has one home.
+// THE CEILING IS NOT HERE. The restored-pane cap is a bound, and bounds are declared in
+// `core/constants/` and read through the core door, so the cap lives there and this
+// module holds only the figures that are not bounds.
 //
-// This family had four homes and no module — a figure in the deck's density table,
-// one in its rect discipline, and two in the sidebar's grammar — and this is the one
-// they collected into.
-//
-// Being light on the machine means every cap, window, and timeout is a named constant
-// with a one-line rationale. The rationale is the point, so each one carries the
-// derivation a later reader would otherwise have to guess at.
-//
-// THE DENSITY AXIS TRAVELS WITH ITS WIDTHS, and that is a decision rather than a
-// convenience. The width table is a total `Record` keyed by the preset union, so the
-// union is part of the bound: a module holding the widths and importing the union
-// from the module that imports the widths is a cycle, which `structure:layering`
-// fails. What stays in `deck/model/density.ts` is what READS these — the predicate, the
-// lookup, and the how-many-fit arithmetic.
-
-import { SIDEBAR_MAXIMUM_WIDTH_PERCENT } from "../core/index.js";
+// The density axis travels with its widths: the width table is a total `Record` keyed by the
+// preset union, so a module holding the widths and importing the union from the module that
+// imports the widths would be a cycle. `deck/model/density.ts` keeps what reads these.
 
 /**
  * The deck's density presets, widest first.
@@ -83,40 +69,3 @@ export const DECK_MINIMUM_PANE_WIDTH_PX: Readonly<Record<DeckDensity, number>> =
  * cost with none of the benefit.
  */
 export const NATIVE_VIEW_MINIMUM_VISIBLE_PX = 1;
-
-/**
- * The narrowest the sidebar may be kept at, in percent.
- *
- * Below this the section headers wrap and the column stops being readable at the type
- * scale, which is the same floor the collapsed rail exists to get back from — a
- * sidebar narrower than this is one a person would have collapsed on purpose.
- */
-export const SIDEBAR_MINIMUM_WIDTH_PERCENT = 12;
-
-/**
- * The narrowest the deck may be squeezed to by a sidebar drag, in percent.
- *
- * THE COMPLEMENT OF {@link SIDEBAR_MAXIMUM_WIDTH_PERCENT}, NOT A SECOND CHOICE. The
- * workspace held its own `DECK_MINIMUM_WIDTH_PERCENT = 40` beside the split, and the
- * two readings did not agree: a forty-percent deck floor admits a sixty-percent
- * sidebar, while the clamp on the sidebar's record caps it at forty. One band, one
- * home, and the deck's end computed from the sidebar's so the pair cannot drift.
- */
-export const DECK_MINIMUM_WIDTH_PERCENT: number = 100 - SIDEBAR_MAXIMUM_WIDTH_PERCENT;
-
-/**
- * How wide the sidebar opens the first time, as a share of the workspace.
- *
- * Twenty-two percent is a column wide enough for a section's own rows at the type
- * scale and narrow enough that a two-pane deck still clears the deck's own density
- * floor on a 1280 px window.
- */
-export const SIDEBAR_DEFAULT_WIDTH_PERCENT = 22;
-
-/**
- * The width a collapsed sidebar occupies, in pixels.
- *
- * Not zero: the collapsed rail carries the control that expands it again, and a
- * sidebar collapsed to nothing is a sidebar a pointer cannot get back.
- */
-export const SIDEBAR_COLLAPSED_WIDTH_PX = 40;

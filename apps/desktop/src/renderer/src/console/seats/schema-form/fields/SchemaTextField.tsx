@@ -1,6 +1,6 @@
 // A one-line answer.
 //
-// The plainest of the six, and the default a string member lands on: a string with no
+// The plainest of the five, and the default a string member lands on: a string with no
 // `format` the mapper recognises is one line of text, because that is what the corpus's
 // own `text` field type is.
 //

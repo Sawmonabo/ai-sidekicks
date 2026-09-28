@@ -1,28 +1,13 @@
-// Which detail renders which entity kind. Total over the closed set, by type.
+// Which detail renders which entity kind.
 //
-// `Record<ConsoleEntityKind, …>` rather than a lookup with a fallback: the entity
-// kinds are declared once in `store/entities/entities.ts`, and one added there
-// should fail to compile HERE — where somebody has to decide what its record says —
-// rather than reach a deck that renders it as a blank pane. There is no default
-// arm for the same reason: a default is a body that claims to know a kind nobody
-// wrote a record for.
+// The keys are the kinds the inspector's address admits, read off that address, so a
+// kind added to it fails to compile here until it has a record body.
 //
 // The table is the only module that imports every detail, and none of them
-// imports it. That is what keeps the shared vocabulary (`entity-facets.ts`) below
-// both, and it is why `EntityDetailProps` lives there rather than here.
+// imports it. That keeps the shared vocabulary (`entity-facets.ts`) below both,
+// which is why `EntityDetailProps` lives there rather than here.
 
-import type { ConsoleEntityKind } from "../../../store/index.js";
-import { AgentEntityDetail } from "./AgentEntityDetail.js";
-import { ApprovalEntityDetail } from "./ApprovalEntityDetail.js";
-import { ArtifactEntityDetail } from "./ArtifactEntityDetail.js";
-import { BrowserPageEntityDetail } from "./BrowserPageEntityDetail.js";
-import { ChannelEntityDetail } from "./ChannelEntityDetail.js";
-import { UserEntityDetail } from "./UserEntityDetail.js";
-import { RepoEntityDetail } from "./RepoEntityDetail.js";
-import { RunEntityDetail } from "./RunEntityDetail.js";
-import { SessionEntityDetail } from "./SessionEntityDetail.js";
-import { WorkflowDefinitionEntityDetail } from "./WorkflowDefinitionEntityDetail.js";
-import { WorkflowRunEntityDetail } from "./WorkflowRunEntityDetail.js";
+import type { PaneContextOf } from "../../../seats/index.js";
 import { WorkspaceEntityDetail } from "./WorkspaceEntityDetail.js";
 import { WorktreeEntityDetail } from "./WorktreeEntityDetail.js";
 import type { EntityDetailProps } from "./entity-facets.js";
@@ -30,19 +15,11 @@ import type { EntityDetailProps } from "./entity-facets.js";
 /** One kind's record body. Every detail takes the same props and renders its own. */
 export type EntityDetailComponent = (props: EntityDetailProps) => React.JSX.Element;
 
-/** The table, in the order `CONSOLE_ENTITY_KINDS` declares. */
-export const ENTITY_DETAIL_BY_KIND: Readonly<Record<ConsoleEntityKind, EntityDetailComponent>> = {
-  session: SessionEntityDetail,
-  user: UserEntityDetail,
-  channel: ChannelEntityDetail,
-  run: RunEntityDetail,
-  agent: AgentEntityDetail,
+/** The entity kinds the inspector opens over, each with a record body. */
+export type EntityDetailKind = PaneContextOf<"inspector">["entity"]["kind"];
+
+/** The record body for each entity kind the inspector opens over. */
+export const ENTITY_DETAIL_BY_KIND: Readonly<Record<EntityDetailKind, EntityDetailComponent>> = {
   workspace: WorkspaceEntityDetail,
   worktree: WorktreeEntityDetail,
-  artifact: ArtifactEntityDetail,
-  approval: ApprovalEntityDetail,
-  "workflow-definition": WorkflowDefinitionEntityDetail,
-  "workflow-run": WorkflowRunEntityDetail,
-  "browser-page": BrowserPageEntityDetail,
-  repo: RepoEntityDetail,
 };

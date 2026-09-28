@@ -41,7 +41,7 @@ export { CONSOLE_ENTITY_KINDS } from "./entities/entities.js";
 // more readers: the inspector's entity-detail registry is keyed by the KIND it
 // renders, and a family that reads a PARTITION of the projection — rather than one
 // entity by reference — has to name the row type to derive anything from it, as the
-// inspector's session detail and the agent console's session projection both do.
+// agent console's session projection does.
 export type {
   ConsoleEntity,
   ConsoleEntityKind,
@@ -82,6 +82,7 @@ export type { OutstandingAskLedger } from "./session/outstanding-asks/outstandin
 // The base state a read establishes. Exported because the composition root now
 // builds one — the adapter over the growth port's session read lives there, which
 // is where a family that may reach the bridge is allowed to be.
+export { BASE_STATE_CURSOR } from "./session/session-store.js";
 export type { SessionSnapshot } from "./session/session-store.js";
 
 export type { FrameBanner } from "./shell/frame-store.js";
@@ -98,15 +99,6 @@ export {
   useRefusalBannerEscalation,
 } from "./shell/refusal-escalation.js";
 
-// The window-scoped modal's half of the shell's `inert` guard. Through this door
-// rather than either overlay's, because its callers are sibling VIEW families —
-// `sign-in/` and `onboarding/` — which reach each other through nothing, and because
-// the cell it writes lives in this
-// family's own store. Written twice before it was hoisted, and the second copy was
-// missing: a walkthrough that trapped focus and left the whole route surface reachable
-// behind it.
-export { useModalSurfaceLifetime } from "./shell/modal-surface-lifetime.js";
-
 // The shell's own condition, and the two derivations every reader of it shares.
 //
 // Through this door rather than the frame's, because the readers span the DAG in
@@ -115,79 +107,26 @@ export { useModalSurfaceLifetime } from "./shell/modal-surface-lifetime.js";
 // vocabulary published there would be one neither could reach. This family owns the
 // store the value lives in, which makes it the lowest family that can own the words.
 export {
-  SHELL_DETAIL_DESTINATION,
   UNREPORTED_SHELL_NOTICE,
   UNREPORTED_SHELL_STATE,
   describeShellConnection,
-  shellReportsAreEqual,
 } from "./shell/shell-state.js";
 export type {
   ShellConnection,
   ShellKeystoreState,
   ShellNegotiation,
-  ShellReport,
   ShellState,
   ShellTransport,
 } from "./shell/shell-state.js";
-// What that condition COSTS, from the module that derives it. Beside the vocabulary
-// rather than inside it: a block is derived from a state and a method name, and the
-// two halves have different readers — see `store/shell/shell-mutation-block.ts`'s own header.
-//
-// `currentShellBlock` ships beside `useShellBlockFor` because a dispatching surface
-// needs both and they answer different questions: the subscribed block draws the control,
-// and the current one decides whether the call is put. Three surfaces take it — the
-// sessions destination's act block, the onboarding step's re-check, and the ledger's
-// answer to a provider-raised ask — and a family that could not reach it through this
-// door would spell
-// `getState().shellState` for itself, which is the second reading of which cell carries
-// the shell condition.
-//
-// `shellBlockForMethod` is deliberately HELD OFF this door: a raw derivation published
-// here is one a render body can call without memoising it, and the hook below is the
-// reading every surface takes instead.
-export {
-  MUTATING_DAEMON_METHODS,
-  // Both taken by the bidirectional pairing suite in `bridge/daemon/`, which holds this
-  // roster equal to the registry's own record set in each direction.
-  isMutatingDaemonMethod,
-  // The same question asked where the call is PUT rather than where the control was
-  // drawn: a block landing between the render and the press leaves a captured one
-  // fail-open. `currentShellMutationBlock` applies no method rule, for the one caller
-  // that has already classified from the registry's own `kind` column — the call door.
-  currentShellBlock,
-  currentShellMutationBlock,
-  shellBlocksAreEqual,
-  shellMutationBlock,
-} from "./shell/shell-mutation-block.js";
-// The refusal a block becomes. It leaves the family because the producer of a blocked
-// dispatch is a VIEW family and siblings cannot reach each other: the ledger's ask
-// answer settles one. The origin string itself stays inside.
-export { shellBlockRefusal } from "./shell/shell-mutation-block.js";
-export type { MutatingDaemonMethod, ShellMutationBlock } from "./shell/shell-mutation-block.js";
-// `useShellBlockFor` is the subscribed per-method reading every dispatching surface
-// draws its disabled state and its reason from — one hook rather than the same three
-// lines per family, each of them free to re-render a control on every heartbeat.
-export { useRailAttentionCount, useShellBlockFor, useShellState } from "./shell/frame-hooks.js";
-// Every open session's projection as one signal, and the one fold the frame takes
-// over it. Published because the two callers sit on opposite sides of the console
-// DAG — a view family and `frame/` — so the mechanism can only be shared from here.
-export {
-  subscribeToOpenSessions,
-  useWorstOpenSessionRecovery,
-} from "./session/open-session-signal.js";
+export { useShellState } from "./shell/frame-hooks.js";
+// Every open session's projection as one change signal.
+export { subscribeToOpenSessions } from "./session/open-session-signal.js";
 
-// `SessionSnapshotRead` now leaves the family, because the producer it was held
-// back for exists: the composition root builds a reader over the growth port's
-// session read, and says so at the call site with a type rather than by convention.
 export { SessionStoreRegistry } from "./session/session-store-registry.js";
 // Straight from the module that DECLARES it rather than through the registry that
 // consumes it: a barrel re-exporting a re-export is the chain this family's one
 // door exists to avoid.
-//
-// `SessionSnapshotReader` stays inside the family: what a caller above needs to
-// SAY is what the registry takes, and the reader is one arm of that union rather
-// than a type anything outside names.
-export type { SessionSnapshotRead } from "./session/open-session-entry.js";
+export type { SessionSnapshotReader } from "./session/open-session-entry.js";
 
 // The refresh chokepoint, through the same door as the stores it feeds. A view
 // family that refreshes a wire read reaches this scheduler and no other timer:
@@ -205,20 +144,6 @@ export type { SessionSnapshotRead } from "./session/open-session-entry.js";
 // this is the only implementation of it, so it is reachable through the door rather
 // than deep-imported around.
 export { RefreshScheduler, type RefreshReason } from "./read/refresh-scheduler.js";
-
-// The COMPOSED shape of that scheduler, beside the primitive it composes. A scheduled
-// read published to subscribers was written out sixteen times across eight view
-// families and `bridge/` — the same emitter, the same latch, the same
-// `snapshot`/`subscribe`/`start`/`requestRead`/`dispose` skeleton, and a publisher that
-// was character-for-character identical in three unrelated families. It leaves this
-// family because every one of those readings sits above it and they reach each other
-// through nothing, so this door is the only place the base can be shared from.
-//
-// THE OPTIONS TYPE IS DELIBERATELY ABSENT. A subclass hands `super` an object literal
-// and never names the shape, so a door line for it would publish a name nothing
-// outside this family types — which the barrel census fails, and which is the rule
-// that a door is never widened for symmetry.
-export { ScheduledReading } from "./read/scheduled-reading.js";
 
 // The read line every scheduled read is on, and the four names a caller outside this
 // family needs from it: the hook that binds one to a `(subject, key)` pairing, the
@@ -311,21 +236,6 @@ export {
   useSessionInitialised,
   useSessionProjectionRevision,
 } from "./session/session-projection-hooks.js";
-
-// The peer-invocation grant, read off the session partition. Through this door
-// because its two readers are VIEW families and siblings cannot reach each other:
-// the agent console draws the control the grant belongs to, and the ledger's empty
-// window says why a session with the grant off holds no handoff rows. The fold is
-// one implementation for both — a second copy that answered `false` for an absent
-// member would present an enabled session as safe.
-// `peerInvocationEnabledIn` itself stays off this door: the hook is what both
-// surfaces read, the fold is the hook's own, and a door line whose only importer is
-// a test is a re-export with no production reader.
-export {
-  NOTHING_PROJECTED,
-  usePeerInvocationProjection,
-} from "./session/peer-invocation-projection.js";
-export type { PeerInvocationProjection } from "./session/peer-invocation-projection.js";
 
 // The wall-clock wake-up. In this family rather than in `primitives/` because it is
 // a scheduling decision — the console's other two, `read/refresh-scheduler.ts` and

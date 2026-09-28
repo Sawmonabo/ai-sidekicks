@@ -1,13 +1,13 @@
-// The accessibility tier over the browser-terminal family's three surfaces.
+// The accessibility tier over the browser-terminal family's two surfaces.
 //
 // `frame-axe.test.tsx` runs the frame; this file runs what the family mounts INTO
 // it, and it runs each surface scoped to itself rather than scanning the document,
 // so a violation names the surface that owns it.
 //
 // Both schemes, for `frame-axe.test.tsx`'s reason: contrast is the rule most likely
-// to pass in one and fail in the other, and this family has two surfaces the palette
-// tests cannot reach at all — a tinted refusal-adjacent card, and an emulator grid
-// whose colours come from the library rather than from the token table.
+// to pass in one and fail in the other, and this family has a surface the palette
+// tests cannot reach at all — an emulator grid whose colors come from the library
+// rather than from the token table.
 //
 // THE TERMINAL IS THE CASE WORTH HAVING. `XtermHost` deliberately does not announce
 // the grid: xterm.js exposes its rows through its own `aria-live` region with a
@@ -20,7 +20,6 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { emulateSystemScheme } from "../console-harness.js";
 import {
-  mountBrowserCaptureCard,
   mountBrowserPane,
   mountTerminalPane,
   type MountedFamilySurface,
@@ -41,7 +40,6 @@ const AUDITED_SURFACES: readonly {
   readonly mount: () => Promise<MountedFamilySurface>;
 }[] = [
   { label: "the browser pane's chrome", mount: mountBrowserPane },
-  { label: "a stored capture card", mount: mountBrowserCaptureCard },
   { label: "the terminal pane on a degraded lease", mount: mountTerminalPane },
 ];
 
@@ -67,7 +65,7 @@ describe("accessibility — the browser and terminal surfaces", () => {
   }
 
   it("finds a planted violation, so a clean result means something", async () => {
-    // Negative control for this file's own runs: the six cases above expect an
+    // Negative control for this file's own runs: the cases above expect an
     // empty list, and a misconfigured run returns exactly the same empty list.
     const planted = plantAxeViolation();
     try {

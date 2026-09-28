@@ -25,15 +25,10 @@
 //      nothing is ever parsed as markup. A sanitizer here would be the console
 //      claiming it renders model HTML safely, which it does not do at all.
 //   4. **Path links come only from wire-validated path references.** Today there are
-//      none: the growth slate carries `timeline-path-reference`, a validated
-//      path-reference member on timeline rows, with `wireRegistered: false`. This
-//      module's own fallback is then binding — a
-//      surface with no validated allowlist ships no path links — so a link renders as
-//      its own text and nothing is clickable.
+//      none, and a surface with no validated allowlist ships no path links — so a link
+//      renders as its own text and nothing is clickable.
 //   5. **Footnotes resolve through one registry keyed by source**, so a definition
 //      line never resolves as its own body.
-
-import { growthSlateRow, type GrowthSlateRow } from "../../../../bridge/index.js";
 
 /**
  * The URL `remend` writes into a link whose target has not finished arriving.
@@ -45,30 +40,6 @@ import { growthSlateRow, type GrowthSlateRow } from "../../../../bridge/index.js
  * for a different reason.
  */
 export const INCOMPLETE_LINK_SENTINEL = "streamdown:incomplete-link";
-
-/**
- * The slate row that would make path links renderable, named so the absence points at
- * its owner rather than at a shrug.
- *
- * Read off the ledger through its own accessor rather than spelled as a literal: the
- * slate is the one place a row's wire, owner, and live status are stated, and a second
- * spelling here would be a claim that stops agreeing with it the day the wire lands.
- * The lookup is total over the id union, so the row is a value and never a maybe.
- */
-export const PATH_LINK_SLATE_ROW: GrowthSlateRow = growthSlateRow("timeline-path-reference");
-
-/**
- * Whether this console may render a clickable path link.
- *
- * A function over the ledger rather than a constant `false`, so the day
- * `timeline-path-reference` flips `wireRegistered` the answer changes with it and the
- * per-load nonce and allow-list rule 4 requires become the only remaining work. It is
- * fail-closed by construction: a row the ledger does not carry could not make this
- * true, and neither can any value a message body contains.
- */
-export function arePathLinksRenderable(): boolean {
-  return PATH_LINK_SLATE_ROW.wireRegistered;
-}
 
 /**
  * The mdast node types whose rendering waits for the block to settle.

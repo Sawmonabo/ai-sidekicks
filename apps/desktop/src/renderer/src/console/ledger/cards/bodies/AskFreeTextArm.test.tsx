@@ -14,7 +14,7 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { ASK_ANSWER_UNSENT, INPUT_ASK_SLOT, type DriverAskReading } from "./input-ask.js";
+import { ASK_ANSWER_UNSENT, type DriverAskReading } from "./input-ask.js";
 import { InputAskCard } from "./InputAskCard.js";
 import type { RunId } from "@ai-sidekicks/contracts";
 
@@ -45,7 +45,7 @@ function renderBothAsks(): HTMLElement {
       {[FIRST_RUN_ID, SECOND_RUN_ID].map((runId) => (
         <InputAskCard
           key={runId}
-          slot={{ contract: INPUT_ASK_SLOT, body: undefined }}
+          body={undefined}
           ask={askOn(runId)}
           nowEpochMilliseconds={NOW_MILLISECONDS}
           delivery={ASK_ANSWER_UNSENT}

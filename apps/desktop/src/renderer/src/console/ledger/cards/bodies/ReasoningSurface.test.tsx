@@ -4,7 +4,7 @@ import type { EventCursor, ReasoningSurfaceReadResponse, RunId } from "@ai-sidek
 import { render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { REASONING_SURFACE_SLOT, type ReasoningSurfaceReading } from "./reasoning-surface.js";
+import { type ReasoningSurfaceReading } from "./reasoning-surface.js";
 import { ReasoningSurface } from "./ReasoningSurface.js";
 
 const SAMPLE_RUN_ID = "01J0000000000000000000000B" as RunId;
@@ -20,7 +20,7 @@ function renderSurface(
 ): HTMLElement {
   const { container } = render(
     <ReasoningSurface
-      slot={{ contract: REASONING_SURFACE_SLOT, body: overrides.body }}
+      body={overrides.body}
       runId={"runId" in overrides ? overrides.runId : SAMPLE_RUN_ID}
       liveText={overrides.liveText}
       reading={overrides.reading ?? { status: "not-asked" }}

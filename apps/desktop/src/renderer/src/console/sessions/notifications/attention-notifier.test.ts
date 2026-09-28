@@ -1,9 +1,7 @@
 // What raises a banner, and what deliberately does not.
 //
-// The class is driven directly rather than through a rendered surface, because every
-// property here is about HISTORY — a baseline, a remembered id, an eviction — and a
-// component test would establish each of those by re-rendering, which is a slower way
-// of asking a smaller question. The surface's own file drives the emission end to end.
+// The class is driven directly, because every property here is about HISTORY — a
+// baseline, a remembered id, an eviction.
 
 import { describe, expect, it } from "vitest";
 
@@ -39,7 +37,7 @@ function item(overrides: Partial<AttentionItem> = {}): AttentionItem {
  * The sessions every case here names, so an ordinary read covers both of them.
  *
  * The address set is what makes a session's items announceable at all, and these
- * cases are about the OTHER rules — the audience, the dedup, the cap — so they read
+ * cases are about the OTHER rules — the dedup, the cap — so they read
  * over a window that has been watching both sessions all along. The ordering matrix
  * next door is where the set itself moves.
  */
@@ -59,23 +57,6 @@ function settledRead(
   };
 }
 
-const AWAY = {
-  activeSessionId: "session-b",
-  isAttentionSurfaceRouted: false,
-  isWindowFocused: false,
-} as const;
-const WATCHING_A = {
-  activeSessionId: "session-a",
-  isAttentionSurfaceRouted: false,
-  isWindowFocused: true,
-} as const;
-/** A focused window on the destination that renders every session's attention. */
-const READING_THE_CENTRE = {
-  activeSessionId: undefined,
-  isAttentionSurfaceRouted: true,
-  isWindowFocused: true,
-} as const;
-
 describe("the attention notifier", () => {
   it("announces nothing from the first settled read", () => {
     // Mounting the destination is not an event. Without this, navigating to Sessions
@@ -83,67 +64,23 @@ describe("the attention notifier", () => {
     const notifier = new AttentionNotifier();
 
     expect(
-      notifier.arrivalsToAnnounce(settledRead([item(), item({ id: "attention-2" })]), AWAY),
+      notifier.arrivalsToAnnounce(settledRead([item(), item({ id: "attention-2" })])),
     ).toStrictEqual([]);
   });
 
   it("announces an item that arrives after the baseline, once", () => {
     const notifier = new AttentionNotifier();
-    notifier.arrivalsToAnnounce(settledRead([item()]), AWAY);
+    notifier.arrivalsToAnnounce(settledRead([item()]));
     const arrival = item({ id: "attention-2" });
 
-    const first = notifier.arrivalsToAnnounce(settledRead([item(), arrival]), AWAY);
+    const first = notifier.arrivalsToAnnounce(settledRead([item(), arrival]));
     // The same projection read back — every re-read answers the same list, so a
     // notifier that keyed on the read rather than on the item would announce this
     // item again on every refresh for as long as it stayed unresolved.
-    const second = notifier.arrivalsToAnnounce(settledRead([item(), arrival]), AWAY);
+    const second = notifier.arrivalsToAnnounce(settledRead([item(), arrival]));
 
     expect(first.map((announced) => announced.id)).toStrictEqual(["attention-2"]);
     expect(second).toStrictEqual([]);
-  });
-
-  it("stays silent about the session a focused window is looking at", () => {
-    const notifier = new AttentionNotifier();
-    notifier.arrivalsToAnnounce(settledRead([]), WATCHING_A);
-
-    const arrivals = notifier.arrivalsToAnnounce(
-      settledRead([
-        item({ id: "on-screen", sessionId: "session-a" }),
-        item({ id: "elsewhere", sessionId: "session-b" }),
-      ]),
-      WATCHING_A,
-    );
-
-    expect(arrivals.map((announced) => announced.id)).toStrictEqual(["elsewhere"]);
-  });
-
-  it("announces every session's item while the window is not focused", () => {
-    // The negative control for the rule above: the suppression is about what a person
-    // can already see, so a window nobody is looking at suppresses nothing.
-    const notifier = new AttentionNotifier();
-    notifier.arrivalsToAnnounce(settledRead([]), {
-      activeSessionId: "session-a",
-      isAttentionSurfaceRouted: false,
-      isWindowFocused: false,
-    });
-
-    const arrivals = notifier.arrivalsToAnnounce(
-      settledRead([item({ id: "on-screen", sessionId: "session-a" })]),
-      { activeSessionId: "session-a", isAttentionSurfaceRouted: false, isWindowFocused: false },
-    );
-
-    expect(arrivals.map((announced) => announced.id)).toStrictEqual(["on-screen"]);
-  });
-
-  it("does not re-announce an item it withheld once the person looks away", () => {
-    // A held-back item is still an item this window has SEEN. Announcing it when the
-    // route moved would be a banner about something that did not just happen.
-    const notifier = new AttentionNotifier();
-    notifier.arrivalsToAnnounce(settledRead([]), WATCHING_A);
-    const onScreen = item({ id: "on-screen", sessionId: "session-a" });
-    notifier.arrivalsToAnnounce(settledRead([onScreen]), WATCHING_A);
-
-    expect(notifier.arrivalsToAnnounce(settledRead([onScreen]), AWAY)).toStrictEqual([]);
   });
 
   it("raises nothing for a standing projection larger than the cap", () => {
@@ -156,12 +93,12 @@ describe("the attention notifier", () => {
     const standing = Array.from({ length: ATTENTION_NOTIFIED_ITEM_CAP + 1 }, (_unused, index) =>
       item({ id: `standing-${String(index)}` }),
     );
-    notifier.arrivalsToAnnounce(settledRead(standing), AWAY);
+    notifier.arrivalsToAnnounce(settledRead(standing));
 
-    expect(notifier.arrivalsToAnnounce(settledRead(standing), AWAY)).toStrictEqual([]);
+    expect(notifier.arrivalsToAnnounce(settledRead(standing))).toStrictEqual([]);
     // And it does not decay into the storm one read later either: the third read is
     // where a cap that had evicted exactly one live id would announce its first item.
-    expect(notifier.arrivalsToAnnounce(settledRead(standing), AWAY)).toStrictEqual([]);
+    expect(notifier.arrivalsToAnnounce(settledRead(standing))).toStrictEqual([]);
   });
 
   it("keeps a cleared id while there is room under the cap", () => {
@@ -170,19 +107,19 @@ describe("the attention notifier", () => {
     // them on sight would re-announce the lot the moment the read recovered.
     const notifier = new AttentionNotifier();
     const carried = item({ id: "carried", sessionId: "session-b" });
-    notifier.arrivalsToAnnounce(settledRead([item(), carried]), AWAY);
-    notifier.arrivalsToAnnounce(settledRead([item()]), AWAY);
+    notifier.arrivalsToAnnounce(settledRead([item(), carried]));
+    notifier.arrivalsToAnnounce(settledRead([item()]));
 
-    expect(notifier.arrivalsToAnnounce(settledRead([item(), carried]), AWAY)).toStrictEqual([]);
+    expect(notifier.arrivalsToAnnounce(settledRead([item(), carried]))).toStrictEqual([]);
   });
 
   it("forgets the oldest cleared id rather than growing without bound", () => {
     const notifier = new AttentionNotifier();
-    notifier.arrivalsToAnnounce(settledRead([item({ id: "oldest" })]), AWAY);
+    notifier.arrivalsToAnnounce(settledRead([item({ id: "oldest" })]));
     const fill = Array.from({ length: ATTENTION_NOTIFIED_ITEM_CAP }, (_unused, index) =>
       item({ id: `filler-${String(index)}` }),
     );
-    notifier.arrivalsToAnnounce(settledRead(fill), AWAY);
+    notifier.arrivalsToAnnounce(settledRead(fill));
 
     // The eviction is observable exactly here: `oldest` cleared from the projection
     // and the fill then took the whole cap, so the oldest CLEARED id was dropped and
@@ -190,7 +127,7 @@ describe("the attention notifier", () => {
     // this cap is allowed to be wrong in; an unbounded set is not.
     expect(
       notifier
-        .arrivalsToAnnounce(settledRead([item({ id: "oldest" }), fill[fill.length - 1]!]), AWAY)
+        .arrivalsToAnnounce(settledRead([item({ id: "oldest" }), fill[fill.length - 1]!]))
         .map((announced) => announced.id),
     ).toStrictEqual(["oldest"]);
   });
@@ -202,11 +139,11 @@ describe("the attention notifier", () => {
     // the item id, this fold announced one run beginning to wait twice — two banners,
     // half a second apart, for one thing that happened.
     const notifier = new AttentionNotifier();
-    notifier.arrivalsToAnnounce(settledRead([]), AWAY);
+    notifier.arrivalsToAnnounce(settledRead([]));
     const runScoped = item({ id: "run-1:pending_approval", sourceEventId: "event-1" });
     const aggregate = item({ id: "session-a:session", sourceEventId: "event-1" });
 
-    const arrivals = notifier.arrivalsToAnnounce(settledRead([runScoped, aggregate]), AWAY);
+    const arrivals = notifier.arrivalsToAnnounce(settledRead([runScoped, aggregate]));
 
     expect(arrivals.map((announced) => announced.id)).toStrictEqual(["run-1:pending_approval"]);
   });
@@ -217,11 +154,10 @@ describe("the attention notifier", () => {
     // arrived beside it silently dropped, which is the failure the dedup is one step
     // away from.
     const notifier = new AttentionNotifier();
-    notifier.arrivalsToAnnounce(settledRead([]), AWAY);
+    notifier.arrivalsToAnnounce(settledRead([]));
 
     const arrivals = notifier.arrivalsToAnnounce(
       settledRead([item({ id: "run-1:pending_approval" }), item({ id: "run-2:pending_approval" })]),
-      AWAY,
     );
 
     expect(arrivals.map((announced) => announced.id)).toStrictEqual([
@@ -235,77 +171,17 @@ describe("the attention notifier", () => {
     // representative is allowed to change — so a memory keyed on the item id would call a
     // re-keyed aggregate new and raise a second banner for news it had already told.
     const notifier = new AttentionNotifier();
-    notifier.arrivalsToAnnounce(settledRead([]), AWAY);
+    notifier.arrivalsToAnnounce(settledRead([]));
     const runScoped = item({ id: "run-1:pending_approval", sourceEventId: "event-1" });
-    notifier.arrivalsToAnnounce(settledRead([runScoped]), AWAY);
+    notifier.arrivalsToAnnounce(settledRead([runScoped]));
 
     const arrivals = notifier.arrivalsToAnnounce(
       settledRead([
         runScoped,
         item({ id: "session-a:pending_approval", sourceEventId: "event-1" }),
       ]),
-      AWAY,
     );
 
     expect(arrivals).toStrictEqual([]);
-  });
-
-  it("stays silent while a focused window is reading the notification centre", () => {
-    // The sessions destination names no session, so `activeSessionId` is `undefined`
-    // there — and the comparison alone therefore answered "not on screen" for every
-    // item on the one screen showing all of them. A person watching the centre fill
-    // in got an OS banner for each row as it appeared.
-    const notifier = new AttentionNotifier();
-    notifier.arrivalsToAnnounce(settledRead([]), READING_THE_CENTRE);
-
-    const arrivals = notifier.arrivalsToAnnounce(
-      settledRead([item({ id: "arriving", sessionId: "session-b" })]),
-      READING_THE_CENTRE,
-    );
-
-    expect(arrivals).toStrictEqual([]);
-  });
-
-  it("negative control: the same destination unfocused announces it", () => {
-    // The suppression is about what a person can SEE, not about which route is
-    // loaded. Without this the rule above could be satisfied by a window that had
-    // stopped announcing from the sessions destination altogether — which is the
-    // whole audience the banner exists for, since the centre is behind another
-    // application.
-    const notifier = new AttentionNotifier();
-    const unfocusedOnTheCentre = {
-      activeSessionId: undefined,
-      isAttentionSurfaceRouted: true,
-      isWindowFocused: false,
-    };
-    notifier.arrivalsToAnnounce(settledRead([]), unfocusedOnTheCentre);
-
-    const arrivals = notifier.arrivalsToAnnounce(
-      settledRead([item({ id: "arriving", sessionId: "session-b" })]),
-      unfocusedOnTheCentre,
-    );
-
-    expect(arrivals.map((announced) => announced.id)).toStrictEqual(["arriving"]);
-  });
-
-  it("negative control: a focused window on a session-less destination still announces", () => {
-    // The over-broad direction, planted. Settings and Workflows name no session
-    // either, so a rule that suppressed whenever there was no active session id would
-    // silence the exact case the emitter was moved onto the window's lifetime for: an
-    // approval that starts waiting while a person sits in Settings.
-    const notifier = new AttentionNotifier();
-    const readingSettings = {
-      activeSessionId: undefined,
-      isAttentionSurfaceRouted: false,
-      isWindowFocused: true,
-    };
-    notifier.arrivalsToAnnounce(settledRead([]), readingSettings);
-
-    const arrivals = notifier.arrivalsToAnnounce(
-      settledRead([item({ id: "arriving", sessionId: "session-b" })]),
-      readingSettings,
-    );
-
-    expect(arrivals.map((announced) => announced.id)).toStrictEqual(["arriving"]);
   });
 });

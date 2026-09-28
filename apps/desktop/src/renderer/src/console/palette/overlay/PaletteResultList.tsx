@@ -117,9 +117,6 @@ export function PaletteResultList(props: PaletteResultListProps): React.JSX.Elem
                       {result.command.unavailable}
                     </span>
                   )}
-                  {result.field === "title" ? null : (
-                    <span className="console-palette__item-field">matched on {result.field}</span>
-                  )}
                   {result.recentRank === undefined ? null : (
                     <span className="console-palette__recent-mark">Recent</span>
                   )}
@@ -142,7 +139,7 @@ export function PaletteResultList(props: PaletteResultListProps): React.JSX.Elem
  * Split a title into matched and unmatched runs.
  *
  * Emphasis is by weight and luminance, never hue: the two-hue rule reserves
- * colour for "a person is needed" and "something failed", and a search hit is
+ * color for "a person is needed" and "something failed", and a search hit is
  * neither.
  */
 function renderTitle(title: string, matchedIndices: readonly number[] | undefined): ReactNode {

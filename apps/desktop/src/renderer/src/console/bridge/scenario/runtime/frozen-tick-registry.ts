@@ -56,21 +56,10 @@ export const SCENARIO_FROZEN_TICKS: FrozenTickTable = {
   "first-run": [{ name: "settled", atMs: 0 }],
   flagship: [{ name: "money-shot", atMs: 2_450 }],
   ledger: [{ name: "settled", atMs: 3_140 }],
-  "ledger-first-sixty": [{ name: "settled", atMs: 60_000 }],
   "ledger-quiet": [{ name: "settled", atMs: 0 }],
   composer: [{ name: "settled", atMs: 540 }],
-  runs: [{ name: "settled", atMs: 980 }],
   approvals: [{ name: "settled", atMs: 1_100 }],
-  agents: [{ name: "settled", atMs: 420 }],
-  settings: [{ name: "settled", atMs: 380 }],
-  repos: [{ name: "settled", atMs: 1_900 }],
-  workflows: [{ name: "settled", atMs: 420 }],
-  browser: [{ name: "settled", atMs: 3_900 }],
-  terminal: [{ name: "settled", atMs: 4_900 }],
-  shell: [{ name: "settled", atMs: 800 }],
-  "bring-your-history": [{ name: "settled", atMs: 0 }],
-  onboarding: [{ name: "settled", atMs: 0 }],
-  "incident-ledger-window-growth": [{ name: "settled", atMs: 20_000 }],
+  terminal: [{ name: "settled", atMs: 4_100 }],
 };
 
 /** One way the registry and the scenario board disagree. */

@@ -75,7 +75,7 @@ function registryWith(
  * surface, so a bare `render(<Deck/>)` here would be a mount shape production never
  * has — and the throw is the primitive refusing to let a surface speak through a
  * region nobody created, or read a clock no window resolved, which is a rule worth
- * honouring in a test rather than working around.
+ * honoring in a test rather than working around.
  */
 function DeckWindow(props: { readonly children: React.ReactNode }): React.JSX.Element {
   return (
@@ -134,14 +134,6 @@ describe("the deck's mount door", () => {
       }),
     ).not.toThrow();
   });
-
-  it("names the kind rather than drawing an empty rectangle when nothing claims it", () => {
-    const layout = emptyLayout();
-    layout.open({ kind: "artifact", entity: undefined });
-    const deck = renderDeck(layout, registryWith());
-    expect(deck.textContent).toContain("This kind of pane has not been built yet.");
-    expect(deck.textContent).toContain("artifact");
-  });
 });
 
 describe("the deck's panes", () => {
@@ -158,8 +150,8 @@ describe("the deck's panes", () => {
 
   it("focuses the pane that already shows an entity instead of opening a second", () => {
     const layout = emptyLayout();
-    const first = layout.open({ kind: "inspector", entity: { kind: "user", id: "you" } });
-    const second = layout.open({ kind: "inspector", entity: { kind: "user", id: "you" } });
+    const first = layout.open({ kind: "inspector", entity: { kind: "worktree", id: "you" } });
+    const second = layout.open({ kind: "inspector", entity: { kind: "worktree", id: "you" } });
     const deck = renderDeck(layout, registryWith({ kind: "inspector" }));
     expect(second).toBe(first);
     expect(deck.querySelectorAll(".meridian-deck__pane")).toHaveLength(1);

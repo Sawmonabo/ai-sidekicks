@@ -148,7 +148,7 @@ describe("push-driven read — no flicker and no swallowed failure", () => {
       clock,
       read: () =>
         Promise.reject(
-          new ConsoleRefusalError(refuse("daemon", "channel.not_found", "That channel is gone.")),
+          new ConsoleRefusalError(refuse("daemon", "session.not_found", "That session is gone.")),
         ),
     });
     harness.model.start();
@@ -156,7 +156,7 @@ describe("push-driven read — no flicker and no swallowed failure", () => {
     await settle();
     expect(harness.model.state).toStrictEqual({
       kind: "failed",
-      refusal: { code: "channel.not_found", detail: "That channel is gone.", origin: "daemon" },
+      refusal: { code: "session.not_found", detail: "That session is gone.", origin: "daemon" },
     });
   });
 

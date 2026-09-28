@@ -9,7 +9,6 @@ const SESSION_ID = "019b793b-7b60-75e5-8510-ada11a5a44a5";
 const PARENT_RUN = "019b793b-7b60-740e-8110-d1a4c1150111";
 const CHILD_RUN = "019b793b-7b60-740e-8140-d1a4c1150114";
 const OTHER_RUN = "019b793b-7b60-740e-8120-d1a4c1150112";
-const RUNTIME_NODE = "019b793b-7b60-7d0c-8110-c0de11a0d0e1";
 
 function event(
   sequence: number,
@@ -51,7 +50,7 @@ function childTransition(sequence: number, newState: string): ConsoleSessionEven
 
 describe("the shell's child-run summaries", () => {
   it("summarizes a child run onto the one row that names it and its parent", () => {
-    const birth = childBirth(1, { parentRunId: PARENT_RUN, producingNodeId: RUNTIME_NODE });
+    const birth = childBirth(1, { parentRunId: PARENT_RUN });
     const summaries = deriveShellChildRunSummaries([
       birth,
       childTransition(2, "starting"),
@@ -62,7 +61,6 @@ describe("the shell's child-run summaries", () => {
     expect(summaries.get(birth.id)).toStrictEqual({
       runId: CHILD_RUN,
       parentRunId: PARENT_RUN,
-      producingNodeId: RUNTIME_NODE,
       // The newest state the log announced, not the one the creation row carried.
       state: "running",
       // The birth beat and the two transitions after it.
@@ -81,15 +79,6 @@ describe("the shell's child-run summaries", () => {
     ]);
 
     expect([...summaries.keys()]).toStrictEqual([]);
-  });
-
-  it("omits a producing node the creation row did not name", () => {
-    const birth = childBirth(1, { parentRunId: PARENT_RUN });
-    const summary = deriveShellChildRunSummaries([birth]).get(birth.id);
-
-    // Absent rather than present-and-undefined: a fabricated provenance is worse
-    // than the named absence the row renders in its place.
-    expect(summary).not.toHaveProperty("producingNodeId");
   });
 
   it("counts only the rows attributed to the child, and not its parent's", () => {

@@ -42,7 +42,6 @@ function baseStateFor(scenario: ConsoleScenario): SessionSnapshot {
   return {
     cursor: Math.min(...sequences) - 1,
     entities: [],
-    userJoinLog: [...scenario.userIdsInJoinOrder],
   };
 }
 
@@ -259,7 +258,7 @@ function storeApplying(events: readonly ConsoleSessionEvent[]): {
     sessionId: SYNTHETIC_SESSION_ID,
     projectors: RUN_LIFECYCLE_PROJECTORS,
   });
-  store.initialise({ cursor: 0, entities: [], userJoinLog: [] });
+  store.initialise({ cursor: 0, entities: [] });
   return { store, outcome: store.applyBatch([...events]) };
 }
 

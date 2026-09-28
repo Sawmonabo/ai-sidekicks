@@ -1,10 +1,8 @@
-// The two unified patches the repos scenario's diff artifacts carry.
+// The two unified patches kept as test data for the diff read.
 //
-// A MODULE OF THEIR OWN, because patch TEXT is bulk and the replies beside it are
-// rules. `repos-diff-replies.ts` decides which arm answers with which artifact and what
-// a request the scenario does not recognise is refused as; this file is the payload
-// those answers hand back, and holding both together would have made a forty-line
-// decision table read as a footnote to two hundred lines of literal text.
+// A MODULE OF THEIR OWN, because patch TEXT is bulk and any logic beside it is rules;
+// holding both together would make a short decision table read as a footnote to two
+// hundred lines of literal text.
 //
 // THEY ARE REAL PATCHES AND NOT SKETCHES. `repos/diff-pane/patch-parse.ts` refuses a
 // patch whose `@@` header count disagrees with the hunk count it parses, and it reads
@@ -14,14 +12,12 @@
 // line included, and between them they cover the four extended-header facts the model
 // carries: an ordinary textual change, a rename, a mode change, and a binary file.
 //
-// AND THEY SAY SOMETHING TRUE ABOUT THE SCENARIO. The run-attributed patch is the work
-// the implementer's run did on the branch the worktree row names, taken between that
-// root's branch context's own base and head; the workspace-fallback patch is a change
-// sitting in the git workspace's own checkout, ahead of the shared branch, with no run
-// to attribute it to — which is the condition that makes the
-// fallback attribution mean: precise run attribution is unavailable, so the artifact is
-// workspace-level and labelled as such. `repos-diff-replies.ts` scripts the ref pair
-// each of these two is the comparison of, and answers no other pair.
+// AND THEY SAY SOMETHING TRUE ABOUT THE SESSION. The run-attributed patch is the work
+// the implementer's run did on the branch the worktree row names; the
+// workspace-fallback patch is a change sitting in the git workspace's own checkout,
+// ahead of the shared branch, with no run to attribute it to — which is the condition
+// that makes the fallback attribution mean: precise run attribution is unavailable, so
+// the artifact is workspace-level and labelled as such.
 
 /**
  * The change set the implementer's run produced, as `gitflow.diffArtifactCreate`

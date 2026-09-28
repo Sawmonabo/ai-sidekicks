@@ -3,8 +3,8 @@
 //
 // TWO SETS, AND NEITHER SUBSUMES THE OTHER
 //
-// The node's directory is the growth port's `sessionList` read — the daemon's own
-// answer, and the only one that can name a session this window has never opened.
+// The node's directory is the daemon's own answer, and the only one that can name a
+// session this window has never opened.
 // The window's own set is `SessionStoreRegistry`, which names every session this
 // renderer holds a store for and nothing else. A session created a moment ago is on
 // the second and not yet on the first; a session six other windows are working in is
@@ -18,33 +18,25 @@
 //
 // THE ABSENCE FOLLOWS THE READ, NEVER THE ROW COUNT
 //
-// An empty list has four different causes and they are four different sentences.
+// An empty list has two different causes and they are two different sentences.
 // A read in flight is `not-loaded`. A read that came back with no rows is `empty` —
-// the node was asked and it has none. A read refused because its WIRE IS NOT BUILT is
-// `not-checked`, and the console must not report "there are none" for a question it
-// never put. A read that was put and FAILED is `error`, and folding it into
-// `not-checked` beside a line saying nobody asked would report a closed channel as an
-// idle console that chose not to look. Which of the two refusals a refusal is belongs
-// to `isUnbuiltWireRefusal`, beside the code it reads, and not to this table.
+// the node was asked and it has none.
 //
-// Deciding any of this from `rows.length === 0` collapses all four, which is exactly
-// the conflation the console's five kinds of nothing exist to prevent — so the
-// decision is a function of the directory state and the row count cannot reach it.
+// Deciding either from `rows.length === 0` collapses them, which is exactly the
+// conflation the console's five kinds of nothing exist to prevent — so the decision
+// is a function of the directory state and the row count cannot reach it.
 
 import type { SessionDirectoryState } from "../../seats/index.js";
-import { isUnbuiltWireRefusal, type AttentionSeverity } from "../../bridge/index.js";
+import type { AttentionSeverity } from "../../bridge/index.js";
 import type { SessionListRow } from "./session-rows.js";
 
 /**
  * The kind of nothing the destination renders when it has no row.
  *
- * A subset of the primitive's five kinds, declared as its own closed set because
- * only four of them are reachable here: nothing on this surface is filtered.
+ * A subset of the primitive's five kinds, because only two of them are reachable
+ * here: nothing on this surface is filtered.
  */
-export const SESSIONS_ABSENCE_KINDS = ["not-loaded", "empty", "not-checked", "error"] as const;
-
-/** One of the four. Derived from the enumeration, never restated beside it. */
-export type SessionsAbsenceKind = (typeof SESSIONS_ABSENCE_KINDS)[number];
+export type SessionsAbsenceKind = "not-loaded" | "empty";
 
 /** What a caller hands in for the sessions only this window can describe. */
 export interface SessionRowSources {
@@ -59,11 +51,9 @@ export interface SessionRowSources {
 /**
  * Which absence a directory state means.
  *
- * Total over the three states rather than defaulting, so a fourth state added to the
+ * Total over the two states rather than defaulting, so a third state added to the
  * read would fail to compile here instead of silently landing in whichever arm the
- * `else` happened to be. The refused state carries TWO of the kinds, and which one is
- * `isUnbuiltWireRefusal`'s answer rather than this table's — one reading of a refusal,
- * beside the code it is about.
+ * `else` happened to be.
  */
 export function sessionsAbsenceKindFor(directory: SessionDirectoryState): SessionsAbsenceKind {
   switch (directory.status) {
@@ -71,8 +61,6 @@ export function sessionsAbsenceKindFor(directory: SessionDirectoryState): Sessio
       return "not-loaded";
     case "served":
       return "empty";
-    case "unavailable":
-      return isUnbuiltWireRefusal(directory.refusal) ? "not-checked" : "error";
   }
 }
 

@@ -1,6 +1,6 @@
 // What the composition root WIRES, proved by driving the composed window.
 //
-// Five claims here, and none of them is visible from the modules underneath: each
+// Four claims here, and none of them is visible from the modules underneath: each
 // is a fact about how `ConsoleRoot` joins two pieces that are individually correct.
 //
 //   • **Regaining focus re-reads.** The scheduler names `window-focus` a refresh
@@ -12,9 +12,6 @@
 //     state lives in the composition root, so it is the only place that can hand it
 //     to the frame — `AppFrame` proves the attribute follows the prop, and nothing
 //     below proves the prop is ever passed.
-//   • **The window's database connection is closed with the window.** Nothing below
-//     the composition root knows when the console is finished, so nothing below it
-//     can be the one to close.
 //   • **The tripwire route is armed, on the window's own clock.** The registry and the
 //     capture are two `core/` singletons that know nothing about each other; only the
 //     composition root joins them, and an unarmed route is a console that detects every
@@ -37,15 +34,17 @@ import { act, cleanup, fireEvent, type RenderResult } from "@testing-library/rea
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
 
 import { consoleDiagnosticCapture } from "../../core/diagnostic-capture/diagnostic-capture.js";
+import { parseInstant } from "../../core/instant.js";
 import { consoleTripwires } from "../../core/tripwires.js";
-import type { ConsoleClock } from "../../core/index.js";
-import { SCHEME_PREFERENCE_KEY, type UiStateStore } from "../../persistence/index.js";
 import { SessionStoreRegistry } from "../../store/index.js";
 import { consoleCommands } from "../../palette/index.js";
 import { SESSIONS_HASH, mountConsole } from "./ConsoleRoot.test-support.js";
 import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 
 const BRIDGE_COMMAND_IDS = ["bridge.copyBuildDetails", "bridge.checkForUpdates"] as const;
+
+/** The fixture's frozen clock sits months from wall time, so a day apart is unmistakable. */
+const ONE_DAY_IN_MILLISECONDS = 24 * 60 * 60 * 1000;
 
 async function dispatchWindowEvent(type: "focus" | "blur"): Promise<void> {
   await act(async () => {
@@ -55,7 +54,7 @@ async function dispatchWindowEvent(type: "focus" | "blur"): Promise<void> {
 }
 
 /**
- * Press the palette's chord, whichever modifier `$mod` resolves to on this host.
+ * Press a key with the platform modifier, whichever `$mod` resolves to on this host.
  *
  * Both presses are dispatched and exactly one can match: tinykeys resolves `$mod`
  * to `Meta` on a Mac user agent and `Control` everywhere else, and a press whose
@@ -64,12 +63,21 @@ async function dispatchWindowEvent(type: "focus" | "blur"): Promise<void> {
  * to re-derive the platform rule the chord parser already owns. The browser tier
  * drives the same chord the same way.
  */
-async function pressPaletteChord(): Promise<void> {
+async function pressWithModifier(key: {
+  readonly key: string;
+  readonly code: string;
+  readonly shiftKey?: boolean;
+}): Promise<void> {
   await act(async () => {
-    fireEvent.keyDown(window, { key: "k", code: "KeyK", ctrlKey: true });
-    fireEvent.keyDown(window, { key: "k", code: "KeyK", metaKey: true });
+    fireEvent.keyDown(window, { ...key, ctrlKey: true });
+    fireEvent.keyDown(window, { ...key, metaKey: true });
     await crossMacrotaskBoundary();
   });
+}
+
+/** Press the palette's chord: the platform modifier, Shift and P. */
+async function pressPaletteChord(): Promise<void> {
+  await pressWithModifier({ key: "P", code: "KeyP", shiftKey: true });
 }
 
 /** The wrapper the frame inerts. Absent means the frame stopped rendering one. */
@@ -193,49 +201,15 @@ describe("ConsoleRoot — a modal overlay inerts the frame's background", () => 
     await pressPaletteChord();
     expect(backgroundOf(mounted).hasAttribute("inert")).toBe(false);
   });
-});
 
-describe("ConsoleRoot — the window's durable store is closed with the window", () => {
-  beforeEach(() => {
-    window.location.hash = SESSIONS_HASH;
-  });
+  it("negative control: the platform modifier and K does not open the palette", async () => {
+    // The palette's chord is Shift and P, so a window that also opened on K would pass
+    // the case above while binding the wrong keys.
+    const mounted = await mountConsole();
 
-  afterEach(() => {
-    cleanup();
-  });
+    await pressWithModifier({ key: "k", code: "KeyK" });
 
-  it("closes the UI-state store on unmount rather than leaving a connection open", async () => {
-    // An open connection blocks the next database upgrade, which is the failure
-    // the store's own `close` contract exists to prevent — and nothing was
-    // calling it, so every remount inside one renderer process added another.
-    let uiStateStore: UiStateStore | undefined;
-    const mounted = await mountConsole({
-      observe: (context) => {
-        uiStateStore = context.uiStateStore;
-      },
-    });
-    expect(uiStateStore).toBeDefined();
-    if (uiStateStore === undefined) {
-      return;
-    }
-    // The store the window is holding works while the window is up.
-    await expect(
-      uiStateStore.writeGlobal(SCHEME_PREFERENCE_KEY, "scheme", "dark"),
-    ).resolves.toStrictEqual({ outcome: "written" });
-
-    await act(async () => {
-      mounted.unmount();
-      await crossMacrotaskBoundary();
-    });
-
-    // Asserted through a write rather than through the flag: a store that said it
-    // was closed while its connection stayed open would pass a flag assertion and
-    // block the upgrade anyway.
-    const afterUnmount = await uiStateStore.writeGlobal(SCHEME_PREFERENCE_KEY, "scheme", "light");
-    expect(afterUnmount.outcome).toBe("refused");
-    if (afterUnmount.outcome === "refused") {
-      expect(afterUnmount.refusal.code).toBe("adapter-unavailable");
-    }
+    expect(backgroundOf(mounted).hasAttribute("inert")).toBe(false);
   });
 });
 
@@ -286,19 +260,7 @@ describe("ConsoleRoot — every tripwire this process reports reaches the captur
       batches.push(jsonLines);
     });
     try {
-      let scenarioClock: ConsoleClock | undefined;
-      await mountConsole({
-        observe: (context) => {
-          scenarioClock = context.bridge.scenarioEngine?.clock;
-        },
-      });
-      expect(
-        scenarioClock,
-        "the fixture bridge resolved with no scenario engine, so this case has no frozen clock to compare against",
-      ).toBeDefined();
-      if (scenarioClock === undefined) {
-        return;
-      }
+      await mountConsole();
 
       const detail = "a report made to prove the route reads the window's clock";
       consoleTripwires.report({ kind: "bridge-shape-drift", site: "ConsoleRoot.test", detail });
@@ -309,7 +271,12 @@ describe("ConsoleRoot — every tripwire this process reports reaches the captur
         .map((line) => JSON.parse(line) as { readonly at: string; readonly detail: string })
         .find((record) => record.detail.includes(detail));
       expect(routed, "the tripwire report reached no diagnostic record").toBeDefined();
-      expect(routed?.at).toBe(new Date(scenarioClock.now()).toISOString());
+      const recordedAt = parseInstant(routed?.at ?? "").epochMilliseconds;
+      expect(recordedAt, "the record carries no readable timestamp").toBeDefined();
+      expect(
+        Math.abs((recordedAt ?? Date.now()) - Date.now()),
+        "the record was stamped off wall time, not the scenario's frozen clock",
+      ).toBeGreaterThan(ONE_DAY_IN_MILLISECONDS);
     } finally {
       detachForwarder();
       consoleTripwires.setThrowOnReport(true);

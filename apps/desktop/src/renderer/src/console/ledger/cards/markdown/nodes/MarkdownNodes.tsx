@@ -13,10 +13,9 @@
 //      IS ON THIS PATH — nothing is ever parsed as markup, so there is nothing to
 //      sanitise. `<script>alert(1)</script>` in a message reaches the screen as the
 //      characters an author typed.
-//   2. **No path links.** `markdown-rules.ts` reads the growth slate and answers `false`
-//      today, so a link renders as its own text with no anchor and no href. `remend`'s
-//      sentinel for an unfinished link takes the same disposition for a different reason,
-//      which is why neither needs a special case here.
+//   2. **No path links.** A link renders as its own text with no anchor and no href.
+//      `remend`'s sentinel for an unfinished link takes the same disposition for a
+//      different reason, which is why neither needs a special case here.
 //   3. **Math and diagrams wait for the block to settle**, threaded as `isSettled`
 //      through the context rather than decided per node.
 //
@@ -32,7 +31,7 @@
 import type { AlignType, Nodes, PhrasingContent, RootContent, Table, TableRow } from "mdast";
 import { Fragment } from "react";
 
-import { arePathLinksRenderable, isDeferredFenceLanguage } from "./markdown-rules.js";
+import { isDeferredFenceLanguage } from "./markdown-rules.js";
 import { CodeBlock } from "../highlight/CodeBlock.js";
 import { FootnoteReference } from "../footnotes/FootnoteReference.js";
 import { MathBlock } from "./MathBlock.js";
@@ -160,11 +159,7 @@ function renderNode(
     case "link":
     case "linkReference":
       // Rule 2. The text always survives; the anchor is what is withheld.
-      return arePathLinksRenderable() && node.type === "link" ? (
-        <a href={node.url} className="meridian-markdown__link">
-          {renderChildren(node.children, context)}
-        </a>
-      ) : (
+      return (
         <span className="meridian-markdown__link meridian-markdown__link--inert">
           {renderChildren(node.children, context)}
         </span>
@@ -187,13 +182,8 @@ function renderNode(
       // rendering it inline as well would put the same text on the screen twice.
       return null;
     case "footnoteReference":
-      // A component rather than markup inline, because the marker has to find the card's
-      // popover host — and a host reached through a React context is a hook call, which
-      // this switch is not allowed to make. See `footnote-popover-context.ts` for why the
-      // host does not ride `MarkdownRenderContext` instead.
       return (
         <FootnoteReference
-          identifier={node.identifier}
           label={node.label ?? node.identifier}
           isDefined={context.definedFootnoteIdentifiers.has(node.identifier)}
         />

@@ -1,34 +1,23 @@
-// One seam, two consumers, and the rule both of them owe.
+// The scripted-reply seam: a call that the scenario answers, or refuses by name.
 //
-// `scripted-reply.ts` exists because the fixture bridge and the fixture growth port
-// answer request/response calls the same way and used to do it in one place the other
-// could not reach. The claim this file holds is not that the seam has a function — it
-// is that the two surfaces produce the SAME three refusal codes from the same engine
-// states, and that neither of them ever turns a reply that failed to arrive into an
-// absent value. An absent value renders as "there is none", which is a claim about the
-// session that nothing checked.
+// The claim this file holds is that the fixture bridge never turns a reply that failed
+// to arrive into an absent value. An absent value renders as "there is none", which is
+// a claim about the session that nothing checked.
 //
-// Every case drives the REAL scenario engine through the REAL bridge and the REAL
-// port. A stand-in for either would pass over exactly the seam these cases hold:
-// `abandoned` and `backlog-full` are states only the engine's own teardown and its own
-// cap produce, and a hand-written double would be asserting its own arithmetic.
+// Every case drives the REAL scenario engine through the REAL bridge. A stand-in for
+// either would pass over exactly the seam these cases hold: `abandoned` is a state only
+// the engine's own teardown produces, and a hand-written double would be asserting its
+// own arithmetic.
 
 import { describe, expect, it } from "vitest";
 
 import type { DaemonMethod } from "@ai-sidekicks/contracts";
 
-import { SCENARIO_PENDING_REPLY_CAP } from "../../../core/index.js";
 import { FixtureBridgeError } from "../../fixture/call-plane/refusal.js";
 import { createFixture } from "../../fixture/call-plane/bridge.test-support.js";
-import { GROWTH_PORT_REFUSAL_CODES, type GrowthOutcome } from "../../growth-port/growth-outcome.js";
-import type { GrowthPort } from "../../growth-port/growth-port.js";
-import { createLiveBridge } from "../../live-bridge.js";
-import type { ScenarioEngine } from "./engine.js";
 import type { ScenarioReply } from "./reply.js";
 import type { ConsoleScenario } from "./vocabulary.js";
 import { STAND_IN_SESSION_ID, scenarioNamed } from "./vocabulary.test-support.js";
-import { SCRIPTED_REPLY_REFUSAL_CODES } from "./scripted-reply.js";
-import { createStubBridge } from "@ai-sidekicks/contracts";
 
 /**
  * The scenario every case below varies one member of.
@@ -39,7 +28,7 @@ import { createStubBridge } from "@ai-sidekicks/contracts";
  */
 const SEAM_BASE_SCENARIO: ConsoleScenario = scenarioNamed("scripted-reply-seam");
 
-/** The one growth operation the fixture serves that reads through the seam today. */
+/** A scripted read whose reply these cases vary. */
 const BRANCH_CONTEXT_CALL = "gitflow.branchContextRead";
 
 /** Longer than one tick, so a reply parked on it is observably pending. */
@@ -57,9 +46,6 @@ const SCRIPTED_BRANCH_CONTEXT = {
   baseBranch: "develop",
   headBranch: "feature/topic",
 };
-
-/** The request every branch-context read in this file makes. */
-const BRANCH_CONTEXT_REQUEST = { workspaceId: "workspace-1", worktreeId: "worktree-1" };
 
 /** The entity-scoped call a computed reply in this file answers, and its two subjects. */
 const MOUNT_READ_CALL = "repo.mountRead" as DaemonMethod;
@@ -145,159 +131,6 @@ function scenarioScriptingBranchContext(afterMs?: number): ConsoleScenario {
       : { call: BRANCH_CONTEXT_CALL, result: SCRIPTED_BRANCH_CONTEXT, afterMs };
   return { ...SEAM_BASE_SCENARIO, id: "scripted-branch-context", replies: [reply] };
 }
-
-interface ScriptedFixture {
-  readonly port: GrowthPort;
-  readonly engine: ScenarioEngine;
-}
-
-/**
- * The growth port and the engine driving it, over one scenario.
- *
- * The bridge and its engine come from `createFixture`, which is where this family
- * keeps that pair and the refusal for a bridge that built no engine; this adds only
- * the projection onto the port, which is the half these cases read.
- */
-function fixtureFor(scenario: ConsoleScenario): ScriptedFixture {
-  const { bridge, engine } = createFixture(scenario);
-  return { port: bridge.growth, engine };
-}
-
-function readBranchContext(fixture: ScriptedFixture): Promise<GrowthOutcome<unknown>> {
-  return fixture.port.gitflowBranchContextRead(BRANCH_CONTEXT_REQUEST);
-}
-
-describe("the scripted-reply seam — one classification, two refusal vocabularies", () => {
-  it("declares the two non-arrival codes once and both vocabularies spread them in", () => {
-    // The property, not the spelling: each code the seam declares is a member of the
-    // growth port's closed set. A test that retyped the three strings would pass while
-    // the two sets drifted, which is the failure the spread exists to make impossible.
-    for (const code of SCRIPTED_REPLY_REFUSAL_CODES) {
-      expect(GROWTH_PORT_REFUSAL_CODES).toContain(code);
-    }
-    expect(GROWTH_PORT_REFUSAL_CODES).toContain("wire-unregistered");
-  });
-});
-
-describe("the fixture growth port's scripted reads — served, refused, or named", () => {
-  it("refuses when the scenario scripts no reply at all", async () => {
-    // The registered reply is flat and carries no absence, so an unscripted read has
-    // nothing honest to serve: a fabricated empty context would be a shape no daemon
-    // sends. The base scenario scripts no branch-context reply, which is what every
-    // scenario on the board but the repos one does too — this is that arm.
-    const outcome = await readBranchContext(fixtureFor(SEAM_BASE_SCENARIO));
-
-    expect(outcome.status).toBe("unavailable");
-    expect(outcome).not.toHaveProperty("value");
-  });
-
-  it("serves the scripted reply when a scenario states one", async () => {
-    const outcome = await readBranchContext(fixtureFor(scenarioScriptingBranchContext()));
-
-    expect(outcome.status).toBe("served");
-    if (outcome.status === "served") {
-      expect(outcome.value).toStrictEqual(SCRIPTED_BRANCH_CONTEXT);
-    }
-  });
-
-  it("holds a scripted latency pending until the caller advances the frozen clock", async () => {
-    const fixture = fixtureFor(scenarioScriptingBranchContext(SCRIPTED_LATENCY_MS));
-    let settled = false;
-    const pending = readBranchContext(fixture).then((outcome) => {
-      settled = true;
-      return outcome;
-    });
-
-    await Promise.resolve();
-    // The read is a request, not a tick. A port that spent the latency itself would
-    // have no loading window and would deliver every beat inside the delay as a side
-    // effect of a read.
-    expect(settled).toBe(false);
-    expect(fixture.engine.pendingReplyCount).toBe(1);
-    expect(fixture.engine.progress.elapsedMs).toBe(0);
-
-    fixture.engine.advance(SCRIPTED_LATENCY_MS);
-
-    await expect(pending).resolves.toStrictEqual({
-      status: "served",
-      value: SCRIPTED_BRANCH_CONTEXT,
-    });
-  });
-
-  it("refuses by name when the engine is torn down under a pending read", async () => {
-    const fixture = fixtureFor(scenarioScriptingBranchContext(SCRIPTED_LATENCY_MS));
-    const pending = readBranchContext(fixture);
-
-    fixture.engine.dispose();
-
-    // The rule the code exists for: a reply that never arrived reaches the surface as a
-    // refusal it can render, never as a fabricated empty context — which would say
-    // this workspace has a branch context whose every field is missing, a shape
-    // nothing sends and a fact nothing checked.
-    const outcome = await pending;
-    expect(outcome.status).toBe("unavailable");
-    if (outcome.status === "unavailable") {
-      expect(outcome.code).toBe("reply-abandoned");
-      expect(outcome.origin).toBe("growth-port");
-      expect(outcome.operationId).toBe("gitflowBranchContextRead");
-      expect(outcome.detail).toContain("torn down");
-    }
-    expect(outcome).not.toHaveProperty("value");
-  });
-
-  it("refuses by name once the pending backlog is full rather than growing unbounded", async () => {
-    const fixture = fixtureFor(scenarioScriptingBranchContext(SCRIPTED_LATENCY_MS));
-    const held = Array.from({ length: SCENARIO_PENDING_REPLY_CAP }, () =>
-      readBranchContext(fixture),
-    );
-
-    const overflowing = await readBranchContext(fixture);
-
-    expect(overflowing.status).toBe("unavailable");
-    if (overflowing.status === "unavailable") {
-      expect(overflowing.code).toBe("reply-backlog-full");
-      expect(overflowing.operationId).toBe("gitflowBranchContextRead");
-    }
-    expect(fixture.engine.pendingReplyCount).toBe(SCENARIO_PENDING_REPLY_CAP);
-
-    fixture.engine.advance(SCRIPTED_LATENCY_MS);
-    for (const outcome of await Promise.all(held)) {
-      expect(outcome.status).toBe("served");
-    }
-  });
-
-  it("negative control: the same read under the same cap still serves when advanced", async () => {
-    // Without this, a port that refused every scripted read would pass both refusal
-    // cases above. The cap is reached and then RELEASED, so the two refusals are shown
-    // to be states of the engine rather than the port's only answer.
-    const fixture = fixtureFor(scenarioScriptingBranchContext(SCRIPTED_LATENCY_MS));
-    const pending = readBranchContext(fixture);
-
-    fixture.engine.advance(SCRIPTED_LATENCY_MS);
-
-    await expect(pending).resolves.toStrictEqual({
-      status: "served",
-      value: SCRIPTED_BRANCH_CONTEXT,
-    });
-    expect(fixture.engine.pendingReplyCount).toBe(0);
-  });
-
-  it("keeps all three codes distinct: the live bridge still refuses as wire-unregistered", async () => {
-    // The third code, from the other bridge. A port that answered the same way under
-    // both would let a surface ship one rendering for two different facts — nobody
-    // asked, versus we asked and the answer never came.
-    const outcome =
-      await createLiveBridge(createStubBridge()).growth.gitflowBranchContextRead(
-        BRANCH_CONTEXT_REQUEST,
-      );
-
-    expect(outcome.status).toBe("unavailable");
-    if (outcome.status === "unavailable") {
-      expect(outcome.code).toBe("wire-unregistered");
-      expect(outcome.detail).toContain("not registered on this build yet");
-    }
-  });
-});
 
 describe("the fixture bridge's scripted calls — the same seam, rejecting instead", () => {
   it("rejects with the shared code when the engine is torn down under a call", async () => {

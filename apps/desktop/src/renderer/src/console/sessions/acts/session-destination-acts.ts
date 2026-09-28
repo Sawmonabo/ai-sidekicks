@@ -1,10 +1,9 @@
 // What the four acts this destination offers actually DO, bound to one context.
 //
-// SPLIT FROM `SessionsSurface.tsx`, which composes the screen, on the same line
-// `session-act-block.ts` was: that file says what is drawn and where, and these are
-// what a press performs. Together they were one file past the package's ceiling, and
-// the seam is clean because nothing here renders — every act below is a call on a
-// store, a seat or a route, and a suite can drive one without mounting a surface.
+// SPLIT FROM `SessionsSurface.tsx`, which composes the screen: that file says what is
+// drawn and where, and these are what a press performs. The seam is clean because
+// nothing here renders — every act below is a call on a store, a seat or a route, and
+// a suite can drive one without mounting a surface.
 //
 // FOUR ACTS AND ONE NAVIGATION, and the navigation is shared on purpose. Opening a
 // session from a row, from an attention item, and after a start are the same act —
@@ -12,11 +11,10 @@
 // surfaces can drift into a second answer for where a press goes.
 //
 // AN ATTENTION ITEM RESOLVES NOTHING BY BEING OPENED. Resolution lives in the daemon,
-// and the notification centre offers no dismiss precisely because a client-side one
+// and the notification center offers no dismiss precisely because a client-side one
 // would be a heuristic standing in for it.
 
 import type { ConsoleSurfaceContext } from "../../seats/index.js";
-import { requestSessionDirectoryRead } from "../../seats/index.js";
 import type { AttentionItem } from "../../bridge/index.js";
 import { settleSessionStart } from "./session-start.js";
 
@@ -45,7 +43,10 @@ export interface SessionDestinationActs {
  * These capture the CONTEXT and take the session as an argument, which is why they do
  * not.
  */
-export function sessionDestinationActs(context: ConsoleSurfaceContext): SessionDestinationActs {
+export function sessionDestinationActs(
+  context: ConsoleSurfaceContext,
+  recheckDirectory: () => void,
+): SessionDestinationActs {
   const openSession = (sessionId: string): void => {
     context.frameStore.navigate({ kind: "workspace", sessionId });
   };
@@ -54,26 +55,19 @@ export function sessionDestinationActs(context: ConsoleSurfaceContext): SessionD
     openAttentionItem: (item) => {
       openSession(item.sessionId);
     },
-    // ONE SITE, because there is one act. The probe creates immediately and the draft
-    // creates on its own send, and the difference ends at the moment a session exists:
-    // from there both are a start this window authored, and `session-start.ts` is the
-    // four things that follow. Two call sites composing the same settlement would be
-    // two answers to what a start produces, and the second one is where a marker gets
-    // forgotten.
+    // ONE SITE, because there is one act: `session-start.ts` is the three things that
+    // follow a session this window started.
     settleStartedSession: (sessionId) => {
       settleSessionStart({
-        bridge: context.bridge,
         sessionStoreRegistry: context.sessionStoreRegistry,
         openSession,
+        recheckDirectory,
         sessionId,
       });
     },
-    // The same act the settled join performs, through the same seat — and the composed
-    // draft's only remaining move after a create whose reply could not be read: a
-    // session may exist under a name nothing in this window holds, and the directory is
-    // the read that would answer.
-    recheckSessionDirectory: () => {
-      requestSessionDirectoryRead(context.bridge.growth);
-    },
+    // The composed draft's only remaining move after a create whose reply could not be
+    // read: a session may exist under a name nothing in this window holds, and the
+    // directory is the read that would answer.
+    recheckSessionDirectory: recheckDirectory,
   };
 }

@@ -26,7 +26,6 @@ import { useEffect } from "react";
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { createRefusingGrowthPort } from "../../bridge/growth-port/growth-port.js";
 import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import { type ConsoleRoute } from "../../routing/index.js";
 import { ConsolePaneRegistry, type ConsolePaneContext, type PaneKind } from "../../seats/index.js";
@@ -121,7 +120,7 @@ function boardWithBothStubBodies(): ConsolePaneRegistry {
 function surfaceContextFor(route: ConsoleRoute): ConsoleSurfaceContext {
   return {
     route,
-    bridge: { growth: createRefusingGrowthPort() },
+    bridge: {},
     frameStore: new FrameStore({ initialRoute: route }),
     // Present, so a case can tell "the harness passed the window's store through"
     // from "the harness passed nothing" — which is the difference between a pane

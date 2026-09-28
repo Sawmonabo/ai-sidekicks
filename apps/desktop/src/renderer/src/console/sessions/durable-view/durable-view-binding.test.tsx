@@ -31,7 +31,7 @@ async function settle(): Promise<void> {
  * A binding that records what the holder did to it and holds nothing else.
  *
  * A stub COLLABORATOR of the holder rather than a stand-in for a pin store: the
- * cases below that drive real behaviour drive the real stores, and what this one
+ * cases below that drive real behavior drive the real stores, and what this one
  * buys is a count of disposals, which no real store exposes and none should.
  */
 class RecordingBinding implements DurableViewBinding {
@@ -94,16 +94,16 @@ function PinProbe(props: { readonly store: UiStateStore }): React.JSX.Element {
     <button
       type="button"
       onClick={() => {
-        pins.setTier("session-a", "front");
+        pins.setPinned("session-a", true);
       }}
     >
-      {JSON.stringify(pins.tiers)}
+      {JSON.stringify(pins.pinned)}
     </button>
   );
 }
 
 /** What is on screen, as the map the probe rendered. */
-function renderedTiers(container: HTMLElement): SessionPinMap {
+function renderedPins(container: HTMLElement): SessionPinMap {
   return JSON.parse(container.textContent ?? "{}") as SessionPinMap;
 }
 
@@ -115,7 +115,7 @@ describe("the pin binding when the window replaces its durable store", () => {
       view.container.querySelector("button")?.click();
     });
     await settle();
-    expect(renderedTiers(view.container)).toStrictEqual({ "session-a": "front" });
+    expect(renderedPins(view.container)).toStrictEqual({ "session-a": "front" });
 
     // A fresh adapter, the way a scenario swap arrives: the replacement store has
     // never seen this window's writes.
@@ -123,7 +123,7 @@ describe("the pin binding when the window replaces its durable store", () => {
     await settle();
 
     // The previous scenario's map is gone rather than leaking into the new one.
-    expect(renderedTiers(view.container)).toStrictEqual({});
+    expect(renderedPins(view.container)).toStrictEqual({});
   });
 
   it("sends a write made after the replacement to the replacement", async () => {
@@ -140,7 +140,7 @@ describe("the pin binding when the window replaces its durable store", () => {
     });
     await settle();
 
-    expect(renderedTiers(view.container)).toStrictEqual({ "session-a": "front" });
+    expect(renderedPins(view.container)).toStrictEqual({ "session-a": "front" });
     // Read back through a fresh store over the replacement's own adapter, so the
     // assertion is about what was persisted rather than about what is on screen.
     const readBack = await openStoreOver(replacementAdapter).readGlobal(SESSION_PIN_TIERS_KEY);
@@ -157,7 +157,7 @@ describe("the pin binding when the window replaces its durable store", () => {
     view.rerender(<PinProbe store={openStoreOver(replacementAdapter)} />);
     await settle();
 
-    expect(renderedTiers(view.container)).toStrictEqual({ "session-b": "front" });
+    expect(renderedPins(view.container)).toStrictEqual({ "session-b": "front" });
   });
 
   it("negative control: a re-render with the SAME store keeps the binding it had", async () => {
@@ -175,6 +175,6 @@ describe("the pin binding when the window replaces its durable store", () => {
     view.rerender(<PinProbe store={store} />);
     await settle();
 
-    expect(renderedTiers(view.container)).toStrictEqual({ "session-a": "front" });
+    expect(renderedPins(view.container)).toStrictEqual({ "session-a": "front" });
   });
 });

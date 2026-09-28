@@ -15,9 +15,7 @@
 // against a clock forty years from the data it drives.
 //
 // IT LIVES IN `core/` because `core/` is the bottom of the family DAG and every
-// family plus every `test/console/` tier may reach it. The previous home was
-// `channels/`, a view family the sessions family may not import — which is
-// exactly why the sessions family wrote the stamp again.
+// family plus every `test/console/` tier may reach it.
 
 import { parseInstant } from "./instant.js";
 

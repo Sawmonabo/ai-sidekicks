@@ -182,7 +182,7 @@ describe("Nothing — each kind says what its own next move needs", () => {
   });
 
   it("renders the daemon's own message on the error kind rather than a paraphrase", () => {
-    const daemonMessage = "  The runtime node refused: runtimenode.permission_denied  ";
+    const daemonMessage = "  The daemon refused: session.not_found  ";
     const error = renderNothing(
       <Nothing kind="error" title="The read failed" detail={daemonMessage} />,
     );

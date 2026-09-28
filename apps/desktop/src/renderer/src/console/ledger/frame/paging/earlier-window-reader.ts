@@ -23,11 +23,7 @@
 // SINGLE-FLIGHT, AND LOCAL. A second press while a page is in flight is dropped
 // rather than queued: the control is a button a person can press repeatedly, and two
 // backward reads from one cursor fetch the same rows twice and then merge one of them
-// into a log that already holds it. The exclusion is a field here rather than the
-// channels family's wire-mutation coordinator, and that is a DAG fact rather than
-// a preference — `console-view-family-isolation` forbids one view family importing
-// another, so a ledger read cannot reach a coordinator that lives in `channels/`,
-// and the refusals that coordinator raises name that family as their origin.
+// into a log that already holds it. The exclusion is a field here.
 //
 // AND A PAGE CAN OUTLIVE THE WINDOW IT WAS ADDRESSED FROM. A refresh re-establishes
 // the store's base state while a backward read is in flight, and the page that then
@@ -43,14 +39,6 @@
 // than a cursor compared here: a read that re-established the SAME position still
 // threw the old log away, and a page admitted across that boundary opens exactly the
 // same hole.
-//
-// AND THE READ IS SESSION-SCOPED EVEN IN A CHANNEL PANE. `TimelineReadRequest` carries
-// a `channelId` filter and this deliberately never sends one: the store's log is the
-// SESSION's, and the channel narrowing is applied above it by the pane's own
-// projection. A filtered backward page would put a channel-only prefix in front of an
-// unfiltered tail, so every other narrowing in that pane — the facets, the chapters,
-// find's four counts — would be reading a log that is two different things at two
-// ends.
 
 import { type EventCursor, type SessionId } from "@ai-sidekicks/contracts";
 

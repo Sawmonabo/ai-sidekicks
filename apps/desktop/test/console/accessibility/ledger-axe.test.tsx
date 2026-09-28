@@ -102,7 +102,6 @@ function openStoreOnScenario(scenario: ConsoleScenario): SessionStore {
   sessionStore.initialise({
     cursor: SCENARIO_BASE_CURSOR,
     entities: [],
-    userJoinLog: [...scenario.userIdsInJoinOrder],
   });
   if (scenario.beats.length > 0) {
     sessionStore.applyBatch(scenario.beats.map((beat) => beat.event));

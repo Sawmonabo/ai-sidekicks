@@ -61,7 +61,6 @@ export function PaletteOverlay(props: PaletteOverlayProps): React.JSX.Element {
     open,
     platform,
     bindings,
-    shellBlock,
     readiness = { status: "ready" },
     overlayContainer,
   } = props;
@@ -115,15 +114,6 @@ export function PaletteOverlay(props: PaletteOverlayProps): React.JSX.Element {
             </div>
           )}
 
-          {shellBlock === undefined ? null : (
-            // Above the input, because it changes what half the list will do and a
-            // person needs it before they type — and rendered through the console's
-            // one row-scoped refusal shape rather than a line of the palette's own.
-            <div className="console-palette__degraded">
-              <InlineRefusal code={shellBlock.code} detail={shellBlock.detail} />
-            </div>
-          )}
-
           <Combobox.Input
             ref={inputRef}
             className="console-palette__input"
@@ -163,9 +153,7 @@ export function PaletteOverlay(props: PaletteOverlayProps): React.JSX.Element {
           </Combobox.Status>
 
           {invocationRefusal === undefined ? null : (
-            // BELOW the rows rather than above the input where the read-only line
-            // sits: that one is a fact about half the list and has to be read before
-            // a person types, and this is the answer to the press they just made.
+            // Below the rows: the answer to the press a person just made.
             <div className="console-palette__refusal">
               <InlineRefusal code={invocationRefusal.code} detail={invocationRefusal.detail} />
             </div>

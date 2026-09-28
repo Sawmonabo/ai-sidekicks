@@ -37,27 +37,6 @@ export const RAIL_ENTRIES: readonly RailEntry[] = RAIL_DESTINATIONS.map((destina
 }));
 
 /**
- * The rail's contents with this window's attention count on the sessions entry.
- *
- * RETURNS THE CONSTANT UNCHANGED when there is no count, which is the ordinary case
- * and the reason this is a function rather than a mapped value: an array rebuilt
- * every render would re-render the console's most-seen surface for a value that did
- * not move, and the identity check above the rail is what keeps that from happening.
- *
- * Only the sessions destination carries one. The other two have no read behind them
- * that produces a count, and inventing one for them would be the renderer deciding
- * that a destination needs a person.
- */
-export function railEntriesWithAttention(attentionCount: number | undefined): readonly RailEntry[] {
-  if (attentionCount === undefined) {
-    return RAIL_ENTRIES;
-  }
-  return RAIL_ENTRIES.map((entry) =>
-    entry.destination === "sessions" ? { ...entry, attentionCount } : entry,
-  );
-}
-
-/**
  * Where a rail click goes.
  *
  * Total and argument-free by construction: each destination is a top-level context
@@ -109,12 +88,6 @@ export function warmDestination(
 /**
  * Start loading the surface a ROUTE would mount, and settle when it has landed.
  *
- * THE STEP `warmDestination` IS BUILT ON, hoisted because a second caller reaches a
- * surface by a route the rail has no destination for. The frame's context picker is that
- * caller: a bare auxiliary window resolves its subject there, and what it commits is an
- * `auxiliary` route rather than one of the rail's three. Open-coding the slot lookup
- * beside it would be a second reading of `surfaceSlotFor` to drift from this one.
- *
  * NEVER REJECTS, so a caller may await it without a `catch` of its own and a caller that
  * does not may drop it. What a chunk that will not load means is a damaged install, and
  * the honest place to say so is the mount, inside the console's own surface error
@@ -124,7 +97,7 @@ export function warmDestination(
  * with nothing done, so no caller has to ask first whether the thing it is about to open
  * is loader-backed.
  */
-export async function warmRouteSurface(
+async function warmRouteSurface(
   surfaceRegistry: ConsoleSurfaceRegistry,
   route: ConsoleRoute,
 ): Promise<void> {

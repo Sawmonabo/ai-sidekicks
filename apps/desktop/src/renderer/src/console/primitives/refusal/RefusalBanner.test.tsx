@@ -14,9 +14,9 @@ import { RefusalBanner } from "./RefusalBanner.js";
 
 /** Room-wide, which is the blast radius the banner shape exists for. */
 const ROOM_WIDE_REFUSAL = refuse(
-  "runtime-node",
-  "runtimenode.permission_denied",
-  "That runtime node is no longer attached, so no run can start here.",
+  "session",
+  "session.not_found",
+  "That session is no longer available, so nothing can run in it.",
 );
 
 describe("a banner is dismissable only when the caller can dismiss it", () => {

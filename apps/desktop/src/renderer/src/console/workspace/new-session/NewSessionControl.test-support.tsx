@@ -15,43 +15,16 @@ import {
 } from "../../bridge/fixture/call-plane/bridge.test-support.js";
 import type { ConsoleScenario } from "../../bridge/scenario/runtime/vocabulary.js";
 import { LiveAnnouncerProvider } from "../../primitives/index.js";
+import type { FirstTurnQueueCall } from "../../seats/index.js";
 import { NewSessionControl } from "./NewSessionControl.js";
-import type { NewSessionBlockedAct } from "../../seats/index.js";
 import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 // The created session's id, from the module that DECLARES it. Both new-session
 // scaffolding modules script the same `session.create`, so a second copy of the id
 // here would be two spellings of one reply that no gate compares.
-import { CREATED_SESSION_ID } from "./new-session-draft.test-support.js";
+import { CREATED_SESSION_ID, type QueuedFirstTurn } from "./new-session-draft.test-support.js";
 
-/**
- * The one call the suspended-bridge helpers below hold, and no other.
- *
- * They used to suspend and answer EVERY call, which was invisible while the composed
- * draft's only sendable axis was a posture and its send stopped at the missing turn.
- * Once the first message is the axis, a send makes two calls — and a helper named for
- * the create that answered `run.queueCreate` with the create's reply would be scripting
- * a wire the daemon cannot produce, and counting a turn as a second create.
- */
+/** The one call the suspended-bridge helpers below hold, and no other. */
 const SESSION_CREATE_CALL = "session.create";
-
-/**
- * The destination putting acts normally — what every case that is not about the block
- * mounts against.
- *
- * Both halves say the same thing, which is the reading's own rule: the render-time
- * sentence and the dispatch-time reader are one fact asked at two moments, and a
- * harness whose halves disagreed would be scripting a state the destination cannot
- * produce.
- */
-export const NOTHING_BLOCKS_THE_ACT: NewSessionBlockedAct = {
-  sentence: undefined,
-  readSentence: () => undefined,
-};
-
-/** The destination refusing every act, with the cause a control renders. */
-export function blockedActSaying(sentence: string): NewSessionBlockedAct {
-  return { sentence, readSentence: () => sentence };
-}
 
 /**
  * The WHOLE registered create response.
@@ -64,31 +37,14 @@ export function blockedActSaying(sentence: string): NewSessionBlockedAct {
 export const CREATE_REPLY: {
   readonly sessionId: string;
   readonly state: string;
-  readonly channels: readonly never[];
 } = {
   sessionId: CREATED_SESSION_ID,
   state: "active",
-  channels: [],
 };
 
-/**
- * The WHOLE registered first-turn response, for the same reason the create's is whole.
- *
- * Scripting it is what makes a COMPLETED send reachable at all. The draft this control
- * composes offers a posture and a first message and no agents, so `session.create` and
- * `run.queueCreate` are the two calls its send makes — script only the first and every
- * send in this family settles `partial`, which is the state the settlement arm is
- * deliberately not reached from.
- */
-export const FIRST_TURN_REPLY: {
-  readonly queueItemId: string;
-  readonly state: string;
-  readonly createdAt: string;
-} = {
-  queueItemId: "019b793b-7b60-7f2a-9a4a-6f0f1f4f4c11",
-  state: "queued",
-  createdAt: "2026-01-01T09:00:00.000Z",
-};
+/** A first-turn call that rejects, so a send stops after the create and settles partial. */
+export const REJECTING_FIRST_TURN: FirstTurnQueueCall = () =>
+  Promise.reject(new Error("no first turn is scripted"));
 
 /** A bridge whose `session.create` is held open, and the handle that lets it answer. */
 export interface HeldCreate {
@@ -106,31 +62,43 @@ export interface QueuedCreates {
 }
 
 /**
- * A bridge whose `session.create` answers, or one whose does not, and whose first turn
- * is scripted only where a case needs a send to complete.
+ * A first-turn call that resolves, and the requests it was asked to queue.
+ *
+ * Its resolving is what makes a COMPLETED send reachable at all: with the rejecting call
+ * every send in this family settles `partial`, which is the state the settlement arm is
+ * deliberately not reached from.
+ */
+export function completingFirstTurn(): {
+  readonly call: FirstTurnQueueCall;
+  readonly requests: readonly QueuedFirstTurn[];
+} {
+  const requests: QueuedFirstTurn[] = [];
+  return {
+    call: (request) => {
+      requests.push(request);
+      return Promise.resolve();
+    },
+    requests,
+  };
+}
+
+/**
+ * A bridge whose `session.create` answers, or one whose does not.
  *
  * The fixture bridge rather than a hand-written stub: the draft calls through
  * `bridge.desktopBridge.daemon.call`, and a stub of that member would be a second
  * implementation of the one door this family's tests already have.
  */
-export function bridgeFor(options: {
-  readonly scriptsCreate: boolean;
-  readonly scriptsFirstTurn?: boolean;
-}): ConsoleBridge {
+export function bridgeFor(options: { readonly scriptsCreate: boolean }): ConsoleBridge {
   const scenario: ConsoleScenario = {
     id: "new-session-control",
     label: "New session control",
-    purpose: "Drives the composed-draft control's two reachable wire calls.",
+    purpose: "Drives the composed-draft control's create call.",
     sessionId: "session-draft",
     userIdsInJoinOrder: ["user-you"],
     startedAtIso: "2026-01-01T09:00:00.000Z",
     beats: [],
-    replies: [
-      ...(options.scriptsCreate ? [{ call: "session.create", result: CREATE_REPLY }] : []),
-      ...(options.scriptsFirstTurn === true
-        ? [{ call: "run.queueCreate", result: FIRST_TURN_REPLY }]
-        : []),
-    ],
+    replies: options.scriptsCreate ? [{ call: "session.create", result: CREATE_REPLY }] : [],
   };
   return createFixtureBridge({ scenario });
 }
@@ -138,24 +106,28 @@ export function bridgeFor(options: {
 /**
  * The control under the window's announcer, which is where the frame mounts it.
  *
- * The settlement is a PARAMETER with a default that records nothing, because the
+ * The settlement is an OPTION with a default that records nothing, because the
  * destination hands one over on every mount and a harness that omitted it would be
  * driving a control no composition produces. A case about the settlement passes its
- * own recorder; every other case ignores what the default collects.
+ * own recorder; every other case ignores what the default collects. The first-turn call
+ * defaults to the rejecting one, so a send stops after the create unless a case says
+ * otherwise.
  */
 export function renderControlOn(
   bridge: ConsoleBridge,
-  onSessionCreated: (sessionId: string) => void = () => undefined,
-  onSessionDirectoryRecheck: () => void = () => undefined,
-  blockedAct: NewSessionBlockedAct = NOTHING_BLOCKS_THE_ACT,
+  options: {
+    readonly onSessionCreated?: (sessionId: string) => void;
+    readonly onSessionDirectoryRecheck?: () => void;
+    readonly queueFirstTurn?: FirstTurnQueueCall;
+  } = {},
 ): HTMLElement {
   const { container } = render(
     <LiveAnnouncerProvider>
       <NewSessionControl
         bridge={bridge}
-        blockedAct={blockedAct}
-        onSessionCreated={onSessionCreated}
-        onSessionDirectoryRecheck={onSessionDirectoryRecheck}
+        queueFirstTurn={options.queueFirstTurn ?? REJECTING_FIRST_TURN}
+        onSessionCreated={options.onSessionCreated ?? (() => undefined)}
+        onSessionDirectoryRecheck={options.onSessionDirectoryRecheck ?? (() => undefined)}
       />
     </LiveAnnouncerProvider>,
   );
@@ -169,7 +141,7 @@ export function renderControl(options: { readonly scriptsCreate: boolean }): HTM
 /**
  * A bridge whose `session.create` fulfils with a reply the registered schema refuses.
  *
- * Short of `state` and `channels`, so the call door answers
+ * Short of `state`, so the call door answers
  * `reply-unreadable` — the daemon was reached, ran, and answered, and only this
  * build's reading of what it said failed. That is the state a session may exist in
  * with no name this window holds.
@@ -189,26 +161,18 @@ export function bridgeAnsweringCreateUnreadably(): ConsoleBridge {
  * Only the TIMING is the test's: what settles is `CREATE_REPLY`, the same whole
  * registered response every other case here reads.
  *
- * `scriptsFirstTurn` rides through to {@link bridgeFor} rather than being a second
- * suspended bridge, because a case about what a COMPLETED send closes needs both of
- * this draft's calls scripted and the create still held — with only the create
- * scripted every send here settles partial, which is the arm that never closes a
- * draft in the first place.
- *
  * Through `withDaemonCall` rather than a spread written here, because a test reaches
  * `daemon.call` on the same terms production does — `daemon-reply-chokepoint` scans
  * source text and does not care which tier wrote it — and one shared arm is what
  * keeps every suite driving the same door.
  */
-export function bridgeHoldingCreate(
-  options: { readonly scriptsFirstTurn?: boolean } = {},
-): HeldCreate {
+export function bridgeHoldingCreate(): HeldCreate {
   let answer = (): void => {};
   const held = new Promise<void>((resolve) => {
     answer = resolve;
   });
   const { bridge } = withDaemonCall(
-    bridgeFor({ scriptsCreate: true, ...options }),
+    bridgeFor({ scriptsCreate: true }),
     async (call, passThrough) => {
       if (call.method !== SESSION_CREATE_CALL) {
         return await passThrough();
@@ -275,9 +239,9 @@ export function politeText(container: HTMLElement): string {
  * The first message is the ONLY axis this control offers, so it is also the only way a
  * draft reaches `isEmpty === false` from the screen. Which means `first-turn-missing`
  * is unreachable through this control by construction, and the partial arm every case
- * below reads is the unscripted `run.queueCreate` instead — the send makes both calls
- * and reports the second. The missing-turn refusal is still exercised where a draft
- * CAN be composed without one, in `new-session-send.test.ts`.
+ * below reads is the rejecting first-turn call instead — the send makes both calls and
+ * reports the second. The missing-turn refusal is still exercised where a draft CAN be
+ * composed without one, in `new-session-send.test.ts`.
  */
 export async function openDraftWithFirstTurn(): Promise<void> {
   await press("+ New");
@@ -301,10 +265,10 @@ export async function typeFirstTurn(firstTurn: string): Promise<void> {
 }
 
 /**
- * Compose and send the one draft whose send COMPLETES — a first message, on a bridge
- * that scripts both calls.
+ * Compose and send the one draft whose send COMPLETES — a first message, with a
+ * first-turn call that resolves.
  *
- * Both scripted calls land, so this is the only path in this family that reaches the
+ * Both calls land, so this is the only path in this family that reaches the
  * settlement: `sendNewSessionDraft` reports `sent` exactly when neither leg refused.
  */
 export async function composeAndCompleteASend(): Promise<void> {
@@ -313,16 +277,16 @@ export async function composeAndCompleteASend(): Promise<void> {
 }
 
 /**
- * The fixture with both calls scripted and every request body recorded.
+ * The fixture with its create scripted and every request body recorded.
  *
  * A pass-through arm rather than an answering one: what a case reads here is what the
  * control ASKED for, and a bridge that answered on its own would be recording requests
  * nothing ever sent. `withDaemonCall` is the console's one seam for that, so a case
  * asserting over request bodies drives the same door production does.
  */
-export function bridgeRecordingACompleteSend(): BridgeUnderTest {
+export function bridgeRecordingASend(): BridgeUnderTest {
   return withDaemonCall(
-    bridgeFor({ scriptsCreate: true, scriptsFirstTurn: true }),
+    bridgeFor({ scriptsCreate: true }),
     async (_call, passThrough) => await passThrough(),
   );
 }

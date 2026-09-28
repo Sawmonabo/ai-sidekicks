@@ -1,4 +1,4 @@
-// The ledger, composed: the find field, the feed, and the row menu.
+// The ledger, composed: the find field and the feed.
 //
 // WHAT THIS FILE ADDS TO THE PIECES IT MOUNTS: arrangement, and the callbacks
 // that let one of them act on another. Every derivation it renders is
@@ -6,9 +6,9 @@
 // every model it drives is `ledger/structure/`'s. Nothing here folds a log, measures
 // a row, or writes a `scrollTop`.
 //
-// TWO GROUPS BESIDE `row-offers/`, AND `../model/` CARRIES A DOOR. `../model/` is what
-// the feed works out — the chapter and superseded folds, the window chain, the
-// palette's acts, the find-and-jump system, and the workspace's follow seat — and
+// TWO GROUPS, AND `../model/` CARRIES A DOOR. `../model/` is what the feed works out —
+// the chapter fold, the window chain, the palette's acts, the find-and-jump system,
+// and the workspace's follow seat — and
 // `surface/` is what draws it: this component, the header, the row and its footer, and
 // the row host the pane mounts. The log fixtures two of them share stay at `feed/`, the
 // directory that owns both. Every edge runs one way, surface to model — measured with
@@ -41,7 +41,7 @@
 //     own reconciled snapshot, after the cap — so the boundary find states is the
 //     boundary that is actually true of what is on screen. Matches outside that window
 //     are counted beside the field rather than walked into and lost — in THREE counts,
-//     one per narrowing, because a match the cap took, one the facet bar is hiding and
+//     one per narrowing, because a match the cap took, one a filter is hiding and
 //     one a folded chapter holds are three states with three different exits.
 //   • A row body is the SEAT's, handed down whole. This file supplies only the three
 //     decisions the seat says the list makes.
@@ -53,8 +53,8 @@
 // elements. What stays here is the composition that hands them their windows.
 //
 // AND WHAT THIS FILE RENDERS IS A FEW CHILDREN, NOT TWENTY ELEMENTS. What the ledger
-// says ABOVE its rows is `LedgerFeedHeader.tsx`' — the find field, the facet bar, the
-// id jump, and the three absences a person can still act on, one subject. It DERIVES
+// says ABOVE its rows is `LedgerFeedHeader.tsx`' — the find field and the absences a
+// person can still act on, one subject. It DERIVES
 // NOTHING: every value it takes is a reading already held here, so it cannot become a
 // second answer to a question the derivations next door already answer.
 //
@@ -88,7 +88,6 @@ import {
   LedgerRowLeaseProvider,
   LedgerRowRevealProvider,
   LedgerViewport,
-  type LedgerScope,
 } from "../../../frame/index.js";
 import { LedgerFeedHeader } from "./LedgerFeedHeader.js";
 import { LedgerWindowAbsences, LedgerWindowReadState } from "../../window/index.js";
@@ -100,8 +99,8 @@ import {
   useLedgerFindAndJump,
   useLedgerStructureActs,
 } from "../model/index.js";
-import { LedgerRowOffersMenu, useLedgerRowOffers } from "../row-offers/index.js";
 
+/** What the feed is a log of and the row body it draws each row through. */
 export interface LedgerFeedProps {
   readonly sessionStore: SessionStore;
   /**
@@ -111,40 +110,17 @@ export interface LedgerFeedProps {
    * hold this feed beside a second one, and a chip press names the pane it focused.
    */
   readonly paneId: string;
-  /**
-   * The channel this feed is a log OF, when it is a log of one.
-   *
-   * Absent, the feed is the whole session — which is what a bare timeline address
-   * means. Present, it is applied inside the projection rather than beside it, so
-   * the facets, the chapters, the seams, the cap and find are all facts about the
-   * channel and no piece below has to be told a scope exists.
-   */
-  readonly channelId?: string;
   /** The row body, from the seat. Resolved by the pane, so this file reads no seat. */
   readonly renderTimelineRow: TimelineRowRenderer;
   /** Names the feed for a screen reader walking the window. */
   readonly feedLabel: string;
 }
 
+/** The session's log: the find field, the rows, and what the window does not hold. */
 export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
   const clock = useConsoleClock();
-  // WHAT THIS LEDGER IS A LOG OF, resolved once and handed to both surfaces that
-  // say something about the window as a whole. Every sentence either of them can
-  // print names a subject, and the subject is this.
-  const scope: LedgerScope = props.channelId === undefined ? "session" : "channel";
-  const windows = useLedgerFeedWindows({
-    sessionStore: props.sessionStore,
-    channelId: props.channelId,
-    clock,
-  });
-  const {
-    chapterDisclosure,
-    ledgerFilter,
-    ledgerWindow,
-    supersededBandDisclosure,
-    viewport,
-    visible,
-  } = windows;
+  const windows = useLedgerFeedWindows({ sessionStore: props.sessionStore, clock });
+  const { chapterDisclosure, ledgerFilter, ledgerWindow, viewport, visible } = windows;
   const jumpToRow = viewport.jumpToRow;
   // THE FIELD, THE CLASSIFICATION, AND THE ACT — one seam, wired next door.
   // Every window between the loaded log and the screen goes in, because the answer
@@ -155,8 +131,6 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
     foldedWindow: ledgerWindow,
     filteredAwayRows: windows.narrowing.removedRows,
     foldedAwayRows: windows.chapterFold.removedRows,
-    bandFoldedAwayRows: windows.bandFold.removedRows,
-    openSupersededBandOfRow: supersededBandDisclosure.openBandKey,
     visible,
     openedTerminalRunIds: chapterDisclosure.openedTerminalRunIds,
     toggleChapter: chapterDisclosure.toggle,
@@ -167,11 +141,11 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
   const find = findAndJump.find;
 
   // The STORE's wheel, which is the one the session header reads, handed to the rows so one
-  // person wears one colour everywhere. A surface asks the session who somebody is
+  // person wears one color everywhere. A surface asks the session who somebody is
   // rather than deciding it again from the order this window happened to meet them in.
   // `assignmentFor` never allocates, so an actor the wheel has never admitted
   // answers `undefined`: the row renders its unattributed shape rather than being
-  // handed a colour nobody else would agree with.
+  // handed a color nobody else would agree with.
   const hueForActor = useCallback(
     (userId: string) => props.sessionStore.hueAllocator.assignmentFor(userId),
     [props.sessionStore],
@@ -188,8 +162,6 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
   // mounted row re-rendered for a change none of them could see.
   const renderTimelineRow = props.renderTimelineRow;
   const rowLeaseChannel = useMemo(() => ({ setLease: setRowLease }), [setRowLease]);
-  // THE ROW'S OWN OFFERS, bound once for the mount — `row-offers/` owns why.
-  const rowOffers = useLedgerRowOffers({ rowLease, setRowLease, jumpToRow });
   const renderRow = useLedgerRowRenderer({
     ledgerWindow,
     openedTerminalRunIds,
@@ -197,9 +169,6 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
     toggleChapter,
     rowLease,
     renderTimelineRow,
-    childRunDisclosure: windows.childRunDisclosure,
-    supersededBandDisclosure,
-    rowOffers,
   });
 
   // The palette's chords and the session header's chips both act on whichever ledger is
@@ -219,13 +188,7 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
 
   return (
     <div className="meridian-ledger">
-      <LedgerFeedHeader
-        findAndJump={findAndJump}
-        facets={ledgerFilter.facets}
-        filter={ledgerFilter.filter}
-        onFilterChange={ledgerFilter.setFilter}
-        onJumpToRow={jumpToRow}
-      />
+      <LedgerFeedHeader findAndJump={findAndJump} />
       <div className="meridian-ledger__body">
         <LedgerRowLeaseProvider channel={rowLeaseChannel}>
           <LedgerRowRevealProvider channel={windows.reveal.channel}>
@@ -233,8 +196,8 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
                 by one row body and not by the list: the ask card asks for its own ask's
                 terminal, and every other row consumes nothing here.
 
-                THE CHAIN'S FOLD AND NOT THIS WINDOW'S. `ledgerWindow` is what the facet
-                bar, the chapter fold and the band fold left, and a narrowing that admits
+                THE CHAIN'S FOLD AND NOT THIS WINDOW'S. `ledgerWindow` is what the filter
+                and the chapter fold left, and a narrowing that admits
                 a request row while excluding the row that answered it must not be able
                 to take the terminal with it — the card would then offer answer controls
                 for an ask the log had already settled. */}
@@ -243,8 +206,6 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
                 binding={viewport}
                 renderRow={renderRow}
                 feedLabel={props.feedLabel}
-                scope={scope}
-                peerInvocationEnabled={windows.peerInvocationEnabled}
                 firstReadSettled={windows.firstReadSettled}
                 hasActiveTurn={ledgerWindow.hasActiveTurn}
                 earlierPaging={windows.earlierPaging}
@@ -253,19 +214,11 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
           </LedgerRowRevealProvider>
         </LedgerRowLeaseProvider>
       </div>
-      {/*
-        THE WINDOW'S ONE ROW MENU, mounted beside the list rather than inside each row
-        — `row-offers/LedgerRowOffersMenu.tsx` owns why. It draws no element here: the
-        root renders none of its own and the popup leaves through the overlay portal,
-        so this line adds a machine and not a box.
-      */}
-      <LedgerRowOffersMenu offers={rowOffers} />
       <LedgerWindowReadState sessionStore={props.sessionStore} />
       <LedgerWindowAbsences
         unprojectableEventCount={ledgerWindow.unprojectableEventCount}
         droppedRowCount={visible.prunedAwayRows.length}
         hasUnreceivedEntries={ledgerWindow.hasUnreceivedEntries}
-        scope={scope}
       />
     </div>
   );

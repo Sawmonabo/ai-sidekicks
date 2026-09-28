@@ -10,25 +10,11 @@ import { describe, expect, it } from "vitest";
 
 import type { SessionDirectoryState } from "../../seats/index.js";
 import {
-  SESSIONS_ABSENCE_KINDS,
   mergeSessionRows,
   sessionsAbsenceKindFor,
   withAttentionSeverity,
 } from "./session-directory-rows.js";
 import type { SessionListRow } from "./session-rows.js";
-
-const REFUSED_DIRECTORY: SessionDirectoryState = {
-  status: "unavailable",
-  refusal: {
-    status: "unavailable",
-    code: "wire-unregistered",
-    origin: "growth-port",
-    detail: "Not checked — the session directory read is not registered yet.",
-    operationId: "sessionList",
-    slateRow: "session-directory-read",
-    owningDocument: "the session directory",
-  },
-};
 
 function servedDirectory(sessionIds: readonly string[]): SessionDirectoryState {
   return {
@@ -48,27 +34,9 @@ function projectedRow(overrides: Partial<SessionListRow> & { sessionId: string }
 }
 
 describe("sessionsAbsenceKindFor — the read decides, not the row count", () => {
-  it("maps each of the three read states to its own kind", () => {
+  it("maps each of the two read states to its own kind", () => {
     expect(sessionsAbsenceKindFor({ status: "reading" })).toBe("not-loaded");
     expect(sessionsAbsenceKindFor(servedDirectory([]))).toBe("empty");
-    expect(sessionsAbsenceKindFor(REFUSED_DIRECTORY)).toBe("not-checked");
-  });
-
-  it("never answers `empty` for a refused read", () => {
-    // The negative control for the claim this surface must never make: a refused
-    // directory reported as `empty` is "there are no sessions on this node", which
-    // is a fact nobody established.
-    expect(sessionsAbsenceKindFor(REFUSED_DIRECTORY)).not.toBe("empty");
-  });
-
-  it("answers inside its own declared set and nowhere else", () => {
-    for (const directory of [
-      { status: "reading" } as const,
-      servedDirectory([]),
-      REFUSED_DIRECTORY,
-    ]) {
-      expect(SESSIONS_ABSENCE_KINDS).toContain(sessionsAbsenceKindFor(directory));
-    }
   });
 });
 
@@ -115,16 +83,6 @@ describe("mergeSessionRows — two sources, neither dropped", () => {
     });
 
     expect(rows[0]?.state).toBe("active");
-  });
-
-  it("still lists what this window holds when the directory was refused", () => {
-    const rows = mergeSessionRows({
-      directory: REFUSED_DIRECTORY,
-      windowSessionIds: ["session-local"],
-      projectedRows: [],
-    });
-
-    expect(rows.map((row) => row.sessionId)).toStrictEqual(["session-local"]);
   });
 
   it("lists nothing from a directory that has not answered", () => {

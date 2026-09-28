@@ -11,7 +11,6 @@
 //   module top level ......... registerRendererScheme()      (before app.ready)
 //   inside whenReady() ....... installRendererProtocol(...)  (before any window)
 //                              installApplicationMenu()
-//                              installAuxiliaryWindowControls()
 //                              createMainWindow()
 //
 // A scheme registered after ready is refused by Electron, and a window created
@@ -27,9 +26,7 @@
 
 import path from "node:path";
 
-import { app, type BrowserWindow } from "electron";
-import { installAuxiliaryWindowControls } from "./auxiliary-window-ipc.js";
-import { watchAuxiliaryWindowsForComposerChord } from "./composer-focus.js";
+import { app } from "electron";
 import { createMainDiagnosticLog, reportUnwrittenDiagnostics } from "./diagnostic-log.js";
 import { installApplicationMenu } from "./menu.js";
 import { startGcProbe } from "./probes/gc-probe.js";
@@ -37,7 +34,6 @@ import { installReadinessBreadcrumbs, runSmokeProbe } from "./probes/smoke-probe
 import { installRendererProtocol, registerRendererScheme } from "./protocol.js";
 import { createMainWindow } from "./window.js";
 import { installActivationPolicy } from "./window-reveal.js";
-import { registerSidecarLifecycle } from "./sidecar-lifecycle.js";
 
 // The `electron-vite` output layout puts the main bundle at `out/main/index.js`
 // and the renderer tree at `out/renderer/` (see `electron.vite.config.ts`
@@ -152,41 +148,9 @@ const gotTheLock = app.requestSingleInstanceLock();
 // must not embed a path that weakens those guarantees, and a probe calling
 // `executeJavaScript` against the renderer is exactly such a path.
 
-// Module-scope handle for the BrowserWindow. Defensive consistency
-// with the canonical Electron main-process retention pattern. The
-// load-bearing reachability mechanism is actually Electron's
-// native-side `BaseWindow::self_ref_`
-// (`v8::Global<v8::Value>` strong-rooted from `InitWith` to native
-// destruction) — a freshly constructed `BrowserWindow` is anchored
-// on the V8 root set without any user-side help. Keeping
-// `let mainWindow` is zero-cost insurance against future Electron
-// releases shifting `self_ref_` semantics (asymmetric risk: one
-// identifier vs. silent regression on a future Electron release).
-//
-// It is also READ, by exactly one caller: the composer chord an auxiliary window
-// answers needs the window the composer is in, and takes this as a getter rather
-// than a captured handle so a closed-and-reopened main window is the one it goes to
-// (see `./composer-focus.ts`).
-let mainWindow: BrowserWindow | null = null;
-
 if (!gotTheLock) {
   app.quit();
 } else {
-  // The sidecar-cleanup handler MUST register BEFORE any other
-  // `app.on('will-quit', ...)` registration. Under Electron's
-  // EventEmitter semantics, listener invocation order equals
-  // registration order — late registration would let downstream
-  // handlers close resources the drain depends on, orphaning active
-  // PTY children to the global console (the `microsoft/node-pty#904`
-  // SIGABRT-on-exit failure mode).
-  //
-  // The PtyHost getter currently returns `null` — no daemon PtyHost is
-  // provisioned yet — and the registration still runs at position 0
-  // unconditionally so the FIFO-ordering guarantee holds the moment a
-  // PtyHost lands. See `sidecar-lifecycle.ts`'s `PtyHostGetter` doc
-  // comment for the lazy-getter rationale.
-  registerSidecarLifecycle(app, () => null);
-
   app
     .whenReady()
     .then(() => {
@@ -199,11 +163,6 @@ if (!gotTheLock) {
       // could begin a load against an unhandled scheme.
       installRendererProtocol(RENDERER_ROOT);
       installApplicationMenu();
-      // BEFORE any window, for the protocol handler's own reason: a renderer that
-      // reached an unregistered channel would take `invoke`'s missing-handler
-      // rejection, which reads like a missing feature rather than a startup order
-      // that ran late. See `./auxiliary-window-ipc.ts`.
-      installAuxiliaryWindowControls();
 
       // Production-safety: the OUTER condition is the compile-time-static
       // gate (Vite substitutes `false` in release bundles → Rollup
@@ -223,7 +182,7 @@ if (!gotTheLock) {
       // attached afterwards is on time only because Electron happens to emit on
       // a later tick — a property of the runtime, not of this code. See
       // `WindowLoadOptions`.
-      const browserWindow = createMainWindow({
+      createMainWindow({
         // Empty in every build but the fixtures one, where it names the scripted
         // session this window plays. The renderer reads it once, before its first
         // render, and never again.
@@ -244,22 +203,10 @@ if (!gotTheLock) {
           }
         },
       });
-      mainWindow = browserWindow;
-      browserWindow.on("closed", () => {
-        mainWindow = null;
-      });
-
-      // AFTER the main window exists, and that ordering is the exclusion:
-      // `browser-window-created` is an event rather than a registry, so the window
-      // that HAS the composer is never handed to this watcher and the chord stays
-      // free for the binding that moves the caret. Every window opened from here on
-      // — the auxiliary routes, which have no composer of their own — answers the
-      // chord by bringing this one forward.
-      watchAuxiliaryWindowsForComposerChord(app, () => mainWindow);
 
       // The GC probe owns its own listener registration and its own deferral
       // (see `./probes/gc-probe.ts#startGcProbe`), so nothing scheduled here
-      // closes over `browserWindow` and roots the window the probe measures.
+      // closes over the window and roots the window the probe measures.
       if (
         !smokeProbeRequested &&
         __SIDEKICKS_SMOKE_BUILD__ &&
@@ -304,9 +251,8 @@ if (!gotTheLock) {
         // THE EXIT IS THE CONTRACT AND THE RECORD IS BEST-EFFORT, which is why it is
         // here rather than after the record. This handler is the terminal one on the
         // chain, so a rejection escaping it is an UNHANDLED one: the process dies
-        // through Node's own path instead of Electron's, `app.quit`'s hooks never
-        // run, and the sidecar drain registered at position 0 above is skipped — a
-        // startup failure orphaning the children a clean exit would have reaped.
+        // through Node's own path instead of Electron's and `app.quit`'s hooks never
+        // run.
         app.exit(1);
       }
     });

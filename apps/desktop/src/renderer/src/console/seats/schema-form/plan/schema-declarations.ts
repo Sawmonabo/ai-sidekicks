@@ -18,7 +18,6 @@
 // of one schema shape, one implementation of the reading.
 
 import {
-  ARTIFACT_REFERENCE_FORMAT,
   LONG_TEXT_FORMAT,
   type SchemaFieldDescriptor,
   type SchemaFieldKind,
@@ -37,7 +36,7 @@ export function declaredType(schema: Readonly<Record<string, unknown>>): string 
 }
 
 /**
- * Which of the six a member schema is, or nothing where it is none of them.
+ * Which of the five a member schema is, or nothing where it is none of them.
  *
  * Order matters in one place and only one: `enum` is read BEFORE `type`, because an
  * enumerated string carries both and the choice control is the richer reading of it.
@@ -59,9 +58,6 @@ export function fieldKindOf(
     return undefined;
   }
   const format = declaredFormat(schema);
-  if (format === ARTIFACT_REFERENCE_FORMAT) {
-    return "artifact-reference";
-  }
   return format === LONG_TEXT_FORMAT ? "long-text" : "text";
 }
 

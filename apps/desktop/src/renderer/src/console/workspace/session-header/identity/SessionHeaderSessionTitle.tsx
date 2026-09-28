@@ -1,4 +1,4 @@
-// The display title a session read carried, where it carried one.
+// The display title a session carries, where it carries one.
 //
 // Its own module for the one-component rule, and it earns one: a nameless session is
 // rendered by its identifier and never by an invented title, and this is where that
@@ -11,12 +11,11 @@
 // and saying so on the element is the difference between rendering a fact and
 // asserting a field that does not exist.
 
-import { type GrowthSessionSummary } from "../../../bridge/index.js";
 import { WireFigure } from "../../../primitives/index.js";
-import { type SessionHeaderReadState } from "../model/session-header-read-projection.js";
 
 export interface SessionHeaderSessionTitleProps {
-  readonly identity: SessionHeaderReadState<GrowthSessionSummary>;
+  /** The session's display title, where it has one. */
+  readonly title: string | undefined;
 }
 
 /**
@@ -28,14 +27,14 @@ export interface SessionHeaderSessionTitleProps {
  * left, and a "not checked" badge beside it would report a missing answer where the
  * answer is that this session has no name.
  *
- * A read that has not settled renders nothing for the same reason: the id is the
- * whole identity until the title arrives, and a skeleton bar between the id and the
- * state chip would move both of them when it resolved.
+ * A title that has not arrived renders nothing for the same reason: the id is the
+ * whole identity until it does, and a skeleton bar beside the id would move it when the
+ * title resolved.
  */
 export function SessionHeaderSessionTitle(
   props: SessionHeaderSessionTitleProps,
 ): React.JSX.Element | null {
-  const title = props.identity.status === "served" ? props.identity.value.title : undefined;
+  const { title } = props;
   return title === undefined ? null : (
     // Labelled as metadata on the element itself, because that is what it IS: no
     // registered session shape has a name field, and a reader who wonders where the

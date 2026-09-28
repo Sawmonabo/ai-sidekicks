@@ -1,4 +1,4 @@
-// The colour scheme: hydrated on a read, persisted on an act, disclosed on a refusal.
+// The color scheme: hydrated on a read, persisted on an act, disclosed on a refusal.
 //
 // The scheme is the one window preference that has to survive a reload, so it is the
 // one thing the frame reads back at mount and writes at the moment a person changes
@@ -35,7 +35,7 @@ export interface SchemePreferenceSurface {
   readonly chooseScheme: (preference: SchemePreference) => void;
 }
 
-/** This window's colour scheme, read back at mount and written when it is chosen. */
+/** This window's color scheme, read back at mount and written when it is chosen. */
 export function useSchemePreference(
   frameStore: FrameStore,
   uiStateStore: UiStateStore,
@@ -94,6 +94,6 @@ function describeUnsavedScheme(refusal: ConsoleRefusal): ConsoleRefusal {
   return refuse(
     refusal.origin,
     refusal.code,
-    `The colour scheme applies to this window but could not be saved, so a reload will not bring it back. ${refusal.detail}`,
+    `The color scheme applies to this window but could not be saved, so a reload will not bring it back. ${refusal.detail}`,
   );
 }

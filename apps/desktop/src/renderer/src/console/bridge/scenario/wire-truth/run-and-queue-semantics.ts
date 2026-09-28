@@ -53,10 +53,10 @@
 //
 // WHY THE QUEUE LEG IS NOT THE SAME CALL. The queue arm of that module projects a
 // `QueueItemSummary`, which carries `priority` and `createdAt` — row members no queue
-// EVENT carries, sourced from the scenario's own `run.queueList` reply. Routing the
-// queue kinds through it would make this predicate refuse every scenario that scripts
-// a queue beat without also scripting that reply, which is a claim about a scenario's
-// replies rather than about a beat. The beat-scoped half of the queue rule is the
+// EVENT carries, which the queue rows' own read supplies. Routing the queue kinds
+// through it would make this predicate refuse every scenario that scripts a queue beat
+// without also scripting that read, which is a claim about a scenario's replies rather
+// than about a beat. The beat-scoped half of the queue rule is the
 // queue leg here; the row-read half belongs where a scenario is actually played.
 
 import { RunIdSchema, SessionIdSchema } from "@ai-sidekicks/contracts";
@@ -245,7 +245,7 @@ function describeSelfTransitionDefect(beat: ScenarioBeat): string | undefined {
  * A queue beat that names no state, or names one its kind contradicts.
  *
  * The queue event family fixes the queue payload at
- * `{sessionId, queueItemId, channelId?, state}`, and `SessionEventSchema`
+ * `{sessionId, queueItemId, state}`, and `SessionEventSchema`
  * registers no variant for any of the five `queue_item.*` kinds — so `state` is
  * required by the wire and enforced by nothing the contracts package ships. A
  * beat without it reads as a real queue event, and the queue stream's projection

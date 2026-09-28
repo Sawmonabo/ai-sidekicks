@@ -1,6 +1,6 @@
-// What the registry this hook mints is WIRED with: a clock, and the projectors.
+// What the registry this hook mints is WIRED with: a clock, the projectors, and the read.
 //
-// Both are properties of the composition root rather than of the registry class,
+// The first two are properties of the composition root rather than of the registry class,
 // and both are invisible in a snapshot — a store on the wrong clock still holds
 // events, and a store with no projectors still holds a timeline. So each case
 // drives the registry the hook actually built and carries the same-class control
@@ -13,15 +13,17 @@ import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import type { ConsoleBridge } from "../../bridge/index.js";
+import { bridgeAnswering } from "../../bridge/fixture/call-plane/bridge.test-support.js";
 import type { ScenarioEngine } from "../../bridge/scenario/runtime/engine.js";
 import { FLAGSHIP_SCENARIO } from "../../bridge/scenario/flagship/flagship.js";
-import { APPLY_COALESCE_MS, ManualClock } from "../../core/index.js";
+import { APPLY_COALESCE_MS, ConsoleRefusalError, ManualClock } from "../../core/index.js";
 import {
   ConsoleEntityProjectorRegistry,
   SessionStoreRegistry,
   type ConsoleSessionEvent,
 } from "../../store/index.js";
 import { RUN_LIFECYCLE_PROJECTORS } from "../run-projection/run-lifecycle-projector.js";
+import { sessionReadThroughDaemon } from "./session-read.js";
 import {
   SessionProbe,
   fixtureBridgeHarness,
@@ -143,7 +145,7 @@ describe("useSessionStoreRegistry — the projectors the window's stores fold wi
     expect(store).toBeDefined();
     // The same base state the fixture's own session read establishes, so a read
     // landing later answers at this cursor and changes nothing.
-    store?.initialise({ cursor: 0, entities: [], userJoinLog: [] });
+    store?.initialise({ cursor: 0, entities: [] });
 
     act(() => {
       registry.enqueue(sessionId, [queuedRunEvent(sessionId, 1, "run-projection-1")]);
@@ -162,7 +164,7 @@ describe("useSessionStoreRegistry — the projectors the window's stores fold wi
     const registry = new SessionStoreRegistry({ read: () => Promise.resolve(undefined) });
     const sessionId = "session-unprojected";
     const store = registry.open(sessionId);
-    store.initialise({ cursor: 0, entities: [], userJoinLog: [] });
+    store.initialise({ cursor: 0, entities: [] });
 
     registry.enqueue(sessionId, [queuedRunEvent(sessionId, 1, "run-projection-1")]);
     registry.flush(sessionId);
@@ -227,7 +229,7 @@ describe("useSessionStoreRegistry — the board a family projects its own events
     );
     const { registry } = lastObservation(observed);
     const store = registry.peek(sessionId);
-    store?.initialise({ cursor: 0, entities: [], userJoinLog: [] });
+    store?.initialise({ cursor: 0, entities: [] });
 
     act(() => {
       registry.enqueue(sessionId, [familyEvent(sessionId, 1)]);
@@ -250,7 +252,7 @@ describe("useSessionStoreRegistry — the board a family projects its own events
     });
     const sessionId = "session-unclaimed-kind";
     const store = registry.open(sessionId);
-    store.initialise({ cursor: 0, entities: [], userJoinLog: [] });
+    store.initialise({ cursor: 0, entities: [] });
 
     registry.enqueue(sessionId, [familyEvent(sessionId, 1)]);
     registry.flush(sessionId);
@@ -258,5 +260,33 @@ describe("useSessionStoreRegistry — the board a family projects its own events
     expect(store.snapshot().timeline).toHaveLength(1);
     expect(store.snapshot().partitions.approval).toStrictEqual({});
     registry.disposeAll();
+  });
+});
+
+describe("sessionReadThroughDaemon — the base state a store opens on", () => {
+  it("opens at the bottom of the stream and carries the daemon's cursor block unread", async () => {
+    const { bridge } = bridgeAnswering((_call, passThrough) => passThrough());
+
+    const snapshot = await sessionReadThroughDaemon(bridge)(
+      FLAGSHIP_SCENARIO.sessionId,
+      [],
+      undefined,
+    );
+
+    expect(snapshot).toStrictEqual({
+      cursor: 0,
+      entities: [],
+      timelineCursors: { latest: "flagship-cursor-45" },
+    });
+  });
+
+  it("raises the refusal instead of reading nothing", async () => {
+    const { bridge } = bridgeAnswering(() =>
+      Promise.reject({ code: "session.not_found", message: "gone" }),
+    );
+
+    await expect(
+      sessionReadThroughDaemon(bridge)(FLAGSHIP_SCENARIO.sessionId, [], undefined),
+    ).rejects.toBeInstanceOf(ConsoleRefusalError);
   });
 });

@@ -3,7 +3,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
-  TIMELINE_ROW_FOOTER_SLOT_CONTRACT,
   TIMELINE_ROW_FOOTER_TYPES,
   registerTimelineRowFooterRenderer,
   rowTakesFooter,
@@ -68,11 +67,5 @@ describe("the timeline row footer seat", () => {
 
   it("names one row type, so the membership question has one home", () => {
     expect([...TIMELINE_ROW_FOOTER_TYPES]).toStrictEqual(["user.message"]);
-  });
-
-  it("answers the three facts a plan-owned slot owes", () => {
-    expect(TIMELINE_ROW_FOOTER_SLOT_CONTRACT.owningTask).not.toBe("");
-    expect(TIMELINE_ROW_FOOTER_SLOT_CONTRACT.mountObligation).not.toBe("");
-    expect(TIMELINE_ROW_FOOTER_SLOT_CONTRACT.deleteShellIn).not.toBe("");
   });
 });

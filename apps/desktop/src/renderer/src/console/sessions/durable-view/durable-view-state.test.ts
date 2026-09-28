@@ -290,7 +290,7 @@ describe("a durable view state whose writes overlap", () => {
   it("writes one snapshot per issued commit, in order, and leaves the newest durable", async () => {
     // The defect: both writes go to the store at once, each carrying a COMPLETE
     // record, and whichever the adapter finishes last is what stays durable. On the
-    // unserialised class the second value reaches the store before the first has
+    // unserialized class the second value reaches the store before the first has
     // settled, so the first assertion below already fails.
     const store = heldWriteStore();
     const state = stateOver(store);
@@ -350,7 +350,7 @@ describe("a durable view state whose writes overlap", () => {
   it("publishes no refusal from a settlement a later act superseded", async () => {
     // The long list does not fit and the short one does, so the write a person's
     // CURRENT state rides succeeds — and the obsolete refusal must not be left
-    // standing beside a control whose value is durable. The unserialised class
+    // standing beside a control whose value is durable. The unserialized class
     // records it, so a pin list shows a failure for a state it is not showing.
     const store = heldWriteStore({ capacityBytes: CEILING_ADMITTING_A_SHORT_LIST });
     const state = stateOver(store);

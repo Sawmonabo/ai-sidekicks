@@ -61,7 +61,7 @@ interface ConsolePaneBinding {
    */
   readonly linkedSourcePaneId: string | undefined;
   /**
-   * The focus ring's colour, as a `var()` reference produced by
+   * The focus ring's color, as a `var()` reference produced by
    * `tokens/tokenReference`. The hue answers "who" everywhere, pane focus rings
    * included. `undefined` where the deck has no actor to attribute the pane to, which
    * is the fail-closed answer: an unattributed pane takes the neutral boundary rather

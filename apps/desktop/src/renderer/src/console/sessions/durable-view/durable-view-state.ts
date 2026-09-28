@@ -230,7 +230,7 @@ export class DurableViewState<TValue extends PersistedValue> {
    * THE ANSWER A COALESCED CALLER GETS IS THE WRITE THAT CARRIED ITS STATE. Two acts
    * before the store frees are one waiting snapshot, so both callers settle on the
    * one write that took the newest value — which is the honest answer to "did what I
-   * asked for reach the store", and the only one the serialisation leaves true.
+   * asked for reach the store", and the only one the serialization leaves true.
    */
   public async commit(next: TValue): Promise<PersistenceWriteOutcome> {
     this.#localActs.supersedeAll();

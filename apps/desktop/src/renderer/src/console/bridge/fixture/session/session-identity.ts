@@ -14,16 +14,25 @@
 // `config`, `metadata`, and two timestamps, and `session.created`'s payload is
 // `.strict()` with no title member at all. So a display title is metadata a session
 // carries, read from the scenario's own scripted reply rather than folded out of a
-// beat — which is the same rule the directory derivation states, applied to the same
-// reply.
+// beat.
 
 import { ConsoleRefusalError, refuse } from "../../../core/index.js";
-import type { GrowthSessionSummary } from "../../growth-values/index.js";
 import { scriptedSessionReadMember } from "./scripted-session-read.js";
 import type { ConsoleScenario } from "../../scenario/runtime/index.js";
 
 /** The subsystem an identity-derivation refusal names as its author. */
 const IDENTITY_ORIGIN = "fixture-session-identity";
+
+/** What a session is called and the state it is in. */
+export interface ScenarioSessionIdentity {
+  readonly sessionId: string;
+  /**
+   * Optional because a session may genuinely have no name; it then renders by its
+   * identifier, never by an invented title.
+   */
+  readonly title?: string;
+  readonly state: string;
+}
 
 /**
  * The identity the scenario declares for one session, or `undefined`.
@@ -31,13 +40,14 @@ const IDENTITY_ORIGIN = "fixture-session-identity";
  * `undefined` on two different grounds, and both are the fixture declining to invent
  * rather than an omission: a scenario that scripts no session read has not said the
  * session exists, and a request for a session this scenario is not playing is a
- * question about a session this fixture knows nothing about. The caller turns either
- * into the port's own refusal, which is what a console with no registered read sees.
+ * question about a session this fixture knows nothing about.
+ *
+ * @consumedBy the fixture's answer to the session read the header's title takes
  */
 export function scenarioSessionIdentity(
   scenario: ConsoleScenario,
   sessionId: string,
-): GrowthSessionSummary | undefined {
+): ScenarioSessionIdentity | undefined {
   if (sessionId !== scenario.sessionId) {
     return undefined;
   }
@@ -47,10 +57,10 @@ export function scenarioSessionIdentity(
   }
   const title = scriptedSessionReadMember(scenario, "session", "metadata", "title");
   if (title !== undefined && typeof title !== "string") {
-    // A THROW rather than a dropped title, on `session-directory.ts`' terms:
-    // a scenario is in-tree source, so a metadata title that is not a string is an
-    // authoring defect, and rendering the session by its identifier would make it
-    // indistinguishable from the ordinary untitled session the surface must also draw.
+    // A THROW rather than a dropped title: a scenario is in-tree source, so a
+    // metadata title that is not a string is an authoring defect, and rendering the
+    // session by its identifier would make it indistinguishable from the ordinary
+    // untitled session the surface must also draw.
     throw new ConsoleRefusalError(
       refuse(
         IDENTITY_ORIGIN,

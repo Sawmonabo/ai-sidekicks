@@ -1,26 +1,23 @@
 // Every window this feed derives, in the one order they may be derived in.
 //
 // WHAT THIS MODULE OWNS. A ledger pane holds a chain of windows, not one: the whole
-// unfurled projection, the same projection narrowed by the facet bar, that narrowing
-// with finished chapters folded, that fold with rewound bands folded, and finally the
-// part the viewport reconciled onto the screen. Each stage is somebody else's
-// derivation — `ledger-window.ts`', `ledger-narrowing.ts`', `ledger-chapter-fold.ts`',
-// `ledger-superseded-fold.ts`', `viewport-binding.ts`', `ledger-visible-window.ts`' —
-// and what this module adds is the ORDER and nothing else. It folds no log, measures
-// no row and writes no `scrollTop`.
+// unfurled projection, the same projection narrowed by the ledger filter, that narrowing
+// with finished chapters folded, and finally the part the viewport reconciled onto
+// the screen. Each stage is somebody else's derivation — `ledger-window.ts`',
+// `ledger-narrowing.ts`', `ledger-chapter-fold.ts`', `viewport-binding.ts`',
+// `ledger-visible-window.ts`' — and what this module adds is the ORDER and nothing
+// else. It folds no log, measures no row and writes no `scrollTop`.
 //
-// WHY THE ORDER IS THE PRODUCT. Three of the stages are only truthful in one
+// WHY THE ORDER IS THE PRODUCT. Two of the stages are only truthful in one
 // position, and the reasons are stated at each call below: the narrowing runs on the
-// unfurled projection so no piece downstream has to remember a filter exists, the
+// unfurled projection so no piece downstream has to remember a filter exists, and the
 // chapter fold runs AFTER the narrowing or a closed terminal chapter reaches the
-// filter as one receipt, and the band fold runs after the chapter fold because a
-// folded chapter has already reduced itself to a header and a receipt. A caller that
-// composed these stages itself would be free to get that wrong, and the failure is
-// silent: every ordering renders rows.
+// filter as one receipt. A caller that composed these stages itself would be free to
+// get that wrong, and the failure is silent: every ordering renders rows.
 //
-// AND WHY EACH STAGE'S OWN REPORT LEAVES WITH IT. The three counts beside the find
-// field are made of exactly these separations — a match the cap took, one the facet
-// bar is hiding, one a folded chapter holds are three states with three different
+// AND WHY EACH STAGE'S OWN REPORT LEAVES WITH IT. The counts beside the find
+// field are made of exactly these separations — a match the cap took, one the filter
+// is hiding, one a folded chapter holds are three states with three different
 // exits — so the stage that removed the rows is the one that publishes them.
 // Re-deriving the difference downstream re-walked the whole projection on every
 // appended row for as long as a query sat in the field.
@@ -57,10 +54,6 @@ import {
 } from "../../../frame/index.js";
 import { deriveDriverAskTerminals, type DriverAskReading } from "../../../cards/index.js";
 import {
-  useChildRunDisclosure,
-  type ChildRunDisclosure,
-} from "../../../structure/child-runs/index.js";
-import {
   useLedgerFilter,
   useFilteredLedgerWindow,
   type LedgerFilterState,
@@ -73,22 +66,16 @@ import {
   type LedgerWindowModel,
   type VisibleLedgerWindow,
 } from "../../window/index.js";
-import { usePeerInvocationProjection, type SessionStore } from "../../../../store/index.js";
+import { type SessionStore } from "../../../../store/index.js";
 import {
   useChapterDisclosure,
   useFoldedChapters,
   type LedgerChapterDisclosure,
 } from "./ledger-chapter-fold.js";
-import {
-  useFoldedSupersededBands,
-  useSupersededBandDisclosure,
-  type LedgerSupersededBandDisclosure,
-} from "./ledger-superseded-fold.js";
 
+/** What the window chain is derived from: the session's store and the frame's clock. */
 export interface LedgerFeedWindowsInputs {
   readonly sessionStore: SessionStore;
-  /** The channel this feed is a log OF, or absent for the whole session. */
-  readonly channelId?: string | undefined;
   /** The frame coordinator's clock, minted once by the mount that holds this chain. */
   readonly clock: ConsoleClock;
 }
@@ -97,32 +84,19 @@ export interface LedgerFeedWindowsInputs {
  * The chain, with every stage's own report beside it.
  *
  * Published as separate members rather than as the last window alone, because the
- * surfaces above read from three different points in it: the facet bar offers facets
- * derived from the whole unfurled projection (or admitting one user would take
- * away the chip that widens back), find classifies an id against every narrowing to
- * say WHICH one is the reason a row is not on screen, and the rows render the folded
- * one.
+ * surfaces above read from two different points in it: find classifies an id against
+ * every narrowing to say WHICH one is the reason a row is not on screen, and the rows
+ * render the folded one.
  */
 export interface LedgerFeedWindows {
-  /**
-   * Whether this session's agents may reach each other. Subscribed, not latched.
-   *
-   * `undefined` where nothing has been projected yet, which is a third state and not
-   * a false: the empty window says something different about a session whose grant is
-   * off from one whose grant has not been read.
-   */
-  readonly peerInvocationEnabled: boolean | undefined;
   readonly firstReadSettled: boolean;
   readonly chapterDisclosure: LedgerChapterDisclosure;
-  readonly childRunDisclosure: ChildRunDisclosure;
-  readonly supersededBandDisclosure: LedgerSupersededBandDisclosure;
   /** Every member row of every chapter, before any fold or narrowing. */
   readonly unfurledWindow: LedgerWindowModel;
   readonly ledgerFilter: LedgerFilterState;
   readonly narrowing: LedgerPipelineStage;
   readonly chapterFold: LedgerPipelineStage;
-  readonly bandFold: LedgerPipelineStage;
-  /** The last model window: narrowed, chapter-folded, band-folded. */
+  /** The last model window: narrowed and chapter-folded. */
   readonly ledgerWindow: LedgerWindowModel;
   /**
    * The terminal each settled ask in this ledger reached, keyed by run AND ask id.
@@ -130,13 +104,13 @@ export interface LedgerFeedWindows {
    * A MEMBER OF THE CHAIN AND NOT OF A WINDOW, which is the whole of the fix. Whether
    * a request still needs answering is a fact about everything this pane is a log of,
    * and every stage below the projection is a NARROWING somebody chose — a facet chip,
-   * a folded chapter, a folded band. A user filter that admits a request row
+   * a folded chapter. A user filter that admits a request row
    * and excludes the row that answered it must not be able to take the terminal with
    * it: the ask would find none, and the card would offer answer controls for an ask
    * the log had already settled. Carried on `LedgerWindowModel` the fold was rebuilt
    * by each of those stages and read off the last of them, which is one spread away
    * from exactly that defect at all times; carried here it is derived once, from the
-   * unfurled channel-scoped projection, and no narrowing can reach it.
+   * unfurled projection, and no narrowing can reach it.
    *
    * The key belongs to `input-ask.ts` and is never spelled here.
    */
@@ -148,15 +122,8 @@ export interface LedgerFeedWindows {
   readonly visible: VisibleLedgerWindow;
 }
 
+/** Derive every window this feed draws from, in the one order they may be derived in. */
 export function useLedgerFeedWindows(inputs: LedgerFeedWindowsInputs): LedgerFeedWindows {
-  // WHY THE GRANT IS READ HERE. A session whose agents may not reach each other
-  // produces no handoff row at all — every peer invocation is adjudicated per call
-  // against this projected member and answers denied — so an empty log in such a
-  // session is not the absence of activity it reads as. The empty window says so,
-  // and this chain holds the store to read it from. Subscribed rather than read
-  // once: the grant is a durable session fact anybody in the session can change, and
-  // a value latched at mount would keep saying so after it was turned on.
-  const peerInvocation = usePeerInvocationProjection(inputs.sessionStore);
   // The same reading `<LedgerWindowReadState>` draws its shells from, so the empty
   // sentence and the loading shells cannot both be on screen.
   const firstReadSettled = useLedgerFirstReadSettled(inputs.sessionStore);
@@ -164,26 +131,15 @@ export function useLedgerFeedWindows(inputs: LedgerFeedWindowsInputs): LedgerFee
   // opened is a fact about who is reading, so it is held here and handed to the
   // derivation rather than folded into it.
   const chapterDisclosure = useChapterDisclosure(inputs.sessionStore.sessionId);
-  // Held beside the chapter's, at the same scope and for the same reason: a mount
-  // that followed a navigation would otherwise carry one session's expansions into
-  // the next one's rows.
-  const childRunDisclosure = useChildRunDisclosure(inputs.sessionStore.sessionId);
-  // And beside both, at the same scope: which rewound bands this reader has folded
-  // away. It starts empty on purpose — a band is dimmed and present until somebody
-  // asks for it to be folded, which is the rule `superseded-bands.ts` states.
-  const supersededBandDisclosure = useSupersededBandDisclosure(inputs.sessionStore.sessionId);
   // THE UNFURLED PROJECTION — every member row of every chapter, before any fold.
-  const unfurledWindow = useLedgerProjection(inputs.sessionStore, inputs.channelId);
+  const unfurledWindow = useLedgerProjection(inputs.sessionStore);
   // THE NARROWING RUNS ON THAT PROJECTION, BEFORE ANYTHING ELSE SEES IT. Everything
   // below — the chapter fold, the viewport, the visible window and find — is built
-  // over the narrowed model, so no piece has to remember that a filter exists. The
-  // facets the bar offers are the exception, and deliberately so: they are derived
-  // from the WHOLE unfurled projection, or admitting one user would take away
-  // the chip that widens back.
+  // over the narrowed model, so no piece has to remember that a filter exists.
   //
   // AND THE FOLD RUNS AFTER IT, which is the ordering the filter needs to be
   // truthful at all: folded first, a closed terminal chapter reaches the filter as
-  // one receipt, so its messages and tools are absent from the facet counts and
+  // one receipt, so its messages and tools are
   // unreachable by narrowing until somebody expands the chapter by hand.
   const ledgerFilter = useLedgerFilter(unfurledWindow);
   const narrowing = useFilteredLedgerWindow(unfurledWindow, ledgerFilter.filter);
@@ -192,19 +148,10 @@ export function useLedgerFeedWindows(inputs: LedgerFeedWindowsInputs): LedgerFee
     chapterDisclosure.openedTerminalRunIds,
     inputs.sessionStore.sessionId,
   );
-  // AND THE BAND FOLD RUNS AFTER THE CHAPTER'S, so a folded chapter has already
-  // reduced itself to a header and a receipt and there is nothing left in it for this
-  // pass to hide a second time.
-  const bandFold = useFoldedSupersededBands(
-    chapterFold.window,
-    supersededBandDisclosure.foldedBandKeys,
-    inputs.sessionStore.sessionId,
-  );
-  const ledgerWindow = bandFold.window;
-  // OVER THE UNFURLED PROJECTION, never over `ledgerWindow`. It is channel-scoped
-  // already — so an ask settled in another channel's log does not silence a request
-  // this pane is showing — and it is upstream of every narrowing a person can apply,
-  // which is what keeps a filtered-away terminal from un-settling a visible request.
+  const ledgerWindow = chapterFold.window;
+  // OVER THE UNFURLED PROJECTION, never over `ledgerWindow`. It is upstream of every
+  // narrowing a person can apply, which is what keeps a filtered-away terminal from
+  // un-settling a visible request.
   const askTerminalByAskIdentity = useMemo(
     () => deriveDriverAskTerminals(unfurledWindow.rows),
     [unfurledWindow.rows],
@@ -264,16 +211,12 @@ export function useLedgerFeedWindows(inputs: LedgerFeedWindowsInputs): LedgerFee
   const visible = useVisibleLedgerWindow(ledgerWindow, viewport.snapshot.rows);
 
   return {
-    peerInvocationEnabled: peerInvocation.enabled,
     firstReadSettled,
     chapterDisclosure,
-    childRunDisclosure,
-    supersededBandDisclosure,
     unfurledWindow,
     ledgerFilter,
     narrowing,
     chapterFold,
-    bandFold,
     ledgerWindow,
     askTerminalByAskIdentity,
     reveal,

@@ -12,7 +12,6 @@ import { describe, expect, it } from "vitest";
 
 import { SchemaFormAnswer } from "./containers/SchemaFormAnswer.js";
 import { SchemaFormPreview } from "./containers/SchemaFormPreview.js";
-import { attachmentArtifactIdsIn } from "./answer/schema-artifact-members.js";
 import {
   SchemaFormChunk,
   schemaFormAnswerMount,
@@ -30,7 +29,6 @@ describe("the schema form chunk's loader", () => {
     // to re-exporting the declarations rather than wrapping them.
     expect(kit.SchemaFormAnswer).toBe(SchemaFormAnswer);
     expect(kit.SchemaFormPreview).toBe(SchemaFormPreview);
-    expect(kit.attachmentArtifactIdsIn).toBe(attachmentArtifactIdsIn);
   });
 
   it("reports whether the chunk has been asked for", async () => {

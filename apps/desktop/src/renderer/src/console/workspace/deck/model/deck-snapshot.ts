@@ -63,10 +63,8 @@ import {
  * The snapshot grammar's version.
  *
  * A schema version rather than a cap, so it lives with the code that writes and
- * reads the grammar rather than in `core/constants/`: the two halves of one
- * grammar in two files is exactly the drift `src/shared/auxiliary-routes.ts` names.
- * Bump it whenever a member's MEANING changes; a restore of any other value
- * discards the whole record.
+ * reads the grammar rather than in `core/constants/`. Bump it whenever a member's
+ * MEANING changes; a restore of any other value discards the whole record.
  */
 export const DECK_LAYOUT_SNAPSHOT_VERSION = 1;
 
@@ -248,20 +246,14 @@ export function decodeDeckSnapshot(
       typeof focusedCandidate === "string" && panes.some((pane) => pane.paneId === focusedCandidate)
         ? focusedCandidate
         : panes[0]?.paneId,
-    // An unrecognised preset takes the default rather than a hole: the preset
+    // An unrecognized preset takes the default rather than a hole: the preset
     // decides a floor, and a floor of `undefined` squeezes panes to nothing.
     density: isDeckDensity(header["density"]) ? header["density"] : DEFAULT_DECK_DENSITY,
     refusals,
   };
 }
 
-/**
- * This module's refusals, named for the restore they are about.
- *
- * NAMED `Deck` for the reason `sidebar/model/sidebar-model.ts`'s twin is named `Sidebar`:
- * the two are sibling restore paths in one family and a shared bare name made them
- * look interchangeable when their refusal types are not.
- */
+/** This module's refusals, named for the restore they are about. */
 function refuseDeckRestore(code: DeckRestoreRefusalCode, detail: string): DeckRestoreRefusal {
   return refuse(DECK_LAYOUT_REFUSAL_ORIGIN, code, detail);
 }
@@ -353,8 +345,7 @@ function readPosition(entry: UnknownRecord): number {
  * object. This is that translation and nothing else — it decides nothing about
  * whether either value is any good, which is the whole point of handing them on.
  *
- * All-or-nothing, on `src/shared/auxiliary-routes.ts`' reasoning about its own
- * context grammar: absent BOTH members is a session-scoped pane, and either member
+ * All-or-nothing: absent BOTH members is a session-scoped pane, and either member
  * alone is a candidate the grammar refuses rather than a pane the reader guesses the
  * rest of.
  */

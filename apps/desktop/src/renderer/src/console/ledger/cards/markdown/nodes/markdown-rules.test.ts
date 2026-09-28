@@ -5,29 +5,8 @@ import { describe, expect, it } from "vitest";
 import {
   DEFERRED_FENCE_LANGUAGES,
   INCOMPLETE_LINK_SENTINEL,
-  PATH_LINK_SLATE_ROW,
-  arePathLinksRenderable,
   isDeferredFenceLanguage,
 } from "./markdown-rules.js";
-
-describe("path links", () => {
-  it("are withheld while the wire that would validate them is unregistered", () => {
-    expect(PATH_LINK_SLATE_ROW.wireRegistered).toBe(false);
-    expect(arePathLinksRenderable()).toBe(false);
-  });
-
-  it("name the slate row that owns the missing wire, rather than shrugging", () => {
-    expect(PATH_LINK_SLATE_ROW.id).toBe("timeline-path-reference");
-    expect(PATH_LINK_SLATE_ROW.owningDocument.length).toBeGreaterThan(0);
-  });
-
-  it("negative control: the answer is read from the ledger, not hard-coded", () => {
-    // A constant `false` would pass the first case. This one fails unless the answer
-    // is the row's own live status: it asserts the two are the SAME value, so a
-    // hand-written `false` beside a row that had flipped would be caught.
-    expect(arePathLinksRenderable()).toBe(PATH_LINK_SLATE_ROW.wireRegistered);
-  });
-});
 
 describe("deferred fences", () => {
   it("defers math and diagrams and nothing else", () => {

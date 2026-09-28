@@ -1,7 +1,7 @@
-// Shared reading helpers for the four window-factory suites.
+// Shared reading helpers for the three window-factory suites.
 //
 // `window.ts` was split by role (construction, navigation policy, failure
-// ladder, auxiliary launch) and its suite split with it. Each suite still owns
+// ladder) and its suite split with it. Each suite still owns
 // its own `createElectronMock` instance and its own `vi.mock("electron", …)`,
 // because a mock instance must be a file-local `const` for the hoisted factory
 // to close over — see `./electron-mock.ts`'s header. What is shared is only the

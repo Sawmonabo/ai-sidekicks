@@ -46,7 +46,7 @@
 // indicator, the keyboard reorder path, and the density floor. Neither library ships
 // a stylesheet and neither is imported for one.
 
-import { Fragment, useCallback, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useMemo, useRef } from "react";
 import { Group, Separator } from "react-resizable-panels";
 
 import { type ConsoleRefusal } from "../../core/index.js";
@@ -54,64 +54,32 @@ import { useConsoleClock } from "../../bridge/index.js";
 import { InlineRefusal, Nothing, isEditableTarget, useAnnounce } from "../../primitives/index.js";
 import { type ConsolePaneContext, type ConsolePaneRegistry } from "../../seats/index.js";
 import { useDeckLayoutState, type DeckLayout } from "./model/deck-layout.js";
-import { deckActsOn, paneDetachmentReadingFor } from "./commands/deck-acts.js";
+import { deckActsOn } from "./commands/deck-acts.js";
 import { useMountedDeck } from "./commands/deck-command-seat.js";
 import { DECK_TOTAL_PERMILLE, toPaneSizePercentages, type DeckPane } from "./model/deck-model.js";
 import { type DeckDensity } from "../workspace-bounds.js";
 import { minimumPaneWidthPx } from "./model/density.js";
 import { useDeckDragCoordinator, useDeckDragMonitor, useDeckDropIndicator } from "./pane-drag.js";
-// Deep and intra-family, which is what this family's imports are: the sidebar declares
-// both halves of the row-drop seam beside each other, and the deck supplies the element
-// that makes its half real. A copy of the target here would be the second spelling of
-// one key, and the two would drift the first time either was renamed.
-import { useSidebarRowDeckDropTarget } from "../sidebar/drag/row-drag.js";
 import { DeckPaneSlot } from "./pane-slot/DeckPaneSlot.js";
 import { type TrackedRect } from "./rect/rect-geometry.js";
 import { usePaneRectSources, usePaneRectTracker } from "./rect/rect-discipline.js";
 import { useSeparatorValueBoundsCorrection } from "./separator-aria.js";
 
+/** What the deck needs: its layout store, where bodies come from, and how each is addressed. */
 export interface DeckProps {
   readonly layout: DeckLayout;
-  /** Where pane bodies come from. Passed rather than reached for: an auxiliary
-   * window composes a different subset without a second code path. */
+  /** Where pane bodies come from. Passed rather than reached for, so a host picks its own. */
   readonly registry: ConsolePaneRegistry;
   /** What each pane's body is handed, or why its address cannot be served. */
   readonly paneContextFor: (pane: DeckPane) => ConsolePaneContext | ConsoleRefusal;
-  /** Supplied where a host can move a pane into an auxiliary window of its own. */
-  readonly onOpenInWindow?: (pane: DeckPane) => void;
   /** What the layout restore refused, rendered rather than swallowed. */
   readonly restoreRefusals?: readonly ConsoleRefusal[];
-  /**
-   * Panes whose body is showing in a window of its own.
-   *
-   * The slot stays and the projection is suppressed, so widths and order survive the
-   * window's whole life and the pane goes back where it was.
-   */
-  readonly detachedPaneIds?: readonly string[];
-  readonly onFocusDetachedWindow?: (paneId: string) => void;
-  readonly onReturnToDeck?: (paneId: string) => void;
-  /** Why the crashed-window signal is not being received, where it is not. */
-  readonly detachedSignalRefusal?: ConsoleRefusal;
-  /**
-   * The crash note a pane came back with, by pane id — a crashed auxiliary window
-   * returns its pane to the deck with the crash noted in the pane's error slot.
-   *
-   * A pane named here is NOT detached — its body is in the deck again — so the two
-   * sets never overlap and one slot is never asked to draw both.
-   */
-  readonly lostWindowNoticesByPaneId?: ReadonlyMap<string, ConsoleRefusal>;
-  readonly onDismissLostWindow?: (paneId: string) => void;
   /** Where measured pane rects go, for a body that hosts a native view.
    * `deck/rect/rect-discipline.ts` holds the rules. */
   readonly onPaneRects?: (rects: readonly TrackedRect[]) => void;
 }
 
-/** No pane came back from a lost window, once — a stable identity for the default. */
-const NO_LOST_WINDOW_NOTICES: ReadonlyMap<string, ConsoleRefusal> = new Map();
-
-/** No pane is in a window of its own, once — a stable identity for the default. */
-const NO_DETACHED_PANE_IDS: readonly string[] = [];
-
+/** The panes a person is looking at, side by side, arranged by a `DeckLayout`. */
 export function Deck(props: DeckProps): React.JSX.Element {
   const { layout } = props;
   const state = useDeckLayoutState(layout);
@@ -138,36 +106,11 @@ export function Deck(props: DeckProps): React.JSX.Element {
   useDeckDragMonitor(dragCoordinator, layout, announce);
   const dropIndicator = useDeckDropIndicator(dragCoordinator);
 
-  // The board a dragged SIDEBAR ROW may be dropped on — a different gesture from the
-  // one above, and the deck's only part in it is being somewhere to land.
-  //
-  // THE ROOT AND NOT THE GROUP. `containerReference` is on the resizable group, which
-  // is not rendered at all while the deck is empty — and an empty deck is exactly the
-  // one a person drags a row onto, so a target bound there would have refused the
-  // opening move. This element is rendered on every pass.
-  //
-  // Held in state through a callback ref rather than in a `useRef`, on
-  // `pane-drag.ts`'s own idiom for the same problem: a ref's `.current` is filled after
-  // the render that reads it, so an effect keyed on the ref binds nothing on the mount
-  // pass and never re-runs to correct itself.
-  const [deckRootElement, setDeckRootElement] = useState<HTMLElement | null>(null);
-  useSidebarRowDeckDropTarget(deckRootElement);
-
-  // ONE derivation, read by the acts here and by the slots below: a second `??` would
-  // be a second default the acts memoise on, re-minting all five on every render.
-  const detachedPaneIds = props.detachedPaneIds ?? NO_DETACHED_PANE_IDS;
-  const isPaneDetached = useMemo(
-    () => paneDetachmentReadingFor(detachedPaneIds),
-    [detachedPaneIds],
-  );
-  // The five acts, built once per (layout, announcer, detachment) triple and shared by
-  // the two things that dispatch them: this component's own key handler below, and the
-  // palette rows `commands/deck-command-seat.ts` contributes. One implementation, so a
-  // chord and a palette row cannot mean two moves — a detached pane's refusal included.
-  const acts = useMemo(
-    () => deckActsOn(layout, announce, isPaneDetached),
-    [layout, announce, isPaneDetached],
-  );
+  // The five acts, built once per (layout, announcer) pair and shared by the two things
+  // that dispatch them: this component's own key handler below, and the palette rows
+  // `commands/deck-command-seat.ts` contributes. One implementation, so a chord and a
+  // palette row cannot mean two moves.
+  const acts = useMemo(() => deckActsOn(layout, announce), [layout, announce]);
   useMountedDeck(acts);
 
   /**
@@ -291,12 +234,10 @@ export function Deck(props: DeckProps): React.JSX.Element {
   }, [tracker]);
 
   const refusals = props.restoreRefusals ?? [];
-  const lostWindowNotices = props.lostWindowNoticesByPaneId ?? NO_LOST_WINDOW_NOTICES;
   const defaultLayout = useMemo(() => toPaneSizePercentages(state.panes), [state.panes]);
 
   return (
     <div
-      ref={setDeckRootElement}
       className="meridian-deck"
       data-density={state.density}
       role="group"
@@ -315,12 +256,7 @@ export function Deck(props: DeckProps): React.JSX.Element {
         </div>
       )}
       {state.panes.length === 0 ? (
-        <Nothing
-          kind="empty"
-          placement="surface"
-          title="No panes are open."
-          detail="Open one from the sidebar, or follow somebody from the session header."
-        />
+        <Nothing kind="empty" placement="surface" title="No panes are open." />
       ) : (
         <Group
           className="meridian-deck__group"
@@ -330,51 +266,31 @@ export function Deck(props: DeckProps): React.JSX.Element {
           onLayoutChange={onLayoutMoving}
           onLayoutChanged={onLayoutSettled}
         >
-          {state.panes.map((pane, position) => {
-            const lostWindowNotice = lostWindowNotices.get(pane.paneId);
-            return (
-              <Fragment key={pane.paneId}>
-                {position === 0 ? null : (
-                  <Separator
-                    className="meridian-deck__separator"
-                    aria-label="Resize the pane to the left"
-                  />
-                )}
-                <DeckPaneSlot
-                  pane={pane}
-                  isFocused={pane.paneId === state.focusedPaneId}
-                  density={state.density}
-                  registry={props.registry}
-                  paneContextFor={props.paneContextFor}
-                  dragCoordinator={dragCoordinator}
-                  dropIndicator={
-                    dropIndicator?.overPaneId === pane.paneId ? dropIndicator.edge : undefined
-                  }
-                  onFocus={focusPane}
-                  onClose={closePane}
-                  isDetached={detachedPaneIds.includes(pane.paneId)}
-                  {...(props.onOpenInWindow === undefined
-                    ? {}
-                    : { onOpenInWindow: props.onOpenInWindow })}
-                  {...(props.onFocusDetachedWindow === undefined
-                    ? {}
-                    : { onFocusDetachedWindow: props.onFocusDetachedWindow })}
-                  {...(props.onReturnToDeck === undefined
-                    ? {}
-                    : { onReturnToDeck: props.onReturnToDeck })}
-                  {...(props.detachedSignalRefusal === undefined
-                    ? {}
-                    : { detachedSignalRefusal: props.detachedSignalRefusal })}
-                  {...(lostWindowNotice === undefined ? {} : { lostWindowNotice })}
-                  {...(props.onDismissLostWindow === undefined
-                    ? {}
-                    : { onDismissLostWindow: props.onDismissLostWindow })}
-                  trackElement={trackElement}
-                  untrackElement={untrackElement}
+          {state.panes.map((pane, position) => (
+            <Fragment key={pane.paneId}>
+              {position === 0 ? null : (
+                <Separator
+                  className="meridian-deck__separator"
+                  aria-label="Resize the pane to the left"
                 />
-              </Fragment>
-            );
-          })}
+              )}
+              <DeckPaneSlot
+                pane={pane}
+                isFocused={pane.paneId === state.focusedPaneId}
+                density={state.density}
+                registry={props.registry}
+                paneContextFor={props.paneContextFor}
+                dragCoordinator={dragCoordinator}
+                dropIndicator={
+                  dropIndicator?.overPaneId === pane.paneId ? dropIndicator.edge : undefined
+                }
+                onFocus={focusPane}
+                onClose={closePane}
+                trackElement={trackElement}
+                untrackElement={untrackElement}
+              />
+            </Fragment>
+          ))}
         </Group>
       )}
     </div>

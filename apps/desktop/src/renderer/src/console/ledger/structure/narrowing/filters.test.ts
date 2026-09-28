@@ -6,10 +6,6 @@
 // while keeping its run's rows renders a history that had been corrected as
 // though it never was. It gets a positive case AND the negative control that
 // distinguishes it from simply never filtering boundaries at all.
-//
-// The pane's own CHANNEL scope is a different subject and lives in
-// `filters.channel-scope.test.ts`: a facet is a narrowing a reader applies to a
-// window, and a channel scope is what the window is a log OF.
 
 import type { TimelineRow } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";

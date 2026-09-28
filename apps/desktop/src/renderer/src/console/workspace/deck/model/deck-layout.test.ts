@@ -15,11 +15,11 @@ function emptyLayout(): DeckLayout {
   return new DeckLayout({ restoredPaneCap: DECK_RESTORED_PANE_CAP });
 }
 
-/** A layout holding one session-scoped timeline and one user-scoped inspector. */
+/** A layout holding one session-scoped timeline and one worktree-scoped inspector. */
 function twoPaneLayout(): DeckLayout {
   const layout = emptyLayout();
   layout.open({ kind: "timeline", entity: undefined });
-  layout.open({ kind: "inspector", entity: { kind: "user", id: "user-01" } });
+  layout.open({ kind: "inspector", entity: { kind: "worktree", id: "worktree-01" } });
   return layout;
 }
 
@@ -28,11 +28,11 @@ describe("DeckLayout — one entity, one pane", () => {
     const layout = emptyLayout();
     const first = layout.open({
       kind: "inspector",
-      entity: { kind: "user", id: "user-01" },
+      entity: { kind: "worktree", id: "worktree-01" },
     });
     const second = layout.open({
       kind: "inspector",
-      entity: { kind: "user", id: "user-01" },
+      entity: { kind: "worktree", id: "worktree-01" },
     });
 
     expect(second).toBe(first);
@@ -45,8 +45,8 @@ describe("DeckLayout — one entity, one pane", () => {
     // second open — and a run legitimately appears in both a runs list and an
     // inspector.
     const layout = emptyLayout();
-    layout.open({ kind: "inspector", entity: { kind: "user", id: "user-01" } });
-    layout.open({ kind: "runs", entity: { kind: "user", id: "user-01" } });
+    layout.open({ kind: "inspector", entity: { kind: "worktree", id: "worktree-01" } });
+    layout.open({ kind: "runs", entity: { kind: "worktree", id: "worktree-01" } });
     expect(layout.snapshot().panes).toHaveLength(2);
   });
 });
@@ -202,7 +202,7 @@ describe("DeckLayout — the split act", () => {
 
   it("negative control: an open naming no source re-divides the whole deck", () => {
     // Without this the case above would pass over a deck that never equalised at
-    // all, and the list seating — the sidebar's and the palette's — is the common one.
+    // all, and the list seating — the palette's and a rail destination's — is the common one.
     const layout = emptyLayout();
     layout.open({ kind: "timeline", entity: undefined });
     layout.open({ kind: "runs", entity: undefined });

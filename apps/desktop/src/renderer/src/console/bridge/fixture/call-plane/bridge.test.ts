@@ -2,13 +2,12 @@
 //
 // The fixture is shape-identical to `DesktopBridge`, and `bridge-shape.test.ts`
 // turns that into a checked claim. Shape is the cheap half. This file is one of the
-// three places where a
-// fixture that matched the contract's SHAPE was still answering something the live
-// bridge never would: `daemon.subscribe` takes an event name and the fixture
-// ignored it, so a surface subscribed to `run.starting` was handed
-// `session.created` and `presence.online` too, each cast to the type it had
-// asked for. A screenshot or an end-to-end result taken against that is a result
-// the live bridge cannot produce.
+// three places where a fixture that matched the contract's SHAPE was still answering
+// something the live bridge never would: `daemon.subscribe` takes an event name and
+// the fixture ignored it, so a surface subscribed to `run.starting` was handed
+// `session.created` and `agent.attached` too, each cast to the type it had asked for.
+// A screenshot or an end-to-end result taken against that is a result the live bridge
+// cannot produce.
 //
 // Two claims travel here rather than one, because a fixture can route by two
 // different keys and getting either wrong is invisible in a surface: a subscriber
@@ -25,9 +24,8 @@
 // This file owns the two arms that deliver the beat's own ENVELOPE — a bare event
 // type and the whole-session stream. The two narrowed run streams deliver a
 // registered projection instead, which is a different claim with a different failure
-// mode, and it lives in `bridge.run-streams.test.ts`. The remaining concerns
-// have their own files too: `bridge.latency.test.ts`,
-// `bridge.refusals.test.ts`, and `bridge.runtime-nodes.test.ts`.
+// mode, and it lives in `bridge.run-streams.test.ts`. The remaining concerns have
+// their own files too: `bridge.latency.test.ts` and `bridge.refusals.test.ts`.
 //
 // Every case drives the REAL fixture bridge over a real scenario and the real
 // engine. A hand-written stand-in for either would pass over exactly the seam

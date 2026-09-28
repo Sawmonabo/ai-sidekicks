@@ -2,19 +2,15 @@
 //
 // The projector used to keep `runVersion`, the two state strings, and `agentId`
 // while claiming every kind in the family, so `executionPosture`, the
-// stop-condition `trigger`, the orchestration linkage, the admission stamps, and
+// stop-condition `trigger`, the run's provenance, the admission stamps, and
 // the rollback `targetPosition` reached the timeline and never the `run`
-// partition. Two claims follow from the repair, and they are this file's subject:
+// partition. The claim that follows from the repair is this file's subject:
 //
 //   • The body carries exactly the members the corpus registers for the kind in
 //     hand — the two wire shapes' derived union, plus the per-type members the
 //     four kinds that declare their own payload register, and nothing a payload
 //     invented. Per-type means per type: a member registered on one row is read
 //     off that row and off no other.
-//   • A carried member is READABLE where it lands. The fold and the selector that
-//     reads it are two halves of one seam, so the end-to-end case drives a real
-//     payload through the registered projectors into a real store and then reads
-//     it back through the shipped selector.
 //
 // The projector's claimed kinds, the partition under every scenario, and the fold
 // across transitions are the sibling file's subject, `run-lifecycle-projector.test.ts`.
@@ -23,14 +19,8 @@ import { describe, expect, it } from "vitest";
 
 import type { ExecutionPosture } from "@ai-sidekicks/contracts";
 
-import { SessionStore, type ConsoleSessionEvent } from "../../store/index.js";
-// Deep rather than barrelled because the store family publishes neither its entity
-// type nor its selectors on a barrel, and a test file is not a subject of the
-// layering DAG. The real selector, not a re-export of it: a local narrowing here
-// would be checking this file's own copy of the thing under test.
-import type { ConsoleEntity } from "../../store/entities/entities.js";
-import { stampedExecutionPostureOf } from "../../bridge/daemon/entity-body-reads.js";
-import { RUN_LIFECYCLE_PROJECTORS, projectRunLifecycleEvent } from "./run-lifecycle-projector.js";
+import type { ConsoleSessionEvent } from "../../store/index.js";
+import { projectRunLifecycleEvent } from "./run-lifecycle-projector.js";
 import { SYNTHETIC_SESSION_ID } from "./run-lifecycle-projector.test-support.js";
 
 /**
@@ -112,11 +102,10 @@ describe("the registered payload members the body carries", () => {
         runEvent("run.rolled_back", {
           runId: "run-1",
           runVersion: 4,
-          channelId: "channel-1",
           targetPosition: 12,
         }),
       ),
-    ).toStrictEqual({ runVersion: 4, channelId: "channel-1", targetPosition: 12 });
+    ).toStrictEqual({ runVersion: 4, targetPosition: 12 });
 
     expect(
       bodyOf(
@@ -126,7 +115,6 @@ describe("the registered payload members the body carries", () => {
           trigger: "budget_exhausted",
           parentRunId: "run-0",
           internalHelper: false,
-          producingNodeId: "node-1",
           admittedUnpricedCapCents: 500,
           admittedModelFamily: "claude",
         }),
@@ -136,7 +124,6 @@ describe("the registered payload members the body carries", () => {
       trigger: "budget_exhausted",
       parentRunId: "run-0",
       internalHelper: false,
-      producingNodeId: "node-1",
       admittedUnpricedCapCents: 500,
       admittedModelFamily: "claude",
     });
@@ -186,12 +173,10 @@ describe("the registered payload members the body carries", () => {
     expect(body).toStrictEqual({ newState: "starting" });
   });
 
-  it("carries the creation row's linkage, run config, and paying account", () => {
+  it("carries the creation row's provenance, run config, and paying account", () => {
     // The three members `run.queued` registers that neither `run.subscribeState`
-    // shape declares — `runControl.ts` omits `linkType` and `effectiveRunConfig`
-    // because their types belong to a plan that has authored none, and the account
-    // stamp rides the same row. A body derived from those two shapes alone drops
-    // all three, so the run a pane reads names no link, no admitted config, and no
+    // shape declares. A body derived from those two shapes alone drops all three,
+    // so the run a pane reads names no provenance, no admitted config, and no
     // account it will be billed against.
     expect(
       bodyOf(
@@ -200,7 +185,7 @@ describe("the registered payload members the body carries", () => {
           runVersion: 1,
           newState: "queued",
           agentId: "agent-1",
-          linkType: "spawn",
+          reachedBy: "provider_subagent",
           effectiveRunConfig: { turnLimit: 8 },
           admittedProviderAccountId: "provider-account-1",
         }),
@@ -209,7 +194,7 @@ describe("the registered payload members the body carries", () => {
       runVersion: 1,
       newState: "queued",
       agentId: "agent-1",
-      linkType: "spawn",
+      reachedBy: "provider_subagent",
       effectiveRunConfig: { turnLimit: 8 },
       admittedProviderAccountId: "provider-account-1",
     });
@@ -248,10 +233,10 @@ describe("the registered payload members the body carries", () => {
 
   it("reads a per-type member off the kind that registers it and off no other", () => {
     // The reason the second table is keyed by kind rather than merged into the
-    // first. `provider`, `position`, `reason`, and `linkType` are each registered
+    // first. `provider`, `position`, `reason`, and `reachedBy` are each registered
     // on exactly one row, so a state transition spelling them is naming members
     // its own payload shape does not have — and a body that carried them would
-    // hand a pane a provider, a turn position, and a link the wire never sent.
+    // hand a pane a provider, a turn position, and a provenance the wire never sent.
     const body = bodyOf(
       runEvent("run.failed", {
         runId: "run-1",
@@ -261,7 +246,7 @@ describe("the registered payload members the body carries", () => {
         model: "gpt-5.6",
         position: 17,
         reason: "not this row's member",
-        linkType: "delegate",
+        reachedBy: "bridge_run",
         admittedProviderAccountId: "provider-account-1",
       }),
     );
@@ -272,7 +257,7 @@ describe("the registered payload members the body carries", () => {
   it("negative control: no per-type member is a second spelling of a derived one", () => {
     // The gate on the two tables staying disjoint. The derived table is the two
     // registered shapes' own key union, so the day a contracts shape declares
-    // `linkType` — or any other member below — this case fails and the per-type
+    // `reachedBy` — or any other member below — this case fails and the per-type
     // entry is deleted rather than left to shadow the derivation it duplicates.
     const derivedMembers = Object.keys(
       bodyOf(
@@ -282,12 +267,10 @@ describe("the registered payload members the body carries", () => {
           previousState: "running",
           newState: "interrupted",
           agentId: "agent-1",
-          channelId: "channel-1",
           targetPosition: 3,
           failureCategory: "provider error",
           recoveryCondition: "provider_unavailable",
           recoverySpanClassification: "complete",
-          healthSignal: "stuck-suspected",
           providerFailureDetail: "detail",
           completionKind: "turn",
           intendedClose: true,
@@ -295,7 +278,6 @@ describe("the registered payload members the body carries", () => {
           trigger: "idle_timeout",
           parentRunId: "run-0",
           internalHelper: false,
-          producingNodeId: "node-1",
           admittedUnpricedCapCents: 500,
           admittedModelFamily: "claude",
         }),
@@ -305,7 +287,7 @@ describe("the registered payload members the body carries", () => {
     // Non-empty, or the intersection below is a claim about nothing.
     expect(derivedMembers.length).toBeGreaterThan(0);
     for (const perTypeMember of [
-      "linkType",
+      "reachedBy",
       "effectiveRunConfig",
       "admittedProviderAccountId",
       "provider",
@@ -331,78 +313,5 @@ describe("the registered payload members the body carries", () => {
     );
 
     expect(body).toStrictEqual({ newState: "running" });
-  });
-});
-
-describe("a stamped posture, from the payload to the surface that reads it", () => {
-  // The leg no fold case can cover on its own. `store/session/selectors.ts` reads
-  // `executionPosture` off a run entity's body, and until this projector carried
-  // the member the console had no producer for it anywhere — the selector was
-  // correct and unreachable. Every half here is the shipped one: the registered
-  // projectors, a real `SessionStore`, the real selector.
-
-  const STAMPED_RUN_ID = "019b79ee-0280-7ea1-8110-e5e0d1150803";
-
-  /** The run one `run.running` beat folds to, through the registered projectors. */
-  function runStampedWith(executionPosture: unknown): ConsoleEntity | undefined {
-    const store = new SessionStore({
-      sessionId: SYNTHETIC_SESSION_ID,
-      projectors: RUN_LIFECYCLE_PROJECTORS,
-    });
-    store.initialise({ cursor: 0, entities: [], userJoinLog: [] });
-    store.applyBatch([
-      runEvent("run.running", {
-        runId: STAMPED_RUN_ID,
-        runVersion: 3,
-        newState: "running",
-        executionPosture,
-      }),
-    ]);
-
-    const state = store.snapshot();
-    expect(state.degradedCause).toBeUndefined();
-    return state.partitions.run[STAMPED_RUN_ID];
-  }
-
-  it("hands the selector the posture the payload stamped", () => {
-    const run = runStampedWith(SANDBOXED_POSTURE);
-
-    // The stored object itself rather than a copy of it, which is what keeps the
-    // read usable as a `useStore` selector under `Object.is` equality.
-    expect(stampedExecutionPostureOf(run)).toBe(run?.body?.["executionPosture"]);
-    expect(stampedExecutionPostureOf(run)).toStrictEqual(SANDBOXED_POSTURE);
-  });
-
-  it("negative control: a run whose payload stamped no posture reads as none", () => {
-    const store = new SessionStore({
-      sessionId: SYNTHETIC_SESSION_ID,
-      projectors: RUN_LIFECYCLE_PROJECTORS,
-    });
-    store.initialise({ cursor: 0, entities: [], userJoinLog: [] });
-    store.applyBatch([runEvent("run.running", { runId: STAMPED_RUN_ID, newState: "running" })]);
-
-    const run = store.snapshot().partitions.run[STAMPED_RUN_ID];
-
-    expect(run?.state).toBe("running");
-    expect(stampedExecutionPostureOf(run)).toBeUndefined();
-  });
-
-  it("negative control: an unrepresentable posture reaches the body and is refused there", () => {
-    // The two halves have different jobs, and this is the case that proves it. The
-    // fold carries a registered member whole rather than re-validating a shape the
-    // contract owns, so a posture claiming `trusted` AND a credential-policy
-    // reference — unrepresentable in the contract — lands in the body intact and
-    // renders as no posture at all, because the selector is the boundary that
-    // decides whether a stored value is the shape a surface's type says it is.
-    const unrepresentable = {
-      mode: "trusted",
-      networkAccess: "full",
-      writableRoots: ["/workspace"],
-      credentialPolicyRef: SANDBOXED_POSTURE.credentialPolicyRef,
-    };
-    const run = runStampedWith(unrepresentable);
-
-    expect(run?.body?.["executionPosture"]).toStrictEqual(unrepresentable);
-    expect(stampedExecutionPostureOf(run)).toBeUndefined();
   });
 });

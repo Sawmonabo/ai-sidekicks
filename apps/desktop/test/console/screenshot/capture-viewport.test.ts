@@ -46,12 +46,7 @@ describe("the window a capture opens", () => {
     // its window, and a surface narrower than the page must not shrink it either —
     // the console would relayout and the capture would pin a different surface.
     expect(
-      captureWindowStep(
-        CONSOLE_WINDOW,
-        { width: 1200, height: 2050 },
-        [],
-        "repos-section-mounted-gate-light",
-      ),
+      captureWindowStep(CONSOLE_WINDOW, { width: 1200, height: 2050 }, [], "repos-diff-pane-light"),
     ).toStrictEqual({
       kind: "grow",
       viewport: { width: 1440, height: 2050 },
@@ -68,7 +63,7 @@ describe("the window a capture opens", () => {
         { width: 1440, height: 2050 },
         { width: 1440, height: 2090 },
         [1150],
-        "repos-section-mounted-gate-light",
+        "repos-diff-pane-light",
       ),
     ).toStrictEqual({ kind: "grow", viewport: { width: 1440, height: 2090 }, overhangPx: 40 });
   });
@@ -86,7 +81,7 @@ describe("the window a capture opens", () => {
         { width: 1440, height: 2050 },
         { width: 1440, height: 3250 },
         [1150],
-        "repos-section-mounted-gate-light",
+        "repos-diff-pane-light",
       ),
     ).toStrictEqual({ kind: "grow", viewport: { width: 1440, height: 3250 }, overhangPx: 1200 });
   });
@@ -100,7 +95,7 @@ describe("the window a capture opens", () => {
         { width: 1440, height: 3250 },
         { width: 1440, height: 3250 },
         [1150, 1200],
-        "repos-section-mounted-gate-light",
+        "repos-diff-pane-light",
       ),
     ).toStrictEqual({ kind: "fits" });
   });
@@ -214,9 +209,9 @@ describe("the window a capture opens", () => {
         CONSOLE_WINDOW,
         { width: 1440, height: 99_999 },
         [],
-        "approvals-pane-live-dark",
+        "repos-diff-pane-dark",
       );
-    }).toThrowError(/approvals-pane-live-dark/u);
+    }).toThrowError(/repos-diff-pane-dark/u);
   });
 });
 

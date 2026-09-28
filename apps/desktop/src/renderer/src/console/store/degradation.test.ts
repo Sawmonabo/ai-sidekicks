@@ -24,7 +24,7 @@ import { SessionStore } from "./session/session-store.js";
 /** An initialised store with nothing wrong with it. */
 function healthyStore(): SessionStore {
   const store = new SessionStore({ sessionId: "session-1" });
-  store.initialise({ cursor: 0, entities: [], userJoinLog: [] });
+  store.initialise({ cursor: 0, entities: [] });
   return store;
 }
 
@@ -137,7 +137,6 @@ describe("an external degradation reaching an already-degraded store", () => {
     store.initialise({
       cursor: 2,
       entities: [],
-      userJoinLog: [],
       timeline: [
         eventOfKind("session-1", "run.starting", 1),
         eventOfKind("session-1", "run.starting", 2),

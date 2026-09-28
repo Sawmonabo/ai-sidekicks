@@ -1,21 +1,14 @@
 // Routes as values: parsed, rendered back, compared, and classified.
 //
-// `failure-modes.test.ts` already drives the malformed-input arms — an unknown
-// window route, too many segments, a bare auxiliary route, an escaped session id,
-// a malformed percent-escape, an empty path segment, an empty hash. This file
-// covers what that one does not: the round trip for the main-window grammar.
+// `failure-modes.test.ts` already drives the malformed-input arms — an escaped
+// session id, a malformed percent-escape, an empty path segment, an empty hash. This
+// file covers what that one does not: the round trip for the main-window grammar.
 //
 // The round trip is the load-bearing case. `parseRoute` and `formatRoute` are two
 // hand-written grammars over one shape, and nothing in the compiler makes them
 // agree; a route that renders to a hash the parser reads differently is a window
 // that reopens somewhere else, which is the failure a person meets after a restart
 // rather than at the moment it was caused.
-//
-// SCOPE: the auxiliary-route VOCABULARY — the route-name tuple, the `#/window/`
-// fragment and its parse/format pair — is moving to a shared module and is
-// deliberately untouched here. Auxiliary routes appear below only as VALUES of the
-// route union, which is what `isAuxiliaryRoute`, `needsContextPicker`,
-// `railDestinationFor`, and `routesAreEqual` are predicates over.
 
 import { describe, expect, it } from "vitest";
 
@@ -91,68 +84,6 @@ describe("routes — malformed main-window hashes resolve to not-found", () => {
     expect(parseRoute("#/settings/accounts/%zz").kind).toBe("not-found");
   });
 
-  it("reads the phase deep link as a focused workspace address", () => {
-    // The address a park banner hands out, so a phase waiting on a person is
-    // reachable from outside the pane that happens to be showing its run.
-    expect(parseRoute("#/session/session-1/workflow/run-1/phase/review")).toStrictEqual({
-      kind: "workspace",
-      sessionId: "session-1",
-      workflowPhase: { workflowRunId: "run-1", phaseId: "review" },
-    });
-    expect(formatRoute(parseRoute("#/session/session-1/workflow/run-1/phase/review"))).toBe(
-      "#/session/session-1/workflow/run-1/phase/review",
-    );
-  });
-
-  it("escapes every id in the phase deep link, ids with separators included", () => {
-    // All three are opaque wire values, and the run id is the one a daemon mints —
-    // an unescaped `/` in any of them would re-split into a different address.
-    const route: ConsoleRoute = {
-      kind: "workspace",
-      sessionId: "session/one",
-      workflowPhase: { workflowRunId: "run#two", phaseId: "phase/three" },
-    };
-    expect(parseRoute(formatRoute(route))).toStrictEqual(route);
-  });
-
-  it("omits the focus key rather than setting it to undefined on a bare workspace", () => {
-    // The round trip above is a structural comparison, so this is the rule that makes
-    // it pass: under `exactOptionalPropertyTypes` a present-but-undefined member is
-    // not an absent one, and `#/session/<id>` has to give back the absent form.
-    expect(Object.hasOwn(parseRoute("#/session/session-1"), "workflowPhase")).toBe(false);
-  });
-
-  it("refuses a phase address whose interior keywords are not the grammar's", () => {
-    // The keywords are the whole of what separates a focused address from three
-    // trailing segments, so a wrong one is not-found rather than a workspace with its
-    // focus quietly dropped — which would open the session and show a person nothing
-    // about the phase they followed a link to answer.
-    expect(parseRoute("#/session/session-1/run/run-1/phase/review").kind).toBe("not-found");
-    expect(parseRoute("#/session/session-1/workflow/run-1/step/review").kind).toBe("not-found");
-    // And the lengths on either side of five.
-    expect(parseRoute("#/session/session-1/workflow/run-1").kind).toBe("not-found");
-    expect(parseRoute("#/session/session-1/workflow/run-1/phase/review/extra").kind).toBe(
-      "not-found",
-    );
-  });
-
-  it("refuses a phase address whose escapes are malformed", () => {
-    expect(parseRoute("#/session/session-1/workflow/%zz/phase/review").kind).toBe("not-found");
-    expect(parseRoute("#/session/session-1/workflow/run-1/phase/%zz").kind).toBe("not-found");
-  });
-
-  it("negative control: the two workspace addresses do not render alike", () => {
-    // Without this, a formatter that dropped the focus would satisfy every assertion
-    // above that only reads the parse direction.
-    expect(formatRoute({ kind: "workspace", sessionId: "session-1" })).not.toBe(
-      formatRoute({
-        kind: "workspace",
-        sessionId: "session-1",
-        workflowPhase: { workflowRunId: "run-1", phaseId: "review" },
-      }),
-    );
-  });
-
   it("names no address of its own for the session workspace's rail destination", () => {
     // `workspace` is a ROUTE kind reached from the sessions destination, not a
     // rail destination with an address. `#/workspace` therefore names nothing —
@@ -191,58 +122,5 @@ describe("routes — malformed main-window hashes resolve to not-found", () => {
     expect(parseRoute("#/pane-harness/terminal").kind).toBe("not-found");
     expect(parseRoute("#/pane-harness/terminal/session-1/extra").kind).toBe("not-found");
     expect(parseRoute("#/pane-harness/terminal/%zz").kind).toBe("not-found");
-  });
-});
-
-describe("routes — the auxiliary arm is the shared grammar, not a second copy", () => {
-  it("refuses a malformed escape instead of throwing out of a total function", () => {
-    // `parseRoute` promises that every input produces a route. Before this arm
-    // delegated to `src/shared/auxiliary-routes.ts` it called
-    // `decodeURIComponent` on the segment directly, and `%zz` raises `URIError` —
-    // a throw from the function the renderer calls to decide what to render, on
-    // a string anyone can type into the address bar.
-    expect(() => parseRoute("#/window/timeline/%zz")).not.toThrow();
-    expect(parseRoute("#/window/timeline/%zz")).toStrictEqual({
-      kind: "not-found",
-      attempted: "#/window/timeline/%zz",
-    });
-  });
-
-  it("refuses an unknown route name, too many segments, and a half-supplied context", () => {
-    expect(parseRoute("#/window/nowhere").kind).toBe("not-found");
-    expect(parseRoute("#/window/timeline/s1/a1/extra").kind).toBe("not-found");
-    // An agent console names its session AND its agent or neither: a session with
-    // no agent is not a partial descriptor of a window, it is a window that cannot
-    // be opened. The shared grammar refuses it, so this arm never sees a target.
-    expect(parseRoute("#/window/agent-console/session-1").kind).toBe("not-found");
-  });
-
-  it("negative control: the well-formed auxiliary hashes still parse", () => {
-    // Without this the refusals above would pass over an arm that refused
-    // everything, which is the failure this delegation could plausibly cause.
-    expect(parseRoute("#/window/timeline")).toStrictEqual({
-      kind: "auxiliary",
-      route: "timeline",
-    });
-    expect(parseRoute("#/window/agent-console/session-1/agent-1")).toStrictEqual({
-      kind: "auxiliary",
-      route: "agent-console",
-      sessionId: "session-1",
-      agentId: "agent-1",
-    });
-  });
-
-  it("round-trips through the shared producer, escapes included", () => {
-    // The console parses fragments the MAIN process produces, so the pair has to
-    // be an inverse across the process boundary, not merely within this module.
-    const hash = "#/window/agent-console/session%2Fone/agent%20two";
-    const route = parseRoute(hash);
-    expect(route).toStrictEqual({
-      kind: "auxiliary",
-      route: "agent-console",
-      sessionId: "session/one",
-      agentId: "agent two",
-    });
-    expect(formatRoute(route)).toBe(hash);
   });
 });

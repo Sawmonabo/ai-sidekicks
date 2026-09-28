@@ -16,11 +16,13 @@ import {
 import { FLAGSHIP_SCENARIO } from "../../bridge/scenario/flagship/flagship.js";
 import {
   ConsoleEntityProjectorRegistry,
+  type SessionSnapshotReader,
   type SessionStore,
   type SessionStoreRegistry,
 } from "../../store/index.js";
 import { registerRunLifecycleProjectors } from "../run-projection/run-lifecycle-projector.js";
 import { useActiveSessionStore, useSessionStoreRegistry } from "./session-lifecycle.js";
+import { fixtureSessionSnapshot } from "../../bridge/fixture/session/session-snapshot.js";
 
 export interface Observation {
   readonly registry: SessionStoreRegistry;
@@ -49,10 +51,14 @@ export interface FixtureBridgeHarness {
   readonly wrapper: (props: { readonly children: ReactNode }) => React.JSX.Element;
 }
 
+/** The flagship scenario's base state for a session, standing in for the window's read. */
+const readFlagshipSession: SessionSnapshotReader = (sessionId) =>
+  Promise.resolve(fixtureSessionSnapshot(FLAGSHIP_SCENARIO, sessionId));
+
 /** A component that does exactly what the frame does, and reports what it saw. */
 export function SessionProbe(props: SessionProbeProps): null {
   const projectorRegistry = useDefaultedProjectorRegistry(props.projectorRegistry);
-  const registry = useSessionStoreRegistry(projectorRegistry);
+  const registry = useSessionStoreRegistry(projectorRegistry, readFlagshipSession);
   const store = useActiveSessionStore(registry, props.sessionId);
   props.onObserve({ registry, store });
   return null;

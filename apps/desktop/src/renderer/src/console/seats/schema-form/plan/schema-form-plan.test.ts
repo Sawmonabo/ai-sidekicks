@@ -13,7 +13,7 @@ import { planSchemaForm } from "./schema-form-plan.js";
 import { drawnEntries, objectSchema } from "./schema-form-plan.test-support.js";
 
 describe("the schema field mapper", () => {
-  it("resolves each of the six declared kinds from its own schema shape", () => {
+  it("resolves each of the five declared kinds from its own schema shape", () => {
     const plan = planSchemaForm(
       objectSchema({
         title: { type: "string" },
@@ -21,7 +21,6 @@ describe("the schema field mapper", () => {
         count: { type: "integer" },
         approved: { type: "boolean" },
         severity: { type: "string", enum: ["low", "high"] },
-        evidence: { type: "string", format: "artifact" },
       }),
     );
 
@@ -29,14 +28,7 @@ describe("the schema field mapper", () => {
       entry.form === "field" ? entry.field.kind : entry.form,
     );
 
-    expect(kinds).toEqual([
-      "text",
-      "long-text",
-      "number",
-      "checkbox",
-      "choice",
-      "artifact-reference",
-    ]);
+    expect(kinds).toEqual(["text", "long-text", "number", "checkbox", "choice"]);
     // Every declared kind is reachable from a schema, which is what makes the tuple a
     // render set rather than a list with an arm nothing can produce.
     expect([...SCHEMA_FIELD_KINDS].sort()).toEqual([...new Set(kinds)].sort());

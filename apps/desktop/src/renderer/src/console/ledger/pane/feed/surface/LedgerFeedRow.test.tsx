@@ -25,9 +25,7 @@ import {
   openSessionStoreWithSeam,
   openSessionStoreWithTerminalChapter,
 } from "../ledger-chapter-logs.test-support.js";
-import { CHILD_RUN_SUMMARIZED } from "../../../structure/child-runs/child-run-expansion.js";
 import { LedgerRowRetention } from "../../window/ledger-row-retention.js";
-import { sampleRowOffersBinding } from "../row-offers/ledger-row-offers-binding.test-support.js";
 import { deriveLedgerWindow, type LedgerWindowModel } from "../../window/ledger-window.js";
 
 /** A viewport row is a key and its place in the list; the dispatch reads the key. */
@@ -38,9 +36,6 @@ function viewportRowFor(ledgerWindow: LedgerWindowModel, key: string): LedgerVie
   }
   return row;
 }
-
-/** The offer binding a mount holds: one identity, for the life of the window. */
-const STABLE_ROW_OFFERS: LedgerRowRendererOptions["rowOffers"] = sampleRowOffersBinding(() => []);
 
 /** The options every case starts from, over one folded window. */
 function rendererOptions(
@@ -54,27 +49,6 @@ function rendererOptions(
     toggleChapter: () => undefined,
     rowLease: (): LedgerRowLease | undefined => undefined,
     renderTimelineRow: () => <output data-seat-row="yes" />,
-    // The two per-mount disclosures, at rest. Every case here drives a dispatch
-    // BRANCH rather than a disclosure, and each suite that drives one supplies its
-    // own — so what these stand in for is the state a mount would hold, not a stub
-    // of the acts: a summarized child and a band nobody has folded.
-    childRunDisclosure: {
-      expansionFor: () => CHILD_RUN_SUMMARIZED,
-      toggle: () => undefined,
-    },
-    supersededBandDisclosure: {
-      foldedBandKeys: new Set<string>(),
-      toggle: () => undefined,
-      openBandKey: () => undefined,
-    },
-    // The per-row offers, at rest. Every case here drives a dispatch BRANCH, and the
-    // offers' own suite drives the offers — so this stands in for the binding a mount
-    // holds rather than stubbing what a press does. ONE identity for the whole suite,
-    // because that is what a mount has: `useLedgerRowOffers` mints the binding once
-    // and reads its surfaces through a ref, and a fresh stub per call would model a
-    // binding that moves on every window and fail the memo case below for the one
-    // reason that cannot happen in production.
-    rowOffers: STABLE_ROW_OFFERS,
     ...overrides,
   };
 }

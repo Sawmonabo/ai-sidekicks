@@ -1,19 +1,14 @@
 // What the console says about an attention read — on screen and out loud, from one
 // place so the two cannot drift.
 //
-// The notification center draws an absence, a coverage gap, and a dropped-member
+// The notification center draws the all-clear, a coverage gap, and a dropped-member
 // count; the settlement announcement speaks the same read to someone who cannot see
 // any of it. Written twice they would eventually disagree about one number, and the
 // disagreement would be invisible to whichever half its author was looking at —
 // which is the `agents/definitions/definition-rows.ts` precedent (`NO_SAVED_DEFINITIONS`, held as
 // one constant "so the page and its announcement agree").
 //
-// WHAT THE SPOKEN FORM LEAVES OUT, and why. A refusal is spoken as the port's own
-// sentence with its CODE omitted, exactly as `describeDefinitionSettlement` states
-// it: read aloud a code is a token nobody can act on, ahead of the sentence that
-// matters. The code stays on screen, where it can be copied.
-//
-// WHY THE `read` ARM IS COMPOSED FROM CLAUSES RATHER THAN SWITCHED. A read that
+// WHY A READ IS COMPOSED FROM CLAUSES RATHER THAN SWITCHED. A read that
 // answered carries three independent facts — what needs a person, which sessions
 // never answered, and how many members the boundary refused — and any combination
 // of them can occur. Switching over the combinations means eight branches that each
@@ -25,17 +20,7 @@ import {
   answeredReadingStates,
   ATTENTION_SUBJECT,
   type AnsweredAttentionReading,
-  type AttentionReading,
 } from "./attention-plane.js";
-
-/**
- * A reading that has settled.
- *
- * Narrowed rather than guarded inside {@link describeAttentionSettlement}: a caller
- * that tried to speak before the read lands is then a compile error rather than a
- * sentence about a settlement that has not happened.
- */
-export type SettledAttentionReading = Exclude<AttentionReading, { readonly phase: "reading" }>;
 
 /** The all-clear, so the panel and its announcement say one thing. */
 export const NOTHING_NEEDS_YOU = "Nothing needs you.";
@@ -47,22 +32,8 @@ export function uncheckedSessionsSentence(refusedCount: number): string {
     : `${formatCount(refusedCount)} sessions could not be checked.`;
 }
 
-/**
- * One settled attention read, in one sentence for the polite lane.
- *
- * The `not-asked` arm speaks, and that is deliberate: it is a settled state rather
- * than a read in flight — the installed bridge reaches it and stays there — so
- * leaving it silent would put a person who cannot see the panel in front of the one
- * conflation this whole surface is built to prevent, hearing nothing and having no
- * way to tell "you are free" from "nobody asked".
- */
-export function describeAttentionSettlement(reading: SettledAttentionReading): string {
-  if (reading.phase === "not-asked") {
-    return "The attention projection has not been read, so this is not an all-clear.";
-  }
-  if (reading.phase === "refused") {
-    return reading.refusal.detail;
-  }
+/** One settled attention read, in one sentence for the polite lane. */
+export function describeAttentionSettlement(reading: AnsweredAttentionReading): string {
   const clauses = [needsYouClause(reading)];
   if (reading.refusedSessions.length > 0) {
     clauses.push(uncheckedSessionsSentence(reading.refusedSessions.length));

@@ -18,8 +18,8 @@
 // one home: it is the only surface that draws a handoff, so the vocabulary sits
 // beside the renderer that spends it rather than in a second table somewhere else.
 //
-// EVERY MEMBER IS READ AS ITSELF. `fromActor`, `toActor`, `reason` and `channelId` are
-// the four members the entry carries; each is read off the projected
+// EVERY MEMBER IS READ AS ITSELF. `fromActor`, `toActor` and `reason` are
+// the three members the entry carries; each is read off the projected
 // payload through the console's one wire-string reader and rendered verbatim or
 // rendered as an absence. Nothing here composes a sentence, maps an unrecognized value
 // onto a phrase, or infers a `toActor` from a row's own actor — an inferred handoff
@@ -94,7 +94,6 @@ export interface HandoffEntry {
   readonly fromActor: string | undefined;
   readonly toActor: string | undefined;
   readonly reason: string | undefined;
-  readonly channelId: string | undefined;
   readonly timestamp: string;
   /**
    * The child run this handoff opened, when the row names one.
@@ -225,7 +224,6 @@ export function deriveHandoffEntries(rows: readonly TimelineRow[]): readonly Han
         fromActor: readWireString(payload["fromActor"]),
         toActor: readWireString(payload["toActor"]),
         reason: readWireString(payload["reason"]),
-        channelId: readWireString(payload["channelId"]),
         timestamp: row.timestamp,
         childRunId: childRunIdOf(row),
       });

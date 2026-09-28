@@ -6,7 +6,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { generalRow, legacyStubRow, runRow } from "../timeline-rows.test-support.js";
+import { generalRow, runRow } from "../timeline-rows.test-support.js";
 import {
   SubagentAnchorIndex,
   deriveSubagentAnchors,
@@ -51,11 +51,6 @@ describe("the identity — read from three members, never inferred", () => {
     expect(
       subagentIdentityOf(
         generalRow({ id: "g1", sequence: 1, type: "subagent.started", payload: { ...SUBAGENT } }),
-      ),
-    ).toBeUndefined();
-    expect(
-      subagentIdentityOf(
-        legacyStubRow({ id: "s1", sequence: 1, type: "subagent.started", runId: "run-a" }),
       ),
     ).toBeUndefined();
   });

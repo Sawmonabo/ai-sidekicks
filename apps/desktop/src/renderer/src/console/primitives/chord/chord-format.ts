@@ -41,7 +41,7 @@ export const CHORD_PLATFORMS = ["darwin", "win32", "linux"] as const;
 /**
  * The chord that opens the command palette.
  *
- * `KeyK` rather than `k` so the binding is keyboard-layout independent: on an
+ * `KeyP` rather than `p` so the binding is keyboard-layout independent: on an
  * AZERTY or Dvorak layout the physical key a person reaches for is the same one,
  * and matching by `KeyboardEvent.code` is what preserves that.
  *
@@ -54,7 +54,7 @@ export const CHORD_PLATFORMS = ["darwin", "win32", "linux"] as const;
  * the only reader that hands this to `parseChord` — but the LITERAL is console-wide
  * vocabulary, and one home for it is what keeps three hints spelling one chord.
  */
-export const COMMAND_PALETTE_OPEN_CHORD = "$mod+KeyK";
+export const COMMAND_PALETTE_OPEN_CHORD = "$mod+Shift+KeyP";
 
 /**
  * Which display convention to render a chord in.

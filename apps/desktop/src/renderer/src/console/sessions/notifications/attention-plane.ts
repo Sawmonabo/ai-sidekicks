@@ -4,18 +4,19 @@
 // here. So this module holds a fold and a reading vocabulary — and no derivation of
 // attention at all, and no narrowing either.
 //
-// The narrowing, the read seam, and the session fan-out live next door in
-// `attention-projection-read.ts`. This module takes items that already survived
-// that boundary, which is why nothing here is typed `unknown`: by the time a value
-// reaches the fold, the question "is this an attention item" has been answered.
-//
-// WHEN the seam is read, and what re-reads it, is `attention-read.ts` — this module
-// owns the fold and holds no lifetime at all.
+// It takes items that are already typed, which is why nothing here is typed
+// `unknown`. WHEN the projection is read is `attention-read.ts` — this module owns the
+// fold and holds no lifetime at all.
 
 import { compareInstants, parseInstant, type ConsoleRefusal } from "../../core/index.js";
 import { unreadableDeliveryReading, type ReadingState } from "../../primitives/index.js";
 import type { AttentionItem, AttentionSeverity } from "../../bridge/index.js";
-import type { RefusedAttentionSession } from "./attention-projection-read.js";
+
+/** One session the projection read could not cover, with the refusal it answered with. */
+export interface RefusedAttentionSession {
+  readonly sessionId: string;
+  readonly refusal: ConsoleRefusal;
+}
 
 /** One session's live attention, split on the axis suppression keys on. */
 export interface AttentionSessionGroup {
@@ -27,12 +28,8 @@ export interface AttentionSessionGroup {
 /**
  * What one projection read produced, as a value a view narrows on.
  *
- * Four phases and not two: a read in flight, a read that was never put, a read that
- * answered, and a read that FAILED. Collapsing the second into the third would let
- * the all-clear line stand for a question nobody asked, which is exactly the
- * conflation the five kinds of nothing exist to prevent — and collapsing the fourth
- * into the second would report a reader that broke as a reader that was never asked,
- * which is the same conflation from the other side.
+ * Two phases: a read in flight and a read that answered. A read that fails is not a
+ * phase; its rejection reaches whoever performs the read.
  *
  * The `read` arm carries its own COVERAGE, because a read that answered is not the
  * same as a read that answered for everything it asked about, and one phase for
@@ -40,8 +37,6 @@ export interface AttentionSessionGroup {
  */
 export type AttentionReading =
   | { readonly phase: "reading" }
-  | { readonly phase: "not-asked" }
-  | { readonly phase: "refused"; readonly refusal: ConsoleRefusal }
   | {
       readonly phase: "read";
       readonly plane: AttentionPlane;
@@ -198,8 +193,8 @@ export const ATTENTION_SUBJECT = "what needs you";
  * mapping it there would trade a count for a grammar. It stays the family's own
  * sentence until the vocabulary carries a counted coverage reading.
  *
- * The other three phases map to nothing: they are rule 8's absences, which the panel
- * renders through `Nothing` and `RefusalCard` as the whole of what it has.
+ * The phase that is still reading maps to nothing: the panel renders it through
+ * `Nothing` as the whole of what it has.
  */
 export function answeredReadingStates(reading: AnsweredAttentionReading): readonly ReadingState[] {
   return [unreadableDeliveryReading(reading.droppedCount, undefined)];

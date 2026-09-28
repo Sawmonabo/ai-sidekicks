@@ -2,10 +2,9 @@
 // actually on screen.
 //
 // The five acts are `deck-acts.ts`'; this file is the seam between them and the
-// window's command surface. The shape is `sidebar-command-seat.ts`' — a mounted-surface
-// seat plus a contribution made at composition time — and it is deliberately that
-// file's SHAPE rather than a use of it: both surfaces belong to this family, so
-// nothing here crosses a family boundary and nothing here belongs in `seats/`.
+// window's command surface: a mounted-surface seat plus a contribution made at
+// composition time. Nothing here crosses a family boundary and nothing here belongs in
+// `seats/`.
 //
 // CONTRIBUTED AT COMPOSITION TIME, RESOLVED AT PRESS TIME. A command is built once per
 // window, before any deck exists; the deck comes and goes with the route. So each row
@@ -93,7 +92,7 @@ export class MountedDeckSeat {
   }
 }
 
-/** This window's seat. Module scope is window scope: an auxiliary window is a process. */
+/** This window's seat. Module scope is window scope. */
 export const mountedDeck: MountedDeckSeat = new MountedDeckSeat();
 
 /** Adopt the seat for as long as this deck is mounted. */
@@ -176,8 +175,7 @@ export function deckPaletteCommands(acts: DeckActs): readonly ConsoleCommand[] {
  * Contribute the deck's commands to a window.
  *
  * Takes the surface rather than reaching for the module-scope door, for
- * `registerLedgerCommands`' reason: a test contributes into a surface it owns, and an
- * auxiliary window could contribute a subset without a second code path.
+ * `registerLedgerCommands`' reason: a test contributes into a surface it owns.
  */
 export function registerDeckCommands(
   surface: ConsoleCommandSurface,

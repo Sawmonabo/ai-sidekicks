@@ -22,7 +22,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { ConsoleEntityRef } from "../../store/index.js";
-import { paneEntityScopeFor, type ConsolePaneAddress } from "./pane-address.js";
+import { type ConsolePaneAddress } from "./pane-address.js";
 import { parseConsolePaneAddress } from "./pane-address-parse.js";
 import { AGENT, ARTIFACT, BROWSER_PAGE, RUN, refusalFrom } from "./pane-address.test-support.js";
 
@@ -107,17 +107,17 @@ describe("the address union, at a typed call site", () => {
   });
 });
 
-/** The four kinds the design track enumerates as sidebar cards. */
-const SIDEBAR_CARD_ENTITY_KINDS = ["user", "workspace", "worktree", "repo"] as const;
+/** The two kinds that own a checkout, which the inspector and the diff pane are views of. */
+const CHECKOUT_ENTITY_KINDS = ["workspace", "worktree"] as const;
 
-describe("the inspector, over the entities the spec routes to it", () => {
-  it("parses an inspector address for every entity kind the spec names", () => {
-    // The design track routes four kinds to the inspector, and one of them — repo —
-    // was not a console entity kind at all, so the address union could not represent
-    // it and the runtime scope table rejected it as a kind mismatch. The repos branch
-    // would have had to reopen this shared substrate to open a pane the design track
-    // already routes.
-    for (const entityKind of SIDEBAR_CARD_ENTITY_KINDS) {
+/** Kinds that exist in the store and own no checkout, so no record or change set is drawn. */
+const KINDS_WITHOUT_A_CHECKOUT = ["user", "repo"] as const;
+
+const REPO: ConsoleEntityRef & { readonly kind: "repo" } = { kind: "repo", id: "repo-1" };
+
+describe("the inspector, over the checkout the session is holding", () => {
+  it("parses an inspector address for a workspace and for a worktree", () => {
+    for (const entityKind of CHECKOUT_ENTITY_KINDS) {
       const entity = { kind: entityKind, id: `${entityKind}-1` } satisfies ConsoleEntityRef;
 
       expect(parseConsolePaneAddress("inspector", entity)).toStrictEqual({
@@ -127,73 +127,36 @@ describe("the inspector, over the entities the spec routes to it", () => {
     }
   });
 
-  it("admits the repo ref at a typed call site too", () => {
-    // The compile-time half. It was unconstructible before, at a type the union
-    // derived from an entity vocabulary that did not name it.
-    const repoInspector: AddressArm<"inspector"> = {
-      kind: "inspector",
-      entity: { kind: "repo", id: "repo-1" },
-    };
-
+  it("negative control: the inspector refuses every kind that owns no checkout", () => {
+    // Without this the case above would hold over a scope that admitted every entity
+    // kind — an inspector opened over a run, a repo, or the user has no record to draw.
+    // @ts-expect-error a repo owns no checkout, so nothing routes it to the inspector
+    const repoInspector: AddressArm<"inspector"> = { kind: "inspector", entity: REPO };
     expect(repoInspector.entity.kind).toBe("repo");
-  });
+    for (const entityKind of [...KINDS_WITHOUT_A_CHECKOUT, "run"]) {
+      const entity = { kind: entityKind, id: `${entityKind}-1` };
 
-  it("negative control: the inspector still refuses a kind the spec does not route to it", () => {
-    // Without this the cases above would hold over a scope that admitted every
-    // entity kind, which is what the fix's own failure mode looks like — an inspector
-    // opened over a run has no card to render.
-    // @ts-expect-error the spec routes no run entity to the inspector
-    const runInspector: AddressArm<"inspector"> = { kind: "inspector", entity: RUN };
-    expect(runInspector.entity.kind).toBe("run");
-    expect(refusalFrom(parseConsolePaneAddress("inspector", RUN)).code).toBe(
-      "pane-entity-kind-mismatch",
-    );
+      expect(refusalFrom(parseConsolePaneAddress("inspector", entity)).code).toBe(
+        "pane-entity-kind-mismatch",
+      );
+    }
   });
 });
 
-describe("the diff pane, over the entities whose changes the spec routes to it", () => {
-  it("parses a diff address for every entity kind that sentence enumerates", () => {
-    // The design track, one sentence: a repo, workspace, worktree, or member entity
-    // is a card in its sidebar section and opens as an `inspector` pane keyed by its
-    // entity kind, its changes opening the `diff` pane. "its changes" has one
-    // antecedent, and it is the same
-    // enumerated subject the inspector clause takes — so both clauses distribute over
-    // one list. The row was `worktree | workspace`, which refused a repo's changes
-    // statically and answered `pane-entity-kind-mismatch` at the runtime parse.
-    for (const entityKind of SIDEBAR_CARD_ENTITY_KINDS) {
+describe("the diff pane, over the same checkout", () => {
+  it("parses a diff address for a workspace and for a worktree", () => {
+    for (const entityKind of CHECKOUT_ENTITY_KINDS) {
       const entity = { kind: entityKind, id: `${entityKind}-1` } satisfies ConsoleEntityRef;
 
       expect(parseConsolePaneAddress("diff", entity)).toStrictEqual({ kind: "diff", entity });
     }
   });
 
-  it("admits the two added refs at a typed call site too", () => {
-    // The compile-time half. Both were unconstructible before, at a type derived from
-    // a narrower list than the sentence its sibling row already reads.
-    const repoDiff: AddressArm<"diff"> = { kind: "diff", entity: { kind: "repo", id: "repo-1" } };
-    const memberDiff: AddressArm<"diff"> = {
-      kind: "diff",
-      entity: { kind: "user", id: "user-1" },
-    };
-
-    expect(repoDiff.entity.kind).toBe("repo");
-    expect(memberDiff.entity.kind).toBe("user");
-  });
-
-  it("reads the same list as the inspector, because it is the same sentence", () => {
-    // The set is declared once and both rows read it, so the two cannot drift into
-    // two readings of one clause.
-    expect(paneEntityScopeFor("diff").entityKinds).toStrictEqual(
-      paneEntityScopeFor("inspector").entityKinds,
-    );
-  });
-
-  it("negative control: the diff still refuses a kind that sentence does not name", () => {
-    // Without this the cases above would hold over a scope that admitted every entity
-    // kind, which is the fix's own failure mode — a diff opened over a run or an
-    // artifact is a pane with nothing to show and a body querying a partition that
-    // has never held the row.
-    // @ts-expect-error the spec routes no run entity to the diff pane
+  it("negative control: the diff refuses a kind that owns no checkout", () => {
+    // Without this the case above would hold over a scope that admitted every entity
+    // kind — a diff opened over a run, an artifact, a repo, or the user is a pane with
+    // nothing to show and a body querying a partition that has never held the row.
+    // @ts-expect-error a run owns no checkout, so no change set is drawn for it
     const runDiff: AddressArm<"diff"> = { kind: "diff", entity: RUN };
     expect(runDiff.entity.kind).toBe("run");
     expect(refusalFrom(parseConsolePaneAddress("diff", RUN)).code).toBe(
@@ -202,5 +165,12 @@ describe("the diff pane, over the entities whose changes the spec routes to it",
     expect(refusalFrom(parseConsolePaneAddress("diff", ARTIFACT)).code).toBe(
       "pane-entity-kind-mismatch",
     );
+    for (const entityKind of KINDS_WITHOUT_A_CHECKOUT) {
+      const entity = { kind: entityKind, id: `${entityKind}-1` };
+
+      expect(refusalFrom(parseConsolePaneAddress("diff", entity)).code).toBe(
+        "pane-entity-kind-mismatch",
+      );
+    }
   });
 });

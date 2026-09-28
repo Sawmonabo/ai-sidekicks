@@ -1,5 +1,5 @@
 // The window bindings a mounted console installs — hash routing, idle warming, the
-// colour scheme, the token sheet, the per-window UI state store, and the refresh a
+// color scheme, the token sheet, the per-window UI state store, and the refresh a
 // regained window focus asks for.
 //
 // A SUB-MODULE DOOR, NOT A FAMILY DOOR. It publishes to `frame/` alone, and the

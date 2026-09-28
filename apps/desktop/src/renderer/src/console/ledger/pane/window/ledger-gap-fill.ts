@@ -11,14 +11,13 @@
 //
 // WHAT WOULD MAKE IT A REPLAY INSTEAD. `timeline.subscribe` takes an `afterCursor` and
 // opens the stream after the position it names, so a window holding a kept position
-// could ask for exactly the rows it lost. The method is registered; the seam is not.
-// The preload bridge's subscribe half names an EVENT and takes no request object, so
-// the position has nowhere to travel — which is why the ask is put through the growth
-// port and its slate row rather than through a widened bridge namespace.
+// could ask for exactly the rows it lost. The call that puts the ask is the caller's,
+// taken as an argument, so this module keeps only its own logic: when to ask, and where
+// the ask got to.
 //
-// AND THE PANE NEVER OWNS THE STREAM. The served answer is the acknowledgement the
-// registered reply carries and nothing else: the rows arrive on the subscription the
-// store already holds, which is the console's one subscriber to the wire. A value that
+// AND THE PANE NEVER OWNS THE STREAM. The answer is the acknowledgement the registered
+// reply carries and nothing else: the rows arrive on the subscription the store
+// already holds, which is the console's one subscriber to the wire. A value that
 // handed this surface a stream to drain would make a pane the owner of the log's
 // delivery, which is the rule `store/session/session-hooks.ts` states and the reason
 // this module reads a decision rather than opening anything.
@@ -31,8 +30,14 @@
 // store already submits on its next read, so a replay asks with that or asks with
 // nothing.
 
-import type { ConsoleRefusal } from "../../../core/index.js";
-import { useConsoleBridge, useSettledGrowthRead, type GrowthPort } from "../../../bridge/index.js";
+import { useEffect } from "react";
+
+import {
+  isReadAbandoned,
+  settleUnlessAbandoned,
+  useReadScope,
+  useSubjectScopedState,
+} from "../../../store/index.js";
 
 /** What one re-subscribe asks for. The registered request's two reachable members. */
 export interface LedgerGapFillRequest {
@@ -78,8 +83,16 @@ export type LedgerGapFillState =
   | { readonly status: "whole" }
   | { readonly status: "unanchored" }
   | { readonly status: "asking" }
-  | { readonly status: "replaying" }
-  | { readonly status: "unavailable"; readonly refusal: ConsoleRefusal };
+  | { readonly status: "replaying" };
+
+/**
+ * The call that re-opens the timeline stream after a kept position.
+ *
+ * Resolves once the daemon has acknowledged the ask; a rejection propagates. It must be
+ * the same function on every render: it scopes the read and is an effect dependency, so
+ * an inline lambda would ask again on every render.
+ */
+export type LedgerGapFillCall = (request: LedgerGapFillRequest) => Promise<unknown>;
 
 /**
  * Decide what this window can ask for. Pure: it holds nothing and it calls nothing.
@@ -114,17 +127,18 @@ export function ledgerGapFillSubjectKey(sessionId: string, missingFromSequence: 
   return `${sessionId}:${String(missingFromSequence)}`;
 }
 
-/** The three settled arms, minted once: each is one identity across every render. */
+/** The four arms, minted once: each is one identity across every render. */
 const WHOLE: LedgerGapFillState = { status: "whole" };
 const UNANCHORED: LedgerGapFillState = { status: "unanchored" };
 const ASKING: LedgerGapFillState = { status: "asking" };
 const REPLAYING: LedgerGapFillState = { status: "replaying" };
 
 /**
- * Put one replay ask per hole, and report where it got to.
+ * Put one replay ask per hole, and report where it got to. `call` must be referentially
+ * stable, as {@link LedgerGapFillCall} says.
  *
  * AND NO POLLING, on the session header's rule: the ask goes out once from the effect the
- * read chokepoint arms, and again only when the port or the hole moves. A hole that
+ * read chokepoint arms, and again only when the call or the hole moves. A hole that
  * closes re-addresses the holder to `undefined`, which re-seeds this to `whole` — so
  * the surface clears with the store's own repair rather than on a timer of its own.
  *
@@ -133,30 +147,38 @@ const REPLAYING: LedgerGapFillState = { status: "replaying" };
  * door is what reads them off the store and the registry, which is the one place both
  * are in hand.
  */
-export function useLedgerGapFill(input: LedgerGapFillInput): LedgerGapFillState {
-  const bridge = useConsoleBridge();
+export function useLedgerGapFill(
+  input: LedgerGapFillInput,
+  call: LedgerGapFillCall,
+): LedgerGapFillState {
   const intent = resolveLedgerGapFill(input);
   const request = intent.outcome === "resumable" ? intent.request : undefined;
   const subjectKey =
     intent.outcome === "resumable"
       ? ledgerGapFillSubjectKey(input.sessionId, intent.missingFromSequence)
       : undefined;
+  // A subject to ask about IS an ask in flight, because the effect below runs on the
+  // commit that seeded this. The two unsettled arms are the two ways there is nothing
+  // to ask, and they are told apart by the intent rather than by the key — which
+  // cannot tell them apart, both being unaddressed.
   const unsettled = intent.outcome === "whole" ? WHOLE : UNANCHORED;
-  return useSettledGrowthRead<TimelineSubscribeOutcome, LedgerGapFillState>(
-    bridge.growth,
-    subjectKey,
-    () => (request === undefined ? undefined : bridge.growth.timelineSubscribe(request)),
-    {
-      // A subject to ask about IS an ask in flight, because the effect that puts it
-      // runs on the commit that seeded this. The two unsettled arms below it are the
-      // two ways there is nothing to ask, and they are told apart by the intent rather
-      // than by the key — which cannot tell them apart, both being unaddressed.
-      unsettled: (key) => (key === undefined ? unsettled : ASKING),
-      settled: (settlement) =>
-        settlement.status === "served" ? REPLAYING : { status: "unavailable", refusal: settlement },
-    },
-  ).value;
+  const { value, publish } = useSubjectScopedState<LedgerGapFillState>(call, subjectKey, () =>
+    subjectKey === undefined ? unsettled : ASKING,
+  );
+  const readScope = useReadScope(call, subjectKey);
+  useEffect(() => {
+    const round = readScope.openRound();
+    if (isReadAbandoned(round.signal) || request === undefined) {
+      return;
+    }
+    void settleUnlessAbandoned(call(request), round.signal).then((settlement) => {
+      if (settlement.status === "abandoned") {
+        return;
+      }
+      round.settle(() => {
+        publish(REPLAYING);
+      });
+    });
+  }, [call, subjectKey, publish, readScope]);
+  return value;
 }
-
-/** What the port answers this operation with, read off the port rather than restated. */
-type TimelineSubscribeOutcome = Awaited<ReturnType<GrowthPort["timelineSubscribe"]>>;

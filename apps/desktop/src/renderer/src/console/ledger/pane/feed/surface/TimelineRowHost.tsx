@@ -12,14 +12,16 @@
 
 import { Nothing } from "../../../../primitives/index.js";
 import { type SessionStore } from "../../../../store/index.js";
-import { type OwnerSlotProps, type TimelineRowRenderer } from "../../../../seats/index.js";
+import { type TimelineRowRenderer } from "../../../../seats/index.js";
 import { LedgerFeed } from "./LedgerFeed.js";
 
-export interface TimelineRowHostProps extends OwnerSlotProps<TimelineRowRenderer> {
+/** What the rows' hole needs to choose between its three nothings and the feed. */
+export interface TimelineRowHostProps {
+  /** The registered row renderer, or `undefined` while none is registered. */
+  readonly body: TimelineRowRenderer | undefined;
   readonly sessionStore: SessionStore | undefined;
   /** The deck pane this body fills, for the seat the feed claims under it. */
   readonly paneId: string;
-  readonly channelId?: string;
 }
 
 /**
@@ -63,11 +65,7 @@ export function TimelineRowHost(props: TimelineRowHostProps): React.JSX.Element 
       sessionStore={props.sessionStore}
       paneId={props.paneId}
       renderTimelineRow={body}
-      // Named for what the feed is a log of, because the label is what a screen
-      // reader announces when it enters the box — and "Session timeline" over a
-      // channel-scoped window says the log is the session's when it is not.
-      feedLabel={props.channelId === undefined ? "Session timeline" : "Channel timeline"}
-      {...(props.channelId === undefined ? {} : { channelId: props.channelId })}
+      feedLabel="Session timeline"
     />
   );
 }

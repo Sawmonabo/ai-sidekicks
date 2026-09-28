@@ -77,7 +77,7 @@ import "./posture/posture.css";
 // an omission: that directory carries a lazily-loaded chunk now, so it has an owner of
 // its own and its sheet enters through `restore/file-restore-disclosure-body.js`. A line
 // here would put a rewind's working-tree rules on every launch to dress a surface only a
-// settled rollback draws — and would defeat the loader two lines of this door below.
+// settled rollback draws.
 
 // The sheet's one filled-accent face, named where TypeScript can see it. Two
 // surfaces outside this family wear it, so the name is declared once rather than
@@ -419,23 +419,6 @@ export { ExecutionPostureChip } from "./posture/ExecutionPostureChip.js";
 // mount the chip above, but a second sentence for one fact is the copy this
 // family owns being written twice.
 export { POSTURE_ABSENT_DETAIL } from "./posture/posture-copy.js";
-// THE RESTORE LEAVES AS A LOADER AND NOT AS A COMPONENT, and the two lines below are
-// one seam rather than two exports. A door line is a static edge, and this door is on
-// the renderer's own entry graph — so naming the component here put the disclosure,
-// both enumeration lists, the windowed path list, the cell and their sheet on the
-// document of every session, for a body only a rewind that touched the working tree
-// ever draws. That is the case the module-shape rule in `apps/desktop/AGENTS.md` names:
-// a symbol reachable both statically and dynamically is assigned to the STATIC chunk.
-//
-// The cross-family rule is untouched by the fix — a reader still imports this door and
-// nothing under it — because the boundary moves INTO the door's own module rather than
-// out to the caller. `bridge/wire-shapes/json-schema-check-loader.ts` is the same move
-// for the schema compiler, and this follows it rather than inventing a second shape.
-//
-// The PROPS type stays an ordinary door line beside it: a type re-export is erased, so it
-// costs the graph nothing, and without it the mounting family could not spell what it
-// hands the body without reaching past this door.
-export { loadFileRestoreDisclosure } from "./restore/file-restore-disclosure-loader.js";
 export type { FileRestoreDisclosureProps } from "./restore/FileRestoreDisclosure.js";
 
 // The overlay shells, each registering what it mounts in the window's airspace — at the

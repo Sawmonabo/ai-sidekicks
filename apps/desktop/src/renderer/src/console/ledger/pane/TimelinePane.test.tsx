@@ -11,18 +11,15 @@
 // would not catch:
 //
 //   • The pane mounts at its own KIND and hands over its own ADDRESS — the session
-//     the route names and the channel its context carries. A pane that passed the
-//     wrong kind draws the wrong glyph and the wrong name; one that dropped the
-//     entity draws a head that says the whole session over a channel's rows.
+//     the route names. A pane that passed the wrong kind draws the wrong glyph and
+//     the wrong name.
 //   • The row slot reads the real seat. A host that held its own idea of whether
 //     rows exist would be a second source of truth for a decision another plan
 //     owns, and would keep rendering the reserved state after `renderer/src/timeline/` landed.
 //   • The two absences are different absences. Both are quiet grey lines; only the
 //     copy tells "the console cannot draw this" from "your session is empty".
 //
-// What a CHANNEL ADDRESS narrows is `TimelinePaneScope.test.tsx`': the two suites
-// mount the same pane and ask different things of it, and the fixtures they share
-// live in `TimelinePaneFixtures.test-support.tsx`.
+// The fixtures live in `TimelinePaneFixtures.test-support.tsx`.
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -35,7 +32,7 @@ import { registerTimelineRowRenderer } from "../../seats/index.js";
 import { withLaidOutViewport } from "./feed/surface/LedgerFeedFixtures.test-support.js";
 // Deeply: the teardown is reached by tests alone, so it is not a door line.
 import { unregisterTimelineRowRenderer } from "../../seats/slots/timeline-row-slot.js";
-import { TIMELINE_ROW_SLOT, type TimelinePaneContext } from "./TimelinePane.js";
+import { type TimelinePaneContext } from "./TimelinePane.js";
 import {
   TIMELINE_PANE_SESSION_ID,
   openSessionStoreWithPaneLog,
@@ -49,15 +46,6 @@ function addressCrumbs(pane: HTMLElement): readonly (string | null)[] {
     (crumb) => crumb.textContent,
   );
 }
-
-/**
- * Every shape a governance id takes in this corpus.
- *
- * Written once here rather than as five `toContain` calls, so the negative control
- * below drives the same expression the claim does — two lists would agree until one
- * of them gained a prefix.
- */
-const GOVERNANCE_ID = /\b(?:Plan|Spec|ADR|BL|CP|I|T-023[a-z]?)-\d/;
 
 afterEach(() => {
   // The seat is module-scope, so a case that filled it would leak into the next.
@@ -76,14 +64,9 @@ describe("TimelinePane — what it hands the chrome", () => {
     expect(pane.querySelector(".meridian-pane__kind svg")).not.toBeNull();
   });
 
-  it("hands over the session the route names and the channel it is scoped to", () => {
-    const pane = renderPane({
-      // A CHANNEL, because that is the only entity a timeline is a view of: the
-      // address union scopes each pane kind to its own entity kinds, so a run
-      // reference here does not compile — which is the guard, not an inconvenience.
-      context: paneContext({ entity: { kind: "channel", id: "channel-01" } }),
-    });
-    expect(addressCrumbs(pane)).toStrictEqual([TIMELINE_PANE_SESSION_ID, "channel-01"]);
+  it("hands over the session the route names", () => {
+    const pane = renderPane({ context: paneContext() });
+    expect(addressCrumbs(pane)).toStrictEqual([TIMELINE_PANE_SESSION_ID]);
   });
 
   it("hands over no session at all rather than one the route does not name", () => {
@@ -161,48 +144,11 @@ describe("TimelinePane — the row slot", () => {
   it("negative control: the same store with no events shows the empty session", () => {
     registerTimelineRowRenderer("timeline-pane-test", () => null);
     const sessionStore = new SessionStore({ sessionId: TIMELINE_PANE_SESSION_ID });
-    sessionStore.initialise({ cursor: -1, entities: [], userJoinLog: [] });
+    sessionStore.initialise({ cursor: -1, entities: [] });
     const pane = renderPane({
       context: paneContext({ sessionStore } as Partial<TimelinePaneContext>),
     });
     expect(pane.textContent).toContain("Nothing has happened in this session yet.");
     expect(pane.querySelectorAll("[data-row-type]")).toHaveLength(0);
-  });
-
-  it("declares who owns the rows, what the mount owes them, and where the shell dies", () => {
-    // Developer-facing and never rendered: the three answers live in the file
-    // rather than in a reviewer's memory, and none of them reaches a screen.
-    for (const claim of Object.values(TIMELINE_ROW_SLOT)) {
-      expect(claim.length).toBeGreaterThan(0);
-    }
-    const pane = renderPane({ context: paneContext() });
-    expect(pane.textContent).not.toContain(TIMELINE_ROW_SLOT.owningTask);
-    expect(pane.textContent).not.toContain(TIMELINE_ROW_SLOT.deleteShellIn);
-  });
-
-  it("carries no governance id in any of the three, so a bad render cannot leak one", () => {
-    // The reason "never rendered" is not the whole rule. A string is one careless
-    // render away from a screen and a comment is not, so the ids the slot is ABOUT
-    // live in the comment above it and the values say the same thing in English.
-    for (const claim of Object.values(TIMELINE_ROW_SLOT)) {
-      expect(claim).not.toMatch(GOVERNANCE_ID);
-    }
-  });
-
-  it("negative control: the pattern matches the ids these values used to carry", () => {
-    // Without this the case above would pass over an expression that matched
-    // nothing — which is how a tripwire reports a clean tree it never read. The
-    // samples are assembled from parts, so this file carries no identifier of its own.
-    const sample = (prefix: string, rest: string): string => `${prefix}-${rest}`;
-    expect(`${sample("Plan", "013")} Phase 4 — the row vocabulary`).toMatch(GOVERNANCE_ID);
-    for (const foil of [
-      sample("ADR", "016"),
-      sample("BL", "108"),
-      sample("CP", "023-9"),
-      sample("I", "023-15"),
-      sample("T", "023p-1C-2"),
-    ]) {
-      expect(foil).toMatch(GOVERNANCE_ID);
-    }
   });
 });

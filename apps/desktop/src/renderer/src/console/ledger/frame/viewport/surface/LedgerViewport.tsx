@@ -40,13 +40,13 @@
 
 import { WindowAbsences } from "../../../../primitives/index.js";
 import { EmptyLedgerWindow } from "./EmptyLedgerWindow.js";
-import { type LedgerScope } from "./empty-window-words.js";
 import { LedgerErrorSlot, type LedgerErrorEntry } from "../../ErrorSlot.js";
 import { LedgerRowMount, type LedgerRowRenderer } from "../../LedgerRowMount.js";
 import { LedgerTailAffordance } from "../../LedgerTailAffordance.js";
 import { LoadEarlierAffordance, type LedgerEarlierPaging } from "../../paging/index.js";
 import { type LedgerViewportBinding } from "./viewport-binding.js";
 
+/** What a surface hands the ledger viewport. */
 export interface LedgerViewportProps {
   /**
    * The caller's binding — the one this ledger has.
@@ -65,26 +65,11 @@ export interface LedgerViewportProps {
   /** Names the feed for a screen reader walking the window. */
   readonly feedLabel: string;
   /**
-   * What this ledger is a log of. REQUIRED, so a caller decides rather than
-   * inherits: the empty sentence below is a claim about a subject, and defaulting
-   * it to the session is how a channel pane came to say the session was empty.
-   */
-  readonly scope: LedgerScope;
-  /**
-   * The session's projected peer-invocation grant, where the read reported one.
-   *
-   * Read by the empty window and by nothing else here: a session that cannot let its
-   * agents reach each other cannot hold a handoff row, and an empty log that does
-   * not say so reads as an absence of activity. `undefined` is the reply not carrying
-   * the member, which is not the same as off and renders the ordinary sentence.
-   */
-  readonly peerInvocationEnabled?: boolean | undefined;
-  /**
    * Whether this session's first read has settled.
    *
-   * REQUIRED, for the reason `scope` above is: the empty window below is a CLAIM
-   * about a session, and a caller that had not answered this made it while the read
-   * was still in flight — "Nothing has happened in this session yet." rendered
+   * REQUIRED, so a caller decides rather than inherits: the empty window below is a
+   * CLAIM about a session, and a caller that had not answered this made it while the
+   * read was still in flight — "Nothing has happened in this session yet." rendered
    * directly above the pane's twelve loading shells, two sentences about one moment
    * with one of them false. An optional prop defaulting to settled would have
    * reintroduced exactly that on the next caller to forget it.
@@ -107,6 +92,7 @@ export interface LedgerViewportProps {
 
 const NO_ERROR_ENTRIES: readonly LedgerErrorEntry[] = [];
 
+/** The scrolling window over one ledger's rows, with its head and tail affordances. */
 export function LedgerViewport(props: LedgerViewportProps): React.JSX.Element {
   const { binding } = props;
   const { snapshot } = binding;
@@ -172,12 +158,7 @@ export function LedgerViewport(props: LedgerViewportProps): React.JSX.Element {
          * shells ARE the answer, and a second element saying anything at all would be
          * the surface talking over its own loading state.
          */}
-        {snapshot.rows.length === 0 && props.firstReadSettled ? (
-          <EmptyLedgerWindow
-            scope={props.scope}
-            peerInvocationEnabled={props.peerInvocationEnabled}
-          />
-        ) : null}
+        {snapshot.rows.length === 0 && props.firstReadSettled ? <EmptyLedgerWindow /> : null}
         {/*
          * The two ways this window's own DRAWING falls short of the log it holds,
          * in the console's shared sentences rather than in a pair this family

@@ -19,17 +19,7 @@
 // the better surface — a filter menu of twenty categories, eighteen of which match
 // nothing in this session, is a menu nobody reads.
 
-import type {
-  AssistantOutputPayload,
-  ChannelCreatedEvent,
-  EventCategory,
-  RunRolledBackEvent,
-  TimelineRow,
-  ToolActivityPayload,
-} from "@ai-sidekicks/contracts";
-
-import { readWireString } from "../../../core/index.js";
-import { projectedPayload } from "../../cards/wire-payload.js";
+import type { EventCategory, TimelineRow } from "@ai-sidekicks/contracts";
 
 /**
  * What a person has narrowed the ledger to.
@@ -115,10 +105,7 @@ export function applyLedgerFilter(
  * SHARED BY EVERY NARROWING OVER THIS WINDOW, and the sharing is the point rather
  * than the saving: the boundary rule is the one that fails silently and
  * expensively, so a second narrowing written beside this one would be a second
- * chance to forget it. A channel scope is where that nearly happened — no rollback
- * payload names a channel, so a bare predicate would have dropped every boundary
- * in the window and rendered a history that had been corrected as though it never
- * was.
+ * chance to forget it.
  *
  * Two passes, and the second is that rule: the first admits rows on their own
  * merits and records which runs were admitted, and the second re-admits every
@@ -154,85 +141,6 @@ export function narrowLedgerRows(
   return rows.filter((row) => admittedRowIds.has(row.id));
 }
 
-/**
- * The payload member that names a row's channel.
- *
- * Wire truth, checked against the shapes that carry it rather than asserted, and
- * counted rather than remembered: FOUR payload shapes in the contracts package
- * spell a channel — the assistant pair, the tool trio, `channel.created`, and
- * `run.rolled_back` — and the intersection holds all four, so a rename in the
- * contracts is a compile error here instead of a pane that silently shows nothing.
- * The queue family names one on the wire too and this package registers no payload
- * type for it, so `satisfies` cannot pin that spelling; it is read like every other
- * open member below, and a rename there would be caught by nothing here.
- */
-const CHANNEL_ATTRIBUTION_PAYLOAD_MEMBER = "channelId" satisfies keyof AssistantOutputPayload &
-  keyof ToolActivityPayload &
-  keyof ChannelCreatedEvent["payload"] &
-  keyof RunRolledBackEvent;
-
-/**
- * The channel a row belongs to, or `undefined` where its payload names none.
- *
- * READ THROUGH THE PAYLOAD READER THAT OWNS THE ARMS, never off `row.payload`
- * directly. Three of the four `TimelineRow` arms carry an open record and the
- * fourth, `rollback_boundary`, carries the TYPED `run.rolled_back` event — which
- * has a `channelId?` of its own. A hand-rolled cast to a bag therefore read it, and
- * a boundary of run X carrying channel B claimed run X into channel B: B's pane
- * rendered X's chapter, X's receipt and X's boundary with none of X's prose.
- * `projectedPayload` answers the empty record for that arm, which is the whole
- * reason it exists, so a boundary names no channel here and rides in only with the
- * run its own second pass admits.
- */
-export function channelIdOfRow(row: TimelineRow): string | undefined {
-  return readWireString(projectedPayload(row)[CHANNEL_ATTRIBUTION_PAYLOAD_MEMBER]);
-}
-
-/**
- * Narrow a window to one channel — the pane's scope, not a person's filter.
- *
- * NOT AN AXIS OF `LedgerFilter`, and the distinction is load-bearing: a filter is
- * something a person turned on and can clear from the bar, and a channel-scoped
- * pane's scope is what the pane IS. Folding it into the filter would put a chip on
- * screen whose release turns a channel pane into a session pane while the header
- * still names the channel.
- *
- * TWO PASSES, AND THE SECOND IS WHY THIS IS NOT ONE PREDICATE. Of the shapes a
- * projected row can carry, only the assistant pair, the tool trio and
- * `channel.created` name a channel THIS READER CAN SEE: a run's own lifecycle rows
- * name none, and the rollback boundary's typed payload names one the row reader
- * deliberately cannot reach — see `channelIdOfRow`. Admitting on the member alone
- * would therefore take a channel's prose and leave behind the run that produced it:
- * no chapter to fold it into, no receipt saying how the run ended, and no boundary
- * marking the rows a rewind superseded.
- *
- * So a run is CLAIMED by the channels its rows name, and a claimed run's
- * channel-less rows ride in with it. A row naming a DIFFERENT channel never does,
- * which is what keeps a run that spoke in two channels from leaking one into the
- * other.
- *
- * A `general` row naming no channel is not admitted: absence on an optional wire
- * member says the producer named no channel, not that it named this one, and a
- * session-level row belongs to the session.
- */
-export function scopeLedgerRowsToChannel(
-  rows: readonly TimelineRow[],
-  channelId: string,
-): readonly TimelineRow[] {
-  const claimedRunIds = new Set<string>();
-  for (const row of rows) {
-    if (row.kind !== "general" && channelIdOfRow(row) === channelId) {
-      claimedRunIds.add(row.runId);
-    }
-  }
-  return narrowLedgerRows(rows, (row) => {
-    const rowChannelId = channelIdOfRow(row);
-    if (rowChannelId !== undefined) {
-      return rowChannelId === channelId;
-    }
-    return row.kind !== "general" && claimedRunIds.has(row.runId);
-  });
-}
 /**
  * The narrowings a row passes through between the loaded log and the viewport, in
  * the order the feed applies them.

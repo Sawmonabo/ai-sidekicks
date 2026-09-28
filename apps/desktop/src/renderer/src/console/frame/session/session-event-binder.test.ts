@@ -13,7 +13,7 @@
 
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { createFixtureBridge, growthUnavailable } from "../../bridge/index.js";
+import { createFixtureBridge } from "../../bridge/index.js";
 import { FLAGSHIP_SCENARIO } from "../../bridge/scenario/flagship/flagship.js";
 import { APPLY_COALESCE_MS, ManualClock } from "../../core/index.js";
 import { consoleTripwires } from "../../core/tripwires.js";
@@ -27,30 +27,12 @@ import {
   PAST_EVERY_BEAT_MS,
   SESSION_ID,
   createHarness,
-  type BinderHarness,
 } from "./session-event-binder.test-support.js";
 
 const THROUGH_THIRD_BEAT_MS = FLAGSHIP_SCENARIO.beats[2]?.atMs ?? 0;
 const BEATS_THROUGH_THIRD_BEAT = FLAGSHIP_SCENARIO.beats.filter(
   (beat) => beat.atMs <= THROUGH_THIRD_BEAT_MS,
 ).length;
-
-/** The same three pieces, over a registry that has no read to perform at all. */
-function createUnreadableHarness(): BinderHarness {
-  const bridge = createFixtureBridge({ scenario: FLAGSHIP_SCENARIO });
-  const engine = bridge.scenarioEngine;
-  if (engine === undefined) {
-    throw new Error("the fixture bridge built no scenario engine, so there is nothing to drive");
-  }
-  const registry = new SessionStoreRegistry({
-    // The refusal a bridge that does not serve the session read hands over — the
-    // real one the composition root would pass, built by the same function, not a
-    // stand-in shaped like it.
-    read: growthUnavailable("sessionRead"),
-    clock: engine.clock,
-  });
-  return { registry, binder: new SessionEventBinder({ registry, bridge }), engine };
-}
 
 /** The page slot the fixture diagnostics are hung on, read as the tier reads it. */
 function readInstalledDiagnostics(): ConsoleSessionDiagnostics | undefined {
@@ -228,34 +210,6 @@ describe("SessionEventBinder — the console's one subscription to the wire", ()
     expect(readInstalledDiagnostics()).toBeUndefined();
   });
 
-  it("binds nothing when the registry can initialise no store, so nothing accumulates", () => {
-    // The leak this closes: with no session-read wire registered, `initialise` is
-    // never called, so every delivered event buffers inside the store and is
-    // projected by nothing. A long-running session held its whole stream that way.
-    const { registry, binder, engine } = createUnreadableHarness();
-    binder.attach();
-    registry.open(SESSION_ID);
-
-    engine.advance(PAST_EVERY_BEAT_MS);
-    engine.advance(APPLY_COALESCE_MS + 1);
-
-    expect(registry.canInitialiseSessionStores).toBe(false);
-    expect(binder.boundSessionIds).toEqual([]);
-    // No wire subscription at all, rather than one whose deliveries are discarded:
-    // a filter still pays for every frame the engine emits.
-    expect(engine.sinkCount).toBe(0);
-    expect(binder.appliedEventCountFor(SESSION_ID)).toBe(0);
-    expect(registry.peek(SESSION_ID)?.pendingPreInitialisationCount).toBe(0);
-    expect(registry.peek(SESSION_ID)?.snapshot().timeline).toEqual([]);
-    // The diagnostics handle is still installed: a tier reading zero bound sessions
-    // is a reading, and an absent handle would be indistinguishable from a build
-    // that has no binder in it at all.
-    expect(readInstalledDiagnostics()?.boundSessionIds()).toEqual([]);
-    expect(readInstalledDiagnostics()?.openSessionIds()).toEqual([SESSION_ID]);
-
-    binder.dispose();
-  });
-
   it("asks for the base-state read in the same act as taking the subscription", async () => {
     // The gap this closes: nothing in the console called `requestRefresh` on an
     // open, so even a registry with a working read never performed one — every
@@ -271,7 +225,7 @@ describe("SessionEventBinder — the console's one subscription to the wire", ()
     const registry = new SessionStoreRegistry({
       read: (_sessionId, reasons) => {
         reasonsSeen.push(...reasons);
-        return Promise.resolve({ cursor: 0, entities: [], userJoinLog: [] });
+        return Promise.resolve({ cursor: 0, entities: [] });
       },
       clock: engine.clock,
       refreshDebounceMs: 0,

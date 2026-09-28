@@ -72,10 +72,10 @@ describe("UnreadableDeliveryLedger", () => {
     ledger.record(issuesOn("state"));
     ledger.clear();
 
-    ledger.record(issuesOn("channelId"));
+    ledger.record(issuesOn("priority"));
 
     expect(ledger.reading.unreadableDeliveryCount).toBe(1);
-    expect(ledger.reading.unreadableRefusal?.detail).toBe("channelId");
+    expect(ledger.reading.unreadableRefusal?.detail).toBe("priority");
   });
 });
 

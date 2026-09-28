@@ -126,8 +126,7 @@ export function resolveActivationPolicyChange(
  * Puts a ready window on screen the way this launch asked for.
  *
  * Called from the locked window factory's `ready-to-show` handler — the ONE
- * reveal site, so every window this process creates (main and auxiliary alike)
- * takes the same decision.
+ * reveal site, so every window this process creates takes the same decision.
  */
 export function revealWindow(
   browserWindow: Pick<BrowserWindow, "show" | "showInactive">,

@@ -61,7 +61,6 @@ describe("the card family classifier", () => {
     for (const family of CARD_FAMILIES) {
       const descriptor = cardFamilyDescriptor(family);
       expect(descriptor.family).toBe(family);
-      expect(descriptor.glyph.length).toBeGreaterThan(0);
       expect(descriptor.label.length).toBeGreaterThan(0);
       expect(CARD_LAYOUTS).toContain(descriptor.layout);
     }

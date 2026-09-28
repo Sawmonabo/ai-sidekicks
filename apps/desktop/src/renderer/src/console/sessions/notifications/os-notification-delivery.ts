@@ -1,10 +1,8 @@
 // Whether an OS notification this console emits will reach a person at all.
 //
-// The notification centre has a state the console could not previously enter: OS
-// notifications denied, in which case the centre is the only surface and says so.
+// OS notifications denied is a state the notification center is the only surface for.
 // Nothing on the shipped bridge reports that fact — `native.showNotification` returns
-// `void`, so a denial is indistinguishable from a delivery from inside the renderer —
-// so the reading is a growth-port row and refuses under the live bridge.
+// `void`, so a denial is indistinguishable from a delivery from inside the renderer.
 //
 // WHY THE RENDERER'S OWN `Notification.permission` IS NOT THE INSTRUMENT. It answers
 // about the RENDERER's Web notification API, and this console emits through the main
@@ -16,25 +14,19 @@
 //
 // THE READING IS ADVISORY AND GATES NOTHING ON THE WAY OUT. Emission is the shell's
 // act and the OS is its authority: do-not-disturb lives in the main process, and the
-// console honours nothing of its own. So a reading this console could not obtain
+// console honors nothing of its own. So a reading this console could not obtain
 // suppresses no emission — it would suppress every one on every live host, which is
 // exactly the state the shell was built to decide — and the one arm that changes what
-// a person sees is `withheld`, where the centre says it is the only surface these
+// a person sees is `withheld`, where the center says it is the only surface these
 // items reach.
 //
-// WHAT IS LEFT HERE IS THE FOLD AND NOT THE READ. The probe, its scheduling, and the
-// rule that decides which of two overlapping answers is the live one are
-// `bridge/os-notification-permission.ts`', because the notifications settings page
-// asks the same machine the same question and a view family may not import its
-// sibling. Two folds of one answer is the honest shape: this one asks "will an
-// emission reach anybody", and the page says something different for each of the three
-// arms — so the reading crosses the door unfolded and each consumer folds it here.
+// WHAT IS HERE IS THE FOLD AND NOT THE READ. The probe, its scheduling, and the rule
+// that decides which of two overlapping answers is the live one are
+// `bridge/os-notification-permission.ts`'s. This fold asks "will an emission reach
+// anybody"; the notifications settings page says something different for each of the
+// three arms, so the reading crosses the door unfolded and each consumer folds it.
 
-import {
-  useOsNotificationPermission,
-  type ConsoleBridge,
-  type OsNotificationPermissionReading,
-} from "../../bridge/index.js";
+import type { OsNotificationPermissionReading } from "../../bridge/index.js";
 
 /**
  * What the console may say about the OS notification path.
@@ -46,6 +38,8 @@ import {
  *
  * `unread` covers a read in flight and a read the bridge refused. Both mean the
  * console does not know, and there is nothing to say about a fact it has not got.
+ *
+ * @consumedBy the notifications settings page
  */
 export type OsNotificationDelivery =
   | { readonly status: "unread" }
@@ -57,7 +51,7 @@ export type OsNotificationDelivery =
  *
  * Named constants rather than a literal per settlement, because this reading is
  * re-read and every re-read publishes: a fresh object per answer would re-identify
- * the value on every focus, re-render the centre, and re-mint the context object the
+ * the value on every focus, re-render the center, and re-mint the context object the
  * window's attention binding memoises — for an answer that did not move. Three
  * arms, three objects, and an unchanged answer compares equal at the one comparison
  * `useSyncExternalStore` performs.
@@ -67,22 +61,11 @@ const PERMITTED_DELIVERY: OsNotificationDelivery = { status: "permitted" };
 const WITHHELD_DELIVERY: OsNotificationDelivery = { status: "withheld" };
 
 /**
- * Read this machine's notification permission, and read it again when it can have
- * changed.
+ * The reading of one permission answer. Total, so no call site branches.
  *
- * A RE-READ IN FLIGHT LEAVES THE STANDING ANSWER ON SCREEN, which is the reading's own
- * rule rather than this fold's: the value is published on settlement alone, so the
- * centre never flickers back through "we have not asked" on the way to an answer it
- * already had; and a refused re-read publishes `unavailable`, which folds to `unread`
- * here — the honest report of a fact this console can no longer establish rather than
- * the last one it happened to be given.
+ * @consumedBy the notifications settings page
  */
-export function useOsNotificationDelivery(bridge: ConsoleBridge): OsNotificationDelivery {
-  return deliveryFor(useOsNotificationPermission(bridge));
-}
-
-/** The centre's reading of one permission answer. Total, so no call site branches. */
-function deliveryFor(reading: OsNotificationPermissionReading): OsNotificationDelivery {
+export function deliveryFor(reading: OsNotificationPermissionReading): OsNotificationDelivery {
   if (reading.kind !== "read") {
     return UNREAD_DELIVERY;
   }

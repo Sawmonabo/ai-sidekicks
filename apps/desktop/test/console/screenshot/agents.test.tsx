@@ -1,5 +1,5 @@
-// The screenshot tier for the agents family: the console pane, the two forms that move
-// a binding, and the page where saved definitions are kept.
+// The screenshot tier for the agents family: the console pane, the form that moves a
+// binding, and the page where saved definitions are kept.
 //
 // `settled-capture.ts` owns the mechanism this file rides: every capture is written
 // into the gitignored `__screenshots__/` and compared against nothing, so this file
@@ -17,9 +17,6 @@
 //     form says what submitting would COST — the cache note, the supersedes line naming
 //     the intent this one would displace, and the two apply actions — and all four
 //     appear together or not at all.
-//   • THE ATTACH DIALOG on its definition arm, which is the family's one overlay: a
-//     popup in the window's airspace carrying the account axis, whose picker, per-account
-//     advisories and clear control are four compositions stacked in one field.
 //   • THE SIDEKICKS PAGE with rows served, which is a settings section rather than a
 //     surface of a session — the one place a person meets these records at all.
 //   • THE SWITCH SETTLEMENT on its applied arm with losses declared, which is four
@@ -30,12 +27,11 @@
 //     clauses were photographed under a claim about four, and the case below is what
 //     holds the subject to the question the picture is taken to answer.
 //
-// TWO SCHEMES FOR THE TWO SURFACES A PERSON LIVES IN, ONE FOR THE TWO THEY VISIT. The
+// TWO SCHEMES FOR THE TWO SURFACES A PERSON LIVES IN, ONE FOR THE ONES THEY VISIT. The
 // pane and the page carry this family's whole palette — cards, chips, refusals, rules,
-// rows — and are worth pinning in both. The switch form and the dialog are drawn from the
-// same tokens on the same ground, so a second image of each would pin the token layer
-// twice and the composition no further, and every capture costs a photograph on every
-// run of the tier.
+// rows — and are worth pinning in both. The switch form is drawn from the same tokens on
+// the same ground, so a second image of it would pin the token layer twice and the
+// composition no further, and every capture costs a photograph on every run of the tier.
 //
 // PEER INVOCATION EARNS NO CAPTURE OF ITS OWN, deliberately. It is a session-scoped
 // grant with no second settled state to distinguish — it is inside the pane capture's
@@ -51,7 +47,6 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { emulateSystemScheme } from "../console-harness.js";
 import {
   mountAgentConsolePane,
-  mountAttachDialogOnDefinitionArm,
   mountProviderSwitchPendingSupersession,
   mountProviderSwitchSettlement,
   mountAgentDefinitionsPage,
@@ -92,11 +87,6 @@ const PINNED_SURFACES: readonly {
     captureName: "agents-agent-definitions",
     schemes: CONSOLE_SCHEMES,
     mount: mountAgentDefinitionsPage,
-  },
-  {
-    captureName: "agents-attach-dialog",
-    schemes: LIGHT_ONLY,
-    mount: mountAttachDialogOnDefinitionArm,
   },
   {
     captureName: "agents-provider-switch-pending",

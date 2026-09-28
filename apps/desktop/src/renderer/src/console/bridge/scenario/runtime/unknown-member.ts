@@ -15,13 +15,6 @@
 // every value that is not what was asked for, which is what every reader here already
 // has an arm for.
 //
-// It lives beside the scripted-reply seam rather than inside any one reader because its
-// two importers straddle that seam. `fixture/workflows/workflow-scope.ts` derives what a
-// scenario DECLARES; `scenario/workflows/replies.ts` reads the REQUEST a computed
-// reply is handed. A helper owned by either side would be reached from the other across a
-// boundary that is not there. The seam is this directory's, so the string read leaves
-// through its door and the container read it is built on does not.
-//
 // THE CONTAINER CHECK IS `core`'s, AND IT NARROWS. `isWireRecord` is the console's one
 // reading of "this untyped value is a record" and it answers `false` for an array,
 // which the private `typeof value === "object" && value !== null` copies it replaced

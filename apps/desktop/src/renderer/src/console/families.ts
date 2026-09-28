@@ -48,82 +48,28 @@ import { registerRunLifecycleProjectors } from "./frame/run-projection/run-lifec
 import { registerLedger } from "./ledger/index.js";
 import { registerConsolePanes } from "./panes/index.js";
 import { registerRepos } from "./repos/index.js";
-import { NewSessionControl, Workspace, registerWorkspaceFrameBindings } from "./workspace/index.js";
+import { NewSessionControl, Workspace } from "./workspace/index.js";
 import type { ConsoleEntityProjectorRegistry } from "./store/index.js";
 import type {
   ConsolePaneRegistry,
   ConsoleSurfaceRegistry,
-  FrameBindingRegistry,
   InlineCardSeatRegistry,
-  PinnedPaneRegionRegistry,
-  SidebarSectionRegistry,
 } from "./seats/index.js";
 import { registerWorkflowSurfaces } from "./workflows/index.js";
 
 /**
- * Register every shipped view family against the seven boards a composition owns.
+ * Register every shipped view family against the four boards a composition owns.
  *
- * ALL SEVEN ARE PARAMETERS, and each one after the first is this signature's history.
- * The surface registry was passed in from the start so a test could compose into a
- * registry it owns and an auxiliary window could compose a subset; the pane
- * board beside it reached for the module-scope singleton, so a caller composing its
- * own family set still registered panes into the production one. That is inert only
- * while every pane seat is still reserved — the moment the first family registers a
- * body, an independent composition mutates the running console's deck, two
- * compositions leak registrations into each other, and an auxiliary window cannot
- * select a different pane subset however carefully it asks.
- *
- * The projector board is the third for the same reason and a sharper one: the session
- * store's fold used to be a CONSTANT decided in the frame, so no family could project
- * its own event category into the partition it owns. A family that cannot do that
- * reads the wire twice — once through its own read and again through a subscription
- * it should not need — and keeps the result beside the store instead of in it. It is
- * a parameter here so a test and an auxiliary window compose their own fold, exactly
- * as they compose their own surfaces and panes.
- *
- * The sidebar board and the inline-card board are the fourth and fifth, and they are
- * here BEFORE a family fills either — which is the point. `seats/slots/sidebar-sections.ts`
- * is filled by three families and `seats/slots/inline-card-seats.ts` by two, and both ship a
- * module-scope registrar that writes straight into the process-wide board. A family
- * reaching for one of those bypasses this composition entirely: an independent
- * composition would then mutate the running console, two compositions would leak into
- * each other, and an auxiliary window could not select a subset however it asked —
- * the same three failures the pane board's paragraph above names, on two boards where
- * they have not happened yet. Taking them as parameters now is what gives the first
- * family that fills a section or a card something to be handed instead.
- *
- * The frame-binding board is the sixth, and it is the first that is not a place to
- * hand over a BODY. The four above it are all mounted when something is looking at
- * them and unmounted when the route moves on, which is right for a body and wrong for
- * a read the frame renders: the rail's attention count comes from a view family's
- * read, and while that read was mounted by a destination the count vanished whenever
- * a person navigated away — a suppressed badge on a perfectly reachable machine,
- * which is the one thing the design's degraded rule exists to distinguish. A binding
- * is mounted once, around the frame's own subtree, for as long as the window holds a
- * bridge, and `seats/frame-bindings.ts` says the rest.
- *
- * The pinned-region board is the seventh, and it is the first board a family fills for
- * a pane it does not own. A pane's chrome draws a block between its head and its body,
- * and the first thing pinned there is channel-scoped workflow progress on a
- * channel-scoped `timeline` pane — one family's fold above another family's pane,
- * which a sibling import cannot express and a prop on the chrome would have made every
- * host courier. It is a parameter on the terms the two boards above it are: the board
- * ships a module-scope registrar, and a family reaching for that one writes into the
- * running console whatever this composition was handed.
- *
- * Required rather than defaulted to the singletons, because a default is the same
- * hard-coding one parameter along: a caller that forgets it still writes into
- * production. Naming all seven at the one composition site is what makes a composition
- * legible as a whole.
+ * ALL FOUR ARE PARAMETERS, and none is defaulted to a singleton: a default is the same
+ * hard-coding one parameter along, since a caller that forgets it still writes into
+ * production. Taking the surface, pane, projector and inline-card boards here is what
+ * lets a test compose into boards it owns.
  */
 export function registerConsoleFamilies(
   surfaces: ConsoleSurfaceRegistry,
   panes: ConsolePaneRegistry,
   projectors: ConsoleEntityProjectorRegistry,
-  sidebarSections: SidebarSectionRegistry,
   inlineCardSeats: InlineCardSeatRegistry,
-  frameBindings: FrameBindingRegistry,
-  pinnedRegions: PinnedPaneRegionRegistry,
 ): void {
   // NO PRE-CONSOLE FAMILY CLAIMS A SLOT OF ITS OWN ANY MORE. Two of them are
   // absorbed by the console surfaces that mount them, through the helpers
@@ -147,13 +93,6 @@ export function registerConsoleFamilies(
   // the projector board this function was HANDED, so a composition writes its fold
   // where it writes its surfaces and its panes.
   registerRunLifecycleProjectors(projectors);
-  // The workspace family's frame-lifetime binding, on the same terms and for the
-  // lifetime a surface cannot give it: a pane moved into a window of its own stays
-  // there while a person navigates, so the record of which panes those are is held for
-  // the WINDOW rather than for whichever destination is on screen. It takes the
-  // binding board this function was HANDED, so a composition fills its bindings where
-  // it fills its surfaces.
-  registerWorkspaceFrameBindings(frameBindings);
   // The fixture-only pane harness, which is the one surface that mounts a
   // REGISTERED pane body in a running window. It takes both boards because it
   // resolves its body out of the pane board this composition owns, and it decides
@@ -170,20 +109,12 @@ export function registerConsoleFamilies(
   // The seat line itself stays in its reserved shape, which is the shape it would
   // take either way — a seat is a seat filled or not, and the board counts it. Said
   // HERE rather than beside that line, because the block below holds seats only.
-  // Each seat below receives the boards it writes into, out of the seven this
+  // Each seat below receives the boards it writes into, out of the four this
   // composition was handed. A family claims a surface slot, a pane kind, the event
-  // kinds whose fold it owns, a sidebar section, an inline-card body, a frame-lifetime
-  // binding, and the region one pane kind pins above its body — through
-  // its own `register<Family>` entry point, never by editing a shared spine and
-  // never through a board's module-scope registrar, which writes into production
-  // whatever the caller composed into.
-  //
-  // WHAT EACH SEAT BELOW TAKES, where a reader can meet it without breaking the block.
-  // The composer family claims no surface slot: its body is the composer SEAT under the
-  // deck, and its panes are claimed through `panes/index.ts` above. What it does claim
-  // is a fold — the approval-flow kinds the approvals pane reads entities from — and
-  // some of the sidebar's sections, so its seat passes those two boards and no other
-  // registry, because those are the only claims it makes.
+  // kinds whose fold it owns, or an inline-card body — through its own
+  // `register<Family>` entry point, never by editing a shared spine and never through
+  // a board's module-scope registrar, which writes into production whatever the
+  // caller composed into.
   //
   // A seat may also be handed a COMPOSITION argument beside its boards: one view family
   // may not import another, so this root — the one file allowed to name more than one —
@@ -205,7 +136,7 @@ export function registerConsoleFamilies(
   // seven one-line diffs at seven distinct positions.
   registerLedger(surfaces, ledgerComposition); // ledger
   registerComposerFamily(projectors, sidebarSections); // composer
-  registerSessionSurfacesFamily(surfaces, sidebarSections, frameBindings, sessionsMount); // session surfaces
+  registerSessionSurfacesFamily(surfaces, sessionsMount); // session surfaces
   registerRepos(sidebarSections, inlineCardSeats); // repos
   registerWorkflowSurfaces(surfaces, pinnedRegions); // workflows
   // browser-terminal

@@ -16,14 +16,6 @@
 //     plane before emission, so a second filter here would be a second authority on
 //     a decision already made.
 //
-// WHAT IS ON SCREEN TODAY. The projection read (`attention.projectionRead`) is
-// registered in the corpus and absent from `packages/contracts`, from the preload
-// bridge, and from the growth port — so the destination reads through
-// `READS_NO_ATTENTION_PROJECTION`, which answers "nothing was read", and the
-// honest render of that is the `not-checked` kind of nothing rather than the
-// all-clear line. Those two are the conflation the five kinds of nothing exist to
-// prevent: one says the console did not ask, the other says a person is free.
-//
 // THIS COMPONENT PERFORMS NO READ. It is handed the reading, because the
 // all-sessions list beside it takes each row's severity off the same plane and two
 // reads would eventually disagree about one question.
@@ -35,7 +27,6 @@
 
 import type { AttentionItem } from "../../bridge/index.js";
 import { type AttentionReading } from "./attention-plane.js";
-import { type OsNotificationDelivery } from "./os-notification-delivery.js";
 import { ProjectionBody } from "./ProjectionBody.js";
 
 export interface NotificationCenterProps {
@@ -47,22 +38,6 @@ export interface NotificationCenterProps {
   readonly reading: AttentionReading;
   /** Open the source of one item. Renderer-local navigation; resolves nothing. */
   readonly onOpen?: (item: AttentionItem) => void;
-  /**
-   * Re-open the projection read after a refusal. Reaches the refused phase alone.
-   *
-   * Optional for {@link NotificationCenterProps.onOpen}'s reason: the center is
-   * mounted in two harnesses that hold no read, and only the destination that
-   * performs one can offer a way back into it.
-   */
-  readonly onReopen?: () => void;
-  /**
-   * Whether an OS notification would reach a person on this machine.
-   *
-   * Optional for {@link NotificationCenterProps.onOpen}'s reason — the centre is
-   * mounted in harnesses that perform no read — and an absent one is treated exactly
-   * as an unread one: the centre says nothing about a fact nobody established.
-   */
-  readonly delivery?: OsNotificationDelivery;
 }
 
 export function NotificationCenter(props: NotificationCenterProps): React.JSX.Element {
@@ -73,14 +48,8 @@ export function NotificationCenter(props: NotificationCenterProps): React.JSX.El
         <p className="meridian-attention__mute">
           Muting is a single global setting, and it never hides work that is blocking.
         </p>
-        {props.delivery?.status === "withheld" ? (
-          <p className="meridian-attention__only-surface">
-            This machine will not show notifications for this application, so nothing below leaves
-            this window. This panel is the only place these items reach you.
-          </p>
-        ) : null}
       </header>
-      <ProjectionBody reading={props.reading} onOpen={props.onOpen} onReopen={props.onReopen} />
+      <ProjectionBody reading={props.reading} onOpen={props.onOpen} />
     </section>
   );
 }

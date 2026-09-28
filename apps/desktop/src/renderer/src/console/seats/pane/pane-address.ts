@@ -2,12 +2,11 @@
 //
 // A pane is a view OF something, and what it is a view of is not free. An
 // artifact pane over a run reference has nothing to render; an inspector with
-// nothing to inspect has no row to look up. The address used to pair every pane
-// kind with every entity kind or with `undefined`, so both were constructible,
-// and neither the type nor the pane registry refused them — a restored layout row
-// or a sidebar card could hand a registered body an address it cannot serve, and
-// that body would query a partition that has never held the row, rendering as
-// permanently missing.
+// nothing to inspect has no row to look up. So the address pairs each pane kind
+// with only the entity kinds it can serve, and the type and the pane registry refuse
+// the rest — otherwise a restored layout row or a card could hand a registered body
+// an address it cannot serve, and that body would query a partition that has never
+// held the row, rendering as permanently missing.
 //
 // ONE DECLARATION, TWO HALVES DERIVED FROM IT
 //
@@ -31,41 +30,20 @@
 //
 // WHERE EACH ROW COMES FROM
 //
-// Most of them come from one rule: the pane-kind set is closed, `timeline` is session-
-// or channel-scoped, and a repo, workspace, worktree, or user entity is a card in its
-// sidebar section and opens as an `inspector` pane keyed by its entity kind, its
-// changes opening the `diff` pane — no dedicated pane kind exists for those families
-// and the set is not widened for them. All four of the entities that rule names are
-// console entity KINDS, so the inspector's row is that list and nothing narrower. A
-// row written as the intersection with some other set grows a hole the moment a kind
-// is missing from that other set — which makes that kind's card unrepresentable at the
-// address layer and has the family that owns it reopen this shared substrate to open a
-// pane the design already routes. The row is derived instead from a map that decides
-// EVERY entity kind, so a kind added later fails to compile until the question is
-// answered for it.
+// Most of them come from one rule: the pane-kind set is closed, and `timeline` is
+// session-scoped. The inspector shows the session's checkout — a worktree on a project
+// session, a workspace on a chat — and the `diff` pane shows that checkout's changes,
+// so both rows admit those two entity kinds and no others. No entity kind without a
+// checkout has a record or a change set to draw, so none of them is representable
+// here.
 //
-// AND THE `diff` ROW COMES OFF THE SAME CLAUSE OF THE SAME SENTENCE. "its changes
-// opening the `diff` pane" has one antecedent — the enumerated subject the clause
-// before it also takes — so the two clauses distribute over one list, and reading the
-// subject as the whole list for the inspector and as a narrower one for the diff would
-// be two readings of one sentence. Nothing in that section narrows the second clause, and
-// the dash clause that closes it says why both are stated at all: those families get
-// no pane kind of their own, so these two are the kinds their cards reuse. The `diff`
-// row was `worktree | workspace`, which refused a repo's changes statically and
-// answered `pane-entity-kind-mismatch` at the runtime parse — the same defect the
-// inspector's row already carried once, one clause later in the same sentence.
-//
-// So the list is declared ONCE, below, and both rows read it. What a card's changes
-// RENDER is not settled anywhere — the diff wire is unregistered and sits on the
-// console growth slate as its gitflow row — and it belongs to the families that own
-// those cards, not to an address layer that renders nothing. This module's claim is narrower and is the one it can make: the address is
-// representable, so those families can answer that question without reopening this
-// substrate. Optionality is never invented: `agent-console` takes a no-entity arm
-// because `src/shared/auxiliary-routes.ts` gives that route a no-context target the
-// window's own picker resolves, and `workflow-builder` takes one because
-// `routing/routes.ts` opens the workflows destination bare — "a definition id
-// written into the address here would be a second, unowned locator for something
-// the builder has not defined yet".
+// The two kinds are declared ONCE, below, and both rows read the list. The row is
+// derived from a map that decides EVERY entity kind, so a kind added later fails to
+// compile until the question is answered for it. Optionality is never invented:
+// `agent-console` takes a no-entity arm because its body renders with no agent named,
+// and `workflow-builder` takes one because `routing/routes.ts` opens the workflows
+// destination bare — "a definition id written into the address here would be a
+// second, unowned locator for something the builder has not defined yet".
 //
 // A REQUIRED entity is never invented either, and for a sharper reason: an
 // optional arm that should have been required costs a caller nothing, while a
@@ -97,34 +75,24 @@ type ScopedEntityRef<TEntityKind extends ConsoleEntityKind> = ConsoleEntityRef &
 };
 
 /**
- * The entity kinds that open as a card in a sidebar section.
- *
- * The design track: a repo, workspace, worktree, or user entity is a card in its
- * sidebar section and opens as an `inspector` pane keyed by its entity kind, its
- * changes opening the `diff` pane. All four are here.
- *
- * ONE LIST FOR BOTH PANE KINDS, because it is one enumerated subject with two
- * clauses hanging off it. Named for the card rather than for either pane, so neither
- * row reads as the owner of a set they share.
+ * The entity kinds that own a checkout, which the inspector and the diff pane are both
+ * views of: a worktree on a project session, a workspace on a chat.
  */
-type SidebarCardEntityKind = "user" | "workspace" | "worktree" | "repo";
+type CheckoutEntityKind = "workspace" | "worktree";
 
 /**
  * Every entity kind, decided. The exhaustiveness check, and the union's proof.
  *
- * A TOTAL map rather than a list of the admitted kinds, because a list grows a hole
- * silently — which is exactly how repo went missing. The three intersected
- * constraints pin it in every direction that can be wrong: `Record<ConsoleEntityKind,
+ * A TOTAL map rather than a list of the admitted kinds: `Record<ConsoleEntityKind,
  * boolean>` means a kind added to `CONSOLE_ENTITY_KINDS` fails to compile here until
- * the sidebar-card question is answered for it, and the two halves after it hold this
+ * the checkout question is answered for it, and the two intersected records hold this
  * map and the union above to the SAME set — every union member `true`, every other
  * kind `false` — so the union cannot quietly become narrower or wider than the table
  * the runtime filters with.
  */
-const SIDEBAR_CARD_ADMITS_ENTITY_KIND = {
+const CHECKOUT_ADMITS_ENTITY_KIND = {
   session: false,
-  user: true,
-  channel: false,
+  user: false,
   run: false,
   agent: false,
   workspace: true,
@@ -134,14 +102,14 @@ const SIDEBAR_CARD_ADMITS_ENTITY_KIND = {
   "workflow-definition": false,
   "workflow-run": false,
   "browser-page": false,
-  repo: true,
+  repo: false,
 } as const satisfies Record<ConsoleEntityKind, boolean> &
-  Record<SidebarCardEntityKind, true> &
-  Record<Exclude<ConsoleEntityKind, SidebarCardEntityKind>, false>;
+  Record<CheckoutEntityKind, true> &
+  Record<Exclude<ConsoleEntityKind, CheckoutEntityKind>, false>;
 
 /** The same set as data, filtered from the map so the two halves cannot drift. */
-const SIDEBAR_CARD_ENTITY_KINDS: readonly SidebarCardEntityKind[] = CONSOLE_ENTITY_KINDS.filter(
-  (kind): kind is SidebarCardEntityKind => SIDEBAR_CARD_ADMITS_ENTITY_KIND[kind],
+const CHECKOUT_ENTITY_KINDS: readonly CheckoutEntityKind[] = CONSOLE_ENTITY_KINDS.filter(
+  (kind): kind is CheckoutEntityKind => CHECKOUT_ADMITS_ENTITY_KIND[kind],
 );
 
 /**
@@ -161,26 +129,19 @@ export type ConsolePaneAddress = { [K in PaneKind]: ConsolePaneAddressOf<K> }[Pa
  * `never` where the pane is session-scoped and takes no entity; `| undefined`
  * where the pane renders without one and its own governing module says so. A
  * kind added to `PANE_KINDS` is a compile error here until its scope is decided,
- * which is the site where a new pane kind needs that decision anyway — the same
- * totality `src/shared/auxiliary-routes.ts` imposes on its label and context
- * tables.
+ * which is the site where a new pane kind needs that decision anyway.
  */
 interface PaneEntityScopeByKind {
-  /** Session-scoped when bare, channel-scoped when a channel is named. */
-  readonly timeline: ScopedEntityRef<"channel"> | undefined;
-  /** Keyed by the inspected entity's own kind; there is nothing to inspect without one. */
-  readonly inspector: ScopedEntityRef<SidebarCardEntityKind>;
+  /** The session's transcript. */
+  readonly timeline: never;
+  /** Keyed by the inspected checkout's own kind; there is nothing to inspect without one. */
+  readonly inspector: ScopedEntityRef<CheckoutEntityKind>;
   /** The session's runs list. */
   readonly runs: never;
   /** The session's approvals queue. */
   readonly approvals: never;
-  /**
-   * The changes of the entity the pane was opened from — the same card's second
-   * clause, so the same kinds. What one card's changes render is the owning family's
-   * question; that this address exists at all is what lets them answer it without
-   * reopening this module.
-   */
-  readonly diff: ScopedEntityRef<SidebarCardEntityKind>;
+  /** The changes of the checkout the pane was opened from, so the same kinds. */
+  readonly diff: ScopedEntityRef<CheckoutEntityKind>;
   readonly artifact: ScopedEntityRef<"artifact">;
   readonly "workflow-run": ScopedEntityRef<"workflow-run">;
   /** Bare from the workflows destination; over a definition once one is saved. */
@@ -189,12 +150,11 @@ interface PaneEntityScopeByKind {
    * One page per browser pane, keyed by the pane's own id and nothing else.
    *
    * Session-scoped rather than over a page reference, because the identity a page
-   * reference would name does not exist: every registered browser operation in
-   * `bridge/growth-signatures/panes.ts` — navigate, reload, stop, back, forward, and the
-   * navigation subscription — takes the `paneId`, and the navigation state they
-   * stream back carries a url, a title, and three flags and no page identifier at
-   * all. Nothing in this build produces such an entity, so requiring one would
-   * make every caller mint an identifier the seam never issues, and would refuse
+   * reference would name does not exist: every browser operation takes the `paneId`,
+   * and the navigation state a page streams back carries a url, a title, and three
+   * flags and no page identifier at all. Nothing in this build produces such an
+   * entity, so requiring one would make every caller mint an identifier the seam
+   * never issues, and would refuse
    * `parseConsolePaneAddress("browser", undefined)` — which is the shape both
    * untyped boundaries actually supply for a pane opened bare.
    */
@@ -261,11 +221,11 @@ const PANE_ENTITY_SCOPES: {
     readonly entityRequired: EntityRequired<K>;
   };
 } = {
-  timeline: { entityKinds: ["channel"], entityRequired: false },
-  inspector: { entityKinds: SIDEBAR_CARD_ENTITY_KINDS, entityRequired: true },
+  timeline: { entityKinds: [], entityRequired: false },
+  inspector: { entityKinds: CHECKOUT_ENTITY_KINDS, entityRequired: true },
   runs: { entityKinds: [], entityRequired: false },
   approvals: { entityKinds: [], entityRequired: false },
-  diff: { entityKinds: SIDEBAR_CARD_ENTITY_KINDS, entityRequired: true },
+  diff: { entityKinds: CHECKOUT_ENTITY_KINDS, entityRequired: true },
   artifact: { entityKinds: ["artifact"], entityRequired: true },
   "workflow-run": { entityKinds: ["workflow-run"], entityRequired: true },
   "workflow-builder": { entityKinds: ["workflow-definition"], entityRequired: false },
@@ -307,33 +267,26 @@ export interface ConsolePaneLink {
 }
 
 /**
- * The call the sidebar and the palette make to open a pane.
+ * The call a card and the palette make to open a pane.
  *
  * A callback handed down by whoever owns the deck, rather than a module-scope
- * function, because an auxiliary window's deck is a different deck: a section
- * rendered in the timeline window must open its panes there and not in the main
- * window that happens to have loaded the same module.
+ * function, so a pane opens in the deck that asked for it.
  *
  * The optional `link` is how a pane that opens another says which pane it is: the
  * deck copies it onto the new pane's `ConsolePaneContext.linkedSourcePaneId`.
- * Optional because most opens have no source pane at all — the sidebar and the
+ * Optional because most opens have no source pane at all — a card and the
  * palette open from a list, not from a pane — and a required member would have both
  * of those inventing a value to pass.
  */
 export type ConsolePaneOpener = (address: ConsolePaneAddress, link?: ConsolePaneLink) => void;
 
 // THE OPENER AND ITS LINK LIVE HERE, WITH THE ADDRESS THEY CARRY, and not in
-// `pane-registry.ts`, which declared them until a second reader arrived. That module
-// mounts bodies, so it imports `PendingPaneBody.tsx`, which imports the pane chrome —
-// and the chrome now forwards an opener to the pinned region it draws, which made
-// `chrome → seat → registry → pending body → chrome` a cycle `no-circular` fails. The
-// remedy is the hoist the layering rules name: the type is about an ADDRESS, this is
-// the module that declares addresses, and nothing here imports a module that could
-// reach back.
+// `pane-registry.ts`. The type is about an ADDRESS, this is the module that declares
+// addresses, and nothing here imports a module that could reach back.
 
 /**
  * One pane kind's entity scope, for the callers that decide at runtime — the
- * deck's layout validator and the sidebar's open-pane call.
+ * deck's layout validator and a card's open-pane call.
  *
  * The read door onto the table above, so no caller keeps its own copy of a row.
  */

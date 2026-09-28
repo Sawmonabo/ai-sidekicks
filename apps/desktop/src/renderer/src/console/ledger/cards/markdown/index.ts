@@ -28,13 +28,13 @@
 // The sheet this module owns, imported by its own door.
 import "./markdown.css";
 
-export { FootnotePopoverHost } from "./footnotes/FootnotePopoverHost.js";
 export { MarkdownNodes, type MarkdownRenderContext } from "./nodes/MarkdownNodes.js";
 export { MarkdownBlockSegmenter } from "./parse/block-segmenter.js";
+export { collectFootnoteDefinitions } from "./footnotes/footnote-collection.js";
 export {
-  collectFootnoteDefinitions,
-  collectFootnoteReferences,
-} from "./footnotes/footnote-collection.js";
+  /** @consumedBy the definition drawn at the foot of a reply */
+  DefinitionBody,
+} from "./footnotes/DefinitionBody.js";
 export { FootnoteRegistry } from "./footnotes/footnote-registry.js";
 export {
   footnoteDefinitionPreamble,

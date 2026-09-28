@@ -4,7 +4,7 @@
 // responsibility, and none over about four hundred lines. The scenario was 463 and held
 // three jobs — who is in the room, what they do, and what the session reads answer.
 
-/** One lane of the cast, as both the attach beat and the `agent.list` row carry it. */
+/** One lane of the cast, as the attach beat carries it. */
 export interface LedgerCastAgent {
   readonly agentId: string;
   readonly name: string;
@@ -20,18 +20,6 @@ export interface LedgerCastAgent {
 export const SESSION_ID = "019b793b-7b60-75e5-8510-ada11a5a44a5";
 
 /**
- * The named channel the implementer's lane speaks in.
- *
- * WHY ANY BEAT NAMES A CHANNEL AT ALL. A timeline pane addressed to a channel is a
- * log of that channel, and no beat of any shipped scenario named one — so every
- * channel-addressed pane in the fixture bridge rendered its empty state and the
- * composition could not be seen. One lane speaks in it and the other two do not,
- * which is what makes the scope visible: the channel pane is this run and the
- * channel's own creation, and the session pane is still everything.
- */
-export const CHANNEL_IMPLEMENTATION = "019b793b-7b60-7c11-8110-c4a11e10001a";
-
-/**
  * The stem this scenario's row ids are minted from — its own namespace, not its
  * session's.
  *
@@ -42,7 +30,6 @@ export const CHANNEL_IMPLEMENTATION = "019b793b-7b60-7c11-8110-c4a11e10001a";
  */
 export const EVENT_ID_STEM = "019b793b-7b60-7ea1-8110-e5e0d115";
 export const USER_YOU = "019b793b-7b60-79a4-8110-cca0117a0410";
-export const USER_PRIYA = "019b793b-7b60-79a4-8120-cca0117a0420";
 export const AGENT_ARCHITECT = "019b793b-7b60-7a6e-8110-d1a4c1150101";
 export const AGENT_IMPLEMENTER = "019b793b-7b60-7a6e-8120-d1a4c1150102";
 export const AGENT_REVIEWER = "019b793b-7b60-7a6e-8130-d1a4c1150103";
@@ -99,11 +86,10 @@ export const STARTED_AT_ISO: string = new Date(startedAtMs).toISOString();
 /**
  * The three lanes, as the `agents` projection carries them.
  *
- * One table rather than a literal per beat and a second per reply: the
- * `agent.attached` payload and the `agent.list` row are two views of one record,
- * and two hand-written copies of one agent drift in the direction nothing catches.
- * The drivers are mixed on purpose — a fixture whose whole cast runs one provider
- * cannot show a surface what a two-provider session looks like.
+ * One table rather than a literal per beat, so two hand-written copies of one agent
+ * cannot drift in the direction nothing catches. The drivers are mixed on purpose — a
+ * fixture whose whole cast runs one provider cannot show a surface what a two-provider
+ * session looks like.
  */
 export const LEDGER_AGENTS: readonly LedgerCastAgent[] = [
   {
@@ -129,7 +115,7 @@ export const LEDGER_AGENTS: readonly LedgerCastAgent[] = [
   },
 ];
 
-/** The instant one agent was attached, as the `agent.list` reply reports it. */
+/** The instant one agent was attached, as an ISO string. */
 export function attachedAtIso(attachedAtMs: number): string {
   return new Date(startedAtMs + attachedAtMs).toISOString();
 }

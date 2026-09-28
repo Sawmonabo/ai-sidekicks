@@ -26,25 +26,17 @@
 // files a queued arrangement under whichever session the person navigated to while
 // it waited, which overwrites that session's saved deck with another one's.
 //
-// TWO RECORDS, ONE WRITER. The deck's arrangement was the first record kept this
-// way; the session sidebar's width, collapse, and open section is the second. Both
-// are the persistence chokepoint's `layout` value class, both are written on a
-// gesture, and both need exactly the coalescing below — so the writer is generic
-// over the record it carries and lives at the family's own level rather than inside
-// either subtree. A second writer beside it would be the one thing this file exists
-// to be.
-//
-// AND THE WRITER IS ADDRESSED BY THE STORE IT WRITES THROUGH. The record goes into a
+// THE WRITER IS ADDRESSED BY THE STORE IT WRITES THROUGH. The record goes into a
 // `UiStateStore`, and that store is replaced under a live surface: a reconnect
 // re-mints it and the composition root hands the new one down without remounting
 // anything beneath. A writer built in a `useState` initializer closes over the store
 // of its FIRST render and keeps writing there, so every later arrangement is filed in
 // a store nothing will ever read again — and the restore, which does move, then reads
-// the newer store's older record. Both writers are therefore held per store through
+// the newer store's older record. The writer is therefore held per store through
 // `store/subject-scoped/subject-scoped-resource.ts`, which retires the one bound to the store that
 // was replaced.
 //
-// RETIREMENT DRAINS; IT DOES NOT CANCEL. `flushAndClose` sends the pending snapshot
+// RETIREMENT FLUSHES; IT DOES NOT CANCEL. `flushAndClose` sends the pending snapshot
 // before it stops accepting requests, because the last arrangement a person made is
 // exactly the one they expect to find, and a terminal that threw it away would be
 // worse than the no-terminal this class shipped with. A request arriving after
@@ -57,10 +49,9 @@ import { type SubjectScopedDisposal } from "../../store/index.js";
  * The shape the persistence chokepoint's `layout` value class admits: an object of
  * objects whose members are numbers, booleans, and identifier-shaped strings.
  *
- * Written here rather than imported from either record's own grammar, because it is
- * the CLASS's constraint and not either grammar's preference — the deck names its
- * own record `DeckSnapshotRecord` and the sidebar names its own, and both satisfy
- * this because both are stored under that one class.
+ * Written here rather than imported from the deck's grammar, because it is the
+ * CLASS's constraint and not the grammar's preference — the deck names its own record
+ * `DeckSnapshotRecord`, which satisfies this because it is stored under that class.
  */
 export type PersistedLayoutRecord = Record<string, Record<string, number | boolean | string>>;
 
@@ -133,7 +124,7 @@ export class CoalescingLayoutWriter<TRecord extends PersistedLayoutRecord> {
   /**
    * Send what is waiting, then stop accepting requests. The terminal, and total.
    *
-   * Called when the store this writer was built over is replaced. It DRAINS: the
+   * Called when the store this writer was built over is replaced. It FLUSHES: the
    * pending slot holds the newest arrangement, and a teardown that dropped it would
    * throw away the one act the person performed last. Where a write is already in
    * flight there is nothing to start — the pump's own `finally` sends the pending one
@@ -178,7 +169,7 @@ function isWriterRetired(writer: CoalescingLayoutWriter<PersistedLayoutRecord>):
 }
 
 /**
- * How a retired writer ends, and how a retired one is recognised. Both records take it.
+ * How a retired writer ends, and how a retired one is recognized.
  *
  * THE TERMINAL ARM, BECAUSE `flushAndClose` IS ONE-WAY. A writer past it drops every
  * later request in silence — no refusal raised, nothing on screen — so a holder that
@@ -189,9 +180,7 @@ function isWriterRetired(writer: CoalescingLayoutWriter<PersistedLayoutRecord>):
  *
  * ONE MODULE-LEVEL OBJECT RATHER THAN A LITERAL AT EACH CALL SITE. The hook holds
  * `dispose` and `isClosed` on a dependency of their own, so a fresh literal per render
- * would restart that lifetime effect on every pass for no change in what is open —
- * and the deck and the sidebar retire the same class of writer for the same reason,
- * which is why this lives beside the class rather than twice above it.
+ * would restart that lifetime effect on every pass for no change in what is open.
  */
 export const WRITER_RETIREMENT: SubjectScopedDisposal<
   CoalescingLayoutWriter<PersistedLayoutRecord>

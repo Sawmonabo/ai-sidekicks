@@ -22,24 +22,13 @@
 // exercises.
 //
 // WHAT IS IN THE SET, STATED AS AN ADMISSION RULE. A method belongs here when a
-// console surface calls it, `@ai-sidekicks/contracts` publishes BOTH its request and
-// its response shape, and the growth slate does not claim it. All three
-// conjuncts do work. Without the second there is nothing to parse against and the
-// registry would be inventing shapes. Without the third the console would hold two
-// answers for one method — `session.read` has published payloads AND a growth row,
-// because the row bundles it with a directory read no document registers at all, so
-// it stays the growth port's and is deliberately absent here. That disjointness is
-// asserted, not asserted-by-convention: `daemon-reply-registry.test.ts` holds this
-// table against the growth ledger's own `expectedWireMethod` column.
-//
-// A method whose wire the corpus has not registered belongs to the growth port next
-// door (`growth-port.ts`), which refuses by name and says who owes the wire. The two
-// seams and the line between them are described in `daemon-reply.ts`'s header.
-//
-// AND EVERY ROW CARRIES ITS KIND, ON THE ROW AND NOT IN A TABLE BESIDE IT. A separate
-// classification table would have re-spelled all of these method strings, and two
-// lists of one method set are two lists that drift. `DaemonMethodKind` and what it
-// decides are `daemon-method-contract.ts`'s, beside the method set it is a fact about.
+// console surface calls it, the daemon registers a handler for it, and
+// `@ai-sidekicks/contracts` publishes BOTH its request and its response shape. Each
+// conjunct does work. Without the third there is nothing to parse against and the
+// registry would be inventing shapes. Without the second the client would list a call
+// nothing answers, and a caller would meet a refusal where the design draws a screen. A
+// method with no daemon handler has no entry: its caller takes the call as an argument
+// until the method is built.
 //
 // WHAT IS NOT IN THE SET. Subscriptions. `daemon.subscribe` names a stream rather
 // than a call and answers with an unsubscribe handle, so it has no reply to bind;
@@ -59,61 +48,22 @@ import {
   ListProviderCommandsRequestSchema,
   ProviderCommandListResultSchema,
   CompactContextRequestSchema,
-  ChannelListRequestSchema,
-  ChannelListResponseSchema,
-  EphemeralCloneDisposeRequestSchema,
-  EphemeralCloneDisposeResponseSchema,
-  EphemeralClonePrepareRequestSchema,
-  EphemeralClonePrepareResponseSchema,
-  ExecutionModeSelectRequestSchema,
-  ExecutionModeSelectResponseSchema,
-  ExecutionRootPrepareRequestSchema,
-  ExecutionRootPrepareResponseSchema,
-  InterventionRequestPayloadSchema,
-  InterventionRequestResponseSchema,
   PresenceReadRequestSchema,
   PresenceReadResponseSchema,
-  ProviderAccountListRequestSchema,
-  ProviderAccountListResponseSchema,
-  ProviderAccountProbeRequestSchema,
-  ProviderAccountProbeResponseSchema,
   ReasoningSurfaceReadRequestSchema,
   ReasoningSurfaceReadResponseSchema,
   RespondToRequestParamsSchema,
-  QueueItemCancelRequestSchema,
-  QueueItemCancelResponseSchema,
-  QueueItemCreateRequestSchema,
-  QueueItemCreateResponseSchema,
-  QueueItemListRequestSchema,
-  QueueItemListResponseSchema,
-  RepoAttachRequestSchema,
-  RepoAttachResponseSchema,
-  RepoMountReadRequestSchema,
-  RepoMountReadResponseSchema,
-  RunControlAckSchema,
-  RunPauseRequestSchema,
-  RunResumeRequestSchema,
   SessionCreateRequestSchema,
   SessionCreateResponseSchema,
+  SessionReadRequestSchema,
+  SessionReadResponseSchema,
   TimelineReadRequestSchema,
   TimelineReadResponseSchema,
-  WorkspaceExecutionModeCapabilitiesReadRequestSchema,
-  WorkspaceExecutionModeCapabilitiesReadResponseSchema,
-  WorkspaceBindRequestSchema,
-  WorkspaceBindResponseSchema,
-  WorkspaceListRequestSchema,
-  WorkspaceListResponseSchema,
-  WorktreeRetireRequestSchema,
-  WorktreeRetireResponseSchema,
-  WorktreeReuseCheckRequestSchema,
-  WorktreeReuseCheckResponseSchema,
-  WorktreeStatusReadRequestSchema,
-  WorktreeStatusReadResponseSchema,
 } from "@ai-sidekicks/contracts";
 
 import type { ZodType } from "@ai-sidekicks/contracts";
 
-import type { ConsoleDaemonMethodContract, DaemonMethodKind } from "./daemon-method-contract.js";
+import type { ConsoleDaemonMethodContract } from "./daemon-method-contract.js";
 
 /** One registered daemon method the console calls. The console's whole call set. */
 export type ConsoleDaemonMethod = keyof ConsoleDaemonMethodContract;
@@ -142,8 +92,6 @@ export type DaemonResponseOf<MethodName extends ConsoleDaemonMethod> =
 export interface DaemonMethodBinding<TRequest, TResponse> {
   readonly requestSchema: ZodType<TRequest>;
   readonly responseSchema: ZodType<TResponse>;
-  /** Read or record — see this module's header on why it rides the row. */
-  readonly kind: DaemonMethodKind;
 }
 
 /** The registry's shape: one binding per method, no method without one. */
@@ -162,16 +110,15 @@ export type ConsoleDaemonMethodBindings = {
  * deliberately: the count moves with every method this console learns to call, and a
  * sentence carrying it goes stale on the diff that adds one. Frozen because this
  * is a registry and not a builder: a module that could re-point
- * `CONSOLE_DAEMON_METHOD_BINDINGS["run.pause"].requestSchema` at start-up would be
+ * `CONSOLE_DAEMON_METHOD_BINDINGS["session.create"].requestSchema` at start-up would be
  * able to change what the console will send on a method without touching either the
  * method's own row or the contract that owns the shape.
  */
 function bindDaemonMethod<TRequest, TResponse>(
   requestSchema: ZodType<TRequest>,
   responseSchema: ZodType<TResponse>,
-  kind: DaemonMethodKind,
 ): DaemonMethodBinding<TRequest, TResponse> {
-  return Object.freeze({ requestSchema, responseSchema, kind });
+  return Object.freeze({ requestSchema, responseSchema });
 }
 
 /**
@@ -184,148 +131,30 @@ function bindDaemonMethod<TRequest, TResponse>(
  * annotation fixes each row's request and response types from the method key.
  */
 export const CONSOLE_DAEMON_METHOD_BINDINGS: ConsoleDaemonMethodBindings = Object.freeze({
-  "run.queueCreate": bindDaemonMethod(
-    QueueItemCreateRequestSchema,
-    QueueItemCreateResponseSchema,
-    "record",
-  ),
-  "run.queueList": bindDaemonMethod(
-    QueueItemListRequestSchema,
-    QueueItemListResponseSchema,
-    "read",
-  ),
-  "run.queueCancel": bindDaemonMethod(
-    QueueItemCancelRequestSchema,
-    QueueItemCancelResponseSchema,
-    "record",
-  ),
-  "run.pause": bindDaemonMethod(RunPauseRequestSchema, RunControlAckSchema, "record"),
-  "run.resume": bindDaemonMethod(RunResumeRequestSchema, RunControlAckSchema, "record"),
-  "run.intervene": bindDaemonMethod(
-    InterventionRequestPayloadSchema,
-    InterventionRequestResponseSchema,
-    "record",
-  ),
-  "driver.interruptRun": bindDaemonMethod(
-    InterruptRunParamsSchema,
-    DriverAckResultSchema,
-    "record",
-  ),
-  // A mutation by `api-payload-contracts.md`'s run-control context bullet: compaction
-  // "mutates the bound run's provider context" and is adjudicated as the same Cedar
-  // action the pause and resume verbs take.
+  "driver.interruptRun": bindDaemonMethod(InterruptRunParamsSchema, DriverAckResultSchema),
   "driver.compactContext": bindDaemonMethod(
     CompactContextRequestSchema,
     DriverCompactionResultSchema,
-    "record",
   ),
   "driver.listProviderCommands": bindDaemonMethod(
     ListProviderCommandsRequestSchema,
     ProviderCommandListResultSchema,
-    "read",
   ),
-  "driver.listCapabilities": bindDaemonMethod(
-    DriverReadParamsSchema,
-    ListCapabilitiesResultSchema,
-    "read",
-  ),
-  "driver.listModels": bindDaemonMethod(DriverReadParamsSchema, ListModelsResultSchema, "read"),
-  // The answer to a provider-raised ask. It advances the run that is blocked on the
-  // question, so it is a record whichever way the person answered.
-  "driver.respondToRequest": bindDaemonMethod(
-    RespondToRequestParamsSchema,
-    DriverAckResultSchema,
-    "record",
-  ),
+  "driver.listCapabilities": bindDaemonMethod(DriverReadParamsSchema, ListCapabilitiesResultSchema),
+  "driver.listModels": bindDaemonMethod(DriverReadParamsSchema, ListModelsResultSchema),
+  "driver.respondToRequest": bindDaemonMethod(RespondToRequestParamsSchema, DriverAckResultSchema),
   "timeline.reasoningSurfaceRead": bindDaemonMethod(
     ReasoningSurfaceReadRequestSchema,
     ReasoningSurfaceReadResponseSchema,
-    "read",
   ),
-  "repo.attach": bindDaemonMethod(RepoAttachRequestSchema, RepoAttachResponseSchema, "record"),
-  "repo.mountRead": bindDaemonMethod(
-    RepoMountReadRequestSchema,
-    RepoMountReadResponseSchema,
-    "read",
-  ),
-  "repo.workspaceBind": bindDaemonMethod(
-    WorkspaceBindRequestSchema,
-    WorkspaceBindResponseSchema,
-    "record",
-  ),
-  "repo.executionModeCapabilitiesRead": bindDaemonMethod(
-    WorkspaceExecutionModeCapabilitiesReadRequestSchema,
-    WorkspaceExecutionModeCapabilitiesReadResponseSchema,
-    "read",
-  ),
-  "repo.workspaceList": bindDaemonMethod(
-    WorkspaceListRequestSchema,
-    WorkspaceListResponseSchema,
-    "read",
-  ),
-  "repo.executionModeSelect": bindDaemonMethod(
-    ExecutionModeSelectRequestSchema,
-    ExecutionModeSelectResponseSchema,
-    "record",
-  ),
-  "repo.executionRootPrepare": bindDaemonMethod(
-    ExecutionRootPrepareRequestSchema,
-    ExecutionRootPrepareResponseSchema,
-    "record",
-  ),
-  // A `query` in the corpus register, despite the verb in its name: it reports whether
-  // an existing worktree could be reused and prepares nothing.
-  "repo.worktreeReuseCheck": bindDaemonMethod(
-    WorktreeReuseCheckRequestSchema,
-    WorktreeReuseCheckResponseSchema,
-    "read",
-  ),
-  "repo.ephemeralClonePrepare": bindDaemonMethod(
-    EphemeralClonePrepareRequestSchema,
-    EphemeralClonePrepareResponseSchema,
-    "record",
-  ),
-  "repo.ephemeralCloneDispose": bindDaemonMethod(
-    EphemeralCloneDisposeRequestSchema,
-    EphemeralCloneDisposeResponseSchema,
-    "record",
-  ),
-  "repo.worktreeRetire": bindDaemonMethod(
-    WorktreeRetireRequestSchema,
-    WorktreeRetireResponseSchema,
-    "record",
-  ),
-  "repo.worktreeStatusRead": bindDaemonMethod(
-    WorktreeStatusReadRequestSchema,
-    WorktreeStatusReadResponseSchema,
-    "read",
-  ),
-  "session.create": bindDaemonMethod(
-    SessionCreateRequestSchema,
-    SessionCreateResponseSchema,
-    "record",
-  ),
-  "channel.list": bindDaemonMethod(ChannelListRequestSchema, ChannelListResponseSchema, "read"),
-  "presence.read": bindDaemonMethod(PresenceReadRequestSchema, PresenceReadResponseSchema, "read"),
+  "session.create": bindDaemonMethod(SessionCreateRequestSchema, SessionCreateResponseSchema),
+  "session.read": bindDaemonMethod(SessionReadRequestSchema, SessionReadResponseSchema),
+  "presence.read": bindDaemonMethod(PresenceReadRequestSchema, PresenceReadResponseSchema),
   "timeline.childRunExpand": bindDaemonMethod(
     ChildRunExpandRequestSchema,
     ChildRunExpandResponseSchema,
-    "read",
   ),
-  "timeline.read": bindDaemonMethod(TimelineReadRequestSchema, TimelineReadResponseSchema, "read"),
-  "providerAccount.list": bindDaemonMethod(
-    ProviderAccountListRequestSchema,
-    ProviderAccountListResponseSchema,
-    "read",
-  ),
-  // Grouped with the account plane's eight mutating verbs by the corpus: it writes the
-  // observed health state and its observation timestamp back to the probed account's
-  // row, and applies the credential-generation rule in the same transaction.
-  "providerAccount.probe": bindDaemonMethod(
-    ProviderAccountProbeRequestSchema,
-    ProviderAccountProbeResponseSchema,
-    "record",
-  ),
+  "timeline.read": bindDaemonMethod(TimelineReadRequestSchema, TimelineReadResponseSchema),
 });
 
 /**
@@ -357,19 +186,4 @@ export function daemonMethodBindingFor(
         unknown
       >)
     : undefined;
-}
-
-/**
- * Whether a method string names a record. Total over every string.
- *
- * Takes `string` rather than `ConsoleDaemonMethod` because the call door asks about the
- * method it was handed, and answers `false` for anything the registry does not bind: an
- * unregistered name reaches no wire through this console at all, so there is no write
- * for the supervisor block to close.
- *
- * Reads the row rather than a table beside it, which is what makes "the record set is
- * the registry's record set" true by construction — see this module's header.
- */
-export function isRecordDaemonMethod(method: string): boolean {
-  return daemonMethodBindingFor(method)?.kind === "record";
 }

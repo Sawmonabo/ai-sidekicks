@@ -108,20 +108,7 @@ describe("the flagship frame — the park, counting down", () => {
   });
 });
 
-describe("the flagship frame — the cast and the receipt", () => {
-  it("seats at least five users, so the bar has a cast to show", () => {
-    expect(FLAGSHIP_SCENARIO.userIdsInJoinOrder.length).toBeGreaterThanOrEqual(5);
-  });
-
-  it("answers the accountant, so the bar's figure is the receipt's own", () => {
-    // The past-tense receipt. Without this reply the all-clear line renders the
-    // "not checked" absence, which is honest and is not the frame this pins.
-    const budget = replyTo("orchestration.budgetRead") as Record<string, unknown> | undefined;
-
-    expect(budget?.["committedSpendCents"]).toBeGreaterThan(0);
-    expect(budget?.["costStatus"]).toBe("priced");
-  });
-
+describe("the flagship frame — its name", () => {
   it("names itself, so the identity is more than an id", () => {
     const read = replyTo("session.read") as { session?: { metadata?: { title?: string } } };
 

@@ -1,8 +1,4 @@
-// The runs pane's bounds, and the two durations a run's stall reading is drawn against.
-//
-// The stall thresholds stood under the shutdown budget's banner in the single-module
-// home; they bound what the console says about a RUN that has gone quiet, so they are
-// read here beside the caps on the rows that run appears in.
+// The caps on what the console holds of a session's runs.
 
 // Every one of the six below bounds a value the WIRE controls: a session's runs, a
 // run's status history, and a session's queue are all as long as the daemon says they
@@ -77,34 +73,3 @@ export const INTERVENTION_OUTCOME_CAP = 16;
  * the ceiling truncates the tail and never the front.
  */
 export const QUEUE_ROWS_RENDERED_CAP = 50;
-
-/**
- * How long a run must have been making no progress before the console says so.
- *
- * The daemon decides whether a run is stuck — `health.stuckRunInspect` answers
- * `stuck-suspected` or `healthy`, and this console composes neither. What this bound
- * governs is the SENTENCE beside that answer: below it the quiet interval is not worth
- * a figure on screen, because a run between two tool calls is ordinarily quiet for a
- * few seconds and a surface that reported every one of them would report nothing.
- *
- * Sixty seconds because that is the threshold the design names for the badge
- * appearing at all, and stating it once here is what keeps the console's reading of
- * "quiet" from being one number in a component and another in its test.
- */
-export const STUCK_RUN_NOTICE_MS = 60_000;
-
-/**
- * How long that quiet has to last before the same badge escalates its presentation.
- *
- * Five minutes, and it changes the badge's TONE and its sentence — never its verdict,
- * which stays the daemon's. A run quiet for six minutes and one quiet for seventy
- * seconds are both `stuck-suspected` to the daemon and are not the same thing to a
- * person deciding whether to interrupt, and this is the whole of the difference the
- * console is allowed to draw between them.
- *
- * A SIBLING OF THE NOTICE BOUND AND NOT A MULTIPLE OF IT. The two are read from the
- * same design sentence as two independent thresholds, and deriving one from the other
- * would make the ratio the thing a later change has to preserve rather than the two
- * durations a reader can check against the design.
- */
-export const STUCK_RUN_ESCALATION_MS = 300_000;

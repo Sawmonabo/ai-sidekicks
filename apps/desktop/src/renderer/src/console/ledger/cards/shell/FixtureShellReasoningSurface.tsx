@@ -12,7 +12,7 @@
 // decides layout and the surface that performed the read decides what a row is allowed
 // to show, which is why the reasoning body arrives as a node rather than as a flag.
 
-import { REASONING_SURFACE_SLOT, ReasoningSurface } from "../bodies/index.js";
+import { ReasoningSurface } from "../bodies/index.js";
 import { useReasoningSurfaceRead } from "./shell-row-reads.js";
 import type { RunId } from "@ai-sidekicks/contracts";
 
@@ -30,7 +30,7 @@ export function FixtureShellReasoningSurface(
   const reasoningRead = useReasoningSurfaceRead(props.runId);
   return (
     <ReasoningSurface
-      slot={{ contract: REASONING_SURFACE_SLOT, body: undefined }}
+      body={undefined}
       runId={props.runId}
       liveText={props.liveText}
       reading={reasoningRead.reading}

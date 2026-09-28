@@ -71,10 +71,6 @@ import "./frame.css";
 
 export { LedgerRowGroup } from "./LedgerRowGroup.js";
 export { LedgerRowLeaseProvider, useLedgerRowLease } from "./RowLeaseProvider.js";
-// The window's supervisor condition, on the same terms and for the same reason: a row
-// body that DISPATCHES has to be able to read whether the runtime is serving, and the
-// seat it is handed says nothing about the window.
-export { LedgerShellConditionProvider, useLedgerShellCondition } from "./ShellConditionProvider.js";
 export { LedgerRowRevealProvider, useLedgerRowReveal } from "./reveal/RowRevealProvider.js";
 // The binding TYPES leave beside their hooks because `ledger-feed-windows.ts`
 // publishes the values: a chain that derives the reveal engine, the viewport and the
@@ -82,10 +78,6 @@ export { LedgerRowRevealProvider, useLedgerRowReveal } from "./reveal/RowRevealP
 // which the feed itself never had to while it held them as locals.
 export { useLedgerReveal, type LedgerRevealBinding } from "./reveal/reveal-binding.js";
 export { LedgerViewport } from "./viewport/surface/LedgerViewport.js";
-// From the module that DECLARES it rather than through the component that renders
-// it: the scope is what an empty window's sentence turns on, and the rule that
-// picks the sentence is the lowest consumer of the union.
-export { type LedgerScope } from "./viewport/surface/empty-window-words.js";
 export { type LedgerRowRenderer } from "./LedgerRowMount.js";
 export {
   useLedgerViewport,

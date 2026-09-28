@@ -110,19 +110,6 @@ export const SETTINGS_SCENARIO: ConsoleScenario = {
   // roster above says which machines are already here; this says what a machine
   // arriving would claim about itself, and the two are different subjects.
   runtimeNodeAttachDraft: SETTINGS_RUNTIME_NODE_ATTACH_DRAFT,
-  // One transport outage, after the last roster frame has landed.
-  //
-  // The settings surface is where the reconnect signal is actually SPENT — the shell
-  // preference carrier and the mount inventory both re-read on it — so this is the
-  // deck's home for driving it, and it is scripted here rather than in a scenario of
-  // its own for the reason the roster frames are: a signal nobody can reach from the
-  // scenario selector is a signal nobody reviews.
-  //
-  // It opens at 400 rather than across an existing beat so the outage is legible on
-  // its own: every node transition and every roster frame has already settled by
-  // 320, and what advancing through 400 to 520 shows is one fact — the readings that
-  // were current before the gap being taken again on the far side of it.
-  transportOutages: [{ lostAtMs: 400, restoredAtMs: 520 }],
   beats: [
     {
       atMs: 0,

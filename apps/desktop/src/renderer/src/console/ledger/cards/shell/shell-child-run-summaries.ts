@@ -12,15 +12,12 @@
 //
 // WHAT THE LOG ACTUALLY SUPPORTS, WHICH IS WHY THIS IS A DERIVATION RATHER THAN AN
 // INVENTION. The run lifecycle puts the orchestration linkage on the BIRTH beat —
-// `run.queued` carries `{agentId?, parentRunId?, linkType?,
-// internalHelper?, producingNodeId?}` — so a run whose creation row names a parent IS
+// `run.queued` carries `{agentId?, parentRunId?, reachedBy?,
+// internalHelper?}` — so a run whose creation row names a parent IS
 // a child run, said by the daemon rather than guessed here. Every member of the
 // summary then comes off that same log:
 //
 //   • `runId` / `parentRunId` — the creation row's own two identities, verbatim.
-//   • `producingNodeId` — the creation row's, where it names one. Absent stays absent:
-//     a row's provenance names the producing node, and a fabricated one would be worse
-//     than the named absence the row renders.
 //   • `state` — the state the child's newest lifecycle beat announces, read from the
 //     KIND through `runStateForTransitionKind` rather than from an unvalidated payload
 //     member, which is the same rule the run-entity fold is written under. The
@@ -44,10 +41,9 @@
 // shell's reading of rows the store already holds. So the one refusal a schema would
 // have performed is performed in code beside the reason for it: a creation row naming
 // ITSELF as its parent produces no summary, because a self-parenting node makes the
-// lineage graph cyclic and every walk of it non-terminating. The `RunId` / `NodeId`
-// casts are the sibling projection's, for its stated reason — the brand is a
-// compile-time nominal tag over `string` with no runtime witness, and the value under
-// it is the wire's own.
+// lineage graph cyclic and every walk of it non-terminating. The `RunId` casts are the
+// sibling projection's, for its stated reason — the brand is a compile-time nominal tag
+// over `string` with no runtime witness, and the value under it is the wire's own.
 //
 // IT IS STAMPED ON ONE ROW PER CHILD: the creation row, which is the only row in the
 // log that names the child AND its parent. Stamping the child's later rows would file
@@ -56,12 +52,7 @@
 // fresh object each projection pass and loses its place in the retention table, which
 // is one row per child run and is stated here rather than discovered from a profile.
 
-import {
-  type ChildRunSummary,
-  type NodeId,
-  type RunId,
-  type RunState,
-} from "@ai-sidekicks/contracts";
+import { type ChildRunSummary, type RunId, type RunState } from "@ai-sidekicks/contracts";
 
 import { runStateForTransitionKind } from "../../../bridge/index.js";
 import { readWireString } from "../../../core/index.js";
@@ -137,7 +128,6 @@ interface ChildRunReading {
   /** The row the summary is stamped on — this child's own creation row. */
   readonly creationEventId: string;
   readonly parentRunId: string;
-  readonly producingNodeId: string | undefined;
   state: RunState;
   eventCount: number;
   compactedAt: string | undefined;
@@ -164,7 +154,6 @@ function admitChildRun(
   readingsByRunId.set(runId, {
     creationEventId: event.id,
     parentRunId,
-    producingNodeId: readWireString(payload?.["producingNodeId"]),
     state: RUN_CREATED_STATE,
     eventCount: 0,
     compactedAt: undefined,
@@ -193,9 +182,6 @@ function composedSummaries(
       runId: runId as RunId,
       parentRunId: reading.parentRunId as RunId,
       state: reading.state,
-      ...(reading.producingNodeId === undefined
-        ? {}
-        : { producingNodeId: reading.producingNodeId as NodeId }),
       eventCount: reading.eventCount,
       completeness:
         reading.compactedAt === undefined

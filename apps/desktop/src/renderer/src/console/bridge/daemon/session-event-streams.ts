@@ -27,10 +27,10 @@
 //     kind the session emits reaches it.
 //   • `run.subscribeState` — streams `RunStateChangeEvent | RunRolledBackEvent`.
 //   • `run.subscribeQueue` — streams the `QueueItemSummary` projection.
-//   • `presence.subscribe` — the session's Awareness room, which is the one row here
-//     that is not a session-event stream and is registered anyway: it IS a
-//     `daemon.subscribe` name, and a table that held every OTHER name left this one
-//     falling through to the bare-event-type arm, where it matched the kind
+//   • `presence.subscribe` — the machine's in-memory presence register, which is the
+//     one row here that is not a session-event stream and is registered anyway: it
+//     IS a `daemon.subscribe` name, and a table that held every OTHER name left this
+//     one falling through to the bare-event-type arm, where it matched the kind
 //     `presence.subscribe` that no census registers and therefore delivered nothing
 //     at all.
 //
@@ -47,7 +47,6 @@
 import type { RunState } from "@ai-sidekicks/contracts";
 
 import {
-  PRESENCE_STREAM_CARRIED_KINDS,
   RUN_QUEUE_STREAM_CARRIED_KINDS,
   RUN_STATE_STREAM_CARRIED_KINDS,
   readFrozenRecord,
@@ -110,23 +109,15 @@ export interface NarrowedSessionEventStream {
 /**
  * A stream whose deliveries are CHANGE SIGNALS rather than frames.
  *
- * It carries kinds like a narrowed stream and delivers none of them: what reaches a
- * subscriber is that the room moved, and the reading comes from the room's own read.
- * A separate scope rather than a narrowed stream with a flag, because the two answer a
- * subscriber differently at the delivery seam — `fixture/call-plane/subscriptions.ts` routes on
- * exactly this discriminant — and a flag on the narrowed row would have to be read by
- * everything that handles one.
- *
- * Its kinds are not the whole of when it fires. A room moves when a device's presence
- * transitions, which is a kind here, and when a run's activity changes, which the
- * census carries no event for at all: the activity field rides beside presence rather
- * than inside it. So the kinds are the log-borne half, and whatever serves this
- * subscription owns the other.
+ * It carries no session-event kind: what reaches a subscriber is that the register
+ * moved, and the reading comes from the register's own read. A separate scope rather
+ * than a narrowed stream with a flag, because the two answer a subscriber differently
+ * at the delivery seam — `fixture/call-plane/subscriptions.ts` routes on exactly this
+ * discriminant — and a flag on the narrowed row would have to be read by everything
+ * that handles one.
  */
 export interface AwarenessSignalStream {
   readonly scope: "awareness-signal";
-  /** The log-borne half of when the room moves. Frozen, for `carriedKinds`' reason. */
-  readonly carriedKinds: readonly string[];
 }
 
 /** One registered subscription this console opens. */
@@ -174,7 +165,6 @@ export const CONSOLE_SESSION_EVENT_STREAMS: Readonly<
   } satisfies ConsoleSessionEventStream),
   [PRESENCE_EVENT_STREAM]: Object.freeze({
     scope: "awareness-signal",
-    carriedKinds: PRESENCE_STREAM_CARRIED_KINDS,
   } satisfies ConsoleSessionEventStream),
 });
 
@@ -196,10 +186,8 @@ export function sessionEventStreamFor(
  * serve and what keeps an unnoticed misspelling from quietly reading as an empty
  * session.
  *
- * HEARS ABOUT rather than RECEIVES, for the awareness row alone: its subscriber is
- * handed a payload-free signal when one of its kinds lands, never the frame. What is
- * delivered is the serving seam's answer; this one is about which kinds bear on the
- * subscription at all.
+ * The awareness row bears on no session-event kind: its subscriber is handed a
+ * payload-free signal by the serving seam, never a frame.
  */
 export function subscriptionDeliversEventKind(
   subscriptionName: string,
@@ -211,6 +199,9 @@ export function subscriptionDeliversEventKind(
   }
   if (stream.scope === "whole-session") {
     return true;
+  }
+  if (stream.scope === "awareness-signal") {
+    return false;
   }
   return stream.carriedKinds.includes(eventKind);
 }

@@ -1,7 +1,7 @@
 // A read that a push signal refreshes, and never a poll.
 //
-// A SEAT rather than one family's module: the channel directory, the roster, the
-// agent console, the mount inventory, and the attention plane each make a live read,
+// A SEAT rather than one family's module: the roster, the agent console, the mount
+// inventory, and the attention plane each make a live read,
 // and every one of them has the same five-part discipline — stated for the roster and
 // needed identically by the others. It renders nothing, which is what lets it sit
 // below the view families that spend it:

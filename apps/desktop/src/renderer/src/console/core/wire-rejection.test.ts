@@ -56,7 +56,7 @@ describe("normalizeWireRejection — the refusing side's own code survives", () 
 
   it("carries a retry hint through the rebuild rather than dropping it", () => {
     const original = {
-      ...refuse("channels", "ratelimit.exceeded", "Slow down."),
+      ...refuse("sessions", "ratelimit.exceeded", "Slow down."),
       retry: {
         afterSeconds: 30,
         atEpochMilliseconds: Date.UTC(2026, 8, 1, 12, 0, 30),
@@ -86,11 +86,11 @@ describe("normalizeWireRejection — the refusing side's own code survives", () 
       code: -32603,
       data: { type: "session.not_found" },
     });
-    const refusal = normalizeWireRejection("channels", remote);
+    const refusal = normalizeWireRejection("sessions", remote);
     expect(refusal.code).toBe("session.not_found");
     expect(refusal.detail).toBe("That session is not on this node.");
-    expect(refusal.origin).toBe("channels");
-    expect(refusal.code).not.toBe("channels-call-failed");
+    expect(refusal.origin).toBe("sessions");
+    expect(refusal.code).not.toBe("sessions-call-failed");
   });
 
   it("keeps a flat envelope's code and message verbatim", () => {
@@ -107,7 +107,7 @@ describe("normalizeWireRejection — the refusing side's own code survives", () 
     const sdkError = Object.assign(new Error("Another node holds that attachment."), {
       code: "runtimenode.attach_conflict",
     });
-    expect(normalizeWireRejection("channels", sdkError).code).toBe("runtimenode.attach_conflict");
+    expect(normalizeWireRejection("sessions", sdkError).code).toBe("runtimenode.attach_conflict");
   });
 
   it("prefers the dotted code over a flat one when a value carries both", () => {

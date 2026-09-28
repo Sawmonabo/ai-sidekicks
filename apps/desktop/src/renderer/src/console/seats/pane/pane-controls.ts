@@ -1,20 +1,17 @@
 // What a pane may ask its host to do — and the reason it is a context.
 //
-// `ConsolePaneChrome.tsx` puts close and open-in-window on the pane's head, and both
-// are the HOST's acts: the deck owns which panes exist and — for the two auxiliary
-// windows the console ships — in which window. But a pane body is mounted through
-// `pane-registry.ts`, whose `render(context)` takes a `ConsolePaneContext` and nothing
-// else — that contract is shared by six view families and widening it to carry two
-// callbacks would be six branches changing one merged file.
+// `ConsolePaneChrome.tsx` puts close on the pane's head, and it is the HOST's act: the
+// deck owns which panes exist. But a pane body is mounted through `pane-registry.ts`,
+// whose `render(context)` takes a `ConsolePaneContext` and nothing else — that contract
+// is shared by six view families and widening it to carry callbacks would be six
+// branches changing one merged file.
 //
 // So the controls travel as REACT CONTEXT, provided by the deck around each pane body
 // and read by the chrome. Three properties follow, and each is the reason:
 //
-//   • A pane rendered OUTSIDE a deck — the auxiliary timeline window, a full-width
-//     surface with no deck at all — reads an absent context and offers no controls.
-//     That is the absent-not-disabled rule `src/shared/auxiliary-routes.ts` applies
-//     to the Window menu: a control whose act nobody can perform is left out, never
-//     drawn greyed.
+//   • A pane rendered OUTSIDE a deck — a full-width surface with no deck at all —
+//     reads an absent context and offers no controls: a control whose act nobody can
+//     perform is left out, never drawn greyed.
 //   • The deck stays the single source of truth for pane lifetime. A body cannot
 //     close itself except by asking.
 //   • The seam is one module below both the deck and the chrome, so neither imports
@@ -46,25 +43,17 @@ export interface PaneControls {
   /** Close this pane. Absent where the host cannot close panes. */
   readonly onClose?: () => void;
   /**
-   * Move this pane into a window of its own.
-   *
-   * Absent where the kind or the host does not permit it — `isDetachablePaneKind`
-   * answers the kind's half, and the host's is whether it supplied a handler.
-   */
-  readonly onOpenInWindow?: () => void;
-  /**
    * Open another pane in this pane's deck.
    *
    * Not a control on the head — no pane's chrome draws a button for it — but a host
-   * act like the two above, and here for the same reason they are: the deck owns
+   * act like the close above, and here for the same reason it is: the deck owns
    * which panes exist, and a body reaching for a process-wide opener would open its
    * route in whichever deck was composed last. `ConsolePaneChrome` forwards it to the
    * pinned region it draws, which is the surface that has a route to offer and no way
    * of its own to take it.
    *
-   * Absent where the host opens no panes — the auxiliary window, which holds one pane
-   * and no deck to put a second in — which leaves the region stating where its subject
-   * lives rather than drawing a control that could not act.
+   * Absent where the host opens no panes, which leaves the region stating where its
+   * subject lives rather than drawing a control that could not act.
    */
   readonly openPane?: ConsolePaneOpener;
   /**
@@ -84,8 +73,8 @@ export interface PaneControls {
  * The seam. `undefined` — not an empty object — where no host is mounted.
  *
  * The distinction is load-bearing: an empty object means "a host is here and offers
- * nothing", which no host does, while `undefined` means "there is no host", which is
- * exactly the auxiliary window's situation. Collapsing them would leave the two cases
+ * nothing", which no host does, while `undefined` means "there is no host", as for a
+ * full-width surface with no deck. Collapsing them would leave the two cases
  * indistinguishable at the one place the difference decides what renders.
  */
 export const PaneControlsContext: React.Context<PaneControls | undefined> = createContext<

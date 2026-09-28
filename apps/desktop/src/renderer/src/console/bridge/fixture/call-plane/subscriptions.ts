@@ -32,7 +32,6 @@
 import type { RelayEventHandler, Unsubscribe } from "@ai-sidekicks/contracts";
 
 import { FixtureBridgeError } from "./refusal.js";
-import { RUN_QUEUE_ROW_READ } from "../../run-streams/index.js";
 import { projectRunStreamDelivery } from "../../run-streams/index.js";
 import { ScenarioEngine } from "../../scenario/runtime/index.js";
 import { composeScenarioEventEnvelope } from "../../scenario/runtime/index.js";
@@ -102,15 +101,7 @@ export function subscribeToScenario(
         if (!subscriptionDeliversEventKind(subscriptionName, event.kind)) {
           continue;
         }
-        // The queue stream's payload is a projection of the queue ROW, and the
-        // scenario's stand-in for the daemon's row read is the reply it scripts for
-        // that read. Resolved per beat rather than once, so a fixture whose scenario
-        // is replaced mid-subscription reads the new one's rows.
-        const projection = projectRunStreamDelivery(
-          subscriptionName,
-          event,
-          engine.replyFor(RUN_QUEUE_ROW_READ)?.result,
-        );
+        const projection = projectRunStreamDelivery(subscriptionName, event);
         if (projection === undefined) {
           deliver(composeScenarioEventEnvelope(event));
           continue;
@@ -133,7 +124,7 @@ export function subscribeToScenario(
  * and the session id is the whole of that subscription's scope: main negotiates and
  * opens the relay for THAT session and forwards its frames, so a subscriber for one
  * session never receives another's. The fixture ignored the argument and forwarded
- * every beat to every handler, so a multi-session or auxiliary-window test could
+ * every beat to every handler, so a multi-session test could
  * consume a stranger session's log and pass against behaviour production does not
  * exhibit.
  *

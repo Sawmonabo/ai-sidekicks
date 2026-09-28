@@ -33,7 +33,6 @@ function agentAttached(
       name: "Ada",
       driverName,
       modelId: "a-model",
-      state: "ready",
     },
   };
 }

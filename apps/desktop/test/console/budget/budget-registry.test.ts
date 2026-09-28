@@ -1,8 +1,8 @@
 // The registry's SHAPE — which rows exist, and what each one must carry.
 //
 // `budgets.json` is the single source of truth for every numeric budget the
-// console is gated on, and two of the three failure modes that would make it
-// worthless are shape failures this file closes:
+// console is gated on, and two failure modes that would make it worthless are shape
+// failures this file closes:
 //
 //   • A budget quietly missing. Every product budget is asserted present by id,
 //     so deleting one fails here rather than going unnoticed as a gate nobody
@@ -10,11 +10,6 @@
 //
 //   • A budget quietly ungated. Every `"n/a"` entry must say why it is not
 //     measurable yet.
-//
-//   • A budget gated by a claim rather than by a measurement. A `harness` row's
-//     figure has no product figure behind it, so the document states the
-//     derivation once for that whole set and each row points at it rather than
-//     carrying a copy.
 //
 // Three neighbouring questions are deliberately elsewhere, each beside the module
 // that answers it: whether the loader REFUSES a malformed document is
@@ -203,32 +198,6 @@ describe("console budget registry", () => {
       expect(budget.subjectSymbol, `${budget.id}: subjectSymbol`).not.toBeNull();
       expect(budget.notMeasurableReason, `${budget.id}: notMeasurableReason`).toBeNull();
     }
-  });
-
-  it("states the harness derivation once, and every harness row points at it", () => {
-    // The launch rows each opened with the same 44-word sentence, which is one
-    // rule with as many places to drift as there are rows — and it was already
-    // imprecise: it named `console-e2e` as THE derivation, when the guard runs
-    // against every launching tier's resolved timeout.
-    const derivation = registry.harnessBudgetDerivation ?? "";
-    expect(derivation, "the derivation is stated").not.toBe("");
-    expect(derivation, "held against every launching tier, not one named tier").toContain(
-      "every launching tier",
-    );
-    expect(derivation, "and it says how a tier's own timeout comes out of them").toContain(
-      "tierTimeoutFor",
-    );
-
-    const harnessNotes = registry.harnessBudgets().map((budget) => budget.notes);
-    for (const notes of harnessNotes) {
-      expect(notes, "a harness row says where its derivation lives").toContain(
-        "harnessBudgetDerivation",
-      );
-    }
-    // Rows that open alike are copies of one sentence, which is the shape the
-    // pointer replaced.
-    const openings = new Set(harnessNotes.map((notes) => notes.slice(0, 60)));
-    expect(openings.size, "harness rows repeat one derivation verbatim").toBe(harnessNotes.length);
   });
 
   it("makes every un-measurable budget give its reason", () => {

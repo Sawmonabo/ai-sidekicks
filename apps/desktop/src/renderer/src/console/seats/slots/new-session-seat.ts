@@ -2,11 +2,11 @@
 //
 // TWO VIEW FAMILIES MEET HERE, WHICH IS WHY THE CONTRACT IS NOT IN EITHER OF THEM.
 // The control is the workspace family's — it composes a draft, holds it on the bridge
-// it would send through, and issues the three calls a first send coalesces. The place
+// it would send through, and issues the calls a first send coalesces. The place
 // it is mounted is the sessions family's all-sessions destination. Neither may import
-// the other, so the composition root names which component fills the place and this
-// module says what that component's props ARE. Spelled in both families instead, the
-// two spellings drift and the one that goes stale is the one nothing reads.
+// the other, so this module says what the control's props ARE. Spelled in both
+// families instead, the two spellings drift and the one that goes stale is the one
+// nothing reads.
 //
 // THE CALLBACK CARRIES A SESSION ID AND NOTHING ELSE, and that is the seam's whole
 // shape. What the console DOES with a session it just started — open its store, stamp
@@ -16,28 +16,17 @@
 // The draft knows the id and stops there; a control that carried the settlement itself
 // would be a second copy of an act that already has one home.
 
-import type { ComponentType } from "react";
-
 import type { ConsoleBridge } from "../../bridge/index.js";
 
 /**
- * Why the destination is not putting acts right now — at render, and at dispatch.
+ * The call that puts the person's first message on the queue of the session a send made.
  *
- * ONE FACT ASKED AT TWO MOMENTS, and both halves are here because a control that has
- * only one of them is wrong in one of them. With the sentence alone the affordance is
- * right and the guard is fail-OPEN: the cause can land in the frame between the render
- * that enabled a button and the click that reaches its handler. With the reader alone
- * nothing can be disabled, because a function is not a value a render can compare.
- *
- * The destination composes both from the same two sources, so the reason a control is
- * closed and the reason a press puts nothing can never be two different reasons.
+ * Rejects when the message could not be queued, and the send then reports what landed.
  */
-export interface NewSessionBlockedAct {
-  /** The cause as it stood at this render, or `undefined` while acts are offered. */
-  readonly sentence: string | undefined;
-  /** The same question, asked the moment a press lands. Stable across renders. */
-  readonly readSentence: () => string | undefined;
-}
+export type FirstTurnQueueCall = (request: {
+  readonly sessionId: string;
+  readonly content: string;
+}) => Promise<void>;
 
 /** What the sessions destination hands the composed draft control. */
 export interface NewSessionControlProps {
@@ -49,19 +38,8 @@ export interface NewSessionControlProps {
    * console will not read again.
    */
   readonly bridge: ConsoleBridge;
-  /**
-   * Why this draft may not be sent right now, from the destination that decides it.
-   *
-   * The SAME reading the shipped start, join and import controls carry, rather than
-   * one this control derives: every act on this destination is a write, so the
-   * whole-destination fold answers for all of them, and a control that recomputed its
-   * own eligibility would be a second source of truth for a fact the stores own.
-   *
-   * The block closes SEND and not "+ New": opening a draft mints no daemon row, and
-   * refusing to let somebody compose one while the runtime is away would take the
-   * offline half of this control away for no gain.
-   */
-  readonly blockedAct: NewSessionBlockedAct;
+  /** The call the send makes once the session exists, to queue the first message. */
+  readonly queueFirstTurn: FirstTurnQueueCall;
   /**
    * The session a completed send produced, told once, at the moment it completed.
    *
@@ -90,12 +68,3 @@ export interface NewSessionControlProps {
    */
   readonly onSessionDirectoryRecheck: () => void;
 }
-
-/**
- * The composed-draft control as the composition root hands it over.
- *
- * The COMPONENT rather than a built element: which component mounts is the root's
- * decision, and which props it takes is the mounting family's — the bridge and the
- * settlement both come off a surface context the root cannot reach when it registers.
- */
-export type NewSessionControlComponent = ComponentType<NewSessionControlProps>;

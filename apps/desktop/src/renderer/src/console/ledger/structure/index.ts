@@ -20,9 +20,8 @@
 // root is what every one of them spends or publishes: this door, the sheet, the command
 // table and the mount registry it acts on, and the row fixture their suites share.
 //
-// A SUB-MODULE PUBLISHES A DOOR ONLY WHERE ONE HAS READERS. `seams/` does, and so does
-// `child-runs/`, whose two rows and disclosure hook the feed takes. The other two are
-// read from outside only by THIS file, which must reach the DECLARING module or
+// A SUB-MODULE PUBLISHES A DOOR ONLY WHERE ONE HAS READERS. `seams/` does. The other
+// three are read from outside only by THIS file, which must reach the DECLARING module or
 // `console-no-barrel-chain` reports the second hop; a door whose only would-be reader
 // cannot use it is a door with no consumer, which `barrel-census` and the dead-code gate
 // both fail. Their siblings reach them by deep intra-family specifiers, which is what an
@@ -48,8 +47,8 @@
 // production reaches.
 
 // The sheets this directory owns, imported by its own door. Each belongs to a child
-// that carries no door of its own, so this is their nearest owner; `seams/` and
-// `child-runs/` each have a door and import their own. THERE IS NO PARENT SHEET
+// that carries no door of its own, so this is their nearest owner; `seams/` has a
+// door and imports its own. THERE IS NO PARENT SHEET
 // BESIDE THEM: a parent sheet holds what the two share, and the one rule that ever
 // qualified was a focus ring for two buttons no caller could reach, so it went when
 // they did. A rule the two come to share again mints `structure.css` back, imported
@@ -59,7 +58,6 @@ import "./narrowing/narrowing.css";
 
 export { ChapterHeader } from "./chapters/ChapterHeader.js";
 export { FindInLedger } from "./narrowing/FindInLedger.js";
-export { LedgerFilterBar } from "./narrowing/LedgerFilterBar.js";
 export { ChapterCollapseState } from "./chapters/chapter-collapse.js";
 export {
   LedgerChapterIndex,
@@ -72,7 +70,6 @@ export {
   deriveLedgerFacets,
   isLedgerFiltered,
   jumpToEventId,
-  scopeLedgerRowsToChannel,
   type LedgerFacets,
   type LedgerFilter,
   type LedgerJumpAbsence,

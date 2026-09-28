@@ -4,12 +4,10 @@
 // the addressed kind's partition (whose identity changes only when that kind
 // changes, so a burst on another kind re-renders nothing here), whether the store's
 // first read has answered, and whether the projection is known-incomplete. The
-// twelve details receive the answers as props and subscribe to nothing themselves
-// unless they COMPOSE — which two of them do, over partitions of their own.
+// details receive the answers as props and subscribe to nothing themselves.
 //
-// The dispatch is a table read and not a switch: `entity-detail-registry.ts` is
-// total over the entity kinds by type, so there is no arm here for a kind nobody
-// wrote a record for, and no fallback that would render one as a blank pane.
+// The dispatch is a table read and not a switch: `entity-detail-registry.ts` lists the
+// kinds the inspector's address admits, and the address this reads is typed to those alone.
 
 import {
   useSessionDegradedCause,
@@ -18,11 +16,11 @@ import {
   type ConsoleEntityRef,
   type SessionStore,
 } from "../../../store/index.js";
-import { ENTITY_DETAIL_BY_KIND } from "./entity-detail-registry.js";
+import { ENTITY_DETAIL_BY_KIND, type EntityDetailKind } from "./entity-detail-registry.js";
 
 export interface InspectedEntityProps {
   /** What the deck addressed this pane with. */
-  readonly entityRef: ConsoleEntityRef;
+  readonly entityRef: ConsoleEntityRef & { readonly kind: EntityDetailKind };
   readonly sessionStore: SessionStore;
   /**
    * The pane this inspector was opened from, when the deck linked the two.

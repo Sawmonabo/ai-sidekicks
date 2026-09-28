@@ -80,7 +80,6 @@ export type { WireErrorEnvelope } from "../../../../shared/wire-errors.js";
 import {
   readRefusalExtensions,
   wireFailedBindingsExtension,
-  wireReferencingArtifactsExtension,
   wireRetryExtension,
   withRefusalExtensions,
   type ConsoleRefusalExtensions,
@@ -303,26 +302,20 @@ function classifyRejection(
     // One read of `fields`, then one pass per registered member over the value it
     // produced: a getter that answered differently the second time would otherwise
     // assemble one refusal's extensions out of two envelopes. The readers are MERGED
-    // rather than chosen between — an envelope may carry a retry bound, a
-    // failed-binding list, a referencing-artifact set, any combination of them, or
-    // none — and each reader contributes only the member it actually found.
+    // rather than chosen between — an envelope may carry a retry bound, a failed-binding
+    // list, both, or neither — and each reader contributes only the member it found.
     const fields = readGuardedProperty(data, "fields");
     return withRefusalExtensions(refuse(origin, dottedCode, envelopeDetail(message, fallback)), {
       ...wireRetryExtension(fields),
       ...wireFailedBindingsExtension(fields),
-      ...wireReferencingArtifactsExtension(fields),
     });
   }
   // The flat envelope — `{ code, message }` — from the same two readings the arms
   // above already took, never a second pass over the candidate.
   if (typeof members.code === "string") {
-    // The flat envelope spells the structured context `details`, and the retry bound
-    // sits at the root — the two positions the corpus registers for this arm, read
-    // where each one actually is rather than at one guessed shared prefix.
-    const details = readGuardedProperty(rejection, "details");
+    // The flat envelope carries its retry bound at the root.
     return withRefusalExtensions(refuse(origin, members.code, envelopeDetail(message, fallback)), {
       ...wireRetryExtension(rejection),
-      ...wireReferencingArtifactsExtension(details),
     });
   }
   if (fallback !== undefined) {

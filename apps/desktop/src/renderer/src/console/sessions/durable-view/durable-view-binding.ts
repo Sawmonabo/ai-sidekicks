@@ -114,27 +114,6 @@ export class DurableViewBindingHolder<TBinding extends DurableViewBinding> {
   }
 
   /**
-   * The binding this holder is holding NOW, whichever store it was minted for, or
-   * `undefined` while it holds none.
-   *
-   * WHAT A PARTY THAT IS NOT RENDERING READS, and the difference from
-   * {@link bindingIfCurrent} is that it names no store. A caller that held one would
-   * be holding the store it saw when it was composed — and the auto-pin authority,
-   * which is the caller this exists for, is composed when a session is STARTED and
-   * consulted when a message is sent, with a navigation and a whole visit to another
-   * destination in between. Handed that stale identity, {@link acquire} would dispose
-   * the binding this window is actually on and mint a successor over a store the
-   * window has closed, which is the very defect above with the arrow reversed.
-   *
-   * Pure, and never a mint: a party outside the render tree asks what this window is
-   * holding and takes the answer, including the honest `undefined` that means this
-   * window has no durable binding of this kind at all.
-   */
-  public get heldBinding(): TBinding | undefined {
-    return this.#binding;
-  }
-
-  /**
    * The binding for this store, minting one on first ask and on a store change.
    *
    * MUTATES, so it is reached from an effect or from an event handler and never from

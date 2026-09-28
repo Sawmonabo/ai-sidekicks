@@ -2,10 +2,9 @@
 //
 // THIS CONSOLE'S OWN RULE, because each surface's composition is left to the console's
 // own code and fixture scenarios: "+ New" creates a draft session placeholder with no
-// daemon row, and the person picks agents (by definition), a repo mount and mode, a
-// posture, and a paying account per agent. The first send coalesces `session.create`,
-// one `agent.attach` per agent, and `run.queueCreate`; a draft that is closed empty
-// reverts to nothing and leaves no row.
+// daemon row, and the person picks a repo mount and mode and a posture. The first send
+// coalesces `session.create` and `run.queueCreate`; a draft that is closed empty reverts
+// to nothing and leaves no row.
 //
 // WHAT IS HERE AND WHAT IS NEXT DOOR. This file owns what a person has CHOSEN and the
 // coalescing that keeps one draft to one session. What those choices become on the
@@ -35,9 +34,8 @@
 // would reach `session.create` again: a double-click would mint two daemon sessions,
 // and a retry after the partial would mint a third, none of them the one the person is
 // looking at. The same argument applies one leg down, which is why the memory is
-// per-leg rather than one flag — a retry that re-attached an agent already on the
-// session would put two agents there for one the person chose once, and one that
-// re-queued the turn would send their words twice. So this class coalesces rather than
+// per-leg rather than one flag — a retry that re-queued the turn would send their
+// words twice. So this class coalesces rather than
 // refuses, on the deck writer's idiom: a send while one is in flight yields THAT send,
 // and a later send resumes at the first call that has not been made. The invariant is
 // scoped to the object, so closing the draft — which drops it — is what makes the next
@@ -52,13 +50,11 @@
 // sessions list rather than to press again.
 //
 // THE FIRST TURN IS THE DRAFT'S, because the draft is what sends it. `run.queueCreate`
-// is registered and callable and takes the turn's own body, so a draft holding agents,
-// a mount and a posture and no words could not compose one — which is why this used to
-// refuse the leg by name. It is also the ONLY axis the shipped control offers, so a
-// draft that reaches a send from the screen always has one. A person composing a session says what it is for in the same
-// act, and a first turn that is still blank is the one refusal here that is a CHOICE
-// rather than a fact about the build: the session and its agents exist, and nothing
-// has been said yet.
+// takes the turn's own body, so a draft holding a mount and a posture and no words could
+// not compose one. It is also the ONLY axis the shipped control offers, so a draft that
+// reaches a send from the screen always has one. A first turn that is still blank is the
+// one refusal here that is a CHOICE rather than a fact about the build: the session
+// exists, and nothing has been said yet.
 //
 // AUTO-PIN IS STILL ABSENT, and now for a reason that can be discharged rather than a
 // wire that cannot: it fires on a first SUCCESSFUL send, whose five conjuncts include
@@ -67,6 +63,7 @@
 import type { ExecutionMode, ExecutionPosture } from "@ai-sidekicks/contracts";
 import { type ConsoleBridge } from "../../bridge/index.js";
 import { Emitter, type Unsubscribe } from "../../core/index.js";
+import type { FirstTurnQueueCall } from "../../seats/index.js";
 import { sendNewSessionDraft } from "./new-session-send.js";
 import {
   refuseAmbiguousCreate,
@@ -85,14 +82,6 @@ import {
  */
 export type DraftPostureMode = ExecutionPosture["mode"];
 
-/** One agent the draft will attach, by definition, with the account that pays. */
-export interface DraftAgentSelection {
-  /** The agent definition's daemon-minted opaque id — never its mutable name. */
-  readonly definitionId: string;
-  /** The account this agent's spend lands on, where the person picked one. */
-  readonly providerAccountId: string | undefined;
-}
-
 /** The repo this session works in, and how. */
 export interface DraftRepoMount {
   readonly repoId: string;
@@ -101,7 +90,6 @@ export interface DraftRepoMount {
 
 /** What the draft surface renders. A fresh object per mutation, so `Object.is` decides. */
 export interface NewSessionDraftState {
-  readonly agents: readonly DraftAgentSelection[];
   readonly repoMount: DraftRepoMount | undefined;
   readonly posture: DraftPostureMode | undefined;
   /** The session's first message, verbatim. Never trimmed; only tested for blankness. */
@@ -113,6 +101,7 @@ export interface NewSessionDraftState {
 
 export class NewSessionDraft {
   readonly #bridge: ConsoleBridge;
+  readonly #queueFirstTurn: FirstTurnQueueCall;
   readonly #changes = new Emitter<NewSessionDraftState>("new session draft change");
   /**
    * The send that is running, while one is.
@@ -139,11 +128,9 @@ export class NewSessionDraft {
     hasCreatedSession: false,
     sessionId: undefined,
     hasUnreadableCreate: false,
-    attachedDefinitionIds: new Set<string>(),
     hasQueuedFirstTurn: false,
   };
   #state: NewSessionDraftState = {
-    agents: [],
     repoMount: undefined,
     posture: undefined,
     firstTurn: "",
@@ -151,8 +138,12 @@ export class NewSessionDraft {
     revision: 0,
   };
 
-  public constructor(options: { readonly bridge: ConsoleBridge }) {
+  public constructor(options: {
+    readonly bridge: ConsoleBridge;
+    readonly queueFirstTurn: FirstTurnQueueCall;
+  }) {
     this.#bridge = options.bridge;
+    this.#queueFirstTurn = options.queueFirstTurn;
   }
 
   public snapshot(): NewSessionDraftState {
@@ -163,48 +154,15 @@ export class NewSessionDraft {
     return this.#changes.subscribe(listener);
   }
 
-  /** Add an agent by definition. A second add of the same definition replaces it. */
-  public selectAgent(selection: DraftAgentSelection): void {
-    const agents = [
-      ...this.#state.agents.filter((agent) => agent.definitionId !== selection.definitionId),
-      selection,
-    ];
-    this.#commit({ agents });
-  }
-
-  public deselectAgent(definitionId: string): void {
-    const agents = this.#state.agents.filter((agent) => agent.definitionId !== definitionId);
-    if (agents.length === this.#state.agents.length) {
-      return;
-    }
-    this.#commit({ agents });
-  }
-
-  /** Which account pays for one already-selected agent. Unknown ids change nothing. */
-  public setPayingAccount(definitionId: string, providerAccountId: string | undefined): void {
-    if (!this.#state.agents.some((agent) => agent.definitionId === definitionId)) {
-      return;
-    }
-    this.#commit({
-      agents: this.#state.agents.map((agent) =>
-        agent.definitionId === definitionId ? { ...agent, providerAccountId } : agent,
-      ),
-    });
-  }
-
   public setRepoMount(repoMount: DraftRepoMount | undefined): void {
     this.#commit({ repoMount });
   }
 
   /**
-   * The posture this session's agents work under, once one can be chosen.
+   * The posture this session works under, once one can be chosen.
    *
-   * BESIDE {@link selectAgent}, AND UNREACHABLE FOR THE SAME REASON. The posture rides
-   * `agent.attach`'s `executionPostureMode` and nothing else — the two calls a draft
-   * without agents makes carry no member for it — so it is honoured exactly on the leg
-   * that iterates the agents nothing selects yet. `NewSessionControl.tsx` therefore
-   * offers no picker for it: the axis and its control land together with the lane that
-   * makes attaching an agent reachable.
+   * Held but not sent: neither call the send makes carries a member for it, so
+   * `NewSessionControl.tsx` offers no picker for it.
    */
   public setPosture(posture: DraftPostureMode | undefined): void {
     this.#commit({ posture });
@@ -230,20 +188,20 @@ export class NewSessionDraft {
    * something it was never told.
    */
   public discard(): void {
-    this.#commit({ agents: [], repoMount: undefined, posture: undefined, firstTurn: "" });
+    this.#commit({ repoMount: undefined, posture: undefined, firstTurn: "" });
   }
 
   /**
    * The coalesced first send.
    *
-   * Coalesced in TWO senses, and both are load-bearing. Across the three calls, it is
-   * ordered rather than parallel: the two after `session.create` need the session it
-   * returns, so issuing them together would mean inventing the id before the daemon
-   * minted it. Across repeated presses, it is idempotent in the only way a renderer can
-   * make a create idempotent — by remembering. A concurrent call joins the running
-   * send; a later call resumes at the first call that has not been made. Neither
-   * refuses, because a refusal here would put a code in front of a person whose press
-   * did exactly what they meant it to.
+   * Coalesced in TWO senses, and both are load-bearing. Across the two calls, it is
+   * ordered rather than parallel: the turn needs the session `session.create` returns,
+   * so issuing them together would mean inventing the id before the daemon minted it.
+   * Across repeated presses, it is idempotent in the only way a renderer can make a
+   * create idempotent — by remembering. A concurrent call joins the running send; a
+   * later call resumes at the first call that has not been made. Neither refuses,
+   * because a refusal here would put a code in front of a person whose press did
+   * exactly what they meant it to.
    */
   public send(): Promise<NewSessionSendResult> {
     // `??=` short-circuits, so the send is started only when none is running, and
@@ -278,25 +236,20 @@ export class NewSessionDraft {
         // An empty draft reaches no wire, so there is no composition this settlement
         // carried and none for a caller to measure itself against.
         sentRevision: undefined,
-        // NAMED FOR THE CONTROLS THAT EXIST. The sentence used to offer an agent, a
-        // repository and a posture as alternatives, and a person reading it could
-        // reach none of the three: the shipped control offers the first message and
-        // nothing else. The lane that makes another axis pickable widens this
-        // sentence with it, in the same change that mints the control.
+        // Named for the one control that exists: the shipped control offers the first
+        // message and nothing else.
         refusal: refuseDraft("draft-empty", "Type the first message before sending."),
       };
     }
 
     const progress = await sendNewSessionDraft({
       bridge: this.#bridge,
+      queueFirstTurn: this.#queueFirstTurn,
       // The session this draft already created is the session this draft sends to, so
       // the create leg is skipped rather than repeated.
       sessionId: this.#landed.hasCreatedSession ? this.#landed.sessionId : undefined,
-      agents: this.#state.agents,
-      alreadyAttachedDefinitionIds: this.#landed.attachedDefinitionIds,
       firstTurnAlreadyQueued: this.#landed.hasQueuedFirstTurn,
       firstTurn: this.#state.firstTurn,
-      executionPostureMode: this.#state.posture,
       // CAPTURED IN THE SAME BREATH AS THE WORDS IT DESCRIBES. Every member above is
       // read out of `#state` in this one expression, so the revision beside them names
       // exactly the composition this send is about — and a settlement can be measured
@@ -318,9 +271,6 @@ export class NewSessionDraft {
       this.#landed.hasCreatedSession = true;
       this.#landed.sessionId = progress.sessionId;
     }
-    for (const definitionId of progress.attachedDefinitionIds) {
-      this.#landed.attachedDefinitionIds.add(definitionId);
-    }
     this.#landed.hasQueuedFirstTurn ||= progress.firstTurnQueued;
     return progress.result;
   }
@@ -330,7 +280,6 @@ export class NewSessionDraft {
     this.#state = {
       ...next,
       isEmpty:
-        next.agents.length === 0 &&
         next.repoMount === undefined &&
         next.posture === undefined &&
         next.firstTurn.trim().length === 0,
@@ -363,6 +312,5 @@ interface LandedCalls {
    * on the wire.
    */
   hasUnreadableCreate: boolean;
-  readonly attachedDefinitionIds: Set<string>;
   hasQueuedFirstTurn: boolean;
 }

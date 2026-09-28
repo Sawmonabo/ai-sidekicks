@@ -18,7 +18,6 @@ import {
   TOOL_SUB_FAMILY_ARGUMENTS_MEMBER,
   TOOL_SUB_FAMILY_MEMBER,
   TOOL_SUB_FAMILY_SERVER_MEMBER,
-  TOOL_SUB_FAMILY_SLOT,
   declaredToolSubFamily,
 } from "./tool-sub-families.js";
 
@@ -101,15 +100,5 @@ describe("a tool row's declared sub-family", () => {
     // build does not know, it is not a declaration at all.
     expect(declaredToolSubFamily({ [TOOL_SUB_FAMILY_MEMBER]: 4 })).toBeUndefined();
     expect(declaredToolSubFamily({ [TOOL_SUB_FAMILY_MEMBER]: null })).toBeUndefined();
-  });
-});
-
-describe("the tool sub-family slot's contract", () => {
-  it("names the feature it is waiting on and carries no governance identifier", () => {
-    for (const clause of Object.values(TOOL_SUB_FAMILY_SLOT)) {
-      expect(clause.length).toBeGreaterThan(0);
-      // Governance ids belong in comments, never in a string a build ships.
-      expect(clause).not.toMatch(/\b(?:Plan|Spec|ADR|BL)-\d|\bT-023/);
-    }
   });
 });

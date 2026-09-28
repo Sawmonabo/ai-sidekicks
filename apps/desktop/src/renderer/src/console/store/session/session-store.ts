@@ -91,6 +91,7 @@ import { NOTHING_APPLIED, type ApplyOutcome } from "./apply-outcome.js";
 // module outside its owner imports it, so a second name for it would be an export
 // with no reader, which the dead-code gate rejects. It is reached at its owner.
 export type { SessionDegradedCause } from "../degradation.js";
+export { BASE_STATE_CURSOR } from "./session-state.js";
 export type { SessionSnapshot, SessionStoreState } from "./session-state.js";
 export { selectEntity, selectPartition } from "./selectors.js";
 export type { EarlierWindowMerge } from "./earlier-window.js";
@@ -104,7 +105,7 @@ export interface SessionStoreOptions {
   readonly timelineCap?: number;
 }
 
-const SITE = "console/store/session-store.ts";
+const SITE = "console/store/session/session-store.ts";
 
 /** The one key the window generation is claimed under. A store has one window. */
 const WINDOW_GENERATION_KEY = "window";
@@ -176,7 +177,7 @@ export class SessionStore {
     return this.#store.getState();
   }
 
-  /** The session's hue wheel. Allocation happens only through `initialise`/`applyBatch`. */
+  /** The session's hue wheel. Allocation happens only through `applyBatch`. */
   public get hueAllocator(): ActorHueAllocator {
     return this.#hueAllocator;
   }
@@ -237,10 +238,6 @@ export class SessionStore {
     const current = this.#store.getState();
     if (current.initialised && !admitsSnapshotAt(snapshot.cursor, current)) {
       return;
-    }
-
-    for (const userId of snapshot.userJoinLog) {
-      this.#hueAllocator.admit(userId);
     }
 
     // A completed read re-establishes where the window STARTS, so whatever a backward

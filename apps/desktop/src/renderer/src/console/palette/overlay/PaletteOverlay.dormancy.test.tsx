@@ -1,20 +1,18 @@
 // A closed palette costs nothing, and an open one is acting on what it said it was.
 //
-// Three claims, and each one used to be false:
+// Two claims:
 //
 //   • The registry's search and its visible-command count ran on every render of the
 //     frame, so a palette nobody had opened re-ranked the whole command set each time
 //     the route or the command context moved.
 //   • The scope row was re-resolved on every render, so a person who read "acting on
 //     X", typed, and pressed Enter could be acting on something else.
-//   • The read-only state had no rendering at all, so half the list would refuse with
-//     nothing on screen saying why.
 //
 // The counters below are the instrument for the first: a registry that RECORDS how
 // often it was asked, so "evaluates nothing while closed" is measured rather than
 // asserted.
 
-import { render, screen } from "@testing-library/react";
+import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { settle } from "../../core/settle.test-support.js";
@@ -28,7 +26,6 @@ const CONTEXT: WhenClauseContext = {
   onWorkspace: false,
   onWorkflows: false,
   onSettings: false,
-  inAuxiliaryWindow: false,
 };
 
 /**
@@ -177,42 +174,5 @@ describe("the palette — the captured scope", () => {
     rerender(<PaletteOverlay {...props} open scopeLabel="A different session" />);
     await settle();
     expect(scopeRowText()).toBe("A different session");
-  });
-});
-
-describe("the palette — the read-only line", () => {
-  it("names the cause and still lists every command", async () => {
-    // Hiding the mutating commands would hide the cause and send a person hunting for
-    // a control that is on screen everywhere else.
-    const registry = registryWithCommands();
-    render(
-      <PaletteOverlay
-        registry={registry}
-        context={CONTEXT}
-        open
-        onOpenChange={() => undefined}
-        platform="darwin"
-        shellBlock={{ code: "shell-offline", detail: "The local runtime did not come back." }}
-      />,
-    );
-    await settle();
-    expect(paletteText()).toContain("shell-offline");
-    expect(paletteText()).toContain("The local runtime did not come back.");
-    expect(screen.getAllByRole("option").length).toBe(COMMANDS.length);
-  });
-
-  it("renders no line while the shell is fine — the control", async () => {
-    const registry = registryWithCommands();
-    render(
-      <PaletteOverlay
-        registry={registry}
-        context={CONTEXT}
-        open
-        onOpenChange={() => undefined}
-        platform="darwin"
-      />,
-    );
-    await settle();
-    expect(document.querySelector(".console-palette__degraded")).toBeNull();
   });
 });

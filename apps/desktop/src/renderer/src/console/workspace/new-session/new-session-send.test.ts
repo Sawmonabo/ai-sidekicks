@@ -1,8 +1,8 @@
-// The coalesced send: three calls in order, and what each ending says.
+// The coalesced send: two calls in order, and what each ending says.
 //
 // `new-session-send.ts` holds no state, so these cases drive the whole ladder through
-// a draft that supplies the choices — the send that lands all three calls, the send
-// that stops at each leg, and the two blankness rules. What repeated presses do to
+// a draft that supplies the choices — the send that lands both calls, the send that
+// stops at each leg, and the two blankness rules. What repeated presses do to
 // one draft object is `new-session-draft.test.ts` beside this one.
 //
 // The counted arm reads what reached the wire rather than comparing ids: the engine
@@ -11,10 +11,14 @@
 
 import { describe, expect, it } from "vitest";
 
-import { countedDraftFor, draftFor, CREATED_SESSION_ID } from "./new-session-draft.test-support.js";
+import {
+  countedDraftFor,
+  draftFor,
+  sentMethod,
+  CREATED_SESSION_ID,
+} from "./new-session-draft.test-support.js";
 import {
   NEW_SESSION_DRAFT_REFUSAL_ORIGIN,
-  RUN_QUEUE_CREATE_METHOD,
   refuseSendThatRejected,
 } from "./new-session-settlement.js";
 
@@ -26,44 +30,27 @@ describe("NewSessionDraft — the send", () => {
     expect(result.completedCalls).toStrictEqual([]);
   });
 
-  it("lands all three calls when every leg is scripted", async () => {
-    const draft = draftFor({ scriptsCreate: true, scriptsAttach: true, scriptsFirstTurn: true });
-    draft.selectAgent({ definitionId: "definition-1", providerAccountId: "account-9" });
-    draft.setFirstTurn("Start on the parser.");
-    const result = await draft.send();
+  it("lands both calls when every leg is scripted, and attaches nothing", async () => {
+    const counted = countedDraftFor({ scriptsCreate: true, scriptsFirstTurn: true });
+    counted.draft.setFirstTurn("Start on the parser.");
+    const result = await counted.draft.send();
 
-    // The whole point of the coalesced send, and the state no earlier build could
-    // reach: one act, three calls, named in the order they were made.
+    // The whole point of the coalesced send: one act, two calls, named in the order
+    // they were made. There is no attach step, so none reaches the wire, and the first
+    // message is queued on the session the create returned.
     expect(result.outcome).toBe("sent");
     expect(result.sessionId).toBe(CREATED_SESSION_ID);
-    expect(result.completedCalls).toStrictEqual([
-      "session.create",
-      "agent.attach",
-      "run.queueCreate",
-    ]);
+    expect(result.completedCalls).toStrictEqual(["session.create", "run.queueCreate"]);
     expect(result.refusal).toBeUndefined();
-  });
-
-  it("stops at the attach the scenario scripts nothing for, and says the turn was not made", async () => {
-    const draft = draftFor({ scriptsCreate: true });
-    draft.selectAgent({ definitionId: "definition-1", providerAccountId: undefined });
-    draft.setFirstTurn("Start on the parser.");
-    const result = await draft.send();
-
-    expect(result.outcome).toBe("partial");
-    expect(result.sessionId).toBe(CREATED_SESSION_ID);
-    // The error slot names the calls that SUCCEEDED, because a person deciding whether
-    // to retry needs to know a session already exists.
-    expect(result.completedCalls).toStrictEqual(["session.create"]);
-    expect(result.refusal?.code).toBe("agent-attach-failed");
-    // The send is ordered, so the turn behind the stopped leg was not attempted.
-    expect(result.refusal?.detail).toContain("no first turn was queued");
+    expect(counted.calls.map(sentMethod)).toStrictEqual(["session.create"]);
+    expect(counted.firstTurns).toStrictEqual([
+      { sessionId: CREATED_SESSION_ID, content: "Start on the parser." },
+    ]);
   });
 
   it("names the missing first turn when the person typed none", async () => {
-    // Zero agents is zero attaches, so the only call left is the turn — and its
-    // absence is the person's own choice rather than a fact about the build, which is
-    // why it is its own code.
+    // The turn is the only call left after the create, and its absence is the person's
+    // own choice rather than a fact about the build, which is why it is its own code.
     const draft = draftFor({ scriptsCreate: true });
     draft.setPosture("trusted");
     const result = await draft.send();
@@ -71,11 +58,9 @@ describe("NewSessionDraft — the send", () => {
     expect(result.outcome).toBe("partial");
     expect(result.completedCalls).toStrictEqual(["session.create"]);
     expect(result.refusal?.code).toBe("first-turn-missing");
-    // And it does not name a call this send was never going to make.
-    expect(result.refusal?.detail).not.toContain("agent.attach");
   });
 
-  it("refuses the turn the daemon would not queue, without claiming it landed", async () => {
+  it("refuses the turn that could not be queued, without claiming it landed", async () => {
     const draft = draftFor({ scriptsCreate: true });
     draft.setFirstTurn("Start on the parser.");
     const result = await draft.send();
@@ -107,10 +92,7 @@ describe("NewSessionDraft — the send", () => {
     const counted = countedDraftFor({ scriptsCreate: true, scriptsFirstTurn: true });
     counted.draft.setFirstTurn(indented);
     await counted.draft.send();
-    const queued = counted.calls.find((call) => call.method === RUN_QUEUE_CREATE_METHOD);
-    expect(
-      (queued?.params as { readonly payload: { readonly content: string } }).payload.content,
-    ).toBe(indented);
+    expect(counted.firstTurns[0]?.content).toBe(indented);
   });
 
   it("keeps the draft when the create itself fails, and names no completed call", async () => {

@@ -313,18 +313,11 @@ describe("callDaemon — a mutation is never abandoned", () => {
     const abandonedLine = readLine();
     abandonedLine.abort();
 
-    const underTest = bridgeAnswering(async () => ({
-      runId: RUN_ID,
-      currentState: "paused",
-      runVersion: 2,
-    }));
+    const underTest = bridgeAnswering(async () => ({}));
 
-    const reply = await callDaemon(underTest.bridge, "run.pause", {
-      targetRunId: RUN_ID,
-      expectedRunVersion: 1,
-    });
+    const reply = await callDaemon(underTest.bridge, "driver.interruptRun", { runId: RUN_ID });
 
-    expect(underTest.calls.map((call) => call.method)).toStrictEqual(["run.pause"]);
+    expect(underTest.calls.map((call) => call.method)).toStrictEqual(["driver.interruptRun"]);
     // Served, and served through the registry's own parse. A door that read some
     // ambient signal would answer `read-abandoned` here instead.
     expect(reply.status).toBe("served");

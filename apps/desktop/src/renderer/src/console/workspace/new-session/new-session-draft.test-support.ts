@@ -1,11 +1,11 @@
 // What every new-session suite needs before it can send anything.
 //
-// One home for the scaffolding both suites drive: the scripted replies each leg of the
-// coalesced send parses, the scenario builder that decides WHICH legs a case scripts,
-// and the two draft factories — the plain one, and the one that records what reached
-// the wire. The suites split on what they assert (one send's ladder, and what repeated
-// sends do); the scaffolding does not split with them, and a second copy is how two
-// files come to script slightly different replies for one wire.
+// One home for the scaffolding both suites drive: the scripted reply the create leg
+// parses, the first-turn call a case makes answer or reject, and the two draft
+// factories — the plain one, and the one that records what reached the wire. The
+// suites split on what they assert (one send's ladder, and what repeated sends do);
+// the scaffolding does not split with them, and a second copy is how two files come to
+// script slightly different replies for one wire.
 
 import { createFixtureBridge } from "../../bridge/index.js";
 import {
@@ -13,11 +13,12 @@ import {
   type RecordedDaemonCall,
 } from "../../bridge/fixture/call-plane/bridge.test-support.js";
 import type { ConsoleScenario } from "../../bridge/scenario/runtime/vocabulary.js";
+import type { FirstTurnQueueCall } from "../../seats/index.js";
 import { NewSessionDraft } from "./new-session-draft.js";
-// The methods the SEND names, taken from the module that sends them rather than
+// The method the SEND names, taken from the module that sends it rather than
 // re-declared here: a script keyed on the suite's own copy of a wire string would go
 // on answering a call production had stopped making.
-import { RUN_QUEUE_CREATE_METHOD, SESSION_CREATE_METHOD } from "./new-session-settlement.js";
+import { SESSION_CREATE_METHOD } from "./new-session-settlement.js";
 
 export const CREATED_SESSION_ID = "019b793b-7b60-75e5-8510-ada11a5ac0de";
 
@@ -32,29 +33,18 @@ export const CREATED_SESSION_ID = "019b793b-7b60-75e5-8510-ada11a5ac0de";
 const CREATE_REPLY = {
   sessionId: CREATED_SESSION_ID,
   state: "active",
-  channels: [],
 } as const;
 
-/**
- * The registered queue reply, whole for `CREATE_REPLY`'s reason.
- *
- * The call door parses the response, so a short script would put the first-turn leg on
- * the refused arm and prove nothing about the turn having been queued.
- */
-const QUEUE_REPLY = {
-  queueItemId: "5e6f7a8b-9c0d-4e1f-8a2b-7c8d9e0f1a2b",
-  state: "queued",
-  createdAt: "2026-09-02T09:00:00.000Z",
-} as const;
-
-/** The attach reply the growth port serves from a script. */
-const ATTACH_REPLY = { agentId: "agent-1" } as const;
-
-/** What a scenario scripts, so a case says which legs the daemon will answer. */
+/** What a case scripts, so it says which legs answer and which the first-turn call rejects. */
 export interface ScriptedLegs {
   readonly scriptsCreate: boolean;
-  readonly scriptsAttach?: boolean;
   readonly scriptsFirstTurn?: boolean;
+}
+
+/** One first message the send asked the first-turn call to queue. */
+export interface QueuedFirstTurn {
+  readonly sessionId: string;
+  readonly content: string;
 }
 
 /** A draft plus a tally of what reached the wire behind it. */
@@ -67,10 +57,15 @@ export interface CountedDraft {
    * is counting, and a copy taken at construction would always be empty.
    */
   readonly calls: readonly RecordedDaemonCall[];
+  /** Every first message the send handed the first-turn call, in order. */
+  readonly firstTurns: readonly QueuedFirstTurn[];
 }
 
 export function draftFor(options: ScriptedLegs): NewSessionDraft {
-  return new NewSessionDraft({ bridge: createFixtureBridge({ scenario: scenario(options) }) });
+  return new NewSessionDraft({
+    bridge: createFixtureBridge({ scenario: scenario(options) }),
+    queueFirstTurn: firstTurnCall(options, []),
+  });
 }
 
 /** The method one recorded call named, for a count that reads as what it counts. */
@@ -94,47 +89,58 @@ export function countedDraftFor(options: ScriptedLegs): CountedDraft {
   const under = withDaemonCall(
     createFixtureBridge({ scenario: scenario(options) }),
     async (call) => {
-      if (call.method === RUN_QUEUE_CREATE_METHOD) {
-        if (options.scriptsFirstTurn !== true) {
-          throw new Error(`no reply is scripted for ${call.method}`);
-        }
-        return QUEUE_REPLY;
-      }
       if (!options.scriptsCreate) {
         throw new Error(`no reply is scripted for ${call.method}`);
       }
       return CREATE_REPLY;
     },
   );
-  return { draft: new NewSessionDraft({ bridge: under.bridge }), calls: under.calls };
+  const firstTurns: QueuedFirstTurn[] = [];
+  return {
+    draft: new NewSessionDraft({
+      bridge: under.bridge,
+      queueFirstTurn: firstTurnCall(options, firstTurns),
+    }),
+    calls: under.calls,
+    firstTurns,
+  };
+}
+
+/**
+ * The first-turn call a case scripts: it records each request, then resolves or rejects.
+ *
+ * A plain function, and its own array is the record, because the call is the send's
+ * argument and never a daemon method a bridge answers.
+ */
+function firstTurnCall(options: ScriptedLegs, recorded: QueuedFirstTurn[]): FirstTurnQueueCall {
+  return (request) => {
+    recorded.push(request);
+    return options.scriptsFirstTurn === true
+      ? Promise.resolve()
+      : Promise.reject(new Error("no first turn is scripted"));
+  };
 }
 
 function scenario(options: ScriptedLegs): ConsoleScenario {
   return {
     id: "draft-send",
     label: "Draft send",
-    purpose: "Drives the new-session draft's three wire calls.",
+    purpose: "Drives the new-session draft's create call.",
     sessionId: "session-draft",
     userIdsInJoinOrder: ["user-you"],
     startedAtIso: "2026-01-01T09:00:00.000Z",
     beats: [],
-    replies: [
-      ...(options.scriptsCreate ? [{ call: SESSION_CREATE_METHOD, result: CREATE_REPLY }] : []),
-      ...(options.scriptsAttach === true ? [{ call: "agent.attach", result: ATTACH_REPLY }] : []),
-      ...(options.scriptsFirstTurn === true
-        ? [{ call: RUN_QUEUE_CREATE_METHOD, result: QUEUE_REPLY }]
-        : []),
-    ],
+    replies: options.scriptsCreate ? [{ call: SESSION_CREATE_METHOD, result: CREATE_REPLY }] : [],
   };
 }
 
 /**
  * A reply to `session.create` the registered response schema refuses.
  *
- * Short of `state` and `channels`, which `SessionCreateResponseSchema`
- * requires — so the call FULFILS and the call door answers `reply-unreadable`. That
- * distinction is the whole subject of the ambiguous arm: the daemon was reached, ran,
- * and answered, and only this build's reading of what it said failed.
+ * Short of `state`, which `SessionCreateResponseSchema` requires — so the call FULFILS and
+ * the call door answers `reply-unreadable`. That distinction is the whole subject of the
+ * ambiguous arm: the daemon was reached, ran, and answered, and only this build's reading
+ * of what it said failed.
  */
 const UNREADABLE_CREATE_REPLY = { sessionId: CREATED_SESSION_ID } as const;
 
@@ -150,5 +156,13 @@ export function countedDraftOverUnreadableCreate(): CountedDraft {
     createFixtureBridge({ scenario: scenario({ scriptsCreate: true }) }),
     async () => UNREADABLE_CREATE_REPLY,
   );
-  return { draft: new NewSessionDraft({ bridge: under.bridge }), calls: under.calls };
+  const firstTurns: QueuedFirstTurn[] = [];
+  return {
+    draft: new NewSessionDraft({
+      bridge: under.bridge,
+      queueFirstTurn: firstTurnCall({ scriptsCreate: true }, firstTurns),
+    }),
+    calls: under.calls,
+    firstTurns,
+  };
 }

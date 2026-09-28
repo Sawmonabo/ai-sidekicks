@@ -65,7 +65,7 @@ import { LaunchDeadline } from "./launch-deadline.js";
 export const PALETTE_INPUT_ACCESSIBLE_NAME = "Search commands";
 
 /** The palette's own chord, pressed as a real key event through the real window. */
-const PALETTE_OPEN_CHORD = "ControlOrMeta+KeyK";
+const PALETTE_OPEN_CHORD = "ControlOrMeta+Shift+KeyP";
 
 /**
  * What these helpers need of a launched console: the window, and the allowance.

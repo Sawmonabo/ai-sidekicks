@@ -4,22 +4,17 @@
 // changes when the session does, that signal is the same act: watch the store's own
 // transitions, notice the ones that admitted an event of a set of kinds, and say so
 // once. Only the SET differs between callers — the agent roster watches the three
-// agent-lifecycle kinds, one run's child links watch the two child-run kinds, and
-// the channel directory watches the four channel-lifecycle kinds.
+// agent-lifecycle kinds and one run's child links watch the two child-run kinds.
 //
-// WHY IT LIVES IN THE STORE FAMILY. It was written twice, once inside `agents/` and
-// once inside `channels/`, and view families are siblings that may not import
-// each other — so the second copy was not laziness, it was the only place the second
-// caller could put one. `apps/desktop/AGENTS.md` hoists a helper on its second use
-// and puts a cross-family one in the lowest family that needs it, which is this one:
-// the subject is a `SessionStore` transition and nothing here reaches above it.
+// WHY IT LIVES IN THE STORE FAMILY. View families are siblings that may not import each
+// other, and `apps/desktop/AGENTS.md` puts a helper two families use in the lowest family
+// that needs it, which is this one: the subject is a `SessionStore` transition and nothing
+// here reaches above it.
 //
-// THE DRIFT THIS CLOSES IS SPECIFIC. Both copies were cursor-keyed, and cursor
-// bookkeeping is where this is easy to get wrong — a filter that compared against
-// the newly-arrived state rather than the last one it saw would re-signal on every
-// transition, and a filter that forgot the `<=` guard would re-signal on a
-// transition that admitted nothing at all. Two copies of that agree until one is
-// fixed.
+// CURSOR BOOKKEEPING IS THE HAZARD. A filter that compared against the newly-arrived
+// state rather than the last one it saw would re-signal on every transition, and a
+// filter that forgot the `<=` guard would re-signal on a transition that admitted
+// nothing at all.
 
 import type { SessionEventType } from "@ai-sidekicks/contracts";
 

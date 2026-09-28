@@ -17,8 +17,7 @@ import { type LedgerScriptEntry } from "./ledger-script.js";
 /**
  * One agent as every ledger scenario carries it.
  *
- * The `agent.attached` payload and the `agent.list` row are two views of one
- * record, so a scenario states each agent once and both views are built from it.
+ * A scenario states each agent once and the `agent.attached` payload is built from it.
  */
 export interface LedgerCastMember {
   readonly agentId: string;
@@ -47,19 +46,6 @@ export interface LedgerOpeningInput {
   readonly openedBy: string;
   /** The cast, each attached at the tick beside it. */
   readonly cast: readonly (LedgerCastMember & { readonly attachedAtMs: number })[];
-  /**
-   * The one named channel this session opens, where it opens one.
-   *
-   * Optional because most scenarios' lanes speak in the implicit main channel,
-   * which is unnamed on the wire and needs no beat; a scenario that wants a
-   * channel-addressed pane to be a log of something scripts one here, and says at
-   * which tick it opens.
-   */
-  readonly channel?: {
-    readonly channelId: string;
-    readonly name: string;
-    readonly openedAtMs: number;
-  };
 }
 
 /**
@@ -89,10 +75,9 @@ export function ledgerCastMember<Member extends LedgerCastMemberLookup>(
  * The opening of a ledger session: the room, then the cast.
  *
  * Every ledger scenario opens the same way, and the payload shapes here are the ones
- * a mistake is quietest in — `session.created` carries no title, `channel.created`
- * carries an OPTIONAL name and nothing else, and `agent.attached` carries `name`
- * where a reader expects `displayName`. Written once, every scenario is right or
- * every scenario is wrong, and the wire-truth predicate says which.
+ * a mistake is quietest in — `session.created` carries no title, and `agent.attached`
+ * carries `name` where a reader expects `displayName`. Written once, every scenario is
+ * right or every scenario is wrong, and the wire-truth predicate says which.
  */
 export function ledgerOpeningEntries(input: LedgerOpeningInput): readonly LedgerScriptEntry[] {
   return [
@@ -105,20 +90,6 @@ export function ledgerOpeningEntries(input: LedgerOpeningInput): readonly Ledger
       // nothing in the corpus names a key inside either.
       payload: { sessionId: input.sessionId, config: {}, metadata: {} },
     },
-    ...(input.channel === undefined
-      ? []
-      : [
-          {
-            atMs: input.channel.openedAtMs,
-            kind: "channel.created",
-            actorId: input.openedBy,
-            // The registered shape is the id and an optional name, and nothing
-            // else: the implicit main channel is unnamed on the wire, so a named
-            // one is what a scenario has to script for a channel-addressed pane to
-            // be a log OF something.
-            payload: { channelId: input.channel.channelId, name: input.channel.name },
-          },
-        ]),
     ...input.cast.map((agent) => ({
       atMs: agent.attachedAtMs,
       kind: "agent.attached",
@@ -131,7 +102,6 @@ export function ledgerOpeningEntries(input: LedgerOpeningInput): readonly Ledger
         name: agent.name,
         driverName: agent.driverName,
         modelId: agent.modelId,
-        state: "ready",
         actor: input.openedBy,
       },
     })),

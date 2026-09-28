@@ -1,12 +1,13 @@
 // When the attention projection is read, and what makes it be read again.
 //
-// `attention-projection-read.ts` owns the seam and the boundary narrowing;
-// `attention-plane.ts` owns the fold and the reading vocabulary.
-// This module owns the one thing those cannot: a lifetime. It performs the read,
-// holds its result, and re-reads it when the session projections underneath it move
-// — which is what makes the notification center and the all-sessions list report
-// what needs a person NOW rather than what needed them when the destination was
-// first opened.
+// `attention-plane.ts` owns the fold and the reading vocabulary. This module owns the
+// one thing that cannot: a lifetime. It performs the read, holds its result, and
+// re-reads it when the session projections underneath it move — which is what makes
+// the notification center and the all-sessions list report what needs a person NOW
+// rather than what needed them when the destination was first opened.
+//
+// The call that reads the projection is the caller's, taken as an argument, so this
+// module keeps only its own logic.
 //
 // THE SIGNAL IS THE ATTENTION PLANE AND THE SESSION PROJECTIONS, NOT A TIMER.
 // Interval polling is forbidden outright, so what re-reads this projection is a
@@ -25,7 +26,7 @@
 // The read is fanned out over every session this window can NAME — the node's
 // directory merged with this window's open set — and a directory session nobody in
 // this window ever opened has no store to move. Its approval, its input request, and
-// its failed run therefore reached the badge, the centre, and the OS banner never:
+// its failed run therefore reached the badge, the center, and the OS banner never:
 // the projection was read once for it, at mount, and no signal in this window could
 // ever say it had changed. `ConsoleBridge.attentionSubscribe` is the signal on the
 // whole addressed set, published by the bridge that holds the plane, and it is taken
@@ -44,38 +45,51 @@
 // for a question it could not put. That mapping is written here, in one function, so
 // no surface narrows on both vocabularies at once.
 
-import { useCallback, useEffect, useMemo } from "react";
+import { useEffect, useMemo } from "react";
 
 import type { Unsubscribe } from "@ai-sidekicks/contracts";
 
-import { useConsoleBridge, useConsoleClock, type ConsoleBridge } from "../../bridge/index.js";
+import { ConsoleRefusalError } from "../../core/index.js";
+import {
+  useConsoleBridge,
+  useConsoleClock,
+  type AttentionItem,
+  type ConsoleBridge,
+} from "../../bridge/index.js";
 import { useSettlementAnnouncement } from "../../primitives/index.js";
 import { PushDrivenRead, usePushDrivenRead, type PushDrivenReadState } from "../../seats/index.js";
 import { subscribeToOpenSessions, type SessionStoreRegistry } from "../../store/index.js";
 import { describeAttentionSettlement } from "./attention-sentences.js";
-import { AttentionPlane, type AttentionReading } from "./attention-plane.js";
 import {
-  narrowAttentionProjection,
-  type AttentionProjectionRead,
-  type AttentionProjectionReader,
-} from "./attention-projection-read.js";
+  AttentionPlane,
+  type AttentionReading,
+  type RefusedAttentionSession,
+} from "./attention-plane.js";
+
+/**
+ * What one fan-out over the session-scoped read produced.
+ *
+ * TWO HALVES, BECAUSE COVERAGE IS A SEPARATE FACT FROM CONTENT. The items are what the
+ * sessions that answered carried; the refusals are the sessions that did not. A
+ * reading that carried only the first would let a served empty projection beside a
+ * refused one render as an all-clear.
+ */
+export interface AttentionProjectionRead {
+  /** Items served, concatenated across the sessions that answered. */
+  readonly items: readonly AttentionItem[];
+  /** Deliveries the call could not read as items. A fact about the reader. */
+  readonly droppedCount: number;
+  /** The sessions that refused. Empty when every session that was asked answered. */
+  readonly refusedSessions: readonly RefusedAttentionSession[];
+  /** Every session this read ASKED about — the denominator the refusals are over. */
+  readonly addressedSessionIds: readonly string[];
+}
+
+/** The call that reads the attention projection. */
+export type AttentionProjectionReadCall = () => Promise<AttentionProjectionRead>;
 
 /** The subsystem name a failed attention read names itself with. */
 const ATTENTION_READ_ORIGIN = "attention-plane";
-
-/**
- * What this destination holds: the reading, and the way back into a read that refused.
- *
- * A pair rather than a phase on {@link AttentionReading}, because the plane's phases
- * are what the READ settled on and the re-open is what the caller may DO about it —
- * folding the second into the first would make every consumer of a phase carry a
- * control it has no use for.
- */
-export interface AttentionProjectionReading {
-  readonly reading: AttentionReading;
-  /** Re-open or re-read the projection. Offered on the refused phase and nowhere else. */
-  readonly retry: () => void;
-}
 
 /**
  * Perform the projection read and keep it current.
@@ -92,11 +106,8 @@ export interface AttentionProjectionReading {
  * effect.
  *
  * THE TRANSPORT IT IS SCOPED TO IS THE ONE THE CONSOLE RESOLVED, and it is read here
- * rather than taken as a parameter. This signature used to declare a `bridge` it named
- * nowhere in its body, so the read outlived the transport it was made through and the
- * surface went on reading over a bridge that had been replaced; it happened to be right
- * only because the one caller derives `read` from `bridge.growth`, which makes
- * correctness a property of a memo in a file this module does not own.
+ * rather than taken as a parameter, so the read cannot outlive the transport it was
+ * made through.
  *
  * A CALLER'S PROP IS THE WRONG SUBJECT, measured rather than assumed: the provider
  * publishes a replacement one commit AFTER the prop moves, so a read rebuilt on the
@@ -106,9 +117,9 @@ export interface AttentionProjectionReading {
  * the resolution instead, the rebuild and the clock swap are the same commit.
  */
 export function useAttentionProjection(
-  read: AttentionProjectionReader,
+  read: AttentionProjectionReadCall,
   sessionStoreRegistry: SessionStoreRegistry,
-): AttentionProjectionReading {
+): AttentionReading {
   // The scenario's frozen clock under the fixture and the real one otherwise, from
   // the window's own clock hook rather than resolved inside the memo below: the live
   // arm of `consoleClockFor` MINTS, and a memo is a hint React may discard, so a pass
@@ -117,7 +128,7 @@ export function useAttentionProjection(
   const clock = useConsoleClock();
   const projectionRead = useMemo(
     () =>
-      new PushDrivenRead<AttentionProjectionRead | undefined>({
+      new PushDrivenRead<AttentionProjectionRead>({
         clock,
         origin: ATTENTION_READ_ORIGIN,
         read,
@@ -133,17 +144,8 @@ export function useAttentionProjection(
     };
   }, [projectionRead]);
 
-  // ONE CALL, because the seam owns the stream-then-read order now: `refresh` takes
-  // the subscription first where it is not held and requests the read either way. A
-  // branch here would be a second reading of a decision the read already makes, and
-  // the branch this replaced could only be right while both halves agreed.
-  const retry = useCallback(() => {
-    projectionRead.refresh("user-request");
-  }, [projectionRead]);
-
   const state = usePushDrivenRead(projectionRead);
-  const reading = useMemo(() => attentionReadingFrom(state), [state]);
-  return useMemo(() => ({ reading, retry }), [reading, retry]);
+  return useMemo(() => attentionReadingFrom(state), [state]);
 }
 
 /**
@@ -203,24 +205,20 @@ function subscribeToAttentionChanges(
   };
 }
 
-/** The read's three states as the plane's four phases. Written once, here. */
+/** The read's states as the plane's phases. Written once, here. */
 function attentionReadingFrom(
-  state: PushDrivenReadState<AttentionProjectionRead | undefined>,
+  state: PushDrivenReadState<AttentionProjectionRead>,
 ): AttentionReading {
   if (state.kind === "not-loaded") {
     return { phase: "reading" };
   }
   if (state.kind === "failed") {
-    return { phase: "refused", refusal: state.refusal };
+    throw new ConsoleRefusalError(state.refusal);
   }
-  if (state.value === undefined) {
-    return { phase: "not-asked" };
-  }
-  const narrowed = narrowAttentionProjection(state.value.members);
   return {
     phase: "read",
-    plane: new AttentionPlane(narrowed.items),
-    droppedCount: narrowed.droppedCount,
+    plane: new AttentionPlane(state.value.items),
+    droppedCount: state.value.droppedCount,
     // Both halves of coverage carried through untouched: which sessions were asked
     // and which of them went unanswered are the reader's facts, and re-deriving
     // either here would be a second authority on what this read speaks for.

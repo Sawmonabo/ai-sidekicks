@@ -1,7 +1,7 @@
 /* The notification center's own styles.
  *
  * A column of session groups, each a heading over a stack of rows. The rows carry
- * no colour of their own: severity is already spent on the chip, and a second
+ * no color of their own: severity is already spent on the chip, and a second
  * carrier of the same fact would be the two-hue rule broken twice for one item.
  * What varies between an actionable row and an informational one is the chip and
  * the fold it sits in, which is exactly the axis suppression keys on.
@@ -31,19 +31,6 @@
   margin: 0;
   font-size: var(--meridian-text-xs);
   color: var(--meridian-text-muted);
-}
-
-/* The panel saying it is the only surface. Carries the attention hue rather than the
-   failure one: a machine that shows no banners is a condition to know about, not a
-   thing that failed — the two-hue rule keeps red for what broke. */
-.meridian-attention__only-surface {
-  margin: 0;
-  padding: var(--meridian-space-1) var(--meridian-space-2);
-  border-left: 2px solid var(--meridian-amber-mark);
-  border-radius: var(--meridian-radius-sm);
-  background: var(--meridian-surface-raised);
-  font-size: var(--meridian-text-xs);
-  color: var(--meridian-text);
 }
 
 .meridian-attention__groups,
@@ -131,34 +118,4 @@
 
 .meridian-attention__fold[open] > .meridian-attention__fold-summary {
   margin-bottom: var(--meridian-space-2);
-}
-
-/* The sessions a fan-out never got an answer for.
- *
- * A stack under whatever the sessions that DID answer produced, never beside it:
- * the coverage gap qualifies the reading above it, and a column keeps that reading
- * order true at every width. Each row pairs the identifier with the port's own
- * refusal, so no colour of this block's own carries the fact — the inline refusal
- * already spends the failure hue, and a second carrier would break the two-hue rule
- * for one sentence. */
-.meridian-attention__refused,
-.meridian-attention__refused-list,
-.meridian-attention__refused-row {
-  display: flex;
-  flex-direction: column;
-  gap: var(--meridian-space-1);
-  min-width: 0;
-}
-
-.meridian-attention__refused-list {
-  margin: 0;
-  padding: 0;
-  gap: var(--meridian-space-2);
-  list-style: none;
-}
-
-.meridian-attention__refused-count {
-  margin: 0;
-  color: var(--meridian-text-muted);
-  font-size: var(--meridian-text-xs);
 }

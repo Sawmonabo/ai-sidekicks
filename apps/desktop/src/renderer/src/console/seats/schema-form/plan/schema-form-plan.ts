@@ -1,7 +1,7 @@
-// The mapper: what a human phase's input schema turns into, and where it stops turning into
-// one. The vocabulary it produces — the six kinds, the descriptors, the fallback causes — lives
-// in `schema-fields.ts`; what one member schema DECLARES is read in `schema-declarations.ts`;
-// this module is the walk between them.
+// The mapper: what a human phase's input schema turns into, and where it stops turning
+// into one. The vocabulary it produces — the five kinds, the descriptors, the fallback
+// causes — lives in `schema-fields.ts`; what one member schema DECLARES is read in
+// `schema-declarations.ts`; this module is the walk between them.
 //
 // EVERYTHING ELSE FALLS BACK, AND NOTHING REFUSES. `$ref`, a tuple's positional
 // `items`, a nullable union, an object nested two deep: each of them is a schema this

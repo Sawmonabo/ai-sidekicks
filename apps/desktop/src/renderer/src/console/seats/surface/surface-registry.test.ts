@@ -105,8 +105,6 @@ describe("surface registry — the slot set is one declaration", () => {
       },
       { kind: "workflows" },
       { kind: "settings", page: undefined },
-      { kind: "auxiliary", route: "timeline" },
-      { kind: "auxiliary", route: "agent-console", sessionId: "s-1", agentId: "a-1" },
       { kind: "pane-harness", paneKind: "terminal", sessionId: "s-1" },
     ];
     const slots = routes.map((route) => surfaceSlotFor(route));
@@ -116,8 +114,6 @@ describe("surface registry — the slot set is one declaration", () => {
       "workflow-phase",
       "workflows",
       "settings",
-      "timeline",
-      "agent-console",
       "pane-harness",
     ]);
     for (const slot of slots) {

@@ -1,5 +1,5 @@
-/* `ledger/cards/markdown/`'s styles — prose, code blocks, math, and the footnote
- * popover.
+/* `ledger/cards/markdown/`'s styles — prose, code blocks, math, and footnote
+ * markers.
  *
  * ONE SHEET PER DIRECTORY, so a rule sits beside the code that renders it, and a rule
  * reachable from TWO directories goes in their nearest shared parent's sheet — which is
@@ -18,7 +18,7 @@
  * children, so they land once per bundle and cascade after the primitives' and the
  * frame's.
  *
- * The nine code-token families the code block spends are colours rather than boxes
+ * The nine code-token families the code block spends are colors rather than boxes
  * and live in `tokens/palette.ts`; the note below the first banner says why.
  */
 
@@ -34,7 +34,7 @@
  * `tokens/contrast.test.ts`' subject.
  *
  * The theme in `meridian-code-theme.ts` still emits a reference to the per-family
- * custom property as each token's foreground rather than a colour, which is what
+ * custom property as each token's foreground rather than a color, which is what
  * makes one token cache serve both schemes: a cached line is theme-independent, and
  * flipping the scheme repaints through the cascade.
  */
@@ -145,46 +145,9 @@
   color: var(--meridian-accent-text);
 }
 
-/* A reference with no definition in its own message says so by weight, not by colour. */
+/* A reference with no definition in its own message says so by weight, not by color. */
 .meridian-markdown__footnote[data-defined="false"] {
   color: var(--meridian-text-faint);
-}
-
-/* A reference that CAN be opened is a button, and reads as the marker it replaces: the
-   superscript position is the marker's, and the button's own chrome is removed rather
-   than a second control being drawn inside a sentence. */
-.meridian-markdown__footnote--open {
-  border: 0;
-  background: none;
-  font: inherit;
-  font-size: var(--meridian-text-xs);
-  vertical-align: super;
-  line-height: 0;
-  cursor: pointer;
-}
-
-.meridian-markdown__footnote--open:hover {
-  text-decoration: underline;
-}
-
-/* The one popup a card opens every definition into. Bounded, because a definition is a
-   note and a note that filled the pane would hide the row it belongs to. */
-.meridian-footnote-popover {
-  max-width: 42ch;
-  max-height: 20rem;
-  overflow-y: auto;
-  padding: var(--meridian-space-2) var(--meridian-space-3);
-  border: 1px solid var(--meridian-edge-strong);
-  border-radius: var(--meridian-radius-md);
-  background: var(--meridian-surface-raised);
-  color: var(--meridian-text);
-  font-size: var(--meridian-text-sm);
-  box-shadow: 0 0.5rem 1.5rem oklch(0% 0 0 / 18%);
-}
-
-.meridian-footnote-popover:focus-visible {
-  outline: 2px solid var(--meridian-focus-ring);
-  outline-offset: 2px;
 }
 
 /* Wide content scrolls inside its own container; the row never scrolls sideways. */

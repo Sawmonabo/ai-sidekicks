@@ -1,17 +1,13 @@
 // The reasoning row's body: the four arms, the streaming tail, and the one control.
 //
-// THE SHELL AND ITS DEATH NOTICE. The body a reasoning row eventually renders is the
-// timeline plan's, absorbed by import — so this file is a slot with a shell behind
-// it, and the change that authors the real body deletes the shell rather than
-// leaving it beside one. `reasoning-surface.ts` carries the three facts that
-// arrangement owes.
+// A mount may supply `body` to replace it. `reasoning-surface.ts` carries the reading this
+// component renders.
 //
-// WHAT THE SHELL DOES RENDER, and why it is a real surface rather than a placeholder.
-// Three of the four availability arms carry no entries at all, which means the whole
-// of what a reader sees for them is the sentence the state itself supplies. A shell
-// that showed nothing for those three would be the exact defect the four-arm
-// discriminant exists to prevent — `unavailable`, `compacted`, and `policy_redacted`
-// rendering as one empty body — so the shell renders the arms.
+// WHAT IT RENDERS, and why it is a real surface rather than a placeholder. Three of the
+// four availability arms carry no entries at all, which means the whole of what a reader
+// sees for them is the sentence the state itself supplies. Showing nothing for those three
+// would be the exact defect the four-arm discriminant exists to prevent — `unavailable`,
+// `compacted`, and `policy_redacted` rendering as one empty body — so it renders the arms.
 //
 // THE TAIL AND THE READ ARE TWO DIFFERENT THINGS AND ARE NOT RANKED AGAINST EACH
 // OTHER. The tail is text the reveal engine is publishing right now, cut to the
@@ -35,7 +31,6 @@
 
 import { Nothing } from "../../../primitives/index.js";
 import { WireFigure } from "../../../primitives/index.js";
-import type { OwnerSlotProps } from "../../../seats/index.js";
 import type { ReasoningEntry, ReasoningSurfaceReadResponse, RunId } from "@ai-sidekicks/contracts";
 import {
   REASONING_ARM_COPY,
@@ -43,21 +38,22 @@ import {
   type ReasoningSurfaceReading,
 } from "./reasoning-surface.js";
 
-/** What the row hands the body the timeline plan authors. */
+/** What the row hands a supplied body. */
 export interface ReasoningSurfaceBodyProps {
   readonly runId: RunId;
   readonly reading: ReasoningSurfaceReading;
 }
 
+/** What a mount hands the reasoning surface. */
 export interface ReasoningSurfaceProps {
   /**
-   * The plan-owned body's slot.
+   * A body that replaces the built-in surface, or `undefined` while the surface draws itself.
    *
-   * Required and carrying `undefined` rather than optional, on `OwnerSlotProps`'
-   * own terms: a mount that forgot the slot is a compile error at the construction
-   * site rather than an absent key that renders identically to an unfilled one.
+   * Required and carrying `undefined` rather than optional, so a mount that forgot it is a
+   * compile error at the construction site rather than an absent key that renders
+   * identically to a deliberate "none".
    */
-  readonly slot: OwnerSlotProps<(props: ReasoningSurfaceBodyProps) => React.ReactNode>;
+  readonly body: ((props: ReasoningSurfaceBodyProps) => React.ReactNode) | undefined;
   /** The run this row's reasoning belongs to, or `undefined` where none is attributed. */
   readonly runId: RunId | undefined;
   /** Text the reveal engine is publishing for this row right now, while it streams. */
@@ -67,11 +63,12 @@ export interface ReasoningSurfaceProps {
   readonly onExpand: () => void;
 }
 
+/** The reasoning body: the built-in surface, or the supplied `body` when the run is known. */
 export function ReasoningSurface(props: ReasoningSurfaceProps): React.JSX.Element {
-  if (props.slot.body !== undefined && props.runId !== undefined) {
+  if (props.body !== undefined && props.runId !== undefined) {
     return (
       <div className="meridian-reasoning-surface">
-        {props.slot.body({ runId: props.runId, reading: props.reading })}
+        {props.body({ runId: props.runId, reading: props.reading })}
       </div>
     );
   }

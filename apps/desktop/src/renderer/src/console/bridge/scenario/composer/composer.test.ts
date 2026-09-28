@@ -1,51 +1,29 @@
-// The three composer-family scenarios, held to the properties a scenario file can
-// silently lose.
+// The composer-family scenarios, held to the properties a scenario file can silently
+// lose.
 //
 // The wire-truth predicate is the shipped one, driven rather than restated — a test
 // carrying its own copy of the rule would go green against a copy nobody ships. What
-// this file adds are the three properties that predicate deliberately does not
-// cover, because each is a fact about what a scenario is FOR rather than about the
-// event contract:
-//
-//   1. A scripted reply names a call something can actually make. The registry
-//      carries no `session.list`, so a reply for it is an answer to a question no
-//      surface asks — and the session directory it looks like it serves is served
-//      from scenario state by the growth port instead.
-//   2. The run streams are fed. `run.subscribeState` and `run.subscribeQueue` route
-//      by KIND, so a scenario with no `queue_item.*` beat leaves the queue
-//      subscriber silent for the life of the window and its live half unreachable.
-//   3. The caller is stated. The fixture answers the caller-identity read
-//      from that field alone and refuses when it is absent.
+// this file adds is the property that predicate deliberately does not cover, because
+// it is a fact about what a scenario is FOR rather than about the event contract: a
+// scripted reply names a call something can actually make. The registry carries no
+// `session.list`, so a reply for it is an answer to a question no surface asks.
 
 import { describe, expect, it } from "vitest";
 
-import { createFixtureBridge } from "../../fixture/call-plane/bridge.js";
 import { type ConsoleScenario } from "../runtime/vocabulary.js";
-import {
-  RUN_QUEUE_EVENT_STREAM,
-  RUN_STATE_EVENT_STREAM,
-  subscriptionDeliversEventKind,
-} from "../../daemon/session-event-streams.js";
 import { APPROVALS_SCENARIO } from "../approvals/approvals.js";
 import { COMPOSER_SCENARIO } from "./composer.js";
-import { RUNS_SCENARIO } from "../runs/runs.js";
 import { findScenarioWireTruthDefects } from "../wire-truth/wire-truth.js";
 
-/** The three this lane owns, named once so every case below covers all of them. */
-const FAMILY_SCENARIOS: readonly ConsoleScenario[] = [
-  COMPOSER_SCENARIO,
-  RUNS_SCENARIO,
-  APPROVALS_SCENARIO,
-];
+/** The two composer-family scenarios, named once so every case below covers both. */
+const FAMILY_SCENARIOS: readonly ConsoleScenario[] = [COMPOSER_SCENARIO, APPROVALS_SCENARIO];
 
 /**
  * Calls no method registry in the corpus carries, so no surface can ever make one.
  *
- * One entry today. `session.list` is the name three of these scenarios shipped with:
- * it reads exactly like a real method, the daemon registry has `session.read` and no
- * list verb, and the directory a surface actually wants comes from the growth
- * operation `sessionList`, which carries no `expectedWireMethod` at all — so it
- * cannot be scripted, and the fixture port derives it from scenario state instead.
+ * One entry today. `session.list` is the name these scenarios once shipped with: it
+ * reads exactly like a real method, and the daemon registry has `session.read` and no
+ * list verb.
  */
 const UNREGISTERED_CALLS: readonly string[] = ["session.list"];
 
@@ -56,20 +34,7 @@ function unregisteredScriptedCalls(scenario: ConsoleScenario): readonly string[]
     .filter((call) => UNREGISTERED_CALLS.includes(call));
 }
 
-/** Which of the two run streams a scenario's beats would actually reach. */
-function streamsFedBy(scenario: ConsoleScenario): ReadonlySet<string> {
-  const fed = new Set<string>();
-  for (const beat of scenario.beats) {
-    for (const streamName of [RUN_STATE_EVENT_STREAM, RUN_QUEUE_EVENT_STREAM]) {
-      if (subscriptionDeliversEventKind(streamName, beat.event.kind)) {
-        fed.add(streamName);
-      }
-    }
-  }
-  return fed;
-}
-
-describe("the composer family's three scenarios are wire-true", () => {
+describe("the composer family's scenarios are wire-true", () => {
   it("plays only registered event types, with the payloads those types register", () => {
     const defects = findScenarioWireTruthDefects(FAMILY_SCENARIOS);
 
@@ -125,98 +90,11 @@ describe("every scripted reply names a call something can make", () => {
 
     expect(unregisteredScriptedCalls(control)).toStrictEqual(["session.list"]);
   });
-
-  it("serves the session directory from scenario state instead", async () => {
-    // The half that makes the removal above a repair rather than a deletion: the
-    // directory a `session.list` reply looked like it served is served here, from the
-    // scenario's own session and without a scripted reply of any kind.
-    const port = createFixtureBridge({ scenario: COMPOSER_SCENARIO }).growth;
-    const outcome = await port.sessionList({});
-
-    expect(outcome.status).toBe("served");
-    expect(
-      outcome.status === "served" ? outcome.value.map((row) => row.sessionId) : [],
-    ).toStrictEqual([COMPOSER_SCENARIO.sessionId]);
-  });
-});
-
-describe("the runs scenario feeds both run subscriptions", () => {
-  it("routes beats to the state stream and to the queue stream", () => {
-    // Two streams, not one. A scenario whose beats reach only the state stream
-    // leaves the queue subscriber silent, and the queue's live half — a row
-    // arriving, a row admitted, a row expiring — cannot be rendered at all.
-    expect([...streamsFedBy(RUNS_SCENARIO)].sort()).toStrictEqual(
-      [RUN_QUEUE_EVENT_STREAM, RUN_STATE_EVENT_STREAM].sort(),
-    );
-  });
-
-  it("reaches the rewind arm, which carries no state transition", () => {
-    const rewind = RUNS_SCENARIO.beats.find((beat) => beat.event.kind === "run.rolled_back");
-
-    expect(rewind).toBeDefined();
-    // `RunRolledBackEvent` deliberately carries no `previousState` / `newState`,
-    // because a rollback is not a transition; a beat that carried them would train a
-    // consumer to fabricate one.
-    const payload = rewind?.event.payload as Record<string, unknown> | undefined;
-    expect(payload?.["targetPosition"]).toBeTypeOf("number");
-    expect(payload?.["previousState"]).toBeUndefined();
-    expect(payload?.["newState"]).toBeUndefined();
-  });
-
-  it("negative control: a scenario with no run beats feeds neither stream", () => {
-    // Built by REMOVING the run beats from a real scenario rather than by naming one
-    // that happens to have none: the approvals scenario was that scenario until it
-    // grew the `run.running` beat its execution-boundary section reads a posture
-    // from, and a control whose premise is another file's contents goes stale the
-    // moment that file gains a beat. Derived like this it cannot.
-    const withoutRunBeats: ConsoleScenario = {
-      ...APPROVALS_SCENARIO,
-      id: "approvals-without-run-beats",
-      beats: APPROVALS_SCENARIO.beats.filter((beat) => !beat.event.kind.startsWith("run.")),
-    };
-
-    expect([...streamsFedBy(withoutRunBeats)]).toStrictEqual([]);
-    // And the scenario it was derived from does feed one, which is what makes the
-    // filter above the thing being tested rather than a no-op.
-    expect([...streamsFedBy(APPROVALS_SCENARIO)]).toStrictEqual([RUN_STATE_EVENT_STREAM]);
-  });
 });
 
 describe("every scenario states which user this window is", () => {
   it.each(FAMILY_SCENARIOS)("$id names a caller inside its own roster", (scenario) => {
     expect(scenario.callerUserId).toBeDefined();
     expect(scenario.userIdsInJoinOrder).toContain(scenario.callerUserId);
-  });
-
-  it("negative control: the caller-identity read refuses when none is stated", async () => {
-    // The state a scenario without a caller leaves every role-resolving surface in,
-    // driven through the real port so the assertion is about the shipped rule.
-    // Spelled out rather than spread-with-`undefined`: `exactOptionalPropertyTypes`
-    // makes an explicit `undefined` a different thing from an absent member, and the
-    // absent one is the state under test.
-    const withoutCaller: ConsoleScenario = {
-      id: `${COMPOSER_SCENARIO.id}-callerless`,
-      label: COMPOSER_SCENARIO.label,
-      purpose: COMPOSER_SCENARIO.purpose,
-      sessionId: COMPOSER_SCENARIO.sessionId,
-      userIdsInJoinOrder: COMPOSER_SCENARIO.userIdsInJoinOrder,
-      beats: COMPOSER_SCENARIO.beats,
-      replies: COMPOSER_SCENARIO.replies,
-      startedAtIso: COMPOSER_SCENARIO.startedAtIso,
-    };
-    const port = createFixtureBridge({ scenario: withoutCaller }).growth;
-    const outcome = await port.callerUserRead({ sessionId: COMPOSER_SCENARIO.sessionId });
-
-    expect(outcome.status).toBe("unavailable");
-  });
-
-  it("answers the caller-identity read when one is stated", async () => {
-    const port = createFixtureBridge({ scenario: COMPOSER_SCENARIO }).growth;
-    const outcome = await port.callerUserRead({ sessionId: COMPOSER_SCENARIO.sessionId });
-
-    expect(outcome.status).toBe("served");
-    expect(outcome.status === "served" ? outcome.value.userId : undefined).toBe(
-      COMPOSER_SCENARIO.callerUserId,
-    );
   });
 });

@@ -1,41 +1,15 @@
-// The console's declaration of the attention plane's projection shape.
+// The attention projection's shape: the reply of the attention read, with the trigger
+// and severity vocabularies its items carry.
 //
-// OWNER. The attention plane owns this wire: `AttentionProjectionRead` exposes
-// current actionable and informational attention state at both run and session
-// scope. The typed request and reply shapes are registered in the payload
-// contracts, and the five triggers and two severities below are transcribed from
-// the `AttentionItem` union there rather than re-derived from prose — that union is
-// what
-// `packages/contracts/src/attention/` will carry.
+// The attention plane owns this wire: the projection exposes current actionable and
+// informational attention state at both run and session scope. No contracts package
+// registers the shape yet, so it is declared here rather than invented inside a
+// surface; the five triggers and two severities are transcribed from the
+// `AttentionItem` union the plane defines. The daemon and main read the same shape,
+// so it belongs in the contracts package, not the renderer.
 //
-// WHY THE CONSOLE DECLARES IT AT ALL. It is registered in no code package: there is
-// no `packages/contracts/src/attention/`, no `AttentionItem` export, and no
-// `DesktopBridge` namespace that names one. A surface built against a shape that
-// exists nowhere would have to invent it inside a view family, which is exactly what
-// the growth slate exists to prevent — so the shape is declared here, on the
-// substrate, behind the `attention-plane` slate row, and every call to it goes
-// through the growth port.
-//
-// DELETION OBLIGATION. When `packages/contracts` registers these types, this module
-// is DELETED and `growth-signatures/attention.ts` imports `AttentionItem` from the
-// package instead. The slate row leaves `growth-slate.ts` and the growth slate in
-// the same PR, and `failure-modes.test.ts` then fails on the port entries
-// that still claim fixture-only — which is the reminder this file wants at that
-// moment.
-//
-// HOW IT IS REACHED. Through `growth-signatures/attention.ts`, which types
-// `attentionProjectionRead`'s value as `AttentionProjection` — so a surface that
-// narrows a served outcome already has the items and their members. This family's
-// barrel deliberately re-exports nothing from here yet: a barrel line with no
-// importer is a symbol minted ahead of its reader, and the dead-code gate reports it
-// as exactly that. The line lands in the same PR as the first surface that names
-// `AttentionItem` in its own props, which is the PR that proves it has a reader.
-//
-// WHAT IS DELIBERATELY NOT HERE. The notification preference pair's request and reply
-// shapes: they are the OTHER half of the same slate row and are stated inline in
-// `growth-signatures/`'s table beside every other operation's, because nothing
-// projects or renders a preference yet and a named type nobody imports would be a
-// declaration minted ahead of its reader. They come here the day a surface reads one.
+// The notification preference pair's request and reply shapes are not here: nothing
+// projects or renders a preference yet.
 
 /**
  * Every attention trigger, transcribed from the registered `AttentionItem` union.
@@ -78,9 +52,8 @@ export type AttentionSeverity = (typeof ATTENTION_SEVERITIES)[number];
  * the presence of `runId` and never off a field that says which kind this is.
  *
  * The identifiers are plain strings rather than the branded `SessionId` / `RunId`
- * the registered shape uses, matching every other console-side growth value: the
- * brands live in the contracts package this module exists because of, and a console
- * declaration that imported them would be half-registered.
+ * the registered shape will use: the brands live in the contracts package, and a
+ * declaration here that imported them would be half-registered.
  */
 export interface AttentionItem {
   readonly id: string;

@@ -9,7 +9,6 @@ import { describe, expect, it } from "vitest";
 import {
   SESSION_EVENT_CATEGORY_BY_TYPE,
   type ChildRunSummary,
-  type NodeId,
   type RunId,
   type SessionEventType,
   type TimelineRow,
@@ -101,8 +100,11 @@ describe("child-run entries — one card per child, at the row that first named 
       rowCarryingChildRun("r2", 2, {
         ...completeSummary("run-child", 9),
         state: "completed",
-        producingNodeId: "node-b" as NodeId,
-        completeness: { state: "incomplete", cause: "compacted", observedAt: OBSERVED_AT },
+        completeness: {
+          state: "incomplete",
+          cause: "detail_fetch_failed",
+          observedAt: OBSERVED_AT,
+        },
       }),
     ]);
     expect(entries).toHaveLength(1);
@@ -111,10 +113,9 @@ describe("child-run entries — one card per child, at the row that first named 
     expect(entries[0]?.rowId).toBe("r1");
     expect(entries[0]?.summary.eventCount).toBe(9);
     expect(entries[0]?.summary.state).toBe("completed");
-    expect(entries[0]?.summary.producingNodeId).toBe("node-b");
     expect(entries[0]?.summary.completeness).toEqual({
       state: "incomplete",
-      cause: "compacted",
+      cause: "detail_fetch_failed",
       observedAt: OBSERVED_AT,
     });
   });
@@ -149,7 +150,7 @@ describe("child-run entries — one card per child, at the row that first named 
   });
 });
 
-describe("handoff entries — the four members, each read as itself", () => {
+describe("handoff entries — the three members, each read as itself", () => {
   it("reads every member the projection carried", () => {
     const entries = deriveHandoffEntries([
       runRow({
@@ -162,7 +163,6 @@ describe("handoff entries — the four members, each read as itself", () => {
           fromActor: "user-ana",
           toActor: "agent-reviewer",
           reason: "review requested",
-          channelId: "channel-main",
         },
       }),
     ]);
@@ -171,7 +171,6 @@ describe("handoff entries — the four members, each read as itself", () => {
       fromActor: "user-ana",
       toActor: "agent-reviewer",
       reason: "review requested",
-      channelId: "channel-main",
     });
   });
 

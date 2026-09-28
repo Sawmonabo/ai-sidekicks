@@ -1,4 +1,4 @@
-// Session › channel › run › entity › this pane, as far as a pane's address reaches.
+// Session › run › entity › this pane, as far as a pane's address reaches.
 //
 // Its own module for the one-component rule, and the ONE crumb derivation in the
 // console. Two of them is the drift this file was made out of: a scope helper that
@@ -14,7 +14,7 @@
 //
 // A CRUMB THE ADDRESS DOES NOT CARRY IS LEFT OUT rather than rendered as a
 // placeholder — the trail describes where this pane is, and an em dash standing in for
-// a channel would say the pane is scoped to a channel it has not got. An address that
+// a run would say the pane is scoped to a run it has not got. An address that
 // carries nothing at all says so, because an empty strip reads as a breadcrumb that
 // failed to render.
 //
@@ -33,11 +33,10 @@ import { GLYPH_SIZE_CHROME } from "../../tokens/index.js";
  *
  * Every member is REQUIRED and may be `undefined`, on `ConsolePaneContext`'s
  * precedent: an optional member reads identically whether the deck decided the pane is
- * scoped to no channel or forgot to resolve one, and only one of those is an answer.
+ * scoped to no run or forgot to resolve one, and only one of those is an answer.
  */
 export interface PaneScopeAddress {
   readonly sessionId: string | undefined;
-  readonly channelId: string | undefined;
   readonly runId: string | undefined;
   readonly entity: ConsoleEntityRef | undefined;
 }
@@ -49,7 +48,7 @@ export interface PaneScopeAddress {
  * keys: an address has AT MOST ONE crumb per scope, so a scope is unique across a
  * trail by construction, while the identifier is not.
  */
-export type PaneScopeName = "session" | "channel" | "run" | "entity";
+export type PaneScopeName = "session" | "run" | "entity";
 
 /** One crumb: the scope it came from, and the wire identifier that scope carries. */
 export interface PaneScopeCrumb {
@@ -70,15 +69,14 @@ export interface PaneScopeCrumb {
  * shape that reaches this first, and nothing in the wire forbids it — and keying
  * sibling `<li>` on the identifier then gives React two children with one key: it
  * warns, and it reconciles the pair as one element, so the second crumb's updates land
- * on the first or are dropped. The scope is not merely unique, it is STABLE: a channel
- * appearing between the session and the run re-keys nothing, where a positional key
- * would remount every crumb after the insertion.
+ * on the first or are dropped. The scope is not merely unique, it is STABLE: a crumb
+ * appearing between two others re-keys nothing, where a positional key would remount
+ * every crumb after the insertion.
  */
 export function paneScopeCrumbs(address: PaneScopeAddress): readonly PaneScopeCrumb[] {
   const carried: readonly { readonly scope: PaneScopeName; readonly value: string | undefined }[] =
     [
       { scope: "session", value: address.sessionId },
-      { scope: "channel", value: address.channelId },
       { scope: "run", value: address.runId },
       { scope: "entity", value: address.entity?.id },
     ];
@@ -88,6 +86,7 @@ export function paneScopeCrumbs(address: PaneScopeAddress): readonly PaneScopeCr
 /** What the trail says when the address names nothing at all. */
 const NO_ADDRESS_CRUMB = "No session";
 
+/** The address a trail describes, plus the pane's own name and the id that names the list. */
 export interface PaneBreadcrumbProps extends PaneScopeAddress {
   /**
    * The id the pane's `<section>` points its `aria-labelledby` at.
@@ -109,8 +108,6 @@ export function PaneBreadcrumb(props: PaneBreadcrumbProps): React.JSX.Element {
     <nav className="meridian-pane__breadcrumb" aria-label="Pane location">
       <ol className="meridian-pane__crumbs" id={props.crumbsId}>
         {scopeCrumbs.length === 0 ? (
-          // Reachable: the auxiliary timeline window opens on a bare route and the
-          // frame resolves its subject through the context picker.
           <li className="meridian-pane__crumb-absent">{NO_ADDRESS_CRUMB}</li>
         ) : (
           scopeCrumbs.map((crumb, position) => (

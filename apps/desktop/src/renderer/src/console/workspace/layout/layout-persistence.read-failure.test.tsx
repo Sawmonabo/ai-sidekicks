@@ -10,7 +10,7 @@
 // willing to accept a write for.
 //
 // The adapter is the real memory one with exactly one operation misbehaving, and the
-// misbehaviour is lifted before every read-back: an assertion taken while reads still
+// misbehavior is lifted before every read-back: an assertion taken while reads still
 // fail asserts the failure a second time and would pass over a store that had written
 // anything at all.
 

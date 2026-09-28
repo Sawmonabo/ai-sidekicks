@@ -1,14 +1,11 @@
-// What every workspace suite needs to mount one: the session, the registry, and the
-// two shapes `AppFrame` mounts the surface in.
+// What every workspace suite needs to mount one: the session, the registry, and the shape
+// `AppFrame` mounts the surface in.
 //
-// ONE HOME RATHER THAN THREE COPIES. The suites split by subject — what the surface
-// composes, the arrangement it persists, and the pane moved into a window of its own
-// — and every one of them still renders the same component against the same fixture
-// session. The mount shape is what they share, and it is the only thing here. Nothing
-// in this module asserts.
+// ONE HOME RATHER THAN A COPY PER SUITE. The suites split by subject — what the surface
+// composes and the arrangement it persists — and every one of them renders the same
+// component against the same fixture session. The mount shape is what they share.
 
 import { render } from "@testing-library/react";
-import { useContext } from "react";
 import { expect } from "vitest";
 
 import { DECK_RESTORED_PANE_CAP, MAXIMUM_LIVE_DRAFT_COUNT } from "../core/index.js";
@@ -18,9 +15,8 @@ import type { StoredRecord } from "../persistence/adapter.js";
 import { DraftStore, UiStateStore } from "../persistence/index.js";
 import { LiveAnnouncerProvider } from "../primitives/index.js";
 import { MemoryPersistenceAdapter } from "../persistence/memory-adapter.js";
-import { FrameStore, SessionStore, SessionStoreRegistry } from "../store/index.js";
-import { ConsolePaneRegistry, PaneControlsContext } from "../seats/index.js";
-import { DetachedPaneBinding } from "./auxiliary/DetachedPaneBinding.js";
+import { FrameStore, SessionStore } from "../store/index.js";
+import { ConsolePaneRegistry } from "../seats/index.js";
 import { DeckLayout } from "./deck/model/deck-layout.js";
 import { DECK_LAYOUT_RECORD_KEY } from "./layout/layout-persistence.js";
 import { Workspace } from "./Workspace.js";
@@ -60,40 +56,18 @@ export function testRegistry(): ConsolePaneRegistry {
 /**
  * One opened session store — the family's one home for this role.
  *
- * The sidebar's own support module held this verbatim under the same name, and the
- * restore-order suite held the `UiStateStore` half under a third. The test rules in
- * `apps/desktop/AGENTS.md` put one home per ROLE: two spellings of "an opened
- * session" is two fixtures that agree until one of them is corrected.
+ * The test rules in `apps/desktop/AGENTS.md` put one home per ROLE: two spellings of "an
+ * opened session" is two fixtures that agree until one of them is corrected.
  */
 export function sessionStore(sessionId: string = SESSION_ID): SessionStore {
   const store = new SessionStore({ sessionId });
-  store.initialise({ cursor: 0, entities: [], userJoinLog: ["user-you"] });
+  store.initialise({ cursor: 0, entities: [] });
   return store;
 }
 
-/**
- * A body that says which kind it is, and offers the host's own detach control.
- *
- * The control is read off `PaneControlsContext`, which is the seam
- * `seats/ConsolePaneChrome` reads it from — so a case that presses it drives the
- * workspace through the same path a person does, rather than through a callback the
- * test invented. Through the context itself rather than the `usePaneControls` hook
- * beside it, because the hook is not a door line and a deep cross-family import is
- * one this file is not exempt from: the layering cruise excludes `*.test.*` and a
- * `.test-support` module is not one.
- */
+/** A body that says which kind it is, so a pane is identifiable in the rendered deck. */
 function TestPaneBody(props: { readonly kind: string }): React.JSX.Element {
-  const controls = useContext(PaneControlsContext);
-  return (
-    <p data-body={props.kind}>
-      {props.kind} body
-      {controls?.onOpenInWindow === undefined ? null : (
-        <button type="button" data-detach={props.kind} onClick={controls.onOpenInWindow}>
-          Open in a window
-        </button>
-      )}
-    </p>
-  );
+  return <p data-body={props.kind}>{props.kind} body</p>;
 }
 
 export const SESSION_B_ID = "session-workspace-b";
@@ -165,7 +139,7 @@ export class GatedPersistenceAdapter extends MemoryPersistenceAdapter {
 }
 
 /**
- * The workspace under the window's announcer, which is where `AppFrame` mounts it.
+ * The workspace under the window's providers, which is where `AppFrame` mounts it.
  *
  * The deck inside reads `useAnnounce` to say what a pane drop settled on, and that
  * hook throws outside the provider by design — so this wrapper is the production
@@ -189,74 +163,38 @@ export function memoryStore(): UiStateStore {
 /** A second session, with a store of its own — never the first one's. */
 export function otherSession(): WorkspaceSession {
   const store = new SessionStore({ sessionId: SESSION_B_ID });
-  store.initialise({ cursor: 0, entities: [], userJoinLog: ["user-you"] });
+  store.initialise({ cursor: 0, entities: [] });
   return { sessionId: SESSION_B_ID, store };
 }
 
-// The three scaffolding pieces below are shared rather than declared per suite: the
-// store-swap suite drives the same gated adapter the navigation suite does, and a
-// second copy of a write ledger is two ledgers that can disagree about what was asked.
-
-/** The workspace for one session, in the shape `AppFrame` mounts it in. */
+/**
+ * The workspace for one session, in the shape `AppFrame` mounts it in.
+ *
+ * The provider carries the SAME bridge the surface is handed, because that is what the
+ * frame does: one window, one transport, and one clock resolved off it — the deck reads
+ * that clock for its rect tracker.
+ */
 export function workspaceFor(
   session: WorkspaceSession,
   uiStateStore: UiStateStore,
   isKeyed: boolean,
   bridge: ConsoleBridge = createFixtureBridge({ scenario: SCENARIO }),
 ): React.JSX.Element {
-  return underWindowProviders(
-    bridge,
-    <Workspace
-      {...(isKeyed ? { key: session.sessionId } : {})}
-      bridge={bridge}
-      frameStore={
-        new FrameStore({ initialRoute: { kind: "workspace", sessionId: session.sessionId } })
-      }
-      sessionStore={session.store}
-      uiStateStore={uiStateStore}
-      draftStore={new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT })}
-      route={{ kind: "workspace", sessionId: session.sessionId }}
-      paneRegistry={testRegistry()}
-    />,
-  );
-}
-
-/**
- * Everything a window mounts ABOVE a workspace, in the order it mounts them.
- *
- * ONE HOME, because a case that spelled this shape itself had a workspace with no
- * binding above it and read a wiring defect as a broken surface. The provider carries
- * the SAME bridge the surface is handed, because that is what the frame does: one
- * window, one transport, and one clock resolved off it — the deck reads that clock for
- * its rect tracker, and a provider carrying another bridge would be two time bases in
- * a window production only ever gives one.
- *
- * THE BINDING SITS ABOVE THE KEYED SURFACE, which is where a window mounts it and why
- * it is here rather than inside {@link workspaceFor}: which panes are showing in
- * windows of their own outlives the destination on screen, so a binding inside the key
- * would go away on exactly the navigation the record has to survive. Its subject is
- * the bridge, so a caller handing the same one to two renders keeps one registry.
- */
-export function underWindowProviders(
-  bridge: ConsoleBridge,
-  surface: React.JSX.Element,
-): React.JSX.Element {
   return (
     <DesktopBridgeProvider bridge={bridge}>
       <LiveAnnouncerProvider>
-        <DetachedPaneBinding
-          context={{
-            bridge,
-            frameStore: new FrameStore(),
-            // The REAL registry rather than a stub: the binding reads neither member,
-            // and a hand-built pair would be a context shape no frame hands over.
-            sessionStoreRegistry: new SessionStoreRegistry({
-              read: () => Promise.resolve(undefined),
-            }),
-          }}
-        >
-          {surface}
-        </DetachedPaneBinding>
+        <Workspace
+          {...(isKeyed ? { key: session.sessionId } : {})}
+          bridge={bridge}
+          frameStore={
+            new FrameStore({ initialRoute: { kind: "workspace", sessionId: session.sessionId } })
+          }
+          sessionStore={session.store}
+          uiStateStore={uiStateStore}
+          draftStore={new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT })}
+          route={{ kind: "workspace", sessionId: session.sessionId }}
+          paneRegistry={testRegistry()}
+        />
       </LiveAnnouncerProvider>
     </DesktopBridgeProvider>
   );

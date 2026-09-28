@@ -164,7 +164,7 @@ describe("assert-webprefs", () => {
     it("fails when a second, unchecked webPreferences block is added", () => {
       const source = [
         compliantSource(),
-        "function constructAuxiliaryWindow() {",
+        "function constructSecondWindow() {",
         "  return new BrowserWindow({",
         "    webPreferences: {",
         "      sandbox: false,",

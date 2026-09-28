@@ -65,7 +65,8 @@ export type CardLayout = (typeof CARD_LAYOUTS)[number];
 /** What one family supplies: the icon, the label, and the layout. */
 export interface CardFamilyDescriptor {
   readonly family: CardFamily;
-  readonly glyph: GlyphName;
+  /** The family's icon, or `undefined` where the row carries no mark (the person's own message). */
+  readonly glyph: GlyphName | undefined;
   /**
    * The family's name in the console's own words, for the row's kind slot when the
    * row carries no wire-true label of its own. Sentence case, no exclamation.
@@ -75,13 +76,22 @@ export interface CardFamilyDescriptor {
 }
 
 /**
+ * One family's descriptor, with the icon typed present for every family but the
+ * person's own message, so a caller naming one of those reads it without a check.
+ */
+type DescriptorOf<TFamily extends CardFamily> = CardFamilyDescriptor & {
+  readonly family: TFamily;
+  readonly glyph: TFamily extends "user-message" ? undefined : GlyphName;
+};
+
+/**
  * Total over `CardFamily` by construction — a sixth family fails to compile here
  * before it can reach a card that renders it without an icon.
  */
-const CARD_FAMILY_DESCRIPTORS: Readonly<Record<CardFamily, CardFamilyDescriptor>> = {
+const CARD_FAMILY_DESCRIPTORS: { readonly [TFamily in CardFamily]: DescriptorOf<TFamily> } = {
   "user-message": {
     family: "user-message",
-    glyph: "member",
+    glyph: undefined,
     label: "Message",
     layout: "body-open",
   },
@@ -142,7 +152,9 @@ export function classifyCardFamily(row: TimelineRow): CardFamilyDescriptor {
 }
 
 /** The descriptor for a family named directly, for a caller that already has one. */
-export function cardFamilyDescriptor(family: CardFamily): CardFamilyDescriptor {
+export function cardFamilyDescriptor<TFamily extends CardFamily>(
+  family: TFamily,
+): DescriptorOf<TFamily> {
   return CARD_FAMILY_DESCRIPTORS[family];
 }
 

@@ -10,7 +10,7 @@
 //
 // WHAT THE SESSION DOES, IN THE ORDER IT DOES IT
 //
-//   • Two people, four agents, and the implementer's run opened — the opening this
+//   • One person, four agents, and the implementer's run opened — the opening this
 //     scenario has always had, and the one every surface built against it expects.
 //   • The other three lanes spin up, and from the architect's `running` transition
 //     onward all four are streaming: thinking, messages, and tool calls interleaved
@@ -21,8 +21,7 @@
 //   • A lane PARKS. A provider quota reading lands at 100% with the instant it resets
 //     at, and the scout's run suspends on it — so the frame carries a park with a
 //     countdown, and three lanes still streaming beside it.
-//   • The cost meter moves, four times, one per lane, and the session read answers the
-//     accountant's committed figure — the past-tense receipt of everything above.
+//   • The cost meter moves, four times, one per lane.
 //   • A thread is drawn between two runs: the architect's turn spawns a helper run,
 //     whose birth beat carries `parentRunId`. It is queued and starting at the last
 //     tick, so the frame also has the one lane state a four-lane session otherwise
@@ -39,7 +38,7 @@
 // no daemon emits produces screenshots, geometry readings, and end-to-end results
 // about a wire that does not exist, and every one of them looks like a pass.
 //
-// THREE THINGS THIS SCRIPT DELIBERATELY DOES NOT SAY
+// TWO THINGS THIS SCRIPT DELIBERATELY DOES NOT SAY
 //
 //   • **A provider switch.** `agent.provider_switched` and
 //     `agent.provider_switch_failed` are registered in the taxonomy and are NOT in
@@ -55,10 +54,6 @@
 //     DESCRIPTION and never the body, which is sealed in `content_payload` and
 //     served by no bridge namespace. The cards render the named absence, which is
 //     the true state of that wire today.
-//   • **A link TYPE on the run thread.** `linkType` is typed by a symbol no
-//     TypeScript in this workspace declares, so the thread carries the two linkage
-//     members that do have types — `parentRunId` and `internalHelper` — and says
-//     nothing about which kind of link it is.
 //
 // AND ONE IT USED TO REFUSE AND NO LONGER DOES. This header once declined the
 // `approval.*` pair on the ground that scripting it beside the run-state pair "would
@@ -92,14 +87,11 @@ import {
   AGENT_SCOUT,
   EVENT_ID_STEM,
   FLAGSHIP_AGENTS,
-  USER_PRIYA,
   USER_YOU,
   SESSION_ID,
   STARTED_AT_ISO,
-  attachedAtIso,
 } from "./flagship-cast.js";
 import { FLAGSHIP_SCRIPT } from "./flagship-script.js";
-import { AGREED_NEGOTIATION_REPLY } from "../negotiation-replies.js";
 import type { ConsoleScenario } from "../runtime/index.js";
 
 export const FLAGSHIP_SCENARIO_ID = "flagship";
@@ -119,17 +111,10 @@ export const FLAGSHIP_SCENARIO: ConsoleScenario = {
   purpose:
     "A live session with four agents streaming at once — interleaved turns on four run chapters, an approval landing mid-stream while the other three carry on, the cost meter moving on every lane, and a helper run threaded to the turn that spawned it.",
   sessionId: SESSION_ID,
-  // Join order IS the hue order. Two people first, then the agents in the order
+  // Join order IS the hue order. The person first, then the agents in the order
   // they were attached — which is what a real session's join log looks like.
-  userIdsInJoinOrder: [
-    USER_YOU,
-    USER_PRIYA,
-    AGENT_ARCHITECT,
-    AGENT_IMPLEMENTER,
-    AGENT_REVIEWER,
-    AGENT_SCOUT,
-  ],
-  // Which of the six this window is. Stated rather than inferred from the head of
+  userIdsInJoinOrder: [USER_YOU, AGENT_ARCHITECT, AGENT_IMPLEMENTER, AGENT_REVIEWER, AGENT_SCOUT],
+  // Which of the five this window is. Stated rather than inferred from the head of
   // the join order — that entry is whoever opened the session, on whichever machine,
   // and the two facts coincide here only because this scenario chose to make them.
   callerUserId: USER_YOU,
@@ -160,81 +145,6 @@ export const FLAGSHIP_SCENARIO: ConsoleScenario = {
           updatedAt: "2026-01-01T14:20:02.450Z",
         },
         timelineCursors: { latest: "flagship-cursor-45" },
-      },
-    },
-    {
-      // The node's health, which is a MEASUREMENT and so is scripted rather than
-      // folded out of beats: nothing in a session's log says whether the node's
-      // storage is healthy. Two components, one of them not — so the session header's
-      // compact mark has something to say. A scenario that scripts no reading gets
-      // a refusal rather than a healthy verdict, which is why this one has to say
-      // what it measured: the fixture invents no health for anybody.
-      call: "health.statusRead",
-      result: {
-        overall: "degraded",
-        components: [
-          { name: "session-store", state: "healthy", lastChecked: STARTED_AT_ISO },
-          { name: "relay", state: "degraded", lastChecked: STARTED_AT_ISO },
-        ],
-      },
-    },
-    // The handshake this window's shell performed, which is an OBSERVATION of two
-    // builds meeting and so is scripted rather than folded out of beats: nothing in a
-    // session's log says which protocol the runtime agreed to.
-    //
-    // The AGREEING arm, deliberately. This is the composition a first launch opens
-    // into, and a scripted disagreement would put a refusal across a demonstration
-    // window every time — a claim about the operator's own install that no author
-    // made. The refusing arm is the ledger scenario's, which is the session whose job
-    // is to reach every state a surface renders.
-    //
-    // Nothing is drawn from this reply in this window: the agreeing arm renders no
-    // banner and no version line, which is the whole of what is asked for when
-    // the two builds met. It is scripted so the fixture HAS the agreeing outcome —
-    // the negative control for a surface that only ever appears on the other one.
-    AGREED_NEGOTIATION_REPLY,
-    {
-      // The accountant's own committed figure — the ONE source of a spend number for
-      // every surface, and the reason the session header sums nothing. `priced` because
-      // every debit this session's four lanes raised was priced; the unpriced arm is
-      // a different session's story and a different scenario's to tell.
-      call: "orchestration.budgetRead",
-      result: {
-        sessionId: SESSION_ID,
-        costLimitCents: 500_00,
-        turnLimitPerAgent: 40,
-        maxExecutingChannels: 4,
-        maxQueueDepthPerChannel: 8,
-        maxPendingOrchestrationRuns: 4,
-        activeChildLimit: 2,
-        unpricedFamilyCaps: [],
-        // The decomposition is arithmetic the DAEMON did, mirrored here exactly:
-        // priced plus unpriced is observed, and observed plus reserved is the
-        // committed figure. A scenario whose members did not add up would teach a
-        // surface that the identity does not hold.
-        observedCostCents: 9_47,
-        reservedCostCents: 3_00,
-        observedPricedCostCents: 9_47,
-        observedUnpricedDebitCents: 0,
-        committedSpendCents: 12_47,
-        costStatus: "priced",
-      },
-    },
-    {
-      call: "agent.list",
-      result: {
-        agents: FLAGSHIP_AGENTS.map((agent) => ({
-          agentId: agent.agentId,
-          name: agent.name,
-          driverName: agent.driverName,
-          modelId: agent.modelId,
-          config: {},
-          // `AgentState` is the four-state lifecycle — `configured` / `ready` /
-          // `disabled` / `archived`. A run being in flight is a RUN state and is
-          // read from the run, never folded into the agent row.
-          state: "ready",
-          createdAt: attachedAtIso(agent.attachedAtMs),
-        })),
       },
     },
   ],

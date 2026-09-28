@@ -1,4 +1,4 @@
-// The browser section is reachable, and what it says when nothing answers.
+// The browser section is reachable.
 //
 // The page shipped whole and no board registered it, so `#/settings/browser` rendered
 // the reserved arm — a built surface a person could not reach by any address. These
@@ -9,33 +9,20 @@
 // chunk of its own — `browser/settings/browser-settings-page-body.ts`, which is what
 // keeps twelve modules of a page nobody has opened off every launch's initial import
 // graph — so the shipped surface parked on this address renders the page REGION and its
-// reservation, and the body itself lands a turn later. The two claims are therefore made
-// against two subjects: that the shipped board claims the section, read off the shipped
-// surface; and what the body draws once it is here, read off a registry whose loader has
-// been awaited.
-//
-// THE BODY IS RESOLVED THROUGH THE FAMILY'S OWN MOUNT SCAFFOLDING, never by a sequence
-// written here. `settings/settings-page-mount.test-support.tsx` owns both halves — the
-// awaited mount, which preloads the registration's memoised loader and then moves the
-// bridge's frozen clock, and the reserved mount, which renders the same registration
-// before its chunk lands. Awaiting `preload` in a spec instead is what made three suites
-// wait for a body and a fourth race it, and `test/console/surfaces/pane-body-resolution.ts`
-// states the same rule for the two boards in `seats/`.
+// reservation, and the body itself lands a turn later. The claims are made against the
+// shipped surface, and against the reserved mount the family's own scaffolding owns
+// (`settings/settings-page-mount.test-support.tsx`).
 
 import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { settle } from "./core/settle.test-support.js";
-import {
-  fixtureBridgeWithGrowth,
-  unscriptedScenario,
-} from "./bridge/fixture/call-plane/bridge.test-support.js";
+import { createFixture } from "./bridge/fixture/call-plane/bridge.test-support.js";
 import { LiveAnnouncerProvider } from "./primitives/index.js";
 import { FrameStore, SessionStoreRegistry } from "./store/index.js";
 import { registerSettingsSurface } from "./settings/index.js";
 import { registerBrowserSettingsPage } from "./browser-settings-page.js";
 import {
-  mountRegisteredSettingsPage,
   mountReservedSettingsPage,
   settingsPageContextWith,
 } from "./settings/settings-page-mount.test-support.js";
@@ -49,17 +36,6 @@ import { pendingPaneBodiesIn } from "./seats/pane/pending-pane-body.js";
 afterEach(() => {
   cleanup();
 });
-
-/**
- * The fixture bridge both subjects read through.
- *
- * THE REAL FIXTURE BRIDGE: the page's two reads go through the growth port, and a
- * hand-built stub would let this file assert a refusal the shipped port does not raise.
- * No scenario answers either read, which is the state under test.
- */
-function unansweredBridge(): ReturnType<typeof fixtureBridgeWithGrowth> {
-  return fixtureBridgeWithGrowth(unscriptedScenario("browser-settings-test"), {});
-}
 
 /**
  * The settings surface a window mounts, parked on the browser address.
@@ -81,7 +57,7 @@ async function renderShippedSettingsAtBrowser(): Promise<HTMLElement> {
   frameStore.navigate({ kind: "settings", page: "browser" });
   const context = {
     route: frameStore.getState().route,
-    bridge: unansweredBridge(),
+    bridge: createFixture().bridge,
     frameStore,
     sessionStoreRegistry: new SessionStoreRegistry({ read: () => Promise.resolve(undefined) }),
   } as unknown as ConsoleSurfaceContext;
@@ -102,7 +78,7 @@ async function renderShippedSettingsAtBrowser(): Promise<HTMLElement> {
  * would otherwise catch here, which is what `settingsPageContextWith` exists to end.
  */
 function browserPageContext(): ReturnType<typeof settingsPageContextWith> {
-  return settingsPageContextWith(unansweredBridge(), undefined);
+  return settingsPageContextWith(createFixture().bridge, undefined);
 }
 
 describe("the browser settings section", () => {
@@ -113,21 +89,6 @@ describe("the browser settings section", () => {
     // the loader form working rather than a page that failed to render.
     expect(container.textContent ?? "").not.toContain("has not been built yet");
     expect(pendingPaneBodiesIn(container).length).toBe(1);
-  });
-
-  it("draws both policy rows and the site-data table, with nothing answered", async () => {
-    const container = await mountRegisteredSettingsPage(
-      "browser",
-      registerBrowserSettingsPage,
-      browserPageContext(),
-    );
-    expect(container.textContent ?? "").toContain("Two switches this node");
-    // Fail-closed AND said so: the rows render the enforced position and carry the
-    // port's own refusal beside it, rather than drawing a permissive off nobody set.
-    expect(container.querySelectorAll(".meridian-browser-policy > *").length).toBe(2);
-    const text = container.textContent ?? "";
-    expect(text).toContain("Site data");
-    expect(text).toContain("wire-unregistered");
   });
 
   it("reserves the region rather than the page while its chunk is still arriving", () => {

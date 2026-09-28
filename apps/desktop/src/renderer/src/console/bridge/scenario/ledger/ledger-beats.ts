@@ -20,9 +20,7 @@ import {
   AGENT_ARCHITECT,
   AGENT_IMPLEMENTER,
   AGENT_REVIEWER,
-  CHANNEL_IMPLEMENTATION,
   LEDGER_AGENTS,
-  USER_PRIYA,
   USER_YOU,
   RUNTIME_NODE,
   RUN_ARCHITECT,
@@ -69,7 +67,6 @@ export const LEDGER_SCRIPT: readonly LedgerScriptEntry[] = [
     sessionId: SESSION_ID,
     openedBy: USER_YOU,
     cast: LEDGER_AGENTS,
-    channel: { channelId: CHANNEL_IMPLEMENTATION, name: "implementation", openedAtMs: 40 },
   }),
   {
     atMs: 280,
@@ -77,7 +74,7 @@ export const LEDGER_SCRIPT: readonly LedgerScriptEntry[] = [
     // The author is the envelope's actor and the text is not here: user
     // prose is sealed per user in `pii_payload`, and a fixture that put the
     // words on the payload would teach a row to read a member no daemon sets.
-    actorId: USER_PRIYA,
+    actorId: USER_YOU,
     payload: { sessionId: SESSION_ID },
   },
 
@@ -103,28 +100,24 @@ export const LEDGER_SCRIPT: readonly LedgerScriptEntry[] = [
   }),
   lane.output(RUN_IMPLEMENTER, {
     atMs: 520,
-    channelId: CHANNEL_IMPLEMENTATION,
     kind: "assistant.thinking_update",
     contentType: "text/plain",
     contentLength: 412,
   }),
   lane.output(RUN_IMPLEMENTER, {
     atMs: 640,
-    channelId: CHANNEL_IMPLEMENTATION,
     kind: "assistant.message",
     contentType: "text/markdown",
     contentLength: 1_284,
   }),
   lane.tool(RUN_IMPLEMENTER, {
     atMs: 760,
-    channelId: CHANNEL_IMPLEMENTATION,
     kind: "tool.invoked",
     toolName: "edit_file",
     toolCallId: "call-implementer-1",
   }),
   lane.tool(RUN_IMPLEMENTER, {
     atMs: 900,
-    channelId: CHANNEL_IMPLEMENTATION,
     kind: "tool.result",
     toolName: "edit_file",
     toolCallId: "call-implementer-1",
@@ -132,14 +125,13 @@ export const LEDGER_SCRIPT: readonly LedgerScriptEntry[] = [
     contentLength: 96,
   }),
 
-  // Lane two — the reviewer, opened by the other person in the room, so a chapter
-  // header and a row gutter carry different hues inside one lane.
+  // Lane two — the reviewer.
   lane.transition(RUN_REVIEWER, {
     atMs: 960,
     runVersion: 1,
     newState: "queued",
     agentId: AGENT_REVIEWER,
-    actorId: USER_PRIYA,
+    actorId: USER_YOU,
   }),
   lane.transition(RUN_REVIEWER, {
     atMs: 1_040,
@@ -225,7 +217,7 @@ export const LEDGER_SCRIPT: readonly LedgerScriptEntry[] = [
     runVersion: 4,
     previousState: "running",
     newState: "paused",
-    actorId: USER_PRIYA,
+    actorId: USER_YOU,
   }),
 
   // Lane three — the architect, which is still mid-turn when the script ends.

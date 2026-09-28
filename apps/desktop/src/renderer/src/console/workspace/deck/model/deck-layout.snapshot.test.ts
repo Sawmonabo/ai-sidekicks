@@ -26,11 +26,11 @@ function emptyLayout(): DeckLayout {
   return new DeckLayout({ restoredPaneCap: DECK_RESTORED_PANE_CAP });
 }
 
-/** A layout holding one session-scoped timeline and one user-scoped inspector. */
+/** A layout holding one session-scoped timeline and one worktree-scoped inspector. */
 function twoPaneLayout(): DeckLayout {
   const layout = emptyLayout();
   layout.open({ kind: "timeline", entity: undefined });
-  layout.open({ kind: "inspector", entity: { kind: "user", id: "user-01" } });
+  layout.open({ kind: "inspector", entity: { kind: "worktree", id: "worktree-01" } });
   return layout;
 }
 
@@ -51,8 +51,8 @@ describe("DeckLayout — what a snapshot carries", () => {
       "inspector",
     ]);
     expect(restored.snapshot().panes[1]?.entity).toStrictEqual({
-      kind: "user",
-      id: "user-01",
+      kind: "worktree",
+      id: "worktree-01",
     });
     expect(restored.snapshot().focusedPaneId).toBe(second?.paneId);
     expect(restored.snapshot().density).toBe("compact");
@@ -134,7 +134,7 @@ describe("DeckLayout — what a restore refuses", () => {
       position: 5,
       kind: "inspector",
       sizePermille: 300,
-      entityId: "user-02",
+      entityId: "worktree-02",
     };
 
     const report = emptyLayout().restore(snapshot);
@@ -156,7 +156,7 @@ describe("DeckLayout — what a restore refuses", () => {
   });
 
   it("drops a pane whose entity kind that pane kind is not a view of", () => {
-    // `timeline` is a view of a channel or of the session; an artifact is neither.
+    // `timeline` is a view of the session; an artifact is not.
     // A weaker admission here passes the row on to a body that refuses it later,
     // leaving a pane nothing can render sitting in one of the cap's slots — and
     // written straight back out on the next save, so it survives every restart.
@@ -183,7 +183,7 @@ describe("DeckLayout — what a restore refuses", () => {
       position: 5,
       kind: "inspector",
       sizePermille: 300,
-      entityKind: "user",
+      entityKind: "worktree",
       entityId: "bad/id",
     };
 
@@ -209,8 +209,8 @@ describe("DeckLayout — what a restore refuses", () => {
       position: 5,
       kind: "runs",
       sizePermille: 300,
-      entityKind: "user",
-      entityId: "user-02",
+      entityKind: "worktree",
+      entityId: "worktree-02",
     };
 
     const report = emptyLayout().restore(snapshot);
@@ -223,7 +223,7 @@ describe("DeckLayout — what a restore refuses", () => {
     // Without this, every case above would pass over an admission that had simply
     // stopped admitting anything with an entity on it.
     const layout = emptyLayout();
-    layout.open({ kind: "timeline", entity: { kind: "channel", id: "channel-01" } });
+    layout.open({ kind: "timeline", entity: undefined });
     layout.open({ kind: "artifact", entity: { kind: "artifact", id: "artifact-01" } });
     layout.open({ kind: "runs", entity: undefined });
 
@@ -237,7 +237,7 @@ describe("DeckLayout — what a restore refuses", () => {
     for (let index = 0; index < cap + 2; index += 1) {
       layout.open({
         kind: "inspector",
-        entity: { kind: "user", id: `user-${String(index)}` },
+        entity: { kind: "worktree", id: `worktree-${String(index)}` },
       });
     }
 
@@ -256,8 +256,8 @@ describe("DeckLayout — what a restore refuses", () => {
       position: 5,
       kind: "inspector",
       sizePermille: 300,
-      entityKind: "user",
-      entityId: "user-01",
+      entityKind: "worktree",
+      entityId: "worktree-01",
     };
 
     const restored = emptyLayout();
@@ -280,7 +280,7 @@ describe("DeckLayout — what a restore refuses", () => {
     for (let index = 0; index < cap; index += 1) {
       source.open({
         kind: "inspector",
-        entity: { kind: "user", id: `user-${String(index)}` },
+        entity: { kind: "worktree", id: `worktree-${String(index)}` },
       });
     }
     const snapshot = source.toSnapshot();
@@ -288,8 +288,8 @@ describe("DeckLayout — what a restore refuses", () => {
       position: 1.5,
       kind: "inspector",
       sizePermille: 300,
-      entityKind: "user",
-      entityId: "user-0",
+      entityKind: "worktree",
+      entityId: "worktree-0",
     };
 
     const report = new DeckLayout({ restoredPaneCap: cap }).restore(snapshot);
@@ -310,8 +310,8 @@ describe("DeckLayout — what a restore refuses", () => {
       position: 5,
       kind: "inspector",
       sizePermille: 300,
-      entityKind: "user",
-      entityId: "user-02",
+      entityKind: "worktree",
+      entityId: "worktree-02",
     };
 
     const report = emptyLayout().restore(snapshot);

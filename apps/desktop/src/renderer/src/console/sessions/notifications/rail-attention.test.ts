@@ -1,4 +1,4 @@
-// What the rail is told, and the three readings that tell it nothing.
+// What the rail is told, and the reading that tells it nothing.
 //
 // The count's whole value is that it is trustworthy: a number on the console's
 // most-seen surface that could be left over from a read that failed would be worse
@@ -8,7 +8,6 @@
 import { describe, expect, it } from "vitest";
 
 import type { AttentionItem } from "../../bridge/index.js";
-import { refuse } from "../../core/index.js";
 import { AttentionPlane } from "./attention-plane.js";
 import { railAttentionCountOf } from "./rail-attention.js";
 
@@ -76,16 +75,9 @@ describe("railAttentionCountOf", () => {
     ).toBeUndefined();
   });
 
-  it("suppresses the count on every reading that is not an answer", () => {
-    // The suppression rule: while the projection is unreachable the rail says nothing
-    // rather than the number from before.
+  it("suppresses the count while the read is in flight", () => {
+    // The suppression rule: until the projection answers the rail says nothing rather
+    // than the number from before.
     expect(railAttentionCountOf({ phase: "reading" })).toBeUndefined();
-    expect(railAttentionCountOf({ phase: "not-asked" })).toBeUndefined();
-    expect(
-      railAttentionCountOf({
-        phase: "refused",
-        refusal: refuse("attention-plane", "read-failed", "nothing came back"),
-      }),
-    ).toBeUndefined();
   });
 });

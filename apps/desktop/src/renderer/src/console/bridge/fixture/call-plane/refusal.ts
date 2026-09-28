@@ -26,10 +26,9 @@ import {
  *
  * The first and the last two come from `scripted-reply.ts` rather than being spelled
  * again here: the last two name a reply the frozen clock never released, which is a
- * fact about the seam both fixture surfaces share, and the growth port's own closed
- * set spreads the same two. The first is that module's `SCRIPT_ABSENT_REFUSAL_CODE`,
- * which `growth-port.ts` and `growth-outcome.ts` also read by name, so the value is
- * written once and the two vocabularies cannot drift apart under a rename.
+ * fact about the seam the fixture surfaces share. The first is that module's
+ * `SCRIPT_ABSENT_REFUSAL_CODE`, so the value is written once and cannot drift apart
+ * under a rename.
  *
  * `beat-unprojectable` is a SCENARIO authoring error rather than a wire one: the
  * beat named a kind a narrowed stream carries and then could not supply what that
@@ -71,10 +70,10 @@ export const FIXTURE_BRIDGE_REFUSAL_ORIGIN = "fixture-bridge";
  * A `ConsoleRefusalError` and not a bare `Error` carrying a code of its own.
  * `core/refusal.ts` names this module as one of the five that had minted their own
  * refusal vocabulary, and the cost was concrete: a surface wanting to render a
- * fixture failure beside a growth-port one had to translate between two shapes to
- * reach one renderer. It stays a NAMED subclass because a fixture failure is worth
- * catching by name — the seam has to travel as an exception, since these are
- * rejections from methods whose signatures the preload contract fixes.
+ * fixture failure had to translate it to reach one renderer. It stays a NAMED
+ * subclass because a fixture failure is worth catching by name — the seam has to
+ * travel as an exception, since these are rejections from methods whose signatures
+ * the preload contract fixes.
  *
  * `call` is kept beside the refusal rather than folded into `detail`: it names a
  * bridge method, which is machine-readable provenance, and `detail` is the sentence

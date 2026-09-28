@@ -87,16 +87,6 @@ describe("FrameStore — the session a window has in hand outlives the route", (
     expect(store.lastOpenedSessionId).toBe("session-beta");
   });
 
-  it("takes the session an auxiliary route carries, and is not cleared by a bare one", () => {
-    const store = new FrameStore();
-
-    store.navigate({ kind: "auxiliary", route: "timeline", sessionId: "session-alpha" });
-    expect(store.lastOpenedSessionId).toBe("session-alpha");
-
-    store.navigate({ kind: "auxiliary", route: "timeline" });
-    expect(store.lastOpenedSessionId).toBe("session-alpha");
-  });
-
   it("control: the route projection does NOT go sticky", () => {
     // `RouteSurface` renders "this session is opening" whenever the projection
     // names a session and its store is absent. A projection that retained the

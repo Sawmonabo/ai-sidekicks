@@ -36,15 +36,10 @@ export { InputAskCard } from "./InputAskCard.js";
 export { useLedgerAskTerminal } from "./AskTerminalProvider.js";
 export {
   ASK_ANSWER_UNSENT,
-  INPUT_ASK_SLOT,
   askSettledBy,
   readDriverAsk,
   type DriverAskDelivery,
   type DriverAskReading,
 } from "./input-ask.js";
 export { ReasoningSurface } from "./ReasoningSurface.js";
-export {
-  REASONING_SURFACE_SLOT,
-  reasoningRunIdOf,
-  type ReasoningSurfaceReading,
-} from "./reasoning-surface.js";
+export { reasoningRunIdOf, type ReasoningSurfaceReading } from "./reasoning-surface.js";

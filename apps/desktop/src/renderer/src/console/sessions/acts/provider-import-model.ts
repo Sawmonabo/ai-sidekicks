@@ -1,26 +1,26 @@
 // One provider import, held for as long as the import runs rather than for as long as
 // its panel is on screen.
 //
-// THE DEFECT THIS EXISTS FOR. `ProviderImportPanel` held both halves of an import
-// itself — the begin act in its own subject-scoped cell and the progress drain in its
-// own effect — and the panel is rendered CONDITIONALLY, behind the acts bar's
-// disclosure. Switching to the join form therefore unmounted it mid-import: the
-// cleanup closed the progress subscription while the daemon went on reading the
-// transcript, and coming back built a fresh act with no import id at all. The
-// one-import-at-a-time guard is derived from that id, so the panel then offered
-// another import while the first was still running, with nothing anywhere reporting
-// it. Every part of that is silent.
+// THE DEFECT THIS EXISTS FOR. A panel that held both halves of an import itself — the
+// begin act in its own cell and the progress drain in its own effect — lost the import
+// whenever it was unmounted: the cleanup closed the progress subscription while the
+// daemon went on reading the transcript, and coming back built a fresh act with no
+// import id at all. The one-import-at-a-time guard is derived from that id, so the
+// panel then offered another import while the first was still running, with nothing
+// anywhere reporting it. Every part of that is silent.
 //
-// SO THE STATE LIVES ABOVE THE CONDITION. `SessionActs` holds this model and renders
-// the panel with it; the panel became a view over an import rather than the place an
-// import lives. A panel that unmounts and comes back now finds the same act, the same
-// id, and a subscription that was never closed — the reading continues while the
-// panel is not looking at it.
+// SO THE STATE LIVES ABOVE THE CONDITION. The caller holds this model and renders the
+// panel with it; the panel is a view over an import rather than the place an import
+// lives. A panel that unmounts and comes back finds the same act, the same id, and a
+// subscription that was never closed — the reading continues while the panel is not
+// looking at it.
 //
-// THAT IS A LIFETIME AND NOT A CACHE. Nothing here survives the growth port it was
-// held for: the act is addressed on the port through the console's one subject-scoped
-// holder, exactly as it was when the panel held it, so a bridge or scenario change
-// still retires the import along with everything else that port answered.
+// THAT IS A LIFETIME AND NOT A CACHE. The act is addressed on the begin call through
+// the console's one subject-scoped holder, so a new call retires the import along with
+// everything else the old one answered.
+//
+// The two calls are the caller's, taken as arguments, so this module keeps only its
+// own logic. A rejected call is not caught here: it propagates.
 //
 // TWO PHASES, KEPT APART, AND ONE PREDICATE OVER BOTH. The begin settles once and the
 // stream is a stream; they fail differently and read differently, which is why
@@ -28,30 +28,26 @@
 // is the union of them — whether an import is underway at all — and that is composed
 // once here rather than at each control, because two controls deriving it separately
 // would eventually disagree about which frame an import ends on.
-//
-// AND THE GUARD OUTLIVES THE SUBSCRIPTION THAT REPORTS IT. A stream that broke after
-// the begin settled leaves this window unable to see an import the daemon may still
-// be running, so the predicate holds and the model carries the one act that can end
-// the standoff honestly: re-attach to the SAME id. `provider-import.ts` owns which
-// arms mean what; what is composed here is the pair a surface renders — the closed
-// control and the way back onto the stream that closed it.
 
-import { SessionAct, useSessionAct, type ActSettlement } from "./act-settlement.js";
+import { SessionAct, useSessionAct } from "./act-settlement.js";
 import {
   isImportUnderway,
   useImportProgress,
   type ImportProgressReading,
+  type ImportProgressSubscribeCall,
 } from "./provider-import.js";
-import { settleGrowthRead, type GrowthPort } from "../../bridge/index.js";
+import type { ConsoleRefusal } from "../../core/index.js";
 import { useSubjectScopedState } from "../../store/index.js";
 
-/** The holder key the import's opening act is addressed by, within a port. */
-const IMPORT_ACT_KEY = "provider-session-import";
+/**
+ * The call that begins one provider import.
+ */
+export type ProviderImportBeginCall = (
+  request: ProviderImportRequest,
+) => Promise<ProviderImportAnswer>;
 
 /** Everything a surface needs to render one import, and the one act that starts one. */
 export interface ProviderImportModel {
-  /** Where the opening call got to. Its refused arm is the act's own refusal. */
-  readonly settlement: ActSettlement<ProviderImportAnswer>;
   /** Where the progress subscription got to, in the producer's own words. */
   readonly progress: ImportProgressReading;
   /** The opening call is still out. */
@@ -62,22 +58,16 @@ export interface ProviderImportModel {
    * Either phase — what closes every control that would disturb a running import.
    *
    * Composed here rather than at each reader, because the panel's submit control and
-   * the acts bar's disclosure switch are asking one question and a second derivation
-   * of it would answer differently for the frame between a settled begin and the
-   * effect that opens its stream.
+   * any switch that would leave the panel are asking one question and a second
+   * derivation of it would answer differently for the frame between a settled begin
+   * and the effect that opens its stream.
    */
   readonly isUnderway: boolean;
   /**
-   * Re-attach to the running import's progress, or `undefined` where nothing can be.
-   *
-   * The one act a lost subscription leaves, and the reason the guard above can stay
-   * closed without stranding anybody: a broken delivery holds the submit control shut
-   * because the daemon may still be reading, and this is how a person gets the
-   * reading back rather than being told to start a second import to find out.
+   * Put one import. Resolves to the act's own refusal while one is already running,
+   * and to `undefined` where the import was put. A rejected begin propagates.
    */
-  readonly retryProgress: (() => void) | undefined;
-  /** Put one import. Refuses in the act's own words while one is already running. */
-  readonly put: (request: ProviderImportRequest) => void;
+  readonly put: (request: ProviderImportRequest) => Promise<ConsoleRefusal | undefined>;
 }
 
 /**
@@ -87,76 +77,42 @@ export interface ProviderImportModel {
  * see the header — and it is the caller's to get right, because only the caller knows
  * which of its children are conditional.
  */
-export function useProviderImport(growth: GrowthPort): ProviderImportModel {
-  // Keyed on the PORT, on the rule `JoinSessionForm.tsx` states: an act minted in a
-  // mount-lifetime cell stays bound to the growth port the window closed when the
-  // bridge or the scenario moved.
-  const act = useSubjectScopedState(growth, IMPORT_ACT_KEY, () =>
-    mintProviderImportAct(growth),
+export function useProviderImport(
+  begin: ProviderImportBeginCall,
+  subscribe: ImportProgressSubscribeCall,
+): ProviderImportModel {
+  // Keyed on the begin call, which IS the whole subject: an act minted in a
+  // mount-lifetime cell would stay bound to a call the window has since replaced.
+  const act = useSubjectScopedState(
+    begin,
+    undefined,
+    () =>
+      new SessionAct<ProviderImportRequest, ProviderImportAnswer>({
+        attempt: begin,
+        describeWhat: "The import",
+      }),
   ).value;
   const settlement = useSessionAct(act);
   const importId = settlement.status === "settled" ? settlement.answer.importId : undefined;
-  const subscription = useImportProgress(growth, importId);
-  const progress = subscription.reading;
+  const progress = useImportProgress(subscribe, importId);
   const isBeginning = settlement.status === "running";
   const isReading = isImportUnderway(importId, progress);
   return {
-    settlement,
     progress,
     isBeginning,
     isReading,
     isUnderway: isBeginning || isReading,
-    retryProgress: subscription.retry,
-    put: (request) => {
-      // Not awaited, and nothing escapes: the act answers a duplicate press on its
-      // return rather than by rejecting, and the attempt above has no throwing arm.
-      void act.run(request);
-    },
+    put: async (request) => await act.run(request),
   };
 }
 
-/**
- * What the begin call takes, derived from the port rather than restated beside it.
- *
- * The request shape is declared once, in `bridge/growth-signatures/sessions.ts`, and a
- * hand-written copy here would be a second declaration of a closed shape — free to
- * drift the day the wire lands and grows a member.
- */
-type ProviderImportRequest = Parameters<GrowthPort["providerSessionImportBegin"]>[0];
+/** What the begin call takes: the provider, and what to read from it. */
+interface ProviderImportRequest {
+  readonly providerName: string;
+  readonly sourceRef: string;
+}
 
-/** What a settled begin answers with, derived from that same port's served arm. */
-type ProviderImportAnswer = Extract<
-  Awaited<ReturnType<GrowthPort["providerSessionImportBegin"]>>,
-  { readonly status: "served" }
->["value"];
-
-/**
- * Mint the act, on the port and not on the mount.
- *
- * A declared function taking the port rather than a closure written at the call site,
- * on the rule `session-pins.ts` states for its own acts: the seed is read only when
- * the subject changes, so it names the port it was minted for and nothing else.
- */
-function mintProviderImportAct(
-  growth: GrowthPort,
-): SessionAct<ProviderImportRequest, ProviderImportAnswer> {
-  return new SessionAct<ProviderImportRequest, ProviderImportAnswer>({
-    // Through `settleGrowthRead`, which is the console's one reader of a growth call
-    // that REJECTED rather than answering — the fixture throws a scripted daemon
-    // refusal verbatim, and the live seam will throw the same shape the day the wire
-    // lands, so a call site reading only the fulfilment arm leaves the form pinned on
-    // "running" for the life of the mount while an unhandled rejection reaches the
-    // window.
-    //
-    // The refusing arm IS a `ConsoleRefusal` either way and carries the operation, the
-    // slate row, and the document that owes the wire, so it travels onto the act's
-    // refused arm untouched rather than being re-minted here.
-    attempt: async (request) => {
-      const outcome = await settleGrowthRead(growth.providerSessionImportBegin(request));
-      return outcome.status === "served"
-        ? { status: "served", value: outcome.value }
-        : { status: "refused", refusal: outcome };
-    },
-    describeWhat: "The import",
-  });
+/** What the begin call answers: the id the progress subscription is opened on. */
+interface ProviderImportAnswer {
+  readonly importId: string;
 }

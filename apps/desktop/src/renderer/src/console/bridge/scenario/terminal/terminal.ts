@@ -1,76 +1,46 @@
-// The terminal scenario — one shared shell changing hands, and ending degraded.
+// The terminal scenario — one shared shell changing hands, and ending held.
 //
-// THIS FILE IS THE SCRIPT. The cast is in `terminal-cast.ts`, the beat envelope and
-// its clock in `terminal-beats.ts`, and the reply table in `terminal-replies.ts`.
-// What stays here is the one thing that has to be read in order to be understood:
-// which beat follows which, and why.
+// THIS FILE IS THE SCRIPT. The cast is in `cast.ts`, and the beat envelope and its
+// clock in `beats.ts`. What stays here is the one thing that has to be read in order
+// to be understood: which beat follows which, and why.
 //
-// WHAT IT CAN SCRIPT, AND WHY IT IS MORE THAN THE BROWSER'S. The terminal's own
-// renderer surface is unregistered on the growth slate, but the
-// lease is not: `pty.control_changed` is a registered event type with a closed
-// five-member reason vocabulary, and the holder is a field on it. So the transitions
-// this scenario scripts are wire-true today, and it is the terminal output — the
-// bytes, the scrollback, the resize — that has no type to carry it and is absent
-// here rather than invented.
+// WHAT IT CAN SCRIPT, AND WHY IT IS MORE THAN THE BROWSER'S. The terminal output has
+// no registered type, but the lease does: `pty.control_changed` is a registered event
+// type with a closed reason vocabulary, and the holder is a field on it.
+// So the transitions this scenario scripts are wire-true today, and it is the
+// terminal output — the bytes, the scrollback, the resize — that has no type to carry
+// it and is absent here rather than invented.
 //
-// THE FIVE REASONS ARE THE POINT. The console's design language requires
-// every transition to render as a ledger line naming its reason, with the three
-// automatic reasons kept distinct — the holder disconnected, the holder lost
-// authorization, or the acquiring agent run left its running state. A fixture that
-// scripted only `taken` and `released` would let a surface collapse the other three
-// into one sentence and still look right, so all five appear below, in the order a
-// session reaches them.
+// A HOLD ENDS THREE WAYS, AND THE SCRIPT REACHES EACH. There is no release control on a
+// shell: a device hands it back only by another device taking it, or by the hold ending
+// on its own. The automatic endings are the holder's connection ending, the holder
+// losing authorization, and the acquiring agent run leaving its running state. All
+// three appear below, in the order a session reaches them, so a surface that folded
+// them into one sentence would not look right against this script.
 //
 // AND EACH ONE IS REACHED THE WAY THE DAEMON REACHES IT. A reason scripted onto a
 // sequence no daemon produces is a fixture that looks exercised and is not, so the
 // run-idle release below is preceded by the acquisition it releases: the agent's run
 // queued, started, and reached `running`; an AGENT-PATH take bound to that run; the
 // run leaving `running`; and only then `auto_released_run_idle` for that holder.
-// The lease design makes this release the acquiring run's first
-// lifecycle transition out of `running` after an agent-path take, and it leaves a
-// client-acquired human hold alone — so releasing a human who had simply pressed
-// Claim was a beat with no producer, and the tests and baselines reading it were
-// exercising nothing.
+// The lease design makes this release the acquiring run's first lifecycle transition
+// out of `running` after an agent-path take, and it leaves a client-acquired human
+// hold alone.
 //
-// IT ENDS DEGRADED, WHICH IS NOT A DETAIL. `runToCompletion()` is the screenshot
-// tier's entry point, so the last beat is the frame a baseline pins — and the last
-// beat is the host going silent under a lease that had just been taken. The frame is
-// therefore 8.8's degraded state: unheld and read-only, with the node named, standing
-// over a transition ledger that reached all five reasons and a claim control that
-// offers itself to nobody. That is the busier frame as well as the more honest one,
-// because it carries everything the held frame carried plus the reading that took the
-// keyboard away. A script that ended on a plain free lease would pin the emptiest
-// frame the surface has; one that stopped at the final take would pin a surface whose
-// degraded state no baseline had ever seen.
-//
-// THE DEGRADED STATE ARRIVES WITHOUT A TRANSITION, AND THAT IS THE WHOLE DESIGN.
-// 8.8's degraded state is a holder whose node has gone offline: the pane renders
-// unheld and read-only under one line naming the node. There is deliberately NO
-// `pty.control_changed` for it — the roster read SUPPRESSES `controlHolder` to null
-// while the producing node reads offline and writes nothing, so nothing transitioned
-// and a read authors no events. The only wire signal a departed host emits is its
-// presence
-// transition, so this scenario scripts exactly that — a `runtime_node.offline` beat
-// after the final take — and a surface that derived the unheld rendering from a
-// missing `pty.control_changed` would never reach it, which is also why 8.8's last
-// Never rule reads "never derives the holder from the last observed claim". The pane
-// reaches it by folding these presence beats beside the lease ones —
-// `terminal/pane/node-presence-model.ts` — and handing the host's reported reachability to
-// the lease fold as its vouching input.
-//
+// IT ENDS HELD. `runToCompletion()` is the screenshot tier's entry point, so the last
+// beat is the frame a baseline pins — and the last beat is the owner taking the
+// shell, which is the frame that carries the most: a named holder and a script behind
+// it that reached every ending. A script that ended on a plain free lease would pin
+// the emptiest frame the surface has.
+
 import type { ConsoleScenario } from "../runtime/index.js";
 import {
-  TERMINAL_HOST_NODE_ATTACHED_AT_MS,
-  TERMINAL_HOST_NODE_LAST_HEARTBEAT_AT_MS,
   TERMINAL_SCENARIO_STARTED_AT_ISO,
   terminalLeaseTransitionBeat,
   terminalScenarioBeat,
-  terminalScenarioInstantAt,
 } from "./beats.js";
-import { TERMINAL_REPLIES } from "./replies.js";
 import {
   TERMINAL_AGENT_RUN_ID,
-  TERMINAL_HOST_NODE_ID,
   TERMINAL_SCENARIO_CAST,
   TERMINAL_SCENARIO_SESSION_ID,
 } from "./cast.js";
@@ -92,15 +62,18 @@ export const TERMINAL_SCENARIO: ConsoleScenario = {
   id: TERMINAL_SCENARIO_ID,
   label: "Lease changing hands",
   purpose:
-    "The session's one shared shell moving between two people and an agent run — the run queued, started, taken on the agent path, and completed, so the run-idle release follows the acquisition it releases — reaching all five transition reasons, ending held, then losing its host so the unheld-and-read-only degraded state is reachable. The output stream is absent until the terminal pane's renderer surface is registered.",
+    "The session's one shared shell moving between two of the user's devices and an agent " +
+    "run — the run queued, started, taken on the agent path, and completed, so the run-idle " +
+    "release follows the acquisition it releases — reaching each automatic ending of a hold " +
+    "and ending held. The output stream is absent until the terminal pane's renderer surface is " +
+    "registered.",
   sessionId: TERMINAL_SCENARIO_SESSION_ID,
   userIdsInJoinOrder: [OWNER, OTHER_DEVICE, AGENT],
-  // The owner is the person at this window. The lease line's `held-by-me` arm —
-  // and the handback it offers — is reachable only when the caller read names
-  // the holder, and this scenario ends with the owner holding the degraded
-  // lease; without a caller the pane can only show that the identity is being
-  // read, which is a true state of the console and not the state this
-  // scenario exists to show.
+  // The owner is the device at this window. The lease line's `held-by-me` arm is
+  // reachable only when the caller read names the holder, and this scenario ends
+  // with the owner holding the lease; without a caller the pane can only show that
+  // the identity is being read, which is a true state of the console and not the
+  // state this scenario exists to show.
   callerUserId: OWNER,
   startedAtIso: TERMINAL_SCENARIO_STARTED_AT_ISO,
   beats: [
@@ -129,24 +102,8 @@ export const TERMINAL_SCENARIO: ConsoleScenario = {
       },
     }),
     terminalScenarioBeat({
-      atMs: TERMINAL_HOST_NODE_ATTACHED_AT_MS,
-      sequence: 3,
-      kind: "runtime_node.online",
-      actorId: OWNER,
-      // The terminal's host, present before any lease exists. Without it the
-      // offline beat at the end would drop a node the pane had never heard of, and
-      // the degraded line naming the node would have no name to use.
-      payload: {
-        sessionId: TERMINAL_SCENARIO_SESSION_ID,
-        nodeId: TERMINAL_HOST_NODE_ID,
-        previousState: "registering",
-        newState: "online",
-        actor: OWNER,
-      },
-    }),
-    terminalScenarioBeat({
       atMs: 220,
-      sequence: 4,
+      sequence: 3,
       kind: "agent.attached",
       // The person who attached the agent, not the agent: an agent does not attach
       // itself, and the envelope actor is who acted.
@@ -157,30 +114,12 @@ export const TERMINAL_SCENARIO: ConsoleScenario = {
         name: "Builder",
         driverName: "codex",
         modelId: "gpt-5.6-luna",
-        defaultNodeId: TERMINAL_HOST_NODE_ID,
-        state: "ready",
         actor: OWNER,
       },
     }),
     terminalLeaseTransitionBeat({
-      atMs: 400,
-      sequence: 5,
-      holderUserId: OWNER,
-      previousHolderUserId: null,
-      reason: "taken",
-      actorId: OWNER,
-    }),
-    terminalLeaseTransitionBeat({
-      atMs: 900,
-      sequence: 6,
-      holderUserId: null,
-      previousHolderUserId: OWNER,
-      reason: "released",
-      actorId: OWNER,
-    }),
-    terminalLeaseTransitionBeat({
       atMs: 1200,
-      sequence: 7,
+      sequence: 4,
       holderUserId: OTHER_DEVICE,
       previousHolderUserId: null,
       reason: "taken",
@@ -188,7 +127,7 @@ export const TERMINAL_SCENARIO: ConsoleScenario = {
     }),
     terminalLeaseTransitionBeat({
       atMs: 1800,
-      sequence: 8,
+      sequence: 5,
       holderUserId: null,
       previousHolderUserId: OTHER_DEVICE,
       reason: "auto_released_disconnect",
@@ -196,7 +135,7 @@ export const TERMINAL_SCENARIO: ConsoleScenario = {
     }),
     terminalLeaseTransitionBeat({
       atMs: 2300,
-      sequence: 9,
+      sequence: 6,
       holderUserId: OWNER,
       previousHolderUserId: null,
       reason: "taken",
@@ -204,7 +143,7 @@ export const TERMINAL_SCENARIO: ConsoleScenario = {
     }),
     terminalLeaseTransitionBeat({
       atMs: 2700,
-      sequence: 10,
+      sequence: 7,
       holderUserId: null,
       previousHolderUserId: OWNER,
       reason: "auto_released_authorization_lost",
@@ -212,7 +151,7 @@ export const TERMINAL_SCENARIO: ConsoleScenario = {
     }),
     terminalScenarioBeat({
       atMs: 3000,
-      sequence: 11,
+      sequence: 8,
       kind: "run.queued",
       // The person who started the run, not the agent. `previousState` is absent
       // here and only here: a queued run is being born, and no document names the
@@ -228,7 +167,7 @@ export const TERMINAL_SCENARIO: ConsoleScenario = {
     }),
     terminalScenarioBeat({
       atMs: 3100,
-      sequence: 12,
+      sequence: 9,
       kind: "run.starting",
       // No actor: the daemon moves a run through its own states, and a user
       // id here would attribute a system transition to a person.
@@ -242,7 +181,7 @@ export const TERMINAL_SCENARIO: ConsoleScenario = {
     }),
     terminalScenarioBeat({
       atMs: 3200,
-      sequence: 13,
+      sequence: 10,
       kind: "run.running",
       payload: {
         sessionId: TERMINAL_SCENARIO_SESSION_ID,
@@ -258,18 +197,17 @@ export const TERMINAL_SCENARIO: ConsoleScenario = {
     // NODE-OWNER user, which is who an agent-path take holds as: agents are
     // `AgentId`-keyed domain actors and not `users` rows, so no
     // agent-user exists to hold and the holder surfaces stay user
-    // ids, exactly as the terminal-control method registry declares. The
-    // roster reply names the same owner.
+    // ids, exactly as the terminal-control method registry declares.
     terminalLeaseTransitionBeat({
       atMs: 3300,
-      sequence: 14,
+      sequence: 11,
       holderUserId: OWNER,
       previousHolderUserId: null,
       reason: "taken",
     }),
     terminalScenarioBeat({
       atMs: 3600,
-      sequence: 15,
+      sequence: 12,
       kind: "run.completed",
       // The acquiring run's first lifecycle transition out of `running` — what the
       // auto-release below is a consequence of, rather than an asserted state.
@@ -283,42 +221,20 @@ export const TERMINAL_SCENARIO: ConsoleScenario = {
     }),
     terminalLeaseTransitionBeat({
       atMs: 3700,
-      sequence: 16,
+      sequence: 13,
       holderUserId: null,
       previousHolderUserId: OWNER,
       reason: "auto_released_run_idle",
     }),
-    // The held-lease steady state. Everything above this beat is history in the
-    // transition ledger; this is the holder the pane's header names and the
-    // roster's `controlHolder` agrees with.
+    // The held-lease steady state: the holder the pane's header names.
     terminalLeaseTransitionBeat({
       atMs: 4100,
-      sequence: 17,
+      sequence: 14,
       holderUserId: OWNER,
       previousHolderUserId: null,
       reason: "taken",
       actorId: OWNER,
     }),
-    terminalScenarioBeat({
-      atMs: 4900,
-      sequence: 18,
-      kind: "runtime_node.offline",
-      actorId: OWNER,
-      // THE DEGRADED BEAT. `heartbeat_lost` and not `explicit_shutdown`, because
-      // the case the read-side suppression exists for is the host that never says
-      // goodbye — a crashed or powered-off machine calls no detach, and its
-      // presence transition is the only signal it emits. The lease record is
-      // untouched and no `pty.control_changed` follows: the holder stops being
-      // ADVERTISED, not released.
-      payload: {
-        sessionId: TERMINAL_SCENARIO_SESSION_ID,
-        nodeId: TERMINAL_HOST_NODE_ID,
-        previousState: "online",
-        newState: "offline",
-        lastHeartbeatAt: terminalScenarioInstantAt(TERMINAL_HOST_NODE_LAST_HEARTBEAT_AT_MS),
-        reason: "heartbeat_lost",
-      },
-    }),
   ],
-  replies: TERMINAL_REPLIES,
+  replies: [],
 };

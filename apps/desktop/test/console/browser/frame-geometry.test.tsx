@@ -153,8 +153,8 @@ describe("browser — the frame lays out", () => {
     await renderSettled(<ConsoleRoot scenarioId={FIRST_RUN_SCENARIO_ID} />);
 
     expect(document.querySelector("[role='dialog']")).toBeNull();
-    await pressKeys("{Control>}k{/Control}");
-    await pressKeys("{Meta>}k{/Meta}");
+    await pressKeys("{Control>}{Shift>}p{/Shift}{/Control}");
+    await pressKeys("{Meta>}{Shift>}p{/Shift}{/Meta}");
 
     const dialog = document.querySelector("[role='dialog']");
     expect(dialog).not.toBeNull();
@@ -167,9 +167,6 @@ describe("browser — the frame lays out", () => {
     expect(listed.some((text) => text.includes("Go to Sessions"))).toBe(true);
     expect(listed.some((text) => text.includes("Go to Workflows"))).toBe(true);
     expect(listed.some((text) => text.includes("Go to Settings"))).toBe(true);
-    // "Go to Workspace" is deliberately absent: its `when: "sessionActive"` is
-    // false on a first run, and a command that cannot act is not offered.
-    expect(listed.some((text) => text.includes("Go to Workspace"))).toBe(false);
   });
 
   it("does not scroll the frame horizontally at a narrow window", async () => {

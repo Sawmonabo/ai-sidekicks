@@ -71,7 +71,7 @@ export function AttentionRow(props: {
  * the projection's own text and is rendered beside it verbatim. Exactly one of the
  * five earns red and a glyph — the one that names a failure — so the two-hue rule
  * holds: amber means a person is needed, red means something failed, and every
- * other trigger carries whichever of those its severity says and no colour of its
+ * other trigger carries whichever of those its severity says and no color of its
  * own.
  */
 export const TRIGGER_LABELS: Readonly<Record<AttentionTrigger, string>> = {

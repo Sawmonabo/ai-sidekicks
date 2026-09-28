@@ -1,8 +1,8 @@
-// One entity's record, drawn once for all twelve kinds.
+// One entity's record, drawn once for every kind.
 //
 // Every detail component supplies WHAT its kind carries and WHAT each of its four
 // states says; this module decides how any of that looks. The split is the reason
-// twelve kinds do not become twelve layouts: a kind that drew its own frame would
+// kinds do not become one layout each: a kind that drew its own frame would
 // pick its own heading weight, its own facet alignment, and its own answer to where
 // the identifier goes, and a reader moving between two panes would be reading two
 // consoles.

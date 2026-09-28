@@ -61,14 +61,20 @@ export interface SessionStoreState {
   readonly revision: number;
 }
 
+/**
+ * Where a store opens when its base state carries no position: the bottom of the stream.
+ *
+ * The subscription replays from there, so a base state ahead of it would make the store
+ * drop events it has not seen.
+ */
+export const BASE_STATE_CURSOR = 0;
+
 /** The base state a read response establishes. */
 export interface SessionSnapshot {
   /** The sequence the snapshot is current as of. */
   readonly cursor: number;
   /** Entities the read response carried. */
   readonly entities: readonly ConsoleEntity[];
-  /** Users in join-log order — the order the hue wheel is allocated in. */
-  readonly userJoinLog: readonly string[];
   /** Events the read response carried, ordered by sequence. */
   readonly timeline?: readonly ConsoleSessionEvent[];
   /**

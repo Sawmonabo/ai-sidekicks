@@ -5,7 +5,7 @@
 // committed sheet would be a second copy of `palette.ts` — the two would drift, and
 // the only defence would be a byte-diff test whose failure mode is "someone forgot
 // to run the generator". Generating at mount deletes the second copy: there is one
-// source of truth for every colour, and the sheet cannot disagree with it.
+// source of truth for every color, and the sheet cannot disagree with it.
 //
 // The cost is a few kilobytes of string building once per window, before first
 // paint. That is well inside the frame budget and is paid exactly once; the

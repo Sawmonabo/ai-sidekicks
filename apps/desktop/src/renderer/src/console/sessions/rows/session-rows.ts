@@ -25,41 +25,15 @@
 //   4. **Identifier.** The deterministic tiebreak, so two rows that tie on
 //      everything else do not swap places between renders.
 //
-// PIN CHANGES THE TIER, NEVER THE POSITION. "Re-pinning does not bump a row to the
-// top of its tier, because a pinned list ordered by pin time is a second inbox."
-// Nothing in the comparator reads the pin, and the fold below applies the same
-// comparator inside each tier — which is what makes that promise structural rather
-// than a habit.
+// A PIN LIFTS A ROW ABOVE THE UNPINNED ONES, NEVER WITHIN THE PINNED. Nothing in the
+// comparator reads the pin; the same comparator orders each group, so re-pinning does
+// not bump a row to the top of the pinned rows, which would make a pinned list a second
+// inbox.
 
 import type { SessionState } from "@ai-sidekicks/contracts";
 
 import type { AttentionSeverity } from "../../bridge/index.js";
 import { compareInstants, parseInstant } from "../../core/index.js";
-
-/**
- * The two tiers the list folds into. Closed, declared once, union derived.
- *
- * The persistence chokepoint admits exactly these two literals for the `pin`
- * value class, and that agreement is CHECKED in this module's tests rather than
- * asserted in a comment — the store's validator is an independent admission gate,
- * so a tier added here without one added there is refused at the write instead of
- * silently persisting.
- */
-export const SESSION_PIN_TIERS = ["front", "back"] as const;
-
-/** One tier. Derived from the enumeration, never restated beside it. */
-export type SessionPinTier = (typeof SESSION_PIN_TIERS)[number];
-
-/**
- * The tier a row falls into when nobody has pinned it.
- *
- * The back tier is the DEFAULT rather than a third state, which is what keeps the
- * list at two tiers and one divider. It also decides what the row menu offers: a
- * separate "unpin" beside "move to the back tier" would be two controls for one
- * outcome, so moving a row back is what unpinning means and the persisted map
- * holds only the exceptions.
- */
-export const DEFAULT_SESSION_PIN_TIER: SessionPinTier = "back";
 
 /**
  * The two states that are audit stubs rather than sessions a person can work in.
@@ -91,30 +65,12 @@ export interface SessionListRow {
   readonly attentionSeverity: AttentionSeverity | undefined;
 }
 
-/**
- * A row that has been placed in a tier.
- *
- * The tier travels ON the row rather than beside it in a map the renderer looks
- * into, for two reasons: the row's own control needs it, and a row whose tier
- * changed then has a new identity, which is what lets the list memoise a row and
- * still re-render exactly the one that moved.
- */
-export interface PlacedSessionRow extends SessionListRow {
-  readonly tier: SessionPinTier;
-}
-
-/** The list, folded into its two tiers. Each tier is already ordered. */
-export interface SessionTierFold {
-  readonly front: readonly PlacedSessionRow[];
-  readonly back: readonly PlacedSessionRow[];
-}
-
 /** True when the state is one a person can do nothing with. Fail-closed on `undefined`. */
 export function isAuditStubSession(state: string | undefined): boolean {
   return state !== undefined && (AUDIT_STUB_SESSION_STATES as readonly string[]).includes(state);
 }
 
-/** The ordinary status-and-activity comparator. Applies inside each tier. */
+/** The ordinary status-and-activity comparator. Applies inside each group. */
 export function compareSessionRows(left: SessionListRow, right: SessionListRow): number {
   const byAttention =
     attentionRank(left.attentionSeverity) - attentionRank(right.attentionSeverity);
@@ -141,34 +97,28 @@ export function compareSessionRows(left: SessionListRow, right: SessionListRow):
 }
 
 /**
- * Fold rows into the two tiers.
+ * Order rows for the list: pinned rows first, each group by the ordinary comparator.
  *
- * The pin map is read as a total function through the default, so a row nobody has
- * touched has a tier without anybody having written one down. Both tiers are sorted
- * by the same comparator, which is the whole of "inside each tier the ordinary
- * status-and-activity comparator applies".
+ * A row is pinned when the pin map holds an entry for it; an unpinned row has no record.
  */
-export function foldIntoTiers(
+export function orderSessionRows(
   rows: readonly SessionListRow[],
-  tierBySessionId: Readonly<Record<string, SessionPinTier>>,
-): SessionTierFold {
-  const front: PlacedSessionRow[] = [];
-  const back: PlacedSessionRow[] = [];
-  for (const row of rows) {
-    const tier = tierBySessionId[row.sessionId] ?? DEFAULT_SESSION_PIN_TIER;
-    (tier === "front" ? front : back).push({ ...row, tier });
-  }
-  return {
-    front: front.sort(compareSessionRows),
-    back: back.sort(compareSessionRows),
-  };
+  pinned: Readonly<Record<string, unknown>>,
+): readonly SessionListRow[] {
+  const pinnedRows = rows
+    .filter((row) => Object.hasOwn(pinned, row.sessionId))
+    .sort(compareSessionRows);
+  const otherRows = rows
+    .filter((row) => !Object.hasOwn(pinned, row.sessionId))
+    .sort(compareSessionRows);
+  return [...pinnedRows, ...otherRows];
 }
 
 /**
  * Lifecycle rank, low sorts first.
  *
  * A total function over any string the wire can send, including one this console
- * has never seen: an unrecognised state ranks with the settled group rather than
+ * has never seen: an unrecognized state ranks with the settled group rather than
  * with the live one, which is the fail-closed direction — it under-promises about
  * a session the console cannot classify instead of promoting it past sessions it
  * can.

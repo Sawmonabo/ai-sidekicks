@@ -124,7 +124,7 @@ function noDraftUntilOpened(): NewSessionDraft | undefined {
  * without it would make closing mean something else.
  *
  * THE RELEASING ARM: `discard()` clears the selections and leaves a working draft, so
- * there is no closed state for the holder to recognise and a reading beside it would
+ * there is no closed state for the holder to recognize and a reading beside it would
  * claim a lifetime that does not end. Declared at module scope because the hook holds
  * the disposal on a dependency of its own.
  */
@@ -142,7 +142,7 @@ const DRAFT_DISPOSAL: SubjectScopedDisposal<NewSessionDraft | undefined> = {
  * clears one of them.
  */
 export function useNewSessionComposition(props: NewSessionControlProps): NewSessionComposition {
-  const { bridge, onSessionCreated } = props;
+  const { bridge, queueFirstTurn, onSessionCreated } = props;
   const heldDraft = useSubjectScopedResource<NewSessionDraft | undefined>(
     bridge,
     undefined,
@@ -175,8 +175,8 @@ export function useNewSessionComposition(props: NewSessionControlProps): NewSess
   );
 
   const open = useCallback(() => {
-    publishDraft(new NewSessionDraft({ bridge }));
-  }, [bridge, publishDraft]);
+    publishDraft(new NewSessionDraft({ bridge, queueFirstTurn }));
+  }, [bridge, queueFirstTurn, publishDraft]);
 
   const close = useCallback(() => {
     // Published rather than discarded here: the holder disposes what it replaced,
@@ -195,30 +195,8 @@ export function useNewSessionComposition(props: NewSessionControlProps): NewSess
     [openDraft],
   );
 
-  // The block as the DESTINATION reads it now, not as this render saw it.
-  //
-  // Held on a commit-time ref for `onSessionCreated`'s reason: the destination composes
-  // the reading fresh on every pass, so naming it in a dependency array would rebuild
-  // `send` on every render of the surface above. The reader inside it is stable and
-  // asks two live sources, so a callback captured several renders ago still answers for
-  // the shell as it stands when the press lands.
-  const committedBlockedActRef = useRef(props.blockedAct);
-  useLayoutEffect(() => {
-    committedBlockedActRef.current = props.blockedAct;
-  });
-
   const send = useCallback(() => {
     if (openDraft === undefined) {
-      return;
-    }
-    // FAIL-CLOSED AT THE DISPATCH SITE, not only on the control. Send is disabled from
-    // the same reading, so a press cannot ordinarily arrive here — but the block can
-    // land in the frame between the render that enabled the button and the click that
-    // reaches this handler, and what must not happen then is a `session.create`.
-    // Nothing is published: the cause is already on screen beside the control, and a
-    // sending flag set here would leave a spinner nothing settles.
-    // `onboarding/provider-readiness/provider-readiness.ts`' `recheck` is the precedent.
-    if (committedBlockedActRef.current.readSentence() !== undefined) {
       return;
     }
     // The publisher captured on THIS render is the one bound to the draft that is
@@ -267,13 +245,12 @@ export function useNewSessionComposition(props: NewSessionControlProps): NewSess
   // read it without depending on its identity.
   //
   // The destination composes it from the stores its context carries and hands over a
-  // fresh function on every pass — the shape `SessionsSurface.tsx` states outright,
-  // because nothing over there needs a stable one. Named in the effect's dependencies
-  // it would re-run the whole settlement on every render of the surface above: the
-  // sentence said twice, the session opened twice, the navigation put twice. Written
-  // from a layout effect rather than the render body for `ledger/pane/feed`'s reason —
-  // a pass React discards still runs a render body, and a callback captured there
-  // belongs to a tree that never reached the screen.
+  // fresh function on every pass, because nothing over there needs a stable one. Named
+  // in the effect's dependencies it would re-run the whole settlement on every render
+  // of the surface above: the sentence said twice, the session opened twice, the
+  // navigation put twice. Written from a layout effect rather than the render body for
+  // `ledger/pane/feed`'s reason — a pass React discards still runs a render body, and a
+  // callback captured there belongs to a tree that never reached the screen.
   const committedSessionCreatedRef = useRef(onSessionCreated);
   useLayoutEffect(() => {
     committedSessionCreatedRef.current = onSessionCreated;

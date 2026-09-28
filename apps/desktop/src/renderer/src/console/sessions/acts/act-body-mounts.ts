@@ -1,31 +1,21 @@
-// The two edges into the acts bar's deferred bodies, and the only ones that are
+// The one edge into the import panel's deferred body, and the only one that is
 // asynchronous.
 //
-// WHAT THIS MODULE IS. `join-session-form-body.ts` and `provider-import-panel-body.ts`
-// are the chunk roots and each states why its body is off the initial import graph; this
-// module is the half that stays ON it — the two mounts the bar's component lines became,
-// and nothing else. It holds no form knowledge and imports neither body at run time: the
-// two `import type` lines below are erased by the compiler, so the only runtime edges
-// into those chunks are the `import()` calls inside the mounts.
+// WHAT THIS MODULE IS. `provider-import-panel-body.ts` is the chunk root and states why
+// its body is off the initial import graph; this module is the half that stays ON it —
+// the mount, and nothing else. It holds no form knowledge and imports the body at run
+// time only through the `import()` call inside the mount: the `import type` line below
+// is erased by the compiler.
 //
-// ONE MODULE FOR BOTH, AND TWO CHUNKS INSIDE IT. The bar has exactly two disclosed acts
-// and one file is where a reader meets both of them beside each other; what is
-// deliberately NOT shared is the chunk. A single root re-exporting both would make
-// pressing Join fetch the import panel, its progress line, and the four stream arms that
-// panel renders — code for an act that press is not, charged to it because the two lines
-// happened to live in one module. Two roots, two `import()` calls, two memos.
+// A `LoadedLazyBody` rather than a `lazy()` of this module's own, because that class is
+// already the console's one answer to a loader-backed body: one in-flight promise however
+// many callers ask, one component identity so a host re-render does not remount a
+// half-typed form, a fresh payload only where a load rejected so the error boundary's
+// retry reaches a live loader, and the settled body rendered directly once the chunk has
+// landed — so a form disclosed, dismissed, and disclosed again never suspends at all.
 //
-// A `LoadedLazyBody` EACH rather than a `lazy()` of this module's own, because that
-// class is already the console's one answer to a loader-backed body: one in-flight
-// promise however many callers ask, one component identity so a host re-render does not
-// remount a half-typed form, a fresh payload only where a load rejected so the error
-// boundary's retry reaches a live loader, and the settled body rendered directly once
-// the chunk has landed — so a form disclosed, dismissed, and disclosed again never
-// suspends at all.
-//
-// TWO `const`s AND NOT MODULE-LEVEL `let`s: the memo is each class's own private field,
-// which is what the state-and-views rule in `apps/desktop/AGENTS.md` asks for, and a
-// window has one acts bar per sessions destination with nothing to key a registration on.
+// A `const` and not a module-level `let`: the memo is the class's own private field,
+// which is what the state-and-views rule in `apps/desktop/AGENTS.md` asks for.
 //
 // WHAT A PENDING BODY DRAWS is the marker `seats/pane/pending-pane-body.ts` owns and nothing
 // else: no spinner, no skeleton, and none of rule 8's five kinds of nothing. What is
@@ -39,12 +29,13 @@ import type { ProviderImportPanelProps } from "./ProviderImportPanel.js";
 /**
  * What a pending import panel stamps, so a refused capture says WHICH body was loading.
  *
- * Not a pane kind — the body is not a pane, and it is drawn inside a bar the deck knows
- * nothing about — so the value is the body's own name.
+ * Not a pane kind — the body is not a pane — so the value is the body's own name.
  */
 const PROVIDER_IMPORT_PANEL_PENDING_BODY = "provider-import-panel";
 
-/** The import panel, mounted from its own chunk. The create menu's one reader. */
+/**
+ * The import panel, mounted from its own chunk.
+ */
 export const providerImportPanelMount: LoadedLazyBody<ProviderImportPanelProps> =
   new LoadedLazyBody(
     () => import("./provider-import-panel-body.js"),

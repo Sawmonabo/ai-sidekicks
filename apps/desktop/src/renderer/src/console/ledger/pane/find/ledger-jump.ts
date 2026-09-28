@@ -153,27 +153,8 @@ export function useDeferredRowJump(inputs: {
 interface LedgerJumpActContext {
   readonly foldedWindow: LedgerWindowModel;
   readonly openedTerminalRunIds: ReadonlySet<string>;
-  /**
-   * The rows the SUPERSEDED-BAND fold took, by id.
-   *
-   * THE STAGE'S OWN REMOVALS AND NOT A MEMBERSHIP TEST, because membership answers the
-   * wrong question. A row can belong to a band that is open and still be missing from the
-   * folded window — an open chapter draws only so many entries — so "is this row in a
-   * band" would offer to open a band that is already open for a row nothing there
-   * reaches. What the band fold REMOVED is decisive: every one of those rows survived the
-   * chapter fold to reach it, so opening its band puts it back.
-   */
-  readonly bandFoldedRowIds: ReadonlySet<string>;
   readonly clearFilter: () => void;
-  /**
-   * Open every fold that is holding this row, which is one act and up to two folds.
-   *
-   * NAMED FOR WHAT IT DOES rather than for the absence that reaches it. A row can be
-   * inside a shut chapter, inside a folded rewind band, or inside both, and the act
-   * that reaches it has to open whichever are holding it — an act that opened only the
-   * chapter would scroll the ledger to a row still folded away. The caller's own
-   * implementation says the same thing beside its two arms.
-   */
+  /** Open the shut chapter holding this row, so the jump that follows can land. */
   readonly openFoldsHoldingRow: (row: TimelineRow) => void;
   readonly requestJump: (rowId: string) => void;
 }
@@ -187,25 +168,17 @@ type LedgerJumpAct = (
 /**
  * The act each absence deserves over THIS ledger, or `undefined` where none exists.
  *
- * A TABLE KEYED BY ABSENCE, `LedgerEventIdJump.tsx`' `JUMP_ABSENCE_WORDS` shape and
- * for its reason: the two are the same set said twice — what the absence IS, and
- * what reaches it — and both are total over `LEDGER_JUMP_ABSENCES` by `satisfies`.
- * This used to be an `if`-chain whose last arm was the chapter fold, so a fourth
- * narrowing added to the pipeline compiled and fell through to "Open that chapter
- * and go to it", offering an act that could not reach the row — which is the exact
- * defect this module exists to remove, reintroduced by the shape of its own
- * resolution.
+ * A TABLE KEYED BY ABSENCE, total over `LEDGER_JUMP_ABSENCES` by `satisfies`, so a
+ * narrowing added to the pipeline cannot compile and fall through to "Open that
+ * chapter and go to it", offering an act that could not reach the row.
  *
  * An act is resolved per OUTCOME rather than per absence because two of the arms
  * are only conditionally reachable:
  *
- *   • A row a fold dropped is reachable by opening the fold that is holding it, and
- *     TWO FOLDS CAN HOLD ONE, which is why that arm asks two questions rather than
- *     one. A shut chapter is opened by name; a rewound band the band fold took is
- *     shown by its header. Neither act reaches a row whose chapter is already OPEN
- *     and which sits past the chapter's own row cap — toggling there would close the
- *     chapter and take the rest of the run off screen too — so that case, and only
- *     that case, still offers nothing.
+ *   • A row a fold dropped is reachable by opening the chapter that is holding it. That
+ *     act does not reach a row whose chapter is already OPEN and which sits past the
+ *     chapter's own row cap — toggling there would close the chapter and take the rest
+ *     of the run off screen too — so that case, and only that case, offers nothing.
  *   • A row the cap took is reachable by nothing. This console subscribes to the
  *     log and holds no read that fetches a range of it, so the honest surface is
  *     the sentence alone.
@@ -219,22 +192,17 @@ const LEDGER_JUMP_ACTS = {
     },
   }),
   "folded-into-chapter": (row, context) => {
-    // THE CHAPTER FIRST, because it is the outer fold: a row inside a shut chapter is
-    // held by that chapter whether or not a band inside it is folded too, and the act
-    // below opens whichever of the two are holding it.
     const chapterRunId = chapterRunIdInWindow(row, context.foldedWindow);
-    if (chapterRunId !== undefined && !context.openedTerminalRunIds.has(chapterRunId)) {
-      return openFoldsAct("Open that chapter and go to it", row, context);
+    if (chapterRunId === undefined || context.openedTerminalRunIds.has(chapterRunId)) {
+      return undefined;
     }
-    // AND THE BAND, WHICH THIS ARM USED TO REFUSE. A folded band's rows leave the window
-    // this classification reads, so entering one of their ids lands here — and the
-    // chapter question above answers "no chapter is holding it" for exactly those rows,
-    // which was read as "nothing reaches it" and printed a sentence with no way out. The
-    // act that shows the band has been wired the whole time.
-    if (context.bandFoldedRowIds.has(row.id)) {
-      return openFoldsAct("Show that rewound band and go to it", row, context);
-    }
-    return undefined;
+    return {
+      label: "Open that chapter and go to it",
+      perform: () => {
+        context.openFoldsHoldingRow(row);
+        context.requestJump(row.id);
+      },
+    };
   },
   "outside-window": () => undefined,
 } satisfies Readonly<Record<LedgerJumpAbsence, LedgerJumpAct>>;
@@ -250,8 +218,6 @@ export function useLedgerJumpReach(inputs: {
   readonly outcome: LedgerJumpOutcome | undefined;
   readonly foldedWindow: LedgerWindowModel;
   readonly openedTerminalRunIds: ReadonlySet<string>;
-  /** What the superseded-band fold reported removing, by id. */
-  readonly bandFoldedRowIds: ReadonlySet<string>;
   readonly clearFilter: () => void;
   readonly openFoldsHoldingRow: (row: TimelineRow) => void;
   readonly requestJump: (rowId: string) => void;
@@ -260,7 +226,6 @@ export function useLedgerJumpReach(inputs: {
     outcome,
     foldedWindow,
     openedTerminalRunIds,
-    bandFoldedRowIds,
     clearFilter,
     openFoldsHoldingRow,
     requestJump,
@@ -276,20 +241,11 @@ export function useLedgerJumpReach(inputs: {
     return LEDGER_JUMP_ACTS[outcome.status](outcome.row, {
       foldedWindow,
       openedTerminalRunIds,
-      bandFoldedRowIds,
       clearFilter,
       openFoldsHoldingRow,
       requestJump,
     });
-  }, [
-    outcome,
-    foldedWindow,
-    openedTerminalRunIds,
-    bandFoldedRowIds,
-    clearFilter,
-    openFoldsHoldingRow,
-    requestJump,
-  ]);
+  }, [outcome, foldedWindow, openedTerminalRunIds, clearFilter, openFoldsHoldingRow, requestJump]);
 }
 
 /**
@@ -310,27 +266,4 @@ export function chapterRunIdInWindow(
     return undefined;
   }
   return foldedWindow.chapterByHeaderKey.has(runId) ? runId : undefined;
-}
-
-/**
- * One offer that opens the folds holding a row and then jumps to it.
- *
- * The two folded arms differ in their WORDS and in nothing else — both open whichever
- * folds are holding the row, because a row can be inside a shut chapter, inside a folded
- * band, or inside both, and an act that opened one of two would scroll the ledger to a
- * row still folded away. Writing the body twice would let the second copy drift into
- * opening only its own fold.
- */
-function openFoldsAct(
-  label: string,
-  row: TimelineRow,
-  context: LedgerJumpActContext,
-): LedgerJumpReach {
-  return {
-    label,
-    perform: () => {
-      context.openFoldsHoldingRow(row);
-      context.requestJump(row.id);
-    },
-  };
 }

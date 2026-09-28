@@ -1,10 +1,9 @@
 // The identity the bridge's two scripted-reply probes run under.
 //
-// `read-settlement.test.ts` and `fixture/growth/scripted-answer.test.ts` each stand a
-// scenario up that scripts replies and plays no beats, and each was declaring the
-// same session and user pair to do it. Two literals of the same value is how
-// one suite's scenario ends up addressed at a session the other's is not, with
-// nothing reporting that the two probes stopped probing the same thing.
+// A probe scenario that scripts replies and plays no beats needs a session and a user.
+// Each probe declaring its own pair is how one suite's scenario ends up addressed at
+// a session another's is not, with nothing reporting that the probes stopped probing
+// the same thing.
 //
 // NOT THE WORKFLOWS FAMILY'S PROBE, though it carries the same value today. A view
 // family's support module sits above this one in the console's dependency order, so

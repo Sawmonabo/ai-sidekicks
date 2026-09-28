@@ -113,6 +113,3 @@ const REFUSAL_REMEDIES: Readonly<Record<string, RefusalRemedy>> = {
 export function refusalRemedyFor(code: string): RefusalRemedy | undefined {
   return Object.hasOwn(REFUSAL_REMEDIES, code) ? REFUSAL_REMEDIES[code] : undefined;
 }
-
-/** Every code this table answers for, as a set a test can walk. */
-export const REMEDIED_REFUSAL_CODES: readonly string[] = Object.keys(REFUSAL_REMEDIES);

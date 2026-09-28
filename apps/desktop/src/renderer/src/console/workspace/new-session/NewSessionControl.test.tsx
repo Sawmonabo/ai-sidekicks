@@ -5,10 +5,10 @@
 // a person could press. These cases drive the control instead of the class, so what
 // they assert is that the acts are reachable, in that order, through the screen.
 //
-// The send case is the load-bearing one. Exactly one of the three calls the draft's
-// coalesced send names is registered, so a real send lands `session.create` and then
-// says what it could not do. A control that reported that as a plain success would
-// be describing a session with no agents and no first turn as a finished one.
+// The send case is the load-bearing one. The first-turn call is unscripted, so a real
+// send lands `session.create` and then says what it could not do. A control that
+// reported that as a plain success would be describing a session with no first turn
+// as a finished one.
 //
 // And because that partial leaves the draft on screen with Send still pressable,
 // the last case here is the affordance half of the double-press guard: Send is
@@ -17,9 +17,9 @@
 // does, which is what a person can actually observe.
 //
 // THE THIRD DESCRIBE IS THE OTHER HALF OF A SEND: what a COMPLETED one hands out.
-// Both of this draft's reachable calls are scripted there, which is what makes a
-// completed send reachable at all — everywhere else in this file the first turn is
-// unscripted, so every send settles partial and the settlement arm is never taken.
+// The first-turn call resolves there, which is what makes a completed send reachable at
+// all — everywhere else in this file it rejects, so every send settles partial and the
+// settlement arm is never taken.
 //
 // AND THE LAST DESCRIBE IS ABOUT AN AXIS THAT IS NOT HERE, which needs a case for the
 // same reason an absent control always does: nothing else in this file would notice a
@@ -35,11 +35,11 @@ import { LiveAnnouncerProvider } from "../../primitives/index.js";
 import { NewSessionControl } from "./NewSessionControl.js";
 import { CREATED_SESSION_ID } from "./new-session-draft.test-support.js";
 import {
-  NOTHING_BLOCKS_THE_ACT,
   bridgeAnsweringCreateUnreadably,
   bridgeFor,
   bridgeHoldingCreate,
-  bridgeRecordingACompleteSend,
+  bridgeRecordingASend,
+  completingFirstTurn,
   composeAndCompleteASend,
   openDraftWithFirstTurn,
   politeText,
@@ -108,7 +108,7 @@ describe("the composed new-session draft — reachable, and only on an act", () 
 
     // The session exists, and what could not follow it is named. Only `session.create`
     // is scripted on this bridge, so the turn's own call is refused by the fixture — a
-    // different code from the one a stopped attach gets, because they are unsendable
+    // different code from the one a refused create gets, because they are unsendable
     // for different reasons and a person pastes the code.
     expect(container.textContent).toContain("first-turn-failed");
     // And the calls that DID land are named beneath the refusal, which is what a
@@ -166,10 +166,10 @@ describe("the composed new-session draft — what a completed send hands out", (
     // directory read happened to notice it, and carrying none of the origin markers
     // only this window can report.
     const settledSessionIds: string[] = [];
-    const container = renderControlOn(
-      bridgeFor({ scriptsCreate: true, scriptsFirstTurn: true }),
-      (sessionId) => settledSessionIds.push(sessionId),
-    );
+    const container = renderControlOn(bridgeFor({ scriptsCreate: true }), {
+      onSessionCreated: (sessionId) => settledSessionIds.push(sessionId),
+      queueFirstTurn: completingFirstTurn().call,
+    });
 
     await composeAndCompleteASend();
 
@@ -190,9 +190,9 @@ describe("the composed new-session draft — what a completed send hands out", (
     // sentence that says which leg could not be made — the sentence a second press acts
     // on, because the draft resumes at exactly that call.
     const settledSessionIds: string[] = [];
-    const container = renderControlOn(bridgeFor({ scriptsCreate: true }), (sessionId) =>
-      settledSessionIds.push(sessionId),
-    );
+    const container = renderControlOn(bridgeFor({ scriptsCreate: true }), {
+      onSessionCreated: (sessionId) => settledSessionIds.push(sessionId),
+    });
 
     await openDraftWithFirstTurn();
     await press("Send");
@@ -204,9 +204,9 @@ describe("the composed new-session draft — what a completed send hands out", (
 
   it("hands nothing out when the create itself refused, because there is no session", async () => {
     const settledSessionIds: string[] = [];
-    renderControlOn(bridgeFor({ scriptsCreate: false }), (sessionId) =>
-      settledSessionIds.push(sessionId),
-    );
+    renderControlOn(bridgeFor({ scriptsCreate: false }), {
+      onSessionCreated: (sessionId) => settledSessionIds.push(sessionId),
+    });
 
     await openDraftWithFirstTurn();
     await press("Send");
@@ -221,12 +221,13 @@ describe("the composed new-session draft — what a completed send hands out", (
     // render of the surface above. The identity moves here on every render, and the
     // count is what says the settlement did not follow it.
     const settledSessionIds: string[] = [];
-    const bridge = bridgeFor({ scriptsCreate: true, scriptsFirstTurn: true });
+    const bridge = bridgeFor({ scriptsCreate: true });
+    const queueFirstTurn = completingFirstTurn().call;
     const { rerender } = render(
       <LiveAnnouncerProvider>
         <NewSessionControl
           bridge={bridge}
-          blockedAct={NOTHING_BLOCKS_THE_ACT}
+          queueFirstTurn={queueFirstTurn}
           onSessionCreated={(sessionId) => settledSessionIds.push(sessionId)}
           onSessionDirectoryRecheck={recordNoRecheck}
         />
@@ -239,7 +240,7 @@ describe("the composed new-session draft — what a completed send hands out", (
         <LiveAnnouncerProvider>
           <NewSessionControl
             bridge={bridge}
-            blockedAct={NOTHING_BLOCKS_THE_ACT}
+            queueFirstTurn={queueFirstTurn}
             onSessionCreated={(sessionId) => settledSessionIds.push(sessionId)}
             onSessionDirectoryRecheck={recordNoRecheck}
           />
@@ -262,11 +263,9 @@ describe("the composed new-session draft — the create it cannot answer for", (
     // button that was live again — an invitation to press, which is the one act that
     // makes a second orphan session.
     const rechecks: number[] = [];
-    const container = renderControlOn(
-      bridgeAnsweringCreateUnreadably(),
-      () => undefined,
-      () => rechecks.push(1),
-    );
+    const container = renderControlOn(bridgeAnsweringCreateUnreadably(), {
+      onSessionDirectoryRecheck: () => rechecks.push(1),
+    });
 
     await openDraftWithFirstTurn();
     await press("Send");
@@ -290,9 +289,9 @@ describe("the composed new-session draft — the create it cannot answer for", (
     // arm as a start — navigating away, opening a store, and stamping origin markers
     // for a session that may not exist and is certainly not named.
     const settledSessionIds: string[] = [];
-    renderControlOn(bridgeAnsweringCreateUnreadably(), (sessionId) =>
-      settledSessionIds.push(sessionId),
-    );
+    renderControlOn(bridgeAnsweringCreateUnreadably(), {
+      onSessionCreated: (sessionId) => settledSessionIds.push(sessionId),
+    });
 
     await openDraftWithFirstTurn();
     await press("Send");
@@ -306,15 +305,11 @@ describe("the composed new-session draft — the axis it does not offer", () => 
 
   it("offers no execution-posture control, because no reachable call would carry one", async () => {
     // The defect: this control rendered a three-way posture picker, and the value it
-    // collected travelled only inside the `agentAttach` loop — a loop over
-    // `request.agents`, which is empty on every send this build can make, because
-    // nothing calls `NewSessionDraft.selectAgent`. So a person chose a posture, the
-    // send reported success, and the choice reached no wire at all.
-    //
-    // The two calls it CAN make carry no posture member to send it on instead:
-    // `SessionCreateRequest` is `{ config?, metadata? }` and `QueueItemCreateRequest`
-    // is `{ sessionId, channelId?, workspaceId?, priority?, payload }`, both `.strict()`.
-    // A control whose choice cannot be honoured is not offered.
+    // collected reached no wire at all: the two calls the send makes carry no posture
+    // member to send it on. `SessionCreateRequest` is `{ config?, metadata? }` and
+    // `QueueItemCreateRequest` is `{ sessionId, workspaceId?, priority?, payload }`,
+    // both `.strict()`.
+    // A control whose choice cannot be honored is not offered.
     renderControl({ scriptsCreate: true });
     await press("+ New");
 
@@ -327,19 +322,18 @@ describe("the composed new-session draft — the axis it does not offer", () => 
     // put the picker back without a member to send it on. Asserted over the request
     // BODIES rather than over the screen: "never offered" and "always transmitted" are
     // the only two honest states, so this pins the second one's negative.
-    const recorded = bridgeRecordingACompleteSend();
-    renderControlOn(recorded.bridge);
+    const recorded = bridgeRecordingASend();
+    const firstTurns = completingFirstTurn();
+    renderControlOn(recorded.bridge, { queueFirstTurn: firstTurns.call });
     await openDraftWithFirstTurn();
     await press("Send");
 
     // Both legs really were made — without this the absence below would be the absence
     // of any request at all.
-    expect(recorded.calls.map((call) => call.method)).toStrictEqual([
-      "session.create",
-      "run.queueCreate",
-    ]);
-    for (const call of recorded.calls) {
-      expect(JSON.stringify(call.params)).not.toMatch(/posture/i);
+    expect(recorded.calls.map((call) => call.method)).toStrictEqual(["session.create"]);
+    expect(firstTurns.requests).toHaveLength(1);
+    for (const request of [...recorded.calls.map((call) => call.params), ...firstTurns.requests]) {
+      expect(JSON.stringify(request)).not.toMatch(/posture/i);
     }
   });
 });

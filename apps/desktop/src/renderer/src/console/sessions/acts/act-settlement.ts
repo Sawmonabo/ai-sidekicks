@@ -1,31 +1,17 @@
-// One act, in flight or settled, for the two acts this destination offers.
+// One act, in flight or settled: a single control, pressed, and what came of it.
 //
-// WHAT IT IS NOT, AND WHY IT IS NOT THAT. `channels/mutation-coordinator.ts`
-// holds a keyed, superseding, single-flight coordinator over a LEDGER of rows: five
-// controls against a subject that moves, each row rendering its own refusal beside
-// its own control. This is not that machine and must not become it — and it also
-// cannot BE it: `channels/` is a sibling view family, and
-// `console-view-family-isolation` in `.dependency-cruiser.mjs` fails that import. The
-// remedy the package's structure rules name for a shared contract is the hoist — down
-// into `bridge/`, which is the lowest family that module's own imports reach — and
-// the moment a third family needs an act holder that is what is owed.
+// There is one control, so there is no key; the act names no subject that can move
+// underneath the call, so there is no supersession; and neither call changes anything
+// this family holds a copy of, so there is no local application.
 //
-// WHAT THIS ONE HOLDS is the smaller fact a FORM has: there is one control, it is
-// pressed, and what comes back is a settlement. No key, because there is one subject;
-// no supersession, because this destination names no session and so has no subject
-// that can move underneath the call; no local application, because neither act
-// changes anything this family holds a copy of.
-//
-// THE FOUR STATES ARE THE POINT. A form with a boolean `isSending` renders "nothing
-// happened" and "it worked" identically, and a person who pressed Join and saw the
-// field clear cannot tell which they got. So the settlement is a closed union and
-// every arm has a rendering: nothing attempted, attempt in flight, the daemon's
-// refusal, and the answer.
+// THE THREE STATES ARE THE POINT. A form with a boolean `isSending` renders "nothing
+// happened" and "it worked" identically, and a person who pressed Import and saw the
+// field clear cannot tell which they got. So the settlement is a closed union and every
+// arm has a rendering: nothing attempted, attempt in flight, and the answer.
 
 import { useCallback, useSyncExternalStore } from "react";
 
 import { Emitter, refuse, type ConsoleRefusal, type Unsubscribe } from "../../core/index.js";
-import type { DaemonReply } from "../../bridge/index.js";
 
 /** The subsystem name every refusal this module raises carries. */
 export const SESSION_ACT_REFUSAL_ORIGIN = "session-act";
@@ -40,23 +26,13 @@ export const SESSION_ACT_REFUSAL_ORIGIN = "session-act";
 const ACT_IN_FLIGHT_CODE = "act-in-flight";
 
 /** Where one act has got to. */
-export type ActSettlement<TAnswer> =
+type ActSettlement<TAnswer> =
   | { readonly status: "unattempted" }
   | { readonly status: "running" }
-  | { readonly status: "refused"; readonly refusal: ConsoleRefusal }
   | { readonly status: "settled"; readonly answer: TAnswer };
 
-/**
- * What one act does: put the call, and answer or refuse.
- *
- * Answers a {@link DaemonReply} rather than a shape of this module's own, because
- * that is what the call door answers and the console has exactly one two-armed
- * settlement value. A growth-backed act converts its port outcome at the call site —
- * the refusing arm of a `GrowthOutcome` IS a `ConsoleRefusal`, so the conversion
- * carries the operation, the slate row, and the document that owes the wire through
- * untouched rather than re-minting a refusal on the way past.
- */
-export type ActAttempt<TRequest, TAnswer> = (request: TRequest) => Promise<DaemonReply<TAnswer>>;
+/** What one act does: put the call and answer. A rejected call propagates to the presser. */
+type ActAttempt<TRequest, TAnswer> = (request: TRequest) => Promise<TAnswer>;
 
 const NOTHING_ATTEMPTED: ActSettlement<never> = { status: "unattempted" };
 
@@ -80,17 +56,19 @@ export class SessionAct<TRequest, TAnswer> {
 
   public constructor(options: {
     readonly attempt: ActAttempt<TRequest, TAnswer>;
-    /** One noun for the refusal sentence — "the join", "the import". */
+    /** One noun for the refusal sentence — "the import". */
     readonly describeWhat: string;
   }) {
     this.#attempt = options.attempt;
     this.#describeWhat = options.describeWhat;
   }
 
+  /** Where the act has got to right now. */
   public settlement(): ActSettlement<TAnswer> {
     return this.#settlement;
   }
 
+  /** Call `sink` on every transition. */
   public subscribe(sink: () => void): Unsubscribe {
     return this.#changes.subscribe(sink);
   }
@@ -104,24 +82,20 @@ export class SessionAct<TRequest, TAnswer> {
    *
    * THE DUPLICATE REFUSAL IS ANSWERED TO THE CALLER AND IS NEVER PUBLISHED. The
    * settlement belongs to the request that is still in flight, and publishing the
-   * second press's refusal over it would replace `running` with `refused` while the
-   * first call is still out: every form reading this act would see a settled state,
-   * re-enable its control, and admit a third press whose call races the first to
-   * overwrite the settlement both of them write. So the in-flight state stands
-   * untouched — no publish, no notification, no transition — and the refusal travels
-   * back on the return, which is the one channel that reaches the presser without
-   * making a claim about the act. The four-arm union stays exactly four arms: the
-   * only shape that could carry this refusal AND the running fact at once is a fifth
-   * state, and nothing renders one.
+   * second press's refusal over it would replace `running` while the first call is
+   * still out: every form reading this act would see a settled state, re-enable its
+   * control, and admit a third press whose call races the first to overwrite the
+   * settlement both of them write. So the in-flight state stands untouched — no
+   * publish, no notification, no transition — and the refusal travels back on the
+   * return, which is the one route that reaches the presser without making a claim
+   * about the act.
    *
    * The caller that ignores the return loses nothing a person can see: the control
    * that could have been pressed twice is already disabled by the `running` arm this
    * refusal exists to preserve, so the return is what a programmatic second press —
    * a restored draft, a keyboard repeat, a test — is told.
    *
-   * There is no `catch` because there is nothing to catch: an attempt answers a
-   * served value or a refusal, never a throw, so both arms below are one settlement
-   * read two ways rather than one path and one accident.
+   * A rejected attempt propagates to whoever pressed, and the act stays `running`.
    *
    * @returns the duplicate-press refusal, or `undefined` where the act was put.
    */
@@ -134,12 +108,7 @@ export class SessionAct<TRequest, TAnswer> {
       );
     }
     this.#publish({ status: "running" });
-    const outcome = await this.#attempt(request);
-    this.#publish(
-      outcome.status === "served"
-        ? { status: "settled", answer: outcome.value }
-        : { status: "refused", refusal: outcome.refusal },
-    );
+    this.#publish({ status: "settled", answer: await this.#attempt(request) });
     return undefined;
   }
 

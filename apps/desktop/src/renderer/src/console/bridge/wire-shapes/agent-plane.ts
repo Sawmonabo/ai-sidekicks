@@ -22,7 +22,7 @@
 // fixture-only.
 //
 // TOLERANCE IS DELIBERATE AND BOUNDED. `appliesAt`, `continuity`, `status`,
-// `reason`, `linkType`, and `state` are typed `string` rather than as the closed
+// `reason`, and `state` are typed `string` rather than as the closed
 // vocabulary each is checked against, because a later amendment's member must render
 // as ITSELF rather than vanish: a settlement never drops an unrecognized reason.
 // The vocabularies themselves stay in
@@ -86,10 +86,7 @@ export interface AgentResolvedConfiguration {
 export interface AgentRosterEntry {
   readonly agentId: string;
   readonly name?: string | undefined;
-  /** One of {@link AGENT_STATES}; rendered verbatim when it is not. */
-  readonly state?: string | undefined;
   readonly createdAt?: string | undefined;
-  readonly defaultNodeId?: string | undefined;
   readonly driverName?: string | undefined;
   readonly modelId?: string | undefined;
   readonly config?: AgentEffectiveBinding | undefined;
@@ -137,13 +134,8 @@ export interface AgentAttachReading {
 /** One parent-to-child link. */
 export interface ChildRunLink {
   readonly childRunId: string;
-  /** One of {@link CHILD_RUN_LINK_TYPES}. */
-  readonly linkType: string;
   /** De-emphasized and never ejected: helper rows stay in audit history. */
   readonly internalHelper: boolean;
-  readonly producingNodeId?: string | undefined;
-  /** One of {@link CHILD_RUN_VISIBILITIES}. Daemon-projected. */
-  readonly visibility: string;
   readonly state?: string | undefined;
   readonly createdAt?: string | undefined;
 }
@@ -158,7 +150,6 @@ export interface ChildRunRejection {
   readonly reason: string;
   readonly detail?: string | undefined;
   readonly occurredAt?: string | undefined;
-  readonly targetChannelId?: string | undefined;
   readonly targetAgentId?: string | undefined;
   readonly parentRunId?: string | undefined;
   /** Carried by the depth refusal. Rendered from the payload, never from a constant. */

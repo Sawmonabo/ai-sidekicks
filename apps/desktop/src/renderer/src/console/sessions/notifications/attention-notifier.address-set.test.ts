@@ -2,7 +2,7 @@
 // the address set actually settles in.
 //
 // `attention-notifier.test.ts` beside this drives the HISTORY rules — the dedup, the
-// audience, the eviction — over a window that has been addressing the same sessions
+// eviction — over a window that has been addressing the same sessions
 // throughout. This file drives the set itself, because that set arrives in two moves
 // and the emitter used to assume it arrived in one.
 //
@@ -20,16 +20,13 @@
 // and what the window may say out loud because of it. Written as data rather than as
 // six `it` bodies, because the property is the same in every row and what varies is
 // the order — and an enumeration makes an unlisted ordering visible as a missing row.
-//
-// Every read here is taken by an unfocused window, so the audience rule announces
-// whatever it is handed: what these rows measure is the baseline and nothing else.
 
 import { describe, expect, it } from "vitest";
 
-import { ATTENTION_NOTIFIED_ITEM_CAP } from "../../core/index.js";
-import { growthUnavailable, type AttentionItem } from "../../bridge/index.js";
+import { ATTENTION_NOTIFIED_ITEM_CAP, refuse } from "../../core/index.js";
+import type { AttentionItem } from "../../bridge/index.js";
 import { AttentionPlane, type AnsweredAttentionReading } from "./attention-plane.js";
-import { AttentionNotifier, type AttentionNotifierAudience } from "./attention-notifier.js";
+import { AttentionNotifier } from "./attention-notifier.js";
 
 /** The session a window was opened directly on. Known before the directory answers. */
 const OPENED_SESSION_ID = "session-opened-directly";
@@ -37,13 +34,6 @@ const OPENED_SESSION_ID = "session-opened-directly";
 const DIRECTORY_SESSION_ID = "session-from-the-directory";
 /** A third session, used only to push the remembered events over their cap. */
 const FILLER_SESSION_ID = "session-filling-the-cap";
-
-/** Nobody is reading this window, so the audience rule withholds nothing. */
-const AWAY: AttentionNotifierAudience = {
-  activeSessionId: undefined,
-  isAttentionSurfaceRouted: false,
-  isWindowFocused: false,
-};
 
 function itemFor(sessionId: string, id: string): AttentionItem {
   return {
@@ -88,7 +78,11 @@ function settledRead(script: ScriptedRead): AnsweredAttentionReading {
     droppedCount: 0,
     refusedSessions: (script.refusedSessionIds ?? []).map((sessionId) => ({
       sessionId,
-      refusal: growthUnavailable("attentionProjectionRead"),
+      refusal: refuse(
+        "attention-plane",
+        "session.not_found",
+        "That session is not known to the daemon.",
+      ),
     })),
     addressedSessionIds: script.addressedSessionIds,
   };
@@ -98,9 +92,7 @@ function settledRead(script: ScriptedRead): AnsweredAttentionReading {
 function playOrdering(reads: readonly ScriptedRead[]): void {
   const notifier = new AttentionNotifier();
   for (const scriptedRead of reads) {
-    const announced = notifier
-      .arrivalsToAnnounce(settledRead(scriptedRead), AWAY)
-      .map((item) => item.id);
+    const announced = notifier.arrivalsToAnnounce(settledRead(scriptedRead)).map((item) => item.id);
     expect(announced, scriptedRead.moment).toStrictEqual(scriptedRead.announces);
   }
 }
@@ -307,7 +299,7 @@ describe("the attention emitter's baseline, per addressed session", () => {
     // announced from before would satisfy that row for the wrong reason, and would
     // never say anything about a directory session again.
     //
-    // Same item, same audience, same read index. The only difference is that this
+    // Same item, same read index. The only difference is that this
     // window had already covered the session when the item appeared.
     playOrdering([
       {

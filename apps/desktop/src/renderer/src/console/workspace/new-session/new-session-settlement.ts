@@ -2,7 +2,7 @@
 // settlements a caller cannot compose for itself.
 //
 // SPLIT FROM `new-session-send.ts`, which makes the calls. That module owns the ORDER
-// three wire calls go in and what each answer means; this one owns the words the result
+// the two calls go in and what each answer means; this one owns the words the result
 // comes back in — and together they were one file past the package's ceiling. The seam
 // is the one the family already reads along: the draft and the composition both import
 // settlements from here and issue no call, so every rule below can be checked without
@@ -19,10 +19,10 @@ import { refuse, type NarrowedRefusal } from "../../core/index.js";
 /**
  * Why a send could not complete. Closed, so a further cause is a decision.
  *
- * ONE CODE PER CALL THAT COULD NOT BE MADE, rather than one word covering the three:
+ * ONE CODE PER CALL THAT COULD NOT BE MADE, rather than one word covering both:
  * a person pasting a code into an issue is telling somebody which leg stopped, and
- * "the session exists and its agents do not" is a different state to act on from
- * "the session and its agents exist and nothing was said".
+ * "the session does not exist" is a different state to act on from "the session
+ * exists and nothing was said".
  */
 export const NEW_SESSION_DRAFT_REFUSAL_CODES = [
   "draft-empty",
@@ -31,7 +31,6 @@ export const NEW_SESSION_DRAFT_REFUSAL_CODES = [
   // A SEPARATE CODE FROM `session-create-failed`, because the two are opposite
   // instructions: one says press again, and this one says do not.
   "session-create-unreadable",
-  "agent-attach-failed",
   "first-turn-missing",
   "first-turn-failed",
   // Not a refusal the wire raised: `send` answers with a result on every path and
@@ -88,9 +87,8 @@ export function refuseDraft(
   return refuse(NEW_SESSION_DRAFT_REFUSAL_ORIGIN, code, detail);
 }
 
-/** The wire names this module sends, spelled once each. */
+/** The names a send reports its completed legs under, spelled once each. */
 export const SESSION_CREATE_METHOD = "session.create";
-export const AGENT_ATTACH_METHOD = "agent.attach";
 export const RUN_QUEUE_CREATE_METHOD = "run.queueCreate";
 
 /**
@@ -98,8 +96,7 @@ export const RUN_QUEUE_CREATE_METHOD = "run.queueCreate";
  *
  * `completedCalls` carries the wire names verbatim and in order, because the rule
  * above requires the error slot to NAME the calls that succeeded — a person deciding
- * whether to press again needs to know a session already exists, and how many of its
- * agents are on it.
+ * whether to press again needs to know a session already exists.
  */
 export interface NewSessionSendResult {
   readonly outcome: NewSessionSendOutcome;

@@ -55,7 +55,7 @@ export function registeredKindsIn(category: EventCategory): readonly string[] {
 /** The kinds one stream that declares a kind list carries, as the table declares them. */
 export function carriedKindsOf(subscriptionName: ConsoleSessionEventStreamName): readonly string[] {
   const stream = sessionEventStreamFor(subscriptionName);
-  if (stream === undefined || stream.scope === "whole-session") {
+  if (stream === undefined || stream.scope !== "selected-kinds") {
     throw new Error(`${subscriptionName} declares no kind list, so it carries none`);
   }
   return stream.carriedKinds;

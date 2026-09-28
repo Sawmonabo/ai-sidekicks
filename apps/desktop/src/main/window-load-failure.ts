@@ -11,19 +11,6 @@ import { app, type BrowserWindow } from "electron";
 import { buildLoadFailureUrl } from "./load-failure-document.js";
 
 /**
- * Which window a load belongs to, which decides what a total load failure costs.
- *
- * The main window's document IS the application: if not even the generated
- * failure document can be served for it, there is nothing left to interact with
- * and the process exits non-zero rather than sitting there as an invisible
- * placeholder a harness can only detect by timing out. An auxiliary window is a
- * detached pane; the same total failure destroys that window and leaves the
- * application running, because quitting the app because a detached console
- * failed would be the worse outcome.
- */
-export type WindowRole = "main" | "auxiliary";
-
-/**
  * Exit status when a window has no document it can serve — not even the
  * generated failure document.
  *
@@ -58,28 +45,20 @@ export function describeLoadFailure(error: unknown): string {
  * is servable precisely because it is not read from the tree that just failed.
  *
  * If that second load also rejects, no document can be served at all: the window
- * is destroyed rather than retained, and for the main window the process exits
- * non-zero with the diagnostic. There is no third attempt — the failure
+ * is destroyed rather than retained, and the process exits non-zero with the
+ * diagnostic. There is no third attempt — the failure
  * document's own catch does not re-enter this path, so the recovery cannot loop.
  */
-export function loadDocument(
-  browserWindow: BrowserWindow,
-  documentUrl: string,
-  role: WindowRole,
-): void {
+export function loadDocument(browserWindow: BrowserWindow, documentUrl: string): void {
   browserWindow.loadURL(documentUrl).catch((error: unknown) => {
     const reason = describeLoadFailure(error);
     console.error(`[ai-sidekicks/desktop] failed to load ${documentUrl}: ${reason}`);
-    serveLoadFailureDocument(browserWindow, role, reason);
+    serveLoadFailureDocument(browserWindow, reason);
   });
 }
 
 /** Loads the generated failure document, or gives up in a controlled way. */
-function serveLoadFailureDocument(
-  browserWindow: BrowserWindow,
-  role: WindowRole,
-  reason: string,
-): void {
+function serveLoadFailureDocument(browserWindow: BrowserWindow, reason: string): void {
   if (browserWindow.isDestroyed()) {
     // The window is gone. Almost always this is the ordinary case: the user
     // closed the window while its first load was still failing, and `loadURL`
@@ -118,7 +97,7 @@ function serveLoadFailureDocument(
       `[ai-sidekicks/desktop] the load-failure URL could not be built: ` +
         `${describeLoadFailure(urlConstructionError)}`,
     );
-    abandonUnservableWindow(browserWindow, role, reason);
+    abandonUnservableWindow(browserWindow, reason);
     return;
   }
 
@@ -127,21 +106,21 @@ function serveLoadFailureDocument(
       `[ai-sidekicks/desktop] the load-failure document could not be served: ` +
         `${describeLoadFailure(failureDocumentError)}`,
     );
-    abandonUnservableWindow(browserWindow, role, reason);
+    abandonUnservableWindow(browserWindow, reason);
   });
 }
 
-/** Destroys a window that has no document, and exits if it was the main one. */
-function abandonUnservableWindow(
-  browserWindow: BrowserWindow,
-  role: WindowRole,
-  reason: string,
-): void {
+/**
+ * Destroys a window that has no document and exits the process.
+ *
+ * The window's document is the application, so with not even the generated
+ * failure document to show there is nothing left to interact with; exiting
+ * non-zero beats sitting as an invisible placeholder a harness can only detect
+ * by timing out.
+ */
+function abandonUnservableWindow(browserWindow: BrowserWindow, reason: string): void {
   if (!browserWindow.isDestroyed()) {
     browserWindow.destroy();
-  }
-  if (role !== "main") {
-    return;
   }
   console.error(
     `[ai-sidekicks/desktop] no renderer document could be served for the main window ` +

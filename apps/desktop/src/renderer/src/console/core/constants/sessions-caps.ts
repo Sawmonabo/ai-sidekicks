@@ -1,17 +1,4 @@
-// The sessions family's bounds: the back tier's visible rows and what the attention
-// emitter remembers announcing.
-
-/**
- * Back-tier rows the all-sessions list shows before folding the rest under a
- * count (the design's density rule: "the back tier folds to a count when it
- * exceeds the visible budget").
- *
- * Five, because the back tier is the demoted half of the list and its job is to
- * stay reachable without competing with the front tier for the same screen. A
- * taller budget makes the divider stop meaning anything; a shorter one folds a
- * tier that had barely begun.
- */
-export const SESSION_BACK_TIER_VISIBLE_CAP = 5;
+// The sessions family's bound: what the attention emitter remembers announcing.
 
 /**
  * Attention items the notification emitter remembers having already announced.

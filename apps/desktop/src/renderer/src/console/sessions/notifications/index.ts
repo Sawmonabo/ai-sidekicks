@@ -13,37 +13,34 @@
 // another is an edge no ordering untangles. A second consumer in another family
 // hoists the vocabulary into `seats/` rather than moving this door back out.
 //
-// WHAT IS AND IS NOT AN EMISSION PATH HERE. `attention.notificationEmit` is a
-// control-plane mutation the daemon calls and never a client method, and nothing in
-// this subtree reaches for it. `native.showNotification` is a different thing: it is
-// the shipped bridge's own member and this subtree is its one caller, under
-// `attention-notifier.ts`' when-rule. What stays main-process-owned is the CLICK —
-// the call returns `void`, so the renderer cannot observe one — and the permission
-// behind it, which no bridge member reports and which therefore reaches the centre
-// through the growth port.
+// NO EMISSION PATH IS HERE. `attention.notificationEmit` is a control-plane mutation
+// the daemon calls and never a client method, and the operating-system banner is
+// raised by the main process.
 
 import "./notifications.css";
 
-export { NotificationCenter } from "./NotificationCenter.js";
+export {
+  /** @consumedBy the notifications list the rail's bell opens */
+  NotificationCenter,
+} from "./NotificationCenter.js";
 
-// Only what crosses OUT of this subtree. The plane's vocabulary, its narrowing,
-// and the fold are reached deeply from inside — an intra-subtree import is deep by
+export {
+  /** @consumedBy the notifications settings page */
+  deliveryFor,
+  /** @consumedBy the notifications settings page */
+  type OsNotificationDelivery,
+} from "./os-notification-delivery.js";
+
+// Only what crosses OUT of this subtree. The plane's vocabulary and the fold
+// are reached deeply from inside — an intra-subtree import is deep by
 // the layout rule, and a barrel re-exporting a symbol nobody outside it imports is
 // a door onto a room with no other entrance.
 export { type AttentionReading } from "./attention-plane.js";
-export { attentionProjectionReaderFor } from "./attention-projection-read.js";
-// The read's own lifetime lives next door: the plane is a vocabulary and a fold, and
-// the hook that performs the read and keeps it current is what a destination mounts.
-export { useAttentionProjection, useAttentionSettlementAnnouncement } from "./attention-read.js";
-
-// The emission path and the fact that decides whether it reaches anyone. Both leave
-// through this door because the window's attention binding mounts them for the frame's
-// lifetime and provides the reading on to the centre; the notifier's own class stays
-// inside, since only its hook is mounted. The type leaves with them, because the
-// binding publishes the reading on its own context value.
-export { useAttentionNotifications } from "./attention-notifier.js";
+// The plane is a vocabulary and a fold; the hook that yields the reading is what a
+// destination mounts.
 export {
-  useOsNotificationDelivery,
-  type OsNotificationDelivery,
-} from "./os-notification-delivery.js";
-export { useRailAttentionPublisher } from "./rail-attention.js";
+  useAttentionProjection,
+  /** @consumedBy the notifications list the rail's bell opens */
+  useAttentionSettlementAnnouncement,
+  type AttentionProjectionReadCall,
+} from "./attention-read.js";

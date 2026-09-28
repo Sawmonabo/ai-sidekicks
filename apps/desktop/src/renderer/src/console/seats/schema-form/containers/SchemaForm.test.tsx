@@ -21,7 +21,7 @@ import { composedAnswer, renderForm } from "./SchemaFormHost.test-support.js";
 afterEach(cleanup);
 
 describe("the control a member shape draws", () => {
-  it("draws one labelled control for each of the six kinds", async () => {
+  it("draws one labelled control for each of the five kinds", async () => {
     await renderForm({
       type: "object",
       properties: {
@@ -30,11 +30,10 @@ describe("the control a member shape draws", () => {
         count: { type: "integer", title: "Count" },
         approved: { type: "boolean", title: "Approved" },
         severity: { type: "string", enum: ["low", "high"], title: "Severity" },
-        evidence: { type: "string", format: "artifact", title: "Evidence" },
       },
       // The box is the control a boolean draws through where the answer must hold a value
       // for it. An OPTIONAL one is drawn as a three-state choice instead, which is the
-      // case below rather than a seventh kind.
+      // case below rather than a sixth kind.
       required: ["approved"],
     });
 
@@ -45,7 +44,6 @@ describe("the control a member shape draws", () => {
     // the mark beside its name.
     expect(screen.getByLabelText(/Approved/u)).toHaveProperty("type", "checkbox");
     expect(screen.getByLabelText("Severity").tagName).toBe("SELECT");
-    expect(screen.getByLabelText("Evidence")).toHaveProperty("type", "text");
   });
 
   it("offers the enumeration's members and one unanswered option that is not one of them", async () => {

@@ -1,9 +1,9 @@
 // The vocabulary one entity's record is written in: what a detail is handed, and
 // what it may put on a row.
 //
-// WHY FACETS ARE DATA AND NOT NODES. Twelve detail components each declare the
-// rows their kind carries. If a row were a `React.ReactNode` the twelve would each
-// pick a formatter, and twelve pickings is twelve chances to reach for `toFixed`
+// WHY FACETS ARE DATA AND NOT NODES. Each detail component declares the
+// rows its kind carries. If a row were a `React.ReactNode` every component would
+// pick its own formatter, and each picking is a chance to reach for `toFixed`
 // instead of `primitives/figures/wire-figures.ts`. A facet is therefore a VALUE with a
 // closed form, and `EntityRecord.tsx` is the only module that turns one into
 // markup — which is the same chokepoint discipline the figures module itself is.
@@ -14,8 +14,7 @@
 // no family has registered one yet. So a detail reads a body member by NAME, and
 // the name is this console's read-side expectation rather than a claim about a
 // wire: where a registered contract member exists the detail quotes it verbatim
-// (`channel.created`'s `name`,
-// the repo / workspace / worktree lifecycle payload's `repoMountId` /
+// (the repo / workspace / worktree lifecycle payload's `repoMountId` /
 // `workspaceId` / `worktreeId` / `actor`, `RunStateChangeEvent`'s `runVersion` and
 // `previousState`), and where the console owns the vocabulary itself it quotes its
 // own (`bridge/growth-port/growth-port.ts`'s artifact and navigation summaries). Nothing here
@@ -34,8 +33,8 @@ import { parseInstant, readWireString } from "../../../core/index.js";
  * What every per-kind detail is handed.
  *
  * It lives beside the facet vocabulary rather than beside the registry that
- * composes the twelve details, because the registry imports all twelve and all
- * twelve import this — putting the props there would close a cycle.
+ * composes the details, because the registry imports every detail and every
+ * detail imports this — putting the props there would close a cycle.
  */
 export interface EntityDetailProps {
   /** The stored record, or `undefined` where the store holds none for this id. */
@@ -106,11 +105,6 @@ export function countFacet(label: string, value: unknown, memberName: string): E
         ? { form: "derived", text: formatCount(value) }
         : unrecorded(memberName),
   };
-}
-
-/** A count the console composed from what it holds. Always present, never mono. */
-export function composedCountFacet(label: string, count: number): EntityFacet {
-  return { label, value: { form: "derived", text: formatCount(count) } };
 }
 
 /**

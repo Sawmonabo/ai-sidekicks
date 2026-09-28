@@ -2,9 +2,9 @@
 //
 // One private function, `constructLockedWindow`, owns the `webPreferences`
 // literal — the hardening lock-in — so the build-time assertion
-// (`apps/desktop/build/assert-webprefs.ts`) covers the main window and every
-// auxiliary window through a single block, and asserts that block appears
-// EXACTLY ONCE so a second factory cannot smuggle in a second, unchecked one.
+// (`apps/desktop/build/assert-webprefs.ts`) covers every window through a single
+// block, and asserts that block appears EXACTLY ONCE so a second factory cannot
+// smuggle in a second, unchecked one.
 // Any drift fails `pnpm build` before the bundle ships. That assertion is what
 // makes `nodeIntegration: true` or `sandbox: false` in any window a build-time
 // error rather than a shipped one.
@@ -13,13 +13,11 @@
 // the hardening baseline disables the `GrantFileProtocolExtraPrivileges` fuse —
 // see `./protocol.ts` for the scheme registration and the handler.
 //
-// Three neighbours own the rest of a window's life, split by role rather than
-// by size: `./navigation.ts` (which navigations are admitted),
+// Two neighbors own the rest of a window's life, split by role rather than
+// by size: `./navigation.ts` (which navigations are admitted) and
 // `./window-load-failure.ts` (what a window does when its document will not
-// load), and `./auxiliary-window.ts` (which auxiliary window opens and on
-// what). What stays here is construction: the one locked `webPreferences`
-// literal, the one document-URL resolution, and the load ordering both
-// factories share.
+// load). What stays here is construction: the one locked `webPreferences`
+// literal, the one document-URL resolution, and the load ordering.
 //
 // Preload path: resolved relative to `import.meta.dirname` so the factory
 // works under the `electron-vite build` output layout (`out/main/index.js`
@@ -67,7 +65,7 @@ import path from "node:path";
 
 import { installNavigationPolicy } from "./navigation.js";
 import { RENDERER_INDEX_URL } from "./renderer-scheme.js";
-import { loadDocument, type WindowRole } from "./window-load-failure.js";
+import { loadDocument } from "./window-load-failure.js";
 import { applyRevealPreferences, revealWindow } from "./window-reveal.js";
 
 const PRELOAD_PATH = path.join(import.meta.dirname, "../preload/index.cjs");
@@ -85,11 +83,10 @@ export interface LockedWindowOptions {
  * assertion covers all of them by covering one literal. Keep this the only
  * `new BrowserWindow(...)` call site in the package —
  * `apps/desktop/build/assert-webprefs.ts` fails the build if a second one
- * appears anywhere under `src/main/`, which is what makes exporting this
- * function safe: a neighbour can CALL the locked factory and still cannot
- * declare an unlocked one.
+ * appears anywhere under `src/main/`, so a neighbor cannot declare an unlocked
+ * one.
  */
-export function constructLockedWindow(options: LockedWindowOptions): BrowserWindow {
+function constructLockedWindow(options: LockedWindowOptions): BrowserWindow {
   const browserWindow = new BrowserWindow({
     width: options.width,
     height: options.height,
@@ -162,23 +159,19 @@ export function resolveRendererDocumentUrl(routeFragment: string): string {
  * mis-sequenced is the stronger shape.
  *
  * A throw from `beforeLoad` destroys the window rather than leaving a live,
- * blank, unloaded one behind — the same rule the auxiliary factory's
- * pre-construction validation follows.
+ * blank, unloaded one behind.
  */
 export interface WindowLoadOptions {
   readonly beforeLoad?: (browserWindow: BrowserWindow) => void;
 }
 
 /**
- * Runs the caller's pre-load hook, then starts the load.
- *
- * Shared by both factories so neither can drift into the ordering the hook
- * exists to guarantee.
+ * Runs the caller's pre-load hook, then starts the load, so the ordering the hook
+ * exists to guarantee lives in one place.
  */
-export function prepareAndLoad(
+function prepareAndLoad(
   browserWindow: BrowserWindow,
   documentUrl: string,
-  role: WindowRole,
   options: WindowLoadOptions,
 ): void {
   try {
@@ -190,7 +183,7 @@ export function prepareAndLoad(
     throw error;
   }
 
-  loadDocument(browserWindow, documentUrl, role);
+  loadDocument(browserWindow, documentUrl);
 }
 
 /**
@@ -216,12 +209,7 @@ export interface MainWindowOptions extends WindowLoadOptions {
 export function createMainWindow(options: MainWindowOptions = {}): BrowserWindow {
   const browserWindow = constructLockedWindow({ width: 1280, height: 800 });
 
-  prepareAndLoad(
-    browserWindow,
-    resolveRendererDocumentUrl(options.documentQuery ?? ""),
-    "main",
-    options,
-  );
+  prepareAndLoad(browserWindow, resolveRendererDocumentUrl(options.documentQuery ?? ""), options);
 
   return browserWindow;
 }

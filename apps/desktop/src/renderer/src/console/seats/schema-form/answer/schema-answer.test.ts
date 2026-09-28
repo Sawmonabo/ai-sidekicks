@@ -252,7 +252,6 @@ describe("what an added list entry opens holding", () => {
       flags: { type: "array", items: { type: "boolean", default: true } },
       scores: { type: "array", items: { type: "number" } },
       tiers: { type: "array", items: { enum: ["", "high"] } },
-      evidence: { type: "array", items: { type: "string", format: "artifact" } },
     },
   };
 
@@ -275,10 +274,6 @@ describe("what an added list entry opens holding", () => {
     // `""` is a member this enumeration legitimately contains, so inserting it would have
     // answered the question the moment somebody pressed the add control.
     expect(newListEntryDraft(planSchemaForm(listSchema), ["tiers"])).toBe(UNANSWERED_SCALAR);
-  });
-
-  it("opens a repeated artifact reference unanswered rather than as an empty identifier", () => {
-    expect(newListEntryDraft(planSchemaForm(listSchema), ["evidence"])).toBe(UNANSWERED_SCALAR);
   });
 
   it("answers for a collection this form never drew rather than throwing", () => {

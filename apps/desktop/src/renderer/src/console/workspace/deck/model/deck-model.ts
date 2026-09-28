@@ -18,7 +18,7 @@ import type { DeckDensity } from "../../workspace-bounds.js";
  * Pane widths are carried as permille of the deck, summing to this.
  *
  * Integers rather than fractions because the value is persisted, and a float that
- * round-trips through JSON reintroduces the accumulation error the normalisation
+ * round-trips through JSON reintroduces the accumulation error the normalization
  * step exists to remove. Permille rather than percent so a five-pane deck divides
  * evenly.
  */

@@ -60,15 +60,12 @@ import {
   AGENT_IMPLEMENTER,
   AGENT_REVIEWER,
   EVENT_ID_STEM,
-  LEDGER_AGENTS,
-  USER_PRIYA,
   USER_YOU,
   SESSION_ID,
   STARTED_AT_ISO,
   attachedAtIso,
 } from "./ledger-cast.js";
 import { LEDGER_SCRIPT } from "./ledger-beats.js";
-import { REFUSED_NEGOTIATION_REPLY } from "../negotiation-replies.js";
 import type { ConsoleScenario } from "../runtime/index.js";
 
 export const LEDGER_SCENARIO_ID = "ledger";
@@ -79,9 +76,9 @@ export const LEDGER_SCENARIO: ConsoleScenario = {
   purpose:
     "A session whose three runs end in three different conditions at once — one finished behind a rewind boundary, one parked, one still streaming — so the chapters and the seams all have something to render.",
   sessionId: SESSION_ID,
-  // Join order IS hue order: two people first, then the agents in attach order,
+  // Join order IS hue order: the person first, then the agents in attach order,
   // which is what a real session's join log looks like.
-  userIdsInJoinOrder: [USER_YOU, USER_PRIYA, AGENT_ARCHITECT, AGENT_IMPLEMENTER, AGENT_REVIEWER],
+  userIdsInJoinOrder: [USER_YOU, AGENT_ARCHITECT, AGENT_IMPLEMENTER, AGENT_REVIEWER],
   // Which of the roster this window is. Stated rather than read off the head of the
   // join order, which is whoever opened the session on whichever machine.
   callerUserId: USER_YOU,
@@ -95,8 +92,7 @@ export const LEDGER_SCENARIO: ConsoleScenario = {
   replies: [
     // The run-scoped reasoning surface, on its `available` arm with a bounded page.
     //
-    // A REGISTERED WIRE, so this reply is parsed against the contract's own schema
-    // like every other registered call rather than served through the growth port.
+    // A REGISTERED WIRE, so this reply is parsed against the contract's own schema.
     // The arm is `available` because the three empty arms need no scripted entries to
     // be reachable — a run this reply does not name answers with the fixture's own
     // refusal, and the card renders that as itself — while the entries are the one
@@ -171,43 +167,14 @@ export const LEDGER_SCENARIO: ConsoleScenario = {
       call: "timeline.read",
       result: { entries: [], hasMore: false },
     },
-    {
-      call: "agent.list",
-      result: {
-        agents: LEDGER_AGENTS.map((agent) => ({
-          agentId: agent.agentId,
-          name: agent.name,
-          driverName: agent.driverName,
-          modelId: agent.modelId,
-          config: {},
-          // `AgentState` is the four-state lifecycle. A run being in flight is a
-          // RUN state, read from the run and never folded into the agent row.
-          state: "ready",
-          createdAt: attachedAtIso(agent.attachedAtMs),
-        })),
-      },
-    },
-    // The REFUSED handshake, and this scenario is where it belongs: its job is to
-    // reach every state a surface renders, and the version banner has exactly one
-    // state — a console and a runtime that did not meet. Scripted nowhere else, so
-    // no demonstration window carries a claim about the operator's own install.
-    //
-    // It does not contradict the three lanes above it. An incompatible handshake
-    // blocks MUTATING dispatch and leaves reads alone, and every beat this session
-    // plays is a replayed event —
-    // which is what makes a refusal and a streaming ledger true at once rather than
-    // an inconsistency the script papered over.
-    REFUSED_NEGOTIATION_REPLY,
   ],
-  // The REFUSED resume position, and this scenario is where it belongs for the reason
-  // the handshake above it is: its job is to reach every state a surface renders, and
-  // `SessionResumeDegraded` has exactly one — a position this console submitted that
-  // the daemon could not resolve. It is a LEDGER surface, so a ledger-family scenario
-  // is where a reader looks for it, and the family's other three each rule themselves
-  // out by their own stated purpose: `ledger-quiet.ts` exists to hold the clean EMPTY
-  // state, `ledger-first-sixty.ts` IS `DEFAULT_SCENARIO_ID` and no first-launch
-  // demonstration should open onto a degradation, and `ledger-endurance.ts` is not in
-  // the picker at all.
+  // The REFUSED resume position, and this scenario is where it belongs: its job is to
+  // reach every state a surface renders, and `SessionResumeDegraded` has exactly one —
+  // a position this console submitted that the daemon could not resolve. It is a LEDGER
+  // surface, so a ledger-family scenario is where a reader looks for it, and the
+  // family's other two each rule themselves out by their own stated purpose:
+  // `ledger-quiet.ts` exists to hold the clean EMPTY state, and `ledger-endurance.ts`
+  // is not in the picker at all.
   //
   // It costs the committed captures nothing. The refusal needs a SECOND read — the
   // first submits no position — and a settled render performs one only on a focus, a

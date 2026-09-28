@@ -33,23 +33,7 @@
 
 import type { TimelineRow } from "@ai-sidekicks/contracts";
 
-import { type OwnerSlotContract } from "./owner-slot.js";
 import { SingleSlotSeat } from "./single-slot-seat.js";
-
-/**
- * The three facts this seat answers. Developer-facing; never rendered.
- *
- * GOVERNANCE IDS LIVE IN THE PROSE ABOVE AND NOT IN THESE VALUES — the repository
- * keeps plan, spec, and task ids out of runtime strings, and every member here is a
- * string a program holds. The body is the queue-and-intervention plan's edit-and-
- * resend affordance; a reader who needs the identifier reads it in this comment.
- */
-export const TIMELINE_ROW_FOOTER_SLOT_CONTRACT: OwnerSlotContract = {
-  owningTask: "the queue-and-intervention plan's edit-and-resend affordance",
-  mountObligation:
-    "the ledger renders this footer under the body of a user message row and supplies the row wire-verbatim beside the list's supersession ranking; the body owns the hover affordance, the eligibility predicate it projects from the daemon, and the intervention it dispatches",
-  deleteShellIn: "the PR that registers the edit-and-resend affordance in this seat",
-};
 
 /** What the ledger hands a row footer. */
 export interface TimelineRowFooterSlotProps {

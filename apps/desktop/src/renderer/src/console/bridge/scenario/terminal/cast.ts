@@ -1,5 +1,5 @@
-// Who and what the terminal scenario is about: the session, the people, the agent's
-// run, and the node hosting the shell.
+// Who and what the terminal scenario is about: the session, the people, and the
+// agent's run.
 //
 // Split out of `terminal.ts` so that file is the SCRIPT and this one is the cast
 // list. The identities are the part every consumer reaches for by name — the
@@ -10,8 +10,7 @@
 // WIRE-DECLARED UUIDs RATHER THAN READABLE PLACEHOLDERS. `wire-truth.ts` presents
 // each beat to the strict contract layer as the whole envelope it claims to be, and
 // an envelope whose session or actor is not the UUID the contract declares is a beat
-// no daemon could emit. The one exception below is the node id, which the corpus does
-// not declare as a UUID.
+// no daemon could emit.
 
 const HUMAN_USER_ID = "019b7b30-0280-79a4-8110-cca0117a0130";
 const SECOND_DEVICE_USER_ID = "019b7b30-0280-79a4-8110-cca0117a0132";
@@ -28,14 +27,6 @@ export const TERMINAL_SCENARIO_SESSION_ID = "019b7b30-0280-75e5-8510-ada11a5a555
 export const TERMINAL_AGENT_RUN_ID = "019b7b30-0280-7bd1-8110-cca0117a0134";
 
 /**
- * The node hosting the session's one terminal. Bound because three surfaces name it
- * and they must agree: the presence beats, the roster reply's node row, and the
- * degraded state's one line naming the node. A pane naming a different node than the
- * one whose presence dropped sends a person to the wrong machine.
- */
-export const TERMINAL_HOST_NODE_ID = "node-workstation";
-
-/**
  * The scenario's cast, by role, for the surfaces that render one of them.
  *
  * `userIdsInJoinOrder` carries the same three ids, and a caller indexing it
@@ -50,7 +41,7 @@ export interface TerminalScenarioCast {
   /** The other device the lease changes hands to. */
   readonly otherDevice: string;
   /**
-   * The attached agent, whose run's idling is one of the five release reasons. The
+   * The attached agent, whose run's idling is one of the ways a hold ends. The
    * RUN binds to the lease, never this id: an agent-path take holds as the
    * node-owner user, so `owner` above is the holder that take names.
    */

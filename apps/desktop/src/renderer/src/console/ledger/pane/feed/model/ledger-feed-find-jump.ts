@@ -14,7 +14,7 @@
 // to reach each other over one ledger — which acts exist, and what each of them does
 // to this window — so nothing here decides anything twice.
 
-import { useCallback, useMemo } from "react";
+import { useCallback } from "react";
 
 import { type TimelineRow } from "@ai-sidekicks/contracts";
 
@@ -67,19 +67,9 @@ export function useLedgerFindAndJump(inputs: {
   readonly filteredAwayRows: readonly TimelineRow[];
   /** What the chapter fold reported withholding, for the count beside the field. */
   readonly foldedAwayRows: readonly TimelineRow[];
-  /**
-   * What the superseded-band fold reported withholding.
-   *
-   * Counted in the SAME bucket as the chapter fold's, because it is the same answer
-   * to the person asking: a fold is holding this row, and the act that reaches it
-   * opens one. Two buckets would be two counts for one exit.
-   */
-  readonly bandFoldedAwayRows: readonly TimelineRow[];
   readonly visible: VisibleLedgerWindow;
   readonly openedTerminalRunIds: ReadonlySet<string>;
   readonly toggleChapter: (chapter: LedgerChapter) => void;
-  /** Open the rewound band holding a row, so a jump into a folded one can land. */
-  readonly openSupersededBandOfRow: (bandKey: string) => void;
   readonly setFilter: (filter: LedgerFilter) => void;
   /** The ledger's ONE scroll writer. Nothing here touches an element. */
   readonly jumpToRow: (rowId: string) => void;
@@ -91,38 +81,18 @@ export function useLedgerFindAndJump(inputs: {
     foldedWindow,
     filteredAwayRows,
     foldedAwayRows,
-    bandFoldedAwayRows,
     visible,
     openedTerminalRunIds,
     toggleChapter,
-    openSupersededBandOfRow,
     setFilter,
     jumpToRow,
     focusLedgerSurface,
   } = inputs;
 
   // Every stage, not just the rows on screen: what the walk cannot reach is counted
-  // under the name of the narrowing holding it, and two of the four narrowings are
-  // upstream of the visible window — each reported by the stage that performed it
-  // rather than re-derived here from a pair of windows.
-  // Held rather than spread at the call, so the memo below does not move on every
-  // render. Nothing is folded by default on either stage, and both report the same
-  // shared empty array when they withheld nothing, so the common case allocates once
-  // and compares equal.
-  const allFoldedAwayRows = useMemo(
-    () =>
-      bandFoldedAwayRows.length === 0 ? foldedAwayRows : [...foldedAwayRows, ...bandFoldedAwayRows],
-    [foldedAwayRows, bandFoldedAwayRows],
-  );
-  // The band fold's removals as a lookup, because the ACT the classification deserves has
-  // to tell the two folds apart even though the count above deliberately does not. A row
-  // the band fold took is reached by showing its band; a row an open chapter's own cap
-  // dropped is reached by nothing, and both arrive at the same absence.
-  const bandFoldedRowIds = useMemo(
-    () => new Set(bandFoldedAwayRows.map((row) => row.id)),
-    [bandFoldedAwayRows],
-  );
-  const find = useLedgerFind({ visible, filteredAwayRows, foldedAwayRows: allFoldedAwayRows });
+  // under the name of the narrowing holding it, each reported by the stage that
+  // performed it rather than re-derived here from a pair of windows.
+  const find = useLedgerFind({ visible, filteredAwayRows, foldedAwayRows });
   // Classified against every stage between the log and the screen rather than
   // against the rows on it, so an id the fold or the cap took is not reported as one
   // the filter is hiding.
@@ -149,38 +119,22 @@ export function useLedgerFindAndJump(inputs: {
   const clearFilter = useCallback(() => {
     setFilter(UNFILTERED_LEDGER);
   }, [setFilter]);
-  // WHICHEVER FOLD IS HOLDING THE ROW, which is why this does two things rather than
-  // one: a row can be inside a shut chapter, inside a folded rewind band, or inside
-  // both, and an act that opened only the chapter would leave the ledger scrolled to
-  // a row still folded away. Both halves are idempotent in the OPENING direction, and
-  // each earns that separately: the band control opens rather than toggles, and the
-  // chapter half is guarded here by the chapter's own disclosure state.
+  // Offered only for a shut chapter, so toggling it opens it.
   const openFoldsHoldingRow = useCallback(
     (row: TimelineRow) => {
-      const bandKey = foldedWindow.supersededBandKeyByRowId.get(row.id);
-      if (bandKey !== undefined) {
-        openSupersededBandOfRow(bandKey);
-      }
       const chapterRunId = chapterRunIdInWindow(row, foldedWindow);
-      // THE GUARD IS HERE AND NOT AT THE OFFER, which it used to rest on. The chapter
-      // control is a TOGGLE, so calling it for an already-open chapter closes one — and
-      // once a folded band offers this same act, the act runs for rows whose chapter is
-      // open, which is precisely the case the caller's own arm can no longer exclude.
       const chapter =
-        chapterRunId === undefined || openedTerminalRunIds.has(chapterRunId)
-          ? undefined
-          : foldedWindow.chapterByHeaderKey.get(chapterRunId);
+        chapterRunId === undefined ? undefined : foldedWindow.chapterByHeaderKey.get(chapterRunId);
       if (chapter !== undefined) {
         toggleChapter(chapter);
       }
     },
-    [foldedWindow, openedTerminalRunIds, toggleChapter, openSupersededBandOfRow],
+    [foldedWindow, toggleChapter],
   );
   const reach = useLedgerJumpReach({
     outcome,
     foldedWindow,
     openedTerminalRunIds,
-    bandFoldedRowIds,
     clearFilter,
     openFoldsHoldingRow,
     requestJump,

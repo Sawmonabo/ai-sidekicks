@@ -1,9 +1,7 @@
 // The input-ask card: the provider's question, in the ledger, where it was asked.
 //
-// THE SHELL AND ITS DEATH NOTICE. The body an ask row eventually renders is the
-// timeline plan's, absorbed by import — so this file is a slot with a shell behind
-// it, and the change that authors the real body deletes the shell. `input-ask.ts`
-// carries the three facts that arrangement owes and the reading this card renders.
+// A mount may supply `body` to replace the card. `input-ask.ts` carries the reading this
+// card renders.
 //
 // TWO ANSWER ARMS, AND ONE OF THEM IS UNCONDITIONAL. A provider that declared a
 // choice set gets an option group; EVERY ask, choice set or not, gets a free-text
@@ -43,12 +41,10 @@
 
 import { parseInstant } from "../../../core/index.js";
 import { InlineRefusal, Nothing, WireFigure, formatDuration } from "../../../primitives/index.js";
-import type { OwnerSlotProps } from "../../../seats/index.js";
-import type { ShellMutationBlock } from "../../../store/index.js";
 import { AskFreeTextArm } from "./AskFreeTextArm.js";
 import type { DriverAskDelivery, DriverAskReading } from "./input-ask.js";
 
-/** What the row hands the body the timeline plan authors. */
+/** What the row hands a supplied body. */
 export interface InputAskBodyProps {
   readonly ask: DriverAskReading;
   /** Where the answer this card last dispatched has got to. */
@@ -56,13 +52,16 @@ export interface InputAskBodyProps {
   readonly onAnswer: (response: string) => void;
 }
 
+/** What a mount hands the input-ask card. */
 export interface InputAskCardProps {
   /**
-   * The plan-owned body's slot. Required and carrying `undefined` rather than
-   * optional, so a mount that forgot the slot is a compile error at the construction
-   * site rather than an absent key that renders identically to an unfilled one.
+   * A body that replaces the built-in card, or `undefined` while the card draws itself.
+   *
+   * Required and carrying `undefined` rather than optional, so a mount that forgot it is a
+   * compile error at the construction site rather than an absent key that renders
+   * identically to a deliberate "none".
    */
-  readonly slot: OwnerSlotProps<(props: InputAskBodyProps) => React.ReactNode>;
+  readonly body: ((props: InputAskBodyProps) => React.ReactNode) | undefined;
   readonly ask: DriverAskReading;
   /**
    * The mount's reading of now, in epoch milliseconds.
@@ -79,24 +78,16 @@ export interface InputAskCardProps {
    * card constructs none — the same split the countdown makes with the clock.
    */
   readonly delivery: DriverAskDelivery;
-  /**
-   * Why the shell closes both answer arms, or absent while nothing does.
-   *
-   * `driver.respondToRequest` is a mutating call, so an outage closes it exactly as it
-   * closes every other one — and a control left live through one puts a write to a
-   * supervisor that is not serving. Handed down rather than derived here for the same
-   * reason the delivery is: this card constructs no wire reading of its own.
-   */
-  readonly shellBlock?: ShellMutationBlock;
   /** Deliver an answer on the registered driver answer method. */
   readonly onAnswer: (response: string) => void;
 }
 
+/** The ask card: the built-in one, or the supplied `body` when the mount passes one. */
 export function InputAskCard(props: InputAskCardProps): React.JSX.Element {
-  if (props.slot.body !== undefined) {
+  if (props.body !== undefined) {
     return (
       <div className="meridian-input-ask">
-        {props.slot.body({ ask: props.ask, delivery: props.delivery, onAnswer: props.onAnswer })}
+        {props.body({ ask: props.ask, delivery: props.delivery, onAnswer: props.onAnswer })}
       </div>
     );
   }
@@ -107,7 +98,7 @@ export function InputAskCard(props: InputAskCardProps): React.JSX.Element {
       {isPending ? (
         <>
           {renderCountdown(props.ask.expiresAt, props.nowEpochMilliseconds)}
-          {renderAnswerArms(props.ask, props.delivery, props.onAnswer, props.shellBlock)}
+          {renderAnswerArms(props.ask, props.delivery, props.onAnswer)}
         </>
       ) : (
         renderTerminal(props.ask)
@@ -190,27 +181,18 @@ function renderCountdown(
  * rather than one per control: an option press and a free-text send travel the same
  * method and produce the same reply, so a reader who pressed either meets the same
  * sentence in the same place. Two renderings would be two vocabularies for one wire.
- *
- * AND THE SHELL'S BLOCK IS DRAWN THE SAME WAY AND FOR THE SAME REASON — one condition
- * closing both arms is one sentence, above the arms rather than below them, because it
- * is the reason the controls are shut rather than a report of what a press produced.
  */
 function renderAnswerArms(
   ask: DriverAskReading,
   delivery: DriverAskDelivery,
   onAnswer: (response: string) => void,
-  shellBlock: ShellMutationBlock | undefined,
 ): React.ReactNode {
   // The two statuses in which no further answer may be dispatched: one is on the wire,
   // or one has already reached the driver. A refusal deliberately leaves the controls
   // live, which is rule 9's "a refusal never hides the control that produced it".
   const isSettling = delivery.status === "delivering" || delivery.status === "accepted";
-  const isClosed = isSettling || shellBlock !== undefined;
   return (
     <div className="meridian-input-ask__arms">
-      {shellBlock === undefined ? null : (
-        <InlineRefusal code={shellBlock.code} detail={shellBlock.detail} />
-      )}
       {ask.options.length === 0 ? null : (
         <ul className="meridian-input-ask__options" aria-label="the answers this ask offers">
           {ask.options.map((option) => (
@@ -218,7 +200,7 @@ function renderAnswerArms(
               <button
                 type="button"
                 className="meridian-input-ask__option"
-                disabled={isClosed}
+                disabled={isSettling}
                 onClick={() => {
                   onAnswer(option.value);
                 }}
@@ -232,7 +214,7 @@ function renderAnswerArms(
           ))}
         </ul>
       )}
-      <AskFreeTextArm delivery={delivery} isClosed={isClosed} onAnswer={onAnswer} />
+      <AskFreeTextArm delivery={delivery} isClosed={isSettling} onAnswer={onAnswer} />
       {renderDelivery(delivery)}
     </div>
   );

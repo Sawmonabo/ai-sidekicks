@@ -111,10 +111,6 @@ export interface RunTransitionInput {
    * record of one fact and the projection reading it would have to choose which. The
    * builder refuses them on any other transition rather than emitting a beat the
    * daemon does not send.
-   *
-   * `linkType` is deliberately absent from this set: it is typed by an orchestration
-   * symbol no TypeScript in this workspace declares, so a beat carrying one would be
-   * stating a value nothing here can check.
    */
   readonly parentRunId?: string;
   /** Whether the child is the parent's own helper rather than a user's run. */
@@ -177,15 +173,6 @@ export interface AssistantOutputInput {
   readonly contentType: string;
   /** Pre-truncation UTF-8 byte length of the body that was sealed. */
   readonly contentLength: number;
-  /**
-   * The channel this turn was spoken in, where the lane speaks in one.
-   *
-   * Optional because the member is optional on the registered shape, and carried at
-   * all because a channel-addressed pane is a log of the channel: with no beat in
-   * any scenario naming one, every channel pane in the fixture bridge rendered its
-   * empty state and no composition of that surface could be seen.
-   */
-  readonly channelId?: string;
 }
 
 /** What one tool-activity beat says. */
@@ -199,8 +186,6 @@ export interface ToolActivityInput {
   readonly toolName: string;
   /** Pairs an invocation with its settlement, which is what a tool card renders. */
   readonly toolCallId: string;
-  /** The channel the call was made in — `AssistantOutputInput.channelId`'s reason. */
-  readonly channelId?: string;
   readonly durationMs?: number;
   readonly contentLength?: number;
 }
@@ -290,7 +275,6 @@ export function assistantOutputEntry(input: AssistantOutputInput): LedgerScriptE
     payload: {
       sessionId: input.sessionId,
       runId: input.runId,
-      ...(input.channelId === undefined ? {} : { channelId: input.channelId }),
       contentType: input.contentType,
       contentLength: input.contentLength,
     },
@@ -307,7 +291,6 @@ export function toolActivityEntry(input: ToolActivityInput): LedgerScriptEntry {
       runId: input.runId,
       toolName: input.toolName,
       toolCallId: input.toolCallId,
-      ...(input.channelId === undefined ? {} : { channelId: input.channelId }),
       ...(input.durationMs === undefined ? {} : { durationMs: input.durationMs }),
       ...(input.contentLength === undefined ? {} : { contentLength: input.contentLength }),
     },

@@ -2,7 +2,7 @@
 // position the store reads it at.
 
 import type { ScenarioWireTruthDefect } from "./defect.js";
-import { BASE_STATE_CURSOR } from "../../fixture/index.js";
+import { BASE_STATE_CURSOR } from "../../../store/index.js";
 import type { ConsoleScenario } from "../runtime/index.js";
 
 /**

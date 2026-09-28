@@ -1,21 +1,16 @@
-// The pre-console families the console absorbed, and the guard one of them uses.
+// The runtime-node family, mounted inside the console's own surfaces.
 //
-// Two families shipped before the console existed and were rendered by the renderer
-// root directly: the session probe and the runtime-node family. When the console took
-// over the root they stopped being rendered by anything, which is not a decision
-// anybody made — it is what happens when a new mount point lands before the old
-// surfaces are re-homed. This module re-homes both of them.
+// The family is rendered by a renderer subtree outside the console, and this module
+// hands each of its components to the console surface that mounts it.
 //
-// IN `seats/` RATHER THAN IN `frame/`, WHICH IS WHERE THEY WERE WRITTEN. A mount here
-// reads a bridge source, two primitives, and a branded id, and nothing above
-// `bridge/` — so `seats/` is the LOWEST family that owns its inputs, which is the
-// rule. It matters rather than being tidy because these mounts are moving INSIDE
-// console-authored surfaces as those land: a probe becomes a region of the sessions
-// list, a node roster becomes a region of the agent console. Those surfaces are view
-// families, and a view family can reach `frame/` by no path at all — a deep import is
-// what the cross-family rule refuses, and the frame's own door is worse, because
-// `frame/index.ts` re-exports `ConsoleRoot`, which composes every view family through
-// `families.ts`, so the edge back closes a measured cycle:
+// IN `seats/` RATHER THAN IN `frame/`. A mount here reads the bridge, two primitives,
+// and a branded id, and nothing above `bridge/` — so `seats/` is the LOWEST family that
+// owns its inputs, which is the rule. It matters rather than being tidy because these
+// mounts sit INSIDE console-authored surfaces: a node roster is a region of the agent
+// console. Those surfaces are view families, and a view family can reach `frame/` by no
+// path at all — a deep import is what the cross-family rule refuses, and the frame's
+// own door is worse, because `frame/index.ts` re-exports `ConsoleRoot`, which composes
+// every view family through `families.ts`, so the edge back closes a measured cycle:
 //
 //   families.ts → <family>/index.ts → frame/index.ts → ConsoleRoot.tsx → families.ts
 //
@@ -29,29 +24,17 @@
 // a renderer subtree OUTSIDE the console, absorbed by the console as a whole rather
 // than authored by any family in it.
 //
-// WHY ONE OF THE FIVE MOUNTS IS GUARDED ON THE BRIDGE SOURCE. The probe reads
-// `window.desktopBridge` directly rather than taking a bridge from context, so the
-// console's fixture cannot stand in for the preload the way it does for every
-// console-authored surface. Under the fixture it would reach past it: in a window
-// with no preload at all it throws into the surface boundary and reads as a crash,
-// and in the fixture build it would answer from the live daemon beside fixture data
-// in the same window, which is worse than answering nothing. So the console says the
-// question was not put, which is exactly what happened.
-//
-// THE NODE ROSTER IS NOT ONE OF THEM, AND ITS GUARD IS GONE RATHER THAN RELAXED.
-// That view now takes an optional read seam and `seats/node-roster/node-roster-seam.ts` builds one
-// from the bridge the console has already resolved, so it asks whichever bridge this
-// window is running on: the control plane under the preload, the scenario's own roster
-// frames under the fixture. There is no longer a window in which it could reach past the
-// console's bridge, so the condition the guard tested does not arise for it — and every fixture
-// build that used to render "the question was not put" where the roster belongs now
-// renders the roster.
+// THE NODE ROSTER TAKES A READ SEAM. `seats/node-roster/node-roster-seam.ts` builds one
+// from the bridge the console has already resolved, so the roster asks whichever bridge
+// this window is running on: the control plane under the preload, the scenario's own
+// roster frames under the fixture. There is no window in which it could reach past the
+// console's bridge.
 
 import { createElement, type ReactNode } from "react";
 
 import type { RuntimeNodeRosterEntry, SessionId } from "@ai-sidekicks/contracts";
 
-import type { ConsoleBridge, ConsoleBridgeSource } from "../../bridge/index.js";
+import type { ConsoleBridge } from "../../bridge/index.js";
 import { Nothing, SurfaceAbsence } from "../../primitives/index.js";
 import {
   nodeAttachDraftFor,
@@ -64,78 +47,11 @@ import {
   MixedVersionStatus,
   NodeRoster,
 } from "../../../runtime-node-attach/index.js";
-import {
-  SessionBootstrap,
-  type SessionBootstrapCreated,
-} from "../../../session-bootstrap/index.js";
-
-/**
- * What a caller hears back from the session probe, and when.
- *
- * TWO CALLBACKS BECAUSE THERE ARE TWO FACTS. `onCreated` names the session a press
- * produced and is told on that arm alone; `onSettled` says the call is no longer in
- * flight and is told on both. A caller that single-flights the start act needs the
- * second one — a slot released only where a session appeared would stay held for the
- * life of the surface the first time a create refused.
- */
-export interface AbsorbedSessionProbeSettlement {
-  readonly onCreated: (created: SessionBootstrapCreated) => void;
-  readonly onSettled: () => void;
-}
-
-/**
- * Whether a mount guarded on the installed bridge puts its call in THIS window.
- *
- * ONE HOME FOR THE GUARD'S CONDITION, read from two sides. {@link mountAbsorbedSurface}
- * reads it to decide what to render; a caller that single-flights the act one of these
- * mounts performs reads it to decide whether there is an act to single-flight at all.
- * Without it that caller would take a slot in a window where nothing is ever
- * dispatched and nothing will ever settle to give the slot back — a control that goes
- * inert on its first press, under the fixture, for a call that was never put.
- */
-export function absorbedSurfaceAsks(bridgeSource: ConsoleBridgeSource): boolean {
-  return bridgeSource === "live";
-}
-
-/**
- * The session probe, built on the user's own act.
- *
- * Exported as a BUILDER rather than registered as a mount, because the probe creates
- * a session from its mount effect and a route lifecycle remounts a slot on every
- * visit — so registering it would make navigating back to the sessions list create a
- * session. Whatever surface holds that slot calls this when a person asks for a new
- * session, and the guard travels with the call: a caller cannot mount the component
- * past the fixture check, because the check is not the caller's to make.
- *
- * THE SETTLEMENT TRAVELS BACK OUT, and that is the only thing this mount adds to the
- * component it absorbs. The probe is the one `session.create` caller in this
- * renderer, so a console surface that mounted it learned nothing about the session
- * the press produced: it could count presses and could not name one. `onCreated` is
- * threaded rather than absorbed here because the console does not re-author a body
- * another plan owns — the probe still creates, still renders its own three arms, and
- * the console becomes the party that hears the result.
- *
- * The settlement is optional at BOTH ends. A caller with nothing to do with a settled
- * create passes none, and the component's behaviour is then exactly what it was.
- */
-export function renderAbsorbedSessionProbe(
-  bridgeSource: ConsoleBridgeSource,
-  settlement?: AbsorbedSessionProbeSettlement,
-): ReactNode {
-  return mountAbsorbedSurface(bridgeSource, () =>
-    createElement(SessionBootstrap, {
-      onCreated: settlement?.onCreated,
-      onSettled: settlement?.onSettled,
-    }),
-  );
-}
-
 /**
  * The runtime-node roster, mounted inside the console's agent console.
  *
- * Takes the session id rather than a route, because the two mounts that need it
- * carry a session differently — one from a pane's own store, one from an auxiliary
- * address — and neither should have to build a route to reach a component.
+ * Takes the session id rather than a route, because a mount that carries a session
+ * should not have to build a route to reach a component.
  *
  * Takes the BRIDGE rather than its source, because it now hands the view the pair
  * of reads that bridge already serves rather than deciding whether to mount it at
@@ -223,11 +139,9 @@ export function renderAbsorbedAttachFlow(
 /**
  * One node's declared capability set, as the shipped view renders it.
  *
- * NO BRIDGE GUARD, AND THAT IS NOT AN EXEMPTION — the guard the probe mount above
- * carries exists because that component reads `window.desktopBridge` itself, so the
- * console's fixture cannot stand in for a preload it never asks it for. This one reads
- * nothing: it takes the map as a prop and formats it. There is no window in which it
- * could reach past the console's bridge, because it reaches for no bridge at all.
+ * NO BRIDGE GUARD, AND THAT IS NOT AN EXEMPTION — this reads nothing: it takes the map
+ * as a prop and formats it. There is no window in which it could reach past the
+ * console's bridge, because it reaches for no bridge at all.
  *
  * The map arrives from the roster read the absorbed roster ALREADY performed, through
  * `seats/node-roster/node-roster-seam.ts`, so the capabilities on screen and the rows beside them are one
@@ -254,30 +168,6 @@ export function renderAbsorbedCapabilityDeclaration(
  */
 export function renderAbsorbedMixedVersionStatus(rosterEntry: RuntimeNodeRosterEntry): ReactNode {
   return createElement(MixedVersionStatus, { rosterEntry, writeAttemptRejection: null });
-}
-
-/**
- * Render a shipped component, or say that no question was put.
- *
- * `not-checked` rather than `error`: nothing failed. The console is running against
- * the fixture, this surface reads the installed bridge directly, and so the console
- * declined to ask on its behalf. Reporting that as an error would assert a failure
- * that never happened, which is the conflation the five kinds of nothing exist to
- * prevent.
- */
-function mountAbsorbedSurface(
-  bridgeSource: ConsoleBridgeSource,
-  build: () => ReactNode,
-): ReactNode {
-  if (!absorbedSurfaceAsks(bridgeSource)) {
-    return centredAbsence({
-      kind: "not-checked",
-      title: "This surface reads the installed bridge, and this window is running on the fixture.",
-      detail:
-        "It renders in the application, where the preload bridge is installed. Nothing was asked of the daemon here.",
-    });
-  }
-  return build();
 }
 
 /**

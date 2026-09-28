@@ -51,8 +51,9 @@
 // `packages/contracts` therefore holds no schema for at all — `SessionEventSchema`
 // registers no run-lifecycle payload variant, so there is nothing to derive them
 // from. Treating the two subscription shapes as exhaustive dropped every one of
-// them: the run's creation lost its orchestration `linkType`, its admission-
-// resolved `effectiveRunConfig`, and the account it was admitted against, and the
+// them: the run's creation lost its `reachedBy` provenance (`provider_subagent`,
+// `bridge_run` or `workflow_step`), its admission-resolved `effectiveRunConfig`, and the
+// account it was admitted against, and the
 // three forward, non-state rows lost the whole of what they carry — the provider
 // and model an initialization reports, the position a turn opened at, the reason a
 // worker shut down. Each reached the timeline and none reached the `run` partition
@@ -67,7 +68,7 @@
 // THE TWO SHAPES ARE NOT ONE SHAPE, and the exclusions are where that is stated. That
 // module says so itself: the `run.subscribeState` projection is deliberately distinct
 // from the durable run-lifecycle payload (`{sessionId, runId, runVersion,
-// previousState, newState, channelId?, ...}`), where the canonical wire member is
+// previousState, newState, ...}`), where the canonical wire member is
 // `currentState` on the stream and `newState` on the durable row. `sessionId` and
 // `timestamp` are excluded because the envelope already carries both —
 // `event.sessionId` and `event.occurredAt`, the latter stored as `touchedAt` — and

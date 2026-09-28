@@ -1,9 +1,8 @@
 // One footnote definition's body, mapped out of the nodes the registry recorded.
 //
-// Its own module for the one-component rule, and the split is where the popup's one
-// honest absence stops being buried inside the host that opens it: a definition the
-// bound eviction has taken is a settled empty result, and that sentence is the whole
-// of what this file decides.
+// Its own module for the one-component rule: a definition the registry's bound eviction
+// has taken is a settled empty result, and that sentence is the whole of what this file
+// decides.
 
 import type { RootContent } from "mdast";
 
@@ -16,17 +15,12 @@ export interface DefinitionBodyProps {
 }
 
 /**
- * The definition the open marker points at, or the sentence for one that is gone.
+ * The recorded definition, or the sentence for one that is gone.
  *
- * The registry answers `undefined` for a reference whose definition has not arrived, and
- * a marker is only a button once the message has declared one — so reaching that arm
- * means the definition left the registry between the press and the render, which is what
- * the bound eviction can do to the oldest entries. Saying so beats an empty popup.
+ * The registry answers `undefined` for a definition that has not arrived or that the bound
+ * eviction took from the oldest entries. Saying so beats an empty region.
  *
- * A marker inside this body opens the SAME popup, because the host provider is above it
- * and the payload is the identifier alone: pressing `[^b]` inside `[^a]` swaps the popup
- * to `b`, and pressing `[^a]` inside `[^a]` re-opens `a` — a note that cites itself
- * shows itself, which is the honest answer and needs no special case.
+ * @consumedBy the definition drawn at the foot of a reply
  */
 export function DefinitionBody(props: DefinitionBodyProps): React.JSX.Element {
   if (props.bodyNodes === undefined) {

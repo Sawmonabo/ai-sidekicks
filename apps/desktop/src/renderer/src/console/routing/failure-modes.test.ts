@@ -1,12 +1,10 @@
 // Failure modes of route parsing.
 //
-// The class: a hash the console did not write. An auxiliary window is addressed by a
-// URL fragment, and a fragment is the one input a user, a stale bookmark, or a
-// restored session can hand the console directly — so every malformed shape has to
-// land somewhere legible instead of rendering blank. An unknown window name, a
-// segment too many, a subject with a `/` in it that would split wrong, a malformed
-// percent-escape, an empty path segment, an empty hash: each has a specific answer,
-// and two of the six are NOT errors.
+// The class: a hash the console did not write. A URL fragment is the one input a user,
+// a stale bookmark, or a restored session can hand the console directly — so every
+// malformed shape has to land somewhere legible instead of rendering blank. A
+// malformed percent-escape, an empty path segment, an empty hash: each has a specific
+// answer, and the empty hash is NOT an error.
 //
 // The last two rows are the ones a parser gets wrong QUIETLY. A malformed escape
 // throws out of a function whose contract is that every input produces a route, and
@@ -19,48 +17,12 @@
 // store exists, so the whole failure surface is the parse. The window that mounts
 // the result and the store that keys off it fail in their own ways, in their own
 // families.
-//
-// The case worth pinning is the bare auxiliary route, which looks malformed and is
-// not: the Window menu opens `#/window/timeline` before a subject is chosen, so
-// treating a missing subject as not-found would break the ordinary path while
-// "handling" a failure that never happens.
 
 import { describe, expect, it } from "vitest";
 
 import { parseRoute } from "./routes.js";
 
-describe("failure matrix — the router is handed a malformed auxiliary context", () => {
-  it("treats an unknown window route as not-found rather than rendering blank", () => {
-    expect(parseRoute("#/window/nonsense")).toStrictEqual({
-      kind: "not-found",
-      attempted: "#/window/nonsense",
-    });
-  });
-
-  it("treats too many trailing segments as not-found", () => {
-    expect(parseRoute("#/window/timeline/session-1/agent-1/extra").kind).toBe("not-found");
-  });
-
-  it("treats a BARE auxiliary route as a working window awaiting a subject", () => {
-    // Not an error: the Window menu opens this window before anything is chosen.
-    expect(parseRoute("#/window/timeline")).toStrictEqual({
-      kind: "auxiliary",
-      route: "timeline",
-    });
-  });
-
-  it("decodes a session id that needed escaping rather than splitting on it", () => {
-    // On the timeline route, whose context is the session alone: the agent console
-    // takes its session and its agent together or neither, so a one-segment agent
-    // console is refused by the shared grammar and would test the refusal instead.
-    const route = parseRoute("#/window/timeline/session%2Fwith%2Fslashes");
-    expect(route).toStrictEqual({
-      kind: "auxiliary",
-      route: "timeline",
-      sessionId: "session/with/slashes",
-    });
-  });
-
+describe("failure matrix — the router is handed an empty hash", () => {
   it("lands an empty hash on the default route", () => {
     expect(parseRoute("")).toStrictEqual({ kind: "sessions" });
     expect(parseRoute("#")).toStrictEqual({ kind: "sessions" });
@@ -120,26 +82,11 @@ describe("failure matrix — the router is handed an empty path segment", () => 
     expect(parseRoute("#/settings/").kind).toBe("not-found");
   });
 
-  it("refuses a trailing or doubled slash on an auxiliary route", () => {
-    // The same discipline, on the arm that delegates: the segments handed to the
-    // shared grammar are the segments this module split, so an empty one cannot be
-    // malformed for the main arms and invisible to the auxiliary one.
-    expect(parseRoute("#/window/timeline/").kind).toBe("not-found");
-    expect(parseRoute("#/window//timeline").kind).toBe("not-found");
-    expect(parseRoute("#/window/timeline//session-1").kind).toBe("not-found");
-  });
-
   it("negative control: the same routes without the empty segment still parse", () => {
-    // Without this, refusing every hash would pass all three refusals above.
+    // Without this, refusing every hash would pass both refusals above.
     expect(parseRoute("#/sessions").kind).toBe("sessions");
     expect(parseRoute("#/session/foo")).toStrictEqual({ kind: "workspace", sessionId: "foo" });
     expect(parseRoute("#/settings")).toStrictEqual({ kind: "settings", page: undefined });
-    expect(parseRoute("#/window/timeline")).toStrictEqual({ kind: "auxiliary", route: "timeline" });
-    expect(parseRoute("#/window/timeline/session-1")).toStrictEqual({
-      kind: "auxiliary",
-      route: "timeline",
-      sessionId: "session-1",
-    });
   });
 
   it("negative control: a hash that is only separators is still the default route", () => {

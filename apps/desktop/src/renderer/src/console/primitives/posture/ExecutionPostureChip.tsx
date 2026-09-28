@@ -11,13 +11,9 @@
 // both sandboxed modes and forbidden under `trusted`) are encoded structurally there,
 // so this component renders them rather than re-checking them.
 //
-// IT LIVES IN `primitives/` BECAUSE TWO VIEW FAMILIES RENDER IT. The runs pane puts
-// one on every run row and the approvals pane puts one under each run a pending
-// decision names, and those two families sit beside each other in the DAG: neither
-// may import the other, so a component either family owned would have to be copied
-// to reach the second. Its inputs are the contract's posture shape, this family's
-// own figures, and one `core/` threshold — nothing above `core/` — so this is the
-// lowest family that owns them.
+// IT LIVES IN `primitives/` because its inputs are the contract's posture shape, this
+// family's own figures, and one `core/` threshold — nothing above `core/` — so this is
+// the lowest family that owns them.
 //
 // FIVE NEVERS, EACH ONE A LINE OF CODE THAT IS ABSENT:
 //
@@ -29,9 +25,7 @@
 //   • `writableRoots` never appears without its `mode`, because an empty list means
 //     two opposite things — nothing writable under `readonly-sandboxed`, no
 //     OS-enforced write constraint under `trusted` — and audit reconstruction has to
-//     read the two together. THE ROW PRESENTATION HOLDS THIS TOO: its closed summary
-//     carries the roots COUNT beside the mode, so the two are never apart at any
-//     density, and opening it is what expands the count into the paths.
+//     read the two together.
 //   • `credentialPolicyRef` is shown as the reference itself. Expanding it into a
 //     deny-list would reveal the installation.
 //   • A broad allow-list is never presented as safety; the copy says so where the
@@ -45,19 +39,18 @@ import { type ExecutionPosture as WireExecutionPosture } from "@ai-sidekicks/con
 import { Nothing } from "../absence/index.js";
 import { Chip, DerivedFigure } from "../figures/index.js";
 import { PostureFacts } from "./PostureFacts.js";
-import { PostureRow } from "./PostureRow.js";
 import { POSTURE_ABSENT_DETAIL, POSTURE_ENFORCEMENT_CAVEAT } from "./posture-copy.js";
-import type { PosturePresentation, PostureReading } from "./posture-reading.js";
+import type { PostureReading } from "./posture-reading.js";
 
+/** What the card shows: a posture, and whether it was stamped on a run or is an intent. */
 export interface ExecutionPostureProps {
   readonly posture: WireExecutionPosture | undefined;
   readonly reading: PostureReading;
   /** The run this posture was stamped on, where the reading is `stamped`. */
   readonly runId?: string;
-  /** Defaults to the open card; a run row asks for `row`. */
-  readonly presentation?: PosturePresentation;
 }
 
+/** The execution boundary as an open card, or an inline notice when the posture is unknown. */
 export function ExecutionPostureChip(props: ExecutionPostureProps): React.JSX.Element {
   if (props.posture === undefined) {
     return (
@@ -81,13 +74,6 @@ export function ExecutionPostureChip(props: ExecutionPostureProps): React.JSX.El
       )}
     </div>
   );
-  if (props.presentation === "row") {
-    return (
-      <PostureRow posture={posture} reading={props.reading}>
-        {line}
-      </PostureRow>
-    );
-  }
   return (
     <div className={`meridian-posture meridian-posture--${props.reading}`}>
       {line}

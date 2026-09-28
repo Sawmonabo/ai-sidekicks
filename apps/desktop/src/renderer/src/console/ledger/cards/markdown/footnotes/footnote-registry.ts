@@ -2,8 +2,8 @@
 //
 // The footnote registry is own-built, and nothing above this module says how it is
 // keyed. THIS MODULE DECIDES THAT, and the
-// rule is: one popover host per timeline over a registry keyed by (source, identifier),
-// so a definition line never resolves as its own body.
+// rule is: one registry per timeline keyed by (source, identifier), so a definition line
+// never resolves as its own body.
 //
 // THE FAILURE THE KEYING PREVENTS. GFM footnotes are `[^1]` for the reference and
 // `[^1]: …` for the definition, and the identifier is scoped to the DOCUMENT. A ledger
@@ -16,20 +16,18 @@
 // came from, so a lookup can only find a definition its own message declared.
 //
 // WHY A CLASS AND NOT A CONTEXT VALUE. Definitions arrive as blocks settle, from a
-// parse that runs outside React, and references resolve during render. A `useState`
-// holding this would re-render every row in the timeline each time any message declared
-// a footnote. The registry is handed to the host; the host re-renders when a popover
-// opens, which is the only moment its contents reach the screen.
+// parse that runs outside React. A `useState` holding this would re-render every row in
+// the timeline each time any message declared a footnote.
 //
-// AND WHY IT IS STILL AN EXTERNAL STORE. A plain class with no subscription was read
-// during render and written from an effect — `StreamingMarkdown`'s registration hook —
-// so the write always landed AFTER the render that resolved it. While a body streams
-// the next frame hides that; on the LAST frame there is no next frame, so a popover
-// already open over a note the final update rewrote stayed on the penultimate body
-// indefinitely. The remedy is one mechanism rather than two: this class is the store,
-// `definitionsFor` is its snapshot, and `subscribeToSource` is what re-renders the one
-// host whose body changed. There is deliberately no second lookup beside the snapshot —
-// a read that bypassed the subscription is exactly the stale read this closes.
+// AND WHY IT IS STILL AN EXTERNAL STORE. A plain class with no subscription is written
+// from an effect — `StreamingMarkdown`'s registration hook — so a read during render
+// always lands BEFORE the write. While a body streams the next frame hides that; on the
+// LAST frame there is no next frame, so a reader of a note the final update rewrote stays
+// on the penultimate body indefinitely. The remedy is one mechanism rather than two: this
+// class is the store, `definitionsFor` is its snapshot, and `subscribeToSource` is what
+// re-renders a reader whose source's body changed. There is deliberately no second lookup
+// beside the snapshot — a read that bypassed the subscription is exactly the stale read
+// this closes.
 //
 // THE SNAPSHOT IS PER SOURCE, AND STABLE. `useSyncExternalStore` compares snapshots by
 // identity, so `definitionsFor` hands back a view held until that source's definitions
@@ -52,7 +50,7 @@ import type { RootContent } from "mdast";
  */
 const FOOTNOTE_KEY_SEPARATOR = "\u0000";
 
-/** One definition, as the popover renders it. */
+/** One definition, as its reader renders it. */
 export interface FootnoteDefinition {
   /** The row this definition was declared in — the first half of the key. */
   readonly sourceId: string;
@@ -61,7 +59,7 @@ export interface FootnoteDefinition {
   /**
    * The definition's body, as parsed nodes rather than as rendered elements.
    *
-   * The popover host maps them when it opens, which is what keeps registration a pure
+   * The reader maps them when it draws them, which is what keeps registration a pure
    * fact about the parse: a registry holding elements would have to be written during a
    * render, and `apps/desktop/AGENTS.md` puts every such write in a class or a hook.
    */
@@ -95,7 +93,7 @@ export class FootnoteRegistry {
    * The recency refresh happens whichever way the comparison below goes — a definition
    * a live card re-registered is not old — while the ANNOUNCEMENT is made only for a
    * body that actually moved. An evicted definition announces too, and for the same
-   * reason a rewritten one does: a popover open over it is showing something the
+   * reason a rewritten one does: a reader showing it is showing something the
    * registry no longer holds.
    */
   public register(definition: FootnoteDefinition): void {
@@ -122,8 +120,8 @@ export class FootnoteRegistry {
    * Every definition one source declared, keyed by identifier — the store's snapshot.
    *
    * An empty map is the honest answer for a body whose definitions have not arrived
-   * yet — a stream can carry `[^1]` several frames before `[^1]: …` — and the host
-   * renders the marker with no body rather than an empty popup.
+   * yet — a stream can carry `[^1]` several frames before `[^1]: …` — and the reader
+   * renders no body rather than an empty one.
    *
    * Built on demand and then HELD, because identity is what
    * `useSyncExternalStore` compares: rebuilding per read would report a change on every
@@ -154,10 +152,10 @@ export class FootnoteRegistry {
    * Hear about one source's definitions changing, for as long as its body is mounted.
    *
    * Scoped to the source rather than to the registry, because one registry serves every
-   * row in the ledger: an unscoped signal would re-render every mounted popover host
+   * row in the ledger: an unscoped signal would re-render every mounted reader
    * each time any message declared a note, which is the fan-out this class exists to
    * avoid. The filter is here rather than in the caller so the two halves of the
-   * scoping — which key a change names and which key a host waits on — stay in one
+   * scoping — which key a change names and which key a reader waits on — stay in one
    * module.
    */
   public subscribeToSource(sourceId: string, onChange: () => void): Unsubscribe {

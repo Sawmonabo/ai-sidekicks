@@ -28,7 +28,7 @@ export const PERF_METER_BOUNDS = {
    *
    * 240 is four seconds of a 60 Hz lane, which is the window an author actually
    * reads: long enough that one slow frame does not decide the p95, short enough
-   * that a stall two minutes ago is not still colouring the reading of the frame
+   * that a stall two minutes ago is not still coloring the reading of the frame
    * on screen now. At eight bytes a double this is 1,920 bytes a series.
    */
   seriesSampleCount: 240,

@@ -21,10 +21,6 @@
 //   • `run.subscribeQueue` — streams the `QueueItemSummary` projection, which is
 //     what each `queue_item.*` row announces, so its kinds are that root within
 //     the registered census.
-//   • `presence.subscribe` — the session's Awareness room. Its kinds are the
-//     `presence.` root — the four transitions that move the room — and what it
-//     delivers is a payload-free CHANGE SIGNAL rather than any of them, because the
-//     read is the truth and the push is only a signal.
 //
 // `session.subscribe` has no list here at all, and the absence is the honest shape
 // rather than a gap: the set it would enumerate is the entire registered census,
@@ -159,26 +155,8 @@ const RUN_QUEUE_STREAM_STATE_BY_KIND: Readonly<Record<RunQueueStreamKind, QueueI
     "queue_item.admitted": "admitted",
     "queue_item.superseded": "superseded",
     "queue_item.canceled": "canceled",
-    "queue_item.expired": "expired",
+    "queue_item.not_delivered": "not_delivered",
   } satisfies Record<RunQueueStreamKind, QueueItemState>);
-
-/**
- * The registered event kinds that move a session's Awareness room.
- *
- * The `presence.` root of the census, `Extract`ed rather than listed, so a presence
- * transition the corpus registers later is carried without anyone editing this file.
- * The value is `true` and carries no meaning of its own: the room's whole reading
- * comes from `presence.read`, so what a kind announces here is only THAT the room
- * moved.
- */
-type PresenceStreamKind = Extract<SessionEventType, `presence.${string}`>;
-
-const PRESENCE_STREAM_SIGNAL_BY_KIND: Readonly<Record<PresenceStreamKind, true>> = Object.freeze({
-  "presence.online": true,
-  "presence.idle": true,
-  "presence.reconnecting": true,
-  "presence.offline": true,
-} satisfies Record<PresenceStreamKind, true>);
 
 /**
  * The kinds `run.subscribeState` carries, read off the record that declares them.
@@ -197,17 +175,6 @@ export const RUN_STATE_STREAM_CARRIED_KINDS: readonly string[] = Object.freeze(
 /** The kinds `run.subscribeQueue` carries. Frozen, for the list above's reason. */
 export const RUN_QUEUE_STREAM_CARRIED_KINDS: readonly string[] = Object.freeze(
   Object.keys(RUN_QUEUE_STREAM_STATE_BY_KIND),
-);
-
-/**
- * The log-borne half of when a session's Awareness room moves.
- *
- * Half rather than all of it: the room also moves when what a person is DOING
- * changes, which the census carries no event for at all, so whatever serves that
- * subscription owns the other half. Frozen, for the list above's reason.
- */
-export const PRESENCE_STREAM_CARRIED_KINDS: readonly string[] = Object.freeze(
-  Object.keys(PRESENCE_STREAM_SIGNAL_BY_KIND),
 );
 
 /**

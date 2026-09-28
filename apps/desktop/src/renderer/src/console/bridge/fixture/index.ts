@@ -49,7 +49,7 @@
 // would turn `no-circular` red rather than tidy anything.
 
 export { createFixtureBridge } from "./call-plane/bridge.js";
-
-export { FIXTURE_SERVED_GROWTH_OPERATION_IDS } from "./call-plane/served-operations.js";
-
-export { BASE_STATE_CURSOR } from "./session/session-snapshot.js";
+export {
+  /** @consumedBy the fixture's answer to the session read the header's title takes */
+  scenarioSessionIdentity,
+} from "./session/session-identity.js";

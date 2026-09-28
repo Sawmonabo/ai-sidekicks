@@ -3,8 +3,8 @@
 // The chrome's own suite covers what the two states RENDER. This covers the
 // distinction they render from, which no rendering can witness: an empty object and
 // `undefined` produce the same head — no controls — so a context that quietly
-// defaulted to `{}` would be invisible there and would make the auxiliary window's
-// "there is no host" indistinguishable from a deck that supplied nothing.
+// defaulted to `{}` would be invisible there and would make "there is no host"
+// indistinguishable from a deck that supplied nothing.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -49,15 +49,14 @@ describe("pane controls — the seam", () => {
   });
 
   it("negative control: a partial host is not filled in", () => {
-    // A deck whose registry says this kind cannot be torn off provides the close alone.
-    // A seam that supplied a default for the other act would hand the chrome a detach
-    // the window model cannot serve.
+    // A deck that provides the close alone. A seam that supplied a default for the
+    // other acts would hand the chrome controls the host cannot serve.
     const seam = readSeam((probe) => (
       <PaneControlsContext.Provider value={{ onClose: () => undefined }}>
         {probe}
       </PaneControlsContext.Provider>
     ));
-    expect(seam.value?.onOpenInWindow).toBeUndefined();
+    expect(seam.value?.openPane).toBeUndefined();
     expect(seam.value?.registerDragHandle).toBeUndefined();
     expect(seam.value?.onClose).toBeTypeOf("function");
   });

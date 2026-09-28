@@ -14,7 +14,7 @@ import {
   type ConsolePaneLink,
   type ConsolePaneOpener,
 } from "./pane-address.js";
-import { PANE_KINDS, isDetachablePaneKind } from "./pane-kinds.js";
+import { PANE_KINDS } from "./pane-kinds.js";
 import {
   ConsolePaneRegistry,
   consolePaneRegistry,
@@ -101,34 +101,6 @@ describe("pane registry — declaration order, not registration order", () => {
     // Every case above reads `registeredPaneKinds`, and all of them would pass
     // over a registry that reported kinds nobody registered.
     expect(new ConsolePaneRegistry().registeredPaneKinds()).toStrictEqual([]);
-  });
-});
-
-describe("pane registry — a descriptor cannot advertise a detach of its own", () => {
-  it("takes the registration and still refuses the kind a detach", () => {
-    const registry = new ConsolePaneRegistry();
-    registry.register({
-      kind: "browser",
-      owner: "browser-terminal-family",
-      render: () => null,
-      // @ts-expect-error the descriptor carries no detach member: whether a kind
-      // may be torn off is `isDetachablePaneKind`'s single answer, derived from the
-      // window model, and never a claim a family makes about the kind it owns.
-      openInWindow: true,
-    });
-    // Registration is unchanged — this finding narrowed the descriptor, it did not
-    // add a refusal — and the kind still cannot be torn off.
-    expect(registry.descriptorFor("browser")?.owner).toBe("browser-terminal-family");
-    expect(isDetachablePaneKind("browser")).toBe(false);
-  });
-
-  it("negative control: the directive above is suppressing a real error", () => {
-    // A `@ts-expect-error` over a member the interface still carried would itself
-    // be an unused-directive error, so this pair is what makes the removal a
-    // compile-time fact rather than a comment: the type refuses the member and the
-    // kind's detachability comes from the derived set.
-    expect(isDetachablePaneKind("timeline")).toBe(true);
-    expect(isDetachablePaneKind("agent-console")).toBe(true);
   });
 });
 

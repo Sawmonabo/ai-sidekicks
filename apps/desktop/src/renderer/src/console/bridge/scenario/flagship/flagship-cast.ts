@@ -39,7 +39,6 @@ export const SESSION_ID = "019b79ee-0280-75e5-8510-ada11a5a11a5";
  */
 export const EVENT_ID_STEM = "019b79ee-0280-7ea1-8110-e5e0d115";
 export const USER_YOU = "019b79ee-0280-79a4-8110-cca0117a0110";
-export const USER_PRIYA = "019b79ee-0280-79a4-8120-cca0117a0120";
 export const AGENT_ARCHITECT = "019b79ee-0280-7a6e-8110-d1a4c1150001";
 export const AGENT_IMPLEMENTER = "019b79ee-0280-7a6e-8120-d1a4c1150002";
 export const AGENT_REVIEWER = "019b79ee-0280-7a6e-8130-d1a4c1150003";
@@ -107,8 +106,3 @@ export const FLAGSHIP_AGENTS: readonly FlagshipAgent[] = [
     attachedAtMs: 300,
   },
 ];
-
-/** The instant one agent was attached, as the `agent.list` reply reports it. */
-export function attachedAtIso(attachedAtMs: number): string {
-  return new Date(startedAtMs + attachedAtMs).toISOString();
-}
