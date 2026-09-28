@@ -25,7 +25,7 @@ const QUEUE_STATE_TONES: Readonly<
   admitted: "neutral",
   superseded: "attention",
   canceled: "neutral",
-  expired: "attention",
+  not_delivered: "attention",
 };
 
 /** One queued item: its state, its figures, and cancel where cancel applies. */
