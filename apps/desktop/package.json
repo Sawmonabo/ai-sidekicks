@@ -6,7 +6,7 @@
   "description": "Desktop shell + renderer skeleton (Electron 44.x, Node 22).",
   "license": "Apache-2.0",
   "engines": {
-    "node": ">=22.14.0"
+    "node": ">=24.16.0"
   },
   "scripts": {
     "postinstall": "node --experimental-strip-types scripts/materialize-electron.ts",

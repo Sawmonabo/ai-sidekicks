@@ -31,7 +31,7 @@ if [ "${0##*/}" = "pre-commit" ] && [ -z "${LEFTHOOK_WORKTREE_BACKUP_LOCK_HELD:-
     # backup with every other worktree, and this repo cannot run its hooks
     # without node anyway (lint-staged, the docs-corpus screens).
     echo "lefthook: node is required to serialize the pre-commit unstaged-changes backup." >&2
-    echo "lefthook: install Node >= 22.14.0 per CONTRIBUTING.md, or set LEFTHOOK=0 to skip hooks." >&2
+    echo "lefthook: install Node >= 24.16.0 per CONTRIBUTING.md, or set LEFTHOOK=0 to skip hooks." >&2
     exit 1
   fi
 
