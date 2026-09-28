@@ -1,29 +1,14 @@
-// The published-artifact card a ledger row carries, and the seat registration that
-// fills it.
+// The published-artifact card a ledger row carries, and the seat registration that fills it.
 //
-// Diffs, attachments, and published artifacts go in the timeline as cards inside the
-// row that produced them, because they
-// BELONG to that turn — a person reading a conversation should not have to leave it to
-// see what it made.
+// Diffs, attachments and published artifacts go in the timeline as cards inside the row
+// that produced them, because they belong to that turn.
 //
-// TWO FAMILIES MEET AT THE SEAT AND NEITHER IMPORTS THE OTHER. The ledger renders the
-// seat; this family owns the body. The registration below is the whole
-// contact surface, and it is called from the repos family's own door rather than at
-// this module's scope, for that door's reason: one module knows every body the family
-// owns, and a hot reload re-runs one module rather than several.
+// Two families meet at the seat and neither imports the other: the ledger renders the seat
+// and this family owns the body. The registration is called from the repos family's own
+// door rather than at this module's scope, so a hot reload re-runs one module.
 //
-// WHAT THE SEAT HANDS OVER, AND WHAT IT CANNOT. `ArtifactInlineCardProps` carries a
-// `ConsoleEntityRef` and no manifest, because the read that would fetch one —
-// `ArtifactRead` — has no method string registered anywhere and reaches the console
-// only through `bridge/growth-port/growth-port.ts`, which refuses by name against the
-// `artifact-ingest-and-crud` slate row. The seat additionally hands over no bridge, so
-// this body cannot even attempt the call: it renders the identity it was given and the
-// absence that says nobody asked. The `manifest` prop is the seam the row lands on the
-// day both exist.
-//
-// THE ABSENCE IS `not-checked` AND NEVER `empty`. `empty` here would be the console
-// stating that the turn produced no artifact — a fact the ledger row already
-// contradicts by carrying this card at all.
+// The seat hands over a `ConsoleEntityRef` and no manifest or bridge, so this body makes no
+// read: it renders the identity it was given, and the manifest row when its caller has one.
 
 import { useId } from "react";
 
@@ -31,29 +16,25 @@ import {
   Chip,
   DerivedFigure,
   Glyph,
-  Nothing,
   WireFigure,
   formatByteQuantity,
 } from "../../primitives/index.js";
 import { type ArtifactManifestRow } from "../artifacts/artifact-model.js";
-import {
-  ARTIFACT_STATE_PRESENTATION,
-  ARTIFACT_VISIBILITY_PRESENTATION,
-  artifactProducerLabel,
-  artifactReplicationPresentation,
-} from "../artifacts/artifact-copy.js";
+import { ARTIFACT_STATE_PRESENTATION, artifactProducerLabel } from "../artifacts/artifact-copy.js";
 import type { InlineCardSeatRegistry, ArtifactInlineCardProps } from "../../seats/index.js";
 import { GLYPH_SIZE_ROW } from "../../tokens/index.js";
 
 /** Who owns this body, for the seat registry's owner-scoped duplicate policy. */
 const INLINE_ARTIFACT_CARD_OWNER = "repos";
 
+/** What the inline artifact card is given. */
 export interface InlineArtifactCardProps {
   readonly card: ArtifactInlineCardProps;
-  /** The manifest row to render. Absent until a wire produces one — see the header. */
+  /** The manifest row to render. The card draws no body without one. */
   readonly manifest?: ArtifactManifestRow;
 }
 
+/** The card: the artifact's identity, and its manifest face when a row is supplied. */
 export function InlineArtifactCard(props: InlineArtifactCardProps): React.JSX.Element {
   const headingId = useId();
   const { manifest } = props;
@@ -64,22 +45,14 @@ export function InlineArtifactCard(props: InlineArtifactCardProps): React.JSX.El
           <Glyph name="artifact" size={GLYPH_SIZE_ROW} />
           Artifact
         </h4>
-        {/* Wire-verbatim, with the full string recoverable through the title: an
-            artifact id is how a user reaches this row anywhere else in the
-            product, so a truncated one that could not be read back would be useless. */}
+        {/* Wire-verbatim, with the full string recoverable through the title, because an
+            artifact id is how a user reaches this row anywhere else in the product. */}
         <span className="meridian-artifact-card__id" title={props.card.artifact.id}>
           {props.card.artifact.id}
         </span>
       </header>
-      <div className="meridian-artifact-card__body">
-        {manifest === undefined ? (
-          <Nothing
-            kind="not-checked"
-            placement="inline"
-            title="This artifact has not been read."
-            detail="The turn named it and the read that fetches its manifest is not registered on the bridge yet, so nothing has been asked for and nothing is being reported as missing."
-          />
-        ) : (
+      {manifest === undefined ? null : (
+        <div className="meridian-artifact-card__body">
           <div className="meridian-artifact-card__face">
             <Chip label={manifest.artifactType} mono />
             <Chip
@@ -87,20 +60,14 @@ export function InlineArtifactCard(props: InlineArtifactCardProps): React.JSX.El
               label={manifest.state}
               mono
             />
-            <Chip
-              tone={ARTIFACT_VISIBILITY_PRESENTATION[manifest.visibility].tone}
-              label={manifest.visibility}
-              mono
-            />
             <WireFigure
               value={formatByteQuantity(manifest.size).text}
               title={String(manifest.size)}
             />
             <DerivedFigure text={`by ${artifactProducerLabel(manifest)}`} />
-            <DerivedFigure text={artifactReplicationPresentation(manifest).meaning} />
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </section>
   );
 }

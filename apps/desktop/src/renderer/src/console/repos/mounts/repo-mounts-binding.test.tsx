@@ -6,57 +6,67 @@
 // then DISCARDS really built the reader and really armed its refresh, and no effect ever
 // committed to close it — so the pass leaks a scheduler and a store subscription that
 // nothing can reach. And strict mode's double-mount runs the cleanup and then the same
-// setup again on the SAME memoised reader: `dispose` is terminal, so the replayed
+// setup again on the SAME memoized reader: `dispose` is terminal, so the replayed
 // `start()` returned early and the section sat unread, with nothing on screen to say
 // why. `useSubjectScopedResource` answers the first; the binding's re-mint arm answers
 // the second, on `useAttachmentCarrier`'s pattern.
 //
-// A ROSTER READ IS THE OBSERVABLE, because reader identity is not one: `repo.workspaceList`
+// A WORKSPACE-LIST READ IS THE OBSERVABLE, because reader identity is not one: the list
 // is the first call every started reader makes, so counting it counts readers that were
 // built AND started, which is the pair the seam is being asked about.
 
-import { renderHook } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { StrictMode } from "react";
 import { describe, expect, it, vi } from "vitest";
 
-import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
-import { withDaemonCall } from "../../bridge/fixture/call-plane/bridge.test-support.js";
-import { REPOS_SCENARIO } from "../../bridge/scenario/repos/repos.js";
+import { ManualClock, REFRESH_DEBOUNCE_MS } from "../../core/index.js";
+import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import { SessionStore } from "../../store/index.js";
+import type { RepoOperations } from "../repo-operations.js";
+import { bridgeOnClock } from "../repo-operations.test-support.js";
 import { repeatedDisposalCount } from "../resource-seam.test-support.js";
-import { advanceScenarioUntil } from "../../bridge/scenario/runtime/clock.test-support.js";
 import { useRepoMounts, type RepoMountsBinding } from "./repo-mounts-binding.js";
 import { RepoMountsReader } from "./repo-mounts-reader.js";
+import { SESSION_ID, sessionOperations } from "./repo-mounts.test-support.js";
 
-const WORKSPACE_LIST_CALL = "repo.workspaceList";
-
-/** The hook under a wrapper, with the roster reads the bridge has actually seen. */
+/** The hook under a wrapper, with the workspace-list reads the daemon has actually seen. */
 interface BindingUnderTest {
   readonly binding: () => RepoMountsBinding;
   readonly rerender: () => void;
-  readonly rosterReadCount: () => number;
+  readonly listReadCount: () => number;
   readonly settle: () => Promise<void>;
   readonly unmount: () => void;
 }
 
 function renderBinding(options: { readonly strict: boolean }): BindingUnderTest {
-  const held = withDaemonCall(
-    createFixtureBridge({ scenario: REPOS_SCENARIO }),
-    async (_call, passThrough) => await passThrough(),
+  const clock = new ManualClock();
+  const bridge = bridgeOnClock(clock);
+  const sessionStore = new SessionStore({ sessionId: SESSION_ID });
+  const base = sessionOperations();
+  let listReads = 0;
+  const operations = {
+    ...base,
+    listWorkspaces: (sessionId: string, signal: AbortSignal) => {
+      listReads += 1;
+      return base.listWorkspaces(sessionId, signal);
+    },
+  };
+  const { result, rerender, unmount } = renderHook(
+    () => useRepoMounts(bridge, sessionStore, operations),
+    { ...(options.strict ? { wrapper: StrictMode } : {}) },
   );
-  const bridge: ConsoleBridge = held.bridge;
-  const sessionStore = new SessionStore({ sessionId: REPOS_SCENARIO.sessionId });
-  const { result, rerender, unmount } = renderHook(() => useRepoMounts(bridge, sessionStore), {
-    ...(options.strict ? { wrapper: StrictMode } : {}),
-  });
   return {
     binding: () => result.current,
     rerender: () => {
       rerender();
     },
-    rosterReadCount: () => held.calls.filter((call) => call.method === WORKSPACE_LIST_CALL).length,
+    listReadCount: () => listReads,
     settle: async () => {
-      await advanceScenarioUntil(bridge, () => {
+      await crossMacrotaskBoundary();
+      act(() => {
+        clock.advance(REFRESH_DEBOUNCE_MS);
+      });
+      await waitFor(() => {
         expect(result.current.reading.status).toBe("read");
       });
     },
@@ -65,7 +75,7 @@ function renderBinding(options: { readonly strict: boolean }): BindingUnderTest 
 }
 
 describe("useRepoMounts — the reader is a resource, not a memo", () => {
-  it("reads under StrictMode, where a memoised reader was disposed and never restarted", async () => {
+  it("reads under StrictMode, where a memoized reader was disposed, never restarted", async () => {
     // The bug, exercised: the cleanup disposed terminally and the replayed setup called
     // `start()` on the corpse, so this section never left `not-read` in development —
     // the one environment where the budgets are being watched.
@@ -83,13 +93,13 @@ describe("useRepoMounts — the reader is a resource, not a memo", () => {
     // included.
     const binding = renderBinding({ strict: true });
     await binding.settle();
-    expect(binding.rosterReadCount()).toBe(1);
+    expect(binding.listReadCount()).toBe(1);
 
     binding.rerender();
     binding.rerender();
     await binding.settle();
 
-    expect(binding.rosterReadCount()).toBe(1);
+    expect(binding.listReadCount()).toBe(1);
   });
 
   it("negative control: outside StrictMode the same binding reads exactly once too", async () => {
@@ -100,7 +110,7 @@ describe("useRepoMounts — the reader is a resource, not a memo", () => {
 
     await binding.settle();
 
-    expect(binding.rosterReadCount()).toBe(1);
+    expect(binding.listReadCount()).toBe(1);
   });
 
   it("disposes every reader it opened exactly once", async () => {
@@ -123,5 +133,48 @@ describe("useRepoMounts — the reader is a resource, not a memo", () => {
     } finally {
       disposals.mockRestore();
     }
+  });
+});
+
+describe("useRepoMounts — the calls are part of what the reader is keyed on", () => {
+  it("reads through the new calls when the section is handed a different set", async () => {
+    const clock = new ManualClock();
+    const bridge = bridgeOnClock(clock);
+    const sessionStore = new SessionStore({ sessionId: SESSION_ID });
+    const listReads = { first: 0, second: 0 };
+    const countingOperations = (which: "first" | "second"): RepoOperations => {
+      const base = sessionOperations();
+      return {
+        ...base,
+        listWorkspaces: (sessionId, signal) => {
+          listReads[which] += 1;
+          return base.listWorkspaces(sessionId, signal);
+        },
+      };
+    };
+    const first = countingOperations("first");
+    const second = countingOperations("second");
+    const { result, rerender } = renderHook(
+      ({ operations }) => useRepoMounts(bridge, sessionStore, operations),
+      { initialProps: { operations: first } },
+    );
+    await crossMacrotaskBoundary();
+    act(() => {
+      clock.advance(REFRESH_DEBOUNCE_MS);
+    });
+    await waitFor(() => {
+      expect(result.current.reading.status).toBe("read");
+    });
+
+    rerender({ operations: second });
+    await crossMacrotaskBoundary();
+    act(() => {
+      clock.advance(REFRESH_DEBOUNCE_MS);
+    });
+    await waitFor(() => {
+      expect(listReads.second).toBe(1);
+    });
+
+    expect(listReads.first).toBe(1);
   });
 });

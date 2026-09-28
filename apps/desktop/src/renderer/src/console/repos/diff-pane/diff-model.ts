@@ -1,65 +1,12 @@
 // What a diff IS to this console: the typed model both the pane and the inline
 // card render, and the closed sets that make its illegal states unrepresentable.
 //
-// THE ATTRIBUTION AXIS IS A UNION, NOT A FLAG. Attribution quality is a first-class
-// field rather than an inferred decoration, and pretending a workspace diff is
-// run-attributed is the pitfall. So the two arms carry DIFFERENT identity — the
-// `run_attributed` arm a run, the `workspace_fallback` arm a workspace — and
-// there is no arm carrying both and no arm carrying neither. A renderer cannot
-// display a run for a workspace-fallback diff because there is no run on that arm
-// to read, which is the point: the union makes the wrong shape unrepresentable
-// and the renderer does not undo that.
-//
-// WHERE THE VALUES COME FROM, AND WHAT IS NOT BUILT HERE. Nothing on the wire
-// produces one of these yet. `gitflow.diffArtifactCreate` is a growth-slate row
-// (`gitflow-actions`), the contracts package exports no `gitflow` module, and the
-// growth port registers no operation for it —
-// so this model is the shape the surfaces are built against and its producer is
-// somebody else's. Two consequences are deliberate:
-//
-//   • `DiffLine.segments` carries the line's TEXT, as one whole-line segment. jsdiff is
-//     adopted for parse and intraline compute over patch bytes; this family own-builds
-//     the row renderer and its
-//     virtualization. The module that turns a unified patch into this model lands
-//     with the first caller that has patch bytes to give it, in the PR that adds
-//     that dependency. The word-level SPLIT of that text is derived per rendered
-//     row by `intraline-segments.ts` — bounded, memoised, and never at parse time,
-//     because computing every pair up front costs the whole change set before the
-//     virtualizer has placed a row.
-//   • The per-line agent attribution arrives on the line. The Agent Trace standard and
-//     the `Agent-Run:` and `Co-authored-by:` git trailers are the provenance source;
-//     the console
-//     RENDERS what the trailers supplied and derives attribution from nothing
-//     else — there is no fallback that guesses an agent for an unmarked line.
-
-/**
- * How the daemon attributed this diff. Closed at two, because the contract fixes
- * exactly two answers and a third would be a contract change.
- *
- * The tuple is the declaration and the union is derived from it, so a mode cannot
- * be added to a hand-written union while the list a badge iterates stays at two.
- */
-export const DIFF_ATTRIBUTION_MODES = ["run_attributed", "workspace_fallback"] as const;
-
-/** One attribution mode. Derived from the enumeration, never restated. */
-export type DiffAttributionMode = (typeof DIFF_ATTRIBUTION_MODES)[number];
-
-/** A diff the daemon attributed to a run. */
-export interface RunAttributedDiff {
-  readonly mode: "run_attributed";
-  /** Wire-verbatim run id. The only arm on which a run exists to render. */
-  readonly runId: string;
-}
-
-/** A diff the daemon could only attribute to a workspace. */
-export interface WorkspaceFallbackDiff {
-  readonly mode: "workspace_fallback";
-  /** Wire-verbatim workspace id. This arm carries no run, by construction. */
-  readonly workspaceId: string;
-}
-
-/** Which subject a diff is accountable to. Narrow on `mode`. */
-export type DiffAttribution = RunAttributedDiff | WorkspaceFallbackDiff;
+// `DiffLine.segments` carries the line's TEXT, as one whole-line segment. jsdiff is
+// adopted for parse and intraline compute over patch bytes; this family own-builds the
+// row renderer and its virtualization. The word-level SPLIT of that text is derived per
+// rendered row by `intraline-segments.ts` — bounded, memoised, and never at parse time,
+// because computing every pair up front costs the whole change set before the
+// virtualizer has placed a row.
 
 /** The three things a line in a unified diff can be. Closed. */
 export const DIFF_LINE_KINDS = ["context", "insert", "delete"] as const;
@@ -86,20 +33,6 @@ export interface DiffIntralineSegment {
   readonly changed: boolean;
 }
 
-/**
- * Who the trailers say wrote this line.
- *
- * Present only where the daemon supplied it. Absence means the trailers named
- * nobody for this line — never that the line is unattributed to a person, and
- * never a reason to fall back to the diff's own run.
- */
-export interface DiffLineAgentAttribution {
-  /** Wire-verbatim, from the `Agent-Run:` trailer. */
-  readonly agentRunId: string;
-  /** Wire-verbatim, from the `Co-authored-by:` trailer. */
-  readonly agentName: string;
-}
-
 /** One line of one hunk. */
 export interface DiffLine {
   readonly kind: DiffLineKind;
@@ -118,7 +51,6 @@ export interface DiffLine {
    * same way.
    */
   readonly segments: readonly DiffIntralineSegment[];
-  readonly agentAttribution?: DiffLineAgentAttribution;
   /**
    * True where the patch marked this line as the file's last, with no terminator.
    *
@@ -198,7 +130,6 @@ export interface DiffFile {
 
 /** A whole diff, as the pane and the inline card render it. */
 export interface ConsoleDiffModel {
-  readonly attribution: DiffAttribution;
   /** Wire-verbatim compared states. */
   readonly baseRef: string;
   readonly headRef: string;
@@ -282,16 +213,4 @@ export function diffFileChangeNotes(file: DiffFile): readonly string[] {
     notes.push("binary file changed");
   }
   return notes;
-}
-
-/**
- * The subject a diff's attribution names, as an entity kind and a wire-verbatim
- * id.
- *
- * One reader for both arms, so a surface that shows "who this is accountable to"
- * never has to branch — and, more to the point, never has a branch in which it
- * could reach for a run on the workspace arm.
- */
-export function diffAttributionSubjectId(attribution: DiffAttribution): string {
-  return attribution.mode === "run_attributed" ? attribution.runId : attribution.workspaceId;
 }

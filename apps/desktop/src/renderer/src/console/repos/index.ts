@@ -1,29 +1,17 @@
 // The repos family's door.
 //
-// The family is repos and worktrees, the diff pane and its inline cards, the artifact
-// pane, and attachments — and it occupies ONE directory tree,
-// `repos/`, with a sub-module per subject: the sidebar section and its mount cards,
-// the two pane bodies in `repos/diff-pane/` and `repos/artifact-pane/`, and the
-// artifacts, attachments and proposals modules beside them. The pane bodies
-// live HERE and not under `console/panes/`, which holds composition files only: the
-// deck's pane registry is keyed by pane kind while the sidebar's registry is keyed by
-// section id, and a family that owned bodies in both key spaces would otherwise need
-// two doors. This is the one door: everything the family registers is registered here.
+// The family is repos and worktrees, the diff pane and its inline cards, the artifacts
+// list and attachments, in one directory tree with a sub-module per subject. The diff
+// pane body lives here and not under `console/panes/`, which holds composition files
+// only. Everything the family registers is registered from this module.
 //
-// THE SHEETS THIS DIRECTORY OWNS ARE IMPORTED HERE. `apps/desktop/AGENTS.md` keys
-// that rule on the directory that OWNS a sheet rather than on how deep the sheet sits:
-// a sub-directory carrying no barrel of its own is owned by this one however deep it
-// sits, and a sub-directory carrying a door owns itself. Every barrel-less sheet in
-// the tree is therefore imported below, and the ones that are not are the sheets of the
-// directories that carry doors: `diff.css` and `artifact.css` enter through the two pane
-// sub-modules' barrels, and `diff-create.css` through the diff pane's own create door,
-// which is inside one of them. They are named here only to say where they went.
+// THE SHEETS THIS DIRECTORY OWNS ARE IMPORTED HERE. `apps/desktop/AGENTS.md` keys that
+// rule on the directory that owns a sheet: a sub-directory without a barrel of its own
+// is owned by this one however deep it sits, and a sub-directory with a door owns
+// itself. `diff.css` and `artifact.css` enter through their sub-modules' barrels.
 //
-// WHAT IS HERE AND WHAT IS BELOW. This module imports every sheet it owns,
-// publishes the two registration entry points the console calls, and publishes the
-// two cross-family seams at the bottom. The BODIES are all in `family-bodies.ts`,
-// whose header says why a door that read the two pane barrels and the sidebar
-// registry itself was a barrel chain rather than a consumer of any of them.
+// The bodies are in `family-bodies.ts`, so this module reads no pane barrel and no
+// sidebar registry itself.
 
 import "./repos.css";
 // The subject sheets, in the order their rules held inside `repos.css` before that
@@ -34,14 +22,11 @@ import "./repos.css";
 // not any more: its sheet moved down to `console/primitives/restore/` with the
 // component it dresses, for the reason the seam note at the bottom of this file gives.
 //
-// The two pane sheets are NOT here. `repos/diff-pane/` and `repos/artifact-pane/`
-// each carry a door, so each owns its own sheet and imports it there. Nothing about
-// the graph changes: `family-bodies.ts` reaches both barrels statically, so both
-// sheets are present whenever this door is, and each still lands once. What changes
-// is which directory is the reason the other is styled — and a CSS `@import` from
-// `repos.css` is not the alternative it looks like, because the browser tiers inject
-// a sheet as a `<style>` element and a relative `@import` inside one resolves against
-// the document rather than against the sheet, so the rules silently do not arrive.
+// The pane sheets are NOT here. `repos/diff-pane/` and `repos/artifact-pane/` each
+// carry a door, so each owns its own sheet and imports it there. A CSS `@import` from
+// `repos.css` is no alternative: the browser tiers inject a sheet as a `<style>` element
+// and a relative `@import` inside one resolves against the document, so the rules never
+// arrive.
 import "./mounts/mounts.css";
 // The two surfaces that left `mounts.css` on the seam between their subjects and its
 // own, directly after it and ahead of the act sheets, so the four below keep their order.
@@ -62,7 +47,6 @@ import "./mounts/mount-acts.css";
 import "./mounts/attach/attach.css";
 import "./mounts/roots/roots.css";
 import "./mounts/bind/bind.css";
-import "./proposals/proposals.css";
 import "./artifacts/artifacts.css";
 import "./attachments/attachments.css";
 
@@ -75,72 +59,36 @@ import { REPOS_FAMILY_OWNER, registerRepos } from "./family-bodies.js";
 export { registerRepos };
 
 /**
- * Claim the two pane kinds this family builds bodies for.
+ * Claim the pane kind this family builds a body for.
  *
- * DECLARED HERE rather than re-exported, because `console/panes/index.ts` states the
- * contract in its own words — a family claims its pane kinds "inside that function",
- * the one it publishes from its own `index.ts` — and because that composition site is
- * itself an `index.ts`: a door line whose only production reader is another door has
- * no reader the census can see, and a declaration is not a door line.
+ * Takes the registry rather than reaching for the module-scope singleton, so a test
+ * composes the same body into a registry it owns and an auxiliary window composes a
+ * subset without a second code path.
  *
- * Takes the registry rather than reaching for the module-scope singleton, for the
- * seat board's reason: a test composes the same bodies into a registry it owns, and
- * an auxiliary window composes a subset without a second code path.
- *
- * NEITHER KIND DECLARES A TEAR-OFF, because a descriptor cannot: whether a pane may
- * be torn off is a property of the KIND, answered once by `isDetachablePaneKind` off
- * the window model's own route set, and never a member a family fills in.
- * `timeline` and `agent-console` are the two panes that get their own hardened
- * window, so both of this family's kinds answer that
- * predicate `false` — and they answer it in the one place that decides it rather than
- * in six families' registrations.
+ * The kind declares no tear-off: whether a pane may be torn off is a property of the
+ * kind, answered once by `isDetachablePaneKind`, and never a member a family fills in.
  */
 export function registerReposPanes(registry: ConsolePaneRegistry): void {
   registry.register({
     kind: "diff",
     owner: REPOS_FAMILY_OWNER,
-    // BOTH KINDS ARE LOADER-BACKED. Neither pane is on the flagship first paint —
-    // both open from the sidebar's repo and artifact sections — and between them they
-    // reach the diff parser, the virtualized diff-row renderer, and the artifact
-    // payload views, which is the largest single block this family put on the initial
-    // import graph. The specifiers are written at the registration so the boundary is
-    // visible where the claim is made.
+    // Loader-backed: the pane is not on the first paint, and it reaches the diff
+    // parser and the virtualized row renderer, the largest block this family would put
+    // on the initial import graph.
     body: () => import("./diff-pane/diff-pane-body.js"),
-  });
-  registry.register({
-    kind: "artifact",
-    owner: REPOS_FAMILY_OWNER,
-    body: () => import("./artifact-pane/artifact-pane-body.js"),
   });
 }
 
-// THE FILE HALF OF A REWOUND RUN IS NOT PUBLISHED HERE ANY MORE, and what moved it
-// is a gate rather than a preference.
-//
-// This door used to export `FileRestoreDisclosure` for one consumer it does not have
-// itself: no module under `repos/` renders it, and its production entry point is the
-// runs pane's intervention history. That is a SIBLING view family, and
-// `console-view-family-isolation` forbids the edge in both directions — so the door
-// line was a seam that could never carry its only traffic. The component, its
-// sub-modules and `restore.css` therefore moved down to `console/primitives/restore/`,
-// the lowest family that owns their inputs (the contract's rollback result, this
-// console's figures, and one `core/` threshold), and the runs pane reaches them
-// through the primitives door like any other primitive.
-
-// The ingest trio, published as the binding that owns it rather than as the client.
+// The attachment carrier, published as the binding that owns it rather than as the client.
 //
 // THE CARRIER AND NOT THE CLIENT, deliberately. `AttachmentIngestClient` is a stream
-// with a lifecycle — constructed, subscribed, disposed — and a sibling family handed
-// the raw class would own three of those and get one of them wrong; the composer's
-// message-scoped attachments and this family's own artifacts section then hold two
-// carriers over one session. `useAttachmentCarrier` is that seam done once: it
-// constructs the client, publishes the entries with the instant they were published
-// at, and gives the daemon back every open spool on unmount.
+// with a lifecycle — constructed, subscribed, disposed — and the composer handed the
+// raw class would own three of those and get one of them wrong. `useAttachmentCarrier`
+// is that seam done once: it constructs the client, publishes the entries with the
+// instant they were published at, and gives the daemon back every open spool on
+// unmount.
 //
-// Consumed by the composer family's attachment affordance, in the cross-family task
-// that composes it. No dead-code exemption tag, on `FileRestoreDisclosure`'s reason
-// above: the section this door registers already reaches the binding, so the symbol
-// is used and a marker here would suppress nothing.
+// Consumed by the composer's attachment affordance.
 export {
   useAttachmentCarrier,
   type AttachmentCarrierBinding,
@@ -153,11 +101,7 @@ export {
 // answer differently: which name an entry goes by and whose it is, which media-type
 // readings it has, what cancelling actually does, what each refusal disposition
 // recommends, where a carrier stands against the count bound, whether one file is past
-// the byte bound, and whether an upload has gone quiet. The one COMPONENT published is
-// the bounds disclosure, which belongs on the picker: two pickers rendering two lists
-// would be two answers to one
-// question about a deployment neither of them can see.
-export { AttachmentBoundsDisclosure } from "./attachments/AttachmentBoundsDisclosure.js";
+// the byte bound, and whether an upload has gone quiet.
 export {
   SHIPPED_DEFAULT_ALLOWLIST,
   attachmentCarrierFill,

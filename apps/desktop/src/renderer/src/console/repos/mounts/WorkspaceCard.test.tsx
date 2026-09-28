@@ -3,21 +3,19 @@
 // The load-bearing negative control here is the absence of a health chip.
 // `WorkspaceCard.tsx` names it a Never, and the reason is
 // structural: `WorkspaceListResponse` carries no health member because a mount's
-// reachability is the MOUNT's projection. A row that synthesised one would be
+// reachability is the MOUNT's projection. A row that synthesized one would be
 // answering a question the daemon deliberately did not answer.
 
 import { render, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { fixtureBridgeWithGrowth } from "../../bridge/fixture/call-plane/bridge.test-support.js";
-import { REPOS_SCENARIO } from "../../bridge/scenario/repos/repos.js";
 import { SessionStore } from "../../store/index.js";
+import { bridgeOnClock, scriptedRepoOperations } from "../repo-operations.test-support.js";
 
 import { bindControlPosture } from "./mount-health.js";
 import type { RepoWorkspaceRow } from "./repo-mounts-model.js";
 import { CANONICAL_ROOT, mount, workspaceRow as workspace } from "./repo-mounts.test-support.js";
 import { WorkspaceCard } from "./WorkspaceCard.js";
-import { quietShell } from "../../store/shell-condition.test-support.js";
 
 /** The posture a healthy, attached mount hands down, composed the way the card gets it. */
 const HEALTHY_MOUNT_BIND_CONTROLS = bindControlPosture(mount());
@@ -30,14 +28,11 @@ function renderRow(
     <WorkspaceCard
       workspace={row}
       capabilities={undefined}
-      refusal={undefined}
-      refusalMode={undefined}
       pendingMode={undefined}
       bindControls={HEALTHY_MOUNT_BIND_CONTROLS}
-      mountCanonicalRoot={CANONICAL_ROOT}
-      bridge={fixtureBridgeWithGrowth(REPOS_SCENARIO, {})}
+      bridge={bridgeOnClock()}
+      operations={scriptedRepoOperations()}
       sessionStore={new SessionStore({ sessionId: "session-repos" })}
-      frameStore={quietShell()}
       onSelectExecutionMode={() => undefined}
       onRequestRead={() => undefined}
       {...overrides}
@@ -45,7 +40,7 @@ function renderRow(
   );
 }
 
-/** The one workspace whose row offers a root to prepare, in the mode that materialises one. */
+/** The one workspace whose row offers a root to prepare, in the mode that materializes one. */
 const WRITABLE_ROW: RepoWorkspaceRow = workspace({ executionMode: "worktree" });
 
 /** A withholding mount's real posture, composed by the module the card reads it from. */
@@ -100,7 +95,7 @@ describe("WorkspaceCard — two chips, and no third axis", () => {
 
   it("negative control: no chip anywhere reads as a mount health verdict", () => {
     // The two words `RepoMountHealth` ships. If either ever appears on this row, a
-    // health axis has been synthesised onto a projection that carries none.
+    // health axis has been synthesized onto a projection that carries none.
     const { container } = renderRow(workspace({ state: "stale", lastError: "path vanished" }));
     const head = container.querySelector(".meridian-workspace-card__head");
     expect(within(head as HTMLElement).queryByText("healthy")).toBeNull();

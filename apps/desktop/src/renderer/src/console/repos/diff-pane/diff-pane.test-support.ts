@@ -1,12 +1,12 @@
 // What every diff-pane suite mounts the pane with.
 //
 // HOISTED WHEN THE PANE'S CASES SPLIT IN TWO. The pane answers two questions that are
-// read for different reasons — what a pane holding NO model renders (its chrome, the
-// create it offers, and the absence it owes every subject) and what a pane holding one
-// renders (the compared states, the file list, the rows, and the toolbar) — and each
-// half is a suite. Both mount the same pane over the same workspace, and both need the
-// stated height the virtualized rows are laid out against, so those two live here
-// rather than being written twice and drifting.
+// read for different reasons — what a pane holding NO model renders (its chrome and the
+// absence it owes every subject) and what a pane holding one renders (the compared
+// states, the file list, the rows, and the toolbar) — and each half is a suite. Both
+// mount the same pane over the same workspace, and both need the stated height the
+// virtualized rows are laid out against, so those two live here rather than being
+// written twice and drifting.
 //
 // THE LAYOUT DISCIPLINE IS A CALL AND NOT A CONSTANT, because what is shared is the
 // pairing: an install with no restore leaks a stubbed geometry into whichever suite

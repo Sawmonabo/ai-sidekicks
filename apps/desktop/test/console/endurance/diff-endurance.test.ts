@@ -258,11 +258,7 @@ describe("endurance — one pathological line inside a five-thousand-line patch"
   it("parses inside its budget, and the wide row falls back rather than being compared", () => {
     const patchText = pathologicalPatchText();
     const startedAt = performance.now();
-    const model = parseUnifiedPatch(
-      patchText,
-      { mode: "run_attributed", runId: "run-endurance" },
-      { baseRef: "main", headRef: "feat/endurance" },
-    );
+    const model = parseUnifiedPatch(patchText, { baseRef: "main", headRef: "feat/endurance" });
     const parseMilliseconds = performance.now() - startedAt;
 
     // The subject in numbers before anything is asserted about it, so a generator
@@ -289,11 +285,10 @@ describe("endurance — one pathological line inside a five-thousand-line patch"
     // Without this the fallback above would pass over a register that declined every
     // pair — which would draw the note on every changed line in the console and
     // report the bound working while the highlight had simply been removed.
-    const model = parseUnifiedPatch(
-      pathologicalPatchText(),
-      { mode: "run_attributed", runId: "run-endurance" },
-      { baseRef: "main", headRef: "feat/endurance" },
-    );
+    const model = parseUnifiedPatch(pathologicalPatchText(), {
+      baseRef: "main",
+      headRef: "feat/endurance",
+    });
     const cache = new IntralineSegmentCache(model);
     const reading = cache.readingFor(pathologicalBodyRow(2), 2);
     expect(reading.skipped).toBe(false);

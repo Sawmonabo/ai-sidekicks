@@ -6,9 +6,9 @@
 // `attachment-ingest-ledger.ts`. The wire is `attachment-ingest-stream.ts`, whose
 // middle leg is `attachment-ingest-chunks.ts`. Giving a stopped stream's spool back is
 // `attachment-ingest-abort.ts`, whose rules are the opposite of the stream's in every
-// respect that matters; the narrowing every leg reads a port answer through, and the
-// door they all call through, are `attachment-ingest-answer.ts`; and what one chunk
-// acknowledgement establishes is `attachment-ingest-acknowledgement.ts`.
+// respect that matters; the port every leg calls through is declared in
+// `attachment-ingest-answer.ts`; and what one chunk acknowledgement establishes is
+// `attachment-ingest-acknowledgement.ts`.
 //
 // EVERY ACT HERE IS SYNCHRONOUS, and that is the seam. A press moves the ledger and
 // returns; whether anything then goes on a wire is the driver's question, and the
@@ -17,19 +17,17 @@
 //
 // NO TIMER, ANYWHERE. The carrier performs work when a user asks it to — attach,
 // retry, abandon — and at no other moment. There is no interval, no backoff timer, and
-// no automatic re-drive: `wait-and-retry` is a sentence a person reads and a control
-// they press, because a console that retried a 429 on its own would hide the capacity
-// problem it exists to report.
+// no automatic re-drive.
 
-import type { ConsoleBridge } from "../../bridge/index.js";
 import { RealClock, type ConsoleClock, type Unsubscribe } from "../../core/index.js";
 import { AttachmentSpoolReclaimer } from "./attachment-ingest-abort.js";
+import type { AttachmentIngestPort } from "./attachment-ingest-answer.js";
 import { AttachmentIngestLedger } from "./attachment-ingest-ledger.js";
 import { AttachmentIngestStreamDriver } from "./attachment-ingest-stream.js";
 import type { AttachmentIngestEntry, AttachmentSource } from "./attachment-shapes.js";
 
 export interface AttachmentIngestClientOptions {
-  readonly bridge: ConsoleBridge;
+  readonly port: AttachmentIngestPort;
   readonly sessionId: string;
   /** Injected so a test drives every stream on frozen time with no real clock. */
   readonly clock?: ConsoleClock;
@@ -44,9 +42,9 @@ export class AttachmentIngestClient {
   #disposed = false;
 
   public constructor(options: AttachmentIngestClientOptions) {
-    this.#reclaimer = new AttachmentSpoolReclaimer(options.bridge);
+    this.#reclaimer = new AttachmentSpoolReclaimer(options.port);
     this.#streams = new AttachmentIngestStreamDriver({
-      bridge: options.bridge,
+      port: options.port,
       sessionId: options.sessionId,
       clock: options.clock ?? new RealClock(),
       ledger: this.#ledger,
@@ -117,8 +115,8 @@ export class AttachmentIngestClient {
    * Stop sending, and ask for the spool back.
    *
    * The state moves immediately because sending stops immediately; the abort call is
-   * best-effort and its refusal changes nothing a user needs to act on, which is
-   * why the copy states the reaper rather than promising an instant reclaim.
+   * best-effort, which is why the copy states the reaper rather than promising an
+   * instant reclaim.
    */
   public abandon(localId: string): void {
     const entry = this.#ledger.current(localId);
@@ -155,9 +153,9 @@ export class AttachmentIngestClient {
    * what stops the continuations, and it is also what makes the open streams
    * unreachable: an ingest id lives in the ledger and nowhere else, so after the
    * ledger goes nothing in this console can name one. A carrier closed with several
-   * uploads open therefore left those spools and their aggregate reservations standing
-   * until the daemon's abandoned-spool reaper claimed them, and a later upload in the
-   * same session could fail capacity admission long after the surface was gone.
+   * uploads open would leave those spools and their aggregate reservations standing until
+   * the daemon's abandoned-spool reaper claimed them, and a later upload in the same
+   * session could fail capacity admission long after the surface was gone.
    *
    * `abandoned` entries are skipped rather than reclaimed twice: `abandon` already asked
    * for that spool back at the moment sending stopped, and a second request for one
@@ -166,9 +164,7 @@ export class AttachmentIngestClient {
    *
    * FIRED AND NOT AWAITED. Disposal is synchronous — a carrier that waited on a
    * best-effort abort would hold a closed surface open for an answer no surface is
-   * left to render. The answer is still read, on the diagnostic band rather than on a
-   * card: `attachment-ingest-abort.ts` says what a daemon that declined to release
-   * left behind.
+   * left to render.
    *
    * IDEMPOTENT, on `repo-mounts-reader.ts`'s reason for its own guard: the ledger's
    * published snapshot outlives its disposal, so a second call would walk the same
@@ -190,6 +186,3 @@ export class AttachmentIngestClient {
     this.#ledger.dispose();
   }
 }
-// NO REACT BINDING SHIPS HERE: a stream is not a render. `attachment-carrier.ts` is
-// the one place a client is constructed, subscribed to, and disposed, and both the
-// artifacts section and the composer's affordance reach it through that binding.

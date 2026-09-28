@@ -1,11 +1,10 @@
 /*
- * Preparing an execution root, and retiring or disposing of one.
+ * Preparing an execution root, and retiring one.
  *
- * Split out of `mounts.css` with the directory, verbatim and in order — a move, not a
- * restyle. The trigger, dialog and field shape these two surfaces share with the attach
- * and bind surfaces is in `mounts/mount-acts.css`, imported ahead of this sheet; what is
- * here is what only a root's own surfaces wear — the reuse verdict's two toned readings
- * and the settled line a disposal leaves behind.
+ * The trigger, dialog and field shape these two surfaces share with the attach and bind
+ * surfaces is in `mounts/mount-acts.css`, imported ahead of this sheet; what is here is
+ * what only a root's own surfaces wear — the reuse verdict's two toned readings and the
+ * settled line a retirement leaves behind.
  *
  * IMPORTED FROM `repos/index.ts`: this directory carries no barrel, so the family door
  * owns its sheet.
@@ -72,10 +71,10 @@
 }
 
 /* Why the preparation is closed, restated from the state that closed it — the mount's
-   own withheld reason, or the sentence a pending switch is already refusing presses
-   with. MUTED and not red: whichever of the two it is, that state is already reported
-   in its own colour further up this same card, and a second alarm for one fact reads
-   as two problems. */
+   own withheld reason, or the sentence a pending switch already holds the picker with.
+   Muted and not red: whichever of the two it is, that state is already reported in its
+   own color further up this same card, and a second alarm for one fact reads as two
+   problems. */
 .meridian-prepare-root__held {
   margin: 0;
   font-size: var(--meridian-text-xs);

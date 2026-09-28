@@ -1,27 +1,21 @@
-// The diff pane while it holds no change set: its chrome, the create it offers, and
-// the one thing its absence must not say.
+// The diff pane while it holds no change set: its chrome, and the one thing its absence
+// must not say.
 //
-// Three claims, and the third is the reason this file exists. The pane names itself by
-// its whole trail and the entity it is a view of arrives wire-verbatim. Two of the five
-// subjects a diff pane opens over can be keyed by the create wire and three cannot, so
-// a control is offered over exactly those two. And an unasked question renders as
-// `not-checked` and never as `empty`, because `empty` is the console asserting that a
-// workspace has no changes. A pane
-// that regressed into `empty` would look identical to a reviewer and would be stating a
-// fact nobody established.
+// Two claims, and the second is the reason this file exists. The pane names itself by
+// its whole trail and the entity it is a view of arrives wire-verbatim. And an unasked
+// question renders as `not-checked` and never as `empty`, because `empty` is the console
+// asserting that a workspace has no changes. A pane that regressed into `empty` would
+// look identical to a reviewer and would be stating a fact nobody established.
 //
 // WHAT THE PANE DRAWS ONCE IT HOLDS A MODEL is `DiffPane.change-set.test.tsx`, beside
-// this file: the compared states, the file list, the rows, and the toolbar are read for
-// a different reason and share none of these cases' subjects.
+// this file: the file list, the rows, and the toolbar are read for a different reason
+// and share none of these cases' subjects.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { buildDiffFixture } from "./diff-fixture.test-support.js";
-import {
-  SMALL_DIFF_SHAPE,
-  WORKSPACE_FALLBACK_ATTRIBUTION,
-} from "./diff-fixture-shapes.test-support.js";
+import { SMALL_DIFF_SHAPE } from "./diff-fixture-shapes.test-support.js";
 import { paneSubjectCrumb, paneTrailCrumbs } from "../pane-chrome.test-support.js";
 
 import { DiffPane } from "./DiffPane.js";
@@ -29,12 +23,7 @@ import {
   DIFF_PANE_WORKSPACE_ENTITY,
   diffPaneContextFor,
   installDiffPaneLayout,
-  type DiffPaneContext,
 } from "./diff-pane.test-support.js";
-import { paneContext } from "../pane-contexts.test-support.js";
-import { createFixtureBridge } from "../../bridge/index.js";
-import { REPOS_SCENARIO } from "../../bridge/scenario/repos/repos.js";
-import { SessionStore } from "../../store/index.js";
 
 const WORKSPACE_ENTITY = DIFF_PANE_WORKSPACE_ENTITY;
 const REPO_ENTITY = { kind: "repo", id: "repo-sidekicks" } as const;
@@ -69,52 +58,17 @@ describe("diff pane — the chrome it wears", () => {
   });
 });
 
-/**
- * The same pane with the collaborators the create surface needs.
- *
- * A SECOND BUILDER RATHER THAN A WIDER SHARED ONE, because the two answer different
- * questions: `diffPaneContextFor` is about what the chrome renders from the address
- * alone, and the cases below are about a body that resolves a subject and arms refresh
- * triggers — which needs a real bridge and a real store or it renders the absence arm
- * instead, silently, and every case here would pass against a pane that had lost the
- * surface. It stays in this file because this is its only caller: the change-set half
- * mounts no create.
- */
-function reachableContextFor(entity: DiffPaneContext["entity"]): DiffPaneContext {
-  return paneContext({
-    address: { kind: "diff", entity },
-    paneId: "pane-diff-2",
-    bridge: createFixtureBridge({ scenario: REPOS_SCENARIO }),
-    sessionStore: new SessionStore({ sessionId: REPOS_SCENARIO.sessionId }),
-  });
-}
-
-describe("diff pane — where a pane holding no model gets one", () => {
-  it("offers the create over a subject the wire can be keyed by", () => {
-    const { container } = render(<DiffPane context={reachableContextFor(WORKSPACE_ENTITY)} />);
-    expect(container.querySelector(".meridian-diff-create")).not.toBeNull();
-    // The absence copy stays above it: nothing has been asked yet, which is still true.
-    expect(container.querySelector(".meridian-nothing--not-checked")).not.toBeNull();
-  });
-
-  it("negative control: a repository names no checkout, so no control is offered over one", () => {
-    // A repository holds several checkouts and resolves to no one of them, so the
-    // create wire has no key for it — and an offered control could only refuse.
-    const { container } = render(<DiffPane context={reachableContextFor(REPO_ENTITY)} />);
-    expect(container.querySelector(".meridian-diff-create")).toBeNull();
-    expect(container.querySelector(".meridian-nothing--not-checked")).not.toBeNull();
-  });
-
-  it("negative control: a model handed in is drawn, and no create is offered beside it", () => {
-    // The prop survives the create surface: a caller that already holds a model is
-    // asking a different question from a pane that holds none.
+describe("diff pane — a model handed in", () => {
+  it("is drawn in place of the absence", () => {
+    // A caller that already holds a model — a layout composed around one, a tier
+    // measuring the renderer — hands it over and the pane draws it.
     const { container } = render(
       <DiffPane
-        context={reachableContextFor(WORKSPACE_ENTITY)}
-        diff={buildDiffFixture(SMALL_DIFF_SHAPE, WORKSPACE_FALLBACK_ATTRIBUTION)}
+        context={diffPaneContextFor(WORKSPACE_ENTITY)}
+        diff={buildDiffFixture(SMALL_DIFF_SHAPE)}
       />,
     );
-    expect(container.querySelector(".meridian-diff-create")).toBeNull();
+    expect(container.querySelector(".meridian-nothing--not-checked")).toBeNull();
     expect(container.querySelector(".meridian-diff-pane")).not.toBeNull();
   });
 });

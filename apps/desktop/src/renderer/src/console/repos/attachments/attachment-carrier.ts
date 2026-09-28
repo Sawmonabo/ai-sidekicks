@@ -2,11 +2,11 @@
 // the ingest client is constructed, subscribed, and disposed.
 //
 // WHY THIS MODULE EXISTS AT ALL. `attachment-ingest-machine.ts` is a class with a
-// lifecycle and `AttachmentCarrierSection.tsx` is a render; between them there has to
-// be exactly one place that owns construction, subscription, and teardown, or every
-// surface that wanted an upload would own three of them. That is this file, on
-// `repo-mounts-reader.ts`'s own shape one directory over: the class holds the state
-// and the hook binds it to a component's lifetime.
+// lifecycle and the composer strip is a render; between them there has to be exactly one
+// place that owns construction, subscription, and teardown, or every surface that wanted
+// an upload would own three of them. That is this file, on `repo-mounts-reader.ts`'s
+// own shape one directory over: the class holds the state and the hook binds it to a
+// component's lifetime.
 //
 // THE INSTANT IS PUBLISHED WITH THE ENTRIES. `AttachmentCard` reads a stall disclosure
 // and a stream ceiling off an instant it is handed, so something has to supply one. A
@@ -24,7 +24,7 @@
 // the next outstanding deadline rather than repeating, it is cancelled by the next
 // progress, settlement, abandonment, or disposal, and it READS NOTHING — it re-stamps
 // the entries the ledger already published, so it is not a refresh and does not belong
-// to `store/read/refresh-scheduler.ts`. There is still no interval here, and there can be none.
+// to `store/read/refresh-scheduler.ts`. There is no interval here, and there can be none.
 //
 // THE LOCAL ID IS THE CARRIER'S, NOT THE FILE'S. Two files chosen in one picker can
 // carry one name, and the ledger is keyed by local id — so a carrier that keyed on
@@ -45,6 +45,7 @@ import {
   earliestFutureDeadline,
   useSubjectScopedResource,
 } from "../../store/index.js";
+import type { AttachmentIngestPort } from "./attachment-ingest-answer.js";
 import { AttachmentIngestClient } from "./attachment-ingest-machine.js";
 import { ingestStallDisclosureAtMs } from "./attachment-presentation.js";
 import { attachmentSourceFrom, type AttachmentIngestEntry } from "./attachment-shapes.js";
@@ -56,19 +57,19 @@ export interface AttachmentCarrierSnapshot {
   readonly publishedAtMilliseconds: number;
 }
 
+/** What a carrier is given to run uploads for one session. */
 export interface AttachmentCarrierOptions {
-  readonly bridge: ConsoleBridge;
+  /** The four calls of an upload; nothing here reaches for a bridge to make them. */
+  readonly port: AttachmentIngestPort;
   readonly sessionId: string;
   /**
    * The clock every stamp this carrier publishes is taken from.
    *
-   * REQUIRED, AND THE BINDING BELOW READS IT OFF THE BRIDGE. It used to default to a
-   * fresh `RealClock`, which made the default the wall clock in exactly the place the
-   * fixture is supposed to own time: `consoleClockFor` is the one answer to which
-   * clock a window runs on, so a carrier under the fixture stamped its entries from
-   * wall time while the scenario's beats advanced on frozen time, and a surface
-   * showing an age disagreed with the ledger it was reading. A default is what let
-   * that happen without a call site saying so, so there is none.
+   * REQUIRED, AND THE BINDING BELOW READS IT OFF THE BRIDGE. `consoleClockFor` is the
+   * one answer to which clock a window runs on: a carrier with a wall clock of its own
+   * would stamp its entries from wall time while the rest of the window ran on the
+   * fixture's frozen time, and a surface showing an age would disagree with the ledger
+   * it was reading. There is no default, so every call site says which clock it means.
    */
   readonly clock: ConsoleClock;
 }
@@ -98,7 +99,7 @@ export class AttachmentCarrier {
   public constructor(options: AttachmentCarrierOptions) {
     this.#clock = options.clock;
     this.#client = new AttachmentIngestClient({
-      bridge: options.bridge,
+      port: options.port,
       sessionId: options.sessionId,
       clock: this.#clock,
     });
@@ -272,35 +273,33 @@ export class AttachmentCarrier {
  * THE SUBJECT IS THE BRIDGE AND THE KEY IS THE SESSION, which is what a carrier is
  * scoped to, so the console's own resource seam holds it: `useSubjectScopedResource`
  * opens the carrier on the render that first sees a `(bridge, session)` pair and
- * closes it however that render ended — including the pass React discards, which a
- * `useState` initializer with an effect-held cleanup never closed at all. It is also
- * what keeps this module off a second implementation of subject-scoped state; the
- * chokepoint gate beside the holder fails the build on one.
+ * closes it however that render ended, including a pass React discards. It is also
+ * what keeps this module off a second implementation of subject-scoped state.
  *
- * A RE-MINT ARM STILL, and for the reason it always had — but it is the SEAM'S arm
- * now. React's StrictMode double-mount runs the seam's cleanup and then this effect's
- * setup again on the SAME committed carrier: the cleanup terminally disposed the
- * ingest client, the replayed setup called `start()` on the corpse, and every file the
- * user chose afterwards reached a client whose `attach` returns at once — the
- * attachment surface inert, with nothing on screen to say so. That arm is
- * `isClosed`'s, supplied beside `close`; this effect had re-derived it and published
- * the replacement itself, which left the corpse committed and disposed twice. Nothing
- * about a carrier's lifetime is left here, so this effect starts one and does nothing
- * else.
+ * The `port` is read when the carrier opens, so it must stay the same for the life of
+ * a `(bridge, session)` pair; a different port does not re-open the carrier.
+ *
+ * THE SEAM RE-MINTS A CLOSED CARRIER. React's StrictMode double-mount runs the seam's
+ * cleanup and then this effect's setup again on the SAME committed carrier, and the
+ * cleanup terminally disposes the ingest client. Left in place, every file the user
+ * chose afterwards would reach a client whose `attach` returns at once: the attachment
+ * surface inert, with nothing on screen to say so. The seam's `isClosed`, supplied
+ * beside `close`, replaces it, so this effect starts a carrier and does nothing else.
  */
 export function useAttachmentCarrier(
   bridge: ConsoleBridge,
   sessionId: string,
+  port: AttachmentIngestPort,
 ): AttachmentCarrierBinding {
   // The window's own clock, resolved once per bridge — `clone-expiry-wake-up.ts`'s
   // shape, for its reason: `consoleClockFor` mints a fresh `RealClock` per call on a
-  // live bridge, so reading it in a render body would hand the re-mint arm below a
+  // live bridge, so reading it in a render body would hand a re-minted carrier a
   // different instance from the one the first carrier was opened on.
   const clock = useMemo(() => consoleClockFor(bridge), [bridge]);
   const { value: carrier } = useSubjectScopedResource(
     bridge,
     sessionId,
-    () => new AttachmentCarrier({ bridge, sessionId, clock }),
+    () => new AttachmentCarrier({ port, sessionId, clock }),
     CONTROLLER_DISPOSAL,
   );
   useEffect(() => {

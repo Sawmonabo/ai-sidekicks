@@ -1,62 +1,22 @@
-// What the artifacts panel renders on each of its four arms, what it offers, and
-// the two things it must never do.
+// What the artifacts panel renders on each of its arms, and what it offers.
 
 import { fireEvent, render, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { REPOS_CALLER_USER_ID } from "../../bridge/scenario/repos/repos.js";
-import { refuse } from "../../core/index.js";
 import { formatByteQuantity, formatCount } from "../../primitives/index.js";
-import { artifactRow } from "./artifacts.test-support.js";
+import { ARTIFACT_PRODUCER_ID, artifactRow } from "./artifacts.test-support.js";
 import { ArtifactsPanel } from "./ArtifactsPanel.js";
-import { ARTIFACT_REPLICATION_PRESENTATION } from "./artifact-copy.js";
 
 // Built rather than parsed: a fixture instant is this suite's own decision, and the
 // console's one reader of a wire stamp is `parseInstant`, not this line.
 const NOW_MILLISECONDS = Date.UTC(2026, 0, 1, 9, 30, 0);
 
-describe("ArtifactsPanel — the four arms are four different absences", () => {
-  it("says nobody asked, before anything was read", () => {
-    const { container } = render(
-      <ArtifactsPanel state={{ kind: "not-checked" }} nowMilliseconds={NOW_MILLISECONDS} />,
-    );
-    expect(container.textContent).toContain("have not been read");
-  });
-
+describe("ArtifactsPanel — the arms are different absences", () => {
   it("says the read found none, when it did", () => {
     const { container } = render(
       <ArtifactsPanel state={{ kind: "listed", rows: [] }} nowMilliseconds={NOW_MILLISECONDS} />,
     );
-    expect(container.textContent).toContain("No artifacts.");
-    // The panel teaches the next move rather than offering a publish control it
-    // does not have: V1 artifacts come from runs and ingest.
-    expect(container.textContent).toContain("produced by runs and by ingest");
-  });
-
-  it("negative control: the unread arm and the empty arm are not the same sentence", () => {
-    // Conflating them would report the console's silence as the daemon's answer,
-    // and each arm's next move is different.
-    const unread = render(
-      <ArtifactsPanel state={{ kind: "not-checked" }} nowMilliseconds={NOW_MILLISECONDS} />,
-    );
-    const empty = render(
-      <ArtifactsPanel state={{ kind: "listed", rows: [] }} nowMilliseconds={NOW_MILLISECONDS} />,
-    );
-    expect(unread.container.textContent).not.toContain("No artifacts.");
-    expect(empty.container.textContent).not.toContain("have not been read");
-  });
-
-  it("renders the daemon's own refusal, verbatim, when the read was refused", () => {
-    const refusal = refuse(
-      "growth-port",
-      "wire-unregistered",
-      "Not checked — artifact.list is not registered yet.",
-    );
-    const { container } = render(
-      <ArtifactsPanel state={{ kind: "refused", refusal }} nowMilliseconds={NOW_MILLISECONDS} />,
-    );
-    expect(container.textContent).toContain(refusal.code);
-    expect(container.textContent).toContain(refusal.detail);
+    expect(container.textContent).toContain("Nothing made here yet.");
   });
 
   it("shows a read in flight without asserting a result", () => {
@@ -64,51 +24,20 @@ describe("ArtifactsPanel — the four arms are four different absences", () => {
       <ArtifactsPanel state={{ kind: "loading" }} nowMilliseconds={NOW_MILLISECONDS} />,
     );
     expect(container.querySelector('[aria-busy="true"]')).not.toBeNull();
-    expect(container.textContent).not.toContain("No artifacts.");
+    expect(container.textContent).not.toContain("Nothing made here yet.");
   });
 });
 
 describe("ArtifactsPanel — a count is a reading, and only a list produces one", () => {
-  const READ_REFUSAL = refuse("artifact-pane-reader", "read-threw", "The artifact read failed.");
-
-  const rowlessArms = [
-    { arm: "not-checked", state: { kind: "not-checked" } as const },
-    { arm: "loading", state: { kind: "loading" } as const },
-    { arm: "refused", state: { kind: "refused", refusal: READ_REFUSAL } as const },
-  ];
-
-  it.each(rowlessArms)(
-    "states no session total on the $arm arm, where no list answered",
-    ({ state }) => {
-      const { container } = render(
-        <ArtifactsPanel state={state} nowMilliseconds={NOW_MILLISECONDS} />,
-      );
-      // The exact sentence the placeholder produced. A head that reports a total
-      // over rows nobody read contradicts the body directly beneath it.
-      expect(container.textContent).not.toContain(`${formatCount(0)} in this session`);
-      expect(container.textContent).not.toContain("in this session");
-    },
-  );
-
-  it.each(rowlessArms)("offers no type filter on the $arm arm", ({ state }) => {
-    const { queryByRole } = render(
-      <ArtifactsPanel state={state} nowMilliseconds={NOW_MILLISECONDS} />,
+  it("states no session total and offers no type filter while a read is in flight", () => {
+    // A head that reports a total over rows nobody read contradicts the body beneath it,
+    // and seven buttons all reading zero promise that pressing one narrows a list this
+    // panel does not have.
+    const { container, queryByRole } = render(
+      <ArtifactsPanel state={{ kind: "loading" }} nowMilliseconds={NOW_MILLISECONDS} />,
     );
-    // Seven buttons all reading zero are seven promises that pressing one narrows
-    // something, made against a list this panel does not have.
+    expect(container.textContent).not.toContain("in this session");
     expect(queryByRole("group", { name: "Filter by artifact type" })).toBeNull();
-  });
-
-  it.each(rowlessArms)("still says which absence the $arm arm is", ({ arm, state }) => {
-    const { container } = render(
-      <ArtifactsPanel state={state} nowMilliseconds={NOW_MILLISECONDS} />,
-    );
-    const sentenceByArm: Readonly<Record<string, string>> = {
-      "not-checked": "have not been read",
-      loading: "Reading this session's artifacts",
-      refused: READ_REFUSAL.detail,
-    };
-    expect(container.textContent).toContain(sentenceByArm[arm]);
   });
 
   it("reports the total and every type's count once a list has answered", () => {
@@ -123,8 +52,8 @@ describe("ArtifactsPanel — a count is a reading, and only a list produces one"
   });
 
   it("negative control: a served EMPTY list is a reading, so it keeps both", () => {
-    // The arm that earns a zero. `listed` with no rows is a read that found none,
-    // which is a different claim from the three above and renders its own total.
+    // The arm that earns a zero. `listed` with no rows is a read that found none, which is
+    // a different claim from `loading` and renders its own total.
     const { container, getByRole } = render(
       <ArtifactsPanel state={{ kind: "listed", rows: [] }} nowMilliseconds={NOW_MILLISECONDS} />,
     );
@@ -134,17 +63,15 @@ describe("ArtifactsPanel — a count is a reading, and only a list produces one"
 });
 
 describe("ArtifactsPanel — the row's face", () => {
-  it("carries type, state, visibility, size, producer, and replication status", () => {
-    const row = artifactRow({ replicationStatus: "over_cap", visibility: "shared" });
+  it("carries type, state, size, and producer", () => {
+    const row = artifactRow();
     const { container } = render(
       <ArtifactsPanel state={{ kind: "listed", rows: [row] }} nowMilliseconds={NOW_MILLISECONDS} />,
     );
     expect(container.textContent).toContain("file");
     expect(container.textContent).toContain("published");
-    expect(container.textContent).toContain("shared");
     expect(container.textContent).toContain(formatByteQuantity(row.size).text);
-    expect(container.textContent).toContain(REPOS_CALLER_USER_ID);
-    expect(container.textContent).toContain(ARTIFACT_REPLICATION_PRESENTATION.over_cap.meaning);
+    expect(container.textContent).toContain(ARTIFACT_PRODUCER_ID);
   });
 
   it("keeps the exact byte count beside the scaled reading of it", () => {
@@ -196,9 +123,8 @@ describe("ArtifactsPanel — the type filter is one filter over one list", () =>
   });
 
   it("says the FILTER matched nothing, not that the session has nothing", () => {
-    // The read served two artifacts. A panel that branched on the rows the filter
-    // kept reported "No artifacts." here — the console's own voice stating that a
-    // non-empty session is empty, and hiding that the filter is what has no matches.
+    // The read served two artifacts. A panel that branched on the rows the filter kept
+    // would report the session as empty here, hiding that the filter is what has no matches.
     const { container } = render(
       <ArtifactsPanel state={{ kind: "listed", rows }} nowMilliseconds={NOW_MILLISECONDS} />,
     );
@@ -211,8 +137,7 @@ describe("ArtifactsPanel — the type filter is one filter over one list", () =>
     // The type it is set to, and how many rows of other types it is hiding.
     expect(body?.textContent).toContain("summary");
     expect(body?.textContent).toContain(formatCount(rows.length));
-    expect(body?.textContent).not.toContain("No artifacts.");
-    expect(body?.textContent).not.toContain("produced by runs and by ingest");
+    expect(body?.textContent).not.toContain("Nothing made here yet.");
   });
 
   it("negative control: the session-empty copy survives, on the arm that earns it", () => {
@@ -223,8 +148,7 @@ describe("ArtifactsPanel — the type filter is one filter over one list", () =>
       <ArtifactsPanel state={{ kind: "listed", rows: [] }} nowMilliseconds={NOW_MILLISECONDS} />,
     );
     const body = container.querySelector(".meridian-artifacts__body");
-    expect(body?.textContent).toContain("No artifacts.");
-    expect(body?.textContent).toContain("produced by runs and by ingest");
+    expect(body?.textContent).toContain("Nothing made here yet.");
     expect(body?.textContent).not.toContain("this filter is set to");
   });
 

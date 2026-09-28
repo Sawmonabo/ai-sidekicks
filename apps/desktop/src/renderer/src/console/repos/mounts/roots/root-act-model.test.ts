@@ -13,7 +13,6 @@ import { describe, expect, it } from "vitest";
 
 import { WORKTREE_GIT_REF_MAX_LEN, type WorktreeReuseCheckResponse } from "@ai-sidekicks/contracts";
 
-import type { ActPrerequisiteReading } from "../../../store/index.js";
 import {
   DISPOSAL_CONSEQUENCE,
   EMPTY_PREPARE_FORM,
@@ -58,14 +57,8 @@ function form(acknowledgedCandidateId?: string): PrepareFormState {
 
 /** The answered standing for one verdict, which is what a settled check produces. */
 function answered(verdict: ReuseVerdict): ReturnType<typeof prepareReuseStanding> {
-  return prepareReuseStanding({ status: "read", value: verdict }, true);
+  return prepareReuseStanding({ status: "read", value: verdict });
 }
-
-/** A read that came back refused, which is an answer and not an unanswered question. */
-const REFUSED_READING: ActPrerequisiteReading<ReuseVerdict> = {
-  status: "refused",
-  refusal: { code: "repo.unavailable", detail: "The mount did not answer.", origin: "repo reads" },
-};
 
 describe("reuseVerdictFor", () => {
   it("reads no candidate as none", () => {
@@ -131,29 +124,11 @@ describe("prepareReuseStanding", () => {
     // All three leave the verdict at `none` because there is no candidate to name — and
     // `answered` is the whole of what separates them from a check that came back empty.
     for (const reading of [{ status: "not-read" }, { status: "reading" }] as const) {
-      const standing = prepareReuseStanding(reading, true);
+      const standing = prepareReuseStanding(reading);
       expect(standing.answered).toBe(false);
       expect(standing.verdict.kind).toBe("none");
     }
-    expect(prepareReuseStanding({ status: "read", value: { kind: "none" } }, true).answered).toBe(
-      true,
-    );
-  });
-
-  it("answers for a mode that reuses nothing, whose check is never asked", () => {
-    // A clone's reading sits at `not-read` for the life of the surface, so reading it
-    // as a question in flight would close the clone control permanently.
-    const standing = prepareReuseStanding({ status: "not-read" }, false);
-    expect(standing.answered).toBe(true);
-    expect(standing.verdict.kind).toBe("none");
-  });
-
-  it("negative control: a refused check answers rather than holding the form shut", () => {
-    // The refusal is drawn under the field with its own recovery and the check cannot be
-    // forced from here; the prepare's own typed refusal is the backstop.
-    const standing = prepareReuseStanding(REFUSED_READING, true);
-    expect(standing.answered).toBe(true);
-    expect(standing.verdict.kind).toBe("none");
+    expect(prepareReuseStanding({ status: "read", value: { kind: "none" } }).answered).toBe(true);
   });
 });
 
@@ -194,21 +169,15 @@ describe("prepareFormVerdict", () => {
     // The defect this closes: `reading` folded into a no-candidate verdict, so a prepare
     // sent inside the debounce window omitted `reuseWorktreeId` for a branch that had a
     // candidate — an implicit collision the daemon refuses.
-    const verdict = prepareFormVerdict(form(), prepareReuseStanding({ status: "reading" }, true));
+    const verdict = prepareFormVerdict(form(), prepareReuseStanding({ status: "reading" }));
     expect(verdict.status).toBe("incomplete");
     expect(verdict.status === "incomplete" && verdict.because).toBe(REUSE_UNANSWERED_COPY);
   });
 
   it("holds the act before any check has been asked at all", () => {
-    expect(
-      prepareFormVerdict(form(), prepareReuseStanding({ status: "not-read" }, true)).status,
-    ).toBe("incomplete");
-  });
-
-  it("negative control: a mode that reuses nothing is not held by its unasked check", () => {
-    expect(
-      prepareFormVerdict(form(), prepareReuseStanding({ status: "not-read" }, false)).status,
-    ).toBe("sendable");
+    expect(prepareFormVerdict(form(), prepareReuseStanding({ status: "not-read" })).status).toBe(
+      "incomplete",
+    );
   });
 
   it("holds a dirty candidate until the consent is given", () => {
@@ -272,36 +241,21 @@ describe("prepareAcknowledgement", () => {
 });
 
 describe("disposalSubjectFor", () => {
-  it("keeps the two consequences apart", () => {
-    // Retiring RECORDS a transition and the sweep removes the files afterwards;
-    // disposing a clone brings forward a terminal it would have reached anyway. A
-    // shared sentence would be wrong for one of them — and the wrong half is what a
-    // person is consenting to.
-    expect(DISPOSAL_CONSEQUENCE.worktree).not.toBe(DISPOSAL_CONSEQUENCE["ephemeral-clone"]);
-    expect(DISPOSAL_CONSEQUENCE.worktree.trim().length).toBeGreaterThan(0);
-    expect(DISPOSAL_CONSEQUENCE["ephemeral-clone"].trim().length).toBeGreaterThan(0);
+  it("states the retirement as recorded now and cleaned afterwards", () => {
+    // `WorktreeRetireResponse.state` is `retired` and carries no cleanup instant: retire
+    // records the transition and the sweep removes the disk afterwards, so files still on
+    // disk are an ordinary state and the sentence must not read as a failure.
+    expect(DISPOSAL_CONSEQUENCE).toContain("cleanup sweep afterwards");
+    expect(DISPOSAL_CONSEQUENCE).toContain("ordinary state");
   });
 
-  it("states both disposals as recorded now and cleaned afterwards", () => {
-    // `EphemeralCloneDisposeResponse.state` is the single literal `retired` and carries
-    // no cleanup instant: dispose records the transition and the sweep removes the disk
-    // afterwards, exactly as retire does. The clone's sentence used to say the files
-    // were already gone, which made the ordinary post-dispose state read as a failure.
-    for (const consequence of Object.values(DISPOSAL_CONSEQUENCE)) {
-      expect(consequence).toContain("cleanup sweep afterwards");
-      expect(consequence).toContain("ordinary state");
-    }
+  it("negative control: the consequence does not claim the bytes are already gone", () => {
+    expect(DISPOSAL_CONSEQUENCE).not.toMatch(/are gone/);
   });
 
-  it("negative control: neither consequence claims the bytes are already gone", () => {
-    for (const consequence of Object.values(DISPOSAL_CONSEQUENCE)) {
-      expect(consequence).not.toMatch(/are gone/);
-    }
-  });
-
-  it("carries the kind and the id the act will send", () => {
-    const subject = disposalSubjectFor("worktree", WORKTREE_ID);
-    expect(subject.kind).toBe("worktree");
+  it("carries the id the act will send", () => {
+    const subject = disposalSubjectFor(WORKTREE_ID);
     expect(subject.rootId).toBe(WORKTREE_ID);
+    expect(subject.consequence).toBe(DISPOSAL_CONSEQUENCE);
   });
 });

@@ -1,33 +1,24 @@
 // Preparing one workspace's execution root: the reuse check first, then the prepare.
 //
-// TWO CALLS IN ORDER, AND THE ORDER IS THE WHOLE POINT. `repo.worktreeReuseCheck`
-// answers whether a live checkout of the named branch already exists and whether it is
-// clean and compatible; only then does the surface know whether the prepare it is
-// about to send needs a consent, cannot be sent at all, or is an ordinary create. A
-// surface that sent the prepare first would learn the same three facts as REFUSALS,
-// after the fact, and would have no way to ask for the consent the dirty case needs.
+// Two calls in order, and the order is the point. `repo.worktreeReuseCheck` answers whether
+// a live checkout of the named branch already exists and whether it is clean and
+// compatible; only then does the surface know whether the prepare it is about to send needs
+// a consent, cannot be sent at all, or is an ordinary create.
 //
-// THE CHECK IS KEYED ON WHAT WAS TYPED AND IS RE-RUN WHEN IT CHANGES, which is why the
-// branch name is the prerequisite QUESTION `store/act/act-controller.ts` is scoped to: it
-// does not exist until someone types one, a different one abandons the answer in
-// flight, and an emptied field withdraws it rather than leaving a verdict on screen
-// attached to a branch nobody named.
+// The check is keyed on what was typed and is re-run when it changes, which is why the
+// branch name is the prerequisite question the store's act controller is scoped to: it does
+// not exist until someone types one, a different one abandons the answer in flight, and an
+// emptied field withdraws it rather than leaving a verdict on screen attached to a branch
+// nobody named.
 //
-// THE CLONE PREPARE IS HERE TOO, AND NOT IN A THIRD CLASS. It is the same act — put an
-// execution root on disk for this workspace — reached by a different call because the
-// execution mode is different, and its settlement is the same three arms. What it does
-// not have is a reuse check, because a clone is minted per run and nothing is reused.
+// Nothing is re-read after a settlement by this class. The section owns its own reading and
+// re-reads on the user's act.
 //
-// NOTHING IS RE-READ AFTER A SETTLEMENT BY THIS CLASS. The section owns its own
-// reading and re-reads on the user's act; a controller that also re-read would
-// put two reads on the wire for one prepare.
-//
-// AND THE PREPARE ITSELF IS NOT REFRESHABLE, which is why only the check half is
-// scheduled. A prepare is an act a person took once; re-sending it on a window focus
-// would put a second execution root on disk for one press.
+// The prepare itself is not refreshable, which is why only the check half is scheduled. A
+// prepare is an act a person took once; re-sending it on a window focus would put a second
+// execution root on disk for one press.
 
 import type {
-  EphemeralClonePrepareResponse,
   ExecutionMode,
   ExecutionRootPrepareResponse,
   RepoMountId,
@@ -35,7 +26,6 @@ import type {
   WorktreeId,
 } from "@ai-sidekicks/contracts";
 
-import type { ConsoleBridge } from "../../../bridge/index.js";
 import type { ConsoleClock } from "../../../core/index.js";
 import {
   ActSurfaceController,
@@ -44,13 +34,11 @@ import {
   type SessionStore,
 } from "../../../store/index.js";
 import { REPO_LIFECYCLE_EVENT_KINDS } from "../../repo-lifecycle-events.js";
-import {
-  checkWorktreeReuse,
-  prepareEphemeralClone,
-  prepareExecutionRoot,
-  REPO_READS_REFUSAL_ORIGIN,
-} from "../../repo-reads.js";
+import { REPO_REFUSAL_ORIGIN, type RepoOperations } from "../../repo-operations.js";
 import { reuseVerdictFor, type ReuseVerdict } from "./root-act-model.js";
+
+/** The two calls this controller makes. */
+export type PrepareOperations = Pick<RepoOperations, "checkWorktreeReuse" | "prepareExecutionRoot">;
 
 /** What a finished prepare carries: the root on disk, and the state it is in. */
 export interface PrepareSettlement {
@@ -71,7 +59,7 @@ export interface PrepareSubject {
 
 /** What one prepare controller collaborates with, beside the subject it is scoped to. */
 export interface PrepareControllerOptions {
-  readonly bridge: ConsoleBridge;
+  readonly operations: PrepareOperations;
   readonly subject: PrepareSubject;
   /** The session whose reconnect edge and repo frames re-ask the reuse question. */
   readonly sessionStore: SessionStore;
@@ -84,7 +72,7 @@ export class ExecutionRootPrepareController extends ActSurfaceController<
   ReuseVerdict,
   PrepareSettlement
 > {
-  readonly #bridge: ConsoleBridge;
+  readonly #operations: PrepareOperations;
   readonly #subject: PrepareSubject;
 
   public constructor(options: PrepareControllerOptions) {
@@ -92,14 +80,13 @@ export class ExecutionRootPrepareController extends ActSurfaceController<
       label: "execution root prepare reading",
       clock: options.clock,
       sessionStore: options.sessionStore,
-      // THE FAMILY'S CENSUS AND NOT A LIST OF ITS OWN, on `repo-mounts-reader.ts`'s
-      // rule: a worktree appearing, being retired, or changing state is exactly what
-      // makes a reuse verdict wrong, and two readers of one answer must not disagree
-      // about when that answer goes stale.
+      // The family's census and not a list of its own: a worktree appearing, being retired,
+      // or changing state is what makes a reuse verdict wrong, and two readers of one
+      // answer must not disagree about when it goes stale.
       triggeringEventKinds: new Set<string>(REPO_LIFECYCLE_EVENT_KINDS),
-      refusalOrigin: REPO_READS_REFUSAL_ORIGIN,
+      refusalOrigin: REPO_REFUSAL_ORIGIN,
     });
-    this.#bridge = options.bridge;
+    this.#operations = options.operations;
     this.#subject = options.subject;
   }
 
@@ -134,22 +121,23 @@ export class ExecutionRootPrepareController extends ActSurfaceController<
   /**
    * Prepare a worktree root, reusing a named candidate where the verdict admits one.
    *
-   * THE CONSENT AND THE CANDIDATE TRAVEL TOGETHER OR NOT AT ALL. The pair is two
-   * members because naming a candidate and consenting to its uncommitted work are
-   * two decisions, and sending the acknowledgement without the id would consent to
-   * nothing — which is why the reuse id is what decides whether either is sent.
+   * The consent and the candidate travel together or not at all. Naming a candidate and
+   * consenting to its uncommitted work are two decisions, and sending the acknowledgement
+   * without the id would consent to nothing, so the reuse id decides whether either is sent.
    */
   public async prepare(branchName: string, acknowledgeDirtyCandidate: boolean): Promise<void> {
     const reuseWorktreeId = this.#reusableCandidate();
     await this.sendAct(
-      async () =>
-        await prepareExecutionRoot(this.#bridge, {
+      async () => ({
+        status: "served" as const,
+        value: await this.#operations.prepareExecutionRoot({
           workspaceId: this.#subject.workspaceId as WorkspaceId,
           branchName,
           ...(reuseWorktreeId === undefined
             ? {}
             : { reuseWorktreeId: reuseWorktreeId as WorktreeId, acknowledgeDirtyCandidate }),
         }),
+      }),
       (value: ExecutionRootPrepareResponse) => ({
         status: "prepared" as const,
         executionRoot: value.executionRoot,
@@ -159,50 +147,23 @@ export class ExecutionRootPrepareController extends ActSurfaceController<
   }
 
   /**
-   * Prepare an ephemeral clone for this workspace.
-   *
-   * NO CLEANUP POLICY IS SENT, and the omission is the contract's own default rather
-   * than a value withheld: omitting it means `on_run_complete`, applied daemon-side and
-   * echoed back, so the effective policy a card renders is the one that was applied.
-   * A console that sent a policy here would be choosing a disposal deadline nobody
-   * asked it to choose.
-   */
-  public async prepareClone(branchName: string): Promise<void> {
-    await this.sendAct(
-      async () =>
-        await prepareEphemeralClone(this.#bridge, {
-          workspaceId: this.#subject.workspaceId as WorkspaceId,
-          branchName,
-        }),
-      (value: EphemeralClonePrepareResponse) => ({
-        status: "prepared" as const,
-        executionRoot: value.cloneRoot,
-        state: value.state,
-      }),
-    );
-  }
-
-  /**
    * The reuse check, asked for whatever branch name the form currently holds.
    *
-   * The round's signal goes straight to the call door, which matters most on exactly
-   * this read: a user typing a branch name supersedes their own check every
-   * few keystrokes, and each superseded one now stops at the door instead of being
-   * parsed into a verdict for a branch that has already been edited away from.
+   * The round's signal goes straight to the call, which matters most on exactly this
+   * read: a user typing a branch name supersedes their own check every few keystrokes,
+   * and each superseded one stops instead of being folded into a verdict for a branch
+   * that has already been edited away from.
    */
   protected override async readPrerequisite(
     branchName: string,
     signal: AbortSignal,
   ): Promise<ActOutcome<ReuseVerdict>> {
-    const reply = await checkWorktreeReuse(
-      this.#bridge,
+    const reply = await this.#operations.checkWorktreeReuse(
       this.#subject.repoMountId as RepoMountId,
       branchName,
       signal,
     );
-    return reply.status === "refused"
-      ? reply
-      : { status: "served", value: reuseVerdictFor(reply.value) };
+    return { status: "served", value: reuseVerdictFor(reply) };
   }
 
   /** The worktree the newest verdict names, where the verdict names one at all. */

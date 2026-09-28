@@ -1,9 +1,8 @@
 // How a workspace card holds its prepare controller, and nothing about the prepare.
 //
-// SPLIT FROM THE CONTROLLER ON `proposal-gate-binding.ts`'S SEAM, and for its reasons:
-// the class beside this one collaborates with the bridge and owns what a reuse check
-// and a prepare publish; this module collaborates with React's rendering lifecycle and
-// owns when a controller is opened, armed, and ended. They meet at one object.
+// SPLIT FROM THE CONTROLLER: the class beside this one owns what a reuse check and a
+// prepare publish; this module collaborates with React's rendering lifecycle and owns
+// when a controller is opened, armed, and ended. They meet at one object.
 //
 // THE SEAM IS `store/act/use-act-controller.ts` AND NOT `useMemo`, which is that module's
 // own distinction: a memo opened during a pass React discards really constructs the
@@ -20,11 +19,12 @@ import { consoleClockFor, type ConsoleBridge } from "../../../bridge/index.js";
 import { useActController, type SessionStore } from "../../../store/index.js";
 import {
   ExecutionRootPrepareController,
+  type PrepareOperations,
   type PrepareReading,
   type PrepareSubject,
 } from "./prepare-controller.js";
 
-/** What the hook hands a surface: the reading, and the four things it can ask for. */
+/** What the hook hands a surface: the reading, and the three things it can ask for. */
 export interface PrepareBinding {
   readonly reading: PrepareReading;
   /**
@@ -41,33 +41,32 @@ export interface PrepareBinding {
   readonly controllerIdentity: object;
   readonly checkReuse: (branchName: string) => void;
   readonly prepare: (branchName: string, acknowledgeDirtyCandidate: boolean) => void;
-  readonly prepareClone: (branchName: string) => void;
   readonly clearAct: () => void;
 }
 
 /**
  * Bind one workspace's prepare controller to a surface.
  *
- * KEYED ON THE WORKSPACE AND THE MODE TOGETHER, because both change what the controller
- * would do: the workspace decides which binding is prepared, and the mode decides which
- * of the two calls the surface offers. A key carrying only the first would leave a
- * controller in place across a mode switch, with a reuse verdict about a question the
- * new mode does not ask.
+ * KEYED ON THE WORKSPACE AND THE MODE TOGETHER, so a mode switch mints a fresh controller.
+ * The form is addressed at the controller's identity, so a fresh controller is what
+ * clears a branch typed under the previous mode and drops the settlement of a prepare
+ * made under it.
  */
 export function usePrepareController(
   bridge: ConsoleBridge,
   subject: PrepareSubject,
   sessionStore: SessionStore,
+  operations: PrepareOperations,
 ): PrepareBinding {
-  // THE CLOCK COMES FROM THE BRIDGE, on `repo-mounts-binding.ts`'s reason: one window,
-  // one time base. Memoised because the real arm mints a fresh clock per call and a
-  // new object every render would re-mint the controller beneath it.
+  // THE CLOCK COMES FROM THE BRIDGE: one window, one time base. Memoized because the real
+  // arm mints a fresh clock per call and a new object every render would re-mint the
+  // controller beneath it.
   const clock = useMemo(() => consoleClockFor(bridge), [bridge]);
   const { controller, reading } = useActController(
     bridge,
     `${subject.workspaceId} ${subject.executionMode}`,
     sessionStore,
-    () => new ExecutionRootPrepareController({ bridge, subject, sessionStore, clock }),
+    () => new ExecutionRootPrepareController({ operations, subject, sessionStore, clock }),
   );
   useEffect(() => {
     controller.start();
@@ -84,14 +83,8 @@ export function usePrepareController(
     },
     [controller],
   );
-  const prepareClone = useCallback(
-    (branchName: string) => {
-      void controller.prepareClone(branchName);
-    },
-    [controller],
-  );
   const clearAct = useCallback(() => {
     controller.clearAct();
   }, [controller]);
-  return { reading, controllerIdentity: controller, checkReuse, prepare, prepareClone, clearAct };
+  return { reading, controllerIdentity: controller, checkReuse, prepare, clearAct };
 }

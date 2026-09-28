@@ -30,7 +30,7 @@ import { resolveServedSelection, selectedChoiceOf, type ServedSelection } from "
 
 /** What the bind dialog holds while it is open. */
 export interface BindFormState {
-  /** Exactly what was typed, or empty for the mount root. Never normalised here. */
+  /** Exactly what was typed, or empty for the mount root. Never normalized here. */
   readonly directory: string;
   /**
    * The mode a user PICKED, or none picked yet.

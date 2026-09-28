@@ -157,30 +157,13 @@ describe("inline diff card — expanded to the cap, with somewhere to go", () =>
     fireEvent.click(getByRole("button", { name: "Expand in place" }));
     expect(getByRole("button", { name: "Jump to end" })).toBeDefined();
   });
-
-  it("starts with attribution marks off, one toggle from the pane's default", () => {
-    // `DiffToolbar.tsx`'s density rule, and the half of it the card owns. The pane's own test
-    // owns the other half; together they are the claim that the two defaults
-    // differ rather than that either is a particular value.
-    const { container } = render(<InlineDiffCard card={CARD} diff={DIFF} />);
-    expect(container.querySelectorAll(".meridian-diff__attribution-mark").length).toBe(0);
-  });
 });
 
-describe("inline diff card — the one control it carries", () => {
-  it("puts attribution marks one toggle away, which is the other half of the density rule", () => {
-    const { container, getByRole } = render(<InlineDiffCard card={CARD} diff={DIFF} />);
-    expect(container.querySelectorAll(".meridian-diff__attribution-mark").length).toBe(0);
-    fireEvent.click(getByRole("button", { name: "Attribution marks" }));
-    expect(container.querySelectorAll(".meridian-diff__attribution-mark").length).toBeGreaterThan(
-      0,
-    );
-  });
-
-  it("negative control: it carries that control and not the pane's whole toolbar", () => {
-    // A card is read inside a conversation. Four controls of chrome per diff is
-    // the density `InlineDiffCard.tsx`'s own rule exists to avoid, and a card that grew the
-    // pane's toolbar would pass every other case in this file.
+describe("inline diff card — the controls it carries", () => {
+  it("renders no toolbar in the capped card, where the pane renders one", () => {
+    // A card is read inside a conversation. Toolbar chrome per diff is the density
+    // `InlineDiffCard.tsx`'s own rule exists to avoid, and a card that grew the pane's
+    // toolbar would pass every other case in this file.
     const { queryByRole } = render(<InlineDiffCard card={CARD} diff={DIFF} />);
     expect(queryByRole("toolbar")).toBeNull();
   });
@@ -188,14 +171,13 @@ describe("inline diff card — the one control it carries", () => {
 
 describe("inline diff card — the density the seat's compared states select", () => {
   it("renders the change set where the row names both compared states", () => {
-    // `DiffChangeSet` and not a second body: the subject bar, the toolbar and the
-    // changed-file list are the pane's own, so a comparison the row named is drawn
-    // once and the files it touched are reachable from inside the conversation.
+    // `DiffChangeSet` and not a second body: the toolbar and the changed-file list are
+    // the pane's own, so a comparison the row named is drawn once and the files it touched
+    // are reachable from inside the conversation.
     const { container, getByRole } = render(
       <InlineDiffCard card={CARD_NAMING_COMPARED_STATES} diff={DIFF} />,
     );
     expect(container.querySelector(".meridian-diff-pane")).not.toBeNull();
-    expect(container.querySelector(".meridian-diff-pane__subject-bar")).not.toBeNull();
     expect(getByRole("toolbar")).toBeDefined();
   });
 
@@ -211,7 +193,7 @@ describe("inline diff card — the density the seat's compared states select", (
 
   it("reads the pair as a pair, so half a comparison selects nothing", () => {
     // A base with no head names no comparison at all, and a card that tested one
-    // member would draw a subject bar with a blank on one side of it.
+    // member would draw a change set with a blank on one side of its comparison.
     const { container } = render(
       <InlineDiffCard card={{ ...CARD, baseRef: "main" }} diff={DIFF} />,
     );

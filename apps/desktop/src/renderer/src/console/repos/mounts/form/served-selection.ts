@@ -1,14 +1,11 @@
 // One user choice, reconciled against the set a read is currently serving.
 //
-// THE CLASS THIS MODULE CLOSES. Both dialogs in this family computed sendability from
-// FORM state alone while their pickers drew from SERVED state, and the two disagreed on
-// four reachable states: a sole node the picker checked and the form never held, so the
-// control stayed shut over a complete form; a chosen node a roster refresh removed, so
-// the control stayed open and sent an id the session no longer has; a mode default
-// applied once per mount and never again, so a reopened dialog offered no mode at all;
-// and a chosen mode a capabilities refresh withdrew, so the picker drew it excluded
-// while the button beside it still sent it. Every one of them is a control that says
-// one thing and does another.
+// THE CLASS THIS MODULE CLOSES. A form that computes sendability from FORM state alone
+// while its picker draws from SERVED state disagrees with it on reachable states: a mode
+// default applied once per mount and never again, so a reopened dialog offers no mode at
+// all; and a chosen mode a capabilities refresh withdrew, so the picker draws it excluded
+// while the button beside it still sends it. Every one of them is a control that says one
+// thing and does another.
 //
 // ONE RESOLUTION, READ BY BOTH HALVES. A surface asks this module which choice is live
 // and hands the answer to the picker's `checked` and to its own verdict. There is
@@ -21,10 +18,10 @@
 // re-applied whenever the form is empty and the served answer names one, and a
 // user's own pick still wins because a pick is what `chosen` holds.
 //
-// FOUR ARMS BECAUSE THERE ARE FOUR SENTENCES. A silent refusal is forbidden, and
-// "pick one", "the one you picked is gone", and
-// "nothing has answered yet" are three different facts about a shut control. Collapsing
-// them would put a false sentence under the button in two cases out of the three.
+// FOUR ARMS BECAUSE THERE ARE FOUR SENTENCES. "Pick one", "the one you picked is gone",
+// and "nothing has answered yet" are three different facts about a shut control, and a
+// silent refusal says none of them. Collapsing them would put a false sentence under the
+// button in two cases out of the three.
 
 /**
  * Where one choice stands against the answer on screen.
@@ -51,8 +48,8 @@ export interface ServedSelectionInputs<TChoice> {
    * being served at all.
    *
    * THE TWO ABSENCES ARE KEPT APART. An empty array is a read that answered and named
-   * nothing — a session with no nodes, a mount that admits no mode — and `undefined` is
-   * a read that has not answered. The first withdraws a pick; the second cannot know.
+   * nothing — a mount that admits no mode — and `undefined` is a read that has not
+   * answered. The first withdraws a pick; the second cannot know.
    */
   readonly servedChoices: readonly TChoice[] | undefined;
   /** The one choice the served answer leaves no decision about, where there is one. */

@@ -21,8 +21,6 @@ export function DiffSplitCell(props: {
   /** Absent exactly where the line is: an empty cell has nothing to segment. */
   readonly reading: IntralineReading | undefined;
   readonly side: "base" | "head";
-  readonly showAttributionMarks: boolean;
-  readonly showWhitespaceChanges: boolean;
 }): React.JSX.Element {
   const { line } = props;
   const className = [
@@ -43,12 +41,8 @@ export function DiffSplitCell(props: {
   }
   return (
     <span className={className} role="cell">
-      <DiffGutter line={line} side={props.side} showAttributionMarks={props.showAttributionMarks} />
-      <DiffLineText
-        line={line}
-        reading={reading}
-        showWhitespaceChanges={props.showWhitespaceChanges}
-      />
+      <DiffGutter line={line} side={props.side} />
+      <DiffLineText line={line} reading={reading} />
     </span>
   );
 }

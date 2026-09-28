@@ -101,8 +101,8 @@ function terminalNewlinePatch(): string {
  * their paths verbatim and these are stripped, which is the mixture a real change set
  * produces too when only some of its files moved.
  *
- * No hunks anywhere below: the whole change is in the headers, which is the case the
- * surfaces used to draw as `+0 −0` under a bare path.
+ * No hunks anywhere below: the whole change is in the headers, which is the case a
+ * surface would draw as `+0 −0` under a bare path if it read only the hunks.
  */
 function extendedHeaderPatches(): readonly string[] {
   const { renamed, copied, modeChanged, binary } = EXTENDED_HEADER_FIXTURE_FILES;

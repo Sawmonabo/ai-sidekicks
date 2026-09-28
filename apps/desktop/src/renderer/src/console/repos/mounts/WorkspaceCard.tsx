@@ -16,20 +16,12 @@
 // NO HEALTH CHIP HERE, EVER. This row's own Never: the workspace list carries no
 // health member by design — `RepoMountHealth` is the MOUNT's reachability projection
 // and belongs to `repo.mountRead` — so a mismatching mount surfaces on this row as
-// `stale` plus `lastError`, and synthesising a second health axis would be the
+// `stale` plus `lastError`, and synthesizing a second health axis would be the
 // renderer inventing an answer the daemon deliberately did not give.
 //
-// THE THREE PATHS ARE THREE FACTS, AND ALL THREE ARE ON THIS ROW. The mount's
-// `canonicalRoot`, the workspace's bound root, and the normalized checkout root the
-// turn-snapshot service operates on can all differ in `branch` mode, and none is
-// derived from another. The `fsRoot` line below renders the bound root the workspace
-// list gave it; the other two — and the marker that says the mode in force was
-// SUBSTITUTED rather than chosen — reach the screen through
-// `ExecutionContextDisclosure`, which reads the workspace's own execution context.
-// That read is its own wire because neither of the two facts it carries is on the
-// workspace list at all: `run_execution_contexts.checkout_root` is captured per run,
-// and the workspace list's `executionMode` reads identically whether the daemon bound
-// the requested mode or fell back to another.
+// THE ROOT LINE IS THE BOUND ROOT AND NOTHING DERIVED FROM IT. The mount's `canonicalRoot`
+// and the workspace's `fsRoot` can differ in `branch` mode, and neither is computed from
+// the other, so this row prints the `fsRoot` the workspace list gave it.
 
 import type {
   ExecutionMode,
@@ -38,20 +30,19 @@ import type {
 } from "@ai-sidekicks/contracts";
 import { GLYPH_SIZE_ROW } from "../../tokens/index.js";
 import type { ConsoleBridge } from "../../bridge/index.js";
-import type { ConsoleRefusal } from "../../core/index.js";
 import { Chip, Glyph, Nothing, WireFigure, type ChipTone } from "../../primitives/index.js";
-import { ExecutionContextDisclosure } from "./ExecutionContextDisclosure.js";
 import { ExecutionModePicker } from "./ExecutionModePicker.js";
 import { workspaceControlPosture, type BindControlPosture } from "./mount-health.js";
 import { PrepareExecutionRoot } from "./roots/PrepareExecutionRoot.js";
-import type { FrameStore, SessionStore } from "../../store/index.js";
+import type { PrepareOperations } from "./roots/prepare-controller.js";
+import type { SessionStore } from "../../store/index.js";
 import type { RepoWorkspaceRow } from "./repo-mounts-model.js";
 
 /**
  * The tone each lifecycle position wears. Total over `WorkspaceState`, so a sixth
  * member of the wire union fails to compile here rather than rendering untoned.
  *
- * Only two positions earn colour, and they earn the two the palette reserves:
+ * Only two positions earn color, and they earn the two the palette reserves:
  * `stale` is the availability-loss verdict that blocks writable runs until repair,
  * and `busy` is a run holding the workspace — a person's attention, not a failure.
  */
@@ -66,25 +57,15 @@ const STATE_TONES: Readonly<Record<WorkspaceState, ChipTone>> = {
 export interface WorkspaceCardProps {
   readonly workspace: RepoWorkspaceRow;
   readonly capabilities: WorkspaceExecutionModeCapabilitiesReadResponse | undefined;
-  readonly refusal: ConsoleRefusal | undefined;
-  /**
-   * The mode the rendered refusal was about, where the refusal came from a press.
-   *
-   * Its own prop rather than read off `refusal`, because a `ConsoleRefusal` carries a
-   * code and a sentence and no subject: one code's recovery — the mount's own reason
-   * for refusing a mode — is keyed by mode on the capabilities reply, and a picker
-   * handed the refusal alone could say only that SOME mode was refused.
-   */
-  readonly refusalMode: ExecutionMode | undefined;
   /** The mode a switch on this workspace is waiting on the daemon for, where one is. */
   readonly pendingMode: ExecutionMode | undefined;
-  /** The mount's resolved root — the disclosure's first path, and the fixed one. */
-  readonly mountCanonicalRoot: string;
-  /** The bridge the execution-context read and the prepare acts are put on. */
+  /** The bridge the prepare act takes its clock from. */
   readonly bridge: ConsoleBridge;
+  /** The calls the prepare act makes. */
+  readonly operations: PrepareOperations;
   /** Read the section again, because a prepare put a root on disk the list has not seen. */
   readonly onRequestRead: () => void;
-  /** The session the execution-context read's own refresh triggers listen to. */
+  /** The session the prepare act takes its reconnect and stale-frame triggers from. */
   readonly sessionStore: SessionStore;
   /**
    * The owning mount's own bind posture, handed down rather than re-read.
@@ -94,13 +75,6 @@ export interface WorkspaceCardProps {
    * held without this row composing a second wording for the same state.
    */
   readonly bindControls: BindControlPosture;
-  /**
-   * The window's own shell condition, handed down so each act can read the one method
-   * it sends. The FRAME's store and not the session's: a supervisor going down is a
-   * fact about this window's runtime, and every window watching the same session reads
-   * its own.
-   */
-  readonly frameStore: FrameStore;
   readonly onSelectExecutionMode: (executionMode: ExecutionMode) => void;
 }
 
@@ -141,37 +115,20 @@ export function WorkspaceCard(props: WorkspaceCardProps): React.JSX.Element {
         </p>
       ) : null}
 
-      <ExecutionContextDisclosure
-        bridge={props.bridge}
-        workspaceId={workspace.id}
-        mountCanonicalRoot={props.mountCanonicalRoot}
-        // The disclosure's own density rule reads this: the three paths are expanded by
-        // default only while the row is `stale`. Handed down from the row that already
-        // holds it rather than read again, so the chip above and the disclosure below
-        // can never disagree about which position this workspace is in.
-        workspaceState={workspace.state}
-        sessionStore={props.sessionStore}
-      />
-
       <ExecutionModePicker
         workspaceId={workspace.id}
         currentMode={workspace.executionMode}
         capabilities={props.capabilities}
-        refusal={props.refusal}
-        refusalMode={props.refusalMode}
         pendingMode={props.pendingMode}
         posture={posture}
-        frameStore={props.frameStore}
         onSelect={props.onSelectExecutionMode}
       />
 
       {/*
         THE PREPARE SITS UNDER THE PICKER because it is about the mode the row is bound
-        in NOW: which call it sends and whether it asks a reuse question are both read
-        off that mode, so a control drawn above the picker would be offering to prepare
-        a root for a binding the user is in the middle of changing. Position was
-        all that said so, though — the posture above is what now HOLDS it while that
-        change is on the wire, and while the mount refuses binds at all.
+        in NOW, so a control drawn above the picker would be offering to prepare a root
+        for a binding the user is in the middle of changing. The posture above
+        holds it while that change is on the wire, and while the mount refuses binds.
       */}
       <PrepareExecutionRoot
         bridge={props.bridge}
@@ -180,7 +137,7 @@ export function WorkspaceCard(props: WorkspaceCardProps): React.JSX.Element {
         executionMode={workspace.executionMode}
         sessionStore={props.sessionStore}
         posture={posture}
-        frameStore={props.frameStore}
+        operations={props.operations}
         onPrepared={props.onRequestRead}
       />
     </article>

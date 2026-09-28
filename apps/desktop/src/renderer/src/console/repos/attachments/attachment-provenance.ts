@@ -2,10 +2,8 @@
 //
 // THE SEAM, IN ONE SENTENCE: this module changes when the rule about a declared value
 // and its derived counterpart changes, and that rule is small enough and load-bearing
-// enough to be findable on its own. It was four declarations in the middle of the model
-// this family has since split apart, where the one thing a reader needed — that NEITHER
-// side gates the other — read as a detail of a shape file rather than as the decision
-// it is.
+// enough to be findable on its own: NEITHER side gates the other, and that is a decision
+// rather than a detail of a shape file.
 //
 // TWO AXES, ONE PRECEDENCE. The media type is the axis where both readings can stand
 // together; the NAME is the axis where the derived one replaces the declaration
@@ -38,13 +36,13 @@ export interface AttachmentMediaTypeReading {
 /**
  * Which media-type readings an in-flight attachment has, in the order they are shown.
  *
- * NEITHER SIDE GATES THE OTHER, which is the whole point of this function. The card
- * used to test the DECLARATION alone, so a payload a browser handed over with no
- * `File.type` — every paste, and any client that omits it — hid the derived type the
- * daemon had already found, on exactly the PNG and PDF attachments where the derived
- * signature is the interesting fact. Either value alone is a reading and is shown.
+ * NEITHER SIDE GATES THE OTHER, which is the whole point of this function. A payload a
+ * browser hands over with no `File.type` — every paste, and any client that omits it —
+ * still shows the derived type the daemon found, on exactly the PNG and PDF attachments
+ * where the derived signature is the interesting fact. Either value alone is a reading
+ * and is shown.
  *
- * WHERE BOTH EXIST AND AGREE, ONE CHIP. The declaration was confirmed rather than
+ * WHERE BOTH EXIST AND AGREE, ONE CHIP. The declaration is confirmed rather than
  * contradicted, and printing the same string twice would read as a disagreement.
  *
  * WHERE BOTH EXIST AND DIFFER, THE DERIVED ONE LEADS AND THE DECLARATION SURVIVES
@@ -91,11 +89,11 @@ export interface AttachmentNameReading {
  * caller's string is still in use somewhere.
  *
  * ONE FUNCTION BECAUSE ONE CARD ASKS TWICE. The visible face and the accessible label
- * are two renderings of the same question, and they used to answer it in two places: a
- * completed ingest stays on the in-flight arm of the reading, so the face had switched
- * to the daemon's normalized name while the label was still reading the declaration —
- * and a screen-reader user heard a different artifact identity from a sighted one on
- * exactly the attachments where normalization changed something.
+ * are two renderings of the same question, so they read one answer. A completed ingest
+ * stays on the in-flight arm of the reading, and a label that read the declaration while
+ * the face showed the daemon's normalized name would give a screen-reader user a
+ * different artifact identity from a sighted one on exactly the attachments where
+ * normalization changed something.
  */
 export function attachmentNameReading(entry: AttachmentIngestEntry): AttachmentNameReading {
   const derived = entry.derived?.normalizedName;

@@ -1,9 +1,9 @@
-// The prepare form against the fixture: what it sends, and the three states it will not.
+// The prepare form over scripted calls: what it sends, and the three states it will not.
 //
 // EVERY CASE DRIVES THE REAL CONTROLLER. The guard this suite is about is a guard about
 // TIMING — the window between a branch being typed and the reuse check answering for it —
 // so a case that handed the component a pre-settled reading would be asserting the one
-// state the defect is not in. The fixture's frozen clock is what makes that window
+// state the defect is not in. A frozen clock is what makes that window
 // enterable: nothing settles until the case advances it.
 //
 // AND THE CONTROLS ARE REACHED BY CLASS RATHER THAN BY ROLE. They live inside a
@@ -16,23 +16,15 @@ import { describe, expect, it } from "vitest";
 
 import { WORKTREE_GIT_REF_MAX_LEN, type ExecutionMode } from "@ai-sidekicks/contracts";
 
-import { createFixtureBridge, type ConsoleBridge } from "../../../bridge/index.js";
-import { REPOS_SCENARIO } from "../../../bridge/scenario/repos/repos.js";
-import {
-  GIT_MOUNT_ID,
-  GIT_WORKSPACE_ID,
-} from "../../../bridge/scenario/repos/repos-fixture-data.js";
-import { SessionStore } from "../../../store/index.js";
 import { advanceScenarioUntil } from "../../../bridge/scenario/runtime/clock.test-support.js";
+import { SessionStore } from "../../../store/index.js";
+import { bridgeOnClock, scriptedRepoOperations } from "../../repo-operations.test-support.js";
 import { workspaceControlPosture, type WorkspaceControlPosture } from "../mount-health.js";
+import { DIRTY_BRANCH, preparingDaemon } from "../repo-mounts.test-support.js";
 import { PrepareExecutionRoot } from "./PrepareExecutionRoot.js";
 import { REUSE_UNANSWERED_COPY } from "./root-act-model.js";
-import { quietShell } from "../../../store/shell-condition.test-support.js";
 
-/** The fixture branch with a live, dirty, compatible candidate — the consent case. */
-const DIRTY_CANDIDATE_BRANCH = "feat/rate-limit-wiring";
-
-/** A fixture branch with no candidate at all, which prepares without a consent. */
+/** A branch with no candidate at all, which prepares without a consent. */
 const UNHELD_BRANCH = "feat/fresh-root";
 
 /** The card hands the form a live posture; the held arm is `ExecutionModePicker.test.tsx`'s. */
@@ -43,34 +35,37 @@ const CONTROLS_LIVE: WorkspaceControlPosture = workspaceControlPosture(
 
 interface FormUnderTest {
   readonly container: HTMLElement;
-  /** Move the fixture's frozen clock until the assertion holds. */
+  /** Move the scenario clock until the assertion holds. */
   readonly advanceUntil: (assert: () => void) => Promise<void>;
   /** Re-render the same mounted row in another execution mode, as a mode switch does. */
   readonly setExecutionMode: (executionMode: ExecutionMode) => void;
 }
 
-function renderForm(executionMode: ExecutionMode = "worktree"): FormUnderTest {
-  const bridge: ConsoleBridge = createFixtureBridge({ scenario: REPOS_SCENARIO });
-  // Held outside the element factory for `execution-context-binding.test.tsx`'s reason: a
-  // fresh bridge or store per re-render would re-mint everything beneath the row, so the
-  // mode-switch case would be pinning two first mounts rather than one switch.
-  const sessionStore = new SessionStore({ sessionId: REPOS_SCENARIO.sessionId });
+function renderForm(): FormUnderTest {
+  const bridge = bridgeOnClock();
+  // Held outside the element factory: a fresh bridge, store or call set per re-render
+  // would re-mint everything beneath the row, so the mode-switch case would be pinning
+  // two first mounts rather than one switch.
+  const sessionStore = new SessionStore({ sessionId: "session-repos" });
+  const operations = scriptedRepoOperations(preparingDaemon());
   const formAt = (mode: ExecutionMode): React.JSX.Element => (
     <PrepareExecutionRoot
       bridge={bridge}
-      workspaceId={GIT_WORKSPACE_ID}
-      repoMountId={GIT_MOUNT_ID}
+      operations={operations}
+      workspaceId="workspace-sidekicks"
+      repoMountId="mount-sidekicks"
       executionMode={mode}
       sessionStore={sessionStore}
       posture={CONTROLS_LIVE}
-      frameStore={quietShell()}
       onPrepared={() => undefined}
     />
   );
-  const { container, rerender } = render(formAt(executionMode));
+  const { container, rerender } = render(formAt("worktree"));
   return {
     container,
-    advanceUntil: (assert) => advanceScenarioUntil(bridge, assert),
+    advanceUntil: async (assert) => {
+      await advanceScenarioUntil(bridge, assert);
+    },
     setExecutionMode: (mode) => {
       rerender(formAt(mode));
     },
@@ -124,14 +119,6 @@ describe("PrepareExecutionRoot — the reuse check holds the control", () => {
     expect(blockedLine(container)).toBeUndefined();
   });
 
-  it("negative control: a clone asks no reuse question and is not held by one", () => {
-    // Its reading sits at `not-read` for the life of the surface, so a guard that read
-    // that as a question in flight would close this control permanently.
-    const { container } = renderForm("ephemeral clone");
-    nameBranch(container, UNHELD_BRANCH);
-    expect(confirmButton(container).disabled).toBe(false);
-  });
-
   it("holds a branch name past the contract's own bound, and says by how much", () => {
     const { container } = renderForm();
     nameBranch(container, "b".repeat(WORKTREE_GIT_REF_MAX_LEN + 1));
@@ -143,7 +130,7 @@ describe("PrepareExecutionRoot — the reuse check holds the control", () => {
 describe("PrepareExecutionRoot — the dirty-candidate consent", () => {
   it("draws the consent unticked and opens the control only once it is given", async () => {
     const { container, advanceUntil } = renderForm();
-    nameBranch(container, DIRTY_CANDIDATE_BRANCH);
+    nameBranch(container, DIRTY_BRANCH);
     await advanceUntil(() => {
       expect(consentBox(container)).toBeDefined();
     });
@@ -161,14 +148,14 @@ describe("PrepareExecutionRoot — the dirty-candidate consent", () => {
 
   it("negative control: editing the branch withdraws the consent and the control with it", async () => {
     const { container, advanceUntil } = renderForm();
-    nameBranch(container, DIRTY_CANDIDATE_BRANCH);
+    nameBranch(container, DIRTY_BRANCH);
     await advanceUntil(() => {
       expect(consentBox(container)).toBeDefined();
     });
     fireEvent.click(consentBox(container) as HTMLInputElement);
     expect(confirmButton(container).disabled).toBe(false);
 
-    nameBranch(container, `${DIRTY_CANDIDATE_BRANCH}-2`);
+    nameBranch(container, `${DIRTY_BRANCH}-2`);
     expect(confirmButton(container).disabled).toBe(true);
   });
 });
@@ -185,7 +172,7 @@ describe("PrepareExecutionRoot — the form's lifetime", () => {
       expect(confirmButton(container).disabled).toBe(false);
     });
 
-    setExecutionMode("ephemeral clone");
+    setExecutionMode("branch");
     setExecutionMode("worktree");
 
     expect(branchInput(container).value).toBe("");

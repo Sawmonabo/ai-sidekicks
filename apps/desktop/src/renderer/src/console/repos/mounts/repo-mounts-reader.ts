@@ -1,55 +1,35 @@
 // What the repos section knows, who asked for it, and when it asks again.
 //
-// The refresh policy is fixed — reads happen on subscribe, on window focus, on
-// reconnect, and on the terminal events the owning surface names, and never on an
-// interval — so every read this family performs is routed through the
-// console's one `RefreshScheduler` (`console/store/read/refresh-scheduler.ts`). Nothing here
-// arms a timer of its own; the scheduler coalesces a burst of reasons into one read
-// and serializes reads so two never overlap. All FOUR of that rule's reasons are wired:
-// `subscribe` by this class's own `start`, and the other three by
-// the shared `SessionRefreshTriggers`, which this class hands ITSELF — the kind set it
-// declares from `repo-lifecycle-events.ts` and the `requestRead` behind which the
-// scheduler sits are the two members that wiring reads. This class owns the read and
-// that one owns when.
+// Every read here goes through the console's one `RefreshScheduler`, which coalesces a
+// burst of reasons into one read and serializes reads so two never overlap. The refresh
+// policy is fixed: reads happen on subscribe, on window focus, on reconnect, and on the
+// terminal events this class names, and never on an interval. `subscribe` is this class's
+// own `start`; the other three come from the shared `SessionRefreshTriggers`, which this
+// class hands itself. This class owns the read and that one owns when.
 //
-// THE ROOTS COME FROM THEIR OWN READ, and it is the only one that names a worktree.
-// A workspace row carries no worktree id, so `repo.worktreeStatusRead` — session
-// scoped, both root kinds in one answer — is what lets the section draw the roots a
-// session is running in and lets the change-proposal gate be asked per worktree. It
-// is one call for the whole session rather than one per mount, because the request's
-// mount filter exists for a caller with one mount in view and this section has a list.
+// The roots come from their own read, and it is the only one that names a worktree. A
+// workspace row carries no worktree id, so the session-scoped worktree status read is what
+// says which roots a session is running in. It is one call for the whole session rather
+// than one per mount.
 //
-// THE READ ORDER IS FORCED BY THE WIRE, not chosen. There is no `repo.mountList` in the
-// corpus, so the session's mounts are learned from its WORKSPACES:
-// `workspaces.repo_mount_id` is NOT NULL under the mount-first funnel and attach
-// always mints a default `read-only` workspace, so the roster names every mount.
-// Hence list, then one `repo.mountRead`
-// per distinct mount — the only read carrying `health`, and the reason a mount card
-// cannot be drawn from the list alone.
+// The read order is forced by the wire. There is no mount list call, so the session's
+// mounts are learned from its workspaces: every workspace names its mount and attach always
+// mints a default workspace, so the roster names every mount. Hence list, then one mount
+// read per distinct mount, which is the only read carrying `health`.
 //
-// WHY THIS STATE IS NOT IN THE SESSION STORE, though the store is now OBSERVED for two
-// of the three refresh reasons. `console/store/entities/entities.ts` partitions by a closed
-// entity-kind set with no repo mount, and a mount read is not an event projection at
-// all — it is a synchronous probe whose `checkedAt` is the point of it — so holding it
-// beside the store denormalises nothing. When a `repo-mount` entity kind exists, this
-// class becomes its reader and the state moves; the shape it publishes does not.
+// This state is not in the session store because a mount read is not an event projection.
+// It is a probe whose `checkedAt` is the point of it, and the store's entity kinds have no
+// repo mount.
 //
-// EVERY FAILURE IS A REFUSAL, NEVER AN EMPTY LIST. A refused list read publishes the
-// refusal with no mounts; a refused mount read publishes the mounts that did answer
-// beside the refusal explaining the gap; a refused capabilities read is scoped to the
-// one workspace it was about. Rule 8 forbids collapsing any into "there are none".
+// A call that rejects is not caught here: the scheduler re-throws it, so the reading stays
+// where it was and the rejection reaches whoever runs the scheduler's callback.
 //
-// THE ACT IS NEXT DOOR AND THE SHAPE IS BESIDE BOTH. This file had reached the size
-// `apps/desktop/AGENTS.md` calls two jobs, and the two were legible: four reads on a
-// scheduler, and one mutation with a register of its own. `execution-mode-selection.ts`
-// took the mutation, `repo-mounts-model.ts` took the reading both of them publish, and
-// `repo-mounts-binding.ts` took the hook that mounts this class —
-// the split `proposal-gate-reader.ts` / `proposal-gate-actions.ts` /
-// `proposal-gate-model.ts` already makes in this family, on the same seam and for the
-// same reason. This class is the act's host, handed the three operations
-// `ExecutionModeSelectionHost` names and nothing else: the standing reading, the
-// publish, and the refresh an accepted switch asks for. So a switch cannot start a read
-// and this class cannot decide what a switch sends.
+// The mode switch is next door. Four reads on a scheduler and one mutation with a register
+// of its own are two jobs: `execution-mode-selection.ts` holds the mutation,
+// `repo-mounts-model.ts` the reading both of them publish, and `repo-mounts-binding.ts` the
+// hook that mounts this class. This class hosts the switch, handing it the three things
+// `ExecutionModeSelectionHost` names: the standing reading, the publish, and the refresh an
+// accepted switch asks for.
 
 import type {
   ExecutionMode,
@@ -57,13 +37,7 @@ import type {
   WorkspaceExecutionModeCapabilitiesReadResponse,
   WorkspaceId,
 } from "@ai-sidekicks/contracts";
-import type { ConsoleBridge, DaemonReply } from "../../bridge/index.js";
-import {
-  Emitter,
-  type ConsoleClock,
-  type ConsoleRefusal,
-  type Unsubscribe,
-} from "../../core/index.js";
+import { Emitter, type ConsoleClock, type Unsubscribe } from "../../core/index.js";
 import {
   RefreshScheduler,
   SessionRefreshTriggers,
@@ -76,18 +50,14 @@ import {
   ExecutionModeSelections,
   type ExecutionModeSelectionHost,
 } from "./execution-mode-selection.js";
-import { NOTHING_READ_YET, retainForRoster, type RepoMountsReading } from "./repo-mounts-model.js";
-import {
-  readExecutionModeCapabilities,
-  readRepoMount,
-  readSessionWorkspaces,
-  readWorktreeStatus,
-  repoCallRefusal,
-} from "../repo-reads.js";
+import { NOTHING_READ_YET, type RepoMountsReading } from "./repo-mounts-model.js";
+import type { RepoOperations } from "../repo-operations.js";
 import { REPO_LIFECYCLE_EVENT_KINDS } from "../repo-lifecycle-events.js";
 
+/** What one section reader collaborates with. */
 export interface RepoMountsReaderOptions {
-  readonly bridge: ConsoleBridge;
+  /** The reads and the mode switch this section makes; nothing else reaches the daemon. */
+  readonly operations: RepoOperations;
   /**
    * The session being read, and two of the three reasons to read again.
    *
@@ -111,21 +81,21 @@ export interface RepoMountsReaderOptions {
   readonly clock: ConsoleClock;
 }
 
+/** Reads a session's mounts, workspaces and roots, and hosts the mode switch. */
 export class RepoMountsReader implements ReadTriggerTarget {
   /**
    * The frames whose arrival owes this section a fresh read.
    *
    * DECLARED HERE rather than handed to the trigger wiring, because which events
-   * change an answer is a property of the question: the gate next door reads the same
-   * rows, and a kind list passed in at each call site is how two readers of one answer
-   * come to watch different frames. The family's census is
-   * `repo-lifecycle-events.ts`, which derives it from the contract's own registry and
-   * is where the `SessionEventType` check lives.
+   * change an answer is a property of the question: a kind list passed in at each call
+   * site is how two readers of one answer come to watch different frames. The family's
+   * census is `repo-lifecycle-events.ts`, which derives it from the contract's own
+   * registry and is where the `SessionEventType` check lives.
    */
   public readonly triggeringEventKinds: ReadonlySet<string> = new Set<string>(
     REPO_LIFECYCLE_EVENT_KINDS,
   );
-  readonly #bridge: ConsoleBridge;
+  readonly #operations: RepoOperations;
   readonly #sessionStore: SessionStore;
   readonly #sessionId: string;
   readonly #clock: ConsoleClock;
@@ -139,7 +109,7 @@ export class RepoMountsReader implements ReadTriggerTarget {
   #disposed = false;
 
   public constructor(options: RepoMountsReaderOptions) {
-    this.#bridge = options.bridge;
+    this.#operations = options.operations;
     this.#sessionStore = options.sessionStore;
     this.#sessionId = options.sessionStore.sessionId;
     // Bound once and shared with the scheduler, so the instant a reading is stamped
@@ -151,16 +121,6 @@ export class RepoMountsReader implements ReadTriggerTarget {
       perform: async (_reasons, round) => {
         await this.#performRead(round);
       },
-      // Swallowing is not an option and re-throwing into a timer callback reaches
-      // nobody, so a read that threw past its own refusal handling lands in the
-      // reading as one — the surface then renders it instead of showing stale rows.
-      onError: (error: unknown) => {
-        this.#publish({
-          ...this.#reading,
-          status: "read",
-          refusal: repoCallRefusal("repo.workspaceList", error),
-        });
-      },
     });
     // The three reasons to read again. They reach this reader through `requestRead`
     // and the scheduler behind it, and through nothing else.
@@ -169,7 +129,7 @@ export class RepoMountsReader implements ReadTriggerTarget {
       sessionStore: options.sessionStore,
     });
     this.#selections = new ExecutionModeSelections({
-      bridge: options.bridge,
+      operations: options.operations,
       host: this.#selectionHost(),
     });
   }
@@ -195,12 +155,12 @@ export class RepoMountsReader implements ReadTriggerTarget {
   /**
    * Whether this reader's reads are taken against `sessionStore`.
    *
-   * The seam holds a resource per `(subject, key)` and this reader has TWO
-   * collaborators — the bridge it calls through and the store it reads against — where
-   * the seam has one subject slot and one string key. The bridge is the subject and the
-   * session id is the key, so the axis a key cannot carry is the store's own identity:
-   * a projection replaced under the same id retires every read taken against the old
-   * one, and this is how the binding notices.
+   * The seam holds a resource per `(subject, key)` and this reader has three
+   * collaborators — the bridge, the calls it makes and the store it reads against — where
+   * the seam has one subject slot and one string key. The bridge and the calls are the
+   * subject and the session id is the key, so the axis they cannot carry is the store's
+   * own identity: a projection replaced under the same id retires every read taken
+   * against the old one, and this is how the binding notices.
    */
   public isReadingFor(sessionStore: SessionStore): boolean {
     return this.#sessionStore === sessionStore;
@@ -299,66 +259,35 @@ export class RepoMountsReader implements ReadTriggerTarget {
    * The section's whole reading: a workspace roster, one mount read per distinct
    * mount, the worktree roster, and one capability read per workspace.
    *
-   * SERIAL AND THEREFORE THE MOST WORTH ABANDONING. Every await is a round trip whose
-   * reply is parsed against a registered schema before this method sees it, and a
-   * section left before the pass finishes used to run all of them and discard the
-   * fold. The round's signal reaches each read, so an abandoned pass costs the door's
-   * pre-send check per remaining call and nothing else.
+   * Serial, and so the most worth abandoning. The round's signal reaches each read, so a
+   * pass abandoned because the section was left costs the door's pre-send check per
+   * remaining call and nothing else.
    */
   async #performRead(round: ReadRound): Promise<void> {
     this.#publish({ ...this.#reading, status: "reading" });
 
-    const workspaceOutcome = await readSessionWorkspaces(
-      this.#bridge,
-      this.#sessionId,
-      round.signal,
-    );
+    const { workspaces } = await this.#operations.listWorkspaces(this.#sessionId, round.signal);
     if (this.#isAbandoned(round)) {
       return;
     }
-    if (workspaceOutcome.status === "refused") {
-      this.#publish({
-        ...NOTHING_READ_YET,
-        status: "read",
-        refusal: workspaceOutcome.refusal,
-        // Both halves carried across the reset for the same reason: a refused roster
-        // read says nothing about a switch still on the wire, and nothing about one the
-        // daemon already refused. Dropping the pending entry would offer the picker
-        // again while its own mutation was unanswered; dropping the selection refusal
-        // would take away the only sentence saying why the last press did nothing.
-        workspaceRefusals: {
-          byCapabilitiesRead: {},
-          bySelection: this.#reading.workspaceRefusals.bySelection,
-        },
-        pendingModeByWorkspaceId: this.#reading.pendingModeByWorkspaceId,
-      });
-      return;
-    }
 
-    const workspaces = workspaceOutcome.value.workspaces;
     const mounts: RepoMountReadResponse[] = [];
     const seenMountIds = new Set<string>();
-    let firstRefusal: ConsoleRefusal | undefined;
-
     for (const workspace of workspaces) {
       if (seenMountIds.has(workspace.repoMountId)) {
         continue;
       }
       seenMountIds.add(workspace.repoMountId);
-      const mountOutcome = await readRepoMount(this.#bridge, workspace.repoMountId, round.signal);
+      const mount = await this.#operations.readMount(workspace.repoMountId, round.signal);
       if (this.#isAbandoned(round)) {
         return;
       }
-      firstRefusal = recordFirstRefusal(firstRefusal, mountOutcome);
-      if (
-        mountOutcome.status === "served" &&
-        !mounts.some((held) => held.id === mountOutcome.value.id)
-      ) {
-        mounts.push(mountOutcome.value);
+      if (!mounts.some((held) => held.id === mount.id)) {
+        mounts.push(mount);
       }
     }
 
-    const worktreeOutcome = await readWorktreeStatus(this.#bridge, this.#sessionId, round.signal);
+    const roots = await this.#operations.readWorktreeStatus(this.#sessionId, round.signal);
     if (this.#isAbandoned(round)) {
       return;
     }
@@ -367,20 +296,13 @@ export class RepoMountsReader implements ReadTriggerTarget {
       string,
       WorkspaceExecutionModeCapabilitiesReadResponse
     > = {};
-    const byCapabilitiesRead: Record<string, ConsoleRefusal> = {};
     for (const workspace of workspaces) {
-      const capabilitiesOutcome = await readExecutionModeCapabilities(
-        this.#bridge,
+      capabilitiesByWorkspaceId[workspace.id] = await this.#operations.readWorkspaceExecutionModes(
         workspace.id,
         round.signal,
       );
       if (this.#isAbandoned(round)) {
         return;
-      }
-      if (capabilitiesOutcome.status === "served") {
-        capabilitiesByWorkspaceId[workspace.id] = capabilitiesOutcome.value;
-      } else {
-        byCapabilitiesRead[workspace.id] = capabilitiesOutcome.refusal;
       }
     }
 
@@ -388,34 +310,13 @@ export class RepoMountsReader implements ReadTriggerTarget {
       status: "read",
       mounts,
       workspaces,
-      worktrees: worktreeOutcome.status === "served" ? worktreeOutcome.value.worktrees : [],
-      // Both arrays off the one reply, so a refused root read empties both together
-      // and a served one carries whatever each array held — including an empty
-      // `ephemeralClones`, which the contract requires present and which is a lawful
-      // answer rather than a gap.
-      ephemeralClones:
-        worktreeOutcome.status === "served" ? worktreeOutcome.value.ephemeralClones : [],
+      worktrees: roots.worktrees,
       readAtMilliseconds: this.#clock.now(),
       capabilitiesByWorkspaceId,
-      refusal: firstRefusal,
-      worktreeRefusal: worktreeOutcome.status === "refused" ? worktreeOutcome.refusal : undefined,
-      // The read ran on this path whatever it answered, which is exactly the fact a
-      // served-and-empty clone list needs to tell itself apart from an unasked one.
-      worktreeReadPosition: "made",
-      // ONE HALF REBUILT, THE OTHER CARRIED, AND THAT IS THE WHOLE POINT OF THE SPLIT.
-      // `byCapabilitiesRead` is this read's own answer and is replaced whole. The act
-      // half is not this read's to answer: a mode switch the daemon refused stays
-      // refused whether or not a lifecycle event happened to trigger a read a moment
-      // later, and rebuilding one map for both erased exactly that — the user's
-      // failed press silently disappearing from the picker on the next repo event.
-      workspaceRefusals: {
-        byCapabilitiesRead,
-        bySelection: retainForRoster(this.#reading.workspaceRefusals.bySelection, workspaces),
-      },
-      // SPREAD FORWARD, NEVER REBUILT. A switch the daemon has not answered is still on
-      // the wire while a read runs beside it — the accepted switch ASKS for this read —
-      // so a publish that reset the map would release the picker before the mutation it
-      // is holding for had settled.
+      // Spread forward, never rebuilt. A switch the daemon has not answered is still on the
+      // wire while a read runs beside it, since the accepted switch asks for this read, so
+      // a publish that reset the map would release the picker before the mutation it is
+      // holding for had settled.
       pendingModeByWorkspaceId: this.#reading.pendingModeByWorkspaceId,
     });
   }
@@ -424,14 +325,4 @@ export class RepoMountsReader implements ReadTriggerTarget {
     this.#reading = reading;
     this.#changes.emit(reading);
   }
-}
-
-function recordFirstRefusal(
-  held: ConsoleRefusal | undefined,
-  reply: DaemonReply<unknown>,
-): ConsoleRefusal | undefined {
-  if (held !== undefined || reply.status === "served") {
-    return held;
-  }
-  return reply.refusal;
 }

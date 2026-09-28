@@ -1,11 +1,10 @@
 // The one reading of one capabilities reply into picker rows.
 //
-// THE CASE THAT MADE THIS ONE FUNCTION IS THE LAST ONE BELOW. Two copies of this
-// derivation existed — one in the mode picker, one in the bind dialog — and they
-// disagreed about a mode the reply names as BOTH available and restricted: one kept
-// the daemon's reason on the row and the other blanked it, so the same malformed reply
-// disclosed a restriction on one surface and hid it on the other. That arm is now the
-// gate on the single implementation.
+// THE CASE THAT MAKES THIS ONE FUNCTION IS THE LAST ONE BELOW. A mode the reply names as
+// BOTH available and restricted must keep the daemon's reason on the row on every
+// surface: two derivations could disagree, one keeping the reason and the other blanking
+// it, so the same malformed reply would disclose a restriction on one surface and hide it
+// on the other. That arm is what holds the single implementation to it.
 
 import type { WorkspaceExecutionModeCapabilitiesReadResponse } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";

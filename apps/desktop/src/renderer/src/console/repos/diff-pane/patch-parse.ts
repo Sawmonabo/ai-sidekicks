@@ -23,13 +23,12 @@
 // WHY A PARSER EXISTS BEFORE ITS WIRE DOES. `diff-model.ts`'s header records the
 // obligation this file discharges: the module that turns a unified patch into the
 // model "lands with the first caller that has patch bytes to give it, in the PR that
-// adds that dependency". The dependency is added here. The caller that hands it daemon bytes is `gitflow.diffArtifactCreate`,
-// a growth-slate row (`gitflow-actions`) that no namespace serves yet — so today the
-// callers are `diff-fixture.test-support.ts`, which builds
-// the surfaces' and the endurance tier's subjects THROUGH this module rather than
-// beside it, and this module's own tests. That ordering is the point: when the wire
-// lands it calls a parser the tiers have already been exercising, rather than a
-// second one written to match them.
+// adds that dependency". The dependency is added here. No daemon method returns patch
+// bytes, so the callers are `diff-fixture.test-support.ts`, which builds the surfaces'
+// and the endurance tier's subjects THROUGH this module rather than beside it, and this
+// module's own tests. That ordering is the point: when a wire lands it calls a parser
+// the tiers have already been exercising, rather than a second one written to match
+// them.
 //
 // WHAT A PATCH CANNOT SAY, AND WHICH THIS FILE THEREFORE DOES NOT INVENT.
 //
@@ -39,11 +38,8 @@
 //     caller that has the surrounding file supplies it. Synthesising one from the
 //     hunk's own leading context would move lines a reader can already see into a
 //     collapsed gap and claim the gap had revealed them.
-//   • `DiffLine.agentAttribution` comes from the `Agent-Run:` and `Co-authored-by:`
-//     trailers, which live on the COMMIT and not in the patch body. This module reads
-//     none and guesses none.
-//   • The attribution mode and the compared refs are the create call's own answer, so
-//     they are parameters here rather than anything scraped out of the patch's headers.
+//   • The compared refs are the caller's own answer, so they are parameters here rather
+//     than anything scraped out of the patch's headers.
 //
 // AND ONE THING THE LIBRARY KEEPS, WHICH THIS FILE USED TO THROW AWAY. A git patch
 // states a rename, a copy, a mode change, and a binary change in the extended headers
@@ -84,15 +80,10 @@ import { parsePatch } from "diff/lib/patch/parse.js";
 import type { StructuredPatch } from "diff/lib/types.js";
 
 import { hunkLines } from "./hunk-lines.js";
-import type {
-  ConsoleDiffModel,
-  DiffAttribution,
-  DiffFile,
-  DiffIntralineSegment,
-} from "./diff-model.js";
+import type { ConsoleDiffModel, DiffFile, DiffIntralineSegment } from "./diff-model.js";
 import { wholeLineSegments } from "./diff-model.js";
 
-/** The compared states a create call named, carried onto the parsed model verbatim. */
+/** The compared states the caller names, carried onto the parsed model verbatim. */
 export interface ComparedStates {
   readonly baseRef: string;
   readonly headRef: string;
@@ -119,7 +110,6 @@ const GIT_PATH_PREFIXES = ["a/", "b/"] as const;
  */
 export function parseUnifiedPatch(
   patchText: string,
-  attribution: DiffAttribution,
   comparedStates: ComparedStates,
 ): ConsoleDiffModel {
   const files: DiffFile[] = [];
@@ -173,7 +163,6 @@ export function parseUnifiedPatch(
     });
   }
   return {
-    attribution,
     baseRef: comparedStates.baseRef,
     headRef: comparedStates.headRef,
     files,

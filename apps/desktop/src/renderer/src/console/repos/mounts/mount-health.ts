@@ -1,13 +1,9 @@
 // The two axes a mount card reads on, and the capability axis beside them.
 //
-// THIS CONSOLE'S OWN RULE: mount LIFECYCLE and mount HEALTH never collapse into one
-// chip. Each surface's composition — what it renders, offers, refuses, and folds —
-// lives in the console's code, so a repos-surface rule is written where it is obeyed
-// rather than cited from somewhere it is not.
-// A `detached` mount and an `unreachable` mount are different facts — the first is
-// a row that has finished its life, the second is a row nobody can currently ask a
-// question of — and a console that rendered one chip for both would be asserting a
-// fact the daemon never sent.
+// Mount lifecycle and mount health never collapse into one chip. A `detached` mount and an
+// `unreachable` mount are different facts — the first is a row that has finished its life,
+// the second is a row nobody can currently ask a question of — and a console that rendered
+// one chip for both would be asserting a fact the daemon never sent.
 //
 // So there are three tables here, one per axis, and each is TOTAL over its wire
 // union by construction. A member added to `RepoMountState`, to
@@ -39,7 +35,6 @@ import type {
 } from "@ai-sidekicks/contracts";
 import type { RepoMountState } from "@ai-sidekicks/contracts";
 import type { ChipTone } from "../../primitives/index.js";
-import type { ShellMutationBlock } from "../../store/index.js";
 import { selectionInFlightCopy } from "./execution-mode-selection.js";
 
 /**
@@ -48,9 +43,8 @@ import { selectionInFlightCopy } from "./execution-mode-selection.js";
  * `label` is the WIRE word and is rendered verbatim in mono — a reader who sees
  * `unreachable` on the screen can search the daemon's own vocabulary for it.
  * `sentence` is the console's prose: what this reading means for the next move.
- * They are separate fields because rule 4 governs the first and rule 9's
- * never-paraphrase discipline governs neither — the sentence is the console's to
- * write, the label is not.
+ * They are separate fields because the sentence is the console's to write and the label
+ * is not.
  */
 export interface MountAxisReading {
   readonly tone: ChipTone;
@@ -134,11 +128,10 @@ const VCS_READINGS: Readonly<Record<VcsType, MountAxisReading>> = {
 /**
  * Whether a card offers its bind controls, and what it says when it does not.
  *
- * This is a FAIL-CLOSED PROJECTION of daemon-reported state, not a renderer
- * eligibility rule. The daemon remains the only authority on whether a bind is
- * admissible and answers a refused one with its own typed code, which the card
- * renders; what this function decides is whether the console offers a control it
- * has already been told cannot succeed. Both cases are this module's: an `unreachable`
+ * This is a fail-closed projection of daemon-reported state, not a renderer eligibility
+ * rule. The daemon remains the only authority on whether a bind is admissible; what this
+ * function decides is whether the console offers a control it has already been told
+ * cannot succeed. Both cases are this module's: an `unreachable`
  * mount's bind controls are disabled with the reason said, and a `detached` row renders
  * as history. Neither is a pre-denial — eligibility stays off the renderer, and what
  * is read here is the daemon's own reported state.
@@ -184,11 +177,10 @@ const BIND_CONTROLS_OFFERED: BindControlPosture = { offered: true };
  * switch on the wire is a fact about this moment — so a detached row never reads as
  * something to wait out.
  *
- * FAIL-CLOSED PROJECTION AND NOT ELIGIBILITY, in every clause `bindControlPosture`
- * states it in: the daemon decides what it accepts and answers a refusal with its own
- * typed code. What is decided here is only whether the console offers a control it has
- * been told cannot succeed, and the held arm carries the sentence so no call site
- * invents one.
+ * A fail-closed projection and not eligibility, in every clause `bindControlPosture`
+ * states it in: the daemon decides what it accepts. What is decided here is only whether
+ * the console offers a control it has been told cannot succeed, and the held arm carries
+ * the sentence so no call site invents one.
  */
 export type WorkspaceControlPosture =
   | { readonly live: true }
@@ -220,8 +212,7 @@ export function workspaceControlPosture(
     return { live: false, heldBecause: bindControls.withheldBecause };
   }
   if (pendingMode !== undefined) {
-    // The sentence the selection act already refuses a second press with — one
-    // in-flight switch, one wording, wherever the user meets it.
+    // One in-flight switch, one wording, wherever the user meets it.
     return { live: false, heldBecause: selectionInFlightCopy(pendingMode) };
   }
   return WORKSPACE_CONTROLS_LIVE;
@@ -231,26 +222,10 @@ export function workspaceControlPosture(
  * The one sentence a workspace's binding controls are closed with, or `undefined`
  * while nothing closes them.
  *
- * TWO FACTS MEET HERE AND THE MOUNT'S GOES FIRST, which is `workspaceControlPosture`'s
- * own precedence carried one step further. A withheld posture is a fact about the ROW —
- * a detached mount, an unreachable root, a switch already on the wire — and a shell
- * block is a fact about this WINDOW's runtime. Reporting the transient one over the
- * permanent one would tell somebody to wait out a mount that has finished its life,
- * which is exactly what `bindControlPosture` refuses to do.
- *
  * A FUNCTION AND NOT A LINE AT EACH CONTROL, because the two controls this serves are
  * the pair `workspaceControlPosture` exists to keep in step: the picker names the mode
- * a run binds in and the preparation puts that mode's root on disk, and a fold written
- * twice is the shape that drifted the last time. The BLOCK is still read per control,
- * off the method that control dispatches — this folds the two readings, it does not
- * take one control's reading and spend it on another's.
+ * a run binds in and the preparation puts that mode's root on disk.
  */
-export function controlHoldSentence(
-  posture: WorkspaceControlPosture,
-  shellBlock: ShellMutationBlock | undefined,
-): string | undefined {
-  if (!posture.live) {
-    return posture.heldBecause;
-  }
-  return shellBlock?.detail;
+export function controlHoldSentence(posture: WorkspaceControlPosture): string | undefined {
+  return posture.live ? undefined : posture.heldBecause;
 }

@@ -1,20 +1,12 @@
 // The reductions one reading makes on the next, driven with no bridge and no clock.
 //
-// Each case is about a claim the pane would otherwise make falsely: that a read
-// answered for a row it did not name, that a row the list never carried belongs to the
-// session, or that a refusal still stands after the act it refused was answered.
+// Each case is about a claim the pane would otherwise make falsely: that a read answered
+// for a row it did not name, or that a row the list never carried belongs to the session.
 
 import { describe, expect, it } from "vitest";
 
-import { refuse } from "../../core/index.js";
 import type { ArtifactManifestRow, ArtifactsPanelState } from "../artifacts/artifact-model.js";
-import {
-  NOTHING_READ_YET,
-  withReplacedRow,
-  withRowRefusal,
-  withoutRow,
-  withoutRowRefusal,
-} from "./artifact-pane-reading.js";
+import { withReplacedRow } from "./artifact-pane-reading.js";
 
 function row(id: string, state: ArtifactManifestRow["state"]): ArtifactManifestRow {
   return {
@@ -24,14 +16,11 @@ function row(id: string, state: ArtifactManifestRow["state"]): ArtifactManifestR
     digest: "sha256:2b4c",
     size: 4096,
     annotations: {},
-    visibility: "shared",
     state,
     metadata: {},
     createdAt: "2026-09-02T07:00:00.000Z",
   };
 }
-
-const REFUSAL = refuse("growth-port", "wire-unregistered", "Not checked.");
 
 describe("artifact pane reading — replacing a row from its own read", () => {
   it("replaces the row the read named and leaves its neighbours alone", () => {
@@ -55,55 +44,8 @@ describe("artifact pane reading — replacing a row from its own read", () => {
   });
 
   it("leaves an arm that holds no rows exactly as it found it", () => {
-    expect(withReplacedRow({ kind: "not-checked" }, row("first", "published"))).toStrictEqual({
-      kind: "not-checked",
+    expect(withReplacedRow({ kind: "loading" }, row("first", "published"))).toStrictEqual({
+      kind: "loading",
     });
-  });
-});
-
-describe("artifact pane reading — what a row's last act answered", () => {
-  it("records a refusal against the row it was about", () => {
-    const recorded = withRowRefusal(NOTHING_READ_YET.refusalByArtifactId, "first", REFUSAL);
-    expect(recorded.get("first")).toStrictEqual(REFUSAL);
-    expect(NOTHING_READ_YET.refusalByArtifactId.size).toBe(0);
-  });
-
-  it("clears the refusal once an act answered for that row", () => {
-    const recorded = withRowRefusal(NOTHING_READ_YET.refusalByArtifactId, "first", REFUSAL);
-    expect(withoutRowRefusal(recorded, "first").has("first")).toBe(false);
-  });
-
-  it("negative control: clearing one row's refusal leaves another's standing", () => {
-    const both = withRowRefusal(
-      withRowRefusal(NOTHING_READ_YET.refusalByArtifactId, "first", REFUSAL),
-      "second",
-      REFUSAL,
-    );
-    const remaining = withoutRowRefusal(both, "first");
-    expect(remaining.has("first")).toBe(false);
-    expect(remaining.has("second")).toBe(true);
-  });
-});
-
-describe("artifact pane reading — removing a row a delete answered for", () => {
-  it("drops the row the delete named and keeps the rest", () => {
-    const listed: ArtifactsPanelState = {
-      kind: "listed",
-      rows: [row("first", "published"), row("second", "published")],
-    };
-    const next = withoutRow(listed, "first");
-    expect(next.kind === "listed" ? next.rows.map((each) => each.id) : []).toStrictEqual([
-      "second",
-    ]);
-  });
-
-  it("negative control: a delete for a row not on the list removes nothing", () => {
-    const listed: ArtifactsPanelState = { kind: "listed", rows: [row("first", "published")] };
-    const next = withoutRow(listed, "elsewhere");
-    expect(next.kind === "listed" ? next.rows.map((each) => each.id) : []).toStrictEqual(["first"]);
-  });
-
-  it("leaves an arm that holds no rows exactly as it found it", () => {
-    expect(withoutRow({ kind: "loading" }, "first")).toStrictEqual({ kind: "loading" });
   });
 });

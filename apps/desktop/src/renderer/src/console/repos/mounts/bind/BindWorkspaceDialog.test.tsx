@@ -2,32 +2,28 @@
 //
 // WHAT THE MODEL SUITE CANNOT SAY. `bind-model.test.ts` proves the resolution; this file
 // proves the dialog HANDS IT what the mount admits, on every open rather than once. Both
-// defects below survived a green model suite because neither was in the model: the first
-// was a pre-fill held in a ref that outlived the form it was taken about, and the second
-// was a picker and a button reading two different answers to one question.
+// claims below are outside the model: the first is a pre-fill that must not outlive the
+// form it was taken about, and the second is a picker and a button that must read one
+// answer to one question.
 //
-// THE CAPABILITIES ARE SERVED BY AN ARM THIS SUITE OWNS, through `withDaemonCall` over
-// the real fixture bridge, because both cases turn on the read answering DIFFERENTLY the
-// second time. Every other seam stays the fixture's, so a dialog that stopped reaching
-// the daemon door would fail here rather than pass against a stub.
+// THE CAPABILITIES ARE SERVED BY A CALL THIS SUITE OWNS, because both cases turn on the
+// read answering DIFFERENTLY the second time.
 
 import { act, fireEvent, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import type { WorkspaceExecutionModeCapabilitiesReadResponse } from "@ai-sidekicks/contracts";
 
-import { withDaemonCall } from "../../../bridge/fixture/call-plane/bridge.test-support.js";
-import { createFixtureBridge, type ConsoleBridge } from "../../../bridge/index.js";
-import { REPOS_SCENARIO } from "../../../bridge/scenario/repos/repos.js";
+import type { ConsoleBridge } from "../../../bridge/index.js";
 import { LiveAnnouncerProvider } from "../../../primitives/index.js";
 import { SessionStore } from "../../../store/index.js";
 import { eventOfKind } from "../../../store/session-event.test-support.js";
 import { advanceScenarioUntil } from "../../../bridge/scenario/runtime/clock.test-support.js";
+import { bridgeOnClock, scriptedRepoOperations } from "../../repo-operations.test-support.js";
+import type { RepoOperations } from "../../repo-operations.js";
 import { BindWorkspaceDialog } from "./BindWorkspaceDialog.js";
-import { quietShell } from "../../../store/shell-condition.test-support.js";
 
-/** The read this suite answers for. Every other method stays the fixture's. */
-const CAPABILITIES_METHOD = "repo.executionModeCapabilitiesRead";
+const SESSION_ID = "session-repos";
 
 /** The mount a workspace binds on, and the root shown above the directory field. */
 const MOUNT_ID = "019b79ee-0280-7ea1-8110-e5e0d1150044";
@@ -63,7 +59,7 @@ const NO_DEFAULT: WorkspaceExecutionModeCapabilitiesReadResponse = {
 };
 
 /**
- * A bridge whose pre-bind read this suite decides, and can decide again.
+ * A pre-bind read this suite decides, and can decide again.
  *
  * The answer is chosen at CALL time rather than closed over, which is what lets one
  * case serve two different replies to the same dialog — the shape every case here needs
@@ -71,16 +67,14 @@ const NO_DEFAULT: WorkspaceExecutionModeCapabilitiesReadResponse = {
  */
 class CapabilitiesUnderTest {
   #capabilities: WorkspaceExecutionModeCapabilitiesReadResponse;
-  readonly bridge: ConsoleBridge;
+  readonly bridge: ConsoleBridge = bridgeOnClock();
+  readonly operations: RepoOperations;
 
   public constructor(capabilities: WorkspaceExecutionModeCapabilitiesReadResponse) {
     this.#capabilities = capabilities;
-    const fixture = createFixtureBridge({ scenario: REPOS_SCENARIO });
-    this.bridge = withDaemonCall(fixture, async (call, passThrough) =>
-      call.method === CAPABILITIES_METHOD
-        ? await Promise.resolve(this.#capabilities)
-        : await passThrough(),
-    ).bridge;
+    this.operations = scriptedRepoOperations({
+      readMountExecutionModes: () => Promise.resolve(this.#capabilities),
+    });
   }
 
   /** What the next read answers with. The refresh itself is a frame, below. */
@@ -90,8 +84,8 @@ class CapabilitiesUnderTest {
 }
 
 /** A store with a base state, which is what makes a later frame a frame and not history. */
-function initialisedStore(): SessionStore {
-  const sessionStore = new SessionStore({ sessionId: REPOS_SCENARIO.sessionId });
+function initializedStore(): SessionStore {
+  const sessionStore = new SessionStore({ sessionId: SESSION_ID });
   sessionStore.initialise({ cursor: 0, entities: [], userJoinLog: [] });
   return sessionStore;
 }
@@ -140,15 +134,15 @@ async function openDialog(
   capabilities: WorkspaceExecutionModeCapabilitiesReadResponse,
 ): Promise<OpenDialog> {
   const served = new CapabilitiesUnderTest(capabilities);
-  const sessionStore = initialisedStore();
+  const sessionStore = initializedStore();
   const { container } = render(
     <LiveAnnouncerProvider>
       <BindWorkspaceDialog
         bridge={served.bridge}
+        operations={served.operations}
         repoMountId={MOUNT_ID}
         canonicalRoot={MOUNT_ROOT}
         sessionStore={sessionStore}
-        frameStore={quietShell()}
         onBound={() => undefined}
       />
     </LiveAnnouncerProvider>,
@@ -174,7 +168,7 @@ async function refreshCapabilitiesTo(
   sequence: number,
 ): Promise<void> {
   open.capabilities.serve(capabilities);
-  open.sessionStore.applyBatch([eventOfKind(REPOS_SCENARIO.sessionId, REPO_FRAME_KIND, sequence)]);
+  open.sessionStore.applyBatch([eventOfKind(SESSION_ID, REPO_FRAME_KIND, sequence)]);
   await advanceScenarioUntil(open.capabilities.bridge, () => {
     expect(radioFor(withdrawnMode).disabled).toBe(true);
   });
@@ -188,10 +182,10 @@ describe("the bind dialog — the mount's own default survives a close", () => {
   });
 
   it("applies it again when the same mount is reopened", async () => {
-    // The state this fix was written for. The pre-fill was held in a ref keyed on the
-    // mount, and closing reset the form without resetting the ref — so on a reopen the
-    // read had not changed, the effect declined to run again, and the dialog offered a
-    // picker with nothing chosen behind a control that would not send.
+    // A pre-fill held in a ref keyed on the mount would survive a close that reset the
+    // form: on a reopen the read has not changed, the effect declines to run again, and
+    // the dialog would offer a picker with nothing chosen behind a control that will not
+    // send.
     const open = await openDialog(EVERY_MODE);
     act(() => {
       document.querySelector<HTMLButtonElement>(".meridian-bind__cancel")?.click();
@@ -207,7 +201,7 @@ describe("the bind dialog — the mount's own default survives a close", () => {
   it("negative control: a reply that names a default it does not offer chooses nothing", async () => {
     // Without this, the two cases above would pass against a dialog that pre-picked
     // whatever came first — a mode of the console's own choosing, which is the one thing
-    // `repo.workspaceBind`'s omitted-versus-chosen distinction exists to prevent.
+    // the bind's omitted-versus-chosen distinction exists to prevent.
     await openDialog(NO_DEFAULT);
     expect(modeRadios().every((radio) => !radio.checked)).toBe(true);
     expect(bindButton().disabled).toBe(true);

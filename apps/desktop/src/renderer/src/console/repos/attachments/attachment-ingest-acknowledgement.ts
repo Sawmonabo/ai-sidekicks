@@ -6,22 +6,17 @@
 // after this chunk", which the same line names as the enforced byte bound — so the
 // answer to "how far is this upload" is the daemon's and never this console's.
 //
-// WHY THE LEDGER MAY NOT ADVANCE BY WHAT IT SENT. The chunk loop used to add the local
-// slice length to its own running total and never read the reply at all, which made the
-// progress figure a record of what this client PUT ON THE WIRE rather than of what the
-// daemon SPOOLED. Those are different numbers the moment anything is dropped, replayed,
-// or refused past the point the client noticed — and the client could not have told,
-// because it was never looking. The acknowledgement also names the stream, so a reply
-// belonging to another ingest is detectable rather than charged to whichever upload
-// happened to be awaiting one.
+// WHY THE LEDGER MAY NOT ADVANCE BY WHAT IT SENT. Adding the local slice length to a
+// running total would make the progress figure a record of what this client PUT ON THE
+// WIRE rather than of what the daemon SPOOLED. Those are different numbers the moment
+// anything is dropped, replayed, or refused past the point the client noticed. The
+// acknowledgement also names the stream, so a reply belonging to another ingest is
+// detectable rather than charged to whichever upload happened to be awaiting one.
 //
-// AND AN UNUSABLE ACKNOWLEDGEMENT STOPS THE STREAM RATHER THAN BEING ROUNDED OFF. Three
+// AND AN UNUSABLE ACKNOWLEDGEMENT STOPS THE STREAM RATHER THAN BEING ROUNDED OFF. Two
 // answers are unusable, and each of them means the byte accounting the rest of this
 // protocol rests on has stopped being shared:
 //
-//   • NO ACKNOWLEDGEMENT AT ALL. A served answer carrying no value is a reply this leg
-//     cannot read a total off, and the declared type does not make it impossible — the
-//     live port is one process boundary away.
 //   • A DIFFERENT STREAM. Charging another ingest's total to this one would move this
 //     upload's progress by an amount that has nothing to do with it.
 //   • A TOTAL THAT DID NOT ADVANCE. Every chunk this loop sends carries at least one
@@ -32,13 +27,13 @@
 //     standing total would send the same chunk forever. Refusing is what makes the loop
 //     terminate on the daemon's own answer rather than on this client's optimism.
 //
-// The clamp below is the one arm that is not a refusal, and it is the rule this family
-// has always enforced: never chart a base64 length as progress. An encoded length is
-// about four thirds of the decoded one, so a total charted from one drives past a bound
-// the caller itself declared — impossible for a decoded count, and therefore the
-// observable signature of having charted the wrong number. It fires the
-// `wire-figure-formatting` tripwire and the figure is clamped, so the bar cannot render
-// past full while the defect is reported.
+// The clamp below is the one arm that is not a refusal, and it enforces the rule that a
+// base64 length is never charted as progress. An encoded length is about four thirds of
+// the decoded one, so a total charted from one drives past a bound the caller itself
+// declared — impossible for a decoded count, and therefore the observable signature of
+// having charted the wrong number. It fires the `wire-figure-formatting` tripwire and
+// the figure is clamped, so the bar cannot render past full while the defect is
+// reported.
 
 import { reportTripwire } from "../../core/index.js";
 import type { AttachmentIngestEntry } from "./attachment-shapes.js";
@@ -50,7 +45,7 @@ export const ATTACHMENT_ACKNOWLEDGEMENT_SITE =
 /**
  * Why the console stopped an ingest on the strength of the daemon's own reply.
  *
- * The console's code and not a daemon one: the daemon's vocabulary describes what it
+ * The console's code and not a daemon one: the daemon's vocabulary describes what the
  * daemon decided, and this is a finding about an answer that cannot be reconciled with
  * what this client sent. It is classified `restart` by the caller rather than mapped
  * through `ingestRefusalDisposition`, because the retry-in-place default assumes a
@@ -79,14 +74,8 @@ export type ChunkAcknowledgementReading =
 export function readChunkAcknowledgement(
   entry: AttachmentIngestEntry,
   sentIngestId: string,
-  acknowledgement: ChunkAcknowledgement | undefined,
+  acknowledgement: ChunkAcknowledgement,
 ): ChunkAcknowledgementReading {
-  if (acknowledgement === undefined) {
-    return {
-      status: "unusable",
-      detail: `The daemon answered the chunk for ${sentIngestId} without saying how many bytes it has spooled, so this upload's progress is unknown.`,
-    };
-  }
   if (acknowledgement.ingestId !== sentIngestId) {
     return {
       status: "unusable",

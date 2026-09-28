@@ -4,23 +4,19 @@
 // THIS SURFACE'S JOB, stated here because a surface's composition lives in the
 // console's code: show what
 // execution roots exist on disk for this session, which run holds one, and what is
-// safe to reclaim. Two of those three are decisions, and both are made here so a
-// card never makes them twice:
+// safe to reclaim. One of those is a decision, made here so a
+// card never makes it twice:
 //
 //   1. WHICH SUB-STATE A ROW IS IN. `state` is one wire string and the row's real
 //      disposition needs two fields: a `retired` worktree with no `cleanedAt` is a
 //      retired RECORD whose files are still on disk, which the design calls out as
 //      a distinct sub-state. `worktreeDiskDisposition` is the only place that
 //      pairing is read.
-//   2. WHETHER A CLONE IS PAST ITS DISPOSAL TIME. A comparison against the caller's
-//      instant, never a timer — the design forbids polling on this surface, so the
-//      caller supplies `now` and the reading is a pure function of it.
 //
 // THE STATE VOCABULARIES ARE THE CONTRACT'S, IMPORTED AND NEVER RESTATED.
-// `WorktreeState` (six) and `EphemeralCloneState` (four) live in
-// `packages/contracts/src/worktree.ts`; the tables below are `Record`s keyed BY
-// those unions, so a seventh state added to the wire fails to compile here rather
-// than rendering as an unstyled string.
+// `WorktreeState` (six) lives in `packages/contracts/src/worktree.ts`; the table below is a
+// `Record` keyed BY that union, so a seventh state added to the wire fails to compile here
+// rather than rendering as an unstyled string.
 //
 // HOW A ROW IS TABULATED IS NEXT DOOR. The column key sets, the labels, the summary
 // and detail selections, and the absent-cell copy are `worktree-columns.ts`: that is
@@ -40,26 +36,18 @@
 //   • No snapshot refs. Turn-boundary snapshots land under `refs/sidekicks/...` and
 //     never on `refs/heads/`, so a branch column can only ever hold a branch.
 
-import type {
-  EphemeralCloneState,
-  WorktreeState,
-  WorktreeStatusReadResponse,
-} from "@ai-sidekicks/contracts";
+import type { WorktreeState, WorktreeStatusReadResponse } from "@ai-sidekicks/contracts";
 
-import { parseInstant } from "../../core/index.js";
 import type { ChipTone } from "../../primitives/index.js";
 
 /** One worktree row of `repo.worktreeStatusRead`. */
 export type WorktreeStatusRecord = WorktreeStatusReadResponse["worktrees"][number];
 
-/** One ephemeral-clone row of the same read. Nine columns, and no `updatedAt`. */
-export type EphemeralCloneStatusRecord = WorktreeStatusReadResponse["ephemeralClones"][number];
-
 /** What a state name means and how loudly it reads. The name itself is the wire's. */
 export interface RootStatePresentation {
   /**
    * The chip's tone. Amber means a person is needed, red means something failed,
-   * and everything else is neutral — the console's whole colour vocabulary, so a
+   * and everything else is neutral — the console's whole color vocabulary, so a
    * state that is merely uninteresting never borrows the accent to look busy.
    */
   readonly tone: ChipTone;
@@ -99,29 +87,6 @@ export const WORKTREE_STATE_PRESENTATION: Readonly<Record<WorktreeState, RootSta
   },
 };
 
-/** The four clone states. Total over `EphemeralCloneState` by construction. */
-export const EPHEMERAL_CLONE_STATE_PRESENTATION: Readonly<
-  Record<EphemeralCloneState, RootStatePresentation>
-> = {
-  creating: {
-    tone: "neutral",
-    meaning: "The daemon is provisioning this clone.",
-  },
-  ready: {
-    tone: "neutral",
-    meaning: "The clone exists and a run may bind it.",
-  },
-  retired: {
-    tone: "neutral",
-    meaning: "The record is retired. The daemon will not bind this clone again.",
-  },
-  failed: {
-    tone: "failure",
-    meaning:
-      "Provisioning failed. Clone transitions are not separately evented; this arrives on a status re-read.",
-  },
-};
-
 /**
  * Where a worktree's FILES are, which is a different question from what its RECORD
  * says. Closed at three, and the middle member is the one the design names:
@@ -158,99 +123,4 @@ export const WORKTREE_DISK_DISPOSITION_COPY: Readonly<Record<WorktreeDiskDisposi
   "retired-on-disk":
     "Retired, and the files are still on disk. The record keeps its provenance; a later sweep removes the checkout.",
   reclaimed: "The checkout has been removed from disk. The record and its provenance stay.",
-};
-
-/**
- * What a clone's disposal actually is: still ahead, past due, or already done.
- *
- * THREE READINGS, AND THE THIRD IS A DIFFERENT KIND OF FACT. `scheduled` and
- * `elapsed` are both derived from a DEADLINE against the caller's instant, and there
- * is deliberately no fourth band between them: the design calls a clone past
- * `expiresAt` degraded and says nothing about one approaching it, and a "soon" band
- * would need a threshold whose only justification would be that it felt right.
- * `reclaimed` is not a band on that scale at all — it is the sweep's own stamp,
- * `WorktreeStatusReadResponse.ephemeralClones[].cleanedAt`, the async disk-cleanup
- * stamp, absent until the sweep runs. A row carrying one has had its files removed,
- * whatever the
- * deadline says about when they were due to be.
- */
-export const CLONE_EXPIRY_READINGS = ["scheduled", "elapsed", "reclaimed"] as const;
-
-/** One expiry reading. Derived, so the vocabulary is declared exactly once. */
-export type CloneExpiryReading = (typeof CLONE_EXPIRY_READINGS)[number];
-
-/**
- * Classify a clone's disposal against the sweep's stamp, then against the instant.
- *
- * `cleanedAt` IS READ FIRST AND INDEPENDENTLY OF THE DEADLINE, exactly as
- * `worktreeDiskDisposition` reads it one screen above: the stamp means the sweep ran,
- * and the deadline it ran before or after says nothing about that. Reading the
- * deadline first reported a swept clone with time left as awaiting disposal, and a
- * swept one past its time as files that "may" already be gone — hedging about a fact
- * the record establishes.
- *
- * A pure function of `nowMilliseconds` rather than of the wall clock, which is the
- * no-polling rule made structural: nothing here can schedule a re-render, so a
- * countdown moves when the surface above re-reads and at no other time. An
- * unparseable stamp reads `scheduled` — the fail-safe direction, since the loud arm
- * says the snapshot refs may already be gone and asserting that off a timestamp the
- * console could not read would be the console inventing the fact.
- */
-export function cloneExpiryReading(
-  record: EphemeralCloneStatusRecord,
-  nowMilliseconds: number,
-): CloneExpiryReading {
-  const expiresAtMilliseconds = cloneExpiryAtMs(record);
-  if (expiresAtMilliseconds === undefined) {
-    return record.cleanedAt === undefined ? "scheduled" : "reclaimed";
-  }
-  return expiresAtMilliseconds <= nowMilliseconds ? "elapsed" : "scheduled";
-}
-
-/**
- * The instant this clone's disposal is due, or `undefined` where there is none to count
- * towards.
- *
- * THE ONE PLACE `expiresAt` IS PARSED, and it is exported because two callers need the
- * same answer: the reading above asks whether the deadline has passed, and the section's
- * wake-up asks when the earliest one will. Two parses would be two chances for a card
- * that says a clone is still scheduled to sit under a timer that already fired.
- *
- * ABSENT ON BOTH ARMS THAT HAVE NOTHING TO COUNT: a swept row, whose files are gone
- * whatever the deadline said, and an unparseable stamp, which the reading takes as
- * `scheduled` on the fail-safe direction stated above and which nothing can be woken
- * for.
- */
-export function cloneExpiryAtMs(record: EphemeralCloneStatusRecord): number | undefined {
-  if (record.cleanedAt !== undefined) {
-    return undefined;
-  }
-  const reading = parseInstant(record.expiresAt);
-  return reading.kind === "instant" ? reading.epochMilliseconds : undefined;
-}
-
-/**
- * What each reading says, and the consequence it exists to state.
- *
- * Both arms name what disposal takes with it, because the design's reason for
- * putting a countdown on the row at all is that disposal takes that clone's
- * snapshot refs — a row that showed a time and not a consequence would be a clock.
- */
-export const CLONE_EXPIRY_COPY: Readonly<Record<CloneExpiryReading, string>> = {
-  scheduled: "Disposal takes this clone's snapshot refs with it.",
-  elapsed:
-    "Past its disposal time. Disposal takes this clone's snapshot refs with it; they may already be gone.",
-  // No hedge and no countdown: the sweep stamped this row, so the refs went with it.
-  // The record and its provenance stay, which is what the disclosure below is for.
-  reclaimed:
-    "The clone has been reclaimed and its snapshot refs went with it. The record and its provenance stay.",
-};
-
-/** The tone each reading carries. Elapsed is amber: it is a person's to act on. */
-export const CLONE_EXPIRY_TONE: Readonly<Record<CloneExpiryReading, ChipTone>> = {
-  scheduled: "neutral",
-  elapsed: "attention",
-  // Neutral, not amber: a reclaimed clone is settled. Amber is for what a person
-  // still has to act on, and there is nothing left here to act on.
-  reclaimed: "neutral",
 };

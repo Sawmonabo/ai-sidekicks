@@ -1,81 +1,36 @@
-// One artifact manifest row: the six figures on its face, its acts, and its
+// One artifact manifest row: the figures on its face, its manifest re-read, and its
 // disclosure.
 //
-// Split out of `ArtifactsPanel.tsx` at the seam the panel actually has. The panel
-// owns the session-scoped surface — the head count, the type filter, the delete
-// receipt, and which absence the body renders — while everything below is scoped to
-// ONE manifest and needs nothing the panel knows. The class names are unchanged,
-// because moving a body is not a redesign of it.
-//
-// THE THREE RULES THE PANEL STATES ARE ENFORCED HERE, because this is where the
-// markup is. No element in this file can hold a payload; nothing here decides who
-// may act, so every control is offered and the daemon's typed refusal renders
-// beside the one that was pressed; and the delete confirm states the foreclosure
-// consequence before the act, in place.
+// Split from `ArtifactsPanel.tsx`, which owns the session-scoped surface (the head count,
+// the type filter, and which absence the body renders). Everything here is scoped to one
+// manifest. No element can hold a payload.
 
 import {
   Chip,
   DerivedFigure,
-  InlineRefusal,
   Nothing,
   WireFigure,
   formatByteQuantity,
   formatRelativeTime,
 } from "../../primitives/index.js";
-import { artifactRefusalAction } from "./ArtifactRefusalRecovery.js";
 import { type ArtifactManifestRow } from "./artifact-model.js";
-import type { ArtifactSurfaceRefusal } from "./artifact-refusal-copy.js";
-import {
-  ARTIFACT_DELETE_CONSEQUENCE,
-  ARTIFACT_STATE_PRESENTATION,
-  ARTIFACT_VISIBILITY_PRESENTATION,
-  artifactProducerLabel,
-  artifactReplicationPresentation,
-} from "./artifact-copy.js";
-
-/**
- * The two pieces of confirm state one row's controls need.
- *
- * It travels with the row rather than living on the panel, because the panel holds
- * it for exactly one reason: only one row may be awaiting confirmation at a time,
- * which is a property of the LIST and not of any row in it.
- */
-export interface DeleteConfirmState {
-  readonly artifactIdAwaitingDeleteConfirm: string | undefined;
-  readonly setArtifactIdAwaitingDeleteConfirm: (artifactId: string | undefined) => void;
-}
+import { ARTIFACT_STATE_PRESENTATION, artifactProducerLabel } from "./artifact-copy.js";
 
 export interface ArtifactRowProps {
   readonly row: ArtifactManifestRow;
   /** The instant the row was rendered against. Ages move when the surface re-reads. */
   readonly nowMilliseconds: number;
-  /**
-   * What the last act on THIS row answered. Refusals only; absent means none.
-   *
-   * The SURFACE shape rather than the bare one, because a blocked delete carries the
-   * manifests it was blocked by as a registered extension and the recovery renders
-   * them, and a rejected call carries the daemon's whole refusal one layer in. Every
-   * producer of a plain `ConsoleRefusal` still satisfies it — every member the surface
-   * shape adds is optional — so nothing upstream had to move to widen it.
-   */
-  readonly refusal?: ArtifactSurfaceRefusal | undefined;
   /** Whether this row's manifest re-read is on the wire. Holds the control that sent it. */
   readonly isManifestReadInFlight?: boolean | undefined;
-  /** Whether this row's visibility change is on the wire. Holds the control that sent it. */
-  readonly isVisibilityUpdateInFlight?: boolean | undefined;
+  /** Re-read this row's manifest. Absent means the surface offers no re-read. */
   readonly onReadManifest?: ((row: ArtifactManifestRow) => void) | undefined;
-  readonly onChangeVisibility?: ((row: ArtifactManifestRow) => void) | undefined;
-  readonly onDelete?: ((row: ArtifactManifestRow) => void) | undefined;
-  readonly confirmState: DeleteConfirmState;
 }
 
+/** One manifest row, with its face, its re-read control and its digest and metadata. */
 export function ArtifactRow(props: ArtifactRowProps): React.JSX.Element {
-  const { row, refusal, confirmState } = props;
+  const { row } = props;
   const statePresentation = ARTIFACT_STATE_PRESENTATION[row.state];
-  const visibilityPresentation = ARTIFACT_VISIBILITY_PRESENTATION[row.visibility];
-  const replicationPresentation = artifactReplicationPresentation(row);
   const formattedSize = formatByteQuantity(row.size);
-  const isAwaitingConfirm = confirmState.artifactIdAwaitingDeleteConfirm === row.id;
 
   return (
     <article className="meridian-artifact-row" aria-label={`Artifact ${row.id}`}>
@@ -86,7 +41,6 @@ export function ArtifactRow(props: ArtifactRowProps): React.JSX.Element {
           glyph={row.artifactType === "diff" ? "diff" : "artifact"}
         />
         <Chip tone={statePresentation.tone} label={row.state} mono />
-        <Chip tone={visibilityPresentation.tone} label={row.visibility} mono />
         <span className="meridian-artifact-row__size">
           {/* The scaled reading, with the exact byte count the daemon sent on its title. */}
           <WireFigure value={formattedSize.text} title={`${row.size}`} />
@@ -99,89 +53,20 @@ export function ArtifactRow(props: ArtifactRowProps): React.JSX.Element {
         </span>
       </div>
 
-      <p className="meridian-artifact-row__replication">{replicationPresentation.meaning}</p>
-
       <div className="meridian-artifact-row__acts">
         {props.onReadManifest === undefined ? null : (
           <button
             type="button"
             className="meridian-artifact-row__act meridian-artifact-row__act--primary"
             onClick={() => props.onReadManifest?.(row)}
-            // HELD WHILE THIS ROW'S RE-READ IS OUTSTANDING, and the surface's own
-            // register is what holds it — there is no second flag to keep in step. Two
-            // reads of one manifest settle in either order, so the second press is a
-            // press whose answer could be the staler row; the acts refuse it in words,
-            // and this is what keeps a user from meeting that refusal by
-            // pressing a control the panel was offering.
+            // Held while this row's re-read is outstanding: two reads of one manifest settle
+            // in either order, so a second press could bring back the staler row.
             disabled={props.isManifestReadInFlight ?? false}
           >
             Read manifest
           </button>
         )}
-        {props.onChangeVisibility === undefined ? null : (
-          <button
-            type="button"
-            className="meridian-artifact-row__act"
-            onClick={() => props.onChangeVisibility?.(row)}
-            // HELD WHILE THIS ROW'S CHANGE IS OUTSTANDING, and the surface's own
-            // register is what holds it — there is no second flag to keep in step. The
-            // label names the class this press would move to, which is read off the row
-            // the daemon has not answered for yet, so a second press before the first
-            // settles would send the class the row is already being moved to. The acts
-            // refuse it in words, and this is what keeps a user from meeting
-            // that refusal by pressing a control the panel was offering.
-            disabled={props.isVisibilityUpdateInFlight ?? false}
-          >
-            {row.visibility === "shared" ? "Make local-only" : "Share with the session"}
-          </button>
-        )}
-        {props.onDelete === undefined || isAwaitingConfirm ? null : (
-          <button
-            type="button"
-            className="meridian-artifact-row__act"
-            onClick={() => confirmState.setArtifactIdAwaitingDeleteConfirm(row.id)}
-          >
-            Delete
-          </button>
-        )}
       </div>
-
-      {props.onDelete === undefined || !isAwaitingConfirm ? null : (
-        <div className="meridian-artifact-row__confirm" role="group" aria-label="Confirm delete">
-          <p className="meridian-artifact-row__consequence">{ARTIFACT_DELETE_CONSEQUENCE}</p>
-          <button
-            type="button"
-            className="meridian-artifact-row__act meridian-artifact-row__act--destructive"
-            onClick={() => {
-              confirmState.setArtifactIdAwaitingDeleteConfirm(undefined);
-              props.onDelete?.(row);
-            }}
-          >
-            Delete permanently
-          </button>
-          <button
-            type="button"
-            className="meridian-artifact-row__act"
-            onClick={() => confirmState.setArtifactIdAwaitingDeleteConfirm(undefined)}
-          >
-            Keep it
-          </button>
-        </div>
-      )}
-
-      {refusal === undefined ? null : (
-        // Inline, beside the controls that produced it, and the controls stay: the
-        // act did not happen and the user may try another one. The daemon's
-        // own sentence renders VERBATIM in the message; what this family adds sits in
-        // the `action` slot rule 9 reserves for exactly that — the next move for the
-        // code, and, on a blocked delete, the referencing manifests the refusal itself
-        // named. A code this family has no move for renders with no action at all.
-        <InlineRefusal
-          code={refusal.code}
-          detail={refusal.detail}
-          action={artifactRefusalAction(refusal)}
-        />
-      )}
 
       <details className="meridian-artifact-row__detail">
         <summary className="meridian-artifact-row__detail-summary">Digest and metadata</summary>

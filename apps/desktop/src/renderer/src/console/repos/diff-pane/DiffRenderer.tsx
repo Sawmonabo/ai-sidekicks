@@ -14,21 +14,21 @@
 //
 // WHAT IT DELIBERATELY DOES NOT DO
 //
-//   • It holds no diff state of its own. View mode, wrap, attribution marks, and
-//     the gap expansion all arrive as props, because the pane persists them and
-//     the card does not, and a renderer that owned them would have to be told to
-//     forget them — which is a second state machine for the same values.
+//   • It holds no diff state of its own. View mode and the gap expansion arrive as
+//     props, because the pane persists them and the card does not, and a renderer
+//     that owned them would have to be told to forget them — which is a second state
+//     machine for the same values.
 //   • It never mounts diff bytes as markup. Every line is text in a `<code>`
 //     span; the artifact serving posture forbids the alternative and no branch
 //     here reaches for `dangerouslySetInnerHTML`.
-//   • It never clips a long line into a hidden-overflow container. The scroller
-//     overflows on both axes and the wrap toggle is the other answer, and the
-//     clipped-line case is this renderer's one Never.
+//   • It never clips a long line into a hidden-overflow container. A long line wraps
+//     onto more rows of text, and the scroller overflows on both axes for a token that
+//     cannot break; the clipped-line case is this renderer's one Never.
 //
 // AND THE INTRALINE HIGHLIGHT IS COMPUTED FOR THE ROWS IT DRAWS, NOWHERE ELSE. The
-// word diff used to run for every changed pair in the change set at parse time; it now
-// runs when a row is materialised, out of the cache below, which is what makes the
-// virtualization actually bound the cost rather than only bound the DOM.
+// word diff runs when a row is materialized, out of the cache below, rather than for
+// every changed pair at parse time, which is what makes the virtualization actually bound
+// the cost rather than only bound the DOM.
 //
 // THE WINDOW IS THE ADOPTED VIRTUALIZER'S, AND THE FLATTENING IS OURS.
 // `@tanstack/react-virtual` is adopted with constraints, and `row-window.ts` is the one
@@ -37,31 +37,22 @@
 // are stated there once. `hunk-virtualization.ts` still answers
 // WHICH ROWS EXIST — a diff is a nested structure and no virtualizer's contract
 // starts from anything but a flat count — and the virtualizer answers which of
-// them a scroll position needs. The console carried both halves once, and the
-// half it wrote had a fixed row height baked into it, which is the defect below.
+// them a scroll position needs. A window written here with a fixed row height baked in
+// would be the defect below.
 //
-// WHY MEASUREMENT IS BOUND TO THE WRAP TOGGLE AND NOT ALWAYS ON. With wrap off,
-// the sheet gives every row `block-size: var(--meridian-diff-row-height)` and the
-// row height is a FACT: the estimate is exact, nothing is measured, and no
-// measurement pass can drift the offsets a hair off the painted rows. With wrap
-// on, the sheet releases that height (`block-size: auto`) and a long line becomes
-// three rows tall — so the estimate stops being the truth and every rendered row
-// reports its own measured height through `measureElement`. A fixed-height window
-// over auto-height rows is exactly the state where the offsets and the DOM
-// diverge and content jumps as it scrolls.
+// EVERY ROW IS MEASURED. The sheet gives a row a minimum height and lets it grow, so a
+// long line becomes three rows tall and the estimate stops being the truth: every
+// rendered row reports its own height through `measureElement`. A fixed-height window over
+// auto-height rows is exactly the state where the offsets and the DOM diverge and
+// content jumps as it scrolls.
 //
-// The measured sizes belong to ONE wrap mode, which is why the toggle drops them:
-// turning wrap off would otherwise leave the tall measurements cached and space
-// unwrapped rows at wrapped heights.
-//
-// ONE SCROLL WRITE EXISTS AND IT IS THE LIBRARY'S, in wrap mode only. When a row
-// ABOVE the fold settles from its estimate to a taller measurement, the
-// virtualizer compensates the scroll offset by the delta so the reader's place
-// does not slide out from under them. That is layout anchoring rather than a
-// commanded scroll — the console's scroll chokepoint owns "take me to X", and
-// nothing here asks for one.
+// ONE SCROLL WRITE EXISTS AND IT IS THE LIBRARY'S. When a row ABOVE the fold settles
+// from its estimate to a taller measurement, the virtualizer compensates the scroll
+// offset by the delta so the reader's place does not slide out from under them. That is
+// layout anchoring rather than a commanded scroll — the console's scroll chokepoint owns
+// "take me to X", and nothing here asks for one.
 
-import { useLayoutEffect, useMemo, useRef } from "react";
+import { useMemo, useRef } from "react";
 
 import { Nothing } from "../../primitives/index.js";
 import { DIFF_ROW_HEIGHT_PX } from "./diff-bounds.js";
@@ -70,18 +61,11 @@ import { DiffRowView } from "./DiffRows.js";
 import type { DiffGapExpansion } from "./diff-row-model.js";
 import { DiffRowIndex } from "./hunk-virtualization.js";
 import { IntralineSegmentCache } from "./intraline-segments.js";
-import { useRowWindow, type RowWindow } from "./row-window.js";
+import { useRowWindow } from "./row-window.js";
 
 export interface DiffRendererProps {
   readonly model: ConsoleDiffModel;
   readonly viewMode: DiffViewMode;
-  readonly showAttributionMarks: boolean;
-  readonly wrapLongLines: boolean;
-  /**
-   * Whether a whitespace-only intraline change is drawn as changed. Off, such a
-   * segment renders as carried-over text — a render rule, never a recomputation.
-   */
-  readonly showWhitespaceChanges: boolean;
   readonly expansion: DiffGapExpansion;
   /**
    * Show only this file of the model, by its wire-verbatim path.
@@ -101,6 +85,7 @@ export interface DiffRendererProps {
   readonly label: string;
 }
 
+/** The diff as one virtualized scroller of file headers and rows. */
 export function DiffRenderer(props: DiffRendererProps): React.JSX.Element {
   const scrollerRef = useRef<HTMLDivElement | null>(null);
 
@@ -125,9 +110,6 @@ export function DiffRenderer(props: DiffRendererProps): React.JSX.Element {
     getScrollElement: () => scrollerRef.current,
     estimatedRowHeightPx: DIFF_ROW_HEIGHT_PX,
   });
-
-  const { wrapLongLines } = props;
-  useMeasurementsScopedToWrap(virtualizer, wrapLongLines);
 
   if (index.rowCount === 0) {
     return (
@@ -157,21 +139,13 @@ export function DiffRenderer(props: DiffRendererProps): React.JSX.Element {
         index={index}
         intraline={intraline}
         viewMode={props.viewMode}
-        showAttributionMarks={props.showAttributionMarks}
-        showWhitespaceChanges={props.showWhitespaceChanges}
         onExpandGap={props.onExpandGap}
-        rowElementRef={wrapLongLines ? virtualizer.measureElement : undefined}
+        rowElementRef={virtualizer.measureElement}
       />,
     );
   }
 
-  const className = [
-    "meridian-diff",
-    `meridian-diff--${props.viewMode}`,
-    wrapLongLines ? "meridian-diff--wrap" : "",
-  ]
-    .filter((part) => part !== "")
-    .join(" ");
+  const className = `meridian-diff meridian-diff--${props.viewMode}`;
 
   return (
     <div
@@ -212,30 +186,4 @@ export function DiffRenderer(props: DiffRendererProps): React.JSX.Element {
       </div>
     </div>
   );
-}
-
-/**
- * Drop the measured row heights whenever the wrap toggle moves.
- *
- * Measured sizes belong to ONE wrap mode: turning wrap off would otherwise leave
- * the tall measurements cached and space unwrapped rows at wrapped heights, which
- * is the drift this renderer exists to have none of. Turning wrap on clears them
- * too and the rows re-measure, because the measurement ref they are handed
- * changes identity in that direction and React calls the new one with the node.
- *
- * NOT ON MOUNT, and that is the whole reason this is a guarded hook rather than
- * an effect with the toggle in its dependency list. The rows are measured as they
- * attach, which happens in the first commit — BEFORE a parent's layout effect
- * runs — so an unguarded reset would wipe exactly the measurements it was meant
- * to protect, and nothing would re-take them until a row resized.
- */
-function useMeasurementsScopedToWrap(virtualizer: RowWindow, wrapLongLines: boolean): void {
-  const measuredUnderWrap = useRef(wrapLongLines);
-  useLayoutEffect(() => {
-    if (measuredUnderWrap.current === wrapLongLines) {
-      return;
-    }
-    measuredUnderWrap.current = wrapLongLines;
-    virtualizer.measure();
-  }, [virtualizer, wrapLongLines]);
 }

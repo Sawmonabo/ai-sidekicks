@@ -1,12 +1,10 @@
-// Which columns a worktree or clone row has, what each is called, and what a card
-// draws where the wire sent nothing.
+// Which columns a worktree row has, what each is called, and what a card draws where
+// the wire sent nothing.
 //
 // A MODULE BESIDE THE MODEL, not a second model. `worktree-model.ts` answers what a
-// root IS — its sub-state on disk, whether a clone is past its disposal time — and
-// this answers how a row is TABULATED: the column key sets, the labels, the summary
-// and detail selections, and the sentence that renders in an absent cell. The two
-// were one file and the file was doing both jobs; a reader looking for the reason a
-// cell reads "Not swept." had to scroll past the disk-disposition pairing to find it.
+// root IS — its sub-state on disk — and this answers how a row is TABULATED: the column
+// key sets, the labels, the summary and detail selections, and the sentence that renders
+// in an absent cell.
 //
 // THE ABSENCE COPY IS TOTAL OVER EXACTLY THE OPTIONAL COLUMNS, which is the property
 // that makes it worth its own home: `OptionalColumnKey` derives that set from the
@@ -18,13 +16,10 @@
 // wire's own string or as absent. Nothing here computes a branch name or a checkout
 // root.
 
-import type { EphemeralCloneStatusRecord, WorktreeStatusRecord } from "./worktree-model.js";
+import type { WorktreeStatusRecord } from "./worktree-model.js";
 
 /** Every column of a worktree row, as the wire names it. */
 export type WorktreeColumnKey = keyof WorktreeStatusRecord;
-
-/** Every column of a clone row, as the wire names it. */
-export type EphemeralCloneColumnKey = keyof EphemeralCloneStatusRecord;
 
 /**
  * The keys a record may legally omit.
@@ -55,19 +50,6 @@ export const WORKTREE_COLUMN_LABELS: Readonly<Record<WorktreeColumnKey, string>>
   cleanedAt: "Files removed",
 };
 
-/** Every clone column's label. Total over that record's keys for the same reason. */
-export const EPHEMERAL_CLONE_COLUMN_LABELS: Readonly<Record<EphemeralCloneColumnKey, string>> = {
-  cloneId: "Clone id",
-  workspaceId: "Workspace",
-  cloneRoot: "Clone root",
-  branchName: "Branch",
-  state: "State",
-  cleanupPolicy: "Cleanup policy",
-  expiresAt: "Disposal due",
-  createdAt: "Created",
-  cleanedAt: "Files removed",
-};
-
 /**
  * What the card shows without being asked. `WorktreeCard.tsx` owns the density rule —
  * each list shows state, branch, root, and age. Age is `createdAt` read relatively, so
@@ -91,31 +73,6 @@ export const WORKTREE_DETAIL_COLUMNS: readonly WorktreeColumnKey[] = [
 ];
 
 /**
- * The clone summary, one column longer than the worktree's. `expiresAt` joins it
- * because the design puts the countdown on the row rather than behind the
- * disclosure: disposal is the one thing here that changes with nobody acting, and
- * that is exactly the fact that must not be one click away.
- */
-export const EPHEMERAL_CLONE_SUMMARY_COLUMNS: readonly EphemeralCloneColumnKey[] = [
-  "state",
-  "branchName",
-  "cloneRoot",
-  "createdAt",
-  "expiresAt",
-];
-
-/** The rest of the clone row, behind its disclosure. */
-export const EPHEMERAL_CLONE_DETAIL_COLUMNS: readonly EphemeralCloneColumnKey[] = [
-  "cloneId",
-  "workspaceId",
-  "cleanupPolicy",
-  "cleanedAt",
-];
-
-/** One sentence for one sweep: both record kinds carry `cleanedAt` and both read it. */
-const CLEANUP_STAMP_ABSENT_COPY = "Not swept.";
-
-/**
  * What an omitted worktree column MEANS, per column.
  *
  * Total over the optional keys and no wider. Both sentences describe a real state
@@ -128,14 +85,7 @@ export const WORKTREE_ABSENT_COLUMN_COPY: Readonly<
   Record<OptionalColumnKey<WorktreeStatusRecord>, string>
 > = {
   createdByRunId: "No run — this root was prepared explicitly.",
-  cleanedAt: CLEANUP_STAMP_ABSENT_COPY,
-};
-
-/** The same, for the one clone column the wire may omit. */
-export const EPHEMERAL_CLONE_ABSENT_COLUMN_COPY: Readonly<
-  Record<OptionalColumnKey<EphemeralCloneStatusRecord>, string>
-> = {
-  cleanedAt: CLEANUP_STAMP_ABSENT_COPY,
+  cleanedAt: "Not swept.",
 };
 
 /**
@@ -170,14 +120,10 @@ export const COLUMN_ABSENT_FALLBACK = "The daemon sent no value for this column.
 const WORKTREE_ABSENT_COPY_BY_COLUMN: Readonly<Partial<Record<WorktreeColumnKey, string>>> =
   WORKTREE_ABSENT_COLUMN_COPY;
 
-const EPHEMERAL_CLONE_ABSENT_COPY_BY_COLUMN: Readonly<
-  Partial<Record<EphemeralCloneColumnKey, string>>
-> = EPHEMERAL_CLONE_ABSENT_COLUMN_COPY;
-
 /**
  * One worktree column, as a cell.
  *
- * Every column on both records is a string on the wire — branded ids included — so
+ * Every column is a string on the wire — branded ids included — so
  * the accessor is total and needs no per-column branch. It exists so a card can
  * iterate a column list instead of writing ten property reads, which is what keeps
  * the "columns verbatim" claim checkable: the list is data a test holds against the
@@ -192,19 +138,4 @@ export function worktreeColumnCell(
     return { kind: "value", value };
   }
   return { kind: "absent", copy: WORKTREE_ABSENT_COPY_BY_COLUMN[column] ?? COLUMN_ABSENT_FALLBACK };
-}
-
-/** The same accessor for a clone row. */
-export function ephemeralCloneColumnCell(
-  record: EphemeralCloneStatusRecord,
-  column: EphemeralCloneColumnKey,
-): ColumnCell {
-  const value = record[column];
-  if (value !== undefined) {
-    return { kind: "value", value };
-  }
-  return {
-    kind: "absent",
-    copy: EPHEMERAL_CLONE_ABSENT_COPY_BY_COLUMN[column] ?? COLUMN_ABSENT_FALLBACK,
-  };
 }

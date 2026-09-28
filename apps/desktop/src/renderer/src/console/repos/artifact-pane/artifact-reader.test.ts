@@ -1,23 +1,18 @@
 // When the pane reads, what makes it read again, and which answers it drops.
 //
-// WHAT A SERVED ANSWER MEANS IS NEXT DOOR, in `artifact-pane-reads.test.ts`. The two
-// legs are a module of their own, and their suite drives them directly; nothing below
-// asserts a row's members, because a case that did would fail for a reason that has
-// nothing to do with scheduling.
+// What a served answer means is next door, in `artifact-pane-reads.test.ts`; nothing below
+// asserts a row's members, because a case that did would fail for a reason that has nothing
+// to do with scheduling.
 //
-// The load-bearing block here is the refresh one. A reader that called the port on
-// every press raced itself: two presses cost two read pairs, and the two legs
-// published independently, so a snapshot could carry a list from one press beside an
-// allow-list from another. Every case there fails on a reader that skips the
-// scheduler.
+// The load-bearing block here is the refresh one: a reader that called the daemon on every
+// press would race itself, so two presses would cost two reads. Every case there fails on a
+// reader that skips the scheduler.
 
 import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts";
 import { describe, expect, it, vi } from "vitest";
 
-import { fixtureBridgeWithGrowth } from "../../bridge/fixture/call-plane/bridge.test-support.js";
+import type { GrowthArtifactSummary } from "../../bridge/index.js";
 import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
-import { growthUnavailable } from "../../bridge/index.js";
-import { REPOS_SCENARIO } from "../../bridge/scenario/repos/repos.js";
 import { ManualClock, REFRESH_DEBOUNCE_MS } from "../../core/index.js";
 import { SessionStore } from "../../store/index.js";
 import { eventOfKind } from "../../store/session-event.test-support.js";
@@ -26,52 +21,28 @@ import type { ArtifactPaneReading } from "./artifact-pane-reading.js";
 import { ARTIFACT_TERMINAL_EVENT_KINDS } from "../repo-lifecycle-events.js";
 import { ArtifactPaneReader } from "./artifact-reader.js";
 import {
-  type GrowthPortAnswer,
+  LISTED_ONE_ROW,
   SERVED_SUMMARY,
   SESSION_ID,
-  artifactBridgeAnswering,
+  artifactOperations,
   readThrough,
 } from "./artifact-pane.test-support.js";
 
-describe("artifact pane reader — before anything is asked", () => {
-  it("starts on the absence that says nobody asked", () => {
+describe("artifact pane reader — before the first read answers", () => {
+  it("starts on the read that has not answered", () => {
     const reader = new ArtifactPaneReader({
-      bridge: artifactBridgeAnswering({
-        listAnswer: growthUnavailable("artifactList"),
-        allowlistAnswer: growthUnavailable("artifactAllowlistRead"),
-      }),
+      ...artifactOperations(),
       sessionStore: new SessionStore({ sessionId: SESSION_ID }),
       clock: new ManualClock(),
     });
-    expect(reader.snapshot.artifacts.kind).toBe("not-checked");
-  });
-
-  it("reads nothing at all on a pane with no session behind it", async () => {
-    // A bare route has a pane and no session. Reading anyway would mean inventing a
-    // session id, so the reader stays where it was.
-    const clock = new ManualClock();
-    const reader = new ArtifactPaneReader({
-      bridge: artifactBridgeAnswering({
-        listAnswer: growthUnavailable("artifactList"),
-        allowlistAnswer: growthUnavailable("artifactAllowlistRead"),
-      }),
-      sessionStore: undefined,
-      clock,
-    });
-    reader.start();
-    await readThrough(clock);
-    expect(reader.snapshot.artifacts.kind).toBe("not-checked");
-    expect(reader.performCount).toBe(0);
+    expect(reader.snapshot.artifacts.kind).toBe("loading");
   });
 });
 
-/** A reader over a store a case drives, with the two reads refusing throughout. */
+/** A reader over a store a case drives. */
 function readerOver(sessionStore: SessionStore, clock: ManualClock): ArtifactPaneReader {
   return new ArtifactPaneReader({
-    bridge: artifactBridgeAnswering({
-      listAnswer: growthUnavailable("artifactList"),
-      allowlistAnswer: growthUnavailable("artifactAllowlistRead"),
-    }),
+    ...artifactOperations(),
     sessionStore,
     clock,
   });
@@ -92,8 +63,6 @@ describe("artifact pane reader — the four reasons to read, and no fifth", () =
       sessionStore.applyBatch([eventOfKind(SESSION_ID, kind, 1)]);
       await readThrough(clock);
 
-      // The list and the effective allow-list both go stale on these three, and the
-      // pane used to hold whichever one it read first, indefinitely.
       expect(reader.performCount).toBe(2);
     },
   );
@@ -173,33 +142,25 @@ describe("artifact pane reader — a pane that has gone", () => {
   it("negative control: a disposed reader publishes nothing further", async () => {
     const clock = new ManualClock();
     const reader = new ArtifactPaneReader({
-      bridge: artifactBridgeAnswering({
-        listAnswer: growthUnavailable("artifactList"),
-        allowlistAnswer: growthUnavailable("artifactAllowlistRead"),
-      }),
+      ...artifactOperations(),
       sessionStore: new SessionStore({ sessionId: SESSION_ID }),
       clock,
     });
     reader.dispose();
     reader.start();
     await readThrough(clock);
-    expect(reader.snapshot.artifacts.kind).toBe("not-checked");
+    expect(reader.snapshot.artifacts.kind).toBe("loading");
   });
 });
 
 describe("artifact pane reader — reading again is coalesced, not raced", () => {
-  it("costs one read pair when the user presses twice in one window", async () => {
+  it("costs one read when the user presses twice in one window", async () => {
     // Two presses inside the coalescing window are one reason to re-read, not two. A
-    // reader that called the port on every press issues two list calls and two
-    // allow-list calls here.
+    // reader that called the daemon on every press issues two list calls here.
     const clock = new ManualClock();
-    const artifactList = vi.fn(async () => growthUnavailable("artifactList"));
-    const artifactAllowlistRead = vi.fn(async () => growthUnavailable("artifactAllowlistRead"));
+    const listArtifacts = vi.fn(async () => LISTED_ONE_ROW);
     const reader = new ArtifactPaneReader({
-      bridge: fixtureBridgeWithGrowth(REPOS_SCENARIO, {
-        artifactList,
-        artifactAllowlistRead,
-      }),
+      ...artifactOperations({ listArtifacts }),
       sessionStore: new SessionStore({ sessionId: SESSION_ID }),
       clock,
     });
@@ -212,48 +173,15 @@ describe("artifact pane reader — reading again is coalesced, not raced", () =>
     await readThrough(clock);
 
     expect(reader.performCount).toBe(2);
-    expect(artifactList).toHaveBeenCalledTimes(2);
-    expect(artifactAllowlistRead).toHaveBeenCalledTimes(2);
+    expect(listArtifacts).toHaveBeenCalledTimes(2);
   });
 
-  it("publishes both legs of one refresh as one snapshot", async () => {
-    // A reader whose legs publish independently emits a snapshot carrying the served
-    // list beside the shipped-default allow-list before the effective one lands. That
-    // snapshot is a deployment that does not exist, and it is what this count forbids.
-    const clock = new ManualClock();
-    const reader = new ArtifactPaneReader({
-      bridge: artifactBridgeAnswering({
-        listAnswer: { status: "served", value: [SERVED_SUMMARY] },
-        allowlistAnswer: {
-          status: "served",
-          value: { contentTypes: ["text/plain"], maximumByteLength: 99 },
-        },
-      }),
-      sessionStore: new SessionStore({ sessionId: SESSION_ID }),
-      clock,
-    });
-    const published: ArtifactPaneReading[] = [];
-    reader.subscribe((reading) => published.push(reading));
-    reader.start();
-    await readThrough(clock);
-
-    // The in-flight absence, then the answer. Nothing between them.
-    expect(published).toHaveLength(2);
-    expect(published[0]?.artifacts.kind).toBe("loading");
-    expect(published[1]?.artifacts.kind).toBe("listed");
-    expect(published[1]?.allowlist.source).toBe("effective");
-  });
-
-  it("enters the in-flight absence once and never re-enters it on a re-read", async () => {
-    // Rule 8 separates "a read is in flight" from "nobody asked". Dropping the rows
-    // back to the in-flight absence on every press would blank a surface that has an
+  it("never drops answered rows back to loading on a re-read", async () => {
+    // Dropping the rows back to `loading` on every press would blank a surface that has an
     // answer on it.
     const clock = new ManualClock();
     const reader = new ArtifactPaneReader({
-      bridge: artifactBridgeAnswering({
-        listAnswer: { status: "served", value: [SERVED_SUMMARY] },
-        allowlistAnswer: growthUnavailable("artifactAllowlistRead"),
-      }),
+      ...artifactOperations({ listArtifacts: async () => [SERVED_SUMMARY] }),
       sessionStore: new SessionStore({ sessionId: SESSION_ID }),
       clock,
     });
@@ -264,53 +192,18 @@ describe("artifact pane reader — reading again is coalesced, not raced", () =>
     reader.refresh();
     await readThrough(clock);
 
-    expect(published.filter((reading) => reading.artifacts.kind === "loading")).toHaveLength(1);
+    expect(published.length).toBeGreaterThan(1);
+    expect(published.filter((reading) => reading.artifacts.kind === "loading")).toHaveLength(0);
     expect(reader.snapshot.artifacts.kind).toBe("listed");
-  });
-
-  it("lands a read that threw as a refusal rather than losing it", async () => {
-    // The scheduler performs the read inside a timer callback, where a rejection
-    // reaches nobody. A reader with no error sink leaves the pane on the in-flight
-    // absence for the rest of its life.
-    //
-    // DRIVEN THROUGH A SERVED ROW THE MAPPING CANNOT READ, which is what still
-    // reaches this sink: a call that REJECTS is now read by the leg that made it and
-    // becomes that leg's own refusal, so the sink is the backstop for everything else
-    // the read does. The row below is off the port's contract — the scripted port is
-    // typed now and would refuse it — and the cast is deliberately on this one value:
-    // the DAEMON is what sends the list, and a wire that gains a nullable row or a
-    // renamed member sends exactly this, so the backstop has to be driven with the
-    // shape the type system cannot produce.
-    const clock = new ManualClock();
-    const reader = new ArtifactPaneReader({
-      bridge: artifactBridgeAnswering({
-        listAnswer: {
-          status: "served",
-          value: [null],
-        } as unknown as GrowthPortAnswer<"artifactList">,
-        allowlistAnswer: growthUnavailable("artifactAllowlistRead"),
-      }),
-      sessionStore: new SessionStore({ sessionId: SESSION_ID }),
-      clock,
-    });
-    reader.start();
-    await readThrough(clock);
-
-    const state = reader.snapshot.artifacts;
-    expect(state.kind).toBe("refused");
-    expect(state.kind === "refused" ? state.refusal.code : undefined).toBe("read-threw");
   });
 
   it("discards a completion that outlived the pane it was read for", async () => {
     // The generation stamp, exercised: the read is in flight when the pane unmounts,
     // and its answer arrives afterwards with a stamp that is no longer current.
     const clock = new ManualClock();
-    const listCall = handAnsweredCall<GrowthPortAnswer<"artifactList">>();
+    const listCall = handAnsweredCall<readonly GrowthArtifactSummary[]>();
     const reader = new ArtifactPaneReader({
-      bridge: fixtureBridgeWithGrowth(REPOS_SCENARIO, {
-        artifactList: listCall.invoke,
-        artifactAllowlistRead: async () => growthUnavailable("artifactAllowlistRead"),
-      }),
+      ...artifactOperations({ listArtifacts: listCall.invoke }),
       sessionStore: new SessionStore({ sessionId: SESSION_ID }),
       clock,
     });
@@ -320,7 +213,7 @@ describe("artifact pane reader — reading again is coalesced, not raced", () =>
     expect(reader.snapshot.artifacts.kind).toBe("loading");
 
     reader.dispose();
-    listCall.open({ status: "served", value: [SERVED_SUMMARY] });
+    listCall.open([SERVED_SUMMARY]);
     await crossMacrotaskBoundary();
 
     expect(reader.snapshot.artifacts.kind).toBe("loading");

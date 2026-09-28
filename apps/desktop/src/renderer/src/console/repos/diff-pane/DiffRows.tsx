@@ -9,6 +9,7 @@ import { DiffSplitCell } from "./DiffSplitCell.js";
 import { DiffGutter } from "./DiffGutter.js";
 import { DiffLineText } from "./DiffLineText.js";
 
+/** What one virtualized diff row is drawn from. */
 export interface DiffRowViewProps {
   readonly rowIndex: number;
   readonly row: DiffRow;
@@ -21,30 +22,25 @@ export interface DiffRowViewProps {
    */
   readonly intraline: IntralineSegmentCache;
   readonly viewMode: DiffViewMode;
-  readonly showAttributionMarks: boolean;
-  readonly showWhitespaceChanges: boolean;
   /** Reveal one more band of this row's gap. Only a `gap` row calls it. */
   readonly onExpandGap: (fileIndex: number, hunkIndex: number) => void;
   /**
-   * The virtualizer's measurement callback, in wrap mode only.
+   * The virtualizer's measurement callback.
    *
-   * Absent, the row is left to the fixed estimate the sheet also paints it at.
-   * Present, the row reports its own height — which is what a wrapped line three
-   * lines tall has to do for the offsets below it to be true. It is one stable
-   * function for the life of the virtualizer, so the memo above still holds.
+   * Every row reports its own height, which is what a wrapped line three lines tall
+   * has to do for the offsets below it to be true. It is one stable function for the
+   * life of the virtualizer, so the memo below still holds.
    */
-  readonly rowElementRef?: ((element: HTMLDivElement | null) => void) | undefined;
+  readonly rowElementRef: (element: HTMLDivElement | null) => void;
 }
 
+/** One diff row, memoized so a scroll re-renders only the rows that entered the window. */
 export const DiffRowView: React.MemoExoticComponent<
   (props: DiffRowViewProps) => React.JSX.Element
 > = memo(function DiffRowView(props: DiffRowViewProps): React.JSX.Element {
   const { row, index, rowIndex } = props;
-  // `data-index` is the virtualizer's own contract for a measured node: it reads
-  // the row's index back off the element it was handed, so the attribute rides
-  // every row rather than only the wrapped ones — an attribute that appears and
-  // disappears with a view toggle is one more thing to get wrong, and it paints
-  // nothing either way.
+  // `data-index` is the virtualizer's own contract for a measured node: it reads the
+  // row's index back off the element it was handed, and it paints nothing.
   const rowProps = {
     role: "row",
     "aria-rowindex": rowIndex + 1,
@@ -134,15 +130,11 @@ export const DiffRowView: React.MemoExoticComponent<
           line={line.kind === "insert" ? undefined : line}
           reading={reading}
           side="base"
-          showAttributionMarks={props.showAttributionMarks}
-          showWhitespaceChanges={props.showWhitespaceChanges}
         />
         <DiffSplitCell
           line={line.kind === "delete" ? pairedLine : line}
           reading={line.kind === "delete" ? pairedReading : reading}
           side="head"
-          showAttributionMarks={props.showAttributionMarks}
-          showWhitespaceChanges={props.showWhitespaceChanges}
         />
       </div>
     );
@@ -156,13 +148,9 @@ export const DiffRowView: React.MemoExoticComponent<
         className={`meridian-diff__side meridian-diff__side--unified meridian-diff__side--${line.kind}`}
         role="cell"
       >
-        <DiffGutter line={line} side="base" showAttributionMarks={props.showAttributionMarks} />
-        <DiffGutter line={line} side="head" showAttributionMarks={false} />
-        <DiffLineText
-          line={line}
-          reading={reading}
-          showWhitespaceChanges={props.showWhitespaceChanges}
-        />
+        <DiffGutter line={line} side="base" />
+        <DiffGutter line={line} side="head" />
+        <DiffLineText line={line} reading={reading} />
       </span>
     </div>
   );

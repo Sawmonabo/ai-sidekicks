@@ -1,28 +1,29 @@
-// What the payload fetch established, on whichever of its six arms it is.
+// What the payload fetch established, on whichever of its arms it is.
 //
-// A COMPONENT OF ITS OWN RATHER THAN A HELPER IN THE PANE, because the pane was over
-// the size at which one module is doing two jobs and this is the half with its own
-// subject: six arms of one reading, none of which stands in for another, and a preview
-// whose whole safety argument lives in one place.
+// A component of its own because its subject is the fetched bytes: four arms of one
+// reading, none of which stands in for another, and a preview whose whole safety argument
+// lives in one place.
 //
-// THE PREVIEW IS TEXT, AND ONLY TEXT. The decoded bytes go into a `<pre>` as a text node
+// The preview is text, and only text. The decoded bytes go into a `<pre>` as a text node
 // React escapes, bounded before they get here, with the truncation stated beside them.
 // Nothing in this module can interpret a payload: there is no `dangerously` anything, no
 // `src`, no `href`, and no element that a media type could turn into a document.
 
 import { ARTIFACT_PAYLOAD_PREVIEW_CHARACTER_CAP } from "../../core/index.js";
-import { Nothing, RefusalCard, WireFigure } from "../../primitives/index.js";
+import { Nothing, WireFigure } from "../../primitives/index.js";
 import type { ArtifactPayloadReading } from "./artifact-payload.js";
 
+/** What the payload section draws. */
 export interface ArtifactPayloadSectionProps {
-  readonly payload: ArtifactPayloadReading;
+  /** What the fetch has established so far. Absent until a fetch starts. */
+  readonly payload: ArtifactPayloadReading | undefined;
 }
 
 /** The section, or nothing at all where nobody has asked for any bytes. */
 export function ArtifactPayloadSection({
   payload,
 }: ArtifactPayloadSectionProps): React.JSX.Element | null {
-  if (payload.status === "not-checked") {
+  if (payload === undefined) {
     return null;
   }
   return (
@@ -32,22 +33,17 @@ export function ArtifactPayloadSection({
   );
 }
 
-/** The one arm's own body. Total over the five arms a rendered payload can be on. */
-function renderPayloadArm(payload: ArtifactPayloadReading): React.JSX.Element | null {
+/** The one arm's own body. Total over the arms a payload can be on. */
+function renderPayloadArm(payload: ArtifactPayloadReading): React.JSX.Element {
   switch (payload.status) {
-    case "not-checked":
-      return null;
     case "fetching":
       return <Nothing kind="not-loaded" placement="inline" title="Fetching this payload" />;
-    case "refused":
-      return <RefusalCard code={payload.refusal.code} detail={payload.refusal.detail} />;
     case "deferred":
       return (
         <>
           <p className="meridian-artifact-payload__note">
             The read answered with a handle rather than the bytes. It is the content-addressed key
-            the payload is stored under, and no registered operation anywhere takes one — so the
-            bytes are named here and not checked for.
+            the payload is stored under.
           </p>
           <WireFigure value={payload.payloadHandle} />
         </>

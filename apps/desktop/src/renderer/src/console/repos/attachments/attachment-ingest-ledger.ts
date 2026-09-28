@@ -30,7 +30,6 @@
 
 import { Emitter, type Unsubscribe } from "../../core/index.js";
 import { GenerationLatch, type CurrentGenerationClaim } from "../../store/index.js";
-import type { PortAnswer } from "./attachment-ingest-answer.js";
 import { ingestRefusalDisposition, type IngestRefusalDisposition } from "./attachment-policy.js";
 import {
   attachmentIngestEntryFrom,
@@ -50,10 +49,8 @@ import {
  * anything a user is shown.
  *
  * IT IS THE CONSOLE'S ONE GENERATION REGISTER RATHER THAN A COUNTER OF THIS FILE'S
- * OWN. The hand-rolled `Map<string, number>` this replaces was a second implementation
- * of `store/read/generation-latch.ts` — and one whose size nothing bounded or reported,
- * where the register frees a key on the supersede and answers `heldKeyCount` for what
- * it still holds.
+ * OWN: it frees a key on the supersede and answers `heldKeyCount` for what it still
+ * holds, which a counter kept here would not bound or report.
  */
 export interface AttachmentLedgerStamp {
   readonly state: AttachmentIngestState;
@@ -234,32 +231,24 @@ export class AttachmentIngestLedger {
  * Record a refusal verbatim on one entry, with the disposition that decides what the
  * control offers.
  *
- * A FUNCTION OVER THE LEDGER rather than a method on either driver, because both of
- * them write it: the open-and-complete driver and the chunk loop each end their leg
- * here, and a copy in each would be two chances for one of them to derive a disposition
- * the other does not. `artifact-action-host.ts`'s `recordRowRefusal` is the same shape
- * one family over.
- *
  * Takes the entry its caller re-read after the await rather than reading one itself, so
  * a refusal can never be written over a state a user moved meanwhile.
  *
- * THE DISPOSITION IS DERIVED FROM THE CODE UNLESS A CALLER STATES IT, and the one
- * caller that states it is the console's own finding about an unusable acknowledgement
- * — a code the daemon does not name, whose retry-in-place default would send the next
- * chunk against an offset the two sides have stopped sharing.
+ * THE DISPOSITION IS DERIVED FROM THE CODE UNLESS A CALLER STATES IT. The chunk loop
+ * states `restart` for an unusable acknowledgement: the retry-in-place default would send
+ * the next chunk against an offset the two sides have stopped sharing.
  */
 export function writeIngestRefusal(
   ledger: AttachmentIngestLedger,
   localId: string,
   entry: AttachmentIngestEntry,
-  answer: PortAnswer<unknown>,
+  refusal: { readonly code: string; readonly detail: string },
   disposition?: IngestRefusalDisposition,
 ): void {
-  const code = answer.code ?? "attachment.ingest_rejected";
   ledger.write(localId, {
     ...entry,
     state: "refused",
-    refusal: { code, detail: answer.detail ?? "The ingest call was refused." },
-    disposition: disposition ?? ingestRefusalDisposition(code),
+    refusal,
+    disposition: disposition ?? ingestRefusalDisposition(refusal.code),
   });
 }

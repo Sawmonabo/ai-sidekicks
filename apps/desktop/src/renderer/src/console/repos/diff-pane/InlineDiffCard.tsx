@@ -78,9 +78,7 @@ export interface InlineDiffCardProps {
 
 export function InlineDiffCard(props: InlineDiffCardProps): React.JSX.Element {
   const headingId = useId();
-  // Marks OFF by default here and ON in the pane — `DiffToolbar.tsx`'s density rule.
-  // A card is a glance; provenance marks earn their measure in a reading.
-  const viewControls = useDiffViewControls({ showAttributionMarks: false });
+  const viewControls = useDiffViewControls();
   // The gap expansion is the MODEL's, and this card is reused for whichever diff
   // its ledger row carries, so it comes from the same hook the pane reads —
   // keyed by the prop reference, dropped when that moves. The card narrows to no
@@ -137,9 +135,6 @@ export function InlineDiffCard(props: InlineDiffCardProps): React.JSX.Element {
               <DiffRenderer
                 model={props.diff}
                 viewMode={viewControls.viewMode}
-                showAttributionMarks={viewControls.showAttributionMarks}
-                wrapLongLines={viewControls.wrapLongLines}
-                showWhitespaceChanges={viewControls.showWhitespaceChanges}
                 expansion={expansion}
                 onExpandGap={expandGapAt}
                 {...(isCapped ? { heightCapPx: INLINE_DIFF_CARD_HEIGHT_CAP_PX } : {})}
@@ -159,18 +154,6 @@ export function InlineDiffCard(props: InlineDiffCardProps): React.JSX.Element {
                   }}
                 >
                   {isCapped ? "Expand in place" : "Restore height"}
-                </button>
-                {/* `DiffToolbar.tsx`'s density rule ends "one toggle away in both",
-                    so the card carries the ONE control whose default it differs from
-                    the pane on — not the pane's whole toolbar, which is four
-                    controls of chrome inside a conversation. */}
-                <button
-                  type="button"
-                  className="meridian-diff-card__control"
-                  aria-pressed={viewControls.showAttributionMarks}
-                  onClick={viewControls.toggleAttributionMarks}
-                >
-                  Attribution marks
                 </button>
                 {/* A FOCUS MOVE, NOT A SCROLL WRITE. Jump-to-end means "take me
                     past this card to the rest of the conversation", and focusing
@@ -225,7 +208,7 @@ export function registerInlineDiffCardBody(seats: InlineCardSeatRegistry): void 
  *
  * BOTH OR NOTHING, checked here rather than at each reader: half a comparison names no
  * diff at all, so a base with no head is the same answer as no base — and a reader that
- * tested one member would draw a subject bar with a blank on one side of it.
+ * tested one member would draw a comparison with a blank on one side of it.
  */
 function comparedStatesOf(card: DiffInlineCardProps): ComparedStates | undefined {
   const { baseRef, headRef } = card;

@@ -4,12 +4,12 @@
 // layout should, and that a long line is never clipped. The three that matter
 // more are the ones a reviewer cannot see by looking at a screenshot: that the
 // row count on screen is bounded by the WINDOW and not by the diff, which is the
-// only reason a five-thousand-line change set is openable at all; that with wrap
-// ON the window is placed at the heights the rows were MEASURED at rather than at
-// the height they were estimated at, which is the case the sheet's
-// `block-size: auto` creates and a fixed-height window silently gets wrong; and
-// that no line kind is painted amber or red, which is the two-hue rule and is
-// exactly the rule a diff renderer is most likely to break.
+// only reason a five-thousand-line change set is openable at all; that the window is
+// placed at the heights the rows were MEASURED at rather than at the height they were
+// estimated at, which is the case the sheet's `min-block-size` creates and a
+// fixed-height window silently gets wrong (its cases are in the geometry suite); and
+// that no line kind is painted amber or red, which is the two-hue rule and is exactly
+// the rule a diff renderer is most likely to break.
 //
 // HOW A ROW GETS A HEIGHT HERE. happy-dom has no layout engine, so every box it
 // reports is zero and a window measured against one would be measured against
@@ -22,7 +22,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { DIFF_ROW_HEIGHT_PX, DIFF_WINDOW_OVERSCAN_ROWS } from "./diff-bounds.js";
 import { buildDiffFixture } from "./diff-fixture.test-support.js";
-import { ENDURANCE_DIFF_SHAPE, SMALL_DIFF_SHAPE } from "./diff-fixture-shapes.test-support.js";
+import { ENDURANCE_DIFF_SHAPE } from "./diff-fixture-shapes.test-support.js";
 import {
   DIFF_FIXTURE_VIEWPORT_HEIGHT_PX,
   DiffLayoutFixture,
@@ -207,11 +207,11 @@ describe("diff renderer — the view controls it is handed", () => {
     expect(row?.querySelector(".meridian-diff__side--head .meridian-diff__code")).toBeNull();
   });
 
-  it("marks the intraline change, and stops marking a whitespace-only one on request", () => {
+  it("marks the changed segment of a modified line pair", () => {
     // A modified PAIR rather than a hand-segmented line: the segmentation is
-    // derived per rendered row now, so a model carrying pre-split segments would
+    // derived per rendered row, so a model carrying pre-split segments would
     // assert against a shape the renderer never reads.
-    const whitespaceOnlyDiff = {
+    const modifiedPairDiff = {
       ...SMALL_DIFF,
       files: [
         {
@@ -237,42 +237,11 @@ describe("diff renderer — the view controls it is handed", () => {
         },
       ],
     };
-    const shown = renderDiff({ model: whitespaceOnlyDiff, showWhitespaceChanges: true });
+    const container = renderDiff({ model: modifiedPairDiff });
     // Two: one per side of one alignment, both of them the run of spaces.
-    expect(shown.querySelectorAll(".meridian-diff__segment--changed").length).toBe(2);
-    const hidden = renderDiff({ model: whitespaceOnlyDiff, showWhitespaceChanges: false });
-    expect(hidden.querySelectorAll(".meridian-diff__segment--changed").length).toBe(0);
-    // The characters are still there — the toggle withholds emphasis and never
-    // shortens the line.
+    expect(container.querySelectorAll(".meridian-diff__segment--changed").length).toBe(2);
     expect(
-      [...hidden.querySelectorAll(".meridian-diff__code")].map((code) => code.textContent),
+      [...container.querySelectorAll(".meridian-diff__code")].map((code) => code.textContent),
     ).toStrictEqual(["const value = 1;", "const value   = 1;"]);
-  });
-
-  it("shows an attribution mark only where the trailers named somebody, and only when asked", () => {
-    const withMarks = renderDiff({ showAttributionMarks: true });
-    const withoutMarks = renderDiff({ showAttributionMarks: false });
-    expect(withMarks.querySelectorAll(".meridian-diff__attribution-mark").length).toBeGreaterThan(
-      0,
-    );
-    expect(withoutMarks.querySelectorAll(".meridian-diff__attribution-mark").length).toBe(0);
-  });
-
-  it("negative control: attribution comes from the line and never from the diff's own run", () => {
-    // Every line here carries no trailer, so a renderer that fell back to the
-    // diff's run would mark all of them — the inference the contract forbids.
-    const unattributed = buildDiffFixture({
-      ...SMALL_DIFF_SHAPE,
-      agentAttributionEveryNthLine: 0,
-    });
-    const container = renderDiff({ model: unattributed, showAttributionMarks: true });
-    expect(container.querySelectorAll(".meridian-diff__attribution-mark").length).toBe(0);
-  });
-
-  it("carries the wrap toggle onto the scroller", () => {
-    expect(
-      renderDiff({ wrapLongLines: true }).querySelector(".meridian-diff--wrap"),
-    ).not.toBeNull();
-    expect(renderDiff({ wrapLongLines: false }).querySelector(".meridian-diff--wrap")).toBeNull();
   });
 });

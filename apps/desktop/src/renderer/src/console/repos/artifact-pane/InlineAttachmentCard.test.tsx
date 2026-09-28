@@ -7,7 +7,7 @@
 // on — which of the six causes, and what the remedy is.
 
 import { render } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import { INGEST_STALL_DISCLOSURE_MS } from "../../core/index.js";
 import type { AttachmentIngestEntry } from "../attachments/attachment-shapes.js";
@@ -48,16 +48,11 @@ function quietUpload(): AttachmentIngestEntry {
   };
 }
 
-afterEach(() => {});
-
 describe("inline attachment card — the seat", () => {
   /**
    * A board this case owns.
    *
-   * The registrar writes only what it is handed, so there is nothing to release
-   * afterwards — the previous shape claimed the process-wide board and needed an
-   * `afterEach` unregistering the kind by hand, where a case that forgot made the
-   * next one pass for its neighbour's reason.
+   * The registrar writes only what it is handed, so there is nothing to release afterwards.
    */
   function fill(): InlineCardSeatRegistry {
     const seats = new InlineCardSeatRegistry();
@@ -91,43 +86,36 @@ describe("inline attachment card — the seat", () => {
   });
 });
 
-describe("inline attachment card — one body, and the honest absence", () => {
-  it("mounts the attachment surface's own card rather than a second one", () => {
-    const { container } = render(<InlineAttachmentCard card={CARD} />);
-    expect(container.querySelector(".meridian-attachment")).not.toBeNull();
+describe("inline attachment card — one body", () => {
+  it("names the reference the seat carried when no reading was supplied", () => {
+    const { container, getByRole } = render(<InlineAttachmentCard card={CARD} />);
+    getByRole("group", { name: "Attachment artifact-4" });
+    expect(container.querySelector(".meridian-attachment")).toBeNull();
+    expect(container.querySelector(".meridian-attachment-card")?.textContent).toBe(
+      CARD.attachment.attachmentId,
+    );
   });
 
-  it("says the attachment has not been resolved, and never that it is gone", () => {
-    const { container } = render(<InlineAttachmentCard card={CARD} />);
-    expect(container.querySelector(".meridian-nothing--not-checked")).not.toBeNull();
-    expect(container.querySelector(".meridian-attachment__unresolved")).toBeNull();
-  });
-
-  it("negative control: a supplied reading displaces the unread arm", () => {
-    // The seat carries identity only today. When the typed reference lands, this is the
-    // arm the daemon's answer arrives on, and the case proves the seam is real rather
-    // than decorative.
-    const { container } = render(
+  it("mounts the attachment surface's own card once a reading is supplied", () => {
+    const { container, getByRole } = render(
       <InlineAttachmentCard
         card={CARD}
         reading={{ kind: "unresolved", attachmentId: "artifact-4", cause: "over_cap" }}
         nowMilliseconds={UPLOAD_OPENED_AT}
       />,
     );
-    expect(container.querySelector(".meridian-nothing--not-checked")).toBeNull();
+    getByRole("article", { name: "Attachment artifact-4" });
+    expect(container.querySelector(".meridian-attachment")).not.toBeNull();
     expect(container.querySelector(".meridian-attachment__unresolved")).not.toBeNull();
   });
 });
 
 describe("inline attachment card — the instant an age is read against", () => {
   it("discloses a stalled upload, which a mount-frozen instant could never do", () => {
-    // The defect, exercised. The card used to capture `Date.now()` at MOUNT and hand
-    // that to the card for the life of the mount. `isIngestStalled` compares the
-    // instant against `lastProgressAtMilliseconds + INGEST_STALL_DISCLOSURE_MS`, and
-    // that progress is stamped by the ingest driver AFTER the card mounted — so the
-    // comparison could never be true, and the disclosure this threshold exists to
-    // produce was dead on this surface. The instant now arrives with the reading, from
-    // the producer that took both, so a later one discloses.
+    // `isIngestStalled` compares the instant against `lastProgressAtMilliseconds +
+    // INGEST_STALL_DISCLOSURE_MS`, and progress is stamped after the card mounts, so an
+    // instant frozen at mount could never disclose. The instant arrives with the reading,
+    // from the producer that took both, so a later one discloses.
     const { container } = render(
       <InlineAttachmentCard
         card={CARD}

@@ -1,20 +1,20 @@
-// Retry: every leg of the trio is replayed rather than restarted, and exactly one refusal
-// is terminal for the stream.
+// Retry: a refusal that leaves the stream open resumes it, and an unusable acknowledgement
+// begins it again.
 //
-// The client is driven directly against the scripted growth port beside it, which records
-// every request: only a collaborator on the other side of the seam can witness that a
-// retry re-sent ONE sequence number carrying identical bytes, which is the whole
-// difference between a replay and a re-upload.
+// The client is driven directly against the scripted ingest port beside it, which records
+// every request: only a collaborator on the other side of the seam can witness whether a
+// retry re-opened the stream or went on from the offset it stood at.
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { ATTACHMENT_CHUNK_BYTE_CAP } from "../../core/index.js";
 import { consoleTripwires } from "../../core/tripwires.js";
 import {
   SMALL_SOURCE,
-  ScriptedGrowthPort,
+  ScriptedIngestPort,
   clientOver,
+  movableSourceOver,
 } from "./attachment-ingest-scripted-port.test-support.js";
-import { INGEST_CAPACITY_EXHAUSTED_CODE, INGEST_STREAM_INVALID_CODE } from "./attachment-policy.js";
 import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 
 beforeEach(() => {
@@ -27,64 +27,46 @@ afterEach(() => {
   consoleTripwires.setThrowOnReport(import.meta.env.DEV);
 });
 
-describe("ingest client — retry replays, and one refusal restarts", () => {
-  it("re-sends the same chunk after a lost response", async () => {
-    const port = new ScriptedGrowthPort();
+describe("ingest client — retry resumes what the file made unreadable", () => {
+  it("resumes the same stream at the same offset once the file is readable again", async () => {
+    const port = new ScriptedIngestPort();
     const client = clientOver(port);
-    port.refuseChunksWith("wire-unregistered");
-    client.attach(SMALL_SOURCE);
+    // Three chunks, and the file goes after the first read: chunk 0 is acknowledged, then
+    // chunk 1 cannot be read.
+    const byteLength = ATTACHMENT_CHUNK_BYTE_CAP * 2 + 7;
+    const movable = movableSourceOver("attachment-1", "notes.md", byteLength, 1);
+    client.attach(movable.source);
     await crossMacrotaskBoundary();
+    expect(client.snapshot[0]?.state).toBe("refused");
     expect(client.snapshot[0]?.disposition).toBe("retry-in-place");
+    expect(client.snapshot[0]?.receivedBytes).toBe(ATTACHMENT_CHUNK_BYTE_CAP);
+    expect(port.chunkCalls.map((call) => call.sequenceNumber)).toStrictEqual([0]);
 
-    port.refuseChunksWith(undefined);
+    movable.restoreFile();
     client.retry("attachment-1");
     await crossMacrotaskBoundary();
 
-    // Two chunk calls at the SAME sequence number carrying the SAME bytes: the replay,
-    // not a restart. That pair is exactly what the daemon acknowledges without
-    // re-appending, which is what makes this the cheap answer to a lost response.
-    expect(port.chunkCalls.map((call) => call.sequenceNumber)).toStrictEqual([0, 0]);
-    expect(port.chunkCalls[0]?.chunk).toBe(port.chunkCalls[1]?.chunk);
+    // No second open, and the first chunk after the retry is sequence 1: the retry went on
+    // from the offset the daemon acknowledged rather than beginning again.
+    expect(port.initCalls).toHaveLength(1);
+    expect(port.chunkCalls.map((call) => call.sequenceNumber)).toStrictEqual([0, 1, 2]);
     expect(client.snapshot[0]?.state).toBe("complete");
   });
 
-  it("drops the ledger only for the terminal stream refusal", async () => {
-    const port = new ScriptedGrowthPort();
+  it("begins again from the first byte when the acknowledgement was unusable", async () => {
+    const port = new ScriptedIngestPort();
     const client = clientOver(port);
-    port.refuseChunksWith(INGEST_STREAM_INVALID_CODE);
+    port.acknowledgeChunksWith({ ingestId: "ingest-1", receivedBytes: 0 });
     client.attach(SMALL_SOURCE);
     await crossMacrotaskBoundary();
-
     expect(client.snapshot[0]?.disposition).toBe("restart");
-    expect(client.snapshot[0]?.refusal?.code).toBe(INGEST_STREAM_INVALID_CODE);
-  });
 
-  it("negative control: the capacity refusal keeps its stream and waits", async () => {
-    const port = new ScriptedGrowthPort();
-    const client = clientOver(port);
-    port.refuseChunksWith(INGEST_CAPACITY_EXHAUSTED_CODE);
-    client.attach(SMALL_SOURCE);
-    await crossMacrotaskBoundary();
-
-    expect(client.snapshot[0]?.disposition).toBe("wait-and-retry");
-    expect(client.snapshot[0]?.ingestId).toBe("ingest-1");
-  });
-
-  it("replays a lost completion rather than re-uploading", async () => {
-    const port = new ScriptedGrowthPort();
-    const client = clientOver(port);
-    port.refuseCompletionWith("wire-unregistered");
-    client.attach(SMALL_SOURCE);
-    await crossMacrotaskBoundary();
-    expect(client.snapshot[0]?.state).toBe("refused");
-
-    port.refuseCompletionWith(undefined);
+    port.acknowledgeChunksWith(undefined);
     client.retry("attachment-1");
     await crossMacrotaskBoundary();
 
-    // One chunk sent in total: the retry resumed at the end of the ledger and went
-    // straight back to completion.
-    expect(port.chunkCalls).toHaveLength(1);
+    expect(port.initCalls).toHaveLength(2);
+    expect(client.snapshot[0]?.ingestId).toBe("ingest-2");
     expect(client.snapshot[0]?.state).toBe("complete");
   });
 });

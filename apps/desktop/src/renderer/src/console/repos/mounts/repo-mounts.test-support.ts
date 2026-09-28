@@ -1,41 +1,37 @@
-// What every mounts case is driven against: the readers a case opens, the disposal
-// that must leave none of them running, the clock-driven wait they settle through, and
-// the three wire records the cards are drawn from.
+// What every mounts case is driven against: the daemon a case scripts, the readers it
+// opens, the disposal that must leave none of them running, the clock-driven wait they
+// settle through, and the wire records the cards are drawn from.
 //
-// The bare drain that stood beside that wait is gone: letting queued continuations run
-// is `core/macrotask-boundary.test-support.ts`'s role, its cases take it by that name,
-// and a family-local alias for it is the second name for one meaning that module's own
-// header records having cost a suite.
+// Letting queued continuations run is `core/macrotask-boundary.test-support.ts`'s role, and
+// the cases take it by that name.
 //
-// THE ONLY SUB-MODULE THAT HAD NO SUPPORT MODULE, and it carried eight copies of the
-// scaffolding above — four `settle`s (two of them with hand-tuned turn counts and two
-// different explanations of the same rule), two `drain`s, two `openReader`s, and five
-// copies of the reader registry with its `afterEach`. Nothing failed when one copy was
-// changed, which is the whole reason shared code is hoisted on the second use.
-//
-// THE REGISTRY IS A FUNCTION PAIR RATHER THAN A HOOK. Registering `afterEach` here
-// would bind this module's import to a suite lifecycle its importer cannot see, so each
-// suite keeps its own one-line `afterEach(disposeTrackedReaders)` and reads what that
-// line does from its name.
+// The registry is a function pair rather than a hook. Registering `afterEach` here would
+// bind this module's import to a suite lifecycle its importer cannot see, so each suite
+// keeps its own one-line `afterEach(disposeTrackedReaders)`.
 
-import type { RepoMountReadResponse } from "@ai-sidekicks/contracts";
+import type {
+  RepoMountReadResponse,
+  WorkspaceExecutionModeCapabilitiesReadResponse,
+  WorktreeId,
+} from "@ai-sidekicks/contracts";
 
-import { createFixtureBridge } from "../../bridge/index.js";
-import type { ConsoleScenario } from "../../bridge/scenario/runtime/vocabulary.js";
 import { ManualClock, REFRESH_DEBOUNCE_MS } from "../../core/index.js";
 import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import { SessionStore } from "../../store/index.js";
+import type { RepoOperations } from "../repo-operations.js";
+import { scriptedRepoOperations } from "../repo-operations.test-support.js";
+import type { PrepareOperations } from "./roots/prepare-controller.js";
 import { RepoMountsReader } from "./repo-mounts-reader.js";
 import type { RepoWorkspaceRow } from "./repo-mounts-model.js";
-import type { EphemeralCloneStatusRecord, WorktreeStatusRecord } from "./worktree-model.js";
+import type { WorktreeStatusRecord } from "./worktree-model.js";
 
 const trackedReaders: RepoMountsReader[] = [];
 
 /**
  * Hold a reader a case built itself, so the teardown reaches it too.
  *
- * The suites that bend the port build their reader inline — the bridge is the subject
- * there — and a reader left undisposed goes on holding a scheduler after its case ends.
+ * A suite that builds its reader inline hands it here, and a reader left undisposed goes
+ * on holding a scheduler after its case ends.
  */
 export function trackReader(reader: RepoMountsReader): RepoMountsReader {
   trackedReaders.push(reader);
@@ -49,21 +45,15 @@ export function disposeTrackedReaders(): void {
   }
 }
 
-/** A reader over one scenario's own fixture bridge, tracked for disposal. */
+/** A reader over scripted calls, tracked for disposal. */
 export function openReader(
-  scenario: ConsoleScenario,
+  operations: RepoOperations,
   clock: ManualClock,
   // Defaulted, so the cases that only care about the READ say nothing about the store.
   // The trigger cases construct their own and drive it.
-  sessionStore: SessionStore = new SessionStore({ sessionId: scenario.sessionId }),
+  sessionStore: SessionStore = new SessionStore({ sessionId: SESSION_ID }),
 ): RepoMountsReader {
-  return trackReader(
-    new RepoMountsReader({
-      bridge: createFixtureBridge({ scenario }),
-      sessionStore,
-      clock,
-    }),
-  );
+  return trackReader(new RepoMountsReader({ operations, sessionStore, clock }));
 }
 
 /**
@@ -77,7 +67,7 @@ export function openReader(
  * ONLY ONE OF THE TWO WAITS IS THIS MODULE'S. The pre-clock drain is the console's
  * shared `crossMacrotaskBoundary` — a counted loop there would be a second home for a
  * role `core/` already owns, and the count would be tuned against whatever settlement
- * chain happens to sit under it today. The post-clock loop stays a loop because it
+ * chain happens to sit under it. The post-clock loop stays a loop because it
  * STOPS at the reading it is waiting for: its number is a ceiling on a wait rather
  * than a tuning of one, sized well above the pass it bounds, and turns cost nothing
  * once the queue is empty.
@@ -101,15 +91,20 @@ export async function settle(clock: ManualClock, reader: RepoMountsReader): Prom
 type Unbranded<TValue> = TValue extends { readonly __brand: string } ? string : TValue;
 type WireOverrides<TRecord> = { readonly [Member in keyof TRecord]?: Unbranded<TRecord[Member]> };
 
-/** The root a mount resolves to, and the deeper path a user entered. */
+/** The session every mounts case belongs to. */
+export const SESSION_ID = "session-repos";
+
+/** The root a mount resolves to. */
 export const CANONICAL_ROOT = "/Users/dev/code/ai-sidekicks";
+
+/** The deeper path a user entered, which resolves to the canonical root. */
 export const ENTERED_PATH = "/Users/dev/code/ai-sidekicks/packages/contracts";
 
 /** One mount as the wire reads it, healthy and attached unless a case says otherwise. */
 export function mount(overrides: WireOverrides<RepoMountReadResponse> = {}): RepoMountReadResponse {
   return {
     id: "mount-sidekicks",
-    sessionId: "session-repos",
+    sessionId: SESSION_ID,
     nodeId: "node-workstation",
     localPath: ENTERED_PATH,
     canonicalRoot: CANONICAL_ROOT,
@@ -124,8 +119,8 @@ export function mount(overrides: WireOverrides<RepoMountReadResponse> = {}): Rep
 /**
  * One workspace row as the roster reads it, in the mode most cases want.
  *
- * `executionMode` is the member the gate suites vary, so it is stated here rather than
- * left to a default a reader would have to go and look up.
+ * `executionMode` is the member the suites vary, so it is stated here rather than left to
+ * a default a reader would have to go and look up.
  */
 export function workspaceRow(overrides: WireOverrides<RepoWorkspaceRow> = {}): RepoWorkspaceRow {
   return {
@@ -156,25 +151,110 @@ export function worktreeRecord(
   } as WorktreeStatusRecord;
 }
 
+/** The healthy mount's id. */
+export const HEALTHY_MOUNT_ID = "mount-sidekicks";
+
+/** The id of the mount whose root stopped answering. */
+export const UNREACHABLE_MOUNT_ID = "mount-unreachable";
+
+/** The id of the mount whose root is no longer the repository it was attached as. */
+export const DRIFTED_MOUNT_ID = "mount-drifted";
+
+/** The healthy mount's workspace. */
+export const HEALTHY_WORKSPACE_ID = "workspace-sidekicks";
+
+/** The three mounts a session holds: healthy, unreachable, and no longer the repository. */
+export const MOUNTS: readonly RepoMountReadResponse[] = [
+  mount({ id: HEALTHY_MOUNT_ID }),
+  mount({
+    id: UNREACHABLE_MOUNT_ID,
+    canonicalRoot: "/Users/dev/code/notes",
+    localPath: "/Users/dev/code/notes",
+    vcsType: "none",
+    health: { status: "unreachable", checkedAt: "2026-01-01T09:05:01.000Z" },
+  }),
+  mount({
+    id: DRIFTED_MOUNT_ID,
+    canonicalRoot: "/Users/dev/code/moved",
+    localPath: "/Users/dev/code/moved",
+    health: { status: "identity_mismatch", checkedAt: "2026-01-01T09:05:01.000Z" },
+  }),
+];
+
+/** One workspace per mount, in the mode most cases want. */
+export const WORKSPACES: readonly RepoWorkspaceRow[] = [
+  workspaceRow({ id: HEALTHY_WORKSPACE_ID, repoMountId: HEALTHY_MOUNT_ID }),
+  workspaceRow({ id: "workspace-unreachable", repoMountId: UNREACHABLE_MOUNT_ID }),
+  workspaceRow({ id: "workspace-drifted", repoMountId: DRIFTED_MOUNT_ID }),
+];
+
+/** Every mode, with the worktree mode the default. */
+export const ALL_MODES_CAPABILITIES: WorkspaceExecutionModeCapabilitiesReadResponse = {
+  availableModes: ["read-only", "branch", "worktree", "ephemeral clone"],
+  defaultMode: "worktree",
+};
+
 /**
- * One ephemeral clone as the wire reads it.
- *
- * `expiresAt` is stated here and overridden by the deadline cases: a clone's disposal
- * time is the one member three suites disagree about on purpose, and a builder that
- * read it from a shared constant would put every case on one deadline.
+ * The daemon answering for the session above: its workspaces, each mount, each
+ * workspace's modes and the execution roots. A case scripts only what it is about.
  */
-export function cloneRecord(
-  overrides: WireOverrides<EphemeralCloneStatusRecord> = {},
-): EphemeralCloneStatusRecord {
+export function sessionOperations(script: Partial<RepoOperations> = {}): RepoOperations {
+  return scriptedRepoOperations({
+    listWorkspaces: () => Promise.resolve({ workspaces: WORKSPACES.map((row) => ({ ...row })) }),
+    readMount: (repoMountId) => {
+      const found = MOUNTS.find((held) => held.id === repoMountId);
+      if (found === undefined) {
+        return Promise.reject(new Error(`the session holds no mount ${repoMountId}`));
+      }
+      return Promise.resolve(found);
+    },
+    readWorkspaceExecutionModes: () => Promise.resolve(ALL_MODES_CAPABILITIES),
+    readWorktreeStatus: () =>
+      Promise.resolve({
+        worktrees: [worktreeRecord(), worktreeRecord({ worktreeId: "worktree-02" })],
+        ephemeralClones: [],
+      }),
+    ...script,
+  });
+}
+
+/** A branch with a live, dirty, compatible checkout — the consent case. */
+export const DIRTY_BRANCH = "feat/rate-limit-wiring";
+
+/** A branch whose checkout belongs to another workspace, which admits no consent. */
+export const INCOMPATIBLE_BRANCH = "review/rate-limit-wiring";
+
+/**
+ * The daemon's answers to the prepare form: a dirty candidate and an incompatible one. Any
+ * other branch is free.
+ */
+export function preparingDaemon(): PrepareOperations {
   return {
-    cloneId: "clone-01",
-    workspaceId: "workspace-sidekicks",
-    cloneRoot: "/Users/dev/.desktopBridge/clones/clone-01",
-    branchName: "run-9f2c1a",
-    state: "ready",
-    cleanupPolicy: "on_run_complete",
-    expiresAt: "2026-01-01T12:00:00.000Z",
-    createdAt: "2026-01-01T09:00:00.000Z",
-    ...overrides,
-  } as EphemeralCloneStatusRecord;
+    checkWorktreeReuse: (_repoMountId, branchName) => {
+      if (branchName === DIRTY_BRANCH) {
+        return Promise.resolve({
+          available: true,
+          worktreeId: "worktree-dirty" as WorktreeId,
+          state: "dirty",
+          branchName,
+          isClean: false,
+          compatible: true,
+        });
+      }
+      if (branchName === INCOMPATIBLE_BRANCH) {
+        return Promise.resolve({
+          available: true,
+          worktreeId: "worktree-other" as WorktreeId,
+          state: "ready",
+          branchName,
+          isClean: true,
+          compatible: false,
+          reason: "That checkout belongs to another workspace.",
+        });
+      }
+      return Promise.resolve({ available: false });
+    },
+    prepareExecutionRoot: () =>
+      Promise.resolve({ executionRoot: "/Users/dev/roots/fresh", state: "ready" }),
+  };
 }

@@ -7,7 +7,7 @@
 // prove, so it is one interaction away and never dropped — secondary controls live one
 // click away, applied to a column set.
 //
-// THE DISCLOSURE IS A NATIVE `<details>`. Keyboard reachable, labelled, and
+// THE DISCLOSURE IS A NATIVE `<details>`. Keyboard reachable, labeled, and
 // focus-visible without a line of code, and — the reason that matters more than the
 // convenience — it holds no state. A card with its own open/closed `useState` would
 // be per-row state beside the session store for a fact the platform already keeps,
@@ -105,9 +105,8 @@ export function WorktreeCard(props: WorktreeCardProps): React.JSX.Element {
         <div className="meridian-root-card__pair">
           <dt>{WORKTREE_COLUMN_LABELS.createdAt}</dt>
           {/*
-            `title` carries the exact stamp beside the console's own reading of it,
-            which is the eight rules' requirement that no formatted figure hides the
-            value the daemon sent.
+            `title` carries the exact stamp beside the console's own reading of it, so
+            no formatted figure hides the value the daemon sent.
           */}
           <dd title={record.createdAt}>
             <DerivedFigure text={formatRelativeTime(record.createdAt, nowMilliseconds)} />

@@ -103,14 +103,13 @@ export interface PrepareFormState {
   /**
    * The dirty candidate this user consented to, or `undefined` for no consent.
    *
-   * AN ID RATHER THAN A BOOLEAN, and the difference is a defect this form used to carry.
-   * A flag records THAT a consent was given and not WHAT it was given for, so the only
-   * thing that could retire one was an edit to the branch TEXT — and the candidate a
-   * branch resolves to is not a function of that text. A lifecycle refresh retires one
-   * dirty checkout and serves another for the same branch, the flag survives untouched
-   * because nothing a person typed changed, and the prepare sends the NEW worktree's id
-   * under a consent read for the old one. Holding the id makes the consent apply to one
-   * tree by construction: a served candidate that is not this one matches nothing.
+   * An id rather than a boolean. A flag records that a consent was given and not what it
+   * was given for, so the only thing that could retire one would be an edit to the branch
+   * text, and the candidate a branch resolves to is not a function of that text. A
+   * lifecycle refresh retires one dirty checkout and serves another for the same branch,
+   * and the prepare would send the new worktree's id under a consent read for the old
+   * one. Holding the id makes the consent apply to one tree by construction: a served
+   * candidate that is not this one matches nothing.
    */
   readonly acknowledgedCandidateId: string | undefined;
 }
@@ -164,31 +163,17 @@ export type PrepareFormVerdict =
 /**
  * Read the reuse half of one prepare reading into the standing a form is read against.
  *
- * A MODE THAT REUSES NOTHING IS ANSWERED, NOT UNANSWERED. An ephemeral clone is minted
- * per run and no check is ever asked for one, so its reading sits at `not-read` forever;
- * treating that as a question in flight would close the clone control permanently.
- *
- * A REFUSED CHECK IS AN ANSWER TOO, and deliberately does not hold the form shut. The
- * refusal is drawn under the field with its own recovery, the check cannot be forced
- * from here, and the prepare's own typed refusal — `worktree.branch_collision` — is the
- * backstop for the collision this guard exists to avoid walking into blind. Blocking on
- * it would close the control for a branch that has no candidate at all, on the strength
- * of an outage in a different call.
+ * Every reading that is not a served verdict is unanswered, and holds the form shut.
  */
 export function prepareReuseStanding(
   reading: ActPrerequisiteReading<ReuseVerdict>,
-  reusesCandidates: boolean,
 ): PrepareReuseStanding {
-  if (!reusesCandidates) {
-    return { answered: true, verdict: NO_REUSE_CANDIDATE };
-  }
   switch (reading.status) {
     case "read":
       return { answered: true, verdict: reading.value };
-    case "refused":
-      return { answered: true, verdict: NO_REUSE_CANDIDATE };
     case "not-read":
     case "reading":
+    case "refused":
       return { answered: false, verdict: NO_REUSE_CANDIDATE };
   }
 }
@@ -199,11 +184,9 @@ export const REUSE_UNANSWERED_COPY =
 
 /** What one disposal is about, and the consequence its confirmation must state. */
 export interface DisposalSubject {
-  /** Which of the two roots this is. Decides which call the act sends. */
-  readonly kind: "worktree" | "ephemeral-clone";
-  /** The root's own id, sent verbatim. */
+  /** The worktree's own id, sent verbatim. */
   readonly rootId: string;
-  /** What the person is agreeing to. Different for the two kinds, so it is not shared. */
+  /** What the person is agreeing to. */
   readonly consequence: string;
 }
 
@@ -214,7 +197,7 @@ export interface DisposalSubject {
  * difference is the caller: `branchName` is optional on `ExecutionRootPrepareRequest`
  * because a prepare made by a RUN can derive one, and a prepare made from this surface
  * is pre-run by definition and has nothing to derive it from. Sending without one
- * takes `workspace.branch_name_required`, which is a refusal a person cannot act on
+ * is rejected with `workspace.branch_name_required`, which a person cannot act on
  * without being told what to type.
  *
  * THE LENGTH IS THE CONTRACT'S OWN AND IS MEASURED IN CODE UNITS, exactly as the attach
@@ -223,11 +206,10 @@ export interface DisposalSubject {
  * text because that is what the request carries. Both prepare requests bound the member,
  * so without it the control is open onto a schema failure naming a member path.
  *
- * AN UNANSWERED CHECK HOLDS THE CONTROL SHUT, which is the guard the `reading` state
- * used to be missing: it folded into a no-candidate verdict, the form was sendable the
- * instant a branch was typed, and a prepare sent inside the debounce window omitted
- * `reuseWorktreeId` for a branch that had a candidate — an implicit collision the daemon
- * refuses, which can leave the workspace `stale`.
+ * AN UNANSWERED CHECK HOLDS THE CONTROL SHUT. Folded into a no-candidate verdict, the form
+ * would be sendable the instant a branch was typed, and a prepare sent inside the debounce
+ * window would omit `reuseWorktreeId` for a branch that had a candidate — an implicit
+ * collision the daemon refuses, which can leave the workspace `stale`.
  *
  * THE CONSENT IS CHECKED AGAINST THE VERDICT AND NOT AGAINST ITSELF, because a
  * consent given for a candidate that is no longer dirty is a consent to nothing — and
@@ -288,32 +270,16 @@ export function prepareAcknowledgement(form: PrepareFormState, verdict: ReuseVer
 }
 
 /**
- * The consequence sentence for each kind of root, stated as the daemon models it.
+ * The consequence sentence a retirement states.
  *
- * THE TWO ARE NOT THE SAME ACT AND DO NOT SHARE A SENTENCE. Retiring a worktree
- * RECORDS a transition — the row and its event land before any disk mutation and the
- * sweep stamps the cleanup afterwards — so files on disk after a retire is an ordinary
- * state rather than a failure. Disposing a clone is the terminal a clone reaches
- * anyway under `on_run_complete`, so the sentence must not imply the clone would have
- * survived; what disposal changes is WHEN.
- *
- * BOTH SENTENCES ARE RECORDED-THEN-CLEANED, AND THE CLONE'S USED NOT TO BE. It said the
- * files were already gone, and they are not: `EphemeralCloneDisposeResponse.state` is
- * the single literal `retired` and carries no cleanup instant, because dispose records
- * the transition and the sweep removes the disk afterwards — that ordering, which
- * this method shares with retire. A consequence claiming the bytes are gone is the
- * renderer answering a question the daemon deliberately did not, on the one screen
- * where a person is agreeing to it, and it makes the ordinary post-dispose state — a
- * disposed clone whose files are still there — read as a failure.
+ * Retiring a worktree RECORDS a transition — the row and its event land before any disk
+ * mutation and the sweep stamps the cleanup afterwards — so files on disk after a retire
+ * is an ordinary state rather than a failure.
  */
-export const DISPOSAL_CONSEQUENCE: Readonly<Record<DisposalSubject["kind"], string>> = {
-  worktree:
-    "The root is recorded retired now; its files are removed by the cleanup sweep afterwards, so a retired root with files still on disk is an ordinary state. Anything uncommitted in that tree goes with them.",
-  "ephemeral-clone":
-    "The clone is recorded disposed now rather than at its deadline; its files are removed by the cleanup sweep afterwards, so a disposed clone with files still on disk is an ordinary state. Anything uncommitted in that tree goes with them, and the clone would have reached this same terminal on its own.",
-};
+export const DISPOSAL_CONSEQUENCE: string =
+  "The root is recorded retired now; its files are removed by the cleanup sweep afterwards, so a retired root with files still on disk is an ordinary state. Anything uncommitted in that tree goes with them.";
 
-/** Build one disposal subject, with the consequence its kind carries. */
-export function disposalSubjectFor(kind: DisposalSubject["kind"], rootId: string): DisposalSubject {
-  return { kind, rootId, consequence: DISPOSAL_CONSEQUENCE[kind] };
+/** Build one disposal subject, with the consequence a retirement carries. */
+export function disposalSubjectFor(rootId: string): DisposalSubject {
+  return { rootId, consequence: DISPOSAL_CONSEQUENCE };
 }

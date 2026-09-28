@@ -1,95 +1,54 @@
-// Retiring a worktree, or disposing an ephemeral clone, with what it costs stated first.
+// Retiring a worktree, with what it costs stated first.
 //
-// THE STRONGEST INTERACTION ON THIS SCREEN, and it is built as one. An alert dialog
-// rather than a button: it traps focus, it does not dismiss on an outside press, and
-// its description is the consequence for THIS kind of root rather than a generic
-// warning — which is the whole difference between a confirmation and a speed bump.
+// The strongest interaction on this screen, and it is built as one. An alert dialog rather
+// than a button: it traps focus, it does not dismiss on an outside press, and its
+// description is the consequence of retiring rather than a generic warning.
 //
-// ONE COMPONENT FOR BOTH KINDS, because the interaction is identical and only the
-// sentence and the call differ. Two components would be two copies of one dialog with
-// one word changed, and the word that changed is the one a person is consenting to.
+// The consequence comes from the model and is not written here.
 //
-// THE CONSEQUENCE COMES FROM THE MODEL AND IS NOT WRITTEN HERE. `root-act-model.ts`
-// holds both sentences and states why they are two: a retire RECORDS a transition and
-// the sweep removes files afterwards, while a clone disposal brings forward a terminal
-// the clone reaches anyway. A component that composed its own sentence would be the
-// second place either claim is made.
+// The settlement renders on the card, outside the popup, on `ReattachControl`'s reasoning:
+// the confirm control closes the dialog, so anything drawn inside it is drawn into a popup
+// that is already gone.
 //
-// AND THE SETTLEMENT RENDERS ON THE CARD, OUTSIDE THE POPUP, on `ReattachControl`'s
-// reasoning: the confirm control closes the dialog, so anything drawn inside it is
-// drawn into a popup that is already gone — and `worktree.retire_conflict`, the refusal
-// a root held by a live run takes, would be silent.
-//
-// WHICH IS ALSO WHY THE DISCARD RULE IS NOT THIS MODULE'S. That same close reaches
+// That is also why the discard rule is not this module's. The same close reaches
 // `onOpenChange`, so a discard keyed on it takes back the `sending` the press had just
 // published; `confirmation/confirmation-lifecycle.ts` holds the two moments a discard
-// belongs to, and this file wires them rather than restating them.
+// belongs to, and this file wires them.
 
 import { AlertDialog } from "@base-ui/react/alert-dialog";
 
 import type { ConsoleBridge } from "../../../bridge/index.js";
-import {
-  useShellBlockFor,
-  type FrameStore,
-  type MutatingDaemonMethod,
-} from "../../../store/index.js";
-import {
-  InlineRefusal,
-  Nothing,
-  OverlayAlertDialogPopup,
-  RefusalRecovery,
-} from "../../../primitives/index.js";
+import { Nothing, OverlayAlertDialogPopup } from "../../../primitives/index.js";
 import { useConfirmationLifecycle } from "../confirmation/index.js";
-import { mountRefusalRecovery } from "../mount-refusal-copy.js";
-import { useRootDisposal, type DisposalReading } from "./disposal-controller.js";
-import { disposalSubjectFor, type DisposalSubject } from "./root-act-model.js";
+import {
+  useRootDisposal,
+  type DisposalOperations,
+  type DisposalReading,
+} from "./disposal-controller.js";
+import { disposalSubjectFor } from "./root-act-model.js";
 
-/** What the control says, per kind. The verb is the daemon's, not a softened one. */
-const DISPOSAL_VERB: Readonly<Record<DisposalSubject["kind"], string>> = {
-  worktree: "Retire this root",
-  "ephemeral-clone": "Dispose of this clone",
-};
+/** What the control says. The verb is the daemon's, not a softened one. */
+const DISPOSAL_VERB = "Retire this root";
 
-/**
- * The daemon method each kind's confirm sends. Beside the two copy tables because it is
- * the same per-kind split they are, and because the shell read has to follow the
- * dispatch: a retire held open while a clone disposal is closed is a state the wire can
- * reach, and one read for both kinds could not express it.
- */
-// The two record methods this confirmation dispatches, TYPED against the roster rather
-// than spelled inline. `useShellBlockFor` takes a `string` — it has to, since it answers
-// `undefined` for every read method — so a misspelled verb is not a compile error but a
-// control that stays live through an outage and says nothing.
-const DISPOSAL_METHODS: Readonly<Record<DisposalSubject["kind"], MutatingDaemonMethod>> = {
-  worktree: "repo.worktreeRetire",
-  "ephemeral-clone": "repo.ephemeralCloneDispose",
-};
+/** The question the confirmation asks. */
+const DISPOSAL_QUESTION = "Retire this execution root?";
 
-/** The question the confirmation asks, per kind. */
-const DISPOSAL_QUESTION: Readonly<Record<DisposalSubject["kind"], string>> = {
-  worktree: "Retire this execution root?",
-  "ephemeral-clone": "Dispose of this clone now?",
-};
-
+/** What the retire confirmation is bound to: one worktree, and the call it sends. */
 export interface RootDisposalConfirmationProps {
   readonly bridge: ConsoleBridge;
-  readonly kind: DisposalSubject["kind"];
-  /** The root's own id. Sent verbatim; nothing about it is re-derived here. */
+  /** The retire this confirmation sends. */
+  readonly operations: DisposalOperations;
+  /** The worktree's own id. Sent verbatim; nothing about it is re-derived here. */
   readonly rootId: string;
-  /** The window's own shell condition, read here for the one method this kind sends. */
-  readonly frameStore: FrameStore;
   /** Read the section again, so the root's new state reaches the list it is drawn in. */
   readonly onSettled: () => void;
 }
 
+/** The alert dialog that retires one worktree after stating what the retirement costs. */
 export function RootDisposalConfirmation(props: RootDisposalConfirmationProps): React.JSX.Element {
-  const subject = disposalSubjectFor(props.kind, props.rootId);
-  const { reading, send, clear } = useRootDisposal(props.bridge, subject);
+  const subject = disposalSubjectFor(props.rootId);
+  const { reading, send, clear } = useRootDisposal(props.bridge, subject, props.operations);
   const { onSettled } = props;
-  // PER KIND, BECAUSE THE TWO KINDS SEND TWO METHODS. One component serves both acts,
-  // so the read follows the same table the dispatch does rather than picking one verb
-  // and spending its answer on the other.
-  const shellBlock = useShellBlockFor(props.frameStore, DISPOSAL_METHODS[props.kind]);
   // The settlement belonged to the press that produced it, so a reconsideration of the
   // question discards it and a walk away discards it — and the confirm press, which
   // closes this dialog on its way to publishing the next one, discards nothing.
@@ -100,13 +59,10 @@ export function RootDisposalConfirmation(props: RootDisposalConfirmationProps): 
       <AlertDialog.Root onOpenChange={lifecycle.openChanged}>
         <AlertDialog.Trigger
           className="meridian-root-disposal__trigger"
-          // `disabled` for this control's own in-flight act, `aria-disabled` for the
-          // supervisor — `ReattachControl`'s header states why the two are not one.
           disabled={reading.status === "sending"}
-          aria-disabled={shellBlock !== undefined}
-          aria-label={`${DISPOSAL_VERB[props.kind]} ${props.rootId}`}
+          aria-label={`${DISPOSAL_VERB} ${props.rootId}`}
         >
-          {DISPOSAL_VERB[props.kind]}
+          {DISPOSAL_VERB}
         </AlertDialog.Trigger>
         {/* The popup shell is the primitive's, which is what puts this confirmation in
             the window's airspace: a native browser-pane view yields to what is
@@ -117,7 +73,7 @@ export function RootDisposalConfirmation(props: RootDisposalConfirmationProps): 
           className="meridian-root-disposal__dialog"
         >
           <AlertDialog.Title className="meridian-root-disposal__title">
-            {DISPOSAL_QUESTION[props.kind]}
+            {DISPOSAL_QUESTION}
           </AlertDialog.Title>
           <AlertDialog.Description className="meridian-root-disposal__body">
             {subject.consequence}
@@ -135,19 +91,11 @@ export function RootDisposalConfirmation(props: RootDisposalConfirmationProps): 
                 send();
               }}
             >
-              {DISPOSAL_VERB[props.kind]}
+              {DISPOSAL_VERB}
             </AlertDialog.Close>
           </div>
         </OverlayAlertDialogPopup>
       </AlertDialog.Root>
-      {shellBlock === undefined ? null : (
-        // Before the press rather than after it: the door refuses the confirm with this
-        // same code, but a consent given to a disposal that cannot happen is a consent
-        // this surface should never have collected.
-        <p className="meridian-root-disposal__closed" role="status">
-          {shellBlock.detail}
-        </p>
-      )}
       {renderSettlement(reading, onSettled)}
     </div>
   );
@@ -156,10 +104,10 @@ export function RootDisposalConfirmation(props: RootDisposalConfirmationProps): 
 /**
  * What the disposal did, drawn beside the root it was about.
  *
- * THE SETTLED ARM CARRIES THE STATE THE WIRE SENT AND NOT A SENTENCE ABOUT DISK. Both
- * replies answer `retired` and neither carries a cleanup instant — that lands on the
- * status read afterwards — so a line here claiming the files are gone would be the
- * renderer answering a question the daemon deliberately did not.
+ * The settled arm carries the state the wire sent and not a sentence about disk. The reply
+ * answers `retired` and carries no cleanup instant, which lands on the status read
+ * afterwards, so a line here claiming the files are gone would answer a question the
+ * daemon did not.
  */
 function renderSettlement(
   reading: DisposalReading,
@@ -170,16 +118,6 @@ function renderSettlement(
       return null;
     case "sending":
       return <Nothing kind="computing" title="Sending." />;
-    case "refused": {
-      const recovery = mountRefusalRecovery(reading.refusal.code);
-      return (
-        <InlineRefusal
-          code={reading.refusal.code}
-          detail={reading.refusal.detail}
-          action={recovery === undefined ? undefined : <RefusalRecovery recovery={recovery} />}
-        />
-      );
-    }
     case "settled":
       return (
         <p className="meridian-root-disposal__settled" role="status">

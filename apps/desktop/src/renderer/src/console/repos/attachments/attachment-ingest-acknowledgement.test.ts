@@ -1,17 +1,16 @@
 // What one chunk acknowledgement establishes, driven directly rather than through the
 // protocol that consumes it.
 //
-// The rule this module carries from its old home is that a base64 length is never
-// charted as progress: 300 decoded bytes encode to 400 characters, so a total charted
-// from the encoded string drives past a bound the caller itself declared, which is
-// impossible for a decoded count. The cases below drive THAT function — not a copy of
-// its arithmetic — and the negative control is the same call with a lawful total, which
-// must fire nothing.
+// The rule this module carries is that a base64 length is never charted as progress: 300
+// decoded bytes encode to 400 characters, so a total charted from the encoded string
+// drives past a bound the caller itself declared, which is impossible for a decoded
+// count. The cases below drive THAT function — not a copy of its arithmetic — and the
+// negative control is the same call with a lawful total, which must fire nothing.
 //
-// The three unusable arms are the new claim, and each is a fact about the reply rather
-// than about its status: no total at all, a total for another stream, and a total that
-// did not advance. The last is also what makes the chunk loop terminate — the ledger IS
-// the offset — so it is asserted here and again against the real loop next door.
+// The two unusable arms are each a fact about the reply rather than about its status: a
+// total for another stream, and a total that did not advance. The last is also what
+// makes the chunk loop terminate — the ledger IS the offset — so it is asserted here and
+// again against the real loop next door.
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -99,13 +98,6 @@ describe("chunk acknowledgement — the offset is the daemon's", () => {
       ingestId: INGEST_ID,
       receivedBytes: 128,
     });
-    expect(reading.status).toBe("unusable");
-  });
-
-  it("refuses a served reply that carries no acknowledgement at all", () => {
-    // The declared type does not make this impossible: the live port is one process
-    // boundary away, so what arrives is whatever was sent.
-    const reading = readChunkAcknowledgement(entryDeclaring(300), INGEST_ID, undefined);
     expect(reading.status).toBe("unusable");
   });
 

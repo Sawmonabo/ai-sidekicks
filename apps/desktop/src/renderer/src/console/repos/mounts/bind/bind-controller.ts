@@ -1,27 +1,21 @@
 // Binding a workspace on one mount: the pre-bind read, the act, and what each publishes.
 //
-// TWO WIRES AND ONE SURFACE, on `attach/attach-controller.ts`'s shape and for its
-// reason: the form cannot offer a mode until the mount-scoped capabilities read has
-// answered, and that read can be refused while the form is still perfectly fillable.
-// Collapsing the two would report a capabilities outage as a bind failure.
+// Two calls and one surface: the form cannot offer a mode until the mount-scoped
+// capabilities read has answered, and the two are asked and published separately.
 //
-// THE READ IS MADE WHEN THE DIALOG OPENS AND NOT WHEN THE CARD MOUNTS. A session with
-// six mounts would otherwise put six pre-bind reads on the wire for a person who is not
-// binding anything, and every one of them is a question about a workspace that does not
-// exist yet.
+// The read is made when the dialog opens and not when the card mounts. A session with six
+// mounts would otherwise put six pre-bind reads on the wire for a person who is not binding
+// anything.
 //
-// WHAT A MOUNT ADMITS CHANGES WHEN THE MOUNT DOES, which is why the census this reading
-// declares is this family's own rather than a list written in this module.
+// What a mount admits changes when the mount does, which is why the frames this reading
+// re-asks on are this family's own census rather than a list written in this module.
 //
-// THE SETTLEMENT IS PUBLISHED ON BOTH ARMS. A writable bind answers `provisioning` with
-// no root at all — the execution root does not exist yet — and a `read-only` bind
-// answers with its root on the same reply. Both are settlements a person reads, and a
-// dialog that closed on the press would report the refusal as a success.
+// A writable bind answers `provisioning` with no root at all, because the execution root
+// does not exist yet, and a `read-only` bind answers with its root on the same reply. Both
+// are settlements a person reads.
 //
-// EVERYTHING ELSE IS `store/act/act-controller-base.ts`'S, on the attach controller's note:
-// the scheduler, the triggers, the arms, the single-flight guard, the disposed latch,
-// and the six members a surface reads them by were written three times in this
-// directory and are now written once.
+// Everything else is the store's act controller: the scheduler, the triggers, the act arms,
+// the single-flight guard, the disposed latch, and the members a surface reads them by.
 
 import { useCallback, useMemo } from "react";
 
@@ -42,11 +36,7 @@ import {
   type SessionStore,
 } from "../../../store/index.js";
 import { REPO_LIFECYCLE_EVENT_KINDS } from "../../repo-lifecycle-events.js";
-import {
-  bindWorkspace,
-  readMountExecutionModeCapabilities,
-  REPO_READS_REFUSAL_ORIGIN,
-} from "../../repo-reads.js";
+import { REPO_REFUSAL_ORIGIN, type RepoOperations } from "../../repo-operations.js";
 
 /** What a finished bind carries: the workspace the daemon bound, in whatever state. */
 export interface BindSettlement {
@@ -62,7 +52,7 @@ export type BindReading = ActReading<
 
 /** What one bind controller is scoped to: a mount, its session, and the clock. */
 export interface BindControllerOptions {
-  readonly bridge: ConsoleBridge;
+  readonly operations: BindOperations;
   readonly repoMountId: string;
   /** The session whose reconnect edge and repo frames re-ask the pre-bind question. */
   readonly sessionStore: SessionStore;
@@ -70,20 +60,22 @@ export interface BindControllerOptions {
   readonly clock: ConsoleClock;
 }
 
+/** The two calls this controller makes. */
+type BindOperations = Pick<RepoOperations, "bindWorkspace" | "readMountExecutionModes">;
+
 /**
  * The pre-bind question, named once.
  *
- * A CONSTANT for the roster question's reason: there is one of it per controller, and
- * the controller is already scoped to the mount it asks about. Its stability is what
- * keeps a reopened dialog off the wire.
+ * A CONSTANT because there is one question per controller, and the controller is already
+ * scoped to the mount it asks about. Its stability is what keeps a reopened dialog off the
+ * wire.
  */
 const CAPABILITIES_QUESTION = "capabilities";
 
-/** What the hook hands a surface: the reading, and the four things it can ask for. */
+/** What the hook hands a surface: the reading, and the three things it can ask for. */
 export interface BindBinding {
   readonly reading: BindReading;
   readonly requestCapabilities: () => void;
-  readonly retryCapabilities: () => void;
   readonly bind: (executionMode: ExecutionMode, directory: string | undefined) => void;
   readonly clearAct: () => void;
 }
@@ -93,7 +85,7 @@ export class BindWorkspaceController extends ActSurfaceController<
   WorkspaceExecutionModeCapabilitiesReadResponse,
   BindSettlement
 > {
-  readonly #bridge: ConsoleBridge;
+  readonly #operations: BindOperations;
   readonly #repoMountId: string;
 
   public constructor(options: BindControllerOptions) {
@@ -103,9 +95,9 @@ export class BindWorkspaceController extends ActSurfaceController<
       sessionStore: options.sessionStore,
       // The frames that change what a mount admits. This family's own census.
       triggeringEventKinds: new Set<string>(REPO_LIFECYCLE_EVENT_KINDS),
-      refusalOrigin: REPO_READS_REFUSAL_ORIGIN,
+      refusalOrigin: REPO_REFUSAL_ORIGIN,
     });
-    this.#bridge = options.bridge;
+    this.#operations = options.operations;
     this.#repoMountId = options.repoMountId;
   }
 
@@ -119,27 +111,24 @@ export class BindWorkspaceController extends ActSurfaceController<
     this.askPrerequisite(CAPABILITIES_QUESTION, "subscribe");
   }
 
-  /** Ask again after a refused read. The user-driven one of the four. */
-  public retryCapabilities(): void {
-    this.retryPrerequisite();
-  }
-
   /**
    * Send one bind, and publish what came back.
    *
-   * REFUSES TO OVERLAP ITSELF, on the attach controller's reason: a second press while
-   * one bind is on the wire binds a second workspace for one intent.
+   * Does not overlap itself: a second press while one bind is on the wire would bind a
+   * second workspace for one intent.
    */
   public async bind(executionMode: ExecutionMode, directory: string | undefined): Promise<void> {
     await this.sendAct(
-      async () =>
-        await bindWorkspace(this.#bridge, {
+      async () => ({
+        status: "served" as const,
+        value: await this.#operations.bindWorkspace({
           repoMountId: this.#repoMountId as RepoMountId,
           executionMode,
-          // OMITTED AND NOT EMPTIED. The absent member means the mount root; an empty
+          // Omitted and not emptied. The absent member means the mount root; an empty
           // string is a path of no characters, which the parser refuses.
           ...(directory === undefined ? {} : { directory }),
         }),
+      }),
       (response: WorkspaceBindResponse) => ({ status: "bound" as const, response }),
     );
   }
@@ -147,19 +136,21 @@ export class BindWorkspaceController extends ActSurfaceController<
   /**
    * The pre-bind capabilities call, asked for the mount this controller is scoped to.
    *
-   * The round's signal goes straight to the call door: a dialog closed while this read
-   * is on the wire drops the reply there, unparsed, rather than folding an answer for
-   * a form nobody is filling in.
+   * The round's signal goes straight to the call, so a dialog closed while this read is
+   * on the wire drops the reply rather than folding an answer for a form nobody is
+   * filling in.
    */
   protected override async readPrerequisite(
     _question: string,
     signal: AbortSignal,
   ): Promise<ActOutcome<WorkspaceExecutionModeCapabilitiesReadResponse>> {
-    return await readMountExecutionModeCapabilities(
-      this.#bridge,
-      this.#repoMountId as RepoMountId,
-      signal,
-    );
+    return {
+      status: "served",
+      value: await this.#operations.readMountExecutionModes(
+        this.#repoMountId as RepoMountId,
+        signal,
+      ),
+    };
   }
 }
 
@@ -172,21 +163,19 @@ export function useBindController(
   bridge: ConsoleBridge,
   repoMountId: string,
   sessionStore: SessionStore,
+  operations: BindOperations,
 ): BindBinding {
-  // One window, one time base, memoised so a fresh clock per render does not re-mint
+  // One window, one time base, memoized so a fresh clock per render does not re-mint
   // the controller beneath it.
   const clock = useMemo(() => consoleClockFor(bridge), [bridge]);
   const { controller, reading } = useActController(
     bridge,
     repoMountId,
     sessionStore,
-    () => new BindWorkspaceController({ bridge, repoMountId, sessionStore, clock }),
+    () => new BindWorkspaceController({ operations, repoMountId, sessionStore, clock }),
   );
   const requestCapabilities = useCallback(() => {
     controller.requestCapabilities();
-  }, [controller]);
-  const retryCapabilities = useCallback(() => {
-    controller.retryCapabilities();
   }, [controller]);
   const bind = useCallback(
     (executionMode: ExecutionMode, directory: string | undefined) => {
@@ -197,5 +186,5 @@ export function useBindController(
   const clearAct = useCallback(() => {
     controller.clearAct();
   }, [controller]);
-  return { reading, requestCapabilities, retryCapabilities, bind, clearAct };
+  return { reading, requestCapabilities, bind, clearAct };
 }

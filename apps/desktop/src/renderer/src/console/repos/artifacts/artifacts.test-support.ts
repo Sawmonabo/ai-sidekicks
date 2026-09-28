@@ -1,31 +1,27 @@
-// The one manifest row all three artifact suites are drawn against, and the served
-// summary it is READ from.
-//
-// Written three times before this module existed — byte-identical in
-// `ArtifactsPanel.test.tsx`, `ArtifactsPanel.acts.test.tsx` and `artifact-model.test.ts`
-// — so a member the wire added had to be added three times, and nothing failed when it
-// was added once. A shared helper is hoisted on the second use.
+// The one manifest row the artifacts suites are drawn against, and the served summary it is
+// read from. One module for both, so the suites share one fixture.
 
-import {
-  REPOS_IMPLEMENTER_RUN_ID,
-  REPOS_SESSION_ID,
-  REPOS_CALLER_USER_ID,
-} from "../../bridge/scenario/repos/repos.js";
 import type { GrowthArtifactSummary } from "../../bridge/index.js";
+import { SESSION_ID } from "../artifact-pane/artifact-pane.test-support.js";
 import type { ArtifactManifestRow } from "./artifact-model.js";
 
-/** One published, local-only file artifact, with whatever a case cares about replaced. */
+// The run every row here is drawn as coming from. The session is the one the artifact-pane
+// suites read.
+const ARTIFACT_RUN_ID = "019b7b30-0280-7c11-8420-b1a5c0de2202";
+/** The producer every row here is drawn as coming from. */
+export const ARTIFACT_PRODUCER_ID = "019b7b30-0280-7c11-8420-b1a5c0de2203";
+
+/** One published file artifact, with whatever a case cares about replaced. */
 export function artifactRow(overrides: Partial<ArtifactManifestRow> = {}): ArtifactManifestRow {
   return {
     id: "artifact-01",
-    sessionId: REPOS_SESSION_ID,
-    runId: REPOS_IMPLEMENTER_RUN_ID,
-    createdBy: REPOS_CALLER_USER_ID,
+    sessionId: SESSION_ID,
+    runId: ARTIFACT_RUN_ID,
+    createdBy: ARTIFACT_PRODUCER_ID,
     artifactType: "file",
     digest: "sha256:3b1f0c",
     size: 4096,
     annotations: {},
-    visibility: "local-only",
     state: "published",
     metadata: {},
     createdAt: "2026-01-01T09:00:00.000Z",
@@ -51,9 +47,9 @@ export function artifactSummary(
 ): GrowthArtifactSummary {
   return {
     artifactId: "artifact-01",
-    sessionId: REPOS_SESSION_ID,
-    runId: REPOS_IMPLEMENTER_RUN_ID,
-    createdBy: REPOS_CALLER_USER_ID,
+    sessionId: SESSION_ID,
+    runId: ARTIFACT_RUN_ID,
+    createdBy: ARTIFACT_PRODUCER_ID,
     artifactType: "file",
     digest: "sha256:3b1f0c",
     size: 4096,

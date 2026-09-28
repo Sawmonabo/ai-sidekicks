@@ -12,7 +12,6 @@ import { describe, expect, it, vi } from "vitest";
 
 import { ExecutionModePicker } from "./ExecutionModePicker.js";
 import { workspaceControlPosture, type WorkspaceControlPosture } from "./mount-health.js";
-import { quietShell } from "../../store/shell-condition.test-support.js";
 
 /** The two postures a card hands down, composed through the real predicate. */
 const CONTROLS_LIVE: WorkspaceControlPosture = workspaceControlPosture(
@@ -52,11 +51,8 @@ function renderPicker(
       workspaceId="workspace-1"
       currentMode="read-only"
       capabilities={capabilities}
-      refusal={undefined}
-      refusalMode={undefined}
       pendingMode={undefined}
       posture={CONTROLS_LIVE}
-      frameStore={quietShell()}
       onSelect={() => undefined}
       {...overrides}
     />,
@@ -129,24 +125,11 @@ describe("ExecutionModePicker — default is not current", () => {
   });
 });
 
-describe("ExecutionModePicker — refusals and absences", () => {
+describe("ExecutionModePicker — absences and holds", () => {
   it("says nobody asked when there is no reply, rather than showing no modes", () => {
     const { container } = renderPicker(undefined);
     expect(container.querySelector(".meridian-nothing--not-checked")).not.toBeNull();
     expect(container.querySelectorAll("input[type=radio]")).toHaveLength(0);
-  });
-
-  it("renders the daemon's refusal beside the control, leaving the control in place", () => {
-    const { container, getByText } = renderPicker(GIT_CAPABILITIES, {
-      refusal: {
-        code: "workspace.mode_unsupported",
-        detail: "worktree is unavailable while the workspace is stale",
-        origin: "repos",
-      },
-    });
-    expect(getByText("workspace.mode_unsupported")).toBeDefined();
-    // Rule 9: a refusal never hides the control that produced it.
-    expect(container.querySelectorAll("input[type=radio]")).toHaveLength(4);
   });
 
   it("sends exactly one selection per change, and never one of its own", () => {
@@ -166,7 +149,7 @@ describe("ExecutionModePicker — refusals and absences", () => {
     expect(container.querySelector("fieldset")?.disabled).toBe(true);
     // AND SAYS WHY. A disabled `fieldset` paints nothing that explains itself, so a
     // group that only asserted `disabled` here would pass against the picker that
-    // shipped before this line existed: every row greyed and no sentence anywhere.
+    // shipped before this line existed: every row grayed and no sentence anywhere.
     expect(getByRole("status").textContent).toBe("This mount is no longer reachable.");
   });
 });
@@ -190,7 +173,7 @@ describe("ExecutionModePicker — a switch the daemon has not answered", () => {
     // inputs' own `disabled` property here would assert the opposite of what ships,
     // since that property reflects each input's own attribute and never the group's.
     expect(container.querySelector("fieldset")?.disabled).toBe(true);
-    // NAMED, not merely greyed: the rows go on showing the mode the workspace is bound
+    // NAMED, not merely grayed: the rows go on showing the mode the workspace is bound
     // as now, so a group that only disabled itself would report nothing about what was
     // pressed.
     expect(getByRole("status").textContent).toContain("Switching to");

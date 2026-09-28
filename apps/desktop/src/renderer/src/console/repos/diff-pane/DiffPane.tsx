@@ -1,4 +1,4 @@
-// The diff pane: a change set, the form that asks for one, or an honest absence.
+// The diff pane: a change set, or an honest absence.
 //
 // THE PANE'S FRAME IS NOT THIS MODULE'S. `seats/ConsolePaneChrome` draws the section,
 // the kind glyph, the breadcrumb, the control strip, and the body box for every pane
@@ -7,16 +7,12 @@
 // there, which is why none of them is set here and why the pane is named by its whole
 // address trail rather than by the word "Diff".
 //
-// WHAT THIS FILE DECIDES IS WHICH OF THREE BODIES THE ADDRESS ADMITS, and nothing more.
-// A diff is minted over a run or over a workspace — `create/diff-create-subject.ts` is
-// where that mapping lives — so two of the five subjects a diff pane opens over can ask
-// for one and three cannot. The pane resolves the subject, hands the create surface the
-// absence copy for it, and draws that copy alone where no subject resolves.
+// WHAT THIS FILE DECIDES IS WHICH OF TWO BODIES THE PANE DRAWS: the change set it was
+// handed, or the absence copy for the subject the address names.
 
 import { Nothing } from "../../primitives/index.js";
 import { ConsolePaneChrome, type PaneContextOf } from "../../seats/index.js";
 import { DiffChangeSet } from "./DiffChangeSet.js";
-import { DiffCreateSurface, diffCreateSubjectFor } from "./create/index.js";
 import { type ConsoleDiffModel } from "./diff-model.js";
 
 /**
@@ -46,16 +42,7 @@ type DiffSubjectKind = DiffPaneContext["entity"]["kind"];
  * ONE ENTRY PER KIND, and the totality is the point: a single sentence written for a
  * working tree would tell a person looking at a REPOSITORY that their checkout is
  * unchanged, which is a claim about a workspace this pane was never opened over. Each
- * sentence says what that subject's changes would be and that nothing was asked, and
- * none of them renders blank.
- *
- * TWO OF THE FOUR CARRY A FORM UNDER THIS COPY and two do not, which is the mint's
- * own keying rather than a product choice: `DiffArtifactCreateRequest` is keyed by a
- * run or by a workspace, a worktree resolves to the run that provisioned it, and a
- * repository and the user row resolve to neither. For those two the copy stands
- * alone — what a repository's or the user's changes MEAN is that family's question
- * and not this one's, and what this pane owes either of them is an honest absence
- * rather than an empty region.
+ * sentence says that nothing was asked, and none of them renders blank.
  */
 const ABSENT_DIFF_COPY: Readonly<
   Record<DiffSubjectKind, { readonly title: string; readonly detail: string }>
@@ -63,12 +50,12 @@ const ABSENT_DIFF_COPY: Readonly<
   workspace: {
     title: "No diff has been asked for.",
     detail:
-      "A diff names two states and the run or workspace it is attributed to. None has been requested for this workspace, so the console is not reporting that nothing changed.",
+      "None has been requested for this workspace, so the console is not reporting that nothing changed.",
   },
   worktree: {
     title: "No diff has been asked for.",
     detail:
-      "A diff names two states and the run or workspace it is attributed to. None has been requested for this execution root, so the console is not reporting that nothing changed.",
+      "None has been requested for this execution root, so the console is not reporting that nothing changed.",
   },
   repo: {
     title: "A repository's changes are not read here yet.",
@@ -85,26 +72,20 @@ const ABSENT_DIFF_COPY: Readonly<
 export interface DiffPaneProps {
   readonly context: DiffPaneContext;
   /**
-   * A change set to render instead of asking for one.
-   *
-   * THE PROP SURVIVES THE CREATE SURFACE and is not replaced by it: a caller that
-   * already holds a model — a layout composed around one, a tier measuring the renderer
-   * — hands it over and the pane draws it, which is a different question from where a
-   * pane that holds none gets one.
+   * A change set to render. A caller that already holds a model — a layout composed
+   * around one, a tier measuring the renderer — hands it over and the pane draws it.
    */
   readonly diff?: ConsoleDiffModel;
 }
 
 export function DiffPane(props: DiffPaneProps): React.JSX.Element {
   const { context, diff } = props;
-  const { sessionStore } = context;
   const absence = ABSENT_DIFF_COPY[context.entity.kind];
-  const subject = diffCreateSubjectFor(context.entity, sessionStore?.sessionId);
 
   return (
     <ConsolePaneChrome
       kind="diff"
-      sessionId={sessionStore?.sessionId}
+      sessionId={context.sessionStore?.sessionId}
       // Unconditional: a diff address carries its entity, so the arm this body is
       // narrowed to has no shape in which the subject is absent. The trail renders the
       // id wire-verbatim, which is what the pane's own subject line used to say — and
@@ -115,19 +96,6 @@ export function DiffPane(props: DiffPaneProps): React.JSX.Element {
     >
       {diff !== undefined ? (
         <DiffChangeSet diff={diff} />
-      ) : subject !== undefined && sessionStore !== undefined ? (
-        // THE STORE IS PART OF THE GATE AND NOT ONLY THE SUBJECT. Resolving what a diff
-        // is attributed to is a read that arms refresh triggers on a session store, so a
-        // pane opened on a bare route has nowhere to arm them — and the subject
-        // resolution above is about the WIRE's two keys, which is a different question
-        // from whether this window has a session to ask through.
-        <DiffCreateSurface
-          bridge={context.bridge}
-          subject={subject}
-          sessionStore={sessionStore}
-          absence={absence}
-          renderChangeSet={(created) => <DiffChangeSet diff={created} />}
-        />
       ) : (
         <div className="meridian-diff-pane__absence">
           <Nothing

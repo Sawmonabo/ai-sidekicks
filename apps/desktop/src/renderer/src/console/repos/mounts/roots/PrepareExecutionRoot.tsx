@@ -26,9 +26,9 @@
 // control closes and the sentence says what to do instead — a different branch, or
 // retire the root first.
 //
-// IT IS COLLAPSED, on the gate disclosure's posture: preparing a root ahead of a run is
-// deliberate and infrequent, and an open form on every workspace card would put four
-// controls on a surface whose subject is what the session already holds.
+// IT IS COLLAPSED: preparing a root ahead of a run is deliberate and infrequent, and an
+// open form on every workspace card would put four controls on a surface whose subject is
+// what the session already holds.
 //
 // AND IT IS HELD BY THE SAME POSTURE THE MODE PICKER IS. A prepare IS a bind, so a
 // mount that refuses every bind refuses this one, and the mode a prepare is read off is
@@ -43,18 +43,11 @@ import { useCallback } from "react";
 import type { ExecutionMode } from "@ai-sidekicks/contracts";
 
 import type { ConsoleBridge } from "../../../bridge/index.js";
-import { InlineRefusal, Nothing, RefusalRecovery, WireFigure } from "../../../primitives/index.js";
-import {
-  useShellBlockFor,
-  useSubjectScopedState,
-  type FrameStore,
-  type SessionStore,
-  type MutatingDaemonMethod,
-} from "../../../store/index.js";
+import { Nothing, WireFigure } from "../../../primitives/index.js";
+import { useSubjectScopedState, type SessionStore } from "../../../store/index.js";
 import { controlHoldSentence, type WorkspaceControlPosture } from "../mount-health.js";
-import { mountRefusalRecovery } from "../mount-refusal-copy.js";
 import { usePrepareController } from "./prepare-binding.js";
-import type { PrepareReading } from "./prepare-controller.js";
+import type { PrepareOperations, PrepareReading } from "./prepare-controller.js";
 import {
   EMPTY_PREPARE_FORM,
   prepareAcknowledgement,
@@ -65,52 +58,38 @@ import {
   type PrepareFormState,
 } from "./root-act-model.js";
 
-/** The mode whose root is a clone rather than a worktree. */
-const CLONE_EXECUTION_MODE = "ephemeral clone" satisfies ExecutionMode;
-
-/** The one non-writable mode, which materialises no execution root at all. */
+/** The one non-writable mode, which materializes no execution root at all. */
 const READ_ONLY_EXECUTION_MODE = "read-only" satisfies ExecutionMode;
 
-// The two record methods this control dispatches, one per arm of the clone/worktree
-// split, TYPED against the roster rather than spelled inline. `useShellBlockFor` takes
-// a `string` — it has to, since it answers `undefined` for every read method — so a
-// misspelled verb is not a compile error but a control that stays live through an
-// outage and says nothing.
-const ROOT_PREPARE_METHOD = "repo.executionRootPrepare" satisfies MutatingDaemonMethod;
-const CLONE_PREPARE_METHOD = "repo.ephemeralClonePrepare" satisfies MutatingDaemonMethod;
-
+/** What the prepare form is bound to: the workspace, its mode, and the calls it makes. */
 export interface PrepareExecutionRootProps {
   readonly bridge: ConsoleBridge;
+  /** The reuse check and the prepare this control sends. */
+  readonly operations: PrepareOperations;
   readonly workspaceId: string;
   readonly repoMountId: string;
-  /** The mode this workspace is bound in. Decides which call the confirm sends. */
+  /** The mode this workspace is bound in. */
   readonly executionMode: ExecutionMode;
   /** The session whose reconnect edge and repo frames re-ask the reuse question. */
   readonly sessionStore: SessionStore;
   /** Whether this workspace's binding controls are live. Derived once by the card. */
   readonly posture: WorkspaceControlPosture;
-  /**
-   * The window's own shell condition, read here for the ONE method this control sends —
-   * which is `repo.ephemeralClonePrepare` on a clone and `repo.executionRootPrepare`
-   * otherwise, the same split the confirm dispatches on.
-   */
-  readonly frameStore: FrameStore;
   /** Read the section again, so a prepared root appears in the roots list. */
   readonly onPrepared: () => void;
 }
 
+/** The collapsed form that puts an execution root on disk for one workspace. */
 export function PrepareExecutionRoot(props: PrepareExecutionRootProps): React.JSX.Element | null {
-  const isClone = props.executionMode === CLONE_EXECUTION_MODE;
-  const { reading, controllerIdentity, checkReuse, prepare, prepareClone, clearAct } =
-    usePrepareController(
-      props.bridge,
-      {
-        workspaceId: props.workspaceId,
-        repoMountId: props.repoMountId,
-        executionMode: props.executionMode,
-      },
-      props.sessionStore,
-    );
+  const { reading, controllerIdentity, checkReuse, prepare, clearAct } = usePrepareController(
+    props.bridge,
+    {
+      workspaceId: props.workspaceId,
+      repoMountId: props.repoMountId,
+      executionMode: props.executionMode,
+    },
+    props.sessionStore,
+    props.operations,
+  );
   // THE FORM DIES WITH THE CONTROLLER IT IS BEING READ AGAINST. This row is keyed by
   // workspace id, so a mode switch re-mints the mode-scoped controller underneath a
   // component React never unmounts — and a plain register would carry the branch typed
@@ -123,18 +102,11 @@ export function PrepareExecutionRoot(props: PrepareExecutionRootProps): React.JS
     undefined,
     () => EMPTY_PREPARE_FORM,
   );
-  const standing = prepareReuseStanding(reading.prerequisite, !isClone);
+  const standing = prepareReuseStanding(reading.prerequisite);
   const { verdict } = standing;
   const formVerdict = prepareFormVerdict(form, standing);
   const { onPrepared } = props;
-  // The mount's own posture and this window's runtime, folded in that order by the
-  // module that owns the precedence — so a detached row never reads as something to
-  // wait out, and a live row under a stopped supervisor says so instead of going quiet.
-  const shellBlock = useShellBlockFor(
-    props.frameStore,
-    isClone ? CLONE_PREPARE_METHOD : ROOT_PREPARE_METHOD,
-  );
-  const heldBecause = controlHoldSentence(props.posture, shellBlock);
+  const heldBecause = controlHoldSentence(props.posture);
 
   const nameBranch = useCallback(
     (branchName: string) => {
@@ -144,31 +116,22 @@ export function PrepareExecutionRoot(props: PrepareExecutionRootProps): React.JS
       // impossible. Clearing the act with it keeps a stale settlement off a new intent.
       publishForm({ branchName, acknowledgedCandidateId: undefined });
       clearAct();
-      // A CLONE ASKS NO REUSE QUESTION. Clones are minted per run and nothing is
-      // reused, so a check here would put a call on the wire whose answer no control
-      // below reads.
-      if (!isClone) {
-        checkReuse(branchName);
-      }
+      checkReuse(branchName);
     },
-    [checkReuse, clearAct, isClone, publishForm],
+    [checkReuse, clearAct, publishForm],
   );
 
   const submit = useCallback(() => {
     if (formVerdict.status !== "sendable") {
       return;
     }
-    if (isClone) {
-      prepareClone(form.branchName);
-      return;
-    }
     prepare(form.branchName, prepareAcknowledgement(form, verdict));
-  }, [form, formVerdict, isClone, prepare, prepareClone, verdict]);
+  }, [form, formVerdict, prepare, verdict]);
 
   if (props.executionMode === READ_ONLY_EXECUTION_MODE) {
-    // NOTHING AT ALL, AND NOT A CLOSED CONTROL. A read-only workspace materialises no
-    // execution root, so there is no act here that could be offered or refused — and a
-    // greyed control would report a capability this mode does not have as one it is
+    // NOTHING AT ALL, AND NOT A CLOSED CONTROL. A workspace in this mode materializes
+    // no execution root, so there is no act here that could be offered or refused — and
+    // a grayed control would report a capability this mode does not have as one it is
     // merely being denied.
     return null;
   }
@@ -177,7 +140,7 @@ export function PrepareExecutionRoot(props: PrepareExecutionRootProps): React.JS
     <details className="meridian-prepare-root">
       <summary className="meridian-prepare-root__summary">
         Prepare an execution root
-        <span className="meridian-prepare-root__line">{summaryLineFor(reading, isClone)}</span>
+        <span className="meridian-prepare-root__line">{summaryLineFor(reading)}</span>
       </summary>
 
       <label className="meridian-prepare-root__branch">
@@ -195,7 +158,7 @@ export function PrepareExecutionRoot(props: PrepareExecutionRootProps): React.JS
         />
       </label>
 
-      {isClone ? null : renderReuse(reading)}
+      {renderReuse(reading)}
 
       {reuseConsentRequired(verdict) ? (
         <label className="meridian-prepare-root__consent">
@@ -231,7 +194,7 @@ export function PrepareExecutionRoot(props: PrepareExecutionRootProps): React.JS
         }
         onClick={submit}
       >
-        {isClone ? "Prepare a clone" : "Prepare"}
+        Prepare
       </button>
       {heldBecause === undefined ? null : (
         // The mount's own sentence, or the selection act's — never a third wording for
@@ -250,12 +213,9 @@ export function PrepareExecutionRoot(props: PrepareExecutionRootProps): React.JS
 }
 
 /** One honest line per reading, for a summary with room for exactly one. */
-function summaryLineFor(reading: PrepareReading, isClone: boolean): string {
+function summaryLineFor(reading: PrepareReading): string {
   if (reading.act.status === "prepared") {
     return "prepared";
-  }
-  if (isClone) {
-    return "a clone per run";
   }
   switch (reading.prerequisite.status) {
     case "not-read":
@@ -263,7 +223,7 @@ function summaryLineFor(reading: PrepareReading, isClone: boolean): string {
     case "reading":
       return "checking for a live checkout";
     case "refused":
-      return `reuse not checked — ${reading.prerequisite.refusal.code}`;
+      return "";
     case "read":
       return reading.prerequisite.value.kind;
   }
@@ -272,25 +232,18 @@ function summaryLineFor(reading: PrepareReading, isClone: boolean): string {
 /**
  * What the reuse check found, and the daemon's own reason where it gave one.
  *
- * THE REASON IS RENDERED BESIDE THE CONSOLE'S SENTENCE AND NEVER INSTEAD OF IT. The
- * console's sentence says what the verdict MEANS for the act about to be sent; the
- * daemon's `reason` says what it found. Substituting one for the other would leave a
- * person reading a git fact with no statement of what it costs them.
+ * The reason is rendered beside the console's sentence and never instead of it. The
+ * console's sentence says what the verdict means for the act about to be sent; the daemon's
+ * `reason` says what it found.
  */
-function renderReuse(reading: PrepareReading): React.JSX.Element {
+function renderReuse(reading: PrepareReading): React.JSX.Element | null {
   switch (reading.prerequisite.status) {
+    case "refused":
+      return null;
     case "not-read":
       return <Nothing kind="not-checked" title="No branch named yet." />;
     case "reading":
       return <Nothing kind="computing" title="Checking for a live checkout." />;
-    case "refused":
-      return (
-        <InlineRefusal
-          code={reading.prerequisite.refusal.code}
-          detail={reading.prerequisite.refusal.detail}
-          action={renderRecovery(reading.prerequisite.refusal.code)}
-        />
-      );
     case "read": {
       const verdict = reading.prerequisite.value;
       return (
@@ -314,24 +267,17 @@ function renderReuse(reading: PrepareReading): React.JSX.Element {
   }
 }
 
-/** What the prepare did, with the section asked to re-read on the served arm. */
+/** What the prepare did, with the section offered a re-read once it has. */
 function renderSettlement(
   reading: PrepareReading,
   onPrepared: () => void,
 ): React.JSX.Element | null {
   switch (reading.act.status) {
     case "idle":
+    case "refused":
       return null;
     case "sending":
       return <Nothing kind="computing" title="Preparing." />;
-    case "refused":
-      return (
-        <InlineRefusal
-          code={reading.act.refusal.code}
-          detail={reading.act.refusal.detail}
-          action={renderRecovery(reading.act.refusal.code)}
-        />
-      );
     case "prepared":
       return (
         <div className="meridian-prepare-root__prepared" role="status">
@@ -350,10 +296,4 @@ function renderSettlement(
         </div>
       );
   }
-}
-
-/** This family's recovery for a code that has one, in the refusal shape's own slot. */
-function renderRecovery(code: string): React.JSX.Element | undefined {
-  const recovery = mountRefusalRecovery(code);
-  return recovery === undefined ? undefined : <RefusalRecovery recovery={recovery} />;
 }

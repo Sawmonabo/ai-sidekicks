@@ -1,10 +1,8 @@
 // Binding a workspace on a mount the session already holds.
 //
-// THE SECOND MUTATING ENTRY POINT THIS SECTION LACKED. Attach mints one `read-only`
-// workspace and nothing more, so every writable
-// workspace in a session arrives through `repo.workspaceBind` — a registered daemon
-// method the console reached from nowhere. A person who attached a repository could
-// see it and could not put a run in it.
+// A BIND IS HOW A WORKSPACE IN A CHOSEN MODE ARRIVES. Attach mints the mount's default
+// workspace and nothing more, so a person who attached a repository binds one to put a
+// run in the mode they want.
 //
 // IT IS `Dialog` AND NOT `AlertDialog`. This is data entry a person may abandon at no
 // cost; the alert variant is for a consequence being consented to, which is what the
@@ -21,20 +19,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { ExecutionMode } from "@ai-sidekicks/contracts";
 
 import type { ConsoleBridge } from "../../../bridge/index.js";
-import {
-  InlineRefusal,
-  Nothing,
-  OverlayDialogPopup,
-  RefusalRecovery,
-  WireFigure,
-} from "../../../primitives/index.js";
-import {
-  useShellBlockFor,
-  type FrameStore,
-  type SessionStore,
-  type MutatingDaemonMethod,
-} from "../../../store/index.js";
-import { mountRefusalRecovery } from "../mount-refusal-copy.js";
+import { Nothing, OverlayDialogPopup, WireFigure } from "../../../primitives/index.js";
+import type { SessionStore } from "../../../store/index.js";
+import type { RepoOperations } from "../../repo-operations.js";
 import { executionModeRows } from "../mode-row.js";
 import { BindModePicker } from "./BindModePicker.js";
 import { useBindController, type BindReading } from "./bind-controller.js";
@@ -43,42 +30,28 @@ import { EMPTY_BIND_FORM, resolveBindForm, type BindFormState } from "./bind-mod
 /** The radio group's name. One dialog is open at a time, so one constant serves it. */
 const MODE_GROUP_NAME = "meridian-bind-mode";
 
-// The record method this control dispatches, TYPED against the roster rather than
-// spelled inline. `useShellBlockFor` takes a `string` — it has to, since it answers
-// `undefined` for every read method — so a misspelled literal is not a compile error
-// but a control that stays live through an outage and says nothing. `satisfies` is
-// what turns that into a build failure.
-const WORKSPACE_BIND_METHOD = "repo.workspaceBind" satisfies MutatingDaemonMethod;
-
 export interface BindWorkspaceDialogProps {
   readonly bridge: ConsoleBridge;
+  /** The pre-bind read and the bind the dialog sends. */
+  readonly operations: Pick<RepoOperations, "bindWorkspace" | "readMountExecutionModes">;
   /** The mount a new workspace binds on. */
   readonly repoMountId: string;
   /** The root a relative directory is resolved against. Shown, never joined here. */
   readonly canonicalRoot: string;
   /** The session whose reconnect edge and repo frames re-ask the pre-bind question. */
   readonly sessionStore: SessionStore;
-  /**
-   * The window's own shell condition, read here for the ONE method this dialog sends.
-   *
-   * The FRAME's store and not the session's: a supervisor going down is a fact about
-   * this window's runtime, and every window watching the same session reads its own.
-   */
-  readonly frameStore: FrameStore;
   /** Ask the section to read again, so the bound workspace appears on this card. */
   readonly onBound: () => void;
 }
 
 export function BindWorkspaceDialog(props: BindWorkspaceDialogProps): React.JSX.Element {
-  const { reading, requestCapabilities, retryCapabilities, bind, clearAct } = useBindController(
+  const { reading, requestCapabilities, bind, clearAct } = useBindController(
     props.bridge,
     props.repoMountId,
     props.sessionStore,
+    props.operations,
   );
   const [form, setForm] = useState<BindFormState>(EMPTY_BIND_FORM);
-  // WHETHER THIS WINDOW MAY SEND THE BIND AT ALL, on `AttachRepositoryDialog`'s terms:
-  // the rendered half, read off the one seam, with the door deciding again at the press.
-  const shellBlock = useShellBlockFor(props.frameStore, WORKSPACE_BIND_METHOD);
   // WHAT THIS MOUNT ADMITS IS AN INPUT TO BOTH HALVES OF THIS DIALOG. The daemon's own
   // default arrives through the same reading that opens the control, so a dialog
   // reopened on this mount gets it again; and a refresh that withdraws the held mode
@@ -103,8 +76,8 @@ export function BindWorkspaceDialog(props: BindWorkspaceDialogProps): React.JSX.
     [requestCapabilities, clearAct],
   );
 
-  // ONE READ PER BOUND WORKSPACE, on the attach dialog's reasoning: the id is what
-  // changes when a bind settles, and a ref keeps a re-render from asking again.
+  // ONE READ PER BOUND WORKSPACE: the id is what changes when a bind settles, and a ref
+  // keeps a re-render from asking again.
   const announcedWorkspaceId = useRef<string | undefined>(undefined);
   const boundWorkspaceId =
     reading.act.status === "bound" ? reading.act.response.workspaceId : undefined;
@@ -167,7 +140,7 @@ export function BindWorkspaceDialog(props: BindWorkspaceDialogProps): React.JSX.
           />
         </label>
 
-        {renderModes(reading, selectedMode, selectMode, retryCapabilities)}
+        {renderModes(reading, selectedMode, selectMode)}
         {renderSettlement(reading)}
 
         <div className="meridian-bind__acts">
@@ -175,23 +148,13 @@ export function BindWorkspaceDialog(props: BindWorkspaceDialogProps): React.JSX.
           <button
             type="button"
             className="meridian-bind__confirm"
-            // Two facts, two attributes — `AttachRepositoryDialog`'s header states the
-            // split: an unfinished form is not a control to be taken to, an unreachable
-            // supervisor is.
             disabled={verdict.status !== "sendable" || reading.act.status === "sending"}
-            aria-disabled={shellBlock !== undefined}
             onClick={submit}
           >
             Bind
           </button>
         </div>
-        {shellBlock !== undefined ? (
-          // The shell's sentence replaces the form's while both are true, for the reason
-          // the attach dialog states: the missing field is not the thing to act on.
-          <p className="meridian-bind__held" role="status">
-            {shellBlock.detail}
-          </p>
-        ) : verdict.status === "incomplete" ? (
+        {verdict.status === "incomplete" ? (
           <p className="meridian-bind__blocked" role="status">
             {verdict.because}
           </p>
@@ -201,44 +164,27 @@ export function BindWorkspaceDialog(props: BindWorkspaceDialogProps): React.JSX.
   );
 }
 
-/**
- * The mode half, per arm of the pre-bind read.
- *
- * A REFUSED READ LEAVES THE DIRECTORY FIELD ALONE AND SAYS SO, on the attach dialog's
- * reason: the directory is still worth typing, the read may answer on a retry, and a
- * dialog that vanished would take the user's typing with it.
- */
+/** The mode half, per arm of the pre-bind read. */
 function renderModes(
   reading: BindReading,
   selectedMode: string | undefined,
   onSelect: (mode: ExecutionMode) => void,
-  onRetry: () => void,
-): React.JSX.Element {
+): React.JSX.Element | null {
   switch (reading.prerequisite.status) {
+    case "refused":
+      return null;
     case "not-read":
       return <Nothing kind="not-checked" title="What this mount admits has not been read." />;
     case "reading":
       return <Nothing kind="computing" title="Reading what this mount admits." />;
-    case "refused":
-      return (
-        <div className="meridian-bind__modes-refusal">
-          <InlineRefusal
-            code={reading.prerequisite.refusal.code}
-            detail={reading.prerequisite.refusal.detail}
-          />
-          <button type="button" className="meridian-bind__retry" onClick={onRetry}>
-            Read the modes again
-          </button>
-        </div>
-      );
     case "read":
       return (
         <BindModePicker
           options={executionModeRows(reading.prerequisite.value)}
-          // ALREADY RESOLVED AGAINST THESE CAPABILITIES, by `resolveBindForm`: the
-          // daemon's default arrives checked and a withdrawn mode arrives as nothing
-          // checked. A pre-fill written into form state instead needed a memory of
-          // having run, and that memory outlived the form it was taken about.
+          // Already resolved against these capabilities by `resolveBindForm`: the daemon's
+          // default arrives checked and a withdrawn mode arrives as nothing checked. A
+          // pre-fill written into form state instead needed a memory of having run, and
+          // that memory outlived the form it was taken about.
           selectedMode={selectedMode}
           groupName={MODE_GROUP_NAME}
           onSelect={onSelect}
@@ -248,35 +194,20 @@ function renderModes(
 }
 
 /**
- * What came back, on both arms, never swallowed.
+ * What the bind did.
  *
- * THE PROVISIONING ARM IS A SETTLEMENT AND NOT A FAILURE. A writable bind answers with
- * no `fsRoot` because the execution root does not exist yet, and a dialog that read the
+ * The provisioning arm is a settlement and not a failure. A writable bind answers with no
+ * `fsRoot` because the execution root does not exist yet, and a dialog that read the
  * absence as an error would report a bind that worked as one that did not.
- *
- * THE REFUSAL CARRIES THIS FAMILY'S RECOVERY, AND NO RESTRICTION SENTENCE. The mount's
- * own reason for an excluded mode is served per MODE, and a `workspace.mode_unsupported`
- * refusal names no mode — so pairing one here would mean reading a mode out of the
- * daemon's prose, which the daemon is free to reword. The recovery table's own arm
- * answers instead, and it says exactly that: the read named no reason for it.
  */
 function renderSettlement(reading: BindReading): React.JSX.Element | null {
   const { act } = reading;
   switch (act.status) {
     case "idle":
+    case "refused":
       return null;
     case "sending":
       return <Nothing kind="computing" title="Binding this workspace." />;
-    case "refused": {
-      const recovery = mountRefusalRecovery(act.refusal.code);
-      return (
-        <InlineRefusal
-          code={act.refusal.code}
-          detail={act.refusal.detail}
-          {...(recovery === undefined ? {} : { action: <RefusalRecovery recovery={recovery} /> })}
-        />
-      );
-    }
     case "bound":
       return (
         <div className="meridian-bind__settlement" role="status">

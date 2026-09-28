@@ -70,8 +70,8 @@ describe("resolveBindForm", () => {
   });
 
   it("clears a picked mode the mount no longer admits, and says why", () => {
-    // The state this fix was written for: the picker drew the row excluded while the
-    // verdict read the form alone, so Bind stayed open over a mode the reply excludes.
+    // The picker draws the row excluded, so the verdict must too: read from the form
+    // alone, Bind would stay open over a mode the reply excludes.
     const resolution = resolveBindForm(
       { directory: "", executionMode: "worktree" },
       { availableModes: ["read-only"], defaultMode: "read-only" },

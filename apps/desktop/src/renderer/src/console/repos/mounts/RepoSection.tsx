@@ -1,36 +1,38 @@
-import { useCallback, useState } from "react";
+import { useCallback } from "react";
 
-import { type ConsoleRefusal } from "../../core/index.js";
-import { RefusalCard } from "../../primitives/index.js";
-
-import { type SidebarSectionContext } from "../../seats/index.js";
+import { type ConsoleBridge } from "../../bridge/index.js";
+import { type ConsolePaneOpener } from "../../seats/index.js";
+import { type SessionStore } from "../../store/index.js";
 
 import { AttachRepositoryDialog } from "./attach/AttachRepositoryDialog.js";
 import { useRepoMounts } from "./repo-mounts-binding.js";
-import { repoCallRefusal } from "../repo-reads.js";
-import { EphemeralCloneList } from "./EphemeralCloneList.js";
+import { type RepoOperations } from "../repo-operations.js";
 import { type OpenDiffSubject } from "./OpenDiffControl.js";
 import { MountList } from "./MountList.js";
 import { RepoMountsSummary } from "./RepoMountsSummary.js";
 
 export interface RepoSectionProps {
-  readonly context: SidebarSectionContext;
+  readonly bridge: ConsoleBridge;
+  readonly sessionStore: SessionStore;
+  /** Whether the section is expanded; collapsed, it shows only the summary line. */
+  readonly isOpen: boolean;
+  /** How the section opens a pane in its own window's deck. */
+  readonly openPane: ConsolePaneOpener;
+  /** The calls the section makes. Must be the same object between renders. */
+  readonly operations: RepoOperations;
 }
 
 export function RepoSection(props: RepoSectionProps): React.JSX.Element {
-  const { bridge, sessionStore, frameStore, isOpen, openPane } = props.context;
-  const { reading, requestModeSelection, requestRead } = useRepoMounts(bridge, sessionStore);
-  const [copyRefusal, setCopyRefusal] = useState<ConsoleRefusal | undefined>(undefined);
+  const { bridge, sessionStore, operations, isOpen, openPane } = props;
+  const { reading, requestModeSelection, requestRead } = useRepoMounts(
+    bridge,
+    sessionStore,
+    operations,
+  );
 
   const copyCanonicalRoot = useCallback(
     (canonicalRoot: string) => {
-      setCopyRefusal(undefined);
-      bridge.desktopBridge.native.copyToClipboard(canonicalRoot).catch((rejection: unknown) => {
-        // The host refused the clipboard. Rendered rather than swallowed: the root is
-        // still on screen and still recoverable through the element's title, so the
-        // person needs to know the copy did not happen, not be told it did.
-        setCopyRefusal(repoCallRefusal("native.copyToClipboard", rejection));
-      });
+      void bridge.desktopBridge.native.copyToClipboard(canonicalRoot);
     },
     [bridge],
   );
@@ -65,40 +67,19 @@ export function RepoSection(props: RepoSectionProps): React.JSX.Element {
       <AttachRepositoryDialog
         bridge={bridge}
         sessionStore={sessionStore}
-        frameStore={frameStore}
+        operations={operations}
         onAttached={requestRead}
       />
       <div className="meridian-repo-section__mounts">
-        {reading.refusal !== undefined ? (
-          <RefusalCard code={reading.refusal.code} detail={reading.refusal.detail} />
-        ) : null}
-        {copyRefusal !== undefined ? (
-          <RefusalCard code={copyRefusal.code} detail={copyRefusal.detail} />
-        ) : null}
         <MountList
           reading={reading}
           bridge={bridge}
           sessionStore={sessionStore}
-          frameStore={frameStore}
+          operations={operations}
           onCopy={copyCanonicalRoot}
           onRequestRead={requestRead}
           onSelect={requestModeSelection}
           onOpenDiff={openDiff}
-        />
-        {/*
-          DRAWN WHATEVER THE MOUNT READ DID. The clone list comes off
-          `repo.worktreeStatusRead`, which is a different call with a different scope:
-          one `repo.mountRead` failing sets the section's refusal and says nothing at
-          all about the roots this session holds. Gating the list on that refusal took
-          valid execution roots off the screen because an unrelated mount could not be
-          probed. What the list is allowed to say is decided by its OWN reading below.
-        */}
-        <EphemeralCloneList
-          reading={reading}
-          bridge={bridge}
-          sessionStore={sessionStore}
-          frameStore={frameStore}
-          onRequestRead={requestRead}
         />
       </div>
     </div>

@@ -7,7 +7,7 @@
 // on: a pane body not on the flagship first paint registers through a loader.
 //
 // IT SITS BESIDE THE COMPONENT AND NOT IN `family-bodies.ts`. That module is the
-// family's composition — it reads the doors and registers the sidebar sections and the
+// family's composition — it reads the doors and registers the
 // inline cards — and a body composed there would be reached by a static import from the
 // family door, which is the edge this whole change exists to remove. Here, the only
 // thing that names this module is the `import()` in `repos/index.ts`.

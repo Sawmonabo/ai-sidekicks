@@ -44,7 +44,7 @@ describe("useConfirmationLifecycle", () => {
 
   it("keeps one identity for both handlers while the discard is unchanged", () => {
     // Both handlers reach a dialog as props. A fresh identity per render would remount
-    // nothing here, but it is what a memoised popup below them would re-render on.
+    // nothing here, but it is what a memoized popup below them would re-render on.
     const discardSettlement = vi.fn();
     const { result, rerender } = renderHook(() => useConfirmationLifecycle(discardSettlement));
     const first = result.current;

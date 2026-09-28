@@ -43,10 +43,9 @@ import type { RefusalRecoveryCopy } from "../../primitives/index.js";
 /**
  * Every daemon refusal code the repos mount surfaces can receive.
  *
- * The repo, workspace, worktree, and ephemeral-clone namespaces — the four the twelve
- * `repo.*` methods this console binds refuse in. A tuple rather than a count in prose,
- * on the family's own rule: a number in a sentence is not something a missing code can
- * fail against.
+ * The repo, workspace, and worktree namespaces — the ones the `repo.*` methods this
+ * console binds refuse in. A tuple rather than a count in prose, on the family's own
+ * rule: a number in a sentence is not something a missing code can fail against.
  */
 export const MOUNT_REFUSAL_CODES = [
   "repo.not_found",
@@ -66,8 +65,6 @@ export const MOUNT_REFUSAL_CODES = [
   "worktree.branch_collision",
   "worktree.reuse_conflict",
   "worktree.retire_conflict",
-  "clone.not_found",
-  "clone.prepare_failed",
 ] as const;
 
 /** One code this family has a next move for. Derived, so the vocabulary has one home. */
@@ -222,16 +219,6 @@ const MOUNT_REFUSAL_RECOVERIES: Readonly<Record<MountRefusalCode, MountRefusalRe
   "worktree.retire_conflict": {
     nextMove:
       "This worktree is the execution root an active run holds, so it was not retired. It becomes retirable when that run ends; there is no force-retire.",
-    distinctions: NO_DISTINCTIONS,
-  },
-  "clone.not_found": {
-    nextMove:
-      "This clone is gone from the daemon's records — a disposal or a deadline sweep may already have taken it. Re-reading the roots reconciles the list.",
-    distinctions: NO_DISTINCTIONS,
-  },
-  "clone.prepare_failed": {
-    nextMove:
-      "No clone was prepared and the owning workspace has gone stale. A run waiting on this root stays blocked in setup until the workspace is repaired.",
     distinctions: NO_DISTINCTIONS,
   },
 };

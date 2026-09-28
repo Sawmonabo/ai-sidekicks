@@ -4,9 +4,9 @@
 // SPLIT FROM `attachment-ingest-stream.ts` BECAUSE IT IS A LOOP AND THEY ARE CALLS.
 // Open and complete are one request each with one answer to read; this is a loop that
 // slices a `Blob`, reads bytes off the user's own disk, encodes them, and moves
-// an offset that only the daemon may move — with three answers that are unusable and a
-// payload read that can fail for a reason no growth call can. Its own subject, its own
-// failure vocabulary, its own module.
+// an offset that only the daemon may move — with two acknowledgements that are unusable
+// and a payload read that can fail for a reason no port call can. Its own subject, its own
+// module.
 //
 // THE OFFSET IS THE DAEMON'S, NOT THIS CLIENT'S. Each chunk is answered with
 // `{ ingestId, receivedBytes }` — the spooled running total of DECODED bytes, which is
@@ -14,8 +14,8 @@
 // slice this client happened to send. Charting the local count made the progress figure
 // a record of what went on the wire, which stops being the same number the moment
 // anything is dropped or replayed, and left the client unable to say which stream had
-// even been acknowledged. `attachment-ingest-acknowledgement.ts` owns the three answers
-// that are unusable and why each one stops the stream instead of being rounded off.
+// even been acknowledged. `attachment-ingest-acknowledgement.ts` owns the two answers that
+// are unusable and why each one stops the stream instead of being rounded off.
 //
 // THE BYTES ARE SENT, NOT DESCRIBED. Each chunk carries the base64 of one slice read
 // out of the user's own `Blob`. A request that described a size and carried no
@@ -34,35 +34,32 @@
 // ledger after its await and proceeds only if the entry still stands where it stood. A
 // stream stopped mid-chunk would otherwise run on to completion.
 
-import type { ConsoleBridge } from "../../bridge/index.js";
 import { ATTACHMENT_CHUNK_BYTE_CAP, encodeBase64, type ConsoleClock } from "../../core/index.js";
 import {
   CHUNK_ACKNOWLEDGEMENT_UNUSABLE_CODE,
   readChunkAcknowledgement,
-  type ChunkAcknowledgement,
 } from "./attachment-ingest-acknowledgement.js";
-import { answerOrRefusal, type PortAnswer } from "./attachment-ingest-answer.js";
+import type { AttachmentIngestPort } from "./attachment-ingest-answer.js";
 import { writeIngestRefusal, type AttachmentIngestLedger } from "./attachment-ingest-ledger.js";
 import { isSendingAttachmentIngestEntry } from "./attachment-shapes.js";
 
-/** What each leg is called in the one sentence that says which call failed. */
-const INGEST_PAYLOAD_READ_LEG = "The payload read";
-const INGEST_CHUNK_LEG = "The chunk send";
+/** The refusal a payload that can no longer be read leaves on its entry. */
+export const PAYLOAD_READ_REFUSAL_CODE = "payload-read-rejected";
 
 export interface AttachmentChunkStreamOptions {
-  readonly bridge: ConsoleBridge;
+  readonly port: Pick<AttachmentIngestPort, "writeChunk">;
   readonly clock: ConsoleClock;
   readonly ledger: AttachmentIngestLedger;
 }
 
 /** One open stream's bytes, sent cap-sized slice by cap-sized slice. */
 export class AttachmentChunkStream {
-  readonly #bridge: ConsoleBridge;
+  readonly #port: Pick<AttachmentIngestPort, "writeChunk">;
   readonly #clock: ConsoleClock;
   readonly #ledger: AttachmentIngestLedger;
 
   public constructor(options: AttachmentChunkStreamOptions) {
-    this.#bridge = options.bridge;
+    this.#port = options.port;
     this.#clock = options.clock;
     this.#ledger = options.ledger;
   }
@@ -101,8 +98,6 @@ export class AttachmentChunkStream {
       ) {
         return false;
       }
-      // Bound outside the thunks below, because a narrowing this loop established does
-      // not follow a dotted name across a function boundary.
       const ingestId = entry.ingestId;
       const payload = entry.payload;
       const offset = entry.receivedBytes;
@@ -110,44 +105,38 @@ export class AttachmentChunkStream {
         return true;
       }
       const slice = payload.slice(offset, offset + ATTACHMENT_CHUNK_BYTE_CAP);
-      // The read goes through the same door as the three calls, because it fails the
-      // same way: a `Blob` off a picker points at a file on disk, and a user who
-      // moved or deleted it between two chunks gets a rejecting `arrayBuffer()` rather
-      // than an answer. Unhandled, that left an upload sitting at `ingesting` with the
-      // file already gone.
-      const read = await answerOrRefusal(INGEST_PAYLOAD_READ_LEG, async () => ({
-        status: "served" as const,
-        value: new Uint8Array(await slice.arrayBuffer()),
-      }));
-      const readSettled = this.#ledger.currentIfUnchanged(localId, stamp);
-      if (readSettled === undefined) {
+      // The one local failure: a `Blob` off a picker points at a file on disk, and a file
+      // that was moved, deleted or made unreadable between two chunks gives a rejecting
+      // `arrayBuffer()`.
+      // Left alone, that upload would sit at `ingesting` with the file already gone.
+      let bytes: Uint8Array;
+      try {
+        bytes = new Uint8Array(await slice.arrayBuffer());
+      } catch {
+        const unreadable = this.#ledger.currentIfUnchanged(localId, stamp);
+        if (unreadable !== undefined) {
+          writeIngestRefusal(this.#ledger, localId, unreadable, {
+            code: PAYLOAD_READ_REFUSAL_CODE,
+            detail: "The file could not be read.",
+          });
+        }
         return false;
       }
-      if (read.status !== "served" || read.value === undefined) {
-        writeIngestRefusal(this.#ledger, localId, readSettled, read);
+      if (this.#ledger.currentIfUnchanged(localId, stamp) === undefined) {
         return false;
       }
-      const bytes = read.value;
-      const answer: PortAnswer<ChunkAcknowledgement> = await answerOrRefusal(
-        INGEST_CHUNK_LEG,
-        async () =>
-          this.#bridge.growth.artifactIngestWriteChunk({
-            ingestId,
-            sequenceNumber: Math.floor(offset / ATTACHMENT_CHUNK_BYTE_CAP),
-            chunk: encodeBase64(bytes),
-          }),
-      );
+      const acknowledged = await this.#port.writeChunk({
+        ingestId,
+        sequenceNumber: Math.floor(offset / ATTACHMENT_CHUNK_BYTE_CAP),
+        chunk: encodeBase64(bytes),
+      });
       const settled = this.#ledger.currentIfUnchanged(localId, stamp);
       if (settled === undefined) {
         // Abandoned or removed mid-chunk. `abandon` already asked for this spool back,
         // because the ingest id was in the ledger for it to find.
         return false;
       }
-      if (answer.status !== "served") {
-        writeIngestRefusal(this.#ledger, localId, settled, answer);
-        return false;
-      }
-      const acknowledgement = readChunkAcknowledgement(settled, ingestId, answer.value);
+      const acknowledgement = readChunkAcknowledgement(settled, ingestId, acknowledged);
       if (acknowledgement.status === "unusable") {
         // `restart` rather than the retry-in-place default, and it is passed rather than
         // mapped: that default assumes this client and the daemon still agree on the
@@ -156,11 +145,7 @@ export class AttachmentChunkStream {
           this.#ledger,
           localId,
           settled,
-          {
-            status: "unavailable",
-            code: CHUNK_ACKNOWLEDGEMENT_UNUSABLE_CODE,
-            detail: acknowledgement.detail,
-          },
+          { code: CHUNK_ACKNOWLEDGEMENT_UNUSABLE_CODE, detail: acknowledgement.detail },
           "restart",
         );
         return false;

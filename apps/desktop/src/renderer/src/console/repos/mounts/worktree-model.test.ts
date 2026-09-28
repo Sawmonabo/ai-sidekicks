@@ -3,7 +3,7 @@
 // Two claims here are the ones a card cannot make for itself, and both are about
 // what the surface would silently get wrong:
 //
-//   • NO COLUMN IS SILENTLY DROPPED. The design lists both records' columns
+//   • NO COLUMN IS SILENTLY DROPPED. The design lists the record's columns
 //     verbatim, and the model splits them into a summary and a disclosure. If those
 //     two tuples ever stop covering the labels table exactly once each, a column
 //     vanishes from the card with nothing failing — so the coverage predicate is
@@ -15,30 +15,21 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  CLONE_EXPIRY_COPY,
-  CLONE_EXPIRY_READINGS,
-  EPHEMERAL_CLONE_STATE_PRESENTATION,
   WORKTREE_DISK_DISPOSITIONS,
   WORKTREE_DISK_DISPOSITION_COPY,
   WORKTREE_STATE_PRESENTATION,
-  cloneExpiryReading,
   worktreeDiskDisposition,
   type WorktreeStatusRecord,
 } from "./worktree-model.js";
 import {
   COLUMN_ABSENT_FALLBACK,
-  EPHEMERAL_CLONE_ABSENT_COLUMN_COPY,
-  EPHEMERAL_CLONE_COLUMN_LABELS,
-  EPHEMERAL_CLONE_DETAIL_COLUMNS,
-  EPHEMERAL_CLONE_SUMMARY_COLUMNS,
   WORKTREE_ABSENT_COLUMN_COPY,
   WORKTREE_COLUMN_LABELS,
   WORKTREE_DETAIL_COLUMNS,
   WORKTREE_SUMMARY_COLUMNS,
-  ephemeralCloneColumnCell,
   worktreeColumnCell,
 } from "./worktree-columns.js";
-import { cloneRecord, worktreeRecord } from "./repo-mounts.test-support.js";
+import { worktreeRecord } from "./repo-mounts.test-support.js";
 
 /**
  * Does a summary/detail split cover a labels table exactly once each?
@@ -48,13 +39,13 @@ import { cloneRecord, worktreeRecord } from "./repo-mounts.test-support.js";
  * mean something.
  */
 function splitCoverage(
-  labelled: readonly string[],
+  labeled: readonly string[],
   summary: readonly string[],
   detail: readonly string[],
 ): { readonly missing: readonly string[]; readonly duplicated: readonly string[] } {
   const placed = [...summary, ...detail];
   return {
-    missing: labelled.filter((column) => !placed.includes(column)),
+    missing: labeled.filter((column) => !placed.includes(column)),
     duplicated: placed.filter((column, index) => placed.indexOf(column) !== index),
   };
 }
@@ -68,19 +59,6 @@ describe("worktree-columns — every column has a home", () => {
     );
     expect(coverage).toStrictEqual({ missing: [], duplicated: [] });
     expect(Object.keys(WORKTREE_COLUMN_LABELS)).toHaveLength(10);
-  });
-
-  it("splits the nine clone columns the same way", () => {
-    const coverage = splitCoverage(
-      Object.keys(EPHEMERAL_CLONE_COLUMN_LABELS),
-      EPHEMERAL_CLONE_SUMMARY_COLUMNS,
-      EPHEMERAL_CLONE_DETAIL_COLUMNS,
-    );
-    expect(coverage).toStrictEqual({ missing: [], duplicated: [] });
-    // Nine, not ten: the clone record carries no `updatedAt`, and a labels table
-    // that grew one would be describing a column the wire does not send.
-    expect(Object.keys(EPHEMERAL_CLONE_COLUMN_LABELS)).toHaveLength(9);
-    expect(Object.keys(EPHEMERAL_CLONE_COLUMN_LABELS)).not.toContain("updatedAt");
   });
 
   it("negative control: the coverage predicate reports a dropped and a doubled column", () => {
@@ -121,38 +99,6 @@ describe("worktree-model — the disk disposition", () => {
   });
 });
 
-describe("worktree-model — clone expiry", () => {
-  // One instant written twice — the stamp the record carries and the parts the
-  // arithmetic reads — rather than one derived from the other through the reader this
-  // suite is driving.
-  const expiresAt = "2026-01-01T12:00:00.000Z";
-  const expiryMilliseconds = Date.UTC(2026, 0, 1, 12, 0, 0);
-
-  it("classifies against the caller's instant and nothing else", () => {
-    expect(cloneExpiryReading(cloneRecord({ expiresAt }), expiryMilliseconds - 1)).toBe(
-      "scheduled",
-    );
-    expect(cloneExpiryReading(cloneRecord({ expiresAt }), expiryMilliseconds + 1)).toBe("elapsed");
-  });
-
-  it("treats the boundary itself as elapsed", () => {
-    expect(cloneExpiryReading(cloneRecord({ expiresAt }), expiryMilliseconds)).toBe("elapsed");
-  });
-
-  it("falls back to scheduled on a stamp it cannot read", () => {
-    // The fail-safe direction: the loud arm asserts the snapshot refs may already be
-    // gone, and asserting that off a timestamp the console could not parse would be
-    // the console inventing the fact.
-    expect(cloneExpiryReading(cloneRecord({ expiresAt: "not-a-timestamp" }), 0)).toBe("scheduled");
-  });
-
-  it("names the consequence on both readings", () => {
-    for (const reading of CLONE_EXPIRY_READINGS) {
-      expect(CLONE_EXPIRY_COPY[reading]).toContain("snapshot refs");
-    }
-  });
-});
-
 describe("worktree-columns — column cells", () => {
   it("hands back the wire's own string", () => {
     expect(worktreeColumnCell(worktreeRecord(), "branchName")).toStrictEqual({
@@ -168,10 +114,6 @@ describe("worktree-columns — column cells", () => {
     expect(worktreeColumnCell(worktreeRecord(), "cleanedAt")).toStrictEqual({
       kind: "absent",
       copy: WORKTREE_ABSENT_COLUMN_COPY.cleanedAt,
-    });
-    expect(ephemeralCloneColumnCell(cloneRecord(), "cleanedAt")).toStrictEqual({
-      kind: "absent",
-      copy: EPHEMERAL_CLONE_ABSENT_COLUMN_COPY.cleanedAt,
     });
     // Two different sentences, because they are two different facts about the world.
     expect(WORKTREE_ABSENT_COLUMN_COPY.createdByRunId).not.toBe(
@@ -191,16 +133,14 @@ describe("worktree-columns — column cells", () => {
 });
 
 describe("worktree-model — the state vocabularies are the contract's", () => {
-  it("presents six worktree states and four clone states", () => {
+  it("presents six worktree states", () => {
     expect(Object.keys(WORKTREE_STATE_PRESENTATION)).toHaveLength(6);
-    expect(Object.keys(EPHEMERAL_CLONE_STATE_PRESENTATION)).toHaveLength(4);
   });
 
-  it("says where a failed row comes from, on both records", () => {
+  it("says where a failed row comes from", () => {
     // The one rule this surface is most likely to get wrong: there is no sixth
-    // worktree event and no clone event at all, so `failed` arrives on a re-read.
+    // worktree event, so `failed` arrives on a re-read.
     expect(WORKTREE_STATE_PRESENTATION.failed.meaning).toContain("status re-read");
-    expect(EPHEMERAL_CLONE_STATE_PRESENTATION.failed.meaning).toContain("status re-read");
   });
 
   it("spends amber and red on exactly the states that earn them", () => {

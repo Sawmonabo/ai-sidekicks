@@ -1,9 +1,7 @@
 // One attachment, in the position the user put it, whatever became of it.
 //
-// THE ATTACHMENT SURFACE'S COMPOSITION IS THIS FAMILY'S: a surface's composition lives
-// in the console's code. Four arms, and
-// the reason there are four rather than a card with flags is `attachment-shapes.ts`'s
-// own Never list, which separates them:
+// Three arms rather than a card with flags, because `attachment-shapes.ts` keeps what a
+// user declared, what the daemon derived, and an unresolved reference as separate shapes:
 //
 //   • IN FLIGHT — progress from `receivedBytes`, the spooled running total of DECODED
 //     bytes, with the six-hour stream ceiling disclosed once the upload has gone quiet.
@@ -13,23 +11,20 @@
 //   • UNRESOLVED — the marker sits HERE, in the declared position, naming one of six
 //     causes and its own remedy. Never appended, never footnoted, and the turn proceeds
 //     around it.
-//   • NOT CHECKED — nobody asked. Every attachment on a turn is in this arm today,
-//     because no registered wire resolves an attachment reference, and saying "there is
-//     nothing here" instead would be the console asserting a read it never performed.
 //
 // THE DECLARED FILENAME IS NEVER REBUILT. Ingest validation keeps every caller-supplied
-// string out of every path component and lets
-// the original survive as manifest metadata only, so the declaration renders as a wire
-// string in the in-flight arm and is REPLACED by `normalizedName` the moment one
-// exists. Nothing in this file concatenates a name with anything.
+// string out of every path component and lets the original survive as manifest metadata
+// only, so the declaration renders as a wire string in the in-flight arm and is REPLACED
+// by `normalizedName` the moment one exists. Nothing in this file concatenates a name
+// with anything.
 //
 // AND THE LABEL READS THE SAME NAME THE FACE DOES, from one place. A completed ingest
 // stays on the in-flight arm of the reading — `complete` is a state of an entry, not a
-// second reading — so the face had switched to the daemon's normalized name while the
-// accessible label was still reading the declaration beside it. On exactly the
-// attachments where normalization changed something, a screen-reader user heard a
-// different artifact identity from a sighted one. `attachment-provenance.ts` answers
-// which name an entry goes by, and both renderings ask it.
+// second reading — so a label that read the declaration while the face showed the
+// daemon's normalized name would give a screen-reader user a different artifact identity
+// from a sighted one on exactly the attachments where normalization changed something.
+// `attachment-provenance.ts` answers which name an entry goes by, and both renderings
+// ask it.
 //
 // EVERY BYTE FIGURE GOES THROUGH THE CHOKEPOINT. `formatByteQuantity` is the console's
 // only byte formatter and this card holds no arithmetic of its own; the raw counts
@@ -43,8 +38,6 @@ import {
   DerivedFigure,
   Glyph,
   InlineRefusal,
-  Nothing,
-  RefusalRecovery,
   WireFigure,
   formatByteQuantity,
   formatDuration,
@@ -57,10 +50,8 @@ import {
 import {
   INGEST_ABANDON_COPY,
   INGEST_DISPOSITION_COPY,
-  type IngestRefusalDisposition,
   type UnresolvedAttachmentCause,
 } from "./attachment-policy.js";
-import { artifactRefusalRecovery } from "../artifacts/artifact-refusal-copy.js";
 import {
   UNRESOLVED_ATTACHMENT_PRESENTATION,
   ingestCeilingRemainingMs,
@@ -102,14 +93,6 @@ export function AttachmentCard(props: AttachmentCardProps): React.JSX.Element {
         </div>
       ) : null}
       {reading.kind === "unresolved" ? renderUnresolved(reading.attachmentId, reading.cause) : null}
-      {reading.kind === "not-checked" ? (
-        <Nothing
-          kind="not-checked"
-          placement="inline"
-          title="This attachment has not been resolved."
-          detail="The read that turns an attachment reference into a manifest row is not registered on the bridge yet, so nothing has been asked for and nothing is being reported as missing."
-        />
-      ) : null}
     </article>
   );
 }
@@ -126,7 +109,7 @@ function attachmentLabel(reading: AttachmentReading): string {
 }
 
 /**
- * The in-flight arm: the declaration, the ledger, and the two controls.
+ * The in-flight arm: the declaration, the ingest entry's progress, and the two controls.
  *
  * The declaration is rendered as a wire string and labelled as declared, so a
  * user reading a name here knows it is theirs and not the server's finding. It
@@ -193,13 +176,11 @@ function renderIngesting(
       {entry.refusal === undefined ? null : (
         <div className="meridian-attachment__refusal">
           <InlineRefusal code={entry.refusal.code} detail={entry.refusal.detail} />
-          {/* WHAT THE CODE MEANS, WHERE THE DAEMON'S SENTENCE DELIBERATELY LEAVES IT
-              OUT — which of `artifact.too_large`'s three enforcement points answered,
-              what survived a whole-carrier refusal, where the bytes went. Rule 9 gives
-              the console the slot beside the refusal and never inside it, so the
-              daemon's own text renders unparaphrased above this. A code the table has
-              no reading for renders exactly as it did before the table existed. */}
-          {renderRefusalReading(entry.refusal.code, entry.disposition)}
+          {entry.disposition === undefined ? null : (
+            <p className="meridian-attachment__note">
+              {INGEST_DISPOSITION_COPY[entry.disposition]}
+            </p>
+          )}
         </div>
       )}
 
@@ -232,47 +213,6 @@ function renderIngesting(
           {INGEST_ABANDON_COPY}
         </p>
       ) : null}
-    </>
-  );
-}
-
-/**
- * This surface's reading of a named refusal: its meaning, and exactly one next move.
- *
- * TWO SOURCES FOR THE NEXT MOVE AND ONLY ONE OF THEM RENDERS, which is the whole reason
- * this is one helper rather than two renders in the body. The namespace table answers
- * every `artifact.*` code with a move, and `attachment-policy.ts` answers a REFUSED
- * STREAM with the sentence that belongs in front of its own retry control — keyed on
- * the disposition, so it says what pressing that control will do. Where an entry has a
- * disposition, that sentence is the truer one and the table's general move is dropped;
- * a card that rendered both would tell a user to start the upload again twice,
- * in two sentences that drift the first time either is edited.
- *
- * A render helper rather than a component, on `ArtifactsPanel.tsx`'s rule: it holds no
- * state and takes no hooks, so mounting it as an element type would buy a
- * reconciliation boundary nothing needs.
- */
-function renderRefusalReading(
-  code: string,
-  disposition: IngestRefusalDisposition | undefined,
-): React.JSX.Element | null {
-  const recovery = artifactRefusalRecovery(code);
-  if (recovery === undefined && disposition === undefined) {
-    return null;
-  }
-  return (
-    <>
-      {recovery?.meaning === undefined ? null : (
-        <p className="meridian-attachment__note">{recovery.meaning}</p>
-      )}
-      {disposition === undefined ? (
-        // THROUGH THE SHELL, so a recovery whose move is a lead-in into named cases
-        // renders those cases here too — `artifact.too_large` is one, and a card that
-        // rendered its move alone would end on a colon and list nothing.
-        <RefusalRecovery recovery={recovery} />
-      ) : (
-        <p className="meridian-attachment__note">{INGEST_DISPOSITION_COPY[disposition]}</p>
-      )}
     </>
   );
 }

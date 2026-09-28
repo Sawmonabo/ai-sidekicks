@@ -1,9 +1,4 @@
-/*
- * The artifacts panel and its rows: the filter, the receipt, and each row's acts.
- *
- * Split out of `repos.css` by directory, verbatim and in order — see `mounts.css` for
- * why, and for the import rule every sheet in this family obeys.
- */
+/* The artifacts panel and its rows: the filter and each row's act. */
 
 /* ------------------------------------------------------- artifacts panel */
 
@@ -37,9 +32,9 @@
 }
 
 /*
- * Quiet until pressed. The filter is chrome around the content, and rule 7 puts the
- * weight on the rows: a pressed state carried by the accent edge alone is enough to
- * find, and a row of filled buttons would out-shout every artifact behind them.
+ * Quiet until pressed. The filter is chrome around the content: a pressed state carried by
+ * the accent edge alone is enough to find, and a row of filled buttons would out-shout
+ * every artifact behind them.
  */
 .meridian-artifacts__filter-button {
   display: inline-flex;
@@ -58,15 +53,6 @@
 .meridian-artifacts__filter-button[aria-pressed="true"] {
   border-color: var(--meridian-accent);
   color: var(--meridian-text);
-}
-
-.meridian-artifacts__receipt {
-  display: flex;
-  align-items: center;
-  gap: var(--meridian-space-2);
-  margin: 0;
-  font-size: var(--meridian-text-xs);
-  color: var(--meridian-text-muted);
 }
 
 .meridian-artifacts__body {
@@ -110,37 +96,11 @@
   margin-inline-start: auto;
 }
 
-.meridian-artifact-row__replication {
-  margin: 0;
-  font-size: var(--meridian-text-xs);
-  color: var(--meridian-text-muted);
-}
-
-.meridian-artifact-row__acts,
-.meridian-artifact-row__confirm {
+.meridian-artifact-row__acts {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--meridian-space-2);
-}
-
-/*
- * The confirm strip. It sits inside the row and states the consequence before the
- * act — the destructive control is never the first thing under the pointer, and the
- * way out is beside it rather than behind a dismissal.
- */
-.meridian-artifact-row__confirm {
-  padding: var(--meridian-space-2);
-  border: 1px solid var(--meridian-amber-mark);
-  border-radius: var(--meridian-radius-sm);
-  background: var(--meridian-amber-ground);
-}
-
-.meridian-artifact-row__consequence {
-  flex: 1 1 100%;
-  margin: 0;
-  font-size: var(--meridian-text-xs);
-  color: var(--meridian-amber-text);
 }
 
 .meridian-artifact-row__act {
@@ -160,11 +120,6 @@
   color: var(--meridian-accent-text);
 }
 
-.meridian-artifact-row__act--destructive {
-  border-color: var(--meridian-red-mark);
-  color: var(--meridian-red-text);
-}
-
 .meridian-artifact-row__map {
   display: flex;
   flex-direction: column;
@@ -177,38 +132,6 @@
 .meridian-artifact-row__map li {
   display: flex;
   gap: var(--meridian-space-2);
-}
-
-/* ------------------------------- the manifests a blocked delete named */
-
-/*
- * The shared half of this region is NOT declared here. The move and its exclusive cases
- * are dressed by `primitives/refusal.css`'s `.meridian-refusal-recovery`, because the
- * component that wears them is `primitives/refusal/RefusalRecovery.tsx` and the mounts family
- * had the same block under a second prefix. What stays is the half only this family
- * has: the list of manifests a blocked delete named, which the shell renders as its
- * children inside that same region.
- */
-
-.meridian-artifact-referencing {
-  display: flex;
-  flex-direction: column;
-  gap: var(--meridian-space-1);
-}
-
-.meridian-artifact-referencing__head {
-  margin: 0;
-}
-
-.meridian-artifact-referencing__list {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: var(--meridian-space-1);
-  max-block-size: 12rem;
-  overflow-y: auto;
 }
 
 .meridian-artifacts :focus-visible {

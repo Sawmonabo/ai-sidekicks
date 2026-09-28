@@ -1,33 +1,32 @@
-// Preparing an execution root: the check first, then the act, against the fixture.
+// Preparing an execution root: the check first, then the act, over scripted calls.
 //
-// THE ORDER IS THE SUBJECT. Without the reuse check the surface would learn the same
-// three facts as refusals, after the fact, with no way to ask for the consent the dirty
-// case needs — so every case below is about what the check tells the form.
+// The order is the subject. Without the reuse check the surface could not ask for the
+// consent the dirty case needs, so every case below is about what the check tells the form.
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { createFixtureBridge } from "../../../bridge/index.js";
-import { REPOS_SCENARIO } from "../../../bridge/scenario/repos/repos.js";
-import {
-  GIT_MOUNT_ID,
-  GIT_WORKSPACE_ID,
-} from "../../../bridge/scenario/repos/repos-fixture-data.js";
 import { ManualClock, REFRESH_DEBOUNCE_MS } from "../../../core/index.js";
 import { SessionStore } from "../../../store/index.js";
-import { ExecutionRootPrepareController } from "./prepare-controller.js";
+import { scriptedRepoOperations } from "../../repo-operations.test-support.js";
+import { DIRTY_BRANCH, INCOMPATIBLE_BRANCH, preparingDaemon } from "../repo-mounts.test-support.js";
 import { REPO_LIFECYCLE_EVENT_KINDS } from "../../repo-lifecycle-events.js";
+import { ExecutionRootPrepareController } from "./prepare-controller.js";
 
 const controllers: ExecutionRootPrepareController[] = [];
 
-function open(executionMode: "worktree" | "ephemeral clone" = "worktree"): {
+function open(): {
   readonly controller: ExecutionRootPrepareController;
   readonly clock: ManualClock;
 } {
   const clock = new ManualClock();
   const controller = new ExecutionRootPrepareController({
-    bridge: createFixtureBridge({ scenario: REPOS_SCENARIO }),
-    subject: { workspaceId: GIT_WORKSPACE_ID, repoMountId: GIT_MOUNT_ID, executionMode },
-    sessionStore: new SessionStore({ sessionId: REPOS_SCENARIO.sessionId }),
+    operations: scriptedRepoOperations(preparingDaemon()),
+    subject: {
+      workspaceId: "workspace-sidekicks",
+      repoMountId: "mount-sidekicks",
+      executionMode: "worktree",
+    },
+    sessionStore: new SessionStore({ sessionId: "session-repos" }),
     clock,
   });
   controllers.push(controller);
@@ -59,9 +58,9 @@ afterEach(() => {
 });
 
 describe("ExecutionRootPrepareController — the reuse check", () => {
-  it("finds the dirty, compatible candidate the fixture holds", async () => {
+  it("finds the dirty, compatible candidate the daemon names", async () => {
     const { controller, clock } = open();
-    controller.checkReuse("feat/rate-limit-wiring");
+    controller.checkReuse(DIRTY_BRANCH);
     await settleCheck(controller, clock);
     const { prerequisite } = controller.snapshot;
     expect(prerequisite.status).toBe("read");
@@ -70,7 +69,7 @@ describe("ExecutionRootPrepareController — the reuse check", () => {
 
   it("finds the incompatible candidate, which admits no consent", async () => {
     const { controller, clock } = open();
-    controller.checkReuse("review/rate-limit-wiring");
+    controller.checkReuse(INCOMPATIBLE_BRANCH);
     await settleCheck(controller, clock);
     const { prerequisite } = controller.snapshot;
     expect(prerequisite.status === "read" && prerequisite.value.kind).toBe("incompatible");
@@ -86,7 +85,7 @@ describe("ExecutionRootPrepareController — the reuse check", () => {
 
   it("withdraws the question when the field is cleared", async () => {
     const { controller, clock } = open();
-    controller.checkReuse("feat/rate-limit-wiring");
+    controller.checkReuse(DIRTY_BRANCH);
     await settleCheck(controller, clock);
     controller.checkReuse("   ");
     // A verdict left on screen would be attached to a branch nobody named.
@@ -128,31 +127,11 @@ describe("ExecutionRootPrepareController — the prepare", () => {
     expect(act.status === "prepared" && act.state).toBe("ready");
   });
 
-  it("publishes the branch-collision refusal rather than swallowing it", async () => {
-    const { controller } = open();
-    await controller.prepare("feat/rate-limit-wiring", false);
-    const { act } = controller.snapshot;
-    expect(act.status).toBe("refused");
-    expect(act.status === "refused" && act.refusal.code).toBe("worktree.branch_collision");
-  });
-
-  it("prepares a clone through the clone call, with no reuse check behind it", async () => {
-    const { controller } = open("ephemeral clone");
-    await controller.prepareClone("feat/clone-root");
-    const { act, prerequisite } = controller.snapshot;
-    expect(act.status).toBe("prepared");
-    // The clone service narrows its own reply's state to `ready` and throws on every
-    // path that did not reach it, so `creating` is a row state and never a settlement.
-    expect(act.status === "prepared" && act.state).toBe("ready");
-    // A clone is minted per run and nothing is reused, so the check is never made.
-    expect(prerequisite.status).toBe("not-read");
-  });
-
   it("clears the act without clearing the verdict beside it", async () => {
     const { controller, clock } = open();
-    controller.checkReuse("feat/rate-limit-wiring");
+    controller.checkReuse(DIRTY_BRANCH);
     await settleCheck(controller, clock);
-    await controller.prepare("feat/rate-limit-wiring", false);
+    await controller.prepare(DIRTY_BRANCH, false);
     controller.clearAct();
     expect(controller.snapshot.act.status).toBe("idle");
     expect(controller.snapshot.prerequisite.status).toBe("read");

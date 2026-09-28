@@ -1,23 +1,18 @@
 // The diff pane once it holds a change set.
 //
 // SPLIT FROM `DiffPane.test.tsx` ON THE PANE'S OWN SEAM. That file is about a pane
-// holding no model — the chrome it wears, the create it offers over the two subjects
-// the wire can be keyed by, and the absence it owes the other three. What follows is
-// the surface `DiffPane.tsx` describes once a model exists: the compared states and the
-// attribution badge, the changed-file list and the rows, what survives the pane being
-// reused for a different diff, and the toolbar. The two halves mount the same pane and
-// share nothing else, which is why the contexts and the layout discipline they do share
-// live in `diff-pane.test-support.ts` rather than in either of them.
+// holding no model — the chrome it wears and the absence it owes every subject. What
+// follows is the surface `DiffPane.tsx` describes once a model exists: the compared
+// states, the changed-file list and the rows, what survives the pane being reused for a
+// different diff, and the toolbar. The two halves mount the same pane and share nothing
+// else, which is why the contexts and the layout discipline they do share live in
+// `diff-pane.test-support.ts` rather than in either of them.
 
 import { fireEvent, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { buildDiffFixture } from "./diff-fixture.test-support.js";
-import {
-  RUN_ATTRIBUTED_ATTRIBUTION,
-  SMALL_DIFF_SHAPE,
-  WORKSPACE_FALLBACK_ATTRIBUTION,
-} from "./diff-fixture-shapes.test-support.js";
+import { SMALL_DIFF_SHAPE } from "./diff-fixture-shapes.test-support.js";
 import { type ConsoleDiffModel } from "./diff-model.js";
 
 import { DiffPane } from "./DiffPane.js";
@@ -31,52 +26,15 @@ const WORKSPACE_ENTITY = DIFF_PANE_WORKSPACE_ENTITY;
 
 installDiffPaneLayout();
 
-describe("diff pane — the header a diff gives it", () => {
-  it("names the compared states and the attribution mode", () => {
-    const { container } = render(
+describe("diff pane — the compared states", () => {
+  it("names the compared states on the rows' accessible name", () => {
+    const { getByRole } = render(
       <DiffPane
         context={diffPaneContextFor(WORKSPACE_ENTITY)}
         diff={buildDiffFixture(SMALL_DIFF_SHAPE)}
       />,
     );
-    const subjectBar = container.querySelector(".meridian-diff-pane__subject-bar");
-    expect(subjectBar?.textContent).toContain("Run-attributed");
-    expect(subjectBar?.textContent).toContain("main");
-    expect(subjectBar?.textContent).toContain("feat/rate-limit-wiring");
-  });
-
-  it("renders a workspace-fallback diff's workspace, and no run anywhere", () => {
-    // Pretending a workspace diff is run-attributed is the pitfall here. The union
-    // makes the wrong shape unrepresentable; this is
-    // the check that the renderer did not reintroduce it by reaching elsewhere.
-    const fallbackDiff = buildDiffFixture(SMALL_DIFF_SHAPE, WORKSPACE_FALLBACK_ATTRIBUTION);
-    const { container } = render(
-      <DiffPane context={diffPaneContextFor(WORKSPACE_ENTITY)} diff={fallbackDiff} />,
-    );
-    const subjectBar = container.querySelector(".meridian-diff-pane__subject-bar");
-    expect(subjectBar?.textContent).toContain("Workspace fallback");
-    expect(subjectBar?.textContent).toContain("workspace-sidekicks");
-    expect(subjectBar?.textContent).not.toContain("run-");
-  });
-
-  it("negative control: the badge is neutral on both arms, so neither spends a hue", () => {
-    // A workspace fallback is a lower attribution quality — not a failure and not
-    // something a person must act on. Amber or red here would be the two-hue rule
-    // broken in the one place it is tempting.
-    for (const attribution of [RUN_ATTRIBUTED_ATTRIBUTION, WORKSPACE_FALLBACK_ATTRIBUTION]) {
-      const { container } = render(
-        <DiffPane
-          context={diffPaneContextFor(WORKSPACE_ENTITY)}
-          diff={buildDiffFixture(SMALL_DIFF_SHAPE, attribution)}
-        />,
-      );
-      const chips = container.querySelectorAll(".meridian-diff-pane__subject-bar .meridian-chip");
-      expect(chips.length).toBeGreaterThan(0);
-      for (const chip of chips) {
-        expect(chip.className).not.toContain("attention");
-        expect(chip.className).not.toContain("failure");
-      }
-    }
+    expect(getByRole("table", { name: "Diff, main to feat/rate-limit-wiring" })).toBeDefined();
   });
 });
 
@@ -261,27 +219,24 @@ describe("diff pane — reused for a different diff", () => {
     );
   });
 
-  it("keeps the toolbar's reading preferences across a model change", () => {
-    // View mode, wrap, whitespace and attribution marks are preferences over the
-    // PANE. Resetting them with the model would undo a person's toggle every time
-    // the subject moved.
+  it("keeps the toolbar's reading preference across a model change", () => {
+    // View mode is a preference over the PANE. Resetting it with the model would undo a
+    // person's toggle every time the subject moved.
     const { container, getByRole, rerender } = render(
       <DiffPane
         context={diffPaneContextFor(WORKSPACE_ENTITY)}
         diff={buildDiffFixture(SMALL_DIFF_SHAPE)}
       />,
     );
-    fireEvent.click(getByRole("button", { name: "Wrap long lines" }));
-    expect(container.querySelector(".meridian-diff--wrap")).not.toBeNull();
+    fireEvent.click(getByRole("button", { name: "Unified view" }));
+    expect(container.querySelector(".meridian-diff--split")).not.toBeNull();
     rerender(<DiffPane context={diffPaneContextFor(WORKSPACE_ENTITY)} diff={OTHER_DIFF} />);
-    expect(container.querySelector(".meridian-diff--wrap")).not.toBeNull();
+    expect(container.querySelector(".meridian-diff--split")).not.toBeNull();
   });
 });
 
 describe("diff pane — the toolbar", () => {
-  it("offers the four renderer-local controls, with marks on by default", () => {
-    // `DiffToolbar.tsx`'s density rule: attribution marks are ON in the pane and OFF
-    // in the card, one toggle away in both.
+  it("offers the view control, unified by default", () => {
     const { getByRole } = render(
       <DiffPane
         context={diffPaneContextFor(WORKSPACE_ENTITY)}
@@ -289,8 +244,8 @@ describe("diff pane — the toolbar", () => {
       />,
     );
     expect(getByRole("toolbar", { name: "Diff view controls" })).toBeDefined();
-    expect(getByRole("button", { name: "Attribution marks" }).getAttribute("aria-pressed")).toBe(
-      "true",
+    expect(getByRole("button", { name: "Unified view" }).getAttribute("aria-pressed")).toBe(
+      "false",
     );
   });
 
@@ -315,8 +270,8 @@ describe("diff pane — the toolbar", () => {
         diff={buildDiffFixture(SMALL_DIFF_SHAPE)}
       />,
     );
-    expect(container.querySelector(".meridian-diff--wrap")).toBeNull();
-    fireEvent.click(getByRole("button", { name: "Wrap long lines" }));
-    expect(container.querySelector(".meridian-diff--wrap")).not.toBeNull();
+    expect(container.querySelector(".meridian-diff--split")).toBeNull();
+    fireEvent.click(getByRole("button", { name: "Unified view" }));
+    expect(container.querySelector(".meridian-diff--split")).not.toBeNull();
   });
 });

@@ -11,7 +11,6 @@ import { Glyph } from "../../primitives/index.js";
  */
 export function DiffToggle(props: {
   readonly label: string;
-  readonly glyph: "inspector" | "agent" | "timeline" | "dot";
   readonly pressed: boolean;
   readonly onToggle: () => void;
 }): React.JSX.Element {
@@ -22,7 +21,7 @@ export function DiffToggle(props: {
       aria-pressed={props.pressed}
       onClick={props.onToggle}
     >
-      <Glyph name={props.glyph} size={GLYPH_SIZE_ROW} />
+      <Glyph name="inspector" size={GLYPH_SIZE_ROW} />
       {props.label}
     </button>
   );

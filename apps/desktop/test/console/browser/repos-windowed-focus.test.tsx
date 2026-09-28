@@ -10,10 +10,8 @@
 // away from the focused control. The last case below is the control for that claim: it
 // plants exactly that shape and proves this engine refuses it.
 //
-// TWO LISTS, BECAUSE THE FAMILY HAS TWO. The changed-file list and the restore-path
-// enumeration both window, both put a control in every row, and both delegate their
-// stop through `WindowedListRow`'s renderer form. A case per list is what keeps one of
-// them from regressing behind the other's green.
+// THE LIST IS THE CHANGED-FILE LIST, which windows, puts a control in every row, and
+// delegates its tab stop through `WindowedListRow`'s renderer form.
 //
 // The rows are all mounted here rather than windowed away: the claim is about which
 // ELEMENT the keyboard lands on, and a fixture small enough to mount whole is the
@@ -26,17 +24,9 @@ import { pressKeys, renderSettled } from "../console-harness.js";
 import { DiffFileList } from "../../../src/renderer/src/console/repos/diff-pane/DiffFileList.js";
 import { buildDiffFixture } from "../../../src/renderer/src/console/repos/diff-pane/diff-fixture.test-support.js";
 import { SMALL_DIFF_SHAPE } from "../../../src/renderer/src/console/repos/diff-pane/diff-fixture-shapes.test-support.js";
-import { WindowedRestorePathList } from "../../../src/renderer/src/console/primitives/restore/WindowedRestorePathList.js";
 
 /** The attribute a row writes on whichever element holds its tab stop. */
 const ROW_TARGET_SELECTOR = "[data-row-target]";
-
-/** Paths enough to window, named so a failure says which row was reached. */
-const RESTORE_PATHS: readonly string[] = Array.from(
-  { length: 40 },
-  (_unused, position) =>
-    `packages/control-plane/src/module-${String(position).padStart(2, "0")}.ts`,
-);
 
 /**
  * The element that currently holds the page's focus, as an element.
@@ -72,26 +62,6 @@ describe("browser — a windowed list's arrow keys move the focus ring", () => {
     expect(focusedElement()).not.toBe(firstControl);
   });
 
-  it("moves focus to the next restore path's own control", async () => {
-    const { container } = await renderSettled(
-      <WindowedRestorePathList
-        label="Overwritten paths"
-        paths={RESTORE_PATHS}
-        onOpenPath={() => undefined}
-      />,
-    );
-    const rows = [...container.querySelectorAll("li")];
-    expect(rows.length).toBeGreaterThan(1);
-
-    const firstControl = rows[0]?.querySelector("button");
-    firstControl?.focus();
-    expect(focusedElement()).toBe(firstControl);
-
-    await pressKeys("{ArrowDown}");
-
-    expect(focusedElement()).toBe(rows[1]?.querySelector("button"));
-  });
-
   it("marks the control as the focus target, never the row around it", async () => {
     // The structural half of the same claim, and the one that names the defect: the
     // roving effect resolves a move to a row and then focuses whatever that row MARKED,
@@ -117,7 +87,7 @@ describe("browser — a windowed list's arrow keys move the focus ring", () => {
   });
 
   it("negative control: this engine refuses to focus a row with no tabindex", async () => {
-    // Why the three cases above are in the browser tier and not beside the components.
+    // Why the two cases above are in the browser tier and not beside the components.
     // Under happy-dom this expectation is false — `focus()` there sets
     // `activeElement` to the `<li>` — so a unit-tier copy of those cases would pass
     // over the exact shape they exist to refuse.

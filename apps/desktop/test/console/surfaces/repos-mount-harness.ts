@@ -1,10 +1,8 @@
-// The harness the two mount modules share: what a mounted surface IS, and the waits
+// The harness the mount module uses: what a mounted surface IS, and the waits
 // that say it has settled.
 //
-// SPLIT OUT SO THE MOUNTS DO NOT SHARE A FILE WITH THE MACHINERY. `repos.tsx` and
-// `repos-artifact.tsx` each hold surfaces and nothing else, and both reach into this
-// module's exports — so the alternative was one of them exporting its own privates to
-// the other, which would have made a mount module the harness's home by accident.
+// SPLIT OUT SO THE MOUNT DOES NOT SHARE A FILE WITH THE MACHINERY. `repos.tsx` holds
+// surfaces and nothing else, and reaches into this module's exports.
 //
 // EVERY WAIT HERE THROWS RATHER THAN RETURNING FALSE. A tier that timed out silently
 // would capture an unsettled surface and compare it against a baseline of a settled
@@ -46,11 +44,11 @@ export const SCENARIO_SETTLE_ADVANCE_MS = 1000;
  * name the way the accessibility tree does, through `aria-labelledby` and the
  * heading it points at.
  *
- * A PATTERN AS WELL AS A STRING, because a pane's name is now its whole address
- * trail: `seats/ConsolePaneChrome` names a pane "session-1 artifact-01 Artifact" so
- * two panes of one kind are told apart by what they are views of. A caller that wants
- * to say "the artifact pane, whichever subject it is over" anchors a pattern at the
- * kind; a caller naming a surface whose name is fixed still passes the string.
+ * A PATTERN AS WELL AS A STRING, because a pane's name is its whole address trail:
+ * `seats/pane/ConsolePaneChrome` names a pane "session-1 workspace-01 Diff" so two panes of
+ * one kind are told apart by what they are views of. A caller that wants to say "the diff
+ * pane, whichever subject it is over" anchors a pattern at the kind; a caller naming a
+ * surface whose name is fixed still passes the string.
  */
 export function requireLabelledRegion(
   container: HTMLElement,
@@ -91,12 +89,11 @@ export async function waitForWithin(region: HTMLElement, selector: string): Prom
 /**
  * The same wait, for a surface whose reads are scheduled on the SCENARIO's clock.
  *
- * THE SECTION AND ITS GATES SCHEDULE ON THE BRIDGE'S CLOCK, which under the fixture is
- * the scenario's frozen one — the point of taking it from `consoleClockFor`, and what
- * makes these baselines pin one instant rather than the day they were minted on. Real
- * time therefore moves none of it, so this wait drives the clock instead of polling the
- * machine. The pane mounts above keep `waitForWithin`: their reads run on a port this
- * file scripts directly, with no scenario engine behind them.
+ * THE SECTION SCHEDULES ON THE BRIDGE'S CLOCK, which under the fixture is the scenario's
+ * frozen one — the point of taking it from `consoleClockFor`, and what makes these
+ * baselines pin one instant rather than the day they were minted on. Real time therefore
+ * moves none of it, so this wait drives the clock instead of polling the machine.
+ * `waitForWithin` is the wait for a surface whose reads run on no scenario clock.
  */
 export async function driveUntilWithin(
   bridge: ConsoleBridge,

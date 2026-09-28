@@ -2,27 +2,16 @@
  * The diff surfaces' own sheet — the pane chrome, the changed-file list, the rows,
  * and the inline timeline card.
  *
- * A sibling stylesheet rather than a block inside `repos/repos.css`, on the
- * `repos/artifact-pane/artifact.css` precedent: `repos/diff-pane/` is the diff half of the
- * repos family's seven sub-modules, and this file holds everything that belongs to it and
- * to no surface outside it. It is imported by `repos/diff-pane/index.ts` — this
- * directory's own door, which is what owns it — and by nothing else. A second importer
- * would land these rules twice and their cascade order would depend on which door the
+ * Imported by `repos/diff-pane/index.ts` and by nothing else: a second importer would
+ * land these rules twice and their cascade order would depend on which import the
  * bundler reached first.
  *
  * NO LITERAL VALUES. Every length is on the space scale, every size on the type
- * scale, and every colour is read back out of a custom property.
+ * scale, and every color is read back out of a custom property.
  *
- * LONG AND DELIBERATELY NOT SPLIT, because there is no seam to split it on. A file is
- * split between two concepts and never on a line count, and a sheet's concept is the
- * directory it dresses — `repos/diff-pane/`
- * is one directory. A second sheet beside this one would put two files in the cascade
- * whose order is decided by the order of two adjacent lines in
- * `repos/diff-pane/index.ts`, which is a coupling this file's own single-importer rule
- * exists to prevent. The reading cost is already paid by the section banners below — a
- * reader looking for the changed-file list or the rows finds them by heading, not by
- * scrolling. THE TRIGGER THAT SPLITS IT: if `repos/diff-pane/` ever gains real
- * sub-directories, this sheet splits with them, one per directory.
+ * LONG AND DELIBERATELY NOT SPLIT, because there is no seam to split it on: a sheet's
+ * concept is the directory it dresses, and `repos/diff-pane/` is one directory. The
+ * section banners below let a reader find the changed-file list or the rows by heading.
  */
 
 /*
@@ -48,25 +37,6 @@
   --meridian-diff-changed-ground: color-mix(in oklch, var(--meridian-text) 16%, transparent);
 }
 
-.meridian-diff-pane__subject-bar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--meridian-space-2);
-  padding: var(--meridian-space-2) var(--meridian-space-4);
-  border-block-end: 1px solid var(--meridian-edge);
-  font-size: var(--meridian-text-xs);
-  color: var(--meridian-text-muted);
-}
-
-.meridian-diff-pane__attribution-subject,
-.meridian-diff-pane__refs {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--meridian-space-1);
-  min-inline-size: 0;
-}
-
 .meridian-diff-pane__toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -77,7 +47,7 @@
 
 /*
  * Quiet chrome: a toggle carries no ground until it is pressed or pointed at, so
- * a toolbar of four reads as one strip rather than four boxes. The accent is the
+ * a toolbar reads as one strip rather than a row of boxes. The accent is the
  * one desaturated cyan and it appears only here, on something interactive.
  */
 .meridian-diff-pane__toggle {
@@ -114,9 +84,9 @@
   outline-offset: 1px;
 }
 
-/* The three bands inside the chrome's body box: the attribution strip, the toolbar,
-   and the list-and-rows pair that takes the rest of the height. The chrome's `__body`
-   carries no padding and no direction of its own, so both are stated here. */
+/* The two bands inside the chrome's body box: the toolbar, and the list-and-rows pair
+   that takes the rest of the height. The chrome's `__body` carries no padding and no
+   direction of its own, so both are stated here. */
 .meridian-diff-pane {
   display: flex;
   flex: 1 1 auto;
@@ -290,8 +260,9 @@
   flex: 1 1 auto;
   min-inline-size: 0;
   min-block-size: 0;
-  /* Explicit on both axes. A long line overflows horizontally and is never
-     clipped into a hidden-overflow container (`DiffRenderer.tsx`'s one Never). */
+  /* Explicit on both axes. A long line wraps, and a token that cannot break overflows
+     horizontally and is never clipped into a hidden-overflow container
+     (`DiffRenderer.tsx`'s one Never). */
   overflow: auto;
   font-family: var(--meridian-font-mono);
   font-size: var(--meridian-text-xs);
@@ -310,14 +281,6 @@
 .meridian-diff__row {
   display: flex;
   align-items: stretch;
-  block-size: var(--meridian-diff-row-height);
-  white-space: pre;
-}
-
-/* The wrap toggle's other answer: rows grow instead of overflowing, and the
-   fixed row height is released for exactly as long as it is on. */
-.meridian-diff--wrap .meridian-diff__row {
-  block-size: auto;
   min-block-size: var(--meridian-diff-row-height);
   white-space: pre-wrap;
 }
@@ -397,7 +360,7 @@
  * The gutter carries the line numbers, which are content a reader reads and not
  * decoration: a person following a review comment arrives by number. `text-faint`
  * is the console's quietest text and it clears the 4.5:1 floor on the palette's own
- * grounds, but an insert or delete row is drawn on this family's own tint — a ground
+ * grounds, but an insert or delete row is drawn on this diff's own tint — a ground
  * the palette contrast test does not cover — and the accessibility tier measured it
  * failing there. `text-muted` is the next step up and is what secondary text a reader
  * actually reads uses everywhere else in the console.
@@ -412,11 +375,6 @@
   padding-inline-end: var(--meridian-space-2);
   color: var(--meridian-text-muted);
   user-select: none;
-}
-
-.meridian-diff__attribution-mark {
-  display: inline-flex;
-  color: var(--meridian-text-muted);
 }
 
 .meridian-diff__text {
@@ -458,8 +416,8 @@
 /*
  * The badge on a line whose word-level comparison was declined for size. It sits
  * after the code rather than inside it, so the line's own characters and their column
- * positions are untouched, and it does not grow the row: an unwrapped row keeps its
- * fixed block size and the badge rides the same scroller the long line does.
+ * positions are untouched, and it does not add a row of its own: it sits at the end of the
+ * line's last row and rides the same scroller the long line does.
  */
 .meridian-diff__intraline-skipped {
   display: inline-flex;
@@ -472,10 +430,10 @@
  * The patch's terminator annotation, beside the line it is about.
  *
  * After the code and never inside it, on the badge above's rule: the line's own
- * characters and their column positions are untouched, and an unwrapped row keeps its
- * fixed block size. Sans and faint, so it reads as the console saying something ABOUT
- * the line rather than as characters the file contains — which, on a newline-only
- * change, is the whole distinction the row exists to draw.
+ * characters and their column positions are untouched. Sans and faint, so it reads as
+ * the console saying something ABOUT the line rather than as characters the file
+ * contains — which, on a newline-only change, is the whole distinction the row exists
+ * to draw.
  */
 .meridian-diff__no-newline {
   flex: 0 0 auto;

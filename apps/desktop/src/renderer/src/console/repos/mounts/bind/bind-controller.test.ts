@@ -1,19 +1,53 @@
-// The bind act against the fixture: the pre-bind read, both settled arms, and the
-// refusal a plain directory earns.
+// The bind act: the pre-bind read and both settled arms.
 //
-// DRIVEN THROUGH THE REAL CONTROLLER AND THE REAL FIXTURE BRIDGE, on
-// `attach/attach-controller.test.ts`'s reason: the scripted arms in
-// `bridge/scenario/repos/repos-mutation-replies.ts` are what a person meets on the fixture,
-// so a case that stubbed the port would assert against a bridge no window builds.
+// Driven through the real controller over scripted calls that answer the way the daemon
+// does for a git mount and for a plain directory.
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { createFixtureBridge } from "../../../bridge/index.js";
-import { REPOS_SCENARIO } from "../../../bridge/scenario/repos/repos.js";
-import { GIT_MOUNT_ID, PLAIN_MOUNT_ID } from "../../../bridge/scenario/repos/repos-fixture-data.js";
+import type {
+  WorkspaceBindRequest,
+  WorkspaceBindResponse,
+  WorkspaceExecutionModeCapabilitiesReadResponse,
+} from "@ai-sidekicks/contracts";
+
 import { ManualClock, REFRESH_DEBOUNCE_MS } from "../../../core/index.js";
 import { SessionStore } from "../../../store/index.js";
+import type { RepoOperations } from "../../repo-operations.js";
+import { scriptedRepoOperations } from "../../repo-operations.test-support.js";
 import { BindWorkspaceController } from "./bind-controller.js";
+
+const SESSION_ID = "session-repos";
+const GIT_MOUNT_ID = "mount-git";
+const PLAIN_MOUNT_ID = "mount-plain";
+
+/** A git mount admits every mode; a plain directory admits reading and says why not more. */
+const GIT_CAPABILITIES: WorkspaceExecutionModeCapabilitiesReadResponse = {
+  availableModes: ["read-only", "branch", "worktree", "ephemeral clone"],
+  defaultMode: "worktree",
+};
+const PLAIN_CAPABILITIES: WorkspaceExecutionModeCapabilitiesReadResponse = {
+  availableModes: ["read-only"],
+  defaultMode: "read-only",
+  restrictions: { worktree: "this directory is not a git repository" },
+};
+
+/** The daemon's answers: a read-only bind carries its root, a writable one is provisioning. */
+function scriptedDaemon(): Pick<RepoOperations, "bindWorkspace" | "readMountExecutionModes"> {
+  return {
+    readMountExecutionModes: (repoMountId) =>
+      Promise.resolve(repoMountId === GIT_MOUNT_ID ? GIT_CAPABILITIES : PLAIN_CAPABILITIES),
+    bindWorkspace: (request: WorkspaceBindRequest) => {
+      const readOnly = request.executionMode === "read-only";
+      return Promise.resolve({
+        workspaceId: "workspace-new",
+        executionMode: request.executionMode,
+        state: readOnly ? "ready" : "provisioning",
+        ...(readOnly ? { fsRoot: "/Users/dev/code/ai-sidekicks" } : {}),
+      } as unknown as WorkspaceBindResponse);
+    },
+  };
+}
 
 const controllers: BindWorkspaceController[] = [];
 
@@ -23,9 +57,9 @@ function open(repoMountId: string): {
 } {
   const clock = new ManualClock();
   const controller = new BindWorkspaceController({
-    bridge: createFixtureBridge({ scenario: REPOS_SCENARIO }),
+    operations: scriptedRepoOperations(scriptedDaemon()),
     repoMountId,
-    sessionStore: new SessionStore({ sessionId: REPOS_SCENARIO.sessionId }),
+    sessionStore: new SessionStore({ sessionId: SESSION_ID }),
     clock,
   });
   controllers.push(controller);
@@ -121,19 +155,11 @@ describe("BindWorkspaceController — the bind itself", () => {
     expect(act.status === "bound" && act.response.fsRoot).toBeUndefined();
   });
 
-  it("publishes the daemon's refusal rather than swallowing it", async () => {
-    const { controller } = open(PLAIN_MOUNT_ID);
-    await controller.bind("worktree", undefined);
-    const { act } = controller.snapshot;
-    expect(act.status).toBe("refused");
-    expect(act.status === "refused" && act.refusal.code).toBe("workspace.mode_unsupported");
-  });
-
   it("refuses to put a second bind on the wire for one intent", async () => {
     const { controller } = open(GIT_MOUNT_ID);
     const first = controller.bind("read-only", undefined);
     // The single-flight key is already taken, so the second call returns without
-    // reaching the wire — where it would have bound a second workspace.
+    // reaching the wire, where it would have bound a second workspace.
     await controller.bind("worktree", undefined);
     await first;
     const { act } = controller.snapshot;

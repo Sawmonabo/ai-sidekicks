@@ -1,10 +1,8 @@
 // How a section gets its reader, and how that reader gets closed.
 //
-// SPLIT OFF THE READER ON THE SEAM `proposals/` ALREADY HAS. That directory keeps
-// `proposal-gate-reader.ts` and `proposal-gate-binding.ts` apart for the reason this
-// module exists: a class that reads is testable without React, and a hook that mounts
-// one is testable without a wire, and holding both in one file made it the size
-// `apps/desktop/AGENTS.md` calls two jobs.
+// A class that reads is testable without React, and a hook that mounts one is testable
+// without a daemon, which is why the reader (`repo-mounts-reader.ts`) and this binding
+// are two modules.
 //
 // The reader is constructed in a hook and never in a render body, subscribed through
 // `useSyncExternalStore` so a publish is a single transition, and disposed on unmount —
@@ -21,6 +19,7 @@ import {
   useSubjectScopedResource,
   type SessionStore,
 } from "../../store/index.js";
+import type { RepoOperations } from "../repo-operations.js";
 import { RepoMountsReader } from "./repo-mounts-reader.js";
 import type { RepoMountsReading } from "./repo-mounts-model.js";
 /** What the hook hands a surface: the reading, the picker's mutation, and the re-read. */
@@ -48,39 +47,42 @@ export interface RepoMountsBinding {
  * unmount — the three properties `apps/desktop/AGENTS.md` requires of anything that
  * holds state beside a component.
  *
- * THE CLOCK COMES FROM THE BRIDGE, on `clone-expiry-wake-up.ts`'s reason one file
- * over: `consoleClockFor` is the one answer to which clock a window runs on, and the
- * deadline wake-up in the clone list already reads it — so a reader stamping its
- * reading off a clock of its own would put two time bases inside one list, and the
- * wall clock would win every `Math.max`. Memoised because the real arm mints a fresh
- * `RealClock` per call, and a new object every render would re-mint the reader.
+ * THE CLOCK COMES FROM THE BRIDGE: `consoleClockFor` is the one answer to which clock a
+ * window runs on, so a reader stamping its reading off a clock of its own would put two
+ * time bases on one screen. Memoized because the real arm mints a fresh `RealClock` per
+ * call, and a new object every render would re-mint the reader.
+ *
+ * A NEW `operations` OBJECT RE-MINTS THE READER, because the subject is the bridge together
+ * with the calls and the reader reads through the ones it was built with. A caller
+ * therefore holds one object for as long as the section should keep its reading.
  */
 export function useRepoMounts(
   bridge: ConsoleBridge,
   sessionStore: SessionStore,
+  operations: RepoOperations,
 ): RepoMountsBinding {
   const clock = useMemo(() => consoleClockFor(bridge), [bridge]);
+  const subject = useMemo(() => ({ bridge, operations }), [bridge, operations]);
   const { value: reader, settle } = useSubjectScopedResource(
-    bridge,
+    subject,
     sessionStore.sessionId,
-    () => new RepoMountsReader({ bridge, sessionStore, clock }),
+    () => new RepoMountsReader({ operations, sessionStore, clock }),
     CONTROLLER_DISPOSAL,
   );
   useEffect(() => {
-    // THE STORE AXIS, AND ONLY IT. The seam holds one resource per `(subject, key)`,
-    // which here is `(bridge, session id)`: a store replaced under the same id retires
-    // every read taken against the old one, and the key cannot carry that axis, so the
-    // reader is asked instead. The replacement is PUBLISHED through the seam, so it is
-    // closed on the seam's terms. The DISPOSAL axis that used to sit beside it —
-    // strict mode running the seam's cleanup and then this setup again on the same
-    // committed reader — is `isClosed`'s, above, and re-deriving it here disposed that
-    // reader twice.
+    // THE STORE AXIS, AND NOT THE DISPOSAL. The seam holds one resource per
+    // `(subject, key)`, which here is `({ bridge, operations }, session id)`: a store
+    // replaced under the same id retires every read taken against the old one, and the key
+    // cannot carry that axis, so the reader is asked instead. The replacement is PUBLISHED
+    // through the seam, so it is closed on the seam's terms. Strict mode running the
+    // seam's cleanup and then this setup again on the same committed reader is
+    // `isClosed`'s, above, and re-deriving it here would dispose that reader twice.
     if (!reader.isReadingFor(sessionStore)) {
-      settle()(new RepoMountsReader({ bridge, sessionStore, clock }));
+      settle()(new RepoMountsReader({ operations, sessionStore, clock }));
       return;
     }
     reader.start();
-  }, [reader, settle, bridge, sessionStore, clock]);
+  }, [reader, settle, operations, sessionStore, clock]);
   const subscribe = useCallback(
     (onReadingChange: () => void) => reader.subscribe(onReadingChange),
     [reader],

@@ -13,9 +13,6 @@ export function RepoMountsSummary(props: {
   readonly reading: RepoMountsReading;
 }): React.JSX.Element {
   const { reading } = props;
-  if (reading.refusal !== undefined) {
-    return <Nothing kind="error" title={reading.refusal.code} detail={reading.refusal.detail} />;
-  }
   if (reading.status === "reading") {
     return <Nothing kind="computing" title="Reading repo mounts." />;
   }

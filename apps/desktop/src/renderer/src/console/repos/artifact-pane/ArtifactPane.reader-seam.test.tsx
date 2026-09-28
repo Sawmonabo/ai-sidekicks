@@ -1,37 +1,27 @@
-// How the artifact pane's reader is HELD: the clock it runs on, and the subject-scoped
+// How the artifact reading's reader is held: the clock it runs on, and the subject-scoped
 // seam that decides when a new one is minted and the old one disposed.
 //
-// ONE SUBJECT AND NOT TWO. A reader that outlives its subject and a reader that reads
-// the wall clock are the same defect seen from two sides — both are a pane answering
-// about a session it is no longer showing — so the cases sit together rather than beside
-// the acts they happen to drive.
-//
-// What the pane renders is in `ArtifactPane.test.tsx`; what its acts do, in
-// `ArtifactPane.acts.test.tsx`.
+// A reader that outlives its subject and a reader that reads the wall clock are both a
+// binding answering about a session it is no longer showing, so the cases sit together.
 
-import { render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ManualClock } from "../../core/index.js";
-import { repeatedDisposalCount } from "../resource-seam.test-support.js";
-import { scenarioManualClock } from "../../bridge/scenario/runtime/clock.test-support.js";
 import { SessionStore } from "../../store/index.js";
+import { repeatedDisposalCount } from "../resource-seam.test-support.js";
 import {
-  type GrowthPortAnswer,
   LISTED_ONE_ROW,
   SESSION_ID,
-  artifactBridgeAnswering,
+  artifactOperations,
   readThrough,
   settleAct,
 } from "./artifact-pane.test-support.js";
 import { ArtifactPaneReader } from "./artifact-reader.js";
 import {
-  ARTIFACT_ENTITY,
-  OTHER_ARTIFACT_ENTITY,
-  contextFor,
-  paneTree,
-  renderPane,
-  renderPaneStrictly,
+  OTHER_HOSTED_ARTIFACT_ID,
+  hostSubject,
+  hostTree,
+  renderHost,
+  renderHostStrictly,
 } from "./artifact-pane-mount.test-support.js";
 
 beforeEach(() => {
@@ -42,221 +32,153 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe("artifact pane — the reader runs on the window's clock, never one of its own", () => {
-  it("reads when the scenario clock reaches the window, not when the host's does", async () => {
-    // The defect: `ArtifactPaneReader` defaulted to a `RealClock`, so a pane composed
-    // under the fixture coalesced its reads against wall time while the scenario
-    // advanced on frozen time. On that code the host-timer advance below lists the row
-    // and this case fails on its first assertion.
-    const { paneClock, container } = renderPane(
-      contextFor(ARTIFACT_ENTITY, {
-        bridge: artifactBridgeAnswering({ listAnswer: LISTED_ONE_ROW }),
-        sessionId: SESSION_ID,
-      }),
-    );
+describe("artifact reading — the reader runs on the window's clock, never one of its own", () => {
+  it("reads when the window's clock reaches it, not when the host's does", async () => {
+    // A reader on its own `RealClock` would coalesce its reads against wall time while the
+    // window advanced on frozen time, and the host-timer advance below would list the row.
+    const subject = hostSubject(artifactOperations({ listArtifacts: async () => LISTED_ONE_ROW }));
+    const { container } = renderHost(subject);
 
     // The HOST's clock, moved the whole debounce window. Nothing lists.
     await readThrough();
     expect(container.querySelector(".meridian-artifact-row")).toBeNull();
 
-    // The scenario's, moved the same window. The read runs.
-    await readThrough(paneClock);
-    await settleAct();
-    expect(container.querySelector(".meridian-artifact-row")).not.toBeNull();
-  });
-
-  it("negative control: the same port with no scenario engine reads on the host's clock", async () => {
-    // What the case above is about, isolated to one axis. The port, the session and
-    // the served row are identical; only the engine is gone, so `consoleClockFor`
-    // mints a `RealClock` and the host advance that listed nothing above lists the
-    // row here. Without this, a pane that had simply stopped reading would pass the
-    // first assertion up there for the wrong reason.
-    // Mounted through the tree rather than through `renderPane`, which hands back the
-    // scenario clock this case has deliberately taken away.
-    const { container } = render(
-      paneTree(
-        contextFor(ARTIFACT_ENTITY, {
-          bridge: {
-            ...artifactBridgeAnswering({ listAnswer: LISTED_ONE_ROW }),
-            scenarioEngine: undefined,
-          },
-          sessionId: SESSION_ID,
-        }),
-        new ManualClock(),
-      ),
-    );
-
-    await readThrough();
+    // The window's, moved the same window. The read runs.
+    await readThrough(subject.clock);
     await settleAct();
     expect(container.querySelector(".meridian-artifact-row")).not.toBeNull();
   });
 });
 
-describe("artifact pane — the reader is held by the subject-scoped seam", () => {
+describe("artifact reading — the reader is held by the subject-scoped seam", () => {
   it("comes back from the disposal-then-replay React's double-mount performs", async () => {
-    // The defect this arm closes. A reader constructed in `useMemo` and disposed by
-    // the effect's cleanup meets `StrictMode` like this: setup starts it, cleanup
-    // DISPOSES it, and the replayed setup calls `start()` on the corpse, which returns
-    // at once because a disposed reader reads nothing ever again. The pane then sits
-    // on its not-read absence for the life of the mount, with no refusal and no
-    // sentence — there is nothing on screen that could say so. On that code this case
-    // fails on the row assertion below.
-    const { paneClock, container } = renderPaneStrictly(
-      contextFor(ARTIFACT_ENTITY, {
-        bridge: artifactBridgeAnswering({ listAnswer: LISTED_ONE_ROW }),
-        sessionId: SESSION_ID,
-      }),
-    );
+    // `StrictMode` runs setup, then cleanup, then setup again on the same committed value:
+    // cleanup disposes the reader and the replayed setup would call `start()` on the corpse,
+    // which returns at once. The binding would then sit on `loading` for the life of the
+    // mount.
+    const subject = hostSubject(artifactOperations({ listArtifacts: async () => LISTED_ONE_ROW }));
+    const { container } = renderHostStrictly(subject);
 
-    await readThrough(paneClock);
+    await readThrough(subject.clock);
     await settleAct();
     expect(container.querySelector(".meridian-artifact-row")).not.toBeNull();
   });
 
   it("keeps one reader across a re-render at the same artifact", async () => {
-    // What the memo could not promise. React documents a memo as a cache it MAY
-    // discard, and a discard at unchanged dependencies constructed a second reader
-    // mid-render — the pane blanking to its unread absence and re-running a whole read
-    // pair for no user action. The seam holds the reader in state React owns,
-    // so a re-render at the same subject reaches the same one: the row stands and the
-    // port is not asked again.
-    const artifactList = vi
-      .fn<() => Promise<GrowthPortAnswer<"artifactList">>>()
-      .mockResolvedValue(LISTED_ONE_ROW);
-    const sessionStore = new SessionStore({ sessionId: SESSION_ID });
-    const bridge = artifactBridgeAnswering({ artifactList });
-    const clock = scenarioManualClock(bridge);
-    const announcerClock = new ManualClock();
-    const { container, rerender } = render(
-      paneTree(contextFor(ARTIFACT_ENTITY, { bridge, sessionStore }), announcerClock),
-    );
+    // The seam holds the reader in state React owns, so a re-render at the same subject
+    // reaches the same reader: the row stands and the call is not made again.
+    const artifactList = vi.fn(async () => LISTED_ONE_ROW);
+    const subject = hostSubject(artifactOperations({ listArtifacts: artifactList }));
+    const { container, rerender } = renderHost(subject);
 
-    await readThrough(clock);
+    await readThrough(subject.clock);
     await settleAct();
     expect(container.querySelector(".meridian-artifact-row")).not.toBeNull();
     expect(artifactList).toHaveBeenCalledTimes(1);
 
-    // A FRESH context object at the same address, which is what the deck composes on
-    // every one of its renders: the address is a value and the subject is the id in it.
-    rerender(paneTree(contextFor(ARTIFACT_ENTITY, { bridge, sessionStore }), announcerClock));
+    rerender(hostTree(subject));
     await settleAct();
 
     expect(container.querySelector(".meridian-artifact-row")).not.toBeNull();
     expect(artifactList).toHaveBeenCalledTimes(1);
   });
 
-  it("mints a reader of its own when the pane moves to another artifact", async () => {
-    // The subject IS the key, so a moved subject is a new reader — and the pane opens
-    // on the new artifact's not-read absence rather than on the previous one's rows.
-    const artifactList = vi
-      .fn<() => Promise<GrowthPortAnswer<"artifactList">>>()
-      .mockResolvedValue(LISTED_ONE_ROW);
-    const sessionStore = new SessionStore({ sessionId: SESSION_ID });
-    const bridge = artifactBridgeAnswering({ artifactList });
-    const clock = scenarioManualClock(bridge);
-    const announcerClock = new ManualClock();
-    const { container, rerender } = render(
-      paneTree(contextFor(ARTIFACT_ENTITY, { bridge, sessionStore }), announcerClock),
-    );
+  it("mints a reader of its own when the binding moves to another artifact", async () => {
+    // The subject is the key, so a moved subject is a new reader, and the binding opens on
+    // the new artifact's `loading` reading rather than on the previous one's rows.
+    const artifactList = vi.fn(async () => LISTED_ONE_ROW);
+    const subject = hostSubject(artifactOperations({ listArtifacts: artifactList }));
+    const { container, rerender } = renderHost(subject);
 
-    await readThrough(clock);
+    await readThrough(subject.clock);
     await settleAct();
     expect(artifactList).toHaveBeenCalledTimes(1);
 
-    rerender(paneTree(contextFor(OTHER_ARTIFACT_ENTITY, { bridge, sessionStore }), announcerClock));
+    rerender(hostTree(subject, OTHER_HOSTED_ARTIFACT_ID));
     await settleAct();
-    // The new reader has read nothing yet, and says so rather than showing the rows
-    // the previous subject's reader had already listed.
+    // The new reader has read nothing yet, so it shows no rows.
     expect(container.querySelector(".meridian-artifact-row")).toBeNull();
 
-    await readThrough(clock);
+    await readThrough(subject.clock);
     await settleAct();
     expect(artifactList).toHaveBeenCalledTimes(2);
   });
 
   it("mints a reader of its own when the session projection is replaced", async () => {
-    // The store is not part of the seam's key — an artifact id already names one
-    // session — so a projection rebuilt across a reconnect is caught by asking the
-    // reader instead. Without that arm the pane would go on observing a retired store
-    // and never hear another artifact frame from the live one.
-    const artifactList = vi
-      .fn<() => Promise<GrowthPortAnswer<"artifactList">>>()
-      .mockResolvedValue(LISTED_ONE_ROW);
-    const bridge = artifactBridgeAnswering({ artifactList });
-    const clock = scenarioManualClock(bridge);
-    const announcerClock = new ManualClock();
-    const { rerender } = render(
-      paneTree(
-        contextFor(ARTIFACT_ENTITY, {
-          bridge,
-          sessionStore: new SessionStore({ sessionId: SESSION_ID }),
-        }),
-        announcerClock,
-      ),
-    );
+    // The store is not part of the seam's key, because an artifact id already names one
+    // session, so a projection rebuilt across a reconnect is caught by asking the reader.
+    // Without that arm the binding would keep observing a retired store.
+    const artifactList = vi.fn(async () => LISTED_ONE_ROW);
+    const operations = artifactOperations({ listArtifacts: artifactList });
+    const subject = hostSubject(operations);
+    const { rerender } = renderHost(subject);
 
-    await readThrough(clock);
+    await readThrough(subject.clock);
     await settleAct();
     expect(artifactList).toHaveBeenCalledTimes(1);
 
-    rerender(
-      paneTree(
-        contextFor(ARTIFACT_ENTITY, {
-          bridge,
-          sessionStore: new SessionStore({ sessionId: SESSION_ID }),
-        }),
-        announcerClock,
-      ),
-    );
+    rerender(hostTree({ ...subject, sessionStore: new SessionStore({ sessionId: SESSION_ID }) }));
     await settleAct();
-    await readThrough(clock);
+    await readThrough(subject.clock);
     await settleAct();
 
     expect(artifactList).toHaveBeenCalledTimes(2);
   });
 
-  it("negative control: an unmounted pane's reader is disposed and reads no more", async () => {
-    // Both halves of the over-reach a re-mint arm invites. A binding that answered the
-    // double-mount by never disposing would leave a torn-down pane still scheduling —
-    // and one that re-minted on every effect run would read forever. Neither survives
-    // an unmount: the seam's own cleanup disposes what the last commit held, and a
-    // clock advanced afterwards reaches nothing.
-    const artifactList = vi
-      .fn<() => Promise<GrowthPortAnswer<"artifactList">>>()
-      .mockResolvedValue(LISTED_ONE_ROW);
-    const { paneClock, unmount } = renderPane(
-      contextFor(ARTIFACT_ENTITY, {
-        bridge: artifactBridgeAnswering({ artifactList }),
-        sessionId: SESSION_ID,
-      }),
-    );
+  it("mints a reader of its own when the operations are replaced", async () => {
+    // The operations are part of what the reader was built from. A reader kept across a
+    // new pair of calls would go on listing through the calls it was first given.
+    const firstList = vi.fn(async () => LISTED_ONE_ROW);
+    const secondList = vi.fn(async () => LISTED_ONE_ROW);
+    const subject = hostSubject(artifactOperations({ listArtifacts: firstList }));
+    const { rerender } = renderHost(subject);
 
-    await readThrough(paneClock);
+    await readThrough(subject.clock);
+    await settleAct();
+    expect(firstList).toHaveBeenCalledTimes(1);
+
+    rerender(
+      hostTree({ ...subject, operations: artifactOperations({ listArtifacts: secondList }) }),
+    );
+    await settleAct();
+    await readThrough(subject.clock);
+    await settleAct();
+
+    expect(secondList).toHaveBeenCalledTimes(1);
+    expect(firstList).toHaveBeenCalledTimes(1);
+  });
+
+  it("negative control: an unmounted binding's reader is disposed and reads no more", async () => {
+    // A binding that answered the double-mount by never disposing would leave a torn-down
+    // pane still scheduling, and one that re-minted on every effect run would read forever.
+    // The seam's cleanup disposes what the last commit held, and a clock advanced afterwards
+    // reaches nothing.
+    const artifactList = vi.fn(async () => LISTED_ONE_ROW);
+    const subject = hostSubject(artifactOperations({ listArtifacts: artifactList }));
+    const { unmount } = renderHost(subject);
+
+    await readThrough(subject.clock);
     await settleAct();
     expect(artifactList).toHaveBeenCalledTimes(1);
 
     unmount();
-    await readThrough(paneClock);
+    await readThrough(subject.clock);
     await settleAct();
     expect(artifactList).toHaveBeenCalledTimes(1);
   });
 
   it("disposes every reader it opened exactly once", async () => {
-    // The seam is told the disposal is TERMINAL, through `isClosed`, and the re-mint
-    // for a corpse is then the seam's. Re-derived in `useArtifactPaneReading`'s own
-    // effect — where it lived fused into `isCurrentFor` alongside the store axis — the
-    // corpse StrictMode's replay produced was recorded as committed, the binding
-    // published a replacement, and the value-change cleanup disposed the corpse a
-    // second time. `dispose` is re-entrant, so the CALL is the observable.
+    // The seam is told the disposal is terminal through `isClosed`, and the re-mint for a
+    // corpse is then the seam's. Re-derived in the hook's own effect, the corpse StrictMode's
+    // replay produced would be disposed a second time. `dispose` is re-entrant, so the call
+    // is the observable.
     const disposals = vi.spyOn(ArtifactPaneReader.prototype, "dispose");
     try {
-      const { paneClock, unmount } = renderPaneStrictly(
-        contextFor(ARTIFACT_ENTITY, {
-          bridge: artifactBridgeAnswering({ listAnswer: LISTED_ONE_ROW }),
-          sessionId: SESSION_ID,
-        }),
+      const subject = hostSubject(
+        artifactOperations({ listArtifacts: async () => LISTED_ONE_ROW }),
       );
-      await readThrough(paneClock);
+      const { unmount } = renderHostStrictly(subject);
+      await readThrough(subject.clock);
       await settleAct();
       unmount();
 

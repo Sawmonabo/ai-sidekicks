@@ -38,7 +38,7 @@ describe("WorktreeCard — the face", () => {
 
   it("renders the branch verbatim, ordinal suffix included", () => {
     // Never auto-suffix and never re-derive: a daemon-derived name that took a
-    // suffix is displayed as sent, and a card that normalised it would be showing
+    // suffix is displayed as sent, and a card that normalized it would be showing
     // a branch the daemon does not have.
     const record = worktreeRecord({ branchName: "sidekicks/abc123/rate-limit-wiring-2" });
     const { container } = render(
@@ -50,7 +50,7 @@ describe("WorktreeCard — the face", () => {
   });
 
   it("keeps the exact creation stamp beside the reading of it", () => {
-    // The eight rules: no formatted figure hides the value the daemon sent.
+    // No formatted figure hides the value the daemon sent.
     const record = worktreeRecord();
     const { container } = render(
       <WorktreeCard record={record} nowMilliseconds={NOW_MILLISECONDS} />,

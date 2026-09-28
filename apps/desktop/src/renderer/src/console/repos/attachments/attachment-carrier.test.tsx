@@ -6,7 +6,7 @@
 // instant of the last progress, and `isIngestStalled` could never cross its threshold
 // for precisely the stream that went quiet. Everything below drives the real carrier
 // on the console's own frozen clock and renders the real card from the snapshot it
-// publishes, which is the exact composition `AttachmentCarrierSection` makes.
+// publishes, which is the composition the composer's attachment strip makes.
 
 import { act, render } from "@testing-library/react";
 import { StrictMode } from "react";
@@ -26,8 +26,10 @@ import {
   useAttachmentCarrier,
   type AttachmentCarrierBinding,
 } from "./attachment-carrier.js";
+import type { AttachmentIngestPort } from "./attachment-ingest-answer.js";
+import { bridgeOnClock } from "../repo-operations.test-support.js";
 import {
-  ScriptedGrowthPort,
+  ScriptedIngestPort,
   patternedBytes,
 } from "./attachment-ingest-scripted-port.test-support.js";
 
@@ -43,9 +45,9 @@ function pickedFile(byteLength: number): File {
 }
 
 /** One started carrier over one scripted port, on a clock the case advances by hand. */
-function carrierOver(port: ScriptedGrowthPort, clock: ManualClock): AttachmentCarrier {
+function carrierOver(port: ScriptedIngestPort, clock: ManualClock): AttachmentCarrier {
   const carrier = new AttachmentCarrier({
-    bridge: port.asBridge(),
+    port: port.asPort(),
     sessionId: "session-1",
     clock,
   });
@@ -56,7 +58,7 @@ function carrierOver(port: ScriptedGrowthPort, clock: ManualClock): AttachmentCa
 /**
  * What the card says about the carrier's first entry, at the instant it published.
  *
- * The REAL card over the REAL snapshot, composed the way the sidebar section composes
+ * The REAL card over the REAL snapshot, composed the way the composer's strip composes
  * them: the whole claim is that the instant a card is handed moves, so a case that
  * asserted on the snapshot alone would be checking the stamp and not the disclosure.
  */
@@ -77,7 +79,7 @@ function cardTextFor(carrier: AttachmentCarrier): string {
 
 describe("attachment carrier — the stall disclosure wakes once at its threshold", () => {
   it("re-stamps the snapshot at the deadline so the stalled arm renders", async () => {
-    const port = new ScriptedGrowthPort();
+    const port = new ScriptedIngestPort();
     const clock = new ManualClock(START_MILLISECONDS);
     port.holdChunks();
     const carrier = carrierOver(port, clock);
@@ -102,7 +104,7 @@ describe("attachment carrier — the stall disclosure wakes once at its threshol
     // One shot per deadline, and the deadline is behind us now — so the carrier holds
     // no timer at all and time moving again publishes nothing. A repeat here would be
     // the interval this file exists to not have.
-    const port = new ScriptedGrowthPort();
+    const port = new ScriptedIngestPort();
     const clock = new ManualClock(START_MILLISECONDS);
     port.holdChunks();
     const carrier = carrierOver(port, clock);
@@ -117,7 +119,7 @@ describe("attachment carrier — the stall disclosure wakes once at its threshol
   });
 
   it("re-arms to the new deadline when a chunk lands before the old one", async () => {
-    const port = new ScriptedGrowthPort();
+    const port = new ScriptedIngestPort();
     const clock = new ManualClock(START_MILLISECONDS);
     const firstChunkGate = port.holdChunks();
     const carrier = carrierOver(port, clock);
@@ -147,7 +149,7 @@ describe("attachment carrier — the stall disclosure wakes once at its threshol
   });
 
   it("holds no timer once the stream has settled", async () => {
-    const port = new ScriptedGrowthPort();
+    const port = new ScriptedIngestPort();
     const clock = new ManualClock(START_MILLISECONDS);
     const carrier = carrierOver(port, clock);
     carrier.attachFiles([pickedFile(300)]);
@@ -160,7 +162,7 @@ describe("attachment carrier — the stall disclosure wakes once at its threshol
   });
 
   it("publishes nothing after disposal", async () => {
-    const port = new ScriptedGrowthPort();
+    const port = new ScriptedIngestPort();
     const clock = new ManualClock(START_MILLISECONDS);
     port.holdChunks();
     const carrier = carrierOver(port, clock);
@@ -185,7 +187,7 @@ describe("attachment carrier — the stall disclosure wakes once at its threshol
     // Without this, every case above would pass over a carrier that re-published on
     // any advance — which is the poll the no-interval rule forbids, wearing a
     // one-shot's clothes.
-    const port = new ScriptedGrowthPort();
+    const port = new ScriptedIngestPort();
     const clock = new ManualClock(START_MILLISECONDS);
     const carrier = carrierOver(port, clock);
     let publishCount = 0;
@@ -203,17 +205,17 @@ describe("attachment carrier — the stall disclosure wakes once at its threshol
 
 describe("useAttachmentCarrier — the stamp is the window's clock, never the host's", () => {
   it("publishes the instant `consoleClockFor` answers for the bridge it was handed", () => {
-    // The defect: the carrier defaulted to a `RealClock` of its own, so under the
-    // fixture the entries were stamped from wall time while the scenario's beats
-    // advanced on frozen time — two clocks inside one window, and the wall one always
-    // won. This fails on that code, where the stamp is `Date.now()`.
-    const port = new ScriptedGrowthPort();
+    // Under the fixture the entries are stamped from the window's own clock: a carrier
+    // with a `RealClock` of its own would stamp `Date.now()`, two clocks inside one
+    // window with the wall one always winning.
+    const port = new ScriptedIngestPort();
     const clock = new ManualClock(START_MILLISECONDS);
-    const bridge = port.asBridge(clock);
+    const bridge = bridgeOnClock(clock);
     let binding: AttachmentCarrierBinding | undefined;
     render(
       <CarrierProbe
         bridge={bridge}
+        port={port.asPort()}
         onBinding={(taken) => {
           binding = taken;
         }}
@@ -226,13 +228,14 @@ describe("useAttachmentCarrier — the stamp is the window's clock, never the ho
 
   it("negative control: the stamp follows the clock it was given, not one fixed instant", () => {
     // Without this, a stamp hard-coded to the first case's start would pass it. Two
-    // bridges on two scenario clocks stamp two different instants.
+    // bridges on two clocks stamp two different instants.
     const laterStart = START_MILLISECONDS + INGEST_STALL_DISCLOSURE_MS;
-    const port = new ScriptedGrowthPort();
+    const port = new ScriptedIngestPort();
     let binding: AttachmentCarrierBinding | undefined;
     render(
       <CarrierProbe
-        bridge={port.asBridge(new ManualClock(laterStart))}
+        bridge={bridgeOnClock(new ManualClock(laterStart))}
+        port={port.asPort()}
         onBinding={(taken) => {
           binding = taken;
         }}
@@ -247,9 +250,10 @@ describe("useAttachmentCarrier — the stamp is the window's clock, never the ho
 /** A surface that holds the binding and hands its one control back to the case. */
 function CarrierProbe(props: {
   readonly bridge: ConsoleBridge;
+  readonly port: AttachmentIngestPort;
   readonly onBinding: (binding: AttachmentCarrierBinding) => void;
 }): React.JSX.Element {
-  const binding = useAttachmentCarrier(props.bridge, "session-1");
+  const binding = useAttachmentCarrier(props.bridge, "session-1", props.port);
   props.onBinding(binding);
   return <span>{String(binding.snapshot.entries.length)}</span>;
 }
@@ -260,12 +264,13 @@ describe("useAttachmentCarrier — a disposed carrier is re-minted on the replay
     // same component instance, and a memoised carrier survives that. The cleanup
     // terminally disposed the ingest client, so every file chosen afterwards reached a
     // client whose `attach` returns at once — the surface inert, and silently.
-    const port = new ScriptedGrowthPort();
+    const port = new ScriptedIngestPort();
     let binding: AttachmentCarrierBinding | undefined;
     render(
       <StrictMode>
         <CarrierProbe
-          bridge={port.asBridge()}
+          bridge={bridgeOnClock()}
+          port={port.asPort()}
           onBinding={(taken) => {
             binding = taken;
           }}
@@ -289,20 +294,22 @@ describe("useAttachmentCarrier — a disposed carrier is re-minted on the replay
     // hook that minted a carrier on every render would satisfy the case above while
     // opening a stream per pass, which is the leak the memo existed to prevent dressed
     // as a fix for the one it caused.
-    const port = new ScriptedGrowthPort();
+    const port = new ScriptedIngestPort();
     let binding: AttachmentCarrierBinding | undefined;
     const { rerender } = render(
       <CarrierProbe
-        bridge={port.asBridge()}
+        bridge={bridgeOnClock()}
+        port={port.asPort()}
         onBinding={(taken) => {
           binding = taken;
         }}
       />,
     );
-    const bridge = port.asBridge();
+    const bridge = bridgeOnClock();
     rerender(
       <CarrierProbe
         bridge={bridge}
+        port={port.asPort()}
         onBinding={(taken) => {
           binding = taken;
         }}
@@ -327,10 +334,10 @@ describe("useAttachmentCarrier — a disposed carrier is re-minted on the replay
     // nothing could fail — which is why the CALL is counted and not its effect.
     const disposals = vi.spyOn(AttachmentCarrier.prototype, "dispose");
     try {
-      const port = new ScriptedGrowthPort();
+      const port = new ScriptedIngestPort();
       const { unmount } = render(
         <StrictMode>
-          <CarrierProbe bridge={port.asBridge()} onBinding={() => {}} />
+          <CarrierProbe bridge={bridgeOnClock()} port={port.asPort()} onBinding={() => {}} />
         </StrictMode>,
       );
       await act(async () => {

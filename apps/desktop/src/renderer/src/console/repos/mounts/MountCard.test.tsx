@@ -1,69 +1,38 @@
 // The mount card: two axes, two paths, and one control the renderer must not have.
 //
-// Three negative controls carry `MountCard.tsx`'s three
-// hardest claims: the resolved root is never shortened in the STRING, the two status
-// axes are never one chip, and no detach control exists anywhere on the surface.
+// Three negative controls carry `MountCard.tsx`'s three hardest claims: the resolved root
+// is never shortened in the STRING, the two status axes are never one chip, and no detach
+// control exists anywhere on the surface.
 
 import { fireEvent, render, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import {
-  fixtureBridgeWithGrowth,
-  growthRefusing,
-} from "../../bridge/fixture/call-plane/bridge.test-support.js";
-import { REPOS_SCENARIO } from "../../bridge/scenario/repos/repos.js";
-import { refuse } from "../../core/index.js";
 import { LiveAnnouncerProvider } from "../../primitives/index.js";
 import { SessionStore } from "../../store/index.js";
+import { bridgeOnClock, scriptedRepoOperations } from "../repo-operations.test-support.js";
 import { MountCard } from "./MountCard.js";
-import { NO_WORKSPACE_REFUSALS } from "./repo-mounts-model.js";
 import type { RepoWorkspaceRow } from "./repo-mounts-model.js";
-import type { WorktreeStatusRecord } from "./worktree-model.js";
-import {
-  CANONICAL_ROOT,
-  ENTERED_PATH,
-  mount,
-  workspaceRow,
-  worktreeRecord,
-} from "./repo-mounts.test-support.js";
-import { quietShell } from "../../store/shell-condition.test-support.js";
+import { CANONICAL_ROOT, ENTERED_PATH, mount, workspaceRow } from "./repo-mounts.test-support.js";
 
 const WORKSPACE: RepoWorkspaceRow = workspaceRow();
-
-/**
- * A bridge whose gate read refuses, which is what the live bridge does.
- *
- * The refusal is COMPOSED by the port rather than written out beside the case: the
- * hand-written twin this replaces carried four members where the port's own refusal
- * carries seven, so a case comparing a rendered refusal against it was comparing
- * against a value the port could never produce, and its sentence was free to drift
- * from the one a person actually reads.
- */
-const REFUSING_BRIDGE = fixtureBridgeWithGrowth(REPOS_SCENARIO, {
-  gitflowBranchContextRead: growthRefusing("gitflowBranchContextRead"),
-});
 
 function renderCard(
   overrides: Partial<React.ComponentProps<typeof MountCard>> = {},
 ): ReturnType<typeof render> {
   return render(
-    // The announcer is the card's environment rather than its dependency: a root's
-    // gate announces its settlement, and `useAnnounce` throws outside the provider
-    // on purpose — a component speaking into nothing is invisible to everyone who
-    // can see the screen.
+    // The announcer is the card's environment rather than its dependency: an act on the
+    // card announces its settlement, and `useAnnounce` throws outside the provider on
+    // purpose — a component speaking into nothing is invisible to everyone who can see
+    // the screen.
     <LiveAnnouncerProvider>
       <MountCard
         mount={mount()}
         workspaces={[WORKSPACE]}
         capabilitiesByWorkspaceId={{}}
-        workspaceRefusals={NO_WORKSPACE_REFUSALS}
         pendingModeByWorkspaceId={{}}
-        worktrees={[]}
-        worktreeRefusal={undefined}
-        nowMilliseconds={Date.UTC(2026, 0, 1, 9, 5, 2)}
-        bridge={REFUSING_BRIDGE}
+        bridge={bridgeOnClock()}
+        operations={scriptedRepoOperations()}
         sessionStore={new SessionStore({ sessionId: "session-repos" })}
-        frameStore={quietShell()}
         onCopyCanonicalRoot={() => undefined}
         onSelectExecutionMode={() => undefined}
         onRequestRead={() => undefined}
@@ -77,10 +46,9 @@ function renderCard(
 /**
  * The card's head, which is where the resolved root lives.
  *
- * Scoped rather than document-wide: a read-only workspace legitimately roots AT the
- * mount's canonical root, so the same string appears on the card and on the row
- * beneath it, and a document-wide query would fail on a coincidence rather than on
- * the claim.
+ * Scoped rather than document-wide: a workspace legitimately roots AT the mount's
+ * canonical root, so the same string appears on the card and on the row beneath it, and
+ * a document-wide query would fail on a coincidence rather than on the claim.
  */
 function head(container: HTMLElement): HTMLElement {
   return container.querySelector(".meridian-mount-card__head") as HTMLElement;
@@ -159,109 +127,18 @@ describe("MountCard — the way into a change set", () => {
     fireEvent.click(getByLabelText(`Open the changes of workspace ${WORKSPACE.id}`));
     expect(onOpenDiff).toHaveBeenCalledWith({ kind: "workspace", id: WORKSPACE.id });
   });
-
-  it("offers it on the root row too, keyed by the root and never by the workspace", () => {
-    // The two are different id spaces, and a root's diff is attributed through the run
-    // that provisioned it rather than through any workspace.
-    const root = worktreeRecord({ worktreeId: "019b7b30-0280-7c11-8420-b1a5c0de2021" });
-    const onOpenDiff = vi.fn();
-    const { getByLabelText } = renderCard({ worktrees: [root], onOpenDiff });
-    fireEvent.click(getByLabelText(`Open the changes of worktree ${root.worktreeId}`));
-    expect(onOpenDiff).toHaveBeenCalledWith({ kind: "worktree", id: root.worktreeId });
-  });
 });
 
 describe("MountCard — what the renderer must not offer", () => {
   it("negative control: nothing on the card is a detach control", () => {
-    // The desktop renderer has no detach surface in V1, and there is no force option
-    // on a refused detach. This
-    // case fails the moment either becomes a control rather than a sentence.
+    // The desktop renderer has no detach surface and no force option on a refused
+    // detach. This case fails the moment either becomes a control.
     const { container } = renderCard();
     for (const element of container.querySelectorAll("button, input, a")) {
       const description = `${element.getAttribute("aria-label") ?? ""} ${element.textContent ?? ""}`;
       expect(description.toLowerCase()).not.toContain("detach");
       expect(description.toLowerCase()).not.toContain("force");
     }
-  });
-
-  it("discloses where detach lives instead of omitting it silently", () => {
-    const { getByText } = renderCard();
-    expect(getByText(/command-line and SDK surfaces/u)).toBeDefined();
-  });
-
-  it("names the owning node, always", () => {
-    const { getByTitle } = renderCard();
-    expect(getByTitle("node-workstation")).toBeDefined();
-  });
-});
-
-describe("MountCard — the roots, and the read that did not answer", () => {
-  /** The root read's own failure, as `RepoMountsReader` hands it to the card. */
-  const WORKTREE_REFUSAL = refuse(
-    "repo.worktreeStatusRead",
-    "wire-unregistered",
-    "The execution-root read is not registered yet.",
-  );
-
-  const ROOT: WorktreeStatusRecord = worktreeRecord({
-    worktreeId: "019b7b30-0280-7c11-8420-b1a5c0de2020",
-    branchName: "feat/rate-limit-wiring",
-    fsRoot: "/Users/dev/roots/rate-limit-wiring",
-    createdAt: "2026-01-01T09:05:00.700Z",
-    updatedAt: "2026-01-01T09:05:00.700Z",
-  });
-
-  /** What the empty arm says. Asserted by its own words, since it is what must be absent. */
-  const NO_ROOT_COPY = /No execution root on disk/u;
-
-  it("states the refusal and does not also report that there is no root", () => {
-    // The reader supplies `worktrees: []` beside a refusal, so drawing the empty arm
-    // here would be a successful-empty claim over a read that failed.
-    const { getByText, queryByText } = renderCard({ worktreeRefusal: WORKTREE_REFUSAL });
-    expect(getByText("wire-unregistered")).toBeDefined();
-    expect(queryByText(NO_ROOT_COPY)).toBeNull();
-  });
-
-  it("negative control: a served empty root list still says there is no root", () => {
-    // Without this the case above would pass against a card that had simply stopped
-    // drawing the empty arm, which would leave a mount with no roots saying nothing.
-    const { getByText, queryByText } = renderCard();
-    expect(getByText(NO_ROOT_COPY)).toBeDefined();
-    expect(queryByText("wire-unregistered")).toBeNull();
-  });
-
-  it("draws the roots the read named, and neither absence", () => {
-    const { container, queryByText } = renderCard({ worktrees: [ROOT] });
-    expect(container.querySelector(".meridian-root-gate-row")).not.toBeNull();
-    expect(queryByText(NO_ROOT_COPY)).toBeNull();
-  });
-});
-
-describe("the in-place root's gate", () => {
-  /** The same workspace, executing where the mount itself is checked out. */
-  const IN_PLACE_WORKSPACE: RepoWorkspaceRow = workspaceRow({ executionMode: "branch" });
-
-  it("draws a gate under a workspace whose execution root IS the mount's checkout", () => {
-    // `branch` mode mints no worktree and no clone, so a card that built gates only
-    // from root records reached none of these workspaces at all — which left one of
-    // the three writable modes unable to read a branch context or prepare anything.
-    const { container } = renderCard({ workspaces: [IN_PLACE_WORKSPACE] });
-    expect(container.querySelector("details.meridian-root-gate")).not.toBeNull();
-  });
-
-  it("says which key the read takes that an in-place root has none of", () => {
-    const { getByText } = renderCard({ workspaces: [IN_PLACE_WORKSPACE] });
-    // The refusal is the reader's own, because nothing refused it: no call was made.
-    expect(getByText("subject-not-addressable")).toBeDefined();
-  });
-
-  it("negative control: a read-only workspace draws no gate", () => {
-    // Without this the two cases above would pass against a card that hung a gate on
-    // every workspace — including ones that produce no writable branch context and
-    // have nothing to prepare.
-    const { container, queryByText } = renderCard();
-    expect(container.querySelector("details.meridian-root-gate")).toBeNull();
-    expect(queryByText("subject-not-addressable")).toBeNull();
   });
 });
 
@@ -304,8 +181,8 @@ describe("MountCard — the drifted mount and its one control", () => {
 
 describe("MountCard — the bind entry point", () => {
   it("offers a bind on an attached, healthy mount", () => {
-    // Attach mints one `read-only` workspace and nothing more, so this trigger is
-    // where every writable workspace in a session comes from.
+    // Attach mints one workspace and nothing more, so this trigger is where every
+    // workspace past the default comes from.
     const { getByText } = renderCard();
     expect(getByText("Bind a workspace")).toBeDefined();
   });

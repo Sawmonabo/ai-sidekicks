@@ -1,36 +1,12 @@
 /*
- * What the repos family owns at its root: the artifact cards, and the rules two of
- * its sub-modules share.
+ * What the repos family owns at its root: the rules two of its sub-modules share.
  *
- * ONE DOOR FOR SEVEN SUB-MODULES. `repos/` is one family (`repos/index.ts` says why),
- * and this is the sheet that family's door imports first — followed by the five
- * subject sheets beside it and the two pane sheets under `repos/diff-pane/` and
- * `repos/artifact-pane/`. Every one of them is imported from that door and from
- * nowhere else, which is what the stylesheet-edges gate asserts.
- *
- * WHAT STAYED HERE, AND WHY IT IS NOT AN EIGHTH SUB-MODULE SHEET. One kind of rule:
- * those whose selector list spans two sub-modules — a pair grid shared by a root card
- * and an artifact row, the summary those two share, a focus ring shared by the root
- * card and the artifacts section. Splitting one of those would duplicate a
- * declaration into two files and make the pair drift; keeping it here keeps it stated
- * once, in the sheet both halves are loaded beside. A rule ONE sub-module draws does
- * not qualify and never did: a sheet in `repos/` may not claim rules for a directory
- * it does not own, which is why the artifact and attachment cards and the
- * ingest-bounds disclosure now live in `repos/artifact-pane/`.
- *
- * AND A SPAN ENDS WHEN ITS OTHER HALF LEAVES THE FAMILY. Two rules here paired a
- * proposal selector with a file-restore-disclosure one. That disclosure moved down to
- * `console/primitives/restore/` — the runs pane is a sibling view family of this one
- * and neither may import the other — so the restore halves went to the sheet that
- * moved with it, and the proposal halves stopped spanning anything: they draw
- * `repos/proposals/` alone now, which is the case this sheet's own rule sends to that
- * sub-module's sheet. Both are in `repos/proposals/proposals.css`.
- *
- * WHAT LEFT, AND WHERE IT WENT. Both panes used to be read inside a frame this sheet
- * drew (`.meridian-repos-pane*`): a section, a header, a heading, a subject line, a
- * control, and a body box. `seats/pane-chrome.css` draws that frame for every pane
- * kind in the console now, so those six rules are gone rather than kept beside it —
- * two sheets styling one head is the drift a single chrome exists to remove.
+ * Each rule here has a selector list that spans two sub-modules (a pair grid shared by
+ * a root card and an artifact row, and the summary those two share). Splitting one would
+ * duplicate a declaration into two files and let the pair drift; keeping it here states
+ * it once, in the sheet both halves are loaded beside. A rule one sub-module draws alone
+ * lives in that sub-module's sheet: a sheet in `repos/` may not claim rules for a
+ * directory it does not own.
  *
  * NO LITERAL VALUES. Every length is on the space scale, every size on the type
  * scale, and every colour is read back out of a custom property — the rule

@@ -1,22 +1,18 @@
 /*
  * The execution-mode picker: every mode a mount admits, and every mode it does not.
  *
- * SPLIT OUT OF `mounts.css` ON THE SEAM ITS OWN BANNER ALREADY DREW, taking that
- * `mode picker` banner with it and moving verbatim — a move, not a restyle. It is a SIBLING of
- * `mounts.css` rather than a resident of `bind/`, because ownership follows the
- * components: these rules dress `mounts/ExecutionModePicker.tsx` and
+ * It is a SIBLING of `mounts.css` rather than a resident of `bind/`, because ownership
+ * follows the components: these rules dress `mounts/ExecutionModePicker.tsx` and
  * `mounts/ModeRowView.tsx`, both of which live in this directory.
  * `bind/BindModePicker.tsx` is a different picker wearing `meridian-bind__mode*`, which
- * `bind/bind.css` already carries — putting these rules there would have made that
- * sheet's own "what only the bind surface wears" sentence false and left two
- * parent-directory components styled out of a child directory.
+ * `bind/bind.css` carries — putting these rules there would make that sheet's own "what
+ * only the bind surface wears" sentence false and leave two parent-directory components
+ * styled out of a child directory.
  *
  * IMPORTED FROM `repos/index.ts` IMMEDIATELY AFTER `mounts.css` AND BEFORE
- * `mount-acts.css`, so the four act sheets keep the order they had and these rules move
- * only relative to what stayed behind in `mounts.css`. Nothing turns on that: ten rule
- * blocks, all of them formerly `mounts.css:278-347`, and no selector here appears in
- * any other sheet in the family — so this block shares no element's cascade with a rule
- * it could win or lose against.
+ * `mount-acts.css`. Nothing turns on that: no selector here appears in any other sheet in
+ * the family, so this block shares no element's cascade with a rule it could win or lose
+ * against.
  */
 
 .meridian-mode-picker {
@@ -80,7 +76,7 @@
 }
 
 /* The switch this picker is held for. Reads as progress rather than as a failure,
-   which is why it takes the muted text colour and not the refusal card's. */
+   which is why it takes the muted text color. */
 .meridian-mode-picker__pending {
   margin: var(--meridian-space-1) 0 0;
   font-size: var(--meridian-text-xs);
@@ -89,8 +85,8 @@
 
 /*
  * What is holding the group, said as text because a disabled `fieldset` paints no
- * reason of its own. Muted rather than amber, on `mount-acts.css`' held-versus-blocked
- * split: this reports a condition rather than asking for something.
+ * reason of its own. Muted rather than amber: this reports a condition rather than
+ * asking for something.
  */
 .meridian-mode-picker__held {
   margin: var(--meridian-space-1) 0 0;

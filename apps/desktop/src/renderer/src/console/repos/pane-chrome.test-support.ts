@@ -34,8 +34,8 @@ export function paneTrailCrumbs(container: HTMLElement): readonly string[] {
 /**
  * The crumb naming the entity the pane is a view of.
  *
- * The LAST address crumb, which `paneScopeCrumbs` orders last of the four it can
- * carry — session, channel, run, then entity — and never the pane's own name, which
+ * The LAST address crumb, which `paneScopeCrumbs` orders last of the three it can
+ * carry — session, run, then entity — and never the pane's own name, which
  * is prose and carries `meridian-pane__heading` beside the crumb class.
  */
 export function paneSubjectCrumb(container: HTMLElement): string | undefined {

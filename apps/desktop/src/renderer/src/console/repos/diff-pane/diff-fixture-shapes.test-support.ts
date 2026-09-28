@@ -3,19 +3,16 @@
 //
 // SPLIT FROM `diff-fixture.test-support.ts` ON THE SEAM BETWEEN A DESCRIPTION AND A BUILD. This
 // module says what shapes exist — how many files, how many hunks, how much hidden
-// context, whether a terminator file or an extended-header file is included — and holds
-// the two attributions a fixture carries. Nothing here generates anything: the patch
-// text is `diff-fixture-patch.test-support.ts`'s and the model is `diff-fixture.test-support.ts`'s. Declared with
-// the builder, the shape and its generator could not be read apart, which is the seam
-// this split was made on.
+// context, whether a terminator file or an extended-header file is included. Nothing
+// here generates anything: the patch text is `diff-fixture-patch.test-support.ts`'s and
+// the model is `diff-fixture.test-support.ts`'s. Declared with the builder, the shape and
+// its generator could not be read apart, which is the seam this split was made on.
 //
 // THE SHAPES ARE GENERATED RATHER THAN TRANSCRIBED, because the endurance tier's
 // subject is a forty-file, five-thousand-line change set and a transcription of one
 // would be a hundred kilobytes of source nobody reads. Generation also makes the SIZE a
 // parameter, so the same builder serves a two-line unit case and the endurance case
 // with no second implementation.
-
-import type { DiffAttribution } from "./diff-model.js";
 
 /** What a generated change set looks like. Every field is a measured dimension. */
 export interface DiffFixtureShape {
@@ -24,8 +21,6 @@ export interface DiffFixtureShape {
   readonly linesPerHunk: number;
   /** Hidden context above each hunk, which is what a gap row offers to reveal. */
   readonly precedingContextPerHunk: number;
-  /** Every nth line carries trailer-supplied agent attribution. Zero means none. */
-  readonly agentAttributionEveryNthLine: number;
   /**
    * Whether the change set carries one file of each extended-header kind — renamed,
    * copied, mode-changed, and binary — each of them with no hunks at all.
@@ -57,7 +52,6 @@ export const ENDURANCE_DIFF_SHAPE: DiffFixtureShape = {
   hunksPerFile: 5,
   linesPerHunk: 25,
   precedingContextPerHunk: 30,
-  agentAttributionEveryNthLine: 7,
   extendedHeaderFiles: false,
   terminalNewlineFile: false,
 };
@@ -78,7 +72,6 @@ export const SINGLE_LARGE_HUNK_DIFF_SHAPE: DiffFixtureShape = {
   hunksPerFile: 1,
   linesPerHunk: 5_000,
   precedingContextPerHunk: 30,
-  agentAttributionEveryNthLine: 7,
   extendedHeaderFiles: false,
   terminalNewlineFile: false,
 };
@@ -89,7 +82,6 @@ export const SMALL_DIFF_SHAPE: DiffFixtureShape = {
   hunksPerFile: 2,
   linesPerHunk: 3,
   precedingContextPerHunk: 4,
-  agentAttributionEveryNthLine: 3,
   extendedHeaderFiles: false,
   terminalNewlineFile: false,
 };
@@ -138,15 +130,3 @@ export const TERMINAL_NEWLINE_FIXTURE_FILE = {
   path: "packages/contracts/src/tail.ts",
   lastLine: "export const tail = terminate(entries);",
 } as const;
-
-/** The run-attributed arm, for the case the badge renders as accountable to a run. */
-export const RUN_ATTRIBUTED_ATTRIBUTION: DiffAttribution = {
-  mode: "run_attributed",
-  runId: "run-rate-limit-wiring",
-};
-
-/** The workspace-fallback arm, which carries no run and must never be shown one. */
-export const WORKSPACE_FALLBACK_ATTRIBUTION: DiffAttribution = {
-  mode: "workspace_fallback",
-  workspaceId: "workspace-sidekicks",
-};

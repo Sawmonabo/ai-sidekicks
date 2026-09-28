@@ -7,11 +7,16 @@
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { REPOS_SCENARIO } from "../../bridge/scenario/repos/repos.js";
 import { ManualClock, REFRESH_DEBOUNCE_MS } from "../../core/index.js";
 import { SessionStore, type ConsoleSessionEvent } from "../../store/index.js";
 import { eventOfKind } from "../../store/session-event.test-support.js";
-import { openReader, settle, disposeTrackedReaders } from "./repo-mounts.test-support.js";
+import {
+  SESSION_ID,
+  disposeTrackedReaders,
+  openReader,
+  sessionOperations,
+  settle,
+} from "./repo-mounts.test-support.js";
 
 // Every reader a case opens is tracked, and none of them outlives its case.
 afterEach(disposeTrackedReaders);
@@ -25,15 +30,14 @@ afterEach(disposeTrackedReaders);
  * negative control is about it not being enough on its own — so spelling the string at
  * each of them would make the kind incidental to cases that are entirely about it.
  * Payload-free, because the trigger keys on the kind and on nothing else, and a frame
- * carrying members would suggest the section reads one — the wire's own payload shape
- * is `bridge/scenario/repos/repos.ts`'s to state, under the wire-truth predicate.
+ * carrying members would suggest the section reads one.
  */
 function staleFrame(sessionId: string, sequence: number): ConsoleSessionEvent {
   return eventOfKind(sessionId, "workspace.stale", sequence);
 }
 
 /** A store with a base state, which is what makes a later frame a frame and not history. */
-function initialisedStore(sessionId: string): SessionStore {
+function initializedStore(sessionId: string): SessionStore {
   const sessionStore = new SessionStore({ sessionId });
   sessionStore.initialise({ cursor: 0, entities: [], userJoinLog: [] });
   return sessionStore;
@@ -41,17 +45,17 @@ function initialisedStore(sessionId: string): SessionStore {
 
 describe("RepoMountsReader — the reasons it reads again", () => {
   it("re-reads on a `workspace.stale` frame", async () => {
-    // The terminal-event refresh reason. Before it was wired, a path that went stale while
-    // the window stayed focused left the mount health, the workspace states, the roots,
+    // The terminal-event refresh reason. Without it, a path that went stale while the
+    // window stayed focused would leave the mount health, the workspace states, the roots,
     // and the mode controls standing on the first read for as long as nobody clicked.
     const clock = new ManualClock();
-    const sessionStore = initialisedStore(REPOS_SCENARIO.sessionId);
-    const reader = openReader(REPOS_SCENARIO, clock, sessionStore);
+    const sessionStore = initializedStore(SESSION_ID);
+    const reader = openReader(sessionOperations(), clock, sessionStore);
     reader.start();
     await settle(clock, reader);
     expect(reader.performCount).toBe(1);
 
-    sessionStore.applyBatch([staleFrame(REPOS_SCENARIO.sessionId, 1)]);
+    sessionStore.applyBatch([staleFrame(SESSION_ID, 1)]);
     await settle(clock, reader);
 
     expect(reader.performCount).toBe(2);
@@ -59,15 +63,12 @@ describe("RepoMountsReader — the reasons it reads again", () => {
 
   it("coalesces two frames in one window into one read", async () => {
     const clock = new ManualClock();
-    const sessionStore = initialisedStore(REPOS_SCENARIO.sessionId);
-    const reader = openReader(REPOS_SCENARIO, clock, sessionStore);
+    const sessionStore = initializedStore(SESSION_ID);
+    const reader = openReader(sessionOperations(), clock, sessionStore);
     reader.start();
     await settle(clock, reader);
 
-    sessionStore.applyBatch([
-      staleFrame(REPOS_SCENARIO.sessionId, 1),
-      staleFrame(REPOS_SCENARIO.sessionId, 2),
-    ]);
+    sessionStore.applyBatch([staleFrame(SESSION_ID, 1), staleFrame(SESSION_ID, 2)]);
     await settle(clock, reader);
 
     // The scheduler's job, asserted rather than assumed: two reasons inside one debounce
@@ -80,8 +81,8 @@ describe("RepoMountsReader — the reasons it reads again", () => {
     // `degradedCause`, cleared only by a completed re-pull — so its clearing edge is the
     // observed moment the stream is whole again, which is what the policy calls reconnect.
     const clock = new ManualClock();
-    const sessionStore = initialisedStore(REPOS_SCENARIO.sessionId);
-    const reader = openReader(REPOS_SCENARIO, clock, sessionStore);
+    const sessionStore = initializedStore(SESSION_ID);
+    const reader = openReader(sessionOperations(), clock, sessionStore);
     reader.start();
     await settle(clock, reader);
 
@@ -102,14 +103,14 @@ describe("RepoMountsReader — the reasons it reads again", () => {
     // unread, so the row stayed provisioning until a focus, a reconnect, or another
     // mutation happened along.
     const clock = new ManualClock();
-    const sessionStore = initialisedStore(REPOS_SCENARIO.sessionId);
-    const reader = openReader(REPOS_SCENARIO, clock, sessionStore);
+    const sessionStore = initializedStore(SESSION_ID);
+    const reader = openReader(sessionOperations(), clock, sessionStore);
     reader.start();
     await settle(clock, reader);
     const readAtFirstSettle = reader.snapshot.readAtMilliseconds;
     expect(reader.performCount).toBe(1);
 
-    sessionStore.applyBatch([eventOfKind(REPOS_SCENARIO.sessionId, "workspace.ready", 1)]);
+    sessionStore.applyBatch([eventOfKind(SESSION_ID, "workspace.ready", 1)]);
     await settle(clock, reader);
 
     expect(reader.performCount).toBe(2);
@@ -124,12 +125,12 @@ describe("RepoMountsReader — the reasons it reads again", () => {
     // unwatched, the section went on drawing a mount card, its workspaces, and its
     // execution roots for a mount the session no longer holds.
     const clock = new ManualClock();
-    const sessionStore = initialisedStore(REPOS_SCENARIO.sessionId);
-    const reader = openReader(REPOS_SCENARIO, clock, sessionStore);
+    const sessionStore = initializedStore(SESSION_ID);
+    const reader = openReader(sessionOperations(), clock, sessionStore);
     reader.start();
     await settle(clock, reader);
 
-    sessionStore.applyBatch([eventOfKind(REPOS_SCENARIO.sessionId, "repo.detached", 1)]);
+    sessionStore.applyBatch([eventOfKind(SESSION_ID, "repo.detached", 1)]);
     await settle(clock, reader);
 
     expect(reader.performCount).toBe(2);
@@ -140,17 +141,17 @@ describe("RepoMountsReader — the reasons it reads again", () => {
     // several frames in one breath, and the scheduler is what makes that one burst
     // rather than five.
     const clock = new ManualClock();
-    const sessionStore = initialisedStore(REPOS_SCENARIO.sessionId);
-    const reader = openReader(REPOS_SCENARIO, clock, sessionStore);
+    const sessionStore = initializedStore(SESSION_ID);
+    const reader = openReader(sessionOperations(), clock, sessionStore);
     reader.start();
     await settle(clock, reader);
 
     sessionStore.applyBatch([
-      eventOfKind(REPOS_SCENARIO.sessionId, "workspace.provisioning", 1),
-      eventOfKind(REPOS_SCENARIO.sessionId, "worktree.created", 2),
-      eventOfKind(REPOS_SCENARIO.sessionId, "worktree.ready", 3),
-      eventOfKind(REPOS_SCENARIO.sessionId, "workspace.ready", 4),
-      eventOfKind(REPOS_SCENARIO.sessionId, "repo.attached", 5),
+      eventOfKind(SESSION_ID, "workspace.provisioning", 1),
+      eventOfKind(SESSION_ID, "worktree.created", 2),
+      eventOfKind(SESSION_ID, "worktree.ready", 3),
+      eventOfKind(SESSION_ID, "workspace.ready", 4),
+      eventOfKind(SESSION_ID, "repo.attached", 5),
     ]);
     await settle(clock, reader);
 
@@ -162,8 +163,8 @@ describe("RepoMountsReader — the reasons it reads again", () => {
     // store transition at all, which is interval polling with extra steps — and the
     // base-state arm would pass against one that re-read on its own session opening.
     const clock = new ManualClock();
-    const sessionStore = new SessionStore({ sessionId: REPOS_SCENARIO.sessionId });
-    const reader = openReader(REPOS_SCENARIO, clock, sessionStore);
+    const sessionStore = new SessionStore({ sessionId: SESSION_ID });
+    const reader = openReader(sessionOperations(), clock, sessionStore);
     reader.start();
     await settle(clock, reader);
 
@@ -173,12 +174,12 @@ describe("RepoMountsReader — the reasons it reads again", () => {
       userJoinLog: [],
       // A stale frame inside the BACKFILL is history the section's own live read already
       // reflects, so establishing a base state re-reads nothing.
-      timeline: [staleFrame(REPOS_SCENARIO.sessionId, 1)],
+      timeline: [staleFrame(SESSION_ID, 1)],
     });
     sessionStore.applyBatch([
       {
         id: "event-2",
-        sessionId: REPOS_SCENARIO.sessionId,
+        sessionId: SESSION_ID,
         sequence: 2,
         kind: "run.queued",
         occurredAt: "2026-01-01T09:05:02.000Z",
@@ -193,7 +194,7 @@ describe("RepoMountsReader — the reasons it reads again", () => {
 describe("RepoMountsReader — teardown", () => {
   it("is terminal: a disposed reader arms nothing and reads nothing more", async () => {
     const clock = new ManualClock();
-    const reader = openReader(REPOS_SCENARIO, clock);
+    const reader = openReader(sessionOperations(), clock);
     reader.start();
     await settle(clock, reader);
     const performedBeforeDispose = reader.performCount;

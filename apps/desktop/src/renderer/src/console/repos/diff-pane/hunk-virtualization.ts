@@ -7,9 +7,9 @@
 // after it — which of those rows a scroll position needs, at what offset, under
 // what total height — is `@tanstack/react-virtual`'s, the adopted virtualizer
 // `DiffRenderer.tsx` is the seam for.
-// This module answers the count and the addressing and computes no window: the
-// one it used to compute assumed every row was exactly one row tall, which is
-// false the moment the wrap toggle is on.
+// This module answers the count and the addressing and computes no window: a window
+// computed here would assume every row is exactly one row tall, which is false as soon
+// as a long line wraps.
 //
 // WHAT A ROW IS, and how much of a gap has been revealed, are `diff-row-model.ts`'s:
 // values the renderer and the pane hold, which this module reads and does not declare.

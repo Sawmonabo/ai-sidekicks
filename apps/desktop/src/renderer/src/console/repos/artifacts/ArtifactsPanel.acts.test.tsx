@@ -1,17 +1,14 @@
-// The panel's acts: what each control does, what a delete states before it happens,
-// and what a refusal leaves on screen.
+// The panel's act: what the re-read control does.
 //
-// WHAT THE PANEL DRAWS BEFORE ANY PRESS is `ArtifactsPanel.test.tsx` — the four
-// absences, the count, the row's face, the type filter, and the disclosure. Every case
-// here is about a control and the consequence it names.
+// What the panel draws before any press is `ArtifactsPanel.test.tsx`: the absences, the
+// count, the row's face and the type filter. Every case here is about a control and the
+// consequence it names.
 
 import { fireEvent, render, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { refuse } from "../../core/index.js";
 import { artifactRow } from "./artifacts.test-support.js";
 import { ArtifactsPanel } from "./ArtifactsPanel.js";
-import { ARTIFACT_DELETE_CONSEQUENCE, ARTIFACT_PAYLOAD_DISPOSITION_COPY } from "./artifact-copy.js";
 
 // Built rather than parsed: a fixture instant is this suite's own decision, and the
 // console's one reader of a wire stamp is `parseInstant`, not this line.
@@ -46,9 +43,8 @@ describe("ArtifactsPanel — the acts", () => {
   });
 
   it("holds the re-read control on a row whose read is on the wire", () => {
-    // The press is single-flight per row, so offering the control while that row's
-    // call is outstanding is offering a press whose only possible answer is the
-    // refusal saying one is already in flight.
+    // The re-read is single-flight per row, so offering the control while that row's call
+    // is outstanding would offer a second read of one manifest.
     const { container } = render(
       <ArtifactsPanel
         state={{ kind: "listed", rows: [artifactRow()] }}
@@ -92,264 +88,6 @@ describe("ArtifactsPanel — the acts", () => {
       />,
     );
     expect(queryByRole("button", { name: "Fetch payload" })).toBeNull();
-  });
-
-  it("names the visibility class the toggle would move to", () => {
-    const shared = render(
-      <ArtifactsPanel
-        state={{ kind: "listed", rows: [artifactRow({ visibility: "shared" })] }}
-        nowMilliseconds={NOW_MILLISECONDS}
-        onChangeVisibility={vi.fn()}
-      />,
-    );
-    expect(within(shared.container).getByRole("button", { name: "Make local-only" })).toBeDefined();
-    const local = render(
-      <ArtifactsPanel
-        state={{ kind: "listed", rows: [artifactRow({ visibility: "local-only" })] }}
-        nowMilliseconds={NOW_MILLISECONDS}
-        onChangeVisibility={vi.fn()}
-      />,
-    );
-    expect(
-      within(local.container).getByRole("button", { name: "Share with the session" }),
-    ).toBeDefined();
-  });
-
-  it("holds the visibility toggle on a row whose change is on the wire", () => {
-    // The label names the class this press would move to, read off a row the daemon
-    // has not answered for yet — so offering it while that row's change is
-    // outstanding offers a press asking for the class the row is already moving to.
-    const { container } = render(
-      <ArtifactsPanel
-        state={{ kind: "listed", rows: [artifactRow({ visibility: "shared" })] }}
-        nowMilliseconds={NOW_MILLISECONDS}
-        visibilityUpdateInFlightArtifactIds={new Set([artifactRow().id])}
-        onChangeVisibility={vi.fn()}
-      />,
-    );
-    const control = within(container).getByRole("button", { name: "Make local-only" });
-    expect(control.hasAttribute("disabled")).toBe(true);
-  });
-
-  it("negative control: the two in-flight registers hold two different controls", () => {
-    // Without this, one set behind both controls would pass the case above while
-    // holding a row's re-read because its visibility change was outstanding — a
-    // control held for a reason that is not about it.
-    const { container } = render(
-      <ArtifactsPanel
-        state={{ kind: "listed", rows: [artifactRow({ visibility: "shared" })] }}
-        nowMilliseconds={NOW_MILLISECONDS}
-        visibilityUpdateInFlightArtifactIds={new Set([artifactRow().id])}
-        onReadManifest={vi.fn()}
-        onChangeVisibility={vi.fn()}
-      />,
-    );
-    expect(
-      within(container).getByRole("button", { name: "Read manifest" }).hasAttribute("disabled"),
-    ).toBe(false);
-    expect(
-      within(container).getByRole("button", { name: "Make local-only" }).hasAttribute("disabled"),
-    ).toBe(true);
-  });
-});
-
-describe("ArtifactsPanel — delete states the consequence before the act", () => {
-  it("does not delete on the first press", () => {
-    const onDelete = vi.fn();
-    const { container } = render(
-      <ArtifactsPanel
-        state={{ kind: "listed", rows: [artifactRow()] }}
-        nowMilliseconds={NOW_MILLISECONDS}
-        onDelete={onDelete}
-      />,
-    );
-    fireEvent.click(within(container).getByRole("button", { name: "Delete" }));
-    expect(onDelete).not.toHaveBeenCalled();
-    expect(container.textContent).toContain(ARTIFACT_DELETE_CONSEQUENCE);
-  });
-
-  it("deletes on the confirm, and the way out is beside it", () => {
-    const onDelete = vi.fn();
-    const { container } = render(
-      <ArtifactsPanel
-        state={{ kind: "listed", rows: [artifactRow()] }}
-        nowMilliseconds={NOW_MILLISECONDS}
-        onDelete={onDelete}
-      />,
-    );
-    fireEvent.click(within(container).getByRole("button", { name: "Delete" }));
-    expect(within(container).getByRole("button", { name: "Keep it" })).toBeDefined();
-    fireEvent.click(within(container).getByRole("button", { name: "Delete permanently" }));
-    expect(onDelete).toHaveBeenCalledTimes(1);
-  });
-
-  it("closes an armed confirm when the pane is re-pointed and the list comes back", () => {
-    // The defect: the confirm register was a bare `useState`, scoped to nothing. A
-    // user armed Delete on one artifact, the deck re-pointed the pane at
-    // another — the reader is re-minted per subject, so the reading returns to its
-    // unread absence and the rows unmount — and this component stayed mounted at the
-    // same tree position. When the new subject's list landed carrying the same session
-    // rows, the row came back with a destructive act armed and one click from firing,
-    // with its consequence text having been off screen in between. On that code the
-    // second assertion below is false.
-    const onDelete = vi.fn();
-    const listed = { kind: "listed", rows: [artifactRow()] } as const;
-    const { container, rerender } = render(
-      <ArtifactsPanel state={listed} nowMilliseconds={NOW_MILLISECONDS} onDelete={onDelete} />,
-    );
-    fireEvent.click(within(container).getByRole("button", { name: "Delete" }));
-    expect(container.textContent).toContain(ARTIFACT_DELETE_CONSEQUENCE);
-
-    // The re-point: the fresh reader's unread absence, then the same session's rows.
-    rerender(
-      <ArtifactsPanel
-        state={{ kind: "not-checked" }}
-        nowMilliseconds={NOW_MILLISECONDS}
-        onDelete={onDelete}
-      />,
-    );
-    rerender(
-      <ArtifactsPanel
-        state={{ kind: "listed", rows: [artifactRow()] }}
-        nowMilliseconds={NOW_MILLISECONDS}
-        onDelete={onDelete}
-      />,
-    );
-
-    expect(container.textContent).not.toContain(ARTIFACT_DELETE_CONSEQUENCE);
-    expect(within(container).queryByRole("button", { name: "Delete permanently" })).toBeNull();
-  });
-
-  it("negative control: a refresh that lists the same rows holds the confirm open", () => {
-    // Without this the case above would pass against a register cleared on every
-    // republish — which would take a confirmation away under a user's cursor
-    // because an unrelated session frame arrived, and leave the control they were
-    // about to press replaced by whatever the row draws instead.
-    const onDelete = vi.fn();
-    const { container, rerender } = render(
-      <ArtifactsPanel
-        state={{ kind: "listed", rows: [artifactRow()] }}
-        nowMilliseconds={NOW_MILLISECONDS}
-        onDelete={onDelete}
-      />,
-    );
-    fireEvent.click(within(container).getByRole("button", { name: "Delete" }));
-
-    // A fresh reading object carrying the same rows, which is what every refresh is.
-    rerender(
-      <ArtifactsPanel
-        state={{ kind: "listed", rows: [artifactRow()] }}
-        nowMilliseconds={NOW_MILLISECONDS}
-        onDelete={onDelete}
-      />,
-    );
-
-    expect(container.textContent).toContain(ARTIFACT_DELETE_CONSEQUENCE);
-    expect(within(container).getByRole("button", { name: "Delete permanently" })).toBeDefined();
-  });
-
-  it("negative control: keeping it cancels without calling through", () => {
-    const onDelete = vi.fn();
-    const { container } = render(
-      <ArtifactsPanel
-        state={{ kind: "listed", rows: [artifactRow()] }}
-        nowMilliseconds={NOW_MILLISECONDS}
-        onDelete={onDelete}
-      />,
-    );
-    fireEvent.click(within(container).getByRole("button", { name: "Delete" }));
-    fireEvent.click(within(container).getByRole("button", { name: "Keep it" }));
-    expect(onDelete).not.toHaveBeenCalled();
-    expect(container.textContent).not.toContain(ARTIFACT_DELETE_CONSEQUENCE);
-  });
-
-  it("reports where the bytes went afterwards, and whether re-publish is foreclosed", () => {
-    const { container } = render(
-      <ArtifactsPanel
-        state={{ kind: "listed", rows: [artifactRow()] }}
-        nowMilliseconds={NOW_MILLISECONDS}
-        lastDeleteReceipt={{
-          artifactId: "artifact-01",
-          rePublishForeclosed: true,
-          payloadDisposition: "retained_by_references",
-        }}
-      />,
-    );
-    expect(container.textContent).toContain(
-      ARTIFACT_PAYLOAD_DISPOSITION_COPY.retained_by_references,
-    );
-    expect(container.textContent).toContain("permanently impossible");
-  });
-});
-
-describe("ArtifactsPanel — refusals render, controls stay", () => {
-  it("puts the daemon's refusal beside the row without removing its controls", () => {
-    const refusal = refuse(
-      "artifact",
-      "artifact.delete_blocked",
-      "Delete the derivatives first, or keep the source.",
-    );
-    const { container } = render(
-      <ArtifactsPanel
-        state={{ kind: "listed", rows: [artifactRow()] }}
-        nowMilliseconds={NOW_MILLISECONDS}
-        onDelete={vi.fn()}
-        rowRefusals={new Map([["artifact-01", refusal]])}
-      />,
-    );
-    expect(container.textContent).toContain(refusal.code);
-    expect(container.textContent).toContain(refusal.detail);
-    // Rule 9: a refusal never hides the control that produced it.
-    expect(within(container).getByRole("button", { name: "Delete" })).toBeDefined();
-  });
-
-  it("renders the manifests a blocked delete named, beside the move they belong to", () => {
-    // THE REMEDY AND ITS DATA ARE ONE ANSWER. The refusal's own sentence says to
-    // delete the derivatives first, and the ids that names ride the refusal as a
-    // registered extension — so a remedy rendered without them would point at a list
-    // that is not on screen.
-    const refusal = {
-      ...refuse("artifact", "artifact.delete_blocked", "Referenced by 2 manifests."),
-      referencingArtifacts: { ids: ["derivative-01", "derivative-02"], total: 2 },
-    };
-    const { container } = render(
-      <ArtifactsPanel
-        state={{ kind: "listed", rows: [artifactRow()] }}
-        nowMilliseconds={NOW_MILLISECONDS}
-        onDelete={vi.fn()}
-        rowRefusals={new Map([["artifact-01", refusal]])}
-      />,
-    );
-    expect(container.textContent).toContain("Delete the derivatives named below first");
-    expect(container.textContent).toContain("derivative-01");
-    expect(container.textContent).toContain("derivative-02");
-  });
-
-  it("negative control: the same code with no ids renders the move and no empty list", () => {
-    // A daemon that named no manifests is not a daemon that named zero of them, and a
-    // heading over an empty list would read as the second.
-    const refusal = refuse("artifact", "artifact.delete_blocked", "Referenced by 2 manifests.");
-    const { container } = render(
-      <ArtifactsPanel
-        state={{ kind: "listed", rows: [artifactRow()] }}
-        nowMilliseconds={NOW_MILLISECONDS}
-        onDelete={vi.fn()}
-        rowRefusals={new Map([["artifact-01", refusal]])}
-      />,
-    );
-    expect(container.textContent).toContain("Delete the derivatives named below first");
-    expect(container.querySelector(".meridian-artifact-referencing")).toBeNull();
-  });
-
-  it("negative control: a row nothing refused carries no refusal", () => {
-    const { container } = render(
-      <ArtifactsPanel
-        state={{ kind: "listed", rows: [artifactRow()] }}
-        nowMilliseconds={NOW_MILLISECONDS}
-        rowRefusals={new Map()}
-      />,
-    );
-    expect(container.querySelector(".meridian-refusal")).toBeNull();
   });
 });
 

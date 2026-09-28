@@ -1,6 +1,6 @@
 // Which frames the repos family re-reads on, checked against the contract's own census.
 //
-// The claim worth asserting here is a SET claim rather than a behaviour: the watched
+// The claim worth asserting here is a SET claim rather than a behavior: the watched
 // kinds are derived from the registered type registry, so the case below re-derives the
 // expected members from that registry too. A literal list here would be the hand-written
 // list the module exists to avoid, restated where nothing could catch its drift.
@@ -26,9 +26,9 @@ describe("repo lifecycle events — the frames this family watches", () => {
   });
 
   it("watches the terminal half of a workspace's lifecycle, not only the break", () => {
-    // The frames the earlier `workspace.stale`-only set dropped. Each one changes a row
-    // the section draws: the mount list, the workspace state and its execution root, or
-    // an execution root a proposal gate is bound to.
+    // The frames a `workspace.stale`-only set would drop. Each one changes a row the
+    // section draws: the mount list, the workspace state and its execution root, or an
+    // execution root.
     expect(REPO_LIFECYCLE_EVENT_KINDS).toContain("workspace.ready");
     expect(REPO_LIFECYCLE_EVENT_KINDS).toContain("workspace.provisioning");
     expect(REPO_LIFECYCLE_EVENT_KINDS).toContain("repo.attached");

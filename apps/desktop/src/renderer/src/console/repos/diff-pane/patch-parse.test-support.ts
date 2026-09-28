@@ -4,15 +4,14 @@
 // A SUPPORT MODULE BECAUSE TWO SUITES PARSE THE SAME WAY. `patch-parse.test.ts` owns
 // the hunk header, the line kinds, and the intraline segments a changed pair produces;
 // `patch-parse.file-shapes.test.ts` owns the files whose whole change is in their
-// extended headers. Both parse through the same two fixed arguments — a run
-// attribution and a compared-states pair — and a second copy of them in either suite
-// would be a second definition of what a patch is being parsed FOR.
+// extended headers. Both parse through the same fixed compared-states pair, and a second
+// copy of it in either suite would be a second definition of what a patch is being
+// parsed FOR.
 
 import { parseUnifiedPatch } from "./patch-parse.js";
 import type { DiffLine } from "./diff-model.js";
 
-/** The two arguments every parse here holds fixed, so a case varies only the patch. */
-export const RUN_ATTRIBUTION = { mode: "run_attributed", runId: "run-1" } as const;
+/** The argument every parse here holds fixed, so a case varies only the patch. */
 export const COMPARED_STATES = { baseRef: "main", headRef: "feat/thing" } as const;
 
 /** A plain unified patch: two files, one hunk each, one modified line pair. */
@@ -31,9 +30,9 @@ export const PLAIN_PATCH: string = [
   "",
 ].join("\n");
 
-/** One parse, under the two arguments every case here holds fixed. */
+/** One parse, under the compared states every case here holds fixed. */
 export function parsePlain(patchText: string): ReturnType<typeof parseUnifiedPatch> {
-  return parseUnifiedPatch(patchText, RUN_ATTRIBUTION, COMPARED_STATES);
+  return parseUnifiedPatch(patchText, COMPARED_STATES);
 }
 
 /** The lines of the first hunk of the first file, or a failure that says which. */

@@ -1,12 +1,9 @@
-// One served payload reply read as the arm the pane draws, with no bridge and no pane.
+// One served payload reply read as the arm the pane draws, with no bridge and no reader.
 //
-// The decode is the whole subject: the reply's own `payloadEncoding` decides which arm
-// a served answer lands on, and each case here is a claim the pane would otherwise
-// make falsely — that a handle is bytes, that undecodable base64 is a refusal, or that
-// bytes which are not text can be previewed as though they were.
-//
-// Moved here whole when `artifact-pane-reading.ts` split: the reductions stayed with
-// the reading and the decode came with its module. Every case is the one it was.
+// The decode is the whole subject: the reply's own `payloadEncoding` decides which arm a
+// served answer lands on, and each case here is a claim the pane would otherwise make
+// falsely: that a handle is bytes, that undecodable base64 is an error, or that bytes which
+// are not text can be previewed as though they were.
 
 import { describe, expect, it } from "vitest";
 
@@ -110,16 +107,11 @@ describe("artifact payload reading — the served union has two arms and each sp
   });
 
   it("decodes only the prefix a bounded preview can draw", () => {
-    // The defect: the whole inline payload was decoded — a full binary string, one
-    // closure call per byte, a `Uint8Array` and a whole decoded string — and only then
-    // sliced to two thousand characters. The arm is bounded by nothing on this side
-    // and by nothing named on the wire, so a served log costs its whole length on the
-    // renderer's one thread to draw a screenful and a half of it.
-    //
-    // ASSERTED BY WHAT THE DECODER NEVER REACHED. This payload is a long run of ASCII
-    // followed by bytes that are not UTF-8 at all: a decode of the whole reply lands
-    // `opaque`, and a decode of only what is drawn lands `text`. On the pre-fix code
-    // the first assertion below reads "opaque".
+    // Decoding the whole inline payload and then slicing it would cost a served log its
+    // whole length on the renderer's one thread. Asserted by what the decoder never
+    // reached: this payload is a long run of ASCII followed by bytes that are not UTF-8, so
+    // a decode of the whole reply lands `opaque` and a decode of only what is drawn lands
+    // `text`.
     const drawable = "a".repeat(ARTIFACT_PAYLOAD_PREVIEW_CHARACTER_CAP * 8);
     const payload = base64Of(
       [...drawable].map((character) => character.charCodeAt(0)).concat([255, 255]),
@@ -158,11 +150,10 @@ describe("artifact payload reading — the served union has two arms and each sp
   });
 
   it("cuts on a code-point boundary rather than through a surrogate pair", () => {
-    // The cap counts UTF-16 CODE UNITS and an astral code point is two of them, so a
-    // cut landing at an odd offset into a run of them used to end on a lone HIGH
-    // surrogate — which the DOM paints as the replacement character, the one glyph
-    // this module says a preview never draws. One ASCII character ahead of the run
-    // puts the cut exactly one code unit inside a pair.
+    // The cap counts UTF-16 code units and an astral code point is two of them, so a cut at
+    // an odd offset into a run of them would end on a lone high surrogate, which the DOM
+    // paints as the replacement character. One ASCII character ahead of the run puts the
+    // cut exactly one code unit inside a pair.
     const payload = `a${"\u{1F600}".repeat(ARTIFACT_PAYLOAD_PREVIEW_CHARACTER_CAP)}`;
 
     const reading = artifactPayloadReadingFrom(ARTIFACT_ID, {

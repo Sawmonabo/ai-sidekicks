@@ -24,7 +24,6 @@ export const REPOSITORY_WIDE_DIFF: ConsoleDiffModel = buildDiffFixture({
   hunksPerFile: 1,
   linesPerHunk: 1,
   precedingContextPerHunk: 0,
-  agentAttributionEveryNthLine: 0,
   extendedHeaderFiles: false,
   terminalNewlineFile: false,
 });

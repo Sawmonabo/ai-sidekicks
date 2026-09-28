@@ -2,11 +2,10 @@
  * Binding a workspace to an execution mode: the mount root it is bound under, and the
  * modes this mount cannot offer.
  *
- * Split out of `mounts.css` with the directory, verbatim and in order — a move, not a
- * restyle. The dialog shape this surface shares with the attach and execution-root
- * surfaces is in `mounts/mount-acts.css`, imported ahead of this sheet; what is here is
- * what only the bind surface wears, including the one rule that overrides a shared one
- * (`--out`'s `cursor`), which is why the import order is the order the rules were in.
+ * The dialog shape this surface shares with the attach and execution-root surfaces is in
+ * `mounts/mount-acts.css`, imported ahead of this sheet; what is here is what only the
+ * bind surface wears, including the one rule that overrides a shared one (`--out`'s
+ * `cursor`), which is why this sheet loads after that one.
  *
  * IMPORTED FROM `repos/index.ts`: this directory carries no barrel, so the family door
  * owns its sheet.

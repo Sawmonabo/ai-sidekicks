@@ -20,12 +20,12 @@
 // write is global to the environment and this family has two windowed lists that each
 // needed it — written twice, one of the two copies could leak a shadow into every later
 // file in the same worker. What stays here is the only part that is the diff's: which
-// element is a scroller, which is a row, and which row the wrap toggle grew.
+// element is a scroller, which is a row, and which row a wrapped line grew.
 
 import { ElementHeightShim } from "../../primitives/element-height-shim.test-support.js";
 import { DIFF_FILE_ROW_HEIGHT_PX, DIFF_ROW_HEIGHT_PX } from "./diff-bounds.js";
 
-/** A row the wrap toggle grew, and how tall it turned out. */
+/** A row a wrapped line grew, and how tall it turned out. */
 export interface DiffGrownRow {
   readonly rowIndex: number;
   readonly heightPx: number;
@@ -34,7 +34,7 @@ export interface DiffGrownRow {
 /** What a case says about the pane it is measuring. */
 export interface DiffLayoutFixtureOptions {
   readonly viewportHeightPx: number;
-  /** Absent, every row is one row tall — which is the unwrapped diff. */
+  /** Absent, every row is one row tall. */
   readonly grownRow?: DiffGrownRow;
 }
 
@@ -50,9 +50,9 @@ export const DIFF_FIXTURE_VIEWPORT_HEIGHT_PX = 800;
 /**
  * Report the heights a browser would have laid out.
  *
- * Installing twice replaces the reading rather than stacking a second shadow, so
- * a case that wants a grown row says so in one line and the hook that installed
- * the plain reading stays where it is.
+ * Installing twice replaces the reading rather than stacking a second shadow, so a case
+ * that wants a grown row says so in one line and the hook that installed the plain
+ * reading stays where it is.
  */
 export class DiffLayoutFixture {
   readonly #shim = new ElementHeightShim();

@@ -1,10 +1,10 @@
 // When an upload lets go of the user's bytes, and when it may not.
 //
 // A `Blob` is a handle rather than a copy, but it is a KEEP: the browser holds the file
-// behind it for as long as anything can reach it. The carrier held one per attachment
-// and released none, so ten finished uploads pinned ten files' worth of memory until
+// behind it for as long as anything can reach it. A carrier that held one per attachment
+// and released none would pin ten files' worth of memory for ten finished uploads until
 // the surface unmounted — invisible, because every figure on the card is a number the
-// ledger already had.
+// ledger already has.
 //
 // The rule the cases below hold the ledger to is one sentence: an entry holds the bytes
 // while — and only while — a send is still possible from where it stands. The retry
@@ -19,7 +19,7 @@ import { ATTACHMENT_CHUNK_BYTE_CAP } from "../../core/index.js";
 import { AttachmentIngestLedger } from "./attachment-ingest-ledger.js";
 import {
   SMALL_SOURCE,
-  ScriptedGrowthPort,
+  ScriptedIngestPort,
   clientOver,
   sourceOver,
 } from "./attachment-ingest-scripted-port.test-support.js";
@@ -45,7 +45,7 @@ function holdsPayload(entry: AttachmentIngestEntry | undefined): boolean {
 
 describe("attachment payload release — a finished upload lets the bytes go", () => {
   it("releases the payload when the ingest completes", async () => {
-    const port = new ScriptedGrowthPort();
+    const port = new ScriptedIngestPort();
     const client = clientOver(port);
     client.attach(SMALL_SOURCE);
     await crossMacrotaskBoundary();
@@ -69,9 +69,9 @@ describe("attachment payload release — a finished upload lets the bytes go", (
     // Abandonment is terminal in the other direction: the daemon's reaper claims the
     // spool and no artifact is minted, so nothing here will ever send these bytes
     // either. Holding them would keep a file alive for an upload somebody cancelled.
-    const port = new ScriptedGrowthPort();
+    const port = new ScriptedIngestPort();
     const client = clientOver(port);
-    port.refuseChunksWith("wire-unregistered");
+    port.holdChunks();
     client.attach(SMALL_SOURCE);
     await crossMacrotaskBoundary();
 
@@ -83,13 +83,13 @@ describe("attachment payload release — a finished upload lets the bytes go", (
     expect(holdsPayload(entry)).toBe(false);
   });
 
-  it("keeps the payload on a refused entry, which is what makes the retry a replay", async () => {
+  it("keeps the payload on a refused entry, so the retry has bytes to send", async () => {
     // The half a release rule gets wrong first. Every refusal disposition offers a
-    // retry, and a retry resends from the ledger's own offset — over bytes an entry
-    // that had let go of its payload could not produce.
-    const port = new ScriptedGrowthPort();
+    // retry, and a retry resends over bytes an entry that had let go of its payload
+    // could not produce.
+    const port = new ScriptedIngestPort();
     const client = clientOver(port);
-    port.refuseChunksWith("artifact.ingest_capacity_exhausted");
+    port.acknowledgeChunksWith({ ingestId: "ingest-1", receivedBytes: 0 });
     client.attach(sourceOver("attachment-two", "capture.bin", ATTACHMENT_CHUNK_BYTE_CAP * 2));
     await crossMacrotaskBoundary();
 
@@ -98,8 +98,8 @@ describe("attachment payload release — a finished upload lets the bytes go", (
     expect(holdsPayload(refused)).toBe(true);
 
     // And the retry actually sends: the assertion above would be satisfied by a handle
-    // nothing could read, so the proof is a second chunk on the wire.
-    port.refuseChunksWith(undefined);
+    // nothing could read, so the proof is the chunks on the wire after the retry.
+    port.acknowledgeChunksWith(undefined);
     client.retry("attachment-two");
     await crossMacrotaskBoundary();
 
@@ -117,7 +117,7 @@ describe("attachment payload release — a finished upload lets the bytes go", (
     // payload, so it sends no chunk and still completes the stream again — which is a
     // second `AttachmentIngestComplete` for one artifact and a ledger write behind it.
     // A retry that did nothing publishes nothing.
-    const port = new ScriptedGrowthPort();
+    const port = new ScriptedIngestPort();
     const client = clientOver(port);
     client.attach(SMALL_SOURCE);
     await crossMacrotaskBoundary();
@@ -183,7 +183,7 @@ describe("attachment payload release — a finished upload lets the bytes go", (
   it("negative control: an upload still in flight is holding the bytes", async () => {
     // Without this every absence above would pass over a ledger that had never carried
     // a payload at all — which would report a stream that cannot send as a release.
-    const port = new ScriptedGrowthPort();
+    const port = new ScriptedIngestPort();
     const client = clientOver(port);
     port.holdChunks();
     client.attach(sourceOver("attachment-two", "capture.bin", ATTACHMENT_CHUNK_BYTE_CAP * 2));

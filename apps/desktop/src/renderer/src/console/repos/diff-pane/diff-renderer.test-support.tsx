@@ -42,9 +42,6 @@ export function diffRendererProps(
   return {
     model: SMALL_DIFF,
     viewMode: "unified",
-    showAttributionMarks: true,
-    wrapLongLines: false,
-    showWhitespaceChanges: true,
     expansion: noExpansion(),
     onExpandGap: () => undefined,
     label: "Diff, main to feat/rate-limit-wiring",

@@ -6,34 +6,22 @@
 // abandon, remove, reorder — a set of synchronous decisions over the ledger. This one
 // owns what happens on the wire afterwards, and hands the middle leg to
 // `attachment-ingest-chunks.ts`, which is a loop rather than a call. Three subjects,
-// three modules; the file that held all three was doing three jobs at once, which this
-// package's module-shape rule rejects.
+// three modules.
 //
 // THE PROTOCOL IS OWN-BUILT, and this module is where that is decided and why: the
 // chunking, the decoded-byte accounting, and the replay-safe retry are all CONTRACT
 // behaviour, and a generic upload library would obscure every one of them. So
 // this is a class with private fields rather than a hook holding four `useState`s.
 //
-// WHAT IT CALLS, AND WHAT ANSWERS TODAY. The trio `AttachmentIngestInit`,
-// `AttachmentIngestChunk`, `AttachmentIngestComplete` is typed in the corpus and
-// registers NO method string anywhere, so every leg goes through
-// `bridge/growth-port/growth-port.ts` and comes back `wire-unregistered` against the
-// `artifact-ingest-and-crud` slate row. That is not a stub: the chunk loop runs, every
-// request carries exactly the members the registered shape names, the ledger advances
-// on whatever is acknowledged, and the refusal renders where the progress would have.
-// When the wire lands, the port's methods stop refusing and this file does not change.
+// WHAT IT CALLS. Every leg goes through the `AttachmentIngestPort` the client was handed,
+// and the ledger advances on whatever that port acknowledges: the chunk loop runs and
+// every request carries exactly the members the port names. A rejected port call is not
+// turned into state; it propagates out of `drive`. The one fault `drive` catches is local:
+// a subscriber that threw while the ledger published a write that had already landed.
 //
 // RETRY REPLAYS, IT DOES NOT RESTART. Every call of the trio is retry-safe: Init is
 // skipped where the stream is already open, and a replayed completion replays its
 // original response verbatim. So a lost response resumes at the current offset.
-//
-// A REJECTION IS A REFUSAL, AT EVERY LEG. A growth call can REJECT rather than answer —
-// the bridge's namespace is gone on an IPC disconnect — and a rejection that escaped a
-// leg reached nobody: the caller discards this driver's promise, so the browser reported
-// an unhandled rejection and the ledger sat at `declared` or `ingesting` forever, with
-// no refusal to read and no retry to press. So every leg goes through
-// `answerOrRefusal`, and `drive` carries a last catch of its own, because a rejection
-// past those is a defect in this console rather than an answer from anywhere.
 //
 // A USER CAN ACT WHILE A CALL IS IN FLIGHT, so every continuation re-reads the
 // ledger after its await and proceeds only if the entry still stands where it stood.
@@ -44,27 +32,20 @@
 // entry, so `abandon` never saw it.
 //
 // NO TIMER, ANYWHERE. Work happens when a user asks for it and at no other
-// moment. There is no interval, no backoff timer, and no automatic re-drive:
-// `wait-and-retry` is a sentence a person reads and a control they press, because a
-// console that retried a 429 on its own would hide the capacity problem it exists to
-// report.
+// moment. There is no interval, no backoff timer, and no automatic re-drive.
 
-import type { ConsoleBridge } from "../../bridge/index.js";
 import { lossyStringify, reportTripwire, type ConsoleClock } from "../../core/index.js";
 import type { AttachmentSpoolReclaimer } from "./attachment-ingest-abort.js";
-import { answerOrRefusal, type PortAnswer } from "./attachment-ingest-answer.js";
+import type { AttachmentIngestPort } from "./attachment-ingest-answer.js";
 import { AttachmentChunkStream } from "./attachment-ingest-chunks.js";
-import { writeIngestRefusal, type AttachmentIngestLedger } from "./attachment-ingest-ledger.js";
+import type { AttachmentIngestLedger } from "./attachment-ingest-ledger.js";
 
 /** Where the protocol's own diagnostic reports from, so a firing names a module. */
 export const INGEST_STREAM_SITE = "console/repos/attachments/attachment-ingest-stream.ts";
 
-/** What each leg is called in the one sentence that says which call failed. */
-const INGEST_OPEN_LEG = "The ingest open";
-const INGEST_COMPLETION_LEG = "The ingest completion";
-
+/** What one ingest stream driver is given to run an upload. */
 export interface AttachmentIngestStreamDriverOptions {
-  readonly bridge: ConsoleBridge;
+  readonly port: IngestLegs;
   readonly sessionId: string;
   readonly clock: ConsoleClock;
   /** The carrier's own record. Written here, owned next door. */
@@ -85,7 +66,7 @@ export interface AttachmentIngestStreamDriverOptions {
  * key, which is the act the asking exists to avoid.
  */
 export class AttachmentIngestStreamDriver {
-  readonly #bridge: ConsoleBridge;
+  readonly #port: Pick<AttachmentIngestPort, "begin" | "complete">;
   readonly #sessionId: string;
   readonly #clock: ConsoleClock;
   readonly #ledger: AttachmentIngestLedger;
@@ -94,13 +75,14 @@ export class AttachmentIngestStreamDriver {
   readonly #runningLocalIds = new Set<string>();
 
   public constructor(options: AttachmentIngestStreamDriverOptions) {
-    this.#bridge = options.bridge;
+    const port = marked(options.port);
+    this.#port = port;
     this.#sessionId = options.sessionId;
     this.#clock = options.clock;
     this.#ledger = options.ledger;
     this.#reclaimer = options.reclaimer;
     this.#chunks = new AttachmentChunkStream({
-      bridge: options.bridge,
+      port,
       clock: options.clock,
       ledger: options.ledger,
     });
@@ -119,21 +101,13 @@ export class AttachmentIngestStreamDriver {
   /**
    * Begin or resume one stream: open it if it is not open, chunk it, then complete it.
    *
-   * THIS PROMISE IS DISCARDED BY EVERY CALLER — `attach`, `retry`, and nothing else —
-   * so it may not reject: a rejection nobody awaits is an unhandled rejection in the
-   * page and a ledger entry frozen where it stood. Every call the three legs make is
-   * already normalized into an answer by `#answer`, so what remains here is the
-   * publication itself: `Emitter` re-raises a sink that threw, and the ledger's write
-   * has already landed by then, which is precisely why this catch REPORTS rather than
-   * writing again. The record advanced and the fan-out did not, so a second write
-   * would re-publish into the same throwing sink and lose the diagnostic too.
+   * Every caller discards this promise (`attach` and `retry`), so a rejected port call
+   * surfaces as the page's unhandled rejection rather than as ledger state.
    *
-   * `apply-chokepoint-bypass` is the kind for it, on the two sites that already report
-   * under it (`frame/session/session-event-binder.ts`, `bridge/scenario/runtime/engine.ts`): a store
-   * and the surfaces reading it are out of step because a delivery did not arrive. In
-   * a development build the registry throws after recording, which is the console's
-   * standing policy and the one arm where this promise does reject — loudly, at the
-   * defect, with the record already made.
+   * A subscriber that throws while the ledger publishes is different: the write has
+   * already landed, so the record is ahead of the surfaces reading it. That is reported
+   * as an `apply-chokepoint-bypass` tripwire and not written again, since a second write
+   * would publish into the same throwing subscriber.
    */
   public async drive(localId: string): Promise<void> {
     if (this.#runningLocalIds.has(localId)) {
@@ -151,6 +125,9 @@ export class AttachmentIngestStreamDriver {
       }
       await this.#completeStream(localId);
     } catch (escape) {
+      if (escape instanceof PortRejection) {
+        throw escape.reason;
+      }
       reportTripwire(
         "apply-chokepoint-bypass",
         INGEST_STREAM_SITE,
@@ -176,37 +153,28 @@ export class AttachmentIngestStreamDriver {
     // reported the same way: as an absent member.
     const declared = entry.declared.declaredMediaType;
     const declaredMediaType = declared === undefined || declared === "" ? undefined : declared;
-    const answer: PortAnswer<{ readonly ingestId: string }> = await answerOrRefusal(
-      INGEST_OPEN_LEG,
-      async () =>
-        this.#bridge.growth.artifactIngestBegin({
-          sessionId: this.#sessionId,
-          fileName: entry.declared.declaredName,
-          // Spread rather than assigned, so a source that declared nothing sends a
-          // request with no `mediaType` key at all. The contract makes absence a
-          // first-class state and the daemon reads presence, so a key carrying
-          // `undefined` — or an empty string — would be this console declaring a type
-          // it was never told.
-          ...(declaredMediaType === undefined ? {} : { mediaType: declaredMediaType }),
-          declaredSizeBytes: entry.declared.byteLength,
-        }),
-    );
+    const opened = await this.#port.begin({
+      sessionId: this.#sessionId,
+      fileName: entry.declared.declaredName,
+      // Spread rather than assigned, so a source that declared nothing sends a request
+      // with no `mediaType` key at all. The contract makes absence a first-class state
+      // and the daemon reads presence, so a key carrying `undefined` — or an empty
+      // string — would be this console declaring a type it was never told.
+      ...(declaredMediaType === undefined ? {} : { mediaType: declaredMediaType }),
+      declaredSizeBytes: entry.declared.byteLength,
+    });
     const settled = this.#ledger.currentIfUnchanged(localId, stamp);
     if (settled === undefined) {
       // Abandoned, removed, or disposed while Init was in flight. The daemon opened a
       // stream whose id never reached the ledger, so this is the only place that can
       // ask for its spool back.
-      this.#reclaimer.request(answer.value?.ingestId);
-      return false;
-    }
-    if (answer.status !== "served" || answer.value === undefined) {
-      writeIngestRefusal(this.#ledger, localId, settled, answer);
+      this.#reclaimer.request(opened.ingestId);
       return false;
     }
     this.#ledger.write(localId, {
       ...settled,
       state: "ingesting",
-      ingestId: answer.value.ingestId,
+      ingestId: opened.ingestId,
       openedAtMilliseconds: this.#clock.now(),
       lastProgressAtMilliseconds: this.#clock.now(),
     });
@@ -221,32 +189,44 @@ export class AttachmentIngestStreamDriver {
       return;
     }
     const ingestId = entry.ingestId;
-    const answer: PortAnswer<{
-      readonly artifactId: string;
-      readonly normalizedName: string;
-      readonly derivedMediaType: string;
-      readonly derivedSizeBytes: number;
-    }> = await answerOrRefusal(INGEST_COMPLETION_LEG, async () =>
-      this.#bridge.growth.artifactIngestComplete({ ingestId }),
-    );
+    const completion = await this.#port.complete({ ingestId });
     const settled = this.#ledger.currentIfUnchanged(localId, stamp);
     if (settled === undefined) {
-      return;
-    }
-    if (answer.status !== "served" || answer.value === undefined) {
-      writeIngestRefusal(this.#ledger, localId, settled, answer);
       return;
     }
     this.#ledger.write(localId, {
       ...settled,
       state: "complete",
       derived: {
-        artifactId: answer.value.artifactId,
-        normalizedName: answer.value.normalizedName,
-        derivedMediaType: answer.value.derivedMediaType,
-        derivedSizeBytes: answer.value.derivedSizeBytes,
+        artifactId: completion.artifactId,
+        normalizedName: completion.normalizedName,
+        derivedMediaType: completion.derivedMediaType,
+        derivedSizeBytes: completion.derivedSizeBytes,
       },
       lastProgressAtMilliseconds: this.#clock.now(),
     });
   }
+}
+
+type IngestLegs = Pick<AttachmentIngestPort, "begin" | "writeChunk" | "complete">;
+
+/** A port call's rejection in transit, so `drive`'s catch can tell it from a local fault. */
+class PortRejection {
+  public constructor(public readonly reason: unknown) {}
+}
+
+/** The port's three legs, each rejecting as a `PortRejection` that `drive` unwraps. */
+function marked(port: IngestLegs): IngestLegs {
+  const mark = async <Answer>(call: () => Promise<Answer>): Promise<Answer> => {
+    try {
+      return await call();
+    } catch (reason) {
+      throw new PortRejection(reason);
+    }
+  };
+  return {
+    begin: (request) => mark(() => port.begin(request)),
+    writeChunk: (request) => mark(() => port.writeChunk(request)),
+    complete: (request) => mark(() => port.complete(request)),
+  };
 }

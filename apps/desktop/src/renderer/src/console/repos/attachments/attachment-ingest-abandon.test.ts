@@ -1,38 +1,26 @@
 // Abandonment and disposal: sending stops at once, the spool is asked for back, and a
 // call already in flight does not resume what a user stopped.
 //
-// The client is driven directly against the scripted growth port beside it, which can be
+// The client is driven directly against the scripted ingest port beside it, which can be
 // HELD mid-call — the only way to put an abandonment inside an await and see what the
 // continuation does when it comes back to a ledger that moved underneath it.
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import { ATTACHMENT_CHUNK_BYTE_CAP } from "../../core/index.js";
-import { consoleTripwires } from "../../core/tripwires.js";
-import { INGEST_ABORT_SITE } from "./attachment-ingest-abort.js";
 import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import {
   SMALL_SOURCE,
-  ScriptedGrowthPort,
+  ScriptedIngestPort,
   clientOver,
   sourceOver,
 } from "./attachment-ingest-scripted-port.test-support.js";
 
-beforeEach(() => {
-  consoleTripwires.setThrowOnReport(false);
-  consoleTripwires.reset();
-});
-
-afterEach(() => {
-  consoleTripwires.reset();
-  consoleTripwires.setThrowOnReport(import.meta.env.DEV);
-});
-
 describe("ingest client — abandonment, including mid-call", () => {
   it("stops sending and asks for the spool back", async () => {
-    const port = new ScriptedGrowthPort();
+    const port = new ScriptedIngestPort();
     const client = clientOver(port);
-    port.refuseChunksWith("wire-unregistered");
+    port.holdChunks();
     client.attach(SMALL_SOURCE);
     await crossMacrotaskBoundary();
 
@@ -43,7 +31,7 @@ describe("ingest client — abandonment, including mid-call", () => {
   });
 
   it("negative control: a completed attachment is not abandonable", async () => {
-    const port = new ScriptedGrowthPort();
+    const port = new ScriptedIngestPort();
     const client = clientOver(port);
     client.attach(SMALL_SOURCE);
     await crossMacrotaskBoundary();
@@ -54,7 +42,7 @@ describe("ingest client — abandonment, including mid-call", () => {
   });
 
   it("stops a stream abandoned while its first call was in flight", async () => {
-    const port = new ScriptedGrowthPort();
+    const port = new ScriptedIngestPort();
     const client = clientOver(port);
     const gate = port.holdBegin();
     client.attach(SMALL_SOURCE);
@@ -75,7 +63,7 @@ describe("ingest client — abandonment, including mid-call", () => {
   });
 
   it("sends no further chunk after an abandonment mid-chunk", async () => {
-    const port = new ScriptedGrowthPort();
+    const port = new ScriptedIngestPort();
     const client = clientOver(port);
     const gate = port.holdChunks();
     client.attach(sourceOver("attachment-three", "capture.bin", ATTACHMENT_CHUNK_BYTE_CAP * 2));
@@ -96,7 +84,7 @@ describe("ingest client — abandonment, including mid-call", () => {
   it("negative control: an unabandoned stream in flight runs to completion", async () => {
     // Without this, both cases above would pass over a client that stopped after one
     // chunk whatever the user did.
-    const port = new ScriptedGrowthPort();
+    const port = new ScriptedIngestPort();
     const client = clientOver(port);
     const gate = port.holdChunks();
     client.attach(sourceOver("attachment-three", "capture.bin", ATTACHMENT_CHUNK_BYTE_CAP * 2));
@@ -111,85 +99,13 @@ describe("ingest client — abandonment, including mid-call", () => {
   });
 });
 
-describe("ingest client — a refused abort is recorded rather than swallowed", () => {
-  /** Open one stream, stop it, and let the abort's continuation come back. */
-  async function abandonOneStream(port: ScriptedGrowthPort): Promise<void> {
-    const client = clientOver(port);
-    port.refuseChunksWith("wire-unregistered");
-    client.attach(SMALL_SOURCE);
-    await crossMacrotaskBoundary();
-
-    client.abandon("attachment-1");
-    await crossMacrotaskBoundary();
-  }
-
-  it("names the ingest id and the code when the daemon will not release the spool", async () => {
-    // Both callers of the abort are terminal for the entry, so there is no card left
-    // to render this on. Unrecorded, a daemon holding a spool and its byte
-    // reservation is invisible until a later upload fails capacity admission.
-    const port = new ScriptedGrowthPort();
-    port.refuseAbortsWith("artifact.ingest_not_found");
-    await abandonOneStream(port);
-
-    expect(port.abortedIngestIds).toStrictEqual(["ingest-1"]);
-    expect(consoleTripwires.firingCount("cleanup-refused")).toBe(1);
-    const [report] = consoleTripwires.reports();
-    expect(report?.site).toBe(INGEST_ABORT_SITE);
-    expect(report?.detail).toContain("ingest-1");
-    expect(report?.detail).toContain("artifact.ingest_not_found");
-  });
-
-  it("records the spool when the abort rejects instead of answering", async () => {
-    // The path that matters most and used to be the one path with nothing on it: an
-    // IPC disconnect takes the bridge namespace with it, so the daemon may never have
-    // heard the request at all. Fired and not awaited, that rejection reached no
-    // `catch`, so it became an unhandled rejection in the page and skipped the only
-    // record a spool nobody is rendering can appear in.
-    const port = new ScriptedGrowthPort();
-    port.rejectAbortsWith(new Error("the bridge namespace is gone"));
-    await abandonOneStream(port);
-
-    expect(port.abortedIngestIds).toStrictEqual(["ingest-1"]);
-    expect(consoleTripwires.firingCount("cleanup-refused")).toBe(1);
-    const [report] = consoleTripwires.reports();
-    expect(report?.site).toBe(INGEST_ABORT_SITE);
-    expect(report?.detail).toContain("ingest-1");
-    // Normalized through the repos family's own normalizer, so a rejection carrying
-    // nothing machine-readable lands under the one code the console owns for it.
-    expect(report?.detail).toContain("call-rejected");
-  });
-
-  it("negative control: a served abort records nothing", async () => {
-    // Without this the case above would pass against a client that fired on every
-    // abort, which would report a clean reclaim as an unreclaimed spool.
-    const port = new ScriptedGrowthPort();
-    await abandonOneStream(port);
-
-    expect(port.abortedIngestIds).toStrictEqual(["ingest-1"]);
-    expect(consoleTripwires.totalFiringCount).toBe(0);
-  });
-
-  it("negative control: an abort no wire could carry is not a refused cleanup", async () => {
-    // `wire-unregistered` means this console's own port declined before any request
-    // left the process, so no daemon was asked and none refused — the `not-checked`
-    // against `refused` distinction every surface here draws. Firing would put V1's
-    // designed absence on the diagnostic band once per abandonment.
-    const port = new ScriptedGrowthPort();
-    port.refuseAbortsWith("wire-unregistered");
-    await abandonOneStream(port);
-
-    expect(port.abortedIngestIds).toStrictEqual(["ingest-1"]);
-    expect(consoleTripwires.totalFiringCount).toBe(0);
-  });
-});
-
 describe("ingest client — disposal gives every open spool back", () => {
   /** Two streams held open on their chunk call, and one that ran to completion. */
   async function carrierWithTwoOpenAndOneComplete(): Promise<{
-    readonly port: ScriptedGrowthPort;
+    readonly port: ScriptedIngestPort;
     readonly client: ReturnType<typeof clientOver>;
   }> {
-    const port = new ScriptedGrowthPort();
+    const port = new ScriptedIngestPort();
     const client = clientOver(port);
     // The completed one first, so its stream identity is `ingest-1` and the two the
     // case is about are the ones a per-stream abort has to name.
@@ -222,7 +138,7 @@ describe("ingest client — disposal gives every open spool back", () => {
   it("negative control: a carrier holding only completed streams asks for nothing back", async () => {
     // Without this the case above would pass against a disposal that aborted every
     // entry it held, which would ask the daemon to reclaim a finished ingest.
-    const port = new ScriptedGrowthPort();
+    const port = new ScriptedIngestPort();
     const client = clientOver(port);
     client.attach(SMALL_SOURCE);
     await crossMacrotaskBoundary();
@@ -235,9 +151,9 @@ describe("ingest client — disposal gives every open spool back", () => {
   it("negative control: an already-abandoned stream is not asked for back twice", async () => {
     // `abandon` asked for this spool the moment sending stopped. A second request for
     // one spool is a duplicate rather than a safeguard.
-    const port = new ScriptedGrowthPort();
+    const port = new ScriptedIngestPort();
     const client = clientOver(port);
-    port.refuseChunksWith("wire-unregistered");
+    port.holdChunks();
     client.attach(SMALL_SOURCE);
     await crossMacrotaskBoundary();
     client.abandon("attachment-1");

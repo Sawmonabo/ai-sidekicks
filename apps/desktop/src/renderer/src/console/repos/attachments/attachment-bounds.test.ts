@@ -6,16 +6,8 @@
 
 import { describe, expect, it } from "vitest";
 
-import {
-  ATTACHMENTS_PER_CARRIER_CAP_DEFAULT,
-  ATTACHMENT_BYTE_CAP_DEFAULT,
-} from "../../core/index.js";
-import {
-  SHIPPED_DEFAULT_ALLOWLIST,
-  attachmentCarrierFill,
-  exceedsAttachmentByteAllowance,
-} from "./attachment-bounds.js";
-import { ATTACHMENT_ALLOWLIST_DEFAULT } from "./attachment-policy.js";
+import { ATTACHMENTS_PER_CARRIER_CAP_DEFAULT } from "../../core/index.js";
+import { attachmentCarrierFill, exceedsAttachmentByteAllowance } from "./attachment-bounds.js";
 
 describe("attachment bounds — the carrier's count against its allowance", () => {
   it("reports both halves, from the shipped bound rather than a figure of its own", () => {
@@ -46,17 +38,5 @@ describe("attachment bounds — one payload against the per-attachment allowance
     // Without this the predicate could return `true` unconditionally and every case
     // above that expects `true` would still pass.
     expect(exceedsAttachmentByteAllowance(0, 1)).toBe(false);
-  });
-});
-
-describe("attachment bounds — the shipped default", () => {
-  it("names itself as the shipped default and carries no refusal of its own", () => {
-    expect(SHIPPED_DEFAULT_ALLOWLIST.source).toBe("shipped-default");
-    expect(SHIPPED_DEFAULT_ALLOWLIST.refusal).toBeUndefined();
-  });
-
-  it("is the policy module's list and the console's byte bound, not a third copy", () => {
-    expect(SHIPPED_DEFAULT_ALLOWLIST.mediaTypes).toBe(ATTACHMENT_ALLOWLIST_DEFAULT);
-    expect(SHIPPED_DEFAULT_ALLOWLIST.maximumByteLength).toBe(ATTACHMENT_BYTE_CAP_DEFAULT);
   });
 });

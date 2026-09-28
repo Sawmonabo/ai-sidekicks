@@ -12,47 +12,35 @@
 // So the port keeps every request it was handed and each case asks its own question of the
 // recording.
 //
-// THE RECORDED SHAPES ARE DERIVED FROM THE REGISTRY, never transcribed from what the
-// client happens to send: `GrowthPort` is the mapped type over the registry that
-// `bridge/growth-signatures/index.ts` composes, so a request that dropped a registered
-// member or invented one fails to compile here rather than passing under a recorder that
+// THE RECORDED SHAPES ARE DERIVED FROM THE PORT, never transcribed from what the client
+// happens to send: `AttachmentIngestPort` declares each request, so a request that dropped
+// a member or invented one fails to compile here rather than passing under a recorder that
 // had been updated to match it.
 //
 // AND IT IS TEST SUPPORT BY NAME. A recorder that answers every ingest call with a
-// scripted reply is reachable from a rendering path only as a bridge that lies, so the
+// scripted reply is reachable from a rendering path only as a port that lies, so the
 // `.test-support.ts` suffix is what keeps that unreachable rather than a header asking
-// a reader not to: the shared source walk the architecture gates read excludes these
-// modules, and the layering gate admits them as roots because the only dependents it
-// leaves in the graph would be production ones.
+// a reader not to.
 
-import type {
-  ConsoleBridge,
-  GrowthOperationId,
-  GrowthPort,
-  GrowthUnavailable,
-} from "../../bridge/index.js";
-import { growthUnavailable } from "../../bridge/index.js";
-import { fixtureBridgeWithGrowth } from "../../bridge/fixture/call-plane/bridge.test-support.js";
-import { REPOS_SCENARIO } from "../../bridge/scenario/repos/repos.js";
-import type { ConsoleClock } from "../../core/index.js";
 import { manualGate } from "../held-calls.test-support.js";
 import type { ChunkAcknowledgement } from "./attachment-ingest-acknowledgement.js";
+import type { AttachmentIngestPort } from "./attachment-ingest-answer.js";
 import { AttachmentIngestClient } from "./attachment-ingest-machine.js";
 import { attachmentSourceFrom, type AttachmentSource } from "./attachment-shapes.js";
 
-/** One recorded `AttachmentIngestInit`, exactly as the registry declares it. */
-export type RecordedInit = Parameters<GrowthPort["artifactIngestBegin"]>[0];
+/** One recorded `AttachmentIngestInit`, exactly as the port declares it. */
+export type RecordedInit = Parameters<AttachmentIngestPort["begin"]>[0];
 
-/** One recorded `AttachmentIngestChunk`, exactly as the registry declares it. */
-export type RecordedChunk = Parameters<GrowthPort["artifactIngestWriteChunk"]>[0];
+/** One recorded `AttachmentIngestChunk`, exactly as the port declares it. */
+export type RecordedChunk = Parameters<AttachmentIngestPort["writeChunk"]>[0];
 
 /**
- * A growth port that answers what the case tells it to.
+ * An ingest port that answers what the case tells it to.
  *
  * A class with private fields, matching the tree's rule, and it records rather than
  * asserts: a recorder lets each case ask its own question of the same script.
  */
-export class ScriptedGrowthPort {
+export class ScriptedIngestPort {
   readonly initCalls: RecordedInit[] = [];
   readonly chunkCalls: RecordedChunk[] = [];
   readonly abortedIngestIds: string[] = [];
@@ -61,25 +49,17 @@ export class ScriptedGrowthPort {
    *
    * ONE ID PER OPENED STREAM, because a port that answered every `begin` with one id
    * could not witness a per-stream act at all: two attachments open, one abort
-   * recorded, and no case could say which spool it was for. The first id is still
-   * `ingest-1`, so a case attaching one file reads the same recording it always did.
+   * recorded, and no case could say which spool it was for. The first id is
+   * `ingest-1`, so a case attaching one file reads that id.
    */
   #nextIngestNumber = 1;
-  #beginRefusalCode: string | undefined;
-  #chunkRefusalCode: string | undefined;
-  #completeRefusalCode: string | undefined;
-  #abortRefusalCode: string | undefined;
-  #beginRejection: unknown;
-  #chunkRejection: unknown;
-  #completeRejection: unknown;
-  #abortRejection: unknown;
   #beginGate: Promise<void> | undefined;
   #chunkGate: Promise<void> | undefined;
   /**
    * The decoded bytes this port has appended, per stream and per sequence number.
    *
    * A REAL RUNNING TOTAL, because that is what the registered
-   * `AttachmentIngestChunkResponse` carries and the client now advances its ledger from:
+   * `AttachmentIngestChunkResponse` carries and the client advances its ledger from:
    * a port that answered a constant would let a client that ignored the reply pass every
    * case here. The decoded length comes from the platform's own base64 decoder rather
    * than from arithmetic over the encoded string, so nothing in this file is a second
@@ -87,83 +67,20 @@ export class ScriptedGrowthPort {
    *
    * KEYED BY SEQUENCE NUMBER, so the total is idempotent under the replay the contract
    * makes safe: a chunk resent after a lost response is acknowledged without being
-   * appended twice, which a running sum over calls would report as double the bytes. A
-   * REFUSED chunk appends nothing at all, which is why the accounting happens after
-   * both failure arms rather than on the way in.
+   * appended twice, which a running sum over calls would report as double the bytes.
    */
   readonly #spooledBytesByIngestId = new Map<string, Map<number, number>>();
   #chunkAcknowledgementOverride: ChunkAcknowledgement | undefined;
 
   /**
-   * Answer the next `begin` — and every later one — with a refusal.
-   *
-   * The request is still RECORDED, on `refuseAbortsWith`'s reason: a refused open is
-   * a request the daemon received, and a port that dropped it could not tell a stream
-   * that was refused from one that was never opened.
-   */
-  public refuseBeginWith(code: string | undefined): void {
-    this.#beginRefusalCode = code;
-  }
-
-  public refuseChunksWith(code: string | undefined): void {
-    this.#chunkRefusalCode = code;
-  }
-
-  public refuseCompletionWith(code: string | undefined): void {
-    this.#completeRefusalCode = code;
-  }
-
-  /**
-   * Answer the next abort — and every later one — without releasing the spool.
-   *
-   * The id is still RECORDED, because a refused abort is a request the daemon
-   * received: a port that dropped it would make "the client asked" and "the daemon
-   * released" one fact, which is the conflation the client's own diagnostic exists to
-   * separate.
-   */
-  public refuseAbortsWith(code: string | undefined): void {
-    this.#abortRefusalCode = code;
-  }
-
-  /**
-   * Reject the next `begin` — and every later one — rather than answering it.
-   *
-   * A REJECTION IS NOT A REFUSAL, and the four setters below exist because the two
-   * arrive at the client through different doors. A refusal is an answer whose status
-   * says the daemon declined; a rejection is a call that never produced one, which is
-   * what an IPC disconnect and a vanished bridge namespace look like from here. A port
-   * that could only refuse could not drive the arm where the promise itself fails, and
-   * that arm is the one that used to escape as an unhandled rejection.
-   *
-   * The request is still RECORDED, on `refuseAbortsWith`'s reason: a rejected call was
-   * still put, and a port that dropped it could not tell a leg that failed from one
-   * that was never reached.
-   */
-  public rejectBeginWith(rejection: unknown): void {
-    this.#beginRejection = rejection;
-  }
-
-  public rejectChunksWith(rejection: unknown): void {
-    this.#chunkRejection = rejection;
-  }
-
-  public rejectCompletionWith(rejection: unknown): void {
-    this.#completeRejection = rejection;
-  }
-
-  public rejectAbortsWith(rejection: unknown): void {
-    this.#abortRejection = rejection;
-  }
-
-  /**
    * Answer every later chunk with this acknowledgement instead of the true one.
    *
-   * The two answers a client must not accept are both shapes rather than statuses — a
-   * reply naming another stream, and a total that did not advance — so neither is
-   * reachable through the refusal setters above, and a case that could not script one
-   * would be asserting the check by reading it.
+   * The two answers a client must not accept — a reply naming another stream, and a total
+   * that did not advance — are shapes a truthful port never sends, so a case that could
+   * not script one would be asserting the check by reading it. Passing `undefined` goes
+   * back to the truthful answer.
    */
-  public acknowledgeChunksWith(acknowledgement: ChunkAcknowledgement): void {
+  public acknowledgeChunksWith(acknowledgement: ChunkAcknowledgement | undefined): void {
     this.#chunkAcknowledgementOverride = acknowledgement;
   }
 
@@ -181,86 +98,36 @@ export class ScriptedGrowthPort {
     return gate;
   }
 
-  /**
-   * The port behind a bridge, with the window's clock where a case freezes one.
-   *
-   * `consoleClockFor` reads the running scenario engine's clock, so a case that hands
-   * one over here is handing it to every subsystem the binding composes — which is the
-   * only way to assert that a carrier stamps from the window's clock rather than from
-   * a `RealClock` of its own.
-   */
-  public asBridge(clock?: ConsoleClock): ConsoleBridge {
-    const port: Partial<GrowthPort> = {
-      artifactIngestBegin: async (request: RecordedInit) => {
+  /** The port a client is handed, answering what the case scripted. */
+  public asPort(): AttachmentIngestPort {
+    return {
+      begin: async (request: RecordedInit) => {
         this.initCalls.push(request);
         const ingestId = `ingest-${String(this.#nextIngestNumber)}`;
         this.#nextIngestNumber += 1;
         await this.#beginGate;
-        if (this.#beginRejection !== undefined) {
-          throw this.#beginRejection;
-        }
-        return this.#beginRefusalCode === undefined
-          ? { status: "served", value: { ingestId } }
-          : scriptedRefusal("artifactIngestBegin", this.#beginRefusalCode);
+        return { ingestId };
       },
-      artifactIngestWriteChunk: async (request: RecordedChunk) => {
+      writeChunk: async (request: RecordedChunk) => {
         this.chunkCalls.push(request);
         await this.#chunkGate;
-        if (this.#chunkRejection !== undefined) {
-          throw this.#chunkRejection;
-        }
-        if (this.#chunkRefusalCode !== undefined) {
-          return scriptedRefusal("artifactIngestWriteChunk", this.#chunkRefusalCode);
-        }
-        return {
-          status: "served",
-          value: this.#chunkAcknowledgementOverride ?? {
+        return (
+          this.#chunkAcknowledgementOverride ?? {
             ingestId: request.ingestId,
             receivedBytes: this.#append(request),
-          },
-        };
+          }
+        );
       },
-      artifactIngestComplete: async () => {
-        if (this.#completeRejection !== undefined) {
-          throw this.#completeRejection;
-        }
-        return this.#completeRefusalCode === undefined
-          ? {
-              status: "served",
-              value: {
-                artifactId: "artifact-9",
-                contentHash:
-                  "sha256:9b1f1e9d0c3a4b5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6",
-                normalizedName: "notes-1.md",
-                derivedMediaType: "text/markdown",
-                derivedSizeBytes: 300,
-              },
-            }
-          : scriptedRefusal("artifactIngestComplete", this.#completeRefusalCode);
-      },
-      artifactIngestAbort: async (request: { readonly ingestId: string }) => {
+      complete: async () => ({
+        artifactId: "artifact-9",
+        normalizedName: "notes-1.md",
+        derivedMediaType: "text/markdown",
+        derivedSizeBytes: 300,
+      }),
+      abort: async (request: { readonly ingestId: string }) => {
         this.abortedIngestIds.push(request.ingestId);
-        if (this.#abortRejection !== undefined) {
-          throw this.#abortRejection;
-        }
-        return this.#abortRefusalCode === undefined
-          ? { status: "served", value: undefined }
-          : scriptedRefusal("artifactIngestAbort", this.#abortRefusalCode);
       },
     };
-    // The REAL fixture bridge with this scripted port spread onto its growth
-    // namespace, rather than a `{ growth }` object cast to a bridge. Every other
-    // namespace is the fixture's own, and an ingest operation this port does not
-    // declare answers the fixture's typed refusal rather than `undefined`.
-    const bridge = fixtureBridgeWithGrowth(REPOS_SCENARIO, port);
-    if (clock === undefined) {
-      return bridge;
-    }
-    // The one member still replaced by hand. `FixtureBridgeOptions` takes no clock
-    // even though `ScenarioEngine` does, so a case that freezes ingest time cannot
-    // compose the engine; widening those options is the substrate change that
-    // removes this, and it is reported rather than made here.
-    return { ...bridge, scenarioEngine: { clock } } as ConsoleBridge;
   }
 
   /** Append one chunk's decoded bytes and answer the stream's running total. */
@@ -287,8 +154,8 @@ export function patternedBytes(byteLength: number): Uint8Array<ArrayBuffer> {
 }
 
 /** One client over one scripted port, on the session every case names. */
-export function clientOver(port: ScriptedGrowthPort): AttachmentIngestClient {
-  return new AttachmentIngestClient({ bridge: port.asBridge(), sessionId: "session-1" });
+export function clientOver(port: ScriptedIngestPort): AttachmentIngestClient {
+  return new AttachmentIngestClient({ port: port.asPort(), sessionId: "session-1" });
 }
 
 /**
@@ -312,66 +179,62 @@ export function sourceOver(
   });
 }
 
-/**
- * One scripted refusal, built from the port's own refusal rather than beside it.
- *
- * WHY THE CODE IS THE ONE CAST AND EVERYTHING ELSE IS REAL. `GrowthUnavailable`
- * carries seven members and this file used to hand back four, so the whole port had to
- * be cast to `Partial<GrowthPort>` — which switched off the checking on every method,
- * including the served arms that were perfectly correct. Spreading `growthUnavailable`
- * gives the four the scripts never set (`origin`, `operationId`, `slateRow`,
- * `owningDocument`) their real values, so a case reading any of them reads what the
- * port would have said.
- *
- * `code` alone is cast, and deliberately: the port's own codes are the closed set the
- * CONSOLE mints, while these cases script the codes a DAEMON sends
- * (`artifact.ingest_not_found` among them) to drive the ingest client against answers
- * it must survive. That is off the port's contract on one member, which is exactly
- * what a narrow cast should say — and it is checked everywhere else.
- *
- * THE CAST TARGET IS THE WIRE-REFUSED ARM'S CODE AND NOT THE WHOLE UNION, which is
- * what keeps this honest now that `GrowthUnavailable` has two arms discriminated on
- * `code`. Casting to the union would let the object claim the `call-rejected` arm
- * while carrying no `cause` — the member that arm exists to require — so the scripted
- * refusal would be a shape the builder can never produce. Taking the arm this spread
- * is actually on says the same thing about `code` and nothing false about the rest.
- */
-function scriptedRefusal(operationId: GrowthOperationId, code: string): GrowthUnavailable {
-  const refused = growthUnavailable(operationId);
-  return {
-    ...refused,
-    code: code as typeof refused.code,
-    detail: "scripted refusal",
-  };
-}
-
 /** The attachment most cases attach: small enough to fit one chunk, declaring nothing. */
 export const SMALL_SOURCE: AttachmentSource = sourceOver("attachment-1", "notes.md", 300);
 
+/** A source over bytes a case can make unreadable and readable again, like a moved file. */
+export interface MovableSource {
+  readonly source: AttachmentSource;
+  /** From now on every read of the payload rejects. */
+  readonly moveFile: () => void;
+  /** From now on reads answer the real bytes again. */
+  readonly restoreFile: () => void;
+}
+
 /**
- * One source whose bytes the browser refuses to hand over.
+ * One source whose bytes the browser can stop handing over.
  *
- * A `Blob` off a picker is a HANDLE on a file the host still owns, so a user who
- * moves or deletes that file between two chunks gets a rejecting `arrayBuffer()` where
- * every earlier read succeeded. No real `Blob` can be put in that state from a test, so
- * the payload is scripted here — beside the sources every other case is driven with,
- * because it is a collaborator of the client and not a stand-in for it.
+ * A `Blob` off a picker is a HANDLE on a file the host still owns, so a user who moves or
+ * deletes that file between two chunks gets a rejecting `arrayBuffer()` where every
+ * earlier read succeeded. No real `Blob` can be put in that state from a test, so the
+ * payload is scripted here, beside the sources every other case is driven with.
+ *
+ * With `moveAfterReads`, the file moves once that many reads have succeeded, which is how
+ * a case loses the file between two chunks of one upload.
  */
-export function unreadableSourceOver(
+export function movableSourceOver(
   localId: string,
   declaredName: string,
   byteLength: number,
-  rejection: unknown,
-): AttachmentSource {
-  const unreadableSlice = {
-    arrayBuffer: async (): Promise<ArrayBuffer> => {
-      await Promise.resolve();
-      throw rejection;
-    },
-  };
+  moveAfterReads?: number,
+): MovableSource {
+  const bytes = new Blob([patternedBytes(byteLength)]);
+  let moved = false;
+  let readsBeforeMove = moveAfterReads ?? Number.POSITIVE_INFINITY;
   const payload = {
     size: byteLength,
-    slice: (): unknown => unreadableSlice,
+    slice: (start?: number, end?: number): unknown => {
+      const real = bytes.slice(start, end);
+      return {
+        arrayBuffer: async (): Promise<ArrayBuffer> => {
+          if (moved || readsBeforeMove <= 0) {
+            await Promise.resolve();
+            throw new Error("the file behind this blob is gone");
+          }
+          readsBeforeMove -= 1;
+          return real.arrayBuffer();
+        },
+      };
+    },
   } as unknown as Blob;
-  return attachmentSourceFrom({ localId, declaredName, payload });
+  return {
+    source: attachmentSourceFrom({ localId, declaredName, payload }),
+    moveFile: () => {
+      moved = true;
+    },
+    restoreFile: () => {
+      moved = false;
+      readsBeforeMove = Number.POSITIVE_INFINITY;
+    },
+  };
 }

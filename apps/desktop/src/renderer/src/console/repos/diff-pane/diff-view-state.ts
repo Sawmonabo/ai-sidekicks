@@ -13,10 +13,10 @@
 //     indices exist in the new diff too, and address entirely different hunks, so
 //     the new model opens with somebody else's gaps already unfolded.
 //
-// WHAT IS DELIBERATELY NOT RESET. The four `useDiffViewControls` toggles — view
-// mode, wrap, whitespace, attribution marks — are reading preferences over the
-// PANE and not over one model. Resetting them would undo a person's toggle every
-// time the subject moved, which is a different defect in the same place.
+// WHAT IS DELIBERATELY NOT RESET. The `useDiffViewControls` toggle — view mode — is a
+// reading preference over the PANE and not over one model. Resetting it would undo a
+// person's toggle every time the subject moved, which is a different defect in the same
+// place.
 //
 // AND ONE MORE THAT IS, HELD SOMEWHERE ELSE. `DiffFileList`'s filter text is a
 // predicate over the model's own file PATHS, so it is in the first list rather
@@ -25,8 +25,7 @@
 // `undefined` key from `useSubjectScopedState` directly, beside its own register.
 //
 // THE IDENTITY IS THE PROP REFERENCE, and there is no other candidate.
-// `ConsoleDiffModel` carries no id (`diff-model.ts` says why its producer does
-// not exist yet), and a key derived from `baseRef` / `headRef` / attribution
+// `ConsoleDiffModel` carries no id, and a key derived from `baseRef` / `headRef`
 // would both miss a real change — two diffs of the same two refs can hold
 // different content — and claim a member the model does not have. So the model
 // IS the subject, and the key within it is `undefined`: one model is one subject

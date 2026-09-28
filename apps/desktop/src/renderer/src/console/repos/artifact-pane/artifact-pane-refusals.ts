@@ -7,11 +7,6 @@
 // that lived beside any one of those would make a producer import its sibling to name a
 // code.
 //
-// THE UNREADABLE-REPLY CODE IS NOT HERE AND IS NOT THIS PANE'S. It is the console's own
-// reading of a growth answer it could not use, raised by the family-root door two
-// sub-modules now call through (`repos/growth-call.ts`), so a proposal-gate reply that
-// arrives unreadable does not report this pane as its author.
-//
 // ONE DECLARATION OF THE CLOSED SET, `as const`, with the union derived from it. The
 // prose this replaces said "the three codes this pane mints" with four constants under
 // it: a count in a sentence is not something a fifth code can fail against.
@@ -28,26 +23,19 @@ import {
  *
  * `core/refusal.ts` gives `origin` as the field that lets a refusal surfacing three
  * layers from where it was raised still name its author. Written once here rather than
- * spelled at each construction site, and read by `artifact-pane-reading.ts` too, whose
- * unreadable-reply arm is the fourth site that mints one.
+ * spelled at each construction site.
  *
  * The suites that assert an `artifact-pane-reader` origin spell the string rather than
  * importing this, which is what an assertion about a value has to do: a test that
  * imported the constant it asserts would pass whatever that constant became.
- *
- * Read by this module alone now: the unreadable-reply arm it also stamped moved to the
- * family-root growth-call door with the reading that raises it.
  */
 export const ARTIFACT_READER_REFUSAL_ORIGIN = "artifact-pane-reader";
 
 /**
  * The codes this pane mints. The port owns every other refusal the pane renders.
  *
- * ONE ARRAY AND NO COUNT IN PROSE — the shape `repos/proposals/prepared-proposal.ts`
- * and `persistence/refusals.ts` already keep, and the reason is this set's own
- * history: the sentence here read "the three codes this pane mints" with four
- * constants under it, so a reader was told a number the code contradicted and nothing
- * could fail. Membership is stated once now, and counted by reading it.
+ * ONE ARRAY AND NO COUNT IN PROSE, on `persistence/refusals.ts`'s shape: a number in a
+ * sentence is not something a further code can fail against.
  *
  * Declared here, beside the reading they are recorded on, rather than in either of the
  * two modules that raise them: a refusal vocabulary split across the reader and the
@@ -66,7 +54,6 @@ export const ARTIFACT_PANE_REFUSAL_CODES = [
   "read-threw",
   "payload-fetch-in-flight",
   "manifest-read-in-flight",
-  "visibility-update-in-flight",
 ] as const;
 
 /** One code this pane mints. Derived, so the vocabulary is declared exactly once. */
@@ -79,22 +66,20 @@ export type ArtifactPaneRefusalCode = (typeof ARTIFACT_PANE_REFUSAL_CODES)[numbe
  * letting it reject inside a timer callback — leaves the pane on the in-flight absence
  * for the rest of its life.
  *
- * A DELEGATION, NOT A NORMALIZER, on `repos/repo-reads.ts:repoCallRefusal`'s shape.
- * The three-arm reading this replaces flattened everything to one code and one
- * sentence: a JSON-RPC envelope carrying `data.type` arrived as `read-threw` with the
- * daemon's dotted code and its own words discarded, a rate-limit envelope lost its
- * retry hint, a `ConsoleRefusal` thrown across the bridge lost the origin its author
- * named, and `error instanceof Error` answered false for an `Error` minted in the
- * preload realm — which is the realm every bridge rejection crosses — so that value
- * took the not-an-error arm and its message went with it. `core/wire-rejection.ts`
- * owns all four of those readings and a terminal that never throws, and the two
- * things left here are this pane's own: the origin, and the sentence for a rejection
- * that said nothing machine-readable.
+ * A DELEGATION, NOT A NORMALIZER. Flattening everything to one code and one sentence would
+ * lose what a rejection carries: a JSON-RPC envelope carrying `data.type` would arrive as
+ * `read-threw` with the daemon's dotted code and its own words discarded, a rate-limit
+ * envelope would lose its retry hint, a `ConsoleRefusal` thrown across the bridge would
+ * lose the origin its author named, and `error instanceof Error` answers false for an
+ * `Error` minted in the preload realm — which is the realm every bridge rejection
+ * crosses — so that value would take the not-an-error arm and its message would go with
+ * it. `core/wire-rejection.ts` owns all four of those readings and a terminal that never
+ * throws, and the two things left here are this pane's own: the origin, and the sentence
+ * for a rejection that said nothing machine-readable.
  *
  * THE REJECTED VALUE IS NOT QUOTED INTO THE SENTENCE. It names the leg and stops
  * there — a rejection off the wire can carry user content as readily as a
- * schema failure can, which is the rule the copy this replaces broke by interpolating
- * the message into it.
+ * schema failure can, so interpolating the message would put that content on screen.
  *
  * THE RETURN TYPE IS THE NORMALIZER'S OWN. `WireRefusal` is a `ConsoleRefusal`
  * widened by the optional retry hint a rate-limit envelope registers, so every
@@ -116,8 +101,7 @@ export function readFailureRefusal(error: unknown): WireRefusal {
  * on rather than the one that was pressed: a user told "something is in
  * flight" cannot tell what. The control that produced it is held while a fetch is
  * pending, so this is structurally unreachable from the pane — and recorded anyway,
- * for `repos/proposals/proposal-gate-actions.ts`'s reason: a press that produced nothing at all
- * is the silent no-op rule 8 forbids.
+ * because a press that produced nothing at all is the silent no-op rule 8 forbids.
  */
 export function payloadFetchInFlightRefusal(pendingArtifactId: string): ConsoleRefusal {
   return refuse(
@@ -142,23 +126,5 @@ export function manifestReadInFlightRefusal(artifactId: string): ConsoleRefusal 
     ARTIFACT_READER_REFUSAL_ORIGIN,
     "manifest-read-in-flight" satisfies ArtifactPaneRefusalCode,
     `The manifest of ${artifactId} has been asked for again and the daemon has not answered yet. That row is read once until it settles.`,
-  );
-}
-
-/**
- * The refusal a second visibility change becomes while this row's first is on the wire.
- *
- * NAMED RATHER THAN SILENT, on `manifestReadInFlightRefusal`'s reason, and it names the
- * ROW for a reason of its own: the control that mints this is a TOGGLE whose label is
- * read off the row, so a second press before the first settles asks for the class the
- * row is already being moved to. The control is held while that row's change is
- * pending, so this is structurally unreachable from the panel — and recorded anyway,
- * because a press that produced nothing at all is the silent no-op rule 8 forbids.
- */
-export function visibilityUpdateInFlightRefusal(artifactId: string): ConsoleRefusal {
-  return refuse(
-    ARTIFACT_READER_REFUSAL_ORIGIN,
-    "visibility-update-in-flight" satisfies ArtifactPaneRefusalCode,
-    `The visibility of ${artifactId} has been changed and the daemon has not answered yet. That row is re-classified once until it settles.`,
   );
 }

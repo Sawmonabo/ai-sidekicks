@@ -1,14 +1,11 @@
 // Diff models the surfaces are built and measured against, until a wire makes one.
 //
-// THE FIXTURE SHELL FOR AN ABSENT OWNER. `gitflow.diffArtifactCreate` is a growth-slate
-// row (`gitflow-actions`); `packages/contracts` exports no `gitflow` module and the
-// growth port registers
-// no operation for it, so nothing in the running console can produce a
-// `ConsoleDiffModel`. This module is the shell that stands in the producer's
-// place — DELETED, not filled, the day a wire hands the console patch bytes,
-// along with `diff-fixture-shapes.test-support.ts`, `diff-fixture-patch.test-support.ts`, and every import
-// of the three. What survives that deletion is `patch-parse.ts`, which is the
-// producer itself.
+// THE FIXTURE SHELL FOR AN ABSENT OWNER. Nothing in the running console produces a
+// `ConsoleDiffModel`, because no daemon method returns patch bytes. This module is the
+// shell that stands in the producer's place — DELETED, not filled, the day a wire hands
+// the console patch bytes, along with `diff-fixture-shapes.test-support.ts`,
+// `diff-fixture-patch.test-support.ts`, and every import of the three. What survives that
+// deletion is `patch-parse.ts`, which is the producer itself.
 //
 // IT IS NOT IMPORTED BY ANY RENDERING PATH. The pane and the card take their
 // model as a prop and render an honest absence without one; only tests reach for
@@ -27,17 +24,13 @@
 // passes here passes against real word-diff output.
 //
 // WHAT THIS MODULE ITSELF DOES is the part a patch cannot: the hidden context above
-// each hunk, which the unified format has no representation for at all, and the
-// trailer-supplied agent attribution, which lives on the commit rather than in the
-// patch body. The shapes are `diff-fixture-shapes.test-support.ts`'s and the patch text is
+// each hunk, which the unified format has no representation for at all. The shapes are
+// `diff-fixture-shapes.test-support.ts`'s and the patch text is
 // `diff-fixture-patch.test-support.ts`'s.
 
 import { buildPatchText } from "./diff-fixture-patch.test-support.js";
-import {
-  RUN_ATTRIBUTED_ATTRIBUTION,
-  type DiffFixtureShape,
-} from "./diff-fixture-shapes.test-support.js";
-import type { ConsoleDiffModel, DiffAttribution, DiffLine } from "./diff-model.js";
+import type { DiffFixtureShape } from "./diff-fixture-shapes.test-support.js";
+import type { ConsoleDiffModel, DiffLine } from "./diff-model.js";
 import { wholeLineSegments } from "./diff-model.js";
 import { parseUnifiedPatch } from "./patch-parse.js";
 
@@ -46,16 +39,12 @@ const FIXTURE_COMPARED_STATES = { baseRef: "main", headRef: "feat/rate-limit-wir
 /**
  * Build a diff of a named shape.
  *
- * The patch is generated, parsed, and then given the two things a patch cannot
+ * The patch is generated, parsed, and then given the one thing a patch cannot
  * carry: the hidden context above each hunk (`patch-parse.ts` explains why a parsed
- * hunk has none) and the trailer-supplied agent attribution, which lives on the
- * commit rather than in the patch body.
+ * hunk has none).
  */
-export function buildDiffFixture(
-  shape: DiffFixtureShape,
-  attribution: DiffAttribution = RUN_ATTRIBUTED_ATTRIBUTION,
-): ConsoleDiffModel {
-  const parsed = parseUnifiedPatch(buildPatchText(shape), attribution, FIXTURE_COMPARED_STATES);
+export function buildDiffFixture(shape: DiffFixtureShape): ConsoleDiffModel {
+  const parsed = parseUnifiedPatch(buildPatchText(shape), FIXTURE_COMPARED_STATES);
   return {
     ...parsed,
     files: parsed.files.map((file) => ({
@@ -66,9 +55,7 @@ export function buildDiffFixture(
       hunks: file.hunks.map((hunk, hunkOrdinal) => ({
         header: hunk.header,
         precedingContext: buildPrecedingContext(shape, file.path, hunkOrdinal),
-        lines: hunk.lines.map((line, lineOrdinal) =>
-          withAgentAttribution(shape, line, lineOrdinal),
-        ),
+        lines: hunk.lines,
       })),
     })),
   };
@@ -113,22 +100,4 @@ function buildPrecedingContext(
     });
   }
   return lines;
-}
-
-/** Every nth line carries the trailers' attribution; the rest carry none. */
-function withAgentAttribution(
-  shape: DiffFixtureShape,
-  line: DiffLine,
-  lineOrdinal: number,
-): DiffLine {
-  if (
-    shape.agentAttributionEveryNthLine <= 0 ||
-    lineOrdinal % shape.agentAttributionEveryNthLine !== 0
-  ) {
-    return line;
-  }
-  return {
-    ...line,
-    agentAttribution: { agentRunId: "run-rate-limit-wiring", agentName: "Implementer" },
-  };
 }

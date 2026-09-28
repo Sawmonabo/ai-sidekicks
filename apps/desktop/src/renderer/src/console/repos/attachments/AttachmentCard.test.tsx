@@ -1,15 +1,14 @@
-// The card's four arms, and the three conflations `AttachmentCard.tsx` forbids between them.
+// The card's three arms, and the conflations `AttachmentCard.tsx` forbids between them.
 //
 // Each describe below is one arm plus the arm it must not be mistaken for: the derived
-// truth must displace the declaration rather than sit beside it, the unresolved marker
-// must name a cause and a remedy rather than a generic failure, and the unread arm must
-// say nobody asked rather than that there is nothing there.
+// truth must displace the declaration rather than sit beside it, and the unresolved
+// marker must name a cause and a remedy rather than a generic failure.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { AttachmentCard } from "./AttachmentCard.js";
-import { INGEST_STREAM_INVALID_CODE } from "./attachment-policy.js";
+import { INGEST_DISPOSITION_COPY, INGEST_STREAM_INVALID_CODE } from "./attachment-policy.js";
 import { ATTACHMENT_DECLARED_MEDIA_TYPE_LABEL } from "./attachment-provenance.js";
 import { UNRESOLVED_ATTACHMENT_PRESENTATION } from "./attachment-presentation.js";
 import {
@@ -94,7 +93,7 @@ describe("attachment card — in flight", () => {
   });
 
   it("offers the send-again control only on a refusal, and names the restart", () => {
-    const { getByRole } = render(
+    const { getByRole, container } = render(
       <AttachmentCard
         reading={{
           kind: "ingesting",
@@ -109,6 +108,7 @@ describe("attachment card — in flight", () => {
       />,
     );
     expect(getByRole("button", { name: "Upload again" })).toBeDefined();
+    expect(container.textContent).toContain(INGEST_DISPOSITION_COPY.restart);
   });
 
   it("negative control: an in-flight upload offers no retry", () => {
@@ -188,29 +188,6 @@ describe("attachment card — the unresolved marker", () => {
       />,
     );
     expect(container.textContent).toContain("There is no way to restore it.");
-  });
-
-  it("negative control: the marker is not the unread absence", () => {
-    const { container } = render(
-      <AttachmentCard
-        reading={{ kind: "unresolved", attachmentId: "artifact-7", cause: "expired" }}
-        nowMilliseconds={NOW_MILLISECONDS}
-      />,
-    );
-    expect(container.querySelector(".meridian-nothing--not-checked")).toBeNull();
-  });
-});
-
-describe("attachment card — the unread arm", () => {
-  it("says the question was not put, and never that there is nothing there", () => {
-    const { container } = render(
-      <AttachmentCard
-        reading={{ kind: "not-checked", attachmentId: "artifact-7" }}
-        nowMilliseconds={NOW_MILLISECONDS}
-      />,
-    );
-    expect(container.querySelector(".meridian-nothing--not-checked")).not.toBeNull();
-    expect(container.querySelector(".meridian-nothing--empty")).toBeNull();
   });
 });
 

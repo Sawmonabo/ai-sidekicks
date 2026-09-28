@@ -3,10 +3,10 @@
 // WHAT A ROW IS is the other half of this pair, in `DiffRenderer.test.tsx` — the row
 // kinds, the two-hue rule, and the view controls the renderer is handed. Every case
 // here is about a row's GEOMETRY or its provenance: the offsets under a wrapped line,
-// an expansion that mounts rows a window had elided, the extended headers a file
-// header draws, and the marker that says a file ends without a newline.
+// an expansion that mounts rows a window had elided, the extended headers a file header
+// draws, and the marker that says a file ends without a newline.
 
-import { fireEvent, render } from "@testing-library/react";
+import { fireEvent } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { DIFF_ROW_HEIGHT_PX } from "./diff-bounds.js";
@@ -23,13 +23,7 @@ import {
   DiffLayoutFixture,
   type DiffGrownRow,
 } from "./diff-layout-fixture.test-support.js";
-import { DiffRenderer } from "./DiffRenderer.js";
-import {
-  SMALL_DIFF,
-  diffRendererProps,
-  renderDiff,
-  reportedRowCount,
-} from "./diff-renderer.test-support.js";
+import { SMALL_DIFF, renderDiff, reportedRowCount } from "./diff-renderer.test-support.js";
 import { expandGap } from "./diff-row-model.js";
 
 /** The row the wrapped cases grow, and how tall a three-line wrap makes it. */
@@ -77,35 +71,13 @@ describe("diff renderer — a wrapped row and the offsets under it", () => {
   });
 
   it("holds the scroller open at the height the rows measured, not the height they were estimated at", () => {
-    // One row three lines tall, and the whole diff is that much taller. With the
-    // sheet at `block-size: auto` this is what the scrollbar has to report; a
-    // window that multiplied a row count by a constant would report the estimate
-    // and scroll past the end of the content.
-    const container = renderDiff({ model: bigDiff, wrapLongLines: true });
+    // One row three lines tall, and the whole diff is that much taller. This is what
+    // the scrollbar has to report; a window that multiplied a row count by a constant
+    // would report the estimate and scroll past the end of the content.
+    const container = renderDiff({ model: bigDiff });
     expect(contentHeightPx(container)).toBe(
       reportedRowCount(container) * DIFF_ROW_HEIGHT_PX + grownByPx,
     );
-  });
-
-  it("negative control: with wrap off nothing is measured and the estimate is the height", () => {
-    // The same stub, the same grown row, and the unwrapped path must ignore it —
-    // which is what keeps the unwrapped pane pixel-for-pixel what it was before a
-    // virtualizer was adopted at all.
-    const container = renderDiff({ model: bigDiff, wrapLongLines: false });
-    expect(contentHeightPx(container)).toBe(reportedRowCount(container) * DIFF_ROW_HEIGHT_PX);
-  });
-
-  it("forgets the measured heights when wrap is turned back off", () => {
-    // The one direction the reset is for. The rows are already mounted, so their
-    // measurement refs do not fire again and nothing re-takes a height; without
-    // the reset the unwrapped diff would keep spacing itself at wrapped heights.
-    const props = diffRendererProps({ model: bigDiff, wrapLongLines: true });
-    const { container, rerender } = render(<DiffRenderer {...props} />);
-    const rowCount = reportedRowCount(container);
-    expect(contentHeightPx(container)).toBe(rowCount * DIFF_ROW_HEIGHT_PX + grownByPx);
-
-    rerender(<DiffRenderer {...props} wrapLongLines={false} />);
-    expect(contentHeightPx(container)).toBe(rowCount * DIFF_ROW_HEIGHT_PX);
   });
 
   it("places the window below a wrapped row at the offset that row was measured at", () => {
@@ -113,7 +85,7 @@ describe("diff renderer — a wrapped row and the offsets under it", () => {
     // above the first rendered one is one row tall except the grown one, so the
     // offset is the row count times the row height PLUS what that one row grew
     // by — and the case is only worth anything if the scroll actually cleared it.
-    const container = renderDiff({ model: bigDiff, wrapLongLines: true });
+    const container = renderDiff({ model: bigDiff });
     const scroller = container.querySelector<HTMLElement>(".meridian-diff");
     expect(scroller).not.toBeNull();
     scroller!.scrollTop = 4_000;
@@ -128,7 +100,7 @@ describe("diff renderer — a wrapped row and the offsets under it", () => {
     // Without this the case above would pass over a window still placed at
     // `index x row height` whenever the grown row happened to add nothing — which
     // is exactly what the replaced arithmetic did on every scroll.
-    const container = renderDiff({ model: bigDiff, wrapLongLines: true });
+    const container = renderDiff({ model: bigDiff });
     const scroller = container.querySelector<HTMLElement>(".meridian-diff");
     scroller!.scrollTop = 4_000;
     fireEvent.scroll(scroller!);

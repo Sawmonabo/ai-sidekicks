@@ -2,7 +2,7 @@
 // completion looks like when nothing refuses.
 //
 // The client is driven directly — never a local re-implementation of it — against the
-// scripted growth port beside it, which records every request so a case can ask what was
+// scripted ingest port beside it, which records every request so a case can ask what was
 // actually sent rather than what the client meant to send.
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -11,12 +11,11 @@ import { encodeBase64 } from "../../core/index.js";
 import { consoleTripwires } from "../../core/tripwires.js";
 import {
   SMALL_SOURCE,
-  ScriptedGrowthPort,
+  ScriptedIngestPort,
   clientOver,
   patternedBytes,
   sourceOver,
 } from "./attachment-ingest-scripted-port.test-support.js";
-import { INGEST_STREAM_INVALID_CODE } from "./attachment-policy.js";
 import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 
 beforeEach(() => {
@@ -31,7 +30,7 @@ afterEach(() => {
 
 describe("ingest client — the happy stream", () => {
   it("opens, sends the declared decoded bytes, and completes", async () => {
-    const port = new ScriptedGrowthPort();
+    const port = new ScriptedIngestPort();
     const client = clientOver(port);
     client.attach(SMALL_SOURCE);
     await Promise.resolve();
@@ -46,7 +45,7 @@ describe("ingest client — the happy stream", () => {
   });
 
   it("replaces the declaration with the derived truth, and never the other way round", async () => {
-    const port = new ScriptedGrowthPort();
+    const port = new ScriptedIngestPort();
     const client = clientOver(port);
     client.attach(SMALL_SOURCE);
     await crossMacrotaskBoundary();
@@ -66,7 +65,7 @@ describe("ingest client — the happy stream", () => {
   it("negative control: nothing is sent for an attachment nobody attached", async () => {
     // Without this, every assertion above would pass over a port that recorded calls
     // the client never made.
-    const port = new ScriptedGrowthPort();
+    const port = new ScriptedIngestPort();
     clientOver(port);
     await crossMacrotaskBoundary();
     expect(port.chunkCalls).toStrictEqual([]);
@@ -75,7 +74,7 @@ describe("ingest client — the happy stream", () => {
 
 describe("ingest client — what Init declares", () => {
   it("forwards the media type the user's file carried", async () => {
-    const port = new ScriptedGrowthPort();
+    const port = new ScriptedIngestPort();
     const client = clientOver(port);
     client.attach(sourceOver("attachment-notes", "notes.md", 300, "text/markdown"));
     await crossMacrotaskBoundary();
@@ -96,7 +95,7 @@ describe("ingest client — what Init declares", () => {
   });
 
   it("sends no media type member at all when the source declared none", async () => {
-    const port = new ScriptedGrowthPort();
+    const port = new ScriptedIngestPort();
     const client = clientOver(port);
     client.attach(SMALL_SOURCE);
     await crossMacrotaskBoundary();
@@ -114,7 +113,7 @@ describe("ingest client — what Init declares", () => {
     // A `File` off a picker carries an empty `type` when the browser could not place it.
     // Without this, a fix that sent `mediaType: declared ?? ""` — or forwarded the empty
     // string verbatim — would pass the case above.
-    const port = new ScriptedGrowthPort();
+    const port = new ScriptedIngestPort();
     const client = clientOver(port);
     client.attach(sourceOver("attachment-unplaced", "capture.bin", 300, ""));
     await crossMacrotaskBoundary();
@@ -124,15 +123,15 @@ describe("ingest client — what Init declares", () => {
     expect(Object.hasOwn(initCall ?? {}, "mediaType")).toBe(false);
   });
 
-  it("declares the same media type again when a terminal refusal restarts the stream", async () => {
-    const port = new ScriptedGrowthPort();
+  it("declares the same media type again when the stream restarts", async () => {
+    const port = new ScriptedIngestPort();
     const client = clientOver(port);
-    port.refuseChunksWith(INGEST_STREAM_INVALID_CODE);
+    port.acknowledgeChunksWith({ ingestId: "ingest-1", receivedBytes: 0 });
     client.attach(sourceOver("attachment-notes", "notes.md", 300, "text/markdown"));
     await crossMacrotaskBoundary();
     expect(client.snapshot[0]?.disposition).toBe("restart");
 
-    port.refuseChunksWith(undefined);
+    port.acknowledgeChunksWith(undefined);
     client.retry("attachment-notes");
     await crossMacrotaskBoundary();
 

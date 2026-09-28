@@ -15,13 +15,11 @@
  * The height of one rendered diff row, in CSS pixels.
  *
  * Spent twice, and the two spendings are the same number for a reason. The sheet
- * paints every unwrapped row at exactly this height — file header, hunk header,
- * gap, and line are each one line of mono text at the same leading — and the
- * virtualizer takes it as the size it ESTIMATES an unmeasured row at. With wrap
- * off the estimate is therefore exact and nothing is ever measured, which is what
- * keeps the offsets and the painted rows in step to the pixel; with wrap on the
- * sheet releases the height, a long line grows the row, and the rows report their
- * measured heights instead. One value under one owner, so the two cannot drift.
+ * gives every row this as its minimum height — file header, hunk header, gap, and line
+ * are each one line of mono text at the same leading — and the virtualizer takes it as
+ * the size it ESTIMATES an unmeasured row at. A long line wraps and grows its row, and
+ * every rendered row reports its measured height, so the estimate only stands in until a
+ * row has been drawn. One value under one owner, so the two cannot drift.
  */
 export const DIFF_ROW_HEIGHT_PX = 20;
 

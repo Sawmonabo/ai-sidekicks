@@ -1,7 +1,7 @@
 // The chunk loop: which bytes go, in which order, and that they GO rather than being
 // described.
 //
-// The client is driven directly against the scripted growth port beside it, which records
+// The client is driven directly against the scripted ingest port beside it, which records
 // every chunk request — the only vantage point from which "the daemon received the file"
 // is a checkable claim rather than an intention.
 
@@ -12,12 +12,11 @@ import { ATTACHMENT_CHUNK_BYTE_CAP, encodeBase64, readWireString } from "../../c
 import { consoleTripwires } from "../../core/tripwires.js";
 import { CHUNK_ACKNOWLEDGEMENT_UNUSABLE_CODE } from "./attachment-ingest-acknowledgement.js";
 import {
-  ScriptedGrowthPort,
+  ScriptedIngestPort,
   clientOver,
   patternedBytes,
   sourceOver,
 } from "./attachment-ingest-scripted-port.test-support.js";
-import { INGEST_CAPACITY_EXHAUSTED_CODE } from "./attachment-policy.js";
 import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 
 /** Whether one recorded request actually carried bytes, rather than describing them. */
@@ -37,7 +36,7 @@ afterEach(() => {
 
 describe("ingest client — the payload reaches the daemon", () => {
   it("sends the file as cap-sized slices, in order, inside the frame ceiling", async () => {
-    const port = new ScriptedGrowthPort();
+    const port = new ScriptedIngestPort();
     const client = clientOver(port);
     const byteLength = ATTACHMENT_CHUNK_BYTE_CAP * 2 + 7;
     const payload = patternedBytes(byteLength);
@@ -65,33 +64,20 @@ describe("ingest client — the payload reaches the daemon", () => {
   });
 
   it("negative control: an offset and a claimed length carry no payload", () => {
-    // The shape this client sent before — the daemon could not have received one byte
-    // of the file from it. Without this control, the assertion above would pass over a
-    // predicate that answered true for anything at all.
+    // A request that describes a size and carries no bytes: the daemon could not receive
+    // one byte of the file from it. Without this control, the assertion above would pass
+    // over a predicate that answered true for anything at all.
     expect(carriesAPayload({ ingestId: "ingest-1", offset: 0, byteLength: 300 })).toBe(false);
     expect(carriesAPayload({ ingestId: "ingest-1", sequenceNumber: 0, chunk: "" })).toBe(false);
-  });
-
-  it("stops the stream at the refusal rather than sending the rest", async () => {
-    const port = new ScriptedGrowthPort();
-    const client = clientOver(port);
-    port.refuseChunksWith(INGEST_CAPACITY_EXHAUSTED_CODE);
-    client.attach(sourceOver("attachment-three", "capture.bin", ATTACHMENT_CHUNK_BYTE_CAP * 2 + 7));
-    await crossMacrotaskBoundary();
-
-    expect(port.chunkCalls).toHaveLength(1);
-    expect(client.snapshot[0]?.state).toBe("refused");
-    expect(client.snapshot[0]?.refusal?.code).toBe(INGEST_CAPACITY_EXHAUSTED_CODE);
   });
 });
 
 describe("ingest client — the ledger advances on what the daemon acknowledged", () => {
   it("charts the reply's running total rather than the bytes it sent", async () => {
-    // The bug, exercised through the real loop: the ledger used to add the local slice
-    // length and never read the reply, so the progress figure recorded what went on the
-    // wire rather than what the daemon spooled — and the client could not have told the
-    // two apart, because it was never looking at the acknowledgement.
-    const port = new ScriptedGrowthPort();
+    // Exercised through the real loop: a ledger that added the local slice length and
+    // never read the reply would record what went on the wire rather than what the
+    // daemon spooled, and could not tell the two apart.
+    const port = new ScriptedIngestPort();
     const client = clientOver(port);
     const byteLength = ATTACHMENT_CHUNK_BYTE_CAP + 7;
     client.attach(sourceOver("attachment-four", "capture.bin", byteLength));
@@ -103,7 +89,7 @@ describe("ingest client — the ledger advances on what the daemon acknowledged"
   });
 
   it("refuses an acknowledgement that names another stream", async () => {
-    const port = new ScriptedGrowthPort();
+    const port = new ScriptedIngestPort();
     const client = clientOver(port);
     port.acknowledgeChunksWith({ ingestId: "ingest-7", receivedBytes: 300 });
     client.attach(sourceOver("attachment-four", "notes.md", 300));
@@ -121,7 +107,7 @@ describe("ingest client — the ledger advances on what the daemon acknowledged"
     // The offset IS the ledger, so a client that accepted a standing total would send
     // the same chunk for as long as the daemon kept answering. The refusal is what makes
     // the loop terminate on the daemon's own answer, and the call count is the proof.
-    const port = new ScriptedGrowthPort();
+    const port = new ScriptedIngestPort();
     const client = clientOver(port);
     port.acknowledgeChunksWith({ ingestId: "ingest-1", receivedBytes: 0 });
     client.attach(sourceOver("attachment-four", "capture.bin", ATTACHMENT_CHUNK_BYTE_CAP * 2));
@@ -136,7 +122,7 @@ describe("ingest client — the ledger advances on what the daemon acknowledged"
     // Without this, a check that refused whenever the reply disagreed with the local
     // count would pass both cases above while making every lawful partial spool a
     // refusal — which is precisely the daemon's answer this change exists to trust.
-    const port = new ScriptedGrowthPort();
+    const port = new ScriptedIngestPort();
     const client = clientOver(port);
     client.attach(sourceOver("attachment-four", "notes.md", 300));
     await crossMacrotaskBoundary();

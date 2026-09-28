@@ -2,15 +2,15 @@
 //
 // A MODULE OF ITS OWN because two surfaces build these rows and two views draw them,
 // so the shape is the seam between them rather than either one's private vocabulary —
-// and a type declared in a parent component and imported by its child closes a cycle
-// the layering gate refuses.
+// and a type declared in a parent component and imported by its child closes an import
+// cycle.
 //
-// AND THE DERIVATION LIVES HERE BESIDE THE SHAPE, because it was written twice. The
-// mode picker and the bind dialog each read one `repo.executionModeCapabilitiesRead`
-// reply into rows, and the two readings had already drifted on the case that matters
-// most: a mode named in BOTH halves of the reply. One kept the reason and the other
-// blanked it, so the same malformed reply disclosed its restriction on one surface and
-// hid it on the other. One implementation per job, hoisted on the second use.
+// AND THE DERIVATION LIVES HERE BESIDE THE SHAPE, because two surfaces need it. The mode
+// picker and the bind dialog each read one `repo.executionModeCapabilitiesRead` reply
+// into rows, and two separate readings could drift on the case that matters most: a mode
+// named in BOTH halves of the reply. If one kept the reason and the other blanked it, the
+// same malformed reply would disclose its restriction on one surface and hide it on the
+// other. One implementation serves both.
 
 import { type ExecutionMode } from "@ai-sidekicks/contracts";
 import type { WorkspaceExecutionModeCapabilitiesReadResponse } from "@ai-sidekicks/contracts";
@@ -33,8 +33,7 @@ export interface ModeRow {
  *
  * A MODE NAMED IN BOTH HALVES IS RENDERED ONCE, AS AVAILABLE, AND KEEPS ITS REASON
  * VISIBLE. The reply is malformed in that case, and hiding half of it would be the
- * renderer deciding which half was true — which is exactly what the second copy of
- * this function did before it was deleted.
+ * renderer deciding which half was true.
  */
 export function executionModeRows(
   capabilities: WorkspaceExecutionModeCapabilitiesReadResponse,

@@ -20,9 +20,8 @@
 // outside press, which is what separates a consequence from data entry.
 //
 // IT REUSES THE ATTACH CONTROLLER RATHER THAN MINTING A SECOND CALLER. One console,
-// one `repo.attach` caller: the path and the node both come off the mount row, so
-// there is no form and nothing to validate, and the settlement renders in the same
-// three arms the dialog's does.
+// one attach caller: the path comes off the mount row, so there is no form and nothing
+// to validate, and the settlement renders in the same three arms the dialog's does.
 //
 // AND IT REUSES THE CONFIRMATION LIFECYCLE FOR THE SAME REASON. The confirm control
 // closing this dialog is what reaches `onOpenChange`, so a discard keyed on the close
@@ -34,56 +33,38 @@ import { AlertDialog } from "@base-ui/react/alert-dialog";
 import { useCallback, useEffect, useRef } from "react";
 
 import type { ConsoleBridge } from "../../../bridge/index.js";
-import {
-  useShellBlockFor,
-  type FrameStore,
-  type SessionStore,
-  type MutatingDaemonMethod,
-} from "../../../store/index.js";
-import {
-  InlineRefusal,
-  Nothing,
-  OverlayAlertDialogPopup,
-  RefusalRecovery,
-  WireFigure,
-} from "../../../primitives/index.js";
+import type { SessionStore } from "../../../store/index.js";
+import { Nothing, OverlayAlertDialogPopup, WireFigure } from "../../../primitives/index.js";
+import type { RepoOperations } from "../../repo-operations.js";
 import { useConfirmationLifecycle } from "../confirmation/index.js";
-import { mountRefusalRecovery } from "../mount-refusal-copy.js";
 import { useAttachController, type AttachActReading } from "./attach-controller.js";
-
-// The record method this control dispatches, TYPED against the roster rather than
-// spelled inline. `useShellBlockFor` takes a `string` — it has to, since it answers
-// `undefined` for every read method — so a misspelled literal is not a compile error
-// but a control that stays live through an outage and says nothing. `satisfies` is
-// what turns that into a build failure.
-const REPO_REATTACH_METHOD = "repo.attach" satisfies MutatingDaemonMethod;
 
 export interface ReattachControlProps {
   readonly bridge: ConsoleBridge;
-  /** The session this mount belongs to, and the source of the roster read's triggers. */
+  /** The attach the confirmation sends. */
+  readonly operations: Pick<RepoOperations, "attachRepository">;
+  /** The session this mount belongs to. */
   readonly sessionStore: SessionStore;
   /** The path this mount was attached at. Re-sent verbatim; nothing is re-derived. */
   readonly localPath: string;
-  /** The node that owns this mount. The re-attach goes to the same machine. */
-  readonly nodeId: string;
-  /** The window's own shell condition, read here for the one method this control sends. */
-  readonly frameStore: FrameStore;
   /** Ask the section to read again, so the minted mount appears beside this one. */
   readonly onAttached: () => void;
 }
 
 export function ReattachControl(props: ReattachControlProps): React.JSX.Element {
-  const { reading, attach, clearAct } = useAttachController(props.bridge, props.sessionStore);
-  const { localPath, nodeId, onAttached } = props;
-  // The re-attach IS an attach — one `repo.attach` caller, so one method read.
-  const shellBlock = useShellBlockFor(props.frameStore, REPO_REATTACH_METHOD);
+  const { reading, attach, clearAct } = useAttachController(
+    props.bridge,
+    props.sessionStore,
+    props.operations,
+  );
+  const { localPath, onAttached } = props;
 
   const confirm = useCallback(() => {
-    attach(localPath, nodeId);
-  }, [attach, localPath, nodeId]);
-  // The settlement belongs to the press that produced it. A dialog reopened after a
-  // refusal asks the question again, a dialog cancelled discards the answer with it,
-  // and the confirm press — which closes this dialog — discards nothing.
+    attach(localPath);
+  }, [attach, localPath]);
+  // The settlement belongs to the press that produced it. A dialog reopened asks the
+  // question again, a dialog cancelled discards the answer with it, and the confirm
+  // press — which closes this dialog — discards nothing.
   const lifecycle = useConfirmationLifecycle(clearAct);
 
   // ONE READ PER MINTED MOUNT, on the dialog's own reasoning: the id is what changes
@@ -104,13 +85,7 @@ export function ReattachControl(props: ReattachControlProps): React.JSX.Element 
       <AlertDialog.Root onOpenChange={lifecycle.openChanged}>
         <AlertDialog.Trigger
           className="meridian-reattach__trigger"
-          // `disabled` while this control's own act is on the wire, `aria-disabled` while
-          // the supervisor is down. The second is not a stronger form of the first: an
-          // in-flight act settles on its own and there is nothing to read, while an
-          // unreachable supervisor is a condition a person has to be told about — so
-          // that arm keeps the trigger reachable and renders the sentence beside it.
           disabled={reading.act.status === "sending"}
-          aria-disabled={shellBlock !== undefined}
           aria-label={`Re-attach ${localPath}`}
         >
           Re-attach this path
@@ -127,18 +102,13 @@ export function ReattachControl(props: ReattachControlProps): React.JSX.Element 
             Re-attach this path as a new mount?
           </AlertDialog.Title>
           <AlertDialog.Description className="meridian-reattach__body">
-            This mount is not repaired. The path is resolved again on the same node and attached as
-            a new mount with its own read-only workspace; this row stays as history, and nothing
-            bound to it is moved across.
+            This mount is not repaired. The path is resolved again and attached as a new mount with
+            its own workspace; this row stays as history, and nothing bound to it is moved across.
           </AlertDialog.Description>
           <dl className="meridian-reattach__subject">
             <dt>Path</dt>
             <dd>
               <WireFigure value={localPath} title={localPath} />
-            </dd>
-            <dt>Node</dt>
-            <dd>
-              <WireFigure value={nodeId} title={nodeId} />
             </dd>
           </dl>
           <div className="meridian-reattach__acts">
@@ -151,44 +121,26 @@ export function ReattachControl(props: ReattachControlProps): React.JSX.Element 
           </div>
         </OverlayAlertDialogPopup>
       </AlertDialog.Root>
-      {shellBlock === undefined ? null : (
-        // Said on the CARD and before the press, which is the half the door cannot do:
-        // confirming under a block still reaches `callDaemon` and still refuses with
-        // this same code, but by then a person has consented to a new mount that was
-        // never going to be minted.
-        <p className="meridian-reattach__closed" role="status">
-          {shellBlock.detail}
-        </p>
-      )}
       {renderSettlement(reading.act)}
     </div>
   );
 }
 
 /**
- * What the re-attach did, rendered on the CARD rather than inside the dialog.
+ * What the re-attach did, rendered on the card rather than inside the dialog.
  *
- * OUTSIDE THE POPUP DELIBERATELY. The confirmation closes on the press — that is what
- * `AlertDialog.Close` on the confirm control means — so a settlement rendered inside it
- * would be drawn into a popup that is already gone, and a refused re-attach would be
- * silent. On the card it sits beside the verdict it is about.
+ * Outside the popup deliberately. The confirmation closes on the press, since that is what
+ * `AlertDialog.Close` on the confirm control means, so a settlement rendered inside it would
+ * be drawn into a popup that is already gone. On the card it sits beside the verdict it is
+ * about.
  */
 function renderSettlement(act: AttachActReading): React.JSX.Element | null {
   switch (act.status) {
     case "idle":
+    case "refused":
       return null;
     case "sending":
       return <Nothing kind="computing" title="Re-attaching." />;
-    case "refused": {
-      const recovery = mountRefusalRecovery(act.refusal.code);
-      return (
-        <InlineRefusal
-          code={act.refusal.code}
-          detail={act.refusal.detail}
-          action={recovery === undefined ? undefined : <RefusalRecovery recovery={recovery} />}
-        />
-      );
-    }
     case "attached":
       return (
         <p className="meridian-reattach__attached" role="status">

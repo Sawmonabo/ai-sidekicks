@@ -1,12 +1,10 @@
 // The artifact card, and the seat it fills.
 //
 // The registration is checked here rather than in `panes/panes.test.ts`, which is
-// seat-blind by design: it asserts the seat board's SHAPE and says nothing about
-// occupants. Which body fills the `artifact` card is this family's claim, so this
-// family's test is where it belongs.
+// seat-blind: it asserts the seat board's shape and says nothing about occupants.
 
 import { render } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import type { ArtifactManifestRow } from "../artifacts/artifact-model.js";
 import {
@@ -28,24 +26,13 @@ const MANIFEST: ArtifactManifestRow = {
   digest: "sha256:abc",
   size: 2048,
   annotations: {},
-  visibility: "shared",
   state: "published",
-  replicationStatus: "expired",
   metadata: {},
   createdAt: "2026-09-01T00:00:00.000Z",
 };
 
-afterEach(() => {});
-
 describe("inline artifact card — the seat", () => {
-  /**
-   * A board this case owns.
-   *
-   * The registrar writes only what it is handed, so there is nothing to release
-   * afterwards — the previous shape claimed the process-wide board and needed an
-   * `afterEach` unregistering the kind by hand, where a case that forgot made the
-   * next one pass for its neighbour's reason.
-   */
+  /** A board this case owns; the registrar writes only what it is handed. */
   function fill(): InlineCardSeatRegistry {
     const seats = new InlineCardSeatRegistry();
     registerInlineArtifactCardBody(seats);
@@ -78,11 +65,10 @@ describe("inline artifact card — the seat", () => {
   });
 });
 
-describe("inline artifact card — the absence, and the manifest", () => {
-  it("says the artifact has not been read, and never that there is none", () => {
+describe("inline artifact card — the identity, and the manifest", () => {
+  it("draws no body at all without a manifest row", () => {
     const { container } = render(<InlineArtifactCard card={CARD} />);
-    expect(container.querySelector(".meridian-nothing--not-checked")).not.toBeNull();
-    expect(container.querySelector(".meridian-nothing--empty")).toBeNull();
+    expect(container.querySelector(".meridian-artifact-card__body")).toBeNull();
   });
 
   it("names the artifact wire-verbatim, with the full string recoverable", () => {
@@ -92,18 +78,9 @@ describe("inline artifact card — the absence, and the manifest", () => {
     expect(identity?.getAttribute("title")).toBe("artifact-9");
   });
 
-  it("renders the expired replication reading as the payload sentence, not as a TTL", () => {
-    // `repos/artifacts/artifact-copy.ts` reads `expired` as the payload not being obtainable
-    // from the relay with re-publish as the remedy — the disposition given to a
-    // reclaimed blob — never the narrower "TTL elapsed", which
-    // describes the cause and hides the way out.
+  it("draws the manifest face when a manifest row is supplied", () => {
     const { container } = render(<InlineArtifactCard card={CARD} manifest={MANIFEST} />);
-    expect(container.textContent).toContain("Payload not obtainable from the relay.");
-    expect(container.textContent).not.toContain("TTL");
-  });
-
-  it("negative control: a manifest row displaces the unread absence", () => {
-    const { container } = render(<InlineArtifactCard card={CARD} manifest={MANIFEST} />);
-    expect(container.querySelector(".meridian-nothing--not-checked")).toBeNull();
+    expect(container.querySelector(".meridian-artifact-card__body")).not.toBeNull();
+    expect(container.querySelector(".meridian-artifact-card__face")).not.toBeNull();
   });
 });

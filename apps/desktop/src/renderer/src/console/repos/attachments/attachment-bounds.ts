@@ -1,61 +1,22 @@
-// The four bounds an attachment can hit, and what a carrier stands at against two of
-// them.
+// The shipped attachment bounds, and where a carrier and one file stand against them.
 //
-// THE SEAM, IN ONE SENTENCE: this module answers what the DEPLOYMENT admits and where
-// a carrier stands inside that, for every surface that has to say so before a file is
-// chosen. It renders nothing, calls nothing, and holds no copy about a refusal — the
-// refusal vocabulary is `artifacts/artifact-refusal-copy.ts`, one directory over, and
-// the daemon's own allow-list is `attachment-policy.ts` below it.
-//
-// WHY THE READING LIVES HERE AND NOT ON THE PANE THAT FIRST READ IT. The shape and
-// the shipped default were declared in `repos/artifact-pane/artifact-pane-reading.ts`,
-// which is one surface's reading module, while the values inside it are this family's:
-// the allow-list is `attachment-policy.ts`'s and the byte bound is `core/constants/attachment-caps.ts`'s
-// `ATTACHMENT_BYTE_CAP_DEFAULT`. Two surfaces now say what will be accepted — the
-// artifact pane's disclosure and the attach affordance itself — so the shape moved DOWN
-// to the module both of them already depend on rather than sideways into a second copy.
-// The pane's reader still owns WHO ASKED and what a served answer means; this owns what
-// the answer IS.
-//
-// AND THE AFFORDANCE DOES NOT ASK. `bridge/growth-port/growth-port.ts` refuses
-// `artifactAllowlistRead` by name on every build the console can be run on today, so a
-// second reader here would be a second scheduled reading, a second census entry, and a
-// second refusal on screen — for a value that would come back as the shipped default in
-// every reachable state. The affordance therefore renders `SHIPPED_DEFAULT_ALLOWLIST`
-// and says which of the two lists that is, which is exactly the arm a deployment whose
-// effective list cannot be read is supposed to take. When the read is registered, the
-// affordance takes the pane's reading
-// through this same shape and nothing about the disclosure changes.
+// This module renders nothing, calls nothing, and holds no copy about a refusal. The byte
+// bound is `core/constants/attachment-caps.ts`'s `ATTACHMENT_BYTE_CAP_DEFAULT`. No read of
+// the deployment's own bound is made anywhere, so every surface reads the shipped default.
 
 import {
   ATTACHMENTS_PER_CARRIER_CAP_DEFAULT,
   ATTACHMENT_BYTE_CAP_DEFAULT,
 } from "../../core/index.js";
-import type { ConsoleRefusal } from "../../core/index.js";
-import { ATTACHMENT_ALLOWLIST_DEFAULT } from "./attachment-policy.js";
 
-/**
- * The effective allow-list and byte bound, with where they came from.
- *
- * `source` is rendered rather than inferred. An operator override REPLACES the default
- * wholesale, so a hint that could not say which of the two it is showing would be a hint
- * a user cannot
- * trust against a deployment they cannot see.
- */
-export interface AttachmentAllowlistReading {
-  readonly source: "effective" | "shipped-default";
-  readonly mediaTypes: readonly string[];
+/** The per-attachment byte bound. */
+interface AttachmentAllowlistReading {
   readonly maximumByteLength: number;
-  /** Why the effective read did not answer, on the `shipped-default` arm. */
-  readonly refusal: ConsoleRefusal | undefined;
 }
 
-/** The bounds the console ships with, when the deployment's own could not be read. */
+/** The bounds the console ships with, read in place of the deployment's own. */
 export const SHIPPED_DEFAULT_ALLOWLIST: AttachmentAllowlistReading = {
-  source: "shipped-default",
-  mediaTypes: ATTACHMENT_ALLOWLIST_DEFAULT,
   maximumByteLength: ATTACHMENT_BYTE_CAP_DEFAULT,
-  refusal: undefined,
 };
 
 /**
@@ -80,14 +41,11 @@ export function attachmentCarrierFill(attachedCount: number): AttachmentCarrierF
 }
 
 /**
- * Whether one attachment's own declared length is past the per-attachment bound.
+ * Whether one attachment's own length is past the per-attachment bound.
  *
- * DECLARED, WHICH IS THE ONLY LENGTH THE CONSOLE HAS BEFORE THE DAEMON DERIVES ONE. A
- * caller's `sizeBytes` is advisory, and this reads
- * the payload's own `Blob` size rather than a caller's claim — so the answer is a
- * warning ahead of `artifact.too_large` rather than a verdict standing in for it. The
- * upload is still attempted: the enforcement points are the daemon's three and the
- * console does not add a fourth.
+ * The answer is a warning ahead of `artifact.too_large` rather than a verdict standing in
+ * for it: the upload is still attempted, because the enforcement points are the daemon's
+ * and the console does not add another.
  */
 export function exceedsAttachmentByteAllowance(
   byteLength: number,

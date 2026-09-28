@@ -1,47 +1,25 @@
-// The model's two claims: a diff's attribution names exactly one subject, and a
-// file's change counts come from the hunks and not from what a reader expanded.
+// The model's claim: a file's change counts come from the hunks and not from what a
+// reader expanded.
 
 import { describe, expect, it } from "vitest";
 
 import { buildDiffFixture } from "./diff-fixture.test-support.js";
+import { SMALL_DIFF_SHAPE } from "./diff-fixture-shapes.test-support.js";
 import {
-  RUN_ATTRIBUTED_ATTRIBUTION,
-  SMALL_DIFF_SHAPE,
-  WORKSPACE_FALLBACK_ATTRIBUTION,
-} from "./diff-fixture-shapes.test-support.js";
-import {
-  DIFF_ATTRIBUTION_MODES,
   DIFF_LINE_KINDS,
   DIFF_VIEW_MODES,
-  diffAttributionSubjectId,
   diffFileChangeCounts,
   diffLineText,
 } from "./diff-model.js";
 import { intralineSegments } from "./patch-parse.js";
 
 describe("diff model — the closed sets", () => {
-  it("declares two attribution modes, three line kinds, and two view modes", () => {
+  it("declares three line kinds and two view modes", () => {
     // Counts rather than membership, because each of these is a claim a spec
     // makes about how many answers exist, and a fourth line kind added without a
     // renderer branch is the failure this catches.
-    expect([...DIFF_ATTRIBUTION_MODES]).toStrictEqual(["run_attributed", "workspace_fallback"]);
     expect(DIFF_LINE_KINDS).toHaveLength(3);
     expect(DIFF_VIEW_MODES).toHaveLength(2);
-  });
-});
-
-describe("diff model — attribution", () => {
-  it("names the run on the run-attributed arm and the workspace on the other", () => {
-    expect(diffAttributionSubjectId(RUN_ATTRIBUTED_ATTRIBUTION)).toBe("run-rate-limit-wiring");
-    expect(diffAttributionSubjectId(WORKSPACE_FALLBACK_ATTRIBUTION)).toBe("workspace-sidekicks");
-  });
-
-  it("negative control: the workspace arm carries no run to read", () => {
-    // The claim — never pretend a workspace diff is run-attributed — is enforced by
-    // the union's shape rather than by a
-    // renderer's discipline, and this is what says so at runtime.
-    expect(Object.hasOwn(WORKSPACE_FALLBACK_ATTRIBUTION, "runId")).toBe(false);
-    expect(Object.hasOwn(RUN_ATTRIBUTED_ATTRIBUTION, "workspaceId")).toBe(false);
   });
 });
 

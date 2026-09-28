@@ -4,9 +4,8 @@
 // other alert dialog. The confirm control is an `AlertDialog.Close`, so it sends and
 // closes in one act; a discard wired to every close fires straight after `attach()`
 // published `sending`, and the card falls back to idle with its trigger live again
-// under a `repo.attach` still on the wire. The second press then reaches the act
-// controller's single-flight guard and returns silently, so a person who pressed twice
-// is told nothing either time — while the mount the first call mints appears anyway.
+// under an attach still on the wire. The second press then reaches the act
+// controller's single-flight guard and returns silently.
 //
 // THE POPUP IS PORTALLED, so the acts are read off `document` and the settlement off
 // the render container, which is where this control draws it: on the card, beside the
@@ -15,45 +14,45 @@
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import type { ConsoleBridge } from "../../../bridge/index.js";
-import {
-  fixtureBridgeWithGrowth,
-  withDaemonCall,
-} from "../../../bridge/fixture/call-plane/bridge.test-support.js";
-import { REPOS_SCENARIO } from "../../../bridge/scenario/repos/repos.js";
+import type { RepoAttachResponse } from "@ai-sidekicks/contracts";
+
+import type { RepoOperations } from "../../repo-operations.js";
+import { bridgeOnClock, scriptedRepoOperations } from "../../repo-operations.test-support.js";
 import { SessionStore } from "../../../store/index.js";
 import { ReattachControl } from "./ReattachControl.js";
-import { quietShell } from "../../../store/shell-condition.test-support.js";
 
-/** A canonical UUID, so `repo.attach` is a request the daemon binding will send. */
 const SESSION_ID = "019b79ee-0280-740e-8110-d1a4c1150091";
 
 const LOCAL_PATH = "/Users/dev/code/ai-sidekicks/packages/contracts";
-const NODE_ID = "node-laptop";
 
-/** A bridge whose attach never answers, so the sent state stays observable. */
-function bridgeHoldingTheCall(): ConsoleBridge {
-  return withDaemonCall(
-    fixtureBridgeWithGrowth(REPOS_SCENARIO, {}),
-    async () => await new Promise<never>(() => undefined),
-  ).bridge;
+/** An attach that never answers, so the sent state stays observable. */
+function operationsHoldingTheCall(): RepoOperations {
+  return scriptedRepoOperations({
+    attachRepository: async () => await new Promise<never>(() => undefined),
+  });
 }
 
-/** A bridge whose attach is rejected, so a settlement lands on the card. */
-function bridgeRefusingTheCall(): ConsoleBridge {
-  return withDaemonCall(fixtureBridgeWithGrowth(REPOS_SCENARIO, {}), async () => {
-    throw new Error("the daemon closed the connection");
-  }).bridge;
+/** An attach that mints a mount, so a settlement lands on the card. */
+function operationsAnsweringTheCall(): RepoOperations {
+  return scriptedRepoOperations({
+    attachRepository: () =>
+      Promise.resolve({
+        repoMountId: "mount-new",
+        state: "attached",
+        vcsType: "git",
+        canonicalRoot: LOCAL_PATH,
+        defaultWorkspaceId: "workspace-new",
+      } as unknown as RepoAttachResponse),
+  });
 }
 
-function renderControl(bridge: ConsoleBridge): ReturnType<typeof render> {
+function renderControl(operations: RepoOperations): ReturnType<typeof render> {
   return render(
     <ReattachControl
-      bridge={bridge}
+      bridge={bridgeOnClock()}
+      operations={operations}
       sessionStore={new SessionStore({ sessionId: SESSION_ID })}
-      frameStore={quietShell()}
       localPath={LOCAL_PATH}
-      nodeId={NODE_ID}
       onAttached={() => undefined}
     />,
   );
@@ -84,7 +83,7 @@ async function pressCancel(): Promise<void> {
 
 describe("ReattachControl — the confirm press keeps its settlement", () => {
   it("still reports the re-attach as sent once the confirm control has closed the dialog", async () => {
-    const { container } = renderControl(bridgeHoldingTheCall());
+    const { container } = renderControl(operationsHoldingTheCall());
 
     await pressOpen();
     await pressConfirm();
@@ -96,7 +95,7 @@ describe("ReattachControl — the confirm press keeps its settlement", () => {
   it("negative control: with nothing pressed the card carries no settlement and the trigger is live", async () => {
     // Without this the case above would pass against a card that always said
     // `Re-attaching.` and always held its trigger, which is a remedy nobody can reach.
-    const { container } = renderControl(bridgeHoldingTheCall());
+    const { container } = renderControl(operationsHoldingTheCall());
 
     await pressOpen();
 
@@ -107,26 +106,26 @@ describe("ReattachControl — the confirm press keeps its settlement", () => {
 
 describe("ReattachControl — a discarded consideration", () => {
   it("discards the standing settlement when the user walks away from the question", async () => {
-    const { container } = renderControl(bridgeRefusingTheCall());
+    const { container } = renderControl(operationsAnsweringTheCall());
 
     await pressOpen();
     await pressConfirm();
-    expect(container.querySelector(".meridian-refusal--inline")).not.toBeNull();
+    expect(container.querySelector(".meridian-reattach__attached")).not.toBeNull();
 
     await pressOpen();
     await pressCancel();
 
-    expect(container.querySelector(".meridian-refusal--inline")).toBeNull();
+    expect(container.querySelector(".meridian-reattach__attached")).toBeNull();
   });
 
   it("negative control: a settlement nobody reconsidered stays on the card", async () => {
-    // A refused re-attach is the only place its reason is written. Cleared on any
-    // close, it would be gone before the person who pressed could read it.
-    const { container } = renderControl(bridgeRefusingTheCall());
+    // The settlement is the only place the outcome is written. Cleared on any close, it
+    // would be gone before the person who pressed could read it.
+    const { container } = renderControl(operationsAnsweringTheCall());
 
     await pressOpen();
     await pressConfirm();
 
-    expect(container.querySelector(".meridian-refusal--inline")).not.toBeNull();
+    expect(container.querySelector(".meridian-reattach__attached")).not.toBeNull();
   });
 });

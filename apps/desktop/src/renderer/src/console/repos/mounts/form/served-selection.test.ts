@@ -1,9 +1,9 @@
-// Reconciling a pick against a served answer, in the four states the two dialogs reach.
+// Reconciling a pick against a served answer, in the four states a dialog reaches.
 //
-// EVERY CASE HERE IS A DISAGREEMENT THAT SHIPPED. The picker read the served answer and
-// the verdict read the form, so each arm below names a state where the two said
-// different things: a default the picker drew and the form never held, a pick the served
-// answer had withdrawn, and a pick nothing was answering about at all.
+// EVERY CASE HERE IS A DISAGREEMENT A SPLIT READING WOULD PRODUCE. If the picker read the
+// served answer and the verdict read the form, each arm below names a state where the two
+// would say different things: a default the picker drew and the form never held, a pick
+// the served answer had withdrawn, and a pick nothing was answering about at all.
 //
 // THE TWO ABSENCES ARE THE HARDEST PART, and each has its own negative control: an
 // answer naming NO choices withdraws a pick, and NO answer at all cannot confirm one.
@@ -14,26 +14,26 @@ import { describe, expect, it } from "vitest";
 
 import { resolveServedSelection, selectedChoiceOf } from "./served-selection.js";
 
-/** Two nodes, which is a real decision. */
-const TWO_CHOICES: readonly string[] = ["node-a", "node-b"];
+/** Two served choices, which is a real decision. */
+const TWO_CHOICES: readonly string[] = ["choice-a", "choice-b"];
 
 describe("resolveServedSelection — a pick the served answer still offers", () => {
   it("resolves the user's own pick", () => {
     const selection = resolveServedSelection({
-      chosen: "node-b",
+      chosen: "choice-b",
       servedChoices: TWO_CHOICES,
       defaultChoice: undefined,
     });
-    expect(selection).toStrictEqual({ status: "resolved", choice: "node-b" });
+    expect(selection).toStrictEqual({ status: "resolved", choice: "choice-b" });
   });
 
   it("prefers the pick over the default, which is what makes it a pick", () => {
     const selection = resolveServedSelection({
-      chosen: "node-b",
+      chosen: "choice-b",
       servedChoices: TWO_CHOICES,
-      defaultChoice: "node-a",
+      defaultChoice: "choice-a",
     });
-    expect(selectedChoiceOf(selection)).toBe("node-b");
+    expect(selectedChoiceOf(selection)).toBe("choice-b");
   });
 });
 
@@ -41,10 +41,10 @@ describe("resolveServedSelection — no pick, and a default to stand in", () => 
   it("resolves the default the served answer names", () => {
     const selection = resolveServedSelection({
       chosen: undefined,
-      servedChoices: ["node-only"],
-      defaultChoice: "node-only",
+      servedChoices: ["choice-only"],
+      defaultChoice: "choice-only",
     });
-    expect(selection).toStrictEqual({ status: "resolved", choice: "node-only" });
+    expect(selection).toStrictEqual({ status: "resolved", choice: "choice-only" });
   });
 
   it("negative control: a default outside the served set resolves nothing", () => {
@@ -72,33 +72,33 @@ describe("resolveServedSelection — no pick, and a default to stand in", () => 
 describe("resolveServedSelection — a pick the served answer has withdrawn", () => {
   it("withdraws it and carries what was picked, so a sentence can name it", () => {
     const selection = resolveServedSelection({
-      chosen: "node-b",
-      servedChoices: ["node-a"],
-      defaultChoice: "node-a",
+      chosen: "choice-b",
+      servedChoices: ["choice-a"],
+      defaultChoice: "choice-a",
     });
-    expect(selection).toStrictEqual({ status: "withdrawn", choice: "node-b" });
+    expect(selection).toStrictEqual({ status: "withdrawn", choice: "choice-b" });
   });
 
   it("does not quietly fall back to the default, which would send a different choice", () => {
-    // The failure this exists to refuse: a refresh that removed the picked node would
-    // otherwise hand the act whichever node happened to be default now.
+    // The failure this exists to refuse: a refresh that removed the picked choice would
+    // otherwise hand the act whichever choice happened to be the default.
     const selection = resolveServedSelection({
-      chosen: "node-b",
-      servedChoices: ["node-a"],
-      defaultChoice: "node-a",
+      chosen: "choice-b",
+      servedChoices: ["choice-a"],
+      defaultChoice: "choice-a",
     });
     expect(selectedChoiceOf(selection)).toBeUndefined();
   });
 
   it("an answer naming no choices at all withdraws the pick", () => {
-    // A read that answered with an empty set HAS answered — a session with no nodes, a
-    // mount that admits no mode — so a pick made against the previous answer is gone.
+    // A read that answered with an empty set HAS answered — a mount that admits no
+    // mode — so a pick made against the previous answer is gone.
     const selection = resolveServedSelection({
-      chosen: "node-a",
+      chosen: "choice-a",
       servedChoices: [],
       defaultChoice: undefined,
     });
-    expect(selection).toStrictEqual({ status: "withdrawn", choice: "node-a" });
+    expect(selection).toStrictEqual({ status: "withdrawn", choice: "choice-a" });
   });
 });
 
@@ -107,11 +107,11 @@ describe("resolveServedSelection — nothing being served to check against", () 
     // Different fact, different sentence: a read that has not answered cannot say the
     // choice is gone, and a control shut with that reason under it would be lying.
     const selection = resolveServedSelection({
-      chosen: "node-a",
+      chosen: "choice-a",
       servedChoices: undefined,
       defaultChoice: undefined,
     });
-    expect(selection).toStrictEqual({ status: "unserved", choice: "node-a" });
+    expect(selection).toStrictEqual({ status: "unserved", choice: "choice-a" });
     expect(selectedChoiceOf(selection)).toBeUndefined();
   });
 
@@ -119,7 +119,7 @@ describe("resolveServedSelection — nothing being served to check against", () 
     const selection = resolveServedSelection({
       chosen: undefined,
       servedChoices: undefined,
-      defaultChoice: "node-a",
+      defaultChoice: "choice-a",
     });
     expect(selection).toStrictEqual({ status: "unresolved" });
   });

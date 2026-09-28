@@ -23,7 +23,7 @@ import { diffLineText, type ConsoleDiffModel, type DiffLine } from "./diff-model
 import type { DiffLineRow } from "./diff-row-model.js";
 import { IntralineSegmentCache } from "./intraline-segments.js";
 import { parseUnifiedPatch } from "./patch-parse.js";
-import { COMPARED_STATES, RUN_ATTRIBUTION } from "./patch-parse.test-support.js";
+import { COMPARED_STATES } from "./patch-parse.test-support.js";
 
 const wordDiffCalls = vi.hoisted(() => vi.fn());
 
@@ -63,7 +63,7 @@ function modelOf(bodyLines: readonly string[]): ConsoleDiffModel {
     ...bodyLines,
     "",
   ].join("\n");
-  return parseUnifiedPatch(patchText, RUN_ATTRIBUTION, COMPARED_STATES);
+  return parseUnifiedPatch(patchText, COMPARED_STATES);
 }
 
 /** A body row of the first hunk of the first file, which is where every case builds. */

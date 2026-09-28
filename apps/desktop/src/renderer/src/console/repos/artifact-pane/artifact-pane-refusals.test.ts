@@ -12,7 +12,6 @@ import {
   manifestReadInFlightRefusal,
   payloadFetchInFlightRefusal,
   readFailureRefusal,
-  visibilityUpdateInFlightRefusal,
 } from "./artifact-pane-refusals.js";
 
 describe("artifact pane refusals — a read that threw", () => {
@@ -31,11 +30,11 @@ describe("artifact pane refusals — a read that threw", () => {
     // with the daemon's code and sentence discarded, so a 403 and a rate limit read
     // the same and neither said what to do next.
     const refusal = readFailureRefusal({
-      message: "Deleting this artifact is not permitted.",
-      data: { type: "artifact.delete_forbidden", fields: { retryAfter: 30 } },
+      message: "This artifact is not available.",
+      data: { type: "artifact.not_found", fields: { retryAfter: 30 } },
     });
-    expect(refusal.code).toBe("artifact.delete_forbidden");
-    expect(refusal.detail).toBe("Deleting this artifact is not permitted.");
+    expect(refusal.code).toBe("artifact.not_found");
+    expect(refusal.detail).toBe("This artifact is not available.");
     expect(refusal.retry?.afterSeconds).toBe(30);
   });
 
@@ -44,10 +43,10 @@ describe("artifact pane refusals — a read that threw", () => {
     // prototype chain is gone and an `instanceof` reading would silently replace the
     // author's origin with this pane's.
     const refusal = readFailureRefusal({
-      refusal: { origin: "growth-port", code: "wire-unregistered", detail: "Not checked." },
+      refusal: { origin: "daemon", code: "artifact.not_found", detail: "No such artifact." },
     });
-    expect(refusal.origin).toBe("growth-port");
-    expect(refusal.code).toBe("wire-unregistered");
+    expect(refusal.origin).toBe("daemon");
+    expect(refusal.code).toBe("artifact.not_found");
   });
 
   it("negative control: a value whose `message` getter throws does not escape", () => {
@@ -76,30 +75,16 @@ describe("artifact pane refusals — the closed vocabulary", () => {
       readFailureRefusal(new Error("boom")).code,
       payloadFetchInFlightRefusal("artifact-1").code,
       manifestReadInFlightRefusal("artifact-1").code,
-      visibilityUpdateInFlightRefusal("artifact-1").code,
     ];
 
     expect([...ARTIFACT_PANE_REFUSAL_CODES].toSorted()).toStrictEqual(minted.toSorted());
     expect(new Set(ARTIFACT_PANE_REFUSAL_CODES).size).toBe(ARTIFACT_PANE_REFUSAL_CODES.length);
   });
 
-  it("names the row a held visibility change is about, so the sentence is not generic", () => {
-    // The control that mints it is a TOGGLE whose label is read off the row, so a
-    // user told only that "something is in flight" cannot tell which row is
-    // being re-classified or what it is being re-classified to.
-    const refusal = visibilityUpdateInFlightRefusal("artifact-7");
-
-    expect(refusal.detail).toContain("artifact-7");
-    expect(refusal.origin).toBe("artifact-pane-reader");
-  });
-
   it("negative control: a code another author owns is not a member of this pane's set", () => {
-    // `growth-port`'s own vocabulary reaches this pane on every refused read and is
-    // rendered unchanged, and the family-root growth-call door mints the unreadable
-    // reply. A set that admitted any of the three would be claiming authorship of a
-    // refusal this module never mints.
-    expect([...ARTIFACT_PANE_REFUSAL_CODES]).not.toContain("wire-unregistered");
-    expect([...ARTIFACT_PANE_REFUSAL_CODES]).not.toContain("reply-abandoned");
-    expect([...ARTIFACT_PANE_REFUSAL_CODES]).not.toContain("reply-unreadable");
+    // The daemon's own vocabulary reaches this pane on every refused read and is
+    // rendered unchanged. A set that admitted one of its codes would be claiming
+    // authorship of a refusal this module never mints.
+    expect([...ARTIFACT_PANE_REFUSAL_CODES]).not.toContain("artifact.not_found");
   });
 });

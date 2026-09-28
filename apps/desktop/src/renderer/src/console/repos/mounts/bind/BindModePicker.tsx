@@ -1,17 +1,14 @@
 // Which execution mode a new workspace binds in, chosen from what the mount admits.
 //
-// A RADIO GROUP AND NOT A SELECT, on `attach/NodePicker.tsx`'s reason: an excluded mode
-// carries the mount's own sentence for why, and a sentence does not fit in an option
-// label. Flattening it would leave a person with three modes they cannot pick and no
-// reason given for any of them.
+// A RADIO GROUP AND NOT A SELECT: an excluded mode carries the mount's own sentence for
+// why, and a sentence does not fit in an option label. Flattening it would leave a
+// person with modes they cannot pick and no reason given for any of them.
 //
-// EVERY MODE IS RENDERED AND THE EXCLUDED ONES ARE DISABLED, which is the opposite of
-// the node picker beside it and the difference is who answered. There, health is a
-// reading and the node's own refusal is the authority, so nothing is disabled. Here the
-// daemon has already answered the question — `availableModes` is its answer for THIS
-// mount — so offering an excluded mode would send a request the answer on screen says
-// will refuse. The gap is stated explicitly, so the row stays with its reason rather
-// than disappearing.
+// EVERY MODE IS RENDERED AND THE EXCLUDED ONES ARE DISABLED, because the daemon has
+// already answered the question — `availableModes` is its answer for THIS mount — so
+// offering an excluded mode would send a request the answer on screen says will refuse.
+// The gap is stated explicitly, so the row stays with its reason rather than
+// disappearing.
 
 import { WireFigure } from "../../../primitives/index.js";
 import type { ModeRow } from "../mode-row.js";

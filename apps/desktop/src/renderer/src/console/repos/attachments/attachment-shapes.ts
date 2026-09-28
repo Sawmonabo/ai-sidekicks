@@ -13,10 +13,9 @@
 // count cap of 64 — an UNTYPED arm, and no attachment may be delivered over one. There
 // is no `AttachmentIngestInit` shape, no
 // method string for any leg of the ingest trio, and no manifest type. So the shapes
-// below are CONSOLE VIEW MODELS transcribing the agreed attachment shapes, and every
-// call that would fill them goes through `bridge/growth-port/growth-port.ts`, which refuses by name
-// (`artifact-ingest-and-crud`, `artifact-allowlist-and-abort`). Nothing here claims the
-// daemon sends it.
+// below are CONSOLE VIEW MODELS transcribing the agreed attachment shapes, and the ingest
+// calls that would fill them are supplied by the caller. Nothing here claims the daemon
+// sends it.
 //
 // THE DECLARED VALUES ARE ADVISORY AND THE DERIVED ONES ARE THE TRUTH. A caller's
 // `mediaType` and `sizeBytes` are hints that narrow a signature check and never widen
@@ -213,13 +212,8 @@ export interface SettledAttachmentIngestEntry extends AttachmentIngestRecord {
 export type AttachmentIngestEntry = SendingAttachmentIngestEntry | SettledAttachmentIngestEntry;
 
 /**
- * What one attachment position on a turn has to say. Four arms, none standing in for
+ * What one attachment position on a turn has to say. Three arms, none standing in for
  * another.
- *
- * `not-checked` is separate from `unresolved` for rule 8's reason: an unresolved marker
- * is a manifest row that was READ and carries a cause, while `not-checked` is the
- * console admitting no read has happened — which is every attachment on a turn today,
- * because no wire resolves one.
  */
 export type AttachmentReading =
   | { readonly kind: "ingesting"; readonly entry: AttachmentIngestEntry }
@@ -232,8 +226,7 @@ export type AttachmentReading =
       readonly kind: "unresolved";
       readonly attachmentId: string;
       readonly cause: UnresolvedAttachmentCause;
-    }
-  | { readonly kind: "not-checked"; readonly attachmentId: string };
+    };
 
 /** Whether an entry in this state can still put bytes on a stream. */
 export function isSendingAttachmentIngestState(

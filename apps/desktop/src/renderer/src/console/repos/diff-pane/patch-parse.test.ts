@@ -5,7 +5,6 @@ import { intralineSegments, parseUnifiedPatch } from "./patch-parse.js";
 import {
   COMPARED_STATES,
   PLAIN_PATCH,
-  RUN_ATTRIBUTION,
   linesOfFirstHunk,
   parsePlain,
 } from "./patch-parse.test-support.js";
@@ -58,7 +57,6 @@ describe("parseUnifiedPatch — the hunk header is the patch's own", () => {
   it("carries no line ending into the header of a patch written with CRLF", () => {
     const header = parseUnifiedPatch(
       SECTION_CONTEXT_PATCH.split("\n").join("\r\n"),
-      RUN_ATTRIBUTION,
       COMPARED_STATES,
     ).files[0]?.hunks[0]?.header;
     expect(header).toBe("@@ -10 +10 @@ function createApplicationWindow(): BrowserWindow {");
@@ -77,18 +75,17 @@ describe("parseUnifiedPatch — the hunk header is the patch's own", () => {
       "+@@ -10,3 +10,3 @@ newSection",
       "",
     ].join("\n");
-    const model = parseUnifiedPatch(patchText, RUN_ATTRIBUTION, COMPARED_STATES);
+    const model = parseUnifiedPatch(patchText, COMPARED_STATES);
     expect(model.files[0]?.hunks).toHaveLength(1);
     expect(model.files[0]?.hunks[0]?.header).toBe("@@ -1,2 +1,2 @@ Section");
   });
 });
 
 describe("parseUnifiedPatch", () => {
-  it("carries the create call's attribution and compared states rather than reading them", () => {
-    // Neither is in the patch text — both ride the create call — so a
-    // parser that produced them from the body would be inventing them.
+  it("carries the caller's compared states rather than reading them", () => {
+    // They are not in the patch text, so a parser that produced them from the body
+    // would be inventing them.
     const model = parsePlain(PLAIN_PATCH);
-    expect(model.attribution).toStrictEqual(RUN_ATTRIBUTION);
     expect(model.baseRef).toBe("main");
     expect(model.headRef).toBe("feat/thing");
   });
@@ -372,7 +369,6 @@ describe("parseUnifiedPatch — the header scan splits the way the parser splits
         "+const value = 2;",
         "",
       ].join("\r\n"),
-      RUN_ATTRIBUTION,
       COMPARED_STATES,
     );
 
