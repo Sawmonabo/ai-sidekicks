@@ -51,11 +51,11 @@
 // entirely, because the store's merge is a spread and a present-but-`undefined` key
 // erases what an earlier event established.
 //
-// STATE IS MARKED, NEVER DELETED. A resolution and a cancellation set
-// the entity's state and leave the row where it is: history is a read, and what the
-// pane lists is the pane's decision. The state values come from
-// `approval-vocabulary.ts`'s closed five, so this module mints no sixth spelling of
-// a vocabulary the surface already declares once.
+// STATE IS MARKED, NEVER DELETED. A resolution and a cancellation set the entity's
+// state and leave the row where it is: history is a read, and what the pane lists is
+// the pane's decision. The state values come from `approval-vocabulary.ts`'s closed
+// five, so this module mints no sixth spelling of a vocabulary the surface already
+// declares once.
 //
 // A PROJECTOR IS PURE, and that decides the malformed case exactly as it does for
 // the run fold: an approval beat whose payload names no `approvalRequestId` yields
@@ -122,9 +122,9 @@ type ApprovalEventKind = Extract<SessionEventType, `approval.${string}`>;
 /**
  * The state each kind announces, or `undefined` for a kind that announces none.
  *
- * Total over the six by `satisfies`, and typed against
- * `approval-vocabulary.ts`'s closed five so a state invented here fails to compile
- * rather than reaching a card that renders it as an unrecognized token.
+ * Total over the six by `satisfies`, and typed against `approval-vocabulary.ts`'s
+ * closed five so a state invented here fails to compile rather than reaching a card
+ * that renders it as an unrecognized token.
  *
  * The two `undefined` arms are decisions rather than gaps. `approval.remembered`
  * records that a resolution minted a standing rule — the request was already
@@ -186,9 +186,8 @@ const SHARED_APPROVAL_BODY_MEMBERS: Readonly<Record<string, WireMemberSchema>> =
  *
  * Total over the six by `satisfies`. Every entry is a member the approval payload
  * contracts' per-variant refinement names for that variant and for no other, and a
- * member the shared table already carries would be a
- * second spelling of it — which the co-located test refuses outright rather than
- * leaving to review.
+ * member the shared table already carries would be a second spelling of it — which the
+ * co-located test refuses outright rather than leaving to review.
  */
 const APPROVAL_BODY_MEMBERS_BY_EVENT_KIND = {
   // The request quad, plus the two members that make a provider permission ask

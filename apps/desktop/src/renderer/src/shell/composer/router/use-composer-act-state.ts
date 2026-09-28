@@ -9,10 +9,10 @@
 // what a settlement is allowed to write.
 //
 // THE REFUSAL IS HELD WHERE THE STATUS IS. The refusal answers the act that produced
-// it, and it used to be hook-wide `useState` guarded by a read-time comparison against
-// the current draft key. A guard only HIDES: the row was still there, so the return
-// trip rendered a refusal minutes old, and a bridge replacement — which retires every
-// call made through the old transport — left it standing. Held under `(bridge,
+// it, and a hook-wide `useState` guarded by a read-time comparison against the current
+// draft key would only HIDE it: the row would still be there, so the return trip would
+// render a refusal minutes old, and a bridge replacement — which retires every call
+// made through the old transport — would leave it standing. Held under `(bridge,
 // draftKey)` like the status, a re-address DROPS it and a replaced bridge takes it
 // with it.
 //

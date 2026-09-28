@@ -117,10 +117,10 @@ export class UnreadableDeliveryLedger {
 /**
  * One stream's unreadable-delivery refusal, composed from that stream's own words.
  *
- * ONE FUNCTION FOR EVERY TAILED UNION, like the ledger below it. What differs between
- * two streams is what a person reads, and that is what `stream` carries; what is the same is the CODE and
- * the shape of the sentence, and those belong here rather than in however many
- * families tail a registered union next.
+ * ONE FUNCTION FOR EVERY TAILED UNION, like the ledger below it. What differs between two streams
+ * is what a person reads, and that is what `stream` carries; what is the same is the CODE and the
+ * shape of the sentence, and those belong here rather than in however many families tail a
+ * registered union next.
  *
  * NAMES THE FAILING MEMBER PATHS AND NEVER THE PAYLOAD. The payload is a frame this
  * build could not read, so quoting it would put an unbounded and unvalidated value on

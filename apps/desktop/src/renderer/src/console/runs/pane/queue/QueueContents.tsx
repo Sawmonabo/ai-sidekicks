@@ -18,10 +18,12 @@ import { QUEUE_ROWS_RENDERED_CAP } from "../../../core/index.js";
 import type { QueueFeed } from "../../../bridge/index.js";
 import { QueueRow } from "./QueueRow.js";
 
+/** What the waiting queue draws: the feed it reads. */
 export interface QueueContentsProps {
   readonly feed: QueueFeed;
 }
 
+/** The waiting queue's rows, drawn from the feed it is handed. */
 export function QueueContents(props: QueueContentsProps): React.JSX.Element {
   const { feed } = props;
   if (feed.phase === "reading") {

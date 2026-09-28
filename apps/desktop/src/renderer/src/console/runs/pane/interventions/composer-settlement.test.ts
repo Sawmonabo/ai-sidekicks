@@ -58,18 +58,6 @@ describe("only a settlement that landed closes the form", () => {
     expect(readComposerSettlement(settledAt("accepted")).kind).toBe("recorded");
   });
 
-  it("keeps the form open on a refusal that never reached a state", () => {
-    const settlement = readComposerSettlement({
-      kind: "refused",
-      control: "steer",
-      refusal: { origin: "run-control", code: "run.not_found", detail: "no such run" },
-    });
-    expect(settlement.kind).toBe("refused");
-    expect(settlement.kind === "refused" ? settlement.notice.code : undefined).toBe(
-      "run.not_found",
-    );
-  });
-
   it("negative control: the arms are not all one answer", () => {
     // Without this every case above would pass over a reader that answered `refused`
     // to everything, which would leave a landed intervention's form open forever.

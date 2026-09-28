@@ -1,15 +1,15 @@
 // What this session's daemon-hosted tool registry holds, and whether it is exposed.
 //
 // THE READ IS AN ARGUMENT. The registry travels on the driver-facing spawn parameter,
-// which is not a client read, so no wire answers it yet; the caller supplies the read.
-// A read that rejects propagates to the caller.
+// which is not a client read, so the caller supplies the read. The hook does not catch
+// a rejection from it: a read that rejects surfaces as an unhandled rejection.
 //
-// WHAT IS WITHHELD IS A SEPARATE FACT the corpus states outright: while the daemon's
-// approval-create seam is unregistered, spawn withholds the registry, the tools are not
-// exposed, and a stray invocation is answered `denied` by the host's runtime backstop
-// with a driver diagnostic — never completed without a policy decision and never left
-// unanswered. The withheld arm still carries the registry's entries, because withholding
-// is about whether an agent can REACH a tool, not whether one is registered.
+// WHAT IS WITHHELD IS A SEPARATE FACT. While the daemon's approval-create seam is not
+// registered, spawn withholds the registry, the tools are not exposed, and a stray
+// invocation is answered `denied` by the host's runtime backstop with a driver
+// diagnostic — never completed without a policy decision and never left unanswered.
+// The withheld arm still carries the registry's entries, because withholding is about
+// whether an agent can REACH a tool, not whether one is registered.
 //
 // THE ENTRY IS THE CONTRACT'S, NOT AN EXAMPLE. `workflow_run` is the first concrete
 // session callback tool the daemon registers, its name, description and input schema
@@ -29,15 +29,15 @@ export type CallbackToolRegistryReading =
   | { readonly kind: "withheld"; readonly tools: readonly SessionCallbackTool[] }
   | { readonly kind: "exposed"; readonly tools: readonly SessionCallbackTool[] };
 
-/** Reads one session's registry. Required: the daemon serves no registry read yet. */
+/** Reads one session's registry; the caller supplies it. */
 export type ReadCallbackToolRegistry = (request: {
   readonly sessionId: string;
 }) => Promise<CallbackToolRegistryReading>;
 
 /**
- * The registry as the corpus registers it today: one entry, born withheld.
+ * The registry's one entry, `workflow_run`, which is withheld.
  *
- * @consumedBy the registry read, once the daemon serves it
+ * @consumedBy the agent definition's Tool allowlist
  */
 export const BORN_WITHHELD_REGISTRY: readonly SessionCallbackTool[] = [
   {
@@ -59,12 +59,12 @@ export const BORN_WITHHELD_REGISTRY: readonly SessionCallbackTool[] = [
 /**
  * Read the registry for one session, once per (read, session) pair.
  *
- * `undefined` until the read settles, which the caller renders as the not-checked
+ * `undefined` while the read is pending, which the caller renders as the not-checked
  * kind of nothing rather than as an empty registry. The settled reading carries its
  * inputs so a pane that rebinds to another session cannot report the previous
  * session's answer for the interval before the replacement lands.
  *
- * @consumedBy the composer's daemon-hosted tools section, once the daemon serves the registry
+ * @consumedBy the agent definition's Tool allowlist
  */
 export function useCallbackToolRegistry(
   read: ReadCallbackToolRegistry,

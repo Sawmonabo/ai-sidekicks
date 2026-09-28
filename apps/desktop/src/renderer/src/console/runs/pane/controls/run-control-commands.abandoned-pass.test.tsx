@@ -23,6 +23,7 @@ import {
 } from "../../../primitives/abandoned-pass.test-support.js";
 import { capabilityReadout } from "./driver-capability-readout.test-support.js";
 import {
+  RUN_ID as TARGET_RUN,
   commandRun,
   recordingRunControlSurface,
   type RecordedRunControlCall,
@@ -30,7 +31,6 @@ import {
 import { useRunControlCommands, type RunControlCommandInput } from "./run-control-commands.js";
 import { type RunControlSurface } from "./run-control-surface.js";
 
-const TARGET_RUN = "b3f0a1c2-4d5e-4f60-8a71-9c2d3e4f5061";
 const PAUSE_COMMAND_ID = `runs.pause.${TARGET_RUN}`;
 
 const CAPABLE = capabilityReadout([["claude", []]], [[TARGET_RUN, "claude"]]);

@@ -1,17 +1,13 @@
 // The composer's trailing rail: the attachment strip and the context meter.
 //
-// WHERE THE FIGURE COMES FROM. The rail selects the session's timeline once and folds
-// it to the newest context reading of the ADDRESSED RUN. The address is an input to
-// the fold rather than a session-wide sweep: a session running two agents at once
-// was showing one run's fullness beside a control pointed at the other. A composer
-// addressed to the session and not to a run asks the fold for nothing.
+// The rail selects the session's timeline once and folds it to the newest context reading
+// of the ADDRESSED RUN. The address is an input to the fold, not a session-wide sweep, so
+// two agents running at once each report their own run's fullness. A composer addressed to
+// the session and not to a run asks the fold for nothing.
 
-import { useCallback, useMemo, useState } from "react";
+import { useMemo } from "react";
 import { useAttachmentCarrier } from "../../../console/repos/index.js";
-import type {
-  ComposerArtifactAttachment,
-  ComposerSeatProps,
-} from "../../../console/seats/index.js";
+import type { ComposerSeatProps } from "../../../console/seats/index.js";
 import {
   useSessionStore,
   type ConsoleSessionEvent,
@@ -50,20 +46,9 @@ export interface ComposerAccessoryRailProps extends ComposerSeatProps {
 export function ComposerAccessoryRail(props: ComposerAccessoryRailProps): React.JSX.Element {
   const timeline = useSessionStore(props.sessionStore, selectTimeline);
   // One carrier per composer, opened on the session it is addressed within. The repos
-  // family owns the ingest client's whole lifecycle behind this binding; the rail
-  // holds no stream of its own and disposes nothing by hand.
+  // family owns the ingest client's lifecycle behind this binding, so the rail holds no
+  // stream of its own and disposes nothing by hand.
   const attachmentCarrier = useAttachmentCarrier(props.bridge, props.sessionStore.sessionId);
-  // Artifacts a view family put on this message. Held here rather than on the carrier
-  // because they never went through this carrier: they were minted inside the owning
-  // family's own pipeline and arrive already settled, so the ledger has nothing to
-  // track for them and a fake entry would be a second source of ingest truth. Nothing
-  // adds one until the attach control is built.
-  const [familyAttachments, setFamilyAttachments] = useState<readonly ComposerArtifactAttachment[]>(
-    [],
-  );
-  const forgetFamilyAttachment = useCallback((artifactId: string) => {
-    setFamilyAttachments((held) => held.filter((candidate) => candidate.artifactId !== artifactId));
-  }, []);
   const { attachFiles } = attachmentCarrier;
   const isDraggingFiles = useAttachmentDropTarget({
     region: props.region,
@@ -83,12 +68,7 @@ export function ComposerAccessoryRail(props: ComposerAccessoryRailProps): React.
     <div className="meridian-composer__rail">
       {/* First in the rail, so what a message is carrying sits directly under the line
           it is being written on rather than below the meters. */}
-      <ComposerAttachmentBar
-        carrier={attachmentCarrier}
-        familyAttachments={familyAttachments}
-        onForgetFamilyAttachment={forgetFamilyAttachment}
-        isDraggingFiles={isDraggingFiles}
-      />
+      <ComposerAttachmentBar carrier={attachmentCarrier} isDraggingFiles={isDraggingFiles} />
       <div className="meridian-composer__accessories">
         <div className="meridian-composer__meters">
           <ContextMeter reading={contextReading} />

@@ -1,10 +1,9 @@
 // Resolution: what a body and a target WOULD do, before anything is sent.
 //
 // Send is a router rather than a verb, which is the claim every case here reads:
-// the same text resolves differently by target, a slash line is refused at a running
-// turn and a slash word on no list is sent as typed on a new one, an enumerated
-// provider entry is named rather than sent, and the text that reaches the daemon is
-// the text the user wrote.
+// the same text resolves differently by target, a slash line resolves the same at a
+// running turn as on an idle line, an enumerated provider entry is named rather than
+// sent, and the text that reaches the daemon is the text the user wrote.
 
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -60,13 +59,27 @@ describe("ComposerSendRouter — Send is a router, not a verb", () => {
 });
 
 describe("ComposerSendRouter — the slash prefix", () => {
-  it("refuses a slash line at a running turn and never sends it", async () => {
-    const call = vi.fn().mockResolvedValue({});
+  it("resolves a slash line at a running turn as it does on an idle line", () => {
+    // A recognised console word is intercepted and a published provider name is named
+    // in a refusal, on both targets: the running turn adds no rule of its own.
+    const router = routerWith(vi.fn(), ["compact"], ["review"]);
+    for (const line of ["/compact now", "/review"]) {
+      expect(router.resolve(line, RUN_TARGET)).toStrictEqual(router.resolve(line, CHANNEL_TARGET));
+    }
+  });
+
+  it("sends a slash word on no list to a running turn as typed", async () => {
+    const call = vi.fn().mockResolvedValue(STEER_APPLIED);
     const outcome = await routerWith(call).send("/compact now", RUN_TARGET);
 
-    expect(outcome.status).toBe("refused");
-    expect(outcome.status === "refused" && outcome.refusal.code).toBe("slash-prefix-unsupported");
-    expect(call).not.toHaveBeenCalled();
+    expect(outcome).toStrictEqual({ status: "sent", path: "provider-bound" });
+    expect(call).toHaveBeenCalledWith("run.intervene", {
+      type: "steer",
+      targetRunId: RUN_ID,
+      expectedRunVersion: 7,
+      clientIdempotencyKey: PINNED_REQUEST_UUID,
+      content: "/compact now",
+    });
   });
 
   it("sends a slash word on no list as typed on a new turn", async () => {
@@ -97,26 +110,12 @@ describe("ComposerSendRouter — the slash prefix", () => {
       payload: { content: "//not-a-command  \n" },
     });
   });
-
-  it("refuses a doubled slash at a running turn with the same words as any slash line", async () => {
-    const call = vi.fn().mockResolvedValue({});
-    const outcome = await routerWith(call, ["compact"]).send("//still no", RUN_TARGET);
-
-    expect(outcome.status).toBe("refused");
-    expect(outcome.status === "refused" && outcome.refusal.code).toBe("slash-prefix-unsupported");
-    // The copy names the remedy and carries no internal id — the design's own rule.
-    expect(outcome.status === "refused" && outcome.refusal.detail).toBe(
-      "Text that begins with a slash cannot be sent to a running turn yet. Remove the leading slash.",
-    );
-    expect(call).not.toHaveBeenCalled();
-  });
 });
 
 describe("ComposerSendRouter — an enumerated provider entry is named, never sent", () => {
   it("refuses a typed provider command as the discovery entry it is", async () => {
-    // The gap this closes: the popover listed `review` and the send path answered
-    // "remove the leading slash" — advice for text that is not a command, given to
-    // somebody who typed one the console itself had just shown them.
+    // The popover listed `review`, so the send path names the entry the person typed
+    // rather than treating it as text.
     const call = vi.fn().mockResolvedValue({});
     const outcome = await routerWith(call, [], ["review"]).send("/review", RUN_TARGET);
 
@@ -129,11 +128,10 @@ describe("ComposerSendRouter — an enumerated provider entry is named, never se
     expect(call).not.toHaveBeenCalled();
   });
 
-  it("negative control: with no enumeration read, the same line gets the plain slash refusal", async () => {
-    const call = vi.fn().mockResolvedValue({});
-    const outcome = await routerWith(call).send("/review", RUN_TARGET);
+  it("negative control: with no enumeration read, the same line is sent as typed", () => {
+    const resolution = routerWith(vi.fn()).resolve("/review", RUN_TARGET);
 
-    expect(outcome.status === "refused" && outcome.refusal.code).toBe("slash-prefix-unsupported");
+    expect(resolution.outcome).toBe("steer");
   });
 
   it("names a published entry on a new turn too, rather than sending it", () => {
@@ -174,7 +172,7 @@ describe("ComposerSendRouter — the daemon receives the text the user wrote", (
   // Indentation and a trailing blank line, both load-bearing: this is what a pasted
   // block and a deliberately separated Markdown paragraph look like. The negative
   // control in every case is the dispatched params rather than the resolution label,
-  // because the old router resolved to the same arm and sent different bytes.
+  // because two routers can resolve to the same arm and send different bytes.
   const INDENTED_BODY = "  if (ready) {\n    ship();\n  }\n\n";
 
   it("queues a channel message byte-identical, indentation and blank line included", async () => {
@@ -188,7 +186,7 @@ describe("ComposerSendRouter — the daemon receives the text the user wrote", (
   });
 
   it("steers with the same bytes, so the running turn reads what was typed", async () => {
-    const call = vi.fn().mockResolvedValue({});
+    const call = vi.fn().mockResolvedValue(STEER_APPLIED);
     await routerWith(call).send(INDENTED_BODY, RUN_TARGET);
 
     expect(call).toHaveBeenCalledWith("run.intervene", {

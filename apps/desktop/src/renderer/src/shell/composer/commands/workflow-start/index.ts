@@ -14,6 +14,6 @@ import "./workflow-start.css";
 export { useWorkflowStartHandlers } from "./start-dispatch.js";
 export { useWorkflowStartPrefill } from "./prefill.js";
 export {
-  /** @consumedBy the composer's workflow command, once the daemon serves workflow definitions */
+  /** @consumedBy the composer's workflow command */
   WorkflowStartCandidates,
 } from "./WorkflowStartCandidates.js";

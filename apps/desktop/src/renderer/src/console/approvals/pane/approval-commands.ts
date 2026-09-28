@@ -7,17 +7,18 @@
 //
 // APPROVE AND REJECT CARRY WHAT THE CARD CARRIES AND NOTHING MORE. The request is
 // `{ approvalRequestId, decision, effectiveScope: record.requestedScope }`, which
-// is the card's own payload with the remembered-rule member deliberately absent:
-// a remembered grant is a policy the user has to SEE before it is minted,
-// and a palette row shows no policy. The scope is the requested one, never wider.
+// is the card's own payload with the remembered-rule member deliberately absent: a
+// remembered grant is a policy the user has to SEE before it is minted, and a palette
+// row shows no policy. The scope is the requested one, never wider.
 //
 // EVERY ROW READS ITS CONTROL'S OWN OFFER RULE — the same function, never a mirror
 // of it. `isApprovalAnswerable` decides whether a record's two answers are offered
-// and `approvals/pane/approval-offer.ts` says why it is one function. A record whose resolve is in flight has its buttons disabled, so it
-// contributes no rows either. What this buys over "written twice and agreeing" is
-// that the palette CANNOT offer an act the pane has withdrawn: a settled refusal
-// takes the two buttons off the card and the two rows out of the palette in one
-// reading, and there is no second expression to drift.
+// and `approvals/pane/approval-offer.ts` says why it is one function. A record whose
+// resolve is in flight has its buttons disabled, so it contributes no rows either.
+// What this buys over "written twice and agreeing" is that the palette CANNOT offer
+// an act the pane has withdrawn: a settled refusal takes the two buttons off the card
+// and the two rows out of the palette in one reading, and there is no second
+// expression to drift.
 
 import { useMemo } from "react";
 

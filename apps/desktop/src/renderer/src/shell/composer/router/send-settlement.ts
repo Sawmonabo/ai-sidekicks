@@ -15,13 +15,13 @@
 // THE ADDRESS IS A VISIT AND NOT ONLY A KEY. A composer routed away from a target and
 // back is at the same key on two different visits, which is exactly where "same
 // address" and "same act" come apart. Held on the key alone, the single-flight latch
-// still held a slot for a call the returning visit could not see (Send did nothing), a
-// settlement cleared a draft typed on the second visit because the first visit's send
-// had cleared the first visit's text, and a refusal written on the first visit read as
-// current again. The visit is the composer's mirror of the holder's own addressing
-// epoch (`store/subject-scoped/subject-scoped-state.ts` states the same fact for the
-// value it holds), so the latch key, the attempt register, and the settlement identity
-// all carry it.
+// would still hold a slot for a call the returning visit cannot see (Send would do
+// nothing), a settlement would clear a draft typed on the second visit because the
+// first visit's send cleared the first visit's text, and a refusal written on the first
+// visit would read as current again. The visit is the composer's mirror of the holder's
+// own addressing epoch (`store/subject-scoped/subject-scoped-state.ts` states the same
+// fact for the value it holds), so the latch key, the attempt register, and the
+// settlement identity all carry it.
 //
 // A STALE SETTLEMENT IS DISCARDED RATHER THAN PARKED. A completion whose address is no
 // longer the composer's, or whose attempt has been superseded, is dropped where it

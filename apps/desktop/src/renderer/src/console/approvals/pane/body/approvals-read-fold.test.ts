@@ -3,16 +3,12 @@
 //
 // One sharp claim. `partitionRecords` answers empty for every phase that has not
 // answered, which is safe only while its callers render the phase beside it — the
-// cases below pin that emptiness as a NON-answer so a later caller cannot read it as
-// one. WHICH refusal leaves the pane is no longer decided here: that selection is
-// `store/shell/refusal-escalation.ts`' `preferredBannerClassRefusalAmong`, and its cases
-// live beside it.
+// cases below pin that emptiness as a NON-answer so a caller cannot read it as one.
 
 import { describe, expect, it } from "vitest";
 
-import { refuse, type ConsoleRefusal } from "../../../core/index.js";
 import { type ApprovalRecord } from "../../../bridge/index.js";
-import { partitionRecords, refusalOfPhase } from "./approvals-read-fold.js";
+import { partitionRecords } from "./approvals-read-fold.js";
 
 /** A record in the state named, in the shape the console holds. */
 function record(approvalRequestId: string, state: ApprovalRecord["state"]): ApprovalRecord {
@@ -29,13 +25,6 @@ function record(approvalRequestId: string, state: ApprovalRecord["state"]): Appr
   };
 }
 
-/** A refusal whose blast radius is the surface that raised it. */
-const READ_REFUSED: ConsoleRefusal = refuse(
-  "approvals",
-  "call-rejected",
-  "The approvals projection read did not complete.",
-);
-
 describe("partitionRecords — one answered read, split in two", () => {
   it("puts every returned record in exactly one list", () => {
     const partitioned = partitionRecords({
@@ -47,25 +36,10 @@ describe("partitionRecords — one answered read, split in two", () => {
     expect(partitioned.history.map((row) => row.approvalRequestId)).toStrictEqual(["b"]);
   });
 
-  it("answers empty for every phase that has not answered", () => {
-    // The emptiness a caller may NOT read as an answer. Three phases produce it and
-    // only one of them means "the daemon returned nothing", which is why every caller
-    // renders the phase this was folded from beside the arrays.
-    for (const phase of [
-      { status: "not-checked" },
-      { status: "loading" },
-      { status: "refused", refusal: READ_REFUSED },
-    ] as const) {
-      expect(partitionRecords(phase)).toStrictEqual({ pending: [], history: [] });
-    }
-  });
-});
-
-describe("refusalOfPhase", () => {
-  it("answers only for the phase that carries a reason", () => {
-    expect(refusalOfPhase({ status: "refused", refusal: READ_REFUSED })).toBe(READ_REFUSED);
-    expect(refusalOfPhase({ status: "not-checked" })).toBeUndefined();
-    expect(refusalOfPhase({ status: "loading" })).toBeUndefined();
-    expect(refusalOfPhase({ status: "answered", rows: [], unreadableCount: 0 })).toBeUndefined();
+  it("answers empty while the read has not answered", () => {
+    // The emptiness a caller may NOT read as an answer: only an answered read with no
+    // rows means "the daemon returned nothing", which is why every caller renders the
+    // phase this was folded from beside the arrays.
+    expect(partitionRecords({ status: "loading" })).toStrictEqual({ pending: [], history: [] });
   });
 });

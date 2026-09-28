@@ -8,11 +8,11 @@
 // all, which is what the exhaustive tails below are worth.
 
 import { refuse, type ConsoleRefusal } from "../../../core/index.js";
-import {
-  RUN_CONTROL_REFUSAL_ORIGIN,
-  type RunControlOutcome,
-} from "../controls/run-control-dispatch.js";
+import type { RunControlOutcome } from "../controls/run-control-dispatch.js";
 import type { RunControlAdmissionRefusal } from "../controls/run-control-surface.js";
+
+/** The subsystem name every refusal this form raises carries. */
+export const RUN_INTERVENTION_REFUSAL_ORIGIN = "run-intervention";
 
 /**
  * What one settled dispatch means to the form that raised it.
@@ -38,13 +38,9 @@ export type ComposerSettlement =
  * state otherwise. Nothing here paraphrases a wire code into console prose.
  */
 export function readComposerSettlement(outcome: RunControlOutcome): ComposerSettlement {
-  if (outcome.kind === "refused") {
-    return { kind: "refused", notice: outcome.refusal };
-  }
   if (outcome.kind === "acknowledged") {
-    // Pause and resume alone answer with an acknowledgment, and this form composes
-    // neither. Reached only if that ever changes, and landing is the honest reading
-    // of an acknowledgment.
+    // Only pause and resume are acknowledged, and this form sends neither; an
+    // acknowledgment reads as landed.
     return { kind: "landed" };
   }
   const { response } = outcome;
@@ -60,7 +56,7 @@ export function readComposerSettlement(outcome: RunControlOutcome): ComposerSett
       return {
         kind: "refused",
         notice: refuse(
-          RUN_CONTROL_REFUSAL_ORIGIN,
+          RUN_INTERVENTION_REFUSAL_ORIGIN,
           response.rejectionReason ?? settledState,
           REJECTED_DETAIL,
         ),
@@ -69,7 +65,7 @@ export function readComposerSettlement(outcome: RunControlOutcome): ComposerSett
       return {
         kind: "refused",
         notice: refuse(
-          RUN_CONTROL_REFUSAL_ORIGIN,
+          RUN_INTERVENTION_REFUSAL_ORIGIN,
           settledState,
           "This intervention expired before it was applied. What you typed is still here — confirm again to raise a new one, or cancel to close.",
         ),
@@ -79,7 +75,7 @@ export function readComposerSettlement(outcome: RunControlOutcome): ComposerSett
       return {
         kind: "recorded",
         notice: refuse(
-          RUN_CONTROL_REFUSAL_ORIGIN,
+          RUN_INTERVENTION_REFUSAL_ORIGIN,
           settledState,
           "The daemon recorded this intervention and has not applied it yet. Your text is on that record; confirming again would raise a second one, so this control stays latched until you close it.",
         ),
@@ -96,7 +92,7 @@ export function readComposerSettlement(outcome: RunControlOutcome): ComposerSett
  * than reaching a user as an empty sentence beside a form that did nothing.
  */
 export function admissionRefusal(reason: RunControlAdmissionRefusal): ConsoleRefusal {
-  return refuse(RUN_CONTROL_REFUSAL_ORIGIN, reason, ADMISSION_REFUSAL_DETAIL[reason]);
+  return refuse(RUN_INTERVENTION_REFUSAL_ORIGIN, reason, ADMISSION_REFUSAL_DETAIL[reason]);
 }
 
 /** What the form says beside a rejected settlement; the wire cause is the refusal's code. */
@@ -112,7 +108,7 @@ function unreadableSettlement(state: never): ComposerSettlement {
   return {
     kind: "refused",
     notice: refuse(
-      RUN_CONTROL_REFUSAL_ORIGIN,
+      RUN_INTERVENTION_REFUSAL_ORIGIN,
       String(unreadable),
       "The daemon answered with a state this console has no reading for, so nothing here claims the intervention landed. What you typed is still here.",
     ),

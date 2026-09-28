@@ -27,7 +27,7 @@ import { CONTEXT_WINDOW_EVENT_KIND } from "./usage-readings.js";
 /** The rail's session, as a registered `SessionId`: a UUID, not a readable name. */
 export const SESSION_ID = "6f1d2c3b-4a59-4e6f-8a7b-9c0d1e2f3a4b";
 
-export const RAIL_SCENARIO: ConsoleScenario = {
+const RAIL_SCENARIO: ConsoleScenario = {
   id: "rail-unit",
   label: "Rail unit",
   purpose: "A bridge for the rail's mount; the rail's own reads come from the store.",
@@ -56,17 +56,15 @@ export const RUNNING_RUN: ConsoleEntity = {
   body: { agentId: AGENT_ID, runVersion: 4 },
 };
 
-export const ON_THE_AGENT: ConsolePaneAddress = {
+const ON_THE_AGENT: ConsolePaneAddress = {
   kind: "agent-console",
   entity: { kind: "agent", id: AGENT_ID },
 };
 
+/** What a rail case seeds: the session's entities, the pane the composer is addressed to. */
 export interface RailAddressing {
-  readonly bridge?: ConsoleBridge;
   readonly entities?: readonly ConsoleEntity[];
   readonly focusedPane?: ConsolePaneAddress | undefined;
-  /** The focused pane as a handle, which is what a `+` menu row addresses. */
-  readonly focusedPaneId?: string | undefined;
   readonly sessionId?: string;
 }
 
@@ -82,6 +80,7 @@ export const ADDRESSED: RailAddressing = {
   focusedPane: ON_THE_AGENT,
 };
 
+/** Mount the rail over a real session store with `events` applied; returns the container. */
 export function mountRail(
   events: readonly ConsoleSessionEvent[],
   addressing: RailAddressing = {},
@@ -96,14 +95,13 @@ export function mountRail(
   const { container } = render(
     <RailHost
       sessionStore={sessionStore}
-      bridge={addressing.bridge ?? createFixtureBridge({ scenario: RAIL_SCENARIO })}
+      bridge={createFixtureBridge({ scenario: RAIL_SCENARIO })}
       // Built here rather than in the host's render body: a store minted per render
       // would be a fresh one on every pass, which is the construction-in-a-render
       // defect the package's own rule names.
       draftStore={new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT })}
       frameStore={new FrameStore()}
       focusedPane={addressing.focusedPane}
-      focusedPaneId={addressing.focusedPaneId}
     />,
   );
   return container;
@@ -124,7 +122,6 @@ function RailHost(props: {
   readonly draftStore: DraftStore;
   readonly frameStore: FrameStore;
   readonly focusedPane: ConsolePaneAddress | undefined;
-  readonly focusedPaneId: string | undefined;
 }): React.JSX.Element {
   const regionRef = useRef<HTMLElement | null>(null);
   return (
@@ -136,7 +133,6 @@ function RailHost(props: {
         frameStore={props.frameStore}
         route={DEFAULT_ROUTE}
         focusedPane={props.focusedPane}
-        focusedPaneId={props.focusedPaneId}
         region={regionRef}
       />
     </section>

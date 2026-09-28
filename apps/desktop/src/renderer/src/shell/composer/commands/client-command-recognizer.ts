@@ -13,15 +13,11 @@
 // moment later, and a recognizer that pre-empted it would report a command that
 // exists and does not apply here as a name nobody has heard of.
 //
-// WHY THERE IS NO PROVIDER-NAME ANSWER. It would be a good one to have: a person who
-// typed a real provider command and read "no command by that name" would reasonably
-// conclude the enumeration was wrong. But the recognizer's caller on the send path is
-// `ComposerSendBar`, and the enumeration is the discovery popover's live read, held
-// only while that surface is open — so the send bar has no honest set to check
-// against, and giving it one would mean either a second read of the same wire or a
-// cached copy of a list the spec keeps un-stored. Until those two zones share one
-// holder, the popover is where a person learns that a provider entry is discovery
-// only: it lists the entry and offers it no action.
+// WHY THERE IS NO PROVIDER-NAME ANSWER HERE. A person who typed a real provider command
+// and read "no command by that name" would reasonably conclude the enumeration was
+// wrong, so that question is asked elsewhere: `useComposerCommandZone` answers it off
+// the enumeration holder the discovery popover opens, one live read and never a cached
+// copy. This module stays about the console's own registry.
 //
 // THE MATCH IS ON THE COMMAND ID, EXACTLY. Console command ids are the console's
 // public vocabulary — `frame.goToSettings`, `bridge.copyBuildDetails` — and a person
@@ -43,14 +39,14 @@ export const CLIENT_COMMAND_REFUSAL_ORIGIN = "composer-commands";
  * command applies, fix what follows the name, or read what the command itself
  * reported.
  *
- * The fourth was a decision and this is it. A command that reads arguments off its own
+ * `command-argument-invalid` covers a command that reads arguments off its own
  * line — `/workflow start <name>` is the first — can be named correctly and handed
  * something it cannot act on: no name at all, a name nothing matches, a name several
  * things match. None of those is `command-failed`, which says the command RAN and
  * failed, and saying so would send a person looking for a broken command rather than
  * at the words after it.
  *
- * The fifth is this decision. A command whose OWNER has closed it — the local runtime
+ * `command-unavailable-now` covers a command whose OWNER has closed it — the local runtime
  * is not serving, so the write it sends cannot be sent — is not `command-failed`, which
  * says it ran, and not `command-unavailable-here`, which is a claim about SCOPE and
  * would send a person to a different pane to try the same closed act again. It exists

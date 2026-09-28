@@ -1,26 +1,24 @@
 // The intervention composer's shared scaffolding.
 //
-// The suites mount the same form against the same run and the same fixture bridge,
+// The suites mount the same form against the same run and the same stub calls,
 // because the claims are about one composition: a form that composes against a run
 // reads that run's own comparand and dispatches through the surface it is given.
 
 import { useState } from "react";
 import { act, render } from "@testing-library/react";
-import type { RunState } from "@ai-sidekicks/contracts";
+import type { InterventionRequestResponse, RunState } from "@ai-sidekicks/contracts";
 import type { ConsoleBridge } from "../../../bridge/index.js";
 import { RunInterventionComposer } from "./RunInterventionComposer.js";
 import type { RunControlCommandRun } from "../controls/run-control-commands.js";
+import type { RunControlCalls } from "../controls/run-control-dispatch.js";
+import { RUN_ID } from "../controls/run-control-commands.test-support.js";
 import { useRunControlSurface } from "../controls/run-control-surface.js";
 import {
-  createFixture,
-  withDaemonCall,
+  bridgeAnswering,
   type RecordedDaemonCall,
 } from "../../../bridge/fixture/call-plane/bridge.test-support.js";
 
-export const RUN_ID = "b3f0a1c2-4d5e-4f60-8a71-9c2d3e4f5061";
-export const SECOND_RUN_ID = "c4a1b2d3-5e6f-4071-9b82-ad3e4f506172";
-
-/** What the stub daemon answers one call with. Throwing is the refusal arm. */
+/** What the stub answers one intervention with. */
 export type ScriptedAnswer = () => unknown;
 
 /** The applied settlement every case that is not about settlement rides on. */
@@ -32,28 +30,35 @@ export const APPLIED_STEER: ScriptedAnswer = () => ({
 });
 
 /**
- * The shipped fixture with a call arm this suite answers, recording into the array
- * the CASE holds.
+ * The calls the surface is given, recording each intervention into the array the CASE
+ * holds.
  *
- * `withDaemonCall` keeps a record of its own, and this one takes the caller's array
- * beside it deliberately: the harness below receives the array as a prop and mounts
- * the bridge inside itself, so the record a case can read has to be a value it
- * already held before the mount.
- *
- * NAMED FOR WHAT IT ANSWERS, on the queue reading's rule: both were `stubBridge`, and
- * one name for two shapes in one family is a wrong import waiting for either return
- * type to widen.
+ * The harness below receives the array as a prop and builds these inside itself, so
+ * the record a case can read has to be a value it already held before the mount.
+ * Only `intervene` answers: no case here presses pause or resume.
  */
-export function interventionDispatchBridge(
+export function interventionCalls(
   calls: RecordedDaemonCall[],
   answer: ScriptedAnswer,
-): ConsoleBridge {
-  return withDaemonCall(createFixture().bridge, async (call) => {
-    calls.push(call);
-    return answer();
-  }).bridge;
+): RunControlCalls {
+  const unused = (): Promise<never> =>
+    Promise.reject(new Error("the intervention composer calls only intervene"));
+  return {
+    pause: unused,
+    resume: unused,
+    intervene: async (request) => {
+      calls.push({ method: "run.intervene", params: request });
+      return answer() as InterventionRequestResponse;
+    },
+  };
 }
 
+/** The subject the surface keys its holders on; no case calls through it. */
+export function inertBridge(): ConsoleBridge {
+  return bridgeAnswering(async () => undefined).bridge;
+}
+
+/** A run in the given state, at the version and identity a case names. */
 export function runAt(
   state: RunState,
   runVersion = 8,
@@ -62,6 +67,7 @@ export function runAt(
   return { runId, runVersion, state };
 }
 
+/** The steer form mounted over a surface fed by the stub calls. */
 export function ComposerHarness(props: {
   readonly calls: RecordedDaemonCall[];
   readonly answer: ScriptedAnswer;
@@ -69,8 +75,9 @@ export function ComposerHarness(props: {
 }): React.JSX.Element {
   // Pinned for the harness's whole life: the surface keys its holders on the
   // bridge, so a stub rebuilt on every render would be a new transport each pass.
-  const [bridge] = useState(() => interventionDispatchBridge(props.calls, props.answer));
-  const surface = useRunControlSurface(bridge);
+  const [bridge] = useState(inertBridge);
+  const [runControlCalls] = useState(() => interventionCalls(props.calls, props.answer));
+  const surface = useRunControlSurface(bridge, runControlCalls);
   return (
     <RunInterventionComposer
       bridge={bridge}
@@ -81,6 +88,7 @@ export function ComposerHarness(props: {
   );
 }
 
+/** Render the harness with the case's answer, returning what it recorded and dismissed. */
 export function renderComposer(answer: ScriptedAnswer = APPLIED_STEER): {
   container: HTMLElement;
   calls: RecordedDaemonCall[];

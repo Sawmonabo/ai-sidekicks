@@ -199,8 +199,8 @@ export async function mountComposerProviderBoundWaiting(): Promise<MountedFamily
 /**
  * The composer carrying attachments — one settled, one the daemon refused.
  *
- * A SURFACE THE FOUR ADDRESSES ABOVE DO NOT REACH. The attachment strip is absent
- * while a message carries nothing, so every audited composer so far was audited with
+ * A SURFACE THE THREE ADDRESSES ABOVE DO NOT REACH. The attachment strip is absent
+ * while a message carries nothing, so every audited composer was audited with
  * that whole zone off screen — the strip's own label, each chip's progress bar, and
  * the refusal a chip renders were reachable by no tier at all.
  *

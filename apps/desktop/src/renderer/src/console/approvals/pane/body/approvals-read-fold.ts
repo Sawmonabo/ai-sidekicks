@@ -1,44 +1,61 @@
-// The pure folds over this pane's two reads: what each section renders from, and how
-// far each of them got.
+// The pure folds over this pane's reads: what each section renders from, and how far
+// each read got.
 //
-// Split out of `ApprovalsPaneBody.tsx`, which composes six surfaces over two reads
-// and had grown these folds inline. None of them touches React and none of them
-// performs a read, which is the whole reason they are here: a fold over an answered
-// read is a value question with a table of cases, and it is testable as one only
-// while it is not wrapped in a render.
+// None of them touches React and none of them performs a read, which is the whole
+// reason they are here: a fold over an answered read is a value question with a table
+// of cases, and it is testable as one only while it is not wrapped in a render.
 //
 // THE PHASE IS CARRIED, NEVER FLATTENED. `partitionRecords` answers empty arrays for
 // every phase that is not `answered`, and that is correct only because its callers
-// render the PHASE beside the arrays rather than the arrays alone. The rule being kept
-// is that "nobody asked", "the read is in flight", "the read answered and found none",
-// and "the read was refused" are four different next moves, and a section that showed
-// its empty copy for the first, second and fourth would tell an operator that nothing
-// needs them during an outage.
+// render the PHASE beside the arrays rather than the arrays alone. "The read is in
+// flight" and "the read answered and found none" are different next moves, and a
+// section that showed its empty copy for the first would tell an operator that
+// nothing needs them while the read is still running.
 
-import { type ConsoleRefusal } from "../../../core/index.js";
 import { type ApprovalRecord } from "../../../bridge/index.js";
+import { type ConsoleEntity } from "../../../store/index.js";
+import { providerAskFor, type ProviderAsk } from "../card/provider-ask.js";
 
 /**
  * Where one read has got to.
  *
- * Four arms because these are four different sentences and collapsing any two of them
- * is wrong: nobody has asked, a read is in flight, a read answered (with however many
- * rows, including none), and a read was refused.
+ * Two arms because these are two different sentences and collapsing them is wrong: a
+ * read is in flight, or a read answered (with however many rows, including none).
  */
 export type ReadPhase<TRow> =
-  | { readonly status: "not-checked" }
   | { readonly status: "loading" }
   | {
       readonly status: "answered";
       readonly rows: readonly TRow[];
       readonly unreadableCount: number;
-    }
-  | { readonly status: "refused"; readonly refusal: ConsoleRefusal };
+    };
 
 /** One answered read, split into the cards waiting and the ones already decided. */
 export interface PartitionedApprovals {
   readonly pending: readonly ApprovalRecord[];
   readonly history: readonly ApprovalRecord[];
+}
+
+/**
+ * The provider-ask origin of every projected approval, keyed by request id.
+ *
+ * Built over the whole partition rather than per rendered record: the partition's
+ * identity changes only when an approval event lands, so one pass per fold serves
+ * both lists, where a per-record lookup would rebuild on every render of either.
+ *
+ * @consumedBy the approvals pane's provider ask framing
+ */
+export function providerAsksIn(
+  entities: Readonly<Record<string, ConsoleEntity>>,
+): ReadonlyMap<string, ProviderAsk> {
+  const asks = new Map<string, ProviderAsk>();
+  for (const [approvalRequestId, entity] of Object.entries(entities)) {
+    const ask = providerAskFor(entity);
+    if (ask !== undefined) {
+      asks.set(approvalRequestId, ask);
+    }
+  }
+  return asks;
 }
 
 /** Neither list has a member until a read has answered. */
@@ -68,9 +85,4 @@ export function partitionRecords(phase: ReadPhase<ApprovalRecord>): PartitionedA
     }
   }
   return { pending, history };
-}
-
-/** Why a read got no further, or `undefined` for every phase that is not a refusal. */
-export function refusalOfPhase<TRow>(phase: ReadPhase<TRow>): ConsoleRefusal | undefined {
-  return phase.status === "refused" ? phase.refusal : undefined;
 }

@@ -5,11 +5,6 @@
 // half of the count pair yields NO reading rather than a 0% one, a context reading
 // is the ADDRESSED run's or it is nobody's, and so is a compaction boundary.
 //
-// The rate-limit fold that used to be asserted here moved with the fold itself, to
-// `console/bridge/quotas/provider-quota-fold.test.ts` — its readings come off the account
-// plane and never off a session timeline, so a case that built one out of a timeline
-// row was proving a path no daemon can drive.
-//
 // Every clean assertion below has a negative control beside it, because a narrowing
 // that accepted everything would pass both.
 
@@ -75,10 +70,9 @@ describe("newestContextWindowReading — the registered members, and a pair or n
   });
 
   it("negative control: the fixture's own member names read as no payload at all", () => {
-    // The finding itself. `usagePercent`, `tokenCount`, and `maxTokens` are names
-    // this repository's fixtures used and no registered payload carries, so a
-    // narrowing built on them could never have matched a daemon-sent row — and this
-    // case is what fails if one is reintroduced.
+    // `usagePercent`, `tokenCount`, and `maxTokens` are names no registered payload
+    // carries, so a narrowing built on them could never match a daemon-sent row; this
+    // case fails if one is introduced.
     const reading = newestContextWindowReading(
       [windowRow(1, { usagePercent: 62, tokenCount: 124_000, maxTokens: 200_000 })],
       FIRST_RUN,
@@ -159,9 +153,8 @@ describe("newestContextWindowReading — one run's fullness and never the sessio
   ];
 
   it("answers each addressed run with its own reading", () => {
-    // The finding: the fold took the newest row anywhere in the session, so a
-    // composer addressed to the first run reported the second run's 90% and offered
-    // to compact the conversation the person was not writing to.
+    // A fold over the newest row anywhere in the session would report the second run's
+    // 90% to a composer addressed to the first.
     expect(newestContextWindowReading(TWO_METERED_RUNS, FIRST_RUN)?.usagePercent).toBe(20);
     expect(newestContextWindowReading(TWO_METERED_RUNS, SECOND_RUN)?.usagePercent).toBe(90);
   });
@@ -241,9 +234,8 @@ describe("newestContextWindowReading — a compaction supersedes the last update
   });
 
   it("negative control: without the boundary the pre-compaction figure stands", () => {
-    // The finding, stated as its own case: the fold read update rows only, so the
-    // meter sat at 90% after the provider had compacted to a fifth of that — and
-    // went on advising a compaction that had already happened.
+    // A fold over update rows only would leave the meter at 90% after the provider had
+    // compacted to a fifth of that.
     const reading = newestContextWindowReading([nearlyFull(4)], FIRST_RUN);
     expect(reading?.usagePercent).toBe(90);
   });

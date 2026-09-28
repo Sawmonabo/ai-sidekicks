@@ -33,6 +33,7 @@ import {
 } from "./rollback/disposition-reading.js";
 import type { RollbackInterventionResult } from "@ai-sidekicks/contracts";
 
+/** What a settled rollback is disclosed from: its reading and the wire result. */
 export interface RollbackDisclosureProps {
   readonly reading: RollbackDispositionReading;
   /** The wire result itself, for the working-tree half this component delegates. */
@@ -41,8 +42,6 @@ export interface RollbackDisclosureProps {
 
 /**
  * The settled rollback, as a sentence, a disposition, and the working tree's counts.
- *
- * @consumedBy the composer's undo readout
  */
 export function RollbackDisclosure(props: RollbackDisclosureProps): React.JSX.Element {
   const { reading } = props;

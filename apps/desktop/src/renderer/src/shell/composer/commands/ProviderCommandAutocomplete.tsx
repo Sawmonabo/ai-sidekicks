@@ -6,13 +6,14 @@
 // consequences are structural here rather than conventional:
 //
 //   • SELECTING A PROVIDER ENTRY INSERTS NOTHING into the message box and starts no
-//     turn, and the reason is not politeness: a leading slash is refused outright on
-//     the provider-bound path, so an insert-then-send affordance would compose text
-//     this shell's own send path rejects. That rule is about the PROVIDER half and
-//     says nothing about the console's own commands, which the prefix is reserved
-//     FOR — and `/workflow start <name>` is one of those, intercepted by the runtime
-//     and never forwarded anywhere. Typing its directive onto the line is therefore the
-//     opposite case, and it is the one write this seat makes to the line.
+//     turn, and the reason is not politeness: a provider entry is listed for discovery
+//     only, and the send path answers a typed one by naming it rather than sending it,
+//     so an insert-then-send affordance would compose text this shell's own send path
+//     declines. That is about the PROVIDER half and says nothing about the console's
+//     own commands, which the prefix is reserved FOR — and `/workflow start <name>` is
+//     one of those, intercepted by the runtime and never forwarded anywhere. Typing its
+//     directive onto the line is therefore the opposite case, and it is the one write
+//     this seat makes to the line.
 //   • THE ONE ACT ON A ROW IS THE CONSOLE'S OWN. A console command's row carries a
 //     button — and that button runs the client-command executor, not a send. A
 //     provider row carries no button at all, because there is nothing this console may

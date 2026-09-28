@@ -130,7 +130,7 @@ describe("the session's own projection is what names a run's driver", () => {
       sequence,
       kind: "agent.attached",
       occurredAt: "2026-01-01T00:00:00.000Z",
-      payload: { sessionId: SESSION_ID, agentId, name: "Ada", driverName, state: "ready" },
+      payload: { sessionId: SESSION_ID, agentId, name: "Ada", driverName },
     };
   }
 

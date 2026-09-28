@@ -29,12 +29,14 @@ import { WireFigure } from "../../../primitives/index.js";
 import { ApprovalResource } from "./ApprovalResource.js";
 import { type ProviderAsk } from "./provider-ask.js";
 
+/** The provider ask to frame and the resource it requested. */
 export interface ProviderAskFramingProps {
   readonly ask: ProviderAsk;
   /** The audit-grade target, from the parsed record the card is rendering. */
   readonly requestedResource: Readonly<Record<string, unknown>>;
 }
 
+/** The provider ask's origin and the resource it requested, inside an ordinary card. */
 export function ProviderAskFraming(props: ProviderAskFramingProps): React.JSX.Element {
   const { ask } = props;
   return (

@@ -4,35 +4,41 @@
 // assembled its own request could omit a comparand or reuse a key across a changed
 // body, and both fail silently at the call site and loudly on the wire.
 //
-//   1. Both guards, always. `expectedRunVersion` is required on every intervention and
-//      on pause and resume alike; an absent one is rejected, not applied. Steer and
-//      interrupt also get a `clientIdempotencyKey` minted per dispatch, never reused
-//      across a changed body (that is `intervention.idempotency_conflict`).
+//   1. Every request carries `expectedRunVersion`, taken from the target the caller passes
+//      (`RunControlTarget` types it as a required number). Steer and interrupt also carry
+//      a `clientIdempotencyKey` minted here per dispatch and never reused across a
+//      changed body.
 //   2. The fresh comparand comes from the answer, reconciled against the state stream.
 //      An applied native steer advances the run with no state event, and the run also
 //      advances with no control pressed, so neither reading is freshest alone; the
 //      caller gets the newer, and that maximum is taken once, beside the cache.
-//   3. Eligibility is not projected. Every control is dispatched and the daemon's typed
-//      refusal is what renders: no role, authorship or state check lives here.
-//   4. Capability gating is a read. Steer is gated on the bound driver's declared flag;
-//      pause, resume and interrupt never are. A gated control whose flag is false, or
-//      not yet read, is absent rather than disabled.
+//   3. Eligibility is not decided here. Every control is dispatched and the daemon's
+//      answer is what comes back; a rejected call propagates to the caller.
+//   4. Steer is gated on the bound driver's declared flag in `run-control-gating.ts`;
+//      pause, resume and interrupt never are.
 //
-// Nothing here reorders the queue, sets a priority, dequeues apart from cancel, or
-// backgrounds a run: no wire member exists for any of them.
+// The daemon calls are an argument (`RunControlCalls`), so this module holds no bridge.
 
-import type { InterventionRequestResponse, RunControlAck } from "@ai-sidekicks/contracts";
+import type {
+  InterventionRequestPayload,
+  InterventionRequestResponse,
+  RunControlAck,
+  RunId,
+  RunPauseRequest,
+  RunResumeRequest,
+} from "@ai-sidekicks/contracts";
 
-import { normalizeWireRejection, refuse, type ConsoleRefusal } from "../../../core/index.js";
-import {
-  callDaemon,
-  readInterventionRequest,
-  readRunId,
-  type ConsoleBridge,
-} from "../../../bridge/index.js";
+import { readRunId } from "../../../bridge/index.js";
 
-/** The subsystem name every refusal this module raises carries. */
-export const RUN_CONTROL_REFUSAL_ORIGIN = "run-controls";
+/** The three daemon methods the controls reach, each taking the contract's request. */
+export interface RunControlCalls {
+  /** `run.pause`. */
+  readonly pause: (request: RunPauseRequest) => Promise<RunControlAck>;
+  /** `run.resume`. */
+  readonly resume: (request: RunResumeRequest) => Promise<RunControlAck>;
+  /** `run.intervene`: steer and interrupt are its two arms used here. */
+  readonly intervene: (request: InterventionRequestPayload) => Promise<InterventionRequestResponse>;
+}
 
 /**
  * The controls, closed and declared once: pause and resume on an active run
@@ -51,8 +57,7 @@ export type RunControlOutcome =
       readonly kind: "settled";
       readonly control: RunControl;
       readonly response: InterventionRequestResponse;
-    }
-  | { readonly kind: "refused"; readonly control: RunControl; readonly refusal: ConsoleRefusal };
+    };
 
 /** What a steer dispatch carries. */
 export interface SteerRequest {
@@ -74,17 +79,17 @@ export interface RunControlTarget {
  * runVersion into the next request" a rule each button re-implemented.
  */
 export class RunControlDispatcher {
-  readonly #bridge: ConsoleBridge;
+  readonly #calls: RunControlCalls;
   readonly #mintIdempotencyKey: () => string;
   readonly #freshComparandByRunId = new Map<string, number>();
 
-  public constructor(options: {
-    readonly bridge: ConsoleBridge;
+  public constructor(
+    calls: RunControlCalls,
     /** Injected so a test pins the key; the default is the platform's own UUID. */
-    readonly mintIdempotencyKey?: () => string;
-  }) {
-    this.#bridge = options.bridge;
-    this.#mintIdempotencyKey = options.mintIdempotencyKey ?? (() => crypto.randomUUID());
+    mintIdempotencyKey: () => string = () => crypto.randomUUID(),
+  ) {
+    this.#calls = calls;
+    this.#mintIdempotencyKey = mintIdempotencyKey;
   }
 
   /**
@@ -126,130 +131,79 @@ export class RunControlDispatcher {
   }
 
   /** Pause. `run.pause`, and never an intervention arm — the union has none. */
-  public pause(target: RunControlTarget): Promise<RunControlOutcome> {
-    return this.#dispatchControlVerb("pause", "run.pause", target);
+  public async pause(target: RunControlTarget): Promise<RunControlOutcome> {
+    const ack = await this.#calls.pause(this.#guardedRequest(target));
+    return this.#acknowledged("pause", target, ack);
   }
 
   /** Resume. `run.resume` moves a paused run back to running and does nothing else. */
-  public resume(target: RunControlTarget): Promise<RunControlOutcome> {
-    return this.#dispatchControlVerb("resume", "run.resume", target);
+  public async resume(target: RunControlTarget): Promise<RunControlOutcome> {
+    const ack = await this.#calls.resume(this.#guardedRequest(target));
+    return this.#acknowledged("resume", target, ack);
   }
 
-  public steer(target: RunControlTarget, request: SteerRequest): Promise<RunControlOutcome> {
-    return this.#dispatchIntervention("steer", target, { content: request.content });
-  }
-
-  public interrupt(target: RunControlTarget, reason?: string): Promise<RunControlOutcome> {
-    return this.#dispatchIntervention("interrupt", target, reason === undefined ? {} : { reason });
-  }
-
-  /** Pause and resume: one shape, one acknowledgment, one comparand threaded back. */
-  async #dispatchControlVerb(
-    control: "pause" | "resume",
-    method: "run.pause" | "run.resume",
-    target: RunControlTarget,
-  ): Promise<RunControlOutcome> {
-    const runId = readRunId(target.runId);
-    if (runId === undefined) {
-      return this.#unparseableRun(control);
-    }
-    const reply = await callDaemon(this.#bridge, method, {
-      targetRunId: runId,
-      expectedRunVersion: target.expectedRunVersion,
+  /** Steer: `run.intervene` with a fresh key, carrying the person's text as typed. */
+  public async steer(target: RunControlTarget, request: SteerRequest): Promise<RunControlOutcome> {
+    return await this.#settle("steer", target, {
+      type: "steer",
+      ...this.#interventionGuards(target),
+      content: request.content,
     });
-    if (reply.status === "refused") {
-      return { kind: "refused", control, refusal: reply.refusal };
-    }
-    this.#freshComparandByRunId.set(target.runId, reply.value.runVersion);
-    return { kind: "acknowledged", control, ack: reply.value };
   }
 
-  /**
-   * Steer and interrupt: one method, two arms.
-   *
-   * The ARM is built and READ here rather than at the door, because the union's
-   * discriminant decides which members are required and this is the only place that
-   * knows which control was pressed. The door parses the whole request again before
-   * sending it, which costs nothing and is what makes the parse unskippable; what
-   * this reading buys is a refusal that names the CONTROL rather than the method.
-   * The reader is the bridge family's — a schema is the wire's and is imported at the
-   * wire's edge, so this pane consumes a typed answer and never a validator.
-   */
-  async #dispatchIntervention(
+  /** Interrupt: `run.intervene` with a fresh key and, where given, the reason. */
+  public async interrupt(target: RunControlTarget, reason?: string): Promise<RunControlOutcome> {
+    return await this.#settle("interrupt", target, {
+      type: "interrupt",
+      ...this.#interventionGuards(target),
+      ...(reason === undefined ? {} : { reason }),
+    });
+  }
+
+  /** The two guards every intervention carries: the comparand and a key for this body. */
+  #interventionGuards(target: RunControlTarget): {
+    readonly targetRunId: RunId;
+    readonly expectedRunVersion: number;
+    readonly clientIdempotencyKey: string;
+  } {
+    return {
+      ...this.#guardedRequest(target),
+      clientIdempotencyKey: this.#mintIdempotencyKey(),
+    };
+  }
+
+  #guardedRequest(target: RunControlTarget): RunPauseRequest {
+    return {
+      targetRunId: readRunIdOrThrow(target.runId),
+      expectedRunVersion: target.expectedRunVersion,
+    };
+  }
+
+  #acknowledged(
     control: RunControl,
     target: RunControlTarget,
-    arm: Readonly<Record<string, unknown>>,
-  ): Promise<RunControlOutcome> {
-    const runId = readRunId(target.runId);
-    if (runId === undefined) {
-      return this.#unparseableRun(control);
-    }
-    const request = readInterventionRequest({
-      type: control,
-      targetRunId: runId,
-      expectedRunVersion: target.expectedRunVersion,
-      clientIdempotencyKey: this.#mintIdempotencyKey(),
-      ...arm,
-    });
-    if (request === undefined) {
-      return {
-        kind: "refused",
-        control,
-        refusal: refuse(
-          RUN_CONTROL_REFUSAL_ORIGIN,
-          "request-unsendable",
-          "The console could not build a request the daemon would accept for this control. Reopen the session so its identifiers and run version are read again.",
-        ),
-      };
-    }
-    const reply = await callDaemon(this.#bridge, "run.intervene", request);
-    if (reply.status === "refused") {
-      return { kind: "refused", control, refusal: reply.refusal };
-    }
-    this.#freshComparandByRunId.set(target.runId, reply.value.runVersion);
-    return { kind: "settled", control, response: reply.value };
+    ack: RunControlAck,
+  ): RunControlOutcome {
+    this.#freshComparandByRunId.set(target.runId, ack.runVersion);
+    return { kind: "acknowledged", control, ack };
   }
 
-  #unparseableRun(control: RunControl): RunControlOutcome {
-    return {
-      kind: "refused",
-      control,
-      refusal: refuse(
-        RUN_CONTROL_REFUSAL_ORIGIN,
-        "identifier-unparseable",
-        "The console is holding a run identifier the daemon would not accept. Reopen the session so its identifiers are read again.",
-      ),
-    };
+  async #settle(
+    control: RunControl,
+    target: RunControlTarget,
+    request: InterventionRequestPayload,
+  ): Promise<RunControlOutcome> {
+    const response = await this.#calls.intervene(request);
+    this.#freshComparandByRunId.set(target.runId, response.runVersion);
+    return { kind: "settled", control, response };
   }
 }
 
-/**
- * Carry a rejection through without paraphrasing it.
- *
- * The console's ONE reading of a rejected promise, consumed and not copied. Every
- * dispatch above reaches the wire through `callDaemon`, which normalizes its own
- * rejections; this one survives because the React binding's `perform` can reject
- * BEFORE the dispatcher runs at all, and one rejection deserves one reading.
- *
- * The code the daemon sent is the code a person sees; there is deliberately no table
- * here mapping a wire code onto console prose. The renderer never pre-denies: it calls,
- * and renders the typed refusal code with the daemon's message text and the operator's
- * next move. Every refusal these controls can reach is registered in
- * `error-contracts.md` — `run.invalid_transition`, `run.not_found`,
- * `run.limit_exceeded`, `run.recovery_failed`, `intervention.idempotency_conflict`,
- * `auth.principal_mismatch` — and each travels this one path.
- *
- */
-export function carriedRunControlRefusal(
-  control: RunControl,
-  rejection: unknown,
-): RunControlOutcome {
-  return {
-    kind: "refused",
-    control,
-    refusal: normalizeWireRejection(RUN_CONTROL_REFUSAL_ORIGIN, rejection, {
-      code: "control-rejected",
-      detail: `The ${control} control was rejected.`,
-    }),
-  };
+/** The run id as the contract brands it. An id the contract rejects is a defect upstream. */
+function readRunIdOrThrow(runId: string): RunId {
+  const branded = readRunId(runId);
+  if (branded === undefined) {
+    throw new Error(`the run identifier "${runId}" is not one the daemon accepts`);
+  }
+  return branded;
 }

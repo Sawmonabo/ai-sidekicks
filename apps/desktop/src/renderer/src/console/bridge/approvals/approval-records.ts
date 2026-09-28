@@ -13,10 +13,10 @@
 //   • **Wire strings stay strings.** `category` and `state` are parsed as `string`
 //     and classified at render time through `approval-vocabulary.ts`. Parsing them
 //     as enums would make one unrecognized token drop a whole record, and this
-//     surface's history rule is that an
-//     unfiltered read renders every record it returns and drops nothing. It is also
-//     the fail-closed direction every console surface obeys: an unknown member
-//     renders as the explicit unrecognized row or badge, never as a guess.
+//     surface's history rule is that an unfiltered read renders every record it
+//     returns and drops nothing. It is also the fail-closed direction every console
+//     surface obeys: an unknown member renders as the explicit unrecognized row or
+//     badge, never as a guess.
 //   • **A malformed record is dropped and COUNTED, never silently skipped.** The
 //     count is what the pane renders beside the list, because "the daemon returned
 //     eleven and we could read nine" is a fact an operator has to be able to see.

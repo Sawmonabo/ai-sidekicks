@@ -47,7 +47,7 @@ import {
 import { composerCommandSurface, type ComposerCommandSurface } from "./console-command-surface.js";
 import { addressedProviderBinding } from "./provider-command-catalog.js";
 import type { ComposerTarget } from "../chips/chip-models.js";
-import type { DirectiveLineHandlers } from "./directive-line-handlers.js";
+import { LINE_READING_COMMAND_IDS, type DirectiveLineHandlers } from "./directive-line-handlers.js";
 
 /**
  * Build the executor for one composer.
@@ -61,6 +61,12 @@ import type { DirectiveLineHandlers } from "./directive-line-handlers.js";
 export function createClientCommandExecutor(options: {
   readonly readSurface: () => ComposerCommandSurface;
   readonly readDirectiveHandlers: () => DirectiveLineHandlers;
+  /**
+   * The commands that read their arguments off the typed line. One of these with no
+   * handler in the map settles as `not-run` rather than through the argument-free
+   * registry act, which would report `applied` for a line whose arguments it dropped.
+   */
+  readonly lineReadingCommandIds: readonly string[];
 }): CommandExecutor {
   return async (line: DirectiveLine): Promise<CommandOutcome> => {
     const surface = options.readSurface();
@@ -92,6 +98,9 @@ export function createClientCommandExecutor(options: {
         // same report a registered command's own failure takes.
         return commandFailureRefusal(recognition.commandId, cause);
       }
+    }
+    if (options.lineReadingCommandIds.includes(recognition.commandId)) {
+      return { status: "not-run" };
     }
     return await settleInvocation(surface, recognition.commandId);
   };
@@ -233,6 +242,7 @@ export function useComposerCommandZone(options: {
       createClientCommandExecutor({
         readSurface,
         readDirectiveHandlers: () => handlersRef.current,
+        lineReadingCommandIds: LINE_READING_COMMAND_IDS,
       }),
     [readSurface, handlersRef],
   );

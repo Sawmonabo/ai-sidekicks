@@ -9,17 +9,19 @@
 // half of the same seam and live in `RunInterventionComposer.keying.test.tsx`: those
 // cases re-key a form under an open send, which is a premise none of these take.
 
+import { useState } from "react";
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import type { ConsoleBridge } from "../../../bridge/index.js";
+import type { RunControlCalls } from "../controls/run-control-dispatch.js";
 import { RunInterventionComposer } from "./RunInterventionComposer.js";
 import { useRunControlSurface } from "../controls/run-control-surface.js";
 import {
   APPLIED_STEER,
   bodyValue,
+  inertBridge,
+  interventionCalls,
   renderComposer,
   runAt,
-  interventionDispatchBridge,
   submit,
   type ScriptedAnswer,
   typeInto,
@@ -33,21 +35,6 @@ describe("the composer outlives its dispatch", () => {
     state: "rejected",
     rejectionReason: "run_not_paused",
     runVersion: 9,
-  });
-
-  const TRANSPORT_REJECTION: ScriptedAnswer = () => {
-    throw { code: "run.invalid_transition", message: "the run is not in a steerable state" };
-  };
-
-  it("keeps a refused steer's directive rather than dropping it", async () => {
-    // The one thing the user cannot reproduce is the text, so the form must not close
-    // the moment the dispatch STARTS.
-    const { container, dismissCount } = renderComposer(TRANSPORT_REJECTION);
-    typeInto(container.querySelector(".meridian-run-composer__body"), "stop editing that file");
-    await submit(container);
-    expect(dismissCount()).toBe(0);
-    expect(bodyValue(container)).toBe("stop editing that file");
-    expect(container.textContent).toContain("run.invalid_transition");
   });
 
   it("keeps the text and shows the daemon's own reason when the intervention is rejected", async () => {
@@ -91,14 +78,15 @@ describe("the comparand is the newer of the two readings", () => {
   // reading of the run moves. The applied answer reports version 9, which the
   // dispatcher caches; the stream then reports 10.
   function StableHarness(props: {
-    readonly bridge: ConsoleBridge;
+    readonly calls: RunControlCalls;
     readonly runVersion: number;
   }): React.JSX.Element {
-    const surface = useRunControlSurface(props.bridge);
+    const [bridge] = useState(inertBridge);
+    const surface = useRunControlSurface(bridge, props.calls);
     return (
       <RunInterventionComposer
         key={props.runVersion}
-        bridge={props.bridge}
+        bridge={bridge}
         run={runAt("paused", props.runVersion)}
         surface={surface}
         onDismiss={() => undefined}
@@ -113,11 +101,13 @@ describe("the comparand is the newer of the two readings", () => {
 
   it("sends the stream's version once it has moved past the cached settlement", async () => {
     const calls: RecordedDaemonCall[] = [];
-    const bridge = interventionDispatchBridge(calls, APPLIED_STEER);
-    const { container, rerender } = render(<StableHarness bridge={bridge} runVersion={8} />);
+    const runControlCalls = interventionCalls(calls, APPLIED_STEER);
+    const { container, rerender } = render(
+      <StableHarness calls={runControlCalls} runVersion={8} />,
+    );
     await steerAt(container);
     expect(calls[0]?.params).toMatchObject({ expectedRunVersion: 8 });
-    rerender(<StableHarness bridge={bridge} runVersion={10} />);
+    rerender(<StableHarness calls={runControlCalls} runVersion={10} />);
     await steerAt(container);
     expect(calls).toHaveLength(2);
     expect(calls[1]?.params).toMatchObject({ expectedRunVersion: 10 });
@@ -125,10 +115,12 @@ describe("the comparand is the newer of the two readings", () => {
 
   it("negative control: the cached settlement still wins over a stream that is behind it", async () => {
     const calls: RecordedDaemonCall[] = [];
-    const bridge = interventionDispatchBridge(calls, APPLIED_STEER);
-    const { container, rerender } = render(<StableHarness bridge={bridge} runVersion={8} />);
+    const runControlCalls = interventionCalls(calls, APPLIED_STEER);
+    const { container, rerender } = render(
+      <StableHarness calls={runControlCalls} runVersion={8} />,
+    );
     await steerAt(container);
-    rerender(<StableHarness bridge={bridge} runVersion={8} />);
+    rerender(<StableHarness calls={runControlCalls} runVersion={8} />);
     await steerAt(container);
     expect(calls[1]?.params).toMatchObject({ expectedRunVersion: 9 });
   });

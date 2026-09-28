@@ -34,7 +34,6 @@ function renderGrants(
       rules={rules}
       unreadableCount={unreadableCount}
       revokingRuleIds={new Set()}
-      revokeRefusalByRuleId={new Map()}
       onRevoke={onRevoke}
     />,
   );

@@ -1,4 +1,4 @@
-// The send router's shared scaffolding: one router, one fixture bridge, one ledger —
+// The send router's shared scaffolding: one router, one set of stub calls, one ledger —
 // and the composer family's one copy of the wire shapes a send travels on.
 //
 // Lives here because both suites build the SAME router — resolution and dispatch are
@@ -6,18 +6,14 @@
 // the two drift into routers that resolve alike and dispatch differently.
 //
 // THE REGISTERED REPLIES AND THE IDS ARE HERE FOR THE SAME REASON, and every suite in
-// this directory takes them from here. There had been three `QUEUE_CREATED` literals,
-// two `STEER_APPLIED`s that disagreed about `runVersion`, and three `SESSION_ID`s —
-// which is three chances for a case to be written against a reply the wire would
-// refuse, and to pass on the unreadable-reply arm while reading like a success.
+// this directory takes them from here, so one `QUEUE_CREATED`, one `STEER_APPLIED` and
+// one `SESSION_ID` are what every case is written against.
 
+import type { InterventionRequestResponse, QueueItemCreateResponse } from "@ai-sidekicks/contracts";
 import type { Mock } from "vitest";
-import type { ConsoleBridge } from "../../../console/bridge/index.js";
-import {
-  createFixture,
-  withDaemonCall,
-} from "../../../console/bridge/fixture/call-plane/bridge.test-support.js";
+import type { RecordedDaemonCall } from "../../../console/bridge/fixture/call-plane/bridge.test-support.js";
 import type { ComposerChannelTarget, ComposerRunTarget } from "../chips/chip-models.js";
+import type { ComposerSendCalls } from "./send-dispatch.js";
 import { ComposerSendRouter } from "./send-router.js";
 
 export const SESSION_ID = "8f1c2c3e-5c6a-4a19-9f5f-1d2b3c4d5e6f";
@@ -71,39 +67,30 @@ export const RUN_TARGET: ComposerRunTarget = {
   path: "provider-bound",
   sessionId: SESSION_ID,
   agentId: "agent-implementer",
-  agentName: "Ada",
   driverName: "claude",
   targetRunId: RUN_ID,
   expectedRunVersion: 7,
-  runState: "running",
   providerFailureDetail: undefined,
 };
 
-/**
- * The daemon-call mock these cases assert on.
- *
- * Spelled as an intersection rather than as `ReturnType<typeof vi.fn>`: that type is
- * `Mock<Procedure | Constructable>`, which records calls but is not callable, and the
- * old builder only ever ASSIGNED the mock into a literal so it never had to be. The
- * call arm now invokes it, so the callable half has to be declared.
- */
+/** The daemon-call mock these cases assert on, called as `(method, params)`. */
 export type DaemonCallMock = Mock & ((method: string, params: unknown) => Promise<unknown>);
 
 /**
- * A real bridge whose daemon call this suite's mock answers.
+ * Stub send calls that answer as the case says, whatever the case answers with.
  *
- * A spread over the family's own fixture through `withDaemonCall`, rather than an
- * object cast to the bridge type. What is under test here is that the router reaches
- * the wire through `bridge.desktopBridge.daemon.call` and nothing else — and a case
- * passing against a hand-built literal would not have proved it reached a bridge at
- * all, only that it called the one member the literal happened to carry.
- *
- * The mock keeps its `(method, params)` arity, which is the shape the cases assert.
+ * Each call is handed to `answer` as the method it stands for and the request it was
+ * given, so a case scripts a reply, a park or a rejection in one place.
  */
-export function bridgeRecording(call: DaemonCallMock): ConsoleBridge {
-  return withDaemonCall(createFixture().bridge, async (recorded) =>
-    call(recorded.method, recorded.params),
-  ).bridge;
+export function sendCallsAnswering(
+  answer: (call: RecordedDaemonCall) => Promise<unknown>,
+): ComposerSendCalls {
+  return {
+    queueCreate: async (request) =>
+      (await answer({ method: "run.queueCreate", params: request })) as QueueItemCreateResponse,
+    intervene: async (request) =>
+      (await answer({ method: "run.intervene", params: request })) as InterventionRequestResponse,
+  };
 }
 
 export function routerWith(
@@ -112,7 +99,7 @@ export function routerWith(
   published: readonly string[] = [],
 ): ComposerSendRouter {
   return new ComposerSendRouter({
-    bridge: bridgeRecording(call),
+    calls: sendCallsAnswering(async (recorded) => call(recorded.method, recorded.params)),
     recognizeClientCommand: (name) => recognized.includes(name),
     recognizeProviderCommand: (name) =>
       published.includes(name)

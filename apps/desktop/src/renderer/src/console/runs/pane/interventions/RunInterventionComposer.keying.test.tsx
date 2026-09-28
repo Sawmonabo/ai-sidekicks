@@ -14,15 +14,15 @@ import { useRunControlSurface } from "../controls/run-control-surface.js";
 import {
   APPLIED_STEER,
   bodyValue,
+  inertBridge,
+  interventionCalls,
   renderComposer,
   runAt,
-  interventionDispatchBridge,
-  RUN_ID,
-  SECOND_RUN_ID,
   submit,
   type ScriptedAnswer,
   typeInto,
 } from "./run-intervention-composer.test-support.js";
+import { RUN_ID, SECOND_RUN_ID } from "../controls/run-control-commands.test-support.js";
 import { crossMacrotaskBoundary } from "../../../core/macrotask-boundary.test-support.js";
 
 describe("the form is keyed by what it is composing against", () => {
@@ -65,8 +65,9 @@ describe("the form is keyed by what it is composing against", () => {
     readonly answer: ScriptedAnswer;
     readonly onCommit?: (committed: { body: string; isConfirmDisabled: boolean }) => void;
   }): React.JSX.Element {
-    const [bridge] = useState(() => interventionDispatchBridge([], props.answer));
-    const surface = useRunControlSurface(bridge);
+    const [bridge] = useState(inertBridge);
+    const [runControlCalls] = useState(() => interventionCalls([], props.answer));
+    const surface = useRunControlSurface(bridge, runControlCalls);
     const { onCommit } = props;
     return (
       <>
@@ -212,8 +213,9 @@ describe("a dispatch is recorded only where the surface admitted one", () => {
     readonly answer: ScriptedAnswer;
     readonly onDismiss: () => void;
   }): React.JSX.Element {
-    const [bridge] = useState(() => interventionDispatchBridge([], props.answer));
-    const surface = useRunControlSurface(bridge);
+    const [bridge] = useState(inertBridge);
+    const [runControlCalls] = useState(() => interventionCalls([], props.answer));
+    const surface = useRunControlSurface(bridge, runControlCalls);
     return (
       <RunInterventionComposer
         key={props.formKey}

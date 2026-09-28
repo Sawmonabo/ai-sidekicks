@@ -53,7 +53,7 @@ export function matchWorkflowDefinition(
  *
  * A prefix reading, which is what an unfinished word is. The empty prefix offers
  * everything, because a person who has typed the verb and nothing else is asking what
- * there is — the same question the plus menu's picker answers, reached from the line.
+ * there is.
  */
 export function workflowDefinitionCandidates(
   definitions: readonly WorkflowDefinitionSummary[],

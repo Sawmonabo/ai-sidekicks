@@ -49,11 +49,9 @@ describe("resolveComposerTarget — never guesses, and never sends with no targe
       path: "provider-bound",
       sessionId: "session-1",
       agentId: AGENT.id,
-      agentName: "Ada",
       driverName: "claude",
       targetRunId: RUN.id,
       expectedRunVersion: 4,
-      runState: "running",
       providerFailureDetail: undefined,
     });
   });

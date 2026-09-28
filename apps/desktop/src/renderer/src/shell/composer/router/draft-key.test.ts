@@ -35,11 +35,9 @@ function runTarget(axes: TargetAxes = {}): ComposerRunTarget {
     path: "provider-bound",
     sessionId: axes.sessionId ?? "session-1",
     agentId: axes.agentId ?? "agent-implementer",
-    agentName: "Ada",
     driverName: "claude",
     targetRunId: axes.targetRunId ?? "run-01",
     expectedRunVersion: 4,
-    runState: "running",
     providerFailureDetail: undefined,
   };
 }

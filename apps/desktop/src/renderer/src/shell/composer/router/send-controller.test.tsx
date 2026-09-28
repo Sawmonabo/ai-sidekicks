@@ -1,23 +1,33 @@
 // What the controller does with a line the router intercepted.
 //
 // The interception arm is the one send path that reaches no wire, so nothing about
-// it is observable from the daemon stub the send bar's own cases use. These drive
-// the real hook over the real `DraftStore` and assert the three settlements a
-// recognised command can have: it ran, it was refused, or nothing here could run it.
+// it is observable from the call stub the send bar's own cases use. These drive
+// the real hook over the real `DraftStore` and assert the settlements a recognised
+// command can have: it ran, it was refused, nothing here could run it, or it reads
+// its arguments off the line and had no handler.
 
 import { act, render } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { bridgeAnswering } from "../../../console/bridge/fixture/call-plane/bridge.test-support.js";
 import { refuse } from "../../../console/core/index.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "../../../console/core/index.js";
+import { consoleCommands } from "../../../console/palette/index.js";
+import { DEFAULT_ROUTE } from "../../../console/routing/index.js";
 import { DraftStore } from "../../../console/persistence/index.js";
 import type { ComposerChannelTarget } from "../chips/chip-models.js";
+import { createClientCommandExecutor } from "../commands/client-command-executor.js";
+import {
+  LINE_READING_COMMAND_IDS,
+  noDirectiveLineHandlers,
+} from "../commands/directive-line-handlers.js";
+import { composerCommandSurface } from "../commands/console-command-surface.js";
+import { WORKFLOW_COMMAND_ROOT } from "../commands/workflow-start/grammar.js";
 import type { CommandExecutor } from "./command-executor.js";
 import { composerDraftKey } from "./draft-key.js";
 import type { SendController } from "./send-controller-contract.js";
 import { useSendController } from "./send-controller.js";
-import { SESSION_ID } from "./send-router.test-support.js";
+import { SESSION_ID, sendCallsAnswering } from "./send-router.test-support.js";
 
 const CHANNEL_TARGET: ComposerChannelTarget = {
   path: "channel-message",
@@ -25,18 +35,18 @@ const CHANNEL_TARGET: ComposerChannelTarget = {
 };
 
 /**
- * A real bridge that fails the case loudly if a command ever reaches the wire.
+ * Calls that fail the case loudly if a command ever reaches the wire.
  *
- * Module scope, so its identity is stable across the probe's renders: a bridge
- * rebuilt in the render body would rebuild the router on every pass and hide a
- * dependency mistake behind a fresh object.
- *
- * The family's own answering bridge rather than a literal cast to the bridge type,
- * so the throw is reached through the same member a send actually travels.
+ * Module scope, so their identity is stable across the probe's renders: calls rebuilt
+ * in the render body would rebuild the router on every pass and hide a dependency
+ * mistake behind a fresh object.
  */
-const UNREACHABLE_BRIDGE = bridgeAnswering(async () => {
+const UNREACHABLE_CALLS = sendCallsAnswering(async () => {
   throw new Error("an intercepted command must reach no wire call");
-}).bridge;
+});
+
+/** The transport the controller's held state belongs to; nothing calls through it. */
+const BRIDGE = bridgeAnswering(async () => undefined).bridge;
 
 /** Reports the controller out of the tree, so a case drives the real hook. */
 function ControllerProbe(props: {
@@ -45,10 +55,12 @@ function ControllerProbe(props: {
   readonly onController: (controller: SendController) => void;
 }): null {
   const controller = useSendController({
-    bridge: UNREACHABLE_BRIDGE,
+    bridge: BRIDGE,
+    calls: UNREACHABLE_CALLS,
     target: CHANNEL_TARGET,
     draftStore: props.draftStore,
-    recognizeClientCommand: (commandName) => commandName === "clear",
+    recognizeClientCommand: (commandName) =>
+      commandName === "clear" || commandName === WORKFLOW_COMMAND_ROOT,
     commandExecutor: props.commandExecutor,
   });
   props.onController(controller);
@@ -134,5 +146,45 @@ describe("useSendController — an intercepted command awaits its executor", () 
 
     expect(driven.draftStore.read(driven.draftKey)?.text).toBe("/clear the deck");
     expect(driven.latest().refusal?.code).toBe("command-unexecutable");
+  });
+});
+
+describe("useSendController — a command that reads its line and has no handler", () => {
+  afterEach(() => {
+    consoleCommands.unregister(WORKFLOW_COMMAND_ROOT);
+  });
+
+  it("leaves the line as typed, draws nothing, and records no history", async () => {
+    const paletteAct = vi.fn();
+    consoleCommands.register({
+      id: WORKFLOW_COMMAND_ROOT,
+      title: "Start a workflow",
+      group: "Workflow",
+      run: paletteAct,
+    });
+    const driven = driveController(
+      createClientCommandExecutor({
+        readSurface: () => composerCommandSurface(DEFAULT_ROUTE),
+        readDirectiveHandlers: noDirectiveLineHandlers,
+        lineReadingCommandIds: LINE_READING_COMMAND_IDS,
+      }),
+    );
+
+    act(() => {
+      driven.latest().changeText("/workflow start nightly");
+    });
+    await act(async () => {
+      await driven.latest().send();
+    });
+
+    expect(driven.draftStore.read(driven.draftKey)?.text).toBe("/workflow start nightly");
+    expect(driven.latest().refusal).toBeUndefined();
+    expect(paletteAct).not.toHaveBeenCalled();
+    act(() => {
+      driven.latest().changeText("");
+    });
+    expect(driven.latest().recallOlder({ selectionStart: 0, selectionEnd: 0, textLength: 0 })).toBe(
+      false,
+    );
   });
 });

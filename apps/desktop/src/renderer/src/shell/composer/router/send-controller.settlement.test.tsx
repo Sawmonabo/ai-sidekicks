@@ -10,31 +10,34 @@ import { describe, expect, it } from "vitest";
 
 import { ParkedDaemonCalls } from "../parked-daemon-calls.test-support.js";
 import type { ConsoleBridge } from "../../../console/bridge/index.js";
+import type { ComposerSendCalls } from "./send-dispatch.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "../../../console/core/index.js";
 import { DraftStore } from "../../../console/persistence/index.js";
-import type { ComposerChannelTarget } from "../chips/chip-models.js";
+import type { ComposerRunTarget } from "../chips/chip-models.js";
 import type { SendController } from "./send-controller-contract.js";
 import { useSendController } from "./send-controller.js";
+import { RUN_TARGET, STEER_APPLIED } from "./send-router.test-support.js";
 
 const SESSION_A = "1b2c3d4e-5f60-4172-8384-ab5c6d7e8f90";
 const SESSION_B = "2c3d4e5f-6071-4283-8495-bc6d7e8f9012";
 
-const QUEUE_FULL_CODE = "queue.full";
-const QUEUE_FULL_MESSAGE = "That session's queue is full.";
+const REJECTION_REASON = "run_not_paused";
 
-function sessionTarget(sessionId: string): ComposerChannelTarget {
-  return { path: "channel-message", sessionId };
+function sessionTarget(sessionId: string): ComposerRunTarget {
+  return { ...RUN_TARGET, sessionId };
 }
 
 /** Reports the controller out of the tree at whichever address the case supplies. */
 function AddressableProbe(props: {
   readonly bridge: ConsoleBridge;
+  readonly calls: ComposerSendCalls;
   readonly draftStore: DraftStore;
-  readonly target: ComposerChannelTarget;
+  readonly target: ComposerRunTarget;
   readonly onController: (controller: SendController) => void;
 }): null {
   const controller = useSendController({
     bridge: props.bridge,
+    calls: props.calls,
     target: props.target,
     draftStore: props.draftStore,
   });
@@ -60,6 +63,7 @@ function driveAddressableComposer(initialSessionId: string = SESSION_A): DrivenC
   const renderAt = (sessionId: string): React.JSX.Element => (
     <AddressableProbe
       bridge={calls.bridge}
+      calls={calls.calls}
       draftStore={draftStore}
       target={sessionTarget(sessionId)}
       onController={(controller) => {
@@ -114,7 +118,7 @@ describe("useSendController — a settlement is keyed to the address it was sent
     driven.reAddressTo(SESSION_B);
 
     await act(async () => {
-      driven.calls.refuseOldest(QUEUE_FULL_CODE, QUEUE_FULL_MESSAGE);
+      driven.calls.rejectOldest(REJECTION_REASON);
       await pending;
     });
 
@@ -128,12 +132,12 @@ describe("useSendController — a settlement is keyed to the address it was sent
     const pending = driven.beginSend("ship it");
 
     await act(async () => {
-      driven.calls.refuseOldest(QUEUE_FULL_CODE, QUEUE_FULL_MESSAGE);
+      driven.calls.rejectOldest(REJECTION_REASON);
       await pending;
     });
 
-    expect(driven.latest().refusal?.code).toBe(QUEUE_FULL_CODE);
-    // A refused send keeps its words, so the person can send again.
+    expect(driven.latest().refusal?.code).toBe(REJECTION_REASON);
+    // A refused steer keeps its words, so the person can send again.
     expect(driven.latest().text).toBe("ship it");
   });
 
@@ -141,13 +145,13 @@ describe("useSendController — a settlement is keyed to the address it was sent
     // A refusal that reappears later, attached to nothing the person just did, is a
     // worse answer than no refusal at all — so a discarded settlement is dropped
     // where it lands rather than parked for a later render to find. The line it was
-    // written on is still there, because a refused send keeps its text.
+    // written on is still there, because a refused steer keeps its text.
     const driven = driveAddressableComposer();
     const pending = driven.beginSend("ship it");
     driven.reAddressTo(SESSION_B);
 
     await act(async () => {
-      driven.calls.refuseOldest(QUEUE_FULL_CODE, QUEUE_FULL_MESSAGE);
+      driven.calls.rejectOldest(REJECTION_REASON);
       await pending;
     });
     driven.reAddressTo(SESSION_A);
@@ -179,7 +183,7 @@ describe("useSendController — a settlement is keyed to the address it was sent
     // the same name and different text; an unconditional clear erased the words the
     // person had just typed, with nothing rendered to say why.
     await act(async () => {
-      driven.calls.refuseOldest(QUEUE_FULL_CODE, QUEUE_FULL_MESSAGE);
+      driven.calls.rejectOldest(REJECTION_REASON);
       await firstSend;
     });
 
@@ -187,12 +191,12 @@ describe("useSendController — a settlement is keyed to the address it was sent
     expect(driven.latest().refusal).toBeUndefined();
 
     await act(async () => {
-      driven.calls.refuseOldest(QUEUE_FULL_CODE, QUEUE_FULL_MESSAGE);
+      driven.calls.rejectOldest(REJECTION_REASON);
       await secondSend;
     });
 
     // The second visit's own settlement IS current and does render.
-    expect(driven.latest().refusal?.code).toBe(QUEUE_FULL_CODE);
+    expect(driven.latest().refusal?.code).toBe(REJECTION_REASON);
   });
 });
 
@@ -210,7 +214,7 @@ describe("useSendController — an operation's busy state belongs to the address
 
     expect(driven.latest().status).toBe("idle");
     await act(async () => {
-      driven.calls.resolveOldest({});
+      driven.calls.resolveOldest(STEER_APPLIED);
       await pending;
     });
   });
@@ -223,7 +227,7 @@ describe("useSendController — an operation's busy state belongs to the address
 
     expect(driven.latest().status).toBe("sending");
     await act(async () => {
-      driven.calls.resolveOldest({});
+      driven.calls.resolveOldest(STEER_APPLIED);
       await pending;
     });
   });
@@ -238,7 +242,7 @@ describe("useSendController — an operation's busy state belongs to the address
 
     expect(driven.calls.parkedCount).toBe(1);
     await act(async () => {
-      driven.calls.resolveOldest({});
+      driven.calls.resolveOldest(STEER_APPLIED);
       await Promise.all([pending, second]);
     });
   });
@@ -251,7 +255,7 @@ describe("useSendController — an operation's busy state belongs to the address
     const pending = driven.beginSend("ship it");
     driven.reAddressTo(SESSION_B);
     await act(async () => {
-      driven.calls.resolveOldest({});
+      driven.calls.resolveOldest(STEER_APPLIED);
       await pending;
     });
 
@@ -261,7 +265,7 @@ describe("useSendController — an operation's busy state belongs to the address
 
     expect(driven.calls.parkedCount).toBe(1);
     await act(async () => {
-      driven.calls.resolveOldest({});
+      driven.calls.resolveOldest(STEER_APPLIED);
       await resumed;
     });
   });

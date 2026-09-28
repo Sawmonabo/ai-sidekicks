@@ -1,5 +1,5 @@
-/* The sections the approval card hosts: the daemon-hosted tool list and the framing a
-   provider's own permission ask renders inside an ordinary card.
+/* The daemon-hosted tool list, and the framing a provider's own permission ask
+   renders inside an ordinary approval card.
 
    What stays in `approvals.css` is the set of rules that address selectors in BOTH
    sheets — the control metrics and the single focus ring — because a grouped selector

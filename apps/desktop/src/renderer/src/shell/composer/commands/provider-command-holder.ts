@@ -1,4 +1,4 @@
-// The one enumeration this composer holds, and the two zones that read it.
+// The one enumeration this composer holds, and the two readers of it.
 //
 // The enumeration's lifetime is a rule: it is not persisted, not cached across
 // sessions, and re-read rather than patched. That is what this holder is — one live
@@ -6,38 +6,35 @@
 // surface that opened it closes. It is not a registry and nothing here survives a
 // re-address.
 //
-// WHY IT IS A HOLDER AND NOT A HOOK IN EACH ZONE. Two zones need the same reading and
+// WHY IT IS A HOLDER AND NOT A HOOK IN EACH READER. Two readers need the same reading and
 // they need it for different reasons: the popover LISTS what the bound provider
 // publishes, and the send router has to know whether a typed `/name` is one of those
-// entries — because a real provider command typed into the line was reaching a
-// refusal that told the person to remove the slash, advice that runs nothing and is
-// wrong about what they typed. A second hook in the send bar
-// would be a second read of one wire and a second answer to one question; a copy
-// cached in the router would be the stored list the lifetime rule forbids. So the
-// host builds one holder and hands it to both zones, exactly as it hands the popover
-// the region whose line it observes.
+// entries, because a typed provider command is answered by naming it rather than sent
+// as a message. A second hook in the send button would be a second read of one wire and
+// a second answer to one question; a copy cached in the router would be the stored list
+// the lifetime rule forbids. So one holder is built and both readers are handed it.
 //
 // THE POPOVER IS THE ONLY WRITER. It owns the open state — the leading slash in the
 // line is what opens the surface — and the router only ever reads the snapshot. One
 // writer is what keeps "when is this read live" a question with one answer.
 //
 // THE KEY INCLUDES THE BRIDGE, BECAUSE THE BRIDGE IS PART OF WHICH BINDING THIS IS.
-// `DesktopBridgeProvider` can replace its bridge under a composer that stays
-// addressed to the same session and agent, and a key of session and agent alone reads
-// that as "nothing moved" — so the surface was served the OLD bridge's catalog, which
-// is the routing invariant this holder exists to keep. The key is therefore compared
-// by bridge identity as well, and an outstanding read is guarded by the ROUND it was
+// `DesktopBridgeProvider` can replace its bridge under a composer that stays addressed
+// to the same session and agent, and a key of session and agent alone reads that as
+// "nothing moved" — so the surface would be served the OLD bridge's catalog, which
+// breaks the routing rule this holder exists to keep. The key is therefore compared by
+// bridge identity as well, and an outstanding read is guarded by the ROUND it was
 // issued on rather than by the key: a key can be re-entered after a close, and a reply
 // from the previous occupancy would pass an identity guard that only compares values.
 //
 // THE ROUND IS ALSO WHAT STOPS THE READ, and that is the half a private generation
 // counter could never have. A counter says which reply may be PUBLISHED; it says
-// nothing to the call itself, so a popover that closed while `driver.listProviderCommands`
-// was in flight went on waiting for the bindings and parsing them against their
-// registered schema for an owner who had left, and then discarded the answer. A round
-// from `console/store`'s read line answers both questions as one value — `settle`
-// orders the settlement, `signal` ends the read — so the enumeration cannot be
-// superseded without also being stopped.
+// nothing to the call itself, so a popover that closed while
+// `driver.listProviderCommands` was in flight would go on waiting for the bindings and
+// parsing them against their registered schema for an owner who had left, and then
+// discard the answer. A round from `console/store`'s read line answers both questions
+// as one value — `settle` orders the settlement, `signal` ends the read — so the
+// enumeration cannot be superseded without also being stopped.
 //
 // ONE SCOPE PER ADDRESS, which is what a scope IS: one surface's reads of one subject,
 // living exactly as long as that pairing does. Opening at a new key abandons the
@@ -46,8 +43,8 @@
 // non-terminal for the HOLDER: a surface that comes back opens at its key again and
 // gets a new line, exactly as `read-cancellation.ts` describes a returning surface.
 //
-// LAZY, STILL. The read runs when the discovery surface opens, not when the composer
-// mounts: a person who never types a slash never spends a provider round trip.
+// LAZY. The read runs when the discovery surface opens, not when the composer mounts: a person who
+// never types a slash never spends a provider round trip.
 
 import { useEffect, useSyncExternalStore } from "react";
 
@@ -155,11 +152,8 @@ export class ProviderCommandEnumeration {
       return;
     }
     this.#openKey = undefined;
-    // Closing ENDS an outstanding read rather than only ignoring what it settles as.
-    // Without this the reply went on being waited for and parsed for a surface that
-    // had gone, and — before the round guarded it — a reply issued before the close
-    // could land after the surface re-opened at the same key and present a reading
-    // nobody asked for as the current one.
+    // Closing ENDS an outstanding read rather than only ignoring what it settles as: otherwise the
+    // reply would go on being waited for and parsed for a surface that had gone.
     this.#endReadLine();
     this.#publish(NOT_CHECKED);
   }
@@ -168,15 +162,14 @@ export class ProviderCommandEnumeration {
    * The entry the ADDRESSED BINDING published under this exact name, if it published
    * one.
    *
-   * Served readings only, and an exact match: the name is what the popover listed and
-   * what a person copied out of it, and a loose match here would have the send path
-   * naming an entry the list never showed them. A reading that has not landed answers
-   * `undefined`, which leaves the send path saying what it said before this holder
-   * existed rather than guessing.
+   * Served readings only, and an exact match: the name is what the popover listed and what a person
+   * copied out of it, and a loose match here would have the send path naming an entry the list
+   * never showed them. A reading that has not landed answers `undefined`, which leaves the send
+   * path's ordinary answer for the name in place rather than guessing.
    *
    * The binding is an ARGUMENT rather than part of this reading's key. Which of an
    * agent's runs the composer addresses moves as the daemon settles turns, and folding
-   * that into the key would re-read the enumeration once per turn; what it must move
+   * that into the key would re-read the enumeration on every turn; what it must move
    * is which group is READ OUT, which is exactly what selecting here does. Both readers
    * of this enumeration take the same selection, so the list a person saw and the
    * name the send path recognises name one binding.

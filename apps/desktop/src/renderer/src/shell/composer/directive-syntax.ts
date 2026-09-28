@@ -23,7 +23,7 @@ export const DISCOVERY_TRIGGER = "/";
 const FIRST_WHITESPACE = /\s/u;
 
 /** Whether this line is claimed by the reserved prefix at all. */
-export function opensDirectiveLine(lineText: string): boolean {
+function opensDirectiveLine(lineText: string): boolean {
   return lineText.startsWith(DISCOVERY_TRIGGER);
 }
 

@@ -31,9 +31,7 @@ function renderChip(entry: Parameters<typeof composerAttachmentChip>[0]): HTMLEl
 
 describe("the attachment chip's progress bar", () => {
   it("names the file whose upload it measures", () => {
-    // It was named `Uploaded ${sizeText}` — the DECLARED total, which is what has not
-    // been uploaded yet — so a carrier of several announced as several bars each
-    // claiming a figure that was never a progress reading at all.
+    // A carrier of several files announces several bars, so each is named for its file.
     const container = renderChip(
       sendingEntry("ingesting", {
         declaredName: "notes.md",
@@ -65,9 +63,9 @@ describe("the attachment chip's progress bar", () => {
 
 describe("the attachment chip's remedies", () => {
   it("renders what a refusal recommends as text a person can read", () => {
-    // Rule 4's third clause travelled on the retry control's `title` — a tooltip a
-    // touch user never sees, a keyboard user reaches only with a pointer they are not
-    // using, and no assistive technology this console can name announces reliably.
+    // The recommendation is text, not a control's `title`: a tooltip is never seen by a
+    // touch user, is reached by a keyboard user only with a pointer they are not using,
+    // and is announced reliably by no assistive technology this console can name.
     const container = renderChip(
       sendingEntry("refused", {
         declaredName: "notes.bin",

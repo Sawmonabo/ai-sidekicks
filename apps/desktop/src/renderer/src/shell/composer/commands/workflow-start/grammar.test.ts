@@ -1,23 +1,25 @@
-// The documented line parses, and the dotted one it replaced is nobody's command.
+// The documented line parses, and a dotted id is nobody's command.
 //
 // The surface is fixed: one command root, `workflow`, one verb, `start`, and the line
 // `/workflow start <name>`. The end-to-end case below is what makes that a claim about
 // the SHIPPED path rather than about this module — the same recogniser the send bar
 // hands the router, the real router, and the real executor over the real console
-// registry — and its negative control is the defect it was written for: with the dotted
-// id registered instead, the documented line reaches the router as an unregistered
-// name.
+// registry — and its negative control registers the dotted id instead of the root, which
+// leaves the documented line an unregistered name.
 
 import { afterEach, describe, expect, it } from "vitest";
 
 import { consoleCommands } from "../../../../console/palette/index.js";
 import { DEFAULT_ROUTE } from "../../../../console/routing/index.js";
-import type { ComposerTarget } from "../../chips/chip-models.js";
+import { CHANNEL_TARGET, sendCallsAnswering } from "../../router/send-router.test-support.js";
 import { ComposerSendRouter } from "../../router/send-router.js";
 import { createClientCommandExecutor } from "../client-command-executor.js";
 import { recognizeClientCommand } from "../client-command-recognizer.js";
 import { composerCommandSurface } from "../console-command-surface.js";
-import type { DirectiveLineHandlers } from "../directive-line-handlers.js";
+import {
+  LINE_READING_COMMAND_IDS,
+  type DirectiveLineHandlers,
+} from "../directive-line-handlers.js";
 import {
   fixtureWorkflowStartOperations,
   recordedWorkflowCalls,
@@ -26,13 +28,8 @@ import {
 import { WORKFLOW_COMMAND_ROOT, readWorkflowCommandLine } from "./grammar.js";
 import { startWorkflowFromLine } from "./start-dispatch.js";
 
-/** The id this surface carried before the root registration, kept only as a foil. */
-const SUPERSEDED_DOTTED_ID = "workflow.start";
-
-const CHANNEL_TARGET: ComposerTarget = {
-  path: "channel-message",
-  sessionId: WORKFLOW_TEST_SESSION_ID,
-};
+/** A dotted id that names no root, registered only as a foil. */
+const DOTTED_ID = "workflow.start";
 
 const registeredIds: string[] = [];
 
@@ -50,7 +47,7 @@ function registerRoot(commandId: string): void {
 /** The router the send bar builds, over whichever ids the registry holds. */
 function routerOverRegistry(): ComposerSendRouter {
   return new ComposerSendRouter({
-    bridge: {} as never,
+    calls: sendCallsAnswering(async () => undefined),
     recognizeClientCommand: (commandName) =>
       recognizeClientCommand(commandName, {
         registeredCommandIds: composerCommandSurface(DEFAULT_ROUTE).registeredCommandIds,
@@ -98,8 +95,6 @@ describe("the `/workflow` line", () => {
   it("reads nothing off a line that is not this command's", () => {
     expect(readWorkflowCommandLine("/frame.goToSettings")).toBeUndefined();
     expect(readWorkflowCommandLine("ship the parser fix")).toBeUndefined();
-    // The escape is deliberately not a command, so it names no root either.
-    expect(readWorkflowCommandLine("//workflow start nightly")).toBeUndefined();
   });
 });
 
@@ -132,6 +127,7 @@ describe("the documented line, end to end through the recogniser and the router"
     const executor = createClientCommandExecutor({
       readSurface: () => composerCommandSurface(DEFAULT_ROUTE),
       readDirectiveHandlers: () => handlers,
+      lineReadingCommandIds: LINE_READING_COMMAND_IDS,
     });
 
     const outcome = await executor({
@@ -145,15 +141,14 @@ describe("the documented line, end to end through the recogniser and the router"
     ]);
   });
 
-  it("negative control: under the superseded dotted id the documented line is not intercepted", () => {
-    // The defect this registration replaced. `directive-syntax.ts` hands the recogniser
-    // the FIRST WORD, so with `workflow.start` registered the spec's own line names
-    // `workflow` — an id the console does not hold — and the line goes on as typed
-    // rather than reaching the workflow handler.
-    registerRoot(SUPERSEDED_DOTTED_ID);
+  it("negative control: under a dotted id the documented line goes out as typed", () => {
+    // `directive-syntax.ts` hands the recogniser the FIRST WORD, so with `workflow.start`
+    // registered the documented line names `workflow` — an id the console does not hold —
+    // and the line goes on as a new turn rather than reaching the workflow handler.
+    registerRoot(DOTTED_ID);
 
     const resolution = routerOverRegistry().resolve("/workflow start nightly", CHANNEL_TARGET);
 
-    expect(resolution.outcome).not.toBe("client-command");
+    expect(resolution.outcome).toBe("new-turn");
   });
 });

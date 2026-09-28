@@ -8,8 +8,9 @@
 // SO THE OUTCOME IS A VALUE AND NOT A VOID. A controller that cleared the line on
 // interception alone would report success for work nothing performed: the person's
 // text is gone, no command ran, and no refusal says so. The executor answers with
-// one of two arms, the line is cleared on `applied` only, and `refused` renders the
-// refusal beside the input like every other refusal the composer meets.
+// one of three arms, the line is cleared on `applied` only, `refused` renders the
+// refusal beside the input like every other refusal the composer meets, and `not-run`
+// leaves the line as typed with nothing drawn.
 //
 // ONE MODULE FOR BOTH SIDES OF THE SEAM, per this package's structure rules — the
 // controller that awaits an outcome and the command family that produces one name
@@ -33,14 +34,18 @@ export interface DirectiveLine {
 }
 
 /**
- * What running one client command settled as. Closed at two.
+ * What running one client command settled as. Closed at three.
  *
- * There is deliberately no third "not found" arm: whether a name is registered is
- * the recogniser's question and is answered before this seam is reached, and an
- * executor that could disagree with the recogniser would be a second registry.
+ * `not-run` is a command that reads its arguments off the typed line when nothing here
+ * can perform it: the line stays exactly as typed and no message is drawn.
+ *
+ * There is deliberately no "not found" arm: whether a name is registered is the
+ * recogniser's question and is answered before this seam is reached, and an executor
+ * that could disagree with the recogniser would be a second registry.
  */
 export type CommandOutcome =
   | { readonly status: "applied" }
+  | { readonly status: "not-run" }
   | { readonly status: "refused"; readonly refusal: ConsoleRefusal };
 
 /** Run one recognised client command. Returns a settlement; never throws to report one. */

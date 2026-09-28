@@ -72,6 +72,13 @@ export const INVALIDATION_TRIGGERS = [
 ] as const;
 
 /**
+ * One invalidation trigger. Derived from the enumeration, never restated.
+ *
+ * @consumedBy the remembered-rule invalidation reading
+ */
+export type InvalidationTrigger = (typeof INVALIDATION_TRIGGERS)[number];
+
+/**
  * What a category is called on screen.
  *
  * The token itself is still rendered beside the phrase, in mono, because the token

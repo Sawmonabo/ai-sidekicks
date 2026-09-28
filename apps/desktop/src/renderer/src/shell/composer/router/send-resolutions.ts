@@ -1,10 +1,10 @@
 // What Send can resolve to, and the two questions the router asks of its host.
 //
-// The router produces exactly one of these and four modules consume them: the
-// controller that dispatches, the line that renders the path label, the command zone
-// that supplies the predicates, and the send bar that renders the settlement. Holding
-// the vocabulary beside the router rather than inside it keeps that seam one
-// declaration read by both sides, and keeps the router the module that ROUTES.
+// The router produces exactly one of these and three modules consume them: the
+// controller that dispatches, the command zone that supplies the predicates, and the
+// Send button that renders the settlement. Holding the vocabulary beside the router
+// rather than inside it keeps that seam one declaration read by both sides, and keeps
+// the router the module that ROUTES.
 
 import type { InterventionRequestPayload, QueueItemCreateRequest } from "@ai-sidekicks/contracts";
 

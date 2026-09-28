@@ -29,25 +29,22 @@
 // THE QUEUE STREAM HAS A SECOND SOURCE, AND HAS TO. `QueueItemSummary` is a
 // projection of the `queue_items` ROW, so it requires `priority` and `createdAt`,
 // which the registered queue payload does not carry — the queue event family fixes
-// it at `{sessionId, queueItemId, state}`. This module used to demand those two off
-// the beat, which refused every contract-valid queue event and made the only way to
-// pass a beat carrying members no daemon emits. The row now arrives from the caller,
-// as the row the daemon projects the summary from.
+// it at `{sessionId, queueItemId, state}`. So a beat is never asked for those two:
+// the row comes from the caller's lookup by the beat's own queue item id, as the row
+// the daemon projects the summary from.
 //
 // THE REGISTERED SCHEMA IS THE VALIDATOR, AND IT RUNS BEFORE DELIVERY. Every
 // candidate this module composes is parsed through the shape the corpus registers
 // for it, and a parse failure is a refusal carrying the failing member's own path.
-// This module used to hand-check the required members and then CAST the result,
-// which left the optionals unchecked entirely: a scenario scripting
-// `intendedClose: false`, `healthSignal: "healthy"`, or a malformed
-// `executionPosture` had them copied through wire-verbatim and presented to a
-// subscriber as a valid `RunStateChangeEvent`. Nothing caught it — the scenario
-// wire-truth predicate cannot, because the run-lifecycle kinds are census-only in
-// `SessionEventSchema` and register no payload variant to check against — so the
-// fixture delivered values the registered shape rejects, which is the one thing a
-// fixture must never do. Parsing also retires every branded-identifier cast in this
-// file: the schema returns the branded type, so the values are checked rather than
-// asserted.
+// Hand-checking the required members and then CASTING the result would leave the
+// optionals unchecked entirely: a scenario scripting `intendedClose: false`,
+// `healthSignal: "healthy"`, or a malformed `executionPosture` would have them copied
+// through wire-verbatim and presented to a subscriber as a valid `RunStateChangeEvent`.
+// Nothing else catches it — the scenario wire-truth predicate cannot, because the
+// run-lifecycle kinds are census-only in `SessionEventSchema` and register no payload
+// variant to check against — and a fixture must never deliver values the registered
+// shape rejects. Parsing also removes every branded-identifier cast in this file: the
+// schema returns the branded type, so the values are checked rather than asserted.
 //
 // WHY A VALUE IMPORT OF THE SCHEMAS IS AFFORDABLE HERE. The renderer's initial-bundle
 // budget is enforced, and this module's sibling `session-event-streams.ts` keeps its
@@ -141,23 +138,36 @@ const RUN_STATE_CHANGE_CARRIED_OPTIONAL_MEMBERS: Readonly<
  * projection for the fixture to build. Their subscribers get the envelope, which is
  * what those registrations describe.
  *
- * `queueRow` is the queue row the beat is about, the queue arm's second source.
- * Absent for every other subscription, and absent when the caller has no row — which
- * is a refusal on the queue arm rather than a made-up row.
+ * `queueRowFor` finds the queue row a beat is about by the beat's own queue item id,
+ * the queue arm's second source. It is required wherever the subscription can be the
+ * queue stream, and a lookup that finds no row is a refusal rather than a made-up row.
  */
+export function projectRunStreamDelivery(
+  subscriptionName: typeof RUN_STATE_EVENT_STREAM,
+  event: ConsoleSessionEvent,
+): RunStreamProjection;
+/** The same delivery for a name known only at run time, with the queue row lookup. */
 export function projectRunStreamDelivery(
   subscriptionName: string,
   event: ConsoleSessionEvent,
-  queueRow?: Readonly<Record<string, unknown>>,
+  queueRowFor: QueueRowLookup,
+): RunStreamProjection | undefined;
+export function projectRunStreamDelivery(
+  subscriptionName: string,
+  event: ConsoleSessionEvent,
+  queueRowFor?: QueueRowLookup,
 ): RunStreamProjection | undefined {
   if (subscriptionName === RUN_STATE_EVENT_STREAM) {
     return projectRunStateStreamBeat(event);
   }
-  if (subscriptionName === RUN_QUEUE_EVENT_STREAM) {
-    return projectRunQueueStreamBeat(event, queueRow);
+  if (subscriptionName === RUN_QUEUE_EVENT_STREAM && queueRowFor !== undefined) {
+    return projectRunQueueStreamBeat(event, queueRowFor);
   }
   return undefined;
 }
+
+/** Finds one queue row by its queue item id, or `undefined` where there is none. */
+type QueueRowLookup = (queueItemId: string) => Readonly<Record<string, unknown>> | undefined;
 
 /** The `run.subscribeState` arms: a state transition, or the forward rollback row. */
 function projectRunStateStreamBeat(event: ConsoleSessionEvent): RunStreamProjection {
@@ -243,7 +253,7 @@ function projectRollback(event: ConsoleSessionEvent): RunStreamProjection {
 /** `QueueItemSummary` — what `run.subscribeQueue` streams for one queue row. */
 function projectRunQueueStreamBeat(
   event: ConsoleSessionEvent,
-  queueRow: Readonly<Record<string, unknown>> | undefined,
+  queueRowFor: QueueRowLookup,
 ): RunStreamProjection {
   const announcedState = runQueueStreamStateFor(event.kind);
   if (announcedState === undefined) {
@@ -263,12 +273,12 @@ function projectRunQueueStreamBeat(
   if (queueItemId === undefined) {
     return unprojectableFor(event, "names no `queueItemId` to find its queue row by");
   }
-  // Required, exactly as `newState` is on the state arm above. The queue event
-  // family fixes the payload at `{sessionId, queueItemId, state}`, so
-  // a beat without one is not a queue event that omitted a check — it is a queue
-  // event no daemon emits. Skipping the comparison when the member was absent let
-  // the summary take its state from the KIND alone and delivered a valid-looking
-  // `QueueItemSummary` built from a payload the contract rejects.
+  // Required, exactly as `newState` is on the state arm above. The queue event family
+  // fixes the payload at `{sessionId, queueItemId, state}`, so a beat without one is not
+  // a queue event that omitted a check — it is a queue event no daemon emits. Skipping
+  // the comparison when the member is absent would let the summary take its state from
+  // the KIND alone and deliver a valid-looking `QueueItemSummary` built from a payload
+  // the contract rejects.
   const statedState = payload["state"];
   if (statedState === undefined) {
     return unprojectableFor(
@@ -285,10 +295,11 @@ function projectRunQueueStreamBeat(
   // The row, not the beat. `QueueItemSummary` is a projection of `queue_items` and
   // carries members the registered queue payload does not; a beat asked for
   // `priority` is a beat asked for something no daemon puts on one.
+  const queueRow = queueRowFor(queueItemId);
   if (queueRow === undefined) {
     return unprojectableFor(
       event,
-      `is about queue item "${queueItemId}", for which no queue row was supplied — and the row is where \`priority\` and \`createdAt\` live`,
+      `is about queue item "${queueItemId}", for which no queue row was found — and the row is where \`priority\` and \`createdAt\` live`,
     );
   }
   return projectThroughRegisteredShape(QueueItemSummarySchema, event, {

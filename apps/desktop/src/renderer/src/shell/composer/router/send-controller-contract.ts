@@ -15,6 +15,7 @@ import type { DraftStore } from "../../../console/persistence/index.js";
 import type { ComposerTarget } from "../chips/chip-models.js";
 import type { CommandExecutor } from "./command-executor.js";
 import type { DirectiveCaret } from "./directive-line.js";
+import type { ComposerSendCalls } from "./send-dispatch.js";
 import type { ClientCommandPredicate, ProviderCommandPredicate } from "./send-resolutions.js";
 
 /** Whether the line is accepting text or is locked behind an in-flight dispatch. */
@@ -22,7 +23,10 @@ export type SendControllerStatus = "idle" | "sending";
 
 /** What the composer is built from. One object, so a new dependency is one edit. */
 export interface SendControllerDependencies {
+  /** The transport the composer's held state belongs to. Nothing here calls through it. */
   readonly bridge: ConsoleBridge;
+  /** The two daemon calls a send makes. */
+  readonly calls: ComposerSendCalls;
   readonly target: ComposerTarget;
   /** The window-lifetime draft store the composer seat is handed. */
   readonly draftStore: DraftStore;

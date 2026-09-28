@@ -20,9 +20,8 @@
 // predicate, so a superseded read stops asking for pages as well as dropping the
 // answer it already has — the pages it would fetch are pages nobody can be shown.
 //
-// THE PAGE READ IS AN ARGUMENT. The daemon serves no `workflow.definitionList` yet,
-// so this module holds the walk and none of the wire: the caller supplies the one
-// call that reads a page.
+// THE PAGE READ IS AN ARGUMENT. This module holds the walk and none of the wire: the
+// caller supplies the one call that reads a page.
 
 import type { WorkflowDefinitionSummary } from "../../../../console/bridge/index.js";
 import { COMPOSER_WORKFLOW_DEFINITION_PAGE_CAP } from "../../composer-bounds.js";

@@ -11,8 +11,8 @@
   border-top: 1px solid var(--meridian-edge);
 }
 
-/* The input's zone is the tall one — it is the only place a person types, so it
-   gets the room and the raised ground even while it is reserved. */
+/* The input's zone is the tall one: it is the only place a person types, so it gets
+   the room and the raised ground. */
 .meridian-composer__send {
   display: flex;
   flex-direction: column;
@@ -72,23 +72,16 @@
   margin-top: var(--meridian-space-2);
 }
 
-/* One primary action per surface (rule 1), so exactly one control carries the
-   accent and every other control on the composer is quiet.
+/* The one primary action on the composer, so it alone carries the accent and every other
+   control stays quiet.
 
-   The accent is carried as the BOUNDARY AND THE INK, not as a fill, and that is
-   a contrast fact rather than a taste one: `accent-text` is the accent-tinted
-   colour for text on a SURFACE, so painting it on the `accent` fill puts two
-   near-isoluminant colours together (L 0.475 on L 0.575 light, L 0.845 on
-   L 0.73 dark) and fails WCAG 1.4.3 in both schemes — which the accessibility
-   tier reports on this exact selector. The primitives DO own a filled treatment
-   that clears the floor, `meridian-accent-fill`, which pairs that fill with
-   `accent-ink` at 4.73:1 light and 7.41:1 dark, and a card's one primary action
-   wears it. This control keeps the boundary-and-ink pair instead, because that
-   pair measures HIGHER on the label it has to carry — 6.38:1 light and 11.49:1
-   dark — with the accent boundary at 4.17:1 and 7.77:1 against the send box's own
-   surface, clearing the 3:1 non-text floor rule 3 puts on a control boundary. The
-   control still reads as the one accented affordance in the composer, because it is
-   the only one. */
+   The accent is the BOUNDARY AND THE INK, not a fill, for contrast: `accent-text` is
+   the accent-tinted text color for a SURFACE, so on the `accent` fill it puts two
+   near-isoluminant colors together and fails WCAG 1.4.3 in both schemes. The
+   primitives' filled treatment, `meridian-accent-fill`, clears that floor and a card's
+   primary action wears it, but boundary-and-ink measures higher on this label (6.38:1
+   light, 11.49:1 dark) and the accent boundary clears the 3:1 non-text floor against
+   the send box's surface (4.17:1 light, 7.77:1 dark). */
 .meridian-composer__primary {
   padding: var(--meridian-space-1) var(--meridian-space-3);
   color: var(--meridian-accent-text);

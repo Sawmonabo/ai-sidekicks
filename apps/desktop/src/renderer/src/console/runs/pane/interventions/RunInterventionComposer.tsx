@@ -37,16 +37,17 @@ import type { ConsoleBridge } from "../../../bridge/index.js";
 import { InlineRefusal } from "../../../primitives/index.js";
 import { useSubjectScopedState } from "../../../store/index.js";
 import { refuse, type ConsoleRefusal } from "../../../core/index.js";
-import { admissionRefusal, readComposerSettlement } from "./composer-settlement.js";
+import {
+  RUN_INTERVENTION_REFUSAL_ORIGIN,
+  admissionRefusal,
+  readComposerSettlement,
+} from "./composer-settlement.js";
 import type { ComposerSettlement } from "./composer-settlement.js";
 import type { RunControlCommandRun } from "../controls/run-control-commands.js";
-import {
-  RUN_CONTROL_REFUSAL_ORIGIN,
-  type RunControlDispatcher,
-  type RunControlOutcome,
-} from "../controls/run-control-dispatch.js";
+import type { RunControlDispatcher, RunControlOutcome } from "../controls/run-control-dispatch.js";
 import type { RunControlSurface } from "../controls/run-control-surface.js";
 
+/** What the steer form is given: the run it addresses and the surface it dispatches through. */
 export interface RunInterventionComposerProps {
   /**
    * The transport this form's state belongs to, and the surface's own subject.
@@ -161,7 +162,7 @@ export function RunInterventionComposer(props: RunInterventionComposerProps): Re
         publishForm((held) => ({
           ...held,
           localRefusal: refuse(
-            RUN_CONTROL_REFUSAL_ORIGIN,
+            RUN_INTERVENTION_REFUSAL_ORIGIN,
             "empty-directive",
             "There is nothing to steer with yet. Type what the run should do differently.",
           ),

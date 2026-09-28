@@ -47,6 +47,7 @@ import { type CallbackToolRegistryReading } from "./callback-tool-registry.js";
  */
 export const CALLBACK_TOOLS_CAPABILITY: DriverCapabilityFlag = "callback_tools";
 
+/** What the daemon-hosted tools section renders from: the capability and the registry. */
 export interface CallbackToolsProps {
   /**
    * What this build knows about the capability, in the console's one vocabulary.

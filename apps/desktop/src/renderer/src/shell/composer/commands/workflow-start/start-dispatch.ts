@@ -1,10 +1,7 @@
-// Starting a workflow from the line, by the name a person can read off the picker.
+// Starting a workflow from the line, by the name a person types.
 //
-// The plus menu's picker is the surface a person browses definitions in and it is
-// another plan's to build. This is the accelerator beside it: somebody who already
-// knows the definition's name types it, and the run starts without a menu, a list, or
-// a second click. Both entry points reach the same two wires, so the accelerator is a
-// shortcut through the picker's own act rather than a second way to start a run.
+// Somebody who knows the definition's name types it, and the run starts without a menu,
+// a list, or a second click.
 //
 // WHICH IS WHY THE COMMAND REGISTRY IS NOT THE PATH THAT RUNS IT. A console command's
 // `run()` takes nothing: the registry is keyed for a palette, where there is no line
@@ -18,9 +15,9 @@
 // nothing matched, more than one matched, or exactly one did — and the pin it starts
 // is that entry's own `latestWorkflowVersionId`, never a version this module chose.
 //
-// THE TWO CALLS ARE ARGUMENTS. The daemon serves neither `workflow.definitionList` nor
-// `workflow.runStart` yet, so this module holds the accelerator's logic and none of the
-// wire: the caller supplies the call that reads a page and the call that starts a run.
+// THE TWO CALLS ARE ARGUMENTS. This module holds the accelerator's logic and none of the
+// wire: the caller supplies the call that reads a page of definitions and the call that
+// starts a run.
 //
 // NOTHING HERE DECIDES WHETHER A START WOULD BE PERMITTED. That is the daemon's answer,
 // and a renderer that pre-empted it would be projecting an eligibility it does not own.
@@ -53,7 +50,7 @@ export interface WorkflowStartRequest {
 /** The two calls the accelerator makes, both supplied by the caller. */
 export interface WorkflowStartOperations {
   readonly readDefinitionPage: ReadWorkflowDefinitionPage;
-  /** Starts one run; resolves once the daemon has accepted it. */
+  /** Starts one run; resolves when the daemon has accepted it. */
   readonly startRun: (request: WorkflowStartRequest) => Promise<void>;
 }
 
@@ -104,13 +101,11 @@ export async function startWorkflowFromLine(
   const listed = await readWorkflowDefinitions(input.operations.readDefinitionPage, sessionId);
   const match = matchWorkflowDefinition(listed.definitions, definitionName);
   if (match.status === "none") {
-    return refusedArgument(
-      `No workflow this session can start is named ${definitionName}. The plus menu lists the ones it can.`,
-    );
+    return refusedArgument(`No workflow this session can start is named ${definitionName}.`);
   }
   if (match.status === "ambiguous") {
     return refusedArgument(
-      `${String(match.count)} workflows this session can start are named ${definitionName}, so nothing was started. Start it from the plus menu, which names the scope each one comes from.`,
+      `${String(match.count)} workflows this session can start are named ${definitionName}, so nothing was started.`,
     );
   }
   // The entry's own pin, never a version this module chose: a start is against a
@@ -128,10 +123,7 @@ export async function startWorkflowFromLine(
  * Keyed by the ROOT id, which is the id the recogniser claims and the palette lists,
  * so the map cannot claim a name the console has never heard of.
  */
-export function useWorkflowStartHandlers(input: {
-  readonly operations: WorkflowStartOperations;
-  readonly sessionId: string | undefined;
-}): DirectiveLineHandlers {
+export function useWorkflowStartHandlers(input: WorkflowStartInput): DirectiveLineHandlers {
   const { operations, sessionId } = input;
   return useMemo(
     () =>

@@ -1,25 +1,22 @@
 // The session goal: where the current one comes from and what a valid one is.
 //
-// The session goal is a PROJECTION of the event log — an
-// accepted update emits `session.goal_updated` carrying the canonical goal, there is
-// no separate goal store, and the current goal is whatever the latest goal event
-// says. So the fold below reads the store's timeline rather than
-// holding a copy: a card that kept its own last-known goal would be a second source
-// of truth for a value the log already orders, and it would show a goal the daemon
-// never appended.
+// The session goal is a PROJECTION of the event log — an accepted update emits
+// `session.goal_updated` carrying the canonical goal, there is no separate goal store,
+// and the current goal is whatever the latest goal event says. So the fold below reads
+// the store's timeline rather than holding a copy: a card that kept its own last-known
+// goal would be a second source of truth for a value the log already orders, and it
+// would show a goal the daemon never appended.
 //
 // NOTHING HERE IS OPTIMISTIC. Delivery is all-or-nothing across every live binding
 // and the event commits only after all of them acknowledge, so the fold stays on
 // the prior goal until the event lands.
 //
-// IT LIVES IN `bridge/` BECAUSE TWO VIEW FAMILIES READ THE GOAL. The approvals
-// pane renders the card that edits it and the workspace sidebar renders the one
-// line that states it, and those two families may not import one another. Every
-// input this module has is below that: the two payload readers beside it,
-// `core/`'s instant comparison, and the store's event type. So this is the lowest
-// family that owns them, and both callers take the fold through this family's door
-// rather than each folding the timeline their own way — which is the second
-// projection of one log the goal's own rule forbids.
+// IT LIVES IN `bridge/` BECAUSE MORE THAN ONE VIEW FAMILY READS THE GOAL, and view
+// families may not import one another. Every input this module has sits below that:
+// the two payload readers beside it, `core/`'s instant comparison, and the store's
+// event type. So this is the lowest family that owns them, and callers take the fold
+// through this family's door rather than each folding the timeline their own way,
+// which would be a second projection of one log.
 
 import { compareInstants, parseInstant } from "../core/index.js";
 import { readGoalOriginKeys, readGoalPayloadText } from "./wire-shapes/session-goal-payloads.js";

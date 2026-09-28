@@ -13,13 +13,6 @@
 // carries the heading and the `role="group"` that states the difference before a press;
 // what stays here is the partition, which preserves each row's position in the single
 // key sequence the cursor walks across both halves.
-//
-// THE ARGUMENT SLOT IS THE ONE COMPLETION THIS SURFACE RENDERS, and it is a slot: the
-// console's OWN commands may read arguments off their line, and the candidates for one
-// are that command's grammar rather than this surface's. So the seat composes the node
-// and this renders it — the rule above is about the provider half, whose entries this
-// console may not dispatch at all, and it does not reach a command the runtime itself
-// intercepts.
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { InlineRefusal, Nothing } from "../../../console/primitives/index.js";
@@ -39,6 +32,12 @@ import {
 import { useProviderCommandEnumeration } from "./provider-command-holder.js";
 import { type ProviderCommandReadState } from "./provider-command-read.js";
 import { EnumerationState } from "./EnumerationState.js";
+
+/**
+ * No command reads a line here: a picked entry carries no typed argument, so an
+ * argument-reading command takes its palette act.
+ */
+const PICKED_ENTRY_READS_NO_LINE: readonly string[] = [];
 
 /**
  * Why pressing a key on a provider row runs nothing.
@@ -134,6 +133,7 @@ export function CommandDiscoveryPopover(props: CommandDiscoveryPopoverProps): Re
       createClientCommandExecutor({
         readSurface,
         readDirectiveHandlers: noDirectiveLineHandlers,
+        lineReadingCommandIds: PICKED_ENTRY_READS_NO_LINE,
       }),
     [readSurface],
   );

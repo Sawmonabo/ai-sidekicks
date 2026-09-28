@@ -31,6 +31,7 @@ export interface DraftEntry {
   readonly updatedAt: number;
 }
 
+/** How a draft store reads time and how many drafts it holds. */
 export interface DraftStoreOptions {
   /**
    * The reading the eviction order uses. A bare callback and NOT the console's
@@ -57,6 +58,7 @@ export interface DraftStoreOptions {
   readonly maximumDraftCount: number;
 }
 
+/** This window's unsent composer text, held in memory and never written anywhere. */
 export class DraftStore {
   readonly #draftsByKey = new Map<string, DraftEntry>();
   readonly #subscribersByKey = new Map<string, Set<(draft: DraftEntry | undefined) => void>>();

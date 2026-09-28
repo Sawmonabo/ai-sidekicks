@@ -1,12 +1,12 @@
 // A registered approvals row answers through the render that is ON SCREEN.
 //
 // The rows are memoised on what they SAY, so everything that moves underneath them —
-// the pending records and the two dispatchers — is read
-// through a ref when a person presses Enter. That makes WHERE the ref is written the
-// whole safety property: a pass React discards has already run this hook, and a pass
-// discarded while the pane was being re-addressed to another session carries that
-// session's `resolve`. If the discarded pass could write the ref, the row still on
-// screen would answer somebody else's approval request.
+// the pending records and the two dispatchers — is read through a ref when a person
+// presses Enter. That makes WHERE the ref is written the whole safety property: a
+// pass React discards has already run this hook, and a pass discarded while the pane
+// was being re-addressed to another session carries that session's `resolve`. If the
+// discarded pass could write the ref, the row still on screen would answer somebody
+// else's approval request.
 //
 // Driven through a real transition that suspends rather than described, and asserted
 // while the pass is still abandoned: a case that let the tree recover first would pass

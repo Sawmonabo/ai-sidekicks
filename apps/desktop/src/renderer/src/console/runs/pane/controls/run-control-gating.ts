@@ -16,9 +16,8 @@
 // answers with one report PER DRIVER (`DriverCapabilityReport` is keyed by its own
 // `driverName`), and a session may hold runs on more than one. Intersecting those
 // reports with `every` would answer a question nobody asked — "do ALL drivers here
-// declare this?" — so the reports
-// are RETAINED BY DRIVER and resolved per run, and one driver's declaration never
-// answers for another driver's run.
+// declare this?" — so the reports are RETAINED BY DRIVER and resolved per run, and one
+// driver's declaration never answers for another driver's run.
 //
 // THE READ ITSELF IS THE BRIDGE'S, NOT THIS FAMILY'S. The declaration is addressed at
 // the node rather than at a run, so `bridge/driver-capabilities/driver-capability-read.ts`
@@ -32,9 +31,9 @@
 // client read, and `run.running` carries the execution posture rather than the
 // binding. The AGENT does — `agent.attached` registers `driverName` on the persona,
 // and `run.queued` names the agent a run was created for — so the pair is joined
-// through the agent by `bridge/driver-capabilities/run-driver-binding.ts` and reaches this module as
-// `driverNameByRunId`. That join is what makes a node with two drivers installed
-// answerable at all.
+// through the agent by `bridge/driver-capabilities/run-driver-binding.ts` and reaches
+// this module as `driverNameByRunId`. That join is what makes a node with two drivers
+// installed answerable at all.
 //
 // The sole-report fallback stays beneath it, for the session whose join has nothing
 // to say yet: with exactly ONE driver reported for the node, that driver is the only
@@ -130,5 +129,5 @@ export function offeredRunControls(
   };
 }
 
-/** The capability-gated half. `pause`, `resume` and `interrupt` are never gated and are not on it. */
+/** The capability-gated half. `pause`, `resume` and `interrupt` are never gated, so not here. */
 const OVERFLOW_CONTROLS: readonly RunControl[] = ["steer"];

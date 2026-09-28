@@ -5,15 +5,14 @@
 // the palette lists; the verb and the definition name that follows it are this module's
 // grammar and nobody else's.
 //
-// WHY THE ROOT IS THE REGISTERED ID AND THE VERB IS NOT PART OF IT. The composer
-// splits a directive line at the first run of whitespace and hands the recogniser the
-// FIRST WORD alone, so a registered id carrying a space is unreachable by
-// construction. Registering `workflow.start` therefore made the documented form
-// `/workflow start <name>` parse as the unregistered name `workflow` — a loud refusal
-// for the one line the spec says must work — while the palette prefilled a dotted form
-// the spec does not define. Taking the bare root is not a namespace spent on one verb:
-// the spec says verb additions are additive-MINOR, so a second verb is a second word
-// in THIS grammar rather than a second registered id.
+// THE ROOT IS THE REGISTERED ID AND THE VERB IS NOT PART OF IT. The composer splits a
+// directive line at the first run of whitespace and hands the recogniser the FIRST WORD
+// alone, so a registered id carrying a space is unreachable by construction. Registering
+// `workflow.start` would parse the documented form `/workflow start <name>` as the
+// unregistered name `workflow`, a loud refusal for the one line that must work, and the
+// palette would prefill a dotted form nobody documents. Taking the bare root is not a
+// namespace spent on one verb: a second verb is a second word in THIS grammar rather
+// than a second registered id.
 //
 // THE VERB SET IS CLOSED AND DECLARED ONCE. An unrecognised verb is its own reading
 // rather than an absent name, because the two have different remedies: one is a
@@ -25,7 +24,7 @@ import { readDirectiveName } from "../../directive-syntax.js";
 export const WORKFLOW_COMMAND_ROOT = "workflow";
 
 /**
- * Every verb the root takes at V1. One, and the spec says so.
+ * Every verb the root takes: one.
  *
  * A tuple rather than a union so the vocabulary is declared once: a verb added here
  * reaches the reading below and the copy that names it as a compile-time fact.
@@ -43,7 +42,7 @@ export const WORKFLOW_START_DIRECTIVE_PREFILL: string = `/${WORKFLOW_COMMAND_ROO
  *
  * Three arms and each is a different sentence: the line named no verb, it named one
  * this root does not take, or it named `start` — in which case the definition name is
- * whatever follows, which is `undefined` while nothing follows it yet.
+ * whatever follows, which is `undefined` while nothing follows it.
  */
 export type WorkflowCommandReading =
   | { readonly status: "start"; readonly definitionName: string | undefined }
@@ -78,6 +77,15 @@ export function readWorkflowCommandLine(lineText: string): WorkflowCommandReadin
   }
   const argument = firstSpace === -1 ? "" : afterRoot.slice(firstSpace).trim();
   return { status: "start", definitionName: argument.length === 0 ? undefined : argument };
+}
+
+/**
+ * The line a completed candidate puts on the composer.
+ *
+ * @consumedBy the composer's workflow candidate list
+ */
+export function workflowStartLineFor(definitionName: string): string {
+  return `${WORKFLOW_START_DIRECTIVE_PREFILL}${definitionName}`;
 }
 
 /** Whether one word is a verb this root takes. Narrows, so no caller re-tests it. */

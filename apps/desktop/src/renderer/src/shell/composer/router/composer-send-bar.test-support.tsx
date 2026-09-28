@@ -1,26 +1,69 @@
-// The send bar's shared scaffolding: one bar, one store, one bridge.
+// The message line's shared scaffolding: the line and Send, one store, one bridge.
 //
-// Lives here because five suites mount the SAME bar against the same draft store,
-// and the store is the point — the bar renders a draft it does not own, so a helper
-// written beside one suite would be a second answer to what "the composer's line"
-// is in these cases.
+// Lives here because the suites mount the SAME pair against the same draft store, and
+// the store is the point — the line renders a draft it does not own and Send sends it,
+// so a helper written beside one suite would be a second answer to what "the
+// composer's line" is in these cases. No product host mounts both; the pair is the
+// composition the send cases need.
 
-import { render, type RenderResult } from "@testing-library/react";
+import { fireEvent, render, type RenderResult } from "@testing-library/react";
 import type { ConsoleBridge } from "../../../console/bridge/index.js";
-import type { RecordedDaemonCall } from "../../../console/bridge/fixture/call-plane/bridge.test-support.js";
+import {
+  bridgeAnswering,
+  type RecordedDaemonCall,
+} from "../../../console/bridge/fixture/call-plane/bridge.test-support.js";
 import { DEFAULT_ROUTE } from "../../../console/routing/index.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "../../../console/core/index.js";
 import { DraftStore } from "../../../console/persistence/index.js";
 import { FrameStore, SessionStore } from "../../../console/store/index.js";
-import type { ConsolePaneAddress } from "../../../console/seats/index.js";
+import type { ComposerSeatProps, ConsolePaneAddress } from "../../../console/seats/index.js";
 import { ProviderCommandEnumeration } from "../commands/provider-command-holder.js";
 import { SESSION_ID, STEER_APPLIED } from "./send-router.test-support.js";
 import { ComposerSendBar } from "./ComposerSendBar.js";
+import { SendButton } from "./SendButton.js";
+import type { ComposerSendCalls } from "./send-dispatch.js";
+
+/** The transport the bar's held state belongs to; every call goes through `calls` instead. */
+function inertBridge(): ConsoleBridge {
+  return bridgeAnswering(async () => undefined).bridge;
+}
 
 export function openSessionStore(): SessionStore {
   const sessionStore = new SessionStore({ sessionId: SESSION_ID });
   sessionStore.initialise({ cursor: 0, entities: [], userJoinLog: ["user-you"] });
   return sessionStore;
+}
+
+/** The line beside Send, over one draft store. */
+function LineAndSend(props: {
+  readonly seat: ComposerSeatProps;
+  readonly calls: ComposerSendCalls;
+  readonly commandEnumeration: ProviderCommandEnumeration;
+}): React.JSX.Element {
+  return (
+    <>
+      <ComposerSendBar {...props.seat} />
+      <SendButton
+        {...props.seat}
+        calls={props.calls}
+        commandEnumeration={props.commandEnumeration}
+      />
+    </>
+  );
+}
+
+/** The mounted Send, or a throw naming what was missing. */
+export function sendButton(container: HTMLElement): HTMLButtonElement {
+  const button = container.querySelector(".meridian-composer__primary");
+  if (!(button instanceof HTMLButtonElement)) {
+    throw new Error("the composer rendered no Send button");
+  }
+  return button;
+}
+
+/** Press the mounted Send, the way a pointer does. */
+export function pressSend(container: HTMLElement): void {
+  fireEvent.click(sendButton(container));
 }
 
 export interface MountedBar {
@@ -31,7 +74,7 @@ export interface MountedBar {
 }
 
 export function mountBar(options: {
-  readonly bridge: ConsoleBridge;
+  readonly calls: ComposerSendCalls;
   readonly draftStore: DraftStore;
   readonly sessionStore: SessionStore;
   readonly focusedPane?: ConsolePaneAddress | undefined;
@@ -39,13 +82,16 @@ export function mountBar(options: {
 }): MountedBar {
   const frameStore = new FrameStore();
   const result = render(
-    <ComposerSendBar
-      sessionStore={options.sessionStore}
-      bridge={options.bridge}
-      draftStore={options.draftStore}
-      frameStore={frameStore}
-      route={DEFAULT_ROUTE}
-      focusedPane={options.focusedPane}
+    <LineAndSend
+      seat={{
+        sessionStore: options.sessionStore,
+        bridge: inertBridge(),
+        draftStore: options.draftStore,
+        frameStore,
+        route: DEFAULT_ROUTE,
+        focusedPane: options.focusedPane,
+      }}
+      calls={options.calls}
       // The host owns the holder; a bar mounted alone is one nobody opened, which is
       // the state every case here but the discovery one is asserting against.
       commandEnumeration={options.commandEnumeration ?? new ProviderCommandEnumeration()}
@@ -54,6 +100,29 @@ export function mountBar(options: {
   const line = result.container.querySelector("textarea");
   if (!(line instanceof HTMLTextAreaElement)) {
     throw new Error("the send bar rendered no directive line");
+  }
+  return { result, line, frameStore };
+}
+
+/** The message line alone, as the composer host mounts it: no Send, no calls. */
+export function mountLine(options: {
+  readonly draftStore: DraftStore;
+  readonly sessionStore: SessionStore;
+}): MountedBar {
+  const frameStore = new FrameStore();
+  const result = render(
+    <ComposerSendBar
+      sessionStore={options.sessionStore}
+      bridge={inertBridge()}
+      draftStore={options.draftStore}
+      frameStore={frameStore}
+      route={DEFAULT_ROUTE}
+      focusedPane={undefined}
+    />,
+  );
+  const line = result.container.querySelector("textarea");
+  if (!(line instanceof HTMLTextAreaElement)) {
+    throw new Error("the message line rendered no field");
   }
   return { result, line, frameStore };
 }
@@ -124,30 +193,37 @@ export interface AddressableBar {
   address(agentId: string): void;
   /** The directive line, or a throw naming what was missing. */
   line(): HTMLTextAreaElement;
+  /** The window store the bar escalates into, for a case that reads its banners. */
+  readonly frameStore: FrameStore;
 }
 
 /** One mounted bar whose focused pane the case moves, without remounting it. */
-export function mountAddressable(bridge: ConsoleBridge): AddressableBar {
+export function mountAddressable(calls: ComposerSendCalls): AddressableBar {
   const draftStore = new DraftStore({
     maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT,
   });
   const sessionStore = storeWithTwoTrippedAgents();
   const enumeration = new ProviderCommandEnumeration();
   const frameStore = new FrameStore();
+  const bridge = inertBridge();
   const barFor = (agentId: string): React.JSX.Element => (
-    <ComposerSendBar
-      sessionStore={sessionStore}
-      bridge={bridge}
-      draftStore={draftStore}
-      frameStore={frameStore}
-      route={DEFAULT_ROUTE}
-      focusedPane={paneFor(agentId)}
+    <LineAndSend
+      seat={{
+        sessionStore,
+        bridge,
+        draftStore,
+        frameStore,
+        route: DEFAULT_ROUTE,
+        focusedPane: paneFor(agentId),
+      }}
+      calls={calls}
       commandEnumeration={enumeration}
     />
   );
   const result = render(barFor(FIRST_AGENT_ID));
   return {
     result,
+    frameStore,
     address: (agentId: string) => {
       result.rerender(barFor(agentId));
     },

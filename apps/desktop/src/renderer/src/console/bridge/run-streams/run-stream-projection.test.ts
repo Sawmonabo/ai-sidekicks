@@ -75,8 +75,10 @@ describe("run-stream projection — which subscriptions it answers for", () => {
     // itself; the corpus registers a projection for neither.
     const beat = runTransitionBeat(transitionPayload());
 
-    expect(projectRunStreamDelivery(SESSION_EVENT_STREAM, beat.event)).toBeUndefined();
-    expect(projectRunStreamDelivery("run.starting", beat.event)).toBeUndefined();
+    const noQueueRows = (): undefined => undefined;
+
+    expect(projectRunStreamDelivery(SESSION_EVENT_STREAM, beat.event, noQueueRows)).toBeUndefined();
+    expect(projectRunStreamDelivery("run.starting", beat.event, noQueueRows)).toBeUndefined();
   });
 
   it("negative control: the narrowed run stream does answer for the same beat", () => {
@@ -289,7 +291,9 @@ describe("run-stream projection — the session every arm's payload names", () =
   const queueArm = {
     name: "queue",
     project: (payload: Readonly<Record<string, unknown>>) =>
-      projectRunStreamDelivery(RUN_QUEUE_EVENT_STREAM, queueBeatEvent(payload), PROBE_QUEUE_ROW),
+      projectRunStreamDelivery(RUN_QUEUE_EVENT_STREAM, queueBeatEvent(payload), (queueItemId) =>
+        queueItemId === PROBE_QUEUE_ITEM_ID ? PROBE_QUEUE_ROW : undefined,
+      ),
     wellFormed: {},
   };
 

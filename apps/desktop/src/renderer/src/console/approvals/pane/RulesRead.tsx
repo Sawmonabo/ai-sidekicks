@@ -1,46 +1,24 @@
 // The standing-permission list's own read state, beside the list it belongs to.
 //
-// Split from `ApprovalsPane.tsx`. The rules read is a SECOND read next to the
-// approvals projection, and it fails independently — so it reports independently.
-// Folding the two into one state would hide a readable approvals list behind an
-// unreadable rules list, or the reverse, and a reader could not tell which of the
-// two the daemon actually refused.
+// The rules read is a SECOND read next to the approvals projection, and its phase is
+// its own: folding the two into one state would hide a readable approvals list behind
+// a rules list that is still loading, or the reverse.
 
 import { Nothing } from "../../primitives/index.js";
-import { type ConsoleRefusal } from "../../core/index.js";
 import { RememberedGrants } from "./grants/RememberedGrants.js";
 import { type RememberedRule } from "../../bridge/index.js";
 import { type ReadPhase } from "./body/approvals-read-fold.js";
 
+/** One standing-permission list, rendered for the phase its read is in. */
 export function RulesRead(props: RulesReadProps): React.JSX.Element {
-  if (props.phase.status === "not-checked") {
-    return (
-      <Nothing
-        kind="not-checked"
-        placement="surface"
-        title="Standing permissions have not been read."
-      />
-    );
-  }
   if (props.phase.status === "loading") {
     return <Nothing kind="not-loaded" placement="surface" title="Reading standing permissions." />;
-  }
-  if (props.phase.status === "refused") {
-    return (
-      <Nothing
-        kind="error"
-        placement="surface"
-        title={props.phase.refusal.code}
-        detail={props.phase.refusal.detail}
-      />
-    );
   }
   return (
     <RememberedGrants
       rules={props.phase.rows}
       unreadableCount={props.phase.unreadableCount}
       revokingRuleIds={props.revokingRuleIds}
-      revokeRefusalByRuleId={props.revokeRefusalByRuleId}
       onRevoke={props.onRevoke}
     />
   );
@@ -49,6 +27,5 @@ export function RulesRead(props: RulesReadProps): React.JSX.Element {
 interface RulesReadProps {
   readonly phase: ReadPhase<RememberedRule>;
   readonly revokingRuleIds: ReadonlySet<string>;
-  readonly revokeRefusalByRuleId: ReadonlyMap<string, ConsoleRefusal>;
   readonly onRevoke: (ruleId: string) => void;
 }

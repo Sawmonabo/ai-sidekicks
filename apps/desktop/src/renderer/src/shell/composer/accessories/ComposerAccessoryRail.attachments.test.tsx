@@ -32,12 +32,11 @@ describe("the composer's attachment strip", () => {
   });
 
   it("carries its name on an element that can hold one", async () => {
-    // The strip was a `div` with an `aria-label`, and a `div` is `generic`: naming a
-    // generic element names nothing, so the label reached no assistive technology at
-    // all. A landmark takes it — and the strip is one, a standing region beside the
-    // message line rather than decoration inside it. (The accessibility tier cannot
-    // stand in for this case: `aria-prohibited-attr` is outside the WCAG A/AA tag set
-    // that tier runs, measured 2026-09-09 against a planted `div aria-label`.)
+    // A `div` is `generic`, and naming a generic element names nothing, so an
+    // `aria-label` on one reaches no assistive technology. A landmark takes it, and the
+    // strip is one, a standing region beside the message line. The accessibility tier
+    // cannot stand in for this case: `aria-prohibited-attr` is outside the WCAG A/AA tag
+    // set that tier runs.
     const container = mountRail([]);
     const region = railRegion(container);
     const event = eventCarrying(

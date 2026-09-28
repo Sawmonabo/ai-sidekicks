@@ -12,8 +12,7 @@
 // command that carries this id is registered by `useWorkflowStartPrefill`, which the
 // discovery seat mounts and this zone does not — and the executor refuses a name the
 // surface does not list before any handler is reached. Registering it is therefore
-// scaffolding for the claim rather than part of it, and it is the same registration
-// the sibling `client-command-executor.test.ts` performs for its own zone cases.
+// scaffolding for the claim rather than part of it.
 
 import { render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -37,7 +36,7 @@ import {
   type WorkflowCalls,
 } from "./workflow-start/workflow-start.test-support.js";
 
-/** A composer addressed at a channel, which is the zone's ordinary shape. */
+/** The target the zone reads a binding's published names for. */
 const CHANNEL_TARGET: ComposerTarget = {
   path: "channel-message",
   sessionId: WORKFLOW_TEST_SESSION_ID,

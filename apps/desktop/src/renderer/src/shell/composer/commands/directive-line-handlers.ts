@@ -9,6 +9,7 @@
 // producer and the consumer, so neither can drift into a shape the other refuses.
 
 import type { CommandOutcome, DirectiveLine } from "../router/command-executor.js";
+import { WORKFLOW_COMMAND_ROOT } from "./workflow-start/grammar.js";
 
 /**
  * A command that reads arguments off the line it was typed on.
@@ -28,6 +29,15 @@ export type DirectiveLineHandlers = ReadonlyMap<
   string,
   (line: DirectiveLine) => Promise<CommandOutcome>
 >;
+
+/**
+ * The commands that read their arguments off the typed line.
+ *
+ * Keyed by the same ids as the registry. A line typed for one of these with no handler
+ * in the map is not run, because the palette act would run it with the arguments thrown
+ * away.
+ */
+export const LINE_READING_COMMAND_IDS: readonly string[] = [WORKFLOW_COMMAND_ROOT];
 
 /**
  * No argument-reading command, for an executor built where a LINE never exists.

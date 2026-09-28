@@ -1,64 +1,40 @@
 // What the composer's meters read, and the one place a reading is narrowed.
 //
-// THE WIRE POSITION, STATED RATHER THAN ASSUMED. `usage.context_window_update` and
-// `usage.context_compacted` are registered session EVENT TYPES — each is in
-// `SESSION_EVENT_TYPES` and in the category map — and `SessionEventSchema` registers
-// a payload variant for neither. There is no schema to parse against and no
-// generated type to import: the payload reaches the store as
-// `Readonly<Record<string, unknown>>`, and this module is the only place in the
-// composer that turns one into a figure.
+// THE WIRE POSITION. `usage.context_window_update` and `usage.context_compacted` are
+// registered session EVENT TYPES, each in `SESSION_EVENT_TYPES` and in the category map,
+// and `SessionEventSchema` registers a payload variant for neither. There is no schema to
+// parse against and no generated type to import: the payload reaches the store as
+// `Readonly<Record<string, unknown>>`, and this module is the only place in the composer
+// that turns one into a figure. The account-plane quota reading is folded in
+// `console/bridge/quotas/provider-quota-fold.ts`; the two readings here are session-scoped.
 //
-// AND WHY THE RATE-LIMIT FOLD IS NO LONGER HERE. It used to be — a third fold over
-// `usage.rate_limit_update` rows, keyed `(providerAccountId, limitId)`, producing the
-// composer's quota chips. That event is ACCOUNT-PLANE: it is bound to the reserved
-// node-scope sentinel session, so a live session store holds none of them and the chips
-// could appear only under a fixture that put one in a session's log. The fold moved
-// whole to `console/bridge/quotas/provider-account-quota.ts`, which reads the registry
-// the wire actually publishes it on; the two readings this module still narrows are
-// genuinely session-scoped and stay.
+// THE NARROWING RULE. A reading is produced only when every member it needs is present at
+// the right type; a payload short one member yields NO reading rather than a partial one,
+// because a meter drawn from half a payload is a meter that invented the other half. The
+// surfaces above render the "not checked" absence, which is the honest answer to "we have
+// not been told".
 //
-// That makes the narrowing rule sharp. A reading is produced only when every member
-// it needs is present at the right type; a payload short one member yields NO
-// reading rather than a partial one, because a meter drawn from half a payload is a
-// meter that invented the other half. The surfaces above then render the
-// "not checked" absence, which is the honest answer to "we have not been told".
+// THE MEMBERS ARE THE REGISTERED ONES. The registered usage-telemetry payload carries
+// `windowUsedTokens?`, `windowMaxTokens?`, `windowSource?`, and `exceeded?`. The wire sends
+// counts and no percentage, so this module derives the presentation percentage from the
+// counts; a surface that read a percentage would be reading a member that does not exist.
 //
-// AND THE MEMBERS ARE THE REGISTERED ONES, NOT THE ONES A FIXTURE HAPPENED TO SEND.
-// The context reading used to be narrowed from `usagePercent`, `tokenCount`, and
-// `maxTokens` — three names that appear in this repository's own fixtures and in no
-// registered payload. The registered usage-telemetry payload gives this type
-// `windowUsedTokens?`, `windowMaxTokens?`, `windowSource?`, and `exceeded?`, so
-// the shipped narrowing could never have matched a daemon-sent row and the meter
-// would have rendered the "not reported" absence against a live session forever. The
-// adaptation happens HERE and nowhere above: the wire sends counts and this module
-// derives the presentation percentage from them, because the wire sends no
-// percentage and a surface that read one would be reading a member that does not
-// exist.
+// EVERY READING IS ONE RUN'S. A session holds as many provider conversations as it has
+// runs, and a context window belongs to one of them, so the reading takes the ADDRESSED run
+// as an input, as the compaction fold does. A row whose `runId` is absent, empty, or not a
+// string is read for no run at all: attributing an unattributed row to whichever run the
+// composer points at would be a fabrication. A composer addressed to the session asks for
+// no reading at all.
 //
-// AND EVERY READING IS ONE RUN'S. A session holds as many provider conversations as
-// it has runs, and a context window belongs to one of them: the newest row anywhere
-// in the session was answering "how full is that conversation" about whichever run
-// spoke last. So the context reading takes the ADDRESSED run as an input exactly as
-// the compaction fold does, and a row whose `runId` is absent, empty, or not a
-// string is read for no run at all — attributing an unattributed row to whichever
-// run the composer happens to point at is the same fabrication in the other
-// direction. The wire types that member `runId?`, so the absence is a shape it admits
-// and this module answers with no reading rather than with a guess. A composer
-// addressed to the session asks for no reading at all.
-//
-// AND A COMPACTION BOUNDARY IS PART OF THE READING, not a separate fact beside it. The
-// consumer obligation is stated on the wire in terms: a compaction invalidates the
-// run's last used-tokens reading — replaced by `postCompactionTokens` when present,
-// else unknown until the next `usage.context_window_update`. A fold that read only the
-// update rows honoured neither arm: the meter stayed at the pre-compaction figure,
-// indefinitely where no update followed, and went on advising a compaction that had
-// already happened. So the newest boundary ABOVE the newest update is what decides, and
-// its two arms are the wire's own. What the compacted arm carries forward from the
-// superseded update is the DENOMINATOR and its grade — a compaction shrinks the
-// conversation, not the window, and dropping the grade would silently promote an
-// estimated window to the ungraded render a provider-reported one gets — while
-// `exceeded` is dropped, because a compaction is the wire's own evidence that the state
-// that flag reported has ended.
+// A COMPACTION BOUNDARY IS PART OF THE READING. The wire states the consumer obligation: a
+// compaction invalidates the run's last used-tokens reading, replaced by
+// `postCompactionTokens` when present, else unknown before the next
+// `usage.context_window_update`. So the newest boundary ABOVE the newest update decides,
+// and its two arms are the wire's own. The compacted arm carries forward the DENOMINATOR
+// and its grade from the superseded update, because a compaction shrinks the conversation
+// and not the window, and dropping the grade would promote an estimated window to the
+// ungraded render a provider-reported one gets. `exceeded` is dropped, because a compaction
+// is the wire's own evidence that the state that flag reported has ended.
 //
 // THE COUNTS TRAVEL AS A PAIR, and this reading requires both. A payload naming one of
 // them is an emitter bug, and the reading it would otherwise produce is worse than
@@ -79,13 +55,7 @@ import type { ConsoleSessionEvent } from "../../../console/store/index.js";
 /** The registered event type the context meter reads. Verbatim, never composed. */
 export const CONTEXT_WINDOW_EVENT_KIND = "usage.context_window_update";
 
-/**
- * The registered event type that is the ONLY evidence a compaction happened.
- *
- * The compaction control settles on its own call; the COMPLETED state is this row
- * and nothing else, which is why the constant sits beside the other two rather than
- * inside the control — the control offers, and the log records.
- */
+/** The registered event type that is the ONLY evidence a compaction happened. */
 export const CONTEXT_COMPACTED_EVENT_KIND = "usage.context_compacted";
 
 /**
@@ -116,16 +86,16 @@ export interface ContextWindowReading {
   /**
    * How the counts were obtained, when the wire named it.
    *
-   * Absent is pre-amendment history rather than a fourth grade — a post-B1 emitter
-   * MUST set it — and a surface renders provenance only where the wire named one.
+   * Absent means the wire did not say, not a fourth grade, and a surface renders
+   * provenance only where the wire named one.
    */
   readonly windowSource: ContextWindowSource | undefined;
   /**
    * The provider's own terminal statement that the window is exhausted.
    *
    * Carried as sent. A surface renders the exceeded arm on `true` alone and never
-   * on an absence, because absence is what a pre-amendment emitter sends and not a
-   * provider saying the window is fine.
+   * on an absence, because absence is the wire not saying and not a provider saying
+   * the window is fine.
    */
   readonly exceeded: boolean | undefined;
   /** The row this reading came from, so two readings can be ordered. */
@@ -138,12 +108,10 @@ export interface ContextWindowReading {
  * Newest by SEQUENCE and not by `occurredAt`: sequence is the session's own total
  * order and the store already dedupes and gap-checks on it, while two rows can
  * share a millisecond. The meter never redraws from a prediction, so it renders the
- * last thing it was told rather than the last thing that happened.
+ * last reading it received rather than the last thing that happened.
  *
- * The run filter is what makes the answer a reading of the conversation the
- * composer is addressed to. Without it a session running two agents at once showed
- * the composer addressed to one of them the other's fullness, and offered to
- * compact on the strength of it.
+ * The run filter is what makes the answer a reading of the conversation the composer is
+ * addressed to: with two agents running at once, each reports its own fullness.
  */
 export function newestContextWindowReading(
   timeline: readonly ConsoleSessionEvent[],
@@ -183,7 +151,7 @@ export function newestContextWindowReading(
  * update measured; one carrying none leaves the ratio UNKNOWN, and unknown is no
  * reading — the surfaces above then render the absence, which is the honest answer
  * to "how full is it now" while the only figure available describes a conversation
- * that no longer exists.
+ * the compaction ended.
  */
 function readingAfterCompaction(
   superseded: ContextWindowReading | undefined,
@@ -198,7 +166,7 @@ function readingAfterCompaction(
     windowMaxTokens: superseded.windowMaxTokens,
     windowSource: superseded.windowSource,
     // Never carried across a boundary: the compaction is the evidence that the
-    // window the provider called full is no longer the window in front of anyone.
+    // window the provider called full is not the window in front of anyone.
     exceeded: undefined,
     sequence: boundary.sequence,
   };

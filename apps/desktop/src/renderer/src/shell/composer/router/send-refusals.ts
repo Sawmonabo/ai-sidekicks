@@ -43,7 +43,6 @@ export const DAEMON_REFUSAL_ORIGIN = "daemon";
  */
 export const COMPOSER_REFUSAL_CODES = [
   "empty-message",
-  "slash-prefix-unsupported",
   "run-version-unread",
   "identifier-unparseable",
   "command-unexecutable",

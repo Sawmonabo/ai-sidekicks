@@ -35,6 +35,7 @@ import {
 } from "../../../console/store/index.js";
 import type { ConsolePaneAddress } from "../../../console/seats/index.js";
 import { MessageComposer } from "../../MessageComposer.js";
+import { composerDraftKey } from "../router/draft-key.js";
 import { settleEnumeration } from "./provider-command-read.js";
 // The enumeration method string and the recording bridge are the holder suite's, and
 // there is one of each: two copies would let the two suites disagree about which call
@@ -89,17 +90,6 @@ export const UNADDRESSED_CODEX_GROUP: ProviderCommandBindingGroup = {
   ],
   complete: true,
 } satisfies ProviderCommandBindingGroup;
-/**
- * The registered `run.queueCreate` reply, for the cases that need a send to LAND.
- *
- * The router parses this response before reporting a send, so an unregistered shape
- * settles as a refusal and records nothing in the history these cases walk.
- */
-export const QUEUE_CREATED: Readonly<Record<string, unknown>> = {
-  queueItemId: "5e6f7a8b-9c0d-4e1f-8a2b-7c8d9e0f1a2b",
-  state: "queued",
-  createdAt: "2026-09-02T09:00:00.000Z",
-};
 export const registeredIds: string[] = [];
 
 /**
@@ -228,6 +218,8 @@ export interface MountedComposer {
   readonly container: HTMLElement;
   readonly line: HTMLTextAreaElement;
   readonly rerenderAt: (pane: ConsolePaneAddress) => Promise<void>;
+  /** Write the session-addressed draft through the store, as a surface elsewhere would. */
+  readonly writeDraft: (text: string) => Promise<void>;
   /** Take the composer down, for the cases about what its teardown releases. */
   readonly unmount: () => void;
 }
@@ -267,6 +259,15 @@ export async function mountComposer(options: {
     line,
     unmount: (): void => {
       mounted.unmount();
+    },
+    writeDraft: async (text) => {
+      await act(async () => {
+        draftStore.write(
+          composerDraftKey({ path: "channel-message", sessionId: route.sessionId }),
+          text,
+        );
+        await crossMacrotaskBoundary();
+      });
     },
     rerenderAt: async (pane) => {
       await act(async () => {

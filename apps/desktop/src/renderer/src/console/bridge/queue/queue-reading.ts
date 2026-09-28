@@ -5,10 +5,9 @@
 // one. This module never opens a stream or names a method: the list and the tail are
 // calls it is handed.
 //
-// The rows are a fold over what the daemon sends, kept by `QueueOrder`: the order is
-// rendered and never reordered, and a canceled row stays visible. A surface that shows
-// only the waiting rows filters at the point it renders. There is no reorder or
-// priority control; cancel-before-admission is the queue's only removal path.
+// The rows are a fold over what the daemon sends, kept by `QueueOrder`: this file has no
+// sort of its own and keeps the order the daemon gave, and a canceled row stays in the
+// feed. A surface that shows only the waiting rows filters at the point it renders.
 //
 // THE SNAPSHOT IS TAKEN BEHIND THE TAIL AND ONLY BEHIND IT. A list read with no stream
 // up stops being true the moment it lands, so the tail is opened first and the open

@@ -6,12 +6,14 @@
 // watcher arrives and forgets them when the last leaves, so a window with no queue
 // surface mounted holds no subscription and a surface that mounts later reads afresh.
 //
-// The calls are supplied by the surface that mints a reading; a later surface on the
-// same bridge and session shares that reading and its calls. Callers pass one stable
-// `QueueCalls` object per window rather than building one per render.
+// The calls are supplied by the surface that mints a reading, through a forwarder that
+// reads that surface's latest calls, so a surface may hand over a new `QueueCalls`
+// object each render. A later surface on the same bridge and session shares that
+// reading and the forwarder it was minted with.
 
 import { useCallback, useMemo, useSyncExternalStore } from "react";
 
+import { useLatestRef } from "../../primitives/index.js";
 import {
   useSessionReadTriggers,
   useWindowReadTriggers,
@@ -91,30 +93,31 @@ export function useQueueFeed(
   sessionId: string,
   calls: QueueCalls,
 ): QueueFeed {
+  const forwardedCalls = useForwardedCalls(calls);
   // Both callbacks go through the registry rather than closing over the reading this
   // render resolved: that reading can be retired before React runs the subscription's
   // setup, and watching a retired one would revive it outside the registry.
   const subscribe = useCallback(
     (onFeedChanged: () => void) =>
-      sessionQueueReadings.watch(bridge, sessionId, calls, onFeedChanged),
-    [bridge, sessionId, calls],
+      sessionQueueReadings.watch(bridge, sessionId, forwardedCalls, onFeedChanged),
+    [bridge, sessionId, forwardedCalls],
   );
   const readFeed = useCallback(
-    () => sessionQueueReadings.reading(bridge, sessionId, calls).snapshot(),
-    [bridge, sessionId, calls],
+    () => sessionQueueReadings.reading(bridge, sessionId, forwardedCalls).snapshot(),
+    [bridge, sessionId, forwardedCalls],
   );
   // Resolved at trigger time for the same reason, so the mount trigger fires once per
   // pair rather than once per render.
   const readTrigger = useMemo<ReadTriggerTarget>(
     () => ({
       get triggeringEventKinds(): ReadonlySet<string> {
-        return sessionQueueReadings.reading(bridge, sessionId, calls).triggeringEventKinds;
+        return sessionQueueReadings.reading(bridge, sessionId, forwardedCalls).triggeringEventKinds;
       },
       requestRead: (reason: RefreshReason): void => {
-        sessionQueueReadings.reading(bridge, sessionId, calls).requestRead(reason);
+        sessionQueueReadings.reading(bridge, sessionId, forwardedCalls).requestRead(reason);
       },
     }),
-    [bridge, sessionId, calls],
+    [bridge, sessionId, forwardedCalls],
   );
   const feed = useSyncExternalStore(subscribe, readFeed, readFeed);
   // Wired after the subscription, and the order is load-bearing: the subscription is
@@ -138,16 +141,35 @@ export function useQueueRepairRead(
   calls: QueueCalls,
 ): void {
   const { sessionId } = sessionStore;
+  const forwardedCalls = useForwardedCalls(calls);
   const readTrigger = useMemo<ReadTriggerTarget>(
     () => ({
       get triggeringEventKinds(): ReadonlySet<string> {
-        return sessionQueueReadings.reading(bridge, sessionId, calls).triggeringEventKinds;
+        return sessionQueueReadings.reading(bridge, sessionId, forwardedCalls).triggeringEventKinds;
       },
       requestRead: (reason: RefreshReason): void => {
-        sessionQueueReadings.reading(bridge, sessionId, calls).requestRead(reason);
+        sessionQueueReadings.reading(bridge, sessionId, forwardedCalls).requestRead(reason);
       },
     }),
-    [bridge, sessionId, calls],
+    [bridge, sessionId, forwardedCalls],
   );
   useSessionReadTriggers(readTrigger, sessionStore);
+}
+
+/**
+ * The calls a reading makes, forwarded to the latest committed `calls`.
+ *
+ * Stable for the life of the surface, so a new `calls` object each render neither
+ * re-subscribes the reading nor is ignored by one already minted.
+ */
+function useForwardedCalls(calls: QueueCalls): QueueCalls {
+  const latest = useLatestRef(calls);
+  return useMemo<QueueCalls>(
+    () => ({
+      list: (sessionId) => latest.current.list(sessionId),
+      tail: (sessionId, onItem) => latest.current.tail(sessionId, onItem),
+      cancel: (queueItemId) => latest.current.cancel(queueItemId),
+    }),
+    [latest],
+  );
 }

@@ -5,7 +5,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { opensDirectiveLine, readDirectiveName } from "./directive-syntax.js";
+import { readDirectiveName } from "./directive-syntax.js";
 
 describe("readDirectiveName", () => {
   it("opens on a leading slash and reports the typed name", () => {
@@ -33,16 +33,5 @@ describe("readDirectiveName", () => {
 
   it("negative control: ordinary prose names nothing", () => {
     expect(readDirectiveName("compact the context")).toBeUndefined();
-  });
-});
-
-describe("opensDirectiveLine", () => {
-  it("claims the trigger at the first byte", () => {
-    expect(opensDirectiveLine("/compact")).toBe(true);
-  });
-
-  it("negative control: leaves indented and unprefixed text to prose", () => {
-    expect(opensDirectiveLine("  /compact")).toBe(false);
-    expect(opensDirectiveLine("compact")).toBe(false);
   });
 });

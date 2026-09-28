@@ -1,15 +1,15 @@
 // How far a wire reading has got, and what it could not read on the way.
 //
-// WHAT PUTS A MODULE HERE. A module that is about the READING rather than about any
-// one wire: the phases a push-driven read passes through and the refusal it settles
-// on, and the ledger that counts a delivery the console could not narrow instead of
-// dropping it. They are not one wire's, which is what makes this a directory rather
-// than a pair of helpers parked beside one of its readers. The harness that settles a scheduled read sits
-// here for the same reason and is published by nobody: it is about when a reading has
-// finished, which is this subject and no one wire's.
+// WHAT PUTS A MODULE HERE. A module that is about the READING rather than about any one wire: the
+// phases a push-driven read passes through and the refusal it settles on, and the ledger that
+// counts a delivery the console could not narrow instead of dropping it. They are not one wire's,
+// which is what makes this a directory rather than a pair of helpers parked beside one of its
+// readers. The harness that settles a scheduled read sits here for the same reason and is published
+// by nobody: it is about when a reading has finished, which is this subject and no one wire's.
 //
-// WHY THE FEEDS ARE NOT HERE. `quotas/` and `driver-capabilities/` each fold ONE wire; this folds none. A directory that held the mechanism and one of its
-// consumers would make the second consumer's import read as a borrow from the first.
+// WHY THE FEEDS ARE NOT HERE. `quotas/` and `driver-capabilities/` each fold ONE wire; this folds
+// none. A directory that held the mechanism and one of its consumers would make the second
+// consumer's import read as a borrow from the first.
 //
 // A SUB-MODULE DOOR, NOT A SECOND FAMILY DOOR — `growth-values/index.ts` states the
 // rule. `bridge/index.ts` re-exports from the declaring module, never through here.

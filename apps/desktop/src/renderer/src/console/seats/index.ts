@@ -157,15 +157,6 @@ export {
 } from "./pane/pane-kinds.js";
 
 export {
-  registerComposerAttachMenuEntry,
-  /** @consumedBy a view family that has not landed yet */
-  type ComposerAttachMenuContext,
-  type ComposerArtifactAttachment,
-  type ComposerAttachMenuEntry,
-  type ComposerAttachOutcome,
-} from "./composer/composer-attach-menu.js";
-
-export {
   /** @consumedBy a view family that has not landed yet */
   panesForLayoutSnapshot,
   /** @consumedBy a view family that has not landed yet */

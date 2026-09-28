@@ -36,7 +36,7 @@ describe("recognizeClientCommand", () => {
     expect(recognition.refusal.detail).toContain("compact");
   });
 
-  it("refuses an unregistered name as unknown, naming the name rather than the escape", () => {
+  it("refuses an unregistered name as unknown, naming the name", () => {
     const recognition = recognizeClientCommand("nowhere.atAll", INPUT);
 
     expect(recognition.status).toBe("refused");

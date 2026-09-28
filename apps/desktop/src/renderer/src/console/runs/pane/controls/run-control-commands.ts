@@ -33,7 +33,6 @@ import type { RunState } from "@ai-sidekicks/contracts";
 import { RUN_CONTROL_PRESENTATION } from "./control-presentation.js";
 import { type RunControl } from "./run-control-dispatch.js";
 import { offeredRunControls } from "./run-control-gating.js";
-import { goneRunIds } from "./run-control-reading.js";
 import { type RunControlSurface } from "./run-control-surface.js";
 
 /** The owner these rows are contributed under. One per family, one live at a time. */
@@ -83,11 +82,7 @@ export interface RunControlCommandInput {
  * Contribute the controls of every described run for as long as the caller is mounted.
  */
 export function useRunControlCommands(input: RunControlCommandInput): void {
-  const rows = runControlCommandRows(
-    input.runs,
-    input.driverCapabilities,
-    goneRunIds(input.surface),
-  );
+  const rows = runControlCommandRows(input.runs, input.driverCapabilities);
   // Refreshed by every COMMITTED render and never in the render body: a registered
   // row reads the run list, the comparand source, and the dispatcher through
   // this at invoke time, and a render-body write would let a concurrent pass React
@@ -119,26 +114,15 @@ export function useRunControlCommands(input: RunControlCommandInput): void {
  *
  * The run id joins the title only where the session has more than one run to
  * confuse it with. With one run "Pause the run" is unambiguous and the id is
- * noise; with two it is the only thing distinguishing the entries — and the
- * NAMING is decided over the described runs rather than the contributed ones, so a
- * gone run still disambiguates the titles of the runs beside it.
+ * noise; with two it is the only thing distinguishing the entries.
  */
 export function runControlCommandRows(
   runs: readonly RunControlCommandRun[],
   driverCapabilities: DriverCapabilityReadout | undefined,
-  /**
-   * Runs the daemon has answered do not exist. Contributed against by nobody: the
-   * row's strip withdraws every control for one of these, and a palette that kept
-   * offering them would be the second set this whole module exists to prevent.
-   */
-  goneRuns: ReadonlySet<string>,
 ): readonly RunControlCommandRow[] {
   const rows: RunControlCommandRow[] = [];
   const namesTheRun = runs.length > 1;
   for (const run of runs) {
-    if (goneRuns.has(run.runId)) {
-      continue;
-    }
     const offered = offeredRunControls(run, driverCapabilities);
     for (const control of [...offered.primary, ...offered.overflow]) {
       const presentation = RUN_CONTROL_PRESENTATION[control];

@@ -7,7 +7,12 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { capabilityReadout } from "./driver-capability-readout.test-support.js";
-import { commandRun, recordingRunControlSurface } from "./run-control-commands.test-support.js";
+import {
+  RUN_ID as FIRST_RUN,
+  SECOND_RUN_ID as SECOND_RUN,
+  commandRun,
+  recordingRunControlSurface,
+} from "./run-control-commands.test-support.js";
 import {
   dispatchRunControlCommand,
   runControlCommandRows,
@@ -15,12 +20,6 @@ import {
   type RunControlCommandRun,
 } from "./run-control-commands.js";
 import { type RunControlSurface } from "./run-control-surface.js";
-
-const FIRST_RUN = "b3f0a1c2-4d5e-4f60-8a71-9c2d3e4f5061";
-const SECOND_RUN = "c4a1b2d3-5e6f-4071-8b82-0d3e4f506172";
-
-/** No run has been answered gone, which is every case but the two that say so. */
-const NO_GONE_RUNS: ReadonlySet<string> = new Set<string>();
 
 const CAPABLE = capabilityReadout(
   [["claude", ["steer"]]],
@@ -46,7 +45,7 @@ function inputFor(
 
 describe("the rows the runs pane contributes", () => {
   it("contributes one row per control the row itself offers", () => {
-    const rows = runControlCommandRows([commandRun(FIRST_RUN)], CAPABLE, NO_GONE_RUNS);
+    const rows = runControlCommandRows([commandRun(FIRST_RUN)], CAPABLE);
 
     expect(rows.map((row) => row.control)).toEqual(["pause", "interrupt", "steer"]);
   });
@@ -54,23 +53,19 @@ describe("the rows the runs pane contributes", () => {
   it("drops steer where the bound driver did not declare it", () => {
     const bare = capabilityReadout([["codex", []]], [[FIRST_RUN, "codex"]]);
 
-    const rows = runControlCommandRows([commandRun(FIRST_RUN)], bare, NO_GONE_RUNS);
+    const rows = runControlCommandRows([commandRun(FIRST_RUN)], bare);
 
     expect(rows.map((row) => row.control)).toEqual(["pause", "interrupt"]);
   });
 
   it("leaves the run unnamed while the session has only one", () => {
-    const rows = runControlCommandRows([commandRun(FIRST_RUN)], CAPABLE, NO_GONE_RUNS);
+    const rows = runControlCommandRows([commandRun(FIRST_RUN)], CAPABLE);
 
     expect(rows[0]?.title).toBe("Pause the run");
   });
 
   it("names the run as soon as there are two to confuse", () => {
-    const rows = runControlCommandRows(
-      [commandRun(FIRST_RUN), commandRun(SECOND_RUN)],
-      CAPABLE,
-      NO_GONE_RUNS,
-    );
+    const rows = runControlCommandRows([commandRun(FIRST_RUN), commandRun(SECOND_RUN)], CAPABLE);
 
     expect(rows[0]?.title).toBe(`Pause the run ${FIRST_RUN}`);
     expect(rows.filter((row) => row.runId === SECOND_RUN).length).toBeGreaterThan(0);
@@ -112,33 +107,5 @@ describe("what running a contributed row does", () => {
     );
 
     expect(calls).toEqual([]);
-  });
-});
-
-describe("a run the daemon says is gone is contributed against by nobody", () => {
-  it("drops every one of its rows while the runs beside it keep theirs", () => {
-    // The row's own strip withdraws every control for a gone run, and the palette
-    // offering them anyway would be the second offer set this module exists to stop.
-    const rows = runControlCommandRows(
-      [commandRun(FIRST_RUN), commandRun(SECOND_RUN)],
-      CAPABLE,
-      new Set([FIRST_RUN]),
-    );
-
-    expect(rows.every((row) => row.runId === SECOND_RUN)).toBe(true);
-    expect(rows.length).toBeGreaterThan(0);
-  });
-
-  it("still names the run in the surviving titles, because two runs were described", () => {
-    // The naming is decided over the DESCRIBED runs, not the contributed ones: a
-    // gone row still sits on screen carrying its id, so a bare "Pause the run" in
-    // the palette would be ambiguous against it.
-    const rows = runControlCommandRows(
-      [commandRun(FIRST_RUN), commandRun(SECOND_RUN)],
-      CAPABLE,
-      new Set([FIRST_RUN]),
-    );
-
-    expect(rows[0]?.title).toBe(`Pause the run ${SECOND_RUN}`);
   });
 });

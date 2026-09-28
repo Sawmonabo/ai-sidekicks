@@ -3,8 +3,8 @@
 // "No driver hosts a registry", "this build has not read the driver's flags",
 // "the registry read has not settled", and "the registry is withheld" are different
 // facts with different next moves — and an exposed registry that happens to be empty
-// reads identically to the withheld one unless the component keeps them apart. Each case below is the one that fails when two of
-// them merge.
+// reads identically to the withheld one unless the component keeps them apart. Each
+// case below is the one that fails when two of them merge.
 //
 // The capability and the registry are separate props because they are separate
 // reads: the flag comes from `driver.listCapabilities` and the entries from the

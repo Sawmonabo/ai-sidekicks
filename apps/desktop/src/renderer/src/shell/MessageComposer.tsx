@@ -1,36 +1,33 @@
 // The composer: the shell chrome every session view contains, and the seat's body.
 //
-// It is the shell chrome every session view already contains — one input, one
-// primary action, and the two chips that say where a message is going and under what
-// posture. The workspace mounts whatever fills the composer seat; this file is what
-// fills it.
+// The workspace mounts whatever fills the composer seat; this file is what fills it.
 //
 // WHAT THIS FILE IS, AND WHAT IT IS NOT
 //
-// It is the HOST: the region, its accessible framing, and the four zones in their
-// order. It is not the send router, not the chips, not the command surface, and not
-// the accessories — each of those is a zone behind its own barrel, filled by its own
-// lane, so four lanes edit four directories instead of one file four ways.
+// It is the HOST: the region, its accessible framing, and the zones it mounts in their
+// order. It is not the send router, not the chips, not the command surface, and not the
+// accessories — each of those is a zone of its own, so separate lanes edit separate
+// directories instead of one file several ways.
 //
-// It reads no wire itself. All four zones are handed the seat's own props: the
-// chip rail and the send bar resolve the address from the session store, and the
-// accessory rail reads the session's meters and queue through the bridge. Every
-// zone renders the absence of a read rather than a guess at its answer.
+// It reads no wire itself. The zones are handed the seat's own props: the accessory
+// rail reads the session's context meter off the session store and carries attachments
+// through the bridge, and every zone renders the absence of a read rather than a
+// guess at its answer.
 //
-// THE HOST OWNS THE TWO THINGS TWO ZONES HAVE TO SHARE, and nothing else. The
-// command zone's discovery popover opens on a leading slash in the message line —
-// a line the send bar owns and this host does not — so it is handed the region and
-// OBSERVES the line's own value there rather than being given a copy of it. The
-// alternative would be a second source of truth for what a person has typed.
+// THE MESSAGE LINE IS MOUNTED AND SEND IS NOT. The line reads and writes the addressed
+// draft and needs no call, so the host draws it. `SendButton` takes the two daemon
+// calls a send makes as an argument and the seat's props carry none, so this host
+// draws no Send control: Enter keeps the draft as typed and sends nothing.
 //
-// The second is the provider command enumeration. The popover LISTS what the bound
-// provider publishes and the send bar has to know whether a typed `/name` is one of
-// those entries, and both readings must be one: a second hook in the send bar would be
-// a second read of one wire, and a copy kept beside the router would be a stored list,
-// which the composer may not keep — the enumeration is read live and never cached. So
-// the host constructs one holder and hands it to both — the popover opens it, the send
-// bar only reads it. The host still reads no wire itself; it owns the holder the way
-// it owns the region.
+// THE HOST OWNS WHAT ZONES HAVE TO SHARE, and nothing else. The command zone's
+// discovery popover opens on a leading slash in the addressed draft and is handed the
+// region, so it OBSERVES the draft store's own value there rather than being given a
+// copy of it.
+//
+// The provider command enumeration is the host's too: the popover LISTS what the bound
+// provider publishes, and the enumeration is read live and never cached, so the host
+// constructs one holder and hands it to the popover, which opens it. The host still
+// reads no wire itself; it owns the holder the way it owns the region.
 //
 // THE HOLDER IS A RESOURCE AND IS HELD AS ONE. It owns an open read and a generation
 // that supersedes one, so it has a lifetime, and `useMemo` does not give a value one:
@@ -49,7 +46,7 @@ import { useSubjectScopedResource, type SubjectScopedDisposal } from "../console
 import { ComposerAccessoryRail } from "./composer/accessories/index.js";
 import { ProviderCommandAutocomplete } from "./composer/commands/index.js";
 import { ProviderCommandEnumeration } from "./composer/commands/provider-command-holder.js";
-import { ComposerSendBar } from "./composer/router/index.js";
+import { ComposerSendBar } from "./composer/router/ComposerSendBar.js";
 
 /** Declared rather than an arrow, so the resource holder is handed a stable pair. */
 function openEnumeration(): ProviderCommandEnumeration {
@@ -109,7 +106,7 @@ export function MessageComposer(props: ComposerSeatProps): React.JSX.Element {
       <p className="meridian-visually-hidden" id={descriptionId}>
         Composing in session {props.sessionStore.sessionId}.
       </p>
-      <ComposerSendBar {...props} commandEnumeration={commandEnumeration} />
+      <ComposerSendBar {...props} />
       <ProviderCommandAutocomplete
         {...props}
         region={regionRef}

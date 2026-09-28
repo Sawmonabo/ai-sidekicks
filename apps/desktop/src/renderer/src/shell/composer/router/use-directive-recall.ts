@@ -51,11 +51,10 @@ export function useDirectiveRecall(
   draftKey: string,
   readDraftText: () => string,
 ): DirectiveRecall {
-  // `useState` with an INITIALIZER, which is the console's shape for a per-mount
-  // object (`store/read/generation-latch.ts`, `store/subject-scoped/subject-scoped-state.ts`) and the only
-  // one that constructs once. `useRef(new AddressedDirectiveHistories())` evaluated
-  // the constructor on every render and threw the result away — a fresh histories map
-  // allocated per keystroke in the composer, for a value the ref already held.
+  // `useState` with an INITIALIZER, which is the console's shape for a per-mount object
+  // (`store/read/generation-latch.ts`, `store/subject-scoped/subject-scoped-state.ts`)
+  // and the only one that constructs once: `useRef(new AddressedDirectiveHistories())`
+  // would evaluate the constructor on every render and throw the result away.
   const [histories] = useState(() => new AddressedDirectiveHistories());
   const history = histories.forAddress(draftKey);
 

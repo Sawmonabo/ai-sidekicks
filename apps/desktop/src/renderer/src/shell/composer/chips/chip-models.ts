@@ -4,11 +4,11 @@
 // nothing renders a value the wire has not supplied, so the resolver lives apart from
 // the components: a derivation inside a render body is one nobody can drive from a test.
 //
-// EVERY FIELD IS `undefined`-ABLE ON PURPOSE. The console has no projector for the
-// `agent` or `run` partitions today — each view family registers its own, and the
-// registry that takes them is constructed above the composer seat — so the resolver
-// routinely answers with an incomplete target. That is the honest answer; defaulting a
-// missing field is how a console starts asserting facts nobody established.
+// THE WIRE-READ FIELDS ARE `undefined`-ABLE ON PURPOSE. Each view family registers its own
+// projector for the `agent` and `run` partitions, and the registry that takes them is built
+// above the composer seat, so the resolver can answer with an incomplete target. That is
+// the honest answer; defaulting a missing field is how a console starts asserting facts
+// nobody established.
 
 import { readWireNumber, readWireString } from "../../../console/core/index.js";
 import type { ConsoleEntity, ConsoleEntityRef } from "../../../console/store/index.js";
@@ -38,44 +38,23 @@ export interface ComposerRunTarget {
   readonly path: "provider-bound";
   readonly sessionId: string;
   readonly agentId: string;
-  /** Wire-verbatim display name, absent until the roster read supplies one. */
-  readonly agentName: string | undefined;
   /**
-   * The bound driver's wire-verbatim registry name, absent until the wire says.
+   * The bound driver's wire-verbatim registry name, `undefined` when the wire has not said.
    *
-   * Carried on the target because the accessory rail gates the compaction control
-   * on THIS driver's declaration: the capability reply names one report per driver
-   * and the console holds one binding per agent, so a rail that could not name the
-   * driver would have to intersect every report and hide a capable driver's control
-   * whenever some other driver in the session lacked the flag.
+   * Provider commands are filtered to this driver: the capability reply names one report
+   * per driver and the console holds one binding per agent, so a target that could not
+   * name the driver would have to intersect every report.
    */
   readonly driverName: string | undefined;
   readonly targetRunId: string;
   /**
    * The optimistic-concurrency comparand (`RunStateChangeEvent.runVersion`).
    *
-   * `undefined` until `run.subscribeState` has been read for this run. The wire
-   * makes it MANDATORY and fail-closed on `run.intervene`, so an absent comparand
-   * is a refusal to dispatch and never a zero: sending `0` would be a stale-replay
-   * guard the caller supplied rather than one the daemon verified.
+   * `run.intervene` requires it and fails closed, so `undefined` is a refusal to
+   * dispatch and never a zero: sending `0` would be a stale-replay guard the caller
+   * supplied rather than one the daemon verified.
    */
   readonly expectedRunVersion: number | undefined;
-  /**
-   * Wire-verbatim run state, rendered as received.
-   *
-   * AND IT REACHES HERE THROUGH THE SESSION STORE RATHER THAN THROUGH THE LIVE
-   * SUBSCRIPTION THE DESIGN NAMES. The path label the composer shows under its line
-   * — a new turn, or a steer — is resolved from the run entity this store projected
-   * off the event log, which is honest and testable but is a fold rather than the
-   * `run.subscribeState` reading the design says the state is delivered by. The two
-   * agree today because the fold is built from the same events the subscription
-   * carries; they would part the moment a state change reaches a client without an
-   * event this store admits. The subscription is not wired in the renderer yet, so
-   * nothing here reads it, and this member stays the projection — named rather than
-   * silently substituted, and re-homed onto that reading by the task that lands the
-   * run-state subscription.
-   */
-  readonly runState: string | undefined;
   /**
    * The run terminal's `providerFailureDetail`, wire-verbatim.
    *
@@ -105,10 +84,9 @@ export interface ComposerTargetInput {
  * Resolve what this send is addressed to.
  *
  * The provider-bound path is taken ONLY when the focused pane names an agent AND
- * that agent has a run this store has seen whose state still admits a steer — the
- * two conditions the design states as "never sends a message with no target; never
- * guesses the target run". Everything else goes to the session, which needs no guess
- * to reach.
+ * that agent has a run this store has seen whose state still admits a steer, so a send
+ * never has no target and never guesses the target run. Everything else goes to the
+ * session, which needs no guess to reach.
  *
  * `addressed-run.ts` owns the second condition and says why an agent whose only
  * runs have settled addresses the session rather than a run nothing can be sent to.
@@ -122,11 +100,9 @@ export function resolveComposerTarget(input: ComposerTargetInput): ComposerTarge
       path: "provider-bound",
       sessionId: input.sessionId,
       agentId: agentRef.id,
-      agentName: readWireString(agent?.body?.["name"]),
       driverName: readWireString(agent?.body?.["driverName"]),
       targetRunId: run.id,
       expectedRunVersion: readWireNumber(run.body?.["runVersion"]),
-      runState: run.state,
       providerFailureDetail: readWireString(run.body?.["providerFailureDetail"]),
     };
   }

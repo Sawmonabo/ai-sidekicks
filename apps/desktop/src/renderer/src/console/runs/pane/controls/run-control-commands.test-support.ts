@@ -4,11 +4,10 @@
 // One recording surface, so every suite that drives the palette hook answers "what did
 // the palette dispatch" the same way; a test file may not import another test file.
 
-import { type RunState } from "@ai-sidekicks/contracts";
+import type { InterventionRequestResponse, RunControlAck, RunState } from "@ai-sidekicks/contracts";
 
 import { type RunControlCommandRun } from "./run-control-commands.js";
 import {
-  carriedRunControlRefusal,
   type RunControl,
   type RunControlDispatcher,
   type RunControlOutcome,
@@ -18,11 +17,37 @@ import { type RunControlSurface } from "./run-control-surface.js";
 /** A run identifier the wire's own reader accepts, shared by the suites in this folder. */
 export const RUN_ID = "b3f0a1c2-4d5e-4f60-8a71-9c2d3e4f5061";
 
+/** A second run, for the cases about two runs at once. */
+export const SECOND_RUN_ID = "c4a1b2d3-5e6f-4071-9b82-ad3e4f506172";
+
+/** A third run, for the case whose claim is that a latch is per run. */
+export const OTHER_RUN_ID = "c4e1b2d3-5f60-4071-9b82-0d3e4f506172";
+
+/** The acknowledgment every stub call answers with. */
+export const STUB_ACK = {
+  runId: RUN_ID,
+  currentState: "paused",
+  runVersion: 7,
+} as RunControlAck;
+
 /** One dispatch a row made, as the stub dispatcher saw it. */
 export interface RecordedRunControlCall {
   readonly verb: RunControl;
   readonly runId: string;
   readonly expectedRunVersion: number;
+}
+
+/** An applied non-rollback intervention at the given run version, as a stub call answers it. */
+export function appliedIntervention(
+  interventionType: "steer" | "interrupt",
+  runVersion: number,
+): InterventionRequestResponse {
+  return {
+    interventionId: "c4e1b2d3-5f60-4071-9b82-0d3e4f506172",
+    interventionType,
+    state: "applied",
+    runVersion,
+  } as InterventionRequestResponse;
 }
 
 /** A run at version 7, which is the comparand a contributed row is expected to carry. */
@@ -40,9 +65,7 @@ export function recordingRunControlSurface(): {
     (verb: RunControl) =>
     (target: { runId: string; expectedRunVersion: number }): Promise<RunControlOutcome> => {
       calls.push({ verb, runId: target.runId, expectedRunVersion: target.expectedRunVersion });
-      // A settled outcome the stub does not have to fabricate: nothing under test
-      // reads it, and building one through the real reader keeps the stub honest.
-      return Promise.resolve(carriedRunControlRefusal(verb, new Error("stub")));
+      return Promise.resolve({ kind: "acknowledged", control: verb, ack: STUB_ACK });
     };
   const dispatcher = {
     // The comparand is the dispatcher's own reconciliation; the stub answers with
@@ -58,7 +81,7 @@ export function recordingRunControlSurface(): {
     inFlightKeys: new Set<string>(),
     dispatch: (_runId, _control, perform) => {
       void perform(dispatcher);
-      return { admitted: true, dispatchToken: "token" };
+      return { admitted: true, dispatchToken: "token", settled: Promise.resolve() };
     },
   };
   return { surface, calls };

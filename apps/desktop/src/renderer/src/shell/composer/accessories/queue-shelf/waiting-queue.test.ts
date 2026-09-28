@@ -1,9 +1,8 @@
-// The shelf's question, and the four answers that are all "no longer waiting".
+// The shelf's question, and the four answers that are all "not waiting".
 //
-// The claim that would rot silently is the one the shelf's whole contract rests on:
-// a row the daemon has stopped calling `queued` leaves the shelf. It used to leave by
-// being deleted from a private fold; it now leaves by not surviving this predicate,
-// and the row itself is still in the reading the runs pane renders.
+// The claim that would rot silently is the one the shelf's whole contract rests on: a row
+// the daemon has stopped calling `queued` leaves the shelf by not surviving this
+// predicate, and the row itself is still in the reading the transcript's pending rows render.
 
 import { describe, expect, it } from "vitest";
 import type { QueueItemSummary } from "@ai-sidekicks/contracts";
@@ -62,8 +61,8 @@ describe("waitingQueueRows", () => {
   });
 
   it("negative control: the rows it drops are still in the list it was given", () => {
-    // The pane beside the composer renders them. A fold that deleted them would take
-    // them off both surfaces, which is what two separate folds were there to avoid.
+    // The transcript's pending rows render them. A fold that deleted them would take them
+    // off both surfaces.
     const rows = [rowInState(WAITING_FIRST, "queued"), rowInState(CANCELED, "canceled")];
     waitingQueueRows(rows);
     expect(rows.map((row) => row.id)).toStrictEqual([WAITING_FIRST, CANCELED]);

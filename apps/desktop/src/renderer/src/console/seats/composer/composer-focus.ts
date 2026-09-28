@@ -21,11 +21,10 @@
 // whatever they had started doing instead. The emitter's own no-sink case is exactly
 // that behaviour, so nothing here adds a buffer to defeat it.
 //
-// IT IS A CHANNEL AND NOT A STORE, so nothing re-renders on an ask. Focus is an
+// IT IS AN EVENT AND NOT A STORE, so nothing re-renders on an ask. Focus is an
 // imperative act on a DOM element, and routing it through rendered state would mean
 // holding a "wanted focus" flag that has to be cleared, can be read twice, and shows
 // up in every snapshot of a store that is otherwise about what is on screen.
-//
 
 import { Emitter, type Unsubscribe } from "../../core/index.js";
 

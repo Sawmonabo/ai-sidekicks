@@ -49,6 +49,7 @@ export interface WorkflowCalls {
   readonly started: WorkflowStartRequest[];
 }
 
+/** What a workflow fixture is built from. */
 export interface WorkflowFixtureOptions {
   /** The whole enumeration on one page. The ordinary case. */
   readonly definitions?: readonly WorkflowDefinitionSeed[];

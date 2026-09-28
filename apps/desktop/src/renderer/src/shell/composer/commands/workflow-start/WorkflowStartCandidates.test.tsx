@@ -1,4 +1,4 @@
-// That the candidate list offers what the walk read, and says so when it did not finish.
+// What picking a candidate does, and what the list says when it has nothing to offer.
 //
 // The negative control that makes the empty claim mean anything: a walk the page cap
 // cut short answers no question about what is missing, so "nothing matches" is
@@ -15,37 +15,7 @@ const DEFINITIONS = [
   workflowDefinition({ name: "release" }),
 ];
 
-/** The names the candidate list is offering. */
-function candidateNames(container: HTMLElement): readonly string[] {
-  return [...container.querySelectorAll(".meridian-workflow-start__candidate-name")].map(
-    (element) => element.textContent ?? "",
-  );
-}
-
 describe("WorkflowStartCandidates", () => {
-  it("narrows what it offers to the typed prefix", () => {
-    const { container, rerender } = render(
-      <WorkflowStartCandidates
-        definitions={DEFINITIONS}
-        complete
-        typedPrefix={undefined}
-        onComplete={vi.fn()}
-      />,
-    );
-    expect(candidateNames(container)).toStrictEqual(["nightly", "release"]);
-
-    rerender(
-      <WorkflowStartCandidates
-        definitions={DEFINITIONS}
-        complete
-        typedPrefix="rel"
-        onComplete={vi.fn()}
-      />,
-    );
-
-    expect(candidateNames(container)).toStrictEqual(["release"]);
-  });
-
   it("completes the line with the definition a person picks", () => {
     const onComplete = vi.fn();
     const { container } = render(

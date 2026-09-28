@@ -15,7 +15,11 @@ import { consoleCommands } from "../../../console/palette/index.js";
 import { DEFAULT_ROUTE } from "../../../console/routing/index.js";
 import { createClientCommandExecutor } from "./client-command-executor.js";
 import { clientCommandRefusal } from "./client-command-recognizer.js";
-import { type DirectiveLineHandlers, noDirectiveLineHandlers } from "./directive-line-handlers.js";
+import {
+  LINE_READING_COMMAND_IDS,
+  type DirectiveLineHandlers,
+  noDirectiveLineHandlers,
+} from "./directive-line-handlers.js";
 import { composerCommandSurface } from "./console-command-surface.js";
 
 const RAN_COMMAND_ID = "composer-executor-test.ran";
@@ -43,6 +47,7 @@ function executorOverConsoleRegistry(handlers: DirectiveLineHandlers = noDirecti
   return createClientCommandExecutor({
     readSurface: () => composerCommandSurface(DEFAULT_ROUTE),
     readDirectiveHandlers: () => handlers,
+    lineReadingCommandIds: LINE_READING_COMMAND_IDS,
   });
 }
 

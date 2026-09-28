@@ -19,6 +19,7 @@ import type { WorkflowDefinitionSummary } from "../../../../console/bridge/index
 import { Nothing, PartialRead } from "../../../../console/primitives/index.js";
 import { workflowDefinitionCandidates } from "./definition-match.js";
 
+/** What the workflow candidate list is given: the enumeration and the name typed so far. */
 export interface WorkflowStartCandidatesProps {
   /** What the walk read of the definitions this session can start. */
   readonly definitions: readonly WorkflowDefinitionSummary[];

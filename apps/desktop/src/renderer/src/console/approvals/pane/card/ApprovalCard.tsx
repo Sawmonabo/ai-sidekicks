@@ -112,6 +112,7 @@ export function findApprovalCardAction(
   return undefined;
 }
 
+/** One approval request: what it asks for, its state, and the controls that answer it. */
 export function ApprovalCard(props: ApprovalCardProps): React.JSX.Element {
   const { record, onResolve } = props;
   const titleId = useId();

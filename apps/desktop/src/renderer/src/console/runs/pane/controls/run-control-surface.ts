@@ -3,7 +3,7 @@
 // Split from `run-control-dispatch.ts` because it is a second job: that module is
 // the wire chokepoint and is drivable without React, and this one is the React
 // binding that keeps the in-flight set and the settled records. The split is what
-// lets a test drive every guard and every refusal arm against a stub bridge with no
+// lets a test drive every guard and every settled arm against stub calls with no
 // rendered tree at all.
 //
 // THE LATCH ANSWERS. A silently dropped latched call is wrong for a form that records
@@ -31,17 +31,15 @@
 // tick — the person pressed the control for the act that is already going, and there
 // is nothing to refuse them.
 //
-// AND ALL THREE HOLDERS BELONG TO THE BRIDGE. Only the dispatcher used to rotate
-// when the window's transport was replaced: the held keys, the busy set and the
-// records still belonged to the transport that was gone, so a retry of the same run
-// and control through the NEW bridge was refused as already in flight — until the
-// old call settled, and forever where it never did — and that old settlement was
-// appended to a surface it was not about. All three now rotate together, and by
-// whose they are rather than by a timer: the console's one `GenerationLatch` holds
-// each key under the bridge it was claimed on, so a settlement releases the round it
-// belongs to and leaves the live one untouched, and `useSubjectScopedState` holds the
-// two readings under the bridge, resetting them during the render that first sees a
-// new one and dropping a publish whose captured bridge has been replaced.
+// ALL THREE HOLDERS BELONG TO THE BRIDGE. When the window's transport is replaced, the
+// dispatcher, the held keys, the busy set and the records rotate together, so a retry of
+// the same run and control through the new bridge is not refused as already in flight,
+// and an old settlement is not appended to a surface it was not about. They rotate by
+// whose they are rather than by a timer: the console's one `GenerationLatch` holds each
+// key under the bridge it was claimed on, so a settlement releases the round it belongs
+// to and leaves the live one untouched, and `useSubjectScopedState` holds the two
+// readings under the bridge, resetting them during the render that first sees a new one
+// and dropping a publish whose captured bridge has been replaced.
 //
 // THE IN-FLIGHT SET IS THE LATCH'S RENDERING AND NOT A SECOND RULE. What admits a
 // dispatch is the claim; what a control renders as busy is this set, published only
@@ -59,12 +57,13 @@
 import { useCallback, useMemo, useRef } from "react";
 
 import { type ConsoleBridge } from "../../../bridge/index.js";
+import { useLatestRef } from "../../../primitives/index.js";
 import { useGenerationLatch, useSubjectScopedState } from "../../../store/index.js";
 import { INTERVENTION_OUTCOME_CAP } from "../../../core/index.js";
 import {
   RunControlDispatcher,
-  carriedRunControlRefusal,
   type RunControl,
+  type RunControlCalls,
   type RunControlOutcome,
 } from "./run-control-dispatch.js";
 import { mintRunControlDispatchToken } from "./run-control-dispatch-token.js";
@@ -97,7 +96,12 @@ export type RunControlAdmissionRefusal = "in-flight";
  * of the request I made".
  */
 export type RunControlAdmission =
-  | { readonly admitted: true; readonly dispatchToken: string }
+  | {
+      readonly admitted: true;
+      readonly dispatchToken: string;
+      /** Settles when the dispatch has been recorded; rejects with what `perform` rejected. */
+      readonly settled: Promise<void>;
+    }
   | { readonly admitted: false; readonly reason: RunControlAdmissionRefusal };
 
 /** What is held for the run controls: the dispatcher and its own record. */
@@ -136,9 +140,14 @@ const RUN_CONTROL_SURFACE_SUBJECT = "run-controls";
  * table carries `origin` and the admitting principal and has no registered read, so
  * a history claiming to be complete would be claiming something the wire cannot
  * support.
+ *
+ * `bridge` scopes the held state to one transport. `calls` are read through a
+ * latest-ref, so a caller that rebuilds them each render keeps one dispatcher and its
+ * comparand cache.
  */
 export function useRunControlSurface(
   bridge: ConsoleBridge,
+  calls: RunControlCalls,
   mintIdempotencyKey?: () => string,
 ): RunControlSurface {
   const { value: records, publish: publishRecords } = useSubjectScopedState<
@@ -150,12 +159,18 @@ export function useRunControlSurface(
   const nextDispatchOrdinal = useRef(0);
   const controlLatch = useGenerationLatch();
 
+  const callsRef = useLatestRef(calls);
   const dispatcher = useMemo(
     () =>
       new RunControlDispatcher(
-        mintIdempotencyKey === undefined ? { bridge } : { bridge, mintIdempotencyKey },
+        {
+          pause: (request) => callsRef.current.pause(request),
+          resume: (request) => callsRef.current.resume(request),
+          intervene: (request) => callsRef.current.intervene(request),
+        },
+        mintIdempotencyKey,
       ),
-    [bridge, mintIdempotencyKey],
+    [callsRef, bridge, mintIdempotencyKey],
   );
 
   const dispatch = useCallback(
@@ -171,9 +186,9 @@ export function useRunControlSurface(
       }
       // Minted here rather than at settlement, because the caller needs it NOW: a
       // form that waits on its own settlement has to know which record will be its
-      // own before the answer exists. The ordinal rides it because records are
-      // appended in COMPLETION order and this counter is the only record of request
-      // order — `run-control-dispatch-token.ts` owns both halves of that encoding.
+      // own before the answer exists. The ordinal keeps two dispatches of one control
+      // on one run distinct, and `run-control-dispatch-token.ts` mints the token from
+      // it.
       nextDispatchOrdinal.current += 1;
       const dispatchToken = mintRunControlDispatchToken(
         runId,
@@ -185,17 +200,20 @@ export function useRunControlSurface(
         next.add(key);
         return next;
       });
+      const clearInFlight = (): void => {
+        publishInFlightKeys((held) => {
+          const next = new Set(held);
+          next.delete(key);
+          return next;
+        });
+      };
       const settle = (outcome: RunControlOutcome): void => {
         const record: RunControlRecord = { recordId: dispatchToken, runId, control, outcome };
         // Published inside the claim, so an answer to a call made on a transport that
         // has since been replaced — or by a mount React has already discarded — is
         // dropped rather than appended to a surface that never made it.
         claim.settle(() => {
-          publishInFlightKeys((held) => {
-            const next = new Set(held);
-            next.delete(key);
-            return next;
-          });
+          clearInFlight();
           publishRecords((held) => {
             const appended = [...held, record];
             return appended.length <= INTERVENTION_OUTCOME_CAP
@@ -203,28 +221,29 @@ export function useRunControlSurface(
               : appended.slice(appended.length - INTERVENTION_OUTCOME_CAP);
           });
         });
-        // Released after the publish and never inside the mount check that used to
-        // guard it: a key left held would survive the mount/unmount/mount that
-        // development-mode React performs on one hook instance and leave that control
-        // latched for the rest of the window. The round released is the one the call
-        // was CLAIMED in, so a settlement landing after a swap frees its own and not
-        // the live one.
+        // Released after the publish: a key left held would survive the
+        // mount/unmount/mount that development-mode React performs on one hook instance
+        // and leave that control latched for the rest of the window. The round released
+        // is the one the call was CLAIMED in, so a settlement landing after a swap frees
+        // its own and not the live one.
         claim.release();
       };
-      const settleRejection = (rejection: unknown): void => {
-        settle(carriedRunControlRefusal(control, rejection));
+      // A `perform` that rejects, or throws before it returns a promise, frees the latch
+      // and then propagates: left held, that control would stay busy for the rest of the
+      // window, and the rejection is still the caller's to see.
+      const abandon = (): void => {
+        claim.settle(clearInFlight);
+        claim.release();
       };
-      // Every settlement path, not only the resolved one. A `perform` that rejects
-      // — or that throws before it returns a promise at all — settles the dispatch
-      // just as surely as one that resolves: without these two arms the latch stays
-      // held, that control is busy for the rest of the window, and the rejection
-      // reaches no surface at all.
-      try {
-        void perform(dispatcher).then(settle, settleRejection);
-      } catch (rejection) {
-        settleRejection(rejection);
-      }
-      return { admitted: true, dispatchToken };
+      const settled = (async (): Promise<void> => {
+        try {
+          settle(await perform(dispatcher));
+        } catch (rejection) {
+          abandon();
+          throw rejection;
+        }
+      })();
+      return { admitted: true, dispatchToken, settled };
     },
     [bridge, controlLatch, dispatcher, publishInFlightKeys, publishRecords],
   );

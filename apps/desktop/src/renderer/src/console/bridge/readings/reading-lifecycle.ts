@@ -14,20 +14,19 @@
 // trusting the clear — two independent statements of one rule, so a later arm that
 // forgets the clear still renders honestly.
 //
-// AND A STREAM THAT WOULD NOT OPEN IS NOT THE SAME AS ONE THAT CANNOT. A reading opens a
-// tail before its first read and settles refused when the open throws, and a stream
-// flag still claiming to be up would make every later trigger a no-op, or let a later
-// read publish a current-looking reading with no live tail behind it. The two failing
-// opens are different facts and are named as such — a transport that refused this
-// time may serve the next, and a registered request this reading's own scope does not
-// satisfy will never parse — so the first leaves the reading re-openable and the
-// second does not.
+// AND A STREAM THAT WOULD NOT OPEN IS NOT THE SAME AS ONE THAT CANNOT. A reading opens a tail
+// before its first read and settles refused when the open throws, and a stream flag still claiming
+// to be up would make every later trigger a no-op, or let a later read publish a current-looking
+// reading with no live tail behind it. The two failing opens are different facts and are named as
+// such — a transport that refused this time may serve the next, and a registered request this
+// reading's own scope does not satisfy will never parse — so the first leaves the reading
+// re-openable and the second does not.
 //
 // WHAT THIS IS NOT. It is not the scheduler: when a re-read is asked for is
 // `store/read/refresh-scheduler.ts`'s, and which moments ask is `store/read/read-triggers.ts`'s. It
-// holds no bridge, opens no stream, and publishes nothing — the reading that owns it
-// does all three, and calls one method here per outcome so that the outcome and the
-// state it leaves behind cannot be spelled two ways.
+// holds no bridge, opens no stream, and publishes nothing — the reading that owns it does all
+// three, and calls one method here per outcome so that the outcome and the state it leaves behind
+// cannot be spelled two ways.
 
 import type { ConsoleRefusal } from "../../core/index.js";
 

@@ -9,70 +9,66 @@
 //
 // TWO PATHS RATHER THAN ONE WITH A FLAG, because the two settle differently and a
 // flag would have made that a branch nobody sets. `run.queueCreate` answers with a
-// queued item whose shape is the confirmation. And `run.intervene` answers with a
-// LIFECYCLE STATE that may say the run declined the message — a served reply that is
+// queued item, which is the confirmation. And `run.intervene` answers with a
+// LIFECYCLE STATE that may say the run declined the message — an answer that is
 // still not a delivered directive.
 //
-// EVERY REPLY IS PARSED BEFORE ANYTHING IS READ OFF IT. That is the call door's
-// doing rather than this module's, in both directions: a request that does not match
-// its registered shape never leaves, and a reply that does not match refuses instead
-// of being read. What this module adds is the settlement each parsed reply means.
+// THE CALLS ARE AN ARGUMENT. Whoever holds the wire supplies `queueCreate` and
+// `intervene` as one `ComposerSendCalls`, so this module reaches no bridge, catches
+// nothing, and a rejected call propagates to the caller of the send. What this module
+// adds is the settlement each reply means.
 
 import type {
   InterventionRequestPayload,
+  InterventionRequestResponse,
   InterventionState,
   QueueItemCreateRequest,
+  QueueItemCreateResponse,
 } from "@ai-sidekicks/contracts";
 
-import { callDaemon, type ConsoleBridge } from "../../../console/bridge/index.js";
 import { interventionNotApplied } from "./send-refusals.js";
 import type { ComposerSendOutcome } from "./send-resolutions.js";
 import type { RunVersionLedger } from "./run-version-ledger.js";
 
+/** The two daemon calls a send makes, supplied by whoever holds the wire. */
+export interface ComposerSendCalls {
+  queueCreate(request: QueueItemCreateRequest): Promise<QueueItemCreateResponse>;
+  intervene(request: InterventionRequestPayload): Promise<InterventionRequestResponse>;
+}
+
 /**
- * Dispatch one new turn, and READ what came back.
+ * Dispatch one new turn.
  *
- * `run.queueCreate` answers with the registered `QueueItemCreateResponse` — the
- * item's id, its state, and when it was created — so a reply that is not that shape
- * is a reply this console can read no queued message out of, which is what a
- * protocol-version mismatch produces. Returning it as sent would clear the
- * user's draft on the strength of a payload nothing had understood.
- *
- * The parsed value is deliberately not KEPT. Nothing in the composer addresses a
- * queue item — the shelf reads the queue from its own subscription — so what the
- * parse buys is the confirmation itself and not a member to carry forward.
+ * The queued item is deliberately not KEPT. Nothing in the composer addresses a
+ * queue item — the shelf reads the queue from its own subscription — so the answer
+ * is the confirmation itself and not a member to carry forward.
  */
 export async function dispatchQueuedTurn(
-  bridge: ConsoleBridge,
+  calls: ComposerSendCalls,
   request: QueueItemCreateRequest,
 ): Promise<ComposerSendOutcome> {
-  const reply = await callDaemon(bridge, "run.queueCreate", request);
-  return reply.status === "refused"
-    ? { status: "refused", refusal: reply.refusal }
-    : { status: "sent", path: "channel-message" };
+  await calls.queueCreate(request);
+  return { status: "sent", path: "channel-message" };
 }
 
 /**
  * Dispatch one steer, and READ what came back.
  *
- * The version is kept from EVERY parsed response — a refusal answers with the run's
+ * The version is kept from EVERY response — a `rejected` response carries the run's
  * current version too, which is what lets the next attempt guard itself without a
  * re-read the console has no projection to perform.
  */
 export async function dispatchIntervention(
-  bridge: ConsoleBridge,
+  calls: ComposerSendCalls,
   request: InterventionRequestPayload,
   runVersions: RunVersionLedger,
 ): Promise<ComposerSendOutcome> {
-  const reply = await callDaemon(bridge, "run.intervene", request);
-  if (reply.status === "refused") {
-    return { status: "refused", refusal: reply.refusal };
-  }
-  runVersions.record(request.targetRunId, reply.value.runVersion);
-  if (!isInterventionAdmitted(reply.value.state)) {
+  const response = await calls.intervene(request);
+  runVersions.record(request.targetRunId, response.runVersion);
+  if (!isInterventionAdmitted(response.state)) {
     return {
       status: "refused",
-      refusal: interventionNotApplied(reply.value.state, reply.value.rejectionReason),
+      refusal: interventionNotApplied(response.state, response.rejectionReason),
     };
   }
   return { status: "sent", path: "provider-bound" };

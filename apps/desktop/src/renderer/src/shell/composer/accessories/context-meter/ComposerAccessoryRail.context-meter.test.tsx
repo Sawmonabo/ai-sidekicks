@@ -161,9 +161,8 @@ describe("ComposerAccessoryRail — the meter reads the conversation it is addre
   }
 
   it("draws the addressed run's fullness while another run meters later and higher", () => {
-    // The finding: the fold took the newest row anywhere in the session, so the
-    // composer addressed to Ada drew Priya's 90% and offered to compact the
-    // conversation the person was not writing to.
+    // A fold over the newest row anywhere in the session would draw Priya's 90% on the
+    // composer addressed to Ada.
     const container = mountRail(BOTH_METERED, {
       entities: BOTH_AGENTS,
       focusedPane: paneOn(AGENT_ID),
@@ -187,7 +186,7 @@ describe("ComposerAccessoryRail — the meter reads the conversation it is addre
     );
   });
 
-  it("renders the not-checked absence rather than a session-wide figure when no run is addressed", () => {
+  it("renders the not-checked absence, not a session-wide figure, with no run addressed", () => {
     // A composer addressed to the session meters no provider conversation, so there is
     // no fullness for it to report — and the session's newest row is some run's, not
     // this composer's.
@@ -216,8 +215,7 @@ describe("ComposerAccessoryRail — a compaction moves the meter off its stale f
   }
 
   it("draws the post-compaction figure the boundary carried", () => {
-    // The finding: the meter sat at the pre-compaction 84% after the provider had
-    // compacted.
+    // The meter draws the boundary's post-compaction count, not the pre-compaction 84%.
     const container = mountRail(
       [contextWindowEvent(1), compactionRow(2, { postCompactionTokens: 40_000 })],
       ADDRESSED,

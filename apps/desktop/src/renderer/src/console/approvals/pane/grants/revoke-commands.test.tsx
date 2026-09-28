@@ -44,7 +44,6 @@ function renderGrants(options: {
       rules={options.rules}
       unreadableCount={0}
       revokingRuleIds={options.revoking ?? new Set()}
-      revokeRefusalByRuleId={new Map()}
       onRevoke={options.onRevoke ?? vi.fn()}
     />,
   );

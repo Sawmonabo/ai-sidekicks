@@ -37,14 +37,7 @@
 // a reply that was fully readable and carried nothing may say nothing is in force.
 
 import { useState } from "react";
-import {
-  Chip,
-  InlineRefusal,
-  Nothing,
-  WireFigure,
-  formatCount,
-} from "../../../primitives/index.js";
-import { type ConsoleRefusal } from "../../../core/index.js";
+import { Chip, Nothing, WireFigure, formatCount } from "../../../primitives/index.js";
 import { type RememberedRule } from "../../../bridge/index.js";
 import { asRememberedScopeKind, rememberedScopeKindPhrase } from "../../../bridge/index.js";
 import { RevokeControl } from "./RevokeControl.js";
@@ -54,10 +47,10 @@ export interface RememberedGrantsProps {
   readonly rules: readonly RememberedRule[];
   readonly unreadableCount: number;
   readonly revokingRuleIds: ReadonlySet<string>;
-  readonly revokeRefusalByRuleId: ReadonlyMap<string, ConsoleRefusal>;
   readonly onRevoke: (ruleId: string) => void;
 }
 
+/** The standing permissions this session has granted, each with its revoke control. */
 export function RememberedGrants(props: RememberedGrantsProps): React.JSX.Element {
   const [confirmingRuleId, setConfirmingRuleId] = useState<string | undefined>(undefined);
   // Ahead of the two absence arms below, because a hook may not run behind a branch.
@@ -97,64 +90,58 @@ export function RememberedGrants(props: RememberedGrantsProps): React.JSX.Elemen
         </p>
       ) : null}
       <ul className="meridian-grants__list">
-        {rulesInForce.map((rule) => {
-          const refusal = props.revokeRefusalByRuleId.get(rule.ruleId);
-          return (
-            <li className="meridian-grants__row" key={rule.ruleId}>
-              <div className="meridian-grants__line">
-                <Chip mono label={rule.category} />
-                <Chip
-                  label={rememberedScopeKindPhrase(rule.scope.kind)}
-                  tone={
-                    asRememberedScopeKind(rule.scope.kind) === undefined ? "failure" : "neutral"
-                  }
-                />
-                <span className="meridian-grants__grantor">
-                  granted by <WireFigure value={rule.userId} />
-                </span>
-                <WireFigure value={rule.grantedAt} />
-              </div>
-              <div className="meridian-grants__detail">
-                {rule.scope.pattern === undefined ? (
-                  <span className="meridian-grants__pattern">
-                    No pattern, so this covers the whole category inside that boundary.
-                  </span>
-                ) : (
-                  <span className="meridian-grants__pattern">
-                    Pattern <WireFigure value={rule.scope.pattern} />
-                  </span>
-                )}
-                {rule.runId === undefined ? null : (
-                  <span className="meridian-grants__run">
-                    Run <WireFigure value={rule.runId} />
-                  </span>
-                )}
-                <span className="meridian-grants__node">
-                  Node <WireFigure value={rule.nodeId} />
-                </span>
-              </div>
-              <RevokeControl
-                isConfirming={confirmingRuleId === rule.ruleId}
-                // The palette's own reading, read from the same function: every drawn
-                // rule is live, so "not offered" is exactly "a revocation is already
-                // settling" — which is what the control says instead of offering a
-                // second press.
-                isRevoking={!offersRevoke(rule, props.revokingRuleIds)}
-                onAsk={() => {
-                  setConfirmingRuleId(rule.ruleId);
-                }}
-                onCancel={() => {
-                  setConfirmingRuleId(undefined);
-                }}
-                onConfirm={() => {
-                  setConfirmingRuleId(undefined);
-                  props.onRevoke(rule.ruleId);
-                }}
+        {rulesInForce.map((rule) => (
+          <li className="meridian-grants__row" key={rule.ruleId}>
+            <div className="meridian-grants__line">
+              <Chip mono label={rule.category} />
+              <Chip
+                label={rememberedScopeKindPhrase(rule.scope.kind)}
+                tone={asRememberedScopeKind(rule.scope.kind) === undefined ? "failure" : "neutral"}
               />
-              {refusal === undefined ? null : <InlineRefusal {...refusal} />}
-            </li>
-          );
-        })}
+              <span className="meridian-grants__grantor">
+                granted by <WireFigure value={rule.userId} />
+              </span>
+              <WireFigure value={rule.grantedAt} />
+            </div>
+            <div className="meridian-grants__detail">
+              {rule.scope.pattern === undefined ? (
+                <span className="meridian-grants__pattern">
+                  No pattern, so this covers the whole category inside that boundary.
+                </span>
+              ) : (
+                <span className="meridian-grants__pattern">
+                  Pattern <WireFigure value={rule.scope.pattern} />
+                </span>
+              )}
+              {rule.runId === undefined ? null : (
+                <span className="meridian-grants__run">
+                  Run <WireFigure value={rule.runId} />
+                </span>
+              )}
+              <span className="meridian-grants__node">
+                Node <WireFigure value={rule.nodeId} />
+              </span>
+            </div>
+            <RevokeControl
+              isConfirming={confirmingRuleId === rule.ruleId}
+              // The palette's own reading, read from the same function: every drawn
+              // rule is live, so "not offered" is exactly "a revocation is already
+              // settling" — which is what the control says instead of offering a
+              // second press.
+              isRevoking={!offersRevoke(rule, props.revokingRuleIds)}
+              onAsk={() => {
+                setConfirmingRuleId(rule.ruleId);
+              }}
+              onCancel={() => {
+                setConfirmingRuleId(undefined);
+              }}
+              onConfirm={() => {
+                setConfirmingRuleId(undefined);
+                props.onRevoke(rule.ruleId);
+              }}
+            />
+          </li>
+        ))}
       </ul>
     </div>
   );
