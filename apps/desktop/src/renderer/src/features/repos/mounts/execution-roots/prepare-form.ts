@@ -1,4 +1,4 @@
-// What a reuse check said, what a prepare form needs, and what disposal costs.
+// What a reuse check said, and what a prepare form needs.
 //
 // PURE. Everything here is a function of a reply or of what a user typed;
 // nothing reaches a bridge, holds a lifetime, or decides eligibility.
@@ -33,7 +33,7 @@
 // branch that has one, which the daemon meets as an implicit collision.
 //
 // TYPE-ONLY, SO THIS MODULE IS STILL PURE. The reading's three states are declared in
-// `store/act/act-reading.ts` and named here as a type; nothing below reaches a controller,
+// `acts/act-reading.ts` and named here as a type; nothing below reaches a controller,
 // a bridge, or a lifetime.
 
 import { WORKTREE_GIT_REF_MAX_LEN, type WorktreeReuseCheckResponse } from "@ai-sidekicks/contracts";
@@ -181,14 +181,6 @@ export function prepareReuseStanding(
 export const REUSE_UNANSWERED_COPY =
   "The reuse check for that branch has not answered yet. Preparing before it does could take a live checkout without asking.";
 
-/** What one disposal is about, and the consequence its confirmation must state. */
-export interface DisposalSubject {
-  /** The worktree's own id, sent verbatim. */
-  readonly rootId: string;
-  /** What the person is agreeing to. */
-  readonly consequence: string;
-}
-
 /**
  * Read one prepare form against the reuse standing it is being sent under.
  *
@@ -266,19 +258,4 @@ export function prepareFormVerdict(
  */
 export function prepareAcknowledgement(form: PrepareFormState, verdict: ReuseVerdict): boolean {
   return reuseConsentRequired(verdict) && form.acknowledgedCandidateId === verdict.worktreeId;
-}
-
-/**
- * The consequence sentence a retirement states.
- *
- * Retiring a worktree RECORDS a transition — the row and its event land before any disk
- * mutation and the sweep stamps the cleanup afterwards — so files on disk after a retire
- * is an ordinary state rather than a failure.
- */
-export const DISPOSAL_CONSEQUENCE: string =
-  "The root is recorded retired now; its files are removed by the cleanup sweep afterwards, so a retired root with files still on disk is an ordinary state. Anything uncommitted in that tree goes with them.";
-
-/** Build one disposal subject, with the consequence a retirement carries. */
-export function disposalSubjectFor(rootId: string): DisposalSubject {
-  return { rootId, consequence: DISPOSAL_CONSEQUENCE };
 }

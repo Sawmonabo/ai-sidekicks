@@ -1,7 +1,7 @@
 // Retiring a worktree: one act, one call, and one settlement.
 //
 // A person retiring an execution root reads a consequence, consents, and sees what
-// happened. The consequence sentence lives in `root-act-model.ts`: retiring records a
+// happened. The consequence sentence lives in `disposal-subject.ts`: retiring records a
 // transition and the sweep removes the files afterwards.
 //
 // The settlement is published into a host rather than off a snapshot of its own, which is
@@ -14,15 +14,10 @@
 // A call that rejects is not caught here: the guard is still given back, and the rejection
 // propagates to the caller.
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-
 import type { WorktreeId } from "@ai-sidekicks/contracts";
 
-import type { ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
-import { CONTROLLER_DISPOSAL } from "@renderer/console/store/act/use-act-controller.js";
-import { useSubjectScopedResource } from "@renderer/console/store/subject-scoped/subject-scoped-resource.js";
 import type { RepoOperations } from "../../repo-operations.js";
-import type { DisposalSubject } from "./prepare-form.js";
+import type { DisposalSubject } from "./disposal-subject.js";
 
 /** The one call this controller makes. */
 export type DisposalOperations = Pick<RepoOperations, "retireWorktree">;
@@ -32,9 +27,6 @@ export type DisposalReading =
   | { readonly status: "idle" }
   | { readonly status: "sending" }
   | { readonly status: "settled"; readonly state: string };
-
-/** Nothing sent. */
-export const DISPOSAL_IDLE: DisposalReading = { status: "idle" };
 
 /** Where a settlement lands: the surface that asked for the disposal. */
 export interface RootDisposalHost {
@@ -47,13 +39,6 @@ export interface RootDisposalControllerOptions {
   readonly operations: DisposalOperations;
   readonly subject: DisposalSubject;
   readonly host: RootDisposalHost;
-}
-
-/** What the hook hands a confirmation: the reading, and the two things it can ask for. */
-export interface DisposalBinding {
-  readonly reading: DisposalReading;
-  readonly send: () => void;
-  readonly clear: () => void;
 }
 
 /** Sends one root's disposal and reports what came back. */
@@ -106,39 +91,4 @@ export class RootDisposalController {
       this.#inFlight = false;
     }
   }
-}
-
-/** Bind one root's disposal controller to a confirmation, keyed on the root's id. */
-export function useRootDisposal(
-  bridge: ConsoleBridge,
-  subject: DisposalSubject,
-  operations: DisposalOperations,
-): DisposalBinding {
-  const [reading, setReading] = useState<DisposalReading>(DISPOSAL_IDLE);
-  // THE HOST IS ONE OBJECT FOR THE LIFE OF THE SURFACE, over React's own stable state
-  // setter: the resource seam holds the factory's product against a key, and a host
-  // minted per render would hand the controller a reporter the next pass replaces.
-  const host = useMemo<RootDisposalHost>(() => ({ recordDisposal: setReading }), []);
-  const { value: controller } = useSubjectScopedResource(
-    bridge,
-    subject.rootId,
-    () => new RootDisposalController({ operations, subject, host }),
-    CONTROLLER_DISPOSAL,
-  );
-  // A NEW CONTROLLER MEANS A NEW SUBJECT, and the settlement on screen belongs to the
-  // old one. Cleared here rather than left standing, so a second row's confirmation
-  // never opens already reporting the first row's answer.
-  useEffect(() => {
-    setReading(DISPOSAL_IDLE);
-  }, [controller]);
-  const send = useCallback(() => {
-    void controller.send();
-  }, [controller]);
-  // CLEARS WHAT IS ON SCREEN AND CANCELS NOTHING. A call already on the wire is not
-  // recallable, and the controller's own guard is what keeps a reopened confirmation
-  // from sending a second one behind it.
-  const clear = useCallback(() => {
-    setReading(DISPOSAL_IDLE);
-  }, []);
-  return { reading, send, clear };
 }

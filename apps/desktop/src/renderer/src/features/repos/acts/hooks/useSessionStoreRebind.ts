@@ -13,7 +13,7 @@
 // screen saying why.
 //
 // THE RULE IS WRITTEN ONCE HERE. Every act controller reaches it through
-// `store/act/use-act-controller.ts`, and the shape a copy of this drifts in is the
+// `useActController.ts`, and the shape a copy of this drifts in is the
 // COMPARISON: a binding that compared session ids rather than store identities would
 // look identical in a diff and would never rebind at all, because the id is exactly
 // what the key already carries.

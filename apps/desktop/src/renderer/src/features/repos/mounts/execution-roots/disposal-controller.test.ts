@@ -8,7 +8,7 @@ import {
   type DisposalReading,
   type RootDisposalHost,
 } from "./disposal-controller.js";
-import { disposalSubjectFor } from "./prepare-form.js";
+import { disposalSubjectFor } from "./disposal-subject.js";
 
 /** The roots the scripted daemon answers for. */
 const WORKTREE_ID = "worktree-reviewer";

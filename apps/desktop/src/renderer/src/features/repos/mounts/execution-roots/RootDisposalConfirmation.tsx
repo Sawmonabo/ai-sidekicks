@@ -20,12 +20,9 @@ import { AlertDialog } from "@base-ui/react/alert-dialog";
 import type { ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
 import { Nothing, OverlayAlertDialogPopup } from "@renderer/console/primitives/index.js";
 import { useConfirmationLifecycle } from "../hooks/useConfirmationLifecycle.js";
-import {
-  useRootDisposal,
-  type DisposalOperations,
-  type DisposalReading,
-} from "./disposal-controller.js";
-import { disposalSubjectFor } from "./prepare-form.js";
+import { type DisposalOperations, type DisposalReading } from "./disposal-controller.js";
+import { useRootDisposal } from "./hooks/useRootDisposal.js";
+import { disposalSubjectFor } from "./disposal-subject.js";
 
 /** What the control says. The verb is the daemon's, not a softened one. */
 const DISPOSAL_VERB = "Retire this root";

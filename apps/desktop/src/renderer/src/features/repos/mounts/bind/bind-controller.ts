@@ -19,8 +19,6 @@
 // Everything else is the store's act controller: the scheduler, the triggers, the act arms,
 // the single-flight guard, the disposed latch, and the members a surface reads them by.
 
-import { useCallback, useMemo } from "react";
-
 import type {
   ExecutionMode,
   RepoMountId,
@@ -29,10 +27,8 @@ import type {
   WorkspaceExecutionModeCapabilitiesReadResponse,
 } from "@ai-sidekicks/contracts";
 
-import { consoleClockFor, type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
 import type { ConsoleClock } from "@renderer/lib/clock.js";
 import { ActSurfaceController } from "../../acts/act-controller-base.js";
-import { useSessionScopedActController } from "@renderer/console/store/act/use-act-controller.js";
 import { type ActReading } from "../../acts/act-reading.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 import { REPO_LIFECYCLE_EVENT_KINDS } from "../../repo-lifecycle-events.js";
@@ -71,14 +67,6 @@ type BindOperations = Pick<RepoOperations, "bindWorkspace" | "readMountExecution
  * wire.
  */
 const CAPABILITIES_QUESTION = "capabilities";
-
-/** What the hook hands a surface: the reading, and the three things it can ask for. */
-export interface BindBinding {
-  readonly reading: BindReading;
-  readonly requestCapabilities: () => void;
-  readonly bind: (executionMode: ExecutionMode, directory: string | undefined) => void;
-  readonly clearAct: () => void;
-}
 
 /** Reads what a mount admits and sends the bind for it. */
 export class BindWorkspaceController extends ActSurfaceController<
@@ -146,39 +134,4 @@ export class BindWorkspaceController extends ActSurfaceController<
   ): Promise<WorkspaceExecutionModeCapabilitiesReadResponse> {
     return await this.#operations.readMountExecutionModes(this.#repoMountId as RepoMountId, signal);
   }
-}
-
-/**
- * Bind one mount's bind controller to a surface.
- *
- * KEYED ON THE MOUNT, which is the whole of what the read and the act are scoped to.
- */
-export function useBindController(
-  bridge: ConsoleBridge,
-  repoMountId: string,
-  sessionStore: SessionStore,
-  operations: BindOperations,
-): BindBinding {
-  // One window, one time base, memoized so a fresh clock per render does not re-mint
-  // the controller beneath it.
-  const clock = useMemo(() => consoleClockFor(bridge), [bridge]);
-  const { controller, reading } = useSessionScopedActController(
-    bridge,
-    repoMountId,
-    sessionStore,
-    () => new BindWorkspaceController({ operations, repoMountId, sessionStore, clock }),
-  );
-  const requestCapabilities = useCallback(() => {
-    controller.requestCapabilities();
-  }, [controller]);
-  const bind = useCallback(
-    (executionMode: ExecutionMode, directory: string | undefined) => {
-      void controller.bind(executionMode, directory);
-    },
-    [controller],
-  );
-  const clearAct = useCallback(() => {
-    controller.clearAct();
-  }, [controller]);
-  return { reading, requestCapabilities, bind, clearAct };
 }

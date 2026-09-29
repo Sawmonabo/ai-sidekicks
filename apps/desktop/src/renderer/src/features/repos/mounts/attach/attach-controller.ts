@@ -7,13 +7,9 @@
 // A mount belongs to the machine, so the call carries the path and nothing about the
 // session; the session only scopes which dialog's settlement is on screen.
 
-import { useCallback } from "react";
-
 import type { RepoAttachResponse } from "@ai-sidekicks/contracts";
 
-import type { ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
 import { ActController } from "../../acts/act-controller.js";
-import { useActController } from "@renderer/console/store/act/use-act-controller.js";
 import { type ActSettlementReading } from "../../acts/act-reading.js";
 import type { RepoOperations } from "../../repo-operations.js";
 
@@ -29,13 +25,6 @@ export type AttachActReading = ActSettlementReading<AttachSettlement>;
 /** What one attach controller sends through. */
 export interface AttachControllerOptions {
   readonly operations: Pick<RepoOperations, "attachRepository">;
-}
-
-/** What the hook hands a surface: the reading, and the two things it can ask for. */
-export interface AttachBinding {
-  readonly reading: AttachActReading;
-  readonly attach: (localPath: string) => void;
-  readonly clearAct: () => void;
 }
 
 /** Sends the attach. */
@@ -59,32 +48,4 @@ export class AttachController extends ActController<AttachSettlement> {
       (response: RepoAttachResponse) => ({ status: "attached" as const, response }),
     );
   }
-}
-
-/**
- * Bind one session section's attach controller to a surface.
- *
- * KEYED ON THE SESSION, so a section re-addressed to another session drops the
- * settlement the previous one's dialog was showing.
- */
-export function useAttachController(
-  bridge: ConsoleBridge,
-  sessionId: string,
-  operations: Pick<RepoOperations, "attachRepository">,
-): AttachBinding {
-  const { controller, reading } = useActController(
-    bridge,
-    sessionId,
-    () => new AttachController({ operations }),
-  );
-  const attach = useCallback(
-    (localPath: string) => {
-      void controller.attach(localPath);
-    },
-    [controller],
-  );
-  const clearAct = useCallback(() => {
-    controller.clearAct();
-  }, [controller]);
-  return { reading, attach, clearAct };
 }

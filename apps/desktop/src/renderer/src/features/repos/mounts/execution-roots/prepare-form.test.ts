@@ -1,4 +1,4 @@
-// What a reuse reply means, what a prepare form admits, and what a disposal states.
+// What a reuse reply means, and what a prepare form admits.
 //
 // THE ORDERING CLAIM IS THE ONE THAT MATTERS. A candidate that is both dirty and
 // incompatible must read as incompatible, because the dirty arm carries a consent
@@ -14,11 +14,9 @@ import { describe, expect, it } from "vitest";
 import { WORKTREE_GIT_REF_MAX_LEN, type WorktreeReuseCheckResponse } from "@ai-sidekicks/contracts";
 
 import {
-  DISPOSAL_CONSEQUENCE,
   EMPTY_PREPARE_FORM,
   REUSE_UNANSWERED_COPY,
   REUSE_VERDICT_COPY,
-  disposalSubjectFor,
   prepareAcknowledgement,
   prepareFormVerdict,
   prepareReuseStanding,
@@ -237,25 +235,5 @@ describe("prepareAcknowledgement", () => {
       }),
     ).toBe(false);
     expect(prepareAcknowledgement(form(), DIRTY_CANDIDATE)).toBe(false);
-  });
-});
-
-describe("disposalSubjectFor", () => {
-  it("states the retirement as recorded now and cleaned afterwards", () => {
-    // `WorktreeRetireResponse.state` is `retired` and carries no cleanup instant: retire
-    // records the transition and the sweep removes the disk afterwards, so files still on
-    // disk are an ordinary state and the sentence must not read as a failure.
-    expect(DISPOSAL_CONSEQUENCE).toContain("cleanup sweep afterwards");
-    expect(DISPOSAL_CONSEQUENCE).toContain("ordinary state");
-  });
-
-  it("negative control: the consequence does not claim the bytes are already gone", () => {
-    expect(DISPOSAL_CONSEQUENCE).not.toMatch(/are gone/);
-  });
-
-  it("carries the id the act will send", () => {
-    const subject = disposalSubjectFor(WORKTREE_ID);
-    expect(subject.rootId).toBe(WORKTREE_ID);
-    expect(subject.consequence).toBe(DISPOSAL_CONSEQUENCE);
   });
 });

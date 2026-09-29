@@ -21,7 +21,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
 import { Nothing, OverlayDialogPopup, WireFigure } from "@renderer/console/primitives/index.js";
 import type { RepoOperations } from "../../repo-operations.js";
-import { useAttachController, type AttachActReading } from "./attach-controller.js";
+import { type AttachActReading } from "./attach-controller.js";
+import { useAttachController } from "./hooks/useAttachController.js";
 import { EMPTY_ATTACH_FORM, resolveAttachForm, type AttachFormState } from "./attach-form.js";
 
 /** What the attach dialog is bound to: the session section, and the call it sends. */

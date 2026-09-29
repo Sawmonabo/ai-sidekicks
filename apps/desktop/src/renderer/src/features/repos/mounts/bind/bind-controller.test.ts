@@ -18,7 +18,8 @@ import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import type { RepoOperations } from "../../repo-operations.js";
 import { bridgeOnClock, scriptedRepoOperations } from "../../repo-operations.test-support.js";
-import { BindWorkspaceController, useBindController, type BindBinding } from "./bind-controller.js";
+import { BindWorkspaceController } from "./bind-controller.js";
+import { useBindController, type BindBinding } from "./hooks/useBindController.js";
 
 const SESSION_ID = "session-repos";
 const OPEN_MOUNT_ID = "mount-open";
