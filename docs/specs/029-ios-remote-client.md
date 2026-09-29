@@ -26,7 +26,7 @@ From the phone, the user can:
 - send a message
 - steer a run in flight
 - stop a run
-- answer an approval, a question or a plan
+- answer an approval, a question or a plan, where the first answer from any device settles it and a card answered elsewhere closes with `Answered on <device>`
 - attach, configure, and drive agents
 - view the diff
 - open and use the terminal

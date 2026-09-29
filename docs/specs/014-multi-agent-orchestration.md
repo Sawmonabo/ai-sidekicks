@@ -7,7 +7,7 @@
 | **Slug** | `multi-agent-orchestration` |
 | **Date** | `2026-04-14` |
 | **Author(s)** | `Codex` |
-| **Depends On** | [Agent And Run Model](../domain/agent-and-run-model.md), [Session Model](../domain/session-model.md), [Session Core](../specs/001-session-core.md), [Queue Steer Pause Resume](../specs/003-queue-steer-pause-resume.md), [Runtime Node Attach](../specs/002-runtime-node-attach.md), [Persistence Recovery And Replay](../specs/013-persistence-recovery-and-replay.md), [Provider Driver Contract And Capabilities](../specs/004-provider-driver-contract-and-capabilities.md), [Session Event Taxonomy And Audit Log](../specs/005-session-event-taxonomy-and-audit-log.md), [Approvals Permissions And Trust Boundaries](../specs/010-approvals-permissions-and-trust-boundaries.md) |
+| **Depends On** | [Agent And Run Model](../domain/agent-and-run-model.md), [Session Model](../domain/session-model.md), [Session Core](../specs/001-session-core.md), [Queue Steer Pause Resume](../specs/003-queue-steer-pause-resume.md), [Machine Registration](../specs/002-runtime-node-attach.md), [Persistence Recovery And Replay](../specs/013-persistence-recovery-and-replay.md), [Provider Driver Contract And Capabilities](../specs/004-provider-driver-contract-and-capabilities.md), [Session Event Taxonomy And Audit Log](../specs/005-session-event-taxonomy-and-audit-log.md), [Approvals Permissions And Trust Boundaries](../specs/010-approvals-permissions-and-trust-boundaries.md) |
 | **V1 Quality Bar** | Declared per [ADR-015](../decisions/015-v1-feature-scope-definition.md) |
 | **Implementation Plan** | [Plan-014: Multi-Agent Orchestration](../plans/014-multi-agent-orchestration.md) |
 
@@ -399,7 +399,7 @@ Every agent of a session runs on the machine that runs the session, so a partiti
 - [Agent And Run Model](../domain/agent-and-run-model.md)
 - [Session Core](../specs/001-session-core.md)
 - [Queue Steer Pause Resume](../specs/003-queue-steer-pause-resume.md)
-- [Runtime Node Attach](../specs/002-runtime-node-attach.md)
+- [Machine Registration](../specs/002-runtime-node-attach.md)
 - [Persistence Recovery And Replay](../specs/013-persistence-recovery-and-replay.md)
 - [Approvals Permissions And Trust Boundaries](../specs/010-approvals-permissions-and-trust-boundaries.md)
 - [ADR-011: Generic Intervention Dispatch](../decisions/011-generic-intervention-dispatch.md)

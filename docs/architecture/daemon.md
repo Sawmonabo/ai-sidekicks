@@ -82,7 +82,7 @@ The platform selector enforces the defaults above; consumers of `PtyHost` never 
 
 ## Related Specs
 
-- [Runtime Node Attach](../specs/002-runtime-node-attach.md)
+- [Machine Registration](../specs/002-runtime-node-attach.md)
 - [Queue Steer Pause Resume](../specs/003-queue-steer-pause-resume.md)
 - [Provider Driver Contract And Capabilities](../specs/004-provider-driver-contract-and-capabilities.md)
 - [Local IPC And Daemon Control](../specs/006-local-ipc-and-daemon-control.md)

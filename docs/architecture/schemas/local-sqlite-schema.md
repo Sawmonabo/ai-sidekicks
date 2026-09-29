@@ -1323,7 +1323,9 @@ CREATE TABLE agents (
                                                         -- so a queue of half-wanted switches is unrepresentable. Holds the PENDING
                                                         -- binding only; the effective binding stays in the columns above and moves
                                                         -- there at application. Cleared by whichever terminal event settles the switch
-                                                        -- (agent.provider_binding_changed / agent.provider_binding_change_failed) and by supersession
+                                                        -- (agent.provider_binding_changed / agent.provider_binding_change_failed, which leaves the
+                                                        -- columns above untouched, so a switch that fails after it was accepted keeps the
+                                                        -- agent on its previous binding) and by supersession
   created_at      TEXT NOT NULL,
   updated_at      TEXT NOT NULL
 );

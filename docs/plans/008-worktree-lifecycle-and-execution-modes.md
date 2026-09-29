@@ -69,7 +69,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 | **I-008-7** | No silent place substitution: a worktree that cannot be made is a typed refusal (`worktree.create_failed` at prepare) — never the project's checkout, never a fallback root. | T2.4, T2.6 |
 | **I-008-8** | A session moves into an existing tree only by the person's pick of that tree (`session.setWorkingFolder`), and only into a worktree this daemon created; no code path moves a session implicitly (D-008-15). | T2.4, T3.1 |
 | **I-008-9** | Recorded-then-cleaned: retire records the state transition and emits before any disk mutation; disk cleanup is asynchronous, idempotent, and stamped via `cleaned_at`. | T2.2 |
-| **I-008-10** | No repository-controlled code executes during preparation: every git invocation neutralizes hooks (empty `core.hooksPath` plus `core.fsmonitor=false` via argv — the fsmonitor hook is config-named, outside `core.hooksPath`'s reach) and no setup script runs (D-008-10). | T2.2, T2.3, T2.6 |
+| **I-008-10** | No repository-controlled code executes during preparation: every git invocation neutralizes hooks (empty `core.hooksPath` plus `core.fsmonitor=false` via argv — the fsmonitor hook is config-named, outside `core.hooksPath`'s reach) and no setup script runs (D-008-10). | T2.2, T2.6 |
 | **I-008-11** | Workspace writes ride Plan-007 primitives exclusively (`beginRootPreparation`/`completeRootPreparation`/`failRootPreparation`/`assertWritable`); zero raw UPDATEs on the `workspaces` table from Plan-008 code (CP-008-2/3). | T2.4, T3.1, T3.2 |
 | **I-008-12** | A `stale` workspace never receives an execution root: `assertWritable` precedes every prepare that finds the workspace outside the open CP-008-2 bracket; a prepare that finds `preparing` is the bracket's own preparer and skips the gate together with `beginRootPreparation` — a `stale` workspace can never sit there, states being exclusive. | T2.4, T3.2 |
 | **I-008-13** | Exactly-once events: each worktree transition emits its D-008-12-mapped event exactly once, transactionally with the row write; `failed` deliberately emits none (pinned by a regression test); a failed setup is the setup card's own stream (D-008-11). | T2.1, T2.2 |
@@ -295,7 +295,7 @@ preconditions:
 - **Consumes:** `MethodRegistry` + `registry.register` ← Plan-006-partial (shipped); services ← T2.4, T3.1, T3.10, T3.11; method strings ← D-008-3
 - **T3.4 — Query and stream handlers (status read, kept list, setup stream, branch list, working-tree stream).** Not built.
 - **Files:** `packages/runtime-daemon/src/ipc/handlers/repo-methods.ts` (EXTEND)
-- Each registers `{mutating: false}`. The status read serves T2.5's projection widened by T3.9; the streams serve T3.13's watch and the setup card.
+- Each registers `{mutating: false}`. The status read serves T2.5's projection widened by T3.9; the streams serve T3.12's watch and the setup card.
 - **Tests:** covered by T3.6.
 - **Spec coverage:** [Spec-008 §Interfaces And Contracts](../specs/008-worktree-lifecycle-and-execution-modes.md#interfaces-and-contracts) (the read and stream surfaces)
 - **Verifies invariant:** I-008-15
@@ -419,8 +419,8 @@ preconditions:
 
 ## Parallelization Notes
 
-- Phase 1 contract work and Phase 2 git-service scaffolding can proceed together once the D-008-2/D-008-5 shapes are fixed (they are — this audit).
-- T2.2 / T2.3 are independent after T2.1; T2.4 integrates both.
+- Phase 1 contract work and Phase 2 git-service scaffolding can proceed together once the D-008-2/D-008-5 shapes are fixed.
+- T2.2 follows T2.1, and T2.4 builds on T2.2.
 - The console's switcher draws from fixture data until T3.4's handlers land.
 
 ## Test And Verification Plan

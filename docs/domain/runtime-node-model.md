@@ -70,7 +70,7 @@ Reachability is read from the machine's relay connection and from nothing else, 
 
 ## Related Specs
 
-- [Runtime Node Attach](../specs/002-runtime-node-attach.md)
+- [Machine Registration](../specs/002-runtime-node-attach.md)
 - [Local IPC And Daemon Control](../specs/006-local-ipc-and-daemon-control.md)
 - [Remote Control](../specs/028-remote-control.md)
 

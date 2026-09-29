@@ -137,7 +137,7 @@ The single-device case, the person at the desktop app on the machine that runs t
 ### Related Specs
 
 - [Session Core](../specs/001-session-core.md)
-- [Runtime Node Attach](../specs/002-runtime-node-attach.md)
+- [Machine Registration](../specs/002-runtime-node-attach.md)
 
 ### Related ADRs
 

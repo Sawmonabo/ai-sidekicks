@@ -85,7 +85,7 @@ The glossary is versioned through canonical doc updates. A term becomes stable o
 ## Related Specs
 
 - [Session Core](../specs/001-session-core.md)
-- [Runtime Node Attach](../specs/002-runtime-node-attach.md)
+- [Machine Registration](../specs/002-runtime-node-attach.md)
 - [Queue Steer Pause Resume](../specs/003-queue-steer-pause-resume.md)
 - [Repo Attachment And Workspace Binding](../specs/007-repo-attachment-and-workspace-binding.md)
 - [Provider Driver Contract And Capabilities](../specs/004-provider-driver-contract-and-capabilities.md)
