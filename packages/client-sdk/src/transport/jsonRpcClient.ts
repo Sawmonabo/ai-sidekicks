@@ -42,7 +42,7 @@
 //     attached to every outgoing request envelope the actual handshake
 //     (`call("daemon.hello",...)`) is the caller's concern, typically wired
 //     by the bootstrap code that instantiates the client.
-//   * Owns `packages/client-sdk/src/sessionClient.ts` boundary
+//   * Owns `packages/client-sdk/src/session-client.ts` boundary
 //     resolution; that file consumes `JsonRpcClient` from here.
 //   * Re-implement JSON-RPC error mapping. The SDK side does the INVERSE
 //     of `mapJsonRpcError` (daemon-side, in
@@ -451,7 +451,7 @@ export interface JsonRpcClientOptions {
  * `subscribe<T>` operations. Single-instance per transport — the constructor
  * registers the inbound dispatcher and close handler exactly once.
  *
- * Usage shape (Phase 5 `sessionClient.ts` consumer):
+ * Usage shape (Phase 5 `session-client.ts` consumer):
  *   ```typescript
  *   const transport = await openLocalIpcTransport(socketPath);
  *   const client = new JsonRpcClient(transport, { protocolVersion: "2026-05-01" });

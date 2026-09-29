@@ -268,7 +268,7 @@ export const LEDGER_SCRIPT: readonly LedgerScriptEntry[] = [
   {
     atMs: 2_600,
     kind: "run.rolled_back",
-    // `RunRolledBackEvent`'s own members (`packages/contracts/src/runControl.ts`):
+    // `RunRolledBackEvent`'s own members (`packages/contracts/src/run-control.ts`):
     // the POST-rollback progression value, and the turn boundary the run landed
     // at — which is not the boundary row's own position, and is what the
     // superseded band above it is measured against.

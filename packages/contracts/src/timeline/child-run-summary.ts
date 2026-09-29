@@ -34,7 +34,7 @@
 import { z } from "zod";
 
 import { RunIdSchema, type RunId } from "../provider-driver.js";
-import { RunStateSchema, type RunState } from "../runControl.js";
+import { RunStateSchema, type RunState } from "../run-control.js";
 
 /**
  * Why a child-run summary is not the whole picture. Closed; see this module's
@@ -125,7 +125,7 @@ export const ChildRunSummarySchema: z.ZodType<ChildRunSummary> = z
     state: RunStateSchema,
     // `.int()` is safe-integer in zod 4, which is the honest ceiling for a
     // tally: past it, distinct counts collapse onto one IEEE-754 double. No
-    // separate cap constant — the counter form `runControl.ts` uses.
+    // separate cap constant — the counter form `run-control.ts` uses.
     eventCount: z.number().int().nonnegative(),
     completeness: ChildRunCompletenessSchema,
   })

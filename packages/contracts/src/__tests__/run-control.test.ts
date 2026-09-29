@@ -1,4 +1,4 @@
-// Plus the three shapes no Phase-1 task names — the `runControl.ts`
+// Plus the three shapes no Phase-1 task names — the `run-control.ts`
 // contract surface: queue items, the intervention request union, the
 // state-split intervention response, the run-state change event, the
 // forward rolled-back event, the pause/resume triggers, the two
@@ -66,7 +66,7 @@ import {
   type QueueItemState,
   type RunFailureCategory,
   type RunState,
-} from "../runControl.js";
+} from "../run-control.js";
 
 const SESSION_ID = "0f2b4d5e-1111-4111-8111-111111111111";
 const WORKSPACE_ID = "0f2b4d5e-3333-4333-8333-333333333333";
@@ -872,8 +872,8 @@ describe("RunReadSnapshot", () => {
 
 describe("index.ts re-exports run-control contracts", () => {
   // A module can be complete and still invisible to consumers if the
-  // `export * from "./runControl.js"` line is missing or dropped in a later
-  // refactor. Importing through `../index.js` (not `../runControl.js`) is what
+  // `export * from "./run-control.js"` line is missing or dropped in a later
+  // refactor. Importing through `../index.js` (not `../run-control.js`) is what
   // makes this exercise the re-export layer.
   it.each([
     ["QueueItemIdSchema", contracts.QueueItemIdSchema],

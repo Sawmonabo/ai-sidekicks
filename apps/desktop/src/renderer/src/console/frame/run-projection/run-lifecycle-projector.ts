@@ -36,7 +36,7 @@
 // as though the run had never carried one.
 //
 // So the member list is DERIVED rather than hand-kept. `RunStateChangeEvent` and
-// `RunRolledBackEvent` (`packages/contracts/src/runControl.ts`) are the two
+// `RunRolledBackEvent` (`packages/contracts/src/run-control.ts`) are the two
 // registered run shapes, and `DurableRunMemberName` below is their key union
 // minus the four members the durable row does not carry under those names, plus
 // the two the durable payload carries alone. A member added to either registered

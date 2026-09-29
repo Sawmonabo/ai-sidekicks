@@ -77,7 +77,7 @@ import { EVENT_FIELD_MAX_LEN } from "../event.js";
 import { MAX_MESSAGE_BYTES, jsonUtf8ByteLength } from "../jsonrpc.js";
 import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "../jsonrpc-streaming.js";
 import { RunIdSchema, type RunId } from "../provider-driver.js";
-import { RunStateSchema, type RunState } from "../runControl.js";
+import { RunStateSchema, type RunState } from "../run-control.js";
 import {
   EventCursorSchema,
   SessionIdSchema,

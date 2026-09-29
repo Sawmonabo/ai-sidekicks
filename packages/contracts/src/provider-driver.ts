@@ -123,7 +123,7 @@ export type RunId = string & { readonly __brand: "RunId" };
 //
 // Homed here rather than in the run-control contract for a STRUCTURAL reason, not
 // a stylistic one: this file is the brand's lowest-level consumer, and
-// `runControl.ts` / the approval surface import it UPWARD.
+// `run-control.ts` / the approval surface import it UPWARD.
 // Authoring it in either of those would make this file's own SDK seam import
 // backwards across tiers — forbidden by the build order, not merely undesirable.
 // Those higher-tier modules consume this symbol rather than declaring a sibling;
@@ -144,7 +144,7 @@ export const RunIdSchema: z.ZodType<RunId, RunId> = brandedUuidIdSchema<RunId>("
 // the same rule that homes `RunId` above — a cross-cutting symbol is declared in
 // the contract file of its LOWEST-TIER consumer and imported upward, never
 // re-invented — and this file is that consumer: `SteerPayload.attachments` below
-// is the earliest-shipping member typed `ArtifactId[]`. `runControl.ts`
+// is the earliest-shipping member typed `ArtifactId[]`. `run-control.ts`
 // imports it for the `steer` arm of `InterventionRequestPayload`, and
 // `artifacts/` imports it rather than restating it — a second
 // branded UUID declaration anywhere would be a second source of truth for what an
@@ -487,7 +487,7 @@ export interface ProviderMode {
 // seam (persisted to `driver_contract_meta.contract_version`), not here.
 
 // `pause` is intentionally EXCLUDED: pause is an orchestration-layer request
-// (`RunPauseRequest` in `runControl.ts`), not a static capability flag, so a
+// (`RunPauseRequest` in `run-control.ts`), not a static capability flag, so a
 // driver cannot advertise a `pause` capability at all — the type system makes
 // the mis-modeling unrepresentable.
 //
@@ -996,7 +996,7 @@ export const DriverInterventionResultSchema: z.ZodType<
 // `z.ZodType` is COVARIANT in its output, so a `z.enum` narrower than the union
 // still satisfies a `z.ZodType<RecoveryCondition>` annotation. Measured on this
 // workspace's toolchain: widening the union by a third member left `tsc -b
-// --force` at zero errors here AND in `runControl.ts`, while narrowing it
+// --force` at zero errors here AND in `run-control.ts`, while narrowing it
 // produced two TS2375s. Widening is the direction the corpus took
 // (`recovery-needed` -> `+ reauth-required`), and its failure mode is a new
 // condition dead-lettering at parse at whichever carrier was not updated with
@@ -1008,7 +1008,7 @@ export type RecoveryCondition = (typeof RECOVERY_CONDITIONS)[number];
 
 // Exported so every carrier REFERENCES this parser instead of restating its values.
 // Four surfaces carry the condition: the `DriverResumeResult` `failed` variant below
-// (REQUIRED), the `RunStateChangeEvent` projection in `runControl.ts` (optional), and —
+// (REQUIRED), the `RunStateChangeEvent` projection in `run-control.ts` (optional), and —
 // when their owning plans author them — the `RecoveryStatusReadResponse` and the
 // `FailureDetailReadResponse`, which binds to IMPORT this symbol rather than redeclare it.
 //

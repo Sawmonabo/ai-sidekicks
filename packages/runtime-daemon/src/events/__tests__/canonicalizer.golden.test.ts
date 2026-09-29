@@ -1257,7 +1257,7 @@ describe("normalizeOccurredAt — normalize where the instant survives, refuse o
 // canonical form to test it against and no scan for a respelling to fall out
 // of. That asymmetry is precisely what makes a form predicate possible here and
 // not there. Both spellings this suite pins as attacks are pinned GREEN
-// on the verify side by `post-shred-verify.test.ts`'s two `occurredAt` controls,
+// on the verify side by `post-purge-verify.test.ts`'s two `occurredAt` controls,
 // and correctly so: `verifyRow` decides hash and signature, and both are intact.
 // This predicate is the other half.
 //
@@ -1301,7 +1301,7 @@ const REFUSALS_THE_PREDICATE_ACCEPTS: readonly string[] = [
 describe("isCanonicalOccurredAt — the stored spelling, not just the instant", () => {
   it("accepts the canonical form and rejects both real respelling attacks", () => {
     // THE TWO ATTACK SPELLINGS ARE NOT INVENTED FOR THIS TEST. Both are the
-    // literal strings `post-shred-verify.test.ts` UPDATEs into
+    // literal strings `post-purge-verify.test.ts` UPDATEs into
     // `session_events.occurred_at` and then asserts `{ valid: true }` for — the
     // offset respelling and the fourth-fractional-digit respelling of the golden
     // envelope's own `occurredAt`. Verification is green for both; this is where
@@ -1405,7 +1405,7 @@ describe("isCanonicalOccurredAt — the stored spelling, not just the instant", 
     // suppresses verification of every row after the offending one, so one
     // malformed `occurred_at` would buy an attacker a range-wide blind spot. The
     // read path already has three layers that throw
-    // (`post-shred-verify.test.ts`'s characterized hole); this predicate must
+    // (`post-purge-verify.test.ts`'s characterized hole); this predicate must
     // never become a fourth.
     //
     // Every input below makes `normalizeOccurredAt` throw. The predicate returns

@@ -99,7 +99,7 @@ import type { LocalSubscriptionConsumer } from "./transport/types.js";
  * dotted-camelCase long form require.
  *
  * Authored as local string constants rather than imported symbols, matching
- * `sessionClient.ts`'s `SESSION_METHOD_*` table: the wire name is a protocol
+ * `session-client.ts`'s `SESSION_METHOD_*` table: the wire name is a protocol
  * fact shared with the daemon's `register()` calls, and centralizing it here
  * means a future namespace evolution edits one location per side rather than
  * scattered literals. The daemon's own copies live in `driver-handlers.ts` and

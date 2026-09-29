@@ -69,8 +69,8 @@ import {
   SUBSCRIPTION_NOTIFY_METHOD,
 } from "@ai-sidekicks/contracts";
 
-import type { DriverClient } from "../providerClient.js";
-import { createDaemonProviderClient } from "../providerClient.js";
+import type { DriverClient } from "../provider-client.js";
+import { createDaemonProviderClient } from "../provider-client.js";
 import {
   JsonRpcClient,
   JsonRpcRemoteError,

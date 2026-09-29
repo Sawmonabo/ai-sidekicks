@@ -21,7 +21,7 @@ import {
 } from "@ai-sidekicks/contracts";
 import { describe, expect, it, vi } from "vitest";
 
-import { createDaemonSessionClient } from "../src/sessionClient.js";
+import { createDaemonSessionClient } from "../src/session-client.js";
 import { JsonRpcClient } from "../src/transport/jsonRpcClient.js";
 import type { ClientTransport } from "../src/transport/types.js";
 

@@ -53,7 +53,7 @@ import {
 } from "../event.js";
 import type { EventCategory } from "../event.js";
 import { RunIdSchema, type RunId } from "../provider-driver.js";
-import { RunRolledBackEventSchema, type RunRolledBackEvent } from "../runControl.js";
+import { RunRolledBackEventSchema, type RunRolledBackEvent } from "../run-control.js";
 import { SessionIdSchema, wireFreeFormString, type SessionId } from "../session.js";
 
 import { ChildRunSummarySchema, type ChildRunSummary } from "./child-run-summary.js";

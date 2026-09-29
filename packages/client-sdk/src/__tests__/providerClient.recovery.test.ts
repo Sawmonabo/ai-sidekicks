@@ -35,7 +35,7 @@ import type {
 } from "@ai-sidekicks/contracts";
 import { DriverResumeResultSchema, JSONRPC_VERSION } from "@ai-sidekicks/contracts";
 
-import { createDaemonProviderClient } from "../providerClient.js";
+import { createDaemonProviderClient } from "../provider-client.js";
 import { JsonRpcClient } from "../transport/jsonRpcClient.js";
 import type { ClientTransport } from "../transport/types.js";
 

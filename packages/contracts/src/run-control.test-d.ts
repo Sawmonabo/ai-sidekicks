@@ -1,8 +1,8 @@
 // Conditional-type test against the `steer` arm's `ArtifactId[]` attachment
-// element in `runControl.ts`, which the runtime suite cannot reach.
+// element in `run-control.ts`, which the runtime suite cannot reach.
 
 import type { ArtifactId, RunId } from "./provider-driver.js";
-import type { InterventionRequestPayload } from "./runControl.js";
+import type { InterventionRequestPayload } from "./run-control.js";
 
 // The runtime suite proves the SCHEMA refuses a non-id element. That is a
 // different claim: a producer composing the payload in TypeScript never reaches
@@ -11,7 +11,7 @@ import type { InterventionRequestPayload } from "./runControl.js";
 // string, so the assignments below make an unbranded id a compile-time error at
 // the construction site rather than a runtime refusal at the far end of the wire.
 //
-// Widening the arm to `unknown[]` in `runControl.ts` makes both
+// Widening the arm to `unknown[]` in `run-control.ts` makes both
 // `@ts-expect-error` directives below report "Unused '@ts-expect-error'
 // directive".
 

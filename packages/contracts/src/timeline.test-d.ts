@@ -30,7 +30,7 @@
 // union re-trigger every check in CI typecheck.
 
 import type { EventCursor } from "./session.js";
-import type { RunRolledBackEvent } from "./runControl.js";
+import type { RunRolledBackEvent } from "./run-control.js";
 import type {
   ChildRunCompleteness,
   ChildRunExpandResponse,

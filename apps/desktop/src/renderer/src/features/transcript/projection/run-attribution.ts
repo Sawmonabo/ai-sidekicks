@@ -65,7 +65,7 @@ export type RunAttributionRole = "this-run" | "another-run";
  * package publishes. `SessionEvent` is that package's own registered discriminated
  * union, so `SessionEvent["payload"]` is EVERY payload shape it registers under it:
  * an arm added there carrying a run-naming member arrives at this table with nobody
- * having to widen a list here. The three shapes named beside it are `runControl.ts`',
+ * having to widen a list here. The three shapes named beside it are `run-control.ts`',
  * which that union does not carry — they are the payloads of the run and
  * intervention kinds this shell also reads, and the package publishes no union over
  * them — so those three are enumerated and the claim is bounded to exactly them: a

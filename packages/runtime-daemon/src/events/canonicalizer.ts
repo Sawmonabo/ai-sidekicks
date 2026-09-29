@@ -334,7 +334,7 @@ export function normalizeOccurredAt(occurredAt: string): string {
  * than a style preference. The consumer is the audit range-walk, which verifies
  * a SPAN of rows; a throw there aborts the walk and suppresses verification of
  * every row after the offending one, so one malformed row would buy an attacker
- * a range-wide blind spot — the exact escalation `post-shred-verify.test.ts`
+ * a range-wide blind spot — the exact escalation `post-purge-verify.test.ts`
  * characterizes over the read path's three existing throw layers. This function
  * is written so it can never become a fourth: `RegExp.prototype.test` coerces
  * its argument and returns, for every string and for every value a `TEXT` column

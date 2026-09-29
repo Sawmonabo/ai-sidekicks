@@ -31,7 +31,7 @@ export * from "./pty-host-protocol.js";
 export * from "./pty-host.js";
 export * from "./pty.js";
 export * from "./repo.js";
-export * from "./runControl.js";
+export * from "./run-control.js";
 export * from "./session.js";
 export * from "./session-cost.js";
 export * from "./timeline/index.js";
