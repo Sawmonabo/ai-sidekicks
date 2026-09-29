@@ -26,22 +26,19 @@ import { useShellState } from "@renderer/store/window/hooks/useMainProcessState.
 import { useOpenSessionStore } from "@renderer/store/session/hooks/useOpenSessionStore.js";
 import { settingsSelection } from "@renderer/routing/route-readers.js";
 import type { ConsoleSurfaceContext } from "@renderer/console/seats/index.js";
-import {
-  matchSettingsEntries,
-  type SettingsPageContext,
-  type SettingsPageRegistry,
-} from "./settings-pages.js";
+import { matchSettingsPages, type SettingsPageRegistry } from "./settings-pages.js";
+import type { SettingsPageContext } from "./types.js";
 import {
   SETTINGS_SECTION_IDS,
   type SettingsSectionId,
 } from "@renderer/console/settings/settings-sections.js";
 import { useSettingsPageIdleWarm } from "./hooks/useSettingsPageIdleWarm.js";
 import { SettingsSearchField } from "./components/SettingsSearchField.js";
-import { SettingsSectionRail } from "./components/SettingsPageList.js";
+import { SettingsPageList } from "./components/SettingsPageList.js";
 import { SettingsSearchResults } from "./components/SettingsSearchResults.js";
 import { SettingsPane } from "./components/SettingsPane.js";
 
-export interface SettingsSurfaceProps {
+export interface SettingsScreenProps {
   readonly context: ConsoleSurfaceContext;
   /**
    * The pages this pane may render.
@@ -53,7 +50,7 @@ export interface SettingsSurfaceProps {
   readonly pages: SettingsPageRegistry;
 }
 
-export function SettingsSurface(props: SettingsSurfaceProps): React.JSX.Element {
+export function SettingsScreen(props: SettingsScreenProps): React.JSX.Element {
   const { context, pages } = props;
   const { route } = context;
   const requestedPage = route.kind === "settings" ? route.page : undefined;
@@ -120,6 +117,7 @@ export function SettingsSurface(props: SettingsSurfaceProps): React.JSX.Element 
     retainedSessionStore,
     shellState,
     uiStateStore: context.uiStateStore,
+    chooseScheme: context.chooseScheme,
   };
 
   // Warmed at idle, before any of that: the board's lifetime begins when this destination
@@ -132,7 +130,7 @@ export function SettingsSurface(props: SettingsSurfaceProps): React.JSX.Element 
   // registrar and does not change while a window is open, so re-ranking on every
   // unrelated render would be work with no input change to justify it.
   const matches = useMemo(
-    () => matchSettingsEntries(pages.entries(), searchQuery),
+    () => matchSettingsPages(pages.entries(), searchQuery),
     [pages, searchQuery],
   );
   const isSearching = searchQuery.trim() !== "";
@@ -149,7 +147,7 @@ export function SettingsSurface(props: SettingsSurfaceProps): React.JSX.Element 
             onOpenSection={openSearchHit}
           />
         ) : (
-          <SettingsSectionRail selectedSection={selectedSection} onOpenSection={openSection} />
+          <SettingsPageList selectedSection={selectedSection} onOpenSection={openSection} />
         )}
       </div>
       <div className="meridian-settings__pane">

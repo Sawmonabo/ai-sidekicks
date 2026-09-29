@@ -14,7 +14,7 @@ import type {
   ImportProgressFrame,
   ImportProgressStream,
   ImportProgressSubscribeCall,
-} from "@renderer/console/sessions/acts/provider-import.js";
+} from "./import-progress.js";
 import { settle } from "@test/helpers/settle.js";
 
 /** The id the stubbed begin answers with, so the subscription can be shown to use it. */

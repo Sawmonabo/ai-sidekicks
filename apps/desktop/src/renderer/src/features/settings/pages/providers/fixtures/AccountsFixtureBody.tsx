@@ -8,10 +8,12 @@
 // running. `signin-plane.ts` owns that rule. The registry's completion report is what
 // releases a flow the node ended on its own, correlated by attempt id.
 
+import "./accounts-fixture-body.css";
+
 import type { ProviderAccount } from "@ai-sidekicks/contracts";
 import { useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
 import { useConsoleClock } from "@renderer/services/platform/hooks/useClock.js";
-import { type ProviderQuotaReadout } from "../provider-account-readout.js";
+import { type ProviderAccountReadout } from "../provider-account-readout.js";
 import { Nothing } from "@renderer/console/primitives/index.js";
 import { AccountDetail } from "./components/AccountDetail.js";
 import { AccountRow } from "./components/AccountRow.js";
@@ -20,13 +22,17 @@ import { QuotaTable } from "./components/QuotaTable.js";
 import { ReadinessRow } from "./components/ReadinessRow.js";
 import {
   cancelSignIn,
-  startSignIn,
+  startProviderSignIn,
   type ProviderAccountLoginCall,
   type ProviderAccountLoginCancelCall,
   type ProviderAccountRegisterCall,
 } from "./sign-in-flow.js";
 import { SignInCard } from "./components/SignInCard.js";
-import { SignInPlane, signInHeldSentence, signInPlaneHolder } from "./sign-in-flow-tracker.js";
+import {
+  SignInFlowTracker,
+  describeRunningSignIn,
+  findRunningSignInAccountId,
+} from "./sign-in-flow-tracker.js";
 import { TokenRegistrationForm } from "./components/TokenRegistrationForm.js";
 
 /** The daemon verbs the shell drives. Held stable by the caller. */
@@ -41,7 +47,7 @@ export interface AccountsShellOperations {
  * projection and quota rows, and whether the first read has landed.
  */
 export interface AccountRegistryReading extends Pick<
-  ProviderQuotaReadout,
+  ProviderAccountReadout,
   "accounts" | "readiness" | "usageWindows" | "newestLoginCompletion"
 > {
   readonly phase: "reading" | "read";
@@ -51,7 +57,7 @@ export interface AccountRegistryReading extends Pick<
  * The provider-account shell: the registry, the sign-in flow and the token registration
  * form, drawn from the reading and the verbs it is handed.
  */
-export function AccountsShell(props: {
+export function AccountsFixtureBody(props: {
   readonly registry: AccountRegistryReading;
   /** Asks for a fresh registry read once a sign-in flow has ended. Held stable by the caller. */
   readonly requestRegistryRead: () => void;
@@ -66,8 +72,8 @@ export function AccountsShell(props: {
   // rather than a call in flight.
   const signInPlane = useMemo(
     () =>
-      new SignInPlane({
-        startSignIn: async (accountId) => await startSignIn(operations.login, accountId),
+      new SignInFlowTracker({
+        startSignIn: async (accountId) => await startProviderSignIn(operations.login, accountId),
         cancelSignIn: async (attempt) => await cancelSignIn(operations.cancelLogin, attempt),
         // A flow ending says nothing about the account, so the registry is read again.
         onFlowSettled: requestRegistryRead,
@@ -106,7 +112,7 @@ export function AccountsShell(props: {
   const selected =
     registry.accounts.find((account) => account.accountId === selectedAccountId) ??
     registry.accounts[0];
-  const holdingAccountId = signInPlaneHolder(signIn);
+  const holdingAccountId = findRunningSignInAccountId(signIn);
   const holdingAccountLabel =
     holdingAccountId === undefined
       ? undefined
@@ -125,7 +131,7 @@ export function AccountsShell(props: {
               startBlockedReason={
                 holdingAccountId === undefined
                   ? undefined
-                  : signInHeldSentence({
+                  : describeRunningSignIn({
                       isTheSameAccount: holdingAccountId === readiness.resolvedAccountId,
                       holdingAccountLabel,
                     })

@@ -23,11 +23,11 @@
 //
 // WHAT IS HERE IS THE FOLD AND NOT THE READ. The probe, its scheduling, and the rule
 // that decides which of two overlapping answers is the live one are
-// `bridge/os-notification-permission.ts`'s. This fold asks "will an emission reach
-// anybody"; the notifications settings page says something different for each state,
-// so the reading crosses the door unfolded and each consumer folds it.
+// `os-notification-permission.ts`'s. This fold asks "will an emission reach anybody";
+// the Notifications page says something different for each state, so the reading is
+// handed out unfolded and each consumer folds it.
 
-import type { OsNotificationPermissionReading } from "@renderer/features/settings/pages/notifications/os-notification-permission.js";
+import type { OsNotificationPermissionReading } from "./os-notification-permission.js";
 
 /**
  * What the console may say about the OS notification path.

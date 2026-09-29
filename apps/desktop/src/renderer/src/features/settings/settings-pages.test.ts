@@ -12,11 +12,11 @@ import {
 } from "@renderer/console/settings/settings-sections.js";
 import {
   SettingsPageRegistry,
-  matchSettingsEntries,
-  type SettingsPageContext,
+  matchSettingsPages,
   type SettingsPageDescriptor,
   type SettingsPageRegistration,
 } from "./settings-pages.js";
+import type { SettingsPageContext } from "./types.js";
 import type { ReactNode } from "react";
 
 function pageFor(
@@ -57,10 +57,10 @@ describe("settings page registry — one page per section", () => {
     // on which page's module the bundler evaluated first.
     const registry = new SettingsPageRegistry();
     registry.register(pageFor("keyboard"));
-    registry.register(pageFor("accounts"));
-    expect(registry.registeredSections()).toStrictEqual(["accounts", "keyboard"]);
+    registry.register(pageFor("providers"));
+    expect(registry.registeredSections()).toStrictEqual(["providers", "keyboard"]);
     expect(registry.entries().map((entry) => entry.section)).toStrictEqual([
-      "accounts",
+      "providers",
       "keyboard",
     ]);
   });
@@ -70,11 +70,11 @@ describe("settings page registry — one page per section", () => {
     // replace; two owners on one section is a conflict rather than a swap decided
     // by import order.
     const registry = new SettingsPageRegistry();
-    registry.register(pageFor("mounts", { label: "First" }));
-    registry.register(pageFor("mounts", { label: "Second" }));
-    expect(registry.descriptorFor("mounts")?.label).toBe("Second");
+    registry.register(pageFor("runtime", { label: "First" }));
+    registry.register(pageFor("runtime", { label: "Second" }));
+    expect(registry.descriptorFor("runtime")?.label).toBe("Second");
     expect(() => {
-      registry.register(pageFor("mounts", { owner: "another-owner" }));
+      registry.register(pageFor("runtime", { owner: "another-owner" }));
     }).toThrow();
   });
 
@@ -108,8 +108,8 @@ describe("settings page registry — what is left to warm", () => {
     // page module the chunk root evaluated first.
     const registry = new SettingsPageRegistry();
     registry.register(deferredPageFor("keyboard"));
-    registry.register(deferredPageFor("accounts"));
-    expect(registry.unloadedKeys()).toStrictEqual(["accounts", "keyboard"]);
+    registry.register(deferredPageFor("providers"));
+    expect(registry.unloadedKeys()).toStrictEqual(["providers", "keyboard"]);
   });
 
   it("drops a section once its body has been asked for", async () => {
@@ -133,32 +133,32 @@ describe("settings page registry — what is left to warm", () => {
 describe("settings search — one matcher, shared with the palette", () => {
   const entries = [
     pageFor("keyboard", { label: "Keyboard", keywords: ["shortcuts", "chords"] }),
-    pageFor("mounts", { label: "Mounts", keywords: ["machines"] }),
+    pageFor("runtime", { label: "Runtime", keywords: ["machines"] }),
   ];
 
   it("answers every entry in rail order for an empty query", () => {
-    expect(matchSettingsEntries(entries, "   ").map((match) => match.descriptor.section)).toContain(
+    expect(matchSettingsPages(entries, "   ").map((match) => match.descriptor.section)).toContain(
       "keyboard",
     );
-    expect(matchSettingsEntries(entries, "").length).toBe(entries.length);
+    expect(matchSettingsPages(entries, "").length).toBe(entries.length);
   });
 
   it("finds an entry by an alias its label does not carry", () => {
     // The reason entries declare aliases at all: "shortcuts" appears nowhere in
     // the word "Keyboard", and a matcher over labels alone would answer nothing.
-    const found = matchSettingsEntries(entries, "shortc");
+    const found = matchSettingsPages(entries, "shortc");
     expect(found.map((match) => match.descriptor.section)).toStrictEqual(["keyboard"]);
     expect(found[0]?.matchedText).toBe("shortcuts");
   });
 
   it("answers nothing for a query no entry embeds", () => {
-    expect(matchSettingsEntries(entries, "zzzz")).toStrictEqual([]);
+    expect(matchSettingsPages(entries, "zzzz")).toStrictEqual([]);
   });
 
   it("negative control: the ranking is the scorer's and not insertion order", () => {
     // Without this the alias case would pass over a matcher that returned every
     // entry it was given, in the order it was given them.
-    const ranked = matchSettingsEntries(entries, "mounts");
-    expect(ranked[0]?.descriptor.section).toBe("mounts");
+    const ranked = matchSettingsPages(entries, "runtime");
+    expect(ranked[0]?.descriptor.section).toBe("runtime");
   });
 });

@@ -1,43 +1,3 @@
-// The settings family's door.
-//
-// It carries ONE symbol, the surface registrar, because that is all that crosses this
-// family's boundary: `session-surfaces-family.ts` claims the slot and nothing else outside
-// this directory names a settings page, a section, or the page registry.
-//
-// WHAT USED TO BE HERE AND IS NOT. The page registrars, the page-registry
-// composition, and every stylesheet in this family moved to
-// `settings-surface-body.ts`, the root of the chunk the registrar's loader fetches.
-// The reason is the initial import graph: this door is reached before any route
-// resolves, so anything it imports is paid for by a session that never opens settings —
-// and the settings pages are the largest thing in this family by a wide margin. The
-// stylesheet rule in `apps/desktop/AGENTS.md` names the same case from the other side: a
-// directory carrying a lazily-loaded chunk has an owner of its own, and that chunk's
-// root is where its sheets enter.
-//
-// WHY THE PAGE SEAT BOARD IS NOT A CALL SITE HERE
-//
-// `console/families.ts` gives each VIEW FAMILY a seat and `console/panes/index.ts`
-// gives each pane family one. The settings pane has the same problem one level further
-// down: four lanes each build two or three pages at once, and a single shared call site
-// would make three of them conflict. Same answer, same shape — one reserved line per
-// page lane, replaced only by that lane — and it lives in the chunk root beside the
-// pages it composes.
-//
-// A page lane reaches the section vocabulary and the descriptor shape by importing
-// `settings-page-registry.ts` DEEP, which is what an intra-family import is.
-//
-// THE ONE PAGE REGISTERED FROM OUTSIDE THIS FAMILY takes `SettingsPageRegistrar`, a
-// one-method view of the registry declared beside it in `settings-page-registry.ts`.
-// It is deliberately not re-exported HERE: the chunk root imports the outside page's
-// module to compose it, so a type line pointing the other way closes a module cycle and
-// `no-circular` fails. The page holds `register` and nothing else.
-
-import type { ConsoleSurfaceRegistry } from "../seats/index.js";
-
-export {
-  /** @consumedBy the General settings page's crash-reporting block */
-  CrashReportingBlock,
-} from "@renderer/features/settings/pages/general/components/CrashReportingBlock.js";
 export {
   /** @consumedBy the inspector's cost section */
   BILLING_MODE_CLAUSES,
@@ -48,24 +8,3 @@ export {
   /** @consumedBy the inspector's cost section */
   type ReceiptPartitionVerdicts,
 } from "@renderer/features/inspector/cost/cost-receipt-model.js";
-
-/**
- * Claim the settings surface slot.
- *
- * A LOADER AND NOT A `render`. Settings is reached by pressing a rail destination, so
- * nothing paints it before a person asks for it, and every page it composes — its
- * forms, their tables, the combobox stack two of them mount, and their stylesheets —
- * rides the chunk `settings-surface-body.ts` roots rather than the initial import
- * graph. `apps/desktop/AGENTS.md` states the rule beside the seat-board one.
- *
- * The page registry moved behind that boundary with them and is composed there, per
- * mount: composing it here would mean importing every page from this door, which
- * is the whole of what the boundary exists to defer.
- */
-export function registerSettingsSurface(registry: ConsoleSurfaceRegistry): void {
-  registry.register({
-    slot: "settings",
-    owner: "settings",
-    body: () => import("@renderer/features/settings/settings-screen-body.js"),
-  });
-}

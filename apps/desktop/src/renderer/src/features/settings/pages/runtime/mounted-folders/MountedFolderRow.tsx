@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { Chip, WireFigure, formatDateTime } from "@renderer/console/primitives/index.js";
 
 /** One row: the path, the two axes, and when the mount was last probed. */
-export function MountRow(props: { readonly mount: RepoMountReadResponse }): ReactNode {
+export function MountedFolderRow(props: { readonly mount: RepoMountReadResponse }): ReactNode {
   const { mount } = props;
   return (
     <div className="meridian-mount-list__row">
@@ -35,7 +35,7 @@ export function MountRow(props: { readonly mount: RepoMountReadResponse }): Reac
  * never a verdict: the value renders verbatim beside the tone, so a reader is never
  * shown a color in place of a state name.
  */
-export function attachmentTone(mount: RepoMountReadResponse): "neutral" | "attention" {
+function attachmentTone(mount: RepoMountReadResponse): "neutral" | "attention" {
   return mount.state === "attached" ? "neutral" : "attention";
 }
 
@@ -50,6 +50,6 @@ export function attachmentTone(mount: RepoMountReadResponse): "neutral" | "atten
  * all three — anything but `healthy` is a failure a person has to act on — so this is
  * the name and the label moving to the axis, and no verdict changing.
  */
-export function mountHealthTone(mount: RepoMountReadResponse): "neutral" | "failure" {
+function mountHealthTone(mount: RepoMountReadResponse): "neutral" | "failure" {
   return mount.health.status === "healthy" ? "neutral" : "failure";
 }

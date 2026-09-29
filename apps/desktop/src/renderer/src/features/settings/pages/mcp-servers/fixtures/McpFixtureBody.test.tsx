@@ -19,7 +19,7 @@ import { unscriptedScenario } from "@test/helpers/fixture-bridge.js";
 import { settleScheduledRead } from "@test/helpers/scheduled-read.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
-import { McpShell, type McpShellOperations } from "./McpFixtureBody.js";
+import { McpFixtureBody, type McpShellOperations } from "./McpFixtureBody.js";
 
 afterEach(() => {
   cleanup();
@@ -121,9 +121,9 @@ function MountedMcpShell(props: {
 }): React.JSX.Element {
   const bridge = useConsoleBridge();
   return props.mintKey === undefined ? (
-    <McpShell bridge={bridge} operations={props.operations} />
+    <McpFixtureBody bridge={bridge} operations={props.operations} />
   ) : (
-    <McpShell bridge={bridge} operations={props.operations} mintKey={props.mintKey} />
+    <McpFixtureBody bridge={bridge} operations={props.operations} mintKey={props.mintKey} />
   );
 }
 

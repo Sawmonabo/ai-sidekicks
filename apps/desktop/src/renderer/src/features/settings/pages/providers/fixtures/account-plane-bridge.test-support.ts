@@ -19,7 +19,7 @@ import type {
 } from "./sign-in-flow.js";
 
 /** One brokered attempt, as the account plane answers a start with it. */
-export const SIGN_IN_ATTEMPT: ProviderAccountLoginResponse = {
+export const PROVIDER_SIGN_IN_ATTEMPT: ProviderAccountLoginResponse = {
   attemptId: "attempt-1",
   verificationUri: "https://provider.example.test/device",
   userCode: "WXYZ-1234",

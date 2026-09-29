@@ -28,7 +28,7 @@ import {
   CHUNK_WARM_TIMEOUT_MS,
   renderSurface,
   searchFor,
-  shippedSurfaceRender,
+  shippedScreenRender,
   windowAt,
 } from "./SettingsScreen.test-support.js";
 import type { ConsoleSurfaceContext } from "@renderer/console/seats/index.js";
@@ -36,7 +36,7 @@ import type { ConsoleSurfaceContext } from "@renderer/console/seats/index.js";
 // The settings chunk, warmed in a hook rather than inside whichever case reached it
 // first — the reason the holder it goes through records.
 beforeAll(async () => {
-  await shippedSurfaceRender();
+  await shippedScreenRender();
 }, CHUNK_WARM_TIMEOUT_MS);
 
 /**
@@ -52,9 +52,9 @@ const SESSION_ECHO_CLASS = "settings-surface-test__session";
 function sessionEchoPages(): SettingsPageRegistry {
   const pages = new SettingsPageRegistry();
   pages.register({
-    section: "mounts",
+    section: "runtime",
     owner: "settings-surface-test",
-    label: "Mounts",
+    label: "Runtime",
     keywords: [],
     render: (pageContext) => (
       <p className={SESSION_ECHO_CLASS}>{pageContext.retainedSessionId ?? "no session"}</p>
@@ -203,12 +203,12 @@ describe("settings search — one field above the rail", () => {
   }
 
   it("lands the reader on the page a hit names, and settles it once", async () => {
-    const { container } = await renderSurface(contextFor("mounts"), sessionEchoPages());
+    const { container } = await renderSurface(contextFor("runtime"), sessionEchoPages());
     const page = container.querySelector(".meridian-settings__page");
     expect(page?.className).not.toContain("--settling");
 
-    searchFor(container, "mounts");
-    pressHit(container, "Mounts");
+    searchFor(container, "runtime");
+    pressHit(container, "Runtime");
 
     const heading = container.querySelector(".meridian-settings__page-heading");
     expect(document.activeElement).toBe(heading);
@@ -218,9 +218,9 @@ describe("settings search — one field above the rail", () => {
   it("settles again on a second hit into the section already open", async () => {
     // The case a boolean could not express: the state is already true, so a second
     // press would change nothing downstream and the reader would be told nothing.
-    const { container } = await renderSurface(contextFor("mounts"), sessionEchoPages());
-    searchFor(container, "mounts");
-    pressHit(container, "Mounts");
+    const { container } = await renderSurface(contextFor("runtime"), sessionEchoPages());
+    searchFor(container, "runtime");
+    pressHit(container, "Runtime");
     const page = container.querySelector(".meridian-settings__page");
     // The animation's end is what clears it, and jsdom runs no animation — so the
     // case fires the event the browser would, and then asserts the second press
@@ -232,14 +232,14 @@ describe("settings search — one field above the rail", () => {
       "--settling",
     );
 
-    pressHit(container, "Mounts");
+    pressHit(container, "Runtime");
     expect(container.querySelector(".meridian-settings__page")?.className).toContain("--settling");
   });
 
   it("negative control: opening a section from the rail settles nothing", async () => {
     // Without this, the two cases above would pass over a page that flashed on every
     // arrival — which would say "you landed here" to someone who navigated by hand.
-    const { container } = await renderSurface(contextFor("mounts"), sessionEchoPages());
+    const { container } = await renderSurface(contextFor("runtime"), sessionEchoPages());
     const railEntry = container.querySelector(".meridian-settings__section");
     act(() => {
       (railEntry as HTMLButtonElement).click();
@@ -255,7 +255,7 @@ describe("settings search — one field above the rail", () => {
 
 describe("the session a settings page is handed", () => {
   it("hands down the session this window opened, on an address that names none", async () => {
-    const settingsWindow = windowAt("mounts", ["session-alpha"]);
+    const settingsWindow = windowAt("runtime", ["session-alpha"]);
     const { container } = await renderSurface(settingsWindow.context, sessionEchoPages());
     expect(echoedSession(container)).toBe("session-alpha");
     // The negative control on the projection this surface used to read: it is
@@ -266,7 +266,7 @@ describe("the session a settings page is handed", () => {
   });
 
   it("hands down nothing in a window that has opened no session", async () => {
-    const { container } = await renderSurface(windowAt("mounts").context, sessionEchoPages());
+    const { container } = await renderSurface(windowAt("runtime").context, sessionEchoPages());
     expect(echoedSession(container)).toBe("no session");
   });
 
@@ -274,7 +274,7 @@ describe("the session a settings page is handed", () => {
     // The subscription is the claim. A getter read during render answers whatever
     // the store held on that pass and notifies nobody afterwards, so this case
     // fails on a snapshot and passes only on a store subscription.
-    const settingsWindow = windowAt("mounts", ["session-alpha"]);
+    const settingsWindow = windowAt("runtime", ["session-alpha"]);
     const { container } = await renderSurface(settingsWindow.context, sessionEchoPages());
     act(() => {
       settingsWindow.frameStore.navigate({ kind: "workspace", sessionId: "session-beta" });
@@ -286,7 +286,7 @@ describe("the session a settings page is handed", () => {
     // Without this, the case above would pass over a surface that re-read the store
     // on every notification and reported whatever it found — the palette opening is
     // a frame change that says nothing about which session this window is in.
-    const settingsWindow = windowAt("mounts", ["session-alpha"]);
+    const settingsWindow = windowAt("runtime", ["session-alpha"]);
     const { container } = await renderSurface(settingsWindow.context, sessionEchoPages());
     act(() => {
       settingsWindow.frameStore.setPaletteOpen(true);

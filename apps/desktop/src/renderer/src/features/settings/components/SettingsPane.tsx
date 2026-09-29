@@ -6,8 +6,9 @@
 // is resolved and a hook run for them would be reaching for a heading that is not on
 // screen.
 import { Nothing } from "@renderer/console/primitives/index.js";
-import { SettingsSectionPage } from "./SettingsPageContent.js";
-import type { SettingsPageContext, SettingsPageRegistry } from "../settings-pages.js";
+import { SettingsPageContent } from "./SettingsPageContent.js";
+import type { SettingsPageRegistry } from "../settings-pages.js";
+import type { SettingsPageContext } from "../types.js";
 import type { SettingsSectionId } from "@renderer/console/settings/settings-sections.js";
 
 export interface SettingsPaneProps {
@@ -57,7 +58,7 @@ export function SettingsPane(props: SettingsPaneProps): React.JSX.Element {
   }
 
   return (
-    <SettingsSectionPage
+    <SettingsPageContent
       section={props.section}
       context={props.context}
       pages={props.pages}

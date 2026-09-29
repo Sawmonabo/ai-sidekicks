@@ -5,11 +5,9 @@ import { describe, expect, it } from "vitest";
 
 import { unscriptedScenario } from "@test/helpers/fixture-bridge.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
-import {
-  ApplicationPage,
-  registerApplicationPage,
-} from "@renderer/console/settings/pages/application/ApplicationPage.js";
-import { SettingsPageRegistry, type SettingsPageContext } from "../../settings-pages.js";
+import { GeneralPage } from "./GeneralPage.js";
+import { composeSettingsPages } from "../../settings-pages.js";
+import type { SettingsPageContext } from "../../types.js";
 import { consoleTestUiStateStore } from "@test/helpers/settings-page-mount.js";
 import { UNREPORTED_SHELL_STATE } from "@renderer/store/window/main-process-state.js";
 
@@ -39,12 +37,13 @@ function contextFor(): SettingsPageContext {
     shellState: UNREPORTED_SHELL_STATE,
     selection: undefined,
     uiStateStore: consoleTestUiStateStore(),
+    chooseScheme: () => undefined,
   };
 }
 
 describe("application page", () => {
   it("renders the build facts verbatim off the bridge", () => {
-    const text = render(<ApplicationPage context={contextFor()} />).container.textContent ?? "";
+    const text = render(<GeneralPage context={contextFor()} />).container.textContent ?? "";
     expect(text).toContain("1.4.0");
     expect(text).toContain("darwin");
     expect(text).toContain("arm64");
@@ -54,15 +53,14 @@ describe("application page", () => {
   it("negative control: the facts are the bridge's and not a placeholder", () => {
     // Without this, the first case would pass over a page that printed a fixed
     // version string — which is exactly what a build-facts panel must never do.
-    const text = render(<ApplicationPage context={contextFor()} />).container.textContent ?? "";
+    const text = render(<GeneralPage context={contextFor()} />).container.textContent ?? "";
     expect(text).not.toContain("0.0.0");
   });
 
   it("claims the application section with a search vocabulary", () => {
-    const registry = new SettingsPageRegistry();
-    registerApplicationPage(registry);
-    const descriptor = registry.descriptorFor("application");
-    expect(descriptor?.label).toBe("Application");
+    const registry = composeSettingsPages();
+    const descriptor = registry.descriptorFor("general");
+    expect(descriptor?.label).toBe("General");
     expect(descriptor?.keywords).toContain("updates");
   });
 });

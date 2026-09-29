@@ -42,11 +42,11 @@ describe("an account-plane refusal on a console surface", () => {
     );
     expect(actions).toHaveLength(1);
     actions[0]?.click();
-    expect(openSection.mock.calls).toStrictEqual([["accounts"]]);
+    expect(openSection.mock.calls).toStrictEqual([["providers"]]);
   });
 
   it("says what has to happen without offering to open the page it is already on", () => {
-    const { container } = renderRefusal("provideraccount.no_default", "accounts");
+    const { container } = renderRefusal("provideraccount.no_default", "providers");
     expect(container.textContent ?? "").toContain("Choosing which account answers");
     expect(container.querySelector(".meridian-account-handoff__action")).toBeNull();
   });

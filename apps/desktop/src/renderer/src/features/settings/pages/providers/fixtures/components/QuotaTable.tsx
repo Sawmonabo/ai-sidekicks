@@ -9,8 +9,18 @@ import {
   formatPercent,
 } from "@renderer/console/primitives/index.js";
 import { MILLISECONDS_PER_MINUTE } from "@renderer/lib/instant.js";
-import { UTILIZATION_BAR_FULL_SCALE } from "@renderer/console/core/constants/provider-quota-caps.js";
 import type { AccountQuotaRow } from "../quota-rows.js";
+
+/**
+ * The full-scale value a utilization bar is drawn against, and the clamp on its fill.
+ *
+ * A quota reading can exceed its own limit, and an unclamped `<progress>` fill past its
+ * `max` renders differently across engines. So the bar is clamped and the figure beside it
+ * is not: the bar answers "how full", which saturates, and the percentage answers "how
+ * much", which does not. One rather than a hundred because the fraction is what `Intl`
+ * takes for a percent.
+ */
+const UTILIZATION_BAR_FULL_SCALE = 1;
 
 /**
  * One account's per-limit quota table, one row per limit the provider publishes.

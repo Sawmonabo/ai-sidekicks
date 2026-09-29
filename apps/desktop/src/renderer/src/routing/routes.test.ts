@@ -64,24 +64,26 @@ describe("routes — malformed main-window hashes resolve to not-found", () => {
     // The pair the grammar exists to keep exact: a row that deep-links to the accounts
     // page for one provider hands the frame store an address, and a parser reading the
     // second segment differently would open that page for another provider or none.
-    expect(parseRoute("#/settings/accounts/codex")).toStrictEqual({
+    expect(parseRoute("#/settings/providers/codex")).toStrictEqual({
       kind: "settings",
-      page: "accounts",
+      page: "providers",
       selection: "codex",
     });
-    expect(formatRoute(parseRoute("#/settings/accounts/codex"))).toBe("#/settings/accounts/codex");
+    expect(formatRoute(parseRoute("#/settings/providers/codex"))).toBe(
+      "#/settings/providers/codex",
+    );
     // The selection is a wire value, so it escapes like every other segment.
-    const escaped = "#/settings/accounts/one%2Ftwo";
+    const escaped = "#/settings/providers/one%2Ftwo";
     expect(parseRoute(escaped)).toStrictEqual({
       kind: "settings",
-      page: "accounts",
+      page: "providers",
       selection: "one/two",
     });
     expect(formatRoute(parseRoute(escaped))).toBe(escaped);
   });
 
   it("refuses a settings selection whose escapes are malformed", () => {
-    expect(parseRoute("#/settings/accounts/%zz").kind).toBe("not-found");
+    expect(parseRoute("#/settings/providers/%zz").kind).toBe("not-found");
   });
 
   it("names no address of its own for the session workspace's rail destination", () => {

@@ -7,7 +7,8 @@ import { describe, expect, it, afterEach, beforeEach, vi } from "vitest";
 // suites belongs to the module beside it and not on the family's production door.
 import { ManualIdleWarmScheduler } from "@test/helpers/idle-warm.js";
 import { renderSurface, windowAt } from "./SettingsScreen.test-support.js";
-import { SettingsPageRegistry, type SettingsPageContext } from "./settings-pages.js";
+import { SettingsPageRegistry } from "./settings-pages.js";
+import type { SettingsPageContext } from "./types.js";
 
 /** Which sections a board asked for. */
 interface DeferredPageProbe {
@@ -20,12 +21,12 @@ function deferredPageProbe(): DeferredPageProbe {
   const loadedSections: string[] = [];
   const pages = new SettingsPageRegistry();
   pages.register({
-    section: "agents",
+    section: "notifications",
     owner: "settings-surface-warm-test",
-    label: "Sidekicks",
+    label: "Notifications",
     keywords: [],
     body: () => {
-      loadedSections.push("agents");
+      loadedSections.push("notifications");
       return Promise.resolve<{ Body: (context: SettingsPageContext) => React.ReactNode }>({
         Body: () => null,
       });
@@ -65,7 +66,7 @@ describe("the settings mount's idle walk", () => {
     expect(pinnedIdleHost.pendingCount).toBe(1);
     pinnedIdleHost.runToQuiescence();
 
-    expect(probe.loadedSections).toStrictEqual(["agents"]);
+    expect(probe.loadedSections).toStrictEqual(["notifications"]);
     expect(probe.pages.unloadedKeys()).toStrictEqual([]);
     // A warm is not an open: nothing navigated.
     expect(settingsWindow.frameStore.getState().route).toStrictEqual({
@@ -82,6 +83,6 @@ describe("the settings mount's idle walk", () => {
     pinnedIdleHost.runToQuiescence();
 
     expect(probe.loadedSections).toStrictEqual([]);
-    expect(probe.pages.unloadedKeys()).toStrictEqual(["agents"]);
+    expect(probe.pages.unloadedKeys()).toStrictEqual(["notifications"]);
   });
 });

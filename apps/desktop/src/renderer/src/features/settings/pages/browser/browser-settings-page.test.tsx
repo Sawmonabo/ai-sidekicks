@@ -4,13 +4,10 @@
 // registrar that works and is never called leaves `#/settings/browser` rendering the
 // reserved arm — a surface a person cannot reach by any address.
 //
-// AND THE REGISTRATION IS LOADER-BACKED, which splits those cases in two. The page is a
-// chunk of its own — `browser/settings/browser-settings-page-body.ts`, which is what
-// keeps a page nobody has opened off every launch's initial import graph — so the
-// shipped surface parked on this address renders the page REGION and its reservation,
-// and the body itself lands a turn later. The claims are made against the shipped
-// surface, and against the reserved mount the family's own scaffolding owns
-// (`settings/settings-page-mount.test-support.tsx`).
+// The registration is loader-backed: the page is a chunk of its own
+// (`pages/browser/browser-settings-page-body.ts`), which keeps a page nobody has opened off
+// every launch's initial import graph, so the shipped surface parked on this address renders
+// the page region and its reservation, and the body lands a turn later.
 
 import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -20,13 +17,8 @@ import { createFixture } from "@test/helpers/fixture-bridge.js";
 import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
 import { FrameStore } from "@renderer/store/window/window-store.js";
 import { SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
-import { registerSettingsSurface } from "@renderer/console/settings/index.js";
-import { registerBrowserSettingsPage } from "@renderer/console/browser-settings-page.js";
-import {
-  mountReservedSettingsPage,
-  settingsPageContextWith,
-} from "@test/helpers/settings-page-mount.js";
-import { SettingsPageRegistry } from "../../settings-pages.js";
+import { registerSettingsSurface } from "../../contributions/screens.js";
+import { SETTINGS_PAGES, SettingsPageRegistry } from "../../settings-pages.js";
 import {
   ConsoleSurfaceRegistry,
   type ConsoleSurfaceContext,
@@ -63,6 +55,7 @@ async function renderShippedSettingsAtBrowser(): Promise<HTMLElement> {
     bridge: createFixture().bridge,
     frameStore,
     sessionStoreRegistry: new SessionStoreRegistry({ read: () => Promise.resolve(undefined) }),
+    chooseScheme: () => undefined,
   } as unknown as ConsoleSurfaceContext;
   const { container } = render(
     <LiveAnnouncerProvider>{descriptor.render(context)}</LiveAnnouncerProvider>,
@@ -73,15 +66,13 @@ async function renderShippedSettingsAtBrowser(): Promise<HTMLElement> {
   return container;
 }
 
-/**
- * The context this page is handed, built by the family's own builder.
- *
- * The page reads nothing from it, but the context is built whole rather than cast: a
- * cast placeholder compiles past exactly the wiring mistake a widened context would
- * otherwise catch here, which is what `settingsPageContextWith` exists to end.
- */
-function browserPageContext(): ReturnType<typeof settingsPageContextWith> {
-  return settingsPageContextWith(createFixture().bridge, undefined);
+/** The page table's Browser entry, registered on a board the case owns. */
+function registerBrowserPage(registry: SettingsPageRegistry): void {
+  const entry = SETTINGS_PAGES.find((page) => page.section === "browser");
+  if (entry === undefined) {
+    throw new Error("the page table holds no Browser entry");
+  }
+  registry.register(entry);
 }
 
 describe("the browser settings section", () => {
@@ -94,33 +85,13 @@ describe("the browser settings section", () => {
     expect(pendingPaneBodiesIn(container).length).toBe(1);
   });
 
-  it("reserves the region rather than the page while its chunk is still arriving", () => {
-    // The other side of the loader form, and the negative control for the wait above: an
-    // unpreloaded descriptor draws the reservation, so the case above is asserting on a
-    // body that landed rather than on one that was there all along. It is also the frame
-    // a person sees, and it must carry the pending marker — the screenshot tier refuses
-    // to photograph a tree holding one, and a settings page mid-load is exactly what
-    // that refusal exists for.
-    //
-    // SYNCHRONOUS, AND THAT IS THE CASE ITSELF — the reservation is the render that
-    // happens before the import resolves, which is why the shared mount has a second,
-    // un-awaited half rather than an option on its first.
-    const container = mountReservedSettingsPage(
-      "browser",
-      registerBrowserSettingsPage,
-      browserPageContext(),
-    );
-    expect(container.querySelector("#meridian-browser-settings-title")).toBeNull();
-    expect(pendingPaneBodiesIn(container).length).toBe(1);
-  });
-
-  it("negative control: the registrar is what puts the page on a board", () => {
+  it("negative control: the table's entry is what puts the page on a board", () => {
     // Without this, the cases above would pass over a board that had grown the section
-    // some other way — and this one fails if the registrar stops claiming it.
+    // some other way — and this one fails if the table stops holding it.
     const withoutRegistration = new SettingsPageRegistry();
     expect(withoutRegistration.descriptorFor("browser")).toBeUndefined();
     const withRegistration = new SettingsPageRegistry();
-    registerBrowserSettingsPage(withRegistration);
+    registerBrowserPage(withRegistration);
     expect(withRegistration.descriptorFor("browser")?.label).toBe("Browser");
   });
 });

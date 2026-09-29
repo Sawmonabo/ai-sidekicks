@@ -12,7 +12,7 @@ import type { UpdateState, Unsubscribe } from "@shared/preload-api.js";
 import { ManualClock } from "@renderer/lib/clock.js";
 import { LiveAnnouncer, LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
 import { politeText } from "@test/helpers/live-region.js";
-import { UpdatesBlock } from "@renderer/console/settings/pages/application/updates/UpdatesBlock.js";
+import { UpdatesBlock } from "./UpdatesBlock.js";
 import type { UpdaterCalls } from "./updater-reading.js";
 
 /**

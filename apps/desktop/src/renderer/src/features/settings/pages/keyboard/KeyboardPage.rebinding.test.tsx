@@ -10,19 +10,19 @@ import { describe, expect, it } from "vitest";
 import { consoleKeybindingOverrides } from "@renderer/console/palette/index.js";
 import { LiveAnnouncerProvider, formatCount } from "@renderer/console/primitives/index.js";
 import { liveRegionText, politeText } from "@test/helpers/live-region.js";
-import { KeyboardPage } from "@renderer/console/settings/pages/keyboard/KeyboardPage.js";
+import { KeyboardPage } from "./KeyboardPage.js";
 import {
   RECORDED_PRESS,
-  recordOnto,
+  recordChordOnto,
   recorderOf,
-  renderPage,
+  renderKeyboardPage,
   rowOf,
 } from "./keyboard-page.test-support.js";
 
 describe("keyboard page — what it changes", () => {
   it("records a chord onto the frame's own seam and prints it back", async () => {
-    const { container } = renderPage();
-    await recordOnto(container, "app.checkForUpdates", RECORDED_PRESS);
+    const { container } = renderKeyboardPage();
+    await recordChordOnto(container, "app.checkForUpdates", RECORDED_PRESS);
 
     await waitFor(() => {
       expect(consoleKeybindingOverrides.overrides["app.checkForUpdates"]).toBe("Alt+KeyJ");
@@ -37,8 +37,8 @@ describe("keyboard page — what it changes", () => {
   });
 
   it("announces a rebinding once, politely, and says nothing on a later render", async () => {
-    const { container, rerender } = renderPage();
-    await recordOnto(container, "app.checkForUpdates", RECORDED_PRESS);
+    const { container, rerender } = renderKeyboardPage();
+    await recordChordOnto(container, "app.checkForUpdates", RECORDED_PRESS);
 
     await waitFor(() => {
       expect(politeText(container)).toContain("Check for updates now runs on");
@@ -57,13 +57,13 @@ describe("keyboard page — what it changes", () => {
   });
 
   it("refuses a chord another command holds, naming that command on the row", async () => {
-    const { container } = renderPage();
-    await recordOnto(container, "app.checkForUpdates", RECORDED_PRESS);
+    const { container } = renderKeyboardPage();
+    await recordChordOnto(container, "app.checkForUpdates", RECORDED_PRESS);
     await waitFor(() => {
       expect(consoleKeybindingOverrides.overrides["app.checkForUpdates"]).toBe("Alt+KeyJ");
     });
 
-    await recordOnto(container, "frame.goToSessions", RECORDED_PRESS);
+    await recordChordOnto(container, "frame.goToSessions", RECORDED_PRESS);
 
     await waitFor(() => {
       expect(rowOf(container, "frame.goToSessions").textContent ?? "").toContain("chord-taken");
@@ -81,7 +81,7 @@ describe("keyboard page — what it changes", () => {
     // announcer holds a standing message and queues the next, which is its own
     // contract (`live-announcer.ts`) and not this page's to drive.
     await consoleKeybindingOverrides.bind("frame.goToSessions", "Alt+KeyJ");
-    const { container } = renderPage();
+    const { container } = renderKeyboardPage();
     expect(consoleKeybindingOverrides.overrides["frame.goToSessions"]).toBe("Alt+KeyJ");
 
     const reset = rowOf(container, "frame.goToSessions").querySelector(".meridian-keymap__reset");
@@ -98,12 +98,12 @@ describe("keyboard page — what it changes", () => {
   });
 
   it("names the command in every control's label, so a list of rows can be navigated", async () => {
-    const { container } = renderPage();
+    const { container } = renderKeyboardPage();
     expect(recorderOf(container, "app.checkForUpdates").getAttribute("aria-label")).toBe(
       "Rebind Check for updates",
     );
 
-    await recordOnto(container, "app.checkForUpdates", RECORDED_PRESS);
+    await recordChordOnto(container, "app.checkForUpdates", RECORDED_PRESS);
     await waitFor(() => {
       expect(consoleKeybindingOverrides.overrides["app.checkForUpdates"]).toBe("Alt+KeyJ");
     });
@@ -118,7 +118,7 @@ describe("keyboard page — what it changes", () => {
     // Without a per-row label the case above would pass over a page whose every
     // recorder is called "Rebind", which is a list nobody reading it through a
     // screen reader can navigate.
-    const { container } = renderPage();
+    const { container } = renderKeyboardPage();
     const labels = [...container.querySelectorAll(".meridian-keymap__record")].map(
       (element) => element.getAttribute("aria-label") ?? "",
     );
@@ -129,8 +129,8 @@ describe("keyboard page — what it changes", () => {
   it("negative control: a modifier held on its own does not complete a recording", async () => {
     // Without this the recorder would settle the moment somebody pressed ⌥ on the
     // way to ⌥J, and would bind a chord nobody asked for.
-    const { container } = renderPage();
-    await recordOnto(container, "app.checkForUpdates", {
+    const { container } = renderKeyboardPage();
+    await recordChordOnto(container, "app.checkForUpdates", {
       key: "Alt",
       code: "AltLeft",
       altKey: true,
@@ -146,7 +146,7 @@ describe("keyboard page — what it changes", () => {
     // The section asks for "the keys held so far, and whether the chord is complete".
     // Before this, a modifier press was read and discarded, so a person on the way to
     // ⌥J saw nothing at all between arming the recorder and settling it.
-    const { container } = renderPage();
+    const { container } = renderKeyboardPage();
     const recorder = recorderOf(container, "app.checkForUpdates");
     fireEvent.click(recorder);
     // Opening arm first: an armed recorder that had received nothing must say so
@@ -170,7 +170,7 @@ describe("keyboard page — what it changes", () => {
     // that: a person who presses ⇧, changes their mind, and lets go left the row saying
     // "Holding ⇧" for as long as the recorder stayed armed — a sentence about the
     // present tense that was false and had no way of becoming true again.
-    const { container } = renderPage();
+    const { container } = renderKeyboardPage();
     const recorder = recorderOf(container, "app.checkForUpdates");
     fireEvent.click(recorder);
 
@@ -200,7 +200,7 @@ describe("keyboard page — what it changes", () => {
     // The other direction, and the one a bare clear would get wrong: releasing ⇧ on the
     // way to ⌥⇧J leaves ⌥ held, and a hint that emptied itself would be as false as one
     // that never emptied at all.
-    const { container } = renderPage();
+    const { container } = renderKeyboardPage();
     const recorder = recorderOf(container, "app.checkForUpdates");
     fireEvent.click(recorder);
 
@@ -229,8 +229,8 @@ describe("keyboard page — what it changes", () => {
   });
 
   it("names the chord a per-row reset restores, rather than promising a default", async () => {
-    const { container } = renderPage();
-    await recordOnto(container, "frame.goToSessions", RECORDED_PRESS);
+    const { container } = renderKeyboardPage();
+    await recordChordOnto(container, "frame.goToSessions", RECORDED_PRESS);
     await waitFor(() => {
       expect(consoleKeybindingOverrides.overrides["frame.goToSessions"]).toBe("Alt+KeyJ");
     });
@@ -246,7 +246,7 @@ describe("keyboard page — what it changes", () => {
   it("names each default the reset-all control restores, beside the control", async () => {
     await consoleKeybindingOverrides.bind("frame.goToSessions", "Alt+KeyJ");
     await consoleKeybindingOverrides.bind("app.checkForUpdates", "Alt+KeyK");
-    const { container } = renderPage();
+    const { container } = renderKeyboardPage();
 
     const block = container.querySelector(".meridian-keymap__reset-all-block");
     const blockText = block?.textContent ?? "";
@@ -276,7 +276,7 @@ describe("the changed-chord count", () => {
     // count assertion on one row would be asserting the noun as much as the figure.
     await consoleKeybindingOverrides.bind("frame.goToSessions", "Alt+KeyJ");
     await consoleKeybindingOverrides.bind("frame.goToWorkflows", "Alt+KeyK");
-    const { container } = renderPage();
+    const { container } = renderKeyboardPage();
 
     expect(resetAllLabel(container)).toBe(`Reset all ${formatCount(2)} changed chords`);
   });
@@ -284,7 +284,7 @@ describe("the changed-chord count", () => {
   it("negative control: no changed row draws no reset-all control at all", async () => {
     // Without this the case above would pass over a page that drew the control
     // unconditionally, and the count would be asserting a constant.
-    const { container } = renderPage();
+    const { container } = renderKeyboardPage();
     expect(resetAllLabel(container)).toBeUndefined();
     expect(container.textContent ?? "").toContain("Every chord is the one the console ships.");
   });

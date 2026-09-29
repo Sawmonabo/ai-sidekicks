@@ -136,8 +136,8 @@ describe("routesAreEqual — an unchanged hash costs no transition", () => {
 
 describe("the settings arm's page-scoped selection", () => {
   it("is what a producer asked for, and absent where it asked for none", () => {
-    expect(settingsSelection(settingsRoute("accounts", "codex"))).toBe("codex");
-    expect(settingsSelection(settingsRoute("accounts", undefined))).toBeUndefined();
+    expect(settingsSelection(settingsRoute("providers", "codex"))).toBe("codex");
+    expect(settingsSelection(settingsRoute("providers", undefined))).toBeUndefined();
   });
 
   it("names nothing for a pageless settings address, which has nowhere to carry one", () => {
@@ -157,13 +157,13 @@ describe("the settings arm's page-scoped selection", () => {
     // provider, following a row for another, must reach a route the frame store sees
     // as different — or the navigation costs nothing and the page never re-renders.
     expect(
-      routesAreEqual(settingsRoute("accounts", "codex"), settingsRoute("accounts", "claude")),
+      routesAreEqual(settingsRoute("providers", "codex"), settingsRoute("providers", "claude")),
     ).toBe(false);
     expect(
-      routesAreEqual(settingsRoute("accounts", "codex"), settingsRoute("accounts", undefined)),
+      routesAreEqual(settingsRoute("providers", "codex"), settingsRoute("providers", undefined)),
     ).toBe(false);
     expect(
-      routesAreEqual(settingsRoute("accounts", "codex"), settingsRoute("accounts", "codex")),
+      routesAreEqual(settingsRoute("providers", "codex"), settingsRoute("providers", "codex")),
     ).toBe(true);
   });
 });

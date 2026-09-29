@@ -2,15 +2,13 @@
 
 import { describe, expect, it } from "vitest";
 
-import { registerProviderAccountsPage } from "@renderer/console/settings/pages/provider-accounts/ProviderAccountsPage.js";
-import { SettingsPageRegistry } from "../../settings-pages.js";
+import { composeSettingsPages } from "../../settings-pages.js";
 
 describe("the accounts page — its rail entry", () => {
   it("claims the accounts section with a search vocabulary", () => {
-    const registry = new SettingsPageRegistry();
-    registerProviderAccountsPage(registry);
-    const descriptor = registry.descriptorFor("accounts");
-    expect(descriptor?.label).toBe("Provider accounts");
+    const registry = composeSettingsPages();
+    const descriptor = registry.descriptorFor("providers");
+    expect(descriptor?.label).toBe("Providers");
     expect(descriptor?.keywords).toContain("sign in");
   });
 });

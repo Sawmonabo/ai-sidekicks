@@ -27,7 +27,7 @@ export const MAIN_WINDOW_ROUTES: readonly ConsoleRoute[] = [
   { kind: "settings", page: "providers" },
   // The paged arm carrying its page's own selection — the deep link a provider row
   // hands the frame store. Listed here so both suites are asked about it.
-  { kind: "settings", page: "accounts", selection: "codex" },
+  { kind: "settings", page: "providers", selection: "codex" },
   // The fixture-only arm. `parseRoute` produces it exactly where
   // `__SIDEKICKS_CONSOLE_FIXTURES__` is true, which the `console-unit` project
   // substitutes as it does for every console tier — so the round trip that walks this

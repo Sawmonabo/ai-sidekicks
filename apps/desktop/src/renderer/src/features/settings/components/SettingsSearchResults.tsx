@@ -1,5 +1,5 @@
 import { Nothing } from "@renderer/console/primitives/index.js";
-import { type SettingsEntryMatch } from "../settings-pages.js";
+import { type SettingsPageMatch } from "../settings-pages.js";
 import {
   SETTINGS_SECTION_LABELS,
   type SettingsSectionId,
@@ -7,7 +7,7 @@ import {
 
 export interface SettingsSearchResultsProps {
   readonly query: string;
-  readonly matches: readonly SettingsEntryMatch[];
+  readonly matches: readonly SettingsPageMatch[];
   readonly selectedSection: SettingsSectionId | undefined;
   readonly onOpenSection: (section: SettingsSectionId) => void;
 }

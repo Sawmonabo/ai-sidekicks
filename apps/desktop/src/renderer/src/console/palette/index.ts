@@ -95,7 +95,7 @@ export type { FrameCommand } from "./commands/command-surface.js";
 // frame through this door like every other symbol a family consumes. Only the
 // hook is forwarded: the builder beside it exists so the BEHAVIOUR can be driven
 // without a React tree, which is its own family's business and not a caller's.
-export { useBridgeCommands } from "./commands/bridge-commands.js";
+export { useBridgeCommands } from "@renderer/features/settings/hooks/useBridgeCommands.js";
 
 export { KeyBindingTable } from "@renderer/registries/keybindings/keybinding-table.js";
 

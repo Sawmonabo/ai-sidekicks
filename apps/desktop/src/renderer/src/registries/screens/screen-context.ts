@@ -12,6 +12,7 @@ import type { ConsoleRoute } from "@renderer/routing/routes.js";
 import { type FrameStore } from "@renderer/store/window/window-store.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 import { type SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
+import type { SchemePreference } from "@renderer/styles/tokens.js";
 import type { ConsolePaneRegistry } from "../panes/pane-registry.js";
 
 /** Everything a surface is handed. Nothing here is global; all of it is per window. */
@@ -45,4 +46,12 @@ export interface ConsoleSurfaceContext {
   readonly paneRegistry: ConsolePaneRegistry;
   readonly uiStateStore: UiStateStore;
   readonly draftStore: DraftStore;
+  /**
+   * This window's one act for choosing a color scheme, which applies it and saves it.
+   *
+   * Handed down rather than rebuilt by a screen, because the act also guards the saved
+   * choice against the read that restores it at start: a second copy would carry a second
+   * guard that knows nothing of choices made through the first.
+   */
+  readonly chooseScheme: (preference: SchemePreference) => void;
 }

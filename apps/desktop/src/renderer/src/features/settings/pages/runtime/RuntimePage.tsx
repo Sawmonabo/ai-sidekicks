@@ -1,4 +1,4 @@
-// The local-runtime page: the supervisor's detail, one click behind the frame's chip.
+// The Runtime page: the supervisor's detail, one click behind the frame's chip.
 //
 // The daemon's state belongs in the frame as a chip, with its DETAIL (the attempt count
 // and the last heartbeat) one click away, diagnostic only and never editable. This is
@@ -21,7 +21,7 @@
 // AND IT CONFIRMS ONCE. A confirmation is the record of one intended act, so once it has
 // been answered both of its actions are refused until the dispatch settles; otherwise a
 // double-click on a destructive verb sends two of them. The refusal itself is decided in
-// the handler's own tick by `daemon-controls.ts`; what this file owns is saying so on
+// the handler's own tick by `hooks/useDaemonControl.ts`; what this file owns is saying so on
 // screen rather than leaving a control that quietly does nothing.
 //
 // THE BLOCKS DERIVE NO ELIGIBILITY. They offer both controls in every state: no field
@@ -32,27 +32,24 @@
 
 import { useCallback, useState, type ReactNode } from "react";
 
-import { Chip, Nothing, WireFigure } from "../../../primitives/index.js";
+import { Chip, Nothing, WireFigure } from "@renderer/console/primitives/index.js";
 import {
   UNREPORTED_SHELL_NOTICE,
   describeShellConnection,
   type ShellState,
 } from "@renderer/store/window/main-process-state.js";
-import type {
-  SettingsPageContext,
-  SettingsPageRegistry,
-} from "@renderer/features/settings/settings-pages.js";
+import type { SettingsPageContext } from "../../types.js";
 import {
-  useDaemonControl,
   useDaemonStatus,
-  type DaemonControl,
-  type DaemonControlSettlement,
   type DaemonOperations,
   type DaemonStatusReading,
-} from "./daemon-controls.js";
-
-/** The owner this page registers under. */
-const OWNER = "settings-daemon";
+} from "./hooks/useDaemonStatus.js";
+import {
+  useDaemonControl,
+  type DaemonControl,
+  type DaemonControlSettlement,
+} from "./hooks/useDaemonControl.js";
+import { MountedFoldersBlock } from "./mounted-folders/MountedFoldersBlock.js";
 
 /**
  * Why both confirmation actions are refused once one dispatch has gone out.
@@ -71,33 +68,35 @@ const CONTROL_COPY: Readonly<
   Record<DaemonControl, { readonly verb: string; readonly consequence: string }>
 > = {
   stop: {
-    verb: "Stop the local runtime",
+    verb: "Stop",
     consequence:
-      "Every run on this machine ends. Nothing new can be started until the runtime is running again, and starting it is a shell action rather than a control on this page.",
+      "Work in flight on this machine stops. Nothing new can be started until the background service is running again, and starting it is a shell action rather than a control on this page.",
   },
   restart: {
-    verb: "Restart the local runtime",
+    verb: "Restart",
     consequence:
-      "Every run on this machine is interrupted. The runtime is given ten seconds to flush before it goes down, and this window reconnects on its own once it is back.",
+      "Work in flight on this machine stops. The background service is given ten seconds to flush before it goes down, and this window reconnects on its own once it is back.",
   },
 };
 
-export interface DaemonPageProps {
+/** What the Runtime page is handed. */
+export interface RuntimePageProps {
   readonly context: SettingsPageContext;
   /** What sits under the supervisor's facts: the blocks that call the daemon. */
   readonly children?: ReactNode;
 }
 
+/** What the blocks that call the daemon are handed. */
 export interface DaemonOperationsBlocksProps {
   readonly context: SettingsPageContext;
   /** Held stable by the caller: a new object restarts the status read. */
   readonly operations: DaemonOperations;
 }
 
-/** The page: the lede and what the supervisor reports about the runtime. */
-export function DaemonPage(props: DaemonPageProps): ReactNode {
+/** The page: the lede, what the supervisor reports about the runtime, and its folders. */
+export function RuntimePage(props: RuntimePageProps): ReactNode {
   return (
-    <section className="meridian-settings-page" aria-label="Local runtime">
+    <section className="meridian-settings-page" aria-label="Runtime">
       <p className="meridian-settings-page__lede">
         What the shell knows about the runtime on this machine. Everything below is read from the
         supervisor and is not editable here.
@@ -111,6 +110,8 @@ export function DaemonPage(props: DaemonPageProps): ReactNode {
       </section>
 
       {props.children}
+
+      <MountedFoldersBlock />
     </section>
   );
 }
@@ -126,7 +127,7 @@ export function DaemonOperationsBlocks(props: DaemonOperationsBlocksProps): Reac
   }, []);
   const control = useDaemonControl(props.context.bridge, props.operations, onSettled);
   // Read AFTER the controls, because what stales its answer is partly theirs. This
-  // supplies the two facts `daemon-controls.ts` names: the supervisor's reported state,
+  // supplies the two facts `hooks/useDaemonStatus.ts` names: the supervisor's reported state,
   // and the settlements this page's own dispatches produced.
   const status = useDaemonStatus(
     props.context.bridge,
@@ -180,17 +181,6 @@ export function DaemonOperationsBlocks(props: DaemonOperationsBlocksProps): Reac
       </section>
     </>
   );
-}
-
-/** Claim the local-runtime section. */
-export function registerDaemonPage(registry: SettingsPageRegistry): void {
-  registry.register({
-    section: "daemon",
-    owner: OWNER,
-    label: "Local runtime",
-    keywords: ["daemon", "supervisor", "runtime", "restart", "stop", "heartbeat", "connection"],
-    render: (context) => <DaemonPage context={context} />,
-  });
 }
 
 /**

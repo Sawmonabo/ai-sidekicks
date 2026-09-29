@@ -17,11 +17,15 @@ import type { ProviderAccountId } from "@ai-sidekicks/contracts";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import {
   accountPlaneCalls,
-  SIGN_IN_ATTEMPT,
+  PROVIDER_SIGN_IN_ATTEMPT,
   type AccountPlaneCalls,
 } from "./account-plane-bridge.test-support.js";
-import { cancelSignIn, startSignIn } from "./sign-in-flow.js";
-import { SignInPlane, signInHeldSentence, signInPlaneHolder } from "./sign-in-flow-tracker.js";
+import { cancelSignIn, startProviderSignIn } from "./sign-in-flow.js";
+import {
+  SignInFlowTracker,
+  describeRunningSignIn,
+  findRunningSignInAccountId,
+} from "./sign-in-flow-tracker.js";
 
 const RUNNING_ACCOUNT_ID = "pa-0001" as ProviderAccountId;
 const WAITING_ACCOUNT_ID = "pa-0002" as ProviderAccountId;
@@ -35,9 +39,9 @@ const WAITING_ACCOUNT_ID = "pa-0002" as ProviderAccountId;
 function planeOver(
   calls: AccountPlaneCalls,
   onFlowSettled: () => void = (): void => undefined,
-): SignInPlane {
-  return new SignInPlane({
-    startSignIn: async (accountId) => await startSignIn(calls.login, accountId),
+): SignInFlowTracker {
+  return new SignInFlowTracker({
+    startSignIn: async (accountId) => await startProviderSignIn(calls.login, accountId),
     cancelSignIn: async (attempt) => await cancelSignIn(calls.cancelLogin, attempt),
     onFlowSettled,
   });
@@ -45,12 +49,15 @@ function planeOver(
 
 /** A plane whose start is served and whose cancel is honored. */
 function planeOverServedCalls(): {
-  readonly plane: SignInPlane;
+  readonly plane: SignInFlowTracker;
   readonly calls: AccountPlaneCalls;
   readonly onFlowSettled: ReturnType<typeof vi.fn>;
 } {
   const onFlowSettled = vi.fn();
-  const calls = accountPlaneCalls({ login: SIGN_IN_ATTEMPT, cancel: { status: "cancelled" } });
+  const calls = accountPlaneCalls({
+    login: PROVIDER_SIGN_IN_ATTEMPT,
+    cancel: { status: "cancelled" },
+  });
   return { plane: planeOver(calls, onFlowSettled), calls, onFlowSettled };
 }
 
@@ -78,10 +85,10 @@ describe("SignInPlane", () => {
     expect(settled.flow).toEqual({
       kind: "live",
       accountId: RUNNING_ACCOUNT_ID,
-      attempt: SIGN_IN_ATTEMPT,
+      attempt: PROVIDER_SIGN_IN_ATTEMPT,
     });
     expect(settled.refusalByAccountId.has(WAITING_ACCOUNT_ID)).toBe(true);
-    expect(signInPlaneHolder(plane.snapshot())).toBe(RUNNING_ACCOUNT_ID);
+    expect(findRunningSignInAccountId(plane.snapshot())).toBe(RUNNING_ACCOUNT_ID);
   });
 
   it("sends nothing for the refused start", async () => {
@@ -107,10 +114,10 @@ describe("SignInPlane", () => {
 
     const { refusalByAccountId } = plane.snapshot();
     expect(refusalByAccountId.get(WAITING_ACCOUNT_ID)?.detail).toBe(
-      signInHeldSentence({ isTheSameAccount: false, holdingAccountLabel: undefined }),
+      describeRunningSignIn({ isTheSameAccount: false, holdingAccountLabel: undefined }),
     );
     expect(refusalByAccountId.get(RUNNING_ACCOUNT_ID)?.detail).toBe(
-      signInHeldSentence({ isTheSameAccount: true, holdingAccountLabel: undefined }),
+      describeRunningSignIn({ isTheSameAccount: true, holdingAccountLabel: undefined }),
     );
   });
 
@@ -137,7 +144,7 @@ describe("SignInPlane", () => {
 
     expect(plane.snapshot().flow.kind).toBe("ended");
     expect(onFlowSettled).toHaveBeenCalledTimes(1);
-    expect(signInPlaneHolder(plane.snapshot())).toBeUndefined();
+    expect(findRunningSignInAccountId(plane.snapshot())).toBeUndefined();
 
     // The negative control for the guard itself: a single-flight key that were never
     // released would make every later start unreachable, and the surface would sit
@@ -156,7 +163,7 @@ describe("SignInPlane", () => {
 
     plane.start(RUNNING_ACCOUNT_ID);
     await crossMacrotaskBoundary();
-    plane.noteLoginCompleted(SIGN_IN_ATTEMPT.attemptId);
+    plane.noteLoginCompleted(PROVIDER_SIGN_IN_ATTEMPT.attemptId);
 
     expect(plane.snapshot().flow.kind).toBe("ended");
     expect(onFlowSettled).toHaveBeenCalledTimes(1);
@@ -187,7 +194,7 @@ describe("SignInPlane", () => {
     const { plane, onFlowSettled } = planeOverServedCalls();
 
     plane.start(RUNNING_ACCOUNT_ID);
-    plane.noteLoginCompleted(SIGN_IN_ATTEMPT.attemptId);
+    plane.noteLoginCompleted(PROVIDER_SIGN_IN_ATTEMPT.attemptId);
     await crossMacrotaskBoundary();
 
     expect(plane.snapshot().flow.kind).toBe("ended");

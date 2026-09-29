@@ -2,14 +2,13 @@
 // can be handed, and the page's rail entry.
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { registerNotificationsPage } from "@renderer/console/settings/pages/notifications/NotificationsPage.js";
-import { OsPermissionNotice } from "./components/NotificationPermissionNotice.js";
-import { SettingsPageRegistry } from "../../settings-pages.js";
+import { NotificationPermissionNotice } from "./components/NotificationPermissionNotice.js";
+import { composeSettingsPages } from "../../settings-pages.js";
 
 describe("the notifications page — what the operating system allows", () => {
   it("names a denied permission and promises in-app attention survives it", () => {
     const { container } = render(
-      <OsPermissionNotice reading={{ kind: "read", state: "denied" }} />,
+      <NotificationPermissionNotice reading={{ kind: "read", state: "denied" }} />,
     );
     const text = container.textContent ?? "";
     expect(text).toContain("not permitting desktop notifications");
@@ -18,7 +17,9 @@ describe("the notifications page — what the operating system allows", () => {
 
   it("says nothing unless the machine denied", () => {
     for (const state of ["granted", "not-determined"] as const) {
-      const { container } = render(<OsPermissionNotice reading={{ kind: "read", state }} />);
+      const { container } = render(
+        <NotificationPermissionNotice reading={{ kind: "read", state }} />,
+      );
       expect(container.textContent ?? "").toBe("");
     }
   });
@@ -26,8 +27,7 @@ describe("the notifications page — what the operating system allows", () => {
 
 describe("the notifications page — its rail entry", () => {
   it("claims the notifications section with a search vocabulary", () => {
-    const registry = new SettingsPageRegistry();
-    registerNotificationsPage(registry);
+    const registry = composeSettingsPages();
     const descriptor = registry.descriptorFor("notifications");
     expect(descriptor?.label).toBe("Notifications");
     expect(descriptor?.keywords).toContain("mute");

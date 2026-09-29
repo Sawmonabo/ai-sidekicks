@@ -215,6 +215,7 @@ function surfaceContext(bridge: ConsoleBridge): ConsoleSurfaceContext {
     paneRegistry: familyPaneRegistry(),
     uiStateStore: UiStateStore.opening(),
     draftStore: new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT }),
+    chooseScheme: () => undefined,
   };
 }
 

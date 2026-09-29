@@ -21,6 +21,8 @@
 // all, since the frame's table listens on the window in the capture phase and would
 // otherwise navigate to Sessions instead of letting the chord be bound.
 
+import "./keyboard.css";
+
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 
@@ -30,7 +32,7 @@ import {
   consoleCommands,
   consoleKeybindingOverrides,
   useKeybindingSurface,
-} from "../../../palette/index.js";
+} from "@renderer/console/palette/index.js";
 import {
   COMMAND_PALETTE_OPEN_CHORD,
   ChordHint,
@@ -39,19 +41,15 @@ import {
   Nothing,
   formatChordForPlatform,
   useAnnounce,
-} from "../../../primitives/index.js";
-import { KeybindingRowBody } from "@renderer/features/settings/pages/keyboard/components/KeybindingRowBody.js";
-import { ResetAllChords } from "@renderer/features/settings/pages/keyboard/components/ResetAllKeybindings.js";
+} from "@renderer/console/primitives/index.js";
+import { KeybindingRowBody } from "./components/KeybindingRowBody.js";
+import { ResetAllKeybindings } from "./components/ResetAllKeybindings.js";
 import {
   composeKeybindingRows,
   matchKeybindingRows,
   type AppliedChordRecording,
   type KeybindingRow,
-} from "@renderer/features/settings/pages/keyboard/keybinding-map.js";
-import type { SettingsPageRegistry } from "@renderer/features/settings/settings-pages.js";
-
-/** The owner this page registers under. */
-const OWNER = "settings-keyboard";
+} from "./keybinding-map.js";
 
 /** The filter field's id, so its label points at it rather than wrapping it. */
 const FILTER_FIELD_ID = "meridian-keyboard-filter";
@@ -219,7 +217,7 @@ export function KeyboardPage(): ReactNode {
             row, naming the command that holds it; Reset puts a row back to the shipped chord.
           </p>
         </div>
-        <ResetAllChords
+        <ResetAllKeybindings
           changedRows={changedRows}
           onResetAll={() => {
             void resetEveryRow();
@@ -290,26 +288,6 @@ export function KeyboardPage(): ReactNode {
       </section>
     </div>
   );
-}
-
-/** Claim the keyboard section. */
-export function registerKeyboardPage(registry: SettingsPageRegistry): void {
-  registry.register({
-    section: "keyboard",
-    owner: OWNER,
-    label: "Keyboard",
-    keywords: [
-      "shortcut",
-      "chord",
-      "hotkey",
-      "binding",
-      "keys",
-      "palette",
-      "accelerator",
-      "rebind",
-    ],
-    render: () => <KeyboardPage />,
-  });
 }
 
 /** What the last rebinding said, if it said anything. One act, one answer. */

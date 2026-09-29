@@ -14,11 +14,8 @@ import {
   type ShellState,
 } from "@renderer/store/window/main-process-state.js";
 import { settingsPageContextWith } from "@test/helpers/settings-page-mount.js";
-import {
-  DaemonOperationsBlocks,
-  DaemonPage,
-} from "@renderer/console/settings/pages/daemon/DaemonPage.js";
-import type { DaemonOperations } from "@renderer/console/settings/pages/daemon/daemon-controls.js";
+import { DaemonOperationsBlocks, RuntimePage } from "./RuntimePage.js";
+import type { DaemonOperations } from "./hooks/useDaemonStatus.js";
 
 /** The calls a case wants to see, in the order they were made. */
 export interface ControlLedger {
@@ -33,14 +30,14 @@ export interface ControlLedger {
 }
 
 /** One mounted page, and the supervisor state a case can move under it. */
-export interface MountedDaemonPage {
+export interface MountedRuntimePage {
   readonly container: HTMLElement;
   readonly ledger: ControlLedger;
   /** Re-render the page under a different supervisor state, over the SAME bridge. */
   readonly showShellState: (next: ShellState) => void;
 }
 
-export function renderPage(options: {
+export function renderRuntimePage(options: {
   readonly shellState?: ShellState;
   /**
    * Whether a dispatched control is recorded and then never answered.
@@ -50,7 +47,7 @@ export function renderPage(options: {
    * before an assertion can read it.
    */
   readonly holdsControls?: boolean;
-}): MountedDaemonPage {
+}): MountedRuntimePage {
   const ledger: ControlLedger = { calls: [], statusReads: [] };
   const bridge = createFixtureBridge({ scenario: unscriptedScenario("daemon-page") });
   const holdOpen = async (): Promise<void> => {
@@ -79,9 +76,9 @@ export function renderPage(options: {
   const pageUnder = (shellState: ShellState): ReactNode => {
     const context = settingsPageContextWith(bridge, undefined, { shellState });
     return (
-      <DaemonPage context={context}>
+      <RuntimePage context={context}>
         <DaemonOperationsBlocks context={context} operations={operations} />
-      </DaemonPage>
+      </RuntimePage>
     );
   };
   const { container, rerender } = render(pageUnder(options.shellState ?? UNREPORTED_SHELL_STATE));

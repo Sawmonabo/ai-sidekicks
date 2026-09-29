@@ -12,7 +12,7 @@ import { afterEach, beforeEach } from "vitest";
 
 import { consoleCommands, consoleKeybindingOverrides } from "@renderer/console/palette/index.js";
 import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
-import { KeyboardPage } from "@renderer/console/settings/pages/keyboard/KeyboardPage.js";
+import { KeyboardPage } from "./KeyboardPage.js";
 
 /**
  * The commands the shipped frame bindings name, plus one that no chord reaches.
@@ -36,7 +36,7 @@ export const TEST_COMMAND_IDS = [
  */
 export const RECORDED_PRESS = { key: "j", code: "KeyJ", altKey: true } as const;
 
-export function renderPage(): ReturnType<typeof render> {
+export function renderKeyboardPage(): ReturnType<typeof render> {
   return render(
     <LiveAnnouncerProvider>
       <KeyboardPage />
@@ -64,7 +64,7 @@ export function recorderOf(container: HTMLElement, commandId: string): HTMLEleme
 }
 
 /** Arm the recorder on a row and press one chord into it. */
-export async function recordOnto(
+export async function recordChordOnto(
   container: HTMLElement,
   commandId: string,
   press: Record<string, unknown>,

@@ -4,13 +4,13 @@ import {
   type SettingsSectionId,
 } from "@renderer/console/settings/settings-sections.js";
 
-export interface SettingsSectionRailProps {
+export interface SettingsPageListProps {
   readonly selectedSection: SettingsSectionId | undefined;
   readonly onOpenSection: (section: SettingsSectionId) => void;
 }
 
 /** Every section, always. The rail is the closed tuple and never a filtered view of it. */
-export function SettingsSectionRail(props: SettingsSectionRailProps): React.JSX.Element {
+export function SettingsPageList(props: SettingsPageListProps): React.JSX.Element {
   return (
     <nav aria-label="Settings sections">
       <ul className="meridian-settings__sections">

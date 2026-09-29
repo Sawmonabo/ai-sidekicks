@@ -15,19 +15,20 @@ import { describe, expect, it } from "vitest";
 // Deeply, as every consumer of a `.test-support` module does: a helper that exists for
 // suites belongs to the module beside it and not on the family's production door.
 import { ManualIdleWarmScheduler } from "@test/helpers/idle-warm.js";
-import { SettingsPageRegistry, type SettingsPageContext } from "../settings-pages.js";
+import { SettingsPageRegistry } from "../settings-pages.js";
+import type { SettingsPageContext } from "../types.js";
 import { useSettingsPageIdleWarm } from "./useSettingsPageIdleWarm.js";
 
 /** A board holding one deferred page that records its load, and one with nothing to load. */
 function composePages(loadedSections: string[]): SettingsPageRegistry {
   const pages = new SettingsPageRegistry();
   pages.register({
-    section: "agents",
+    section: "notifications",
     owner: "settings-warm-test",
-    label: "Sidekicks",
+    label: "Notifications",
     keywords: [],
     body: () => {
-      loadedSections.push("agents");
+      loadedSections.push("notifications");
       return Promise.resolve<{ Body: (context: SettingsPageContext) => React.ReactNode }>({
         Body: () => null,
       });
@@ -72,7 +73,7 @@ describe("the settings page board's idle warm", () => {
     scheduler.runToQuiescence();
 
     // A `render:` page has nothing to fetch, so the walk ends rather than re-arming on it.
-    expect(loadedSections).toStrictEqual(["agents"]);
+    expect(loadedSections).toStrictEqual(["notifications"]);
     expect(pages.unloadedKeys()).toStrictEqual([]);
   });
 
@@ -90,7 +91,7 @@ describe("the settings page board's idle warm", () => {
 
     expect(scheduler.pendingCount).toBe(1);
     scheduler.runToQuiescence();
-    expect(loadedSections).toStrictEqual(["agents"]);
+    expect(loadedSections).toStrictEqual(["notifications"]);
   });
 
   it("releases the walk when the surface goes away", () => {
@@ -133,7 +134,7 @@ describe("the settings page board's idle warm", () => {
 
     scheduler.runToQuiescence();
 
-    expect(loadedSections).toStrictEqual(["agents"]);
+    expect(loadedSections).toStrictEqual(["notifications"]);
     expect(pages.unloadedKeys()).toStrictEqual([]);
   });
 
@@ -147,6 +148,6 @@ describe("the settings page board's idle warm", () => {
     scheduler.runToQuiescence();
 
     expect(loadedSections).toStrictEqual([]);
-    expect(pages.unloadedKeys()).toStrictEqual(["agents"]);
+    expect(pages.unloadedKeys()).toStrictEqual(["notifications"]);
   });
 });

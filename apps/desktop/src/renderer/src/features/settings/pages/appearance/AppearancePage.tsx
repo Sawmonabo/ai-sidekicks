@@ -1,76 +1,36 @@
 // The appearance page: light, dark, or whatever this machine is doing.
 //
-// Choose light or dark, and nothing else in this release. Mode selection is
-// renderer-local, applied by rewriting one style element and cached for the next boot
-// so there is no unstyled flash. No user-authored theme ships in this release, and no
-// color the token registry does not define is ever rendered. Three options, no
-// disclosure.
+// The page chooses through the window's own scheme act, which it is handed, and reads the
+// scheme applied on the document root. It holds no scheme of its own and writes nothing
+// durable itself, so it cannot disagree with what the window is painting, including just
+// after the palette's `Color scheme` row has moved it.
 //
-// THE PAGE OWNS NEITHER THE APPLY NOR THE WRITE, AND THAT IS DELIBERATE
+// The document root is the read because it is the one place the preference is applied;
+// `"system"` is represented there by the attribute's absence, exactly as the window writes
+// it.
 //
-// Applying a scheme is one attribute on the document root and one durable write,
-// and the frame already does both in one place (`frame/composition/ConsoleRoot.tsx`): the
-// attribute drives the generated sheet's own cascade, and the write goes through
-// the persistence chokepoint's `scheme` value class so the choice survives a
-// reload. The palette already exposes that act as three registered commands, which
-// the command palette offers by name.
-//
-// So this page CHOOSES through those commands and READS the applied attribute. It
-// holds no scheme state of its own, writes nothing durable itself, and cannot drift
-// from what the window is actually painting — which a page holding its own copy of
-// the preference could, in exactly the window between a palette choice and this
-// pane's next render.
-//
-// WHY THE ATTRIBUTE IS THE READ AND NOT A STORE
-//
-// The settings page context carries the bridge, the rail, and the open session —
-// deliberately not the frame store, whose narrowing that module explains. The
-// document root is not a second record of the preference: it is the ONE place the
-// preference is applied, written by the frame's own layout effect, and `"system"`
-// is represented there exactly as the frame represents it, by the attribute's
-// absence. Reading it is reading the frame's answer rather than re-deriving one.
-//
-// WHAT THIS PAGE DOES NOT OFFER. No theme editor and no accent picker — the design
-// closes this release at the mode choice in terms ("and nothing else in this
-// release"), and every color a person could otherwise pick would have to clear the
-// contrast gate the token registry applies at generation time, which is the work
-// that buys less than the surfaces this release owes.
+// No theme editor and no accent picker: every color a person could pick would have to
+// clear the contrast check the token registry applies when the palette is generated.
 
-import { useCallback, useState, useSyncExternalStore } from "react";
+import "./appearance.css";
+
+import { useSyncExternalStore } from "react";
 import type { ReactNode } from "react";
 
 import { RadioGroup } from "@base-ui/react/radio-group";
 import { Radio } from "@base-ui/react/radio";
 
-import { refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
-import { consoleCommands } from "../../../palette/index.js";
-import { InlineRefusal, Nothing } from "../../../primitives/index.js";
+import { Nothing } from "@renderer/console/primitives/index.js";
 import { SCHEME_ATTRIBUTE } from "@renderer/styles/generate-css.js";
 import {
   SYSTEM_SCHEME_PREFERENCE,
   isSchemePreference,
   type SchemePreference,
 } from "@renderer/styles/tokens.js";
-import type { SettingsPageRegistry } from "@renderer/features/settings/settings-pages.js";
 
-/** The owner this page registers under. */
-const OWNER = "settings-appearance";
-
-/** The subsystem name every refusal this module raises carries. */
-const APPEARANCE_REFUSAL_ORIGIN = "appearance";
-
-/**
- * One option, its command, and what choosing it means.
- *
- * The command ids are the frame's own registrations, and they are named here
- * because this page is a second entry point into acts the palette already offers —
- * not a second implementation of them. A command id that stopped being registered
- * surfaces as this page's `command-unavailable` refusal rather than as a silent
- * no-op, which is the whole reason the invocation's outcome is read.
- */
+/** One option and what choosing it means. */
 interface SchemeOption {
   readonly preference: SchemePreference;
-  readonly commandId: string;
   readonly label: string;
   readonly description: string;
 }
@@ -78,55 +38,35 @@ interface SchemeOption {
 const SCHEME_OPTIONS: readonly SchemeOption[] = [
   {
     preference: SYSTEM_SCHEME_PREFERENCE,
-    commandId: "frame.useSystemScheme",
     label: "Follow this machine",
     description:
       "Paints whichever scheme the operating system is in, and keeps following it when that changes.",
   },
   {
     preference: "light",
-    commandId: "frame.useLightScheme",
     label: "Light",
     description: "Holds the light scheme whatever the operating system is doing.",
   },
   {
     preference: "dark",
-    commandId: "frame.useDarkScheme",
     label: "Dark",
     description:
       "Holds the dark scheme, which is the one the palette was authored in — light is derived from the same tokens.",
   },
 ];
 
-export function AppearancePage(): ReactNode {
+/** What the appearance page is handed. */
+export interface AppearancePageProps {
+  /** This window's act for choosing a color scheme. */
+  readonly chooseScheme: (preference: SchemePreference) => void;
+}
+
+export function AppearancePage(props: AppearancePageProps): ReactNode {
   const appliedScheme = useSyncExternalStore(
     subscribeToAppliedScheme,
     readAppliedScheme,
     readAppliedScheme,
   );
-  const [refusal, setRefusal] = useState<ConsoleRefusal | undefined>(undefined);
-
-  const chooseScheme = useCallback((preference: SchemePreference) => {
-    const option = SCHEME_OPTIONS.find((candidate) => candidate.preference === preference);
-    if (option === undefined) {
-      return;
-    }
-    // Fail-closed on the registry's own answer. `when` clauses are the frame's, and
-    // these three commands carry none, so an empty context evaluates them exactly
-    // as the frame's own context would — what is being read here is whether the act
-    // is registered at all, which in an auxiliary window or an unmounted frame it
-    // may not be.
-    const outcome = consoleCommands.invoke(option.commandId, {});
-    setRefusal(
-      outcome.status === "ran"
-        ? undefined
-        : refuse(
-            APPEARANCE_REFUSAL_ORIGIN,
-            "scheme-command-unavailable",
-            `The color scheme was not changed: this window offers no "${option.label}" command right now.`,
-          ),
-    );
-  }, []);
 
   return (
     <div className="meridian-settings-page">
@@ -144,7 +84,7 @@ export function AppearancePage(): ReactNode {
           value={appliedScheme ?? null}
           onValueChange={(value: unknown) => {
             if (isSchemePreference(value)) {
-              chooseScheme(value);
+              props.chooseScheme(value);
             }
           }}
         >
@@ -168,9 +108,6 @@ export function AppearancePage(): ReactNode {
             detail="No option is shown as current, because none of them is. Choosing one below replaces it."
           />
         ) : null}
-        {refusal === undefined ? null : (
-          <InlineRefusal code={refusal.code} detail={refusal.detail} />
-        )}
       </section>
 
       <section className="meridian-settings-page__block" aria-label="Themes">
@@ -187,17 +124,6 @@ export function AppearancePage(): ReactNode {
       </section>
     </div>
   );
-}
-
-/** Claim the appearance section. */
-export function registerAppearancePage(registry: SettingsPageRegistry): void {
-  registry.register({
-    section: "appearance",
-    owner: OWNER,
-    label: "Appearance",
-    keywords: ["theme", "dark", "light", "color", "scheme", "contrast", "display"],
-    render: () => <AppearancePage />,
-  });
 }
 
 /**
@@ -226,7 +152,7 @@ function subscribeToAppliedScheme(onSchemeChange: () => void): () => void {
  * console does not recognize.
  *
  * The absent attribute is `"system"` — that is the frame's own encoding, stated in
- * `frame/bindings/token-installation.ts`, and reading it any other way would make this page
+ * `app/token-installation.ts`, and reading it any other way would make this page
  * disagree with the module that wrote it. An unrecognized VALUE is neither a
  * preference nor the system choice, so it answers `undefined` and the page says so
  * rather than lighting up an option nobody chose.

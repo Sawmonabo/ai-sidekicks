@@ -1,103 +1,28 @@
-// The settings surface's body, and the root of the chunk it arrives in.
+// The Settings screen's body, and the root of the chunk it arrives in.
 //
-// THIS FILE IS A SECOND ENTRY POINT INTO THIS FAMILY, and everything about its shape
-// follows from that. `index.ts` is the family's door — what a sibling imports — and it
-// is reached from the console's initial import graph, because `session-surfaces-family.ts`
-// has to call the registrar before a route can resolve. This module is reached only by
-// the registrar's `body` loader, so what it imports is what a person pays for when they
-// open settings and never before.
+// Reached only by the screen registration's loader, so what it imports is paid for when a
+// person opens Settings and never before. The two sheets below style the whole screen and
+// every page frame, so this chunk root imports them; each component imports its own sheet.
 //
-// WHICH IS WHY THE PAGES AND THE SHEETS THIS CHUNK OWNS ARE IMPORTED HERE. The pages
-// are the family's weight — their forms, their tables, and the combobox stack two of
-// them mount — and none of it is reachable except through this surface.
-// `apps/desktop`'s stylesheet rule names this exact case: a directory carrying a
-// lazily-loaded chunk has an owner of its own, and importing its sheets from the family
-// door would put the rules for the settings pages on the initial document of every
-// session that never opens one.
-//
-// AND THE SAME RULE IS WHY TWO SHEETS ARE ABSENT FROM THE LIST BELOW. It reads from both
-// sides: a directory that carries a door of its own has an owner of its own, and this
-// chunk root may not reach into one. The two owner-slot fixture shells — the MCP servers
-// and provider-account subtrees — each carry a sub-module door, so each door pulls in its
-// own sheet. That is not bookkeeping: those shells are `__SIDEKICKS_CONSOLE_FIXTURES__`
-// bodies and this chunk root is not gated, so a sheet imported from here shipped in a
-// release renderer for a subtree that release renderer does not contain.
-//
-// The registry is composed PER MOUNT rather than at module scope, which keeps the
-// property the registrar had while it composed the pages itself: no second window
-// inherits this one's page set, and a suite renders against a registry it owns.
+// The page registry is composed per mount rather than at module scope: no second window
+// inherits this one's pages, and a suite renders against a registry it owns.
 
 import "./settings-screen.css";
 import "./settings-page.css";
-import "./components/preference-toggle-row.css";
-import "./pages/providers/components/account-plane-handoff.css";
-import "./pages/appearance/appearance.css";
-import "./pages/keyboard/keyboard.css";
-import "./pages/runtime/mounted-folders/mounted-folders.css";
 
 import { createElement, useState } from "react";
 
 import type { ConsoleSurfaceContext } from "@renderer/console/seats/index.js";
-import { registerAppearancePage } from "@renderer/console/settings/pages/appearance/AppearancePage.js";
-import { registerApplicationPage } from "@renderer/console/settings/pages/application/ApplicationPage.js";
-import { registerDaemonPage } from "@renderer/console/settings/pages/daemon/DaemonPage.js";
-import { registerKeyboardPage } from "@renderer/console/settings/pages/keyboard/KeyboardPage.js";
-import { registerMcpServersPage } from "@renderer/console/settings/pages/mcp-servers/McpServersPage.js";
-import { registerNotificationsPage } from "@renderer/console/settings/pages/notifications/NotificationsPage.js";
-import { registerProviderAccountsPage } from "@renderer/console/settings/pages/provider-accounts/ProviderAccountsPage.js";
-import { registerBrowserSettingsPage } from "@renderer/console/browser-settings-page.js";
-import { registerWorkspaceMountsPage } from "./pages/runtime/mounted-folders/MountedFoldersBlock.js";
-import { SettingsPageRegistry } from "./settings-pages.js";
-import { SettingsSurface } from "./SettingsScreen.js";
+import { composeSettingsPages } from "./settings-pages.js";
+import { SettingsScreen } from "./SettingsScreen.js";
 
 /**
- * The settings surface, with its pages composed for this mount.
+ * The Settings screen, with its pages composed for this mount.
  *
- * `useState` with a lazy initializer rather than a construction in the render body: the
- * registry is state whose identity the surface reads across every re-render, and the
- * package standard puts a construction in a hook rather than beside the JSX.
- *
- * A `.ts` MODULE COMPOSING WITH `createElement`, like every other chunk root beside it.
- * This file is an entry point rather than a component — it names no component of its
- * own, it holds the family's page roster and its stylesheet edges — and a `.tsx`
- * extension is read as the claim that a module DECLARES the component its filename
- * names. One element in one return is
- * not worth making that claim falsely.
+ * `useState` with a lazy initializer, so the registry is built once per mount and never in
+ * a render body.
  */
 export function Body(context: ConsoleSurfaceContext): React.ReactNode {
-  const [pages] = useState(() => {
-    const registry = new SettingsPageRegistry();
-    registerSettingsPages(registry);
-    return registry;
-  });
-  return createElement(SettingsSurface, { context, pages });
-}
-
-/**
- * Register every shipped settings page against a registry.
- *
- * Takes the registry rather than reaching for a module-scope singleton, for
- * `registerConsoleFamilies`' reason: {@link Body} composes the pages its surface renders
- * and holds them for that mount, so a second window composes its own set without a
- * second code path and neither window inherits the other's.
- *
- * NOT EXPORTED. A door line exists for a production reader, and the only caller that
- * could want this page set is one composing a settings surface — which is {@link Body}.
- * A test wanting what a window renders drives the registrar and reads back the render it
- * claimed, rather than composing a second copy of this list that agrees with it until
- * someone adds a page to one of them.
- */
-function registerSettingsPages(registry: SettingsPageRegistry): void {
-  registerNotificationsPage(registry);
-  registerApplicationPage(registry);
-  registerWorkspaceMountsPage(registry);
-  registerAppearancePage(registry);
-  registerKeyboardPage(registry);
-  registerProviderAccountsPage(registry);
-  registerMcpServersPage(registry);
-  // The browser page: the console root's one-line seam, the browser family's body.
-  registerBrowserSettingsPage(registry);
-  // The local runtime's own page: the supervisor detail the frame's chip is one
-  // click away from.
-  registerDaemonPage(registry);
+  const [pages] = useState(composeSettingsPages);
+  return createElement(SettingsScreen, { context, pages });
 }

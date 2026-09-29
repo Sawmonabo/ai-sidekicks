@@ -14,8 +14,8 @@ import { settle } from "@test/helpers/settle.js";
 import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
 import { FrameStore } from "@renderer/store/window/window-store.js";
 import { SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
-import { SettingsSurface } from "./SettingsScreen.js";
-import { registerSettingsSurface } from "@renderer/console/settings/index.js";
+import { SettingsScreen } from "./SettingsScreen.js";
+import { registerSettingsSurface } from "./contributions/screens.js";
 import { type SettingsPageRegistry } from "./settings-pages.js";
 import {
   ConsoleSurfaceRegistry,
@@ -82,7 +82,7 @@ class ShippedSurfaceRenderHolder {
 const shippedSurfaceRenderHolder = new ShippedSurfaceRenderHolder();
 
 /** The shipped render, fetched on the first ask and handed back on every one after it. */
-export function shippedSurfaceRender(): Promise<ConsoleSurfaceDescriptor["render"]> {
+export function shippedScreenRender(): Promise<ConsoleSurfaceDescriptor["render"]> {
   return shippedSurfaceRenderHolder.fetch();
 }
 
@@ -132,6 +132,7 @@ export function windowAt(
       // here — a settings window that has opened none is the ordinary case, and it is
       // the one this harness renders.
       sessionStoreRegistry: new SessionStoreRegistry({ read: () => Promise.resolve(undefined) }),
+      chooseScheme: () => undefined,
     } as unknown as ConsoleSurfaceContext,
   };
 }
@@ -160,9 +161,9 @@ export async function renderSurface(
 ): Promise<ReturnType<typeof render>> {
   const surface =
     pages === undefined ? (
-      (await shippedSurfaceRender())(context)
+      (await shippedScreenRender())(context)
     ) : (
-      <SettingsSurface context={context} pages={pages} />
+      <SettingsScreen context={context} pages={pages} />
     );
   const rendered = render(<LiveAnnouncerProvider>{surface}</LiveAnnouncerProvider>);
   // Even with the module already in hand, the lazy component suspends on its first render

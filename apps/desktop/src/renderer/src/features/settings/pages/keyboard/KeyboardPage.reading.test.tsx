@@ -10,16 +10,13 @@ import { useEffect, useState } from "react";
 import { describe, expect, it } from "vitest";
 import { consoleCommands } from "@renderer/console/palette/index.js";
 import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
-import {
-  KeyboardPage,
-  registerKeyboardPage,
-} from "@renderer/console/settings/pages/keyboard/KeyboardPage.js";
-import { SettingsPageRegistry } from "../../settings-pages.js";
-import { TEST_COMMAND_IDS, renderPage, rowOf } from "./keyboard-page.test-support.js";
+import { KeyboardPage } from "./KeyboardPage.js";
+import { composeSettingsPages } from "../../settings-pages.js";
+import { TEST_COMMAND_IDS, renderKeyboardPage, rowOf } from "./keyboard-page.test-support.js";
 
 describe("keyboard page — what it reads", () => {
   it("prints each command's id and the chord that runs it", () => {
-    const { container } = renderPage();
+    const { container } = renderKeyboardPage();
     const text = container.textContent ?? "";
     expect(text).toContain("frame.goToSessions");
     expect(text).toContain("Go to sessions");
@@ -31,12 +28,12 @@ describe("keyboard page — what it reads", () => {
     // Every chord the frame ships is unscoped, so this asserts the arm the shipped
     // set actually reaches. That a scoped binding carries its expression through to
     // its row is asserted in `keybinding-map.test.ts`, against a set that has one.
-    const { container } = renderPage();
+    const { container } = renderKeyboardPage();
     expect(container.textContent ?? "").toContain("Live everywhere in this window");
   });
 
   it("says a command with no chord has none rather than leaving the row blank", () => {
-    const { container } = renderPage();
+    const { container } = renderKeyboardPage();
     const badges = [...container.querySelectorAll(".meridian-nothing--badge")].map(
       (element) => element.textContent ?? "",
     );
@@ -44,12 +41,12 @@ describe("keyboard page — what it reads", () => {
   });
 
   it("reports the shipped chord set as free of collisions", () => {
-    const { container } = renderPage();
+    const { container } = renderKeyboardPage();
     expect(container.textContent ?? "").toContain("No two chords collide.");
   });
 
   it("narrows to a typed query and names the query when nothing matches", () => {
-    const { container } = renderPage();
+    const { container } = renderKeyboardPage();
     const filterInput = container.querySelector("input");
     expect(filterInput).not.toBeNull();
     if (filterInput === null) {
@@ -65,8 +62,7 @@ describe("keyboard page — what it reads", () => {
   });
 
   it("claims the keyboard section with a search vocabulary", () => {
-    const registry = new SettingsPageRegistry();
-    registerKeyboardPage(registry);
+    const registry = composeSettingsPages();
     const descriptor = registry.descriptorFor("keyboard");
     expect(descriptor?.label).toBe("Keyboard");
     expect(descriptor?.keywords).toContain("shortcut");
@@ -157,7 +153,7 @@ describe("keyboard page — a command registered after the page first rendered",
     for (const commandId of TEST_COMMAND_IDS) {
       consoleCommands.unregister(commandId);
     }
-    const { container } = renderPage();
+    const { container } = renderKeyboardPage();
 
     expect(container.querySelectorAll(".meridian-keymap__row")).toHaveLength(0);
   });

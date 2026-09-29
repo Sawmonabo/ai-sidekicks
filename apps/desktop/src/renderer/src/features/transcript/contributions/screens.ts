@@ -61,9 +61,10 @@ export const TRANSCRIPT_OWNER = "ledger";
  * Derived from the surface context rather than restated, so a member added there is
  * carried here without a second declaration to keep in step. `sessionStoreRegistry` is
  * subtracted because the workspace renders ONE session — a surface that has to offer
- * sessions reads the registry, and this one is handed the session it is a view of.
+ * sessions reads the registry, and this one is handed the session it is a view of — and
+ * `chooseScheme` because nothing in a session chooses the color scheme.
  */
-type WorkspaceMountProps = Omit<ConsoleSurfaceContext, "sessionStoreRegistry">;
+type WorkspaceMountProps = Omit<ConsoleSurfaceContext, "sessionStoreRegistry" | "chooseScheme">;
 
 /**
  * Mount the session workspace: the session header, the deck, and the composer's seat.

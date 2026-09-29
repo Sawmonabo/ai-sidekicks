@@ -54,7 +54,7 @@ export type SignInFlowState =
   | { readonly kind: "ended"; readonly because: string };
 
 /** The state a shell starts in and returns to. Shared so it has one spelling. */
-export const IDLE_SIGN_IN_FLOW: SignInFlowState = { kind: "idle" };
+export const IDLE_PROVIDER_SIGN_IN_FLOW: SignInFlowState = { kind: "idle" };
 
 /**
  * What a flow ending on the registry's own tail says.
@@ -132,7 +132,7 @@ export type ProviderAccountRegisterCall = (
 ) => Promise<ProviderAccountRegisterResponse>;
 
 /** Whether this flow is holding the plane. The one reading of the table above. */
-export function isSignInPlaneHeld(flow: SignInFlowState): boolean {
+export function isSignInRunning(flow: SignInFlowState): boolean {
   return SIGN_IN_PLANE_HELD_BY_KIND[flow.kind];
 }
 
@@ -143,12 +143,12 @@ export function isSignInPlaneHeld(flow: SignInFlowState): boolean {
  * the three that do are the three that hold, and stating that twice is how the two
  * come apart. A caller wanting "held, and by whom" asks both questions.
  */
-export function signInPlaneHolderAccountId(flow: SignInFlowState): ProviderAccountId | undefined {
+export function readSignInAccountId(flow: SignInFlowState): ProviderAccountId | undefined {
   return "accountId" in flow ? flow.accountId : undefined;
 }
 
 /** Start a brokered sign-in for one account. */
-export async function startSignIn(
+export async function startProviderSignIn(
   login: ProviderAccountLoginCall,
   accountId: ProviderAccountId,
 ): Promise<SignInStartOutcome> {

@@ -79,25 +79,25 @@ export const ACCOUNT_PLANE_HANDOFFS: Readonly<
   Record<AccountPlaneRefusalCode, AccountPlaneHandoff | null>
 > = {
   // Nothing is registered for the provider, so the act is registration.
-  "provideraccount.not_registered": { section: "accounts", remedyKind: "register" },
+  "provideraccount.not_registered": { section: "providers", remedyKind: "register" },
   // Accounts exist and none is the provider's default; the daemon lists candidates
   // and elects none, which is exactly the `choose_default` arm.
-  "provideraccount.no_default": { section: "accounts", remedyKind: "choose_default" },
+  "provideraccount.no_default": { section: "providers", remedyKind: "choose_default" },
   // The referenced account is not in the registry — removed, or never there. The act
   // is choosing among the accounts that ARE, which is the same candidate list.
-  "provideraccount.unknown": { section: "accounts", remedyKind: "choose_default" },
+  "provideraccount.unknown": { section: "providers", remedyKind: "choose_default" },
   // An account resolved and its home is unusable. `sign_in` is the arm the readiness
   // projection puts on `home_missing`, and it is the arm that names a home at all.
-  "provideraccount.credential_home_unavailable": { section: "accounts", remedyKind: "sign_in" },
+  "provideraccount.credential_home_unavailable": { section: "providers", remedyKind: "sign_in" },
   // Pre-spawn validation did not report authenticated, including `indeterminate`.
-  "provideraccount.not_authenticated": { section: "accounts", remedyKind: "sign_in" },
+  "provideraccount.not_authenticated": { section: "providers", remedyKind: "sign_in" },
   // A brokered sign-in is already running; the act is on the flow, which lives on the
   // same page, and the daemon's own sentence names cancelling it.
-  "provideraccount.signin_in_flight": { section: "accounts", remedyKind: "sign_in" },
+  "provideraccount.signin_in_flight": { section: "providers", remedyKind: "sign_in" },
   // Brokered sign-in is not available for this provider, and the remedy the daemon's
   // own sentence names is the out-of-band sign-in the readiness handoff discloses —
   // which is the `sign_in` arm, display-only, on the page that shows it.
-  "provideraccount.signin_unsupported": { section: "accounts", remedyKind: "sign_in" },
+  "provideraccount.signin_unsupported": { section: "providers", remedyKind: "sign_in" },
   // No console act closes these five.
   //
   // Authority is the caller's and cannot be granted from this window; a lost

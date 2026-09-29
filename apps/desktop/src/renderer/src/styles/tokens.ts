@@ -82,6 +82,21 @@ export function isSchemePreference(value: unknown): value is SchemePreference {
   return typeof value === "string" && (SCHEME_PREFERENCES as readonly string[]).includes(value);
 }
 
+/**
+ * The preference after this one when a person cycles the scheme: following the system,
+ * then dark, then light, then back.
+ */
+export function nextSchemePreference(current: SchemePreference): SchemePreference {
+  return NEXT_SCHEME_PREFERENCE[current];
+}
+
+/** Each preference's successor in the cycle. Total, so a new preference must take a place. */
+const NEXT_SCHEME_PREFERENCE: Readonly<Record<SchemePreference, SchemePreference>> = {
+  [SYSTEM_SCHEME_PREFERENCE]: "dark",
+  dark: "light",
+  light: SYSTEM_SCHEME_PREFERENCE,
+};
+
 /** The CSS custom-property prefix every Meridian token carries. */
 export const TOKEN_PREFIX = "--meridian-";
 

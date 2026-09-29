@@ -53,6 +53,7 @@ import type { UiStateStore } from "@renderer/store/persistence/ui-state-store.js
 import type { FrameStore } from "@renderer/store/window/window-store.js";
 import type { SchemePreference } from "@renderer/styles/tokens.js";
 import { RAIL_ENTRY_TEMPLATES } from "@renderer/layout/NavigationRail/NavigationRail.js";
+import { buildColorSchemeCommand } from "@renderer/features/settings/index.js";
 import { requestComposerFocus, type ConsoleSurfaceRegistry } from "../seats/index.js";
 import {
   routeForDestination,
@@ -165,7 +166,8 @@ export function useFrameCommandSurface(input: FrameCommandSurfaceInput): FrameCo
   // collide with the first registration.
   useEffect(() => {
     const windowCommands: readonly ConsoleCommand[] = [
-      ...buildFrameCommands(frameStore, chooseScheme, surfaceRegistry),
+      ...buildFrameCommands(frameStore, surfaceRegistry),
+      buildColorSchemeCommand(() => frameStore.getState().schemePreference, chooseScheme),
       ...bridgeCommands,
     ];
     // Through the family door rather than through the registry, so there is one
@@ -267,7 +269,7 @@ export function describeScope(route: ConsoleRoute): string {
 }
 
 /**
- * Navigation and appearance: the two things the frame itself can do.
+ * The rail's destinations and the composer's focus ask.
  *
  * The rail's destinations are WALKED rather than listed. The palette and the rail
  * offer the same three top-level contexts, and writing them out here made a second
@@ -279,7 +281,6 @@ export function describeScope(route: ConsoleRoute): string {
  */
 function buildFrameCommands(
   frameStore: FrameStore,
-  chooseScheme: (preference: SchemePreference) => void,
   surfaceRegistry: ConsoleSurfaceRegistry,
 ): readonly FrameCommand[] {
   return [
@@ -331,30 +332,6 @@ function buildFrameCommands(
       keywords: ["message", "type", "prompt", "input"],
       run: () => {
         requestComposerFocus();
-      },
-    },
-    {
-      id: "frame.useLightScheme",
-      title: "Use the light color scheme",
-      group: "Appearance",
-      run: () => {
-        chooseScheme("light");
-      },
-    },
-    {
-      id: "frame.useDarkScheme",
-      title: "Use the dark color scheme",
-      group: "Appearance",
-      run: () => {
-        chooseScheme("dark");
-      },
-    },
-    {
-      id: "frame.useSystemScheme",
-      title: "Follow the system color scheme",
-      group: "Appearance",
-      run: () => {
-        chooseScheme("system");
       },
     },
   ];

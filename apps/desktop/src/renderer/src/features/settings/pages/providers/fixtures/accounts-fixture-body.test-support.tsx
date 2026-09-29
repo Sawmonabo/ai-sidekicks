@@ -21,7 +21,7 @@ import { unscriptedScenario } from "@test/helpers/fixture-bridge.js";
 import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
 import { NEVER_SETTLES } from "@test/helpers/abandoned-pass.js";
 import {
-  AccountsShell,
+  AccountsFixtureBody,
   type AccountRegistryReading,
   type AccountsShellOperations,
 } from "./AccountsFixtureBody.js";
@@ -182,7 +182,7 @@ export function mountShell(options: {
   const tree = (registry: AccountRegistryReading): React.JSX.Element => (
     <DesktopBridgeProvider bridge={bridge}>
       <LiveAnnouncerProvider>
-        <AccountsShell
+        <AccountsFixtureBody
           registry={registry}
           requestRegistryRead={requestRegistryRead}
           operations={operations}

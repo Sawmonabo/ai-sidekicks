@@ -34,7 +34,7 @@ import type {
   ProviderReadiness,
 } from "@ai-sidekicks/contracts";
 
-import type { ProviderQuotaReadout } from "../provider-account-readout.js";
+import type { ProviderAccountReadout } from "../provider-account-readout.js";
 import { MILLISECONDS_PER_DAY, parseInstant } from "@renderer/lib/instant.js";
 
 /**
@@ -66,7 +66,7 @@ export interface AccountQuotaRow {
  * the wrong key for a table that is already about one account.
  */
 export function accountQuotaRowsFrom(
-  registry: Pick<ProviderQuotaReadout, "usageWindows">,
+  registry: Pick<ProviderAccountReadout, "usageWindows">,
   account: ProviderAccount,
 ): readonly AccountQuotaRow[] {
   return registry.usageWindows

@@ -190,6 +190,7 @@ export function ConsoleFrame(props: ConsoleFrameProps): React.JSX.Element {
     paneRegistry: consolePaneRegistry,
     uiStateStore,
     draftStore,
+    chooseScheme,
   };
 
   // What the window's family-owned frame-lifetime reads are handed. Three identities,
