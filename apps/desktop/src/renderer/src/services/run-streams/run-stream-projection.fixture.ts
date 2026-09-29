@@ -79,8 +79,8 @@ import {
   refuseSessionDisagreement,
   unprojectable,
   unprojectableFor,
-} from "@renderer/console/bridge/run-streams/run-stream-shapes.js";
-import type { RunStreamProjection } from "@renderer/console/bridge/run-streams/run-stream-shapes.js";
+} from "./run-stream-shapes.js";
+import type { RunStreamProjection } from "./run-stream-shapes.js";
 import {
   RUN_QUEUE_EVENT_STREAM,
   RUN_STATE_EVENT_STREAM,

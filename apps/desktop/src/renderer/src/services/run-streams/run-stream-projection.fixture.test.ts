@@ -25,14 +25,17 @@ import { describe, expect, it } from "vitest";
 import { RunStateChangeEventSchema, RunRolledBackEventSchema } from "@ai-sidekicks/contracts";
 
 import type { ConsoleSessionEvent } from "@renderer/console/store/entities/entities.js";
-import { PROBE_RUN_ID, runTransitionBeat } from "../fixture/call-plane/bridge.test-support.js";
-import { projectRunStreamDelivery } from "@renderer/services/run-streams/run-stream-projection.fixture.js";
-import { FLAGSHIP_SCENARIO } from "../scenario/flagship/flagship.js";
+import {
+  PROBE_RUN_ID,
+  runTransitionBeat,
+} from "@renderer/console/bridge/fixture/call-plane/bridge.test-support.js";
+import { projectRunStreamDelivery } from "./run-stream-projection.fixture.js";
+import { FLAGSHIP_SCENARIO } from "@renderer/console/bridge/scenario/flagship/flagship.js";
 import {
   RUN_QUEUE_EVENT_STREAM,
   RUN_STATE_EVENT_STREAM,
   SESSION_EVENT_STREAM,
-} from "../daemon/session-event-streams.js";
+} from "@renderer/console/bridge/daemon/session-event-streams.js";
 
 /** A session the branded schema accepts that is not the one the beats are delivered on. */
 const OTHER_SESSION_ID = "019b79ee-0280-75e5-8510-ada11a5a7777";
