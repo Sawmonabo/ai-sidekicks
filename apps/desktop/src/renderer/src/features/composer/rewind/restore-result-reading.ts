@@ -1,7 +1,9 @@
 // What an undo says in the flow: one row for one undo. The row names what went back in the
 // words the undo's own entry points use (`Restored to before <…>`, `Files restored to before
 // <…>`, `Restored to <snapshot name>`), then each asked-for part that did not go back with the
-// daemon's reason, verbatim. When nothing went back the row says the undo failed and why.
+// daemon's reason, verbatim. When nothing went back the row says the undo failed and why. A
+// resend that failed after its undo applied leads with the failed send and its cause, then
+// says what went back.
 
 import type {
   SessionRestoreFinished,
@@ -21,7 +23,7 @@ export type RestoreTarget =
  */
 export function readRestoreResult(result: SessionRestoreResult, target: RestoreTarget): string {
   if (result.outcome === "resend-unapplied") {
-    return `${restoredWords(target, "conversation-and-files")} · resend failed · ${result.reason}`;
+    return `Resend failed · ${result.reason} · ${midSentence(restoredWords(target, "conversation-and-files"))}`;
   }
   switch (result.restored) {
     case "nothing":
@@ -47,20 +49,20 @@ function restoredWords(target: RestoreTarget, restored: SessionRestoreScope): st
   if (target.kind === "message") {
     return `${verb} before ${target.firstWords}`;
   }
-  return `${verb} ${nameMidSentence(target.name)}`;
+  return `${verb} ${midSentence(target.name)}`;
 }
 
 /**
- * A snapshot name as it reads mid-sentence: its first letter lowercased, so a snapshot named
- * `Before the refactor` reads `Restored to before the refactor`. A name that opens on an
- * acronym (`API cleanup`) keeps it.
+ * Words as they read mid-sentence: the first letter lowercased, so a snapshot named `Before
+ * the refactor` reads `Restored to before the refactor`. Words that open on an acronym
+ * (`API cleanup`) keep it.
  */
-function nameMidSentence(name: string): string {
-  const [first = "", second = ""] = name;
+function midSentence(words: string): string {
+  const [first = "", second = ""] = words;
   if (second !== second.toLocaleLowerCase()) {
-    return name;
+    return words;
   }
-  return `${first.toLocaleLowerCase()}${name.slice(first.length)}`;
+  return `${first.toLocaleLowerCase()}${words.slice(first.length)}`;
 }
 
 function partsOf(scope: SessionRestoreScope): readonly SessionRestorePart[] {

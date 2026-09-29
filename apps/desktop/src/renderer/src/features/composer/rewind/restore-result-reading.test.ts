@@ -137,10 +137,13 @@ describe("an undo where nothing went back", () => {
 });
 
 describe("an edit and resend whose send failed after its undo applied", () => {
-  it("says the undo went back and the resend failed, with the cause", () => {
+  it("leads with the failed send and its cause, then says what went back", () => {
     const result: SessionRestoreResult = { outcome: "resend-unapplied", reason: "Connection lost" };
     expect(readRestoreResult(result, MESSAGE)).toBe(
-      "Restored to before Rename the config loader · resend failed · Connection lost",
+      "Resend failed · Connection lost · restored to before Rename the config loader",
+    );
+    expect(readRestoreResult(result, SNAPSHOT)).toBe(
+      "Resend failed · Connection lost · restored to before Rename the config loader",
     );
   });
 });
