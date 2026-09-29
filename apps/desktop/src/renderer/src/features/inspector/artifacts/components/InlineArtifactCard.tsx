@@ -1,6 +1,6 @@
 // The published-artifact card a transcript row carries.
 //
-// Diffs, attachments and published artifacts go in the timeline as cards inside the row
+// Diffs, attachments and published artifacts go in the transcript as cards inside the row
 // that produced them, because they belong to that turn.
 //
 // Two features meet at the seat and neither imports the other: the transcript renders the

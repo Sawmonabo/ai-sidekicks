@@ -4,7 +4,7 @@
 /**
  * How tall an inline diff card is before it offers to grow.
  *
- * A diff card in the timeline gets a height cap and then offers "show all", and
+ * A diff card in the transcript gets a height cap and then offers "show all", and
  * `InlineDiffCard.tsx` has the card open EXPANDED to that cap rather than collapsed. The
  * figure is about fifteen rows — a hunk's worth of reading, which is what makes the card
  * useful in place — while still leaving the turn that produced it visible above and

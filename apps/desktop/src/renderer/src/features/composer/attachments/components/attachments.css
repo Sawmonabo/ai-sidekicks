@@ -5,7 +5,7 @@
  */
 
 /* The attachment card's wrapper. It owns the card's outer spacing so the composer and
-   the timeline row can space it differently without two cards. */
+   the transcript row can space it differently without two cards. */
 .meridian-attachment-card {
   display: block;
   margin-block-start: var(--meridian-space-2);

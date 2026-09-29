@@ -1,4 +1,4 @@
-// The timeline row's FOOTER seat — where a row-level control another plan owns sits.
+// The transcript row's FOOTER seat — where a row-level control another plan owns sits.
 //
 // WHY A SECOND SEAT BESIDE THE ROW SLOT. `transcript-row-renderer.ts` hands out the whole
 // row body, and the family that fills it owns everything inside. The edit-and-resend
@@ -47,8 +47,8 @@ export type TranscriptRowFooterRenderer = (
   props: TranscriptRowFooterRendererProps,
 ) => React.ReactNode;
 
-const timelineRowFooterSeat = new SingleEntryRegistry<TranscriptRowFooterRenderer>(
-  "timeline row footer",
+const transcriptRowFooterSeat = new SingleEntryRegistry<TranscriptRowFooterRenderer>(
+  "transcript row footer",
   "a user message carries one set of actions after Copy; a second owner would make which one renders depend on import order",
 );
 
@@ -62,7 +62,7 @@ export function registerTranscriptRowFooterRenderer(
   owner: string,
   render: TranscriptRowFooterRenderer,
 ): void {
-  timelineRowFooterSeat.register({ owner, render });
+  transcriptRowFooterSeat.register({ owner, render });
 }
 
 /**
@@ -72,10 +72,10 @@ export function registerTranscriptRowFooterRenderer(
  * into the next one.
  */
 export function unregisterTranscriptRowFooterRenderer(): void {
-  timelineRowFooterSeat.unregister();
+  transcriptRowFooterSeat.unregister();
 }
 
 /** The footer body, or `undefined` while the seat is empty. */
 export function findTranscriptRowFooterRenderer(): TranscriptRowFooterRenderer | undefined {
-  return timelineRowFooterSeat.renderer();
+  return transcriptRowFooterSeat.renderer();
 }

@@ -1,8 +1,8 @@
 // The diff card a transcript row carries, and the seat registration that fills it.
 //
-// Diff cards go in the timeline at a height cap and then offer "show all", and THIS
+// Diff cards go in the transcript at a height cap and then offer "show all", and THIS
 // CARD'S OWN RULE says exactly how
-// that behaves: an inline timeline card uses the same
+// that behaves: an inline transcript card uses the same
 // renderer at a height cap, expanded to that cap by default with collapse
 // retained, plus expand-in-place and jump-to-end. No capped diff ends in a fade
 // with nowhere to go.

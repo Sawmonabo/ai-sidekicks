@@ -12,7 +12,7 @@ afterEach(() => {
   unregisterTranscriptRowFooterRenderer();
 });
 
-describe("the timeline row footer seat", () => {
+describe("the transcript row footer seat", () => {
   it("is empty until an owner fills it", () => {
     expect(findTranscriptRowFooterRenderer()).toBeUndefined();
     registerTranscriptRowFooterRenderer("an owner", () => null);

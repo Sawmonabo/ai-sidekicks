@@ -1,6 +1,6 @@
 // The residuals the virtualizer does not cover.
 //
-// `@tanstack/react-virtual` is adopted for the timeline's virtualization under our own
+// `@tanstack/react-virtual` is adopted for the transcript's virtualization under our own
 // scroll controller, and the adoption owes a named set of acceptance tests: documented
 // total-size cost, no hit-test per scroll event while following, epsilon compare on
 // measurements, a bounded prior ceiling, display settings in the prior validity key, and

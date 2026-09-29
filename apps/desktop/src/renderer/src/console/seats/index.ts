@@ -2,7 +2,7 @@
 //
 // The family holds the session screen's shared vocabulary: the seats through
 // which the view families hand each other panes, a composer, sidebar sections,
-// timeline rows, and inline cards, and the surface registry through which a family
+// transcript rows, and inline cards, and the surface registry through which a family
 // hands the frame a whole route's body. It sits directly above `bridge/` and below
 // `palette/` and `frame/` in the console's DAG.
 //
@@ -244,7 +244,7 @@ export {
 // and names `PaneControls` on the value it builds, so the close control is drawn
 // through the seam a pane layout provides it through rather than asserted by a test; and two
 // shipped families name the owner slot's contract on the slots they declare — the
-// transcript's message card and timeline pane, and the workflows family's own slot table.
+// transcript's message card and transcript pane, and the workflows family's own slot table.
 // A surviving marker would fail the run under `--treat-tag-hints-as-errors`.
 export { PaneFrame } from "@renderer/components/PaneFrame/PaneFrame.js";
 export {

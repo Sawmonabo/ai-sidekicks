@@ -29,7 +29,7 @@ function emptyLayout(): PaneLayoutStore {
   return new PaneLayoutStore({ restoredPaneCap: PANE_LAYOUT_RESTORED_PANE_CAP });
 }
 
-/** A layout holding one session-scoped timeline and one worktree-scoped inspector. */
+/** A layout holding one session-scoped transcript and one worktree-scoped inspector. */
 function twoPaneLayout(): PaneLayoutStore {
   const layout = emptyLayout();
   layout.open({ kind: "transcript" });

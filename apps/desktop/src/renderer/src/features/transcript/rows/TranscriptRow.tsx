@@ -1,4 +1,4 @@
-// The transcript row renderer registered for the timeline row seat: one row, through the
+// The transcript row renderer registered for the transcript row seat: one row, through the
 // row component its kind names.
 //
 // NOTHING HERE RENDERS A TIMELINE ENTRY TYPE. The renderer is generic over

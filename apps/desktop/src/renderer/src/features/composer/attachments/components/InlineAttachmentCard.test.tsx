@@ -2,7 +2,7 @@
 //
 // Two claims: the seat is filled by this family, and the body it mounts is the SAME
 // `AttachmentCard` the attachment surface renders rather than a second one written for
-// the timeline. The second is checkable because that card carries its own classes, and
+// the transcript. The second is checkable because that card carries its own classes, and
 // it matters because an unresolved marker is read for details two renderers would drift
 // on — which of the six causes, and what the remedy is.
 

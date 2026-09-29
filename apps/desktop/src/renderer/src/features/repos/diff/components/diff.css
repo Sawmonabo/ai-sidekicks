@@ -1,6 +1,6 @@
 /*
  * The diff surfaces' own sheet — the pane chrome, the changed-file list, the rows,
- * and the inline timeline card.
+ * and the inline transcript card.
  *
  * Imported by the two surfaces that reach these components: `DiffPane.tsx`, the pane's
  * top view, and `InlineDiffCard.tsx`, which the transcript renders without the pane.
@@ -450,7 +450,7 @@
   background: var(--meridian-diff-changed-ground);
 }
 
-/* ---------------------------------------------------- inline timeline card */
+/* ---------------------------------------------------- inline transcript card */
 
 .meridian-diff-card {
   display: flex;

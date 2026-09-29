@@ -11,7 +11,7 @@
 // edge the loader exists to remove.
 //
 // THE INLINE DIFF CARD IS DELIBERATELY NOT BEHIND THIS BOUNDARY. It is a transcript row's
-// card rather than a pane, it renders inside the timeline a session opens on, and it
+// card rather than a pane, it renders inside the transcript a session opens on, and it
 // keeps its static registration in `inline-cards.ts` — the two share the feature's
 // vocabulary and not their loading terms.
 

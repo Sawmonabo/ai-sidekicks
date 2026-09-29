@@ -18,7 +18,7 @@ import { reportTripwire } from "@renderer/lib/tripwires.js";
 
 /** What a boundary wraps, what to call it when it fails, and an optional fallback. */
 export interface ErrorBoundaryProps {
-  /** What failed, in the person's words: "the timeline", "the approvals pane". */
+  /** What failed, in the person's words: "the transcript", "the approvals pane". */
   readonly regionName: string;
   readonly children: ReactNode;
   /** Rendered instead of the default card, when a surface wants its own. */

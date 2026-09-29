@@ -40,7 +40,7 @@ export const PAGE_TAB_DRAG_MEDIA_TYPE = "application/x-meridian-preview-tab";
  * What a drag over the strip may do, read off the drag itself.
  *
  * A drag carrying anything else is not this strip's — a file from the desktop, a link
- * from a page, a selection from the timeline — and the strip neither accepts it nor
+ * from a page, a selection from the transcript — and the strip neither accepts it nor
  * prevents whatever else in the window would.
  */
 export function isTabDrag(transfer: DataTransfer): boolean {

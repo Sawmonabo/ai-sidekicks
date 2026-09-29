@@ -1,7 +1,7 @@
 // THE diff renderer. One implementation, two hosts.
 //
 // THIS FAMILY'S OWN RULE, stated here because no committed document states it: one
-// diff renderer serves both the pane and the timeline card, so a one-character edit
+// diff renderer serves both the pane and the transcript card, so a one-character edit
 // reads as one character in
 // both. That rule is the whole reason this file is separate from either of
 // them — a second renderer written for the card would drift from the pane's in

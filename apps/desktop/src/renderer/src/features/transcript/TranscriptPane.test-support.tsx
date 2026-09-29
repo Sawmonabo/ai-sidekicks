@@ -1,4 +1,4 @@
-// The pane context, the render, and the log the timeline-pane suite is driven over.
+// The pane context, the render, and the log the transcript pane suite is driven over.
 //
 // The seat teardown is NOT here: it is an `afterEach`, which the suite states beside its
 // own cases.

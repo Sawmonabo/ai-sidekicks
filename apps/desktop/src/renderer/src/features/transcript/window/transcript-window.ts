@@ -102,7 +102,7 @@ export interface TranscriptWindowModel {
   readonly runGroupByHeaderKey: ReadonlyMap<string, RunGroup>;
   /**
    * The seam behind each row that is one — the lookup the feed's row renderer
-   * consults BEFORE it delegates to the timeline row seat.
+   * consults BEFORE it delegates to the transcript row seat.
    *
    * The ONE form a seam is published in. The classifier's log-order pass is kept as a
    * local that feeds this map and is not carried on the model beside it: a second
@@ -113,7 +113,7 @@ export interface TranscriptWindowModel {
   readonly seamByRowId: ReadonlyMap<string, SystemMessageReading>;
   /**
    * The child-run summary behind each row that carries one — the second lookup the
-   * feed's row renderer consults before it delegates to the timeline row seat.
+   * feed's row renderer consults before it delegates to the transcript row seat.
    *
    * Anchored: a child re-summarized as it progresses has ONE entry, at the row that
    * first named it, so its card stays where a reader left it — and that entry carries

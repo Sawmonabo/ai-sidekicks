@@ -1,4 +1,4 @@
-// The transcript's row renderer, claimed on the timeline row seat.
+// The transcript's row renderer, claimed on the transcript row seat.
 
 import { registerTranscriptRowRenderer } from "@renderer/console/seats/index.js";
 import { TranscriptRow } from "../rows/TranscriptRow.js";
@@ -7,7 +7,7 @@ import { TranscriptRow } from "../rows/TranscriptRow.js";
 export const TRANSCRIPT_ROW_OWNER = "transcript rows";
 
 /**
- * Claim the timeline row seat for the transcript's row renderer.
+ * Claim the transcript row seat for the transcript's row renderer.
  *
  * A function rather than a module-scope call, so a test can compose it again: the seat's
  * owner scoping replaces a second claim under the same owner.

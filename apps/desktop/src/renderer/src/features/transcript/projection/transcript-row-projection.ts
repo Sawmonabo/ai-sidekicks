@@ -2,7 +2,7 @@
 //
 // THE SECOND HALF OF THE SHELL, AND IT DIES WITH THE FIRST. `TranscriptRow.tsx`
 // renders one row; this decides which rows there are. Both exist for the same
-// bounded reason and both are deleted by the change that registers the timeline
+// bounded reason and both are deleted by the change that registers the transcript
 // subtree's real rows, because that subtree brings its own read.
 //
 // WHY A PROJECTION IS NEEDED AT ALL, WHICH IS A FACT ABOUT THE WIRE

@@ -178,7 +178,7 @@ function renderNode(
       );
     case "footnoteDefinition":
       // Registered elsewhere, rendered nowhere here. This console puts footnotes in one
-      // popover host per timeline, so a definition's body belongs to the popover;
+      // popover host per transcript, so a definition's body belongs to the popover;
       // rendering it inline as well would put the same text on the screen twice.
       return null;
     case "footnoteReference":

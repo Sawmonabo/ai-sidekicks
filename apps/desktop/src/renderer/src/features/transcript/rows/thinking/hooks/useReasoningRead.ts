@@ -7,7 +7,7 @@
 // relationship with cancellation be read off its imports.
 //
 // AND IT DIES WITH THE SHELL. This hook exists so the shell's reasoning rows are real
-// against the fixture scenarios before the timeline subtree's own rows land; the
+// against the fixture scenarios before the transcript subtree's own rows land; the
 // change that registers those rows deletes this module with the rest of `shell/`.
 //
 // THE METHOD IS A REGISTERED WIRE, which is why it is reached through `callDaemon`:

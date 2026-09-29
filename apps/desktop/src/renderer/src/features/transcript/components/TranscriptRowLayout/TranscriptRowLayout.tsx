@@ -1,6 +1,6 @@
 // The transcript row — the console's signature shape.
 //
-// Design-language rule 1: timeline rows are flush-left transcript lines — a 2 px
+// Design-language rule 1: transcript rows are flush-left lines — a 2 px
 // attribution edge in the author's hue, author and timestamp in a fixed gutter, content
 // in a single measure. No bubbles, no left-and-right alternation, no avatars in the
 // flow. The screen reads as a work log because it is one.

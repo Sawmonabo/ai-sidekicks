@@ -1,8 +1,8 @@
-// The footnote registry — one per timeline, keyed by source.
+// The footnote registry — one per transcript, keyed by source.
 //
 // The footnote registry is own-built, and nothing above this module says how it is
 // keyed. THIS MODULE DECIDES THAT, and the
-// rule is: one registry per timeline keyed by (source, identifier), so a definition line
+// rule is: one registry per transcript keyed by (source, identifier), so a definition line
 // never resolves as its own body.
 //
 // THE FAILURE THE KEYING PREVENTS. GFM footnotes are `[^1]` for the reference and
@@ -17,7 +17,7 @@
 //
 // WHY A CLASS AND NOT A CONTEXT VALUE. Definitions arrive as blocks settle, from a
 // parse that runs outside React. A `useState` holding this would re-render every row in
-// the timeline each time any message declared a footnote.
+// the transcript each time any message declared a footnote.
 //
 // AND WHY IT IS STILL AN EXTERNAL STORE. A plain class with no subscription is written
 // from an effect — `StreamingMarkdown`'s registration hook — so a read during render

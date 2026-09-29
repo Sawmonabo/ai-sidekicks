@@ -1,6 +1,6 @@
 // The three inline cards a transcript row can carry, and the seat each body fills.
 //
-// These live in the timeline: a diff card expands to a height cap and then offers
+// These live in the transcript: a diff card expands to a height cap and then offers
 // "show all". A diff, an attachment, and a published artifact each render as a card
 // INSIDE a row rather than as a pane, because they belong to the turn that produced
 // them.

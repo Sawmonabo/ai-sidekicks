@@ -54,7 +54,7 @@ afterEach(() => {
 });
 
 describe("TranscriptPane — what it hands the chrome", () => {
-  it("mounts at its own kind, so the head wears the timeline glyph and name", () => {
+  it("mounts at its own kind, so the head wears the transcript glyph and name", () => {
     const pane = renderPane({ context: paneContext() });
     // The chrome derives both from the kind, so the kind is what this asserts: a
     // pane that passed another kind's string would draw that kind's mark and title
@@ -70,7 +70,7 @@ describe("TranscriptPane — what it hands the chrome", () => {
   });
 
   it("hands over no session at all rather than one the route does not name", () => {
-    // Reachable: the auxiliary timeline window opens on a bare route and the frame
+    // Reachable: the auxiliary transcript window opens on a bare route and the frame
     // resolves its subject through the context picker before this pane sees one.
     // What the chrome then draws is its own business; what this pane owes is the
     // honest absence rather than a placeholder it invented.
@@ -112,7 +112,7 @@ describe("TranscriptPane — the row slot", () => {
     // The two absences are different absences, which is the whole reason they are
     // two: "the console cannot draw this" is a fact about what has shipped, and "no
     // session is open in this pane" is a fact about this pane's address.
-    registerTranscriptRowRenderer("timeline-pane-test", () => null);
+    registerTranscriptRowRenderer("transcript-pane-test", () => null);
     const pane = renderPane({ context: paneContext() });
     const body = pane.querySelector(".meridian-pane__body");
     expect(body?.textContent).toContain("No session is open in this pane.");
@@ -125,7 +125,7 @@ describe("TranscriptPane — the row slot", () => {
     // Every earlier case here is an absence, and a pane that rendered NOTHING but
     // absences would have passed all of them.
     withLaidOutViewport();
-    registerTranscriptRowRenderer("timeline-pane-test", (rowProps) => (
+    registerTranscriptRowRenderer("transcript-pane-test", (rowProps) => (
       <article data-row-type={rowProps.row.type}>{rowProps.row.summary}</article>
     ));
     const sessionStore = openSessionStoreWithPaneLog();
@@ -142,7 +142,7 @@ describe("TranscriptPane — the row slot", () => {
   });
 
   it("negative control: the same store with no events shows the empty session", () => {
-    registerTranscriptRowRenderer("timeline-pane-test", () => null);
+    registerTranscriptRowRenderer("transcript-pane-test", () => null);
     const sessionStore = new SessionStore({ sessionId: TRANSCRIPT_PANE_SESSION_ID });
     sessionStore.initialize({ cursor: -1, entities: [] });
     const pane = renderPane({
