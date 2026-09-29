@@ -1,46 +1,29 @@
-// Contract↔DDL lockstep is pinned by a conformance test against the daemon
-// schema's `CHECK` clauses.
+// Worktree contracts — the worktree state and its lifecycle payload, the
+// branded `WorktreeId`, `BranchContextId` and `RemovedWorktreeId`, and the
+// create, remove and status pairs. Contract and DDL lockstep is pinned by a
+// conformance test against the daemon schema's `CHECK` clauses.
 //
-// CANONICAL CONSUMER (the reciprocal of). the repo.ts owns `ExecutionMode`,
-// `WorkspaceState`, `RepoMountState`, the branded `RepoMountId` /
+// repo.ts owns `ExecutionMode`, `WorkspaceState`, the branded `RepoMountId` and
 // `WorkspaceId`, and the family payload factory
-// `buildRepoWorkspaceLifecyclePayloadSchema` — this module IMPORTS the ones it
-// needs and never redefines ANY of them. `RepoMountState` is the one it does
-// NOT need: no wire shape or payload carries a mount state — residue from
-// when the worktree payload reused the two-arm `RepoMountState` ∪
-// `WorkspaceState` union the factory removed. The contract core composes the
-// mode taxonomy and the factory; the five wire pairs below add the remaining
-// canon they need (`WorkspaceStateSchema`, the branded `RepoMountId` /
-// `WorkspaceId`, the shared `REPO_PATH_MAX_LEN`, and `ExecutionModeSchema` as
-// a LOCAL binding — the re-export just below declares no local name), plus the
-// `SessionIdSchema` / `wireFreeFormString` and the TYPE-ONLY `RunId` brand
-// from the provider-driver.ts (the status read's provenance field). The
-// reciprocal boundary: `WorktreeId`, `WorktreeState` and `BranchContextId` are
-// declared HERE and nowhere else. repo.ts deliberately leaves its family payload's `worktreeId?`
-// an unbranded canonical-UUID string so this file's brand needs no repo.ts
-// edit.
+// `buildRepoWorkspaceLifecyclePayloadSchema`; this module imports them and never
+// redefines one. `WorktreeId`, `WorktreeState`, `BranchContextId` and
+// `RemovedWorktreeId` are declared here and nowhere else. The setup card, the
+// kept copies and the extra event payloads live in `worktree-setup.ts`,
+// `removed-worktree.ts` and `worktree-events.ts`, which import this module.
 //
 // IMPORT DIRECTION IS ONE-WAY — this module imports NOTHING from `./event.js`,
 // and nothing whose import CLOSURE reaches it, however many hops out (the
 // transitive rule repo.ts's header documents; the `node-id.js` hoist is the
-// precedent). `event.ts` imports `WorktreeLifecyclePayloadSchema` from here to
-// register the five `worktree.*` variants into `SessionEventSchema`, so a
-// back-import would close an eager module-scope Zod cycle that throws
-// `ReferenceError` at import time and that `tsc` does not flag. Before
+// precedent). `event.ts` imports this module's payload schema to register the
+// `worktree.*` variants into `SessionEventSchema`, so a back-import would close
+// an eager module-scope Zod cycle that throws `ReferenceError` at import time
+// and that `tsc` does not flag. `./session.js`, `./provider-driver.js` and
+// `./workspace.js` are closure-clean: none of them reaches `./event.js`. Before
 // composing any new cross-module symbol below, check its closure the same way.
-// the two NEW edges were checked and both clear it. `./session.js`
-// (`SessionIdSchema`, `wireFreeFormString`) is closure-clean — repo.ts already
-// imports it under this same rule. `./provider-driver.js` adds no RUNTIME edge
-// whatsoever, because the `RunId` brand rides a top-level `import type`: under
-// `verbatimModuleSyntax` that form is elided whole, while the inline `import {
-// type RunId } from "./provider-driver.js"` spelling would leave an `import {}
-// from …` side-effect edge behind. Do not "simplify" it back into the inline
-// form.
-//
 import { z } from "zod";
 
 import { brandedUuidIdSchema } from "./internal/branded.js";
-import type { RunId } from "./provider-driver.js";
+import { RunIdSchema, type RunId } from "./provider-driver.js";
 import {
   buildRepoWorkspaceLifecyclePayloadSchema,
   ExecutionModeSchema,
@@ -112,6 +95,13 @@ export const WorktreeIdSchema: z.ZodType<WorktreeId, WorktreeId> =
 export type BranchContextId = string & { readonly __brand: "BranchContextId" };
 export const BranchContextIdSchema: z.ZodType<BranchContextId, BranchContextId> =
   brandedUuidIdSchema<BranchContextId>("BranchContextId");
+
+// A worktree removed with `Discard and remove`, kept whole until the person
+// deletes the copy. It is a record of its own, apart from the retired worktree
+// row, because the copy outlives the tree and a put-back makes a new worktree.
+export type RemovedWorktreeId = string & { readonly __brand: "RemovedWorktreeId" };
+export const RemovedWorktreeIdSchema: z.ZodType<RemovedWorktreeId, RemovedWorktreeId> =
+  brandedUuidIdSchema<RemovedWorktreeId>("RemovedWorktreeId");
 
 // --------------------------------------------------------------------------
 // Canonical enums
@@ -406,6 +396,7 @@ export interface ExecutionRootPrepareRequest {
   baseRef?: string | undefined;
   reuseWorktreeId?: WorktreeId | undefined;
   acknowledgeDirtyCandidate?: boolean | undefined;
+  carryUncommitted?: boolean | undefined;
 }
 // Bridge-free double-T: `WorkspaceIdSchema` / `WorktreeIdSchema` are double-T,
 // `wireFreeFormString` is a `z.ZodString` (Input `string`), and `z.boolean()`
@@ -461,6 +452,10 @@ export const ExecutionRootPrepareRequestSchema: z.ZodType<
     // would add a transform (breaking the double-T Input=Output equality the
     // annotation asserts) to express what omission expresses already.
     acknowledgeDirtyCandidate: z.boolean().optional(),
+    // Carries the session's uncommitted work, untracked files included, onto
+    // the new tree. The daemon refuses it unless the new base is the branch
+    // the work sits on; absence means nothing is carried.
+    carryUncommitted: z.boolean().optional(),
   })
   .strict();
 
@@ -594,21 +589,34 @@ export const WorktreeReuseCheckResponseSchema: z.ZodType<WorktreeReuseCheckRespo
 // Metadata and provenance survive retirement: retiring erases nothing, and
 // a retired row stays queryable.
 
+/**
+ * The `repo.worktreeRetire` input. `discard: false` is the ordinary removal: it
+ * removes nothing the confirm did not show, and is refused with the current
+ * risks when the tree changed since they were read. `discard: true` is sent only
+ * from the discard confirm; the daemon then keeps the tree whole instead of
+ * deleting it.
+ */
 export interface WorktreeRetireRequest {
   worktreeId: WorktreeId;
+  discard: boolean;
 }
-// Bridge-free double-T (a lone double-T branded id).
+// Bridge-free double-T (a double-T branded id and a `z.ZodBoolean`).
 export const WorktreeRetireRequestSchema: z.ZodType<WorktreeRetireRequest, WorktreeRetireRequest> =
   z
     .object({
       worktreeId: WorktreeIdSchema,
+      discard: z.boolean(),
     })
     .strict();
 
-/** The `repo.worktreeRetire` result: the worktree, now `retired`. */
+/**
+ * The `repo.worktreeRetire` result: the worktree, now `retired`, and the kept
+ * copy when a discard kept one.
+ */
 export interface WorktreeRetireResponse {
   worktreeId: WorktreeId;
   state: Extract<WorktreeState, "retired">;
+  kept?: { removedWorktreeId: RemovedWorktreeId } | undefined;
 }
 /** Wire schema for {@link WorktreeRetireResponse}; single-T, since a response is not an input. */
 export const WorktreeRetireResponseSchema: z.ZodType<WorktreeRetireResponse> = z
@@ -621,8 +629,69 @@ export const WorktreeRetireResponseSchema: z.ZodType<WorktreeRetireResponse> = z
     // `worktree.retire_conflict` error rather than a response carrying the
     // unchanged state.
     state: z.literal("retired"),
+    kept: z.object({ removedWorktreeId: RemovedWorktreeIdSchema }).strict().optional(),
   })
   .strict();
+
+// The removal's refusal. A plain removal is refused while an agent runs in the
+// tree (`root_busy`, naming the workspace that holds it), and when the tree has
+// something to lose the confirm did not show (`has_changes`, carrying the risks
+// as they stand now, so the confirm redraws them). Ignored files count as
+// something to lose.
+
+/** The code `repo.worktreeRetire` refuses with. */
+export type WorktreeRetireConflictCode = "worktree.retire_conflict";
+/** The code of {@link WorktreeRetireConflictCode}. */
+export const WORKTREE_RETIRE_CONFLICT_CODE: WorktreeRetireConflictCode = "worktree.retire_conflict";
+
+/** Why a removal was refused. */
+export const WORKTREE_RETIRE_CONFLICT_REASONS = ["root_busy", "has_changes"] as const;
+/** One of {@link WORKTREE_RETIRE_CONFLICT_REASONS}. */
+export type WorktreeRetireConflictReason = (typeof WORKTREE_RETIRE_CONFLICT_REASONS)[number];
+
+/**
+ * What removing a tree would lose, each named in the confirm: uncommitted files,
+ * ignored files (an `.env`, say) that would be destroyed, commits no
+ * remote-tracking branch of the folder reaches, and the sessions standing in it.
+ */
+export interface WorktreeRemovalRisks {
+  uncommittedFileCount: number;
+  ignoredFileCount: number;
+  unpushedCommitCount: number;
+  occupyingSessionIds: SessionId[];
+}
+/** Wire schema for {@link WorktreeRemovalRisks}. */
+export const WorktreeRemovalRisksSchema: z.ZodType<WorktreeRemovalRisks> = z
+  .object({
+    uncommittedFileCount: z.number().int().nonnegative(),
+    ignoredFileCount: z.number().int().nonnegative(),
+    unpushedCommitCount: z.number().int().nonnegative(),
+    occupyingSessionIds: z.array(SessionIdSchema),
+  })
+  .strict();
+
+/** The details a `worktree.retire_conflict` refusal carries, by its reason. */
+export type WorktreeRetireConflictDetails =
+  | { worktreeId: WorktreeId; reason: "root_busy"; holdingWorkspaceId: WorkspaceId }
+  | { worktreeId: WorktreeId; reason: "has_changes"; risks: WorktreeRemovalRisks };
+/** Wire schema for {@link WorktreeRetireConflictDetails}. */
+export const WorktreeRetireConflictDetailsSchema: z.ZodType<WorktreeRetireConflictDetails> =
+  z.discriminatedUnion("reason", [
+    z
+      .object({
+        worktreeId: WorktreeIdSchema,
+        reason: z.literal("root_busy"),
+        holdingWorkspaceId: WorkspaceIdSchema,
+      })
+      .strict(),
+    z
+      .object({
+        worktreeId: WorktreeIdSchema,
+        reason: z.literal("has_changes"),
+        risks: WorktreeRemovalRisksSchema,
+      })
+      .strict(),
+  ]);
 
 // --------------------------------------------------------------------------
 // WorktreeStatusRead — `repo.worktreeStatusRead` (query).
@@ -636,24 +705,6 @@ export const WorktreeRetireResponseSchema: z.ZodType<WorktreeRetireResponse> = z
 // below therefore carries its full vocabulary; a "live states only"
 // narrowing would make the admit-not-eject contract unrepresentable on the
 // wire, which is the mirror image of the retire `Extract` narrowing above.
-
-// The RUNTIME half of `WorktreeStatusReadResponse.worktrees[].createdByRunId`.
-//
-// `RunId`'s canonical origin is `packages/contracts/src/provider-driver.ts`,
-// which declares the brand TYPE-ONLY on purpose: the paired `RunIdSchema` —
-// spelled there as `brandedUuidIdSchema<RunId>("RunId")` — co-locates whose
-// first consumer is the SDK seam. Authoring that export from here would both
-// break the ratified type-only Phase 1 and declare another plan's symbol, which
-// is the canonical-origin rule read in the reciprocal direction.
-//
-// So the TYPE is imported and the runtime half is carried by this
-// module-local, DELIBERATELY UNEXPORTED validator, composed from the same
-// helper with the same brand name — behaviorally identical to the schema will
-// export. It adds no public surface (and so needs no `isolatedDeclarations`
-// annotation, the `workspaceListItemSchema` precedent), and when lands the
-// swap is one line: delete this const and import `RunIdSchema` from
-// `./provider-driver.js`.
-const runIdSchema = brandedUuidIdSchema<RunId>("RunId");
 
 // The item TYPE stays INLINE and unnamed on the response interface below; the
 // SCHEMA is hoisted to a module-local const rather than nested two levels
@@ -684,7 +735,7 @@ const worktreeStatusRecordSchema = z
     // contract rather than an inconsistency: `created_by_run_id` is nullable
     // because a pre-run explicit `repo.executionRootPrepare` creates a worktree
     // with no run to attribute.
-    createdByRunId: runIdSchema.optional(),
+    createdByRunId: RunIdSchema.optional(),
     createdAt: z.iso.datetime({ offset: true }),
     updatedAt: z.iso.datetime({ offset: true }),
     // The async disk-cleanup stamp (`worktrees.cleaned_at`), absent until the

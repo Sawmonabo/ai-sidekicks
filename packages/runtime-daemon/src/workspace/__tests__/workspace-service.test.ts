@@ -1012,7 +1012,7 @@ describe("reprovision cycle", () => {
     // gate that refused `stale` would make the documented retry impossible.
     await harness.service.beginRootPreparation(workspaceId, "provisioned-worktree");
 
-    // MID-RETRY, before the outcome is known. `packages/contracts/src/repo.ts`
+    // MID-RETRY, before the outcome is known. `packages/contracts/src/workspace.ts`
     // makes `lastError` "present iff the workspace went `stale` from a recorded
     // failure" an emitter obligation on this module, and a `preparing` row is
     // not that. Clearing only at completion would leave the whole in-flight
