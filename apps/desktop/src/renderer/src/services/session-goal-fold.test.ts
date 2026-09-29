@@ -7,7 +7,7 @@
 
 import { describe, expect, it } from "vitest";
 import { type ConsoleSessionEvent } from "@renderer/console/store/entities/entities.js";
-import { foldSessionGoal } from "@renderer/services/session-goal.js";
+import { foldSessionGoal } from "./session-goal.js";
 import {
   event,
   goalClear,
