@@ -27,8 +27,17 @@ const DEFAULTS: readonly Keybinding[] = [
   { chord: "Alt+Digit2", commandId: "frame.goToWorkflows" },
 ];
 
+/** The acts this file's window has: the two its shipped table binds. */
+const REGISTERED_COMMAND_IDS: ReadonlySet<string> = new Set(
+  DEFAULTS.map((binding) => binding.commandId),
+);
+
 function overrideStore(): KeybindingOverrideStore {
-  return new KeybindingOverrideStore({ defaults: () => DEFAULTS, platform: "darwin" });
+  return new KeybindingOverrideStore({
+    defaults: () => DEFAULTS,
+    isCommandRegistered: (commandId) => REGISTERED_COMMAND_IDS.has(commandId),
+    platform: "darwin",
+  });
 }
 
 /** A store over its own memory adapter, on a frozen clock like every other one. */
@@ -266,6 +275,33 @@ describe("what one window wrote, the next one reads", () => {
     ]);
   });
 
+  it("skips an override for an act that no longer exists, and leaves it out of the next write", async () => {
+    const store = uiStateStore();
+    // Written directly, as a profile from a release that still had the two retired
+    // acts would be: one rebound, one explicitly left with no chord.
+    await store.writeGlobal(KEYBINDING_OVERRIDES_KEY, "keybinding", {
+      "frame.goToSessions": "$mod+9",
+      "retired.openLedger": "$mod+8",
+      "retired.closeLedger": null,
+    });
+
+    const reader = overrideStore();
+    await reader.hydrateFrom(store);
+    expect(reader.overrides).toStrictEqual({ "frame.goToSessions": "$mod+9" });
+    expect(reader.snapshot.bindings.map((binding) => binding.commandId)).toStrictEqual([
+      "frame.goToSessions",
+      "frame.goToWorkflows",
+    ]);
+    expect(reader.hydrationRefusals).toHaveLength(0);
+
+    await reader.bind("frame.goToWorkflows", "$mod+7");
+    const written = await store.readGlobal(KEYBINDING_OVERRIDES_KEY);
+    expect(written?.value).toStrictEqual({
+      "frame.goToSessions": "$mod+9",
+      "frame.goToWorkflows": "$mod+7",
+    });
+  });
+
   it("keeps the newer hydration's overrides when the older one answers last", async () => {
     // The frame replaces this window's durable store on a bridge or scenario change,
     // and the read the first store had open does not stop. Answering last, it used to
@@ -322,6 +358,7 @@ describe("the shipped table is read, not captured", () => {
     readonly options: {
       readonly defaults: () => readonly Keybinding[];
       readonly subscribeToDefaults: (onDefaultsChange: () => void) => () => void;
+      readonly isCommandRegistered: (commandId: string) => boolean;
       readonly platform: "darwin";
     };
     readonly contribute: (binding: Keybinding) => void;
@@ -336,6 +373,7 @@ describe("the shipped table is read, not captured", () => {
           listeners.add(onDefaultsChange);
           return () => listeners.delete(onDefaultsChange);
         },
+        isCommandRegistered: (commandId) => base.some((binding) => binding.commandId === commandId),
         platform: "darwin",
       },
       contribute: (binding) => {

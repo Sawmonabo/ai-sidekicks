@@ -26,7 +26,9 @@
 //   • **A stored override is admitted through the same check a fresh one passes.** A
 //     chord that no longer installs is declined and named rather than handed to
 //     `setBindings`, which would raise inside the frame's own effect and take the
-//     window down over one stale row.
+//     window down over one stale row. An override for an act that no longer exists is
+//     not declined but skipped: it draws nothing, warns about nothing, and is left out
+//     of the next write.
 //
 // THE CONSOLE KEYBOARD IS SUSPENDED WHILE A CHORD IS BEING RECORDED
 //
@@ -44,6 +46,7 @@ import {
   contributedKeybindings,
   subscribeToCommandContributions,
 } from "../commands/command-contributions.js";
+import { commandRegistry } from "../commands/window-command-registry.js";
 import { type Keybinding } from "../commands/command-types.js";
 import type { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
 import { GenerationLatch } from "@renderer/lib/reads/generation-latch.js";
@@ -84,6 +87,7 @@ const HYDRATION_KEY = "hydrate";
  */
 export class KeybindingOverrideStore {
   readonly #readDefaults: () => readonly Keybinding[];
+  readonly #isCommandRegistered: (commandId: string) => boolean;
   readonly #platform: ChordPlatform;
   readonly #changes = new Emitter<void>("keybinding override change");
   #overrides: KeybindingOverrideMap = {};
@@ -108,6 +112,7 @@ export class KeybindingOverrideStore {
 
   public constructor(options: KeybindingOverrideStoreOptions) {
     this.#readDefaults = options.defaults;
+    this.#isCommandRegistered = options.isCommandRegistered;
     this.#platform = options.platform ?? HOST_CHORD_PLATFORM;
     // Never released, and that is the lifetime rather than an omission: this store is
     // window-scoped and the surface it listens to is too, so both die with the window.
@@ -146,9 +151,11 @@ export class KeybindingOverrideStore {
    * Attach this window's durable store and read the overrides back.
    *
    * The store is attached BEFORE the await, so a rebinding made a millisecond later
-   * is persisted rather than dropped for want of somewhere to put it. Each stored
-   * entry is then admitted against the table built from the entries admitted before
-   * it, so the composed result is installable by construction.
+   * is persisted rather than dropped for want of somewhere to put it. An entry whose
+   * command is not registered is skipped, so it installs nothing and the next write,
+   * which writes the admitted map, leaves it out. Each other stored entry is admitted
+   * against the table built from the entries admitted before it, so the composed
+   * result is installable by construction.
    *
    * TWO GUARDS, AND NEITHER IS THE OTHER'S SPARE. The round orders this read against
    * a REBINDING, which replaces no store; the identity orders it against a STORE
@@ -170,6 +177,9 @@ export class KeybindingOverrideStore {
     const admitted: Record<string, KeybindingOverride> = {};
     const refusals: KeybindingHydrationRefusal[] = [];
     for (const commandId of Object.keys(stored).sort()) {
+      if (!this.#isCommandRegistered(commandId)) {
+        continue;
+      }
       const override = stored[commandId];
       if (override === undefined || override === null) {
         admitted[commandId] = null;
@@ -328,4 +338,5 @@ export class KeybindingOverrideStore {
 export const keybindingOverrides: KeybindingOverrideStore = new KeybindingOverrideStore({
   defaults: contributedKeybindings,
   subscribeToDefaults: subscribeToCommandContributions,
+  isCommandRegistered: (commandId) => commandRegistry.has(commandId),
 });
