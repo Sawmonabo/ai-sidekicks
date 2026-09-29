@@ -207,7 +207,7 @@
         "tests/scenarios/**",
         "tests/helpers/**",
         "tests/endurance/streaming-lanes*",
-        "tests/endurance/transcript-endurance*",
+        "tests/endurance/transcript-endurance.test-support*",
         "vitest.config.*",
         "vitest/**",
         "tsconfig*.json",
