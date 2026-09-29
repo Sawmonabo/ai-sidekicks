@@ -2,10 +2,11 @@
 // or the payload with the encoding it is written in. Each refusal below hands the
 // reply schema a shape that is neither. The last schema case checks that the two real
 // shapes still parse, so the refusals cannot pass against a schema that refuses
-// everything. The ingest chunk's cases hold it to the frame ceiling it rides under.
+// everything. The ingest chunk's cases hold it to the frame ceiling it rides under,
+// and the decoder's cases hold it to reading a payload by its encoding alone.
 import { describe, expect, it } from "vitest";
 
-import { ArtifactReadResponseSchema } from "../artifacts/index.js";
+import { ArtifactReadResponseSchema, decodeArtifactPayloadText } from "../artifacts/index.js";
 import { ATTACHMENT_INGEST_CHUNK_MAX_BYTES } from "../artifacts/ingest.js";
 import { MAX_MESSAGE_BYTES } from "../jsonrpc.js";
 
@@ -76,5 +77,35 @@ describe("ATTACHMENT_INGEST_CHUNK_MAX_BYTES", () => {
     const rawChunkAtTheCeiling = MAX_MESSAGE_BYTES - 1;
     expect(rawChunkAtTheCeiling).toBeLessThan(MAX_MESSAGE_BYTES);
     expect(base64Length(rawChunkAtTheCeiling)).toBeGreaterThan(MAX_MESSAGE_BYTES);
+  });
+});
+
+describe("decodeArtifactPayloadText", () => {
+  it("reads a utf8 payload as the text it is, even when it looks like base64", () => {
+    expect(decodeArtifactPayloadText("aGVsbG8=", "utf8")).toStrictEqual({
+      status: "text",
+      text: "aGVsbG8=",
+    });
+  });
+
+  it("decodes a base64 payload and reads its bytes as UTF-8", () => {
+    expect(decodeArtifactPayloadText("aMOpbGxv", "base64")).toStrictEqual({
+      status: "text",
+      text: "h\u00e9llo",
+    });
+  });
+
+  it("names bytes that are not UTF-8 rather than drawing replacement characters", () => {
+    expect(decodeArtifactPayloadText("/w==", "base64")).toStrictEqual({
+      status: "opaque",
+      reason: "not-utf8",
+    });
+  });
+
+  it("names a base64 payload that does not decode", () => {
+    expect(decodeArtifactPayloadText("not base64!", "base64")).toStrictEqual({
+      status: "opaque",
+      reason: "undecodable",
+    });
   });
 });
