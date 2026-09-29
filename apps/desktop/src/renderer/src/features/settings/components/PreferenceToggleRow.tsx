@@ -1,5 +1,5 @@
-// One preference and one switch: a label, a sentence saying what the setting governs, and
-// the control. Three pages need it, so it is written once and each page supplies text.
+// One preference and one switch: a label, where the design draws one a sentence under it,
+// and the control. Three pages need it, so it is written once and each page supplies text.
 //
 // THE CONTROL IS `@base-ui/react`'s SWITCH, not a bare checkbox and not our own.
 // That package is the console's one adopted widget family; it renders a `<span>` plus
@@ -18,8 +18,11 @@ import { Switch } from "@base-ui/react/switch";
 
 export interface PreferenceToggleRowProps {
   readonly label: string;
-  /** What the setting governs, in one sentence. Rendered as the label's description. */
-  readonly description: string;
+  /**
+   * The line under the label, rendered as its description. Absent where the design
+   * draws the switch with no line under it.
+   */
+  readonly description?: string | undefined;
   readonly checked: boolean;
   /** True while a write for this key is in flight. The switch stops taking presses. */
   readonly isPending?: boolean | undefined;
@@ -28,16 +31,18 @@ export interface PreferenceToggleRowProps {
 
 export function PreferenceToggleRow(props: PreferenceToggleRowProps): React.JSX.Element {
   const switchId = useId();
-  const descriptionId = `${switchId}-description`;
+  const descriptionId = props.description === undefined ? undefined : `${switchId}-description`;
   return (
     <div className="meridian-settings-row">
       <div className="meridian-settings-row__text">
         <label className="meridian-settings-row__label" htmlFor={switchId}>
           {props.label}
         </label>
-        <p className="meridian-settings-row__description" id={descriptionId}>
-          {props.description}
-        </p>
+        {props.description === undefined ? null : (
+          <p className="meridian-settings-row__description" id={descriptionId}>
+            {props.description}
+          </p>
+        )}
       </div>
       <Switch.Root
         id={switchId}
