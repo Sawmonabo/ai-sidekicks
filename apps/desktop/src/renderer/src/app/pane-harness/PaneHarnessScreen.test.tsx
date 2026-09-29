@@ -27,7 +27,7 @@ import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
-import { type ConsoleRoute } from "@renderer/console/routing/routes.js";
+import { type ConsoleRoute } from "@renderer/routing/routes.js";
 import {
   ConsolePaneRegistry,
   type ConsolePaneContext,

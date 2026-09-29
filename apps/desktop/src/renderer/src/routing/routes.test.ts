@@ -12,12 +12,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import {
-  DEFAULT_ROUTE,
-  formatRoute,
-  parseRoute,
-  type ConsoleRoute,
-} from "@renderer/console/routing/routes.js";
+import { DEFAULT_ROUTE, formatRoute, parseRoute, type ConsoleRoute } from "./routes.js";
 import { MAIN_WINDOW_ROUTES } from "./route-samples.test-support.js";
 
 describe("routes — every main-window route renders to a hash that parses back to it", () => {

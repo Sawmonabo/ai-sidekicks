@@ -28,7 +28,7 @@ import { createElement } from "react";
 import { KeyedRegistry } from "@renderer/lib/keyed-registry.js";
 import { LoadedLazyBody, type LazyBodyLoader } from "@renderer/components/LazyBody/lazy-body.js";
 import { PendingSurfaceBody } from "./PendingScreenBody.js";
-import type { ConsoleRoute } from "@renderer/console/routing/routes.js";
+import type { ConsoleRoute } from "@renderer/routing/routes.js";
 import { type ConsoleSurfaceContext } from "./screen-context.js";
 
 /**

@@ -12,7 +12,7 @@ import {
   bridgeAnswering,
   type RecordedDaemonCall,
 } from "@renderer/console/bridge/fixture/call-plane/bridge.test-support.js";
-import { DEFAULT_ROUTE } from "@renderer/console/routing/routes.js";
+import { DEFAULT_ROUTE } from "@renderer/routing/routes.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/console/core/constants/persistence-caps.js";
 import { DraftStore } from "@renderer/store/draft-store.js";
 import { FrameStore } from "@renderer/store/window/window-store.js";

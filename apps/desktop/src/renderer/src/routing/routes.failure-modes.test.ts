@@ -20,7 +20,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { parseRoute } from "@renderer/console/routing/routes.js";
+import { parseRoute } from "./routes.js";
 
 describe("failure matrix — the router is handed an empty hash", () => {
   it("lands an empty hash on the default route", () => {

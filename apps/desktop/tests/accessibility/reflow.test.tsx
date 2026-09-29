@@ -41,7 +41,7 @@ import { FLAGSHIP_SCENARIO_ID } from "@renderer/console/bridge/scenario/flagship
 import { ConsoleRoot, installMeridianTokens } from "@renderer/console/frame/index.js";
 import { routeForDestination } from "@renderer/layout/NavigationRail/rail-navigation.js";
 import { RAIL_DESTINATIONS } from "@renderer/routing/route-readers.js";
-import { formatRoute } from "@renderer/console/routing/routes.js";
+import { formatRoute } from "@renderer/routing/routes.js";
 // The family door, imported for its side effect: `apps/desktop/AGENTS.md` puts a
 // family's stylesheet behind its own barrel, and the case below is about what that
 // stylesheet computes to when the row is given a column narrower than its text.
@@ -51,7 +51,7 @@ import { SessionRow } from "@renderer/features/sessions/components/SessionRow.js
 // `apps/desktop/AGENTS.md` puts a lazily-loaded directory's stylesheets behind that
 // root, and the case below is about what the keyboard sheet computes to when the meta
 // line is given a column narrower than the id on it.
-import "@renderer/console/settings/settings-surface-body.js";
+import "@renderer/features/settings/settings-screen-body.js";
 import { KeybindingRowBody } from "@renderer/features/settings/pages/keyboard/components/KeybindingRowBody.js";
 import { SETTINGS_SECTION_IDS } from "@renderer/console/settings/settings-sections.js";
 import { REFLOW_MIN_WIDTH_PX } from "@renderer/styles/palette.js";

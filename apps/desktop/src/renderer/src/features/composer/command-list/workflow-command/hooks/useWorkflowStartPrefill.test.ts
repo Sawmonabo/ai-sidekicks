@@ -17,7 +17,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/console/core/constants/persistence-caps.js";
 import { consoleCommands } from "@renderer/console/palette/index.js";
 import { DraftStore } from "@renderer/store/draft-store.js";
-import { DEFAULT_ROUTE } from "@renderer/console/routing/routes.js";
+import { DEFAULT_ROUTE } from "@renderer/routing/routes.js";
 import { composerCommandSurface } from "../../composer-commands.js";
 import {
   WORKFLOW_COMMAND_ROOT,

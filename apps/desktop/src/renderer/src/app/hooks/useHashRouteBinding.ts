@@ -29,7 +29,7 @@
 
 import { useEffect, useRef } from "react";
 
-import { formatRoute } from "@renderer/console/routing/routes.js";
+import { formatRoute } from "@renderer/routing/routes.js";
 import { useFrameStore } from "@renderer/console/store/shell/frame-hooks.js";
 import { type FrameStore } from "@renderer/store/window/window-store.js";
 

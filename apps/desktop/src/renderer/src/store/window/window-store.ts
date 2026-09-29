@@ -26,7 +26,7 @@ import {
   shellReportsAreEqual,
   type ShellState,
 } from "./main-process-state.js";
-import { DEFAULT_ROUTE, parseRoute, type ConsoleRoute } from "@renderer/console/routing/routes.js";
+import { DEFAULT_ROUTE, parseRoute, type ConsoleRoute } from "@renderer/routing/routes.js";
 import { routeSessionId, routesAreEqual } from "@renderer/routing/route-readers.js";
 import { SYSTEM_SCHEME_PREFERENCE, type SchemePreference } from "@renderer/styles/tokens.js";
 

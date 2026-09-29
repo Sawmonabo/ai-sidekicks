@@ -13,7 +13,7 @@ import { bridgeAnswering } from "@renderer/console/bridge/fixture/call-plane/bri
 import { refuse } from "@renderer/lib/refusal.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/console/core/constants/persistence-caps.js";
 import { consoleCommands } from "@renderer/console/palette/index.js";
-import { DEFAULT_ROUTE } from "@renderer/console/routing/routes.js";
+import { DEFAULT_ROUTE } from "@renderer/routing/routes.js";
 import { DraftStore } from "@renderer/store/draft-store.js";
 import type { ComposerChannelTarget } from "@renderer/shell/composer/chips/chip-models.js";
 import { createClientCommandExecutor } from "@renderer/shell/composer/commands/client-command-executor.js";

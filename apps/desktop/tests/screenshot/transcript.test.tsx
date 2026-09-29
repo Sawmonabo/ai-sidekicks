@@ -61,7 +61,7 @@ import { requireScenarioControl, walkScenarioToFrozenTick } from "./scenario-clo
 import { requireCapturedElement } from "./captured-element.js";
 
 import { ConsoleRoot, installMeridianTokens } from "@renderer/console/frame/index.js";
-import { formatRoute } from "@renderer/console/routing/routes.js";
+import { formatRoute } from "@renderer/routing/routes.js";
 import { CONSOLE_SCHEMES } from "@renderer/styles/tokens.js";
 import {
   LEDGER_QUIET_SCENARIO,

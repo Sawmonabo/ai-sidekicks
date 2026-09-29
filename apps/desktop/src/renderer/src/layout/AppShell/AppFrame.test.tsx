@@ -25,7 +25,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { consoleTripwires } from "@renderer/lib/tripwires.js";
 import { CommandRegistry, PaletteOverlay } from "@renderer/console/palette/index.js";
-import type { ConsoleRoute } from "@renderer/console/routing/routes.js";
+import type { ConsoleRoute } from "@renderer/routing/routes.js";
 import { AppFrame } from "./AppFrame.js";
 import {
   CalmSurface,

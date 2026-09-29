@@ -13,7 +13,7 @@
 // per call site is a reader per call site to disagree with, which is what
 // `routeSessionId` and `settingsSelection` each record below.
 
-import type { ConsoleRoute } from "@renderer/console/routing/routes.js";
+import type { ConsoleRoute } from "./routes.js";
 
 /**
  * Destinations on the icon rail, in rail order. Closed; the rail renders exactly

@@ -15,7 +15,7 @@
 import { describe, expect, it } from "vitest";
 
 import { DuplicateRegistrationError } from "@renderer/lib/keyed-registry.js";
-import type { ConsoleRoute } from "@renderer/console/routing/routes.js";
+import type { ConsoleRoute } from "@renderer/routing/routes.js";
 import {
   CONSOLE_SURFACE_SLOTS,
   ConsoleSurfaceRegistry,

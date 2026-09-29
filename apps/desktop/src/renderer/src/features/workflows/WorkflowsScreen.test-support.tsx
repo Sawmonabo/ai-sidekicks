@@ -20,7 +20,7 @@ import { fireEvent, render } from "@testing-library/react";
 import { createFixtureBridge } from "@renderer/console/bridge/fixture/call-plane/bridge.js";
 import { FLAGSHIP_SCENARIO } from "@renderer/console/bridge/scenario/flagship/flagship.js";
 import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
-import type { ConsoleRoute } from "@renderer/console/routing/routes.js";
+import type { ConsoleRoute } from "@renderer/routing/routes.js";
 import { FrameStore } from "@renderer/store/window/window-store.js";
 import {
   ConsolePaneRegistry,

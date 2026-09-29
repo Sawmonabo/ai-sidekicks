@@ -48,7 +48,7 @@ import {
   type WhenClauseContext,
 } from "../palette/index.js";
 import { RAIL_DESTINATIONS } from "@renderer/routing/route-readers.js";
-import { type ConsoleRoute } from "@renderer/console/routing/routes.js";
+import { type ConsoleRoute } from "@renderer/routing/routes.js";
 import type { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
 import type { FrameStore } from "@renderer/store/window/window-store.js";
 import type { SchemePreference } from "@renderer/styles/tokens.js";

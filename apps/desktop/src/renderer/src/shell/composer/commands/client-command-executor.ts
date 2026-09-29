@@ -28,7 +28,7 @@ import { useCallback, useMemo } from "react";
 
 import { isErrorInstance, lossyStringify, readGuardedProperty } from "@shared/wire-errors.js";
 import { useLatestRef } from "../../../console/primitives/index.js";
-import type { ConsoleRoute } from "@renderer/console/routing/routes.js";
+import type { ConsoleRoute } from "@renderer/routing/routes.js";
 import type {
   CommandExecutor,
   CommandOutcome,

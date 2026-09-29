@@ -59,7 +59,7 @@ import {
   consoleCommands,
 } from "@renderer/console/palette/index.js";
 import { DraftStore } from "@renderer/store/draft-store.js";
-import { parseRoute } from "@renderer/console/routing/routes.js";
+import { parseRoute } from "@renderer/routing/routes.js";
 import { railDestinationFor } from "@renderer/routing/route-readers.js";
 import {
   consolePaneRegistry,

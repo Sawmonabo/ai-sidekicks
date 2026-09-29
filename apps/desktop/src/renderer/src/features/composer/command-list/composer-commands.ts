@@ -32,7 +32,7 @@ import {
   type ConsoleCommand,
   type ConsoleWhenClauseContext,
 } from "@renderer/console/palette/index.js";
-import type { ConsoleRoute } from "@renderer/console/routing/routes.js";
+import type { ConsoleRoute } from "@renderer/routing/routes.js";
 
 /**
  * What the registry answers when a caller asks it to run something.

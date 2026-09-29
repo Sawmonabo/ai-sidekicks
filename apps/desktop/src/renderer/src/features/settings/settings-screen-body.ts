@@ -27,28 +27,28 @@
 // property the registrar had while it composed the pages itself: no second window
 // inherits this one's page set, and a suite renders against a registry it owns.
 
-import "@renderer/features/settings/settings-screen.css";
-import "@renderer/features/settings/settings-page.css";
-import "@renderer/features/settings/components/preference-toggle-row.css";
-import "@renderer/features/settings/pages/providers/components/account-plane-handoff.css";
-import "@renderer/features/settings/pages/appearance/appearance.css";
-import "@renderer/features/settings/pages/keyboard/keyboard.css";
-import "@renderer/features/settings/pages/runtime/mounted-folders/mounted-folders.css";
+import "./settings-screen.css";
+import "./settings-page.css";
+import "./components/preference-toggle-row.css";
+import "./pages/providers/components/account-plane-handoff.css";
+import "./pages/appearance/appearance.css";
+import "./pages/keyboard/keyboard.css";
+import "./pages/runtime/mounted-folders/mounted-folders.css";
 
 import { createElement, useState } from "react";
 
-import type { ConsoleSurfaceContext } from "../seats/index.js";
-import { registerAppearancePage } from "./pages/appearance/AppearancePage.js";
-import { registerApplicationPage } from "./pages/application/ApplicationPage.js";
-import { registerDaemonPage } from "./pages/daemon/DaemonPage.js";
-import { registerKeyboardPage } from "./pages/keyboard/KeyboardPage.js";
-import { registerMcpServersPage } from "./pages/mcp-servers/McpServersPage.js";
-import { registerNotificationsPage } from "./pages/notifications/NotificationsPage.js";
-import { registerProviderAccountsPage } from "./pages/provider-accounts/ProviderAccountsPage.js";
-import { registerBrowserSettingsPage } from "../browser-settings-page.js";
-import { registerWorkspaceMountsPage } from "@renderer/features/settings/pages/runtime/mounted-folders/MountedFoldersBlock.js";
-import { SettingsPageRegistry } from "@renderer/features/settings/settings-pages.js";
-import { SettingsSurface } from "@renderer/features/settings/SettingsScreen.js";
+import type { ConsoleSurfaceContext } from "@renderer/console/seats/index.js";
+import { registerAppearancePage } from "@renderer/console/settings/pages/appearance/AppearancePage.js";
+import { registerApplicationPage } from "@renderer/console/settings/pages/application/ApplicationPage.js";
+import { registerDaemonPage } from "@renderer/console/settings/pages/daemon/DaemonPage.js";
+import { registerKeyboardPage } from "@renderer/console/settings/pages/keyboard/KeyboardPage.js";
+import { registerMcpServersPage } from "@renderer/console/settings/pages/mcp-servers/McpServersPage.js";
+import { registerNotificationsPage } from "@renderer/console/settings/pages/notifications/NotificationsPage.js";
+import { registerProviderAccountsPage } from "@renderer/console/settings/pages/provider-accounts/ProviderAccountsPage.js";
+import { registerBrowserSettingsPage } from "@renderer/console/browser-settings-page.js";
+import { registerWorkspaceMountsPage } from "./pages/runtime/mounted-folders/MountedFoldersBlock.js";
+import { SettingsPageRegistry } from "./settings-pages.js";
+import { SettingsSurface } from "./SettingsScreen.js";
 
 /**
  * The settings surface, with its pages composed for this mount.

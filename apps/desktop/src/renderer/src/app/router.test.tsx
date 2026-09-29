@@ -4,7 +4,7 @@ import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { FrameStore } from "@renderer/store/window/window-store.js";
-import { type ConsoleRoute } from "@renderer/console/routing/routes.js";
+import { type ConsoleRoute } from "@renderer/routing/routes.js";
 import { RouteSurface } from "./router.js";
 import {
   consoleSurfaceRegistry,

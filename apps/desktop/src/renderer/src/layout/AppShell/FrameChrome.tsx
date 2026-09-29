@@ -30,7 +30,7 @@ import { RefusalBanner, SurfaceErrorBoundary } from "@renderer/console/primitive
 import { type FrameBanner } from "@renderer/store/window/window-store.js";
 import { useRefusalBannerAnnouncements } from "./hooks/useRefusalBannerAnnouncements.js";
 import { IconRail, type RailEntry } from "../NavigationRail/NavigationRail.js";
-import { formatRoute, type ConsoleRoute } from "@renderer/console/routing/routes.js";
+import { formatRoute, type ConsoleRoute } from "@renderer/routing/routes.js";
 import { type RailDestination } from "@renderer/routing/route-readers.js";
 
 export interface FrameChromeProps {

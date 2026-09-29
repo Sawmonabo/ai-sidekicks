@@ -8,7 +8,7 @@
 // these are cases, and a production module publishing its own test corpus would be a
 // shipping symbol nothing ships.
 
-import type { ConsoleRoute } from "@renderer/console/routing/routes.js";
+import type { ConsoleRoute } from "./routes.js";
 
 /** Main-window routes, including the arms that carry an optional segment. */
 export const MAIN_WINDOW_ROUTES: readonly ConsoleRoute[] = [

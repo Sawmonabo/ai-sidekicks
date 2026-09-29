@@ -66,6 +66,6 @@ export function registerSettingsSurface(registry: ConsoleSurfaceRegistry): void 
   registry.register({
     slot: "settings",
     owner: "settings",
-    body: () => import("./settings-surface-body.js"),
+    body: () => import("@renderer/features/settings/settings-screen-body.js"),
   });
 }

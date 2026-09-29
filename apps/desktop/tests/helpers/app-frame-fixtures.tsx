@@ -12,7 +12,7 @@ import type { ReactNode } from "react";
 import { DesktopBridgeProvider } from "@renderer/console/bridge/BridgeProvider.js";
 import { type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
 import { createLiveBridge } from "@renderer/services/platform/live-bridge.js";
-import type { ConsoleRoute } from "@renderer/console/routing/routes.js";
+import type { ConsoleRoute } from "@renderer/routing/routes.js";
 import type { FrameBanner } from "@renderer/store/window/window-store.js";
 import {
   RAIL_ENTRY_TEMPLATES,

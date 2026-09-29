@@ -10,7 +10,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 
 import { consoleCommands } from "@renderer/console/palette/index.js";
-import { DEFAULT_ROUTE } from "@renderer/console/routing/routes.js";
+import { DEFAULT_ROUTE } from "@renderer/routing/routes.js";
 import { CHANNEL_TARGET, sendCallsAnswering } from "../../draft-line/send-router.test-support.js";
 import { ComposerSendRouter } from "../../draft-line/send-router.js";
 import { createClientCommandExecutor } from "@renderer/shell/composer/commands/client-command-executor.js";

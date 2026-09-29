@@ -20,7 +20,7 @@
 // can never be shown in an order nobody declared.
 
 import { RAIL_DESTINATIONS, type RailDestination } from "@renderer/routing/route-readers.js";
-import { type ConsoleRoute } from "@renderer/console/routing/routes.js";
+import { type ConsoleRoute } from "@renderer/routing/routes.js";
 import { surfaceSlotFor, type ConsoleSurfaceRegistry } from "@renderer/console/seats/index.js";
 import { RAIL_ENTRY_TEMPLATES, type RailEntry } from "./NavigationRail.js";
 

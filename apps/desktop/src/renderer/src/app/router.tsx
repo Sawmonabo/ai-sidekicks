@@ -33,7 +33,7 @@
 import { Fragment } from "react";
 
 import { Nothing, SurfaceAbsence } from "@renderer/console/primitives/index.js";
-import { formatRoute } from "@renderer/console/routing/routes.js";
+import { formatRoute } from "@renderer/routing/routes.js";
 import {
   consoleSurfaceRegistry,
   surfaceSlotFor,

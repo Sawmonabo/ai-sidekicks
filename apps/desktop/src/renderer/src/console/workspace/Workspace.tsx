@@ -39,7 +39,7 @@ import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
 import { type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
 import { consoleCommandSurface } from "../palette/index.js";
 import { routeSessionId } from "@renderer/routing/route-readers.js";
-import { type ConsoleRoute } from "@renderer/console/routing/routes.js";
+import { type ConsoleRoute } from "@renderer/routing/routes.js";
 import { type FrameStore } from "@renderer/store/window/window-store.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 import { type DraftStore } from "@renderer/store/draft-store.js";
