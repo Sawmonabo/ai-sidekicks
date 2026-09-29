@@ -11,7 +11,7 @@
 //     fresh read rather than a drop ({@link ProviderAccountDeliveries.deliver},
 //     `#holdAcrossSeedRead`).
 //   • A same-window reading below the high-water mark is recorded as a diagnostic
-//     rather than rendered as a regression ({@link ProviderAccountDeliveries.mergeWindow}).
+//     rather than rendered as a regression ({@link ProviderAccountDeliveries.mergeUsageWindow}).
 //
 // AND ONE FRAME IS CARRIED WITHOUT MOVING THE FOLD. `login_completed` is a report from
 // the provider that its own login process finished, not a reading of anything — the
@@ -55,12 +55,12 @@ import {
   PROVIDER_QUOTA_REFUSAL_ORIGIN,
   unreadableProviderQuotaDeliveryRefusal,
 } from "./provider-account-refusals.js";
-import { ProviderQuotaNotificationHold } from "@renderer/store/provider-accounts/provider-account-notification-hold.js";
+import { ProviderAccountNotificationHold } from "@renderer/store/provider-accounts/provider-account-notification-hold.js";
 import {
   UnreadableDeliveryCounter,
   type UnreadableDeliveryReading,
 } from "../wire-reads/unreadable-deliveries.js";
-import type { ProviderQuotaFold } from "@renderer/store/provider-accounts/provider-account-fold.js";
+import type { ProviderAccountFold } from "@renderer/store/provider-accounts/provider-account-fold.js";
 
 /** What the reading hands over so a frame can reach a surface without this module publishing. */
 export interface ProviderAccountDeliverySink {
@@ -91,14 +91,14 @@ export interface ProviderAccountDeliverySink {
  * @consumedBy the provider account service, which folds quota frames
  */
 export class ProviderAccountDeliveries {
-  readonly #fold: ProviderQuotaFold;
+  readonly #fold: ProviderAccountFold;
   readonly #sink: ProviderAccountDeliverySink;
-  readonly #hold = new ProviderQuotaNotificationHold();
+  readonly #hold = new ProviderAccountNotificationHold();
   readonly #unreadable = new UnreadableDeliveryCounter(unreadableProviderQuotaDeliveryRefusal);
   #hasReportedHighWaterDrop = false;
   #newestLoginCompletion: ProviderLoginCompletion | undefined = undefined;
 
-  public constructor(fold: ProviderQuotaFold, sink: ProviderAccountDeliverySink) {
+  public constructor(fold: ProviderAccountFold, sink: ProviderAccountDeliverySink) {
     this.#fold = fold;
     this.#sink = sink;
   }
@@ -166,8 +166,8 @@ export class ProviderAccountDeliveries {
   }
 
   /** Merge one reading, and say so once if the monotonicity guard had to hold it. */
-  public mergeWindow(usageWindow: ProviderAccountUsageWindow): void {
-    const disposition = this.#fold.mergeWindow(usageWindow);
+  public mergeUsageWindow(usageWindow: ProviderAccountUsageWindow): void {
+    const disposition = this.#fold.mergeUsageWindow(usageWindow);
     if (disposition !== "dropped-below-high-water" || this.#hasReportedHighWaterDrop) {
       return;
     }
@@ -200,13 +200,13 @@ export class ProviderAccountDeliveries {
   #applyNotification(notification: ProviderAccountNotification): boolean {
     switch (notification.kind) {
       case "account_changed":
-        this.#fold.seatAccount(notification.account);
+        this.#fold.putAccount(notification.account);
         return true;
       case "account_removed":
         this.#fold.forgetAccount(notification.accountId);
         return true;
       case "usage_window_updated":
-        this.mergeWindow(notification.window);
+        this.mergeUsageWindow(notification.window);
         return true;
       case "login_completed":
         // The FOLD is untouched, deliberately: a provider reporting its flow finished

@@ -4,7 +4,7 @@
 // module that declares it rather than beside any one shape — every case below
 // drives all three, and a case that drove one would say nothing about the
 // agreement. `RefusalProps` is a `Pick` of
-// `core/refusal.ts`'s `ConsoleRefusal`, so a refusal built by `refuse()` reaches
+// `core/refusal.ts`'s `Refusal`, so a refusal built by `refuse()` reaches
 // every one of the three renderers without a translation step — and the test drives
 // exactly that, because a props shape that merely HAPPENS to have the same two
 // field names would pass a per-component test and fail the moment core renamed one.
@@ -45,7 +45,7 @@ function renderShape(element: React.JSX.Element): HTMLElement {
 }
 
 describe("one refusal value reaches all three renderings untranslated", () => {
-  it.each(SHAPES)("%s consumes a ConsoleRefusal by spread", (name, Shape) => {
+  it.each(SHAPES)("%s consumes a Refusal by spread", (name, Shape) => {
     // The adoption proof: no field mapping, no adapter, no second vocabulary. If
     // `RefusalProps` re-declared its own shape, this spread would be the place the
     // two drifted apart.
@@ -107,8 +107,8 @@ describe("the shapes announce themselves without talking over the message", () =
     expect(banner.getAttribute("aria-live")).toBeNull();
   });
 
-  it("leaves the ledger card out of the live regions", () => {
-    // A card lands in the ledger with everything else that happened; the feed
+  it("leaves the transcript card out of the live regions", () => {
+    // A card lands in the transcript with everything else that happened; the feed
     // already announces its own rows, so a second live region would double-read it.
     const card = renderShape(<RefusalCard {...REFUSAL} />);
     expect(card.getAttribute("role")).toBeNull();

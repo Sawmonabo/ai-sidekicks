@@ -1,9 +1,9 @@
-// The deck's layout, driven: what one entity opens, what order and focus do, and what
+// The pane layout's arrangement, driven: what one entity opens, what order and focus do, and what
 // the panel group's settled sizes are allowed to change.
 //
-// Split from `deck-layout.snapshot.test.ts`, which is about what a saved layout
+// Split from `pane-layout-store.snapshot.test.ts`, which is about what a saved layout
 // carries and the five ways a restored one can be wrong. This half touches no
-// snapshot at all — it is the layout as the deck itself moves it.
+// snapshot at all — it is the layout as the pane layout itself moves it.
 
 import { describe, expect, it } from "vitest";
 
@@ -15,10 +15,10 @@ function emptyLayout(): PaneLayoutStore {
   return new PaneLayoutStore({ restoredPaneCap: PANE_LAYOUT_RESTORED_PANE_CAP });
 }
 
-/** A layout holding one session-scoped timeline and one worktree-scoped inspector. */
+/** A layout holding one session-scoped transcript and one worktree-scoped inspector. */
 function twoPaneLayout(): PaneLayoutStore {
   const layout = emptyLayout();
-  layout.open({ kind: "timeline", entity: undefined });
+  layout.open({ kind: "transcript" });
   layout.open({ kind: "inspector", entity: { kind: "worktree", id: "worktree-01" } });
   return layout;
 }
@@ -42,11 +42,11 @@ describe("PaneLayoutStore — one entity, one pane", () => {
 
   it("negative control: the same entity in a different KIND of pane opens a second", () => {
     // Without this, the case above would pass over a layout that refused every
-    // second open — and a run legitimately appears in both a runs list and an
-    // inspector.
+    // second open — and a worktree legitimately appears in both an inspector and a
+    // diff pane.
     const layout = emptyLayout();
     layout.open({ kind: "inspector", entity: { kind: "worktree", id: "worktree-01" } });
-    layout.open({ kind: "runs", entity: { kind: "worktree", id: "worktree-01" } });
+    layout.open({ kind: "diff", entity: { kind: "worktree", id: "worktree-01" } });
     expect(layout.snapshot().panes).toHaveLength(2);
   });
 });
@@ -55,13 +55,12 @@ describe("PaneLayoutStore — order, focus, and the ephemeral cascade", () => {
   it("opens a pane beside its source rather than at the end", () => {
     const layout = twoPaneLayout();
     const [first] = layout.snapshot().panes;
-    layout.open({
-      kind: "browser",
-      entity: undefined,
-      ...(first === undefined ? {} : { sourcePaneId: first.paneId }),
-    });
+    layout.open(
+      { kind: "browser" },
+      first === undefined ? undefined : { linkedSourcePaneId: first.paneId },
+    );
     expect(layout.snapshot().panes.map((pane) => pane.kind)).toStrictEqual([
-      "timeline",
+      "transcript",
       "browser",
       "inspector",
     ]);
@@ -73,7 +72,7 @@ describe("PaneLayoutStore — order, focus, and the ephemeral cascade", () => {
     if (source === undefined) {
       throw new Error("the fixture opened no panes");
     }
-    layout.open({ kind: "browser", entity: undefined, sourcePaneId: source.paneId });
+    layout.open({ kind: "browser" }, { linkedSourcePaneId: source.paneId });
     layout.close(source.paneId);
     expect(layout.snapshot().panes.map((pane) => pane.kind)).toStrictEqual(["inspector"]);
   });
@@ -84,7 +83,7 @@ describe("PaneLayoutStore — order, focus, and the ephemeral cascade", () => {
     if (source === undefined || other === undefined) {
       throw new Error("the fixture opened too few panes");
     }
-    layout.open({ kind: "browser", entity: undefined, sourcePaneId: other.paneId });
+    layout.open({ kind: "browser" }, { linkedSourcePaneId: other.paneId });
     layout.close(source.paneId);
     expect(layout.snapshot().panes.map((pane) => pane.kind)).toStrictEqual([
       "inspector",
@@ -110,20 +109,20 @@ describe("PaneLayoutStore — order, focus, and the ephemeral cascade", () => {
     layout.movePane(first?.paneId ?? "", 1);
     expect(layout.snapshot().panes.map((pane) => pane.kind)).toStrictEqual([
       "inspector",
-      "timeline",
+      "transcript",
     ]);
     layout.movePane(first?.paneId ?? "", 1);
     expect(layout.snapshot().panes.map((pane) => pane.kind)).toStrictEqual([
       "inspector",
-      "timeline",
+      "transcript",
     ]);
   });
 });
 
 describe("PaneLayoutStore — adopting what the panel group settled on", () => {
-  it("takes the group's percentages as the deck's widths, still summing to the total", () => {
+  it("takes the group's percentages as the pane layout's widths, still summing to the total", () => {
     const layout = twoPaneLayout();
-    layout.open({ kind: "runs", entity: undefined });
+    layout.open({ kind: "runs" });
     const paneIds = layout.snapshot().panes.map((pane) => pane.paneId);
 
     layout.applyLayout(
@@ -179,16 +178,16 @@ describe("PaneLayoutStore — the split act", () => {
     // rule takes the arriving pane's width from that pane and nothing else, so the
     // two panes the person was not splitting keep the widths they had.
     const layout = emptyLayout();
-    layout.open({ kind: "timeline", entity: undefined });
-    layout.open({ kind: "runs", entity: undefined });
-    layout.open({ kind: "approvals", entity: undefined });
+    layout.open({ kind: "transcript" });
+    layout.open({ kind: "runs" });
+    layout.open({ kind: "approvals" });
     const before = layout.snapshot().panes.map((pane) => pane.sizePermille);
     const source = layout.snapshot().panes[0];
     if (source === undefined) {
       throw new Error("the fixture opened no panes");
     }
 
-    layout.open({ kind: "browser", entity: undefined, sourcePaneId: source.paneId });
+    layout.open({ kind: "browser" }, { linkedSourcePaneId: source.paneId });
 
     const after = layout.snapshot().panes.map((pane) => pane.sizePermille);
     expect(after).toStrictEqual([
@@ -200,22 +199,22 @@ describe("PaneLayoutStore — the split act", () => {
     expect(after.reduce((total, size) => total + size, 0)).toBe(PANE_LAYOUT_TOTAL_PERMILLE);
   });
 
-  it("negative control: an open naming no source re-divides the whole deck", () => {
-    // Without this the case above would pass over a deck that never equalised at
+  it("negative control: an open naming no source re-divides the whole pane layout", () => {
+    // Without this the case above would pass over a pane layout that never equalized at
     // all, and the list seating — the palette's and a rail destination's — is the common one.
     const layout = emptyLayout();
-    layout.open({ kind: "timeline", entity: undefined });
-    layout.open({ kind: "runs", entity: undefined });
-    layout.open({ kind: "approvals", entity: undefined });
+    layout.open({ kind: "transcript" });
+    layout.open({ kind: "runs" });
+    layout.open({ kind: "approvals" });
     expect(layout.snapshot().panes.map((pane) => pane.sizePermille)).toStrictEqual([334, 333, 333]);
   });
 
   it("falls back to the list seating when the source is too narrow to halve", () => {
     // A pane at one permille has no width to give. The person still asked for a pane,
-    // so they get one and the deck re-divides rather than the open being refused.
+    // so they get one and the pane layout re-divides rather than the open being refused.
     const layout = emptyLayout();
-    layout.open({ kind: "timeline", entity: undefined });
-    layout.open({ kind: "runs", entity: undefined });
+    layout.open({ kind: "transcript" });
+    layout.open({ kind: "runs" });
     const [first, second] = layout.snapshot().panes;
     if (first === undefined || second === undefined) {
       throw new Error("the fixture opened too few panes");
@@ -223,10 +222,10 @@ describe("PaneLayoutStore — the split act", () => {
     layout.applyLayout({ [first.paneId]: 0.1, [second.paneId]: 99.9 }, 0);
     expect(layout.snapshot().panes[0]?.sizePermille).toBe(1);
 
-    layout.open({ kind: "browser", entity: undefined, sourcePaneId: first.paneId });
+    layout.open({ kind: "browser" }, { linkedSourcePaneId: first.paneId });
 
     expect(layout.snapshot().panes.map((pane) => pane.kind)).toStrictEqual([
-      "timeline",
+      "transcript",
       "browser",
       "runs",
     ]);

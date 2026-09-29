@@ -78,9 +78,9 @@ describe("cancel before admission", () => {
   it("offers cancel on exactly the rows that are still waiting", () => {
     const container = renderQueue();
     const rows = [...container.querySelectorAll(".meridian-queue__row")];
-    const cancellable = rows.map((row) => row.querySelector(".meridian-queue__cancel") !== null);
+    const cancelable = rows.map((row) => row.querySelector(".meridian-queue__cancel") !== null);
     // The `admitted` head cannot be taken back; the two `queued` rows can.
-    expect(cancellable).toStrictEqual([false, true, true]);
+    expect(cancelable).toStrictEqual([false, true, true]);
   });
 
   it("negative control: the control is a real button, not decoration", () => {

@@ -5,7 +5,7 @@
 // another pane before it lands. Nothing anywhere stopped that read: the promise went
 // on resolving, the reply went on being parsed against its registered schema, the
 // projection went on being built, and the frame that painted it was thrown away —
-// all of it on the same thread the streaming ledger paints on. The answer was
+// all of it on the same thread the streaming transcript paints on. The answer was
 // correct and nobody was waiting for it. What this module removes is that
 // competition.
 //
@@ -34,7 +34,7 @@
 // that addresses it was re-addressed. So there is no state to unwind and no window in
 // which a returning surface is waiting for a cancellation to complete.
 //
-// WHAT IS DELIBERATELY NOT CANCELLABLE, AND WHY THE LIST IS SHORT AND HARD. Reads,
+// WHAT IS DELIBERATELY NOT CANCELABLE, AND WHY THE LIST IS SHORT AND HARD. Reads,
 // and reads only. A mutation is never handed a signal — a durable act that has
 // reached the daemon has HAPPENED, and abandoning the console's half of it would
 // leave a person looking at a surface that says an act did not occur while the record
@@ -46,7 +46,7 @@
 // a signal, which is a property of their call sites rather than a mode here.
 //
 // NO DAEMON-SIDE PER-REQUEST CANCEL IS ADDED, AND NONE IS PROPOSED. What is
-// cancellable here is the console's own interest in an answer: the pending promise is
+// cancelable here is the console's own interest in an answer: the pending promise is
 // dropped, the reply is never parsed, and no projection is built from it. The daemon
 // goes on doing whatever it had already started, because there is no registered wire
 // on which to tell it otherwise — the one cancellation the protocol has is
@@ -117,8 +117,8 @@ export type ReadSettlement<TValue> =
  * TERMINAL ON `abandon`, and that is a different fact from being superseded. A
  * superseded round makes way for the next one; an abandoned scope has no next one,
  * and a round opened on it is born over. The reading is published so the React
- * binding below can recognise the corpse React's double-mount hands back — which is
- * exactly the `{ dispose, isClosed }` pair `store/subject-scoped/subject-scoped-resource.ts` demands, and
+ * binding below can recognize the corpse React's double-mount hands back — which is
+ * exactly the `{ dispose, isClosed }` pair `hooks/subject-scoped/useSubjectScopedResource.ts` demands, and
  * the reason this class carries a reading at all.
  */
 export class ReadScope {
@@ -212,7 +212,7 @@ export class ReadScope {
  * reaches no listener the combinator has left attached.
  *
  * A FUNCTION AND NOT `signal?.aborted === true` AT EACH SITE, and the reason is a
- * compiler behaviour rather than tidiness: `aborted` is a readonly property, so
+ * compiler behavior rather than tidiness: `aborted` is a readonly property, so
  * TypeScript narrows it at the first check and KEEPS that narrowing across the
  * `await` in between — the second check then reads as a comparison that cannot
  * change, which is precisely the claim this predicate exists to deny. The property
@@ -266,7 +266,7 @@ export function settleUnlessAbandoned<TValue>(
   // race spells this in three lines, but it costs a mapping `then`, the race's own
   // resolution, and an `async` frame around it — four extra turns of the microtask
   // queue on EVERY read the console performs, not only the abandoned ones. This shape
-  // costs one: `pending`'s continuation resolves the answer directly. The behaviour is
+  // costs one: `pending`'s continuation resolves the answer directly. The behavior is
   // the same and the depth is the difference, which matters because it is paid by the
   // path that works rather than by the exception.
   return new Promise<ReadSettlement<TValue>>((resolve, reject) => {

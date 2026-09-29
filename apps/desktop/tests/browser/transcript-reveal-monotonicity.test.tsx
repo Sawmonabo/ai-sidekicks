@@ -7,10 +7,10 @@
 // claim about what a layout engine put on screen between two frames — so it is
 // driven here, through real Chromium, against a real `MutationObserver`.
 //
-// WHAT IS UNDER TEST IS THE SHIPPED PATH, END TO END: `useLedgerReveal` mints the
-// real `RevealEngine`, `LedgerRowRevealProvider` publishes its channel, and the row
-// body reads its own lane through `useLedgerRowReveal` — the same three modules a
-// ledger row streams through. The only thing this file supplies is the probe body
+// WHAT IS UNDER TEST IS THE SHIPPED PATH, END TO END: `useReveal` mints the
+// real `RevealEngine`, `RowRevealProvider` publishes its channel, and the row
+// body reads its own lane through `useRowReveal` — the same three modules a
+// transcript row streams through. The only thing this file supplies is the probe body
 // and the deltas, which is what a producer supplies in production too.
 //
 // AND THE RECORDER IS NOT THIS FILE'S. `visible-text-monotonicity.ts`
@@ -24,10 +24,10 @@ import { renderSettled } from "../helpers/app-harness.js";
 import { VisibleTextMonotonicityRecorder } from "./visible-text-monotonicity.js";
 
 import { ManualClock } from "@renderer/lib/clock.js";
-import { LedgerRowRevealProvider } from "@renderer/features/transcript/reveal/components/RowRevealProvider.js";
-import { useLedgerFrameCoordinator } from "@renderer/features/transcript/hooks/useAnimationFrameCoordinator.js";
-import { useLedgerReveal } from "@renderer/features/transcript/reveal/hooks/useReveal.js";
-import { useLedgerRowReveal } from "@renderer/features/transcript/reveal/hooks/useRowReveal.js";
+import { RowRevealProvider } from "@renderer/features/transcript/reveal/components/RowRevealProvider.js";
+import { useAnimationFrameCoordinator } from "@renderer/features/transcript/hooks/useAnimationFrameCoordinator.js";
+import { useReveal } from "@renderer/features/transcript/reveal/hooks/useReveal.js";
+import { useRowReveal } from "@renderer/features/transcript/reveal/hooks/useRowReveal.js";
 import { revealProse } from "@renderer/features/transcript/reveal/reveal.test-support.js";
 import { REVEAL_FRAME_CHARACTER_BUDGET } from "@renderer/features/transcript/frame/frame-caps.js";
 
@@ -56,7 +56,7 @@ interface StreamingProbeProps {
 /**
  * One row body over one lane, and nothing else.
  *
- * Deliberately not a `LedgerFeed`: the feed's window, cap and chapters are
+ * Deliberately not a `LedgerFeed`: the feed's window, cap and run groups are
  * asserted at the unit tier over structural stand-ins, and mounting them here would
  * make a regression in any of them look like a reveal regression. What this file
  * needs from the tree is a text node a layout engine paints and an engine that
@@ -68,20 +68,20 @@ function StreamingProbe(props: StreamingProbeProps): React.JSX.Element {
   // stopped taking one when the frame coordinator landed, and a probe composing the
   // engine differently from its only production caller would be exercising a shape
   // nothing ships.
-  const frameCoordinator = useLedgerFrameCoordinator(props.clock);
-  const reveal = useLedgerReveal({ frameCoordinator });
+  const frameCoordinator = useAnimationFrameCoordinator(props.clock);
+  const reveal = useReveal({ frameCoordinator });
   props.handle.ingest = (laneId: string, text: string) => {
     reveal.ingest({ laneId, mode: "direct", text });
   };
   return (
-    <LedgerRowRevealProvider channel={reveal.channel}>
+    <RowRevealProvider channel={reveal.channel}>
       <StreamingProbeBody laneId={props.laneId} />
-    </LedgerRowRevealProvider>
+    </RowRevealProvider>
   );
 }
 
 function StreamingProbeBody(props: { readonly laneId: string }): React.JSX.Element {
-  const liveText = useLedgerRowReveal(props.laneId);
+  const liveText = useRowReveal(props.laneId);
   return (
     <p data-testid="streaming-body" style={{ width: "320px", margin: 0 }}>
       {liveText ?? ""}
@@ -177,7 +177,7 @@ describe("the visible text of a streaming lane", () => {
 
   it("grows the row's painted box monotonically while it reveals", async () => {
     // GEOMETRY, WHICH IS WHY IT IS HERE. `LedgerViewport.test.tsx` records that a
-    // geometry-dependent ledger assertion "would pass vacuously" under happy-dom,
+    // geometry-dependent transcript assertion "would pass vacuously" under happy-dom,
     // because every rect reads zero there. A box that never shrinks while text
     // arrives is the layout half of "no lane teleports", and only a layout engine
     // can answer it.

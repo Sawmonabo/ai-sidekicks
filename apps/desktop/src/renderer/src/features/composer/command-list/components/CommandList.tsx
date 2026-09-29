@@ -64,7 +64,7 @@
 // own subject and not the send bar's.
 
 import { useCallback, useMemo } from "react";
-import { type ComposerSeatProps } from "@renderer/console/seats/index.js";
+import { type ComposerProps } from "@renderer/console/seats/index.js";
 import { useComposerAddress } from "../../hooks/useComposerAddress.js";
 import { composerDraftKey } from "../../draft-line/draft-key.js";
 import { readComposerCommands } from "../composer-commands.js";
@@ -77,7 +77,7 @@ import { useWorkflowStartPrefill } from "../workflow-command/hooks/useWorkflowSt
 
 import "./CommandList.css";
 
-export type CommandListProps = ComposerSeatProps & {
+export type CommandListProps = ComposerProps & {
   /** The composer region whose line this surface watches. It writes to none of it. */
   readonly region: React.RefObject<HTMLElement | null>;
   /**
@@ -110,12 +110,12 @@ export function CommandList(props: CommandListProps): React.JSX.Element | null {
   // Contributes the palette entry that types the directive onto the line.
   useWorkflowStartPrefill({ draftStore, draftKey });
 
-  const readSurface = useCallback(() => readComposerCommands(route), [route]);
+  const readCommands = useCallback(() => readComposerCommands(route), [route]);
   const addressed = useMemo(() => addressedProviderBinding(target), [target]);
   return isOpen ? (
     <CommandListPopover
       prefix={discovery.prefix ?? ""}
-      readSurface={readSurface}
+      readCommands={readCommands}
       enumeration={enumeration}
       addressed={addressed}
       stepIntoListToken={discovery.stepIntoListToken}

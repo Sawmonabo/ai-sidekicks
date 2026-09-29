@@ -1,4 +1,4 @@
-// Who owns the agent console's reads, and for how long.
+// Who owns the Agents pane's reads, and for how long.
 //
 // Two lifetime claims are checked here, because both are claims a rendered surface
 // cannot make on its own:
@@ -16,14 +16,14 @@
 import { renderHook } from "@testing-library/react";
 import { useEffect, useState } from "react";
 import { describe, expect, it } from "vitest";
-import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { REFRESH_MAX_WAIT_MS } from "@renderer/lib/reads/refresh-caps.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import { AgentsPaneModels } from "./agents-pane-models.js";
 import { useAgentsPaneModels } from "./hooks/useAgentsPaneModels.js";
-import { initialisedStore } from "@test/helpers/session-store-fixtures.js";
+import { initializedStore } from "@test/helpers/session-store-fixtures.js";
 import {
-  REJECTING_AGENT_CONSOLE_CALLS,
+  REJECTING_AGENTS_PANE_CALLS,
   unscriptedBridge,
 } from "./components/run-links.test-support.js";
 
@@ -34,14 +34,14 @@ const OTHER_PARENT_RUN_ID = "run-9";
 
 /** Every value the hook answered, in render order, including uncommitted frames. */
 function recordedModelSessionIds(
-  bridge: ConsoleBridge,
+  bridge: PlatformBridge,
   first: SessionStore,
   second: SessionStore,
 ): readonly (string | undefined)[] {
   const answered: (string | undefined)[] = [];
   const view = renderHook(
     (sessionStore: SessionStore) => {
-      const models = useAgentsPaneModels(bridge, sessionStore, REJECTING_AGENT_CONSOLE_CALLS);
+      const models = useAgentsPaneModels(bridge, sessionStore, REJECTING_AGENTS_PANE_CALLS);
       answered.push(models?.sessionId);
       return models;
     },
@@ -59,11 +59,11 @@ function recordedModelSessionIds(
  * when there is one — without it the clean case would also pass over a hook that
  * answered `undefined` forever.
  */
-function useUnguardedAgentConsoleModels(
-  bridge: ConsoleBridge,
+function useUnguardedAgentsPaneModels(
+  bridge: PlatformBridge,
   sessionStore: SessionStore,
 ): AgentsPaneModels | undefined {
-  return useHeldAgentConsoleModels(bridge, sessionStore);
+  return useHeldAgentsPaneModels(bridge, sessionStore);
 }
 
 /**
@@ -72,22 +72,22 @@ function useUnguardedAgentConsoleModels(
  * A replacement bridge or a rebuilt store under one session passes it, so the first
  * committed render after either hands back a set bound to what was just retired.
  */
-function useSessionIdGuardedAgentConsoleModels(
-  bridge: ConsoleBridge,
+function useSessionIdGuardedAgentsPaneModels(
+  bridge: PlatformBridge,
   sessionStore: SessionStore,
 ): AgentsPaneModels | undefined {
-  const models = useHeldAgentConsoleModels(bridge, sessionStore);
+  const models = useHeldAgentsPaneModels(bridge, sessionStore);
   return models !== undefined && models.sessionId === sessionStore.sessionId ? models : undefined;
 }
 
 /** The lifecycle both stand-ins share — a set built and disposed by an effect. */
-function useHeldAgentConsoleModels(
-  bridge: ConsoleBridge,
+function useHeldAgentsPaneModels(
+  bridge: PlatformBridge,
   sessionStore: SessionStore,
 ): AgentsPaneModels | undefined {
   const [models, setModels] = useState<AgentsPaneModels | undefined>(undefined);
   useEffect(() => {
-    const built = new AgentsPaneModels(bridge, sessionStore, REJECTING_AGENT_CONSOLE_CALLS);
+    const built = new AgentsPaneModels(bridge, sessionStore, REJECTING_AGENTS_PANE_CALLS);
     setModels(built);
     return () => {
       built.dispose();
@@ -97,13 +97,13 @@ function useHeldAgentConsoleModels(
   return models;
 }
 
-describe("the agent console's models — the session they belong to", () => {
+describe("the Agents pane's models — the session they belong to", () => {
   it("answers nothing on the frame where the held set is the previous session's", () => {
     const bridge = unscriptedBridge("agent-models-match");
     const afterSwitch = recordedModelSessionIds(
       bridge,
-      initialisedStore("session-a"),
-      initialisedStore("session-b"),
+      initializedStore("session-a"),
+      initializedStore("session-b"),
     );
 
     // The pane's binding column dispatches attach, config-update, and detach
@@ -118,14 +118,14 @@ describe("the agent console's models — the session they belong to", () => {
     const answered: (string | undefined)[] = [];
     const view = renderHook(
       (sessionStore: SessionStore) => {
-        const models = useUnguardedAgentConsoleModels(bridge, sessionStore);
+        const models = useUnguardedAgentsPaneModels(bridge, sessionStore);
         answered.push(models?.sessionId);
         return models;
       },
-      { initialProps: initialisedStore("session-a") },
+      { initialProps: initializedStore("session-a") },
     );
     const beforeSwitch = answered.length;
-    view.rerender(initialisedStore("session-b"));
+    view.rerender(initializedStore("session-b"));
 
     expect(answered.slice(beforeSwitch)).toContain("session-a");
   });
@@ -133,7 +133,7 @@ describe("the agent console's models — the session they belong to", () => {
   it("answers nothing at all where the mount resolved no session", () => {
     const bridge = unscriptedBridge("agent-models-storeless");
     const view = renderHook(() =>
-      useAgentsPaneModels(bridge, undefined, REJECTING_AGENT_CONSOLE_CALLS),
+      useAgentsPaneModels(bridge, undefined, REJECTING_AGENTS_PANE_CALLS),
     );
     expect(view.result.current).toBeUndefined();
   });
@@ -141,12 +141,12 @@ describe("the agent console's models — the session they belong to", () => {
 
 // --- Acquiring a linkage read is not starting one -----------------------------
 
-describe("the agent console's models — the linkage lease", () => {
+describe("the Agents pane's models — the linkage lease", () => {
   it("hands out a read that has not subscribed and has read nothing", () => {
     const models = new AgentsPaneModels(
       unscriptedBridge("agent-linkage-acquire"),
-      initialisedStore("session-lease"),
-      REJECTING_AGENT_CONSOLE_CALLS,
+      initializedStore("session-lease"),
+      REJECTING_AGENTS_PANE_CALLS,
     );
     const lease = models.acquireLinkage(PARENT_RUN_ID);
 
@@ -165,8 +165,8 @@ describe("the agent console's models — the linkage lease", () => {
   it("disposes the read when the last lease on it is given back", () => {
     const models = new AgentsPaneModels(
       unscriptedBridge("agent-linkage-release"),
-      initialisedStore("session-lease"),
-      REJECTING_AGENT_CONSOLE_CALLS,
+      initializedStore("session-lease"),
+      REJECTING_AGENTS_PANE_CALLS,
     );
     const first = models.acquireLinkage(PARENT_RUN_ID);
     const second = models.acquireLinkage(PARENT_RUN_ID);
@@ -189,8 +189,8 @@ describe("the agent console's models — the linkage lease", () => {
   it("disposes the previous run's read when a different run is acquired", () => {
     const models = new AgentsPaneModels(
       unscriptedBridge("agent-linkage-rekey"),
-      initialisedStore("session-lease"),
-      REJECTING_AGENT_CONSOLE_CALLS,
+      initializedStore("session-lease"),
+      REJECTING_AGENTS_PANE_CALLS,
     );
     const first = models.acquireLinkage(PARENT_RUN_ID);
     first.read.start();
@@ -214,7 +214,7 @@ describe("the agent console's models — the linkage lease", () => {
 
 /** The two inputs a mount is handed, replaced one at a time by the cases below. */
 interface ModelsProbeInputs {
-  readonly bridge: ConsoleBridge;
+  readonly bridge: PlatformBridge;
   readonly sessionStore: SessionStore;
 }
 
@@ -229,7 +229,7 @@ function answersAfterReplacing(
       const models = useAgentsPaneModels(
         inputs.bridge,
         inputs.sessionStore,
-        REJECTING_AGENT_CONSOLE_CALLS,
+        REJECTING_AGENTS_PANE_CALLS,
       );
       answered.push(models);
       return models;
@@ -241,9 +241,9 @@ function answersAfterReplacing(
   return answered.slice(beforeReplacement);
 }
 
-describe("the agent console's models — the exact bridge and store they answer for", () => {
+describe("the Agents pane's models — the exact bridge and store they answer for", () => {
   it("answers nothing on the frame where the bridge was replaced under one session", () => {
-    const sessionStore = initialisedStore("session-reconnect");
+    const sessionStore = initializedStore("session-reconnect");
     const replacement = unscriptedBridge("agent-models-bridge-b");
     const afterReplacement = answersAfterReplacing(
       { bridge: unscriptedBridge("agent-models-bridge-a"), sessionStore },
@@ -258,9 +258,9 @@ describe("the agent console's models — the exact bridge and store they answer 
 
   it("answers nothing on the frame where the store was rebuilt under one session", () => {
     const bridge = unscriptedBridge("agent-models-store-rebuild");
-    const rebuilt = initialisedStore("session-rebuilt");
+    const rebuilt = initializedStore("session-rebuilt");
     const afterReplacement = answersAfterReplacing(
-      { bridge, sessionStore: initialisedStore("session-rebuilt") },
+      { bridge, sessionStore: initializedStore("session-rebuilt") },
       { bridge, sessionStore: rebuilt },
     );
 
@@ -275,7 +275,7 @@ describe("the agent console's models — the exact bridge and store they answer 
     // `undefined` on every frame it ever rendered.
     const inputs: ModelsProbeInputs = {
       bridge: unscriptedBridge("agent-models-unchanged"),
-      sessionStore: initialisedStore("session-unchanged"),
+      sessionStore: initializedStore("session-unchanged"),
     };
     const afterRerender = answersAfterReplacing(inputs, inputs);
     expect(afterRerender.at(-1)?.subject).toStrictEqual(inputs);
@@ -284,13 +284,13 @@ describe("the agent console's models — the exact bridge and store they answer 
   it("negative control: the session-id guard hands the retired bridge's set back", () => {
     // The shape this finding replaced. It is the instrument's proof: the recorder
     // above reports a mismatched frame when the guard cannot see one.
-    const sessionStore = initialisedStore("session-id-only");
+    const sessionStore = initializedStore("session-id-only");
     const retired = unscriptedBridge("agent-models-id-only-a");
     const replacement = unscriptedBridge("agent-models-id-only-b");
     const answered: (AgentsPaneModels | undefined)[] = [];
     const view = renderHook(
       (inputs: ModelsProbeInputs) => {
-        const models = useSessionIdGuardedAgentConsoleModels(inputs.bridge, inputs.sessionStore);
+        const models = useSessionIdGuardedAgentsPaneModels(inputs.bridge, inputs.sessionStore);
         answered.push(models);
         return models;
       },
@@ -326,16 +326,16 @@ async function settleWithoutCrossingATimer(): Promise<void> {
   }
 }
 
-describe("the agent console's models — whose clock their reads run on", () => {
+describe("the Agents pane's models — whose clock their reads run on", () => {
   it("performs its opening reads when the bridge's own clock advances", async () => {
-    // The property the shared `consoleClockFor` seam exists for, driven rather than
+    // The property the shared `resolveBridgeClock` seam exists for, driven rather than
     // asserted about a private field. A fixture bridge running an engine owns a FROZEN
     // clock, and every read a model opens is armed through the refresh chokepoint — so
     // a model that minted its own `RealClock` would arm on wall time inside a window
     // whose scenario beats advance on frozen time, and nothing here would fall due.
     const bridge = unscriptedBridge("agent-models-clock");
-    const sessionStore = initialisedStore("session-clock");
-    const models = new AgentsPaneModels(bridge, sessionStore, REJECTING_AGENT_CONSOLE_CALLS);
+    const sessionStore = initializedStore("session-clock");
+    const models = new AgentsPaneModels(bridge, sessionStore, REJECTING_AGENTS_PANE_CALLS);
     await settleWithoutCrossingATimer();
     expect(models.roster.readCount).toBe(0);
 
@@ -351,8 +351,8 @@ describe("the agent console's models — whose clock their reads run on", () => 
     // eagerly on construction — which is a read nobody scheduled and a clock nothing
     // consults, and would make the advance above incidental rather than the subject.
     const bridge = unscriptedBridge("agent-models-clock-held");
-    const sessionStore = initialisedStore("session-clock-held");
-    const models = new AgentsPaneModels(bridge, sessionStore, REJECTING_AGENT_CONSOLE_CALLS);
+    const sessionStore = initializedStore("session-clock-held");
+    const models = new AgentsPaneModels(bridge, sessionStore, REJECTING_AGENTS_PANE_CALLS);
 
     await settleWithoutCrossingATimer();
     await settleWithoutCrossingATimer();

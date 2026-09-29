@@ -9,7 +9,7 @@
 // following/editing pair and the two readings taken off it. This module owns only
 // WHOSE it is, which is a different question and the one a reused component
 // instance gets wrong.
-import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { FOLLOWING_ADDRESS_FIELD, type AddressFieldState } from "../address-field-model.js";
 import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
 
@@ -30,7 +30,7 @@ export interface PaneAddressField {
  * the replacement pane follows its own reported location and has nothing of the
  * previous one to submit.
  */
-export function usePaneAddressField(bridge: ConsoleBridge, paneId: string): PaneAddressField {
+export function usePaneAddressField(bridge: PlatformBridge, paneId: string): PaneAddressField {
   const { value: addressField, publish: setAddressField } = useSubjectScopedState(
     bridge,
     paneId,

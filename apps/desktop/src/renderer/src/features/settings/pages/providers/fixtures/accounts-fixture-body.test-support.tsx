@@ -15,22 +15,22 @@ import type {
   ProviderAccountUsageWindow,
   ProviderReadiness,
 } from "@ai-sidekicks/contracts";
-import { DesktopBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
+import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { unscriptedScenario } from "@test/helpers/fixture-bridge.js";
 import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
 import { NEVER_SETTLES } from "@test/helpers/abandoned-pass.js";
 import {
   AccountsFixtureBody,
-  type AccountRegistryReading,
-  type AccountsShellOperations,
+  type AccountListReading,
+  type AccountOperations,
 } from "./AccountsFixtureBody.js";
 
 /** A mounted shell, and the handles a case needs to change what it is handed. */
-export interface MountedShell {
+export interface MountedAccountsPage {
   readonly container: HTMLElement;
   /** Re-render the same mount with another registry reading. */
-  readonly showRegistry: (registry: AccountRegistryReading) => void;
+  readonly showRegistry: (registry: AccountListReading) => void;
   /** Called each time the shell asks for a fresh registry read. */
   readonly requestRegistryRead: ReturnType<typeof vi.fn<() => void>>;
 }
@@ -121,7 +121,7 @@ const READINESS: readonly ProviderReadiness[] = [
 ];
 
 /** A registry that has answered: three accounts, two providers, four stored readings. */
-export const ACCOUNT_REGISTRY: AccountRegistryReading = {
+export const ACCOUNT_REGISTRY: AccountListReading = {
   phase: "read",
   accounts: [WORK_ACCOUNT, PERSONAL_ACCOUNT, BATCH_ACCOUNT],
   readiness: READINESS,
@@ -140,7 +140,7 @@ export const ACCOUNT_REGISTRY: AccountRegistryReading = {
 };
 
 /** A registry whose first read has not landed. */
-export const UNREAD_ACCOUNT_REGISTRY: AccountRegistryReading = {
+export const UNREAD_ACCOUNT_REGISTRY: AccountListReading = {
   phase: "reading",
   accounts: [],
   readiness: [],
@@ -149,7 +149,7 @@ export const UNREAD_ACCOUNT_REGISTRY: AccountRegistryReading = {
 };
 
 /** The registry, reporting the brokered attempt with this id finished. */
-export function registryReportingCompleted(attemptId: string): AccountRegistryReading {
+export function registryReportingCompleted(attemptId: string): AccountListReading {
   return {
     ...ACCOUNT_REGISTRY,
     newestLoginCompletion: {
@@ -167,20 +167,20 @@ export function registryReportingCompleted(attemptId: string): AccountRegistryRe
  * A verb the case does not supply never answers. The operations object is created once so
  * a re-render does not rebuild the sign-in plane.
  */
-export function mountShell(options: {
-  readonly registry: AccountRegistryReading;
-  readonly operations?: Partial<AccountsShellOperations>;
-}): MountedShell {
+export function mountAccountsPage(options: {
+  readonly registry: AccountListReading;
+  readonly operations?: Partial<AccountOperations>;
+}): MountedAccountsPage {
   const bridge = createFixtureBridge({ scenario: unscriptedScenario("accounts-shell") });
-  const operations: AccountsShellOperations = {
+  const operations: AccountOperations = {
     login: () => NEVER_SETTLES,
     cancelLogin: () => NEVER_SETTLES,
     register: () => NEVER_SETTLES,
     ...options.operations,
   };
   const requestRegistryRead = vi.fn<() => void>();
-  const tree = (registry: AccountRegistryReading): React.JSX.Element => (
-    <DesktopBridgeProvider bridge={bridge}>
+  const tree = (registry: AccountListReading): React.JSX.Element => (
+    <PlatformBridgeProvider bridge={bridge}>
       <LiveAnnouncerProvider>
         <AccountsFixtureBody
           registry={registry}
@@ -188,7 +188,7 @@ export function mountShell(options: {
           operations={operations}
         />
       </LiveAnnouncerProvider>
-    </DesktopBridgeProvider>
+    </PlatformBridgeProvider>
   );
   const { container, rerender } = render(tree(options.registry));
   return {

@@ -151,7 +151,7 @@ export type CanonicalBytes = Uint8Array & { readonly __brand: "CanonicalBytes" }
 // attacker rather than catching them (the mechanism is the next paragraph).
 // That check is `isCanonicalOccurredAt`, exported below for the range-walk.
 //
-// Robust reproduction is NOT a licence to persist the raw one, and the governing
+// Robust reproduction is NOT a license to persist the raw one, and the governing
 // authority is the column contract, not a threat model:
 // `daemon-schema.ts` declares `occurred_at TEXT NOT NULL, -- RFC 3339 UTC, ms
 // precision`, while the wire schema admits `+05:00` offsets and

@@ -87,7 +87,7 @@ describe("the two answers", () => {
 
     // The negative control, and rule 1 itself: one primary action per surface. A
     // reject that also carried the fill would be a second — and reject is never
-    // coloured at all, because a rejection is the console working.
+    // colored at all, because a rejection is the console working.
     expect(within(actions).getByRole("button", { name: "Reject" }).classList).not.toContain(
       ACCENT_FILL_CLASS,
     );

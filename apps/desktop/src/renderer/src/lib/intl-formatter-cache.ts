@@ -56,7 +56,7 @@ interface LocaleResolvingFormatter {
  * rule in `apps/desktop/AGENTS.md` — and it holds state at all because constructing an
  * `Intl` formatter resolves a locale and builds a message table, which is the expensive
  * half, while formatting with one is cheap. A relative time is the console's most
- * repeated figure: every ledger row carrying an age re-renders on the reading tick, so
+ * repeated figure: every transcript row carrying an age re-renders on the reading tick, so
  * a formatter minted per call is one locale resolution per row per tick.
  *
  * GENERIC OVER THE FORMATTER because two kinds are now held on one policy — the
@@ -201,7 +201,7 @@ const CURRENCY_MINOR_UNIT_CACHE_CAP = 32;
  *
  * A class holding its own map rather than a module-level one, and a cache at all
  * because the answer is obtained by CONSTRUCTING an `Intl.NumberFormat` and
- * reading back what it resolved — cheap once per code, wasteful once per ledger
+ * reading back what it resolved — cheap once per code, wasteful once per transcript
  * row.
  *
  * Keyed on the code alone even though the probe takes a locale: the minor unit is

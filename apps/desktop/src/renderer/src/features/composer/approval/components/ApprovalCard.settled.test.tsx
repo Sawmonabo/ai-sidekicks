@@ -12,26 +12,22 @@
 import { screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
+import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 import {
   approvalCommandRows,
   type ApprovalCommandInput,
 } from "../contributions/approval-commands.js";
 import { pendingRecord, renderCard } from "./approval-card.test-support.js";
 
-const ALREADY_RESOLVED: ConsoleRefusal = refuse(
+const ALREADY_RESOLVED: Refusal = refuse(
   "approvals",
   "approval.already_resolved",
   "Answered elsewhere.",
 );
-const RETRYABLE: ConsoleRefusal = refuse(
-  "approvals",
-  "approval.decision_conflict",
-  "Two answers raced.",
-);
+const RETRYABLE: Refusal = refuse("approvals", "approval.decision_conflict", "Two answers raced.");
 
 /** The palette's view of one record and one refusal against it. */
-function rowsFor(refusalForRecord: ConsoleRefusal): ApprovalCommandInput {
+function rowsFor(refusalForRecord: Refusal): ApprovalCommandInput {
   const record = pendingRecord();
   return {
     pending: [record],

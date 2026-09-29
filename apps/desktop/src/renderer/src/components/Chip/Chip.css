@@ -46,7 +46,7 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* `neutral` is the common case and is the base rule above: no colour at all. */
+/* `neutral` is the common case and is the base rule above: no color at all. */
 
 .meridian-chip--attention {
   border-color: var(--meridian-amber-mark);

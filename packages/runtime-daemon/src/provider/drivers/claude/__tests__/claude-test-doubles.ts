@@ -230,7 +230,7 @@ export class FakeClaudeSessionChannel implements ClaudeSessionChannel {
   readonly deliveredFrameKinds: string[] = [];
 
   /**
-   * Drive one inbound stream frame, HONOURING the transport obligation in full.
+   * Drive one inbound stream frame, HONORING the transport obligation in full.
    *
    * The double observes before delivering and delivers exactly the decisions
    * {@link ClaudeSessionChannel.onInboundFrame}'s DELIVER column names, because
@@ -314,7 +314,7 @@ export class FakeClaudeSessionTransport implements ClaudeSessionTransport {
   // failure before the channel it will land on exists.
   onTurnTerminalFailure: Error | undefined = undefined;
   // When set, the spawned/resumed process announces THIS id instead of the one
-  // that was pinned or requested — the fresh-session-on-mismatch behaviour the
+  // that was pinned or requested — the fresh-session-on-mismatch behavior the
   // Claude CLI exhibits, and the mechanism the identity gate catches.
   announcedProviderSessionId: string | undefined = undefined;
   resumedSessionPosition: number = 12;
@@ -343,7 +343,7 @@ export class FakeClaudeSessionTransport implements ClaudeSessionTransport {
   /**
    * Refuses to start a child that was not handed the daemon's mandated pairs.
    *
-   * The port's obligation modelled as a REFUSAL rather than as a recording,
+   * The port's obligation modeled as a REFUSAL rather than as a recording,
    * because a recording only proves what some test remembers to read back. A
    * spawn path that quietly stopped supplying the pairs would still return a
    * working channel, and every assertion about the session it established would
@@ -441,7 +441,7 @@ export class FakeClaudeSessionTransport implements ClaudeSessionTransport {
     if (this.probeAuthFailure !== undefined) {
       throw this.probeAuthFailure;
     }
-    // Spawns nothing and mints no channel, which is the point being modelled:
+    // Spawns nothing and mints no channel, which is the point being modeled:
     // a probe that established a session would not be a zero-turn probe.
     return this.probeAuthDetail === undefined ? {} : { detail: this.probeAuthDetail };
   }
@@ -492,7 +492,7 @@ export function buildCancelParams(): ApplyInterventionParams {
     targetRunId: TEST_RUN_ID,
     expectedRunVersion: 3,
     clientIdempotencyKey: "3f1d2b4c-0000-4000-8000-000000000003",
-    payload: { reason: "user cancelled the run" },
+    payload: { reason: "user canceled the run" },
   };
 }
 

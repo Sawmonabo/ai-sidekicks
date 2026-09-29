@@ -19,7 +19,7 @@
 // has withdrawn: a settled refusal takes the two buttons off the card and the two rows
 // out of the palette in one reading, and there is no second expression to drift.
 
-import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
+import { type Refusal } from "@renderer/lib/refusal.js";
 import {
   type ApprovalRecord,
   type ApprovalResolveRequest,
@@ -49,7 +49,7 @@ export interface ApprovalCommandInput {
    * rows go with them; withholding this map is what let the palette keep offering a
    * decision about a request somebody else had already answered.
    */
-  readonly resolveRefusalByApprovalId: ReadonlyMap<string, ConsoleRefusal>;
+  readonly resolveRefusalByApprovalId: ReadonlyMap<string, Refusal>;
   readonly resolve: (request: ApprovalResolveRequest) => void;
 }
 

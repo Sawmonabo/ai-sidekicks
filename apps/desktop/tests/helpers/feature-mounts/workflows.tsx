@@ -18,14 +18,14 @@
 // what it has with no call to read a run or a definition through. The accessibility tier
 // audits every one of them — a family-wide claim that skipped a registered pane could not
 // fail on a regression unique to it. The screenshot tier pins its own subset, a separate
-// judgement made in that tier's own table. The run's phase graph is mounted on its own,
+// judgment made in that tier's own table. The run's phase graph is mounted on its own,
 // from a hand-built run, because no surface composes it until the run read is built and
 // its geometry and readiness are still worth holding.
 //
 // THE BODIES COME OUT OF THE FAMILY'S REGISTRIES, NOT OUT OF AN IMPORT, on the
 // browser-terminal tiers' precedent: the run pane is resolved through
-// `ConsolePaneRegistry` and the destination through `ConsoleSurfaceRegistry`, each
-// after the family registers into it — so a tier renders what the deck and the rail
+// `PaneRegistry` and the destination through `ScreenRegistry`, each
+// after the family registers into it — so a tier renders what the pane layout and the rail
 // would actually mount rather than a component that happens to sit beside them, and
 // the family's stylesheets arrive on the edges its own modules already own, which is
 // what makes the captured pixels the ones a person would see.
@@ -39,9 +39,9 @@
 // member directly would pin a frame the shipped store could no longer produce.
 //
 // WHY EACH SURFACE IS FOUND A DIFFERENT WAY. Each pane IS one region, and
-// `seats/ConsolePaneChrome` names it with `aria-labelledby` pointing at the crumb
+// `seats/PaneFrame` names it with `aria-labelledby` pointing at the crumb
 // TRAIL rather than at a heading — so a pane's accessible name is its whole address
-// ("session-1 run-01 Workflow run") and two panes of one kind in one deck are told
+// ("session-1 run-01 Workflow run") and two panes of one kind in one pane layout are told
 // apart by what they are scoped to. That is why the lookup below reads the trail's
 // current crumb rather than comparing the whole name. The destination is not a region
 // at all, so it is addressed by its own root instead.
@@ -50,33 +50,33 @@ import type { FunctionComponent } from "react";
 
 import { renderSettled } from "../app-harness.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
-import { DesktopBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { unscriptedScenario } from "../fixture-bridge.js";
 import {
   PARKED_RUN,
   PROBE_SESSION_ID,
   definition,
 } from "@renderer/features/workflows/workflows-probe.test-support.js";
-import { RunPhaseGraph } from "@renderer/features/workflows/run-page/components/RunGraphSection.js";
+import { RunGraphSection } from "@renderer/features/workflows/run-page/components/RunGraphSection.js";
 // The context comes off its own module: it was hoisted out of the board to break the
 // cycle a loader-backed surface's reserved frame would otherwise close.
-import { type ConsoleSurfaceContext } from "@renderer/registries/screens/screen-context.js";
+import { type ScreenContext } from "@renderer/registries/screens/screen-context.js";
 import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence-caps.js";
 import { DraftStore } from "@renderer/store/draft-store.js";
 import { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
-import { FrameStore } from "@renderer/store/window/window-store.js";
+import { WindowStore } from "@renderer/store/window/window-store.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import { SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
 import {
   registerWorkflowPanes,
-  registerWorkflowSurfaces,
+  registerWorkflowScreens,
 } from "@renderer/features/workflows/index.js";
 import {
-  ConsolePaneRegistry,
-  type ConsolePaneAddress,
-  type ConsolePaneContext,
+  PaneRegistry,
+  type PaneAddress,
+  type PaneContext,
   type PaneKind,
 } from "@renderer/console/seats/index.js";
 import { resolvedPaneBody, resolvedScreenBody } from "./pane-body-resolution.js";
@@ -90,14 +90,14 @@ import { type MountedView } from "./mount-queries.js";
  * tiers holding one instance would make the second tier's mount depend on whether
  * the first had run.
  */
-function familyPaneRegistry(): ConsolePaneRegistry {
-  const registry = new ConsolePaneRegistry();
+function familyPaneRegistry(): PaneRegistry {
+  const registry = new PaneRegistry();
   registerWorkflowPanes(registry);
   return registry;
 }
 
 /**
- * The workflows pane body the deck holds for a kind, loaded.
+ * The workflows pane body the pane layout holds for a kind, loaded.
  *
  * The resolution — build a family-scoped registry, preload, read the descriptor, throw
  * by name — lives once in `pane-body-resolution.ts`; what stays here is
@@ -105,13 +105,13 @@ function familyPaneRegistry(): ConsolePaneRegistry {
  */
 async function paneBodyComponent(
   kind: PaneKind,
-): Promise<FunctionComponent<{ context: ConsolePaneContext }>> {
+): Promise<FunctionComponent<{ context: PaneContext }>> {
   const render = await resolvedPaneBody(kind, registerWorkflowPanes);
   return ({ context }) => render(context);
 }
 
 /**
- * The deck context a pane is mounted with, minus the parts each caller supplies.
+ * The pane layout context a pane is mounted with, minus the parts each caller supplies.
  *
  * The caller supplies the ADDRESS and the pane id, not a `Pick` of the context: the
  * address is a kind-scoped union, so `entity` is not a key every arm has and a `Pick`
@@ -119,12 +119,12 @@ async function paneBodyComponent(
  * a tier cannot mount a workflow pane over an entity kind the seat refuses.
  */
 function paneContext(
-  address: ConsolePaneAddress & { readonly paneId: string },
-  bridge: ConsoleBridge,
-): ConsolePaneContext {
+  address: PaneAddress & { readonly paneId: string },
+  bridge: PlatformBridge,
+): PaneContext {
   return {
     ...address,
-    frameStore: new FrameStore(),
+    frameStore: new WindowStore(),
     uiStateStore: UiStateStore.opening(),
     draftStore: new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT }),
     // Nothing opened these panes from another: each tier mounts one body directly.
@@ -168,22 +168,20 @@ function requirePaneNamed(container: HTMLElement, paneTitle: string): HTMLElemen
 }
 
 /**
- * The surface body the rail holds for a slot, as a component, or a throw.
+ * The screen body the rail holds for a slot, as a component, or a throw.
  *
  * The pane helper's shape, applied to the other registry: a throw rather than an
  * optional return, so a family that stopped claiming its slot fails here — where the
  * message names the slot — instead of rendering nothing and letting a tier compare an
  * empty box against a baseline.
  */
-async function surfaceBodyComponent(): Promise<
-  FunctionComponent<{ context: ConsoleSurfaceContext }>
-> {
-  const render = await resolvedScreenBody("workflows", registerWorkflowSurfaces);
+async function screenBodyComponent(): Promise<FunctionComponent<{ context: ScreenContext }>> {
+  const render = await resolvedScreenBody("workflows", registerWorkflowScreens);
   return ({ context }) => render(context);
 }
 
 /**
- * The surface context the rail mounts a destination with.
+ * The screen context the rail mounts a destination with.
  *
  * The frame store is put in the state a person arrives in by NAVIGATING — into a
  * session, then to the workflows destination — because retaining the last opened
@@ -192,9 +190,9 @@ async function surfaceBodyComponent(): Promise<
  * empty: this window has opened nothing, which is the ordinary case for a person who
  * reached the rail from a session the route has since left.
  */
-function surfaceContext(bridge: ConsoleBridge): ConsoleSurfaceContext {
-  const frameStore = new FrameStore({
-    initialRoute: { kind: "workspace", sessionId: PROBE_SESSION_ID },
+function screenContext(bridge: PlatformBridge): ScreenContext {
+  const frameStore = new WindowStore({
+    initialRoute: { kind: "session", sessionId: PROBE_SESSION_ID },
   });
   frameStore.navigate({ kind: "workflows" });
   return {
@@ -220,7 +218,7 @@ function surfaceContext(bridge: ConsoleBridge): ConsoleSurfaceContext {
 }
 
 /**
- * The workflows destination, mounted through the rail's own surface seat.
+ * The workflows destination, mounted through the rail's own screen seat.
  *
  * Every workflows mount here renders under the bridge provider, as the shell mounts
  * every body: a pane body reads its bridge off its context, but a slot body standing
@@ -233,13 +231,13 @@ function surfaceContext(bridge: ConsoleBridge): ConsoleSurfaceContext {
  */
 export async function mountWorkflowsDestination(): Promise<MountedView> {
   const bridge = createFixtureBridge({ scenario: unscriptedScenario("workflows-destination") });
-  const WorkflowsDestinationBody = await surfaceBodyComponent();
+  const WorkflowsDestinationBody = await screenBodyComponent();
   const { container } = await renderSettled(
-    <DesktopBridgeProvider bridge={bridge}>
+    <PlatformBridgeProvider bridge={bridge}>
       <LiveAnnouncerProvider>
-        <WorkflowsDestinationBody context={surfaceContext(bridge)} />
+        <WorkflowsDestinationBody context={screenContext(bridge)} />
       </LiveAnnouncerProvider>
-    </DesktopBridgeProvider>,
+    </PlatformBridgeProvider>,
   );
   const element = container.querySelector<HTMLElement>(".meridian-workflows-destination");
   if (element === null) {
@@ -253,7 +251,7 @@ export async function mountWorkflowRunPane(): Promise<MountedView> {
   const bridge = createFixtureBridge({ scenario: unscriptedScenario("workflow-run-pane") });
   const WorkflowRunPaneBody = await paneBodyComponent("workflow-run");
   const { container } = await renderSettled(
-    <DesktopBridgeProvider bridge={bridge}>
+    <PlatformBridgeProvider bridge={bridge}>
       <WorkflowRunPaneBody
         context={paneContext(
           {
@@ -264,7 +262,7 @@ export async function mountWorkflowRunPane(): Promise<MountedView> {
           bridge,
         )}
       />
-    </DesktopBridgeProvider>,
+    </PlatformBridgeProvider>,
   );
   return { element: requirePaneNamed(container, "Workflow run"), bridge };
 }
@@ -275,10 +273,10 @@ export async function mountWorkflowRunPane(): Promise<MountedView> {
  *
  * The presentational piece alone, because no surface composes it until the run read is
  * built. The graph renderer is its own lazily-loaded chunk, so a reader waits on
- * `phase-graph-settled.ts` before it reads the picture.
+ * `run-graph-settled.ts` before it reads the picture.
  */
 export async function mountWorkflowRunPhaseGraph(): Promise<HTMLElement> {
-  const { container } = await renderSettled(<RunPhaseGraph phases={PARKED_RUN.phaseStates} />);
+  const { container } = await renderSettled(<RunGraphSection phases={PARKED_RUN.phaseStates} />);
   return container;
 }
 
@@ -294,7 +292,7 @@ export async function mountWorkflowBuilderPane(): Promise<MountedView> {
   const bridge = createFixtureBridge({ scenario: unscriptedScenario("workflow-builder-pane") });
   const WorkflowBuilderPaneBody = await paneBodyComponent("workflow-builder");
   const { container } = await renderSettled(
-    <DesktopBridgeProvider bridge={bridge}>
+    <PlatformBridgeProvider bridge={bridge}>
       <WorkflowBuilderPaneBody
         context={paneContext(
           {
@@ -305,7 +303,7 @@ export async function mountWorkflowBuilderPane(): Promise<MountedView> {
           bridge,
         )}
       />
-    </DesktopBridgeProvider>,
+    </PlatformBridgeProvider>,
   );
   return { element: requirePaneNamed(container, "Workflow builder"), bridge };
 }

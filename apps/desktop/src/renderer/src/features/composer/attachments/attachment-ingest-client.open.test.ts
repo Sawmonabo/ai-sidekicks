@@ -8,7 +8,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { encodeBase64 } from "./base64.js";
-import { consoleTripwires } from "@renderer/lib/tripwires.js";
+import { windowTripwires } from "@renderer/lib/tripwires.js";
 import {
   INGEST_SESSION_ID,
   SMALL_SOURCE,
@@ -20,13 +20,13 @@ import {
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 
 beforeEach(() => {
-  consoleTripwires.setThrowOnReport(false);
-  consoleTripwires.reset();
+  windowTripwires.setThrowOnReport(false);
+  windowTripwires.reset();
 });
 
 afterEach(() => {
-  consoleTripwires.reset();
-  consoleTripwires.setThrowOnReport(import.meta.env.DEV);
+  windowTripwires.reset();
+  windowTripwires.setThrowOnReport(import.meta.env.DEV);
 });
 
 describe("ingest client — the happy stream", () => {

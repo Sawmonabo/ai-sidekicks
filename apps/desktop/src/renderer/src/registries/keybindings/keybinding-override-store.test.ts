@@ -5,8 +5,8 @@ import { describe, expect, it } from "vitest";
 
 import { ManualClock } from "@renderer/lib/clock.js";
 import { CommandRegistry } from "../commands/command-registry.js";
-import { type KeyBinding } from "../commands/command-types.js";
-import { KeyBindingTable } from "./keybinding-table.js";
+import { type Keybinding } from "../commands/command-types.js";
+import { KeybindingTable } from "./keybinding-table.js";
 import { MemoryPersistenceAdapter } from "@renderer/store/persistence/memory-persistence-adapter.js";
 import { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
 import { KeybindingOverrideStore } from "./keybinding-override-store.js";
@@ -16,13 +16,13 @@ import { KEYBINDING_OVERRIDES_KEY } from "./keybinding-override-types.js";
  * This file's shipped table, authored on `Alt` rather than on `$mod`.
  *
  * `$mod` is resolved by tinykeys against the HOST at import time, and a press this
- * file synthesises has to name the modifier that resolution picked. Rather than
+ * file synthesizes has to name the modifier that resolution picked. Rather than
  * re-deriving that rule here — a second platform reading, which is exactly what the
  * console keeps to one place — the dispatch cases use a modifier that means the same
  * thing everywhere. What is under test is which command a chord runs, not which key
  * `$mod` is.
  */
-const DEFAULTS: readonly KeyBinding[] = [
+const DEFAULTS: readonly Keybinding[] = [
   { chord: "Alt+Digit1", commandId: "frame.goToSessions" },
   { chord: "Alt+Digit2", commandId: "frame.goToWorkflows" },
 ];
@@ -140,11 +140,11 @@ describe("an override reaches the keyboard, not just the page", () => {
     await overrides.bind("frame.goToWorkflows", "Alt+Digit1");
 
     const ran: string[] = [];
-    const table = new KeyBindingTable({
+    const table = new KeybindingTable({
       registry: navigationRegistry(ran),
       readContext: () => ({}),
     });
-    table.setBindings(overrides.surface.bindings);
+    table.setBindings(overrides.snapshot.bindings);
 
     expect(table.handleKeyDown(altOnePress())).toBe(true);
     expect(ran).toStrictEqual(["workflows"]);
@@ -154,7 +154,7 @@ describe("an override reaches the keyboard, not just the page", () => {
     // Without this the case above would pass against a table that had always run the
     // workflows command on this press, and would prove nothing about the override.
     const ran: string[] = [];
-    const table = new KeyBindingTable({
+    const table = new KeybindingTable({
       registry: navigationRegistry(ran),
       readContext: () => ({}),
     });
@@ -175,39 +175,39 @@ describe("what the store refuses and what it restores", () => {
       expect(result.refusal.detail).toContain("frame.goToWorkflows");
     }
     // Refused before anything moved: the shipped chord is untouched.
-    expect(overrides.surface.bindings).toStrictEqual(DEFAULTS);
+    expect(overrides.snapshot.bindings).toStrictEqual(DEFAULTS);
   });
 
   it("restores the shipped chord on a reset, and forgets the override", async () => {
     const overrides = overrideStore();
     await overrides.bind("frame.goToSessions", "$mod+9");
-    expect(overrides.surface.bindings[0]?.chord).toBe("$mod+9");
+    expect(overrides.snapshot.bindings[0]?.chord).toBe("$mod+9");
 
     await overrides.reset("frame.goToSessions");
-    expect(overrides.surface.bindings).toStrictEqual(DEFAULTS);
+    expect(overrides.snapshot.bindings).toStrictEqual(DEFAULTS);
     expect(overrides.overrides).toStrictEqual({});
   });
 
   it("drops every override at once, and keeps an explicit unbinding until it does", async () => {
     const overrides = overrideStore();
     await overrides.unbind("frame.goToSessions");
-    expect(overrides.surface.bindings.map((binding) => binding.commandId)).toStrictEqual([
+    expect(overrides.snapshot.bindings.map((binding) => binding.commandId)).toStrictEqual([
       "frame.goToWorkflows",
     ]);
 
     await overrides.resetAll();
-    expect(overrides.surface.bindings).toStrictEqual(DEFAULTS);
+    expect(overrides.snapshot.bindings).toStrictEqual(DEFAULTS);
   });
 
   it("publishes a fresh snapshot on every act and holds one identity between them", () => {
     const overrides = overrideStore();
-    const first = overrides.surface;
-    expect(overrides.surface).toBe(first);
+    const first = overrides.snapshot;
+    expect(overrides.snapshot).toBe(first);
     overrides.beginRecording();
-    expect(overrides.surface).not.toBe(first);
-    expect(overrides.surface.recording).toBe(true);
+    expect(overrides.snapshot).not.toBe(first);
+    expect(overrides.snapshot.recording).toBe(true);
     overrides.endRecording();
-    expect(overrides.surface.recording).toBe(false);
+    expect(overrides.snapshot.recording).toBe(false);
   });
 
   it("tells its subscribers once per act and stops telling an unsubscribed one", async () => {
@@ -237,7 +237,7 @@ describe("what one window wrote, the next one reads", () => {
 
     const reader = overrideStore();
     await reader.hydrateFrom(uiStateStore(adapter));
-    expect(reader.surface.bindings[0]?.chord).toBe("$mod+9");
+    expect(reader.snapshot.bindings[0]?.chord).toBe("$mod+9");
     expect(reader.hydrationRefusals).toHaveLength(0);
   });
 
@@ -246,7 +246,7 @@ describe("what one window wrote, the next one reads", () => {
     // kept the writer's in-memory map, which no second window ever sees.
     const reader = overrideStore();
     await reader.hydrateFrom(uiStateStore());
-    expect(reader.surface.bindings).toStrictEqual(DEFAULTS);
+    expect(reader.snapshot.bindings).toStrictEqual(DEFAULTS);
   });
 
   it("declines a stored chord that no longer installs rather than raising on it", async () => {
@@ -260,7 +260,7 @@ describe("what one window wrote, the next one reads", () => {
 
     const reader = overrideStore();
     await reader.hydrateFrom(uiStateStore(adapter));
-    expect(reader.surface.bindings).toStrictEqual(DEFAULTS);
+    expect(reader.snapshot.bindings).toStrictEqual(DEFAULTS);
     expect(reader.hydrationRefusals.map((declined) => declined.refusal.code)).toStrictEqual([
       "chord-taken",
     ]);
@@ -312,7 +312,7 @@ describe("what one window wrote, the next one reads", () => {
     if (result.outcome === "bound") {
       expect(result.unsaved?.origin).toBe("persistence");
     }
-    expect(overrides.surface.bindings[0]?.chord).toBe("$mod+9");
+    expect(overrides.snapshot.bindings[0]?.chord).toBe("$mod+9");
   });
 });
 
@@ -320,14 +320,14 @@ describe("the shipped table is read, not captured", () => {
   /** A base a case can grow, beside the signal that says it did. */
   function growableBase(): {
     readonly options: {
-      readonly defaults: () => readonly KeyBinding[];
+      readonly defaults: () => readonly Keybinding[];
       readonly subscribeToDefaults: (onDefaultsChange: () => void) => () => void;
       readonly platform: "darwin";
     };
-    readonly contribute: (binding: KeyBinding) => void;
-    readonly contributeSilently: (binding: KeyBinding) => void;
+    readonly contribute: (binding: Keybinding) => void;
+    readonly contributeSilently: (binding: Keybinding) => void;
   } {
-    let base: readonly KeyBinding[] = DEFAULTS;
+    let base: readonly Keybinding[] = DEFAULTS;
     const listeners = new Set<() => void>();
     return {
       options: {
@@ -357,12 +357,14 @@ describe("the shipped table is read, not captured", () => {
     // would install a keyboard missing every chord that arrived after it.
     const growable = growableBase();
     const overrides = new KeybindingOverrideStore(growable.options);
-    expect(overrides.surface.shippedBindings).toHaveLength(DEFAULTS.length);
+    expect(overrides.snapshot.shippedBindings).toHaveLength(DEFAULTS.length);
 
     growable.contribute({ chord: "Alt+Digit3", commandId: "ledger.open" });
 
-    expect(overrides.surface.shippedBindings).toHaveLength(DEFAULTS.length + 1);
-    expect(overrides.surface.bindings.map((binding) => binding.commandId)).toContain("ledger.open");
+    expect(overrides.snapshot.shippedBindings).toHaveLength(DEFAULTS.length + 1);
+    expect(overrides.snapshot.bindings.map((binding) => binding.commandId)).toContain(
+      "ledger.open",
+    );
   });
 
   it("negative control: the signal is what refreshes it, not the next read", () => {
@@ -372,11 +374,11 @@ describe("the shipped table is read, not captured", () => {
     // decorative, and it fails if the store recomposes on every read.
     const growable = growableBase();
     const overrides = new KeybindingOverrideStore(growable.options);
-    expect(overrides.surface.shippedBindings).toHaveLength(DEFAULTS.length);
+    expect(overrides.snapshot.shippedBindings).toHaveLength(DEFAULTS.length);
 
     growable.contributeSilently({ chord: "Alt+Digit4", commandId: "ledger.close" });
 
-    expect(overrides.surface.shippedBindings).toHaveLength(DEFAULTS.length);
+    expect(overrides.snapshot.shippedBindings).toHaveLength(DEFAULTS.length);
   });
 
   it("answers the shipped table beside the effective one, with the overrides only in the second", async () => {
@@ -388,7 +390,7 @@ describe("the shipped table is read, not captured", () => {
     const result = await overrides.bind("frame.goToSessions", "Alt+Digit9");
     expect(result.outcome).toBe("bound");
 
-    expect(overrides.surface.shippedBindings).toStrictEqual(DEFAULTS);
-    expect(overrides.surface.bindings[0]?.chord).toBe("Alt+Digit9");
+    expect(overrides.snapshot.shippedBindings).toStrictEqual(DEFAULTS);
+    expect(overrides.snapshot.bindings[0]?.chord).toBe("Alt+Digit9");
   });
 });

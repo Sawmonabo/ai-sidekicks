@@ -1,20 +1,20 @@
-// What every ledger card is handed.
+// What every transcript card is handed.
 //
-// `TimelineRowSlotProps` is the seat's contract — the row plus the three decisions the
+// `TranscriptRowProps` is the seat's contract — the row plus the three decisions the
 // LIST makes about it (hue, supersession, density). A card needs those and two more
 // things the seat cannot carry, because neither is a property of the row's position in
 // a list: the hydrated body, and the footnote registry the message it belongs to shares.
 //
 // EXTENDING THE SEAT RATHER THAN RESTATING IT is the point. A member added to
-// `TimelineRowSlotProps` reaches both cards without either one being edited, and no card
+// `TranscriptRowProps` reaches both cards without either one being edited, and no card
 // can quietly disagree with the seat about what a row is.
 
 import type { HydratedSessionEventContent } from "@ai-sidekicks/contracts";
 
-import type { TimelineRowSlotProps } from "@renderer/console/seats/index.js";
+import type { TranscriptRowProps } from "@renderer/console/seats/index.js";
 import type { FootnoteRegistry } from "./markdown/footnotes/footnote-registry.js";
 
-export interface HydratedRowProps extends TimelineRowSlotProps {
+export interface HydratedRowProps extends TranscriptRowProps {
   /**
    * The row's machine-authored body, as the read projection reports it.
    *
@@ -26,7 +26,7 @@ export interface HydratedRowProps extends TimelineRowSlotProps {
   /**
    * Text the reveal engine is publishing for this row right now, while it streams.
    *
-   * A PROP rather than a subscription: `ledger/frame/reveal/reveal-engine.ts` publishes per
+   * A PROP rather than a subscription: `features/transcript/reveal/reveal-engine.ts` publishes per
    * lane and the viewport is what reads it, so a card that subscribed would be a second
    * subscriber to one fact and would re-render on frames its own text did not change in.
    */

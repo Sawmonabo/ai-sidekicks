@@ -8,8 +8,8 @@
 // sessions, workflows, settings — and every one of them is reachable from every
 // main-window route, so the entries are a constant rather than a function of window
 // state. They used to be neither: a fourth entry, Workspace, was shown or hidden on
-// whether this window had a session in hand. The session workspace is reached from the
-// sessions destination instead, which is why `railDestinationFor` maps a workspace
+// whether this window had a session in hand. The session screen is reached from the
+// sessions destination instead, which is why `railDestinationFor` maps a session screen
 // route onto `sessions` and why the palette's "Go to Workspace" — an act, not a
 // destination — lives beside these rather than among them.
 //
@@ -20,8 +20,8 @@
 // can never be shown in an order nobody declared.
 
 import { RAIL_DESTINATIONS, type RailDestination } from "@renderer/routing/route-readers.js";
-import { type ConsoleRoute } from "@renderer/routing/routes.js";
-import { surfaceSlotFor, type ConsoleSurfaceRegistry } from "@renderer/console/seats/index.js";
+import { type AppRoute } from "@renderer/routing/routes.js";
+import { findScreenNameForRoute, type ScreenRegistry } from "@renderer/console/seats/index.js";
 import { RAIL_ENTRY_TEMPLATES, type RailEntry } from "./NavigationRail.js";
 
 /**
@@ -45,7 +45,7 @@ export const RAIL_ENTRIES: readonly RailEntry[] = RAIL_DESTINATIONS.map((destina
  * inverse on every arm — a click lands on a route the rail reports as that same
  * destination — and `rail-navigation.test.ts` holds the pair to it.
  */
-export function routeForDestination(destination: RailDestination): ConsoleRoute {
+export function routeForDestination(destination: RailDestination): AppRoute {
   switch (destination) {
     case "sessions":
       return { kind: "sessions" };
@@ -67,7 +67,7 @@ export function routeForDestination(destination: RailDestination): ConsoleRoute 
  * would otherwise show is one a person never sees.
  *
  * ONE FUNCTION AND NOT TWO CALL SITES' WORTH, because the destination-to-slot step is
- * the thing that could go wrong twice: `surfaceSlotFor` is the map, and a second
+ * the thing that could go wrong twice: `findScreenNameForRoute` is the map, and a second
  * open-coded reading of it would drift the first time a destination changed slots.
  *
  * A destination whose surface is component-form, or not registered at all, settles
@@ -75,7 +75,7 @@ export function routeForDestination(destination: RailDestination): ConsoleRoute 
  * about to open is loader-backed.
  */
 export function warmDestination(
-  surfaceRegistry: ConsoleSurfaceRegistry,
+  screenRegistry: ScreenRegistry,
   destination: RailDestination,
 ): void {
   // Fire-and-forget, and the rejection is dropped on the idle warm's own reasoning: a
@@ -83,11 +83,11 @@ export function warmDestination(
   // damaged install whose honest surface is the mount, where the console's error
   // boundary can say so. A rail press has a painted surface under it already, so waiting
   // here would be a stall where the reserved frame is the honest thing to show.
-  void warmRouteScreen(surfaceRegistry, routeForDestination(destination));
+  void warmRouteScreen(screenRegistry, routeForDestination(destination));
 }
 
 /**
- * Start loading the surface a ROUTE would mount, and settle when it has landed.
+ * Start loading the screen a ROUTE would mount, and settle when it has landed.
  *
  * NEVER REJECTS, so a caller may await it without a `catch` of its own and a caller that
  * does not may drop it. What a chunk that will not load means is a damaged install, and
@@ -98,13 +98,10 @@ export function warmDestination(
  * with nothing done, so no caller has to ask first whether the thing it is about to open
  * is loader-backed.
  */
-async function warmRouteScreen(
-  surfaceRegistry: ConsoleSurfaceRegistry,
-  route: ConsoleRoute,
-): Promise<void> {
-  const slot = surfaceSlotFor(route);
+async function warmRouteScreen(screenRegistry: ScreenRegistry, route: AppRoute): Promise<void> {
+  const slot = findScreenNameForRoute(route);
   if (slot === undefined) {
     return;
   }
-  await surfaceRegistry.preload(slot).catch(() => undefined);
+  await screenRegistry.preload(slot).catch(() => undefined);
 }

@@ -28,7 +28,7 @@
 //     own reconciled snapshot, after the cap — so the boundary find states is the
 //     boundary that is actually true of what is on screen. Matches outside that window
 //     are counted beside the field rather than walked into and lost — in TWO counts,
-//     because a match the cap took and one a folded chapter holds are two states with
+//     because a match the cap took and one a folded run group holds are two states with
 //     two different exits.
 //   • A row body is the SEAT's, handed down whole. This file supplies only the three
 //     decisions the seat says the list makes.
@@ -53,9 +53,9 @@
 // about the LOG rather than over the cap's fact about the window.
 
 import { useCallback, useMemo } from "react";
-import { useConsoleClock } from "@renderer/services/platform/hooks/useClock.js";
+import { useClock } from "@renderer/services/platform/hooks/useClock.js";
 import { RetainedRowStateProvider } from "../../viewport/components/RetainedRowStateProvider.js";
-import { LedgerRowRevealProvider } from "../../reveal/components/RowRevealProvider.js";
+import { RowRevealProvider } from "../../reveal/components/RowRevealProvider.js";
 import { TranscriptViewport } from "../../viewport/components/TranscriptViewport.js";
 import { LoadEarlier } from "../../history/components/LoadEarlier.js";
 import { type EarlierPageRead } from "../../history/earlier-history-reader.js";
@@ -64,7 +64,7 @@ import { TranscriptWindowNotices } from "../../window/components/TranscriptWindo
 import { TranscriptReadState } from "../../window/components/TranscriptReadState.js";
 import { useTranscriptRowRenderer } from "../hooks/useTranscriptRowRenderer.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
-import { type TimelineRowRenderer } from "@renderer/console/seats/index.js";
+import { type TranscriptRowRenderer } from "@renderer/console/seats/index.js";
 import { useTranscriptFeedWindows } from "../hooks/useTranscriptFeedWindows.js";
 import { useTranscriptFindAndJump } from "../hooks/useTranscriptFindAndJump.js";
 import { useTranscriptStructureActs } from "../hooks/useTranscriptStructureActs.js";
@@ -73,14 +73,14 @@ import { useTranscriptStructureActs } from "../hooks/useTranscriptStructureActs.
 export interface TranscriptFeedProps {
   readonly sessionStore: SessionStore;
   /**
-   * The deck pane this feed is the body of.
+   * The pane this feed is the body of.
    *
-   * Carried rather than derived, because the follow seat is keyed by it: a deck can
+   * Carried rather than derived, because the follow seat is keyed by it: a pane layout can
    * hold this feed beside a second one, and a chip press names the pane it focused.
    */
   readonly paneId: string;
   /** The row body, from the seat. Resolved by the pane, so this file reads no seat. */
-  readonly renderTimelineRow: TimelineRowRenderer;
+  readonly renderTimelineRow: TranscriptRowRenderer;
   /** Names the feed for a screen reader walking the window. */
   readonly feedLabel: string;
   /** The backward page read. A composition with none mounts no `Load earlier`. */
@@ -89,16 +89,16 @@ export interface TranscriptFeedProps {
 
 /** The session's log: the find field, the rows, and what the window does not hold. */
 export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
-  const clock = useConsoleClock();
+  const clock = useClock();
   const windows = useTranscriptFeedWindows({ sessionStore: props.sessionStore, clock });
-  const { chapterDisclosure, ledgerWindow, viewport, visible } = windows;
+  const { runGroupDisclosure, transcriptWindow, viewport, visible } = windows;
   const jumpToRow = viewport.jumpToRow;
   // THE FIELD AND ITS WALK — one seam, wired next door.
   const findAndJump = useTranscriptFindAndJump({
-    foldedAwayRows: windows.chapterFold.removedRows,
+    foldedAwayRows: windows.runGroupFold.removedRows,
     visible,
     jumpToRow,
-    focusLedgerSurface: viewport.focusSurface,
+    focusTranscriptViewport: viewport.focusSurface,
   });
   const find = findAndJump.find;
 
@@ -113,8 +113,8 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
     [props.sessionStore],
   );
 
-  const toggleChapter = chapterDisclosure.toggle;
-  const openedTerminalRunIds = chapterDisclosure.openedTerminalRunIds;
+  const toggleRunGroup = runGroupDisclosure.toggle;
+  const openedTerminalRunIds = runGroupDisclosure.openedTerminalRunIds;
   const rowLease = viewport.rowLease;
   const setRowLease = viewport.setRowLease;
   // Named off the props object rather than read through it, because the callback
@@ -125,40 +125,40 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
   const renderTimelineRow = props.renderTimelineRow;
   const rowLeaseChannel = useMemo(() => ({ setLease: setRowLease }), [setRowLease]);
   const renderRow = useTranscriptRowRenderer({
-    ledgerWindow,
+    transcriptWindow,
     openedTerminalRunIds,
     hueForActor,
-    toggleChapter,
+    toggleRunGroup,
     rowLease,
     renderTimelineRow,
   });
 
-  // The palette's chords and the session header's chips both act on whichever ledger is
+  // The palette's chords and the session header's chips both act on whichever transcript is
   // mounted when they fire, and neither can import this component. Both seats are
   // claimed here for the mount's lifetime; what each act does is its own module's.
-  const collapseAllTerminal = chapterDisclosure.collapseAllTerminal;
-  const collapseAllTerminalChapters = useCallback(() => {
-    collapseAllTerminal([...ledgerWindow.chapterByHeaderKey.values()]);
-  }, [collapseAllTerminal, ledgerWindow]);
+  const collapseAllTerminal = runGroupDisclosure.collapseAllTerminal;
+  const collapseAllTerminalRunGroups = useCallback(() => {
+    collapseAllTerminal([...transcriptWindow.runGroupByHeaderKey.values()]);
+  }, [collapseAllTerminal, transcriptWindow]);
   useTranscriptStructureActs({
     find,
     jumpToRow,
     jumpToTail: viewport.jumpToTail,
-    collapseAllTerminalChapters,
+    collapseAllTerminalRunGroups,
   });
 
   return (
-    <div className="meridian-ledger">
+    <div className="meridian-transcript-feed">
       <TranscriptFeedHeader findAndJump={findAndJump} />
-      <div className="meridian-ledger__body">
+      <div className="meridian-transcript-feed__body">
         <RetainedRowStateProvider channel={rowLeaseChannel}>
-          <LedgerRowRevealProvider channel={windows.reveal.channel}>
+          <RowRevealProvider channel={windows.reveal.channel}>
             <TranscriptViewport
               binding={viewport}
               renderRow={renderRow}
               feedLabel={props.feedLabel}
               firstReadSettled={windows.firstReadSettled}
-              hasActiveTurn={ledgerWindow.hasActiveTurn}
+              hasActiveTurn={transcriptWindow.hasActiveTurn}
               earlierHistoryControl={
                 props.readEarlierPage === undefined ? undefined : (
                   <LoadEarlier
@@ -168,13 +168,13 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
                 )
               }
             />
-          </LedgerRowRevealProvider>
+          </RowRevealProvider>
         </RetainedRowStateProvider>
       </div>
       <TranscriptReadState sessionStore={props.sessionStore} />
       <TranscriptWindowNotices
         droppedRowCount={visible.prunedAwayRows.length}
-        hasUnreceivedEntries={ledgerWindow.hasUnreceivedEntries}
+        hasUnreceivedEntries={transcriptWindow.hasUnreceivedEntries}
       />
     </div>
   );

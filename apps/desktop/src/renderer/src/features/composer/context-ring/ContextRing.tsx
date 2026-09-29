@@ -1,6 +1,6 @@
 // The context-window meter: how full the conversation is.
 //
-// Always visible at every level, and labelled "conversation" rather than "budget"
+// Always visible at every level, and labeled "conversation" rather than "budget"
 // or "usage" — the word is load-bearing. A per-run spend budget is a different
 // figure with a different owner, and a meter that said "usage" beside a composer
 // would be read as money by half the people who saw it.
@@ -40,7 +40,7 @@ export function ContextRing(props: ContextRingProps): React.JSX.Element {
       <Nothing
         kind="not-checked"
         title="Conversation fullness has not been reported."
-        detail="The meter draws the daemon's own reading and never estimates one from the messages on screen."
+        detail="The meter draws the background service's own reading and never estimates one from the messages on screen."
       />
     );
   }

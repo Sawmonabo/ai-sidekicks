@@ -1,4 +1,4 @@
-// The workflow run pane's body, as the deck's registry loads it, and the root of its
+// The workflow run pane's body, as the pane layout's registry loads it, and the root of its
 // chunk.
 //
 // A LOADER-BACKED BODY. A run pane opens from the workflows destination's run list and
@@ -22,17 +22,17 @@ import "../components/WorkflowStateStrip.css";
 import { createElement } from "react";
 
 import { RunPage } from "./RunPage.js";
-import { paneBodyForKind, type ConsolePaneContext } from "@renderer/console/seats/index.js";
+import { paneBodyForKind, type PaneContext } from "@renderer/console/seats/index.js";
 
 /**
- * The run pane, at an address the deck resolved.
+ * The run pane, at an address the pane layout resolved.
  *
  * Narrowed to this kind's own address arm before the body sees it, so the body reads the
  * entity its kind admits and nothing else. `createElement` rather than JSX: this is a
  * `.ts` module, and the naming rule reserves `.tsx` for a single PascalCase component per
  * file.
  */
-export const Body: (context: ConsolePaneContext) => React.ReactNode = paneBodyForKind(
+export const Body: (context: PaneContext) => React.ReactNode = paneBodyForKind(
   "workflow-run",
   (context) => createElement(RunPage, { context }),
 );

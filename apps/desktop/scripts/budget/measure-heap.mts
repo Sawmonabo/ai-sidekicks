@@ -169,7 +169,7 @@ exit 0 measured elsewhere · 2 bad usage, or the registry names this harness as 
  * CLI entry point; returns the process exit code.
  *
  * The registry is a parameter for the same reason the gate takes one: the exit-2
- * arm is a claim about behaviour, and a claim no test can drive is a claim
+ * arm is a claim about behavior, and a claim no test can drive is a claim
  * rather than evidence.
  */
 export function runHeapBudgetCommand(

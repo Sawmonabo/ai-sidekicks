@@ -13,19 +13,19 @@
 import { describe, expect, it } from "vitest";
 
 import { CommandRegistry } from "../commands/command-registry.js";
-import { type KeyBinding } from "../commands/command-types.js";
-import { KeyBindingTable, type KeybindingTarget } from "./keybinding-table.js";
+import { type Keybinding } from "../commands/command-types.js";
+import { KeybindingTable, type KeybindingTarget } from "./keybinding-table.js";
 
 /** A chord with no modifiers, so the press below needs none either. */
 const CHORD = "KeyJ";
 
 const COMMAND_ID = "test.jump";
 
-const BINDINGS: readonly KeyBinding[] = [{ chord: CHORD, commandId: COMMAND_ID }];
+const BINDINGS: readonly Keybinding[] = [{ chord: CHORD, commandId: COMMAND_ID }];
 
 /** What one installed table needs, plus the counter its command increments. */
 interface TableUnderTest {
-  readonly table: KeyBindingTable;
+  readonly table: KeybindingTable;
   readonly target: KeybindingTarget & EventTarget;
   /** How many times the bound command has run. */
   runCount: () => number;
@@ -42,7 +42,7 @@ function buildTable(): TableUnderTest {
       runs += 1;
     },
   });
-  const table = new KeyBindingTable({ registry, readContext: () => ({}) });
+  const table = new KeybindingTable({ registry, readContext: () => ({}) });
   table.setBindings(BINDINGS);
   return { table, target: new EventTarget(), runCount: () => runs };
 }
@@ -51,7 +51,7 @@ function pressChord(target: EventTarget): void {
   target.dispatchEvent(new KeyboardEvent("keydown", { code: CHORD, key: "j" }));
 }
 
-describe("KeyBindingTable — a stale disposer cannot orphan the live listener", () => {
+describe("KeybindingTable — a stale disposer cannot orphan the live listener", () => {
   it("keeps the table installed when a replaced installation's disposer is called again", () => {
     const { table, target, runCount } = buildTable();
 

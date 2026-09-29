@@ -1,12 +1,12 @@
 // Which of several refusals a surface hands to the frame as its banner.
 //
 // `lib/refusal-remedies.ts` records which of three shapes a named code calls for, and
-// one of the three is the workspace banner — a refusal that changed what the whole room
+// one of the three is the session screen banner — a refusal that changed what the whole room
 // can do. A surface holding several candidates picks one here and hands it over through
 // `hooks/useRefusalBannerEscalation.ts`.
 
 import { refusalRemedyFor } from "@renderer/lib/refusal-remedies.js";
-import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
+import { type Refusal } from "@renderer/lib/refusal.js";
 
 /**
  * The banner-class refusal a caller PREFERS, or nothing where it listed none.
@@ -27,8 +27,8 @@ import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
  * in the order it wants them preferred and hands over exactly one.
  */
 export function preferredBannerClassRefusalAmong(
-  candidates: Iterable<ConsoleRefusal | undefined>,
-): ConsoleRefusal | undefined {
+  candidates: Iterable<Refusal | undefined>,
+): Refusal | undefined {
   for (const candidate of candidates) {
     if (candidate !== undefined && isBannerClass(candidate)) {
       return candidate;
@@ -38,7 +38,7 @@ export function preferredBannerClassRefusalAmong(
 }
 
 /** True where rule 9 puts this refusal across the frame rather than in one surface. */
-export function isBannerClass(refusal: ConsoleRefusal): boolean {
+export function isBannerClass(refusal: Refusal): boolean {
   return refusalRemedyFor(refusal.code)?.rendering === "banner";
 }
 

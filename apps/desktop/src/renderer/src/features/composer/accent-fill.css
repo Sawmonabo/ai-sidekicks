@@ -13,7 +13,7 @@
  * and reads every value back out as a custom property.
  *
  * Design-language rules that govern this sheet: rule 3 (one accent hue and no other
- * colour) and rule 5 (motion settles). Two surfaces reach for this — an approval's
+ * color) and rule 5 (motion settles). Two surfaces reach for this — an approval's
  * approve action and a goal's save — and both were painting `accent-text` on `accent`,
  * which is 1.53:1 in light and 1.48:1 in dark against rule 3's 4.5:1 floor. One class,
  * so the pairing is made once and `tokens/contrast.test.ts` measures the pair it makes.
@@ -54,7 +54,7 @@
 
 /*
  * Press SETTLES the face, and that direction is a token rather than a filter.
- * Scaling both rendered colours does not preserve their ratio — relative luminance
+ * Scaling both rendered colors does not preserve their ratio — relative luminance
  * carries a 0.05 offset a multiplication does not distribute over — so the
  * `brightness(0.94)` this rule used to spend took the light scheme's measured
  * ink-on-fill pair from 4.73:1 to 4.27:1, through rule 3's floor in the one state
@@ -64,7 +64,7 @@
  * The boundary takes the control's own ink, and it is carrying most of the press in
  * the light scheme: the ink floor leaves that face about 6% of luminance to spend
  * (see `tokens/palette.ts`), which is below what an eye resolves on its own. A ring
- * in a colour already measured against this face costs no ratio to add.
+ * in a color already measured against this face costs no ratio to add.
  */
 .meridian-accent-fill:active {
   border-color: var(--meridian-accent-ink);

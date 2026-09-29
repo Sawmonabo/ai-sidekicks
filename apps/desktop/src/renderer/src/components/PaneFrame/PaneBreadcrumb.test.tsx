@@ -117,7 +117,7 @@ describe("PaneBreadcrumb — two scopes may carry one identifier", () => {
   // a duplicate key still renders both children and still updates the second by
   // position, so that case passes either way. Keying is a property of the derivation
   // (asserted above, where scope uniqueness is structural) and of what React is handed
-  // (asserted here); it is deliberately not asserted through a misbehaviour React
+  // (asserted here); it is deliberately not asserted through a misbehavior React
   // documents as unpredictable and could change between versions.
 
   it("renders both crumbs and raises no duplicate-key warning", async () => {
@@ -152,7 +152,7 @@ describe("PaneBreadcrumb — two scopes may carry one identifier", () => {
 
   it("moves the right crumb when one scope of a colliding pair changes", () => {
     // The OUTCOME the key exists to protect, pinned separately from the key itself.
-    // React documents its behaviour on duplicate keys as unpredictable, and measured
+    // React documents its behavior on duplicate keys as unpredictable, and measured
     // on the version this console pins it keeps both children and reconciles the
     // second by position — so this case passes on the pre-fix shape too, and it is
     // NOT the control for the finding. It is here because "the trail shows the new run
@@ -208,20 +208,20 @@ describe("PaneBreadcrumb — the trail", () => {
   });
 
   it("says the address names nothing rather than rendering an empty strip", () => {
-    const crumbs = renderTrail(NO_ADDRESS, "Timeline");
+    const crumbs = renderTrail(NO_ADDRESS, "Transcript");
     expect(crumbs.querySelector(".meridian-pane__crumb-absent")?.textContent).toBe("No session");
-    expect(crumbTexts(crumbs)).toStrictEqual(["No session", "Timeline"]);
+    expect(crumbTexts(crumbs)).toStrictEqual(["No session", "Transcript"]);
   });
 
   it("negative control: an address that names something draws no absent crumb", () => {
-    const crumbs = renderTrail({ ...NO_ADDRESS, sessionId: "session-1" }, "Timeline");
+    const crumbs = renderTrail({ ...NO_ADDRESS, sessionId: "session-1" }, "Transcript");
     expect(crumbs.querySelector(".meridian-pane__crumb-absent")).toBeNull();
   });
 
   it("wears the provenance signature on every wire crumb and on no prose one", () => {
     // Rule 4: an id came off the wire and renders mono; the pane's own name is prose
     // this console wrote and must not borrow the signature that says otherwise.
-    const crumbs = renderTrail({ ...NO_ADDRESS, sessionId: "session-1" }, "Timeline");
+    const crumbs = renderTrail({ ...NO_ADDRESS, sessionId: "session-1" }, "Transcript");
     const figures = [...crumbs.querySelectorAll(".meridian-figure--wire")].map(
       (figure) => figure.textContent,
     );
@@ -232,7 +232,7 @@ describe("PaneBreadcrumb — the trail", () => {
     const crumbs = renderTrail({ ...NO_ADDRESS, sessionId: "session-1" }, "Runs");
     expect(crumbs.id).toBe(CRUMBS_ID);
     // The whole trail is the name. An id on the last crumb alone would name every runs
-    // pane in a deck "Runs".
+    // pane in a pane layout "Runs".
     expect(crumbs.textContent).toContain("session-1");
     expect(crumbs.textContent).toContain("Runs");
   });

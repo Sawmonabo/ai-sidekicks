@@ -15,7 +15,7 @@ export interface SubjectScopedRelease<TResource> {
 }
 
 /**
- * A disposal that ENDS a resource, and the reading that recognises one it ended.
+ * A disposal that ENDS a resource, and the reading that recognizes one it ended.
  *
  * The two travel together because neither is usable alone: a terminal disposal
  * without a reading is the double-mount corpse the header describes, and a reading
@@ -27,7 +27,7 @@ export interface SubjectScopedTerminalDisposal<TResource> {
 }
 
 /**
- * How a caller's resource ends — released, or disposed and recognisable afterwards.
+ * How a caller's resource ends — released, or disposed and recognizable afterwards.
  *
  * NO `kind` TAG, BECAUSE THE VERB IS THE TAG. `release` and `dispose` are the two
  * facts, and a literal beside them would be a second place to state one of them and

@@ -1,4 +1,4 @@
-// Running one recognised command, and waiting for it before the line is cleared.
+// Running one recognized command, and waiting for it before the line is cleared.
 //
 // THE WHOLE POINT IS THE AWAIT. The send controller clears the input on an
 // interception because "the act happened, and nothing was sent". That sentence is
@@ -15,7 +15,7 @@
 // registry no longer holds; `hidden-in-context` is a command that exists and does not
 // apply where this composer is — two different remedies, so two different codes. A
 // rejected `completion` is a third: the command ran and failed, and the honest report
-// is the command's own failure rather than a claim that it was never recognised.
+// is the command's own failure rather than a claim that it was never recognized.
 //
 // AND THE DIRECTIVE-LINE HANDLER IS INSIDE THAT GUARANTEE RATHER THAN BESIDE IT. The
 // seam's own contract is that an executor returns a settlement and never throws to
@@ -37,15 +37,15 @@ import { type ComposerCommandLineHandlers } from "./composer-command-line-handle
 /**
  * Build the executor for one composer.
  *
- * The surface is read through a THUNK rather than captured as a value: the frame
+ * The commands are read through a THUNK rather than captured as a value: the frame
  * registers this window's commands from an effect that runs after the composer
  * mounts, so an executor holding a list captured at construction would refuse every
  * command in the window it was built in. The handlers are read through one for the
  * mirror-image reason: they close over what the composer is addressed at, which moves.
  */
 export function createClientCommandExecutor(options: {
-  readonly readSurface: () => ComposerCommands;
-  readonly readDirectiveHandlers: () => ComposerCommandLineHandlers;
+  readonly readCommands: () => ComposerCommands;
+  readonly readCommandLineHandlers: () => ComposerCommandLineHandlers;
   /**
    * The commands that read their arguments off the typed line. One of these with no
    * handler in the map settles as `not-run` rather than through the argument-free
@@ -54,18 +54,18 @@ export function createClientCommandExecutor(options: {
   readonly lineReadingCommandIds: readonly string[];
 }): CommandExecutor {
   return async (line: ComposerCommandLine): Promise<CommandOutcome> => {
-    const surface = options.readSurface();
+    const commands = options.readCommands();
     const recognitionInput: ClientCommandRecognitionInput = {
-      registeredCommandIds: surface.registeredCommandIds,
+      registeredCommandIds: commands.registeredCommandIds,
     };
     const recognition = recognizeClientCommand(line.commandName, recognitionInput);
     if (recognition.status === "refused") {
       return { status: "refused", refusal: recognition.refusal };
     }
     // Preferred over the registry's argument-free `invoke`, and only after the
-    // recogniser has claimed the name: an argument-reading command performed through
+    // recognizer has claimed the name: an argument-reading command performed through
     // `invoke` would run with the line thrown away.
-    const handler = options.readDirectiveHandlers().get(recognition.commandId);
+    const handler = options.readCommandLineHandlers().get(recognition.commandId);
     if (handler !== undefined) {
       try {
         // CALLED INSIDE THE BOUNDARY rather than awaited from outside it, on
@@ -87,7 +87,7 @@ export function createClientCommandExecutor(options: {
     if (options.lineReadingCommandIds.includes(recognition.commandId)) {
       return { status: "not-run" };
     }
-    return await settleInvocation(surface, recognition.commandId);
+    return await settleInvocation(commands, recognition.commandId);
   };
 }
 

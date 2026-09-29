@@ -14,8 +14,8 @@
 // names its author through `origin`, so folding the two under one name would have a
 // mis-addressed pane reported as a control that could not be reached.
 
-import type { ConsoleRefusal } from "@renderer/lib/refusal.js";
-import type { ConsoleEntityRef } from "@renderer/lib/entity-kinds.js";
+import type { Refusal } from "@renderer/lib/refusal.js";
+import type { EntityRef } from "@renderer/lib/entity-kinds.js";
 import { misaddressedPane } from "../pane-addressing.js";
 
 /** The subsystem name every refusal raised in this file carries. */
@@ -24,13 +24,13 @@ const WORKFLOW_RUN_PANE_ORIGIN = "workflow-run";
 /**
  * The one entity kind this pane shows.
  *
- * `CONSOLE_ENTITY_KINDS` registers `workflow-definition` and `workflow-run` as two
+ * `ENTITY_KINDS` registers `workflow-definition` and `workflow-run` as two
  * kinds on purpose — a definition is authored, versioned and scoped and outlives
  * every run of it — and this surface shows the second. A binding rather than a
  * literal at the guard, so the kind the pane admits and the kind its refusal names
  * cannot come apart.
  */
-export const WORKFLOW_RUN_PANE_SUBJECT_KIND: ConsoleEntityRef["kind"] = "workflow-run";
+export const WORKFLOW_RUN_PANE_SUBJECT_KIND: EntityRef["kind"] = "workflow-run";
 
 /**
  * The state of a pane handed an entity whose kind names no run.
@@ -40,6 +40,6 @@ export const WORKFLOW_RUN_PANE_SUBJECT_KIND: ConsoleEntityRef["kind"] = "workflo
  * and whatever came back — a refusal or a snapshot — was presented under an address
  * that never named a run.
  */
-export function misaddressedRunPane(addressedKind: ConsoleEntityRef["kind"]): ConsoleRefusal {
+export function misaddressedRunPane(addressedKind: EntityRef["kind"]): Refusal {
   return misaddressedPane(WORKFLOW_RUN_PANE_ORIGIN, WORKFLOW_RUN_PANE_SUBJECT_KIND, addressedKind);
 }

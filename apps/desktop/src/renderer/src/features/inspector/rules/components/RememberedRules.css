@@ -5,7 +5,7 @@
    share their treatment with other features' controls through the global rules in
    `styles/action-buttons.css`. */
 
-.meridian-grants__list {
+.meridian-remembered-rules__list {
   display: flex;
   flex-direction: column;
   gap: var(--meridian-space-2);
@@ -14,7 +14,7 @@
   list-style: none;
 }
 
-.meridian-grants__row {
+.meridian-remembered-rules__row {
   display: flex;
   flex-direction: column;
   gap: var(--meridian-space-1);
@@ -24,9 +24,9 @@
   border-radius: var(--meridian-radius-sm);
 }
 
-.meridian-grants__line,
-.meridian-grants__detail,
-.meridian-grants__confirm {
+.meridian-remembered-rules__line,
+.meridian-remembered-rules__detail,
+.meridian-remembered-rules__confirm {
   display: flex;
   flex-wrap: wrap;
   gap: var(--meridian-space-2);
@@ -34,14 +34,14 @@
   min-width: 0;
 }
 
-.meridian-grants__detail,
-.meridian-grants__confirm-copy {
+.meridian-remembered-rules__detail,
+.meridian-remembered-rules__confirm-copy {
   margin: 0;
   color: var(--meridian-text-muted);
   font-size: var(--meridian-text-xs);
 }
 
-.meridian-grants__unreadable {
+.meridian-remembered-rules__unreadable {
   margin: 0;
   color: var(--meridian-amber-text);
   font-size: var(--meridian-text-xs);

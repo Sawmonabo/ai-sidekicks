@@ -2,8 +2,8 @@
 //
 // Four of this family's seats hold one body rather than a keyed table, and this
 // directory is the four of them beside the primitive they are built on — the
-// composer (one message input per session view), the timeline row slot (one renderer
-// for every row), the row footer beneath it, and the floor request the deck answers.
+// composer (one message input per session view), the transcript row slot (one renderer
+// for every row), the row footer beneath it, and the floor request the pane layout answers.
 // Each wants the same three properties the pane and sidebar registries want: the same owner may re-register (a hot reload re-runs the owning
 // family's module), a different owner may not (which body renders would otherwise
 // depend on module import order), and a refusal names both owners.
@@ -39,7 +39,7 @@ export interface SingleEntryDescriptor<TRenderer> {
   readonly render: TRenderer;
 }
 
-export class SingleSlotSeat<TRenderer> {
+export class SingleEntryRegistry<TRenderer> {
   readonly #seatName: string;
   readonly #descriptorsBySeatName: KeyedRegistry<string, SingleEntryDescriptor<TRenderer>>;
 

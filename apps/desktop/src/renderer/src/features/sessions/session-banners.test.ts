@@ -7,7 +7,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
+import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 import {
   dismissSessionBanner,
   raiseSessionBanner,
@@ -28,14 +28,14 @@ const STORE_FULL = refuse(
 
 // Any console refusal, not one code's: the builder narrows its `code` to the literal
 // it was handed, and every case below deliberately mixes codes.
-function raiseAll(...refusals: readonly ConsoleRefusal[]): readonly SessionBanner[] {
+function raiseAll(...refusals: readonly Refusal[]): readonly SessionBanner[] {
   return refusals.reduce<readonly SessionBanner[]>(
     (current, refusal) => raiseSessionBanner(current, refusal),
     [],
   );
 }
 
-describe("the workspace banner stack", () => {
+describe("the session screen banner stack", () => {
   it("counts an identical refusal rather than stacking it", () => {
     // A failing store raises this on every pane the person moves, so a drag used to
     // produce a column of identical banners saying one thing.
@@ -53,13 +53,13 @@ describe("the workspace banner stack", () => {
       SAVE_FAILED.code,
       "This window's sidebar arrangement could not be saved.",
     );
-    const otherCode = refuse(SAVE_FAILED.origin, "workspace.no_mounted_deck", SAVE_FAILED.detail);
+    const otherCode = refuse(SAVE_FAILED.origin, "pane-layout.not_mounted", SAVE_FAILED.detail);
     const otherOrigin = refuse("persistence", SAVE_FAILED.code, SAVE_FAILED.detail);
 
     expect(raiseAll(SAVE_FAILED, otherDetail, otherCode, otherOrigin)).toHaveLength(4);
   });
 
-  it("leaves a standing banner in place when a repeat arrives, and its neighbours untouched", () => {
+  it("leaves a standing banner in place when a repeat arrives, and its neighbors untouched", () => {
     // The render keys on the identity, so a repeat that re-ordered the stack would
     // move a dismiss control out from under the pointer reaching for it.
     const raised = raiseAll(SAVE_FAILED, STORE_FULL);
@@ -69,7 +69,7 @@ describe("the workspace banner stack", () => {
       "layout-save-failed",
       "quota-exceeded",
     ]);
-    // The neighbour is the same entry, not a rebuilt one carrying the same fields.
+    // The neighbor is the same entry, not a rebuilt one carrying the same fields.
     expect(afterRepeat[1]).toBe(raised[1]);
   });
 

@@ -10,8 +10,8 @@
 // AND IT IS NOT A POLL. The console's read policy puts reads on subscribe, on window
 // focus, on reconnect, and on the terminal events the owning surface names, through one
 // coalescing scheduler — and forbids an interval outright. This module is that policy
-// applied to one run: `store/read/refresh-triggers.ts` observes the three outside
-// reasons, `store/read/refresh-scheduler.ts` coalesces them, and what comes out is a
+// applied to one run: `store/reads/session-refresh-triggers.ts` observes the three outside
+// reasons, `lib/reads/refresh-scheduler.ts` coalesces them, and what comes out is a
 // ROUND NUMBER the snapshot read is keyed on. No timer is armed here beyond the
 // scheduler's own coalescing window, and a session where nothing happens costs nothing.
 //
@@ -54,21 +54,21 @@ import {
   workflowRunIdOfEventPayload,
 } from "@renderer/services/wire-shapes/workflow-events.js";
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
-import { type ConsoleClock } from "@renderer/lib/clock.js";
+import { type Clock } from "@renderer/lib/clock.js";
 import { RefreshScheduler, type RefreshReason } from "@renderer/lib/reads/refresh-scheduler.js";
 import { SessionRefreshTriggers } from "@renderer/store/reads/session-refresh-triggers.js";
-import { type ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
+import { type ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 import { type ReadTriggerTarget } from "@renderer/store/reads/read-triggers.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 
 /** What one live-round reading is opened against. */
 export interface WorkflowRunLiveRefreshOptions {
   /** The window's clock, which the coalescing window is measured on. */
-  readonly clock: ConsoleClock;
+  readonly clock: Clock;
   /**
    * The session whose frames say this run moved.
    *
-   * ABSENT on a pane with no session behind it — the deck can open a run pane from a
+   * ABSENT on a pane with no session behind it — the pane layout can open a run pane from a
    * keybinding before a session is chosen. Such a reading observes nothing and its
    * round never advances, which is honest: with no store there is no timeline to
    * watch, and inventing one would be watching a session nobody named.
@@ -158,7 +158,7 @@ export class WorkflowRunLiveRefresh implements ReadTriggerTarget {
     return this.#round;
   }
 
-  /** Whether this reading has ended. How the resource seam recognises a corpse. */
+  /** Whether this reading has ended. How the resource seam recognizes a corpse. */
   public get isDisposed(): boolean {
     return this.#disposed;
   }
@@ -166,7 +166,7 @@ export class WorkflowRunLiveRefresh implements ReadTriggerTarget {
   /**
    * Whether this reading watches `sessionStore`.
    *
-   * `ArtifactPaneReader.isReadingFor`'s name and its reason: the seam keys on the
+   * `ArtifactListReader.isReadingFor`'s name and its reason: the seam keys on the
    * session id, and a projection rebuilt for the same session across a reconnect keeps
    * that key while being a different object — the one axis a key cannot carry. Without
    * the check this reading would go on listening to a store nothing else reads and its
@@ -194,7 +194,7 @@ export class WorkflowRunLiveRefresh implements ReadTriggerTarget {
    * falls out of the same comparison rather than being a second rule: such a pane has
    * put no read, so there is no answer for a frame to make stale.
    */
-  public admitsTriggeringEvent(event: ConsoleSessionEvent): boolean {
+  public admitsTriggeringEvent(event: ProjectedSessionEvent): boolean {
     const namedRunId = workflowRunIdOfEventPayload(event.payload);
     return namedRunId === undefined || namedRunId === this.#workflowRunId;
   }

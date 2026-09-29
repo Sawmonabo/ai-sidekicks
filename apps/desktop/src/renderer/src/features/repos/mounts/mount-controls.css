@@ -25,7 +25,7 @@
 
 /*
  * One control shape for every button this directory adds, declared once. The attach,
- * re-attach, prepare, and disposal surfaces each carry a trigger, a cancel and a confirm,
+ * re-attach, prepare, and removal surfaces each carry a trigger, a cancel and a confirm,
  * and the open-changes control joins them — so a rule per class would have been a copy of
  * one declaration per selector below, and one chance per copy for it to arrive without a
  * focus ring.
@@ -41,10 +41,10 @@
 .meridian-reattach__confirm,
 .meridian-prepare-root__confirm,
 .meridian-prepare-root__reread,
-.meridian-root-disposal__trigger,
-.meridian-root-disposal__cancel,
-.meridian-root-disposal__confirm,
-.meridian-root-disposal__reread,
+.meridian-root-removal__trigger,
+.meridian-root-removal__cancel,
+.meridian-root-removal__confirm,
+.meridian-root-removal__reread,
 .meridian-open-diff {
   font: inherit;
   font-size: var(--meridian-text-xs);
@@ -60,7 +60,7 @@
 .meridian-bind__trigger:hover:enabled,
 .meridian-reattach__trigger:hover:enabled,
 .meridian-prepare-root__confirm:hover:enabled,
-.meridian-root-disposal__trigger:hover:enabled,
+.meridian-root-removal__trigger:hover:enabled,
 .meridian-open-diff:hover:enabled {
   border-color: var(--meridian-edge-strong);
 }
@@ -69,7 +69,7 @@
 .meridian-bind__confirm:disabled,
 .meridian-reattach__trigger:disabled,
 .meridian-prepare-root__confirm:disabled,
-.meridian-root-disposal__trigger:disabled {
+.meridian-root-removal__trigger:disabled {
   background: var(--meridian-surface-sunken);
   color: var(--meridian-text-faint);
   cursor: default;
@@ -85,7 +85,7 @@
 .meridian-repo-attach__confirm[aria-disabled="true"],
 .meridian-bind__confirm[aria-disabled="true"],
 .meridian-reattach__trigger[aria-disabled="true"],
-.meridian-root-disposal__trigger[aria-disabled="true"] {
+.meridian-root-removal__trigger[aria-disabled="true"] {
   background: var(--meridian-surface-sunken);
   color: var(--meridian-text-faint);
   cursor: not-allowed;
@@ -107,7 +107,7 @@
 .meridian-repo-attach__dialog :focus-visible,
 .meridian-bind__dialog :focus-visible,
 .meridian-reattach__dialog :focus-visible,
-.meridian-root-disposal__dialog :focus-visible,
+.meridian-root-removal__dialog :focus-visible,
 .meridian-repo-attach__trigger:focus-visible,
 .meridian-open-diff:focus-visible {
   outline: 2px solid var(--meridian-focus-ring);
@@ -130,7 +130,7 @@
 .meridian-repo-attach__backdrop,
 .meridian-bind__backdrop,
 .meridian-reattach__backdrop,
-.meridian-root-disposal__backdrop {
+.meridian-root-removal__backdrop {
   position: fixed;
   inset: 0;
   background: color-mix(in oklab, var(--meridian-ground) 72%, transparent);
@@ -139,7 +139,7 @@
 .meridian-repo-attach__dialog,
 .meridian-bind__dialog,
 .meridian-reattach__dialog,
-.meridian-root-disposal__dialog {
+.meridian-root-removal__dialog {
   position: fixed;
   top: 50%;
   left: 50%;
@@ -157,7 +157,7 @@
 .meridian-repo-attach__title,
 .meridian-bind__title,
 .meridian-reattach__title,
-.meridian-root-disposal__title {
+.meridian-root-removal__title {
   margin: 0;
   font-size: var(--meridian-text-md);
   font-weight: 500;
@@ -166,8 +166,7 @@
 
 .meridian-repo-attach__body,
 .meridian-bind__body,
-.meridian-reattach__body,
-.meridian-root-disposal__body {
+.meridian-reattach__body {
   margin: 0;
   font-size: var(--meridian-text-sm);
   color: var(--meridian-text-muted);
@@ -176,7 +175,7 @@
 .meridian-repo-attach__acts,
 .meridian-bind__acts,
 .meridian-reattach__acts,
-.meridian-root-disposal__acts {
+.meridian-root-removal__acts {
   display: flex;
   justify-content: flex-end;
   gap: var(--meridian-space-2);

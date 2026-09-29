@@ -20,7 +20,7 @@
 //
 // THE DEPENDENCY IS THE DEADLINE, NOT THE ARRAY. Every family that wrote this by
 // hand keyed its effect on the record array, so a caller that rebuilt the array each
-// render — a `.map` over a store selection, which is the ordinary case — cancelled
+// render — a `.map` over a store selection, which is the ordinary case — canceled
 // and re-armed a timer on every single render. The earliest future deadline is a
 // NUMBER, and a number is what the effect depends on here, so an array with the same
 // contents re-arms nothing and the steady path allocates nothing.
@@ -38,7 +38,7 @@
 // from the clock it no longer has, so every deadline on the new clock was already
 // behind it: nothing armed, and every row rendered past its deadline for as long as
 // the surface stayed mounted. Monotonicity is a property of one time base, so the
-// instant is held per clock through `subject-scoped-state.ts` and re-seeded during
+// instant is held per clock through `useSubjectScopedState.ts` and re-seeded during
 // the render that first sees a replacement rather than one frame later.
 
 /**

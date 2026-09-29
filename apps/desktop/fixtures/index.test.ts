@@ -5,7 +5,7 @@
 // reviewer noticing.
 //
 // WHY IT IS HERE AND NOT BESIDE THE REGISTRY. The subject is the catalog — this file reads
-// `CONSOLE_SCENARIOS` and holds the registry to it — and the registry imports nothing from
+// `SCENARIOS` and holds the registry to it — and the registry imports nothing from
 // the catalog. The registry's own rules, which need no catalog at all, stay beside the
 // registry in `services/daemon/frozen-tick-registry.fixture.test.ts`.
 
@@ -16,19 +16,19 @@ import {
   findScenariosWithoutFrozenTick,
 } from "@renderer/services/daemon/frozen-tick-registry.fixture.js";
 import { scenarioNamed } from "@renderer/services/daemon/vocabulary.test-support.js";
-import { CONSOLE_SCENARIOS, findScenario } from "./index.js";
+import { SCENARIOS, findScenario } from "./index.js";
 
 describe("every scenario on the board names a frozen tick", () => {
   it("leaves no scenario unregistered", () => {
-    expect(findScenariosWithoutFrozenTick(CONSOLE_SCENARIOS)).toStrictEqual([]);
+    expect(findScenariosWithoutFrozenTick(SCENARIOS)).toStrictEqual([]);
   });
 
   it("reports the whole board as clean", () => {
-    expect(findFrozenTickRegistryDefects(CONSOLE_SCENARIOS)).toStrictEqual([]);
+    expect(findFrozenTickRegistryDefects(SCENARIOS)).toStrictEqual([]);
   });
 
   it("negative control: a scenario the registry does not name fails the registry", () => {
-    const board = [...CONSOLE_SCENARIOS, scenarioNamed("a-family-landed-this-and-pinned-nothing")];
+    const board = [...SCENARIOS, scenarioNamed("a-family-landed-this-and-pinned-nothing")];
 
     expect(findScenariosWithoutFrozenTick(board)).toStrictEqual([
       "a-family-landed-this-and-pinned-nothing",
@@ -37,7 +37,7 @@ describe("every scenario on the board names a frozen tick", () => {
   });
 
   it("negative control: a row for a scenario the board dropped fails it too", () => {
-    const catalogWithoutConcurrentStreaming = CONSOLE_SCENARIOS.filter(
+    const catalogWithoutConcurrentStreaming = SCENARIOS.filter(
       (scenario) => scenario.id !== "concurrent-streaming",
     );
 
@@ -51,7 +51,7 @@ describe("every scenario on the board names a frozen tick", () => {
 
 describe("the scenario lookup", () => {
   it("resolves every scenario on the board", () => {
-    for (const scenario of CONSOLE_SCENARIOS) {
+    for (const scenario of SCENARIOS) {
       expect(findScenario(scenario.id).id).toBe(scenario.id);
     }
   });

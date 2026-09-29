@@ -4,8 +4,8 @@
 // the witness inside it had no test at all: the only way to exercise it was to
 // launch a real window, which can only produce the PASSING case — no fixture can
 // make a real Chromium stop painting on demand, and none can make it paint late
-// on demand either. So the one behaviour that matters, the boundary between late
-// and never, was the one behaviour nothing checked, and it was wrong: the bound
+// on demand either. So the one behavior that matters, the boundary between late
+// and never, was the one behavior nothing checked, and it was wrong: the bound
 // was a fixed 2 000 ms from window creation, which two CI runs
 // (33914273796 endurance, 33914986509 e2e) crossed on windows that were painting
 // perfectly well.

@@ -1,4 +1,4 @@
-// DriverCapabilityCache behaviour.
+// DriverCapabilityCache behavior.
 //
 // The two properties this suite exists for are the two the plan row states, and
 // both are asserted the way the row demands rather than the way that would be

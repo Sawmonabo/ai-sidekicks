@@ -30,7 +30,7 @@
 // and `windowing/` each hold one concern. Five of them carry an inner door publishing
 // exactly what a SIBLING takes; `announce/`, `chord/`, `overlay/`, `posture/`, and
 // `restore/` carry none, because no sibling reads in — `chord/` is read only from
-// `SurfaceAbsence.tsx` here at the root, which is not a sibling, so that file takes the
+// `ScreenNotice.tsx` here at the root, which is not a sibling, so that file takes the
 // declaring modules directly. This door re-exports from the module that DECLARES each
 // symbol and never through an inner one: `console-no-barrel-chain` fails the second
 // shape, and following a name to its home would otherwise take two hops. The root keeps
@@ -96,17 +96,17 @@ export { ChordHint } from "@renderer/components/ChordHint/ChordHint.js";
 export { observeElementResize } from "@renderer/lib/element-resize.js";
 
 // The console's ONE clipping-ancestor walk, for the reason above and against the same
-// two families: the deck intersects what it finds, the browser collects rects from it.
+// two families: the pane layout intersects what it finds, the browser collects rects from it.
 export { clippingAncestorsOf } from "@renderer/lib/clipping-ancestors.js";
 
 // One boundary per surface, so a pane's render throw does not blank the window. It
 // is in this family rather than in the frame's because its only input is `core`'s
 // tripwire report, and because a view family wrapping its own rows cannot import the
 // frame's door without closing a cycle.
-export { SurfaceErrorBoundary } from "@renderer/components/ErrorBoundary/ErrorBoundary.js";
+export { ErrorBoundary } from "@renderer/components/ErrorBoundary/ErrorBoundary.js";
 
 // The "whose keystroke is it" pair, through the same door and for the same reason
-// `chord-format.js` is here: the keybinding table and the deck both ask it, both sit
+// `chord-format.js` is here: the keybinding table and the pane layout both ask it, both sit
 // above this family, and a second copy in either would be the drift this rule exists
 // to prevent.
 export { isEditableTarget, isTextEntryTarget } from "@renderer/lib/editable-target.js";
@@ -138,7 +138,7 @@ export {
 // slot, and one hint — and because both of its producers now sit BELOW the frame:
 // `frame/composition/RouteSurface.tsx` reaches down to it like any other consumer, and
 // `seats/surface/absorbed-surfaces.ts` could not have reached up at all.
-export { SurfaceAbsence } from "@renderer/components/ScreenNotice/ScreenNotice.js";
+export { ScreenNotice } from "@renderer/components/ScreenNotice/ScreenNotice.js";
 
 // The console's ONE live announcer. Through this door rather than deep-imported,
 // because the whole point of the primitive is that there is a single pair of
@@ -147,7 +147,7 @@ export { SurfaceAbsence } from "@renderer/components/ScreenNotice/ScreenNotice.j
 export { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 export { useAnnounce } from "@renderer/hooks/useAnnounce.js";
 // The sink's own type, for a surface that settles an outcome somewhere other than
-// where it read the context — the deck reads `useAnnounce` in its component and
+// where it read the context — the pane layout reads `useAnnounce` in its component and
 // hands the result to the drag monitor, which is a hook and cannot read it twice.
 export type {
   Announce,
@@ -230,21 +230,21 @@ export type {
   /** @consumedBy a view family that has not landed yet */
   WindowAbsence,
   /** @consumedBy a view family that has not landed yet */
-  WindowAbsenceNotice,
+  WindowNoticeText,
 } from "@renderer/features/transcript/window-notices.js";
 export {
   /** @consumedBy a view family that has not landed yet */
-  windowAbsenceNotice,
+  buildWindowNoticeText,
   /** @consumedBy a view family that has not landed yet */
-  windowAbsenceNotices,
+  buildWindowNoticeTexts,
 } from "@renderer/features/transcript/window-notices.js";
 export type {
   /** @consumedBy a view family that has not landed yet */
-  WindowAbsencesProps,
+  WindowNoticesProps,
 } from "@renderer/features/transcript/components/WindowNotices/WindowNotices.js";
-export { WindowAbsences } from "@renderer/features/transcript/components/WindowNotices/WindowNotices.js";
+export { WindowNotices } from "@renderer/features/transcript/components/WindowNotices/WindowNotices.js";
 
-// No marker: `InlineRefusal` has its consumers — `seats/pane/ConsolePaneChrome.tsx`, whose
+// No marker: `InlineRefusal` has its consumers — `components/PaneFrame/PaneFrame.tsx`, whose
 // kind-narrowing adapter renders it where a pane body was mounted at another kind's
 // address, and the composer, sidebar, runs, approvals, inspector, settings,
 // channels, sessions, and agents surfaces, which render a row-scoped refusal
@@ -257,15 +257,15 @@ export { RefusalCard } from "@renderer/components/Refusal/RefusalCard.js";
 // because the composer, the runs pane, and the approvals pane all render daemon
 // refusals whose codes the remedy table answers for, and three surfaces looking a
 // code up themselves is three chances to answer one code differently.
-export { RemediedRefusal } from "@renderer/features/composer/components/RefusalWithRemedy/RefusalWithRemedy.js";
+export { RefusalWithRemedy } from "@renderer/features/composer/components/RefusalWithRemedy/RefusalWithRemedy.js";
 // The shell every family's own recovery table renders through, and the shape those
-// tables produce. On this door for the same reason `RemediedRefusal` is: more than one
+// tables produce. On this door for the same reason `RefusalWithRemedy` is: more than one
 // family answers a code with a next move, and a shell written per family is a rendering
 // one of them can change without the other noticing — which is what happened, under two
 // class names whose declarations were identical property for property.
 export {
   /** @consumedBy a refusal that offers the person a way to recover */
-  RefusalRecovery,
+  RefusalRemedyContent,
 } from "@renderer/components/Refusal/RefusalRemedyContent.js";
 
 // THE `@consumedBy` TAGS in this file are the dead-code gate's one exemption, on the
@@ -338,9 +338,9 @@ export { WINDOWED_ROW_INDEX_ATTRIBUTE } from "@renderer/lib/windowed-row-markers
 
 export type {
   /** @consumedBy a view family that has not landed yet */
-  LedgerRowProps,
+  TranscriptRowLayoutProps,
 } from "@renderer/features/transcript/components/TranscriptRowLayout/TranscriptRowLayout.js";
-export { LedgerRow } from "@renderer/features/transcript/components/TranscriptRowLayout/TranscriptRowLayout.js";
+export { TranscriptRowLayout } from "@renderer/features/transcript/components/TranscriptRowLayout/TranscriptRowLayout.js";
 
 export type {
   /** @consumedBy a view family that has not landed yet */
@@ -393,7 +393,7 @@ export {
 
 // The stamped execution boundary, and the disclosure of what a rewind did to the
 // working tree. Both are in this family for the same reason and it is the layering
-// rule rather than a judgement about where they read best: the runs pane and the
+// rule rather than a judgment about where they read best: the runs pane and the
 // approvals pane both render a posture, and the runs pane's intervention history
 // and the repos family's artifact record both render a restore — and in each pair
 // the two homes are VIEW families, which may not import one another. The lowest

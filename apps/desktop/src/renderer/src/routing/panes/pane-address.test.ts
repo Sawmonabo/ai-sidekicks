@@ -10,7 +10,7 @@
 // `@ts-expect-error` — a directive that becomes an error itself the moment the error it
 // suppresses stops occurring, which is what keeps them honest. What the UNTYPED boundary
 // does with the same rows is `pane-address-parse.test.ts`', including the cross-product
-// sweep that makes the pre-fold behaviour — admit everything — fail on every pair rather
+// sweep that makes the pre-fold behavior — admit everything — fail on every pair rather
 // than on one hand-picked one.
 //
 // THE TWO ROW SUITES BELOW ASSERT AT BOTH DOORS, and that is deliberate rather than a
@@ -21,16 +21,13 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { ConsoleEntityRef } from "@renderer/lib/entity-kinds.js";
-import { type ConsolePaneAddress } from "./pane-address.js";
-import { parseConsolePaneAddress } from "./parse-pane-address.js";
+import type { EntityRef } from "@renderer/lib/entity-kinds.js";
+import { type PaneAddress } from "./pane-address.js";
+import { parsePaneAddress } from "./parse-pane-address.js";
 import { AGENT, ARTIFACT, BROWSER_PAGE, RUN, refusalFrom } from "./pane-address.test-support.js";
 
 /** One arm of the address union, so a case can read the member that arm carries. */
-type AddressArm<TKind extends ConsolePaneAddress["kind"]> = Extract<
-  ConsolePaneAddress,
-  { readonly kind: TKind }
->;
+type AddressArm<TKind extends PaneAddress["kind"]> = Extract<PaneAddress, { readonly kind: TKind }>;
 
 describe("the address union, at a typed call site", () => {
   it("refuses an entity kind the pane is not a view of", () => {
@@ -62,15 +59,15 @@ describe("the address union, at a typed call site", () => {
 
   it("admits the documented no-agent arm, so the optionality that is real survives", () => {
     // The negative control for the three cases above: a union that refused
-    // everything would satisfy them all. The agent console's bare arm is the
+    // everything would satisfy them all. The Agents pane's bare arm is the
     // picker's — a session is chosen and no agent is named yet — and the workflow
     // builder's is the workflows destination opening it with nothing defined.
-    const pickerArm: AddressArm<"agent-console"> = { kind: "agent-console", entity: undefined };
+    const pickerArm: AddressArm<"agents"> = { kind: "agents", entity: undefined };
     const bareBuilder: AddressArm<"workflow-builder"> = {
       kind: "workflow-builder",
       entity: undefined,
     };
-    const namedAgent: AddressArm<"agent-console"> = { kind: "agent-console", entity: AGENT };
+    const namedAgent: AddressArm<"agents"> = { kind: "agents", entity: AGENT };
 
     expect(pickerArm.entity).toBeUndefined();
     expect(bareBuilder.entity).toBeUndefined();
@@ -84,13 +81,13 @@ describe("the address union, at a typed call site", () => {
     // unwritable, while the parse returned exactly that object through a cast — so the
     // static contract and the runtime contract disagreed and the cast hid it. These
     // three are what the parse now returns, constructed by hand at the same type.
-    const bareTimeline: AddressArm<"timeline"> = { kind: "timeline" };
+    const bareTranscript: AddressArm<"transcript"> = { kind: "transcript" };
     const bareBuilder: AddressArm<"workflow-builder"> = { kind: "workflow-builder" };
-    const barePicker: AddressArm<"agent-console"> = { kind: "agent-console" };
+    const barePicker: AddressArm<"agents"> = { kind: "agents" };
 
-    expect(bareTimeline).toStrictEqual({ kind: "timeline" });
+    expect(bareTranscript).toStrictEqual({ kind: "transcript" });
     expect(bareBuilder).toStrictEqual({ kind: "workflow-builder" });
-    expect(barePicker).toStrictEqual({ kind: "agent-console" });
+    expect(barePicker).toStrictEqual({ kind: "agents" });
   });
 
   it("negative control: the bare object stays refused on an entity-REQUIRED arm", () => {
@@ -113,14 +110,14 @@ const CHECKOUT_ENTITY_KINDS = ["workspace", "worktree"] as const;
 /** Kinds that exist in the store and own no checkout, so no record or change set is drawn. */
 const KINDS_WITHOUT_A_CHECKOUT = ["user", "repo"] as const;
 
-const REPO: ConsoleEntityRef & { readonly kind: "repo" } = { kind: "repo", id: "repo-1" };
+const REPO: EntityRef & { readonly kind: "repo" } = { kind: "repo", id: "repo-1" };
 
 describe("the inspector, over the checkout the session is holding", () => {
   it("parses an inspector address for a workspace and for a worktree", () => {
     for (const entityKind of CHECKOUT_ENTITY_KINDS) {
-      const entity = { kind: entityKind, id: `${entityKind}-1` } satisfies ConsoleEntityRef;
+      const entity = { kind: entityKind, id: `${entityKind}-1` } satisfies EntityRef;
 
-      expect(parseConsolePaneAddress("inspector", entity)).toStrictEqual({
+      expect(parsePaneAddress("inspector", entity)).toStrictEqual({
         kind: "inspector",
         entity,
       });
@@ -136,7 +133,7 @@ describe("the inspector, over the checkout the session is holding", () => {
     for (const entityKind of [...KINDS_WITHOUT_A_CHECKOUT, "run"]) {
       const entity = { kind: entityKind, id: `${entityKind}-1` };
 
-      expect(refusalFrom(parseConsolePaneAddress("inspector", entity)).code).toBe(
+      expect(refusalFrom(parsePaneAddress("inspector", entity)).code).toBe(
         "pane-entity-kind-mismatch",
       );
     }
@@ -146,9 +143,9 @@ describe("the inspector, over the checkout the session is holding", () => {
 describe("the diff pane, over the same checkout", () => {
   it("parses a diff address for a workspace and for a worktree", () => {
     for (const entityKind of CHECKOUT_ENTITY_KINDS) {
-      const entity = { kind: entityKind, id: `${entityKind}-1` } satisfies ConsoleEntityRef;
+      const entity = { kind: entityKind, id: `${entityKind}-1` } satisfies EntityRef;
 
-      expect(parseConsolePaneAddress("diff", entity)).toStrictEqual({ kind: "diff", entity });
+      expect(parsePaneAddress("diff", entity)).toStrictEqual({ kind: "diff", entity });
     }
   });
 
@@ -159,18 +156,12 @@ describe("the diff pane, over the same checkout", () => {
     // @ts-expect-error a run owns no checkout, so no change set is drawn for it
     const runDiff: AddressArm<"diff"> = { kind: "diff", entity: RUN };
     expect(runDiff.entity.kind).toBe("run");
-    expect(refusalFrom(parseConsolePaneAddress("diff", RUN)).code).toBe(
-      "pane-entity-kind-mismatch",
-    );
-    expect(refusalFrom(parseConsolePaneAddress("diff", ARTIFACT)).code).toBe(
-      "pane-entity-kind-mismatch",
-    );
+    expect(refusalFrom(parsePaneAddress("diff", RUN)).code).toBe("pane-entity-kind-mismatch");
+    expect(refusalFrom(parsePaneAddress("diff", ARTIFACT)).code).toBe("pane-entity-kind-mismatch");
     for (const entityKind of KINDS_WITHOUT_A_CHECKOUT) {
       const entity = { kind: entityKind, id: `${entityKind}-1` };
 
-      expect(refusalFrom(parseConsolePaneAddress("diff", entity)).code).toBe(
-        "pane-entity-kind-mismatch",
-      );
+      expect(refusalFrom(parsePaneAddress("diff", entity)).code).toBe("pane-entity-kind-mismatch");
     }
   });
 });

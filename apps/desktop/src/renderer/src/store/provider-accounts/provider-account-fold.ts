@@ -77,7 +77,7 @@ export interface ProviderQuotaReading {
 export function remainingPercentOf(reading: ProviderQuotaReading): number {
   // Floored at zero for the same reason the used figure is NOT clamped: the wire may
   // report over-consumption against a soft limit, which is a true reading to show,
-  // while a negative remainder is an arithmetic artefact rather than a quota.
+  // while a negative remainder is an arithmetic artifact rather than a quota.
   return Math.max(0, 100 - reading.usedPercent);
 }
 
@@ -164,13 +164,13 @@ const NO_READINGS: readonly ProviderQuotaReading[] = Object.freeze([]);
  * handed out by a caller could be reused, and a reused ordinal makes an exact-tie
  * comparison answer differently depending on who asked.
  */
-export class ProviderQuotaFold {
+export class ProviderAccountFold {
   readonly #accountsById = new Map<string, ProviderAccount>();
   readonly #windowsByKey = new Map<string, HeldQuotaWindow>();
   #nextArrivalOrdinal = 0;
 
   /** Record an account whole. The registry sends state, not deltas. */
-  public seatAccount(account: ProviderAccount): void {
+  public putAccount(account: ProviderAccount): void {
     this.#accountsById.set(account.accountId, account);
   }
 
@@ -192,7 +192,7 @@ export class ProviderQuotaFold {
   }
 
   /** Merge one reading under its `(accountId, limitId)` key, and say what that did. */
-  public mergeWindow(usageWindow: ProviderAccountUsageWindow): UsageWindowMergeDisposition {
+  public mergeUsageWindow(usageWindow: ProviderAccountUsageWindow): UsageWindowMergeDisposition {
     const key = quotaKey(usageWindow.accountId, usageWindow.limitId);
     const held = this.#windowsByKey.get(key);
     const arrivalOrdinal = this.#nextArrivalOrdinal;
@@ -220,7 +220,7 @@ export class ProviderQuotaFold {
       if (account === undefined) {
         // A reading whose account the registry does not carry is dropped rather than
         // rendered under its opaque id: the chip's first word is whose quota this is,
-        // and an id nobody chose answers that question with a value nobody recognises.
+        // and an id nobody chose answers that question with a value nobody recognizes.
         continue;
       }
       readings.push(readingFor(held.usageWindow, account));

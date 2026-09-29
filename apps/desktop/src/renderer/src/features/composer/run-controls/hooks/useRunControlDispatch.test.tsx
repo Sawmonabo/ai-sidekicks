@@ -21,7 +21,7 @@
 import type { RunControlAck } from "@ai-sidekicks/contracts";
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { bridgeAnswering } from "@test/helpers/fixture-bridge.js";
 import {
   RunControlDispatcher,
@@ -38,7 +38,7 @@ import {
 } from "../run-control-commands.test-support.js";
 
 /** A bridge is only the subject the surface's state belongs to: no case calls through it. */
-function answeringNothing(): ConsoleBridge {
+function answeringNothing(): PlatformBridge {
   return bridgeAnswering(async () => undefined).bridge;
 }
 

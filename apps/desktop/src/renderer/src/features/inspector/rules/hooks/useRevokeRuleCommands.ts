@@ -11,8 +11,8 @@
 
 import { useMemo } from "react";
 
-import { useConsoleCommandSeat } from "@renderer/registries/commands/hooks/useRegisterCommands.js";
-import { type ConsoleCommand } from "@renderer/registries/commands/command-types.js";
+import { useRegisterCommands } from "@renderer/registries/commands/hooks/useRegisterCommands.js";
+import { type CommandDefinition } from "@renderer/registries/commands/command-types.js";
 import { useLatestRef } from "@renderer/console/primitives/index.js";
 import {
   REVOKE_RULE_COMMAND_OWNER,
@@ -53,14 +53,14 @@ export function useRevokeRuleCommands(input: RevokeRuleCommandInput): void {
     [signature, inputRef],
   );
 
-  useConsoleCommandSeat(REVOKE_RULE_COMMAND_OWNER, commands);
+  useRegisterCommands(REVOKE_RULE_COMMAND_OWNER, commands);
 }
 
 /** One command, reading everything that moves through the ref at invoke time. */
 function buildRevokeCommand(
   row: RevokeRuleCommandRow,
   inputRef: React.RefObject<RevokeRuleCommandInput>,
-): ConsoleCommand {
+): CommandDefinition {
   return {
     id: `approvals.ruleRevoke.${row.ruleId}`,
     title: row.title,

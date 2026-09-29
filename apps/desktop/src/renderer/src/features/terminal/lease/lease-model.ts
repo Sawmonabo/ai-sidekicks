@@ -7,14 +7,14 @@
 // the surface settles into, and which transitions the ledger keeps.
 //
 // This module has one hard rule: **the holder is a wire field and is never derived
-// from the last observed claim**. So nothing here reads the outcome of a
+// from the last observed take**. So nothing here reads the outcome of a
 // `session.takeControl` call.
 // The lease state is a fold over `pty.control_changed` events — the registered
 // event type whose payload carries the holder, the holder it replaced, and the
-// reason — and a claim the console made changes the surface only when the
+// reason — and a take the console made changes the surface only when the
 // transition it caused comes back on the log.
 //
-// That is not fastidiousness. A claim that succeeds and a claim whose broadcast
+// That is not fastidiousness. A take that succeeds and a take whose broadcast
 // the console never received look identical at the call site, and only one of
 // them means the person may type. An optimistic surface would show a keyboard to
 // somebody who does not hold the shell.
@@ -26,7 +26,7 @@
 // state. A class holding the fold's result beside the store would be a second
 // source of truth for a fact the log already orders.
 
-import type { ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
+import type { ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 import { TERMINAL_LEASE_HISTORY_CAP } from "../terminal-caps.js";
 import {
   TERMINAL_LEASE_EVENT_KIND,
@@ -126,7 +126,7 @@ export const UNREAD_TERMINAL_LEASE: TerminalLeaseState = {
  * current state again, and the state it understands is that transition's.
  */
 export function projectTerminalLease(
-  events: readonly ConsoleSessionEvent[],
+  events: readonly ProjectedSessionEvent[],
   input: TerminalLeaseProjectionInput,
 ): TerminalLeaseState {
   const transitions: TerminalLeaseTransition[] = [];

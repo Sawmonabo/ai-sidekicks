@@ -4,7 +4,7 @@
 // `DiffLine.segments` carries the line's TEXT, as one whole-line segment. jsdiff is
 // adopted for parse and intraline compute over patch bytes; this family own-builds the
 // row renderer and its virtualization. The word-level SPLIT of that text is derived per
-// rendered row by `intraline-segment-cache.ts` — bounded, memoised, and never at parse time,
+// rendered row by `intraline-segment-cache.ts` — bounded, memoized, and never at parse time,
 // because computing every pair up front costs the whole change set before the
 // virtualizer has placed a row.
 
@@ -129,7 +129,7 @@ export interface DiffFile {
 }
 
 /** A whole diff, as the pane and the inline card render it. */
-export interface ConsoleDiffModel {
+export interface DiffModel {
   /** Wire-verbatim compared states. */
   readonly baseRef: string;
   readonly headRef: string;

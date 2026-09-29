@@ -5,7 +5,7 @@
 // to be correct. It is the negative control the re-open redesign owes — the shape
 // whose defect the redesign exists to remove — so a case can put the two side by side
 // on one seam and show that they diverge. A control that only describes the old
-// behaviour in a comment proves nothing the day someone reintroduces it.
+// behavior in a comment proves nothing the day someone reintroduces it.
 //
 // THE DEFECT, IN THREE LINES. `start()` marked the model started BEFORE the subscribe
 // attempt; the refusal arm settled `failed` and returned without clearing that mark;
@@ -27,10 +27,10 @@
 // to subscribe and whether the refusal ever stopped being the answer, and neither
 // needs the parts left out.
 
-import type { ConsoleRefusal } from "@renderer/lib/refusal.js";
+import type { Refusal } from "@renderer/lib/refusal.js";
 import { type PushDrivenReadState } from "./push-driven-read.js";
 import { SUBSCRIBE_FAILED } from "@renderer/lib/reads/read-failure-codes.js";
-import { consoleRefusalFrom } from "@renderer/lib/coerce-to-refusal.js";
+import { coerceToRefusal } from "@renderer/lib/coerce-to-refusal.js";
 
 /** What the control is built over: the two seam arms the old open touched. */
 export interface LatchedOpenOptions {
@@ -89,6 +89,6 @@ export class LatchedOnceOpen {
 }
 
 /** The same conversion the real seam performs, so the two refusals are comparable. */
-function refusalFrom(subscriptionFailure: unknown, origin: string): ConsoleRefusal {
-  return consoleRefusalFrom(subscriptionFailure, origin, SUBSCRIBE_FAILED);
+function refusalFrom(subscriptionFailure: unknown, origin: string): Refusal {
+  return coerceToRefusal(subscriptionFailure, origin, SUBSCRIBE_FAILED);
 }

@@ -26,13 +26,13 @@
 
 import { type TimelineRow } from "@ai-sidekicks/contracts";
 
-import { type ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
+import { type ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 import {
   ChildRunIndex,
   type ChildRunEntry,
   type HandoffEntry,
 } from "../dispatches/child-run-entries.js";
-import { projectFixtureShellRows } from "../projection/transcript-row-projection.js";
+import { projectTranscriptRows } from "../projection/transcript-row-projection.js";
 import { RunGroupIndex, type RunGroup } from "../run-groups/run-groups.js";
 import { SupersededIndex, type SupersededBand } from "../superseded/superseded-bands.js";
 import {
@@ -53,7 +53,7 @@ import { TranscriptRowRetention } from "./row-retention.js";
  * separated and thrown away.
  *
  * AND `removedRows` IS IDENTITY-STABLE WHERE A STAGE REMOVED NOTHING, which is what
- * makes the common ledger free rather than merely cheaper: a consumer's memo over
+ * makes the common transcript free rather than merely cheaper: a consumer's memo over
  * {@link NO_ROWS_REMOVED} does not re-run at all when the log grows.
  */
 export interface TranscriptPipelineStage {
@@ -71,7 +71,7 @@ export interface TranscriptPipelineStage {
  */
 export const NO_ROWS_REMOVED: readonly TimelineRow[] = [];
 
-/** Everything one render of the ledger needs, derived once per store revision. */
+/** Everything one render of the transcript needs, derived once per store revision. */
 export interface TranscriptWindowModel {
   /** The virtualizer's identity list. Memoized: the viewport keys its reconcile on it. */
   readonly viewportRows: readonly ViewportRow[];
@@ -82,27 +82,27 @@ export interface TranscriptWindowModel {
   /**
    * The rewound band behind each band header row, keyed by the band key the header IS.
    *
-   * Every band in the window has an entry, folded or open, for the chapter header's
+   * Every band in the window has an entry, folded or open, for the run group header's
    * reason: the control that folds a band back is on its own header, so a header
    * whose band is open still has to render.
    */
   readonly supersededBandByHeaderKey: ReadonlyMap<string, SupersededBand>;
   /** Which band each superseded row belongs to — the fold's per-row question. */
   readonly supersededBandKeyByRowId: ReadonlyMap<string, string>;
-  /** Which rows are collapsed, under rule 7's terminal-chapter fold. */
+  /** Which rows are collapsed, under rule 7's terminal run group fold. */
   readonly collapsedRowIds: ReadonlySet<string>;
   /**
-   * The chapter behind each header row, keyed by the run id the header IS.
+   * The run group behind each header row, keyed by the run id the header IS.
    *
-   * Every terminal chapter has an entry, whether it is folded or open: a header a
+   * Every terminal run group has an entry, whether it is folded or open: a header a
    * person opened still renders, because the control that folds it back is on it.
-   * A live chapter has none — it draws no header, its rows are top-level, and the
+   * A live run group has none — it draws no header, its rows are top-level, and the
    * fold below never touches it.
    */
-  readonly chapterByHeaderKey: ReadonlyMap<string, RunGroup>;
+  readonly runGroupByHeaderKey: ReadonlyMap<string, RunGroup>;
   /**
    * The seam behind each row that is one — the lookup the feed's row renderer
-   * consults BEFORE it delegates to the timeline row seat.
+   * consults BEFORE it delegates to the transcript row seat.
    *
    * The ONE form a seam is published in. The classifier's log-order pass is kept as a
    * local that feeds this map and is not carried on the model beside it: a second
@@ -113,7 +113,7 @@ export interface TranscriptWindowModel {
   readonly seamByRowId: ReadonlyMap<string, SystemMessageReading>;
   /**
    * The child-run summary behind each row that carries one — the second lookup the
-   * feed's row renderer consults before it delegates to the timeline row seat.
+   * feed's row renderer consults before it delegates to the transcript row seat.
    *
    * Anchored: a child re-summarized as it progresses has ONE entry, at the row that
    * first named it, so its card stays where a reader left it — and that entry carries
@@ -123,7 +123,7 @@ export interface TranscriptWindowModel {
   readonly childRunEntryByRowId: ReadonlyMap<string, ChildRunEntry>;
   /** The handoff behind each row that is one, on the same dispatch. */
   readonly handoffEntryByRowId: ReadonlyMap<string, HandoffEntry>;
-  /** The rows in log order, for find and the chapter fold. */
+  /** The rows in log order, for find and the run group fold. */
   readonly rows: readonly TimelineRow[];
   /**
    * Whether the store recorded sequences it never received.
@@ -138,7 +138,7 @@ export interface TranscriptWindowModel {
 }
 
 /**
- * The chapter a row hangs from, or `undefined` for a top-level row.
+ * The run group a row hangs from, or `undefined` for a top-level row.
  *
  * Read off the arm rather than off the payload: `kind` is the discriminator the
  * contract guarantees, and three of the four arms carry `runId` structurally while
@@ -154,18 +154,18 @@ export function readRunGroupKey(row: TimelineRow): string | undefined {
  * Exported beside the hook so the fold can be driven by a test and by the bench tier
  * with no store and no React at all — `groupRowsByRun`' own precedent, for its reason.
  */
-export function deriveLedgerWindow(
-  timeline: readonly ConsoleSessionEvent[],
+export function deriveTranscriptWindow(
+  timeline: readonly ProjectedSessionEvent[],
   hasUnreceivedEntries: boolean,
   retention: TranscriptRowRetention = new TranscriptRowRetention(),
 ): TranscriptWindowModel {
-  const projection = projectFixtureShellRows(timeline);
+  const projection = projectTranscriptRows(timeline);
   // BEFORE the indexes below read a row, so every one of them — and the feed, and
   // every memo under it — sees the object this window is actually publishing. A
   // fresh retention retains nothing, which is exactly what a one-shot caller wants.
   retention.beginPass();
   const rows = projection.rows.map((row) => retention.retainRow(row));
-  const chapterIndex = new RunGroupIndex(rows);
+  const runGroupIndex = new RunGroupIndex(rows);
   const supersededIndex = new SupersededIndex(rows);
   // The seam vocabulary has one classifier; this is the instance that reads the whole
   // log. Its log-order pass is a LOCAL and reaches the model only as the map keyed
@@ -191,34 +191,34 @@ export function deriveLedgerWindow(
     supersededRowIds,
     supersededBandByHeaderKey: supersededIndex.bandByHeaderKey(),
     supersededBandKeyByRowId: supersededIndex.bandKeyByRowId(),
-    collapsedRowIds: collapsedRowIdsOf(chapterIndex),
-    chapterByHeaderKey: new Map(
-      chapterIndex.terminalChapters().map((chapter) => [chapter.runId, chapter]),
+    collapsedRowIds: collapsedRowIdsOf(runGroupIndex),
+    runGroupByHeaderKey: new Map(
+      runGroupIndex.terminalRunGroups().map((runGroup) => [runGroup.runId, runGroup]),
     ),
     seamByRowId: new Map(seams.map((seam) => [seam.rowId, seam])),
     childRunEntryByRowId: childRunIndex.childRunEntryByRowId(),
     handoffEntryByRowId: childRunIndex.handoffEntryByRowId(),
     rows,
     hasUnreceivedEntries,
-    // A chapter with no terminal is a run the log has not seen end. That is the
+    // A run group with no terminal is a run the log has not seen end. That is the
     // same question the viewport asks before it prunes, and it is answered from the
     // fold that already exists rather than from a second read of the run partition.
-    hasActiveTurn: chapterIndex.chapters().length > chapterIndex.terminalChapters().length,
+    hasActiveTurn: runGroupIndex.runGroups().length > runGroupIndex.terminalRunGroups().length,
   };
 }
 
 /**
- * Which rows are collapsed: every row of a chapter that has reached a terminal.
+ * Which rows are collapsed: every row of a run group that has reached a terminal.
  *
- * Rule 7 in terms — "run chapters collapse once terminal and the live chapter stays
- * open" — asked of the chapter index's own `terminalChapters()` rather than
- * re-derived from a terminal event type here, so the fold that decides a chapter is
+ * Rule 7 in terms — "run groups collapse once terminal and the live run group stays
+ * open" — asked of the run group index's own `terminalRunGroups()` rather than
+ * re-derived from a terminal event type here, so the fold that decides a run group is
  * over and the fold that decides a row is collapsed are one fold.
  */
-function collapsedRowIdsOf(chapterIndex: RunGroupIndex): ReadonlySet<string> {
+function collapsedRowIdsOf(runGroupIndex: RunGroupIndex): ReadonlySet<string> {
   const collapsed = new Set<string>();
-  for (const chapter of chapterIndex.terminalChapters()) {
-    for (const rowId of chapter.rowIds) {
+  for (const runGroup of runGroupIndex.terminalRunGroups()) {
+    for (const rowId of runGroup.rowIds) {
       collapsed.add(rowId);
     }
   }

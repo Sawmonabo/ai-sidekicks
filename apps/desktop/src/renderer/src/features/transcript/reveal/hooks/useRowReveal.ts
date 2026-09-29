@@ -12,7 +12,7 @@ const NO_REVEAL_SUBSCRIPTION: Unsubscribe = () => {};
  * `undefined` when the row is not a lane, when no lane by that name has been seen, or
  * outside a transcript: in each case there is no live text, so the stored body applies.
  */
-export function useLedgerRowReveal(laneId: string | undefined): string | undefined {
+export function useRowReveal(laneId: string | undefined): string | undefined {
   const channel = useContext(RowRevealContext);
   const subscribe = useCallback(
     (onChange: () => void): Unsubscribe =>

@@ -8,9 +8,9 @@
 
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { withDaemonCall, type BridgeUnderTest } from "@test/helpers/fixture-bridge.js";
-import type { ConsoleScenario } from "../../../../../../../fixtures/scenario.js";
+import type { Scenario } from "../../../../../../../fixtures/scenario.js";
 import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
 import type { FirstTurnQueueCall } from "@renderer/console/seats/index.js";
 import { NewSessionControl } from "./NewSessionControl.js";
@@ -45,14 +45,14 @@ export const REJECTING_FIRST_TURN: FirstTurnQueueCall = () =>
 
 /** A bridge whose `session.create` is held open, and the handle that lets it answer. */
 export interface HeldCreate {
-  readonly bridge: ConsoleBridge;
+  readonly bridge: PlatformBridge;
   /** Lets the held `session.create` settle on the registered reply. */
   readonly answer: () => void;
 }
 
 /** Several suspended creates at once, and the handle that answers them in order. */
 export interface QueuedCreates {
-  readonly bridge: ConsoleBridge;
+  readonly bridge: PlatformBridge;
   /** Lets the OLDEST still-suspended create proceed to the fixture's reply. */
   readonly answerOldest: () => void;
   readonly pendingCount: () => number;
@@ -83,11 +83,11 @@ export function completingFirstTurn(): {
  * A bridge whose `session.create` answers, or one whose does not.
  *
  * The fixture bridge rather than a hand-written stub: the draft calls through
- * `bridge.desktopBridge.daemon.call`, and a stub of that member would be a second
+ * `bridge.daemon.call`, and a stub of that member would be a second
  * implementation of the one door this family's tests already have.
  */
-export function bridgeFor(options: { readonly scriptsCreate: boolean }): ConsoleBridge {
-  const scenario: ConsoleScenario = {
+export function bridgeFor(options: { readonly scriptsCreate: boolean }): PlatformBridge {
+  const scenario: Scenario = {
     id: "new-session-control",
     label: "New session control",
     purpose: "Drives the composed-draft control's create call.",
@@ -111,7 +111,7 @@ export function bridgeFor(options: { readonly scriptsCreate: boolean }): Console
  * otherwise.
  */
 export function renderControlOn(
-  bridge: ConsoleBridge,
+  bridge: PlatformBridge,
   options: {
     readonly onSessionCreated?: (sessionId: string) => void;
     readonly onSessionDirectoryRecheck?: () => void;
@@ -136,14 +136,14 @@ export function renderControl(options: { readonly scriptsCreate: boolean }): HTM
 }
 
 /**
- * A bridge whose `session.create` fulfils with a reply the registered schema refuses.
+ * A bridge whose `session.create` fulfills with a reply the registered schema refuses.
  *
  * Short of `state`, so the call door answers
  * `reply-unreadable` — the daemon was reached, ran, and answered, and only this
  * build's reading of what it said failed. That is the state a session may exist in
  * with no name this window holds.
  */
-export function bridgeAnsweringCreateUnreadably(): ConsoleBridge {
+export function bridgeAnsweringCreateUnreadably(): PlatformBridge {
   const { bridge } = withDaemonCall(bridgeFor({ scriptsCreate: true }), async () => ({
     sessionId: CREATED_SESSION_ID,
   }));

@@ -131,8 +131,8 @@ describe("the registry projection — what a row carries", () => {
   });
 
   it("carries both timestamps verbatim rather than through a clock format", () => {
-    // A saved record's instants span days, and the console's ledger clock format
-    // drops the date because a ledger has a day divider. This list has none, so a
+    // A saved record's instants span days, and the console's transcript clock format
+    // drops the date because a transcript has a day divider. This list has none, so a
     // formatted reading would be wrong rather than merely terse.
     const [row] = projectDefinitionRows([definition()]);
     expect(row?.axes.find((axis) => axis.key === "created")?.reading).toBe(

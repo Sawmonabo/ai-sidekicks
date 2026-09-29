@@ -1,7 +1,7 @@
-/* The settings surface's own styles: the rail, the search field, and the pane.
+/* The settings screen's own styles: the rail, the search field, and the pane.
  *
  * A page body's chrome is `shared/settings-page.css` and a page's own controls are
- * that page's sibling sheet, so this file holds only what `SettingsSurface` itself
+ * that page's sibling sheet, so this file holds only what `SettingsScreen` itself
  * draws. Every value is a Meridian token.
  */
 
@@ -30,7 +30,7 @@
  * since a sticky rail above a stacked pane would hold the narrowest screen's
  * scarcest resource — vertical room — for a list a person has finished with.
  *
- * 60rem is the point `agents/definitions/agent-definitions-page.css` already
+ * 60rem is the point `features/agents/library/agent-library.css` already
  * collapses at. This surface joins it rather than declaring a second one: the
  * console's breakpoint story is one floor and one collapse point, and a third
  * number here would make it neither.

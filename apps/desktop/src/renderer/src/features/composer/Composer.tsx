@@ -1,6 +1,6 @@
 // The composer: the shell chrome every session view contains, and the seat's body.
 //
-// The workspace mounts whatever fills the composer seat; this file is what fills it.
+// The session screen mounts whatever fills the composer seat; this file is what fills it.
 //
 // WHAT THIS FILE IS, AND WHAT IT IS NOT
 //
@@ -41,7 +41,7 @@
 
 import { useId, useRef } from "react";
 
-import { type ComposerSeatProps } from "@renderer/console/seats/index.js";
+import { type ComposerProps } from "@renderer/console/seats/index.js";
 import { useSubjectScopedResource } from "@renderer/hooks/subject-scoped/useSubjectScopedResource.js";
 import { type SubjectScopedDisposal } from "@renderer/lib/subject-scoped/subject-scoped-disposal.js";
 import { ComposerToolbar } from "./components/ComposerToolbar.js";
@@ -61,7 +61,7 @@ function openEnumeration(): ProviderCommandEnumeration {
  *
  * It drops the open key, supersedes whatever read was outstanding, and publishes the
  * unchecked reading — after which `open()` reads again exactly as it did before. So
- * there is no closed state to recognise and none to supply: a `{ dispose, isClosed }`
+ * there is no closed state to recognize and none to supply: a `{ dispose, isClosed }`
  * here would claim a lifetime that ends, and the reading beside it would have to be a
  * constant `false`, which is a claim written down twice and true in neither place.
  *
@@ -83,7 +83,7 @@ const enumerationDisposal: SubjectScopedDisposal<ProviderCommandEnumeration> = {
  * announce identically in both. The label stays short for the sighted reader who
  * has the window's own chrome to tell them apart.
  */
-export function MessageComposer(props: ComposerSeatProps): React.JSX.Element {
+export function MessageComposer(props: ComposerProps): React.JSX.Element {
   const descriptionId = useId();
   const regionRef = useRef<HTMLElement | null>(null);
   // One per addressed composer, and its lifetime is that address's: the enumeration is

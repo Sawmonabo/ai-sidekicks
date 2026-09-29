@@ -20,7 +20,7 @@ describe("the lease fold — what the wire said, and only that", () => {
     const state = projectTerminalLease([], { thisDeviceId: THIS_DEVICE_ID });
     expect(state).toStrictEqual(UNREAD_TERMINAL_LEASE);
     // The whole point of the fifth state: an unread lease and a free one are two
-    // different facts, and a surface that collapsed them would offer a claim
+    // different facts, and a surface that collapsed them would offer a take
     // against a shell it has never asked about as though it knew it was free.
     expect(state.holding).not.toBe("unheld");
   });

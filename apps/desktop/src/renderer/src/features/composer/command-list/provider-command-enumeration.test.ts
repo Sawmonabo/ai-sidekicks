@@ -7,7 +7,7 @@
 
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { ProviderCommandEnumeration } from "./provider-command-enumeration.js";
 import { useProviderCommandEnumeration } from "./hooks/useProviderCommandEnumeration.js";
 import {
@@ -20,7 +20,7 @@ import {
 } from "./provider-command-enumeration.test-support.js";
 import type { RecordedDaemonCall } from "@test/helpers/fixture-bridge.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
-import { COMPOSER_SCENARIO } from "../../../../../../fixtures/scenarios/waiting-for-input.js";
+import { WAITING_FOR_INPUT_SCENARIO } from "../../../../../../fixtures/scenarios/waiting-for-input.js";
 import { settleEnumeration } from "./provider-command-read.js";
 
 describe("ProviderCommandEnumeration — one reading, two readers", () => {
@@ -137,7 +137,7 @@ describe("ProviderCommandEnumeration — one reading, two readers", () => {
 
 describe("ProviderCommandEnumeration — the bridge is part of which binding this is", () => {
   it("re-reads when the bridge is replaced under the same session and agent", async () => {
-    // `DesktopBridgeProvider` can swap its bridge while the composer stays addressed
+    // `PlatformBridgeProvider` can swap its bridge while the composer stays addressed
     // where it was. A key of session and agent alone reads that as "nothing moved" and
     // serves the previous wire's catalog, which is exactly the routing invariant the
     // enumeration exists to keep.
@@ -146,7 +146,7 @@ describe("ProviderCommandEnumeration — the bridge is part of which binding thi
     const secondBridge = recordingBridge(recorded);
     const enumeration = new ProviderCommandEnumeration();
     const { result, rerender } = renderHook(
-      (bridge: ConsoleBridge) =>
+      (bridge: PlatformBridge) =>
         useProviderCommandEnumeration({
           enumeration,
           bridge,
@@ -181,7 +181,7 @@ describe("ProviderCommandEnumeration — the bridge is part of which binding thi
     const secondBridge = recordingBridge(recorded);
     const enumeration = new ProviderCommandEnumeration();
     const { rerender } = renderHook(
-      (bridge: ConsoleBridge) =>
+      (bridge: PlatformBridge) =>
         useProviderCommandEnumeration({
           enumeration,
           bridge,
@@ -219,7 +219,7 @@ describe("ProviderCommandEnumeration — the bridge is part of which binding thi
     const bridge = recordingBridge(recorded);
     const enumeration = new ProviderCommandEnumeration();
     const { rerender } = renderHook(
-      (bridgeForRender: ConsoleBridge) =>
+      (bridgeForRender: PlatformBridge) =>
         useProviderCommandEnumeration({
           enumeration,
           bridge: bridgeForRender,
@@ -260,7 +260,7 @@ describe("settleEnumeration — the round's signal reaches the call door", () =>
 
     const settled = await settleEnumeration(
       bridge,
-      COMPOSER_SCENARIO.sessionId,
+      WAITING_FOR_INPUT_SCENARIO.sessionId,
       FIRST_AGENT,
       overLine.signal,
     );
@@ -278,7 +278,7 @@ describe("settleEnumeration — the round's signal reaches the call door", () =>
 
     const settled = await settleEnumeration(
       bridge,
-      COMPOSER_SCENARIO.sessionId,
+      WAITING_FOR_INPUT_SCENARIO.sessionId,
       FIRST_AGENT,
       liveLine.signal,
     );

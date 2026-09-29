@@ -10,12 +10,12 @@
 //
 //   • **Live status** — the subscription handed in as an argument.
 //   • **Focus** — installed beside the read by the component that owns its lifetime.
-//   • **Reconnect** — the console's one transport signal, off `ConsoleBridge`.
+//   • **Reconnect** — the console's one transport signal, off `PlatformBridge`.
 //
 // There is deliberately no timer: the live-status subscription is the update channel,
 // so nothing above the daemon polls.
 
-import type { ConsoleClock } from "@renderer/lib/clock.js";
+import type { Clock } from "@renderer/lib/clock.js";
 import type { Unsubscribe } from "@renderer/lib/emitter.js";
 import type { McpServerInventoryEntry } from "@ai-sidekicks/contracts";
 import { PushDrivenRead } from "@renderer/console/seats/index.js";
@@ -46,7 +46,7 @@ export type SubscribeMcpInventoryChanges = (onChange: () => void) => Unsubscribe
 export function createMcpInventoryRead(options: {
   readonly listInventory: ListMcpInventory;
   readonly subscribeInventoryChanges: SubscribeMcpInventoryChanges;
-  readonly clock: ConsoleClock;
+  readonly clock: Clock;
 }): McpInventoryRead {
   const { listInventory, subscribeInventoryChanges, clock } = options;
   return new PushDrivenRead<McpInventory>({

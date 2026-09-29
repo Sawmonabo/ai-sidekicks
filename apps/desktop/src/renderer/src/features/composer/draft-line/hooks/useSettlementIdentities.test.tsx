@@ -11,8 +11,8 @@ import { act, render, screen } from "@testing-library/react";
 import { Suspense, startTransition, useState } from "react";
 import { describe, expect, it } from "vitest";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
-import { COMPOSER_SCENARIO } from "../../../../../../../fixtures/scenarios/waiting-for-input.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
+import { WAITING_FOR_INPUT_SCENARIO } from "../../../../../../../fixtures/scenarios/waiting-for-input.js";
 import { useSettlementIdentities, type SettlementIdentities } from "./useSettlementIdentities.js";
 
 /** A promise that never settles, so a component reading it suspends for the test. */
@@ -34,7 +34,7 @@ function SuspendsWhenAsked(props: { readonly suspend: boolean }): React.JSX.Elem
  * a transition is a transition.
  */
 function ComposerHost(props: {
-  readonly bridge: ConsoleBridge;
+  readonly bridge: PlatformBridge;
   readonly seen: { current: SettlementIdentities | undefined };
   readonly readdress: { current: (() => void) | undefined };
 }): React.JSX.Element {
@@ -59,7 +59,7 @@ describe("the settlement mirrors move at the commit", () => {
     const readdress: { current: (() => void) | undefined } = { current: undefined };
     render(
       <ComposerHost
-        bridge={createFixtureBridge({ scenario: COMPOSER_SCENARIO })}
+        bridge={createFixtureBridge({ scenario: WAITING_FOR_INPUT_SCENARIO })}
         seen={seen}
         readdress={readdress}
       />,
@@ -90,7 +90,7 @@ describe("the settlement mirrors move at the commit", () => {
     const readdress: { current: (() => void) | undefined } = { current: undefined };
     render(
       <ComposerHost
-        bridge={createFixtureBridge({ scenario: COMPOSER_SCENARIO })}
+        bridge={createFixtureBridge({ scenario: WAITING_FOR_INPUT_SCENARIO })}
         seen={seen}
         readdress={readdress}
       />,
@@ -115,7 +115,7 @@ describe("the settlement mirrors move at the commit", () => {
     const readdress: { current: (() => void) | undefined } = { current: undefined };
     render(
       <ComposerHost
-        bridge={createFixtureBridge({ scenario: COMPOSER_SCENARIO })}
+        bridge={createFixtureBridge({ scenario: WAITING_FOR_INPUT_SCENARIO })}
         seen={seen}
         readdress={readdress}
       />,

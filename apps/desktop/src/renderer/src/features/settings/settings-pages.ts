@@ -13,7 +13,7 @@ import { createElement } from "react";
 
 import { KeyedRegistry } from "@renderer/lib/keyed-registry.js";
 import { scoreSubsequence } from "@ai-sidekicks/search-ranking";
-import { LoadedLazyBody, type LazyBodyLoader } from "@renderer/console/seats/index.js";
+import { LoaderBackedBody, type LazyBodyLoader } from "@renderer/console/seats/index.js";
 import { PendingSettingsPage } from "./components/PendingSettingsPage.js";
 import { AppearancePage } from "./pages/appearance/AppearancePage.js";
 import { GeneralPage } from "./pages/general/GeneralPage.js";
@@ -46,15 +46,15 @@ export interface SettingsPageDescriptor {
 /**
  * One entry of the page table, in one of exactly two forms.
  *
- * THE DECK'S AND THE FRAME'S OWN UNION, applied to a rail section, decided by the same
- * product fact and normalized by the same `LoadedLazyBody`. `seats/pane/pane-registry.ts`
+ * THE PANE LAYOUT'S AND THE FRAME'S OWN UNION, applied to a rail section, decided by the same
+ * product fact and normalized by the same `LoaderBackedBody`. `seats/pane/pane-registry.ts`
  * states the reasoning; what makes it apply here is that a settings page is not painted
  * before a person acts — settings is a destination somebody navigates to, and a section
  * inside it is a second act after that.
  *
  * IT IS NOT MERELY A SIZE QUESTION, and the case that forced this arm shows why. The
  * agent definitions page's body is the AGENTS family's, and that family's door is imported
- * EAGERLY by `app/registrations.ts` for the agent console's pane registration. So
+ * EAGERLY by `app/registrations.ts` for the Agents pane's pane registration. So
  * while this registry took only a `render`, the registration site had to reach the page
  * through that door, and the bundler — which assigns a module reachable both statically
  * and dynamically to the static chunk — put the page and its stylesheet on the initial
@@ -89,7 +89,7 @@ export interface SettingsPageMatch {
  * A second claim on a section by a different owner throws rather than replacing it.
  */
 export class SettingsPageRegistry {
-  // `"owner-scoped"`, for `seats/surface/surface-registry.ts`'s reason: a hot reload re-runs
+  // `"owner-scoped"`, for `registries/screens/screen-registry.ts`'s reason: a hot reload re-runs
   // the owner's module and must replace, while two owners on one section is a
   // conflict rather than a swap decided by module import order.
   readonly #descriptorsBySection = new KeyedRegistry<SettingsPageId, SettingsPageDescriptor>({
@@ -106,13 +106,16 @@ export class SettingsPageRegistry {
    * reason: the descriptor is what every mount site reads and none of them has business
    * knowing whether the page it is about to render arrived as a chunk.
    */
-  readonly #loadedBodiesBySection = new Map<SettingsPageId, LoadedLazyBody<SettingsPageContext>>();
+  readonly #loadedBodiesBySection = new Map<
+    SettingsPageId,
+    LoaderBackedBody<SettingsPageContext>
+  >();
 
   /**
    * Claim a section. A second claim by a different owner is an error, not a swap.
    *
-   * A loader-form registration is normalized here exactly as the deck's and the frame's
-   * boards normalize theirs: one `LoadedLazyBody` per registration — one memoised promise
+   * A loader-form registration is normalized here exactly as the pane layout's and the frame's
+   * boards normalize theirs: one `LoaderBackedBody` per registration — one memoized promise
    * and one stable lazy component — and a descriptor whose `render` mounts it. So
    * `descriptorFor` answers the same shape for both forms, `entries` ranks both the same
    * way, and neither `SettingsPane` nor the search index branches on how a body arrived.
@@ -140,7 +143,7 @@ export class SettingsPageRegistry {
     // The fallback is the page region's own empty reservation, supplied here rather than
     // by the generic machinery: what a settings page reserves while it loads is a
     // settings-shaped question, and the pane above it has already drawn the heading.
-    const loadedBody = new LoadedLazyBody(registration.body, () =>
+    const loadedBody = new LoaderBackedBody(registration.body, () =>
       createElement(PendingSettingsPage, { section: registration.section }),
     );
     this.#descriptorsBySection.register(registration.section, {
@@ -154,7 +157,7 @@ export class SettingsPageRegistry {
    * Start this section's body loading, without opening it.
    *
    * The two `seats/` boards' `preload`: idempotent by construction, because the promise
-   * is memoised on the registration, and a component-form or unregistered section settles
+   * is memoized on the registration, and a component-form or unregistered section settles
    * immediately with nothing to do — so a caller never has to ask first whether a section
    * is loader-backed.
    *

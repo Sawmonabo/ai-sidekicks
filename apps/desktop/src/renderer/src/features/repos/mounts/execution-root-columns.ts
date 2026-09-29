@@ -109,7 +109,7 @@ export type ColumnCell =
  * says cannot exist. Saying so is better than rendering `undefined` or throwing
  * inside a list row.
  */
-export const COLUMN_ABSENT_FALLBACK = "The daemon sent no value for this column.";
+export const COLUMN_ABSENT_FALLBACK = "The background service sent no value for this column.";
 
 /**
  * The optional-keyed copy tables, widened to a lookup over every column. Assignment

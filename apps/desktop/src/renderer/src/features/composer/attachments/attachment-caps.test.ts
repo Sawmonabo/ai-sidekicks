@@ -11,7 +11,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   ATTACHMENT_BYTE_CAP_DEFAULT,
-  ATTACHMENTS_PER_CARRIER_CAP_DEFAULT,
+  ATTACHMENTS_PER_MESSAGE_CAP_DEFAULT,
   INGEST_STALL_DISCLOSURE_MS,
   INGEST_STREAM_LIFETIME_CEILING_MS,
 } from "./attachment-caps.js";
@@ -21,7 +21,7 @@ const WIRE_MIRRORED_BOUNDS: readonly (readonly [string, number, number, number])
   // `max_attachment_ingest_bytes`: default 100 MB, operator-tunable 1 MB – 1 GB.
   ["ATTACHMENT_BYTE_CAP_DEFAULT", ATTACHMENT_BYTE_CAP_DEFAULT, 1024 * 1024, 1024 * 1024 * 1024],
   // `max_attachments_per_carrier`: default 10, operator-tunable 1 – 50.
-  ["ATTACHMENTS_PER_CARRIER_CAP_DEFAULT", ATTACHMENTS_PER_CARRIER_CAP_DEFAULT, 1, 50],
+  ["ATTACHMENTS_PER_MESSAGE_CAP_DEFAULT", ATTACHMENTS_PER_MESSAGE_CAP_DEFAULT, 1, 50],
   // `max_ingest_stream_lifetime`: default 6 h, operator-tunable 1 – 24 h.
   [
     "INGEST_STREAM_LIFETIME_CEILING_MS",

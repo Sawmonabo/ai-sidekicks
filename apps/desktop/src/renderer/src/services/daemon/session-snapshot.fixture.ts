@@ -14,8 +14,8 @@
 // position derived from the scenario's beats, because a base state ahead of the stream
 // would make the store discard every beat below it; the subscription is
 // replay-then-tail, so nothing is missed by starting at the bottom. A re-read therefore
-// lands behind an initialised store's cursor and is a silent no-op, which is
-// `SessionStore.admitsSnapshotAt`'s documented behaviour and not a defect of this
+// lands behind an initialized store's cursor and is a silent no-op, which is
+// `SessionStore.admitsSnapshotAt`'s documented behavior and not a defect of this
 // derivation: repairing a degraded store needs a read that carries a position, and this
 // one cannot until the wire does.
 //
@@ -24,7 +24,7 @@
 // base state that filed rows of its own would be a second source of truth for them.
 
 import { scriptedSessionReadMember } from "./scripted-session-read.fixture.js";
-import type { ConsoleScenario } from "../../../../../fixtures/scenario.js";
+import type { Scenario } from "../../../../../fixtures/scenario.js";
 import { BASE_STATE_CURSOR, type SessionSnapshot } from "@renderer/store/session/session-state.js";
 
 /**
@@ -34,10 +34,7 @@ import { BASE_STATE_CURSOR, type SessionSnapshot } from "@renderer/store/session
  * rather than as a refusal — the read IS answered, and what it found for that session
  * is nothing.
  */
-export function fixtureSessionSnapshot(
-  scenario: ConsoleScenario,
-  sessionId: string,
-): SessionSnapshot {
+export function fixtureSessionSnapshot(scenario: Scenario, sessionId: string): SessionSnapshot {
   if (sessionId !== scenario.sessionId) {
     return { cursor: BASE_STATE_CURSOR, entities: [] };
   }

@@ -1,13 +1,14 @@
-// The three inline cards a ledger row can carry, and the seat each body fills.
+// The three inline cards a transcript row can carry, and the seat each body fills.
 //
-// These live in the timeline: a diff card expands to a height cap and then offers
+// These live in the transcript: a diff card expands to a height cap and then offers
 // "show all". A diff, an attachment, and a published artifact each render as a card
 // INSIDE a row rather than as a pane, because they belong to the turn that produced
 // them.
 //
-// TWO FAMILIES MEET HERE. The workspace family owns the ledger and renders the seat;
-// the repos family owns all three bodies. The ledger imports no body and the bodies
-// import no ledger.
+// FOUR FEATURES MEET HERE. The transcript renders the seat (`features/transcript/rows/
+// InlineCards.tsx`); the repos feature registers the diff body, the composer the
+// attachment body, and the inspector the artifact body. The transcript imports no body and
+// the bodies import no transcript.
 //
 // WHY THE PROPS CARRY IDENTITY AND NOTHING ELSE
 //
@@ -20,15 +21,15 @@
 // reference is registered, the local `InlineCardAttachmentRef` below is deleted and
 // the contract type imported in its place — one edit.
 
-import { ConsoleRefusalError, refuse } from "@renderer/lib/refusal.js";
+import { RefusalError, refuse } from "@renderer/lib/refusal.js";
 import { KeyedRegistry } from "@renderer/lib/keyed-registry.js";
-import { type ConsoleEntityRef } from "@renderer/lib/entity-kinds.js";
+import { type EntityRef } from "@renderer/lib/entity-kinds.js";
 
 /** The subsystem an inline-card refusal names as its author. */
 const INLINE_CARD_ORIGIN = "inline-card-seats";
 
 /**
- * Every kind of card a ledger row can carry. Closed.
+ * Every kind of card a transcript row can carry. Closed.
  *
  * The tuple is the declaration and the union is derived from it, for the reason
  * `seats/pane/pane-kinds.ts` gives about its own set.
@@ -108,7 +109,7 @@ export interface AttachmentInlineCardProps {
 /**
  * A reference to one entity in the console's `artifact` partition.
  *
- * `ConsoleEntityRef` narrowed to the one kind this card can render, EXTENDED from
+ * `EntityRef` narrowed to the one kind this card can render, EXTENDED from
  * it rather than restated: `id` keeps its single home, and `kind` is fixed to the
  * literal. The unnarrowed ref admits all twelve kinds, so a caller could hand the
  * artifact card a `run` reference and the body would look the row up in a partition
@@ -120,7 +121,7 @@ export interface AttachmentInlineCardProps {
  * boundary at which an untyped `kind` could arrive and nothing for a runtime check
  * to catch that the compiler has not already refused.
  */
-export interface ArtifactEntityRef extends ConsoleEntityRef {
+export interface ArtifactEntityRef extends EntityRef {
   readonly kind: "artifact";
 }
 
@@ -129,7 +130,7 @@ export interface ArtifactEntityRef extends ConsoleEntityRef {
  *
  * Carries an entity reference because `artifact` is already one of the console's
  * own entity kinds — the store partitions artifacts, and a second identity
- * vocabulary for the same rows would be the denormalised copy `store/entities/entities.ts`
+ * vocabulary for the same rows would be the denormalized copy `store/entities/entities.ts`
  * refuses. It carries the ARTIFACT-partitioned reference specifically, for the
  * reason on that type.
  */
@@ -141,7 +142,7 @@ export interface ArtifactInlineCardProps {
 /**
  * The props each card kind's body receives, declared once and indexed by kind.
  *
- * A map rather than three parallel declarations, so `InlineCardSeatProps` below
+ * A map rather than three parallel declarations, so `InlineCardProps` below
  * and every per-kind signature in this file are derived from one place. A kind
  * added to `INLINE_CARD_KINDS` without an entry here fails to compile at this
  * type, which is the reminder that a card kind without props is a kind nothing
@@ -154,7 +155,7 @@ export interface InlineCardPropsByKind {
 }
 
 /** The discriminated union of every card's props. Narrow on `kind`. */
-export type InlineCardSeatProps = InlineCardPropsByKind[InlineCardKind];
+export type InlineCardProps = InlineCardPropsByKind[InlineCardKind];
 
 /** What a family registers to fill one card kind's body. */
 export interface InlineCardBodyDescriptor<TKind extends InlineCardKind = InlineCardKind> {
@@ -163,7 +164,7 @@ export interface InlineCardBodyDescriptor<TKind extends InlineCardKind = InlineC
   readonly render: (props: InlineCardPropsByKind[TKind]) => React.ReactNode;
 }
 
-export class InlineCardSeatRegistry {
+export class InlineCardRegistry {
   // `"owner-scoped"`, for `registries/screens/screen-registry.ts`'s reason: a hot reload
   // re-runs the owning family's module and must replace, while two owners on one
   // card kind is a conflict rather than a swap decided by import order.
@@ -171,7 +172,7 @@ export class InlineCardSeatRegistry {
     duplicatePolicy: "owner-scoped",
     describeWhat: "inline card body",
     ownerOf: (descriptor) => descriptor.owner,
-    duplicateHint: "a ledger row renders one body per card kind",
+    duplicateHint: "a transcript row renders one body per card kind",
   });
 
   /**
@@ -192,7 +193,7 @@ export class InlineCardSeatRegistry {
       owner: descriptor.owner,
       render: (props) => {
         if (props.kind !== kind) {
-          throw new ConsoleRefusalError(
+          throw new RefusalError(
             refuse(
               INLINE_CARD_ORIGIN,
               "card-kind-mismatch",
@@ -222,7 +223,7 @@ export class InlineCardSeatRegistry {
   }
 
   /**
-   * Render one card. The door the ledger row uses.
+   * Render one card. The door the transcript row uses.
    *
    * Keyed on the props' OWN discriminant, so the body reached is by construction
    * the one registered for that arm — the reason the guard in `register` is a
@@ -231,15 +232,15 @@ export class InlineCardSeatRegistry {
    * unfilled kind from a body that rendered nothing asks `bodyFor` instead, which
    * is the "reserved, not stubbed" question and has its own answer.
    */
-  public render(props: InlineCardSeatProps): React.ReactNode {
+  public render(props: InlineCardProps): React.ReactNode {
     return this.#bodiesByKind.get(props.kind)?.render(props);
   }
 }
 
 /** The process-wide registry the repos family calls at module scope. */
-export const inlineCardSeatRegistry: InlineCardSeatRegistry = new InlineCardSeatRegistry();
+export const inlineCardRegistry: InlineCardRegistry = new InlineCardRegistry();
 
 /** One card kind's body, or `undefined` while nobody has filled it. */
 export function inlineCardBody(kind: InlineCardKind): InlineCardBodyDescriptor | undefined {
-  return inlineCardSeatRegistry.bodyFor(kind);
+  return inlineCardRegistry.bodyFor(kind);
 }

@@ -1,4 +1,4 @@
-// The inspector's draft slot — what a person has typed into a phase's configuration
+// The inspector's draft mount point — what a person has typed into a phase's configuration
 // and not yet saved.
 //
 // OWNED BY THE WORKFLOW ENGINE. A `human` phase's form configuration, a gate's
@@ -16,7 +16,7 @@
 //
 // GEOMETRY IS NOT A DRAFT, EITHER. The canvas's node positions are client-local too
 // but they are coordinates rather than prose, so they go to the durable UI-state
-// store under its `layout` value class — the node-graph slot beside this one carries
+// store under its `layout` value class — the node-graph mount point beside this one carries
 // that store, and this one does not. Two client-local tiers, two homes, and the
 // mount types are what keep them from being confused for each other.
 //

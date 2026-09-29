@@ -1,10 +1,10 @@
-// The ledger window — what the log keeps, what it lets go, and when it is allowed
+// The transcript window — what the log keeps, what it lets go, and when it is allowed
 // to let go of it.
 //
 // This module is own-built, and why it exists at all is a platform fact: Chromium caps
 // element height at 33,554,431 px, so the window cap is a ceiling, not a nicety. THE
 // SEMANTICS ARE THIS MODULE'S: the window caps top-level rows
-// and chapters, mirroring `timeline.read` window semantics; children never trip the cap.
+// and run groups, mirroring `timeline.read` window semantics; children never trip the cap.
 // Prune is deferred during an active turn, vetoed by the scroll controller, never lands
 // during a reveal drain, can never orphan a child (ancestor closure), and re-parks
 // leased row state under synthetic keys.
@@ -12,7 +12,7 @@
 // FIVE PROPERTIES, and each one is a failure this module exists to make
 // unrepresentable:
 //
-//   • **Only top-level rows count.** A chapter with two hundred tool rows under it
+//   • **Only top-level rows count.** A run group with two hundred tool rows under it
 //     is one row against the cap. Counting children would make a busy run evict the
 //     entire conversation around it.
 //
@@ -44,7 +44,7 @@ import { RetainedRowStateTable, type RetainedRowState } from "./retained-row-sta
 /** One row as the window sees it. The body is nobody's business here. */
 export interface WindowRow {
   readonly key: string;
-  /** The chapter or row this hangs from; `undefined` for a top-level row. */
+  /** The run group or row this hangs from; `undefined` for a top-level row. */
   readonly parentKey: string | undefined;
   /** The `timeline.read` cursor this row was read at — the unit a pin cuts by. */
   readonly rootCursor: string;
@@ -71,7 +71,7 @@ export type PruneDeferralReason = (typeof PRUNE_DEFERRAL_REASONS)[number];
 export interface PruneConditions {
   /** A turn is mid-flight; its rows are still being written to. */
   readonly hasActiveTurn: boolean;
-  /** `LedgerScrollController.vetoesPrune()` — a programmatic write is in flight. */
+  /** `ScrollController.vetoesPrune()` — a programmatic write is in flight. */
   readonly scrollControllerVetoes: boolean;
   /** The reveal engine has characters queued for this frame. */
   readonly revealDrainInFlight: boolean;
@@ -141,7 +141,7 @@ export class TranscriptWindow {
   #rows: WindowRow[] = [];
 
   public constructor(options: TranscriptWindowOptions = {}) {
-    this.#topLevelCap = options.topLevelCap ?? LEDGER_WINDOW_ROW_CAP;
+    this.#topLevelCap = options.topLevelCap ?? TRANSCRIPT_WINDOW_ROW_CAP;
     this.#leaseTable = new RetainedRowStateTable(options.parkedLeaseCap);
   }
 
@@ -156,7 +156,7 @@ export class TranscriptWindow {
    * cap and the rules about when the cap may be applied.
    *
    * A row that arrives twice in one read collapses to one row in its first position,
-   * so a projection defect cannot double a chapter.
+   * so a projection defect cannot double a run group.
    */
   public ingest(rows: readonly WindowRow[]): void {
     this.#rows = [...rows];
@@ -267,7 +267,7 @@ export class TranscriptWindow {
         break;
       }
       if (closure.some((closedKey) => heldRowKeys.has(closedKey))) {
-        // Never prunes a held row, and never orphans one either: a chapter whose
+        // Never prunes a held row, and never orphans one either: a run group whose
         // child is open stays whole rather than losing its head.
         continue;
       }
@@ -357,7 +357,7 @@ export class TranscriptWindow {
 
   /**
    * Every key from the reader's row to the end of the window — the set the drop
-   * may not touch — and empty when there is no floor to honour.
+   * may not touch — and empty when there is no floor to honor.
    *
    * Empty for a floor naming a row the window no longer holds, too: the row the
    * reader was on is already gone, so there is nothing above it left to protect,
@@ -383,4 +383,4 @@ export class TranscriptWindow {
     return keysFromFloor;
   }
 }
-import { LEDGER_WINDOW_ROW_CAP } from "../frame/frame-caps.js";
+import { TRANSCRIPT_WINDOW_ROW_CAP } from "../frame/frame-caps.js";

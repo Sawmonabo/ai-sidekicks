@@ -26,7 +26,7 @@ describe("the console daemon-method registry", () => {
     //
     // No exemption. This assertion carried one until 2026-09-05 — `providerAccount.list`,
     // whose camelCase root the regex rejected while the architecture contract registered
-    // the namespace — and the contradiction was settled in the regex's favour rather than
+    // the namespace — and the contradiction was settled in the regex's favor rather than
     // the namespace's, so every bound method now matches the real thing.
     const malformed = REGISTERED_DAEMON_METHODS.filter(
       (method) => !METHOD_NAME_FORMAT.test(method),

@@ -11,7 +11,7 @@
 //   1. **`html` nodes render as literal text**, at block and inline level both. That is
 //      what "Model HTML is never rendered" means concretely, and it is why NO SANITIZER
 //      IS ON THIS PATH — nothing is ever parsed as markup, so there is nothing to
-//      sanitise. `<script>alert(1)</script>` in a message reaches the screen as the
+//      sanitize. `<script>alert(1)</script>` in a message reaches the screen as the
 //      characters an author typed.
 //   2. **No path links.** A link renders as its own text with no anchor and no href.
 //      `remend`'s sentinel for an unfinished link takes the same disposition for a
@@ -101,7 +101,7 @@ function renderNode(
         <p className="meridian-markdown__paragraph">{renderChildren(node.children, context)}</p>
       );
     case "heading":
-      // A message's `#` is not a page title — the ledger's rows are the document's
+      // A message's `#` is not a page title — the transcript's rows are the document's
       // structure — so every level renders as one element carrying its depth, and
       // `markdown.css` gives the levels their weights. That is what keeps a message from
       // out-shouting the surface it sits inside.
@@ -178,7 +178,7 @@ function renderNode(
       );
     case "footnoteDefinition":
       // Registered elsewhere, rendered nowhere here. This console puts footnotes in one
-      // popover host per timeline, so a definition's body belongs to the popover;
+      // popover host per transcript, so a definition's body belongs to the popover;
       // rendering it inline as well would put the same text on the screen twice.
       return null;
     case "footnoteReference":

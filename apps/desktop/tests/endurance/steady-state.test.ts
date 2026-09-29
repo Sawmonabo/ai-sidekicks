@@ -65,14 +65,14 @@
 // fall across the cycles rather than at the front of them, and the mid-run reading
 // is what proves it.
 //
-// AND THE LOOP OBSERVES THE LEDGER ITSELF, once per cycle. The route wait names the
-// timeline PANE, whose chrome mounts on the route whether or not the ledger inside it
+// AND THE LOOP OBSERVES THE TRANSCRIPT ITSELF, once per cycle. The route wait names the
+// transcript PANE, whose chrome mounts on the route whether or not the transcript inside it
 // ever draws a row, so nothing in the loop would otherwise notice a console that came
 // up with no surface under it — the run would churn, wait successfully two hundred
 // times, and report clean growth over an empty box. Rows appear part-way through
 // because the script is walked across the whole run, so the per-cycle claim is the one
 // that holds from then on: once a cycle has found a mounted row, no later cycle finds
-// the ledger emptied. The count of cycles that did is asserted non-zero after the loop.
+// the transcript emptied. The count of cycles that did is asserted non-zero after the loop.
 //
 // Absence is still a failure and never a skip: the diagnostics handle is installed
 // on both arms, and a build without it would make every reading below vacuous.
@@ -112,10 +112,10 @@ import {
 } from "./endurance-workload.js";
 import { readTranscriptWindow } from "./transcript-window-read.js";
 import { expectPreciseHeapInstrument, RendererHeapProbe } from "./heap-instrument.js";
-import { FLAGSHIP_SCENARIO } from "../../fixtures/scenarios/concurrent-streaming.js";
+import { CONCURRENT_STREAMING_SCENARIO } from "../../fixtures/scenarios/concurrent-streaming.js";
 // The real overscan the viewport is constructed with, so the bound below is the
 // window's own declaration and not a figure this file keeps in step by hand.
-import { LEDGER_OVERSCAN_ROWS } from "@renderer/features/transcript/viewport/viewport-constants.js";
+import { TRANSCRIPT_OVERSCAN_ROWS } from "@renderer/features/transcript/viewport/viewport-constants.js";
 
 const bundleIsBuilt = fixtureBundleExists();
 
@@ -210,7 +210,7 @@ const SNAPSHOT_CHURN_CYCLE_COUNT = Math.ceil(CHURN_CYCLE_COUNT / 4);
  */
 const SCENARIO_ADVANCE_MS_PER_CYCLE = Math.max(
   1,
-  Math.ceil((FLAGSHIP_SCENARIO.beats.at(-1)?.atMs ?? 0) / CHURN_CYCLE_COUNT),
+  Math.ceil((CONCURRENT_STREAMING_SCENARIO.beats.at(-1)?.atMs ?? 0) / CHURN_CYCLE_COUNT),
 );
 
 describe.skipIf(!bundleIsBuilt)("endurance — the console held open", () => {
@@ -238,14 +238,14 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console held open", () => {
       expect(await consoleWindow.locator(SETTINGS_SCREEN_SELECTOR).count()).toBeGreaterThan(0);
       expect(
         await consoleWindow.locator(SESSION_SCREEN_SELECTOR).count(),
-        "the workspace wait is satisfied on the settings route, so a churn cycle never observes the transition into the workspace",
+        "the session screen wait is satisfied on the settings route, so a churn cycle never observes the transition into the session screen",
       ).toBe(0);
 
       await openConcurrentStreamingSessionRoute(consoleApplication);
       expect(await consoleWindow.locator(SESSION_SCREEN_SELECTOR).count()).toBeGreaterThan(0);
       expect(
         await consoleWindow.locator(SETTINGS_SCREEN_SELECTOR).count(),
-        "the settings wait is satisfied on the workspace route, so a churn cycle never observes the transition into settings",
+        "the settings wait is satisfied on the session route, so a churn cycle never observes the transition into settings",
       ).toBe(0);
     });
   });
@@ -268,7 +268,7 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console held open", () => {
         expect(
           await readPlayingScenarioId(consoleApplication),
           `${SCENARIO_FIXTURE_GLOBAL} is not exposed by this build, or the launch did not select a scenario`,
-        ).toBe(FLAGSHIP_SCENARIO.id);
+        ).toBe(CONCURRENT_STREAMING_SCENARIO.id);
 
         // One warm-up cycle before the baseline. Without it the baseline is taken
         // before the palette, its portal, and the settings route have ever been
@@ -289,28 +289,28 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console held open", () => {
 
         let beatsDelivered = beatsAfterWarmUp;
         let appliedEventsAtMidRun: number | null = null;
-        // THE LOOP'S OWN PROOF THAT IT CHURNED A LEDGER. The workspace wait names the
-        // timeline pane, whose chrome mounts on the route whether or not the ledger
+        // THE LOOP'S OWN PROOF THAT IT CHURNED A TRANSCRIPT. The session screen wait names the
+        // transcript pane, whose chrome mounts on the route whether or not the transcript
         // inside it ever draws — so nothing else in this body observes the surface the
         // heap reading is about until the very end of the run. These two are counted
         // per cycle: rows appear part-way through, because the script is walked across
         // the whole run, so the per-cycle claim is the one that holds from then on —
-        // once mounted, a cycle never finds the ledger emptied again — and the count
+        // once mounted, a cycle never finds the transcript emptied again — and the count
         // says the loop reached that state at all.
-        let cyclesWithLedgerRows = 0;
-        let ledgerRowsHaveMounted = false;
+        let cyclesWithTranscriptRows = 0;
+        let transcriptRowsHaveMounted = false;
         for (let cycle = 0; cycle < CHURN_CYCLE_COUNT; cycle += 1) {
           const cycleReading = await churnOnce(consoleApplication, SCENARIO_ADVANCE_MS_PER_CYCLE);
           beatsDelivered = cycleReading.deliveredBeatCount;
-          if (ledgerRowsHaveMounted) {
+          if (transcriptRowsHaveMounted) {
             expect(
               cycleReading.transcriptRowCount,
-              `cycle ${String(cycle)} left the ledger holding no row after an earlier cycle had mounted one, so every cycle after it churned a route whose surface is gone`,
+              `cycle ${String(cycle)} left the transcript holding no row after an earlier cycle had mounted one, so every cycle after it churned a route whose surface is gone`,
             ).toBeGreaterThan(0);
           }
           if (cycleReading.transcriptRowCount > 0) {
-            ledgerRowsHaveMounted = true;
-            cyclesWithLedgerRows += 1;
+            transcriptRowsHaveMounted = true;
+            cyclesWithTranscriptRows += 1;
           }
           if (cycle === Math.floor(CHURN_CYCLE_COUNT / 2)) {
             appliedEventsAtMidRun = await readAppliedEventCount(
@@ -337,19 +337,19 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console held open", () => {
             `final ${String(Math.round(finalHeapBytes / 1024))} kB, ` +
             `growth ${String(growthKilobytes)} kB over ${String(CHURN_CYCLE_COUNT)} cycles ` +
             `(${String(perCycleBytes)} B/cycle); beats ${String(beatsAfterWarmUp)} → ` +
-            `${String(beatsDelivered)} of ${String(FLAGSHIP_SCENARIO.beats.length)} at ` +
+            `${String(beatsDelivered)} of ${String(CONCURRENT_STREAMING_SCENARIO.beats.length)} at ` +
             `${String(SCENARIO_ADVANCE_MS_PER_CYCLE)} ms/cycle; events applied ` +
             `${String(appliedEventsAfterWarmUp)} → ${String(appliedEventsAtMidRun)} → ` +
-            `${String(appliedEventCount)}; ledger rows mounted on ` +
-            `${String(cyclesWithLedgerRows)} of ${String(CHURN_CYCLE_COUNT)} cycles\n`,
+            `${String(appliedEventCount)}; transcript rows mounted on ` +
+            `${String(cyclesWithTranscriptRows)} of ${String(CHURN_CYCLE_COUNT)} cycles\n`,
         );
 
         // AND THE LOOP WAS NOT A LOOP OVER AN EMPTY PANE. Zero here is the vacuous
         // run: every route wait satisfied by pane chrome, every heap reading taken
-        // over a console whose ledger never came up.
+        // over a console whose transcript never came up.
         expect(
-          cyclesWithLedgerRows,
-          "no churn cycle found a mounted ledger row, so the whole loop churned a route whose ledger never drew — the pane's chrome is what satisfied every wait",
+          cyclesWithTranscriptRows,
+          "no churn cycle found a mounted transcript row, so the whole loop churned a route whose transcript never drew — the pane's chrome is what satisfied every wait",
         ).toBeGreaterThan(0);
 
         // The workload moved. Both halves are load-bearing: the first says the
@@ -411,56 +411,56 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console held open", () => {
         // quantity against a LOG quantity, false for any log shorter than twice the
         // screen however well the window is working, and taken at whatever instant
         // the driver happened to ask rather than after the surface had reconciled.
-        // `readTranscriptWindow` waits for the ledger to have mounted a row and then
-        // reads the window from the renderer either way, so a working ledger is
+        // `readTranscriptWindow` waits for the transcript to have mounted a row and then
+        // reads the window from the renderer either way, so a working transcript is
         // measured against itself and a stalled one arrives here with the figures
         // that say WHY rather than with a bare zero.
-        const ledgerWindow = await readTranscriptWindow(
+        const transcriptWindow = await readTranscriptWindow(
           consoleApplication,
           CONCURRENT_STREAMING_SESSION_ID,
         );
         expect(
-          ledgerWindow,
-          `${SESSION_DIAGNOSTICS_FIXTURE_GLOBAL} reports no ledger viewport for this session, so nothing here says anything about windowing`,
+          transcriptWindow,
+          `${SESSION_DIAGNOSTICS_FIXTURE_GLOBAL} reports no transcript viewport for this session, so nothing here says anything about windowing`,
         ).not.toBeNull();
-        if (ledgerWindow === null) {
+        if (transcriptWindow === null) {
           throw new Error("unreachable: the assertion above fails first");
         }
         process.stdout.write(
-          `[console-endurance] ledger window ${String(ledgerWindow.mountedRowCount)} mounted / ` +
-            `${String(ledgerWindow.virtualItemCount)} windowed / ` +
-            `${String(ledgerWindow.visibleRowCount)} visible of ` +
-            `${String(ledgerWindow.totalRowCount)} rows ` +
-            `(${String(ledgerWindow.indexableRowCount)} indexable), viewport ` +
-            `${String(ledgerWindow.viewportClientHeightPx)} px ` +
-            `(ranged against ${String(ledgerWindow.rangedAgainstClientHeightPx)} px) showing ` +
-            `${String(ledgerWindow.viewportScrollHeightPx)} px of a ` +
-            `${String(ledgerWindow.totalContentHeightPx)} px log\n`,
+          `[console-endurance] transcript window ${String(transcriptWindow.mountedRowCount)} mounted / ` +
+            `${String(transcriptWindow.virtualItemCount)} windowed / ` +
+            `${String(transcriptWindow.visibleRowCount)} visible of ` +
+            `${String(transcriptWindow.totalRowCount)} rows ` +
+            `(${String(transcriptWindow.indexableRowCount)} indexable), viewport ` +
+            `${String(transcriptWindow.viewportClientHeightPx)} px ` +
+            `(ranged against ${String(transcriptWindow.rangedAgainstClientHeightPx)} px) showing ` +
+            `${String(transcriptWindow.viewportScrollHeightPx)} px of a ` +
+            `${String(transcriptWindow.totalContentHeightPx)} px log\n`,
         );
 
         expect(
-          ledgerWindow.mountedRowCount,
-          "the ledger mounted no rows at all, so nothing here says anything about windowing",
+          transcriptWindow.mountedRowCount,
+          "the transcript mounted no rows at all, so nothing here says anything about windowing",
         ).toBeGreaterThan(0);
         // THE SUBJECT EXISTS AT ALL: a log that fits its box is windowed vacuously,
         // and every claim below would hold over one. Named as the WORKLOAD's failure
         // rather than the window's, because that is whose it is — the fixture script
-        // is what has to be grown until the ledger overflows.
+        // is what has to be grown until the transcript overflows.
         expect(
-          ledgerWindow.viewportScrollHeightPx,
-          "the concurrent-streaming script does not overflow the ledger's viewport, so this window is bounded by having nothing to hold — grow the scenario in fixtures/scenarios/concurrent-streaming.ts until it does",
-        ).toBeGreaterThan(ledgerWindow.viewportClientHeightPx);
+          transcriptWindow.viewportScrollHeightPx,
+          "the concurrent-streaming script does not overflow the transcript's viewport, so this window is bounded by having nothing to hold — grow the scenario in fixtures/scenarios/concurrent-streaming.ts until it does",
+        ).toBeGreaterThan(transcriptWindow.viewportClientHeightPx);
         expect(
-          ledgerWindow.mountedRowCount,
-          "the ledger mounted every row it holds, so its surface is not bounded by the viewport and the whole log is being laid out",
-        ).toBeLessThan(ledgerWindow.totalRowCount);
+          transcriptWindow.mountedRowCount,
+          "the transcript mounted every row it holds, so its surface is not bounded by the viewport and the whole log is being laid out",
+        ).toBeLessThan(transcriptWindow.totalRowCount);
         // AND BOUNDED BY THE BOX PLUS ITS DECLARED OVERSCAN, which is the whole of
         // what the mounted range is allowed to be: the rows the box intersects, and
-        // `LEDGER_OVERSCAN_ROWS` either side of them.
+        // `TRANSCRIPT_OVERSCAN_ROWS` either side of them.
         expect(
-          ledgerWindow.mountedRowCount - ledgerWindow.visibleRowCount,
-          "the ledger mounted more than its overscan beyond the rows the box intersects",
-        ).toBeLessThanOrEqual(2 * LEDGER_OVERSCAN_ROWS);
+          transcriptWindow.mountedRowCount - transcriptWindow.visibleRowCount,
+          "the transcript mounted more than its overscan beyond the rows the box intersects",
+        ).toBeLessThanOrEqual(2 * TRANSCRIPT_OVERSCAN_ROWS);
       } finally {
         // Detached before the wrapper closes the window: detaching a DevTools
         // session from a closed application raises, and the raise would replace
@@ -480,7 +480,7 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console held open", () => {
           expect(
             await readPlayingScenarioId(consoleApplication),
             `${SCENARIO_FIXTURE_GLOBAL} is not exposed by this build, or the launch did not select a scenario`,
-          ).toBe(FLAGSHIP_SCENARIO.id);
+          ).toBe(CONCURRENT_STREAMING_SCENARIO.id);
 
           for (let cycle = 0; cycle < SNAPSHOT_CHURN_CYCLE_COUNT; cycle += 1) {
             await churnOnce(consoleApplication, SCENARIO_ADVANCE_MS_PER_CYCLE);

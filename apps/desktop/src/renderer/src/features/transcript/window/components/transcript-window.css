@@ -23,12 +23,12 @@
 /*
  * One shell. The pulse is the primitive absence's own keyframe rather than a second
  * one written here — one animation for every skeleton in the console, so a shell in
- * the ledger and a shell in a card breathe together.
+ * the transcript and a shell in a card breathe together.
  */
 
 .meridian-transcript-window-skeleton__row {
   height: var(--meridian-space-4);
-  border-inline-start: var(--meridian-attribution-edge) solid var(--meridian-edge);
+  border-inline-start: var(--meridian-leading-edge) solid var(--meridian-edge);
   border-radius: var(--meridian-radius-sm);
   background: var(--meridian-surface-sunken);
   animation: meridian-skeleton-pulse 1100ms var(--meridian-ease-settle) infinite alternate;

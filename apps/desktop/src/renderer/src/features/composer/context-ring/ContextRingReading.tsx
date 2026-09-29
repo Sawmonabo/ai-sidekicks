@@ -39,10 +39,10 @@ export function ContextRingReading(props: {
   const { usagePercent, windowUsedTokens, windowMaxTokens, windowSource } = props.reading;
   const sourceNote = windowSource === undefined ? undefined : CONTEXT_SOURCE_NOTES[windowSource];
   return (
-    <div className="meridian-context-meter">
-      <span className="meridian-context-meter__label">conversation</span>
+    <div className="meridian-context-ring">
+      <span className="meridian-context-ring__label">conversation</span>
       <span
-        className="meridian-context-meter__track"
+        className="meridian-context-ring__track"
         role="progressbar"
         aria-label="Conversation context used"
         aria-valuemin={0}
@@ -51,31 +51,31 @@ export function ContextRingReading(props: {
         aria-valuetext={`${String(usagePercent)} percent of the context window`}
       >
         <span
-          className="meridian-context-meter__fill"
+          className="meridian-context-ring__fill"
           // The one inline style in this file, and it carries a wire figure into
           // CSS. The bar is the figure, and it is the same color at every fullness.
           style={{ inlineSize: `${String(usagePercent)}%` }}
         />
       </span>
-      <span className="meridian-context-meter__figures">
+      <span className="meridian-context-ring__figures">
         <WireFigure value={formatCount(usagePercent)} title={String(usagePercent)} />
-        <span className="meridian-context-meter__unit">%</span>
-        <span className="meridian-context-meter__tokens">
+        <span className="meridian-context-ring__unit">%</span>
+        <span className="meridian-context-ring__tokens">
           <WireFigure value={formatCount(windowUsedTokens)} title={String(windowUsedTokens)} />
-          <span className="meridian-context-meter__separator" aria-hidden="true">
+          <span className="meridian-context-ring__separator" aria-hidden="true">
             /
           </span>
           <WireFigure value={formatCount(windowMaxTokens)} title={String(windowMaxTokens)} />
-          <span className="meridian-context-meter__unit">tokens</span>
+          <span className="meridian-context-ring__unit">tokens</span>
         </span>
         {windowSource === undefined ? null : (
-          <span className="meridian-context-meter__source">
+          <span className="meridian-context-ring__source">
             <WireFigure value={windowSource} />
           </span>
         )}
       </span>
       {sourceNote === undefined ? null : (
-        <p className="meridian-context-meter__source-note">{sourceNote}</p>
+        <p className="meridian-context-ring__source-note">{sourceNote}</p>
       )}
     </div>
   );

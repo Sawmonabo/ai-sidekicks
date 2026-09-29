@@ -1,7 +1,7 @@
 // What a tool row declares about its own treatment, read fail-closed in both
 // directions.
 //
-// The reader is the whole of this module's behaviour, and the two directions it
+// The reader is the whole of this module's behavior, and the two directions it
 // fails closed in are two different facts about the wire: a row that declares
 // NOTHING is every row this daemon sends, and a row that declares something this
 // build does not know is a newer daemon. Collapsing the second into the first would

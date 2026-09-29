@@ -4,7 +4,7 @@
 // which reading wins when two arrive — so the events have to be built the same way
 // in both or the two suites would be ranking different things.
 
-import { type ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
+import { type ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 
 /**
  * A single entry on the timeline.
@@ -18,7 +18,7 @@ export function event(
   kind: string,
   payload?: Readonly<Record<string, unknown>>,
   occurredAt = "2026-01-01T00:00:00.000Z",
-): ConsoleSessionEvent {
+): ProjectedSessionEvent {
   return {
     // The event's own identifier, composed from the position so two rows of one
     // session never share one.
@@ -35,11 +35,11 @@ export function goalUpdate(
   sequence: number,
   text: string,
   occurredAt?: string,
-): ConsoleSessionEvent {
+): ProjectedSessionEvent {
   return event(sequence, "session.goal_updated", { goal: { text } }, occurredAt);
 }
 
-export function goalClear(sequence: number, occurredAt?: string): ConsoleSessionEvent {
+export function goalClear(sequence: number, occurredAt?: string): ProjectedSessionEvent {
   return event(sequence, "session.goal_cleared", undefined, occurredAt);
 }
 
@@ -55,7 +55,7 @@ export function originGoalUpdate(
   text: string,
   origin: { readonly nodeId: string; readonly originSeq: number },
   occurredAt?: string,
-): ConsoleSessionEvent {
+): ProjectedSessionEvent {
   return event(
     localSequence,
     "session.goal_updated",
@@ -69,7 +69,7 @@ export function originGoalClear(
   localSequence: number,
   origin: { readonly nodeId: string; readonly originSeq: number },
   occurredAt?: string,
-): ConsoleSessionEvent {
+): ProjectedSessionEvent {
   return event(
     localSequence,
     "session.goal_cleared",

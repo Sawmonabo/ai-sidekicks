@@ -4,12 +4,12 @@
 // pointer move, so a naive "save on change" writes sixty records a second to a
 // database that only needs to hold the last one.
 //
-// WHY THIS IS NOT A DEBOUNCE, AND NOT `store/read/refresh-scheduler.ts`. The obvious answer is
+// WHY THIS IS NOT A DEBOUNCE, AND NOT `lib/reads/refresh-scheduler.ts`. The obvious answer is
 // a trailing debounce, and the console already owns one — `RefreshScheduler`. It is
 // the wrong tool twice over: its own header says the session-store registry is what
 // constructs it and nothing else in the tree may arm a timer, and its
 // `RefreshReason` vocabulary is a diagnostics field whose doc forbids inventing a
-// value for a read nobody asked for. A deck rearrangement is not a refresh, and
+// value for a read nobody asked for. A pane layout rearrangement is not a refresh, and
 // there is no honest reason to hand it. Writing a second debouncer beside that one
 // would be a second implementation of the thing it exists to be.
 //
@@ -24,7 +24,7 @@
 // both, so the pump writes what the request named however long it waited. The
 // alternative — reading the caller's current session inside the write callback —
 // files a queued arrangement under whichever session the person navigated to while
-// it waited, which overwrites that session's saved deck with another one's.
+// it waited, which overwrites that session's saved pane layout with another one's.
 //
 // THE WRITER IS ADDRESSED BY THE STORE IT WRITES THROUGH. The record goes into a
 // `UiStateStore`, and that store is replaced under a live surface: a reconnect
@@ -33,7 +33,7 @@
 // of its FIRST render and keeps writing there, so every later arrangement is filed in
 // a store nothing will ever read again — and the restore, which does move, then reads
 // the newer store's older record. The writer is therefore held per store through
-// `store/subject-scoped/subject-scoped-resource.ts`, which retires the one bound to the store that
+// `hooks/subject-scoped/useSubjectScopedResource.ts`, which retires the one bound to the store that
 // was replaced.
 //
 // RETIREMENT FLUSHES; IT DOES NOT CANCEL. `flushAndClose` sends the pending snapshot
@@ -49,8 +49,8 @@ import { type SubjectScopedDisposal } from "@renderer/lib/subject-scoped/subject
  * The shape the persistence chokepoint's `layout` value class admits: an object of
  * objects whose members are numbers, booleans, and identifier-shaped strings.
  *
- * Written here rather than imported from the deck's grammar, because it is the
- * CLASS's constraint and not the grammar's preference — the deck names its own record
+ * Written here rather than imported from the pane layout's grammar, because it is the
+ * CLASS's constraint and not the grammar's preference — the pane layout names its own record
  * `PaneLayoutSnapshotRecord`, which satisfies this because it is stored under that class.
  */
 export type PersistedLayoutRecord = Record<string, Record<string, number | boolean | string>>;
@@ -90,7 +90,7 @@ export class CoalescingLayoutWriter<TRecord extends PersistedLayoutRecord> {
    * runs the committed cleanup and then re-runs the effect against the value it just
    * closed, so a holder with no way to ask would re-commit a retired writer — and
    * every save after that is dropped at `request` with no refusal raised anywhere,
-   * which is a person rearranging their deck all session and nothing being kept.
+   * which is a person rearranging their pane layout all session and nothing being kept.
    */
   public get isRetired(): boolean {
     return this.#isRetired;
@@ -174,7 +174,7 @@ function isWriterRetired(writer: CoalescingLayoutWriter<PersistedLayoutRecord>):
  * THE TERMINAL ARM, BECAUSE `flushAndClose` IS ONE-WAY. A writer past it drops every
  * later request in silence — no refusal raised, nothing on screen — so a holder that
  * re-committed one after React's double-mount would leave a person rearranging all
- * session with nothing kept. `store/subject-scoped/subject-scoped-resource.ts` reads `isClosed`
+ * session with nothing kept. `hooks/subject-scoped/useSubjectScopedResource.ts` reads `isClosed`
  * before it commits and mints a fresh writer instead, and the arm's shape is what
  * makes the reading impossible to omit: `{ dispose }` alone matches neither arm.
  *

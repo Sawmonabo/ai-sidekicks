@@ -33,14 +33,14 @@
 import { memo } from "react";
 
 import {
-  type TimelineRowRenderer,
-  type TimelineRowSlotProps,
+  type TranscriptRowRenderer,
+  type TranscriptRowProps,
 } from "../../transcript-row-renderer.js";
 
 /** What one row hands the seat's renderer. */
-export interface TranscriptFeedRowProps extends TimelineRowSlotProps {
+export interface TranscriptFeedRowProps extends TranscriptRowProps {
   /** The seat's renderer. STABLE across renders, or this memo moves with it. */
-  readonly renderTimelineRow: TimelineRowRenderer;
+  readonly renderTimelineRow: TranscriptRowRenderer;
 }
 
 /**

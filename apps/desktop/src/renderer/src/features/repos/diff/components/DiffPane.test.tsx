@@ -31,14 +31,14 @@ const WORKTREE_ENTITY = { kind: "worktree", id: "worktree-1" } as const;
 installDiffPaneLayout();
 
 describe("diff pane — the chrome it wears", () => {
-  it("is named by the whole trail, not by the word Diff", () => {
+  it("is named by the whole trail, not by the word Review", () => {
     // The claim the binding exists for. A body drawing its own header named every diff
-    // pane in a deck "Diff"; the chrome names it by where it is, so two panes of one
+    // pane in a pane layout "Review"; the chrome names it by where it is, so two panes of one
     // kind are told apart by the subjects they are views of.
     const { getByRole } = render(<DiffPane context={diffPaneContextFor(WORKSPACE_ENTITY)} />);
-    const region = getByRole("region", { name: /Diff$/u });
+    const region = getByRole("region", { name: /Review$/u });
     expect(region.textContent).toContain(WORKSPACE_ENTITY.id);
-    expect(() => getByRole("region", { name: "Diff" })).toThrow();
+    expect(() => getByRole("region", { name: "Review" })).toThrow();
   });
 
   it("renders the subject verbatim as the trail's last address crumb", () => {
@@ -46,7 +46,7 @@ describe("diff pane — the chrome it wears", () => {
     // No session store on this context, so the trail is the entity and the pane's own
     // name — which is what an address carrying one scope should draw, rather than a
     // placeholder standing in for the session it has not got.
-    expect(paneTrailCrumbs(container)).toStrictEqual([WORKSPACE_ENTITY.id, "Diff"]);
+    expect(paneTrailCrumbs(container)).toStrictEqual([WORKSPACE_ENTITY.id, "Review"]);
   });
 
   it("negative control: the subject crumb is read from the address, not fixed", () => {

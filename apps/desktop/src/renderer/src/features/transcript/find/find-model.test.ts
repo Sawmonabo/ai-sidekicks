@@ -97,7 +97,7 @@ describe("find — what a query matches", () => {
 
   it("negative control: an empty query does not silently match everything", () => {
     // Highlighting every row the moment the field is focused is the failure this
-    // guards; "everything" is what the ledger already shows.
+    // guards; "everything" is what the transcript already shows.
     expect(findInTranscript(searchWindow(), "").matches.length).not.toBe(3);
   });
 

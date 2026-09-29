@@ -12,9 +12,9 @@
 
 import { useEffect } from "react";
 
-import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
-import { type ShellConnection } from "@renderer/store/window/main-process-state.js";
+import { type DaemonConnection } from "@renderer/store/window/main-process-state.js";
 
 /** What the daemon says about itself, once it has been asked. */
 export interface DaemonStatus {
@@ -44,7 +44,7 @@ export type DaemonStatusReading =
  */
 export interface DaemonStatusFreshness {
   /** What the supervisor is reporting about the runtime right now. */
-  readonly connection: ShellConnection;
+  readonly connection: DaemonConnection;
   /** How many of this page's controls have settled. `DaemonControlDispatch`'s own. */
   readonly settledControlCount: number;
 }
@@ -61,7 +61,7 @@ const READING_DAEMON_STATUS: DaemonStatusReading = { phase: "reading" };
  * with which answer is current.
  */
 export function useDaemonStatus(
-  bridge: ConsoleBridge,
+  bridge: PlatformBridge,
   freshness: DaemonStatusFreshness,
   operations: DaemonOperations,
 ): DaemonStatusReading {

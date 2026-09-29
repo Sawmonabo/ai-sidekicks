@@ -8,17 +8,17 @@ import { render } from "@testing-library/react";
 import { type ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { type BridgeComposition } from "@renderer/services/platform/bridge-context.js";
-import { DesktopBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
+import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
-import { FLAGSHIP_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
+import { CONCURRENT_STREAMING_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
 import { SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
-import { type ConsoleSessionDiagnostics } from "@renderer/services/session-events/session-diagnostics-handle.js";
-import { SessionEventBinder } from "@renderer/services/session-events/session-event-subscriber.js";
+import { type SessionDiagnostics } from "@renderer/services/session-events/session-diagnostics-handle.js";
+import { SessionEventSubscriber } from "@renderer/services/session-events/session-event-subscriber.js";
 import { SessionProbe } from "./session-store-hooks.test-support.js";
 
 /** The diagnostics a composition was handed, as the page would hold them. */
 interface DiagnosticsSlot {
-  installed: ConsoleSessionDiagnostics | undefined;
+  installed: SessionDiagnostics | undefined;
 }
 
 /**
@@ -29,7 +29,7 @@ function compositionHarness(): {
   readonly slot: DiagnosticsSlot;
   readonly wrapper: (props: { readonly children: ReactNode }) => React.JSX.Element;
 } {
-  const bridge = createFixtureBridge({ scenario: FLAGSHIP_SCENARIO });
+  const bridge = createFixtureBridge({ scenario: CONCURRENT_STREAMING_SCENARIO });
   const slot: DiagnosticsSlot = { installed: undefined };
   const composition: BridgeComposition = {
     createBridge: () => bridge,
@@ -45,9 +45,9 @@ function compositionHarness(): {
     slot,
     wrapper: function CompositionHost(props: { readonly children: ReactNode }) {
       return (
-        <DesktopBridgeProvider bridge={bridge} composition={composition}>
+        <PlatformBridgeProvider bridge={bridge} composition={composition}>
           {props.children}
-        </DesktopBridgeProvider>
+        </PlatformBridgeProvider>
       );
     },
   };
@@ -77,7 +77,7 @@ describe("useSessionStoreRegistry — the window's registry and the binder that 
     // Spies over the REAL methods (`vi.spyOn` calls through), so the ordering is
     // read off the calls the hook actually made rather than off a substitute that
     // could be ordered any way at all.
-    const disposeBinder = vi.spyOn(SessionEventBinder.prototype, "dispose");
+    const disposeBinder = vi.spyOn(SessionEventSubscriber.prototype, "dispose");
     const disposeRegistry = vi.spyOn(SessionStoreRegistry.prototype, "disposeAll");
     const { slot, wrapper } = compositionHarness();
     const { unmount } = render(
@@ -106,12 +106,12 @@ describe("useSessionStoreRegistry — the window's registry and the binder that 
     // Without this, `toBeLessThan` over two numbers read from the same counter
     // would pass on any pair the harness happened to produce — including one
     // recorded in the wrong order.
-    const disposeBinder = vi.spyOn(SessionEventBinder.prototype, "dispose");
+    const disposeBinder = vi.spyOn(SessionEventSubscriber.prototype, "dispose");
     const disposeRegistry = vi.spyOn(SessionStoreRegistry.prototype, "disposeAll");
     const registry = new SessionStoreRegistry({ read: () => Promise.resolve(undefined) });
-    const binder = new SessionEventBinder({
+    const binder = new SessionEventSubscriber({
       registry,
-      bridge: createFixtureBridge({ scenario: FLAGSHIP_SCENARIO }),
+      bridge: createFixtureBridge({ scenario: CONCURRENT_STREAMING_SCENARIO }),
     });
 
     registry.disposeAll();

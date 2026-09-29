@@ -7,7 +7,7 @@
 // shape the daemon does not send at all.
 //
 // THE DEFECT THIS REPLACES. The fixture handed every subscriber the renderer-local
-// `ConsoleSessionEvent` envelope — `{id, sessionId, sequence, kind, occurredAt,
+// `ProjectedSessionEvent` envelope — `{id, sessionId, sequence, kind, occurredAt,
 // payload}`. The two `run.*` streams are registered PROJECTIONS and carry nothing
 // of the sort: `run.subscribeState` streams `RunStateChangeEvent | RunRolledBackEvent`
 // and `run.subscribeQueue` streams `QueueItemSummary`, none of which has a `kind`,
@@ -72,7 +72,7 @@ import {
 import type { RunStateChangeEvent } from "@ai-sidekicks/contracts";
 
 import { readWireString } from "@renderer/lib/wire-strings.js";
-import type { ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
+import type { ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 import {
   carriedOptionalMembers,
   projectThroughRegisteredShape,
@@ -141,17 +141,17 @@ const RUN_STATE_CHANGE_CARRIED_OPTIONAL_MEMBERS: Readonly<
  */
 export function projectRunStreamDelivery(
   subscriptionName: typeof RUN_STATE_EVENT_STREAM,
-  event: ConsoleSessionEvent,
+  event: ProjectedSessionEvent,
 ): RunStreamProjection;
 /** The same delivery for a name known only at run time, with the queue row lookup. */
 export function projectRunStreamDelivery(
   subscriptionName: string,
-  event: ConsoleSessionEvent,
+  event: ProjectedSessionEvent,
   queueRowFor: QueueRowLookup,
 ): RunStreamProjection | undefined;
 export function projectRunStreamDelivery(
   subscriptionName: string,
-  event: ConsoleSessionEvent,
+  event: ProjectedSessionEvent,
   queueRowFor?: QueueRowLookup,
 ): RunStreamProjection | undefined {
   if (subscriptionName === RUN_STATE_EVENT_STREAM) {
@@ -167,7 +167,7 @@ export function projectRunStreamDelivery(
 type QueueRowLookup = (queueItemId: string) => Readonly<Record<string, unknown>> | undefined;
 
 /** The `run.subscribeState` arms: a state transition, or the forward rollback row. */
-function projectRunStateStreamBeat(event: ConsoleSessionEvent): RunStreamProjection {
+function projectRunStateStreamBeat(event: ProjectedSessionEvent): RunStreamProjection {
   // The arm comes from the routing table rather than from a second reading of the
   // kind here. That table is what decided this beat reaches this stream at all, so
   // asking it again is the one answer that cannot disagree with the routing.
@@ -181,7 +181,7 @@ function projectRunStateStreamBeat(event: ConsoleSessionEvent): RunStreamProject
 }
 
 /** `RunStateChangeEvent` — the canonical transitions. */
-function projectStateChange(event: ConsoleSessionEvent): RunStreamProjection {
+function projectStateChange(event: ProjectedSessionEvent): RunStreamProjection {
   const payload = event.payload;
   if (payload === undefined) {
     return unprojectableFor(event, "carries no payload at all");
@@ -224,7 +224,7 @@ function projectStateChange(event: ConsoleSessionEvent): RunStreamProjection {
 }
 
 /** `RunRolledBackEvent` — the forward, non-state arm of the same stream. */
-function projectRollback(event: ConsoleSessionEvent): RunStreamProjection {
+function projectRollback(event: ProjectedSessionEvent): RunStreamProjection {
   const payload = event.payload;
   if (payload === undefined) {
     return unprojectableFor(event, "carries no payload at all");
@@ -249,7 +249,7 @@ function projectRollback(event: ConsoleSessionEvent): RunStreamProjection {
 
 /** `QueueItemSummary` — what `run.subscribeQueue` streams for one queue row. */
 function projectRunQueueStreamBeat(
-  event: ConsoleSessionEvent,
+  event: ProjectedSessionEvent,
   queueRowFor: QueueRowLookup,
 ): RunStreamProjection {
   const announcedState = runQueueStreamStateFor(event.kind);

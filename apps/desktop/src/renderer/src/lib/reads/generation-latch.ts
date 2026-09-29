@@ -1,6 +1,6 @@
 // Whether an act may be dispatched at all, and what its reply is allowed to do.
 //
-// THE MUTABLE HALF OF `store/subject-scoped/subject-scoped-holder.ts`'s RULE. That holder answers what a
+// THE MUTABLE HALF OF `lib/subject-scoped/subject-scoped-holder.ts`'s RULE. That holder answers what a
 // surface RENDERS for the subject it is bound to. This one answers a question a
 // handler has to settle inside its own tick, before any render: a rendered flag read
 // there is the one from the render that produced the handler, so two presses in one
@@ -18,7 +18,7 @@
 // anybody still waiting", which is an OWNERSHIP question and has an answer only where
 // the act has an owner who may leave — reads, and reads only. A mutation that reached
 // the daemon has happened, so a superseded reply is IGNORED and never stopped, and
-// claiming otherwise would be a claim this console cannot honour. Every claim takes a
+// claiming otherwise would be a claim this console cannot honor. Every claim takes a
 // serial from one counter that never reissues a number, and a settlement is admitted
 // only while the key it holds still names that serial.
 //
@@ -142,7 +142,7 @@ export class GenerationLatch {
    * `undefined` rather than a claim that reports itself stale, so a caller cannot
    * dispatch first and discover afterwards that it was not admitted.
    */
-  public claim(subject: object, key: string): GenerationClaim | undefined {
+  public takeShell(subject: object, key: string): GenerationClaim | undefined {
     return this.#serialsFor(subject).has(key) ? undefined : this.#takeKey(subject, key);
   }
 
@@ -195,7 +195,7 @@ export class GenerationLatch {
    *
    * For the holder whose SUBJECT moved out from under a call: the projection the
    * reply was read against has been replaced, or the session it was asked of has.
-   * Nothing is cancelled — the reply simply installs nowhere — so releasing the key
+   * Nothing is canceled — the reply simply installs nowhere — so releasing the key
    * here cannot let an older answer overwrite a newer settlement.
    */
   public supersede(subject: object, key: string): void {
@@ -212,7 +212,7 @@ export class GenerationLatch {
    *
    * The unmount and teardown path. Replacing the register rather than emptying it is
    * what makes the abandoned generation unreachable instead of merely cleared: a
-   * settlement still travelling holds a serial, and serials are never reissued, so it
+   * settlement still traveling holds a serial, and serials are never reissued, so it
    * finds no key naming it however the caller re-claims afterwards.
    */
   public supersedeAll(): void {

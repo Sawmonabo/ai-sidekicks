@@ -12,7 +12,7 @@
 //
 // `PaneEntityScopeByKind` below is the declaration — the kind-indexed map
 // `seats/slots/inline-card-seats.ts` uses for its own three card kinds, at the eleven pane
-// kinds. Both halves come off it: the static `ConsolePaneAddress` union that
+// kinds. Both halves come off it: the static `PaneAddress` union that
 // makes a mismatch a compile error at a typed call site, and the runtime table
 // `pane-address-parse.ts` applies at the boundaries where an address arrives
 // untyped — a persisted layout snapshot read back off disk, and a route a person
@@ -30,7 +30,7 @@
 //
 // WHERE EACH ROW COMES FROM
 //
-// Most of them come from one rule: the pane-kind set is closed, and `timeline` is
+// Most of them come from one rule: the pane-kind set is closed, and `transcript` is
 // session-scoped. The inspector shows the session's checkout — a worktree on a project
 // session, a workspace on a chat — and the `diff` pane shows that checkout's changes,
 // so both rows admit those two entity kinds and no others. No entity kind without a
@@ -40,7 +40,7 @@
 // The two kinds are declared ONCE, below, and both rows read the list. The row is
 // derived from a map that decides EVERY entity kind, so a kind added later fails to
 // compile until the question is answered for it. Optionality is never invented:
-// `agent-console` takes a no-entity arm because its body renders with no agent named,
+// `agents` takes a no-entity arm because its body renders with no agent named,
 // and `workflow-builder` takes one because `routing/routes.ts` opens the workflows
 // destination bare — "a definition id written into the address here would be a
 // second, unowned locator for something the builder has not defined yet".
@@ -57,7 +57,7 @@
 // two read identically at a call site, and only the first makes "this pane takes
 // no entity" a fact the compiler holds.
 
-import { CONSOLE_ENTITY_KINDS, type ConsoleEntityRef } from "@renderer/lib/entity-kinds.js";
+import { ENTITY_KINDS, type EntityRef } from "@renderer/lib/entity-kinds.js";
 import { type PaneKind } from "./pane-kinds.js";
 
 /**
@@ -65,12 +65,12 @@ import { type PaneKind } from "./pane-kinds.js";
  *
  * Derived rather than imported because `store/index.ts` publishes the REFERENCE
  * and not the kind vocabulary, and derived rather than restated because a second
- * union beside `CONSOLE_ENTITY_KINDS` is the drift `store/entities/entities.ts` names.
+ * union beside `ENTITY_KINDS` is the drift `store/entities/entities.ts` names.
  */
-type ConsoleEntityKind = ConsoleEntityRef["kind"];
+type EntityKind = EntityRef["kind"];
 
-/** A `ConsoleEntityRef` narrowed to the kinds one pane kind admits. */
-type ScopedEntityRef<TEntityKind extends ConsoleEntityKind> = ConsoleEntityRef & {
+/** A `EntityRef` narrowed to the kinds one pane kind admits. */
+type ScopedEntityRef<TEntityKind extends EntityKind> = EntityRef & {
   readonly kind: TEntityKind;
 };
 
@@ -83,8 +83,8 @@ type CheckoutEntityKind = "workspace" | "worktree";
 /**
  * Every entity kind, decided. The exhaustiveness check, and the union's proof.
  *
- * A TOTAL map rather than a list of the admitted kinds: `Record<ConsoleEntityKind,
- * boolean>` means a kind added to `CONSOLE_ENTITY_KINDS` fails to compile here until
+ * A TOTAL map rather than a list of the admitted kinds: `Record<EntityKind,
+ * boolean>` means a kind added to `ENTITY_KINDS` fails to compile here until
  * the checkout question is answered for it, and the two intersected records hold this
  * map and the union above to the SAME set — every union member `true`, every other
  * kind `false` — so the union cannot quietly become narrower or wider than the table
@@ -104,12 +104,12 @@ const CHECKOUT_ADMITS_ENTITY_KIND = {
   "workflow-run": false,
   "browser-page": false,
   repo: false,
-} as const satisfies Record<ConsoleEntityKind, boolean> &
+} as const satisfies Record<EntityKind, boolean> &
   Record<CheckoutEntityKind, true> &
-  Record<Exclude<ConsoleEntityKind, CheckoutEntityKind>, false>;
+  Record<Exclude<EntityKind, CheckoutEntityKind>, false>;
 
 /** The same set as data, filtered from the map so the two halves cannot drift. */
-const CHECKOUT_ENTITY_KINDS: readonly CheckoutEntityKind[] = CONSOLE_ENTITY_KINDS.filter(
+const CHECKOUT_ENTITY_KINDS: readonly CheckoutEntityKind[] = ENTITY_KINDS.filter(
   (kind): kind is CheckoutEntityKind => CHECKOUT_ADMITS_ENTITY_KIND[kind],
 );
 
@@ -122,7 +122,30 @@ const CHECKOUT_ENTITY_KINDS: readonly CheckoutEntityKind[] = CONSOLE_ENTITY_KIND
  * first refuses the wrong entity, the second refuses a caller that forgot to
  * resolve one.
  */
-export type ConsolePaneAddress = { [K in PaneKind]: ConsolePaneAddressOf<K> }[PaneKind];
+export type PaneAddress = { [K in PaneKind]: PaneAddressOf<K> }[PaneKind];
+
+/**
+ * One pane kind's address arm, entity member and all.
+ *
+ * THREE SHAPES, NOT TWO. A session-scoped kind has no `entity` member; a kind whose
+ * scope is a bare reference REQUIRES one; and a kind whose scope includes `undefined`
+ * takes an OPTIONAL one. The third arm used to be written as a required member whose
+ * value may be undefined, which is not the same claim: a typed caller could not write
+ * the documented bare `{ kind: "workflow-builder" }` at all, while
+ * {@link parsePaneAddress} returned exactly that object through a cast — so the
+ * static contract and the runtime contract disagreed, and the cast is what hid it.
+ *
+ * The optional arm keeps `| undefined` in its member type rather than stripping it to
+ * `NonNullable`, and that is load-bearing under `exactOptionalPropertyTypes`: without
+ * it the only admitted spelling would be the ABSENT key, and every existing caller
+ * that writes the equally honest `entity: undefined` would stop compiling. Both
+ * spellings mean the same thing here, and both are admitted.
+ */
+export type PaneAddressOf<TKind extends PaneKind> = [PaneEntityScopeByKind[TKind]] extends [never]
+  ? { readonly kind: TKind }
+  : EntityRequired<TKind> extends true
+    ? { readonly kind: TKind; readonly entity: PaneEntityScopeByKind[TKind] }
+    : { readonly kind: TKind; readonly entity?: PaneEntityScopeByKind[TKind] };
 
 /**
  * What each pane kind is a view of. THE declaration.
@@ -134,7 +157,7 @@ export type ConsolePaneAddress = { [K in PaneKind]: ConsolePaneAddressOf<K> }[Pa
  */
 interface PaneEntityScopeByKind {
   /** The session's transcript. */
-  readonly timeline: never;
+  readonly transcript: never;
   /** Keyed by the inspected checkout's own kind; there is nothing to inspect without one. */
   readonly inspector: ScopedEntityRef<CheckoutEntityKind>;
   /** The session's runs list. */
@@ -156,38 +179,15 @@ interface PaneEntityScopeByKind {
    * flags and no page identifier at all. Nothing in this build produces such an
    * entity, so requiring one would make every caller mint an identifier the seam
    * never issues, and would refuse
-   * `parseConsolePaneAddress("browser", undefined)` — which is the shape both
+   * `parsePaneAddress("browser", undefined)` — which is the shape both
    * untyped boundaries actually supply for a pane opened bare.
    */
   readonly browser: never;
   /** One shared terminal per session, over the runtime node's write lease. */
   readonly terminal: never;
   /** Bare is the picker arm: a session is chosen and no agent is named yet. */
-  readonly "agent-console": ScopedEntityRef<"agent"> | undefined;
+  readonly agents: ScopedEntityRef<"agent"> | undefined;
 }
-
-/**
- * One pane kind's address arm, entity member and all.
- *
- * THREE SHAPES, NOT TWO. A session-scoped kind has no `entity` member; a kind whose
- * scope is a bare reference REQUIRES one; and a kind whose scope includes `undefined`
- * takes an OPTIONAL one. The third arm used to be written as a required member whose
- * value may be undefined, which is not the same claim: a typed caller could not write
- * the documented bare `{ kind: "workflow-builder" }` at all, while
- * {@link parseConsolePaneAddress} returned exactly that object through a cast — so the
- * static contract and the runtime contract disagreed, and the cast is what hid it.
- *
- * The optional arm keeps `| undefined` in its member type rather than stripping it to
- * `NonNullable`, and that is load-bearing under `exactOptionalPropertyTypes`: without
- * it the only admitted spelling would be the ABSENT key, and every existing caller
- * that writes the equally honest `entity: undefined` would stop compiling. Both
- * spellings mean the same thing here, and both are admitted.
- */
-type ConsolePaneAddressOf<TKind extends PaneKind> = [PaneEntityScopeByKind[TKind]] extends [never]
-  ? { readonly kind: TKind }
-  : EntityRequired<TKind> extends true
-    ? { readonly kind: TKind; readonly entity: PaneEntityScopeByKind[TKind] }
-    : { readonly kind: TKind; readonly entity?: PaneEntityScopeByKind[TKind] };
 
 /** The entity kinds one pane kind admits, read off the declaration. */
 type AdmittedEntityKind<TKind extends PaneKind> = NonNullable<PaneEntityScopeByKind[TKind]>["kind"];
@@ -222,7 +222,7 @@ const PANE_ENTITY_SCOPES: {
     readonly entityRequired: EntityRequired<K>;
   };
 } = {
-  timeline: { entityKinds: [], entityRequired: false },
+  transcript: { entityKinds: [], entityRequired: false },
   inspector: { entityKinds: CHECKOUT_ENTITY_KINDS, entityRequired: true },
   runs: { entityKinds: [], entityRequired: false },
   approvals: { entityKinds: [], entityRequired: false },
@@ -232,13 +232,13 @@ const PANE_ENTITY_SCOPES: {
   "workflow-builder": { entityKinds: ["workflow-definition"], entityRequired: false },
   browser: { entityKinds: [], entityRequired: false },
   terminal: { entityKinds: [], entityRequired: false },
-  "agent-console": { entityKinds: ["agent"], entityRequired: false },
+  agents: { entityKinds: ["agent"], entityRequired: false },
 };
 
 /** One pane kind's entity scope, as a caller deciding at runtime reads it. */
 export interface PaneEntityScopeDeclaration {
   /** The entity kinds this pane may be opened over. Empty means session-scoped. */
-  readonly entityKinds: readonly ConsoleEntityKind[];
+  readonly entityKinds: readonly EntityKind[];
   /** Whether the pane must be opened over one of them. */
   readonly entityRequired: boolean;
 }
@@ -263,23 +263,23 @@ export type EntityOptionalPaneKind = {
  * opener, so an absent link is an absent argument rather than a present object
  * carrying `undefined`, and there is exactly one way to say "no link".
  */
-export interface ConsolePaneLink {
+export interface PaneLink {
   readonly linkedSourcePaneId: string;
 }
 
 /**
  * The call a card and the palette make to open a pane.
  *
- * A callback handed down by whoever owns the deck, rather than a module-scope
- * function, so a pane opens in the deck that asked for it.
+ * A callback handed down by whoever owns the pane layout, rather than a module-scope
+ * function, so a pane opens in the pane layout that asked for it.
  *
  * The optional `link` is how a pane that opens another says which pane it is: the
- * deck copies it onto the new pane's `ConsolePaneContext.linkedSourcePaneId`.
+ * pane layout copies it onto the new pane's `PaneContext.linkedSourcePaneId`.
  * Optional because most opens have no source pane at all — a card and the
  * palette open from a list, not from a pane — and a required member would have both
  * of those inventing a value to pass.
  */
-export type ConsolePaneOpener = (address: ConsolePaneAddress, link?: ConsolePaneLink) => void;
+export type PaneOpener = (address: PaneAddress, link?: PaneLink) => void;
 
 // THE OPENER AND ITS LINK LIVE HERE, WITH THE ADDRESS THEY CARRY, and not in
 // `pane-registry.ts`. The type is about an ADDRESS, this is the module that declares
@@ -287,7 +287,7 @@ export type ConsolePaneOpener = (address: ConsolePaneAddress, link?: ConsolePane
 
 /**
  * One pane kind's entity scope, for the callers that decide at runtime — the
- * deck's layout validator and a card's open-pane call.
+ * pane layout's validator and a card's open-pane call.
  *
  * The read door onto the table above, so no caller keeps its own copy of a row.
  */

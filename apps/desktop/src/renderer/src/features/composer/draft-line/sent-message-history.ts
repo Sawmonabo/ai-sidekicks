@@ -11,7 +11,7 @@ import { COMPOSER_HISTORY_RECALL_CAP, COMPOSER_RETAINED_ADDRESS_CAP } from "../c
  * The guard is the whole design: the text a person had typed before they started
  * walking is STASHED on the first recall and restored when they walk back past the
  * newest entry. Without it, one ArrowUp on a half-written message destroys it and
- * there is nowhere to get it back from — the ledger holds what was sent, and this
+ * there is nowhere to get it back from — the transcript holds what was sent, and this
  * was not sent.
  *
  * The list is bounded at `COMPOSER_HISTORY_RECALL_CAP` and holds only what this
@@ -41,7 +41,7 @@ export class SentMessageHistory {
    *
    * Recording ends the walk because the walk's anchor — the stashed draft — has just
    * been sent. Keeping the index would leave a later ArrowDown restoring text that is
-   * now in the ledger, which reads as the composer duplicating a message.
+   * now in the transcript, which reads as the composer duplicating a message.
    *
    * What is recorded is the message VERBATIM. Trimming here would be a transform in
    * the one place it looks harmless: a recalled message is text a person sends

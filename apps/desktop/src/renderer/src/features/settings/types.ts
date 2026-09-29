@@ -1,23 +1,23 @@
 import type { ReactNode } from "react";
 
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import type { SettingsPageId } from "@renderer/routing/settings-page-ids.js";
 import type { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
 import type { SessionStore } from "@renderer/store/session/session-store.js";
-import type { ShellState } from "@renderer/store/window/main-process-state.js";
+import type { MainProcessState } from "@renderer/store/window/main-process-state.js";
 import type { SchemePreference } from "@renderer/styles/tokens.js";
 
 /**
  * Everything a settings page is handed.
  *
- * Deliberately narrower than `ConsoleSurfaceContext`: a page reads its own wire and
+ * Deliberately narrower than `ScreenContext`: a page reads its own wire and
  * navigates the rail, and handing it the session stores would invite a page to hold
- * session state the settings surface has no session for.
+ * session state the settings screen has no session for.
  */
 export interface SettingsPageContext {
-  readonly bridge: ConsoleBridge;
+  readonly bridge: PlatformBridge;
   /** Renderer-local rail navigation — the deep-link grammar's other half. */
-  readonly openSection: (section: SettingsPageId) => void;
+  readonly openPage: (section: SettingsPageId) => void;
   /**
    * What the address asked this page to be opened FOR, where it asked for anything.
    *
@@ -53,7 +53,7 @@ export interface SettingsPageContext {
    * `undefined` stays a real answer: a window that has opened no session hands the
    * pages nothing, and a page that ASKED and was told nothing renders an honest
    * absence. It is deliberately NOT the session STORE: a settings page that could
-   * reach the projection could hold session state, and the settings surface has no
+   * reach the projection could hold session state, and the settings screen has no
    * session to hold it for.
    */
   readonly retainedSessionId: string | undefined;
@@ -72,14 +72,14 @@ export interface SettingsPageContext {
    */
   readonly retainedSessionStore: SessionStore | undefined;
   /**
-   * What this window has been told about the shell it is running against.
+   * What this window has been told about the main process it is running against.
    *
    * READ FROM THE WINDOW'S OWN STORE, never re-read here. The frame opens exactly one
    * subscription for it and every consumer — the frame's chip, the palette's
    * read-only line, and the local-runtime page — renders the same value, so the three
    * surfaces cannot report different supervisor states in one window.
    */
-  readonly shellState: ShellState;
+  readonly mainProcessState: MainProcessState;
   /**
    * This window's durable store, for the one page that reports on the store itself.
    *

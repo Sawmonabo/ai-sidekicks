@@ -5,7 +5,7 @@
 import { useMemo } from "react";
 
 import { foldRunDriverBindings } from "../run-driver-bindings.js";
-import { type ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
+import { type ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 import {
   useSessionPartition,
   useSessionStore,
@@ -29,6 +29,6 @@ export function useRunDriverBindings(sessionStore: SessionStore): ReadonlyMap<st
 }
 
 /** The session timeline, a module-level function so every render passes the same selector. */
-function selectSessionTimeline(state: SessionStoreState): readonly ConsoleSessionEvent[] {
+function selectSessionTimeline(state: SessionStoreState): readonly ProjectedSessionEvent[] {
   return state.timeline;
 }

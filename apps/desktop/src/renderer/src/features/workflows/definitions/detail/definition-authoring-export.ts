@@ -147,7 +147,7 @@ function handToClipboard(
   file: string,
   versionLabel: string,
 ): Promise<void> {
-  return runtime.bridge.desktopBridge.native.copyToClipboard(file).then(
+  return runtime.bridge.native.copyToClipboard(file).then(
     () => {
       claim.settle(() => {
         publishOutcome(runtime, "export", {

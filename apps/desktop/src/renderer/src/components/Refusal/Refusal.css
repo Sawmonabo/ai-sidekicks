@@ -51,7 +51,7 @@
   gap: var(--meridian-space-2);
   padding: var(--meridian-space-3);
   border: 1px solid var(--meridian-edge);
-  border-inline-start: var(--meridian-attribution-edge) solid var(--meridian-red-mark);
+  border-inline-start: var(--meridian-leading-edge) solid var(--meridian-red-mark);
   border-radius: var(--meridian-radius-md);
   background: var(--meridian-surface);
 }
@@ -99,7 +99,7 @@
  *
  * Set as prose rather than in mono: the code beside it is the wire string and wears
  * the provenance signature, and a sentence in mono is a sentence nobody reads. It
- * takes the same muted colour the daemon's own sentence does, because it is a second
+ * takes the same muted color the daemon's own sentence does, because it is a second
  * sentence and not a control — what separates the two is the slot, not the weight.
  */
 .meridian-refusal__next-move {

@@ -7,12 +7,12 @@
 // file short enough to read.
 //
 // A `<pre>` and not a `<div>`: command output is preformatted by definition, and the
-// element that says so is the one screen readers and copy-paste both already honour.
+// element that says so is the one screen readers and copy-paste both already honor.
 // The mono face comes from `rows.css`, which reads the same type token every wire
 // figure in the console reads.
 //
 // THE FOLD IS RECOVERABLE, and that is the whole reason this component holds state.
-// `ANSI_SPAN_RENDER_CAP` withholds the tail of a colour-heavy build log; reopening the
+// `ANSI_SPAN_RENDER_CAP` withholds the tail of a color-heavy build log; reopening the
 // card re-parses the same capped sequence, so a notice with no control would leave the
 // tail of that log unreachable while the bound's own rationale claimed the reader was
 // offered the rest. The control lifts the cap for this block, and the revealed cap is
@@ -77,10 +77,10 @@ export function AnsiOutput(props: AnsiOutputProps): React.JSX.Element {
           action={
             <button
               type="button"
-              // The ledger family's action-slot control, already the shape a `Nothing`
+              // The transcript family's action-slot control, already the shape a `Nothing`
               // action takes in this family. A second class for one more control would
               // be the second styling of one decision.
-              className="meridian-ledger-retry"
+              className="meridian-transcript-retry"
               onClick={() => {
                 setRevealed({ source: props.source, spanCap: spans.length + elidedSpanCount });
               }}

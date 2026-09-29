@@ -1,5 +1,5 @@
 import { WireFigure } from "@renderer/console/primitives/index.js";
-import { type AgentRosterEntry } from "@renderer/services/wire-shapes/agents.js";
+import { type AgentListEntry } from "@renderer/services/wire-shapes/agents.js";
 
 /**
  * The mode the provider declared, beside the one that was requested.
@@ -8,9 +8,7 @@ import { type AgentRosterEntry } from "@renderer/services/wire-shapes/agents.js"
  * exactly three causes and none of them is "the mode is off", so the card reads NOT
  * YET OBSERVED and names the three rather than implying a fourth.
  */
-export function ObservedOutputSpeed(props: {
-  readonly agent: AgentRosterEntry;
-}): React.JSX.Element {
+export function ObservedOutputSpeed(props: { readonly agent: AgentListEntry }): React.JSX.Element {
   const observed = props.agent.observedOutputSpeed;
   if (observed === undefined) {
     return (

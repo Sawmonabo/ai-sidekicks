@@ -10,7 +10,7 @@ import { useGenerationLatch } from "@renderer/hooks/useGenerationLatch.js";
 
 /**
  * The key one start is in flight under. A key inside the call's own key space rather
- * than an identity, per `store/read/generation-latch.ts`.
+ * than an identity, per `lib/reads/generation-latch.ts`.
  */
 const DAEMON_START_KEY = "daemon-start";
 
@@ -33,7 +33,7 @@ export type DaemonStartCall = () => Promise<void>;
 export function useDaemonStartAction(startDaemon: DaemonStartCall): () => Promise<void> {
   const starts = useGenerationLatch();
   return useCallback(async () => {
-    const start = starts.claim(startDaemon, DAEMON_START_KEY);
+    const start = starts.takeShell(startDaemon, DAEMON_START_KEY);
     if (start === undefined) {
       return;
     }

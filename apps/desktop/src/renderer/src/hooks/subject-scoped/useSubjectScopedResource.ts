@@ -1,6 +1,6 @@
 // A resource held per subject, and closed however the render that opened it ended.
 //
-// `subject-scoped-state.ts` holds one VALUE per subject and states what it
+// `useSubjectScopedState.ts` holds one VALUE per subject and states what it
 // deliberately does not do: A HOLDER DROPS A VALUE; A RESOURCE HAS TO BE DISPOSED.
 // Two window subsystems now seed one through that holder — a session-store registry
 // with its event binder, and an open IndexedDB connection — and the pairing they rely
@@ -53,7 +53,7 @@
 // hands over `{ dispose, isClosed }`, and the reading is not optional beside it. That
 // is the whole reason for the object: the reading used to be a fifth positional
 // parameter a caller could simply not pass, so `flushAndClose()` — a writer's one-way
-// drain — typechecked as a release and silently took the behaviour above. A missing
+// drain — typechecked as a release and silently took the behavior above. A missing
 // member is a compile error; a missing fifth argument was nothing at all.
 //
 // THE RE-MINT IS STILL THE CALLER'S READING OF ITS OWN VALUE, NOT AN INTERFACE.
@@ -110,8 +110,8 @@ import type { SubjectScopedDisposal } from "@renderer/lib/subject-scoped/subject
  * A DISPOSAL THAT IS TERMINAL SAYS SO BY ITS SHAPE, and is then re-minted rather than
  * re-committed. `{ dispose, isClosed }` and `{ release }` are the two arms, and the
  * difference between them is not optional detail but which kind of ending this is: a
- * caller whose disposal releases has no closed value to recognise, and one whose
- * disposal ends the resource cannot fail to say how a closed one is recognised. The
+ * caller whose disposal releases has no closed value to recognize, and one whose
+ * disposal ends the resource cannot fail to say how a closed one is recognized. The
  * reading is supplied beside the `dispose` it belongs with rather than demanded of the
  * resource, so a value another family owns needs no shape from this one — and it is
  * read only where the lifetime effect RUNS, so a resource that disposes itself while

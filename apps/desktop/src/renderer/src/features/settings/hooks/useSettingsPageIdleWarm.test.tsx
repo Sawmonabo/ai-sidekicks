@@ -1,7 +1,7 @@
 // The settings mount arms one walk over its own board, and releases it with itself.
 //
 // The claim here is the LIFETIME rather than the walking, which `seats/lazy-body/lazy-body-warm.test.ts`
-// already holds, and rather than the wiring, which `SettingsSurface.page-warm.test.tsx`
+// already holds, and rather than the wiring, which `SettingsScreen.page-warm.test.ts`
 // holds through the surface. What can go wrong in a binding is a walk that starts again on
 // every render, one still re-arming against a board whose surface has unmounted — the leak
 // that leaves no trace until a second settings window is opened and closed — and the
@@ -45,7 +45,7 @@ function composePages(loadedSections: string[]): SettingsPageRegistry {
 }
 
 /** A surface that does nothing but hold the binding, so the effect is the subject. */
-function WarmingSettingsSurface(props: {
+function WarmingSettingsScreen(props: {
   readonly pages: SettingsPageRegistry;
   readonly scheduler: ManualIdleWarmScheduler;
 }): React.JSX.Element {
@@ -58,7 +58,7 @@ describe("the settings page board's idle warm", () => {
     const loadedSections: string[] = [];
     const pages = composePages(loadedSections);
     const scheduler = new ManualIdleWarmScheduler();
-    render(<WarmingSettingsSurface pages={pages} scheduler={scheduler} />);
+    render(<WarmingSettingsScreen pages={pages} scheduler={scheduler} />);
 
     expect(scheduler.pendingCount).toBe(1);
     expect(loadedSections).toStrictEqual([]);
@@ -68,7 +68,7 @@ describe("the settings page board's idle warm", () => {
     const loadedSections: string[] = [];
     const pages = composePages(loadedSections);
     const scheduler = new ManualIdleWarmScheduler();
-    render(<WarmingSettingsSurface pages={pages} scheduler={scheduler} />);
+    render(<WarmingSettingsScreen pages={pages} scheduler={scheduler} />);
 
     scheduler.runToQuiescence();
 
@@ -85,9 +85,9 @@ describe("the settings page board's idle warm", () => {
     const loadedSections: string[] = [];
     const pages = composePages(loadedSections);
     const scheduler = new ManualIdleWarmScheduler();
-    const rendered = render(<WarmingSettingsSurface pages={pages} scheduler={scheduler} />);
-    rendered.rerender(<WarmingSettingsSurface pages={pages} scheduler={scheduler} />);
-    rendered.rerender(<WarmingSettingsSurface pages={pages} scheduler={scheduler} />);
+    const rendered = render(<WarmingSettingsScreen pages={pages} scheduler={scheduler} />);
+    rendered.rerender(<WarmingSettingsScreen pages={pages} scheduler={scheduler} />);
+    rendered.rerender(<WarmingSettingsScreen pages={pages} scheduler={scheduler} />);
 
     expect(scheduler.pendingCount).toBe(1);
     scheduler.runToQuiescence();
@@ -100,13 +100,13 @@ describe("the settings page board's idle warm", () => {
     const loadedSections: string[] = [];
     const pages = composePages(loadedSections);
     const scheduler = new ManualIdleWarmScheduler();
-    const rendered = render(<WarmingSettingsSurface pages={pages} scheduler={scheduler} />);
+    const rendered = render(<WarmingSettingsScreen pages={pages} scheduler={scheduler} />);
 
     act(() => {
       rendered.unmount();
     });
 
-    expect(scheduler.cancelledHandles).toHaveLength(1);
+    expect(scheduler.canceledHandles).toHaveLength(1);
     expect(scheduler.pendingCount).toBe(0);
     scheduler.runToQuiescence();
     expect(loadedSections).toStrictEqual([]);
@@ -116,7 +116,7 @@ describe("the settings page board's idle warm", () => {
     // `StrictMode` runs every effect setup, its cleanup, and the setup again. A walk held
     // across that replay is silently fatal: the first setup starts it, the synthetic
     // cleanup cancels it, and the replayed setup finds the same object already started and
-    // already cancelled and returns — so the board stays cold for the life of the surface
+    // already canceled and returns — so the board stays cold for the life of the surface
     // with nothing failing and nothing logged. Building it inside each setup is what makes
     // a replay a fresh walk.
     const loadedSections: string[] = [];
@@ -124,11 +124,11 @@ describe("the settings page board's idle warm", () => {
     const scheduler = new ManualIdleWarmScheduler();
     render(
       <StrictMode>
-        <WarmingSettingsSurface pages={pages} scheduler={scheduler} />
+        <WarmingSettingsScreen pages={pages} scheduler={scheduler} />
       </StrictMode>,
     );
 
-    // The replay's own cleanup cancelled the first walk, so exactly one is armed — a count
+    // The replay's own cleanup canceled the first walk, so exactly one is armed — a count
     // that also fails if the fix had left both of them walking.
     expect(scheduler.pendingCount).toBe(1);
 

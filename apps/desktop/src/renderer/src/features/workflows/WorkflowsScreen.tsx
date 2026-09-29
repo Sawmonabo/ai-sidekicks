@@ -1,13 +1,13 @@
 // The rail's workflows screen: the runs a mounting surface supplies, and whichever pane a
 // person opened from them.
 //
-// `#/workflows` is a bare route, so the surface context carries no session and the run
+// `#/workflows` is a bare route, so the screen context carries no session and the run
 // enumeration arrives as a read state the mounting surface supplies. Without one, the screen
 // draws its frame and no runs section.
 //
 // An opened pane replaces the runs, one at a time. That is not the session's pane layout:
 // `#/workflows` names no session, so there is no layout on it. The pane body is resolved
-// through the pane board on the surface context, the one the composition registered into,
+// through the pane board on the screen context, the one the composition registered into,
 // so this screen renders the same body a session's layout would. A kind with no registered
 // body draws only the back control.
 //
@@ -19,22 +19,22 @@ import "./WorkflowsScreen.css";
 
 import { useCallback } from "react";
 
-import type { ConsolePaneAddress, ConsoleSurfaceContext } from "@renderer/console/seats/index.js";
+import type { PaneAddress, ScreenContext } from "@renderer/console/seats/index.js";
 import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
 import { OpenPaneBody } from "./components/OpenPaneBody.js";
 import type { WorkflowRunDirectoryState } from "./runs/hooks/useWorkflowRunDirectory.js";
 import type { WorkflowRunListRow } from "./runs/run-list-projection.js";
 import { WorkflowRuns } from "./runs/WorkflowRuns.js";
 
-/** What the surface seat hands the workflows screen. */
+/** What the screen seat hands the workflows screen. */
 export interface WorkflowsScreenProps {
   /**
-   * The whole surface context, because a pane context is composed from it.
+   * The whole screen context, because a pane context is composed from it.
    *
    * A pane body is handed a bridge, both stores, the window store and its own address, and
    * composing that from a few inputs would mean the seat passing six.
    */
-  readonly context: ConsoleSurfaceContext;
+  readonly context: ScreenContext;
   /**
    * Where the run enumeration stands. `undefined` when the mount supplies none, and then
    * the runs section is not drawn.
@@ -45,16 +45,16 @@ export interface WorkflowsScreenProps {
 /** The workflows screen: the runs it is handed, or the pane a person opened from them. */
 export function WorkflowsScreen(props: WorkflowsScreenProps): React.JSX.Element {
   const { context, directory } = props;
-  // The board THIS composition registered its bodies into, off the surface context rather
+  // The board THIS composition registered its bodies into, off the screen context rather
   // than the process-wide singleton, which would warm production's board from a window
   // that had been handed its own.
   const { paneRegistry } = context;
   // Addressed by the bridge and by nothing else: opening a pane is answering one daemon.
   const { value: openAddress, publish: setOpenAddress } = useSubjectScopedState<
-    ConsolePaneAddress | undefined
+    PaneAddress | undefined
   >(context.bridge, undefined, () => undefined);
   const openPane = useCallback(
-    (address: ConsolePaneAddress) => {
+    (address: PaneAddress) => {
       // Warmed BEFORE the address is published, which is what makes this a preload rather
       // than a second load: publishing re-renders this screen and mounts the pane, and a
       // loader-backed body reached at that mount would show its fallback first. The mount

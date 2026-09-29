@@ -1,17 +1,17 @@
 // The pane's two boundary absences, its registration, and the claim that neither
 // absence is the record's.
 //
-// The pane is rendered through the real `ConsolePaneContext` shape rather than a
+// The pane is rendered through the real `PaneContext` shape rather than a
 // props object of its own, because the two questions under test — was an entity
 // addressed, and is there a session to read it from — are answered off that
 // contract and nowhere else.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { createFixture } from "@test/helpers/fixture-bridge.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
-import { ConsolePaneRegistry } from "@renderer/console/seats/index.js";
+import { PaneRegistry } from "@renderer/console/seats/index.js";
 // The declaring module rather than the door: the predicate is read only from suites.
 import { type PaneContextOf } from "@renderer/console/seats/index.js";
 import { paneContext } from "@renderer/registries/panes/pane-context.test-support.js";
@@ -28,12 +28,12 @@ const SESSION_ID = "session-inspector";
  * real answer here and change what this file renders, where a cast stand-in answers
  * `undefined.something` and fails somewhere that names neither the read nor the pane.
  */
-const UNUSED_BRIDGE: ConsoleBridge = createFixture().bridge;
+const UNUSED_BRIDGE: PlatformBridge = createFixture().bridge;
 
 /**
  * The entity an inspector is addressed at.
  *
- * Read off the address union rather than widened to `ConsoleEntityRef`: the
+ * Read off the address union rather than widened to `EntityRef`: the
  * inspector's arm admits a workspace or a worktree, so a run or a repo
  * reference is refused at the address and never reaches this pane.
  */
@@ -72,7 +72,7 @@ function accessibleName(pane: HTMLElement): string {
 /** A session store holding the one worktree the link cases inspect. */
 function storeWithWorktree(): SessionStore {
   const store = new SessionStore({ sessionId: SESSION_ID });
-  store.initialise({
+  store.initialize({
     cursor: 1,
     entities: [{ kind: "worktree", id: "worktree-1", state: "dirty" }],
   });
@@ -82,7 +82,7 @@ function storeWithWorktree(): SessionStore {
 describe("the inspector's one boundary absence", () => {
   // There is no case for an inspector opened with no entity, and that is the
   // address union's doing: the inspector's arm REQUIRES one, so the refusal lives
-  // at `parseConsolePaneAddress` — where an untyped layout row or route is read —
+  // at `parsePaneAddress` — where an untyped layout row or route is read —
   // and this body is never reached without it.
   it("says so when there is an entity and no session to read it from", () => {
     const container = renderPane({ kind: "worktree", id: "worktree-1" }, undefined);
@@ -103,7 +103,7 @@ describe("the inspector's one boundary absence", () => {
 describe("the inspector with an entity and a session", () => {
   it("hands the read to the addressed kind's record", () => {
     const store = new SessionStore({ sessionId: SESSION_ID });
-    store.initialise({
+    store.initialize({
       cursor: 1,
       entities: [{ kind: "worktree", id: "worktree-1", state: "dirty" }],
     });
@@ -116,7 +116,7 @@ describe("the inspector with an entity and a session", () => {
     // The name is `aria-labelledby` and not an `aria-label`: the two cannot both name
     // one element, so the chrome points at the crumb list and the pane's name is
     // "session-inspector worktree-1 Inspector" rather than "Inspector" for every
-    // inspector in the deck. The entity contributes its ID and not its kind — the
+    // inspector in the pane layout. The entity contributes its ID and not its kind — the
     // kind is already said by the glyph and the last crumb.
     const store = new SessionStore({ sessionId: SESSION_ID });
     const pane = renderPane({ kind: "worktree", id: "worktree-1" }, store).querySelector(
@@ -147,17 +147,17 @@ describe("the inspector with an entity and a session", () => {
 });
 
 describe("a linked inspector says which pane opened it", () => {
-  it("names the source pane the deck opened it from", () => {
-    // The deck puts the source pane's id on the seat, and the record has rendered
+  it("names the source pane the pane layout opened it from", () => {
+    // The pane layout puts the source pane's id on the seat, and the record has rendered
     // that provenance line all along — the pane was discarding the member before
     // the record could read it, so every linked inspector looked unlinked.
     const container = renderPane(
       { kind: "worktree", id: "worktree-1" },
       storeWithWorktree(),
-      "pane-ledger-2",
+      "pane-transcript-2",
     );
     const link = container.querySelector(".meridian-entity-record__link");
-    expect(link?.textContent).toContain("pane-ledger-2");
+    expect(link?.textContent).toContain("pane-transcript-2");
     expect(link?.textContent).toContain("Closing that pane does not close this one.");
   });
 
@@ -171,13 +171,13 @@ describe("a linked inspector says which pane opened it", () => {
 
 describe("the pane's registration", () => {
   it("claims the inspector kind", () => {
-    const registry = new ConsolePaneRegistry();
+    const registry = new PaneRegistry();
     registerInspectorPane(registry);
     expect(registry.descriptorFor("inspector")?.owner).toBe("inspector-pane");
   });
 
   it("negative control: it claims nothing else", () => {
-    const registry = new ConsolePaneRegistry();
+    const registry = new PaneRegistry();
     registerInspectorPane(registry);
     expect(registry.registeredPaneKinds()).toStrictEqual(["inspector"]);
   });

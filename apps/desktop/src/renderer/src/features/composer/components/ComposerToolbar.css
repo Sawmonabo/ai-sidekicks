@@ -12,7 +12,7 @@
 
 /* --- Context meter ------------------------------------------------------- */
 
-.meridian-context-meter {
+.meridian-context-ring {
   display: flex;
   flex-wrap: wrap;
   gap: var(--meridian-space-2);
@@ -20,7 +20,7 @@
   min-inline-size: 0;
 }
 
-.meridian-context-meter__label {
+.meridian-context-ring__label {
   font-size: var(--meridian-text-xs);
   color: var(--meridian-text-muted);
   letter-spacing: 0.04em;
@@ -29,7 +29,7 @@
 /* A hairline, not a gauge. The bar is a reading and the figures beside it are the
    number — a tall bar would make the picture the primary and the figure the gloss,
    which inverts the provenance the mono type is carrying. */
-.meridian-context-meter__track {
+.meridian-context-ring__track {
   position: relative;
   display: block;
   inline-size: calc(var(--meridian-space-5) * 3);
@@ -39,35 +39,35 @@
   border-radius: var(--meridian-radius-sm);
 }
 
-.meridian-context-meter__fill {
+.meridian-context-ring__fill {
   display: block;
   block-size: 100%;
   background: var(--meridian-edge-strong);
   transition: inline-size var(--meridian-motion-settle) var(--meridian-ease-settle);
 }
 
-.meridian-context-meter__figures,
-.meridian-context-meter__tokens {
+.meridian-context-ring__figures,
+.meridian-context-ring__tokens {
   display: flex;
   gap: var(--meridian-space-1);
   align-items: baseline;
 }
 
-.meridian-context-meter__unit,
-.meridian-context-meter__separator {
+.meridian-context-ring__unit,
+.meridian-context-ring__separator {
   font-size: var(--meridian-text-xs);
   color: var(--meridian-text-muted);
 }
 
 /* The window's own provenance, beside the figures. Muted: it qualifies the bar
    rather than competing with it. */
-.meridian-context-meter__source {
+.meridian-context-ring__source {
   font-size: var(--meridian-text-xs);
   color: var(--meridian-text-muted);
 }
 
 /* What that provenance means, on the two grades where it changes the reading. */
-.meridian-context-meter__source-note {
+.meridian-context-ring__source-note {
   flex-basis: 100%;
   margin: 0;
   font-size: var(--meridian-text-xs);

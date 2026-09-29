@@ -1,20 +1,14 @@
 // The refusal shape, driven rather than described.
 //
-// `ConsoleRefusal` exists so that five producers stop minting five vocabularies for
+// `Refusal` exists so that five producers stop minting five vocabularies for
 // three renderers, and the whole value of that is structural: the shape has to be
-// recognisable from OUTSIDE the module that built it, because a refusal crossing a
+// recognizable from OUTSIDE the module that built it, because a refusal crossing a
 // family boundary arrives as an `unknown` result or a caught error. So the cases
 // below are about recognition and about what survives the trip — the guard, the
 // message an error carries, and the refusal an error still holds after the throw.
 
 import { describe, expect, expectTypeOf, it } from "vitest";
-import {
-  ConsoleRefusalError,
-  isConsoleRefusal,
-  refuse,
-  type ConsoleRefusal,
-  type NarrowedRefusal,
-} from "./refusal.js";
+import { RefusalError, isRefusal, refuse, type Refusal, type NarrowedRefusal } from "./refusal.js";
 
 describe("refuse — one builder, one field order", () => {
   it("carries the three fields the renderers read", () => {
@@ -82,84 +76,84 @@ describe("refuse — the producer's own union survives the call", () => {
 
   it("leaves a caller that has no union where it was", () => {
     // The other half of the compatibility claim: `Code` infers as `string` for a
-    // caller holding one, `NarrowedRefusal<string>` reads as `ConsoleRefusal`, and
+    // caller holding one, `NarrowedRefusal<string>` reads as `Refusal`, and
     // the many wide call sites across the console keep compiling untouched.
-    const wide: ConsoleRefusal = refuseAnything("whatever-the-seam-said");
+    const wide: Refusal = refuseAnything("whatever-the-seam-said");
     expectTypeOf(refuseAnything("x").code).toEqualTypeOf<string>();
     expect(wide.code).toBe("whatever-the-seam-said");
   });
 });
 
-describe("ConsoleRefusalError — a refusal that had to travel as an exception", () => {
+describe("RefusalError — a refusal that had to travel as an exception", () => {
   const refusal = refuse("sessions", "session.not_found", "No session answers to this id.");
 
   it("is an Error, so a boundary that catches Errors catches it", () => {
-    expect(new ConsoleRefusalError(refusal)).toBeInstanceOf(Error);
+    expect(new RefusalError(refusal)).toBeInstanceOf(Error);
   });
 
   it("keeps the refusal intact for the catch site to render", () => {
-    const error = new ConsoleRefusalError(refusal);
+    const error = new RefusalError(refusal);
     expect(error.refusal).toStrictEqual(refusal);
-    expect(isConsoleRefusal(error.refusal)).toBe(true);
+    expect(isRefusal(error.refusal)).toBe(true);
   });
 
   it("puts origin, code, and detail in the message, in that order", () => {
     // A stack trace is where an error is read when nothing rendered it, so the
     // message has to carry the same three facts the card would have shown.
-    expect(new ConsoleRefusalError(refusal).message).toBe(
+    expect(new RefusalError(refusal).message).toBe(
       "sessions: session.not_found: No session answers to this id.",
     );
   });
 
   it("names itself, so a test asserts on the class rather than on message text", () => {
-    expect(new ConsoleRefusalError(refusal).name).toBe("ConsoleRefusalError");
+    expect(new RefusalError(refusal).name).toBe("RefusalError");
   });
 
   it("passes a cause through to the platform error", () => {
     const underlying = new TypeError("indexedDB is not defined");
-    expect(new ConsoleRefusalError(refusal, { cause: underlying }).cause).toBe(underlying);
+    expect(new RefusalError(refusal, { cause: underlying }).cause).toBe(underlying);
   });
 });
 
-describe("isConsoleRefusal — recognition across a family boundary", () => {
+describe("isRefusal — recognition across a family boundary", () => {
   it("accepts what refuse built", () => {
-    expect(isConsoleRefusal(refuse("persistence", "quota-exhausted", "detail"))).toBe(true);
+    expect(isRefusal(refuse("persistence", "quota-exhausted", "detail"))).toBe(true);
   });
 
   it("accepts a structurally identical literal, because the shape is the contract", () => {
     // Deliberate: a producer that widens its own closed union into this shape at its
     // boundary has not called `refuse`, and its result is still a refusal.
-    expect(isConsoleRefusal({ code: "c", detail: "d", origin: "o" })).toBe(true);
+    expect(isRefusal({ code: "c", detail: "d", origin: "o" })).toBe(true);
   });
 
   it("negative control: rejects the values a constant-true guard would accept", () => {
     // Without these, a guard whose body was `return true` would pass every case
     // above and the two positive assertions would prove nothing.
-    expect(isConsoleRefusal(null)).toBe(false);
-    expect(isConsoleRefusal(undefined)).toBe(false);
-    expect(isConsoleRefusal("sessions: session.not_found: detail")).toBe(false);
-    expect(isConsoleRefusal(42)).toBe(false);
-    expect(isConsoleRefusal({})).toBe(false);
-    expect(isConsoleRefusal([])).toBe(false);
+    expect(isRefusal(null)).toBe(false);
+    expect(isRefusal(undefined)).toBe(false);
+    expect(isRefusal("sessions: session.not_found: detail")).toBe(false);
+    expect(isRefusal(42)).toBe(false);
+    expect(isRefusal({})).toBe(false);
+    expect(isRefusal([])).toBe(false);
   });
 
   it("rejects a partial refusal rather than rendering a card with a blank author", () => {
-    expect(isConsoleRefusal({ code: "c", detail: "d" })).toBe(false);
-    expect(isConsoleRefusal({ code: "c", origin: "o" })).toBe(false);
-    expect(isConsoleRefusal({ detail: "d", origin: "o" })).toBe(false);
+    expect(isRefusal({ code: "c", detail: "d" })).toBe(false);
+    expect(isRefusal({ code: "c", origin: "o" })).toBe(false);
+    expect(isRefusal({ detail: "d", origin: "o" })).toBe(false);
   });
 
   it("rejects a refusal whose fields are the right names and the wrong types", () => {
     // The renderers put `code` in mono verbatim; a number there would render, and a
     // nested object would render as "[object Object]" in the one field a person is
     // meant to be able to paste into an issue.
-    expect(isConsoleRefusal({ code: 7, detail: "d", origin: "o" })).toBe(false);
-    expect(isConsoleRefusal({ code: "c", detail: { text: "d" }, origin: "o" })).toBe(false);
-    expect(isConsoleRefusal({ code: "c", detail: "d", origin: null })).toBe(false);
+    expect(isRefusal({ code: 7, detail: "d", origin: "o" })).toBe(false);
+    expect(isRefusal({ code: "c", detail: { text: "d" }, origin: "o" })).toBe(false);
+    expect(isRefusal({ code: "c", detail: "d", origin: null })).toBe(false);
   });
 });
 
-describe("isConsoleRefusal — total, because every caller is already on a failure path", () => {
+describe("isRefusal — total, because every caller is already on a failure path", () => {
   /** The unguarded read the guard used to perform, so the counterfactual is runnable. */
   const readDirectly = (value: unknown): unknown => (value as { readonly code?: unknown }).code;
 
@@ -177,7 +171,7 @@ describe("isConsoleRefusal — total, because every caller is already on a failu
     // guard — it escapes the `catch` that called it and unmounts the surface whose
     // only job was to report the failure.
     expect(() => readDirectly(hostile)).toThrow();
-    expect(isConsoleRefusal(hostile)).toBe(false);
+    expect(isRefusal(hostile)).toBe(false);
   });
 
   it("answers false when only one of the three members is unreadable", () => {
@@ -191,11 +185,11 @@ describe("isConsoleRefusal — total, because every caller is already on a failu
       },
     };
     expect(() => partiallyHostile.origin).toThrow();
-    expect(isConsoleRefusal(partiallyHostile)).toBe(false);
+    expect(isRefusal(partiallyHostile)).toBe(false);
   });
 
   it("answers false for a null-prototype object carrying nothing", () => {
-    expect(isConsoleRefusal(Object.create(null))).toBe(false);
+    expect(isRefusal(Object.create(null))).toBe(false);
   });
 
   it("accepts a null-prototype carrier, object or function, that holds the three members", () => {
@@ -208,7 +202,7 @@ describe("isConsoleRefusal — total, because every caller is already on a failu
       detail: "d",
       origin: "o",
     });
-    expect(isConsoleRefusal(nullPrototypeObject)).toBe(true);
+    expect(isRefusal(nullPrototypeObject)).toBe(true);
 
     const carrierFunction = Object.assign(function carrier(): void {}, {
       code: "c",
@@ -216,6 +210,6 @@ describe("isConsoleRefusal — total, because every caller is already on a failu
       origin: "o",
     });
     Object.setPrototypeOf(carrierFunction, null);
-    expect(isConsoleRefusal(carrierFunction)).toBe(true);
+    expect(isRefusal(carrierFunction)).toBe(true);
   });
 });

@@ -48,8 +48,8 @@ import {
   type TimelineReadResponse,
 } from "@ai-sidekicks/contracts";
 
-import { LEDGER_EARLIER_PAGE_ROWS } from "../frame/frame-caps.js";
-import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
+import { TRANSCRIPT_EARLIER_PAGE_ROWS } from "../frame/frame-caps.js";
+import { type Refusal } from "@renderer/lib/refusal.js";
 import { type DaemonReply } from "@renderer/services/daemon/daemon-reply.js";
 import { readEarlierTimelinePage } from "@renderer/services/daemon/timeline-page.js";
 import { isReadAbandoned, ReadScope } from "@renderer/lib/reads/read-scope.js";
@@ -71,7 +71,7 @@ export interface EarlierHistoryState {
   /** A backward page is in flight. */
   readonly isReading: boolean;
   /** Why the last attempt did not land, until the next one is made. */
-  readonly refusal: ConsoleRefusal | undefined;
+  readonly refusal: Refusal | undefined;
   /** Rows this walk has admitted at the head, across every page it has read. */
   readonly admittedRowCount: number;
 }
@@ -120,7 +120,7 @@ export class EarlierHistoryReader {
   #nextBeforeCursor: string | undefined;
   #exhausted = true;
   #isReading = false;
-  #refusal: ConsoleRefusal | undefined;
+  #refusal: Refusal | undefined;
   #admittedRowCount = 0;
 
   /** Whether this walk's read line is over. True once and never false again. */
@@ -133,7 +133,7 @@ export class EarlierHistoryReader {
    *
    * The walk's own fields are left exactly as they stand. A holder that hands this
    * reader back — React's double-mount does — is handed a corpse its `isClosed`
-   * reading recognises, and a fresh reader is minted rather than this one revived.
+   * reading recognizes, and a fresh reader is minted rather than this one revived.
    */
   public abandonReads(): void {
     this.#readLine.abandon();
@@ -184,7 +184,7 @@ export class EarlierHistoryReader {
           // because a view family may import no other view family.
           sessionId: sessionStore.sessionId as SessionId,
           beforeCursor: beforeCursor as EventCursor,
-          limit: LEDGER_EARLIER_PAGE_ROWS,
+          limit: TRANSCRIPT_EARLIER_PAGE_ROWS,
         },
         { signal: round.signal },
       );

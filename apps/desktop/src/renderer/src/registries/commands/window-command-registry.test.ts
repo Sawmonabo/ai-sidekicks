@@ -8,16 +8,16 @@ import { describe, expect, it } from "vitest";
 import { DuplicateRegistrationError } from "@renderer/lib/keyed-registry.js";
 import {
   WHEN_CLAUSE_KEYS,
-  consoleCommands,
+  commandRegistry,
   registerCommands,
-  type ConsoleWhenClauseContext,
+  type WindowWhenClauseContext,
 } from "./window-command-registry.js";
 
 /** Every key the console publishes, all false — the shape, not a situation. */
-const NO_CONTEXT: ConsoleWhenClauseContext = {
+const NO_CONTEXT: WindowWhenClauseContext = {
   sessionActive: false,
   onSessions: false,
-  onWorkspace: false,
+  onSession: false,
   onWorkflows: false,
   onSettings: false,
 };
@@ -31,7 +31,7 @@ const NO_CONTEXT: ConsoleWhenClauseContext = {
  * widened to `Record<string, boolean>`, the suppressed error would stop occurring
  * and this directive would itself become the error.
  */
-const CONTEXT_THE_COMPILER_REJECTS: ConsoleWhenClauseContext = {
+const CONTEXT_THE_COMPILER_REJECTS: WindowWhenClauseContext = {
   ...NO_CONTEXT,
   // @ts-expect-error — `sessionActiveish` is not a key the console publishes.
   sessionActiveish: false,
@@ -44,11 +44,11 @@ describe("window command registry — the door commands are registered through",
         { id: "console-commands-test.a", title: "A", group: "Test", run: () => undefined },
         { id: "console-commands-test.b", title: "B", group: "Test", run: () => undefined },
       ]);
-      expect(consoleCommands.has("console-commands-test.a")).toBe(true);
-      expect(consoleCommands.has("console-commands-test.b")).toBe(true);
+      expect(commandRegistry.has("console-commands-test.a")).toBe(true);
+      expect(commandRegistry.has("console-commands-test.b")).toBe(true);
     } finally {
-      consoleCommands.unregister("console-commands-test.a");
-      consoleCommands.unregister("console-commands-test.b");
+      commandRegistry.unregister("console-commands-test.a");
+      commandRegistry.unregister("console-commands-test.b");
     }
   });
 
@@ -56,7 +56,7 @@ describe("window command registry — the door commands are registered through",
     // Atomic is the whole reason the plural door exists. Half an owner's commands
     // is a state no caller can reason about, and none of them unwinds it.
     try {
-      consoleCommands.register({
+      commandRegistry.register({
         id: "console-commands-test.taken",
         title: "Taken",
         group: "Test",
@@ -78,10 +78,10 @@ describe("window command registry — the door commands are registered through",
           },
         ]);
       }).toThrow(DuplicateRegistrationError);
-      expect(consoleCommands.has("console-commands-test.fresh")).toBe(false);
+      expect(commandRegistry.has("console-commands-test.fresh")).toBe(false);
     } finally {
-      consoleCommands.unregister("console-commands-test.taken");
-      consoleCommands.unregister("console-commands-test.fresh");
+      commandRegistry.unregister("console-commands-test.taken");
+      commandRegistry.unregister("console-commands-test.fresh");
     }
   });
 
@@ -89,14 +89,14 @@ describe("window command registry — the door commands are registered through",
     // Without this every case above would pass against a door that registered
     // into a registry nobody reads, and the `has` assertions would be reading
     // leftovers from the case before.
-    expect(consoleCommands.has("console-commands-test.a")).toBe(false);
-    expect(consoleCommands.has("console-commands-test.taken")).toBe(false);
+    expect(commandRegistry.has("console-commands-test.a")).toBe(false);
+    expect(commandRegistry.has("console-commands-test.taken")).toBe(false);
   });
 });
 
 describe("window command registry — the published when-clause vocabulary", () => {
   it("names exactly the keys the console's own context supplies", () => {
-    // The tuple is the declaration and `ConsoleWhenClauseContext` is derived from
+    // The tuple is the declaration and `WindowWhenClauseContext` is derived from
     // it, so the compiler already refuses a context that is missing a key or
     // invents one. This holds the other direction at runtime: that the tuple a
     // family READS is the same set, rather than a stale copy of it.

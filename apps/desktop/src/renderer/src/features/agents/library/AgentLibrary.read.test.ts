@@ -165,7 +165,7 @@ describe("the agent library — the facts it teaches without asking anything", (
   it("states exactly the two a person needs before tuning one", async () => {
     const { container } = renderAgentLibrary(new RegistryStub({ lists: [[]] }));
     await settle();
-    expect(container.querySelectorAll(".meridian-agent-definitions__rule")).toHaveLength(2);
+    expect(container.querySelectorAll(".meridian-agent-library__rule")).toHaveLength(2);
   });
 
   it("says a rename reaches nothing running, and where the sidekicks live", async () => {

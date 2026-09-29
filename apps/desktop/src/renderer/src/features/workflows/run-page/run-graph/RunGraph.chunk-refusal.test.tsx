@@ -24,7 +24,7 @@ import type { RunGraphNode } from "./phase-topology.js";
  * What the substituted loader rejects with, settable per case.
  *
  * A box hoisted with the mock rather than a value closed over: `vi.mock` factories are
- * lifted above the imports, so a plain binding is not initialised when the factory
+ * lifted above the imports, so a plain binding is not initialized when the factory
  * runs. The box is read at CALL time, which is what lets one substitution serve every
  * case below.
  */
@@ -75,7 +75,7 @@ describe("a chunk the browser refused", () => {
     // The seam is in the code, so the failure is quotable; the browser's own sentence
     // is the detail, because what to do next depends on what failed.
     expect(banner.querySelector(".meridian-figure--wire")?.textContent).toBe(
-      "phase-graph-chunk-call-failed",
+      "run-graph-chunk-call-failed",
     );
     expect(banner.textContent).toContain("Failed to fetch dynamically imported module");
   });
@@ -87,7 +87,7 @@ describe("a chunk the browser refused", () => {
     revocable.revoke();
     const banner = await renderRefusedChunk(revocable.proxy);
     expect(banner.querySelector(".meridian-figure--wire")?.textContent).toBe(
-      "phase-graph-chunk-call-failed",
+      "run-graph-chunk-call-failed",
     );
   });
 
@@ -96,7 +96,7 @@ describe("a chunk the browser refused", () => {
     // `String(loadError)` — ran ToPrimitive and threw.
     const banner = await renderRefusedChunk(Object.create(null) as unknown);
     expect(banner.querySelector(".meridian-figure--wire")?.textContent).toBe(
-      "phase-graph-chunk-call-failed",
+      "run-graph-chunk-call-failed",
     );
   });
 

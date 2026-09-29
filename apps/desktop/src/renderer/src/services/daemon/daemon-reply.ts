@@ -1,6 +1,6 @@
 // The one place a daemon reply enters the console.
 //
-// THE DEFECT THIS CLOSES. A surface calls the daemon, the promise fulfils, and the
+// THE DEFECT THIS CLOSES. A surface calls the daemon, the promise fulfills, and the
 // surface reports success — clearing a draft, marking a turn sent, advancing an
 // upload ledger — without the reply having been parsed against the shape the corpus
 // registers for that method. It is not a mistake anyone makes deliberately: the
@@ -58,9 +58,9 @@
 // consumed for its leaf helpers rather than for this.
 
 import { normalizeWireRejection } from "@renderer/lib/wire-rejection.js";
-import { refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
+import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 import { isReadAbandoned, settleUnlessAbandoned } from "@renderer/lib/reads/read-scope.js";
-import type { ConsoleBridge } from "../platform/platform-bridge.js";
+import type { PlatformBridge } from "../platform/platform-bridge.js";
 import {
   DAEMON_METHOD_BINDINGS,
   type RegisteredDaemonMethod,
@@ -77,7 +77,7 @@ export const DAEMON_REPLY_REFUSAL_ORIGIN = "daemon-call";
  *
  * Three members, closed, and none of them overlaps a DAEMON code: a typed wire
  * refusal keeps its own code verbatim (`repo.not_found`, `run.version_conflict`, …)
- * and is never re-labelled with one of these. These name the three failures that
+ * and is never re-labeled with one of these. These name the three failures that
  * are the console's own to describe.
  *
  *   • `request-unsendable` — the caller composed a request the registered schema
@@ -111,7 +111,7 @@ export type DaemonReplyRefusalCode = (typeof DAEMON_REPLY_REFUSAL_CODES)[number]
  */
 export type DaemonReply<TValue> =
   | { readonly status: "served"; readonly value: TValue }
-  | { readonly status: "refused"; readonly refusal: ConsoleRefusal };
+  | { readonly status: "refused"; readonly refusal: Refusal };
 
 /**
  * How a caller says this call has an owner who may walk away from it.
@@ -142,11 +142,11 @@ export interface DaemonCallOptions {
  * EXPORTED FOR THE COMPOSED READ, which has `await` boundaries this door cannot see.
  * A read that calls the door, folds the answer, and calls it again has to stop
  * between its own calls, and it already stops this way on the first one:
- * `seats/read/push-driven-read.ts`'s `servedValueOrRaise` raises exactly this refusal the
+ * `services/daemon/unwrap-daemon-reply.ts`'s `unwrapDaemonReply` raises exactly this refusal the
  * moment the door answers with it. A caller settling its later boundaries under a
  * code of its own would give one settlement two names, so it raises this one instead.
  */
-export function abandonedReadRefusal(method: string): ConsoleRefusal {
+export function abandonedReadRefusal(method: string): Refusal {
   return refuse(
     DAEMON_REPLY_REFUSAL_ORIGIN,
     "read-abandoned" satisfies DaemonReplyRefusalCode,
@@ -184,7 +184,7 @@ export function abandonedReadRefusal(method: string): ConsoleRefusal {
  * nothing is sent to say so.
  */
 export async function callDaemon<MethodName extends RegisteredDaemonMethod>(
-  bridge: ConsoleBridge,
+  bridge: PlatformBridge,
   method: MethodName,
   request: DaemonRequestOf<MethodName>,
   options: DaemonCallOptions = {},
@@ -203,7 +203,7 @@ export async function callDaemon<MethodName extends RegisteredDaemonMethod>(
       refusal: refuse(
         DAEMON_REPLY_REFUSAL_ORIGIN,
         "request-unsendable" satisfies DaemonReplyRefusalCode,
-        `The console could not build a ${method} request the daemon would accept${describeFailingPaths(sendable.error)}, so it sent none.`,
+        `The console could not build a ${method} request the background service would accept${describeFailingPaths(sendable.error)}, so it sent none.`,
       ),
     };
   }
@@ -214,10 +214,7 @@ export async function callDaemon<MethodName extends RegisteredDaemonMethod>(
     // brand `DaemonMethod` stands in for the daemon's method union and resolves to
     // `never`-shaped `string`, so every caller has to widen it once; widened here,
     // it is widened once for the console rather than once per surface.
-    const call = bridge.desktopBridge.daemon.call as (
-      methodName: string,
-      params: unknown,
-    ) => Promise<unknown>;
+    const call = bridge.daemon.call as (methodName: string, params: unknown) => Promise<unknown>;
     const settlement = await settleUnlessAbandoned(call(method, sendable.data), signal);
     if (settlement.status === "abandoned") {
       return abandonedRead(method);
@@ -251,7 +248,7 @@ export async function callDaemon<MethodName extends RegisteredDaemonMethod>(
     // listener as it goes. An abort that lands after that resolution and before this
     // frame is resumed therefore finds no listener to reach, and the settlement says
     // `settled` while nobody is waiting — one microtask apart, which is exactly the
-    // gap a fulfilment and a pane teardown scheduled in the same tick fall into.
+    // gap a fulfillment and a pane teardown scheduled in the same tick fall into.
     // Reading the signal again is what makes "an abandoned reply is never parsed" a
     // property of the door instead of a property of the microtask order, and it is
     // read HERE, adjacent to the parse it guards, so no `await` can ever be
@@ -266,7 +263,7 @@ export async function callDaemon<MethodName extends RegisteredDaemonMethod>(
       refusal: refuse(
         DAEMON_REPLY_REFUSAL_ORIGIN,
         "reply-unreadable" satisfies DaemonReplyRefusalCode,
-        `The daemon's reply to ${method} is not the shape this build registers for it${describeFailingPaths(readable.error)}, so the console read nothing from it.`,
+        `The background service's reply to ${method} is not the shape this build registers for it${describeFailingPaths(readable.error)}, so the console read nothing from it.`,
       ),
     };
   }

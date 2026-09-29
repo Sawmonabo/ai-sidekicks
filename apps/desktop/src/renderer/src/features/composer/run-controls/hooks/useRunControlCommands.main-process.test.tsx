@@ -5,7 +5,7 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { consoleCommands } from "@renderer/registries/commands/window-command-registry.js";
+import { commandRegistry } from "@renderer/registries/commands/window-command-registry.js";
 import { capabilityReadout } from "../driver-capability-readout.test-support.js";
 import { useRunControlCommands } from "./useRunControlCommands.js";
 import {
@@ -44,8 +44,8 @@ describe("the run-control palette rows are always open", () => {
     render(<RunControlCommandsHost surface={recordingRunControlDispatch().surface} />);
 
     for (const commandId of CONTRIBUTED_COMMAND_IDS) {
-      expect(consoleCommands.has(commandId)).toBe(true);
-      expect(consoleCommands.get(commandId)?.unavailable).toBeUndefined();
+      expect(commandRegistry.has(commandId)).toBe(true);
+      expect(commandRegistry.get(commandId)?.unavailable).toBeUndefined();
     }
   });
 
@@ -53,7 +53,7 @@ describe("the run-control palette rows are always open", () => {
     const { surface, calls } = recordingRunControlDispatch();
     render(<RunControlCommandsHost surface={surface} />);
 
-    const outcome = consoleCommands.invoke(PAUSE_COMMAND_ID, { sessionActive: true });
+    const outcome = commandRegistry.invoke(PAUSE_COMMAND_ID, { sessionActive: true });
 
     expect(outcome.status).toBe("ran");
     expect(calls).toStrictEqual<readonly RecordedRunControlCall[]>([

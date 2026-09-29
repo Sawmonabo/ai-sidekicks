@@ -42,7 +42,7 @@
 import type { ExecutionMode } from "@ai-sidekicks/contracts";
 
 import { readFrozenRecord } from "@renderer/lib/frozen-record.js";
-import type { RefusalRecoveryCopy } from "@renderer/lib/refusal-remedies.js";
+import type { CasedRefusalRemedy } from "@renderer/lib/refusal-remedies.js";
 
 /**
  * Every daemon refusal code the repos mount surfaces can receive.
@@ -96,7 +96,7 @@ export interface MountRefusalContext {
 const NO_DISTINCTIONS: readonly string[] = [];
 
 /** What an attach of a folder with no git repository in it reads as. */
-const NOT_A_GIT_REPOSITORY_RECOVERY: RefusalRecoveryCopy = {
+const NOT_A_GIT_REPOSITORY_REMEDY: CasedRefusalRemedy = {
   nextMove: "Could not attach: not a git repository",
   distinctions: NO_DISTINCTIONS,
 };
@@ -105,17 +105,17 @@ const NOT_A_GIT_REPOSITORY_RECOVERY: RefusalRecoveryCopy = {
  * The table. Total over the codes above, so a code added to the tuple and not here
  * fails to compile rather than surfacing with no move.
  */
-const MOUNT_REFUSAL_RECOVERIES: Readonly<Record<MountRefusalCode, RefusalRecoveryCopy>> = {
+const MOUNT_REFUSAL_REMEDIES: Readonly<Record<MountRefusalCode, CasedRefusalRemedy>> = {
   "repo.not_found": {
     nextMove:
-      "This mount is gone from the session. The list re-reads itself; if the row is still here after that, the read and the daemon disagree.",
+      "This mount is gone from the session. The list re-reads itself; if the row is still here after that, the read and the background service disagree.",
     distinctions: NO_DISTINCTIONS,
   },
   "repo.root_resolution_failed": {
     // The arm for every reason but a folder with no repository in it, which
     // `mountRefusalRemedy` answers from the context.
     nextMove:
-      "Nothing was attached. The daemon's message above says what it could not resolve; one named case is a linked worktree, which attaches from the main checkout instead.",
+      "Nothing was attached. The background service's message above says what it could not resolve; one named case is a linked worktree, which attaches from the main checkout instead.",
     distinctions: NO_DISTINCTIONS,
   },
   "repo.outside_trust_envelope": {
@@ -138,7 +138,7 @@ const MOUNT_REFUSAL_RECOVERIES: Readonly<Record<MountRefusalCode, RefusalRecover
   },
   "workspace.not_found": {
     nextMove:
-      "This workspace is gone. The section re-reads its roster; a row that survives the re-read is a disagreement between the list and the daemon.",
+      "This workspace is gone. The section re-reads its roster; a row that survives the re-read is a disagreement between the list and the background service.",
     distinctions: NO_DISTINCTIONS,
   },
   "workspace.preparation_failed": {
@@ -156,7 +156,7 @@ const MOUNT_REFUSAL_RECOVERIES: Readonly<Record<MountRefusalCode, RefusalRecover
   },
   "workspace.stale": {
     nextMove:
-      "The execution root is unavailable and writable runs are blocked until it is repaired. The row's own error line carries what the daemon captured about the failure.",
+      "The execution root is unavailable and writable runs are blocked until it is repaired. The row's own error line carries what the background service captured about the failure.",
     distinctions: NO_DISTINCTIONS,
   },
   "workspace.branch_mismatch": {
@@ -165,27 +165,27 @@ const MOUNT_REFUSAL_RECOVERIES: Readonly<Record<MountRefusalCode, RefusalRecover
     // the bound checkout, so a control that offered to do it would offer what nothing
     // performs.
     nextMove:
-      "The bound checkout is on a different branch than the run needs, and nothing here switches it — that checkout's branch is yours. The daemon's message names the branch it expected.",
+      "The bound checkout is on a different branch than the run needs, and nothing here switches it — that checkout's branch is yours. The background service's message names the branch it expected.",
     distinctions: NO_DISTINCTIONS,
   },
   "workspace.busy": {
     nextMove:
-      "An active run holds this execution root; one holding run at a time. The daemon's message names it, and the root frees when that run ends.",
+      "An active run holds this execution root; one holding run at a time. The background service's message names it, and the root frees when that run ends.",
     distinctions: NO_DISTINCTIONS,
   },
   "workspace.execution_root_unresolved": {
     nextMove:
-      "A run reached its setup gate with no execution root for the mode this workspace is bound as, and is parked in starting. Preparing a root for it, or cancelling the run, are the two ways out.",
+      "A run reached its setup gate with no execution root for the mode this workspace is bound as, and is parked in starting. Preparing a root for it, or canceling the run, are the two ways out.",
     distinctions: NO_DISTINCTIONS,
   },
   "workspace.branch_name_required": {
     nextMove:
-      "A prepare made from here is ahead of any run, so the daemon has nothing to derive a branch name from. Name the branch on the form and send it again.",
+      "A prepare made from here is ahead of any run, so the background service has nothing to derive a branch name from. Name the branch on the form and send it again.",
     distinctions: NO_DISTINCTIONS,
   },
   "worktree.not_found": {
     nextMove:
-      "This worktree is gone from the daemon's records. Re-reading the roots is what reconciles the list.",
+      "This worktree is gone from the background service's records. Re-reading the roots is what reconciles the list.",
     distinctions: NO_DISTINCTIONS,
   },
   "worktree.create_failed": {
@@ -207,7 +207,7 @@ const MOUNT_REFUSAL_RECOVERIES: Readonly<Record<MountRefusalCode, RefusalRecover
     // sentence would be wrong in two cases out of three — and because the middle case
     // has no override at all, which a generic "acknowledge and retry" would deny.
     nextMove:
-      "The named reuse candidate was not bound. The daemon's message says which of three situations this is:",
+      "The named reuse candidate was not bound. The background service's message says which of three situations this is:",
     distinctions: [
       "It is dirty and the request carried no acknowledgement — the dirty-candidate consent is a separate, explicit act, and it is never on by default.",
       "It is incompatible with the requested branch strategy — there is no override for this one, and it never becomes bindable.",
@@ -236,7 +236,7 @@ const MOUNT_REFUSAL_RECOVERIES: Readonly<Record<MountRefusalCode, RefusalRecover
 export function mountRefusalRemedy(
   code: string,
   context?: MountRefusalContext,
-): RefusalRecoveryCopy | undefined {
+): CasedRefusalRemedy | undefined {
   if (code === "workspace.mode_unsupported") {
     const reason = context?.restrictionReason;
     if (reason !== undefined) {
@@ -247,9 +247,9 @@ export function mountRefusalRemedy(
     code === "repo.root_resolution_failed" &&
     context?.resolutionReason === "not_a_git_repository"
   ) {
-    return NOT_A_GIT_REPOSITORY_RECOVERY;
+    return NOT_A_GIT_REPOSITORY_REMEDY;
   }
-  return readFrozenRecord(MOUNT_REFUSAL_RECOVERIES, code);
+  return readFrozenRecord(MOUNT_REFUSAL_REMEDIES, code);
 }
 
 /**

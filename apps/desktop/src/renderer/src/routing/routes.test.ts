@@ -12,7 +12,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { DEFAULT_ROUTE, formatRoute, parseRoute, type ConsoleRoute } from "./routes.js";
+import { DEFAULT_ROUTE, formatRoute, parseRoute, type AppRoute } from "./routes.js";
 import { MAIN_WINDOW_ROUTES } from "./route-samples.test-support.js";
 
 describe("routes — every main-window route renders to a hash that parses back to it", () => {
@@ -23,7 +23,7 @@ describe("routes — every main-window route renders to a hash that parses back 
   }
 
   it("round-trips a session id that needs escaping", () => {
-    const route: ConsoleRoute = { kind: "workspace", sessionId: "session/with#awkward chars" };
+    const route: AppRoute = { kind: "session", sessionId: "session/with#awkward chars" };
     expect(parseRoute(formatRoute(route))).toStrictEqual(route);
   });
 
@@ -40,7 +40,7 @@ describe("routes — the default", () => {
     expect(parseRoute("")).toStrictEqual(DEFAULT_ROUTE);
   });
 
-  it("normalises to an explicit hash rather than rendering back to nothing", () => {
+  it("normalizes to an explicit hash rather than rendering back to nothing", () => {
     // A window that reopened on "" would depend on the default staying what it is
     // today; the explicit hash survives a change of default.
     expect(formatRoute(DEFAULT_ROUTE)).toBe("#/sessions");
@@ -86,10 +86,10 @@ describe("routes — malformed main-window hashes resolve to not-found", () => {
     expect(parseRoute("#/settings/providers/%zz").kind).toBe("not-found");
   });
 
-  it("names no address of its own for the session workspace's rail destination", () => {
+  it("names no address of its own for the session screen's rail destination", () => {
     // `workspace` is a ROUTE kind reached from the sessions destination, not a
     // rail destination with an address. `#/workspace` therefore names nothing —
-    // the session workspace is `#/session/<id>` — and a grammar that answered it
+    // the session screen is `#/session/<id>` — and a grammar that answered it
     // would be a second address for a surface that already has one.
     expect(parseRoute("#/workspace")).toStrictEqual({
       kind: "not-found",
@@ -109,7 +109,7 @@ describe("routes — malformed main-window hashes resolve to not-found", () => {
 
   it("negative control: a well-formed hash of each main-window kind is NOT not-found", () => {
     expect(parseRoute("#/sessions").kind).toBe("sessions");
-    expect(parseRoute("#/session/session-1").kind).toBe("workspace");
+    expect(parseRoute("#/session/session-1").kind).toBe("session");
     expect(parseRoute("#/workflows").kind).toBe("workflows");
     expect(parseRoute("#/settings").kind).toBe("settings");
     expect(parseRoute("#/pane-harness/terminal/session-1").kind).toBe("pane-harness");

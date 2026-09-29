@@ -1,7 +1,7 @@
 // Triggers accumulate; one pre-paint frame runs the pass. Nothing here knows what
 // the pass measures.
 //
-// The ledger clamps rows, and a clamped row's real height is knowable only after
+// The transcript clamps rows, and a clamped row's real height is knowable only after
 // layout. Three unrelated things want that re-measured — the surface resized, a
 // webfont swapped, a caller asked outright — and each can fire several times in one
 // frame. Running the pass per trigger reads a layout the browser has not settled
@@ -22,10 +22,10 @@
 // The frame comes from the clock seam rather than from a microtask, so the pass
 // reads a layout the browser has settled rather than one it is still computing.
 
-import { type ConsoleClock, type ScheduledHandle } from "@renderer/lib/clock.js";
+import { type Clock, type ScheduledHandle } from "@renderer/lib/clock.js";
 
 export interface OverflowMeasurementBatchOptions {
-  readonly clock: ConsoleClock;
+  readonly clock: Clock;
   /** Run once per batched frame. Composed by the caller, opaque here. */
   readonly runPass: () => void;
   /**
@@ -42,8 +42,8 @@ export interface OverflowMeasurementBatchOptions {
    * excludes frames deliberately — `runFrame` is a separate control, so that a
    * frozen clock never reports a paint its holder did not release — and a fixture
    * build hands the console exactly that clock (`bridge/console-bridge.ts`'s
-   * `consoleClockFor`). So in every fixture tier an armed frame waits for a call
-   * the workload has no reason to make: measured on the endurance run, the ledger
+   * `resolveBridgeClock`). So in every fixture tier an armed frame waits for a call
+   * the workload has no reason to make: measured on the endurance run, the transcript
    * published geometry ONCE, from `attach`, and spent two hundred churn cycles
    * ranging a 149 px viewport against the 32 px box it had at mount.
    *
@@ -57,7 +57,7 @@ export interface OverflowMeasurementBatchOptions {
 }
 
 export class OverflowMeasurementBatch {
-  readonly #clock: ConsoleClock;
+  readonly #clock: Clock;
   readonly #runPass: () => void;
   readonly #publishOnResize: () => void;
 

@@ -13,11 +13,11 @@ import {
   RUN_IMPLEMENTER,
   SUBAGENT_REVIEWER,
 } from "../../fixtures/scenarios/transcript-states.js";
-import type { ConsoleScenario, ScenarioBeat } from "../../fixtures/scenario.js";
+import type { Scenario, ScenarioBeat } from "../../fixtures/scenario.js";
 // The transcript's own readers, reached deeply rather than through a door: this is a
 // claim about what THIS SCENARIO reaches, so the three treatments it has to reach are
 // named by the modules that derive them.
-import { projectFixtureShellRows } from "@renderer/features/transcript/projection/transcript-row-projection.js";
+import { projectTranscriptRows } from "@renderer/features/transcript/projection/transcript-row-projection.js";
 import { ChildRunIndex } from "@renderer/features/transcript/dispatches/child-run-entries.js";
 import { deriveSupersededBands } from "@renderer/features/transcript/superseded/superseded-bands.js";
 
@@ -34,7 +34,7 @@ function newStateOf(beat: ScenarioBeat): string | undefined {
 }
 
 /** The last state each run reached, keyed by run. */
-function finalRunStates(scenario: ConsoleScenario): ReadonlyMap<string, string> {
+function finalRunStates(scenario: Scenario): ReadonlyMap<string, string> {
   const states = new Map<string, string>();
   for (const beat of scenario.beats) {
     const runId = runIdOf(beat);
@@ -64,14 +64,14 @@ describe("the transcript-states scenario", () => {
 });
 
 /** Every row this scenario's whole script projects to, in log order. */
-function transcriptStatesRows(): ReturnType<typeof projectFixtureShellRows>["rows"] {
-  return projectFixtureShellRows(TRANSCRIPT_STATES_SCENARIO.beats.map((beat) => beat.event)).rows;
+function transcriptStatesRows(): ReturnType<typeof projectTranscriptRows>["rows"] {
+  return projectTranscriptRows(TRANSCRIPT_STATES_SCENARIO.beats.map((beat) => beat.event)).rows;
 }
 
 describe("the three lanes", () => {
   it("ends its three LANES in three different conditions at once", () => {
     // The child run under the architect is a fourth run and not a fourth lane: the
-    // transcript folds it into its parent's chapter as a summary rather than drawing it
+    // transcript folds it into its parent's run group as a summary rather than drawing it
     // beside the three, so it is subtracted here rather than counted as one of them.
     const laneStates = [...finalRunStates(TRANSCRIPT_STATES_SCENARIO)]
       .filter(([runId]) => runId !== RUN_ARCHITECT_CHILD)

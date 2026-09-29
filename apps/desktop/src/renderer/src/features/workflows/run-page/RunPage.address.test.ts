@@ -1,7 +1,7 @@
 // The address guard: which subjects this pane will open, and what it does with the
 // rest.
 //
-// The deck hands a pane whichever entity its layout carried, and the run pane can be
+// The pane layout hands a pane whichever entity its layout carried, and the run pane can be
 // pointed at a workflow definition, so "will not open" has to be a refusal the pane
 // states.
 

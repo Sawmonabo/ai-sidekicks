@@ -1,32 +1,32 @@
 // The pane layouts mounted in this window, and the one a palette act reaches: the newest.
 
-import { refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
+import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 import type { PaneLayoutActName, PaneLayoutActs } from "./pane-layout-acts.js";
 
 /**
- * What an act says when no deck is mounted in this window.
+ * What an act says when no pane layout is mounted in this window.
  *
- * One value rather than one per act: a person pressing a deck row from the settings
- * page needs to know the deck is not here, and naming which of the five they reached
+ * One value rather than one per act: a person pressing a pane layout row from the settings
+ * page needs to know the pane layout is not here, and naming which of the five they reached
  * for would answer a question they did not ask.
  */
-export const PANE_LAYOUT_NOT_MOUNTED_REFUSAL: ConsoleRefusal = refuse(
-  "workspace",
-  "workspace.no_mounted_deck",
-  "No deck of panes is open in this window. Open a session and try again.",
+export const PANE_LAYOUT_NOT_MOUNTED_REFUSAL: Refusal = refuse(
+  "pane-layout",
+  "pane-layout.not_mounted",
+  "No panes are open in this window. Open a session and try again.",
 );
 
 /** What asking the seat to perform an act produced. */
 export type PaneLayoutActOutcome =
   | { readonly status: "performed"; readonly act: PaneLayoutActName }
-  | { readonly status: "refused"; readonly refusal: ConsoleRefusal };
+  | { readonly status: "refused"; readonly refusal: Refusal };
 
 /**
- * The mounted decks, in mount order.
+ * The mounted pane layouts, in mount order.
  *
  * A class rather than a module-level array, and release is by IDENTITY rather than by
  * position: a StrictMode double mount and a route change must not leave the seat
- * holding a deck that is gone. The newest mount is the one a command acts on.
+ * holding a pane layout that is gone. The newest mount is the one a command acts on.
  */
 export class MountedPaneLayouts {
   readonly #mounted: PaneLayoutActs[] = [];

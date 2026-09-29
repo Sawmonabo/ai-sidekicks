@@ -5,17 +5,17 @@
 // import order — and a snapshot a store can hold for a session's whole life without
 // the table moving underneath it.
 //
-// The seam's behaviour through a real window is `frame/session-lifecycle`'s to
+// The seam's behavior through a real window is `frame/session-lifecycle`'s to
 // prove; what is here is the registry's own, driven directly so a conflict is a
 // value rather than a failure inside a render.
 
 import { describe, expect, it } from "vitest";
 
 import type {
-  ConsoleSessionEvent,
+  ProjectedSessionEvent,
   EntityMutation,
 } from "@renderer/store/session/entities/entities.js";
-import { ConsoleEntityProjectorRegistry } from "./entity-projector-registry.js";
+import { EntityProjectorRegistry } from "./entity-projector-registry.js";
 
 /** A probe kind no taxonomy registers, so nothing else can be claiming it. */
 const PROBE_EVENT_KIND = "probe.registered";
@@ -23,7 +23,7 @@ const PROBE_EVENT_KIND = "probe.registered";
 /** A projector that names the event it saw, so a snapshot can be shown to hold it. */
 function probeProjector(
   entityId: string,
-): (event: ConsoleSessionEvent) => readonly EntityMutation[] {
+): (event: ProjectedSessionEvent) => readonly EntityMutation[] {
   return (event) => [
     {
       operation: "upsert",
@@ -37,43 +37,43 @@ describe("the console's entity-projector board — one owner per event kind", ()
     // Never last-writer-wins: two folds for one kind would make which one runs
     // depend on which family's module evaluated first, and the store would report a
     // partition built by whichever that happened to be.
-    const registry = new ConsoleEntityProjectorRegistry();
-    registry.register(PROBE_EVENT_KIND, probeProjector("first"), "ledger");
+    const registry = new EntityProjectorRegistry();
+    registry.register(PROBE_EVENT_KIND, probeProjector("first"), "transcript");
 
     expect(() => {
       registry.register(PROBE_EVENT_KIND, probeProjector("second"), "composer");
-    }).toThrowError(/ledger[\s\S]*composer/);
+    }).toThrowError(/transcript[\s\S]*composer/);
     // The first claim survives the refusal — a rejected registration is not a
     // half-applied one.
-    expect(registry.ownerOf(PROBE_EVENT_KIND)).toBe("ledger");
+    expect(registry.ownerOf(PROBE_EVENT_KIND)).toBe("transcript");
   });
 
   it("lets one owner re-claim its own kind, as a hot reload does it", () => {
     // The other half of the owner-scoped policy, and the reason it is not plain
     // `"throw"`: a family's module re-evaluating must not raise.
-    const registry = new ConsoleEntityProjectorRegistry();
-    registry.register(PROBE_EVENT_KIND, probeProjector("first"), "ledger");
+    const registry = new EntityProjectorRegistry();
+    registry.register(PROBE_EVENT_KIND, probeProjector("first"), "transcript");
 
     expect(() => {
-      registry.register(PROBE_EVENT_KIND, probeProjector("second"), "ledger");
+      registry.register(PROBE_EVENT_KIND, probeProjector("second"), "transcript");
     }).not.toThrow();
   });
 
   it("negative control: two owners on two different kinds is not a conflict", () => {
     // Without it the case above would hold over a registry that refused every
     // second registration, which is a board no two families could share.
-    const registry = new ConsoleEntityProjectorRegistry();
+    const registry = new EntityProjectorRegistry();
 
     expect(() => {
-      registry.register(PROBE_EVENT_KIND, probeProjector("first"), "ledger");
+      registry.register(PROBE_EVENT_KIND, probeProjector("first"), "transcript");
       registry.register("probe.other", probeProjector("second"), "composer");
     }).not.toThrow();
     expect(registry.ownerOf("probe.other")).toBe("composer");
   });
 
   it("leaves a colliding batch exactly as it was, rather than half-claimed", () => {
-    const registry = new ConsoleEntityProjectorRegistry();
-    registry.register(PROBE_EVENT_KIND, probeProjector("first"), "ledger");
+    const registry = new EntityProjectorRegistry();
+    registry.register(PROBE_EVENT_KIND, probeProjector("first"), "transcript");
 
     expect(() => {
       registry.registerAll(
@@ -82,7 +82,7 @@ describe("the console's entity-projector board — one owner per event kind", ()
       );
     }).toThrow();
     expect(registry.ownerOf("probe.fresh")).toBeUndefined();
-    expect(registry.ownerOf(PROBE_EVENT_KIND)).toBe("ledger");
+    expect(registry.ownerOf(PROBE_EVENT_KIND)).toBe("transcript");
   });
 });
 
@@ -91,8 +91,8 @@ describe("the console's entity-projector board — the snapshot a store opens wi
     // Frozen at runtime rather than merely typed `Readonly`: a store folds for as
     // long as its session is open, and a table that grew underneath it would fold
     // two events of one kind two different ways inside one session.
-    const registry = new ConsoleEntityProjectorRegistry();
-    registry.register(PROBE_EVENT_KIND, probeProjector("first"), "ledger");
+    const registry = new EntityProjectorRegistry();
+    registry.register(PROBE_EVENT_KIND, probeProjector("first"), "transcript");
 
     const snapshot = registry.snapshot();
 
@@ -101,8 +101,8 @@ describe("the console's entity-projector board — the snapshot a store opens wi
   });
 
   it("does not grow when the board does, so a store's fold is fixed at open", () => {
-    const registry = new ConsoleEntityProjectorRegistry();
-    registry.register(PROBE_EVENT_KIND, probeProjector("first"), "ledger");
+    const registry = new EntityProjectorRegistry();
+    registry.register(PROBE_EVENT_KIND, probeProjector("first"), "transcript");
     const taken = registry.snapshot();
 
     registry.register("probe.later", probeProjector("later"), "composer");
@@ -117,6 +117,6 @@ describe("the console's entity-projector board — the snapshot a store opens wi
   it("negative control: a fresh board claims nothing on its own", () => {
     // Every case above reads a snapshot, and all of them would pass over a board
     // that reported kinds nobody registered.
-    expect(new ConsoleEntityProjectorRegistry().snapshot()).toStrictEqual({});
+    expect(new EntityProjectorRegistry().snapshot()).toStrictEqual({});
   });
 });

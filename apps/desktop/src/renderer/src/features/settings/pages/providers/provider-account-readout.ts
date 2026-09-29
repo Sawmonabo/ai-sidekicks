@@ -19,7 +19,7 @@ import type {
 import type { UnreadableDeliveryReading } from "@renderer/services/wire-reads/unreadable-deliveries.js";
 import type { WireReadState } from "@renderer/services/wire-reads/read-lifecycle.js";
 import type { ProviderLoginCompletion } from "@renderer/services/provider-accounts/provider-account-deliveries.js";
-import type { ProviderQuotaFold } from "@renderer/store/provider-accounts/provider-account-fold.js";
+import type { ProviderAccountFold } from "@renderer/store/provider-accounts/provider-account-fold.js";
 
 /**
  * The empty projection, named once so an unread registry shares one frozen array.
@@ -45,7 +45,7 @@ export interface ProviderAccountReadout extends UnreadableDeliveryReading, WireR
   /**
    * Every account the registry carries, whole, in the order the daemon sent them.
    *
-   * THE REGISTRY HAS ONE READER IN THIS WINDOW AND THIS IS IT. A settings surface
+   * THE REGISTRY HAS ONE READER IN THIS WINDOW AND THIS IS IT. A settings screen
    * listing the accounts asks the same question of the same wire as the chips do —
    * `providerAccount.list` answers with the accounts, the readiness projection, and
    * the durable quota rows in one snapshot — so a page that took its own read would be
@@ -99,7 +99,7 @@ export interface ProviderAccountDeliveryReading {
 /** The four things a readout is composed from, named so no caller passes a reading. */
 export interface ProviderAccountReadoutParts {
   /** Which reading is current for each key, and every account the registry carries. */
-  readonly fold: ProviderQuotaFold;
+  readonly fold: ProviderAccountFold;
   /**
    * What the deliveries carry that the fold does not hold.
    *

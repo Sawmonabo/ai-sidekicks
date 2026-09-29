@@ -58,7 +58,7 @@ import {
   openConcurrentStreamingSessionRoute,
 } from "./endurance-workload.js";
 import { expectPreciseHeapInstrument, RendererHeapProbe } from "./heap-instrument.js";
-import { FLAGSHIP_SCENARIO } from "../../fixtures/scenarios/concurrent-streaming.js";
+import { CONCURRENT_STREAMING_SCENARIO } from "../../fixtures/scenarios/concurrent-streaming.js";
 import { BudgetRegistry } from "../../scripts/budget/budget-registry.mjs";
 import { evaluateBudget } from "../../scripts/budget/budget-evaluation.mjs";
 import { type Budget } from "../../scripts/budget/budget-document.mjs";
@@ -107,7 +107,7 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console at rest with one sess
         deliveredBeatCount,
         "the scenario handle is not exposed by this build, so nothing drove content into the session being measured",
       ).not.toBeNull();
-      expect(Number(deliveredBeatCount)).toBe(FLAGSHIP_SCENARIO.beats.length);
+      expect(Number(deliveredBeatCount)).toBe(CONCURRENT_STREAMING_SCENARIO.beats.length);
       await expectConcurrentStreamingSessionCarriesContent(consoleApplication);
 
       // Attached before the precondition, which needs it: the precondition proves the

@@ -1,11 +1,11 @@
 // The idle walk: what it schedules on, when it stops, and what it re-reads.
 //
 // Both halves are driven here because both are seams a browser would hide. The
-// scheduler's feature detection decides whether a walk can be CANCELLED at all, and a
+// scheduler's feature detection decides whether a walk can be CANCELED at all, and a
 // host that answered `requestIdleCallback` without its cancel would leave a background
 // walk running past the window that started it — a leak that shows up as nothing at all
 // until an auxiliary window closes. And the walk's own rules — once per instance,
-// cancellable at any point, re-read between steps — are the difference between a warm
+// cancelable at any point, re-read between steps — are the difference between a warm
 // board and a loop that re-requests a chunk it already has.
 
 import { describe, expect, it } from "vitest";
@@ -187,14 +187,14 @@ describe("the warm walk — one key per callback, once", () => {
   });
 });
 
-describe("the warm walk — cancelling it", () => {
+describe("the warm walk — canceling it", () => {
   it("releases the armed handle and warms nothing further", () => {
     const board = new RecordingBoard(["diff", "artifact", "runs"]);
     const scheduler = new ManualIdleWarmScheduler();
     const walk = new LazyBodyIdleWarm(board, scheduler);
     walk.start();
     walk.cancel();
-    expect(scheduler.cancelledHandles).toStrictEqual([1]);
+    expect(scheduler.canceledHandles).toStrictEqual([1]);
     scheduler.runToQuiescence();
     expect(board.preloaded).toStrictEqual([]);
   });
@@ -230,9 +230,9 @@ describe("the warm walk — cancelling it", () => {
       walk.cancel();
       walk.cancel();
     }).not.toThrow();
-    // Nothing was armed, so nothing was cancelled — a `cancel` that passed `undefined`
+    // Nothing was armed, so nothing was canceled — a `cancel` that passed `undefined`
     // to the host's API would show up here as a recorded handle.
-    expect(scheduler.cancelledHandles).toStrictEqual([]);
+    expect(scheduler.canceledHandles).toStrictEqual([]);
   });
 });
 

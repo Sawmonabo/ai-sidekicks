@@ -24,7 +24,7 @@
 // dismissed is still the newest thing the pane is doing, and its failure is news.
 //
 // AND EVERY ONE OF THOSE ACTS BELONGS TO A SUBJECT. A token orders acts against each
-// other and says nothing about which pane they were dispatched for, so a deck that
+// other and says nothing about which pane they were dispatched for, so a pane layout that
 // rebinds this component to another `paneId` or another bridge kept both halves: a
 // navigation dispatched under the previous subject settled afterwards and published
 // its refusal beside the NEW pane, naming a page nobody was looking at, and a local
@@ -33,16 +33,16 @@
 // outstanding under a retired subject are superseded rather than left to write.
 
 import { useCallback } from "react";
-import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { normalizeWireRejection, type RejectionFallback } from "@renderer/lib/wire-rejection.js";
-import { refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
+import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 import { useSubjectScopedResource } from "@renderer/hooks/subject-scoped/useSubjectScopedResource.js";
 import { type SubjectScopedDisposal } from "@renderer/lib/subject-scoped/subject-scoped-disposal.js";
 import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
 import type { PreviewPaneRefusalCode } from "../pane-refusals.js";
 
 /** The subsystem name every refusal this pane raises itself carries. */
-const BROWSER_PANE_REFUSAL_ORIGIN = "browser-pane";
+const PREVIEW_PANE_REFUSAL_ORIGIN = "preview-pane";
 
 /**
  * Which dispatched act is the newest one.
@@ -99,13 +99,13 @@ const BROWSER_ACT_SEQUENCE_DISPOSAL: SubjectScopedDisposal<BrowserActSequence> =
 /** The pane's acts, and the one refusal they report between them. */
 export interface PreviewPaneActs {
   /** The newest act's refusal, or `undefined` where the newest act did not refuse. */
-  readonly refusal: ConsoleRefusal | undefined;
+  readonly refusal: Refusal | undefined;
   /**
    * Dispatch one act. The thunk answers with the refusal to render, or `undefined`
    * where the act was served; a rejection is normalized through the console's one
    * wire-rejection reader, so a code the other side sent survives.
    */
-  run(act: () => Promise<ConsoleRefusal | undefined>, fallback: RejectionFallback): void;
+  run(act: () => Promise<Refusal | undefined>, fallback: RejectionFallback): void;
   /**
    * Refuse here and now, without crossing the boundary. Outranks anything in flight.
    *
@@ -130,7 +130,7 @@ export interface PreviewPaneActs {
  * writing a refusal the holder then has to hide; the same disposal covers unmount,
  * where there is no later render to compare.
  */
-export function usePreviewPaneActs(bridge: ConsoleBridge, paneId: string): PreviewPaneActs {
+export function usePreviewPaneActs(bridge: PlatformBridge, paneId: string): PreviewPaneActs {
   // The subject is changing, or the pane is going: whatever is in flight was
   // dispatched for a pane this hook no longer serves, so the disposal supersedes it.
   const { value: sequence } = useSubjectScopedResource(
@@ -139,14 +139,14 @@ export function usePreviewPaneActs(bridge: ConsoleBridge, paneId: string): Previ
     () => new BrowserActSequence(),
     BROWSER_ACT_SEQUENCE_DISPOSAL,
   );
-  const { value: refusal, publish } = useSubjectScopedState<ConsoleRefusal | undefined>(
+  const { value: refusal, publish } = useSubjectScopedState<Refusal | undefined>(
     bridge,
     paneId,
     () => undefined,
   );
 
   const run = useCallback(
-    (act: () => Promise<ConsoleRefusal | undefined>, fallback: RejectionFallback): void => {
+    (act: () => Promise<Refusal | undefined>, fallback: RejectionFallback): void => {
       const token = sequence.begin();
       void act().then(
         (outcome) => {
@@ -156,7 +156,7 @@ export function usePreviewPaneActs(bridge: ConsoleBridge, paneId: string): Previ
         },
         (failure: unknown) => {
           if (sequence.isNewest(token)) {
-            publish(normalizeWireRejection(BROWSER_PANE_REFUSAL_ORIGIN, failure, fallback));
+            publish(normalizeWireRejection(PREVIEW_PANE_REFUSAL_ORIGIN, failure, fallback));
           }
         },
       );
@@ -167,7 +167,7 @@ export function usePreviewPaneActs(bridge: ConsoleBridge, paneId: string): Previ
   const refuseLocally = useCallback(
     (code: PreviewPaneRefusalCode, detail: string): void => {
       sequence.begin();
-      publish(refuse(BROWSER_PANE_REFUSAL_ORIGIN, code, detail));
+      publish(refuse(PREVIEW_PANE_REFUSAL_ORIGIN, code, detail));
     },
     [publish, sequence],
   );

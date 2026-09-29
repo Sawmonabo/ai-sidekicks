@@ -6,7 +6,7 @@
 // diagnostics page name all three. Two of the three were wired anywhere in the console
 // and the third was not: the only producer of `RefreshReason`'s `reconnect` was a
 // SESSION store's repair edge, so a window-scoped reading — this node's diagnostics,
-// this node's accounts, the shell's own preferences — had no session, no repair edge,
+// this node's accounts, the machine's own settings — had no session, no repair edge,
 // and no reconnect at all.
 //
 // ONE EMITTER, AND IT OBSERVES RATHER THAN POLLS
@@ -18,7 +18,7 @@
 // session-event binder — and, under the fixture, by the scenario's own scripted outages.
 // There is no timer, no probe, and no retry ladder: a renderer that polled to find out
 // whether the wire was back would be the interval polling the design forbids, and a
-// renderer that inferred it from a call that happened to succeed would be synthesising a
+// renderer that inferred it from a call that happened to succeed would be synthesizing a
 // connection state the supervisor owns.
 //
 // NO OBSERVER IS ALSO THE ONLY CONSUMER, which is a property rather than a coincidence.
@@ -38,7 +38,7 @@
 // and wrong about the transport, on that one path.
 //
 // THAT IS A MISSING SIGNAL AND NOT A MISSING OBSERVER, which is why nothing here
-// compensates for it. `DesktopBridge.daemon.subscribe` is `(event, handler) =>
+// compensates for it. `PlatformBridge.daemon.subscribe` is `(event, handler) =>
 // Unsubscribe`: the handler is a payload sink with no error, end, or close arm, the
 // handle only cancels, and no member anywhere on that bridge — `daemon`,
 // `controlPlane`, `native`, `update`, `app` — reports connection state.
@@ -70,11 +70,11 @@
 // times for one transport; only a state CHANGE is a change, so the five redundant
 // reports cost nothing and no reading re-reads for them.
 //
-// WHY IT IS NOT ON `DesktopBridge`
+// WHY IT IS NOT ON `PlatformBridge`
 //
 // The preload contract is what the preload actually exposes, and it exposes no
 // connection state. Putting one there would make the fixture shape-identical to a
-// lie. This sits on `ConsoleBridge`, where the console's own seams live.
+// lie. This sits on `PlatformBridge`, where the console's own seams live.
 
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
 import { type TransportReconnectObservable } from "@renderer/lib/transport-reconnect.js";

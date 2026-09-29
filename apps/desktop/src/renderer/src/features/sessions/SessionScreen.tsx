@@ -1,11 +1,11 @@
-// The session workspace: the session header, the deck, and the composer's seat.
+// The session screen: the session header, the pane layout, and the composer's seat.
 //
 // This is what a person is looking at when they are looking at a session. It
-// composes three things it does not own — `SessionHeader` (this family's), the deck's
+// composes three things it does not own — `SessionHeader` (this family's), the pane layout's
 // panes (six families', through one mount door), and the composer (the composer
 // family's, through its seat) — and owns exactly one thing itself: the arrangement.
 //
-// THE DECISIONS THIS SURFACE MAKES:
+// THE DECISIONS THIS SCREEN MAKES:
 //
 //   • **The layout is restored once, at mount, and saved through the persistence
 //     chokepoint.** Layout, scroll position, selection, pins, and expansion sets
@@ -18,15 +18,15 @@
 //     whole budget on a gesture. `layout-writer.ts` holds one write in
 //     flight and one pending snapshot, so a drag costs what the database can absorb
 //     and every record it writes is the newest arrangement rather than a stale one.
-//   • **An empty deck opens the ledger.** This surface's own empty state, because no
-//     committed document states one: the workspace shows the ledger alone at full
-//     width, which is a `timeline` pane rather than a special case in the renderer.
+//   • **An empty pane layout opens the transcript.** This screen's own empty state, because no
+//     committed document states one: the session screen shows the transcript alone at full
+//     width, which is a `transcript` pane rather than a special case in the renderer.
 //   • **Refusals are rendered where they happened.** What a restore dropped belongs
-//     to the deck and renders inside it; what a save refused changes what the whole
-//     surface can do and takes the workspace banner.
-//   • **A banner belongs to the session it was raised in.** This surface is NOT
+//     to the pane layout and renders inside it; what a save refused changes what the whole
+//     screen can do and takes the session screen banner.
+//   • **A banner belongs to the session it was raised in.** This screen is NOT
 //     remounted between two open sessions, so a column held for the life of the mount
-//     went on saying what a save refused in the session somebody left, over the deck
+//     went on saying what a save refused in the session somebody left, over the pane layout
 //     of the one they are looking at. The column rides `seats/session-subject.ts` on
 //     `(bridge, session)`, so the render that first sees the arriving session already
 //     reads an empty one, and a bridge replacement — which retires every call the
@@ -36,11 +36,11 @@ import "./SessionScreen.css";
 
 import { useCallback } from "react";
 
-import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { type Refusal } from "@renderer/lib/refusal.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { routeSessionId } from "@renderer/routing/route-readers.js";
-import { type ConsoleRoute } from "@renderer/routing/routes.js";
-import { type FrameStore } from "@renderer/store/window/window-store.js";
+import { type AppRoute } from "@renderer/routing/routes.js";
+import { type WindowStore } from "@renderer/store/window/window-store.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 import { type DraftStore } from "@renderer/store/draft-store.js";
 import { type UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
@@ -55,11 +55,11 @@ import type { SessionPane } from "./pane-layout/pane-layout.js";
 import { usePaneLayoutPersistence } from "./pane-layout/hooks/usePaneLayoutPersistence.js";
 import { useFocusedPaneAddress } from "./hooks/useFocusedPaneAddress.js";
 import {
-  composerSeatRenderer,
-  parseConsolePaneAddress,
+  findComposerRenderer,
+  parsePaneAddress,
   useSessionScopedState,
-  type ConsolePaneContext,
-  type ConsolePaneRegistry,
+  type PaneContext,
+  type PaneRegistry,
 } from "@renderer/console/seats/index.js";
 import {
   NO_SESSION_BANNERS,
@@ -69,30 +69,30 @@ import {
   type SessionBanner,
 } from "./session-banners.js";
 
-/** What the workspace is handed: the stores it reads and the pane board it mounts. */
+/** What the session screen is handed: the stores it reads and the pane board it mounts. */
 export interface SessionScreenProps {
-  readonly bridge: ConsoleBridge;
-  readonly frameStore: FrameStore;
+  readonly bridge: PlatformBridge;
+  readonly frameStore: WindowStore;
   /** `undefined` on a route that names no session, or before its store opens. */
   readonly sessionStore: SessionStore | undefined;
   readonly uiStateStore: UiStateStore;
   readonly draftStore: DraftStore;
-  readonly route: ConsoleRoute;
+  readonly route: AppRoute;
   /**
-   * The pane board THIS composition filled, the same fact `ConsoleSurfaceContext`
+   * The pane board THIS composition filled, the same fact `ScreenContext`
    * carries and on the same terms: required rather than defaulted to the process-wide
    * singleton, because a default is the same hard-coding one parameter along and a
    * caller that forgets it still mounts production's bodies into a composed window.
    */
-  readonly paneRegistry: ConsolePaneRegistry;
+  readonly paneRegistry: PaneRegistry;
 }
 
-/** The session workspace: header, deck of panes, composer seat, and the banner column. */
-export function Workspace(props: SessionScreenProps): React.JSX.Element {
+/** The session screen: header, pane layout, composer seat, and the banner column. */
+export function SessionScreen(props: SessionScreenProps): React.JSX.Element {
   const sessionId = routeSessionId(props.route);
   const registry = props.paneRegistry;
   const layout = usePaneLayoutStore({ restoredPaneCap: PANE_LAYOUT_RESTORED_PANE_CAP });
-  const deckState = usePaneLayoutState(layout);
+  const paneLayoutState = usePaneLayoutState(layout);
   // WHAT THIS ROOM CANNOT DO, ADDRESSED BY THE SESSION IT CANNOT DO IT IN. The bridge
   // is the subject and the session the key, which is this console's one session pairing:
   // every refusal that lands here was raised by a call or a write made through that
@@ -111,7 +111,7 @@ export function Workspace(props: SessionScreenProps): React.JSX.Element {
   // the moment of the call instead, so the column stays writable for the life of the
   // mount and the refusal lands on the session a person is actually reading.
   const raise = useCallback(
-    (refusal: ConsoleRefusal) => {
+    (refusal: Refusal) => {
       const publishIntoTheVisitOnScreen = settleBanners();
       publishIntoTheVisitOnScreen((current) => raiseSessionBanner(current, refusal));
     },
@@ -134,12 +134,12 @@ export function Workspace(props: SessionScreenProps): React.JSX.Element {
   });
 
   const paneContextFor = useCallback(
-    (pane: SessionPane): ConsolePaneContext | ConsoleRefusal => {
+    (pane: SessionPane): PaneContext | Refusal => {
       // The kind and the entity arrived as a loose pair — off a restored snapshot, or
       // off a route somebody typed — so they become an ADDRESS here or they become a
-      // refusal here. The seat owns that rule and this surface applies it; deciding it
+      // refusal here. The seat owns that rule and this screen applies it; deciding it
       // again would be a second answer to which entities a pane kind is a view of.
-      const address = parseConsolePaneAddress(pane.kind, pane.entity);
+      const address = parsePaneAddress(pane.kind, pane.entity);
       if ("code" in address) {
         return address;
       }
@@ -164,11 +164,11 @@ export function Workspace(props: SessionScreenProps): React.JSX.Element {
     [props.bridge, props.frameStore, props.sessionStore, props.uiStateStore, props.draftStore],
   );
 
-  const composer = composerSeatRenderer();
-  const focusedPane = useFocusedPaneAddress(deckState.panes, deckState.focusedPaneId);
+  const composer = findComposerRenderer();
+  const focusedPane = useFocusedPaneAddress(paneLayoutState.panes, paneLayoutState.focusedPaneId);
 
   return (
-    <div className="meridian-workspace">
+    <div className="meridian-session-screen">
       {banners.map((banner) => (
         <SessionBannerRow
           key={sessionBannerKey(banner.refusal)}
@@ -184,7 +184,7 @@ export function Workspace(props: SessionScreenProps): React.JSX.Element {
         restoreRefusals={restoreRefusals}
       />
       {composer === undefined || props.sessionStore === undefined ? null : (
-        <div className="meridian-workspace__composer">
+        <div className="meridian-session-screen__composer">
           {composer({
             sessionStore: props.sessionStore,
             bridge: props.bridge,

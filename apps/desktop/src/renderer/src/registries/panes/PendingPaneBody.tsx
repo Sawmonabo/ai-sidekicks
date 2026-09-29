@@ -2,7 +2,7 @@
 //
 // IT IS THE PANE'S OWN CHROME WITH AN EMPTY BODY, and that is the whole design. The
 // chrome is drawn from the pane's address — the kind, the entity it is a view of, the
-// session, the focus hue — every one of which the deck knows before the body's module
+// session, the focus hue — every one of which the pane layout knows before the body's module
 // lands, so the frame this renders is the frame the loaded body renders around itself.
 // Nothing moves when the body arrives: the head is already at its height and the body
 // box already at its size, and what changes is only what is inside it.
@@ -23,13 +23,13 @@
 // The one thing it adds beyond the chrome is the marker `PendingPaneBody.tsx` owns, so
 // the screenshot tier can refuse to photograph this frame.
 
-import { ConsolePaneChrome } from "@renderer/components/PaneFrame/PaneFrame.js";
-import type { ConsolePaneContext } from "./pane-context.js";
-import { PENDING_PANE_BODY_ATTRIBUTE } from "@renderer/components/LazyBody/pending-body-marker.js";
+import { PaneFrame } from "@renderer/components/PaneFrame/PaneFrame.js";
+import type { PaneContext } from "./pane-context.js";
+import { PENDING_BODY_ATTRIBUTE } from "@renderer/components/LazyBody/pending-body-marker.js";
 
 export interface PendingPaneBodyProps {
-  /** The address and bindings the deck opened this pane at. */
-  readonly context: ConsolePaneContext;
+  /** The address and bindings the pane layout opened this pane at. */
+  readonly context: PaneContext;
 }
 
 /**
@@ -44,19 +44,19 @@ export interface PendingPaneBodyProps {
  * nothing, which is the property this whole fallback exists to have.
  *
  * The host's close control is deliberately not passed. It reaches the chrome through the
- * deck's own context exactly as it does for a loaded body, so the control strip is
+ * pane layout's own context exactly as it does for a loaded body, so the control strip is
  * identical across the swap rather than growing a button when the body lands.
  */
 export function PendingPaneBody(props: PendingPaneBodyProps): React.JSX.Element {
   const { context } = props;
   return (
-    <ConsolePaneChrome
+    <PaneFrame
       kind={context.kind}
       sessionId={context.sessionStore?.sessionId}
       entity={"entity" in context ? context.entity : undefined}
       focusHue={context.focusHue}
     >
-      <span hidden {...{ [PENDING_PANE_BODY_ATTRIBUTE]: context.kind }} />
-    </ConsolePaneChrome>
+      <span hidden {...{ [PENDING_BODY_ATTRIBUTE]: context.kind }} />
+    </PaneFrame>
   );
 }

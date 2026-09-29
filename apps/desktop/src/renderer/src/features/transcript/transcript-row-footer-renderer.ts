@@ -1,11 +1,11 @@
-// The timeline row's FOOTER seat — where a row-level control another plan owns sits.
+// The transcript row's FOOTER seat — where a row-level control another plan owns sits.
 //
 // WHY A SECOND SEAT BESIDE THE ROW SLOT. `transcript-row-renderer.ts` hands out the whole
 // row body, and the family that fills it owns everything inside. The edit-and-resend
 // affordance is not inside it: the pencil belongs in the footer of a user
 // message row, the body it opens is authored by the run-controls plan, and neither
 // of those is the row's renderer. Handing that plan the row slot would make it the
-// owner of every row in the ledger to obtain one control on one kind of row.
+// owner of every row in the transcript to obtain one control on one kind of row.
 //
 // AND WHY NOT THE COMPOSER'S ACCESSORY RAIL, WHICH ALREADY HAS A SLOT. That one is
 // the EDITOR's seat — where the inline editor mounts once it is open. This is the
@@ -26,9 +26,9 @@
 
 import type { TimelineRow } from "@ai-sidekicks/contracts";
 
-import { SingleSlotSeat } from "@renderer/lib/single-entry-registry.js";
+import { SingleEntryRegistry } from "@renderer/lib/single-entry-registry.js";
 
-/** What the ledger hands a row footer. */
+/** What the transcript hands a row footer. */
 export interface TranscriptRowFooterRendererProps {
   /** The projected row, wire-verbatim, as `@ai-sidekicks/contracts` defines it. */
   readonly row: TimelineRow;
@@ -36,19 +36,19 @@ export interface TranscriptRowFooterRendererProps {
    * Whether a rollback boundary later in the list supersedes this row.
    *
    * A ranking over the rows AROUND this one, which no single row carries — the same
-   * reason `TimelineRowSlotProps` carries it. A footer control that corrects history
+   * reason `TranscriptRowProps` carries it. A footer control that corrects history
    * needs it: the row it would rewind to has already been rewound past.
    */
   readonly isSuperseded: boolean;
 }
 
 /** The footer body. Returns `React.ReactNode` so the row can render it directly. */
-export type TimelineRowFooterRenderer = (
+export type TranscriptRowFooterRenderer = (
   props: TranscriptRowFooterRendererProps,
 ) => React.ReactNode;
 
-const timelineRowFooterSeat = new SingleSlotSeat<TimelineRowFooterRenderer>(
-  "timeline row footer",
+const transcriptRowFooterSeat = new SingleEntryRegistry<TranscriptRowFooterRenderer>(
+  "transcript row footer",
   "a user message carries one set of actions after Copy; a second owner would make which one renders depend on import order",
 );
 
@@ -60,9 +60,9 @@ const timelineRowFooterSeat = new SingleSlotSeat<TimelineRowFooterRenderer>(
  */
 export function registerTranscriptRowFooterRenderer(
   owner: string,
-  render: TimelineRowFooterRenderer,
+  render: TranscriptRowFooterRenderer,
 ): void {
-  timelineRowFooterSeat.register({ owner, render });
+  transcriptRowFooterSeat.register({ owner, render });
 }
 
 /**
@@ -72,10 +72,10 @@ export function registerTranscriptRowFooterRenderer(
  * into the next one.
  */
 export function unregisterTranscriptRowFooterRenderer(): void {
-  timelineRowFooterSeat.unregister();
+  transcriptRowFooterSeat.unregister();
 }
 
 /** The footer body, or `undefined` while the seat is empty. */
-export function findTranscriptRowFooterRenderer(): TimelineRowFooterRenderer | undefined {
-  return timelineRowFooterSeat.renderer();
+export function findTranscriptRowFooterRenderer(): TranscriptRowFooterRenderer | undefined {
+  return transcriptRowFooterSeat.renderer();
 }

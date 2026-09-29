@@ -1,29 +1,29 @@
 // The palette's bridge-backed commands, and the door they reach the bridge through.
 //
-// Two claims worth proving separately. The BEHAVIOUR — an act that the bridge
+// Two claims worth proving separately. The BEHAVIOR — an act that the bridge
 // refuses settles as a rendered refusal rather than as a dropped promise — is
 // driven against the real fixture bridge, whose `update.requestCheck` genuinely
 // rejects and whose `native.copyToClipboard` genuinely resolves, so neither arm is
 // a stub answering the way the test wants. The WIRING — that the commands reach the
-// bridge through `useConsoleBridge` and through nothing else — needs a React tree,
+// bridge through `usePlatformBridge` and through nothing else — needs a React tree,
 // and is proved by rendering one.
 
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { DesktopBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
+import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
-import type { ConsoleRefusal } from "@renderer/lib/refusal.js";
-import type { ConsoleCommand } from "@renderer/registries/commands/command-types.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
+import type { Refusal } from "@renderer/lib/refusal.js";
+import type { CommandDefinition } from "@renderer/registries/commands/command-types.js";
 import { buildBridgeCommands } from "./commands.js";
 import { useBridgeCommands } from "../hooks/useBridgeCommands.js";
 import { FIRST_RUN_SCENARIO } from "../../../../../../fixtures/scenarios/first-run.js";
 
-function fixtureBridge(): ConsoleBridge {
+function fixtureBridge(): PlatformBridge {
   return createFixtureBridge({ scenario: FIRST_RUN_SCENARIO });
 }
 
-function commandById(commands: readonly ConsoleCommand[], commandId: string): ConsoleCommand {
+function commandById(commands: readonly CommandDefinition[], commandId: string): CommandDefinition {
   const command = commands.find((candidate) => candidate.id === commandId);
   if (command === undefined) {
     throw new Error(`the builder produced no command named ${commandId}`);
@@ -36,7 +36,7 @@ describe("palette bridge commands — a refused act is rendered, never dropped",
     // `update.requestCheck` has no fixture stand-in and rejects. The palette drops
     // the promise `invoke` hands back, so a `run` that let this reject would raise
     // an unhandled rejection and show the person nothing at all.
-    const refusals: ConsoleRefusal[] = [];
+    const refusals: Refusal[] = [];
     const commands = buildBridgeCommands(fixtureBridge(), (refusal) => refusals.push(refusal));
 
     await commandById(commands, "bridge.checkForUpdates").run();
@@ -55,19 +55,16 @@ describe("palette bridge commands — a refused act is rendered, never dropped",
     // `settle` entirely, the sink is never called, and `run` rejects into a dispatch
     // that drops it.
     const bridge = fixtureBridge();
-    const throwing: ConsoleBridge = {
+    const throwing: PlatformBridge = {
       ...bridge,
-      desktopBridge: {
-        ...bridge.desktopBridge,
-        update: {
-          ...bridge.desktopBridge.update,
-          requestCheck: () => {
-            throw new Error("update.requestCheck is not implemented");
-          },
+      update: {
+        ...bridge.update,
+        requestCheck: () => {
+          throw new Error("update.requestCheck is not implemented");
         },
       },
     };
-    const refusals: ConsoleRefusal[] = [];
+    const refusals: Refusal[] = [];
     const commands = buildBridgeCommands(throwing, (refusal) => refusals.push(refusal));
 
     await expect(commandById(commands, "bridge.checkForUpdates").run()).resolves.toBeUndefined();
@@ -86,7 +83,7 @@ describe("palette bridge commands — a refused act is rendered, never dropped",
     // Without this, a sink that was called on every path — or an assertion that
     // never checked emptiness — would make the case above pass for the wrong
     // reason. The fixture's clipboard write resolves, so this arm must stay silent.
-    const refusals: ConsoleRefusal[] = [];
+    const refusals: Refusal[] = [];
     const commands = buildBridgeCommands(fixtureBridge(), (refusal) => refusals.push(refusal));
 
     await commandById(commands, "bridge.copyBuildDetails").run();
@@ -100,15 +97,12 @@ describe("palette bridge commands — a refused act is rendered, never dropped",
     // read `navigator` would pass every assertion above and still be wrong.
     let copied: string | undefined;
     const bridge = fixtureBridge();
-    const instrumented: ConsoleBridge = {
+    const instrumented: PlatformBridge = {
       ...bridge,
-      desktopBridge: {
-        ...bridge.desktopBridge,
-        native: {
-          ...bridge.desktopBridge.native,
-          copyToClipboard: async (text: string) => {
-            copied = text;
-          },
+      native: {
+        ...bridge.native,
+        copyToClipboard: async (text: string) => {
+          copied = text;
         },
       },
     };
@@ -116,14 +110,14 @@ describe("palette bridge commands — a refused act is rendered, never dropped",
 
     await commandById(commands, "bridge.copyBuildDetails").run();
 
-    const { version, platform, arch, locale } = bridge.desktopBridge.app;
+    const { version, platform, arch, locale } = bridge.app;
     expect(copied).toBe(`AI Sidekicks ${version} — ${platform}/${arch} — ${locale}`);
   });
 });
 
 describe("palette bridge commands — the hook reaches the bridge through the provider", () => {
   it("builds its commands from the bridge the provider resolved", async () => {
-    let seen: readonly ConsoleCommand[] = [];
+    let seen: readonly CommandDefinition[] = [];
 
     function CommandProbe(): React.JSX.Element {
       seen = useBridgeCommands(() => undefined);
@@ -132,9 +126,9 @@ describe("palette bridge commands — the hook reaches the bridge through the pr
 
     await act(async () => {
       render(
-        <DesktopBridgeProvider bridge={fixtureBridge()}>
+        <PlatformBridgeProvider bridge={fixtureBridge()}>
           <CommandProbe />
-        </DesktopBridgeProvider>,
+        </PlatformBridgeProvider>,
       );
     });
 
@@ -145,7 +139,7 @@ describe("palette bridge commands — the hook reaches the bridge through the pr
   });
 
   it("negative control: refuses to build outside the provider", async () => {
-    // `useConsoleBridge` throws rather than returning `undefined`, so a surface
+    // `usePlatformBridge` throws rather than returning `undefined`, so a surface
     // mounted outside the provider is a wiring bug that surfaces at once instead of
     // rendering an empty palette that looks like "no commands apply here".
     function OrphanProbe(): React.JSX.Element {
@@ -157,6 +151,6 @@ describe("palette bridge commands — the hook reaches the bridge through the pr
       act(async () => {
         render(<OrphanProbe />);
       }),
-    ).rejects.toThrow(/DesktopBridgeProvider/);
+    ).rejects.toThrow(/PlatformBridgeProvider/);
   });
 });

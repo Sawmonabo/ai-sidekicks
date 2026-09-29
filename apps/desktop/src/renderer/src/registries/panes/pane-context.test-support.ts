@@ -14,27 +14,27 @@
 // get it: that binding is what turned every hand-written copy into a silent fork.
 //
 // THE ADDRESS IS THE PARAMETER, and the bindings are the rest. That split is the
-// address union's own: `seats/pane/pane-address.ts` makes a session-scoped kind carry no
+// address union's own: `routing/panes/pane-address.ts` makes a session-scoped kind carry no
 // `entity` member, an entity-keyed kind require one, and an entity-optional kind
 // admit either — three shapes a caller states and a helper cannot guess. Passing the
 // address through as written keeps that refusal at the call site: an `inspector`
 // mounted with no entity, or a `runs` pane handed one, fails to compile here rather
 // than being invented for by a default.
 //
-// AND IT LIVES IN `seats/` because the suites that mount a pane are in VIEW families
-// — runs, approvals, inspector, browser, terminal — and a sibling may not import a
-// sibling. `console-view-family-isolation` says where a contract those siblings
-// share belongs, and this is the contract `seats/pane/pane-registry.ts` declares: a
-// builder for `ConsolePaneContext` beside the type it builds.
+// AND IT LIVES IN `registries/panes/` because the suites that mount a pane are in features
+// — repos, inspector, preview, terminal — and one feature may not import
+// another. `feature-isolation` says what two features share goes through `registries/`,
+// and this is the contract `registries/panes/pane-registry.ts` declares: a
+// builder for `PaneContext` beside the type it builds.
 
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence-caps.js";
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { DraftStore } from "@renderer/store/draft-store.js";
 import { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
-import { type ConsolePaneAddress } from "@renderer/routing/panes/pane-address.js";
+import { type PaneAddressOf } from "@renderer/routing/panes/pane-address.js";
 import { type PaneKind } from "@renderer/routing/panes/pane-kinds.js";
-import { type ConsolePaneContext } from "./pane-context.js";
-import { FrameStore } from "@renderer/store/window/window-store.js";
+import { type PaneContext } from "./pane-context.js";
+import { WindowStore } from "@renderer/store/window/window-store.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 
 /**
@@ -47,7 +47,7 @@ import { type SessionStore } from "@renderer/store/session/session-store.js";
  * identically as an optional member, and only one of them is a claim.
  */
 export interface PaneBindings {
-  readonly bridge: ConsoleBridge;
+  readonly bridge: PlatformBridge;
   readonly sessionStore: SessionStore | undefined;
   /** The pane this one was opened FROM, where a case is about the link. */
   readonly linkedSourcePaneId?: string;
@@ -62,12 +62,12 @@ export interface PaneBindings {
    * makes those two different types: a caller that forwards its own optional member
    * passes the property PRESENT and undefined, which the bare `?` rejects.
    */
-  readonly frameStore?: FrameStore | undefined;
+  readonly frameStore?: WindowStore | undefined;
   /**
-   * This pane's identity in the deck, where a case is about WHICH pane it is.
+   * This pane's identity in the pane layout, where a case is about WHICH pane it is.
    *
    * Defaulted from the kind, which is what every suite that has nothing to say here
-   * wants — and named by the one class of case that does: a deck moves a slot to
+   * wants — and named by the one class of case that does: a pane layout moves a slot to
    * another pane without remounting, so a suite proving the pane's state says whose
    * it is has to hold two ids at once. That is a claim the caller makes, and the
    * only reason this member exists rather than the derivation alone.
@@ -81,7 +81,7 @@ export interface PaneBindings {
    * silently, by writing their own builder around `UiStateStore.opening()`, and the
    * cost of that was not the extra function: a pane in either of them could grow a
    * UI-state read, pass against a store that answered empty, and hang in the four
-   * families that had kept the adapter — one behaviour with two answers, which is
+   * families that had kept the adapter — one behavior with two answers, which is
    * the divergence a second builder always buys.
    */
   readonly uiStateStore?: UiStateStore | undefined;
@@ -91,7 +91,7 @@ export interface PaneBindings {
  * The context a pane body is mounted with, over one address.
  *
  * The pane id is DERIVED from the kind unless the caller names one: the suites that
- * do not care named theirs `pane-<kind>`, and a deck's real ids are per-pane values
+ * do not care named theirs `pane-<kind>`, and a pane layout's real ids are per-pane values
  * most cases never assert on. The exception is a case whose subject IS the identity,
  * and {@link PaneBindings.paneId} is where it says so.
  *
@@ -109,7 +109,7 @@ export function paneContext<TKind extends PaneKind>(
     paneId: bindings.paneId ?? `pane-${address.kind}`,
     linkedSourcePaneId: bindings.linkedSourcePaneId,
     bridge: bindings.bridge,
-    frameStore: bindings.frameStore ?? new FrameStore(),
+    frameStore: bindings.frameStore ?? new WindowStore(),
     sessionStore: bindings.sessionStore,
     // An adapter that never settles: no pane mounted through this builder performs a
     // UI-state read, so one that grew one hangs here rather than passing against a
@@ -121,9 +121,6 @@ export function paneContext<TKind extends PaneKind>(
   };
 }
 
-/** One pane kind's address arm, as the caller writes it. */
-type PaneAddressOf<TKind extends PaneKind> = Extract<ConsolePaneAddress, { readonly kind: TKind }>;
-
 /**
  * The binding half of a pane context — everything that is not the address.
  *
@@ -133,4 +130,4 @@ type PaneAddressOf<TKind extends PaneKind> = Extract<ConsolePaneAddress, { reado
  * every pane is bound with. Naming an arm here would have made one pane kind's shape
  * the definition of every other one's.
  */
-type PaneBindingMembers = Omit<ConsolePaneContext, "kind">;
+type PaneBindingMembers = Omit<PaneContext, "kind">;

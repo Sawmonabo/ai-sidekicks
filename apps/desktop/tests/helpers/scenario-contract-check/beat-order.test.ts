@@ -14,14 +14,14 @@
 import { describe, expect, it } from "vitest";
 
 import { FIRST_RUN_SCENARIO } from "../../../fixtures/scenarios/first-run.js";
-import { FLAGSHIP_SCENARIO } from "../../../fixtures/scenarios/concurrent-streaming.js";
+import { CONCURRENT_STREAMING_SCENARIO } from "../../../fixtures/scenarios/concurrent-streaming.js";
 import { findScenarioContractDefects } from "./contract-check.js";
-import type { ConsoleScenario, ScenarioBeat } from "../../../fixtures/scenario.js";
+import type { Scenario, ScenarioBeat } from "../../../fixtures/scenario.js";
 
 describe("scenario wire truth — the log position a scenario opens at", () => {
   /** The concurrent-streaming scenario's beats, every position shifted by the same amount. */
-  function scenarioOpeningAt(scenarioId: string, firstPosition: number): ConsoleScenario {
-    const openingBeat = FLAGSHIP_SCENARIO.beats[0];
+  function scenarioOpeningAt(scenarioId: string, firstPosition: number): Scenario {
+    const openingBeat = CONCURRENT_STREAMING_SCENARIO.beats[0];
     if (openingBeat === undefined) {
       throw new Error(
         "the concurrent-streaming scenario plays no beats, so there is nothing to shift",
@@ -29,9 +29,9 @@ describe("scenario wire truth — the log position a scenario opens at", () => {
     }
     const shift = firstPosition - openingBeat.event.sequence;
     return {
-      ...FLAGSHIP_SCENARIO,
+      ...CONCURRENT_STREAMING_SCENARIO,
       id: scenarioId,
-      beats: FLAGSHIP_SCENARIO.beats.map((beat) => ({
+      beats: CONCURRENT_STREAMING_SCENARIO.beats.map((beat) => ({
         ...beat,
         event: { ...beat.event, sequence: beat.event.sequence + shift },
       })),
@@ -90,14 +90,14 @@ describe("scenario wire truth — a beat and the beat in front of it", () => {
   function openingPairScenario(
     scenarioId: string,
     revise: (beat: ScenarioBeat, beatIndex: number) => ScenarioBeat,
-  ): ConsoleScenario {
-    const openingPair = FLAGSHIP_SCENARIO.beats.slice(0, 2);
+  ): Scenario {
+    const openingPair = CONCURRENT_STREAMING_SCENARIO.beats.slice(0, 2);
     if (openingPair.length < 2) {
       throw new Error(
         "the concurrent-streaming scenario plays fewer than two beats, so there is no pair to order",
       );
     }
-    return { ...FLAGSHIP_SCENARIO, id: scenarioId, beats: openingPair.map(revise) };
+    return { ...CONCURRENT_STREAMING_SCENARIO, id: scenarioId, beats: openingPair.map(revise) };
   }
 
   /** One beat, due at a different tick. */
@@ -159,13 +159,13 @@ describe("scenario wire truth — a beat and the beat in front of it", () => {
   it("reports a beat that steps backwards in the log", () => {
     // The other direction, and the louder one: the reconciler reads it as a divergence
     // rather than a gap. Reported separately because the two produce different store
-    // behaviour and a scenario author fixes them differently — which is why the two
+    // behavior and a scenario author fixes them differently — which is why the two
     // cases assert the two REASONS and not merely that something was reported.
     //
     // Both beats sit at the opening position rather than at the second and the first,
     // so the script still opens where a session's first delivery has to open and the
     // only thing wrong is the second beat's position.
-    const openingPosition = FLAGSHIP_SCENARIO.beats[0]?.event.sequence;
+    const openingPosition = CONCURRENT_STREAMING_SCENARIO.beats[0]?.event.sequence;
     if (openingPosition === undefined) {
       throw new Error(
         "the concurrent-streaming scenario plays no beats, so it opens at no position",

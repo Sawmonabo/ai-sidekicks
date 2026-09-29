@@ -487,7 +487,7 @@ export function spawnElectron(): Promise<SpawnResult> {
           SIDEKICKS_SMOKE_TRACE_READINESS: "1",
           // Reveal the window without activating the application: an ordinary
           // reveal on macOS steals focus and switches the operator's Space on
-          // every spawn. Honoured by the smoke build only (see
+          // every spawn. Honored by the smoke build only (see
           // `src/main/window-reveal.ts`).
           [UNOBTRUSIVE_WINDOWS_ENV]: "1",
           // Give Chromium a session-bus address that fails FAST rather than
@@ -542,7 +542,7 @@ export function spawnElectron(): Promise<SpawnResult> {
       // stdout write end open and `close` would never fire (the unbounded
       // hang this timer exists to prevent).
       //
-      // Capture the environment BEFORE signalling: once SIGTERM lands the
+      // Capture the environment BEFORE signaling: once SIGTERM lands the
       // process tree is gone and `ps` has nothing left to report, which is
       // precisely the reading that would have named this flake on its first
       // occurrence instead of its fourth.

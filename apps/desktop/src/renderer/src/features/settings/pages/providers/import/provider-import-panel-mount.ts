@@ -7,7 +7,7 @@
 // time only through the `import()` call inside the mount: the `import type` line below
 // is erased by the compiler.
 //
-// A `LoadedLazyBody` rather than a `lazy()` of this module's own, because that class is
+// A `LoaderBackedBody` rather than a `lazy()` of this module's own, because that class is
 // already the console's one answer to a loader-backed body: one in-flight promise however
 // many callers ask, one component identity so a host re-render does not remount a
 // half-typed form, a fresh payload only where a load rejected so the error boundary's
@@ -23,7 +23,7 @@
 // element, so what the wait costs the layout is nothing and the screenshot tier refuses
 // to photograph a tree still carrying one.
 
-import { LoadedLazyBody, reservedBodyRegion } from "@renderer/console/seats/index.js";
+import { LoaderBackedBody, reservedBodyRegion } from "@renderer/console/seats/index.js";
 import type { ProviderImportPanelProps } from "./ProviderImportPanel.js";
 
 /**
@@ -36,8 +36,8 @@ const PROVIDER_IMPORT_PANEL_PENDING_BODY = "provider-import-panel";
 /**
  * The import panel, mounted from its own chunk.
  */
-export const providerImportPanelMount: LoadedLazyBody<ProviderImportPanelProps> =
-  new LoadedLazyBody(
+export const providerImportPanelMount: LoaderBackedBody<ProviderImportPanelProps> =
+  new LoaderBackedBody(
     () => import("./provider-import-panel-body.js"),
     () => reservedBodyRegion(PROVIDER_IMPORT_PANEL_PENDING_BODY),
   );

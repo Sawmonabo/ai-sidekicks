@@ -78,7 +78,7 @@ export type IngestRefusalDisposition = (typeof INGEST_REFUSAL_DISPOSITIONS)[numb
  * Named here as strings because `packages/contracts` registers NEITHER — there is no
  * artifact error namespace in `error.ts` at all. They are the daemon's codes, matched
  * against whatever a refusal carries, and they are not method names, event types, or
- * wire fields: a code the console does not recognise takes the retry-in-place arm,
+ * wire fields: a code the console does not recognize takes the retry-in-place arm,
  * which is the contract's own default rather than a guess.
  */
 export const INGEST_STREAM_INVALID_CODE = "artifact.ingest_stream_invalid";
@@ -98,16 +98,16 @@ export function ingestRefusalDisposition(code: string): IngestRefusalDisposition
 /** The sentence each disposition puts in front of the control that acts on it. */
 export const INGEST_DISPOSITION_COPY: Readonly<Record<IngestRefusalDisposition, string>> = {
   "retry-in-place":
-    "Retrying sends the same chunk again. A chunk the daemon already has is acknowledged without being appended twice, so nothing is uploaded a second time.",
+    "Retrying sends the same chunk again. A chunk the background service already has is acknowledged without being appended twice, so nothing is uploaded a second time.",
   "wait-and-retry":
-    "The daemon is at capacity and created no stream state. Waiting and retrying is the whole remedy; the bytes already sent are unaffected.",
+    "The background service is at capacity and created no stream state. Waiting and retrying is the whole remedy; the bytes already sent are unaffected.",
   restart:
     "This stream is over and cannot be resumed. Retrying begins the upload again from the first byte.",
 };
 
-/** What cancelling actually does, said exactly rather than as "cancelled". */
+/** What canceling actually does, said exactly rather than as "canceled". */
 export const INGEST_ABANDON_COPY =
-  "Sending stops now. The bytes already spooled are cleaned up shortly by the daemon rather than instantly, and no artifact is minted.";
+  "Sending stops now. The bytes already spooled are cleaned up shortly by the background service rather than instantly, and no artifact is minted.";
 
 // --- The unresolved marker ------------------------------------------------
 

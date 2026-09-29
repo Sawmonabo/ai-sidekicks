@@ -55,7 +55,9 @@ export interface SessionRowSources {
  * read would fail to compile here instead of silently landing in whichever arm the
  * `else` happened to be.
  */
-export function sessionsAbsenceKindFor(directory: SessionDirectoryState): SessionListNothingKind {
+export function sessionListNothingKindFor(
+  directory: SessionDirectoryState,
+): SessionListNothingKind {
   switch (directory.status) {
     case "reading":
       return "not-loaded";

@@ -2,7 +2,7 @@
 //
 // `entities.ts` owns the vocabulary — what an entity IS and what a projector may
 // ask for. This module owns what happens to the partition maps when one of those
-// asks is honoured, which is a different job with a different rule: every merge
+// asks is honored, which is a different job with a different rule: every merge
 // replaces the identity of exactly the partition it touched and leaves every other
 // partition's identity alone, because that identity is what a row selector's
 // `Object.is` bail depends on (`store/entities/entities.ts`, the entity-keyed rule).
@@ -13,8 +13,8 @@
 // runner's all-or-nothing boundary is where that defect is caught and named. A
 // guard here would swallow it into a silently missing entity instead.
 
-import type { ConsoleEntity } from "./entities.js";
-import type { ConsoleEntityKind, ConsoleEntityRef } from "@renderer/lib/entity-kinds.js";
+import type { StoredEntity } from "./entities.js";
+import type { EntityKind, EntityRef } from "@renderer/lib/entity-kinds.js";
 
 /**
  * The entity maps a store holds, one per kind.
@@ -24,7 +24,7 @@ import type { ConsoleEntityKind, ConsoleEntityRef } from "@renderer/lib/entity-k
  * different degrees of readonly-ness that the compiler then reconciles by widening.
  */
 export type SessionPartitions = Readonly<
-  Record<ConsoleEntityKind, Readonly<Record<string, ConsoleEntity>>>
+  Record<EntityKind, Readonly<Record<string, StoredEntity>>>
 >;
 
 /**
@@ -36,11 +36,11 @@ export type SessionPartitions = Readonly<
  */
 export function mergeUpsert(
   partitions: SessionPartitions,
-  entity: ConsoleEntity,
-): Record<ConsoleEntityKind, Readonly<Record<string, ConsoleEntity>>> {
+  entity: StoredEntity,
+): Record<EntityKind, Readonly<Record<string, StoredEntity>>> {
   const partition = partitions[entity.kind];
   const existing = partition[entity.id];
-  const merged: ConsoleEntity = existing === undefined ? entity : mergeOnto(existing, entity);
+  const merged: StoredEntity = existing === undefined ? entity : mergeOnto(existing, entity);
   return {
     ...partitions,
     [entity.kind]: { ...partition, [entity.id]: merged },
@@ -56,13 +56,13 @@ export function mergeUpsert(
  */
 export function mergeRemoval(
   partitions: SessionPartitions,
-  ref: ConsoleEntityRef,
-): Record<ConsoleEntityKind, Readonly<Record<string, ConsoleEntity>>> {
+  ref: EntityRef,
+): Record<EntityKind, Readonly<Record<string, StoredEntity>>> {
   const partition = partitions[ref.kind];
   if (!Object.hasOwn(partition, ref.id)) {
     return { ...partitions };
   }
-  const next: Record<string, ConsoleEntity> = { ...partition };
+  const next: Record<string, StoredEntity> = { ...partition };
   delete next[ref.id];
   return { ...partitions, [ref.kind]: next };
 }
@@ -82,7 +82,7 @@ export function mergeRemoval(
  * A projector that means to CLEAR a member removes the entity and upserts it
  * fresh, which is the mutation pair the vocabulary already has.
  */
-function mergeOnto(existing: ConsoleEntity, upsert: ConsoleEntity): ConsoleEntity {
+function mergeOnto(existing: StoredEntity, upsert: StoredEntity): StoredEntity {
   const mergedBody =
     existing.body === undefined || upsert.body === undefined
       ? undefined

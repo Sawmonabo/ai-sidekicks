@@ -12,16 +12,16 @@
 // second owner on one slot, a colliding projector claim), and a route armed below
 // would record none of those breaches.
 
-import { DesktopBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
+import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import type { BridgeComposition } from "@renderer/services/platform/bridge-context.js";
 import { RealClock } from "@renderer/lib/clock.js";
-import { routeConsoleTripwiresToDiagnosticCapture } from "@renderer/lib/diagnostic-capture/tripwire-diagnostic-route.js";
-import { ForwardingConsoleClock } from "@renderer/lib/forwarding-clock.js";
-import { consoleCommandSurface } from "@renderer/registries/commands/command-contributions.js";
-import { consoleEntityProjectorRegistry } from "@renderer/registries/entity-projectors/entity-projector-registry.js";
-import { inlineCardSeatRegistry } from "@renderer/registries/inline-cards/inline-card-registry.js";
-import { consolePaneRegistry } from "@renderer/registries/panes/pane-registry.js";
-import { consoleSurfaceRegistry } from "@renderer/registries/screens/screen-registry.js";
+import { routeWindowTripwiresToDiagnosticCapture } from "@renderer/lib/diagnostic-capture/tripwire-diagnostic-route.js";
+import { ForwardingClock } from "@renderer/lib/forwarding-clock.js";
+import { commandContributionRegistry } from "@renderer/registries/commands/command-contributions.js";
+import { entityProjectorRegistry } from "@renderer/registries/entity-projectors/entity-projector-registry.js";
+import { inlineCardRegistry } from "@renderer/registries/inline-cards/inline-card-registry.js";
+import { paneRegistry } from "@renderer/registries/panes/pane-registry.js";
+import { screenRegistry } from "@renderer/registries/screens/screen-registry.js";
 import { AppBootstrap } from "./AppBootstrap.js";
 import { registerFeatureContributions } from "./registrations.js";
 
@@ -34,17 +34,17 @@ import { registerFeatureContributions } from "./registrations.js";
  * Nothing restores wall time on unmount: a breach during teardown belongs to that
  * window's timeline.
  */
-const consoleTripwireRouteClock = new ForwardingConsoleClock(new RealClock());
+const consoleTripwireRouteClock = new ForwardingClock(new RealClock());
 
 // The route lives as long as the renderer process, so its detach is dropped.
-routeConsoleTripwiresToDiagnosticCapture(consoleTripwireRouteClock);
+routeWindowTripwiresToDiagnosticCapture(consoleTripwireRouteClock);
 
 registerFeatureContributions({
-  commands: consoleCommandSurface,
-  projectors: consoleEntityProjectorRegistry,
-  surfaces: consoleSurfaceRegistry,
-  panes: consolePaneRegistry,
-  inlineCards: inlineCardSeatRegistry,
+  commands: commandContributionRegistry,
+  projectors: entityProjectorRegistry,
+  screens: screenRegistry,
+  panes: paneRegistry,
+  inlineCards: inlineCardRegistry,
 });
 
 /** What the root hands the provider stack. */
@@ -54,13 +54,13 @@ export interface AppProvidersProps {
 }
 
 /** The provider stack: the platform bridge, then the window. `App.tsx` renders exactly this. */
-export function ConsoleRoot(props: AppProvidersProps): React.JSX.Element {
+export function AppProviders(props: AppProvidersProps): React.JSX.Element {
   return (
-    <DesktopBridgeProvider
+    <PlatformBridgeProvider
       {...(props.composition === undefined ? {} : { composition: props.composition })}
       clockToRebind={consoleTripwireRouteClock}
     >
       <AppBootstrap />
-    </DesktopBridgeProvider>
+    </PlatformBridgeProvider>
   );
 }

@@ -36,7 +36,7 @@
 // looking at. The same argument applies one leg down, which is why the memory is
 // per-leg rather than one flag — a retry that re-queued the turn would send their
 // words twice. So this class coalesces rather than
-// refuses, on the deck writer's idiom: a send while one is in flight yields THAT send,
+// refuses, on the pane layout writer's idiom: a send while one is in flight yields THAT send,
 // and a later send resumes at the first call that has not been made. The invariant is
 // scoped to the object, so closing the draft — which drops it — is what makes the next
 // "+ New" a genuinely new session.
@@ -61,7 +61,7 @@
 // facts about how the session was opened that no reply here carries.
 
 import type { ExecutionMode, ExecutionPosture } from "@ai-sidekicks/contracts";
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
 import type { FirstTurnQueueCall } from "@renderer/console/seats/index.js";
 import { sendNewSessionDraft } from "./new-session-send.js";
@@ -100,7 +100,7 @@ export interface NewSessionDraftState {
 }
 
 export class NewSessionDraft {
-  readonly #bridge: ConsoleBridge;
+  readonly #bridge: PlatformBridge;
   readonly #queueFirstTurn: FirstTurnQueueCall;
   readonly #changes = new Emitter<NewSessionDraftState>("new session draft change");
   /**
@@ -139,7 +139,7 @@ export class NewSessionDraft {
   };
 
   public constructor(options: {
-    readonly bridge: ConsoleBridge;
+    readonly bridge: PlatformBridge;
     readonly queueFirstTurn: FirstTurnQueueCall;
   }) {
     this.#bridge = options.bridge;

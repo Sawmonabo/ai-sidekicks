@@ -13,8 +13,8 @@
 //     in front of the new subject never caused — and worse than the frame is what can
 //     be pressed during it.
 //   • A CALL STILL IN FLIGHT AGAINST THE OLD SUBJECT SETTLES INTO THE NEW ONE.
-//     Nothing behind the bridge is cancellable, so the honest disposition is that a
-//     late answer is DROPPED — never installed, never described as cancelled. Where
+//     Nothing behind the bridge is cancelable, so the honest disposition is that a
+//     late answer is DROPPED — never installed, never described as canceled. Where
 //     that answer is a RESOURCE, dropping it is not enough: never installed means no
 //     effect closed over it, so the caller's disposal is the only path to it.
 //
@@ -29,7 +29,7 @@
 // only the pair would find the first visit's publisher still valid on the third, so
 // that visit's reply — dispatched first, answered last — would overwrite the answer the
 // surface on screen had already read. So each addressing takes a serial that is never
-// reissued, the same mechanism `store/read/generation-latch.ts` uses, and a settlement
+// reissued, the same mechanism `lib/reads/generation-latch.ts` uses, and a settlement
 // is admitted only while the addressing it was captured under is one still held.
 //
 // AN ADDRESSING IS HELD IN TWO PHASES, BECAUSE A RENDER IS NOT A COMMIT. A pass that
@@ -45,7 +45,7 @@
 // over — a pass for another subject, or one back at the committed subject.
 //
 // THE SUBJECT IS AN OBJECT AND A KEY WITHIN IT, and the object is deliberately opaque.
-// `store/` sits below `bridge/` in the console's DAG and may not name a `ConsoleBridge`
+// `store/` sits below `bridge/` in the console's DAG and may not name a `PlatformBridge`
 // or a `SessionStore`; each of them is a live object whose replacement retires the
 // calls made through it, which is exactly what identity comparison expresses. So the subject is `object`, compared by reference,
 // and the families name their own subjects at their own doors —
@@ -56,8 +56,8 @@
 // THE REACT HALF IS NEXT DOOR, and the split is the one the rule itself draws: every
 // decision in this file is a property of the SUBJECT moving rather than of a render
 // happening, so it is drivable with no renderer at all — a test addresses and commits
-// in the order React would. `subject-scoped-state.ts` decides when React is told, and
-// `subject-scoped-resource.ts` adds the half about a value that has to be disposed
+// in the order React would. `useSubjectScopedState.ts` decides when React is told, and
+// `useSubjectScopedResource.ts` adds the half about a value that has to be disposed
 // rather than dropped.
 //
 // AND WHAT BECOMES OF A VALUE THIS CLASS LETS GO OF IS `unheld-value-disposal.ts`.

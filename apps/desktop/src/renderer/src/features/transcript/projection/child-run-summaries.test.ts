@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import { type ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
+import { type ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 import { EVENT_ID_STEM } from "../../../../../../fixtures/scenarios/transcript-states.js";
-import { projectFixtureShellRows } from "./transcript-row-projection.js";
+import { projectTranscriptRows } from "./transcript-row-projection.js";
 import { deriveChildRunSummaries } from "./child-run-summaries.js";
 
 const SESSION_ID = "019b793b-7b60-75e5-8510-ada11a5a44a5";
@@ -14,7 +14,7 @@ function event(
   sequence: number,
   kind: string,
   payload: Readonly<Record<string, unknown>>,
-): ConsoleSessionEvent {
+): ProjectedSessionEvent {
   return {
     id: `${EVENT_ID_STEM}${String(sequence).padStart(4, "0")}`,
     sessionId: SESSION_ID,
@@ -29,7 +29,7 @@ function event(
 function childBirth(
   sequence: number,
   linkage: Readonly<Record<string, unknown>>,
-): ConsoleSessionEvent {
+): ProjectedSessionEvent {
   return event(sequence, "run.queued", {
     sessionId: SESSION_ID,
     runId: CHILD_RUN,
@@ -39,7 +39,7 @@ function childBirth(
   });
 }
 
-function childTransition(sequence: number, newState: string): ConsoleSessionEvent {
+function childTransition(sequence: number, newState: string): ProjectedSessionEvent {
   return event(sequence, `run.${newState}`, {
     sessionId: SESSION_ID,
     runId: CHILD_RUN,
@@ -72,7 +72,7 @@ describe("the shell's child-run summaries", () => {
   it("summarizes no run whose creation row names no parent", () => {
     // THE NEGATIVE CONTROL for the whole treatment. A run is a child because the
     // daemon said so on its birth beat; without that member there is a run and no
-    // parent, and the ledger already draws one of those.
+    // parent, and the transcript already draws one of those.
     const summaries = deriveChildRunSummaries([childBirth(1, {}), childTransition(2, "running")]);
 
     expect([...summaries.keys()]).toStrictEqual([]);
@@ -145,7 +145,7 @@ describe("the shell's child-run summaries", () => {
 describe("the shell projection carrying a child-run summary", () => {
   it("stamps the member on the creation row and on no other row", () => {
     const birth = childBirth(2, { parentRunId: PARENT_RUN });
-    const { rows } = projectFixtureShellRows([
+    const { rows } = projectTranscriptRows([
       event(1, "run.running", { sessionId: SESSION_ID, runId: PARENT_RUN }),
       birth,
       childTransition(3, "running"),
@@ -161,7 +161,7 @@ describe("the shell projection carrying a child-run summary", () => {
     // The retention table compares own keys with `Object.is`, so a row carrying
     // `childRunSummary: undefined` is a different row from one carrying no key at
     // all — and every such row would lose its place on every projection pass.
-    const { rows } = projectFixtureShellRows([
+    const { rows } = projectTranscriptRows([
       event(1, "run.running", { sessionId: SESSION_ID, runId: PARENT_RUN }),
       childBirth(2, { parentRunId: PARENT_RUN }),
     ]);

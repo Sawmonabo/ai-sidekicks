@@ -13,7 +13,7 @@
 // hoists a helper on its second use, and this is that use.
 
 import { isWireRecord } from "@renderer/lib/wire-record.js";
-import type { ConsoleScenario } from "../../../../../fixtures/scenario.js";
+import type { Scenario } from "../../../../../fixtures/scenario.js";
 
 /** The wire call a scenario states its session through. */
 const SESSION_READ_CALL = "session.read";
@@ -25,10 +25,7 @@ const SESSION_READ_CALL = "session.read";
  * wants and never the intermediate records — which is what keeps the narrowing in one
  * place rather than at each call site.
  */
-export function scriptedSessionReadMember(
-  scenario: ConsoleScenario,
-  ...path: readonly string[]
-): unknown {
+export function scriptedSessionReadMember(scenario: Scenario, ...path: readonly string[]): unknown {
   const reply = scenario.replies.find((candidate) => candidate.call === SESSION_READ_CALL);
   let value: unknown = reply?.result;
   for (const member of path) {

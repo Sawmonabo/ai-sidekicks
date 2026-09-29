@@ -20,7 +20,7 @@
 
 import { compareInstants, parseInstant } from "@renderer/lib/instant.js";
 import { readGoalOriginKeys, readGoalPayloadText } from "./wire-shapes/session-goal-payloads.js";
-import { type ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
+import { type ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 
 /** The two projection sources, wire-verbatim. */
 export const SESSION_GOAL_EVENT_KINDS = ["session.goal_updated", "session.goal_cleared"] as const;
@@ -100,7 +100,7 @@ export type SessionGoalProjection =
  * information, so the comparator fails closed toward the readable event, and two
  * unreadable stamps still settle on `id` rather than on who arrived first.
  */
-export function foldSessionGoal(timeline: readonly ConsoleSessionEvent[]): SessionGoalProjection {
+export function foldSessionGoal(timeline: readonly ProjectedSessionEvent[]): SessionGoalProjection {
   const winner = selectLatestGoalEvent(timeline);
   const revision = goalRevisionOf(winner);
   if (winner === undefined || winner.kind === SESSION_GOAL_CLEARED_EVENT_KIND) {
@@ -114,7 +114,7 @@ export function foldSessionGoal(timeline: readonly ConsoleSessionEvent[]): Sessi
 
 /** One origin's latest goal event, with the position that made it latest. */
 interface OriginGoalCandidate {
-  readonly event: ConsoleSessionEvent;
+  readonly event: ProjectedSessionEvent;
   readonly originSeq: number;
 }
 
@@ -125,7 +125,7 @@ interface OriginGoalCandidate {
  * a payload the fold could not rank by is not one this can key by either — the two
  * cannot come apart, which is what would happen if this read the members by hand.
  */
-function goalRevisionOf(winner: ConsoleSessionEvent | undefined): string {
+function goalRevisionOf(winner: ProjectedSessionEvent | undefined): string {
   if (winner === undefined) {
     return UNSET_GOAL_REVISION;
   }
@@ -137,10 +137,10 @@ function goalRevisionOf(winner: ConsoleSessionEvent | undefined): string {
 
 /** Stage one per origin, then stage two across the origins' winners. */
 function selectLatestGoalEvent(
-  timeline: readonly ConsoleSessionEvent[],
-): ConsoleSessionEvent | undefined {
+  timeline: readonly ProjectedSessionEvent[],
+): ProjectedSessionEvent | undefined {
   const latestPerOrigin = new Map<string, OriginGoalCandidate>();
-  let unkeyedCandidate: ConsoleSessionEvent | undefined;
+  let unkeyedCandidate: ProjectedSessionEvent | undefined;
   for (const entry of timeline) {
     if (!GOAL_EVENT_KINDS.has(entry.kind)) {
       continue;
@@ -175,7 +175,7 @@ function selectLatestGoalEvent(
  * so the answer does not depend on which copy arrived first.
  */
 function outranksWithinOrigin(
-  candidate: ConsoleSessionEvent,
+  candidate: ProjectedSessionEvent,
   candidateOriginSeq: number,
   held: OriginGoalCandidate,
 ): boolean {
@@ -193,7 +193,7 @@ function outranksWithinOrigin(
  * that does not ranks below one that does, and two that do not fall through to `id`
  * rather than to arrival.
  */
-function compareByEnvelope(left: ConsoleSessionEvent, right: ConsoleSessionEvent): number {
+function compareByEnvelope(left: ProjectedSessionEvent, right: ProjectedSessionEvent): number {
   const leftInstant = parseInstant(left.occurredAt);
   const rightInstant = parseInstant(right.occurredAt);
   const leftIsReadable = leftInstant.kind !== "malformed";

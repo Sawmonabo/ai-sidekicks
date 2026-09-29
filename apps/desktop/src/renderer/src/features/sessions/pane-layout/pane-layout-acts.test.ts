@@ -1,7 +1,7 @@
-// The five deck acts, driven against a real layout — what each one moves, and what
+// The five pane layout acts, driven against a real layout — what each one moves, and what
 // each one says.
 //
-// The announcements are the half that goes stale unwatched: the deck's focus is a
+// The announcements are the half that goes stale unwatched: the pane layout's focus is a
 // ring rather than DOM focus, so a screen reader follows nothing unless an act says
 // what happened. Every case below asserts the sentence as well as the move.
 
@@ -12,12 +12,12 @@ import type { Announce } from "@renderer/console/primitives/index.js";
 import { PaneLayoutStore } from "./pane-layout-store.js";
 import { NO_FOCUSED_PANE_SENTENCE, paneLayoutActsOn } from "./pane-layout-acts.js";
 
-/** A layout holding a timeline, a runs list, and an approvals pane, in that order. */
+/** A layout holding a transcript, a runs list, and an approvals pane, in that order. */
 function threePaneLayout(): PaneLayoutStore {
   const layout = new PaneLayoutStore({ restoredPaneCap: PANE_LAYOUT_RESTORED_PANE_CAP });
-  layout.open({ kind: "timeline", entity: undefined });
-  layout.open({ kind: "runs", entity: undefined });
-  layout.open({ kind: "approvals", entity: undefined });
+  layout.open({ kind: "transcript" });
+  layout.open({ kind: "runs" });
+  layout.open({ kind: "approvals" });
   return layout;
 }
 
@@ -30,7 +30,7 @@ function announcer(): Announce & { readonly said: string[][] } {
 }
 
 describe("focusing the next and previous pane", () => {
-  it("cycles the deck and says which pane, and where it sits", () => {
+  it("cycles the pane layout and says which pane, and where it sits", () => {
     const layout = threePaneLayout();
     const announce = announcer();
     const acts = paneLayoutActsOn(layout, announce);
@@ -40,7 +40,7 @@ describe("focusing the next and previous pane", () => {
     acts.focusNextPane();
 
     expect(layout.snapshot().focusedPaneId).toBe(second?.paneId);
-    expect(announce.said).toStrictEqual([["Focused the runs pane, position 2 of 3.", "polite"]]);
+    expect(announce.said).toStrictEqual([["Focused the Runs pane, position 2 of 3.", "polite"]]);
   });
 
   it("wraps backwards from the first pane to the last", () => {
@@ -53,24 +53,24 @@ describe("focusing the next and previous pane", () => {
     acts.focusPreviousPane();
 
     expect(layout.snapshot().focusedPaneId).toBe(panes[2]?.paneId);
-    expect(announce.said[0]?.[0]).toBe("Focused the approvals pane, position 3 of 3.");
+    expect(announce.said[0]?.[0]).toBe("Focused the Approvals pane, position 3 of 3.");
   });
 
-  it("says a one-pane deck has nowhere to cycle rather than moving in silence", () => {
+  it("says a pane layout of one pane has nowhere to cycle rather than moving in silence", () => {
     const layout = new PaneLayoutStore({ restoredPaneCap: PANE_LAYOUT_RESTORED_PANE_CAP });
-    layout.open({ kind: "timeline", entity: undefined });
+    layout.open({ kind: "transcript" });
     const announce = announcer();
 
     paneLayoutActsOn(layout, announce).focusNextPane();
 
     expect(announce.said).toStrictEqual([
-      ["The timeline pane is the only pane open.", "assertive"],
+      ["The Transcript pane is the only pane open.", "assertive"],
     ]);
   });
 
-  it("negative control: an empty deck says nothing, because the deck already does", () => {
+  it("negative control: an empty pane layout says nothing, because the pane layout already does", () => {
     // Without this the case above would pass over an act that announced on every
-    // press, including over a deck that renders its own "No panes are open."
+    // press, including over a pane layout that renders its own "No panes are open."
     const announce = announcer();
     paneLayoutActsOn(
       new PaneLayoutStore({ restoredPaneCap: PANE_LAYOUT_RESTORED_PANE_CAP }),
@@ -90,7 +90,7 @@ describe("closing the focused pane", () => {
     paneLayoutActsOn(layout, announce).closeFocusedPane();
 
     expect(layout.snapshot().panes.map((pane) => pane.kind)).toStrictEqual([
-      "timeline",
+      "transcript",
       "approvals",
     ]);
     expect(announce.said).toStrictEqual([["Closed the runs pane.", "polite"]]);
@@ -117,11 +117,11 @@ describe("moving the focused pane", () => {
 
     expect(layout.snapshot().panes.map((pane) => pane.kind)).toStrictEqual([
       "runs",
-      "timeline",
+      "transcript",
       "approvals",
     ]);
     expect(announce.said).toStrictEqual([
-      ["Moved the timeline pane to position 2 of 3.", "polite"],
+      ["Moved the Transcript pane to position 2 of 3.", "polite"],
     ]);
   });
 
@@ -134,11 +134,11 @@ describe("moving the focused pane", () => {
     paneLayoutActsOn(layout, announce).moveFocusedPaneLeft();
 
     expect(layout.snapshot().panes.map((pane) => pane.kind)).toStrictEqual([
-      "timeline",
+      "transcript",
       "runs",
       "approvals",
     ]);
-    expect(announce.said).toStrictEqual([["The timeline pane was not moved.", "assertive"]]);
+    expect(announce.said).toStrictEqual([["The Transcript pane was not moved.", "assertive"]]);
   });
 
   it("says there is no focused pane rather than moving nothing quietly", () => {

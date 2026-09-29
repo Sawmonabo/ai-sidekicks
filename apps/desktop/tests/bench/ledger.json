@@ -21,7 +21,7 @@
         "warmUpSamplesDiscarded": 5,
         "nodeVersion": "v24.18.0",
         "platform": "darwin-arm64",
-        "storeShape": "Record<string, ConsoleEntity>"
+        "storeShape": "Record<string, StoredEntity>"
       },
       "sampleCount": 25,
       "minimum": 4.379468340000003,
@@ -49,7 +49,7 @@
         "warmUpSamplesDiscarded": 5,
         "nodeVersion": "v24.18.0",
         "platform": "darwin-arm64",
-        "storeShape": "Record<ConsoleEntityKind, Record<string, ConsoleEntity>>"
+        "storeShape": "Record<EntityKind, Record<string, StoredEntity>>"
       },
       "sampleCount": 25,
       "minimum": 0.34420250000001035,
@@ -77,7 +77,7 @@
         "warmUpSamplesDiscarded": 5,
         "nodeVersion": "v24.18.0",
         "platform": "darwin-arm64",
-        "storeShape": "Record<string, ConsoleEntity>"
+        "storeShape": "Record<string, StoredEntity>"
       },
       "sampleCount": 25,
       "minimum": 4.403384999999998,
@@ -105,7 +105,7 @@
         "warmUpSamplesDiscarded": 5,
         "nodeVersion": "v24.18.0",
         "platform": "darwin-arm64",
-        "storeShape": "Record<ConsoleEntityKind, Record<string, ConsoleEntity>>"
+        "storeShape": "Record<EntityKind, Record<string, StoredEntity>>"
       },
       "sampleCount": 25,
       "minimum": 0.3462216599999738,
@@ -133,7 +133,7 @@
         "warmUpSamplesDiscarded": 5,
         "nodeVersion": "v24.18.0",
         "platform": "darwin-arm64",
-        "storeShape": "Record<string, ConsoleEntity>"
+        "storeShape": "Record<string, StoredEntity>"
       },
       "sampleCount": 25,
       "minimum": 5.551180820000009,
@@ -161,7 +161,7 @@
         "warmUpSamplesDiscarded": 5,
         "nodeVersion": "v24.18.0",
         "platform": "darwin-arm64",
-        "storeShape": "Record<ConsoleEntityKind, Record<string, ConsoleEntity>>"
+        "storeShape": "Record<EntityKind, Record<string, StoredEntity>>"
       },
       "sampleCount": 25,
       "minimum": 0.360772500000021,
@@ -200,7 +200,7 @@
     },
     {
       "benchmarkId": "streaming-layer.own",
-      "label": "Own layer — incremental segmentation with a memoised settled-block parse",
+      "label": "Own layer — incremental segmentation with a memoized settled-block parse",
       "unit": "ms/delta",
       "gitCommitSha": "16b51a3b05fd678278321161e7023ec798db63ba",
       "recordedAt": "2026-09-07T12:08:40.697Z",

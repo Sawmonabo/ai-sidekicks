@@ -11,7 +11,7 @@
 //   • A budget quietly ungated. Every `"n/a"` entry must say why it is not
 //     measurable yet.
 //
-// Three neighbouring questions are deliberately elsewhere, each beside the module
+// Three neighboring questions are deliberately elsewhere, each beside the module
 // that answers it: whether the loader REFUSES a malformed document is
 // `budget-document.test.ts`'s, whether the report names every un-measured row is
 // `budget-report.test.ts`'s, and whether the comparison bites is

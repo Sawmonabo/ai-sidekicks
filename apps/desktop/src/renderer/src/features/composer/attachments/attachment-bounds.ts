@@ -1,16 +1,16 @@
-// The shipped attachment bounds, and where a carrier and one file stand against them.
+// The shipped attachment bounds, and where a staged list and one file stand against them.
 //
 // This module renders nothing, calls nothing, and holds no copy about a refusal. The byte
-// bound is `core/constants/attachment-caps.ts`'s `ATTACHMENT_BYTE_CAP_DEFAULT`. No read of
+// bound is `attachment-caps.ts`'s `ATTACHMENT_BYTE_CAP_DEFAULT`. No read of
 // the deployment's own bound is made anywhere, so every surface reads the shipped default.
 
-import { ATTACHMENTS_PER_CARRIER_CAP_DEFAULT } from "./attachment-caps.js";
+import { ATTACHMENTS_PER_MESSAGE_CAP_DEFAULT } from "./attachment-caps.js";
 
 /**
- * How full a carrier is against the count bound, as a figure and never as a gate.
+ * How full a staged list is against the count bound, as a figure and never as a gate.
  *
  * THE COUNT IS RENDERED AND THE DAEMON DECIDES. `attachment-ingest-machine.ts` states
- * the same rule from the other side: the daemon refuses the whole carrier at acceptance
+ * the same rule from the other side: the daemon refuses the whole staged list at acceptance
  * with `artifact.too_many_attachments`, so a console that stopped the eleventh attach
  * would be deriving eligibility the daemon owns and would be wrong the moment an
  * operator raises the bound. Nothing here answers "may I", and no surface reading this
@@ -18,13 +18,13 @@ import { ATTACHMENTS_PER_CARRIER_CAP_DEFAULT } from "./attachment-caps.js";
  */
 export interface StagedAttachmentsFill {
   readonly attached: number;
-  /** The shipped default count bound. Operator-tunable, so it is labelled as a default. */
+  /** The shipped default count bound. Operator-tunable, so it is labeled as a default. */
   readonly allowance: number;
 }
 
-/** Where this carrier stands against the count bound. Total over any count. */
-export function attachmentCarrierFill(attachedCount: number): StagedAttachmentsFill {
-  return { attached: attachedCount, allowance: ATTACHMENTS_PER_CARRIER_CAP_DEFAULT };
+/** Where this staged list stands against the count bound. Total over any count. */
+export function stagedAttachmentsFill(attachedCount: number): StagedAttachmentsFill {
+  return { attached: attachedCount, allowance: ATTACHMENTS_PER_MESSAGE_CAP_DEFAULT };
 }
 
 /**

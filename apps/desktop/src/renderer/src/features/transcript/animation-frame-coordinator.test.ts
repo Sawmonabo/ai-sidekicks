@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, test } from "vitest";
 
 import { ManualClock } from "@renderer/lib/clock.js";
-import { PERF_METER_BOUNDS } from "@renderer/lib/performance-meters/performance-meter-bounds.js";
-import { devPerfMeters } from "@renderer/lib/performance-meters/performance-meters.js";
+import { PERFORMANCE_METER_BOUNDS } from "@renderer/lib/performance-meters/performance-meter-bounds.js";
+import { developmentPerformanceMeters } from "@renderer/lib/performance-meters/performance-meters.js";
 import {
   ANIMATION_FRAME_PHASES,
   AnimationFrameCoordinator,
@@ -16,22 +16,26 @@ const constructCoordinator = (): { clock: ManualClock; coordinator: AnimationFra
 
 describe("AnimationFrameCoordinator", () => {
   beforeEach(() => {
-    devPerfMeters?.reset();
+    developmentPerformanceMeters?.reset();
   });
 
   test("records the cost of every frame it drains, and nothing for a frame it does not", () => {
     const { clock, coordinator } = constructCoordinator();
-    expect(devPerfMeters, "this project is not compiling the fixture define").not.toBe(null);
+    expect(
+      developmentPerformanceMeters,
+      "this project is not compiling the fixture define",
+    ).not.toBe(null);
 
     // Nothing scheduled: the clock's frame runs no drain, so there is nothing to
     // meter and a series that existed here would be measuring the scheduler.
     clock.runFrame();
-    expect(devPerfMeters?.readings()).toStrictEqual([]);
+    expect(developmentPerformanceMeters?.readings()).toStrictEqual([]);
 
     coordinator.scheduleScrollWrite(coordinator.claimTaskKey("scroll"), () => {});
     clock.runFrame();
 
-    const reading = devPerfMeters?.readings().find((entry) => entry.kind === "frame-time") ?? null;
+    const reading =
+      developmentPerformanceMeters?.readings().find((entry) => entry.kind === "frame-time") ?? null;
     expect(reading, "a drained frame recorded no frame-time sample").not.toBeNull();
     expect(reading?.recordedCount).toBe(1);
     expect(Number(reading?.latest)).toBeGreaterThanOrEqual(0);
@@ -52,7 +56,7 @@ describe("AnimationFrameCoordinator", () => {
     clock.runFrame();
 
     const frameTimes =
-      devPerfMeters?.readings().filter((entry) => entry.kind === "frame-time") ?? [];
+      developmentPerformanceMeters?.readings().filter((entry) => entry.kind === "frame-time") ?? [];
     expect(frameTimes).toHaveLength(2);
     expect(new Set(frameTimes.map((entry) => entry.seriesKey)).size).toBe(2);
     expect(firstFeed.coordinatorId).not.toBe(secondFeed.coordinatorId);
@@ -65,14 +69,14 @@ describe("AnimationFrameCoordinator", () => {
     // series bound every further feed is refused, and the p95 an author reads is the
     // p95 of feeds that closed while the feed on screen contributes nothing to it.
     //
-    // The count is the endurance workload's own: `console-workload.ts` alternates the
-    // settings route and the session workspace, the workspace mounts the ledger, and
+    // The count is the endurance workload's own: `endurance-workload.ts` alternates the
+    // settings route and the session screen, which mounts the transcript, and
     // `steady-state.test.ts` drives 200 churn cycles twice.
     const mountCycleCount = 400;
     expect(
       mountCycleCount,
       "this case is vacuous unless it mounts past the registry's series bound",
-    ).toBeGreaterThan(PERF_METER_BOUNDS.seriesCount);
+    ).toBeGreaterThan(PERFORMANCE_METER_BOUNDS.seriesCount);
 
     for (let cycle = 0; cycle < mountCycleCount; cycle += 1) {
       const clock = new ManualClock();
@@ -82,8 +86,8 @@ describe("AnimationFrameCoordinator", () => {
       coordinator.dispose();
     }
 
-    expect(devPerfMeters?.refusedSeriesCount).toBe(0);
-    expect(devPerfMeters?.seriesCount).toBe(0);
+    expect(developmentPerformanceMeters?.refusedSeriesCount).toBe(0);
+    expect(developmentPerformanceMeters?.seriesCount).toBe(0);
   });
 
   test("holds one live series per live coordinator, and drops it on dispose", () => {
@@ -95,13 +99,15 @@ describe("AnimationFrameCoordinator", () => {
     firstFeed.scheduleScrollWrite(firstFeed.claimTaskKey("scroll"), () => {});
     secondFeed.scheduleScrollWrite(secondFeed.claimTaskKey("scroll"), () => {});
     clock.runFrame();
-    expect(devPerfMeters?.seriesCount).toBe(2);
+    expect(developmentPerformanceMeters?.seriesCount).toBe(2);
 
     firstFeed.dispose();
 
-    expect(devPerfMeters?.seriesCount).toBe(1);
-    expect(devPerfMeters?.reading("frame-time", firstFeed.coordinatorId)).toBeNull();
-    expect(devPerfMeters?.reading("frame-time", secondFeed.coordinatorId)).not.toBeNull();
+    expect(developmentPerformanceMeters?.seriesCount).toBe(1);
+    expect(developmentPerformanceMeters?.reading("frame-time", firstFeed.coordinatorId)).toBeNull();
+    expect(
+      developmentPerformanceMeters?.reading("frame-time", secondFeed.coordinatorId),
+    ).not.toBeNull();
   });
 
   test("runs scroll writes before reveal work, whatever order they were submitted in", () => {
@@ -296,7 +302,7 @@ describe("AnimationFrameCoordinator", () => {
     clock.runFrame();
 
     expect(ran).toBe(false);
-    // The budget claim moved here with the scheduler: cancelling the last task
+    // The budget claim moved here with the scheduler: canceling the last task
     // releases the frame, so a settled console holds no timer at all.
     expect(clock.pendingCount).toBe(0);
     // Idempotent: a second cancel of a key that never ran is a no-op.

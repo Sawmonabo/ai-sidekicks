@@ -1,4 +1,4 @@
-// The console's own body for the human-form slot: the phase's prompt, the controls its
+// The console's own body for the human-form mount point: the phase's prompt, the controls its
 // schema draws, and the one act that sends them.
 //
 // IT IS ONLY THE COMPOSITION. Everything a body could get WRONG is the channel's and reaches
@@ -19,13 +19,13 @@
 // mounted, so it holds for a supplied body as well as for this one — see the channel's
 // header for why `phaseRunId` and not the phase or the revision.
 
-import { schemaFormAnswerMount } from "@renderer/console/seats/index.js";
+import { schemaFormAnswerBody } from "@renderer/console/seats/index.js";
 import type { HumanFormMount } from "./human-form-mount.js";
 
 /**
  * The waiting phase's form: its prompt, the controls its schema draws, and the submit.
  *
- * Props are the mount itself, because that is what a slot body IS — the channel renders it
+ * Props are the mount itself, because that is what a mount point body IS — the channel renders it
  * with the mount spread over it, so a body that took a wrapper object would not be one.
  *
  * MOUNTED THROUGH THE SEAT'S LOADER AND NOT AS AN ELEMENT, because the schema form kit
@@ -34,7 +34,7 @@ import type { HumanFormMount } from "./human-form-mount.js";
  * of its own and the chunk is fetched once however many forms ask.
  */
 export function DefaultHumanFormBody(mount: HumanFormMount): React.ReactNode {
-  return schemaFormAnswerMount.render({
+  return schemaFormAnswerBody.render({
     prompt: mount.prompt,
     inputSchema: mount.inputSchema,
     // Straight through: the answer this form composed is the whole of what a body

@@ -2,7 +2,7 @@
 //
 // Two captures. The whole window with the concurrent-streaming session loaded, in both
 // schemes: its claim is a composition (the rail, the session header, the pane layout,
-// the chapters and the agent hues all true at once), which a shot cropped to the
+// the run groups and the agent hues all true at once), which a shot cropped to the
 // transcript's box would miss. It is that scenario because it carries every signature
 // surface at one tick: several runs streaming in their own hues, an approval asked and
 // granted mid-stream, a run parked on a provider quota with its reset instant, a child
@@ -36,56 +36,59 @@ import { requireScenarioControl, walkScenarioToFrozenTick } from "./scenario-clo
 import { requireCapturedElement } from "./captured-element.js";
 
 import { createFixtureComposition } from "@renderer/app/fixture-composition.js";
-import { ConsoleRoot } from "@renderer/app/providers.js";
+import { AppProviders } from "@renderer/app/providers.js";
 import { installMeridianTokens } from "@renderer/app/token-installation.js";
 import { formatRoute } from "@renderer/routing/routes.js";
-import { CONSOLE_SCHEMES } from "@renderer/styles/tokens.js";
+import { COLOR_SCHEMES } from "@renderer/styles/tokens.js";
 import {
-  LEDGER_QUIET_SCENARIO,
+  EMPTY_SESSION_SCENARIO,
   EMPTY_SESSION_SCENARIO_ID,
 } from "../../fixtures/scenarios/empty-session.js";
 import {
-  FLAGSHIP_SCENARIO,
+  CONCURRENT_STREAMING_SCENARIO,
   CONCURRENT_STREAMING_SCENARIO_ID,
 } from "../../fixtures/scenarios/concurrent-streaming.js";
-import { LEDGER_SCENARIO_ID } from "../../fixtures/scenarios/transcript-states.js";
+import { TRANSCRIPT_STATES_SCENARIO_ID } from "../../fixtures/scenarios/transcript-states.js";
 import { captureSettled } from "./settled-capture.js";
 
 /** What one opened fixture session hands back: the mount, and what to capture. */
-interface LedgerMount {
+interface TranscriptMount {
   readonly container: HTMLElement;
   /** The whole window: the composition the concurrent-streaming pair captures. */
   readonly frame: Element;
   /**
-   * The ledger's own region — what the quiet arm pins.
+   * The transcript's own region — what the quiet arm pins.
    *
    * The SAME element the mount wait above observes, rather than a second selector
    * for the same box: a capture element resolved independently of the wait could
    * name a surface the wait never guaranteed had arrived, and the two would drift.
    */
-  readonly ledgerBody: Element;
+  readonly transcriptBody: Element;
 }
 
 /**
  * Open one fixture session at its own route and wait for it to finish arriving.
  *
  * The hash is assigned BEFORE the render rather than navigated to afterwards,
- * because `ConsoleRoot`'s frame store is born on the hash the window opened with —
+ * because `AppProviders`'s frame store is born on the hash the window opened with —
  * a store that started on the default route publishes that default back over the
  * address on its first pass, which is a navigation this file would then be
  * photographing the tail end of.
  *
- * The wait is the harness's, and it names the LEDGER's scroll container rather than
+ * The wait is the harness's, and it names the TRANSCRIPT's scroll container rather than
  * the frame, which is the whole reason it is a wait at all: the frame is the
  * window's permanent shell and is on the page from the first commit, so a wait on it
  * hands back a console whose session route has not resolved yet. It observes the
  * MOUNT rather than the arrival of content, which is what the empty-state capture
  * needs it to observe.
  */
-async function openLedgerSession(scenarioId: string, sessionId: string): Promise<LedgerMount> {
-  document.location.hash = formatRoute({ kind: "workspace", sessionId });
+async function openTranscriptSession(
+  scenarioId: string,
+  sessionId: string,
+): Promise<TranscriptMount> {
+  document.location.hash = formatRoute({ kind: "session", sessionId });
   const { container } = await renderSettled(
-    <ConsoleRoot composition={createFixtureComposition(scenarioId)} />,
+    <AppProviders composition={createFixtureComposition(scenarioId)} />,
   );
   expect(requireScenarioControl().scenarioId).toBe(scenarioId);
 
@@ -94,7 +97,7 @@ async function openLedgerSession(scenarioId: string, sessionId: string): Promise
   return {
     container,
     frame: requireCapturedElement(container, ".meridian-frame"),
-    ledgerBody: requireCapturedElement(container, SESSION_ROUTE_BODY_SELECTOR),
+    transcriptBody: requireCapturedElement(container, SESSION_ROUTE_BODY_SELECTOR),
   };
 }
 
@@ -114,29 +117,29 @@ afterEach(async () => {
 });
 
 describe("screenshot — the app under the concurrent-streaming scenario", () => {
-  for (const scheme of CONSOLE_SCHEMES) {
+  for (const scheme of COLOR_SCHEMES) {
     it(`renders the ${scheme} scheme at the script's last beat`, async () => {
       await emulateSystemScheme(scheme);
-      const { container, frame } = await openLedgerSession(
+      const { container, frame } = await openTranscriptSession(
         CONCURRENT_STREAMING_SCENARIO_ID,
-        FLAGSHIP_SCENARIO.sessionId,
+        CONCURRENT_STREAMING_SCENARIO.sessionId,
       );
 
       const deliveredBeatCount = await walkScenarioToFrozenTick(
-        FLAGSHIP_SCENARIO.beats.at(-1)?.atMs ?? 0,
+        CONCURRENT_STREAMING_SCENARIO.beats.at(-1)?.atMs ?? 0,
       );
       expect(
         deliveredBeatCount,
         "the whole script has to be in before the tick is frozen: a capture taken mid-script pins " +
           "a session that is still arriving, and the capture it writes moves with the loop above",
-      ).toBe(FLAGSHIP_SCENARIO.beats.length);
+      ).toBe(CONCURRENT_STREAMING_SCENARIO.beats.length);
 
       // Rows on screen, not merely events in a store. The projection, the window
       // fold, and the viewport's reconcile all sit between the two, and a capture
       // is only worth pinning once every one of them has run.
       expect(
-        container.querySelectorAll(".meridian-ledger-row").length,
-        "no ledger row reached the document, so this capture would pin an empty feed",
+        container.querySelectorAll(".meridian-transcript-row-layout").length,
+        "no transcript row reached the document, so this capture would pin an empty feed",
       ).toBeGreaterThan(0);
 
       await captureSettled(frame, `concurrent-streaming-frame-${scheme}`);
@@ -144,16 +147,16 @@ describe("screenshot — the app under the concurrent-streaming scenario", () =>
   }
 });
 
-describe("screenshot — the ledger's empty state", () => {
+describe("screenshot — the transcript's empty state", () => {
   it("renders a session that has a roster and no log", async () => {
     // One scheme rather than two, on `frame.test.tsx`'s reasoning for the palette:
     // both palettes are already pinned by the pair above, and what this capture
     // exists for is the copy and the shape of the absence, neither of which the
     // scheme decides.
     await emulateSystemScheme("light");
-    const { ledgerBody } = await openLedgerSession(
+    const { transcriptBody } = await openTranscriptSession(
       EMPTY_SESSION_SCENARIO_ID,
-      LEDGER_QUIET_SCENARIO.sessionId,
+      EMPTY_SESSION_SCENARIO.sessionId,
     );
 
     // The same walk the pair above takes, over a script that plays nothing. What it
@@ -163,7 +166,7 @@ describe("screenshot — the ledger's empty state", () => {
     // a different picture and a different claim from the one this capture is named
     // for.
     const deliveredBeatCount = await walkScenarioToFrozenTick(
-      LEDGER_QUIET_SCENARIO.beats.at(-1)?.atMs ?? 0,
+      EMPTY_SESSION_SCENARIO.beats.at(-1)?.atMs ?? 0,
     );
     expect(
       deliveredBeatCount,
@@ -180,14 +183,14 @@ describe("screenshot — the ledger's empty state", () => {
     // scoping changed about them: a sentence read off the window is a sentence that
     // may be anywhere in it, and the claim this capture makes is that it is in the
     // box being photographed.
-    expect(ledgerBody.querySelectorAll(".meridian-ledger-row")).toHaveLength(0);
-    expect(ledgerBody.textContent).toContain("Nothing has happened in this session yet.");
+    expect(transcriptBody.querySelectorAll(".meridian-transcript-row-layout")).toHaveLength(0);
+    expect(transcriptBody.textContent).toContain("Nothing has happened in this session yet.");
 
-    await captureSettled(ledgerBody, "empty-session-light");
+    await captureSettled(transcriptBody, "empty-session-light");
   });
 });
 
-describe("the ledger mount wait", () => {
+describe("the transcript mount wait", () => {
   afterEach(() => {
     vi.useRealTimers();
   });
@@ -205,14 +208,14 @@ describe("the ledger mount wait", () => {
   // has yielded on its first turn, which is what makes this run in a millisecond
   // rather than in the five seconds the deadline names — and what proves it is the
   // DEADLINE that refuses, since no number of turns passed in between.
-  it("refuses a route that mounts no ledger body, on the deadline rather than on a turn count", async () => {
+  it("refuses a route that mounts no transcript body, on the deadline rather than on a turn count", async () => {
     document.location.hash = formatRoute({ kind: "sessions" });
     const { container } = await renderSettled(
-      <ConsoleRoot composition={createFixtureComposition(LEDGER_SCENARIO_ID)} />,
+      <AppProviders composition={createFixtureComposition(TRANSCRIPT_STATES_SCENARIO_ID)} />,
     );
     expect(
       container.querySelector(SESSION_ROUTE_BODY_SELECTOR),
-      "the session directory mounted a ledger body, so this control is asserting the refusal of a " +
+      "the session directory mounted a transcript body, so this control is asserting the refusal of a " +
         "route that in fact reaches the surface and would pass whatever the wait did",
     ).toBeNull();
 

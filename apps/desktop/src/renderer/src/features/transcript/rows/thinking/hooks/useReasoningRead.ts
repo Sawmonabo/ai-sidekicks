@@ -7,7 +7,7 @@
 // relationship with cancellation be read off its imports.
 //
 // AND IT DIES WITH THE SHELL. This hook exists so the shell's reasoning rows are real
-// against the fixture scenarios before the timeline subtree's own rows land; the
+// against the fixture scenarios before the transcript subtree's own rows land; the
 // change that registers those rows deletes this module with the rest of `shell/`.
 //
 // THE METHOD IS A REGISTERED WIRE, which is why it is reached through `callDaemon`:
@@ -31,7 +31,7 @@ import { useCallback, useState } from "react";
 
 import { callDaemon } from "@renderer/services/daemon/daemon-reply.js";
 import { useReadScope } from "@renderer/hooks/useReadScope.js";
-import { useConsoleBridge } from "@renderer/services/platform/hooks/usePlatformBridge.js";
+import { usePlatformBridge } from "@renderer/services/platform/hooks/usePlatformBridge.js";
 import type { RunId } from "@ai-sidekicks/contracts";
 import { type ReasoningReading } from "../reasoning-reading.js";
 
@@ -59,7 +59,7 @@ export interface ReasoningRead {
  * pressing again issues a second read.
  *
  * AND THE READ IS ON A LINE THE ROW OWNS. A reasoning surface is read because somebody
- * pressed for it, and that somebody can leave the pane or move the ledger to another
+ * pressed for it, and that somebody can leave the pane or move the transcript to another
  * run before the answer lands — at which point the reply is still parsed against its
  * registered schema and folded into a state nothing renders. The line is addressed at
  * `(bridge, runId)`, which is the pairing this reading is ABOUT: a transport
@@ -70,7 +70,7 @@ export interface ReasoningRead {
  * should be offered a retry for.
  */
 export function useReasoningRead(runId: RunId | undefined): ReasoningRead {
-  const bridge = useConsoleBridge();
+  const bridge = usePlatformBridge();
   const [reading, setReading] = useState<ReasoningReading>({ status: "not-asked" });
   const readScope = useReadScope(bridge, runId);
 

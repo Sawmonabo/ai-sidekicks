@@ -1,17 +1,15 @@
-// The highlight scheduler — where a block is tokenised, and where the answer is kept.
+// The highlight scheduler — where a block is tokenized, and where the answer is kept.
 //
 // Three decisions, each of them a constraint on the adopted highlighter:
 //
 //   • **Above about 4 kB of source, the work leaves the main thread.** Below it, a
 //     block costs a few milliseconds and a worker round trip would cost more than it
 //     saved. `CODE_WORKER_THRESHOLD_BYTES` is the line, and
-//     `core/constants/ledger-card-caps.ts` — this family's module inside
-//     `core/constants/`, the one directory a bound is declared in — is where its
-//     rationale lives.
+//     `features/transcript/cards/card-caps.ts` is where its rationale lives.
 //   • **The cache is content-addressed and bounded in bytes.** Keyed by language and
 //     source, so the same block re-rendered — a scroll back, a re-mount, the same snippet
 //     quoted twice — is free, and theme-independent because the tokens carry family
-//     references rather than colours.
+//     references rather than colors.
 //   • **A block past `CODE_HIGHLIGHT_SOURCE_BYTE_CAP` is not highlighted at all.** The
 //     worker keeps a huge block off the frame; it does not make it cheap, and the tokens
 //     it produces would evict the whole cache to hold one paste.
@@ -74,10 +72,10 @@ export class CodeHighlightScheduler {
   }
 
   /**
-   * Tokenise a block, or say why not.
+   * Tokenize a block, or say why not.
    *
    * The cache is consulted first even here, so a component whose effect re-runs after a
-   * re-mount does not re-tokenise what it already has.
+   * re-mount does not re-tokenize what it already has.
    */
   public async requestTokens(
     source: string,
@@ -229,7 +227,7 @@ export class CodeHighlightScheduler {
 /**
  * The cache key: language and source, in one place.
  *
- * The language is part of it because the same text tokenises differently under two
+ * The language is part of it because the same text tokenizes differently under two
  * grammars, and a key that dropped it would serve a JSON block's tokens for a YAML one.
  */
 function cacheKey(source: string, language: HighlightableLanguage): string {

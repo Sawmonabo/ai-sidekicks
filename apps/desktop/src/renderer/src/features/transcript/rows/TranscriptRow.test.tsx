@@ -3,31 +3,31 @@
 import { fireEvent, render } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, describe, expect, it } from "vitest";
-import { DesktopBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
+import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
-import { LEDGER_QUIET_SCENARIO } from "../../../../../../fixtures/scenarios/empty-session.js";
+import { EMPTY_SESSION_SCENARIO } from "../../../../../../fixtures/scenarios/empty-session.js";
 import { RetainedRowStateProvider } from "../viewport/components/RetainedRowStateProvider.js";
 import { type RetainedRowState } from "../viewport/retained-row-state-table.js";
 import {
-  registerTimelineRowRenderer,
-  timelineRowRenderer,
-  type TimelineRowSlotProps,
+  registerTranscriptRowRenderer,
+  findTranscriptRowRenderer,
+  type TranscriptRowProps,
 } from "@renderer/console/seats/index.js";
 // Deeply: the teardown is reached by tests alone, so it is not a door line.
-import { unregisterTimelineRowRenderer } from "../transcript-row-renderer.js";
+import { unregisterTranscriptRowRenderer } from "../transcript-row-renderer.js";
 import {
   registerTranscriptRowFooterRenderer,
   unregisterTranscriptRowFooterRenderer,
 } from "../transcript-row-footer-renderer.js";
-import { TRANSCRIPT_ROW_OWNER, registerFixtureShellRows } from "../contributions/timeline-rows.js";
+import { TRANSCRIPT_ROW_OWNER, registerTranscriptRows } from "../contributions/transcript-rows.js";
 import { TranscriptRow } from "./TranscriptRow.js";
 import { sampleRunRow } from "@test/helpers/timeline-row-samples.js";
 
 afterEach(() => {
-  unregisterTimelineRowRenderer();
+  unregisterTranscriptRowRenderer();
 });
 
-function slotProps(row: TimelineRowSlotProps["row"]): TimelineRowSlotProps {
+function slotProps(row: TranscriptRowProps["row"]): TranscriptRowProps {
   return { row, actorHue: undefined, isSuperseded: false, density: "collapsed" };
 }
 
@@ -42,14 +42,14 @@ function slotProps(row: TimelineRowSlotProps["row"]): TimelineRowSlotProps {
  */
 function InBridge(props: { readonly children: React.ReactNode }): React.JSX.Element {
   return (
-    <DesktopBridgeProvider bridge={createFixtureBridge({ scenario: LEDGER_QUIET_SCENARIO })}>
+    <PlatformBridgeProvider bridge={createFixtureBridge({ scenario: EMPTY_SESSION_SCENARIO })}>
       {props.children}
-    </DesktopBridgeProvider>
+    </PlatformBridgeProvider>
   );
 }
 
 /**
- * The shell inside a list that owns its density, which is what a ledger is.
+ * The shell inside a list that owns its density, which is what a transcript is.
  *
  * Every routing case above renders the row bare, and that is deliberate: routing is
  * a decision the shell makes alone. Density is not — the shell writes a lease and
@@ -57,8 +57,8 @@ function InBridge(props: { readonly children: React.ReactNode }): React.JSX.Elem
  * asserting over a component that no longer decides anything.
  */
 function MountedInAList(props: {
-  readonly row: TimelineRowSlotProps["row"];
-  readonly listDensity: TimelineRowSlotProps["density"];
+  readonly row: TranscriptRowProps["row"];
+  readonly listDensity: TranscriptRowProps["density"];
   readonly onLeaseWritten?: (rowKey: string, lease: RetainedRowState) => void;
 }): React.JSX.Element {
   const [leased, setLeased] = useState<RetainedRowState | undefined>(undefined);
@@ -173,7 +173,7 @@ describe("standing in for the list's density decision", () => {
     expect(disclosureState(container)).toBe("true");
   });
 
-  it("negative control: an untouched row honours a list that opened it", () => {
+  it("negative control: an untouched row honors a list that opened it", () => {
     // Without this, a shell that kept any state of its own would pass the case above
     // while ignoring the list entirely.
     const { container } = render(
@@ -206,38 +206,37 @@ describe("standing in for the list's density decision", () => {
     expect(disclosureState(container)).toBe("true");
   });
 
-  it("refuses to mount outside a ledger rather than swallowing the press", () => {
+  it("refuses to mount outside a transcript rather than swallowing the press", () => {
     // A no-op default channel would look exactly like a row that will not open,
     // which is the defect this whole change closes. It fails loudly instead.
     expect(() =>
       render(<TranscriptRow {...slotProps(sampleRunRow({ type: "tool.invoked" }))} />),
-    ).toThrow(/lease provider/);
+    ).toThrow(/retained row state provider/);
   });
 });
 
-describe("claiming the seat", () => {
-  it("fills it under the shell's own owner", () => {
-    expect(timelineRowRenderer()).toBeUndefined();
-    registerFixtureShellRows();
-    expect(timelineRowRenderer()).toBe(TranscriptRow);
+describe("registering the transcript row renderer", () => {
+  it("registers it under the transcript's own owner", () => {
+    expect(findTranscriptRowRenderer()).toBeUndefined();
+    registerTranscriptRows();
+    expect(findTranscriptRowRenderer()).toBe(TranscriptRow);
   });
 
-  it("refuses a second owner rather than replacing the shell", () => {
-    // The property the deletion obligation rests on: a change that registered the
-    // timeline's own row without deleting this shell stops the timeline rendering at
-    // import time, by name, instead of picking a winner by import order.
-    registerFixtureShellRows();
+  it("refuses a second owner rather than replacing the transcript's renderer", () => {
+    // A second owner is refused at import time, by name, instead of a winner being
+    // picked by import order.
+    registerTranscriptRows();
     expect(() => {
-      registerTimelineRowRenderer("the timeline subtree", () => null);
-    }).toThrow(/timeline row/);
+      registerTranscriptRowRenderer("another owner", () => null);
+    }).toThrow(/transcript row seat/);
   });
 
   it("negative control: the same owner may re-register", () => {
     // A hot reload re-runs the owning module, so an unconditional refusal would make
-    // the shell undevelopable.
-    registerFixtureShellRows();
+    // the transcript undevelopable.
+    registerTranscriptRows();
     expect(() => {
-      registerTimelineRowRenderer(TRANSCRIPT_ROW_OWNER, TranscriptRow);
+      registerTranscriptRowRenderer(TRANSCRIPT_ROW_OWNER, TranscriptRow);
     }).not.toThrow();
   });
 });

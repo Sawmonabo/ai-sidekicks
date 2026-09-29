@@ -10,8 +10,8 @@ import { createFixtureBridge } from "@renderer/services/platform/platform-bridge
 import { unscriptedScenario } from "@test/helpers/fixture-bridge.js";
 import { NEVER_SETTLES } from "@test/helpers/abandoned-pass.js";
 import {
-  UNREPORTED_SHELL_STATE,
-  type ShellState,
+  UNREPORTED_MAIN_PROCESS_STATE,
+  type MainProcessState,
 } from "@renderer/store/window/main-process-state.js";
 import { settingsPageContextWith } from "@test/helpers/settings-page-mount.js";
 import { DaemonOperationsBlocks, RuntimePage } from "./RuntimePage.js";
@@ -34,11 +34,11 @@ export interface MountedRuntimePage {
   readonly container: HTMLElement;
   readonly ledger: ControlLedger;
   /** Re-render the page under a different supervisor state, over the SAME bridge. */
-  readonly showShellState: (next: ShellState) => void;
+  readonly showMainProcessState: (next: MainProcessState) => void;
 }
 
 export function renderRuntimePage(options: {
-  readonly shellState?: ShellState;
+  readonly mainProcessState?: MainProcessState;
   /**
    * Whether a dispatched control is recorded and then never answered.
    *
@@ -73,19 +73,21 @@ export function renderRuntimePage(options: {
       await holdOpen();
     },
   };
-  const pageUnder = (shellState: ShellState): ReactNode => {
-    const context = settingsPageContextWith(bridge, undefined, { shellState });
+  const pageUnder = (mainProcessState: MainProcessState): ReactNode => {
+    const context = settingsPageContextWith(bridge, undefined, { mainProcessState });
     return (
       <RuntimePage context={context}>
         <DaemonOperationsBlocks context={context} operations={operations} />
       </RuntimePage>
     );
   };
-  const { container, rerender } = render(pageUnder(options.shellState ?? UNREPORTED_SHELL_STATE));
+  const { container, rerender } = render(
+    pageUnder(options.mainProcessState ?? UNREPORTED_MAIN_PROCESS_STATE),
+  );
   return {
     container,
     ledger,
-    showShellState: (next) => {
+    showMainProcessState: (next) => {
       rerender(pageUnder(next));
     },
   };

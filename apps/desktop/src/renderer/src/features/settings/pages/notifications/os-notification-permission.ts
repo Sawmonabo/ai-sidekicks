@@ -1,6 +1,6 @@
-// Whether this machine's operating system will let the shell raise a notification.
+// Whether this machine's operating system will let the main process raise a notification.
 //
-// Lives at the bridge because the notification centre and the notifications page both
+// Lives at the bridge because the notification center and the notifications page both
 // ask it, and a view family may not import its sibling. Every window trigger re-reads
 // it, since the person grants the permission outside this application; the scheduler
 // serializes probes and the latch drops a reply from a superseded round.
@@ -8,7 +8,7 @@ import type { NotificationPermission } from "@shared/preload-api.js";
 import { useCallback, useSyncExternalStore } from "react";
 
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
-import { type ConsoleClock } from "@renderer/lib/clock.js";
+import { type Clock } from "@renderer/lib/clock.js";
 import { GenerationLatch } from "@renderer/lib/reads/generation-latch.js";
 import {
   NO_TRIGGERING_EVENT_KINDS,
@@ -19,8 +19,8 @@ import { RefreshScheduler, type RefreshReason } from "@renderer/lib/reads/refres
 import { useSubjectScopedResource } from "@renderer/hooks/subject-scoped/useSubjectScopedResource.js";
 import { type SubjectScopedDisposal } from "@renderer/lib/subject-scoped/subject-scoped-disposal.js";
 import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
-import { consoleClockFor } from "@renderer/services/platform/hooks/useClock.js";
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { resolveBridgeClock } from "@renderer/services/platform/hooks/useClock.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 
 /** What the machine can answer: the bridge's own permission states. */
 export type OsNotificationPermissionState = NotificationPermission["state"];
@@ -41,7 +41,7 @@ const OS_PERMISSION_READ_KEY = "os-notification-permission-read";
 export interface OsNotificationPermissionReadOptions {
   readonly probe: OsNotificationPermissionProbe;
   /** The clock the scheduler arms on. The fixture's frozen one under a scenario. */
-  readonly clock: ConsoleClock;
+  readonly clock: Clock;
 }
 
 /** One machine's notification permission, kept current by the window's triggers. */
@@ -127,10 +127,12 @@ const OS_PERMISSION_READ_DISPOSAL: SubjectScopedDisposal<OsNotificationPermissio
  * @consumedBy the Notifications page's permission notice
  */
 export function useOsNotificationPermission(
-  bridge: ConsoleBridge,
+  bridge: PlatformBridge,
   probe: OsNotificationPermissionProbe,
 ): OsNotificationPermissionReading {
-  const { value: clock } = useSubjectScopedState(bridge, undefined, () => consoleClockFor(bridge));
+  const { value: clock } = useSubjectScopedState(bridge, undefined, () =>
+    resolveBridgeClock(bridge),
+  );
   const { value: read } = useSubjectScopedResource(
     bridge,
     undefined,

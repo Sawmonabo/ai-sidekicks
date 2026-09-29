@@ -30,8 +30,8 @@
 // where it lands rather than written at an address the composer has left.
 
 import { useCallback } from "react";
-import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
-import type { ConsoleRefusal } from "@renderer/lib/refusal.js";
+import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
+import type { Refusal } from "@renderer/lib/refusal.js";
 import type { DraftStore } from "@renderer/store/draft-store.js";
 import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
 import { type SubjectScopedPublish } from "@renderer/lib/subject-scoped/subject-scoped-holder.js";
@@ -47,10 +47,10 @@ import type { SettlementIdentities } from "./useSettlementIdentities.js";
 
 /** What the composer reads about the acts at one address, and what may write it. */
 export interface ComposerActState {
-  /** What the bar renders while a send is travelling from THIS address. */
+  /** What the bar renders while a send is traveling from THIS address. */
   readonly status: SendControllerStatus;
   /** The one refusal the bar renders, or `undefined`. */
-  readonly refusal: ConsoleRefusal | undefined;
+  readonly refusal: Refusal | undefined;
   /** Publish what the send path is doing. Dropped once the address has moved. */
   readonly publishStatus: SubjectScopedPublish<SendControllerStatus>;
   /**
@@ -63,7 +63,7 @@ export interface ComposerActState {
   /** Write one act's settlement, or discard it because its identity has moved on. */
   readonly settle: (
     identity: ComposerSettlementIdentity,
-    settledRefusal: ConsoleRefusal | undefined,
+    settledRefusal: Refusal | undefined,
   ) => void;
   /**
    * Clear the line the act was issued on, but only while that act is still current.
@@ -78,7 +78,7 @@ export interface ComposerActState {
 
 /** Hold one address's act readings, and the two writers a settlement reaches them by. */
 export function useComposerActState(
-  bridge: ConsoleBridge,
+  bridge: PlatformBridge,
   draftKey: string,
   draftStore: DraftStore,
   isCurrent: SettlementIdentities["isCurrent"],
@@ -109,7 +109,7 @@ export function useComposerActState(
   );
 
   const settle = useCallback(
-    (identity: ComposerSettlementIdentity, settledRefusal: ConsoleRefusal | undefined): void => {
+    (identity: ComposerSettlementIdentity, settledRefusal: Refusal | undefined): void => {
       if (!isCurrent(identity)) {
         return;
       }

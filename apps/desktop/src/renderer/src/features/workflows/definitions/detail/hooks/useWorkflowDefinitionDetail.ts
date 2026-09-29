@@ -85,7 +85,7 @@ export interface WorkflowDefinitionDetail {
  * What the pane knows about its definition at one moment.
  *
  * Three states and no others; the two unsettled ones come from the shared shape in
- * `store/read/subject-read-start.ts`.
+ * `features/workflows/subject-read-start.ts`.
  */
 export type WorkflowDefinitionDetailState = SubjectRead<{
   readonly status: "served";

@@ -1,4 +1,4 @@
-// What every human-form slot suite needs before it can render a wait or put a press.
+// What every human-form mount point suite needs before it can render a wait or put a press.
 //
 // The wait is derived from the probe run through `humanFormPhaseFor`, never written out,
 // so a run read that stopped carrying a prompt or a schema would fail the suites here
@@ -68,11 +68,11 @@ export interface HeldSubmit extends SubmitProbe {
 /** What a case that moves the pane from one wait to another holds on to. */
 export interface SwitchableMountPoint {
   readonly container: HTMLElement;
-  /** Put another wait in the same slot, or clear it, without unmounting anything above. */
+  /** Put another wait in the same mount point, or clear it, without unmounting anything above. */
   readonly switchTo: (next: HumanFormPhase | undefined) => Promise<void>;
 }
 
-/** What a case mounts the human-form slot with. */
+/** What a case mounts the human-form mount point with. */
 export interface HumanFormMountPointMounting {
   /** The open wait, or `undefined` for the arm where no phase is waiting on anybody. */
   readonly phase: HumanFormPhase | undefined;
@@ -156,7 +156,7 @@ export function fixtureWaitPhase(): HumanFormPhase {
   return wait;
 }
 
-/** The slot with the shell inside it, over the submit call the case supplies. */
+/** The mount point with the shell inside it, over the submit call the case supplies. */
 export async function renderMountPoint(
   phase: HumanFormPhase | undefined,
   submitForm?: WorkflowHumanFormSubmitCall,
@@ -169,7 +169,7 @@ export async function renderMountPoint(
 }
 
 /**
- * The same slot, kept addressable so a case can move it to a second wait.
+ * The same mount point, kept addressable so a case can move it to a second wait.
  *
  * The call is fixed once and reused across renders, which is what makes the switch a
  * switch: a fresh call would re-address the attempt for a reason that is not the phase.

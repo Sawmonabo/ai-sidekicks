@@ -1,8 +1,8 @@
-// The carrier's ledger: which attachments there are, in which order, and where each
+// The staged list's ledger: which attachments there are, in which order, and where each
 // one's ingest stands.
 //
 // It is a separate module from `attachment-ingest-machine.ts` because the two answer
-// different questions. The ledger answers "what does this carrier hold right now",
+// different questions. The ledger answers "what does this staged list hold right now",
 // and every one of its operations settles before it returns. The client answers "what
 // has been sent", and every one of its operations spans an await. Keeping them in one
 // class made the file two jobs long, and it also hid the seam that matters: a
@@ -21,7 +21,7 @@
 // be applied — and it is applied by CONSTRUCTION rather than by a delete: a settled
 // entry is built through `attachmentIngestEntryFrom`, whose settled arm has no payload
 // member to put one in. What that is worth: a `Blob` is a handle, but it is a KEEP, so
-// a carrier that held ten finished uploads held ten files' worth of the browser's
+// a staged list that held ten finished uploads held ten files' worth of the browser's
 // memory until the surface unmounted. A write that would move a settled entry back into
 // a sending state is refused outright — those bytes are gone, and an entry claiming a
 // payload it does not have would fail at the next slice instead of here.
@@ -68,7 +68,7 @@ export class AttachmentIngestEntries {
   #snapshot: readonly AttachmentIngestEntry[] = [];
   #disposed = false;
 
-  /** The carrier, in declared order. Stable identity between publishes. */
+  /** The staged list, in declared order. Stable identity between publishes. */
   public get snapshot(): readonly AttachmentIngestEntry[] {
     return this.#snapshot;
   }
@@ -77,7 +77,7 @@ export class AttachmentIngestEntries {
     return this.#changes.subscribe(sink);
   }
 
-  /** Whether this carrier already holds an attachment under this local id. */
+  /** Whether this staged list already holds an attachment under this local id. */
   public holds(localId: string): boolean {
     return this.#entriesByLocalId.has(localId);
   }
@@ -115,7 +115,7 @@ export class AttachmentIngestEntries {
     return stamp.claim.isCurrent ? entry : undefined;
   }
 
-  /** Take one attachment into the carrier, at the end of the declared order. */
+  /** Take one attachment into the staged list, at the end of the declared order. */
   public declare(source: AttachmentSource): void {
     const localId = source.declared.localId;
     this.#declaredOrder.push(localId);
@@ -161,7 +161,7 @@ export class AttachmentIngestEntries {
     this.#publish();
   }
 
-  /** Take one attachment out of the carrier entirely, position included. */
+  /** Take one attachment out of the staged list entirely, position included. */
   public remove(localId: string): void {
     const position = this.#declaredOrder.indexOf(localId);
     if (position < 0) {
@@ -174,7 +174,7 @@ export class AttachmentIngestEntries {
   }
 
   /**
-   * The reference a carrier would carry: artifact ids, ordered, and nothing else.
+   * The reference a staged list would carry: artifact ids, ordered, and nothing else.
    *
    * Only completed ingests contribute, because an artifact id is what an ingest MINTS —
    * there is nothing to name before then. The result is exactly the typed `ArtifactId[]`

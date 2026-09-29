@@ -2,7 +2,7 @@
 //
 // A CHIP AND NOT A CARD, which is the composer's density rather than a lesser version
 // of the artifact pane's row: name, type, and size in one line with progress inline, so
-// a carrier of several does not push the message input off the bottom of the workspace.
+// a staged list of several does not push the message input off the bottom of the session screen.
 // The pane's card is where an upload is READ; this is where it is watched while a
 // person keeps typing.
 //
@@ -11,9 +11,9 @@
 // composes that model out of the repos family's own readings, so the chip and the card
 // cannot describe one upload differently.
 //
-// CANCEL SAYS WHAT CANCELLING DOES. There is no cancel call in the ingest trio, so
+// CANCEL SAYS WHAT CANCELING DOES. There is no cancel call in the ingest trio, so
 // stopping is client-side abandonment and the daemon's reaper claims the spool — the
-// control's own title carries that sentence verbatim rather than a softer "cancelled",
+// control's own title carries that sentence verbatim rather than a softer "canceled",
 // which would promise an instant reclaim nothing performs.
 
 import {
@@ -51,7 +51,7 @@ export function AttachmentChip(props: AttachmentChipProps): React.JSX.Element {
         <WireFigure value={chip.sizeText} title={chip.sizeTitle} />
         <Chip label={chip.state} mono tone={chip.tone} />
         {chip.progressFraction === undefined ? null : (
-          // NAMED FOR WHAT IT MEASURES AND FOR WHICH FILE, so a carrier of several
+          // NAMED FOR WHAT IT MEASURES AND FOR WHICH FILE, so a staged list of several
           // announces several distinct bars. `value` and `max` carry the amount, as a
           // fraction of the declaration; the name says whose.
           <progress
@@ -70,7 +70,7 @@ export function AttachmentChip(props: AttachmentChipProps): React.JSX.Element {
         {chip.isPastByteAllowance ? (
           <span className="meridian-composer-attachment__note">
             Past this deployment&apos;s per-attachment size. The upload is still attempted — the
-            daemon decides.
+            background service decides.
           </span>
         ) : null}
         {chip.offersRetry ? (

@@ -15,13 +15,13 @@
 // caller a parameter it passes the same way.
 import { createFixtureBridge } from "../platform/platform-bridge.fixture.js";
 import type { ScenarioEngine } from "../daemon/engine.fixture.js";
-import type { ConsoleScenario } from "../../../../../fixtures/scenario.js";
-import { FLAGSHIP_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
+import type { Scenario } from "../../../../../fixtures/scenario.js";
+import { CONCURRENT_STREAMING_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
 import { SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
-import { SessionEventBinder } from "./session-event-subscriber.js";
+import { SessionEventSubscriber } from "./session-event-subscriber.js";
 
 /** The session every suite drives, named by the scenario rather than by a literal. */
-export const SESSION_ID: string = FLAGSHIP_SCENARIO.sessionId;
+export const SESSION_ID: string = CONCURRENT_STREAMING_SCENARIO.sessionId;
 
 /**
  * The frozen time by which the whole scenario has been delivered, read off the script
@@ -29,13 +29,14 @@ export const SESSION_ID: string = FLAGSHIP_SCENARIO.sessionId;
  *
  * A literal here was a copy of the concurrent-streaming scenario's own timings, and it went stale the first
  * time the script grew: the advance stopped part-way through and every count asserted
- * against `FLAGSHIP_SCENARIO.beats.length` was measuring the copy instead.
+ * against `CONCURRENT_STREAMING_SCENARIO.beats.length` was measuring the copy instead.
  */
-export const PAST_EVERY_BEAT_MS: number = (FLAGSHIP_SCENARIO.beats.at(-1)?.atMs ?? 0) + 100;
+export const PAST_EVERY_BEAT_MS: number =
+  (CONCURRENT_STREAMING_SCENARIO.beats.at(-1)?.atMs ?? 0) + 100;
 
 export interface SubscriberHarness {
   readonly registry: SessionStoreRegistry;
-  readonly binder: SessionEventBinder;
+  readonly binder: SessionEventSubscriber;
   readonly engine: ScenarioEngine;
 }
 
@@ -45,10 +46,12 @@ export interface SubscriberHarness {
  * The registry's read is a REGISTERED one that happens to find nothing — the transient
  * miss, which is what a session whose wire exists looks like between reads. It has to
  * be registered for the binder to bind at all, and it has to resolve `undefined` rather
- * than a snapshot, because a snapshot would initialise the stores and change what
+ * than a snapshot, because a snapshot would initialize the stores and change what
  * `applyBatch` does with every event a case delivers.
  */
-export function createHarness(scenario: ConsoleScenario = FLAGSHIP_SCENARIO): SubscriberHarness {
+export function createHarness(
+  scenario: Scenario = CONCURRENT_STREAMING_SCENARIO,
+): SubscriberHarness {
   const bridge = createFixtureBridge({ scenario });
   const engine = bridge.scenarioEngine;
   if (engine === undefined) {
@@ -58,5 +61,5 @@ export function createHarness(scenario: ConsoleScenario = FLAGSHIP_SCENARIO): Su
     read: () => Promise.resolve(undefined),
     clock: engine.clock,
   });
-  return { registry, binder: new SessionEventBinder({ registry, bridge }), engine };
+  return { registry, binder: new SessionEventSubscriber({ registry, bridge }), engine };
 }

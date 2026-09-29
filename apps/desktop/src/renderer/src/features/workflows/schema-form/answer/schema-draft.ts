@@ -28,7 +28,7 @@
 // AN ENTRY ID IS THE ENTRY'S IDENTITY AND ITS POSITION IS ONLY WHERE IT SITS. Keyed by
 // index, a React subtree carrying per-entry control state — the unreadable text above —
 // was reused or unmounted under the wrong entry when an earlier one was removed, so an
-// invalid figure moved to a neighbour or disappeared. The ids come from a counter the list
+// invalid figure moved to a neighbor or disappeared. The ids come from a counter the list
 // itself carries, so nothing here reads a clock, a random source, or module state, and the
 // same edits over the same draft mint the same ids.
 //

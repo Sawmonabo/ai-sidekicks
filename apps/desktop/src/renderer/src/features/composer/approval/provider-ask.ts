@@ -13,7 +13,7 @@
 // would drift the first time one of them grew a fallback.
 
 import { readWireString } from "@renderer/lib/wire-strings.js";
-import { type ConsoleEntity } from "@renderer/store/session/entities/entities.js";
+import { type StoredEntity } from "@renderer/store/session/entities/entities.js";
 
 /** One approval's provider-ask origin. */
 export interface ProviderAsk {
@@ -31,7 +31,7 @@ export interface ProviderAsk {
  * the ordinary card. Distinguishing them would invite a surface to render a fifth
  * thing for a distinction nobody can act on.
  */
-export function providerAskFor(entity: ConsoleEntity | undefined): ProviderAsk | undefined {
+export function providerAskFor(entity: StoredEntity | undefined): ProviderAsk | undefined {
   const askId = readWireString(entity?.body?.["askId"]);
   if (askId === undefined) {
     return undefined;

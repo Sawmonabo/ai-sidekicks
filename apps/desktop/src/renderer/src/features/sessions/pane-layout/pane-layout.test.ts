@@ -1,8 +1,8 @@
-// The deck's width arithmetic and its address identity, checked without
+// The pane layout's width arithmetic and its address identity, checked without
 // constructing a layout.
 //
-// The claim under test is the one `normalise` makes in its own name: whatever was on
-// disk, the row it returns sums to a whole deck. Rounding each pane independently
+// The claim under test is the one `normalize` makes in its own name: whatever was on
+// disk, the row it returns sums to a whole pane layout. Rounding each pane independently
 // does not give that — three equal saved widths round to `333 + 333 + 333 = 999` —
 // and the widths come from the explicitly untrusted persisted snapshot, so the
 // shortfall reaches the panel group as an incomplete layout rather than staying
@@ -24,7 +24,7 @@ import {
 function panesWithWidths(widths: readonly number[]): readonly SessionPane[] {
   return widths.map((sizePermille, position) => ({
     paneId: `pane-${String(position + 1)}`,
-    kind: "timeline" as const,
+    kind: "transcript" as const,
     entity: undefined,
     sizePermille,
     isEphemeral: false,
@@ -40,17 +40,17 @@ function sumOf(panes: readonly SessionPane[]): number {
   return panes.reduce((total, pane) => total + pane.sizePermille, 0);
 }
 
-describe("normalise", () => {
+describe("normalize", () => {
   it.each([
     { what: "three equal saved widths", saved: [333, 333, 333] },
     { what: "seven equal saved widths", saved: [10, 10, 10, 10, 10, 10, 10] },
     { what: "one dominant pane beside two slivers", saved: [980, 11, 9] },
-    { what: "widths that do not add up to a deck at all", saved: [1, 1, 1] },
-    { what: "widths far larger than a deck", saved: [4000, 4000, 4001] },
-  ])("makes $what sum to exactly one deck", ({ saved }) => {
-    const normalised = normalize(panesWithWidths(saved));
-    expect(sumOf(normalised)).toBe(PANE_LAYOUT_TOTAL_PERMILLE);
-    expect(normalised).toHaveLength(saved.length);
+    { what: "widths that do not add up to a layout at all", saved: [1, 1, 1] },
+    { what: "widths far larger than a layout", saved: [4000, 4000, 4001] },
+  ])("makes $what sum to exactly one layout", ({ saved }) => {
+    const normalized = normalize(panesWithWidths(saved));
+    expect(sumOf(normalized)).toBe(PANE_LAYOUT_TOTAL_PERMILLE);
+    expect(normalized).toHaveLength(saved.length);
   });
 
   it("gives the remainder to the widest pane, and to the first of equals", () => {
@@ -69,14 +69,14 @@ describe("normalise", () => {
   it("keeps every pane at a permille or more", () => {
     // A pane that rounds to nothing would come back as a column with no width for a
     // person to grab, which is a pane lost rather than a pane restored.
-    const normalised = normalize(panesWithWidths([100_000, 1, 1]));
-    expect(Math.min(...widthsOf(normalised))).toBeGreaterThanOrEqual(1);
-    expect(sumOf(normalised)).toBe(PANE_LAYOUT_TOTAL_PERMILLE);
+    const normalized = normalize(panesWithWidths([100_000, 1, 1]));
+    expect(Math.min(...widthsOf(normalized))).toBeGreaterThanOrEqual(1);
+    expect(sumOf(normalized)).toBe(PANE_LAYOUT_TOTAL_PERMILLE);
   });
 
   // The negative control: a row whose rounding already lands on the total is
   // returned untouched. Without it the cases above would pass over a settle pass
-  // that redistributed every deck it saw, which would move panes a person had
+  // that redistributed every pane layout it saw, which would move panes a person had
   // arranged deliberately.
   it("negative control: leaves an already-exact row alone", () => {
     expect(widthsOf(normalize(panesWithWidths([500, 500])))).toStrictEqual([500, 500]);
@@ -91,7 +91,7 @@ describe("normalise", () => {
   });
 });
 
-// The address key is the deck's ONE definition of "the same thing". Two callers ask
+// The address key is the pane layout's ONE definition of "the same thing". Two callers ask
 // two questions of it — the store asks whether an open pane is the pane it wants,
 // the snapshot decoder asks whether it has already adopted an address — and the
 // cases below assert they cannot answer differently.
@@ -131,8 +131,8 @@ describe("paneAddressKey", () => {
       paneAddressKey(paneAt("inspector", { kind: "run", id: "run-02" })),
     );
     // A session-scoped pane is its own address, not the entity-scoped one emptied.
-    expect(paneAddressKey(paneAt("timeline", undefined))).not.toBe(
-      paneAddressKey(paneAt("timeline", { kind: "run", id: "run-01" })),
+    expect(paneAddressKey(paneAt("transcript", undefined))).not.toBe(
+      paneAddressKey(paneAt("transcript", { kind: "run", id: "run-01" })),
     );
   });
 
@@ -173,9 +173,9 @@ describe("carveSplitFrom", () => {
   };
 
   it("takes the arriving pane's width from the source alone", () => {
-    // The claim the split act rests on: splitting the middle of a deck a person
+    // The claim the split act rests on: splitting the middle of a pane layout a person
     // arranged leaves the panes on either side of it exactly as they were. The rule
-    // `distributeEvenly` applies — equalise everything — would answer [333,333,333,
+    // `distributeEvenly` applies — equalize everything — would answer [333,333,333,
     // 333] here and destroy the arrangement while the sum stayed right, so the sum
     // alone is not the assertion.
     const split = carveSplitFrom(panesWithWidths([200, 500, 300]), 1, arriving);
@@ -199,9 +199,9 @@ describe("carveSplitFrom", () => {
     expect(sumOf(split ?? [])).toBe(PANE_LAYOUT_TOTAL_PERMILLE);
   });
 
-  it("refuses a source too narrow to halve, and an index the deck does not hold", () => {
+  it("refuses a source too narrow to halve, and an index the pane layout does not hold", () => {
     // Both arms answer `undefined` rather than a row: a half of nothing is a column
-    // the panel group cannot grab, and a position outside the deck names no source.
+    // the panel group cannot grab, and a position outside the pane layout names no source.
     expect(carveSplitFrom(panesWithWidths([1, 999]), 0, arriving)).toBeUndefined();
     expect(carveSplitFrom(panesWithWidths([500, 500]), 5, arriving)).toBeUndefined();
   });

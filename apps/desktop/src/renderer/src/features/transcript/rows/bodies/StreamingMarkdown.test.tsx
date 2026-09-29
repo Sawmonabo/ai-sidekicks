@@ -201,9 +201,9 @@ describe("a streaming body", () => {
   });
 
   it("registers nothing again when a re-render carries no new text", () => {
-    // The defect the settled-block memoisation exists to prevent, reached through the
+    // The defect the settled-block memoization exists to prevent, reached through the
     // registration effect instead of through rendering: the settled node lists were
-    // rebuilt by a `map` on every render, so an unrelated viewport, layout, or ledger
+    // rebuilt by a `map` on every render, so an unrelated viewport, layout, or transcript
     // update re-walked every settled block of every long completed message.
     const footnotes = new FootnoteRegistry();
     const register = vi.spyOn(footnotes, "register");
@@ -228,7 +228,7 @@ describe("a streaming body", () => {
 
     expect(register).not.toHaveBeenCalled();
     // And the render did happen — the settled block is the same element rather than a
-    // remount, which is the other half of what the memoisation is for.
+    // remount, which is the other half of what the memoization is for.
     expect(container.querySelector(PARAGRAPH_SELECTOR)).toBe(settledBefore);
   });
 

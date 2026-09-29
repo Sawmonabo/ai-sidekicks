@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 
-import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { useActController } from "../../../acts/hooks/useActController.js";
 import type { RepoOperations } from "../../../repo-operations.js";
 import { AttachController, type AttachRequestReading } from "../attach-controller.js";
@@ -19,7 +19,7 @@ export interface AttachBinding {
  * settlement the previous one's dialog was showing.
  */
 export function useAttachController(
-  bridge: ConsoleBridge,
+  bridge: PlatformBridge,
   sessionId: string,
   operations: Pick<RepoOperations, "attachRepository">,
 ): AttachBinding {

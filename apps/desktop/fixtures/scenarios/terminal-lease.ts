@@ -30,10 +30,10 @@
 // shell, which is the frame that carries the most: a named holder and a script behind
 // it that reached every ending. A script that ended on a plain free lease would pin
 // the emptiest frame the surface has.
-import type { ConsoleScenario, ScenarioBeat } from "../scenario.js";
+import type { Scenario, ScenarioBeat } from "../scenario.js";
 
 // Who and what the scenario is about: the session, the people, and the agent's run.
-// Consumers read the owner and the other device off `TERMINAL_SCENARIO_CAST` rather
+// Consumers read the owner and the other device off `TERMINAL_SCENARIO_ROLES` rather
 // than indexing the join log.
 //
 // WIRE-DECLARED UUIDs RATHER THAN READABLE PLACEHOLDERS. The contract check presents
@@ -77,7 +77,7 @@ interface TerminalScenarioRoles {
   readonly agent: string;
 }
 
-export const TERMINAL_SCENARIO_CAST: TerminalScenarioRoles = {
+export const TERMINAL_SCENARIO_ROLES: TerminalScenarioRoles = {
   owner: HUMAN_USER_ID,
   otherDevice: SECOND_DEVICE_USER_ID,
   agent: AGENT_USER_ID,
@@ -215,14 +215,14 @@ function terminalLeaseTransitionBeat(transition: TerminalLeaseTransitionBeatInpu
   });
 }
 
-export const TERMINAL_SCENARIO_ID = "terminal-lease";
+export const TERMINAL_LEASE_SCENARIO_ID = "terminal-lease";
 
-const OWNER = TERMINAL_SCENARIO_CAST.owner;
-const OTHER_DEVICE = TERMINAL_SCENARIO_CAST.otherDevice;
-const AGENT = TERMINAL_SCENARIO_CAST.agent;
+const OWNER = TERMINAL_SCENARIO_ROLES.owner;
+const OTHER_DEVICE = TERMINAL_SCENARIO_ROLES.otherDevice;
+const AGENT = TERMINAL_SCENARIO_ROLES.agent;
 
-export const TERMINAL_SCENARIO: ConsoleScenario = {
-  id: TERMINAL_SCENARIO_ID,
+export const TERMINAL_LEASE_SCENARIO: Scenario = {
+  id: TERMINAL_LEASE_SCENARIO_ID,
   label: "Lease changing hands",
   purpose:
     "The session's one shared shell moving between two of the user's devices and an agent " +
@@ -356,7 +356,7 @@ export const TERMINAL_SCENARIO: ConsoleScenario = {
     }),
     // THE AGENT-PATH TAKE, with no actor on purpose: the node's own agent runs take
     // through the daemon's in-process lease authority, so nobody pressed a control
-    // and the ledger's actor column reads "The daemon". The holder is the
+    // and the transcript's actor column reads "The daemon". The holder is the
     // NODE-OWNER user, which is who an agent-path take holds as: agents are
     // `AgentId`-keyed domain actors and not `users` rows, so no
     // agent-user exists to hold and the holder surfaces stay user

@@ -13,17 +13,17 @@ import { TRANSCRIPT_ERROR_KINDS, TranscriptErrorTable } from "../transcript-erro
 import { TranscriptErrors } from "./TranscriptErrors.js";
 
 const PROJECTION_FAILURE = refuse(
-  "ledger",
+  "transcript",
   "renderer.row_projection_failed",
   "A row was unreadable.",
 );
 const GEOMETRY_FAILURE = refuse(
-  "ledger",
+  "transcript",
   "renderer.geometry_unavailable",
   "The viewport was not measurable.",
 );
 
-describe("the ledger's error slots", () => {
+describe("the transcript's error slots", () => {
   it("ranks the durable failure above the transient one", () => {
     const slots = new TranscriptErrorTable();
     slots.record("geometry", GEOMETRY_FAILURE);

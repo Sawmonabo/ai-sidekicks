@@ -1,7 +1,7 @@
 // The concurrent-streaming scenario: four lanes streaming at once.
 //
 // The session `budgets.json`'s `frame-time-p95-four-lanes` row names as its subject:
-// "four agent lanes stream concurrently into the ledger". That row is enforced, so
+// "four agent lanes stream concurrently into the transcript". That row is enforced, so
 // this script is what the ceiling is measured against, and the concurrency is the
 // property under measurement rather than a description of it — four runs are
 // mid-turn at the same tick, interleaved beat by beat, and
@@ -14,7 +14,7 @@
 //     scenario has always had, and the one every surface built against it expects.
 //   • The other three lanes spin up, and from the architect's `running` transition
 //     onward all four are streaming: thinking, messages, and tool calls interleaved
-//     across four run chapters rather than four runs taken in turn.
+//     across four run groups rather than four runs taken in turn.
 //   • An approval lands MID-STREAM, in four beats: the request, the implementer's run
 //     entering `waiting_for_approval` while the other three keep talking, the grant,
 //     and the return through `running`.
@@ -75,7 +75,7 @@ import {
   type ScriptEntry,
   createRunEntryBuilders,
 } from "../data/script-entries.js";
-import type { ConsoleScenario } from "../scenario.js";
+import type { Scenario } from "../scenario.js";
 import { type ScenarioAgent, composeOpeningEntries } from "../data/opening-entries.js";
 
 // The cast and its clock: every identifier in one place.
@@ -273,7 +273,7 @@ const CONCURRENT_STREAMING_SCRIPT: readonly ScriptEntry[] = [
   }),
 
   // The four lanes spin up, staggered the way a real session's do. Each reaches
-  // `running` before the next is queued, so the ledger draws them arriving rather
+  // `running` before the next is queued, so the transcript draws them arriving rather
   // than appearing together.
   lane.transition(RUN_IMPLEMENTER, {
     atMs: 550,
@@ -592,11 +592,11 @@ export const CONCURRENT_STREAMING_SCENARIO_ID = "concurrent-streaming";
  */
 export const CONCURRENT_STREAMING_LANE_COUNT: number = CONCURRENT_STREAMING_AGENTS.length;
 
-export const FLAGSHIP_SCENARIO: ConsoleScenario = {
+export const CONCURRENT_STREAMING_SCENARIO: Scenario = {
   id: CONCURRENT_STREAMING_SCENARIO_ID,
   label: "Four lanes",
   purpose:
-    "A live session with four agents streaming at once — interleaved turns on four run chapters, an approval landing mid-stream while the other three carry on, the cost meter moving on every lane, and a helper run threaded to the turn that spawned it.",
+    "A live session with four agents streaming at once — interleaved turns on four run groups, an approval landing mid-stream while the other three carry on, the cost meter moving on every lane, and a helper run threaded to the turn that spawned it.",
   sessionId: SESSION_ID,
   // Join order IS the hue order. The person first, then the agents in the order
   // they were attached — which is what a real session's join log looks like.

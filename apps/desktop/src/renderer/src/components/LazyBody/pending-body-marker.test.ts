@@ -8,10 +8,10 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  PENDING_PANE_BODY_ATTRIBUTE,
+  PENDING_BODY_ATTRIBUTE,
   PENDING_BODY_SELECTOR,
-  pendingPaneBodiesIn,
-  pendingPaneKindsIn,
+  findPendingBodies,
+  listPendingBodyNames,
 } from "./pending-body-marker.js";
 
 /** A tree with one marked descendant per kind, and one unmarked sibling. */
@@ -22,7 +22,7 @@ function treeWithPendingKinds(...kinds: readonly string[]): HTMLElement {
   root.append(settled);
   for (const kind of kinds) {
     const marker = document.createElement("span");
-    marker.setAttribute(PENDING_PANE_BODY_ATTRIBUTE, kind);
+    marker.setAttribute(PENDING_BODY_ATTRIBUTE, kind);
     root.append(marker);
   }
   return root;
@@ -30,22 +30,22 @@ function treeWithPendingKinds(...kinds: readonly string[]): HTMLElement {
 
 describe("the pending pane-body marker", () => {
   it("composes its selector from the attribute rather than restating it", () => {
-    expect(PENDING_BODY_SELECTOR).toBe(`[${PENDING_PANE_BODY_ATTRIBUTE}]`);
+    expect(PENDING_BODY_SELECTOR).toBe(`[${PENDING_BODY_ATTRIBUTE}]`);
   });
 
   // The negative control the reader's clean results rest on: a tree with no marker
   // must report none, or every positive result below is vacuous.
   it("reports nothing for a tree with no pending body", () => {
-    expect(pendingPaneBodiesIn(treeWithPendingKinds())).toHaveLength(0);
-    expect(pendingPaneKindsIn(treeWithPendingKinds())).toEqual([]);
+    expect(findPendingBodies(treeWithPendingKinds())).toHaveLength(0);
+    expect(listPendingBodyNames(treeWithPendingKinds())).toEqual([]);
   });
 
   it("finds a pending body among settled siblings", () => {
-    expect(pendingPaneKindsIn(treeWithPendingKinds("diff"))).toEqual(["diff"]);
+    expect(listPendingBodyNames(treeWithPendingKinds("diff"))).toEqual(["diff"]);
   });
 
   it("names every pending kind, in document order", () => {
-    expect(pendingPaneKindsIn(treeWithPendingKinds("diff", "artifact", "runs"))).toEqual([
+    expect(listPendingBodyNames(treeWithPendingKinds("diff", "artifact", "runs"))).toEqual([
       "diff",
       "artifact",
       "runs",
@@ -57,14 +57,14 @@ describe("the pending pane-body marker", () => {
   // the failure the marker exists to prevent.
   it("includes the root when the root is itself the marker", () => {
     const marker = document.createElement("span");
-    marker.setAttribute(PENDING_PANE_BODY_ATTRIBUTE, "terminal");
-    expect(pendingPaneKindsIn(marker)).toEqual(["terminal"]);
+    marker.setAttribute(PENDING_BODY_ATTRIBUTE, "terminal");
+    expect(listPendingBodyNames(marker)).toEqual(["terminal"]);
   });
 
   it("reports the root and its descendants together", () => {
     const root = treeWithPendingKinds("diff");
-    root.setAttribute(PENDING_PANE_BODY_ATTRIBUTE, "browser");
-    expect(pendingPaneKindsIn(root)).toEqual(["browser", "diff"]);
+    root.setAttribute(PENDING_BODY_ATTRIBUTE, "browser");
+    expect(listPendingBodyNames(root)).toEqual(["browser", "diff"]);
   });
 
   // A marker with no value is a marker somebody stamped wrong, and a reader that
@@ -72,8 +72,8 @@ describe("the pending pane-body marker", () => {
   it("reports an unnamed marker rather than dropping it", () => {
     const root = document.createElement("section");
     const marker = document.createElement("span");
-    marker.setAttribute(PENDING_PANE_BODY_ATTRIBUTE, "");
+    marker.setAttribute(PENDING_BODY_ATTRIBUTE, "");
     root.append(marker);
-    expect(pendingPaneKindsIn(root)).toEqual([""]);
+    expect(listPendingBodyNames(root)).toEqual([""]);
   });
 });

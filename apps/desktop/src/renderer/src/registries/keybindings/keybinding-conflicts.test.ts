@@ -1,7 +1,7 @@
 // What a candidate binding set answers before it is installed.
 //
 // `prepareBindings` and `detectConflicts` are the pre-flight half of the binding
-// table: the Keyboard settings page calls them through `KeyBindingTable.conflictsIn`
+// table: the Keyboard settings page calls them through `KeybindingTable.conflictsIn`
 // to show a person what a set WOULD do, and `setBindings` calls the same pair to
 // decide what it does. That shared path is the reason they are worth their own
 // file — a preview that validated differently from the commit would be a second
@@ -15,10 +15,10 @@
 import { describe, expect, it } from "vitest";
 
 import { detectConflicts, prepareBindings } from "./keybinding-conflicts.js";
-import type { KeyBinding } from "../commands/command-types.js";
+import type { Keybinding } from "../commands/command-types.js";
 
 /** One binding, spelled out so each test names only what it is about. */
-function binding(chord: string, commandId: string, when?: string): KeyBinding {
+function binding(chord: string, commandId: string, when?: string): Keybinding {
   return when === undefined ? { chord, commandId } : { chord, commandId, when };
 }
 
@@ -141,9 +141,9 @@ describe("the conflict report — one clause reads one way", () => {
     expect("sessionOpen&&paneFocused").not.toBe("sessionOpen && paneFocused");
   });
 
-  it("canonicalises a redundantly parenthesised negation the same way", () => {
+  it("canonicalizes a redundantly parenthesized negation the same way", () => {
     const { prepared, diagnostics } = prepareBindings([
-      binding("$mod+k", "parenthesised", "!(paneFocused)"),
+      binding("$mod+k", "parenthesized", "!(paneFocused)"),
       binding("$mod+k", "bare", "!paneFocused"),
     ]);
     expect(diagnostics).toStrictEqual([]);

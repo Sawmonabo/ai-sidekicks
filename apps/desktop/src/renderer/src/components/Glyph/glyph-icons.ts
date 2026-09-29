@@ -29,11 +29,9 @@ import type { ComponentType, SVGProps } from "react";
 
 import type { GlyphName } from "@renderer/styles/glyphs.js";
 
-// --- The top-level destinations and the session workspace.
+// --- The top-level destinations.
 // Rail destination; Tabler stacks the same plate and two chevrons out of the same lines.
 import SessionsFace from "~icons/tabler/stack-2";
-// A folder whose corners are the family's, not Tabler's two-unit radius (rule 2).
-import WorkspaceFace from "~icons/signature/workspace";
 // Rail destination; sliders rather than the gear the family rejects, drawn as rules and handles.
 import SettingsFace from "~icons/tabler/adjustments-horizontal";
 
@@ -46,11 +44,14 @@ import RunFace from "~icons/signature/run";
 import ApprovalFace from "~icons/signature/approval";
 // A provenance kind, and a container: Tabler's file rounds its corners with an explicit radius (rule 2).
 import ArtifactFace from "~icons/signature/artifact";
+// A workspace, the checkout a chat works in: a folder whose corners are the family's, not
+// Tabler's two-unit radius (rule 2).
+import WorkspaceFace from "~icons/signature/workspace";
 // A provenance kind; Tabler's `git-branch` adds an arrow head this family does not draw.
 import WorktreeFace from "~icons/signature/worktree";
 // A provenance kind, and a container Tabler rounds at two units (rule 2).
 import RepoFace from "~icons/signature/repo";
-// A picture of the surface it opens; Tabler's `timeline` is a line chart and its `list` has no rail.
+// A picture of the pane it opens; Tabler's `timeline` is a line chart and its `list` has no rail.
 import TranscriptIcon from "~icons/signature/transcript";
 // A container; Tabler rounds its frame at two units (rule 2).
 import TerminalFace from "~icons/signature/terminal";
@@ -117,15 +118,15 @@ export type GlyphIcon = ComponentType<SVGProps<SVGSVGElement>>;
  */
 export const GLYPH_ICONS: Readonly<Record<GlyphName, GlyphIcon>> = {
   sessions: SessionsFace,
-  workspace: WorkspaceFace,
   settings: SettingsFace,
   agent: AgentFace,
   run: RunFace,
   approval: ApprovalFace,
   artifact: ArtifactFace,
+  workspace: WorkspaceFace,
   worktree: WorktreeFace,
   repo: RepoFace,
-  timeline: TranscriptIcon,
+  transcript: TranscriptIcon,
   terminal: TerminalFace,
   browser: PreviewIcon,
   workflow: WorkflowFace,

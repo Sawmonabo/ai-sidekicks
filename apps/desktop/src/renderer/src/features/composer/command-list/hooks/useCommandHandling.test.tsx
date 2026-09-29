@@ -17,7 +17,7 @@
 import { render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { consoleCommands } from "@renderer/registries/commands/window-command-registry.js";
+import { commandRegistry } from "@renderer/registries/commands/window-command-registry.js";
 import { DEFAULT_ROUTE } from "@renderer/routing/routes.js";
 import type { ComposerTarget } from "../../composer-target.js";
 import type { CommandExecutor } from "../../types.js";
@@ -69,7 +69,7 @@ function ComposerCommandZoneHost(props: {
     route: DEFAULT_ROUTE,
     commandEnumeration: props.commandEnumeration,
     target: SESSION_TARGET,
-    directiveHandlers: useWorkflowStartHandlers({
+    commandLineHandlers: useWorkflowStartHandlers({
       operations: props.operations,
       sessionId: props.sessionId,
     }),
@@ -86,12 +86,12 @@ const START_LINE = {
 
 describe("the composer command zone reads the committed render's handlers", () => {
   afterEach(() => {
-    consoleCommands.unregister(WORKFLOW_COMMAND_ROOT);
+    commandRegistry.unregister(WORKFLOW_COMMAND_ROOT);
   });
 
-  /** Put the root on the surface the recogniser reads, as the prefill seat does. */
+  /** Put the root on the surface the recognizer reads, as the prefill seat does. */
   function registerWorkflowRoot(): void {
-    consoleCommands.register({
+    commandRegistry.register({
       id: WORKFLOW_COMMAND_ROOT,
       title: "Start a workflow",
       group: "Workflows",
@@ -113,7 +113,7 @@ describe("the composer command zone reads the committed render's handlers", () =
         executor={executor}
       />,
     );
-    // Re-addressed after the executor was built. The executor object is memoised on
+    // Re-addressed after the executor was built. The executor object is memoized on
     // the surface thunk and so does not change; only what its handlers close over does.
     const builtInFirstRender = executor.current;
     rerender(

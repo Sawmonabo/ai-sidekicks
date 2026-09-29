@@ -55,7 +55,7 @@
 // renders it says so rather than passing a partial record off as the whole one.
 
 import { useCallback, useMemo, useRef } from "react";
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { useGenerationLatch } from "@renderer/hooks/useGenerationLatch.js";
 import { useLatestRef } from "@renderer/console/primitives/index.js";
 import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
@@ -107,7 +107,7 @@ export type RunControlAdmission =
 /** What is held for the run controls: the dispatcher and its own record. */
 export interface RunControlDispatchState {
   readonly dispatcher: RunControlDispatcher;
-  /** Newest last, matching the ledger's reading direction. Bounded. */
+  /** Newest last, matching the transcript's reading direction. Bounded. */
   readonly records: readonly RunControlRecord[];
   /** Controls with a dispatch in flight, keyed `<runId>:<control>`. */
   readonly inFlightKeys: ReadonlySet<string>;
@@ -141,7 +141,7 @@ const RUN_CONTROL_SURFACE_SUBJECT = "run-controls";
  * comparand cache.
  */
 export function useRunControlDispatch(
-  bridge: ConsoleBridge,
+  bridge: PlatformBridge,
   calls: RunControlCalls,
   mintIdempotencyKey?: () => string,
 ): RunControlDispatchState {
@@ -175,7 +175,7 @@ export function useRunControlDispatch(
       perform: (held: RunControlDispatcher) => Promise<RunControlOutcome>,
     ): RunControlAdmission => {
       const key = inFlightKeyFor(runId, control);
-      const claim = controlLatch.claim(bridge, key);
+      const claim = controlLatch.takeShell(bridge, key);
       if (claim === undefined) {
         return { admitted: false, reason: "in-flight" };
       }

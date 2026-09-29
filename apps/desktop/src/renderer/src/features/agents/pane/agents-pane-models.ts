@@ -1,4 +1,4 @@
-// Who owns the agent console's reads, and for how long.
+// Who owns the Agents pane's reads, and for how long.
 //
 // LIFETIME, NOT REFRESH. Which method answers each read and what makes it ask again
 // is `../agent-reads.ts`; this module owns how long a read lives, who is
@@ -26,15 +26,15 @@
 // the only clock the renderer reads, so every debounce here advances exactly when a
 // scenario tick says it does.
 
-import type { ConsoleClock } from "@renderer/lib/clock.js";
-import { consoleClockFor } from "@renderer/services/platform/hooks/useClock.js";
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import type { Clock } from "@renderer/lib/clock.js";
+import { resolveBridgeClock } from "@renderer/services/platform/hooks/useClock.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { type SessionSubject } from "@renderer/console/seats/index.js";
 import type { SessionStore } from "@renderer/store/session/session-store.js";
 import {
   createAgentList,
   createChildRunLinks,
-  type AgentConsoleCalls,
+  type AgentsPaneCalls,
   type AgentListRead,
   type ChildRunLinksRead,
 } from "../agent-reads.js";
@@ -62,7 +62,7 @@ export interface ChildRunLinksLease {
 }
 
 /**
- * One session's agent-console reads.
+ * One session's Agents pane reads.
  *
  * A class rather than a record: it owns the linkage cache's lifetime and its
  * teardown, and `apps/desktop/AGENTS.md` puts stateful logic in a class with private
@@ -80,21 +80,21 @@ export class AgentsPaneModels {
   public readonly subject: SessionSubject;
   public readonly roster: AgentListRead;
 
-  readonly #clock: ConsoleClock;
-  readonly #calls: AgentConsoleCalls;
+  readonly #clock: Clock;
+  readonly #calls: AgentsPaneCalls;
   #linkage: HeldChildRunLinkage | undefined;
   #outstandingLinkageLeaseCount = 0;
   #disposed = false;
 
-  public constructor(bridge: ConsoleBridge, sessionStore: SessionStore, calls: AgentConsoleCalls) {
+  public constructor(bridge: PlatformBridge, sessionStore: SessionStore, calls: AgentsPaneCalls) {
     this.subject = { bridge, sessionStore };
     this.#calls = calls;
     // Through the platform service's clock rather than resolved here. The rule — a
     // fixture bridge running an engine shares that engine's FROZEN clock, and only a
-    // running engine owns one — is `consoleClockFor`'s, and a second copy of it
+    // running engine owns one — is `resolveBridgeClock`'s, and a second copy of it
     // is how a window ends up with stores on wall time while its scenario beats advance
     // on frozen time, which is the exact drift that seam was minted to end.
-    this.#clock = consoleClockFor(bridge);
+    this.#clock = resolveBridgeClock(bridge);
     this.roster = createAgentList(sessionStore, this.#clock, calls.listAgents);
     this.roster.start();
   }

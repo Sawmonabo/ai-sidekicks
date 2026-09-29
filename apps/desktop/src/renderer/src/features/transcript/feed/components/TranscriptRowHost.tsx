@@ -5,22 +5,22 @@
 // this decides what stands in the body while the seat, the session, or the rows are
 // not there.
 //
-// NOTHING HERE DRAWS THE BODY BOX. `seats/ConsolePaneChrome` renders
+// NOTHING HERE DRAWS THE BODY BOX. `seats/PaneFrame` renders
 // `.meridian-pane__body` around whatever a pane hands it, so a wrapper here would be
 // a second box inside the first — and the flex chain the feed's scroll container
 // depends on would run through two elements only one of which is sized.
 
 import { Nothing } from "@renderer/console/primitives/index.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
-import { type TimelineRowRenderer } from "@renderer/console/seats/index.js";
+import { type TranscriptRowRenderer } from "@renderer/console/seats/index.js";
 import { TranscriptFeed } from "./TranscriptFeed.js";
 
 /** What the rows' hole needs to choose between its three nothings and the feed. */
 export interface TranscriptRowHostProps {
   /** The registered row renderer, or `undefined` while none is registered. */
-  readonly body: TimelineRowRenderer | undefined;
+  readonly body: TranscriptRowRenderer | undefined;
   readonly sessionStore: SessionStore | undefined;
-  /** The deck pane this body fills, for the seat the feed claims under it. */
+  /** The pane this body fills, for the seat the feed claims under it. */
   readonly paneId: string;
 }
 

@@ -19,12 +19,12 @@
 import { type ScrollGeometry } from "../scroll/geometry-sample.js";
 import { type ReadingAnchor } from "../scroll/reading-anchor.js";
 import { type RowMeasurementTable } from "./row-measurement-table.js";
-import { type LedgerScrollController } from "../scroll/scroll-chokepoint.js";
+import { type ScrollController } from "../scroll/scroll-chokepoint.js";
 import { type TranscriptRowVirtualizer } from "./virtualizer-options.js";
 
 export interface ViewportAnchorCaptureOptions {
   readonly anchor: ReadingAnchor;
-  readonly scroll: LedgerScrollController;
+  readonly scroll: ScrollController;
   readonly measurements: RowMeasurementTable;
   /** The window's current keys, in order. Read per call — they move every reconcile. */
   readonly rowKeys: () => readonly string[];
@@ -34,7 +34,7 @@ export interface ViewportAnchorCaptureOptions {
 
 export class ViewportAnchorCapture {
   readonly #anchor: ReadingAnchor;
-  readonly #scroll: LedgerScrollController;
+  readonly #scroll: ScrollController;
   readonly #measurements: RowMeasurementTable;
   readonly #rowKeys: () => readonly string[];
   readonly #virtualizer: () => TranscriptRowVirtualizer | undefined;
@@ -81,7 +81,7 @@ export class ViewportAnchorCapture {
     }
     if (this.#scroll.vetoesPrune()) {
       // This sample was published from INSIDE a programmatic glide, so it reports
-      // where the ledger just put the reader rather than where the reader went. Two
+      // where the transcript just put the reader rather than where the reader went. Two
       // reasons not to anchor to it, and either alone is sufficient: it would discard
       // the very position the glide was performed to preserve, and — because an
       // anchor change notifies the tree, and a render re-runs the virtualizer's

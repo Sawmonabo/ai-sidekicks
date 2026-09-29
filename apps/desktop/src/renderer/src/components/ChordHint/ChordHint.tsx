@@ -58,7 +58,7 @@ export function ChordHint(props: ChordHintProps): React.JSX.Element {
        * Visually-hidden TEXT, not `aria-label` on the wrapper. `aria-label` is
        * prohibited on a generic element — a `span` with no role — so the attribute
        * is dropped by some assistive technology and flagged `aria-prohibited-attr`
-       * by axe, which is how this was found. Inventing `role="img"` to legalise the
+       * by axe, which is how this was found. Inventing `role="img"` to legalize the
        * attribute would work and read worse: the hint usually sits inside a
        * sentence, and real text composes into that sentence where an image
        * announcement interrupts it.

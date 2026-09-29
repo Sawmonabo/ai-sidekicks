@@ -3,7 +3,7 @@
 // The two claims worth a unit are the ones that would be invisible if they broke.
 // An ended rule that stayed on screen would offer a revoke that does nothing, and a
 // revoke control that mutated on the first click would look exactly like one that
-// mutated on the second — until someone cancelled.
+// mutated on the second — until someone canceled.
 
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
@@ -48,7 +48,7 @@ describe("only rules in force are drawn", () => {
 });
 
 describe("only the confirming click mutates", () => {
-  it("asks first, and cancelling leaves zero mutations", () => {
+  it("asks first, and canceling leaves zero mutations", () => {
     const onRevoke = vi.fn();
     renderGrants([rule()], onRevoke);
     fireEvent.click(screen.getByRole("button", { name: "Revoke" }));
@@ -131,11 +131,11 @@ describe("the empty and short reads", () => {
 
   it("says the list is short when the reply carried rows it could not read", () => {
     renderGrants([rule()], vi.fn(), 2);
-    expect(screen.getByText(/shorter than what the daemon holds/u)).not.toBeNull();
+    expect(screen.getByText(/shorter than what the background service holds/u)).not.toBeNull();
   });
 
   it("negative control: a fully readable list makes no such claim", () => {
     renderGrants([rule()]);
-    expect(screen.queryByText(/shorter than what the daemon holds/u)).toBeNull();
+    expect(screen.queryByText(/shorter than what the background service holds/u)).toBeNull();
   });
 });

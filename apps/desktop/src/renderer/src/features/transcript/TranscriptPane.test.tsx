@@ -1,6 +1,6 @@
 // What this pane hands its chrome, and the hole in the middle of it.
 //
-// WHAT IS DELIBERATELY NOT ASSERTED HERE. The frame is `seats/ConsolePaneChrome`'s:
+// WHAT IS DELIBERATELY NOT ASSERTED HERE. The frame is `seats/PaneFrame`'s:
 // which controls it draws and when, that a pane is named by its whole trail, that an
 // unattributed pane borrows nobody's hue, and that a mismatched address is refused
 // rather than thrown are all claims about that component, asserted once beside it.
@@ -16,7 +16,7 @@
 //   • The row slot reads the real seat. A host that held its own idea of whether
 //     rows exist would be a second source of truth for a decision another plan
 //     owns, and would keep rendering the reserved state after `renderer/src/timeline/` landed.
-//   • The two absences are different absences. Both are quiet grey lines; only the
+//   • The two absences are different absences. Both are quiet gray lines; only the
 //     copy tells "the console cannot draw this" from "your session is empty".
 //
 // The fixtures live in `TranscriptPane.test-support.tsx`.
@@ -24,15 +24,15 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { SessionStore } from "@renderer/store/session/session-store.js";
-import { actorHueTokenName, tokenReference } from "@renderer/styles/tokens.js";
-import { registerTimelineRowRenderer } from "@renderer/console/seats/index.js";
+import { formatHueWheelTokenName, tokenReference } from "@renderer/styles/tokens.js";
+import { registerTranscriptRowRenderer } from "@renderer/console/seats/index.js";
 // The shared stub rather than a second one: `happy-dom` reports zero for both box
 // readings, and a viewport with no box holds no rows — a case that stubbed only the
 // height would be measuring its own setup.
 import { withLaidOutViewport } from "./feed/components/TranscriptFeed.test-support.js";
 // Deeply: the teardown is reached by tests alone, so it is not a door line.
-import { unregisterTimelineRowRenderer } from "./transcript-row-renderer.js";
-import { type TimelinePaneContext } from "./TranscriptPane.js";
+import { unregisterTranscriptRowRenderer } from "./transcript-row-renderer.js";
+import { type TranscriptPaneContext } from "./TranscriptPane.js";
 import {
   TRANSCRIPT_PANE_SESSION_ID,
   openSessionStoreWithPaneLog,
@@ -49,18 +49,18 @@ function addressCrumbs(pane: HTMLElement): readonly (string | null)[] {
 
 afterEach(() => {
   // The seat is module-scope, so a case that filled it would leak into the next.
-  unregisterTimelineRowRenderer();
+  unregisterTranscriptRowRenderer();
   vi.restoreAllMocks();
 });
 
-describe("TimelinePane — what it hands the chrome", () => {
-  it("mounts at its own kind, so the head wears the timeline glyph and name", () => {
+describe("TranscriptPane — what it hands the chrome", () => {
+  it("mounts at its own kind, so the head wears the transcript glyph and name", () => {
     const pane = renderPane({ context: paneContext() });
     // The chrome derives both from the kind, so the kind is what this asserts: a
     // pane that passed another kind's string would draw that kind's mark and title
     // and nothing else on screen would say otherwise.
-    expect(pane.classList.contains("meridian-pane--timeline")).toBe(true);
-    expect(pane.querySelector(".meridian-pane__heading")?.textContent).toBe("Timeline");
+    expect(pane.classList.contains("meridian-pane--transcript")).toBe(true);
+    expect(pane.querySelector(".meridian-pane__heading")?.textContent).toBe("Transcript");
     expect(pane.querySelector(".meridian-pane__kind svg")).not.toBeNull();
   });
 
@@ -70,7 +70,7 @@ describe("TimelinePane — what it hands the chrome", () => {
   });
 
   it("hands over no session at all rather than one the route does not name", () => {
-    // Reachable: the auxiliary timeline window opens on a bare route and the frame
+    // Reachable: the auxiliary transcript window opens on a bare route and the frame
     // resolves its subject through the context picker before this pane sees one.
     // What the chrome then draws is its own business; what this pane owes is the
     // honest absence rather than a placeholder it invented.
@@ -78,8 +78,8 @@ describe("TimelinePane — what it hands the chrome", () => {
     expect(addressCrumbs(pane)).toStrictEqual([]);
   });
 
-  it("hands over the hue the deck attributed the pane to, untouched", () => {
-    const actorHue = tokenReference(actorHueTokenName(3));
+  it("hands over the hue the pane layout attributed the pane to, untouched", () => {
+    const actorHue = tokenReference(formatHueWheelTokenName(3));
     const pane = renderPane({ context: paneContext({ focusHue: actorHue }) });
     expect(pane.style.getPropertyValue("--meridian-pane-hue")).toBe(actorHue);
   });
@@ -94,12 +94,12 @@ describe("TimelinePane — what it hands the chrome", () => {
   });
 });
 
-describe("TimelinePane — the row slot", () => {
+describe("TranscriptPane — the row slot", () => {
   it("says the rows have not been built while the seat is empty", () => {
     const pane = renderPane({ context: paneContext() });
     const body = pane.querySelector(".meridian-pane__body");
     expect(body?.textContent).toContain("The timeline rows have not been built yet.");
-    // The feed itself is the ledger's, and the ledger is not mounted at all while
+    // The feed itself is the transcript's, and the transcript is not mounted at all while
     // there is no row body to mount it for.
     expect(pane.querySelector('[role="feed"]')).toBeNull();
   });
@@ -112,25 +112,25 @@ describe("TimelinePane — the row slot", () => {
     // The two absences are different absences, which is the whole reason they are
     // two: "the console cannot draw this" is a fact about what has shipped, and "no
     // session is open in this pane" is a fact about this pane's address.
-    registerTimelineRowRenderer("timeline-pane-test", () => null);
+    registerTranscriptRowRenderer("transcript-pane-test", () => null);
     const pane = renderPane({ context: paneContext() });
     const body = pane.querySelector(".meridian-pane__body");
     expect(body?.textContent).toContain("No session is open in this pane.");
     expect(body?.textContent).not.toContain("The timeline rows have not been built yet.");
   });
 
-  it("mounts the ledger and renders one row per admitted event", () => {
+  it("mounts the transcript and renders one row per admitted event", () => {
     // The positive control for the whole composition: the seat is filled, a store is
     // open, and a log has landed in it, so the projection has to reach the screen.
     // Every earlier case here is an absence, and a pane that rendered NOTHING but
     // absences would have passed all of them.
     withLaidOutViewport();
-    registerTimelineRowRenderer("timeline-pane-test", (rowProps) => (
+    registerTranscriptRowRenderer("transcript-pane-test", (rowProps) => (
       <article data-row-type={rowProps.row.type}>{rowProps.row.summary}</article>
     ));
     const sessionStore = openSessionStoreWithPaneLog();
     const pane = renderPane({
-      context: paneContext({ sessionStore } as Partial<TimelinePaneContext>),
+      context: paneContext({ sessionStore } as Partial<TranscriptPaneContext>),
     });
     const feed = pane.querySelector('[role="feed"]');
     expect(feed).not.toBeNull();
@@ -142,11 +142,11 @@ describe("TimelinePane — the row slot", () => {
   });
 
   it("negative control: the same store with no events shows the empty session", () => {
-    registerTimelineRowRenderer("timeline-pane-test", () => null);
+    registerTranscriptRowRenderer("transcript-pane-test", () => null);
     const sessionStore = new SessionStore({ sessionId: TRANSCRIPT_PANE_SESSION_ID });
-    sessionStore.initialise({ cursor: -1, entities: [] });
+    sessionStore.initialize({ cursor: -1, entities: [] });
     const pane = renderPane({
-      context: paneContext({ sessionStore } as Partial<TimelinePaneContext>),
+      context: paneContext({ sessionStore } as Partial<TranscriptPaneContext>),
     });
     expect(pane.textContent).toContain("Nothing has happened in this session yet.");
     expect(pane.querySelectorAll("[data-row-type]")).toHaveLength(0);

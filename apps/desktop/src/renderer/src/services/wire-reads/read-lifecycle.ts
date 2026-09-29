@@ -9,7 +9,7 @@
 // THE COUPLING IS THE WHOLE SUBJECT, so it lives in one class with one meaning:
 // `readRefusal` says the NEWEST read failed, never that a read has failed at some
 // point. A served read clears it in the same act that moves the phase, and
-// {@link readRefusalOf} derives what a surface renders from the phase rather than
+// {@link findReadRefusal} derives what a surface renders from the phase rather than
 // trusting the clear — two independent statements of one rule, so a later arm that
 // forgets the clear still renders honestly.
 //
@@ -24,12 +24,12 @@
 // and neither leaves a read reachable without the tail it depends on.
 //
 // WHAT THIS IS NOT. It is not the scheduler: when a re-read is asked for is
-// `store/read/refresh-scheduler.ts`'s, and which moments ask is `store/read/read-triggers.ts`'s. It
+// `lib/reads/refresh-scheduler.ts`'s, and which moments ask is `store/reads/read-triggers.ts`'s. It
 // holds no bridge, opens no stream, and publishes nothing — the reading that owns it
 // does all three, and calls one method here per outcome so that the outcome and the
 // state it leaves behind cannot be spelled two ways.
 
-import type { ConsoleRefusal } from "@renderer/lib/refusal.js";
+import type { Refusal } from "@renderer/lib/refusal.js";
 
 /** How a wire read has gone. Three answers, and none of them is an empty list. */
 export type WireReadPhase = "reading" | "read" | "refused";
@@ -49,7 +49,7 @@ export interface WireReadState {
    * answer is genuinely empty would otherwise look identical — and the one a person
    * needs to act on is the one that says nothing.
    */
-  readonly readRefusal: ConsoleRefusal | undefined;
+  readonly readRefusal: Refusal | undefined;
 }
 
 /**
@@ -63,7 +63,7 @@ export interface WireReadState {
  */
 export class WireReadLifecycle {
   #phase: WireReadPhase = "reading";
-  #readRefusal: ConsoleRefusal | undefined = undefined;
+  #readRefusal: Refusal | undefined = undefined;
   #streamState: WireStreamState = "closed";
 
   /** The pair a readout spreads. One object per composition, never held here. */
@@ -109,7 +109,7 @@ export class WireReadLifecycle {
   }
 
   /** A read refused. The tail is left exactly as it was; only the read failed. */
-  public refuseRead(refusal: ConsoleRefusal): void {
+  public refuseRead(refusal: Refusal): void {
     this.#settleRefused(refusal);
   }
 
@@ -121,7 +121,7 @@ export class WireReadLifecycle {
    * openable and its scheduler re-opens rather than reading behind a stream that is
    * not there.
    */
-  public refuseOpen(refusal: ConsoleRefusal): void {
+  public refuseOpen(refusal: Refusal): void {
     this.#streamState = "closed";
     this.#settleRefused(refusal);
   }
@@ -135,12 +135,12 @@ export class WireReadLifecycle {
    * a fresh refusal object on every trigger and re-render every watcher for a fact
    * that has not moved.
    */
-  public refuseOpenTerminally(refusal: ConsoleRefusal): void {
+  public refuseOpenTerminally(refusal: Refusal): void {
     this.#streamState = "unopenable";
     this.#settleRefused(refusal);
   }
 
-  #settleRefused(refusal: ConsoleRefusal): void {
+  #settleRefused(refusal: Refusal): void {
     this.#phase = "refused";
     this.#readRefusal = refusal;
   }
@@ -155,7 +155,7 @@ export class WireReadLifecycle {
  * here, and a reading whose newest read served answers `undefined` even if some later
  * arm forgets {@link WireReadLifecycle.settleRead}'s clear.
  */
-export function readRefusalOf(state: WireReadState): ConsoleRefusal | undefined {
+export function findReadRefusal(state: WireReadState): Refusal | undefined {
   return state.phase === "refused" ? state.readRefusal : undefined;
 }
 

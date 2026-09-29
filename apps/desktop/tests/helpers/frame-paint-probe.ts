@@ -21,7 +21,7 @@
 // sequence — two windows that were painting.
 //
 // The separation is structural first and a bigger number second. The harness
-// arms this witness only once the renderer has SIGNALLED readiness — the
+// arms this witness only once the renderer has SIGNALED readiness — the
 // document's `load` event and then the console's own frame element — which is
 // the shape the smoke test's boot fix settled for the same runner: wait for a
 // signal the application emits, never for a fixed interval. Everything before
@@ -108,7 +108,7 @@ export type FramePaintProbeOutcome = FramesPainted | FramesMissing;
 export const MEASURED_WORST_LOCAL_MS = 47;
 
 /**
- * Bounds the interval between a renderer signalling readiness and its second
+ * Bounds the interval between a renderer signaling readiness and its second
  * animation frame.
  *
  * A class rather than a function because the frame source is a seam: the

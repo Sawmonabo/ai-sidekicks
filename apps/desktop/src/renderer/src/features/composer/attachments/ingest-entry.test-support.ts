@@ -8,7 +8,7 @@
 // still possible from where the entry stands — the sending arm holds the user's
 // bytes and the settled arm has nowhere to put them — so a single factory could only
 // satisfy both by asserting past that split, which would let a case build an entry the
-// carrier can never publish. The split is taken STRUCTURALLY off the union rather than
+// staged list can never publish. The split is taken STRUCTURALLY off the union rather than
 // by naming the states again, so a state that changes arms changes these with it.
 
 import type { AttachmentIngestEntry } from "./attachment-shapes.js";

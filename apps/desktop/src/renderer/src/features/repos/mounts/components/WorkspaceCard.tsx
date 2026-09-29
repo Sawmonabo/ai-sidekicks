@@ -9,7 +9,7 @@
 //   • `lastError` IS PRESENT ONLY ON A `stale` ROW and renders inline on that row.
 //     It is the daemon's captured detail of a failed mode switch, so it is quoted
 //     rather than paraphrased.
-//   • "ROOT PENDING" WHILE `provisioning`. A row's `fsRoot` is absent until its
+//   • "ROOT PENDING" WHILE `preparing`. A row's `fsRoot` is absent until its
 //     execution root is prepared, and the honest word for a root that does not exist
 //     yet is not an empty cell.
 //
@@ -29,7 +29,7 @@ import type {
   WorkspaceState,
 } from "@ai-sidekicks/contracts";
 import { GLYPH_SIZE_ROW } from "@renderer/styles/glyphs.js";
-import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import {
   Chip,
   Glyph,
@@ -53,7 +53,7 @@ import type { RepoWorkspaceRow } from "../repo-mounts-model.js";
  * and `busy` is a run holding the workspace — a person's attention, not a failure.
  */
 const STATE_TONES: Readonly<Record<WorkspaceState, ChipTone>> = {
-  provisioning: "neutral",
+  preparing: "neutral",
   ready: "neutral",
   busy: "attention",
   stale: "failure",
@@ -66,7 +66,7 @@ export interface WorkspaceCardProps {
   /** The mode a switch on this workspace is waiting on the daemon for, where one is. */
   readonly pendingMode: ExecutionMode | undefined;
   /** The bridge the prepare act takes its clock from. */
-  readonly bridge: ConsoleBridge;
+  readonly bridge: PlatformBridge;
   /** The calls the prepare act makes. */
   readonly operations: PrepareOperations;
   /** Read the section again, because a prepare put a root on disk the list has not seen. */
@@ -103,7 +103,7 @@ export function WorkspaceCard(props: WorkspaceCardProps): React.JSX.Element {
       <p className="meridian-workspace-card__root">
         {workspace.fsRoot !== undefined ? (
           <WireFigure value={workspace.fsRoot} title={workspace.fsRoot} />
-        ) : workspace.state === "provisioning" ? (
+        ) : workspace.state === "preparing" ? (
           // Not an empty cell and not a guess: the root does not exist yet, and is
           // filled at provisioning completion on this same row's id.
           <Nothing kind="computing" title="Root pending" />

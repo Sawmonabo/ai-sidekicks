@@ -39,7 +39,7 @@ function mountFill(
   });
 }
 
-describe("resolveLedgerGapFill", () => {
+describe("resolveTranscriptGapFill", () => {
   it("asks for nothing where no rows are missing", () => {
     expect(
       resolveTranscriptGapFill({
@@ -89,7 +89,7 @@ describe("resolveLedgerGapFill", () => {
   });
 });
 
-describe("ledgerGapFillSubjectKey", () => {
+describe("buildGapFillSubjectKey", () => {
   it("is one key per hole, so one ask goes out per hole", () => {
     expect(buildGapFillSubjectKey(SESSION_ID, 7)).toBe(buildGapFillSubjectKey(SESSION_ID, 7));
     expect(buildGapFillSubjectKey(SESSION_ID, 7)).not.toBe(buildGapFillSubjectKey(SESSION_ID, 8));
@@ -99,7 +99,7 @@ describe("ledgerGapFillSubjectKey", () => {
   });
 });
 
-describe("useLedgerGapFill", () => {
+describe("useTranscriptGapFill", () => {
   it("puts no ask for a window with nothing missing", async () => {
     const asks: TimelineResubscribeRequest[] = [];
     const fill = mountFill(recordingCall(asks), {

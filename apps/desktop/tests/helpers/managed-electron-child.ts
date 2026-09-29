@@ -18,7 +18,7 @@
 // therefore wrong twice over, in opposite directions. RELEASING a resource on
 // it races descendants that still hold the resource — on Windows a live handle
 // inside a Chromium profile directory makes the removal fail outright and the
-// directory survives the run. SIGNALLING on it is worse: by `close` the pid has
+// directory survives the run. SIGNALING on it is worse: by `close` the pid has
 // been reaped and the number is the operating system's to hand out again, so a
 // kill addressed to it, or to the group it led, reaches whatever holds it now.
 //
@@ -73,7 +73,7 @@ export const DISPOSAL_ATTEMPTS = 3;
 export type ManagedChildProcess = ChildProcessByStdio<null, Readable, Readable>;
 
 /**
- * How a whole tree is signalled, and whether the signal landed.
+ * How a whole tree is signaled, and whether the signal landed.
  *
  * Injected because the case that matters is a tree that REFUSED the kill — a
  * `taskkill` that spawned and exited non-zero against a live Electron — and
@@ -98,7 +98,7 @@ export type ProcessTreeTerminator = (processId: number, signal: NodeJS.Signals) 
  *     outcome nobody armed a timer for.
  *
  * A second kill is a no-op. Once SIGKILL has been delivered there is nothing
- * left to ask, and re-signalling a reaped pid on POSIX addresses whatever has
+ * left to ask, and re-signaling a reaped pid on POSIX addresses whatever has
  * since been given that number.
  *
  * AND THE PID IS CAPTURED, NOT MERELY HELD. The same reissue that makes a second

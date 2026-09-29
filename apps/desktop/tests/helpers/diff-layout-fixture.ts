@@ -74,7 +74,7 @@ export class DiffLayoutFixture {
  *
  * Either scroller answers the viewport, a row of either list answers its own, and
  * everything else answers the zero happy-dom answers anyway — so nothing outside the
- * diff changes behaviour under an installed fixture.
+ * diff changes behavior under an installed fixture.
  *
  * BOTH LISTS, because the pane windows two: the rows, and the changed-file list
  * beside them. A fixture that knew only the first would leave every file-list case

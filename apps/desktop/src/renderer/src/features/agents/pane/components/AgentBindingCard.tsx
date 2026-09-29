@@ -32,7 +32,7 @@
 // axis of the binding.
 
 import { WireFigure, formatDateTime } from "@renderer/console/primitives/index.js";
-import { type AgentRosterEntry } from "@renderer/services/wire-shapes/agents.js";
+import { type AgentListEntry } from "@renderer/services/wire-shapes/agents.js";
 import { ResolvedConfiguration } from "./ResolvedConfiguration.js";
 import { BindingAxis } from "./BindingAxis.js";
 import { ObservedOutputSpeed } from "./ObservedOutputSpeed.js";
@@ -41,11 +41,11 @@ import { agentToolAllowlistPosition } from "../tool-allowlist.js";
 
 /** What one agent card shows. */
 export interface AgentBindingCardProps {
-  readonly agent: AgentRosterEntry;
+  readonly agent: AgentListEntry;
 }
 
 /** One agent: its identity, the binding it runs under, and the tool grant it holds. */
-export function AgentCard(props: AgentBindingCardProps): React.JSX.Element {
+export function AgentBindingCard(props: AgentBindingCardProps): React.JSX.Element {
   const { agent } = props;
   const label = agent.name ?? agent.agentId;
   const toolGrant = agentToolAllowlistPosition(agent);

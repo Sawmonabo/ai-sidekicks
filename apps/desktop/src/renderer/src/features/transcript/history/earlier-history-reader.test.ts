@@ -123,7 +123,7 @@ function heldRead(): {
 
 function openStore(options: { readonly readFromCursor?: string } = {}): SessionStore {
   const store = new SessionStore({ sessionId: SESSION_ID });
-  store.initialise({
+  store.initialize({
     cursor: 41,
     entities: [],
     timeline: [40, 41].map((sequence) => eventOfKind(SESSION_ID, "run.started", sequence)),
@@ -136,7 +136,7 @@ function sequencesOf(store: SessionStore): readonly number[] {
   return store.snapshot().timeline.map((event) => event.sequence);
 }
 
-describe("LedgerEarlierWindowReader — three windows, two presses, and then nothing left", () => {
+describe("EarlierHistoryReader — three windows, two presses, and then nothing left", () => {
   it("walks back a page at a time and retires itself on the producer's verdict", async () => {
     const { read } = immediateRead();
     const store = openStore({ readFromCursor: WINDOW_HEAD_CURSOR });
@@ -219,7 +219,7 @@ describe("LedgerEarlierWindowReader — three windows, two presses, and then not
     // position it answered at. The cursor is ahead of the store's, because a read
     // behind it is refused as stale and would leave the log, and this walk's place in
     // it, exactly as they were.
-    store.initialise({
+    store.initialize({
       cursor: 45,
       entities: [],
       timeline: [44, 45].map((sequence) => eventOfKind(SESSION_ID, "run.started", sequence)),
@@ -234,7 +234,7 @@ describe("LedgerEarlierWindowReader — three windows, two presses, and then not
 
 /** The refresh a live session performs: a later completed read re-opens the window. */
 function refreshWindowHigherUp(store: SessionStore): void {
-  store.initialise({
+  store.initialize({
     cursor: 61,
     entities: [],
     timeline: [60, 61].map((sequence) => eventOfKind(SESSION_ID, "run.started", sequence)),
@@ -242,7 +242,7 @@ function refreshWindowHigherUp(store: SessionStore): void {
   });
 }
 
-describe("LedgerEarlierWindowReader — a refresh lands while a page is in flight", () => {
+describe("EarlierHistoryReader — a refresh lands while a page is in flight", () => {
   it("discards the page and fills the interval from the head the refresh established", async () => {
     const held = heldRead();
     const store = openStore({ readFromCursor: WINDOW_HEAD_CURSOR });
@@ -295,7 +295,7 @@ describe("LedgerEarlierWindowReader — a refresh lands while a page is in fligh
   });
 });
 
-describe("LedgerEarlierWindowReader — the pane leaves while a page is in flight", () => {
+describe("EarlierHistoryReader — the pane leaves while a page is in flight", () => {
   it("stops the read and installs neither the page nor a refusal", async () => {
     // WHAT THE ABANDONMENT HAS TO BUY, stated as both halves. The page must not land —
     // it belongs to a walk nobody is offering a control for — and the door's own

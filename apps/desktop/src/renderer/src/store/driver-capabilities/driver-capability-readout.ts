@@ -10,7 +10,7 @@
 
 import type { DriverCapabilityFlag } from "@ai-sidekicks/contracts";
 
-import type { ConsoleRefusal } from "@renderer/lib/refusal.js";
+import type { Refusal } from "@renderer/lib/refusal.js";
 
 /** One driver's declared flags, exactly as its own report carried them. */
 export type DeclaredDriverFlags = Readonly<Record<DriverCapabilityFlag, boolean>>;
@@ -44,5 +44,5 @@ export interface DriverCapabilityReadout {
    * controls this readout gates renders it, so a control that is missing because
    * nobody could ask says so rather than looking like a control nothing declares.
    */
-  readonly readRefusal: ConsoleRefusal | undefined;
+  readonly readRefusal: Refusal | undefined;
 }

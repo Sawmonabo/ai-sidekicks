@@ -1,8 +1,8 @@
-// WorkspaceEventEmitter behaviour.
+// WorkspaceEventEmitter behavior.
 //
 // Exercises the single seam every repo-mount / workspace state transition
 // appends its `session_lifecycle` event through, over a real test SQLite DB
-// (same lifecycle as the neighbouring emitter suite: `openDatabase` factory →
+// (same lifecycle as the neighboring emitter suite: `openDatabase` factory →
 // per-test tmp file → `afterEach` close + unlink), with the `EventLogService`
 // as the durable append path. A structural block at the bottom drives the
 // same emitter through a plain-object log to pin the parts of the seam
@@ -99,7 +99,7 @@ const DAEMON_SIGNATURE_LEN: number = 64;
 const LIFECYCLE_EVENT_TYPES: readonly SessionEventType[] = [
   "repo.attached",
   "repo.detached",
-  "workspace.provisioning",
+  "workspace.preparing",
   "workspace.ready",
   "workspace.stale",
   "workspace.archived",
@@ -329,16 +329,16 @@ describe("WorkspaceEventEmitter — per-event emission", () => {
     });
   });
 
-  it("emitWorkspacePreparing appends one workspace.provisioning row in state provisioning", async () => {
+  it("emitWorkspacePreparing appends one workspace.preparing row in state provisioning", async () => {
     await makeEmitter().emitWorkspacePreparing({
       sessionId: SESSION_ID,
       workspaceId: WORKSPACE_ID,
     });
 
-    expectPersistedPayload(readSingleRow("workspace.provisioning"), {
+    expectPersistedPayload(readSingleRow("workspace.preparing"), {
       sessionId: SESSION_ID,
       workspaceId: WORKSPACE_ID,
-      state: "provisioning",
+      state: "preparing",
       // A system-driven transition: absent input actor narrows to null, the
       // wire form for "no user or agent did this".
       actor: null,

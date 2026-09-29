@@ -33,7 +33,7 @@ import "./attach.css";
 
 import { AlertDialog } from "@base-ui/react/alert-dialog";
 import { useCallback, useEffect, useRef } from "react";
-import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import {
   Nothing,
   OverlayAlertDialogPopup,
@@ -45,7 +45,7 @@ import { type AttachRequestReading } from "./attach-controller.js";
 import { useAttachController } from "./hooks/useAttachController.js";
 
 export interface ReattachControlProps {
-  readonly bridge: ConsoleBridge;
+  readonly bridge: PlatformBridge;
   /** The attach the confirmation sends. */
   readonly operations: Pick<RepoOperations, "attachRepository">;
   /** The session whose section this card is drawn in. */
@@ -68,7 +68,7 @@ export function ReattachControl(props: ReattachControlProps): React.JSX.Element 
     attach(localPath);
   }, [attach, localPath]);
   // The settlement belongs to the press that produced it. A dialog reopened asks the
-  // question again, a dialog cancelled discards the answer with it, and the confirm
+  // question again, a dialog canceled discards the answer with it, and the confirm
   // press — which closes this dialog — discards nothing.
   const lifecycle = useConfirmationLifecycle(clearAct);
 
@@ -116,7 +116,7 @@ export function ReattachControl(props: ReattachControlProps): React.JSX.Element 
             </dd>
           </dl>
           <div className="meridian-reattach__acts">
-            <AlertDialog.Close className="meridian-reattach__cancel" onClick={lifecycle.cancelled}>
+            <AlertDialog.Close className="meridian-reattach__cancel" onClick={lifecycle.canceled}>
               Leave it as it is
             </AlertDialog.Close>
             <AlertDialog.Close className="meridian-reattach__confirm" onClick={confirm}>

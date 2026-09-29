@@ -3,7 +3,7 @@
 //
 // EVERY VERDICT HERE IS THE KEYBINDING SERVICE'S OWN
 //
-// Conflicts come from `KeyBindingTable.conflictsIn`, which that module documents as
+// Conflicts come from `KeybindingTable.conflictsIn`, which that module documents as
 // a pre-flight check for exactly this: asking by catching the throw from
 // `setBindings` would mean the table had already been half-replaced. Whether a
 // binding is well formed at all comes from the same service, by offering each
@@ -27,9 +27,9 @@
 // sees them, so a binding on one installs but never fires.
 
 import { CommandRegistry } from "../commands/command-registry.js";
-import { type KeyBinding } from "../commands/command-types.js";
+import { type Keybinding } from "../commands/command-types.js";
 import { type KeybindingConflict } from "./keybinding-conflicts.js";
-import { KeyBindingTable } from "./keybinding-table.js";
+import { KeybindingTable } from "./keybinding-table.js";
 import { HOST_CHORD_PLATFORM, type ChordPlatform } from "@renderer/console/primitives/index.js";
 
 /** One chord the host consumes before this application can see it. */
@@ -103,8 +103,8 @@ export function reservedChordReason(
  * diagnostics. The probe table is never installed against a target, so nothing
  * listens and no keystroke reaches it.
  */
-export function auditKeybindings(bindings: readonly KeyBinding[]): KeybindingAudit {
-  const probeTable = new KeyBindingTable({
+export function auditKeybindings(bindings: readonly Keybinding[]): KeybindingAudit {
+  const probeTable = new KeybindingTable({
     // A fresh empty registry rather than the window's: a validation must not be
     // able to reach the commands whose bindings it is checking.
     registry: new CommandRegistry(),
@@ -122,5 +122,5 @@ export function auditKeybindings(bindings: readonly KeyBinding[]): KeybindingAud
       });
     }
   }
-  return { conflicts: KeyBindingTable.conflictsIn(bindings), dropped };
+  return { conflicts: KeybindingTable.conflictsIn(bindings), dropped };
 }

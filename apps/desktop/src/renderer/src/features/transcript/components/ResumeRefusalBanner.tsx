@@ -1,4 +1,4 @@
-// The one thing a session's own surface says about its resume cycle: that the
+// The one thing a session's own screen says about its resume cycle: that the
 // position it remembered was refused, and the log was re-read from the start instead.
 //
 // WHY THIS EXISTS AT ALL. `store/session/timeline-resume.ts` decides where a session's next
@@ -11,7 +11,7 @@
 //
 // WHY A BANNER AND NOT AN ABSENCE. This position used to hold a `Nothing` in its
 // `not-checked` kind, for a refusal that fired on every read from every responder —
-// a permanent band above every workspace reporting a version skew nothing was skewed
+// a permanent band above every session screen reporting a version skew nothing was skewed
 // by. That refusal is gone (`timeline-resume.ts` says why), and what is left is a real
 // answer to a real request: the daemon refused something the console sent. So it takes
 // the refusal grammar's BANNER, whose own rule is the fit — what the whole room can do
@@ -25,14 +25,14 @@
 //
 // WHY IT IS NOT A BLANK SURFACE. The store still projects and the subscription still
 // replays and tails; what was lost is a remembered position. So this renders ABOVE the
-// workspace body and never in place of it — a surface that replaced the room would
+// session screen body and never in place of it — a screen that replaced the room would
 // report an outage the daemon is not having.
 //
-// WHY THE LEDGER FAMILY OWNS IT. This family's surface is what mounts a session's
-// workspace, so it is the one place holding the registry and the route's session id
-// together. The workspace body is deliberately handed everything BUT the registry
+// WHY THE TRANSCRIPT FAMILY OWNS IT. This family's screen is what mounts a session's
+// session screen, so it is the one place holding the registry and the route's session id
+// together. The session screen body is deliberately handed everything BUT the registry
 // (`index.ts` says why), and reversing that to carry one reading down would hand a
-// surface that renders one session the set of all of them.
+// screen that renders one session the set of all of them.
 
 import { RefusalBanner } from "@renderer/console/primitives/index.js";
 import { useTimelineResume } from "@renderer/store/session/hooks/useSessionInitialized.js";

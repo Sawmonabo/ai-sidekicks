@@ -578,7 +578,7 @@ export interface RunStateChangeEvent {
     | "turn_limit"
     | "budget_exhausted"
     | "idle_timeout"
-    | "workflow_phase_cancelled"
+    | "workflow_phase_canceled"
     | undefined;
   parentRunId?: RunId | undefined;
   internalHelper?: boolean | undefined;
@@ -607,7 +607,7 @@ export const RunStateChangeEventSchema: z.ZodType<RunStateChangeEvent> = z
     intendedClose: z.literal(true).optional(),
     executionPosture: executionPostureSchema.optional(),
     trigger: z
-      .enum(["turn_limit", "budget_exhausted", "idle_timeout", "workflow_phase_cancelled"])
+      .enum(["turn_limit", "budget_exhausted", "idle_timeout", "workflow_phase_canceled"])
       .optional(),
     parentRunId: RunIdSchema.optional(),
     internalHelper: z.boolean().optional(),

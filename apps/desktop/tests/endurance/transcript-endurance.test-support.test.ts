@@ -17,7 +17,7 @@ import { describe, expect, it } from "vitest";
 import { createTranscriptEnduranceFixture } from "./transcript-endurance.test-support.js";
 import { findScenarioContractDefects } from "../helpers/scenario-contract-check/contract-check.js";
 
-/** The count the endurance tier measures the ledger at. */
+/** The count the endurance tier measures the transcript at. */
 const TEN_THOUSAND_ROWS = 10_000;
 
 /** Small enough to parse every beat through the strict layer in one case. */
@@ -30,10 +30,10 @@ describe("createTranscriptEnduranceFixture", () => {
     );
   });
 
-  it("plays exactly the row count for an odd count no chapter divides evenly", () => {
+  it("plays exactly the row count for an odd count no run group divides evenly", () => {
     // The negative control for the case above: an exact count that only holds when
     // the budget divides cleanly is not an exact count. 9,997 leaves a remainder the
-    // last chapter has to absorb.
+    // last run group has to absorb.
     expect(createTranscriptEnduranceFixture({ rowCount: 9_997 }).beats).toHaveLength(9_997);
   });
 
@@ -69,7 +69,7 @@ describe("createTranscriptEnduranceFixture", () => {
     }
   });
 
-  it("spreads the rows across chapters, each of which closes", () => {
+  it("spreads the rows across run groups, each of which closes", () => {
     const runCount = 12;
     const { beats } = createTranscriptEnduranceFixture({ rowCount: 2_000, runCount });
     const openedRuns = new Set(
@@ -80,16 +80,16 @@ describe("createTranscriptEnduranceFixture", () => {
     expect(closedRuns).toHaveLength(runCount);
   });
 
-  it("refuses a row count too small to give every chapter a body", () => {
+  it("refuses a row count too small to give every run group a body", () => {
     expect(() => createTranscriptEnduranceFixture({ rowCount: 20, runCount: 12 })).toThrow(
       RangeError,
     );
   });
 
   it("accepts the smallest row count that does fit", () => {
-    // The negative control for the refusal above: 4 opening beats, plus 12 chapters
+    // The negative control for the refusal above: 4 opening beats, plus 12 run groups
     // of 4 lifecycle beats, plus one body row for each of those 12, is 64 — and one
-    // row fewer leaves a chapter with no body at all.
+    // row fewer leaves a run group with no body at all.
     expect(() => createTranscriptEnduranceFixture({ rowCount: 64, runCount: 12 })).not.toThrow();
     expect(() => createTranscriptEnduranceFixture({ rowCount: 63, runCount: 12 })).toThrow(
       RangeError,

@@ -1,6 +1,6 @@
 // Mounting the composed window, once, for every suite that drives it.
 //
-// The `ConsoleRoot` suites each drive the REAL composition root against the
+// The `AppProviders` suites each drive the REAL composition root against the
 // fixture bridge the `console-unit` project compiles in, so the mount is the one
 // piece of scaffolding all of them share — and a second copy of it would be a
 // second answer to "when has the console settled", which is exactly the question
@@ -9,9 +9,9 @@
 import { act, render, type RenderResult } from "@testing-library/react";
 
 import { createFixtureComposition } from "@renderer/app/fixture-composition.js";
-import { ConsoleRoot } from "@renderer/app/providers.js";
-import { LEDGER_SCENARIO_ID } from "../../fixtures/scenarios/transcript-states.js";
-import { consoleSurfaceRegistry } from "@renderer/console/seats/index.js";
+import { AppProviders } from "@renderer/app/providers.js";
+import { TRANSCRIPT_STATES_SCENARIO_ID } from "../../fixtures/scenarios/transcript-states.js";
+import { screenRegistry } from "@renderer/console/seats/index.js";
 import { crossMacrotaskBoundary } from "./macrotask-boundary.js";
 
 /** Where a window with no particular address lands. */
@@ -23,16 +23,18 @@ export const SESSIONS_HASH = "#/sessions";
  * One named scenario for every suite that mounts the whole window, and the busy transcript
  * because a window with rows exercises what these suites drive.
  *
- * `ConsoleRoot` starts the persistence open on mount and swaps the durable adapter
+ * `AppProviders` starts the persistence open on mount and swaps the durable adapter
  * in when it settles, so a test that asserted straight after `render` would assert
  * against a half-settled tree and leave a state update landing outside `act`. Two
  * flushes rather than one: the open resolves a promise whose continuation schedules
  * another.
  */
-export async function mountConsole(): Promise<RenderResult> {
+export async function mountApp(): Promise<RenderResult> {
   let mounted: RenderResult | undefined;
   await act(async () => {
-    mounted = render(<ConsoleRoot composition={createFixtureComposition(LEDGER_SCENARIO_ID)} />);
+    mounted = render(
+      <AppProviders composition={createFixtureComposition(TRANSCRIPT_STATES_SCENARIO_ID)} />,
+    );
     await crossMacrotaskBoundary();
   });
   if (mounted === undefined) {
@@ -42,7 +44,7 @@ export async function mountConsole(): Promise<RenderResult> {
 }
 
 /**
- * Let every registered SURFACE body finish arriving.
+ * Let every registered SCREEN body finish arriving.
  *
  * THE ONE ANSWER TO "HAS THE DESTINATION LANDED", for every suite that drives the
  * composed window. A family's destination is a dynamic import behind the surface board,
@@ -54,9 +56,9 @@ export async function mountConsole(): Promise<RenderResult> {
  * surface renders and never about timing.
  *
  * THE PANE BOARD IS DELIBERATELY NOT WALKED HERE. A surface is what a rail destination
- * mounts, and that is what these suites drive; the pane board holds every kind a deck
+ * mounts, and that is what these suites drive; the pane board holds every kind a pane layout
  * can seat, including ones whose modules stand up an emulator or a hosted view, and
- * loading all of them at every `ConsoleRoot` mount stands up machinery no case asked
+ * loading all of them at every `AppProviders` mount stands up machinery no case asked
  * for. The pane side has its own answer next door — `app-harness.ts`
  * preloads the pane board inside `renderSettled`, where a case is actually seating one.
  *
@@ -71,7 +73,7 @@ export async function mountConsole(): Promise<RenderResult> {
  * for a body in flight, so walking the registered slots is idempotent and is the wait.
  *
  * CALLED WHERE A CASE REACHES A LOADER-BACKED DESTINATION, and deliberately not from
- * {@link mountConsole} itself. A window opens on the sessions route, whose surface is
+ * {@link mountApp} itself. A window opens on the sessions route, whose surface is
  * registered in component form, so a blanket walk at every mount would compile and
  * evaluate every other family's chunk to settle a body no case is about to read — cost
  * paid fifteen times over for the one navigation that needs it. The call belongs at the
@@ -79,9 +81,7 @@ export async function mountConsole(): Promise<RenderResult> {
  */
 export async function settleRegisteredBodies(): Promise<void> {
   await act(async () => {
-    await Promise.all(
-      consoleSurfaceRegistry.registeredSlots().map((slot) => consoleSurfaceRegistry.preload(slot)),
-    );
+    await Promise.all(screenRegistry.registeredSlots().map((slot) => screenRegistry.preload(slot)));
     await crossMacrotaskBoundary();
   });
 }

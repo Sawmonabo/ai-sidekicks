@@ -244,7 +244,7 @@ const PATHOLOGICAL_LINE_TOKEN_COUNT = 1_200;
  * between — 1.6 ms for this patch on a 2026-09-02 developer machine, against 831 ms
  * for the same patch when parsing segmented every pair. Two orders of magnitude of
  * headroom over the first and well under the second, so it fails on a regression to
- * the old behaviour and never on a loaded runner.
+ * the old behavior and never on a loaded runner.
  */
 const PATHOLOGICAL_PARSE_BUDGET_MS = 200;
 

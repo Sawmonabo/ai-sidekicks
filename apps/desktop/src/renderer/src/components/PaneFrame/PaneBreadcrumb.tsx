@@ -25,20 +25,20 @@
 // separates two names cannot be read out as a name.
 
 import { Glyph, WireFigure } from "@renderer/console/primitives/index.js";
-import { type ConsoleEntityRef } from "@renderer/lib/entity-kinds.js";
+import { type EntityRef } from "@renderer/lib/entity-kinds.js";
 import { GLYPH_SIZE_CHROME } from "@renderer/styles/glyphs.js";
 
 /**
  * Where a pane is, as far as its address reaches.
  *
- * Every member is REQUIRED and may be `undefined`, on `ConsolePaneContext`'s
- * precedent: an optional member reads identically whether the deck decided the pane is
+ * Every member is REQUIRED and may be `undefined`, on `PaneContext`'s
+ * precedent: an optional member reads identically whether the pane layout decided the pane is
  * scoped to no run or forgot to resolve one, and only one of those is an answer.
  */
 export interface PaneScopeAddress {
   readonly sessionId: string | undefined;
   readonly runId: string | undefined;
-  readonly entity: ConsoleEntityRef | undefined;
+  readonly entity: EntityRef | undefined;
 }
 
 /**
@@ -62,7 +62,7 @@ export interface PaneScopeCrumb {
  * The identifiers are wire-verbatim — they are strings, so they are rendered as
  * received. An entity contributes its `id` and not its `kind`: the kind is already
  * said by the pane's own glyph and title, and repeating it in the trail would make
- * `agent agent-01` the crumb for a pane that says "Agent console" two elements away.
+ * `agent agent-01` the crumb for a pane that says "Sidekicks" two elements away.
  *
  * EACH CRUMB CARRIES ITS SCOPE because the identifier alone cannot key it. Two scopes
  * of one address may hold the same string — a run whose id is its session's is the
@@ -92,7 +92,7 @@ export interface PaneBreadcrumbProps extends PaneScopeAddress {
    * The id the pane's `<section>` points its `aria-labelledby` at.
    *
    * It lands on the crumb LIST rather than on the last crumb, because the pane's name
-   * is the whole trail: two `runs` panes in one deck are told apart by the session and
+   * is the whole trail: two `runs` panes in one pane layout are told apart by the session and
    * the run they are scoped to, and a name of "Runs" twice over tells a reader
    * navigating regions nothing at all.
    */

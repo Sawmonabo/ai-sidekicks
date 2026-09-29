@@ -28,20 +28,20 @@ describe("railDestinationFor — which rail icon is current", () => {
     expect(railDestinationFor({ kind: "settings", page: undefined })).toBe("settings");
   });
 
-  it("keeps a session workspace under the sessions destination", () => {
-    // The workspace is reached FROM the sessions destination, so the rail
+  it("keeps a session screen under the sessions destination", () => {
+    // The session screen is reached FROM the sessions destination, so the rail
     // highlights that one while a person is inside a session. The alternative —
-    // a `workspace` destination of its own — names an icon the rail does not
+    // a `session` destination of its own — names an icon the rail does not
     // render, which reads as the highlight going out on the busiest surface in
     // the console.
-    expect(railDestinationFor({ kind: "workspace", sessionId: "session-1" })).toBe("sessions");
+    expect(railDestinationFor({ kind: "session", sessionId: "session-1" })).toBe("sessions");
   });
 
-  it("negative control: the workspace is not itself a rail destination", () => {
+  it("negative control: the session screen is not itself a rail destination", () => {
     // Without this, the case above would pass over a `RAIL_DESTINATIONS` that
-    // still carried `workspace` beside the mapping, which is the exact state this
+    // still carried `session` beside the mapping, which is the exact state this
     // pair was in: three destinations declared, and the spec's second one absent.
-    expect([...RAIL_DESTINATIONS]).not.toContain("workspace");
+    expect([...RAIL_DESTINATIONS]).not.toContain("session");
     expect([...RAIL_DESTINATIONS]).toStrictEqual(["sessions", "workflows", "settings"]);
   });
 
@@ -71,8 +71,8 @@ describe("routesAreEqual — an unchanged hash costs no transition", () => {
   it("distinguishes routes that differ only in one field", () => {
     expect(
       routesAreEqual(
-        { kind: "workspace", sessionId: "session-1" },
-        { kind: "workspace", sessionId: "session-2" },
+        { kind: "session", sessionId: "session-1" },
+        { kind: "session", sessionId: "session-2" },
       ),
     ).toBe(false);
     expect(
@@ -81,13 +81,13 @@ describe("routesAreEqual — an unchanged hash costs no transition", () => {
         { kind: "settings", page: "providers" },
       ),
     ).toBe(false);
-    // The workspace arm's optional focus, in both directions: a bare address and a
+    // The session screen arm's optional focus, in both directions: a bare address and a
     // focused one are two places, and two focuses on different phases are two more.
     expect(
       routesAreEqual(
-        { kind: "workspace", sessionId: "session-1" },
+        { kind: "session", sessionId: "session-1" },
         {
-          kind: "workspace",
+          kind: "session",
           sessionId: "session-1",
           workflowPhase: { workflowRunId: "run-1", phaseId: "review" },
         },
@@ -96,12 +96,12 @@ describe("routesAreEqual — an unchanged hash costs no transition", () => {
     expect(
       routesAreEqual(
         {
-          kind: "workspace",
+          kind: "session",
           sessionId: "session-1",
           workflowPhase: { workflowRunId: "run-1", phaseId: "review" },
         },
         {
-          kind: "workspace",
+          kind: "session",
           sessionId: "session-1",
           workflowPhase: { workflowRunId: "run-1", phaseId: "approve" },
         },
@@ -110,12 +110,12 @@ describe("routesAreEqual — an unchanged hash costs no transition", () => {
     expect(
       routesAreEqual(
         {
-          kind: "workspace",
+          kind: "session",
           sessionId: "session-1",
           workflowPhase: { workflowRunId: "run-1", phaseId: "review" },
         },
         {
-          kind: "workspace",
+          kind: "session",
           sessionId: "session-1",
           workflowPhase: { workflowRunId: "run-2", phaseId: "review" },
         },
@@ -175,15 +175,15 @@ describe("routeWorkflowPhase — the phase a deep link named", () => {
     // let a caller pair this route's phase with some other route's run.
     expect(
       routeWorkflowPhase({
-        kind: "workspace",
+        kind: "session",
         sessionId: "session-1",
         workflowPhase: { workflowRunId: "run-1", phaseId: "phase-1" },
       }),
     ).toStrictEqual({ workflowRunId: "run-1", phaseId: "phase-1" });
   });
 
-  it("names nothing for a bare workspace address, which carries no focus", () => {
-    expect(routeWorkflowPhase({ kind: "workspace", sessionId: "session-1" })).toBeUndefined();
+  it("names nothing for a bare session screen address, which carries no focus", () => {
+    expect(routeWorkflowPhase({ kind: "session", sessionId: "session-1" })).toBeUndefined();
   });
 
   it("negative control: it names nothing for a route of another kind", () => {
@@ -191,7 +191,7 @@ describe("routeWorkflowPhase — the phase a deep link named", () => {
     // cases above and hand the run pane a focus that came from somewhere else — the
     // same defect `settingsSelection` guards against, and the reason this reader exists
     // rather than every consumer reaching into the arm itself.
-    for (const route of MAIN_WINDOW_ROUTES.filter((each) => each.kind !== "workspace")) {
+    for (const route of MAIN_WINDOW_ROUTES.filter((each) => each.kind !== "session")) {
       expect(routeWorkflowPhase(route), route.kind).toBeUndefined();
     }
   });

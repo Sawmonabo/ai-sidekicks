@@ -322,8 +322,8 @@ CREATE TABLE workspaces (
   execution_mode  TEXT NOT NULL
                   CHECK(execution_mode IN ('bound-root', 'provisioned-worktree')),
   fs_root         TEXT,                         -- NULL while the root is provisioning
-  state           TEXT NOT NULL DEFAULT 'provisioning'
-                  CHECK(state IN ('provisioning', 'ready', 'busy', 'stale', 'archived')),
+  state           TEXT NOT NULL DEFAULT 'preparing'
+                  CHECK(state IN ('preparing', 'ready', 'busy', 'stale', 'archived')),
   metadata        TEXT NOT NULL DEFAULT '{}',   -- JSON; lastError after a failed mode switch
   created_at      TEXT NOT NULL,
   updated_at      TEXT NOT NULL

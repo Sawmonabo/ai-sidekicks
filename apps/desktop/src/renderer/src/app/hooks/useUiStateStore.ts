@@ -42,12 +42,12 @@
 //     open's timeout on the same one, and both defaulted to the wall clock — so
 //     under the fixture a record written between two scenario beats carried a
 //     timestamp from outside the scenario, and the LRU trim that orders entirely
-//     on those stamps ordered on how fast the host was. `consoleClockFor` is the
+//     on those stamps ordered on how fast the host was. `resolveBridgeClock` is the
 //     one answer to which clock a window runs on; `app/hooks/useSessionStoreRegistry.ts` asks it
 //     the same question for the session registry.
-import { consoleClockFor } from "@renderer/services/platform/hooks/useClock.js";
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
-import { useConsoleBridge } from "@renderer/services/platform/hooks/usePlatformBridge.js";
+import { resolveBridgeClock } from "@renderer/services/platform/hooks/useClock.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
+import { usePlatformBridge } from "@renderer/services/platform/hooks/usePlatformBridge.js";
 import { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
 import { useSubjectScopedResource } from "@renderer/hooks/subject-scoped/useSubjectScopedResource.js";
 import { type SubjectScopedDisposal } from "@renderer/lib/subject-scoped/subject-scoped-disposal.js";
@@ -67,7 +67,7 @@ import { type SubjectScopedDisposal } from "@renderer/lib/subject-scoped/subject
  * through.
  */
 export function useUiStateStore(): UiStateStore {
-  const bridge = useConsoleBridge();
+  const bridge = usePlatformBridge();
   const { value: uiStateStore } = useSubjectScopedResource<UiStateStore>(
     bridge,
     undefined,
@@ -77,8 +77,8 @@ export function useUiStateStore(): UiStateStore {
   return uiStateStore;
 }
 
-function openUiStateStore(bridge: ConsoleBridge): UiStateStore {
-  return UiStateStore.opening({ clock: consoleClockFor(bridge) });
+function openUiStateStore(bridge: PlatformBridge): UiStateStore {
+  return UiStateStore.opening({ clock: resolveBridgeClock(bridge) });
 }
 
 /**
@@ -86,7 +86,7 @@ function openUiStateStore(bridge: ConsoleBridge): UiStateStore {
  *
  * Fired without awaiting: `close` awaits the open it may still be racing, and neither
  * a cleanup nor a render can await. The store declares no failure —
- * `openConsoleDatabase` never rejects and neither adapter's `close` throws — so a
+ * `openUiStateDatabase` never rejects and neither adapter's `close` throws — so a
  * rejection escaping here would be a defect, and an unhandled one is how it gets
  * found.
  *

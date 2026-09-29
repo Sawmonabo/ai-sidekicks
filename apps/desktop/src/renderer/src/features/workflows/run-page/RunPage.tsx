@@ -1,10 +1,10 @@
 // The run pane's body: the address checks and the three bodies that stand inside the
 // pane's frame.
 //
-// `seats/ConsolePaneChrome` draws the section, its accessible name, the breadcrumb and the
+// `seats/PaneFrame` draws the section, its accessible name, the breadcrumb and the
 // actor's hue for every pane kind; this file returns only the body that goes inside it.
 // The frame is worn on every arm, so a pane that refused its address can still be closed.
-// Neither host control (close, tear off) is defaulted here: they are the deck's acts and
+// Neither host control (close, tear off) is defaulted here: they are the pane layout's acts and
 // reach the chrome through the host context, so no handler is threaded on any arm.
 //
 // The bodies:
@@ -18,7 +18,7 @@
 // The chrome's trail is told the run only where the address names one, so a pane that
 // refused a definition id does not announce itself as scoped to it.
 //
-// The address is checked before it is used, although `ConsolePaneAddress` makes another
+// The address is checked before it is used, although `PaneAddress` makes another
 // kind unconstructible: a pane address is also parsed out of a persisted layout and out of
 // a route, and a parsed value is data rather than a proof. The builder pane holds the same
 // guard, and both refuse through `workflows/pane/pane-addressing.ts`.
@@ -27,14 +27,14 @@ import { Nothing } from "@renderer/console/primitives/index.js";
 import { ChatStartMountPoint } from "./components/ChatStartMountPoint.js";
 import { WorkflowStateStrip } from "../components/WorkflowStateStrip.js";
 import { refusedWorkflowStrip } from "../strip-state.js";
-import { ConsolePaneChrome, type PaneContextOf } from "@renderer/console/seats/index.js";
-import type { ConsoleEntityRef } from "@renderer/lib/entity-kinds.js";
+import { PaneFrame, type PaneContextOf } from "@renderer/console/seats/index.js";
+import type { EntityRef } from "@renderer/lib/entity-kinds.js";
 import { WORKFLOW_RUN_PANE_SUBJECT_KIND, misaddressedRunPane } from "./run-addressing.js";
 
 /** What this pane is for, in the one line that stands under its head. */
 const SUMMARY = "One run's state, its phases, and why anything is parked.";
 
-/** The context the deck resolved for a `workflow-run` pane. */
+/** The context the pane layout resolved for a `workflow-run` pane. */
 export interface RunPageProps {
   readonly context: PaneContextOf<"workflow-run">;
 }
@@ -46,7 +46,7 @@ export function RunPage(props: RunPageProps): React.JSX.Element {
   // `paneBodyForKind` narrows a context on its `kind` alone and a pane address is also
   // parsed from a persisted layout and a route. The annotation keeps the compiler from
   // calling the guards below dead.
-  const entity: ConsoleEntityRef | undefined = props.context.entity;
+  const entity: EntityRef | undefined = props.context.entity;
   // The id is taken from the address only where the address names a run.
   const addressedRunId = entity?.kind === WORKFLOW_RUN_PANE_SUBJECT_KIND ? entity.id : undefined;
 
@@ -64,7 +64,7 @@ export function RunPage(props: RunPageProps): React.JSX.Element {
 
     if (entity.kind !== WORKFLOW_RUN_PANE_SUBJECT_KIND) {
       // The strip's `refused` arm renders the refusal and not the children, so no
-      // control, slot or start affordance stands beside an address this pane will not open.
+      // control, mount point or start affordance stands beside an address this pane will not open.
       return (
         <WorkflowStateStrip
           summary={SUMMARY}
@@ -77,7 +77,7 @@ export function RunPage(props: RunPageProps): React.JSX.Element {
   }
 
   return (
-    <ConsolePaneChrome
+    <PaneFrame
       kind="workflow-run"
       sessionId={sessionStore?.sessionId}
       // Only a run the address names: a definition id is refused above, and a head scoped
@@ -88,6 +88,6 @@ export function RunPage(props: RunPageProps): React.JSX.Element {
       focusHue={focusHue}
     >
       {renderBody()}
-    </ConsolePaneChrome>
+    </PaneFrame>
   );
 }

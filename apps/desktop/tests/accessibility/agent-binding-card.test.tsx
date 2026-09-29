@@ -24,11 +24,11 @@ import {
 
 import "@renderer/features/agents/index.js";
 import { installMeridianTokens } from "@renderer/app/token-installation.js";
-import { AgentCard } from "@renderer/features/agents/pane/components/AgentBindingCard.js";
-import type { AgentRosterEntry } from "@renderer/services/wire-shapes/agents.js";
+import { AgentBindingCard } from "@renderer/features/agents/pane/components/AgentBindingCard.js";
+import type { AgentListEntry } from "@renderer/services/wire-shapes/agents.js";
 
 /** An agent whose echo fills every row the card can draw, including the tail. */
-const AGENT_WITH_FULL_ECHO: AgentRosterEntry = {
+const AGENT_WITH_FULL_ECHO: AgentListEntry = {
   agentId: "agent-scout",
   name: "Scout",
   driverName: "claude",
@@ -53,7 +53,7 @@ function openEveryDisclosure(container: HTMLElement): void {
 describe("accessibility — the agent card", () => {
   it("has no axe violation with a resolved configuration on screen", async () => {
     installMeridianTokens(document);
-    const { container } = await renderSettled(<AgentCard agent={AGENT_WITH_FULL_ECHO} />);
+    const { container } = await renderSettled(<AgentBindingCard agent={AGENT_WITH_FULL_ECHO} />);
     openEveryDisclosure(container);
 
     expect(describeViolations(await runTierAxe(container))).toStrictEqual([]);

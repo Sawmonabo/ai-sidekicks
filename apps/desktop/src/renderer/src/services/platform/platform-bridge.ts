@@ -47,11 +47,12 @@ export type PlatformBridgeSource = "live" | "fixture";
 export type AttentionSubscribe = (onAttentionChange: () => void) => Unsubscribe;
 
 /**
- * The host capabilities: the daemon's JSON-RPC, the control plane's tRPC and relay,
- * host-mediated OS surfaces, the auto-updater's state, and read-only build meta. Every
- * capability group is `readonly`.
+ * The bridge a window holds. The host capabilities — the daemon's JSON-RPC, the control
+ * plane's tRPC and relay, host-mediated OS surfaces, the auto-updater's state and read-only
+ * build meta, each group `readonly` and shape-identical across both sources — and the
+ * signals every host answers.
  */
-export interface DesktopBridge {
+export interface PlatformBridge {
   readonly daemon: {
     call<M extends DaemonMethod>(method: M, params: DaemonParams<M>): Promise<DaemonResult<M>>;
     subscribe<E extends DaemonEvent>(
@@ -93,12 +94,7 @@ export interface DesktopBridge {
     readonly arch: "arm64" | "x64";
     readonly locale: string;
   };
-}
 
-/** The bridge a window holds: the host capabilities and the signals every host answers. */
-export interface ConsoleBridge {
-  /** The host capabilities. Shape-identical across both sources. */
-  readonly desktopBridge: DesktopBridge;
   /**
    * Attention moving, as one opaque change signal over every session this bridge can name.
    *

@@ -1,7 +1,7 @@
 // What a rejected body load leaves behind, and what is able to ask for it again.
 //
 // THE MEMO OUTLIVES EVERY MOUNT, which is what makes this a claim about the registration
-// rather than about a render. A `LoadedLazyBody` belongs to the board, and the board
+// rather than about a render. A `LoaderBackedBody` belongs to the board, and the board
 // belongs to the window — so a promise kept after it rejected is kept for the life of the
 // window, and every later ask is answered from it: the surface error boundary's "Try
 // again" remounts a subtree onto the same dead promise, and navigating away and back
@@ -25,12 +25,12 @@ import { createElement } from "react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { settle } from "@test/helpers/settle.js";
-import { consoleTripwires } from "@renderer/lib/tripwires.js";
-import { SurfaceErrorBoundary } from "@renderer/console/primitives/index.js";
+import { windowTripwires } from "@renderer/lib/tripwires.js";
+import { ErrorBoundary } from "@renderer/console/primitives/index.js";
 import { type LazyBodyModule } from "@renderer/components/LazyBody/lazy-body.js";
 import { syntheticPaneContextAt } from "@test/helpers/lazy-body-contexts.js";
-import { type ConsolePaneContext } from "./pane-context.js";
-import { ConsolePaneRegistry } from "./pane-registry.js";
+import { type PaneContext } from "./pane-context.js";
+import { PaneRegistry } from "./pane-registry.js";
 
 const CHUNK_FETCH_FAILURE = "the diff chunk could not be fetched";
 
@@ -43,9 +43,9 @@ const CHUNK_FETCH_FAILURE = "the diff chunk could not be fetched";
  */
 function loaderFailingBefore(
   failureCount: number,
-  Body: (context: ConsolePaneContext) => React.ReactNode,
+  Body: (context: PaneContext) => React.ReactNode,
 ): {
-  readonly load: () => Promise<LazyBodyModule<ConsolePaneContext>>;
+  readonly load: () => Promise<LazyBodyModule<PaneContext>>;
   readonly callCount: () => number;
 } {
   let callCount = 0;
@@ -66,13 +66,13 @@ function diffBody(): React.ReactNode {
 }
 
 /** The frame's own mount shape: a component that resolves the descriptor as it renders. */
-function MountedDiffPane(props: { readonly registry: ConsolePaneRegistry }): React.ReactNode {
+function MountedDiffPane(props: { readonly registry: PaneRegistry }): React.ReactNode {
   return props.registry.descriptorFor("diff")?.render(syntheticPaneContextAt("diff"));
 }
 
 describe("a rejected body load — the registration does not keep the failure", () => {
   it("asks the loader again when the next caller arrives, and lands the body", async () => {
-    const registry = new ConsolePaneRegistry();
+    const registry = new PaneRegistry();
     const loader = loaderFailingBefore(1, diffBody);
     registry.register({ kind: "diff", owner: "repos-family", body: loader.load });
 
@@ -87,7 +87,7 @@ describe("a rejected body load — the registration does not keep the failure", 
     // The warm walk and the boards read one another through `unloadedKeys`, so this is
     // where a retained rejection is visible without a mount: the kind reported itself
     // loaded and the loader had never produced a body.
-    const registry = new ConsolePaneRegistry();
+    const registry = new PaneRegistry();
     const loader = loaderFailingBefore(1, diffBody);
     registry.register({ kind: "diff", owner: "repos-family", body: loader.load });
 
@@ -103,7 +103,7 @@ describe("a rejected body load — the registration does not keep the failure", 
     // about to open, and the idle warm — and a release written per CALLER rather than per
     // minted promise would throw away the load the first retry installed and start a
     // third fetch for a body two callers were already waiting on.
-    const registry = new ConsolePaneRegistry();
+    const registry = new PaneRegistry();
     const loader = loaderFailingBefore(1, diffBody);
     registry.register({ kind: "diff", owner: "repos-family", body: loader.load });
 
@@ -122,10 +122,10 @@ describe("a rejected body load — the registration does not keep the failure", 
 
   it("negative control: a load that succeeded is never asked for again", async () => {
     // Without this, every case above would pass over a registration that had simply
-    // stopped memoising — one fetch per caller, per arrow-key press, forever, which is
+    // stopped memoizing — one fetch per caller, per arrow-key press, forever, which is
     // the defect the memo exists to prevent and the reason the release is scoped to the
     // rejected arm alone.
-    const registry = new ConsolePaneRegistry();
+    const registry = new PaneRegistry();
     const loader = loaderFailingBefore(0, diffBody);
     registry.register({ kind: "diff", owner: "repos-family", body: loader.load });
 
@@ -148,24 +148,24 @@ describe("a rejected body load — the surface boundary's retry reaches it", () 
     // development build, and a boundary reporting from `componentDidCatch` would turn
     // that into a second failure inside React's own error handling.
     restoreThrowOnReport = import.meta.env.DEV;
-    consoleTripwires.setThrowOnReport(false);
-    consoleTripwires.reset();
+    windowTripwires.setThrowOnReport(false);
+    windowTripwires.reset();
   });
 
   afterEach(() => {
-    consoleTripwires.setThrowOnReport(restoreThrowOnReport);
-    consoleTripwires.reset();
+    windowTripwires.setThrowOnReport(restoreThrowOnReport);
+    windowTripwires.reset();
   });
 
   it("mounts the body the retry's own load lands", async () => {
-    const registry = new ConsolePaneRegistry();
+    const registry = new PaneRegistry();
     const loader = loaderFailingBefore(1, diffBody);
     registry.register({ kind: "diff", owner: "repos-family", body: loader.load });
 
     const { container } = render(
-      <SurfaceErrorBoundary surfaceName="The diff pane">
+      <ErrorBoundary regionName="The diff pane">
         <MountedDiffPane registry={registry} />
-      </SurfaceErrorBoundary>,
+      </ErrorBoundary>,
     );
     await settle();
     expect(container.textContent).toContain(CHUNK_FETCH_FAILURE);
@@ -181,14 +181,14 @@ describe("a rejected body load — the surface boundary's retry reaches it", () 
     // Without this, the case above would pass over a retry that rendered the body from
     // somewhere other than a second load — and the button would look like it worked on
     // exactly the damaged install where it cannot.
-    const registry = new ConsolePaneRegistry();
+    const registry = new PaneRegistry();
     const loader = loaderFailingBefore(2, diffBody);
     registry.register({ kind: "diff", owner: "repos-family", body: loader.load });
 
     const { container } = render(
-      <SurfaceErrorBoundary surfaceName="The diff pane">
+      <ErrorBoundary regionName="The diff pane">
         <MountedDiffPane registry={registry} />
-      </SurfaceErrorBoundary>,
+      </ErrorBoundary>,
     );
     await settle();
 

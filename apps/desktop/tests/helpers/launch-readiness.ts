@@ -81,7 +81,7 @@ export async function awaitPaintingAppWindow(
   if (visibilityState !== "visible") {
     throw new Error(
       `the console document is "${visibilityState}" to Chromium, so its renderer is throttled and ` +
-        "nothing measured in it would describe the console; the launched build must honour " +
+        "nothing measured in it would describe the console; the launched build must honor " +
         `${UNOBTRUSIVE_WINDOWS_ENV} by disabling background throttling (src/main/window-reveal.ts)`,
     );
   }
@@ -89,7 +89,7 @@ export async function awaitPaintingAppWindow(
   if (!frames.painting) {
     throw new Error(
       `no animation frame arrived within ${String(frames.budgetMs)} ms of the renderer ` +
-        "signalling ready, so it is not painting and nothing timed in it would describe the " +
+        "signaling ready, so it is not painting and nothing timed in it would describe the " +
         "console; an unrevealed window paints only with background throttling off " +
         "(src/main/window-reveal.ts)",
     );

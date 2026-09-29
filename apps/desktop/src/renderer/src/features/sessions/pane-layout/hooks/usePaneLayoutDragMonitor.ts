@@ -11,7 +11,7 @@ import {
 import { type PaneLayoutStore } from "../pane-layout-store.js";
 
 /**
- * Commit the drop, once, for the whole deck.
+ * Commit the drop, once, for the whole pane layout.
  *
  * ONE monitor rather than an `onDrop` per target, because the outcome depends on
  * the indicator the coordinator holds — which target the pointer settled on and
@@ -19,10 +19,10 @@ import { type PaneLayoutStore } from "../pane-layout-store.js";
  * monitor also runs for a drag that ends over nothing, which is the case that has
  * to clear the indicator and commit nothing; a per-target handler never fires there
  * at all. That case is also the one a person gets no feedback from unless it is
- * SAID — the deck looks the same as it did — so it reaches `commitPaneDrop` like
+ * SAID — the pane layout looks the same as it did — so it reaches `commitPaneDrop` like
  * every other drop rather than returning early.
  *
- * @param announce The window's announcer, read from the context by the deck.
+ * @param announce The window's announcer, read from the context by the pane layout.
  */
 export function usePaneLayoutDragMonitor(
   coordinator: PaneLayoutDragCoordinator,

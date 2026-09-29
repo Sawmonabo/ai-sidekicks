@@ -32,14 +32,14 @@
 import { useEffect, useRef } from "react";
 
 import { useAnnounce } from "@renderer/console/primitives/index.js";
-import type { FrameBanner } from "@renderer/store/window/window-store.js";
+import type { WindowBanner } from "@renderer/store/window/window-store.js";
 
 /**
  * Announce each newly raised refusal banner, once, in the assertive region.
  *
  * @param banners The banners the frame is rendering right now, in raise order.
  */
-export function useRefusalBannerAnnouncements(banners: readonly FrameBanner[]): void {
+export function useRefusalBannerAnnouncements(banners: readonly WindowBanner[]): void {
   const announce = useAnnounce();
   const announcedBannerIdsRef = useRef<ReadonlySet<string>>(undefined);
 

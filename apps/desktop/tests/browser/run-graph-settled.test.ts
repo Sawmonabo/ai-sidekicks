@@ -19,7 +19,7 @@
 // The browser tier rather than a Node one, and that is forced rather than preferred:
 // a Node project has no DOM, no animation frame, and no layout engine, and every claim
 // below is measured on all three. The browser tier is where "geometry a DOM shim cannot
-// answer" already lives — the graph-box cases are its neighbour — and it is on the
+// answer" already lives — the graph-box cases are its neighbor — and it is on the
 // aggregate.
 //
 // THE UNSETTLED STATE IS MANUFACTURED, NEVER RACED FOR. Reading the predicate straight
@@ -54,7 +54,7 @@ import { awaitRunGraphSettled, isRunGraphSettled } from "../helpers/run-graph-se
 function collapseEveryGraphCanvas(): void {
   const collapsingRule = document.createElement("style");
   collapsingRule.dataset["collapsedGraph"] = "";
-  collapsingRule.textContent = ".meridian-phase-graph__canvas { block-size: auto }";
+  collapsingRule.textContent = ".meridian-run-graph__canvas { block-size: auto }";
   document.head.append(collapsingRule);
 }
 
@@ -92,7 +92,7 @@ afterEach(() => {
   restoreEveryGraphCanvas();
 });
 
-describe("the capture's phase-graph readiness", () => {
+describe("the capture's run-graph readiness", () => {
   it("holds while the picture is off screen, and resolves once it is back", async () => {
     const graph = await mountWorkflowRunPhaseGraph();
     await awaitRunGraphSettled(graph);
@@ -141,7 +141,7 @@ describe("the capture's phase-graph readiness", () => {
 
   it("returns at once for a surface that draws no graph", async () => {
     const mounted = await mountWorkflowBuilderPane();
-    expect(mounted.element.querySelector(".meridian-phase-graph")).toBeNull();
+    expect(mounted.element.querySelector(".meridian-run-graph")).toBeNull();
     expect(isRunGraphSettled(mounted.element)).toBe(true);
     await awaitRunGraphSettled(mounted.element);
   });

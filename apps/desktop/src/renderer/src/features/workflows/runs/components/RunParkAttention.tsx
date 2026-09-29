@@ -16,7 +16,7 @@
 // most likely to count phases where the projection counted runs.
 //
 // IT OFFERS NOTHING. An attention entry gates no control: starting, resuming,
-// cancelling and re-pinning are the daemon's adjudications reaching the console as
+// canceling and re-pinning are the daemon's adjudications reaching the console as
 // typed refusals, and a line that disabled one would be a renderer deciding a question
 // it does not own. Nor does anything here notify — whether a person is interrupted is
 // the notifications surface's to decide, and this surface mints no OS notification.

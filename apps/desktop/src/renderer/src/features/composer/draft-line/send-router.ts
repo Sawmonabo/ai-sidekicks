@@ -77,7 +77,7 @@ import {
 export interface ComposerSendRouterOptions {
   /** The two daemon calls a resolved send makes. */
   readonly calls: ComposerSendCalls;
-  /** Defaults to recognising none, which is the fail-loud arm rather than the quiet one. */
+  /** Defaults to recognizing none, which is the fail-loud arm rather than the quiet one. */
   readonly recognizeClientCommand?: ClientCommandPredicate;
   /** Defaults to naming none, so an unread enumeration changes no refusal. */
   readonly recognizeProviderCommand?: ProviderCommandPredicate;

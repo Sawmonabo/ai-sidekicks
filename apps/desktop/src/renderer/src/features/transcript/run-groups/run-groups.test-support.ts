@@ -1,9 +1,9 @@
-// The mixed window both chapter suites fold.
+// The mixed window both run group suites fold.
 //
 // Two files fold the same rows — one about how the fold partitions them, one about
-// which of the resulting chapters is open — and both need the same window and the
-// same way of naming one chapter out of it. Written twice they would drift, and the
-// collapse suite's claims would quietly stop being about the same chapters the fold
+// which of the resulting run groups is open — and both need the same window and the
+// same way of naming one run group out of it. Written twice they would drift, and the
+// collapse suite's claims would quietly stop being about the same run groups the fold
 // suite pinned.
 
 import type { TimelineRow } from "@ai-sidekicks/contracts";
@@ -35,10 +35,10 @@ export function mixedWindow(): readonly TimelineRow[] {
   ];
 }
 
-export function findRunGroup(chapters: readonly RunGroup[], runId: string): RunGroup {
-  const chapter = chapters.find((candidate) => candidate.runId === runId);
-  if (chapter === undefined) {
-    throw new Error(`no chapter for ${runId}`);
+export function findRunGroup(runGroups: readonly RunGroup[], runId: string): RunGroup {
+  const runGroup = runGroups.find((candidate) => candidate.runId === runId);
+  if (runGroup === undefined) {
+    throw new Error(`no run group for ${runId}`);
   }
-  return chapter;
+  return runGroup;
 }

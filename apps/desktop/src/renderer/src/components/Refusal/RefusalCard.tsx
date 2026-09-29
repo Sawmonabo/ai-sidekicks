@@ -1,4 +1,4 @@
-// The card shape: in the ledger, because the refusal is now part of what happened.
+// The card shape: in the transcript, because the refusal is now part of what happened.
 //
 // `refusal-contract.ts` states the grammar all three shapes obey and declares the
 // props they share; this module decides only what a refusal looks like once it has
@@ -13,7 +13,7 @@ import { WireFigure } from "../WireFigure/WireFigure.js";
 import { formatWireString } from "@renderer/lib/wire-figures.js";
 import { type RefusalProps } from "./refusal-props.js";
 
-/** In the ledger, when the refusal is now part of what happened. */
+/** In the transcript, when the refusal is now part of what happened. */
 export function RefusalCard(props: RefusalProps): React.JSX.Element {
   return (
     <div className="meridian-refusal meridian-refusal--card">

@@ -12,7 +12,7 @@
 // refuses a sequence before it can reach a mirror — so no chord in a projection ever
 // contains one. Splitting a key back was written at the publish site once and got the
 // empty case wrong: `"".split(" ")` is a one-member list holding an empty string, so a
-// mirror holding no chord would have travelled as a mirror holding one unparseable
+// mirror holding no chord would have traveled as a mirror holding one unparseable
 // one.
 //
 // AND "NOTHING PUBLISHED" IS A STATE, NOT AN EMPTY VALUE. A truthiness check on the

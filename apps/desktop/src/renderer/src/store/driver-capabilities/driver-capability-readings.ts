@@ -83,7 +83,7 @@ export type DriverCapabilityReading = (typeof DRIVER_CAPABILITY_READINGS)[number
  * driver filed a report, that report is this run's whatever the projection has said,
  * because there is nothing else it could be bound to. Guessing between two reported
  * drivers is deliberately not one of them: a wrong guess offers a control the daemon
- * will always refuse, or hides one it would have honoured.
+ * will always refuse, or hides one it would have honored.
  */
 export function boundDriverNameForRun(
   readout: DriverCapabilityReadout | undefined,

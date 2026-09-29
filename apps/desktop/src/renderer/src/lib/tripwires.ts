@@ -154,7 +154,7 @@ export class TripwireRegistry {
    * Configuration — the subscribed sinks and the throw arm — deliberately survives,
    * because those are how the registry was BUILT and clearing them here would let
    * a test silently disarm the next one. Only the evidence is cleared, which is
-   * what a test needs between cases against the process-wide `consoleTripwires`.
+   * what a test needs between cases against the process-wide `windowTripwires`.
    */
   public reset(): void {
     this.#reports.length = 0;
@@ -180,11 +180,11 @@ export class TripwireRegistry {
  * environment read, so this is not the `process.env` gate the tripwire list
  * forbids.
  */
-export const consoleTripwires: TripwireRegistry = new TripwireRegistry({
+export const windowTripwires: TripwireRegistry = new TripwireRegistry({
   throwOnReport: import.meta.env.DEV,
 });
 
 /** Report to the console's registry. The one call site shape every tripwire uses. */
 export function reportTripwire(kind: TripwireKind, site: string, detail: string): void {
-  consoleTripwires.report({ kind, site, detail });
+  windowTripwires.report({ kind, site, detail });
 }

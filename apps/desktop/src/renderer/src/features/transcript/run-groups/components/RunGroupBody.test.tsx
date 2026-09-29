@@ -1,4 +1,4 @@
-// The chapter body, held to the thing it exists to undo: rows that were counted and
+// The run group body, held to the thing it exists to undo: rows that were counted and
 // unreachable.
 //
 // Every case reads the RENDERED body, because the defect this component answers was a
@@ -8,7 +8,7 @@
 import { fireEvent, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { CHAPTER_VISIBLE_ROW_CAP } from "../../structure/structure-caps.js";
+import { RUN_GROUP_VISIBLE_ROW_CAP } from "../../structure/structure-caps.js";
 import {
   RUN_GROUP_BODY_FALLBACK_HEIGHT,
   RUN_GROUP_BODY_INTRINSIC_HEIGHT,
@@ -22,7 +22,7 @@ import { type TimelineRow } from "@ai-sidekicks/contracts";
 const RUN_ID = "run-a";
 
 function longRun(extraRows: number): readonly TimelineRow[] {
-  return Array.from({ length: CHAPTER_VISIBLE_ROW_CAP + extraRows }, (_unused, index) =>
+  return Array.from({ length: RUN_GROUP_VISIBLE_ROW_CAP + extraRows }, (_unused, index) =>
     runRow({
       id: `r${String(index + 1)}`,
       sequence: index + 1,
@@ -38,17 +38,19 @@ function renderBody(
   rows: readonly TimelineRow[],
   narrowedRowIds?: readonly string[],
 ): HTMLElement | null {
-  const sealed = findRunGroup(groupRowsByRun(rows).chapters, RUN_ID);
-  const chapter =
+  const sealed = findRunGroup(groupRowsByRun(rows).runGroups, RUN_ID);
+  const runGroup =
     narrowedRowIds === undefined
       ? sealed
       : { ...sealed, rowIds: narrowedRowIds, rowCount: narrowedRowIds.length };
-  const { container } = render(<RunGroupBody chapter={chapter} supportsDeclaration={() => true} />);
+  const { container } = render(
+    <RunGroupBody runGroup={runGroup} supportsDeclaration={() => true} />,
+  );
   return container.querySelector<HTMLElement>(".meridian-run-group-body");
 }
 
-describe("the chapter body — the head the outer list left out", () => {
-  it("draws nothing at all for a chapter that clips nothing", () => {
+describe("the run group body — the head the outer list left out", () => {
+  it("draws nothing at all for a run group that clips nothing", () => {
     expect(renderBody(longRun(-1))).toBeNull();
   });
 
@@ -57,7 +59,7 @@ describe("the chapter body — the head the outer list left out", () => {
     expect(body?.textContent).toContain("entry 1");
     expect(body?.textContent).toContain("entry 2");
     // The rows the outer list mounts are ITS job; the body never draws them twice.
-    expect(body?.textContent).not.toContain(`entry ${String(CHAPTER_VISIBLE_ROW_CAP + 2)}`);
+    expect(body?.textContent).not.toContain(`entry ${String(RUN_GROUP_VISIBLE_ROW_CAP + 2)}`);
   });
 
   it("sets the height the engine agreed to on the scroller itself", () => {
@@ -68,9 +70,9 @@ describe("the chapter body — the head the outer list left out", () => {
   });
 
   it("falls back to a length every engine parses where the expression is refused", () => {
-    const sealed = findRunGroup(groupRowsByRun(longRun(2)).chapters, RUN_ID);
+    const sealed = findRunGroup(groupRowsByRun(longRun(2)).runGroups, RUN_ID);
     const { container } = render(
-      <RunGroupBody chapter={sealed} supportsDeclaration={() => false} />,
+      <RunGroupBody runGroup={sealed} supportsDeclaration={() => false} />,
     );
     expect(
       container.querySelector<HTMLElement>(".meridian-run-group-body__scroller")?.style
@@ -105,7 +107,7 @@ describe("the top-edge fade — drawn only while something is clipped above", ()
 
 describe("what the body does not hold", () => {
   it("says how many earlier entries are outside its own window", () => {
-    const body = renderBody(longRun(CHAPTER_VISIBLE_ROW_CAP + 3));
+    const body = renderBody(longRun(RUN_GROUP_VISIBLE_ROW_CAP + 3));
     expect(body?.textContent).toContain("3 earlier entries are outside this window.");
   });
 
@@ -114,13 +116,13 @@ describe("what the body does not hold", () => {
       "r1",
       "r2",
       ...Array.from(
-        { length: CHAPTER_VISIBLE_ROW_CAP },
+        { length: RUN_GROUP_VISIBLE_ROW_CAP },
         (_unused, index) => `r${String(index + 3)}`,
       ),
     ];
     const body = renderBody(longRun(40), admitted);
     // Two admitted rows sit outside the ceiling, so the body draws exactly those two —
-    // and not the thirty-eight the unnarrowed chapter would have clipped.
+    // and not the thirty-eight the unnarrowed run group would have clipped.
     expect(body?.querySelectorAll(".meridian-run-group-body__row")).toHaveLength(2);
     expect(body?.textContent).toContain("entry 1");
     expect(body?.textContent).toContain("entry 2");

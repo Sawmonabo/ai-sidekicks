@@ -138,7 +138,7 @@ function cancelParams(): ApplyInterventionParams {
     targetRunId: RUN_ID,
     expectedRunVersion: 4,
     clientIdempotencyKey: "idem-3",
-    payload: { reason: "operator cancelled the run" },
+    payload: { reason: "operator canceled the run" },
   };
 }
 
@@ -212,7 +212,7 @@ describe("CodexInterventionDispatcher native routing", () => {
     // what the DAEMON does with the run afterwards, not in the provider call.
     expect(harness.interruptRun).toHaveBeenCalledWith({
       runId: RUN_ID,
-      reason: "operator cancelled the run",
+      reason: "operator canceled the run",
     });
     expect(result).toEqual({ status: "applied" });
   });

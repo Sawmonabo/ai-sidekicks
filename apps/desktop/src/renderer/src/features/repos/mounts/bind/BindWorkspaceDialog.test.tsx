@@ -13,7 +13,7 @@ import { act, fireEvent, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import type { WorkspaceExecutionModeCapabilitiesReadResponse } from "@ai-sidekicks/contracts";
-import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import { eventOfKind } from "@test/helpers/session-events.js";
@@ -67,7 +67,7 @@ const NO_DEFAULT: WorkspaceExecutionModeCapabilitiesReadResponse = {
  */
 class CapabilitiesUnderTest {
   #capabilities: WorkspaceExecutionModeCapabilitiesReadResponse;
-  readonly bridge: ConsoleBridge = bridgeOnClock("repos");
+  readonly bridge: PlatformBridge = bridgeOnClock("repos");
   readonly operations: RepoOperations;
 
   public constructor(capabilities: WorkspaceExecutionModeCapabilitiesReadResponse) {
@@ -86,7 +86,7 @@ class CapabilitiesUnderTest {
 /** A store with a base state, which is what makes a later frame a frame and not history. */
 function initializedStore(): SessionStore {
   const sessionStore = new SessionStore({ sessionId: SESSION_ID });
-  sessionStore.initialise({ cursor: 0, entities: [] });
+  sessionStore.initialize({ cursor: 0, entities: [] });
   return sessionStore;
 }
 

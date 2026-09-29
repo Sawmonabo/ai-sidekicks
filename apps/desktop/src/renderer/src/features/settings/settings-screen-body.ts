@@ -12,7 +12,7 @@ import "./settings-page.css";
 
 import { createElement, useState } from "react";
 
-import type { ConsoleSurfaceContext } from "@renderer/console/seats/index.js";
+import type { ScreenContext } from "@renderer/console/seats/index.js";
 import { composeSettingsPages } from "./settings-pages.js";
 import { SettingsScreen } from "./SettingsScreen.js";
 
@@ -22,7 +22,7 @@ import { SettingsScreen } from "./SettingsScreen.js";
  * `useState` with a lazy initializer, so the registry is built once per mount and never in
  * a render body.
  */
-export function Body(context: ConsoleSurfaceContext): React.ReactNode {
+export function Body(context: ScreenContext): React.ReactNode {
   const [pages] = useState(composeSettingsPages);
   return createElement(SettingsScreen, { context, pages });
 }

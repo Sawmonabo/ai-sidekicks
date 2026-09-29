@@ -61,7 +61,7 @@ describe("WorkspaceCard — the root", () => {
     // A row's `fsRoot` is absent until its execution root is prepared; an empty cell
     // would read as "this workspace has no root", which is a different and false fact.
     const { container, getByText } = renderRow(
-      workspace({ state: "provisioning", fsRoot: undefined }),
+      workspace({ state: "preparing", fsRoot: undefined }),
     );
     expect(getByText("Root pending")).toBeDefined();
     expect(container.querySelector(".meridian-nothing--computing")).not.toBeNull();

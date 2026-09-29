@@ -1,6 +1,6 @@
 // One keyed registry, and the three answers a registry can give to a duplicate.
 //
-// The console had five of these: the surface registry (throw unless the same owner
+// The console had five of these: the screen registry (throw unless the same owner
 // re-claims), the command registry (throw on any repeat), the main process's route
 // registry (silently idempotent), and two array-plus-linear-find tables that are
 // byte-for-byte the same idea. Five implementations is not five requirements — it
@@ -10,17 +10,17 @@
 // So the policy is a parameter and not a coincidence of which file you landed in:
 //
 //   • `"throw"` — a repeat is a defect. Two families claiming one command id have a
-//     real conflict, and keeping the last would make behaviour depend on module
+//     real conflict, and keeping the last would make behavior depend on module
 //     import order.
 //   • `"idempotent"` — a repeat is expected and a no-op. Registration that runs
 //     once per window but may run twice under a double-mount.
 //   • `"owner-scoped"` — a repeat by the SAME owner replaces; by a different owner
-//     it throws. The surface registry's rule, and the reason `ownerOf` exists.
+//     it throws. The screen registry's rule, and the reason `ownerOf` exists.
 //
 // Insertion order is preserved (`Map` semantics) and several callers depend on it,
 // so nothing here sorts.
 
-import { ConsoleRefusalError, refuse, type ConsoleRefusal } from "./refusal.js";
+import { RefusalError, refuse, type Refusal } from "./refusal.js";
 
 /** The subsystem every registry refusal names as its author. */
 const REGISTRY_ORIGIN = "keyed-registry";
@@ -42,7 +42,7 @@ export interface KeyedRegistryOptions<Value> {
   readonly duplicatePolicy: DuplicatePolicy;
   /**
    * What the registry holds, in the words a failure message should use — "command",
-   * "surface slot", "scenario". Appears in every error this class raises.
+   * "screen slot", "scenario". Appears in every error this class raises.
    */
   readonly describeWhat: string;
   /**
@@ -64,19 +64,19 @@ export interface KeyedRegistryOptions<Value> {
 /**
  * Raised when a registration is refused.
  *
- * A `ConsoleRefusalError` rather than a bare `Error` carrying its own message
+ * A `RefusalError` rather than a bare `Error` carrying its own message
  * vocabulary: a registration conflict surfaces at a seam that already renders
- * refusals — the surface registry mounting a family, the palette registering a
+ * refusals — the screen registry mounting a family, the palette registering a
  * command — and `code` / `detail` / `origin` is what those three renderings consume.
  * A second shape here would mean translating one at the catch site.
  *
  * `key` stays on the class beside the refusal because `detail` is prose a person
  * reads, and a caller reporting the conflict needs the value it collided on.
  */
-export class DuplicateRegistrationError extends ConsoleRefusalError {
+export class DuplicateRegistrationError extends RefusalError {
   public readonly key: string;
 
-  public constructor(refusal: ConsoleRefusal, key: string) {
+  public constructor(refusal: Refusal, key: string) {
     super(refusal);
     this.name = "DuplicateRegistrationError";
     this.key = key;
@@ -93,9 +93,9 @@ export class KeyedRegistry<Key, Value> {
   public constructor(options: KeyedRegistryOptions<Value>) {
     if (options.duplicatePolicy === "owner-scoped" && options.ownerOf === undefined) {
       // Thrown at construction rather than at the first duplicate, because a
-      // registry that discovers it cannot honour its own policy only when a
+      // registry that discovers it cannot honor its own policy only when a
       // conflict arrives has already admitted the conflicting registration.
-      throw new ConsoleRefusalError(
+      throw new RefusalError(
         refuse(
           REGISTRY_ORIGIN,
           "owner-reader-missing",
@@ -245,7 +245,7 @@ export class KeyedRegistry<Key, Value> {
  * its own message wording, so the same missing-key defect read differently
  * depending on which table you hit. One function, one wording.
  *
- * A `RangeError` and deliberately NOT a `ConsoleRefusal`, unlike the duplicate
+ * A `RangeError` and deliberately NOT a `Refusal`, unlike the duplicate
  * registrations above. A refusal is a value with three renderings and an author a
  * person can read; a key missing from a table the caller itself populated has
  * nowhere to render and nobody to name. It is a defect, and the platform error is

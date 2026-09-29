@@ -1,7 +1,7 @@
 // The Meridian palette — the single source of truth for every console color.
 //
 // Design-language rule 2 (the user hue system), rule 3 (the two-hue rule and its
-// WCAG 2.2 AA contrast floors) and rule 4 (type and figures) are realised here and
+// WCAG 2.2 AA contrast floors) and rule 4 (type and figures) are realized here and
 // nowhere else: `meridian.css` is GENERATED from this module by `generate-css.ts` and
 // byte-diffed against it by the console's assets tier, so a color edited in CSS alone
 // fails the build.
@@ -40,23 +40,11 @@ import type { OklchColor } from "./color.js";
 // so there is no cycle to resolve.
 import { BODY_LINE_HEIGHT, TYPE_SCALE_REM } from "./typography.js";
 
-// The command palette's list bounds and the keybinding when-clause's parse bounds: the
-// palette renders the ranked list a when-clause decides the membership of.
-
-/** Commands the palette remembers. Enough to cover a working session's rhythm. */
-export const PALETTE_RECENTS_CAP = 8;
-
-/**
- * Ranked results the palette renders at once. The list is keyboard-walked, so
- * past this a person is scrolling rather than choosing and should refine instead.
- */
-export const PALETTE_RESULT_CAP = 40;
-
 /**
  * Rows a bounded enumeration shows before it scrolls.
  *
  * Six, and the number is a ceiling rather than a preference. The shortest window
- * the console ships is 720 px tall (the agent-console auxiliary geometry), which is
+ * the console ships is 720 px tall (the Agents pane auxiliary geometry), which is
  * 45 rem at the 16 px root; an enumeration allowed to take more than a third of
  * that would leave the surface holding it with nothing else on screen. Six rows is
  * 13.875 rem and clears that third; seven is 16.1875 rem and does not. The rem
@@ -129,7 +117,7 @@ export const ATTENTION_TOKENS: Readonly<Record<string, SchemePair>> = {
   accent: { light: oklch(0.575, 0.09, 215), dark: oklch(0.73, 0.085, 205) },
   "accent-text": { light: oklch(0.475, 0.1, 215), dark: oklch(0.845, 0.075, 205) },
   // The ink for a control FILLED with `accent` — a primary action's label, and
-  // nothing else. `accent-text` is the ink for accent-coloured text on a NEUTRAL
+  // nothing else. `accent-text` is the ink for accent-colored text on a NEUTRAL
   // ground and is measured against the four grounds; painted on the accent itself
   // it reaches 1.53:1 in light and 1.48:1 in dark, which is rule 3's floor missed
   // by a factor of three. The pair needs its own token because one value cannot
@@ -146,7 +134,7 @@ export const ATTENTION_TOKENS: Readonly<Record<string, SchemePair>> = {
   // chroma for the same reason.
   "accent-ink": { light: oklch(0.13, 0.03, 215), dark: oklch(0.22, 0.04, 205) },
   // The face of a PRESSED accent-filled control. A token rather than a `filter`,
-  // and the arithmetic is why: a `brightness()` scales both rendered colours, and
+  // and the arithmetic is why: a `brightness()` scales both rendered colors, and
   // scaling does not preserve a contrast ratio, because relative luminance carries
   // a 0.05 offset a multiplication does not distribute over. `brightness(0.94)` on
   // the light face took the measured `accent-ink` pair from 4.73:1 to 4.27:1 —
@@ -173,13 +161,13 @@ export const ATTENTION_TOKENS: Readonly<Record<string, SchemePair>> = {
 };
 
 /**
- * The five code-token families that carry a colour of their own.
+ * The five code-token families that carry a color of their own.
  *
- * HERE RATHER THAN IN THE LEDGER'S OWN SHEET, and the reason is measurement. These
+ * HERE RATHER THAN IN THE TRANSCRIPT'S OWN SHEET, and the reason is measurement. These
  * five and the twelve ANSI ones below were hand-written `oklch()` literals in
- * `ledger/ledger.css`, outside every guarantee this module exists to make — and both
+ * `features/transcript/transcript.css`, outside every guarantee this module exists to make — and both
  * consequences were invisible: nothing fitted them into the sRGB gamut, so seven of
- * the thirty-four requests were remapped by the browser to a colour no file states,
+ * the thirty-four requests were remapped by the browser to a color no file states,
  * and nothing measured them against their ground, so six sat below rule 3's text
  * floor in the light scheme.
  *
@@ -187,9 +175,9 @@ export const ATTENTION_TOKENS: Readonly<Record<string, SchemePair>> = {
  * palette is none of the three closed sets above, so folding it in would blur the
  * boundary rule 3 depends on. The first half is true, and is why this is its own
  * record rather than more members of `ATTENTION_TOKENS`: the two-hue rule governs
- * what the console colours FOR ATTENTION, and a keyword is not. The second half does
+ * what the console colors FOR ATTENTION, and a keyword is not. The second half does
  * not follow — a separate record here keeps the sets distinct while still putting
- * every colour through one resolver and one measurement, which a table in a
+ * every color through one resolver and one measurement, which a table in a
  * stylesheet cannot.
  *
  * Painted on `surface-sunken` and nothing else, which is the single ground the
@@ -204,9 +192,9 @@ export const CODE_TOKENS: Readonly<Record<string, SchemePair>> = {
 };
 
 /**
- * The twelve hued ANSI names, as the console's own colours rather than a terminal's.
+ * The twelve hued ANSI names, as the console's own colors rather than a terminal's.
  *
- * WHY "BRIGHT" IS NOT A LIGHTNESS RULE. On the DARK scheme a brighter colour is a
+ * WHY "BRIGHT" IS NOT A LIGHTNESS RULE. On the DARK scheme a brighter color is a
  * higher-contrast one, so the bright set sits above its normal sibling and gains
  * legibility by doing so. On the LIGHT scheme the same move SPENDS contrast, because
  * the ground is near white and lightness is the ratio — which is how the previous
@@ -218,7 +206,7 @@ export const CODE_TOKENS: Readonly<Record<string, SchemePair>> = {
  *
  * A run whose BACKGROUND the stream set is deliberately outside the census: which of
  * the sixteen a stream pairs with which is the stream's composition, and no palette
- * of sixteen colours can hold every one of its own pairs to a text floor.
+ * of sixteen colors can hold every one of its own pairs to a text floor.
  */
 export const ANSI_TOKENS: Readonly<Record<string, SchemePair>> = {
   "ansi-red": { light: oklch(0.48, 0.16, 25), dark: oklch(0.76, 0.14, 25) },
@@ -236,7 +224,7 @@ export const ANSI_TOKENS: Readonly<Record<string, SchemePair>> = {
 };
 
 /**
- * Tokens that are a family's own NAME for a console token, not a colour.
+ * Tokens that are a family's own NAME for a console token, not a color.
  *
  * A code block's plain text is the console's text; a terminal's black and white are
  * the two ends of the reading scale, and reproducing a tool's literal black on a
@@ -260,11 +248,11 @@ export const TOKEN_ALIASES: Readonly<Record<string, string>> = {
 };
 
 /** Steps on the user wheel. Twelve, per design-language rule 2. */
-export const ACTOR_HUE_STEPS = 12;
+export const HUE_WHEEL_STEPS = 12;
 
 /**
  * Fixed lightness for every user hue — one value for both schemes, because
- * a person's identity colour does not change when the operator flips the theme.
+ * a person's identity color does not change when the operator flips the theme.
  *
  * It is not a taste choice. Holding the whole wheel to 3:1 leaves exactly one
  * feasible band at this chroma, and the band is narrow: the LIGHT scheme's worst
@@ -292,7 +280,7 @@ export const HUE_WHEEL_CHROMA = 0.135;
 export const HUE_WHEEL_ORIGIN_DEGREES = 20;
 
 /** Degrees between adjacent wheel steps. */
-export const HUE_WHEEL_STEP_DEGREES: number = 360 / ACTOR_HUE_STEPS;
+export const HUE_WHEEL_STEP_DEGREES: number = 360 / HUE_WHEEL_STEPS;
 
 /** The hue angle of a wheel step, in degrees. */
 export function computeHueWheelAngle(step: number): number {
@@ -325,7 +313,7 @@ export const RADIUS_SCALE_REM: Readonly<Record<string, number>> = {
  * carry a hue at a glance, narrow enough that a screen of rows reads as a log
  * rather than as a striped table.
  */
-export const ATTRIBUTION_EDGE_WIDTH_PX = 2;
+export const LEADING_EDGE_WIDTH_PX = 2;
 
 /**
  * One step of a rem scale, by name. Throws rather than resolving `undefined`.
@@ -333,7 +321,7 @@ export const ATTRIBUTION_EDGE_WIDTH_PX = 2;
  * The scales are open records keyed by token name, so a step read by name is
  * `number | undefined` and a typo would otherwise propagate into an emitted
  * length as `NaNrem` — a declaration the browser discards in silence. Same stance
- * as `tokens.ts`'s `schemeColor`, which throws on an unknown colour token for the
+ * as `tokens.ts`'s `schemeColor`, which throws on an unknown color token for the
  * same reason.
  */
 function scaleStep(scale: Readonly<Record<string, number>>, stepName: string): number {

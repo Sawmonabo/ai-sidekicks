@@ -14,7 +14,7 @@ import { render } from "@testing-library/react";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
-import { consolePaneRegistry, type ConsolePaneContext } from "@renderer/console/seats/index.js";
+import { paneRegistry, type PaneContext } from "@renderer/console/seats/index.js";
 import type { WorkflowRunDirectoryState } from "./runs/hooks/useWorkflowRunDirectory.js";
 import { PROBE_RUNS, settle } from "./workflows-probe.test-support.js";
 import {
@@ -38,7 +38,7 @@ import { WorkflowsScreen } from "./WorkflowsScreen.js";
 function renderDestination(directoryProps: { readonly directory?: WorkflowRunDirectoryState }): {
   readonly container: HTMLElement;
   /** Every pane context this screen opened, in the order it opened them. */
-  readonly openedContexts: readonly ConsolePaneContext[];
+  readonly openedContexts: readonly PaneContext[];
 } {
   const composed = composeWindow();
   const openedContexts = probeRunPane(composed.paneRegistry);
@@ -121,8 +121,8 @@ describe("what the workflows screen mounts", () => {
   });
 
   it("swaps the runs for the run pane when a run opens, and goes back", async () => {
-    // The registered body, resolved through the deck's own door — so this screen
-    // renders what the deck will render and cannot drift from it.
+    // The registered body, resolved through the pane layout's own door — so this screen
+    // renders what the pane layout will render and cannot drift from it.
     const container = renderScreen();
     await settle();
 
@@ -170,7 +170,7 @@ describe("which pane board the screen opens out of", () => {
    * case sharing a registry it never asked for.
    */
   function registerProcessWideRunBody(): void {
-    consolePaneRegistry.register({
+    paneRegistry.register({
       kind: "workflow-run",
       owner: "workflows-screen-test-process-wide",
       render: () => <p>{PROCESS_WIDE_RUN_TEXT}</p>,
@@ -180,7 +180,7 @@ describe("which pane board the screen opens out of", () => {
   it("mounts the composition's own body and consults the process-wide board for nothing", async () => {
     const composed = composeWindow();
     const mountedContexts = probeRunPane(composed.paneRegistry);
-    const processWideReads = vi.spyOn(consolePaneRegistry, "descriptorFor");
+    const processWideReads = vi.spyOn(paneRegistry, "descriptorFor");
     try {
       const container = renderComposed(composed);
       await settle();
@@ -209,7 +209,7 @@ describe("which pane board the screen opens out of", () => {
     try {
       // The two boards disagree, which is what makes the assertion below say which one
       // was read rather than merely that something rendered.
-      expect(consolePaneRegistry.descriptorFor("workflow-run")).toBeDefined();
+      expect(paneRegistry.descriptorFor("workflow-run")).toBeDefined();
       expect(composed.paneRegistry.descriptorFor("workflow-run")).toBeUndefined();
 
       const container = renderComposed(composed);
@@ -220,7 +220,7 @@ describe("which pane board the screen opens out of", () => {
       expect(container.textContent).not.toContain(PROCESS_WIDE_RUN_TEXT);
       expect(container.querySelector(".meridian-workflows-pane-host")?.children).toHaveLength(1);
     } finally {
-      consolePaneRegistry.unregister("workflow-run");
+      paneRegistry.unregister("workflow-run");
     }
   });
 });

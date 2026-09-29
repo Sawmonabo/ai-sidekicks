@@ -33,7 +33,7 @@ describe("failure matrix — the router is handed an empty hash", () => {
 describe("failure matrix — the router is handed a malformed percent-escape", () => {
   it("resolves a malformed session id to not-found rather than throwing", () => {
     // `decodeURIComponent("%zz")` raises `URIError`. Thrown from here it escapes
-    // `FrameStore.adoptHash` and the routing effect that calls it, so the window
+    // `WindowStore.adoptHash` and the routing effect that calls it, so the window
     // that was asked to render a bad link renders nothing and says nothing.
     expect(() => parseRoute("#/session/%zz")).not.toThrow();
     expect(parseRoute("#/session/%zz")).toStrictEqual({
@@ -56,7 +56,7 @@ describe("failure matrix — the router is handed a malformed percent-escape", (
     // Without this, a parser that answered not-found for every escaped segment
     // would satisfy the two refusals above and break every id that needs escaping.
     expect(parseRoute("#/session/session%2Fone")).toStrictEqual({
-      kind: "workspace",
+      kind: "session",
       sessionId: "session/one",
     });
     expect(parseRoute("#/settings/provider%20accounts")).toStrictEqual({
@@ -69,7 +69,7 @@ describe("failure matrix — the router is handed a malformed percent-escape", (
 describe("failure matrix — the router is handed an empty path segment", () => {
   it("refuses a doubled slash rather than selecting a different session", () => {
     // The consequence that makes this a defect rather than an untidiness: dropping
-    // the empty segment resolves this hash to the workspace for session `foo`.
+    // the empty segment resolves this hash to the session screen for session `foo`.
     expect(parseRoute("#/session//foo")).toStrictEqual({
       kind: "not-found",
       attempted: "#/session//foo",
@@ -85,7 +85,7 @@ describe("failure matrix — the router is handed an empty path segment", () => 
   it("negative control: the same routes without the empty segment still parse", () => {
     // Without this, refusing every hash would pass both refusals above.
     expect(parseRoute("#/sessions").kind).toBe("sessions");
-    expect(parseRoute("#/session/foo")).toStrictEqual({ kind: "workspace", sessionId: "foo" });
+    expect(parseRoute("#/session/foo")).toStrictEqual({ kind: "session", sessionId: "foo" });
     expect(parseRoute("#/settings")).toStrictEqual({ kind: "settings", page: undefined });
   });
 

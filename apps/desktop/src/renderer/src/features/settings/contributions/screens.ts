@@ -1,4 +1,4 @@
-import type { ConsoleSurfaceRegistry } from "@renderer/console/seats/index.js";
+import type { ScreenRegistry } from "@renderer/console/seats/index.js";
 
 /**
  * Register the Settings screen.
@@ -7,7 +7,7 @@ import type { ConsoleSurfaceRegistry } from "@renderer/console/seats/index.js";
  * pages and their stylesheets arrive in the chunk `settings-screen-body.ts` roots and stay
  * off the initial import graph.
  */
-export function registerSettingsSurface(registry: ConsoleSurfaceRegistry): void {
+export function registerSettingsScreen(registry: ScreenRegistry): void {
   registry.register({
     slot: "settings",
     owner: "settings",

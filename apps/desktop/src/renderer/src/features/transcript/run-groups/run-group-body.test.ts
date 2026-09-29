@@ -1,4 +1,4 @@
-// The chapter body's bounds: the height the engine agreed to, where the clip falls,
+// The run group body's bounds: the height the engine agreed to, where the clip falls,
 // and how much of the head the body can still reach.
 //
 // The height cases drive BOTH arms through the injected probe rather than through the
@@ -7,7 +7,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { CHAPTER_VISIBLE_ROW_CAP } from "../structure/structure-caps.js";
+import { RUN_GROUP_VISIBLE_ROW_CAP } from "../structure/structure-caps.js";
 import {
   RUN_GROUP_BODY_FALLBACK_HEIGHT,
   RUN_GROUP_BODY_INTRINSIC_HEIGHT,
@@ -18,7 +18,7 @@ import {
 } from "./run-group-body.js";
 import { runRow } from "../timeline-rows.test-support.js";
 
-function chapterRow(sequence: number): ReturnType<typeof runRow> {
+function runGroupRow(sequence: number): ReturnType<typeof runRow> {
   return runRow({
     id: `r${String(sequence)}`,
     sequence,
@@ -48,31 +48,31 @@ describe("the body's height — validated before it is applied", () => {
 });
 
 describe("where the clip falls", () => {
-  it("clips nothing while the chapter is under the ceiling", () => {
+  it("clips nothing while the run group is under the ceiling", () => {
     expect(listClippedHeadRowIds(["a", "b", "c"])).toEqual([]);
   });
 
   it("clips the OLDER head, never the newest rows", () => {
-    const rowIds = Array.from({ length: CHAPTER_VISIBLE_ROW_CAP + 3 }, (_unused, index) =>
+    const rowIds = Array.from({ length: RUN_GROUP_VISIBLE_ROW_CAP + 3 }, (_unused, index) =>
       String(index),
     );
     const head = listClippedHeadRowIds(rowIds);
     expect(head).toEqual(["0", "1", "2"]);
-    expect(head).not.toContain(String(CHAPTER_VISIBLE_ROW_CAP + 2));
+    expect(head).not.toContain(String(RUN_GROUP_VISIBLE_ROW_CAP + 2));
   });
 
   it("returns one identity for every empty head, so a memo over it does not re-run", () => {
     expect(listClippedHeadRowIds(["a"])).toBe(listClippedHeadRowIds(["b", "c"]));
   });
 
-  it("counts the clip from the chapter's length alone, without building the list", () => {
-    // The count is what a sealed chapter carries, and it is arithmetic rather than
-    // the length of a list nobody keeps: a chapter of ten thousand rows used to be
+  it("counts the clip from the run group's length alone, without building the list", () => {
+    // The count is what a sealed run group carries, and it is arithmetic rather than
+    // the length of a list nobody keeps: a run group of ten thousand rows used to be
     // sliced into a ten-thousand-element array so that a number could be read off
     // it and the array thrown away.
-    expect(countClippedHeadRows(CHAPTER_VISIBLE_ROW_CAP - 1)).toBe(0);
-    expect(countClippedHeadRows(CHAPTER_VISIBLE_ROW_CAP)).toBe(0);
-    expect(countClippedHeadRows(CHAPTER_VISIBLE_ROW_CAP + 7)).toBe(7);
+    expect(countClippedHeadRows(RUN_GROUP_VISIBLE_ROW_CAP - 1)).toBe(0);
+    expect(countClippedHeadRows(RUN_GROUP_VISIBLE_ROW_CAP)).toBe(0);
+    expect(countClippedHeadRows(RUN_GROUP_VISIBLE_ROW_CAP + 7)).toBe(7);
     // A negative length is not reachable, and the floor says what happens anyway
     // rather than leaving a caller to subtract past zero.
     expect(countClippedHeadRows(0)).toBe(0);
@@ -85,10 +85,10 @@ describe("where the clip falls", () => {
     for (const length of [
       0,
       1,
-      CHAPTER_VISIBLE_ROW_CAP - 1,
-      CHAPTER_VISIBLE_ROW_CAP,
-      CHAPTER_VISIBLE_ROW_CAP + 1,
-      CHAPTER_VISIBLE_ROW_CAP * 2,
+      RUN_GROUP_VISIBLE_ROW_CAP - 1,
+      RUN_GROUP_VISIBLE_ROW_CAP,
+      RUN_GROUP_VISIBLE_ROW_CAP + 1,
+      RUN_GROUP_VISIBLE_ROW_CAP * 2,
     ]) {
       const rowIds = Array.from({ length }, (_unused, index) => String(index));
       expect(listClippedHeadRowIds(rowIds)).toHaveLength(countClippedHeadRows(length));
@@ -97,30 +97,30 @@ describe("where the clip falls", () => {
 });
 
 describe("the body's row window — bounded on both sides", () => {
-  it("holds nothing while the chapter is under the ceiling", () => {
+  it("holds nothing while the run group is under the ceiling", () => {
     const window = new RunGroupBodyRowWindow();
-    for (let sequence = 1; sequence <= CHAPTER_VISIBLE_ROW_CAP; sequence += 1) {
-      window.admit(chapterRow(sequence));
+    for (let sequence = 1; sequence <= RUN_GROUP_VISIBLE_ROW_CAP; sequence += 1) {
+      window.admit(runGroupRow(sequence));
     }
     expect(window.headRows).toEqual([]);
   });
 
   it("holds the rows the mounted window displaced, oldest first", () => {
     const window = new RunGroupBodyRowWindow();
-    for (let sequence = 1; sequence <= CHAPTER_VISIBLE_ROW_CAP + 2; sequence += 1) {
-      window.admit(chapterRow(sequence));
+    for (let sequence = 1; sequence <= RUN_GROUP_VISIBLE_ROW_CAP + 2; sequence += 1) {
+      window.admit(runGroupRow(sequence));
     }
     expect(window.headRows.map((row) => row.id)).toEqual(["r1", "r2"]);
   });
 
   it("never grows past the ceiling, however long the run is", () => {
     const window = new RunGroupBodyRowWindow();
-    const admitted = CHAPTER_VISIBLE_ROW_CAP * 3;
+    const admitted = RUN_GROUP_VISIBLE_ROW_CAP * 3;
     for (let sequence = 1; sequence <= admitted; sequence += 1) {
-      window.admit(chapterRow(sequence));
+      window.admit(runGroupRow(sequence));
     }
-    expect(window.headRows).toHaveLength(CHAPTER_VISIBLE_ROW_CAP);
+    expect(window.headRows).toHaveLength(RUN_GROUP_VISIBLE_ROW_CAP);
     // The NEWEST of the head, which is what a body scrolls up into first.
-    expect(window.headRows.at(-1)?.id).toBe(`r${String(admitted - CHAPTER_VISIBLE_ROW_CAP)}`);
+    expect(window.headRows.at(-1)?.id).toBe(`r${String(admitted - RUN_GROUP_VISIBLE_ROW_CAP)}`);
   });
 });

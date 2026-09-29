@@ -1,4 +1,4 @@
-// A resize publishes the ledger's box immediately; the row pass behind it still waits.
+// A resize publishes the transcript's box immediately; the row pass behind it still waits.
 //
 // ITS OWN FILE because the subject needs a real DOM element and `scroll-chokepoint.test.ts`
 // deliberately drives a structural stand-in — that file's own header says why, and the two
@@ -10,15 +10,15 @@
 // box the virtualizer ranges against, and re-measure clamped rows. Only the second may be
 // late. `ManualClock.advance` excludes frames deliberately — `runFrame` is a separate
 // control so a frozen clock never reports a paint its holder did not release — and
-// `bridge/console-bridge.ts`' `consoleClockFor` hands a fixture build exactly that clock,
+// `bridge/console-bridge.ts`' `resolveBridgeClock` hands a fixture build exactly that clock,
 // so the deferred publication was not late but indefinite: measured on the endurance tier,
-// the ledger published geometry once, from `attach`, and spent two hundred churn cycles
+// the transcript published geometry once, from `attach`, and spent two hundred churn cycles
 // ranging a 149 px viewport against the 32 px box it had at mount.
 
 import { beforeEach, describe, expect, it, onTestFinished } from "vitest";
 
 import { ManualClock } from "@renderer/lib/clock.js";
-import { LedgerScrollController } from "./scroll-chokepoint.js";
+import { ScrollController } from "./scroll-chokepoint.js";
 import type { ScrollGeometry } from "./geometry-sample.js";
 import type { ScrollContainer } from "./scroll-chokepoint.js";
 
@@ -85,11 +85,11 @@ describe("the scroll chokepoint — a resize publishes the box without a frame",
     // THE DEFECT THIS RULES OUT, measured on the endurance tier before the split: the
     // publication rode the batch's coalescing frame, `ManualClock.advance` excludes
     // frames deliberately, and a fixture build hands the console exactly that clock —
-    // so the ledger published geometry once, from `attach`, and then ranged a 149 px
+    // so the transcript published geometry once, from `attach`, and then ranged a 149 px
     // viewport against the 32 px box it had at mount for two hundred churn cycles.
     // `clock.runFrame()` is never called below, and that is the whole assertion.
     const observer = installObserverCapture();
-    const controller = new LedgerScrollController({ clock });
+    const controller = new ScrollController({ clock });
     const mounted = growableElement(32, 9000);
     const received: ScrollGeometry[] = [];
 
@@ -108,7 +108,7 @@ describe("the scroll chokepoint — a resize publishes the box without a frame",
     // box escapes the frame and the row measurement does not, so a case that passed by
     // running the pass eagerly would be reporting the opposite design.
     const observer = installObserverCapture();
-    const controller = new LedgerScrollController({ clock });
+    const controller = new ScrollController({ clock });
     const measured: number[] = [];
     controller.observeOverflow((geometry) => measured.push(geometry.viewportHeight));
 

@@ -1,11 +1,11 @@
 // The diff pane: a change set, or an honest absence.
 //
-// THE PANE'S FRAME IS NOT THIS MODULE'S. `seats/ConsolePaneChrome` draws the section,
+// THE PANE'S FRAME IS NOT THIS MODULE'S. `seats/PaneFrame` draws the section,
 // the kind glyph, the breadcrumb, the control strip, and the body box for every pane
 // kind in the console; what this file returns is the BODY that goes inside it. The
 // section, its tab stop, its accessible name, and the actor's hue all arrive from
 // there, which is why none of them is set here and why the pane is named by its whole
-// address trail rather than by the word "Diff".
+// address trail rather than by the word "Review".
 //
 // WHAT THIS FILE DECIDES IS WHICH OF TWO BODIES THE PANE DRAWS: the change set it was
 // handed, or the absence copy for the subject the address names.
@@ -13,12 +13,12 @@
 import "./diff.css";
 
 import { Nothing } from "@renderer/console/primitives/index.js";
-import { ConsolePaneChrome, type PaneContextOf } from "@renderer/console/seats/index.js";
+import { PaneFrame, type PaneContextOf } from "@renderer/console/seats/index.js";
 import { DiffChangeSet } from "./DiffChangeSet.js";
-import { type ConsoleDiffModel } from "../diff-model.js";
+import { type DiffModel } from "../diff-model.js";
 
 /**
- * This body's own address arm, narrowed off the union the deck hands every pane.
+ * This body's own address arm, narrowed off the union the pane layout hands every pane.
  *
  * `PaneContextOf` is the seat's own narrowing rather than a second `Extract` written
  * here: one registry holds every kind and a body does not, so the narrowing is stated
@@ -65,7 +65,7 @@ export interface DiffPaneProps {
    * A change set to render. A caller that already holds a model — a layout composed
    * around one, a tier measuring the renderer — hands it over and the pane draws it.
    */
-  readonly diff?: ConsoleDiffModel;
+  readonly diff?: DiffModel;
 }
 
 export function DiffPane(props: DiffPaneProps): React.JSX.Element {
@@ -73,7 +73,7 @@ export function DiffPane(props: DiffPaneProps): React.JSX.Element {
   const absence = ABSENT_DIFF_COPY[context.entity.kind];
 
   return (
-    <ConsolePaneChrome
+    <PaneFrame
       kind="diff"
       sessionId={context.sessionStore?.sessionId}
       // Unconditional: a diff address carries its entity, so the arm this body is
@@ -96,6 +96,6 @@ export function DiffPane(props: DiffPaneProps): React.JSX.Element {
           />
         </div>
       )}
-    </ConsolePaneChrome>
+    </PaneFrame>
   );
 }

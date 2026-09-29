@@ -31,8 +31,8 @@ import "./mcp-fixture-body.css";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import type { McpServerBindingRef } from "@ai-sidekicks/contracts";
-import { useConsoleClock } from "@renderer/services/platform/hooks/useClock.js";
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { useClock } from "@renderer/services/platform/hooks/useClock.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { Nothing } from "@renderer/console/primitives/index.js";
 import { usePushDrivenRead } from "@renderer/console/seats/index.js";
 import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
@@ -55,7 +55,7 @@ import {
 import { ServerRow } from "./components/ServerRow.js";
 
 /** The daemon verbs the shell drives. */
-export interface McpShellOperations {
+export interface McpServerOperations {
   readonly listInventory: ListMcpInventory;
   readonly subscribeInventoryChanges: SubscribeMcpInventoryChanges;
   readonly sendEnabled: SendMcpEnabled;
@@ -64,9 +64,9 @@ export interface McpShellOperations {
 
 /** The MCP servers list with its per-row controls, driven by the calls in `operations`. */
 export function McpFixtureBody(props: {
-  readonly bridge: ConsoleBridge;
+  readonly bridge: PlatformBridge;
   /** Held stable by the caller: a new object restarts the inventory read. */
-  readonly operations: McpShellOperations;
+  readonly operations: McpServerOperations;
   /** Injected so a suite can assert that one press reused one key. */
   readonly mintKey?: IdempotencyKeyMinter;
 }): ReactNode {
@@ -74,7 +74,7 @@ export function McpFixtureBody(props: {
   const mintKey = props.mintKey ?? mintIdempotencyKey;
   // The scenario's frozen clock under the fixture, the real one otherwise, so a story
   // advances this read's coalescing window exactly when it advances everything else's.
-  const clock = useConsoleClock();
+  const clock = useClock();
   const [openingOrdinal, setOpeningOrdinal] = useState(0);
   // No key within the bridge: the ledger is about the whole node's inventory, and the
   // binding is the key INSIDE the map rather than the subject the map is held under.

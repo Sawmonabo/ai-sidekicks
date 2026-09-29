@@ -62,7 +62,7 @@ export interface RootStatePresentation {
 export const WORKTREE_STATE_PRESENTATION: Readonly<Record<WorktreeState, RootStatePresentation>> = {
   creating: {
     tone: "neutral",
-    meaning: "The daemon is provisioning this checkout.",
+    meaning: "The background service is provisioning this checkout.",
   },
   ready: {
     tone: "neutral",
@@ -78,7 +78,7 @@ export const WORKTREE_STATE_PRESENTATION: Readonly<Record<WorktreeState, RootSta
   },
   retired: {
     tone: "neutral",
-    meaning: "The record is retired. The daemon will not bind this checkout again.",
+    meaning: "The record is retired. The background service will not bind this checkout again.",
   },
   failed: {
     tone: "failure",
@@ -119,7 +119,7 @@ export function worktreeDiskDisposition(record: WorktreeStatusRecord): WorktreeD
  * cleanup stamp — the daemon owns that root and the console has not looked at it.
  */
 export const WORKTREE_DISK_DISPOSITION_COPY: Readonly<Record<WorktreeDiskDisposition, string>> = {
-  live: "No cleanup stamp on this record; the daemon still owns this root.",
+  live: "No cleanup stamp on this record; the background service still owns this root.",
   "retired-on-disk":
     "Retired, and the files are still on disk. The record keeps its provenance; a later sweep removes the checkout.",
   reclaimed: "The checkout has been removed from disk. The record and its provenance stay.",

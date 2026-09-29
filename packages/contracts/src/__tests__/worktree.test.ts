@@ -104,7 +104,7 @@ describe("WorktreeStateSchema (the six-state worktree lifecycle)", () => {
     ["failed", true],
     // The base-family vocabularies stay out of this plan's accept set
     // (per-family vocabularies, no shared union).
-    ["provisioning", false],
+    ["preparing", false],
     ["attached", false],
     ["detached", false],
     ["busy", false],
@@ -229,7 +229,7 @@ describe("WorktreeLifecyclePayloadSchema (the family shape over this plan's voca
     },
   );
 
-  it.each(["attached", "detached", "provisioning", "busy", "stale", "archived"])(
+  it.each(["attached", "detached", "preparing", "busy", "stale", "archived"])(
     "REJECTS the base-family vocabulary member %s (per-family accept set)",
     (state) => {
       // The exact-vocabulary pin: the factory parameterization exists so a
@@ -402,7 +402,7 @@ describe("SessionEventSchema registration of the five variants", () => {
       SessionEventSchema.safeParse(buildWorktreeEvent("worktree.ready", "attached")).success,
     ).toBe(false);
     expect(
-      SessionEventSchema.safeParse(buildWorktreeEvent("worktree.created", "provisioning")).success,
+      SessionEventSchema.safeParse(buildWorktreeEvent("worktree.created", "preparing")).success,
     ).toBe(false);
   });
 
@@ -621,7 +621,7 @@ const buildExecutionModeSelectRequest = () => ({
 const buildExecutionModeSelectResponse = () => ({
   workspaceId: WORKSPACE_ID,
   executionMode: "provisioned-worktree",
-  state: "provisioning",
+  state: "preparing",
 });
 
 // The MINIMAL lawful prepare request — `workspaceId` alone.
@@ -759,11 +759,11 @@ describe("ExecutionModeSelect response (records the mode)", () => {
     expect(parseSelectResponse({ executionMode: "detached" }).success).toBe(false);
   });
 
-  it.each(["provisioning", "ready", "busy", "stale", "archived"])(
+  it.each(["preparing", "ready", "busy", "stale", "archived"])(
     "carries the full WorkspaceState vocabulary, not a two-literal narrowing — %s",
     (state) => {
       // The ratified block types this field `WorkspaceState` and glosses the
-      // two expected values in a comment; a `z.enum(["ready","provisioning"])`
+      // two expected values in a comment; a `z.enum(["ready","preparing"])`
       // would silently reject the other three lawful states while passing
       // every other row here. Contrast the `Extract`-narrowed retire `state`
       // below, where the ratified block narrows the TYPE.
@@ -879,7 +879,7 @@ describe("ExecutionRootPrepare response (a root or a typed refusal, never both)"
     }
   });
 
-  it.each(["provisioning", "ready", "busy", "stale", "archived"])(
+  it.each(["preparing", "ready", "busy", "stale", "archived"])(
     "carries the full WorkspaceState vocabulary after the reprovision bracket — %s",
     (state) => {
       // The fixture only ever exercises `ready`, so without this row a
@@ -961,7 +961,7 @@ describe("WorktreeReuseCheck (branch, cleanliness, compat)", () => {
   );
 
   it("rejects a workspace state on the candidate (contract half)", () => {
-    expect(parseReuseCheckResponse({ state: "provisioning" }).success).toBe(false);
+    expect(parseReuseCheckResponse({ state: "preparing" }).success).toBe(false);
     expect(parseReuseCheckResponse({ state: "archived" }).success).toBe(false);
   });
 
@@ -1080,7 +1080,7 @@ describe("WorktreeStatusRead (worktree records with provenance)", () => {
   it("keeps a workspace state out of the worktree record", () => {
     // The per-record composition of the canonical enum (contract half) keeps a
     // worktree row from borrowing a workspace state.
-    expect(parseStatusReadWithWorktree({ state: "provisioning" }).success).toBe(false);
+    expect(parseStatusReadWithWorktree({ state: "preparing" }).success).toBe(false);
   });
 
   it("applies the wireFreeFormString guard to every path and ref on the record", () => {

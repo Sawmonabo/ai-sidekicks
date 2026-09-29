@@ -1,7 +1,7 @@
 // The question both workflows panes answer before they answer their own: is this
 // pane pointed at a subject it opens?
 //
-// TWO PANES, ONE MISTAKE. The deck hands a pane a `ConsoleEntityRef`, and the entity
+// TWO PANES, ONE MISTAKE. The pane layout hands a pane a `EntityRef`, and the entity
 // set registers `workflow-definition` and `workflow-run` as two kinds deliberately —
 // a definition is authored, versioned and scoped and outlives every run of it. The
 // builder opens the first and the run view the second, and neither may read an id off
@@ -19,13 +19,13 @@
 // so the CODE is declared once here and each pane's own vocabulary lists it.
 //
 // REFUSED, NEVER THROWN, AND NEVER QUIETLY READ. Both of the other dispositions are
-// worse: a throw takes the whole deck down over one mis-addressed pane, and reading
-// the id anyway is the defect this replaces. The refusal is a `ConsoleRefusal` rather
+// worse: a throw takes the whole pane layout down over one mis-addressed pane, and reading
+// the id anyway is the defect this replaces. The refusal is a `Refusal` rather
 // than a boolean so the two panes render one grammar — rule 9's code in mono and the
 // sentence verbatim — instead of each writing its own words for the same state.
 
-import { refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
-import type { ConsoleEntityRef } from "@renderer/lib/entity-kinds.js";
+import { refuse, type Refusal } from "@renderer/lib/refusal.js";
+import type { EntityRef } from "@renderer/lib/entity-kinds.js";
 
 /**
  * The code a pane raises when its address names a kind it does not open.
@@ -41,15 +41,15 @@ export const PANE_ADDRESS_INVALID_CODE = "pane-address-invalid" as const;
  *
  * The kinds are named in the detail because they are the whole content of the
  * refusal: a person looking at a pane that will not open needs to know it was pointed
- * at the wrong thing, and the deck's own address is what there is to fix. Neither id
+ * at the wrong thing, and the pane layout's own address is what there is to fix. Neither id
  * appears — `core/refusal.ts` fixes `detail` as one actionable sentence that is never
  * the refused value.
  */
 export function misaddressedPane(
   origin: string,
-  subjectKind: ConsoleEntityRef["kind"],
-  addressedKind: ConsoleEntityRef["kind"],
-): ConsoleRefusal {
+  subjectKind: EntityRef["kind"],
+  addressedKind: EntityRef["kind"],
+): Refusal {
   return refuse(
     origin,
     PANE_ADDRESS_INVALID_CODE,

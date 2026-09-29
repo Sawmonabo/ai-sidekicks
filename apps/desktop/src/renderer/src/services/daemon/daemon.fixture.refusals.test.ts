@@ -1,13 +1,13 @@
 // A scenario can script a call that REFUSES, and it refuses in the wire's shape.
 //
-// The third of the three places a fixture that matched `DesktopBridge`'s SHAPE
+// The third of the three places a fixture that matched `PlatformBridge`'s SHAPE
 // still answered something the live bridge never would: `ScenarioReply` carried a
 // `result` and nothing else, so no scenario could script a call that refuses — and
 // every typed daemon refusal the console renders was unreachable through the
 // fixture, leaving the refusal renderings undrivable.
 //
 // Two properties make the arm worth having rather than one. The refusal a caller
-// catches has to BE the daemon's envelope, recognised by `src/shared/`'s own wire
+// catches has to BE the daemon's envelope, recognized by `src/shared/`'s own wire
 // vocabulary, because a fixture-scoped wrapper would train every refusal rendering
 // against a code the person is never meant to read. And a refusal a real transport
 // takes time to deliver is a loading state before it is an error, so the scripted
@@ -31,8 +31,8 @@ import {
 } from "@test/helpers/fixture-bridge.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { readWireErrorEnvelope, type WireErrorEnvelope } from "@renderer/lib/wire-errors.js";
-import type { ConsoleScenario } from "../../../../../fixtures/scenario.js";
-import { FLAGSHIP_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
+import type { Scenario } from "../../../../../fixtures/scenario.js";
+import { CONCURRENT_STREAMING_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
 
 import { normalizeWireRejection } from "@renderer/lib/wire-rejection.js";
 
@@ -54,9 +54,9 @@ const SCRIPTED_REFUSAL: WireErrorEnvelope = {
 
 describe("fixture bridge — a scenario can script a call that refuses", () => {
   /** The concurrent-streaming scenario script, re-scripted so one call refuses and one still answers. */
-  function scenarioWithRefusal(afterMs?: number): ConsoleScenario {
+  function scenarioWithRefusal(afterMs?: number): Scenario {
     return {
-      ...FLAGSHIP_SCENARIO,
+      ...CONCURRENT_STREAMING_SCENARIO,
       id: "concurrent-streaming-refusal-probe",
       replies: [
         {
@@ -86,7 +86,7 @@ describe("fixture bridge — a scenario can script a call that refuses", () => {
     );
 
     // The claim is not "some object was thrown" — it is that the console's own wire
-    // vocabulary recognises it, which is what every renderer catch arm runs. A second
+    // vocabulary recognizes it, which is what every renderer catch arm runs. A second
     // refusal shape would pass a `rejects` assertion and fail here. Read rather than
     // tested: the reader answers both members in one pass, so the assertion names
     // what the fixture refused with instead of guarding and then reading it again.

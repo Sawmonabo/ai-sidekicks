@@ -1,4 +1,4 @@
-// Restoring the deck's arrangement, and keeping it saved.
+// Restoring the pane layout's arrangement, and keeping it saved.
 //
 // A hook and the two gates it runs on. The coalescing write itself is
 // `layout-writer.ts`, which this module holds one of per store; what is here is the
@@ -6,30 +6,30 @@
 // read exactly once for the arrangement and session on screen.
 //
 // THE RESTORE HAPPENS ONCE AND THE SAVE WAITS FOR IT. A save that fired before the
-// restore completed would file an empty deck over the record it was about to read, and
+// restore completed would file an empty pane layout over the record it was about to read, and
 // the result looks identical to a first run. A restore that ran a SECOND time would
 // replace an arrangement the person built with whatever the record holds, which reads
 // as the window undoing their work; `RestoreProgress` below is addressed so that
 // neither can happen.
 //
 // AND EVERYTHING THE RESTORE PRODUCES IS ADDRESSED BY THE SESSION IT IS ABOUT. The
-// workspace stays mounted across a route between two open sessions, so a value held for
+// session screen stays mounted across a route between two open sessions, so a value held for
 // the life of the MOUNT describes whichever session happened to produce it first: the
 // restore refusals were exactly that, and a session whose saved layout could not be read
-// left its errors standing over the next session's deck. Both the gate and the refusals
-// go through `store/subject-scoped/subject-scoped-state.ts` on the same
+// left its errors standing over the next session's pane layout. Both the gate and the refusals
+// go through `hooks/subject-scoped/useSubjectScopedState.ts` on the same
 // `(arrangement, session)` pair.
 //
 // AND A READ THAT FAILED IS NOT A FIRST RUN. The store's `readOutcome` answers
-// `present`, `absent`, or `failed` for exactly this: the fallback ledger pane is
-// opened on both kinds of nothing — a window with no panes is not a state this surface
+// `present`, `absent`, or `failed` for exactly this: the fallback transcript pane is
+// opened on both kinds of nothing — a window with no panes is not a state this screen
 // has — and is FILED only on `absent`. Filing it on `failed` was a saved arrangement
 // destroyed by a read the adapter could not perform and then a write the adapter
 // happily accepted, with nothing on screen to say so.
 
 import { useEffect } from "react";
 
-import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
+import { type Refusal } from "@renderer/lib/refusal.js";
 import { type UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
 import { useSubjectScopedResource } from "@renderer/hooks/subject-scoped/useSubjectScopedResource.js";
 import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
@@ -53,35 +53,35 @@ import {
  * One frozen array rather than a fresh one per seed and per settled restore, so a
  * subscriber comparing by identity is told nothing changed when nothing did.
  */
-const NO_RESTORE_REFUSALS: readonly ConsoleRefusal[] = Object.freeze([]);
+const NO_RESTORE_REFUSALS: readonly Refusal[] = Object.freeze([]);
 
 /** What the persistence hook binds: the layout, its store, the session, the refusal sink. */
 export interface PaneLayoutPersistenceOptions {
   readonly layout: PaneLayoutStore;
   readonly uiStateStore: UiStateStore;
   readonly sessionId: string | undefined;
-  readonly onSaveRefused: (refusal: ConsoleRefusal) => void;
+  readonly onSaveRefused: (refusal: Refusal) => void;
 }
 
 /**
- * Restore the deck once, then keep it saved. Returns what the restore refused.
+ * Restore the pane layout once, then keep it saved. Returns what the restore refused.
  *
  * A hook rather than two effects in the component body, because the two halves are
- * one story: the restore has to complete before the first save, or an empty deck
+ * one story: the restore has to complete before the first save, or an empty pane layout
  * would overwrite the record it was about to read.
  */
 export function usePaneLayoutPersistence(
   options: PaneLayoutPersistenceOptions,
-): readonly ConsoleRefusal[] {
+): readonly Refusal[] {
   const { layout, uiStateStore, sessionId, onSaveRefused } = options;
   // WHAT A RESTORE REFUSED, ADDRESSED BY THE RESTORE THAT REFUSED IT. Held on the same
   // `(arrangement, session)` pair as the gate below, through the same holder, because
-  // the workspace stays mounted across a route between two open sessions: mount state
-  // here went on showing one session's restore errors over the next session's deck, with
+  // the session screen stays mounted across a route between two open sessions: mount state
+  // here went on showing one session's restore errors over the next session's pane layout, with
   // nothing on screen tying them to the session they belong to. The seed is what a
   // session whose restore has not landed shows, which is nothing — an unsettled restore
   // makes no claim, and the previous session's is not a stand-in for one.
-  const restoreRefusals = useSubjectScopedState<readonly ConsoleRefusal[]>(
+  const restoreRefusals = useSubjectScopedState<readonly Refusal[]>(
     layout,
     sessionId,
     () => NO_RESTORE_REFUSALS,
@@ -89,15 +89,15 @@ export function usePaneLayoutPersistence(
   const publishRestoreRefusals = restoreRefusals.publish;
 
   // The partition rides the REQUEST rather than being read here. A writer coalesces,
-  // so a queued arrangement settles after the act that queued it — and the workspace
+  // so a queued arrangement settles after the act that queued it — and the session screen
   // survives a navigation between two already-open sessions, because the shell opens
   // session stores and never closes them. Reading a mutable current-session holder at
   // write time filed the older session's arrangement under the newer one's partition
-  // and overwrote a deck the person had not touched.
+  // and overwrote a pane layout the person had not touched.
   //
   // AND THE WRITER ITSELF IS HELD PER STORE. The partition axis above is the session;
   // this is the other one. The store handed down is replaced on a reconnect without
-  // remounting this surface, and a writer that closed over the first one goes on
+  // remounting this screen, and a writer that closed over the first one goes on
   // writing into it — so the holder retires that writer, flushing what it had queued,
   // and the render that first sees the new store builds the writer bound to it.
   const { value: writer } = useSubjectScopedResource<CoalescingLayoutWriter<PersistedLayoutRecord>>(
@@ -134,9 +134,9 @@ export function usePaneLayoutPersistence(
   );
 
   // Closed until the read has landed, and re-armed for the session arriving rather than
-  // for the store: the deck is the subject and the session is the key, so a `UiStateStore`
+  // for the store: the pane layout is the subject and the session is the key, so a `UiStateStore`
   // replacement leaves this exactly as it was. It is a write gate and a dispatch gate and
-  // nothing else, which is why it is held here rather than on the deck: a rendered
+  // nothing else, which is why it is held here rather than on the pane layout: a rendered
   // `hasSettled` is a fact a surface announces on, so hoisting one of the two onto the
   // other would give a persistence gate a place in a rendered state shape, or an
   // announcement a place in a hook.
@@ -149,16 +149,16 @@ export function usePaneLayoutPersistence(
     restore.start();
     let superseded = false;
     void (async () => {
-      // WHAT THE DECK HELD WHEN THE READ STARTED, so an arrangement the person makes
+      // WHAT THE PANE LAYOUT HELD WHEN THE READ STARTED, so an arrangement the person makes
       // while it is in flight can be told from the one being read. A slow read is not
       // hypothetical — the store is on the other side of a process boundary — and the
-      // deck is live the whole time it is running.
+      // pane layout is live the whole time it is running.
       const paneIdsBeforeRead = new Set(layout.snapshot().panes.map((pane) => pane.paneId));
       const revisionBeforeRead = layout.snapshot().revision;
 
       // EVERY ADDRESS OPENED WHILE THE READ RAN, kept even once it is closed again.
-      // A close leaves nothing behind in the deck's snapshot — the pane is simply gone
-      // — so a reconciliation that compares the deck before with the deck after cannot
+      // A close leaves nothing behind in the pane layout's snapshot — the pane is simply gone
+      // — so a reconciliation that compares the pane layout before with the pane layout after cannot
       // see one, and the record puts the pane straight back: the person watches a pane
       // they just closed return, and the write that follows files it as theirs.
       const openedDuringRead = new Set<string>();
@@ -178,15 +178,15 @@ export function usePaneLayoutPersistence(
       // way — and they part company at the write below.
       const record = readOutcome.outcome === "present" ? readOutcome.record : undefined;
 
-      // BOTH ARE HONOURED, AND WHICH ONE LEADS TURNS ON WHETHER THE PERSON ACTED. An
-      // untouched deck takes the record wholesale, which is the restore's own rule and
-      // the case that runs on nearly every mount. A deck the person has been arranging
+      // BOTH ARE HONORED, AND WHICH ONE LEADS TURNS ON WHETHER THE PERSON ACTED. An
+      // untouched pane layout takes the record wholesale, which is the restore's own rule and
+      // the case that runs on nearly every mount. A pane layout the person has been arranging
       // is the NEWER arrangement, so it wins for every address it holds — order and
       // widths with it — and the record fills in only what it does not; `adoptBeneath`
       // carries that rule, closes included.
       //
       // The panes present BEFORE the read are dropped either way. On a route from one
-      // open session to another the deck can still hold the previous session's panes,
+      // open session to another the pane layout can still hold the previous session's panes,
       // and keeping those would move them into a session nobody put them in.
       const actedDuringRead = layout.snapshot().revision !== revisionBeforeRead;
       let report: PaneLayoutRestoreReport | undefined;
@@ -211,16 +211,16 @@ export function usePaneLayoutPersistence(
       // route installs nothing rather than reporting into the session it arrived in.
       publishRestoreRefusals(report?.refusals ?? NO_RESTORE_REFUSALS);
       if (layout.snapshot().panes.length === 0) {
-        // This surface's own empty state: the workspace shows the ledger alone, full
+        // This screen's own empty state: the session screen shows the transcript alone, full
         // width.
-        layout.open({ kind: "timeline", entity: undefined });
+        layout.open({ kind: "transcript" });
       }
 
       // Opened only now, so nothing above reached the store: every commit this block
       // made is either what the record already held or what the write below carries.
       restore.settle();
       if (readOutcome.outcome === "failed") {
-        // NOTHING IS FILED OVER A RECORD THIS READ COULD NOT REACH. The deck on
+        // NOTHING IS FILED OVER A RECORD THIS READ COULD NOT REACH. The pane layout on
         // screen is the fallback, or the fallback plus whatever the person did while
         // the read ran, and neither is an arrangement they asked to save — while the
         // record the adapter still holds is. Saving is not disabled by this: the
@@ -229,15 +229,15 @@ export function usePaneLayoutPersistence(
         return;
       }
       if (actedDuringRead || (report?.restoredPaneCount ?? 0) === 0) {
-        // ONCE, and only where the deck on screen is not what the record held: the
-        // person's arrangement, or the fallback ledger this surface just opened.
+        // ONCE, and only where the pane layout on screen is not what the record held: the
+        // person's arrangement, or the fallback transcript this screen just opened.
         writer.request(sessionId, layout.toSnapshot());
       }
     })();
     return () => {
       superseded = true;
       // Abandoned before it landed, so the gate goes back: this pass adopted nothing,
-      // and a pass that never reads again would leave the deck saving an arrangement it
+      // and a pass that never reads again would leave the pane layout saving an arrangement it
       // never restored.
       restore.abandon();
     };
@@ -248,7 +248,7 @@ export function usePaneLayoutPersistence(
       return;
     }
     return layout.subscribe(() => {
-      // Nothing is written before the restore has landed. A write from the transient deck would
+      // Nothing is written before the restore has landed. A write from the transient pane layout would
       // replace the very record the read above is still resolving, and the person would
       // find a first-run window where their arrangement had been.
       if (!restore.hasSettled) {

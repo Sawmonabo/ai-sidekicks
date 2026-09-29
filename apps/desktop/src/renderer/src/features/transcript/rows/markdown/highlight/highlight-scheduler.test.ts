@@ -1,5 +1,5 @@
-// Where a block is tokenised, where the answer is kept, and what happens when it cannot
-// be tokenised at all.
+// Where a block is tokenized, where the answer is kept, and what happens when it cannot
+// be tokenized at all.
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -53,8 +53,8 @@ afterEach(() => {
   }
 });
 
-describe("tokenising a small block", () => {
-  it("returns lines whose tokens carry family references and never colours", () => {
+describe("tokenizing a small block", () => {
+  it("returns lines whose tokens carry family references and never colors", () => {
     const created = scheduler();
     return created.requestTokens("const answer = 1;\n", "typescript").then((outcome) => {
       expect(outcome.status).toBe("highlighted");
@@ -85,7 +85,7 @@ describe("tokenising a small block", () => {
   });
 
   it("keys the cache on the language as well as the source", async () => {
-    // The same text tokenises differently under two grammars; a key that dropped the
+    // The same text tokenizes differently under two grammars; a key that dropped the
     // language would serve a JSON block's tokens for a YAML one.
     const created = scheduler();
     await created.requestTokens("a: 1\n", "yaml");
@@ -100,7 +100,7 @@ describe("tokenising a small block", () => {
   });
 });
 
-describe("declining to tokenise", () => {
+describe("declining to tokenize", () => {
   it("refuses a block past the source cap by name", async () => {
     const created = scheduler();
     const oversized = "x".repeat(CODE_HIGHLIGHT_SOURCE_BYTE_CAP + 1);

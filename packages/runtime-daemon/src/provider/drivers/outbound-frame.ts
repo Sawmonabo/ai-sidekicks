@@ -606,7 +606,7 @@ export const OUTBOUND_FRAME_PENDING_TOTAL_CAPACITY: number = 256;
  * Caps an insertion-ordered SETTLED-key collection, evicting oldest-first.
  *
  * Callers `delete` before `set` / `add` so a re-used key moves to the newest
- * position rather than ageing out while still live.
+ * position rather than aging out while still live.
  *
  * Deliberately NOT used on the unsettled store. Evicting there discards a
  * ruling that is still owed, and a turn that later settles against the evicted
@@ -1367,7 +1367,7 @@ export class OutboundFrameTripwire {
  * refused write is loud, is attributable to one binding, and loses nothing.
  *
  * Carries NO dotted code, deliberately, and that is the established shape for a
- * driver-local refusal the error registry has no row for — the neighbours are
+ * driver-local refusal the error registry has no row for — the neighbors are
  * the Codex session-already-live and driver-config errors. Callers discriminate
  * on the class. Reusing the neutralization code would be worse than adding
  * none: that code's detail string has a fixed parseable form two producers emit
@@ -1375,7 +1375,7 @@ export class OutboundFrameTripwire {
  * precisely what has NOT happened here.
  *
  * Extends `Error` and not `DaemonDomainError` for the same wire reason as its
- * neighbour: the JSON-RPC mapper discriminates by `instanceof` and projects a
+ * neighbor: the JSON-RPC mapper discriminates by `instanceof` and projects a
  * `DaemonDomainError` subclass's `code` into `data.type`, so extending that base
  * publishes a refusal shape no contract registers. Falling through to the
  * catch-all keeps this a `-32603` with no `data`.
@@ -1484,7 +1484,7 @@ export class TextNeutralizationRefusedError extends Error {
  * ordering the assert exists to invert. Recording the binding and looking up by
  * run keeps both properties.
  */
-export class ProviderBindingQuarantine {
+export class RuntimeBindingQuarantine {
   // Run id → the session whose binding condemned it. The VALUE is what makes the
   // release possible; the KEY is what the assert sites can supply.
   readonly #condemningSessionIdByRunId = new Map<string, string>();

@@ -1,4 +1,4 @@
-// What holds the ledger frame's four objects together, and the hook a view reads it
+// What holds the transcript frame's four objects together, and the hook a view reads it
 // through.
 //
 // The scroll chokepoint, the reading anchor, the measurement ledger, and the window cap
@@ -32,11 +32,11 @@
 // the glide-in-flight refusal that guards them — is `viewport-anchor-capture.ts`'.
 // This file holds the objects and the order they are asked in.
 
-import { type ConsoleClock } from "@renderer/lib/clock.js";
+import { type Clock } from "@renderer/lib/clock.js";
 import { type Unsubscribe } from "@renderer/lib/emitter.js";
 import { ReadingAnchor } from "../scroll/reading-anchor.js";
 import { RowMeasurementTable } from "./row-measurement-table.js";
-import { LedgerScrollController, type ScrollContainer } from "../scroll/scroll-chokepoint.js";
+import { ScrollController, type ScrollContainer } from "../scroll/scroll-chokepoint.js";
 import { ViewportAnchorCapture } from "./viewport-anchor-capture.js";
 import { ViewportDeferredHold } from "./viewport-deferred-hold.js";
 import { HeadInsertion } from "./viewport-head-insertion.js";
@@ -53,11 +53,11 @@ import { VirtualizerOptions, type TranscriptRowVirtualizer } from "./virtualizer
 import { TranscriptWindow } from "./window-cap.js";
 
 export interface ViewportControllerOptions {
-  readonly clock: ConsoleClock;
+  readonly clock: Clock;
 }
 
 export class ViewportController {
-  readonly scroll: LedgerScrollController;
+  readonly scroll: ScrollController;
   readonly anchor: ReadingAnchor;
   readonly measurements: RowMeasurementTable;
   readonly window: TranscriptWindow;
@@ -84,7 +84,7 @@ export class ViewportController {
   #disposed = false;
 
   public constructor(options: ViewportControllerOptions) {
-    this.scroll = new LedgerScrollController({ clock: options.clock });
+    this.scroll = new ScrollController({ clock: options.clock });
     this.anchor = new ReadingAnchor();
     this.measurements = new RowMeasurementTable();
     this.window = new TranscriptWindow();
@@ -288,7 +288,7 @@ export class ViewportController {
    * Put the reader back where they were, if they had left the tail.
    *
    * While following, the tail is the position, so the frame glides there instead —
-   * which is the one case where the ledger moves the offset on its own, and it does
+   * which is the one case where the transcript moves the offset on its own, and it does
    * it only because the reader asked for it by being at the tail.
    *
    * Called from `reconcile`'s own arm only where no prune compensation ran: its index
@@ -312,7 +312,7 @@ export class ViewportController {
     const index = this.#rowKeys.indexOf(anchorPoint.rowKey);
     if (index < 0) {
       // The anchored row left the window. Rather than guess at a replacement — which
-      // is how a ledger teleports — the offset is left exactly where it is.
+      // is how a transcript teleports — the offset is left exactly where it is.
       return;
     }
     this.scroll.glideTo(

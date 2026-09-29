@@ -10,7 +10,7 @@ import { QueueItemSummarySchema, type QueueItemSummary } from "@ai-sidekicks/con
 
 import { createFixture } from "@test/helpers/fixture-bridge.js";
 import { settleScheduledRead } from "@test/helpers/scheduled-read.js";
-import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { useQueueFeed } from "./queue-feed.js";
 import type { QueueCalls, QueueFeed } from "./queue-reading.js";
 
@@ -55,16 +55,16 @@ export const QUEUED_ROW: QueueItemSummary = queueRow(
  * each member is an array the calls append to rather than a copy taken up front.
  */
 export function queueFeedBridge(snapshot: readonly QueueItemSummary[] = []): {
-  bridge: ConsoleBridge;
+  bridge: PlatformBridge;
   queueCalls: QueueCalls;
   deliver: (item: QueueItemSummary) => void;
   tailedSessionIds: readonly string[];
   listedSessionIds: readonly string[];
-  cancelledItemIds: readonly string[];
+  canceledItemIds: readonly string[];
 } {
   const tailedSessionIds: string[] = [];
   const listedSessionIds: string[] = [];
-  const cancelledItemIds: string[] = [];
+  const canceledItemIds: string[] = [];
   const tails = new Set<(item: QueueItemSummary) => void>();
   return {
     bridge: createFixture().bridge,
@@ -81,7 +81,7 @@ export function queueFeedBridge(snapshot: readonly QueueItemSummary[] = []): {
         };
       },
       cancel: async (queueItemId) => {
-        cancelledItemIds.push(queueItemId);
+        canceledItemIds.push(queueItemId);
       },
     },
     deliver: (item) => {
@@ -91,13 +91,13 @@ export function queueFeedBridge(snapshot: readonly QueueItemSummary[] = []): {
     },
     tailedSessionIds,
     listedSessionIds,
-    cancelledItemIds,
+    canceledItemIds,
   };
 }
 
 /** Reports the feed out of the tree, so a case reads the hook's own answer. */
 export function QueueFeedProbe(props: {
-  readonly bridge: ConsoleBridge;
+  readonly bridge: PlatformBridge;
   readonly sessionId: string;
   readonly queueCalls: QueueCalls;
   readonly onFeed: (feed: QueueFeed) => void;
@@ -147,7 +147,7 @@ export async function openFeed(snapshot: readonly QueueItemSummary[] = []): Prom
 
 /** Two surfaces on one bridge, each asking the hook its own question. */
 export function TwoQueueReaders(props: {
-  readonly bridge: ConsoleBridge;
+  readonly bridge: PlatformBridge;
   readonly queueCalls: QueueCalls;
   readonly firstSessionId: string;
   readonly secondSessionId: string;

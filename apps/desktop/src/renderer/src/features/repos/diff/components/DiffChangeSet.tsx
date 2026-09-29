@@ -12,11 +12,11 @@ import { DiffFileList } from "./DiffFileList.js";
 import { DiffRenderer } from "./DiffRenderer.js";
 import { DiffToolbar } from "./DiffToolbar.js";
 import { useDiffViewControls } from "../hooks/useDiffViewControls.js";
-import { type ConsoleDiffModel } from "../diff-model.js";
+import { type DiffModel } from "../diff-model.js";
 import { useDiffModelViewState } from "../hooks/useDiffModelViewState.js";
 
 export interface DiffChangeSetProps {
-  readonly diff: ConsoleDiffModel;
+  readonly diff: DiffModel;
 }
 
 export function DiffChangeSet(props: DiffChangeSetProps): React.JSX.Element {

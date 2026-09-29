@@ -142,7 +142,7 @@ export class AbandonedPair {
  */
 const CHILD_PROGRAM = [
   "const { spawn } = require('node:child_process');",
-  // A grandchild that outlives its parent unless the whole group is signalled.
+  // A grandchild that outlives its parent unless the whole group is signaled.
   "const grandchild = spawn(process.execPath, ['-e', 'setInterval(() => {}, 60000)'], { stdio: 'ignore' });",
   "process.stdout.write(JSON.stringify({ grandchildPid: grandchild.pid }) + '\\n');",
   "setInterval(() => {}, 60000);",

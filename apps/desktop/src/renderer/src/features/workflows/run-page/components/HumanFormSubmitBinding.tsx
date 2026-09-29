@@ -6,7 +6,7 @@
 // pane's, and every one of them would have to be written again by whoever supplies a body.
 // So they stay here, and what crosses into the body is one bound `submit` on its mount.
 //
-// A COMPONENT BETWEEN THE MOUNT AND THE BODY, rather than a hook in the slot above it. The
+// A COMPONENT BETWEEN THE MOUNT AND THE BODY, rather than a hook in the mount point above it. The
 // submit is addressed by an attempt that exists only where a phase is open, so a hook in the
 // wrapper would have to run on the render where nothing is waiting. `EngineMountPoint`
 // renders only its empty frame on that arm, so the channel is mounted as the seat's body and
@@ -42,14 +42,14 @@ import { useHumanFormSubmit } from "../hooks/useHumanFormSubmit.js";
 import { DefaultHumanFormBody } from "../default-human-form-body.js";
 import type { HumanFormBody, HumanFormPhase } from "../human-form-mount.js";
 
-/** What the slot hands this channel: the open phase, the body to mount, and the submit call. */
+/** What the mount point hands this channel: the open phase, the body to mount, and the submit call. */
 export interface HumanFormSubmitBindingProps {
   /** The wait this channel is the submit for. Present by construction — see the header. */
   readonly phase: HumanFormPhase;
   /**
    * The supplied body, or `undefined` while there is none and the console's shell stands.
    *
-   * Required-carrying-undefined rather than optional, because the slot above always
+   * Required-carrying-undefined rather than optional, because the mount point above always
    * knows which it has and an absent key would read as one that forgot to say.
    */
   readonly body: HumanFormBody | undefined;
@@ -89,7 +89,9 @@ function renderOutcome(outcome: ReturnType<typeof useHumanFormSubmit>["outcome"]
     case "submitting":
       // `not-loaded` and never `computing`: the answer is a round trip that has been put
       // and is still coming, rather than this console working something out.
-      return <Nothing kind="not-loaded" placement="inline" title="Waiting for the daemon." />;
+      return (
+        <Nothing kind="not-loaded" placement="inline" title="Waiting for the background service." />
+      );
     case "submitted":
       return (
         // `role="status"` for the reason the workflow-start receipt carries one: the
@@ -104,8 +106,8 @@ function renderOutcome(outcome: ReturnType<typeof useHumanFormSubmit>["outcome"]
           <WireFigure value={outcome.submittedAt} />
           <span>
             {outcome.outputCount === 1
-              ? "The daemon recorded this answer and one output came of it."
-              : `The daemon recorded this answer and ${String(outcome.outputCount)} outputs came of it.`}
+              ? "The background service recorded this answer and one output came of it."
+              : `The background service recorded this answer and ${String(outcome.outputCount)} outputs came of it.`}
           </span>
         </p>
       );

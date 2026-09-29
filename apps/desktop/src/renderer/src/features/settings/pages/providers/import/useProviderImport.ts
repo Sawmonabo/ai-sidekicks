@@ -36,7 +36,7 @@ import {
   type ImportProgressSubscribeCall,
 } from "./import-progress.js";
 import { useImportProgress } from "./useImportProgress.js";
-import type { ConsoleRefusal } from "@renderer/lib/refusal.js";
+import type { Refusal } from "@renderer/lib/refusal.js";
 import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
 
 /**
@@ -67,7 +67,7 @@ export interface ProviderImportModel {
    * Put one import. Resolves to the act's own refusal while one is already running,
    * and to `undefined` where the import was put. A rejected begin propagates.
    */
-  readonly put: (request: ProviderImportRequest) => Promise<ConsoleRefusal | undefined>;
+  readonly put: (request: ProviderImportRequest) => Promise<Refusal | undefined>;
 }
 
 /**

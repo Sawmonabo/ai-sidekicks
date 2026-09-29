@@ -1,4 +1,4 @@
-// What the shell knows about itself.
+// What the main process knows about itself.
 //
 // The console's honest chrome has three facts behind it and they arrive together:
 // which step of the daemon supervisor's own state machine this window is on, which
@@ -18,8 +18,8 @@
 // the comparison every consumer shares.
 //
 // THE UNREPORTED ARM IS THE ONE THAT MAKES THIS HONEST. No bridge namespace carries the
-// shell's status yet, so the ordinary state of a shipped window is "nobody has said".
-// That is not `connected` and it is not `offline`: a window that synthesised
+// main process's status yet, so the ordinary state of a shipped window is "nobody has said".
+// That is not `connected` and it is not `offline`: a window that synthesized
 // `connected` from a call that happened to succeed would be doing exactly what the
 // console's trust stance forbids, and one that assumed `offline` would report a working
 // console as down. So the arm exists and it renders as the _not checked_ kind of nothing.
@@ -34,7 +34,7 @@
  * verdict the daemon reached, and a floor comparison performed here would be the
  * second source of truth the corpus forbids.
  */
-export interface ShellNegotiation {
+export interface MainProcessNegotiation {
   readonly compatible: boolean;
   /** The daemon's chosen protocol version, verbatim. */
   readonly daemonProtocolVersion: string;
@@ -63,14 +63,14 @@ export interface ShellNegotiation {
  * one does not, and a shape carrying `attempt?: number` would let a surface render
  * "attempt 3 of 5" beside "connected".
  */
-export type ShellConnection =
+export type DaemonConnection =
   /** Nobody has reported. Renders as _not checked_; never as connected, never as down. */
   | { readonly kind: "unreported" }
   | { readonly kind: "probing" }
   | { readonly kind: "starting" }
   | { readonly kind: "connected" }
   | { readonly kind: "reconnecting"; readonly attempt: number; readonly attemptLimit: number }
-  /** The handshake was refused. The facts are on `ShellState.negotiation`. */
+  /** The handshake was refused. The facts are on `MainProcessState.negotiation`. */
   | { readonly kind: "version-incompatible" }
   | {
       readonly kind: "offline";
@@ -84,7 +84,7 @@ export type ShellConnection =
 export type DaemonTransport = "os-local" | "loopback";
 
 /** Whether long-lived auth material can be persisted at all on this host. */
-export type ShellKeystoreState = "available" | "unavailable";
+export type MainProcessKeystoreState = "available" | "unavailable";
 
 /**
  * The whole report, as one window holds it.
@@ -93,8 +93,8 @@ export type ShellKeystoreState = "available" | "unavailable";
  * "unreported" rather than a default: a console that rendered `os-local` because
  * nothing had said would be claiming a transport posture it never read.
  */
-export interface ShellState {
-  readonly connection: ShellConnection;
+export interface MainProcessState {
+  readonly connection: DaemonConnection;
   /**
    * What the handshake settled, on every arm it settled on.
    *
@@ -103,15 +103,15 @@ export interface ShellState {
    * version a connected runtime speaks. One home for the handshake's facts means a
    * surface never has to ask which arm it may read the version from.
    */
-  readonly negotiation: ShellNegotiation | undefined;
+  readonly negotiation: MainProcessNegotiation | undefined;
   /** The last heartbeat the supervisor observed, verbatim from the wire. */
   readonly lastHeartbeatAt: string | undefined;
   readonly transport: DaemonTransport | undefined;
-  readonly keystore: ShellKeystoreState | undefined;
+  readonly keystore: MainProcessKeystoreState | undefined;
 }
 
 /** What a window holds before anything has reported. The store is born on it. */
-export const UNREPORTED_SHELL_STATE: ShellState = {
+export const UNREPORTED_MAIN_PROCESS_STATE: MainProcessState = {
   connection: { kind: "unreported" },
   negotiation: undefined,
   lastHeartbeatAt: undefined,
@@ -129,13 +129,16 @@ export const UNREPORTED_SHELL_STATE: ShellState = {
  * Written over the union rather than as a deep equality, so a new arm is a compile error
  * here rather than a silent "always different".
  */
-export function mainProcessReportsAreEqual(left: ShellState, right: ShellState): boolean {
+export function mainProcessReportsAreEqual(
+  left: MainProcessState,
+  right: MainProcessState,
+): boolean {
   return (
     left.lastHeartbeatAt === right.lastHeartbeatAt &&
     left.transport === right.transport &&
     left.keystore === right.keystore &&
-    shellNegotiationsAreEqual(left.negotiation, right.negotiation) &&
-    shellConnectionsAreEqual(left.connection, right.connection)
+    mainProcessNegotiationsAreEqual(left.negotiation, right.negotiation) &&
+    daemonConnectionsAreEqual(left.connection, right.connection)
   );
 }
 
@@ -146,7 +149,7 @@ export function mainProcessReportsAreEqual(left: ShellState, right: ShellState):
  * and the console's family DAG runs one way, so a sentence declared in `frame/` is one
  * a view family cannot reach without a second spelling of it.
  */
-export function describeShellConnection(connection: ShellConnection): string {
+export function describeDaemonConnection(connection: DaemonConnection): string {
   switch (connection.kind) {
     case "unreported":
       return "Local runtime";
@@ -167,7 +170,7 @@ export function describeShellConnection(connection: ShellConnection): string {
   }
 }
 
-function shellConnectionsAreEqual(left: ShellConnection, right: ShellConnection): boolean {
+function daemonConnectionsAreEqual(left: DaemonConnection, right: DaemonConnection): boolean {
   if (left.kind !== right.kind) {
     return false;
   }
@@ -196,9 +199,9 @@ function shellConnectionsAreEqual(left: ShellConnection, right: ShellConnection)
 }
 
 /** The handshake's facts, compared member by member. Absent equals absent. */
-function shellNegotiationsAreEqual(
-  left: ShellNegotiation | undefined,
-  right: ShellNegotiation | undefined,
+function mainProcessNegotiationsAreEqual(
+  left: MainProcessNegotiation | undefined,
+  right: MainProcessNegotiation | undefined,
 ): boolean {
   if (left === undefined || right === undefined) {
     return left === right;
@@ -221,7 +224,7 @@ function shellNegotiationsAreEqual(
  * The settings page's state row renders this absence, and it is one fact, so it has one
  * spelling.
  */
-export const UNREPORTED_SHELL_NOTICE: { readonly title: string; readonly detail: string } = {
+export const UNREPORTED_DAEMON_NOTICE: { readonly title: string; readonly detail: string } = {
   title: "Local runtime",
   detail:
     "This build has no channel carrying the supervisor's state, so this window has not been told whether the local runtime is running.",

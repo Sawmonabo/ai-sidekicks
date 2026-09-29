@@ -22,7 +22,7 @@
 // declares it.
 //
 // THE INLINE CARDS ARE NOT A FAMILY HERE. A diff, an attachment, and an artifact are
-// bodies the repos family owns behind `InlineCardSeatProps`, and a row carries one
+// bodies the repos family owns behind `InlineCardProps`, and a row carries one
 // where its own content says so — which is a question about a row's attachments, not
 // about which card it is. `MessageRow` renders the seat; this table does not know it
 // exists.
@@ -32,7 +32,7 @@ import type { HydratedSessionEventContent, TimelineRow } from "@ai-sidekicks/con
 import type { GlyphName } from "@renderer/styles/glyphs.js";
 
 /**
- * Every card family a ledger row can take. Closed.
+ * Every card family a transcript row can take. Closed.
  *
  * The tuple is the declaration and the union is derived from it, for the reason
  * `primitives/figures/Chip.tsx` gives about its own tone set: a fifth kind added to a

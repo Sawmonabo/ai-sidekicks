@@ -1,7 +1,7 @@
-// The deck's persisted grammar: what a saved layout looks like, and what a restore
+// The pane layout's persisted grammar: what a saved layout looks like, and what a restore
 // refuses to believe.
 //
-// This module holds three of the deck's five rules, and each one is a decision rather
+// This module holds three of the pane layout's five rules, and each one is a decision rather
 // than a mechanism. The first two are the console's stated grammar — a layout snapshot
 // of an unknown version is discarded whole, an unknown pane kind is dropped and
 // reported, and an entity id that fails validation is rejected — and the third is this
@@ -9,16 +9,16 @@
 //
 //   • **A snapshot of an unknown version is discarded WHOLE.** Not repaired, not
 //     partially adopted: a grammar this build does not know is a grammar whose
-//     members it cannot interpret, and a half-restored deck is worse than an empty
+//     members it cannot interpret, and a half-restored pane layout is worse than an empty
 //     one because the person cannot tell which half is missing.
 //   • **An unknown pane kind is dropped and REPORTED.** Version skew is ordinary —
 //     a snapshot written by a newer build names kinds this one has not got — so the
-//     drop is a typed refusal the deck renders, never a thrown tripwire.
+//     drop is a typed refusal the pane layout renders, never a thrown tripwire.
 //   • **The restore count is capped.** A snapshot is untrusted input the moment it
 //     is on disk; without a cap a corrupted or hand-edited record mounts an
 //     unbounded number of panes before anything can say no.
 //
-// AND ONE THE DECK'S OWN STORE STATES AND THIS FILE HAS TO HONOUR: **one entity,
+// AND ONE THE PANE LAYOUT'S OWN STORE STATES AND THIS FILE HAS TO HONOR: **one entity,
 // one pane**. `open()` enforces it by focusing the pane that already shows an
 // address, which repairs nothing it did not create — a record holding two pane ids
 // at one address would mount both bodies, consume two cap slots, and be written
@@ -33,7 +33,7 @@
 // each one names a DEFECT; a tripwire throws in a development build, which is
 // exactly right for a store mutated outside its chokepoint and exactly wrong for a
 // snapshot written by last week's build. So decoding answers with typed
-// `ConsoleRefusal`s — the console's one refusal shape — which the deck renders
+// `Refusal`s — the console's one refusal shape — which the pane layout renders
 // through `primitives/Refusal`. The drop is loud, counted, and on screen; it is not
 // a crash.
 //
@@ -42,12 +42,12 @@
 // is what lets the grammar be tested against hand-written records — including ones
 // no version of this console would ever write.
 
-import { isConsoleRefusal, refuse, type NarrowedRefusal } from "@renderer/lib/refusal.js";
+import { isRefusal, refuse, type NarrowedRefusal } from "@renderer/lib/refusal.js";
 import { isWireRecord } from "@renderer/lib/wire-record.js";
 import {
   isEphemeralPaneKind,
   isPaneKind,
-  parseConsolePaneAddress,
+  parsePaneAddress,
 } from "@renderer/console/seats/index.js";
 import { DEFAULT_PANE_LAYOUT_DENSITY, type PaneLayoutDensity } from "./pane-layout-measures.js";
 import { isPaneLayoutDensity } from "./pane-layout-density.js";
@@ -63,7 +63,7 @@ import {
  * The snapshot grammar's version.
  *
  * A schema version rather than a cap, so it lives with the code that writes and
- * reads the grammar rather than in `core/constants/`. Bump it whenever a member's
+ * reads the grammar rather than beside the caps. Bump it whenever a member's
  * MEANING changes; a restore of any other value discards the whole record.
  */
 export const PANE_LAYOUT_SNAPSHOT_VERSION = 1;
@@ -165,9 +165,9 @@ export function decodePaneLayoutSnapshot(
 ): DecodedPaneLayoutSnapshot {
   if (!isWireRecord(snapshot)) {
     return emptyDecode(
-      refuseDeckRestore(
+      refusePaneLayoutRestore(
         "snapshot-shape-invalid",
-        "The saved layout is not a layout record, so none of it was restored. The deck opens empty.",
+        "The saved layout is not a layout record, so none of it was restored. The session opens with no panes.",
       ),
     );
   }
@@ -175,12 +175,12 @@ export function decodePaneLayoutSnapshot(
   const header = snapshot[PANE_LAYOUT_SNAPSHOT_HEADER_KEY];
   if (!isWireRecord(header) || header["version"] !== PANE_LAYOUT_SNAPSHOT_VERSION) {
     // Discarded WHOLE. A grammar this build does not know is a grammar whose
-    // members it cannot interpret, and a partly-adopted deck hides which part
+    // members it cannot interpret, and a partly-adopted pane layout hides which part
     // went missing.
     return emptyDecode(
-      refuseDeckRestore(
+      refusePaneLayoutRestore(
         "snapshot-version-unknown",
-        "The saved layout was written by a different version of the console, so none of it was restored. The deck opens empty and saves again as you arrange it.",
+        "The saved layout was written by a different version of the app, so none of it was restored. The session opens with no panes and saves again as you arrange them.",
       ),
     );
   }
@@ -193,7 +193,7 @@ export function decodePaneLayoutSnapshot(
     }
     if (!isWireRecord(entry)) {
       refusals.push(
-        refuseDeckRestore(
+        refusePaneLayoutRestore(
           "pane-shape-invalid",
           "One saved pane was not a pane record and was ignored.",
         ),
@@ -212,7 +212,7 @@ export function decodePaneLayoutSnapshot(
   for (const candidate of candidates) {
     if (panes.length >= restoredPaneCap) {
       refusals.push(
-        refuseDeckRestore(
+        refusePaneLayoutRestore(
           "restore-cap-exceeded",
           `The saved layout held more than ${String(restoredPaneCap)} panes. The first ${String(restoredPaneCap)} were restored and the rest were left closed.`,
         ),
@@ -228,7 +228,7 @@ export function decodePaneLayoutSnapshot(
       // Dropped BEFORE the push, so it consumes no cap slot: a record padded with
       // repeats of one address must not push real panes out of the restore.
       refusals.push(
-        refuseDeckRestore(
+        refusePaneLayoutRestore(
           "pane-address-duplicate",
           "Two saved panes showed the same thing, so the second was left closed.",
         ),
@@ -256,7 +256,7 @@ export function decodePaneLayoutSnapshot(
 }
 
 /** This module's refusals, named for the restore they are about. */
-function refuseDeckRestore(
+function refusePaneLayoutRestore(
   code: PaneLayoutRestoreRefusalCode,
   detail: string,
 ): PaneLayoutRestoreRefusal {
@@ -285,7 +285,7 @@ function decodePane(
     // grammar below, which would admit it — an ephemeral pane's address is a valid
     // address, and what is wrong with it is that it was SAVED.
     refusals.push(
-      refuseDeckRestore(
+      refusePaneLayoutRestore(
         "pane-kind-unknown",
         "One saved pane is a kind the console never saves, so it was left closed.",
       ),
@@ -295,23 +295,23 @@ function decodePane(
 
   // THE ADMISSION IS THE CONSOLE'S ONE PANE-ADDRESS GRAMMAR, and not a reading of
   // its own. A weaker one here — any known entity kind, any non-empty id — admits a
-  // `timeline` opened over an artifact and an id like `bad/id`, and the body that
+  // `transcript` opened over an artifact and an id like `bad/id`, and the body that
   // mounts the row then refuses it: an unusable pane holding one of the cap's slots,
   // written straight back out on the next save and surviving every restart. The
   // grammar knows both things this one cannot: WHICH entity kinds each pane kind is
   // a view of, and what an identifier is allowed to look like.
-  const address = parseConsolePaneAddress(kind, readEntityCandidate(entry));
-  if (isConsoleRefusal(address)) {
+  const address = parsePaneAddress(kind, readEntityCandidate(entry));
+  if (isRefusal(address)) {
     // Two sentences for five parse codes, because what a person can do about a
     // dropped pane is the same either way, and this module's own vocabulary is
     // closed. The parse's code is the precise one and stays where it was raised.
     refusals.push(
       address.code === "pane-kind-unknown"
-        ? refuseDeckRestore(
+        ? refusePaneLayoutRestore(
             "pane-kind-unknown",
-            "One saved pane is a kind this version of the console does not have, so it was left closed.",
+            "One saved pane is a kind this version of the app does not have, so it was left closed.",
           )
-        : refuseDeckRestore(
+        : refusePaneLayoutRestore(
             "pane-entity-invalid",
             "One saved pane named something the console could not resolve, so it was left closed.",
           ),

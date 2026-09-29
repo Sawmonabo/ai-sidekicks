@@ -1,4 +1,4 @@
-// The theme emits references, never colours — which is what makes the token cache
+// The theme emits references, never colors — which is what makes the token cache
 // theme-independent.
 
 import { describe, expect, it } from "vitest";
@@ -32,7 +32,7 @@ describe("the theme", () => {
     expect(theme.fg).toBe(codeTokenColorReference("plain"));
   });
 
-  it("negative control: it carries no resolved colour anywhere", () => {
+  it("negative control: it carries no resolved color anywhere", () => {
     // A theme holding hex or oklch values would make every cached token line wrong the
     // moment the operator flipped schemes. This is the assertion that would catch it.
     const serialized = JSON.stringify(buildCodeTheme());
@@ -41,7 +41,7 @@ describe("the theme", () => {
     expect(serialized).not.toContain("rgb(");
   });
 
-  it("is built fresh per call, because a highlighter normalises it in place", () => {
+  it("is built fresh per call, because a highlighter normalizes it in place", () => {
     expect(buildCodeTheme()).not.toBe(buildCodeTheme());
   });
 

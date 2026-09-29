@@ -13,7 +13,7 @@
 // them.
 
 import { describe, expect, it } from "vitest";
-import { TERMINAL_SCENARIO } from "./terminal-lease.js";
+import { TERMINAL_LEASE_SCENARIO } from "./terminal-lease.js";
 import type { ScenarioBeat } from "../scenario.js";
 
 describe("the terminal scenario ends held", () => {
@@ -34,7 +34,7 @@ describe("the terminal scenario ends held", () => {
    * against the very script it exists to reject.
    */
   function finalLeaseTransition(): ScenarioBeat {
-    const transitions = TERMINAL_SCENARIO.beats.filter(
+    const transitions = TERMINAL_LEASE_SCENARIO.beats.filter(
       (beat) => beat.event.kind === "pty.control_changed",
     );
     const newest = transitions.at(-1);
@@ -47,14 +47,16 @@ describe("the terminal scenario ends held", () => {
   it("leaves the lease held at the last transition", () => {
     // It is the last transition, so a script that ended on a plain release would pin
     // a frame with no holder — and the held frame is what `runToCompletion()` pins.
-    expect(holderAfter(TERMINAL_SCENARIO.beats)).toBe(TERMINAL_SCENARIO.userIdsInJoinOrder[0]);
+    expect(holderAfter(TERMINAL_LEASE_SCENARIO.beats)).toBe(
+      TERMINAL_LEASE_SCENARIO.userIdsInJoinOrder[0],
+    );
   });
 
   it("would notice a script that ended free", () => {
     // The same function over the script with its final take removed — which is
     // exactly the mistake it exists to catch, and which a run of automatic releases
     // makes easy to leave behind.
-    const withoutFinalTake = TERMINAL_SCENARIO.beats.filter(
+    const withoutFinalTake = TERMINAL_LEASE_SCENARIO.beats.filter(
       (beat) => beat !== finalLeaseTransition(),
     );
     expect(holderAfter(withoutFinalTake)).toBeNull();

@@ -8,7 +8,7 @@
 // function over a state and a list of rows.
 //
 // IT MUTATES THE COLLABORATORS IT IS HANDED, and that is what it is for rather than a
-// leak: the reconciler's cursor, the pre-initialisation buffer, the hue wheel, and the
+// leak: the reconciler's cursor, the pre-initialization buffer, the hue wheel, and the
 // outstanding-ask register are all the STORE's, they all advance on exactly the rows a
 // batch admits, and a fold that copied them would leave four objects to be advanced
 // again by whoever committed the state. What it does not touch is the store's own
@@ -16,7 +16,7 @@
 
 import { AgentHueAllocator } from "@renderer/styles/agent-hue.js";
 import { worstDegradedCause } from "../session-degradation.js";
-import type { ConsoleSessionEvent } from "./entities/entities.js";
+import type { ProjectedSessionEvent } from "./entities/entities.js";
 import { EntityProjectionRunner } from "./entities/entity-projection-runner.js";
 import { WaitingOnPersonRegister } from "./waiting-on-person/waiting-on-person-register.js";
 import { PreInitializationBuffer } from "./pre-initialization-buffer.js";
@@ -34,7 +34,7 @@ export interface AppliedBatchDependencies {
   readonly sessionId: string;
   readonly reconciler: SequenceReconciler;
   readonly projectionRunner: EntityProjectionRunner;
-  readonly preInitialisationBuffer: PreInitializationBuffer;
+  readonly preInitializationBuffer: PreInitializationBuffer;
   readonly hueAllocator: AgentHueAllocator;
   /** The ledger of what is still waiting on a person. Advanced by every admitted row. */
   readonly outstandingAsks: WaitingOnPersonRegister;
@@ -60,11 +60,11 @@ export interface AppliedBatch {
  *
  * Ordered before anything else is decided, because every rule below is about a row's
  * position relative to the cursor and a batch that arrived out of order would have each
- * of them answered against the wrong neighbour.
+ * of them answered against the wrong neighbor.
  */
 export function foldAppliedBatch(
   current: SessionStoreState,
-  events: readonly ConsoleSessionEvent[],
+  events: readonly ProjectedSessionEvent[],
   collaborators: AppliedBatchDependencies,
 ): AppliedBatch {
   let admitted = 0;
@@ -72,12 +72,12 @@ export function foldAppliedBatch(
   let buffered = 0;
   let refusedForeignSession = 0;
   let gapDetected = false;
-  let droppedBeforeInitialisation = 0;
+  let droppedBeforeInitialization = 0;
   let refusedDivergedSequence = 0;
   let projectionFailures = 0;
 
   let partitions = current.partitions;
-  let appended: ConsoleSessionEvent[] | undefined;
+  let appended: ProjectedSessionEvent[] | undefined;
 
   for (const event of orderBatchBySequence(events)) {
     if (event.sessionId !== collaborators.sessionId) {
@@ -90,10 +90,10 @@ export function foldAppliedBatch(
       refusedDivergedSequence += 1;
       continue;
     }
-    if (!current.initialised) {
+    if (!current.initialized) {
       buffered += 1;
-      if (collaborators.preInitialisationBuffer.push(event)) {
-        droppedBeforeInitialisation += 1;
+      if (collaborators.preInitializationBuffer.push(event)) {
+        droppedBeforeInitialization += 1;
       }
       continue;
     }
@@ -141,14 +141,14 @@ export function foldAppliedBatch(
     buffered,
     refusedForeignSession,
     gapDetected,
-    droppedBeforeInitialisation,
+    droppedBeforeInitialization,
     refusedDivergedSequence,
     projectionFailures,
   };
   if (
     admitted === 0 &&
     !gapDetected &&
-    droppedBeforeInitialisation === 0 &&
+    droppedBeforeInitialization === 0 &&
     refusedDivergedSequence === 0
   ) {
     return { outcome, nextState: undefined };
@@ -171,7 +171,7 @@ export function foldAppliedBatch(
       degradedCause: worstDegradedCause(
         current.degradedCause,
         refusedDivergedSequence > 0 ? "stream-diverged" : undefined,
-        gapDetected || droppedBeforeInitialisation > 0 ? "sequence-gap" : undefined,
+        gapDetected || droppedBeforeInitialization > 0 ? "sequence-gap" : undefined,
         projectionFailures > 0 ? "projection-failed" : undefined,
       ),
       gaps: collaborators.reconciler.gaps(),

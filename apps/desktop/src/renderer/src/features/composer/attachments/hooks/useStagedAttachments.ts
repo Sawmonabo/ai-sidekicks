@@ -3,15 +3,15 @@
 import type { SessionId } from "@ai-sidekicks/contracts";
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 
-import { consoleClockFor } from "@renderer/services/platform/hooks/useClock.js";
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { resolveBridgeClock } from "@renderer/services/platform/hooks/useClock.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { CONTROLLER_DISPOSAL } from "@renderer/lib/subject-scoped/subject-scoped-disposal.js";
 import { useSubjectScopedResource } from "@renderer/hooks/subject-scoped/useSubjectScopedResource.js";
 import type { AttachmentIngestPort } from "../services/attachment-ingest-answer.js";
 import { StagedAttachments, type StagedAttachmentsSnapshot } from "../staged-attachments.js";
 
-/** What a surface holding a carrier renders and acts through. */
-export interface AttachmentCarrierBinding {
+/** What a surface holding a staged list renders and acts through. */
+export interface StagedAttachmentsBinding {
   readonly snapshot: StagedAttachmentsSnapshot;
   readonly attachFiles: (files: readonly File[]) => void;
   readonly retry: (localId: string) => void;
@@ -19,66 +19,67 @@ export interface AttachmentCarrierBinding {
 }
 
 /**
- * Bind one carrier to one component's lifetime.
+ * Bind one staged list to one component's lifetime.
  *
- * THE SUBJECT IS THE BRIDGE AND THE KEY IS THE SESSION, which is what a carrier is
+ * THE SUBJECT IS THE BRIDGE AND THE KEY IS THE SESSION, which is what a staged list is
  * scoped to, so the console's own resource seam holds it: `useSubjectScopedResource`
- * opens the carrier on the render that first sees a `(bridge, session)` pair and
+ * opens the staged list on the render that first sees a `(bridge, session)` pair and
  * closes it however that render ended, including a pass React discards. It is also
  * what keeps this module off a second implementation of subject-scoped state.
  *
- * The `port` is read when the carrier opens, so it must stay the same for the life of
- * a `(bridge, session)` pair; a different port does not re-open the carrier.
+ * The `port` is read when the staged list opens, so it must stay the same for the life of
+ * a `(bridge, session)` pair; a different port does not re-open the staged list.
  *
- * THE SEAM RE-MINTS A CLOSED CARRIER. React's StrictMode double-mount runs the seam's
- * cleanup and then this effect's setup again on the SAME committed carrier, and the
+ * THE SEAM RE-MINTS A CLOSED STAGED LIST. React's StrictMode double-mount runs the seam's
+ * cleanup and then this effect's setup again on the SAME committed staged list, and the
  * cleanup terminally disposes the ingest client. Left in place, every file the user
  * chose afterwards would reach a client whose `attach` returns at once: the attachment
  * surface inert, with nothing on screen to say so. The seam's `isClosed`, supplied
- * beside `close`, replaces it, so this effect starts a carrier and does nothing else.
+ * beside `close`, replaces it, so this effect starts a staged list and does nothing else.
  */
-export function useAttachmentCarrier(
-  bridge: ConsoleBridge,
+export function useStagedAttachments(
+  bridge: PlatformBridge,
   sessionId: SessionId,
   port: AttachmentIngestPort,
-): AttachmentCarrierBinding {
+): StagedAttachmentsBinding {
   // The window's own clock, resolved once per bridge — `clone-expiry-wake-up.ts`'s
-  // shape, for its reason: `consoleClockFor` mints a fresh `RealClock` per call on a
-  // live bridge, so reading it in a render body would hand a re-minted carrier a
-  // different instance from the one the first carrier was opened on.
-  const clock = useMemo(() => consoleClockFor(bridge), [bridge]);
-  const { value: carrier } = useSubjectScopedResource(
+  // shape, for its reason: `resolveBridgeClock` mints a fresh `RealClock` per call on a
+  // live bridge, so reading it in a render body would hand a re-minted staged list a
+  // different instance from the one the first staged list was opened on.
+  const clock = useMemo(() => resolveBridgeClock(bridge), [bridge]);
+  const { value: stagedAttachments } = useSubjectScopedResource(
     bridge,
     sessionId,
     () => new StagedAttachments({ port, sessionId, clock }),
     CONTROLLER_DISPOSAL,
   );
   useEffect(() => {
-    carrier.start();
-  }, [carrier]);
+    stagedAttachments.start();
+  }, [stagedAttachments]);
   const subscribe = useCallback(
-    (onCarrierChange: () => void) => carrier.subscribe(onCarrierChange),
-    [carrier],
+    (onStagedAttachmentsChange: () => void) =>
+      stagedAttachments.subscribe(onStagedAttachmentsChange),
+    [stagedAttachments],
   );
-  const read = useCallback(() => carrier.snapshot, [carrier]);
+  const read = useCallback(() => stagedAttachments.snapshot, [stagedAttachments]);
   const snapshot = useSyncExternalStore(subscribe, read, read);
   const attachFiles = useCallback(
     (files: readonly File[]) => {
-      carrier.attachFiles(files);
+      stagedAttachments.attachFiles(files);
     },
-    [carrier],
+    [stagedAttachments],
   );
   const retry = useCallback(
     (localId: string) => {
-      carrier.retry(localId);
+      stagedAttachments.retry(localId);
     },
-    [carrier],
+    [stagedAttachments],
   );
   const abandon = useCallback(
     (localId: string) => {
-      carrier.abandon(localId);
+      stagedAttachments.abandon(localId);
     },
-    [carrier],
+    [stagedAttachments],
   );
   return { snapshot, attachFiles, retry, abandon };
 }

@@ -1,4 +1,4 @@
-// What every workspace suite needs to mount one: the session, the registry, and the shape
+// What every session screen suite needs to mount one: the session, the registry, and the shape
 // `AppFrame` mounts the surface in.
 //
 // ONE HOME RATHER THAN A COPY PER SUITE. The suites split by subject — what the surface
@@ -10,28 +10,28 @@ import { expect } from "vitest";
 
 import { PANE_LAYOUT_RESTORED_PANE_CAP } from "./pane-layout/pane-layout-store.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence-caps.js";
-import { DesktopBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
+import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
-import type { ConsoleScenario } from "../../../../../fixtures/scenario.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
+import type { Scenario } from "../../../../../fixtures/scenario.js";
 import type { StoredRecord } from "@renderer/store/persistence/persistence-adapter.js";
 import { DraftStore } from "@renderer/store/draft-store.js";
 import { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
 import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
 import { MemoryPersistenceAdapter } from "@renderer/store/persistence/memory-persistence-adapter.js";
-import { FrameStore } from "@renderer/store/window/window-store.js";
+import { WindowStore } from "@renderer/store/window/window-store.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
-import { ConsolePaneRegistry } from "@renderer/console/seats/index.js";
+import { PaneRegistry } from "@renderer/console/seats/index.js";
 import { PaneLayoutStore } from "./pane-layout/pane-layout-store.js";
 import { PANE_LAYOUT_RECORD_KEY } from "./pane-layout/layout-persistence.js";
-import { Workspace } from "./SessionScreen.js";
+import { SessionScreen } from "./SessionScreen.js";
 
-export const SESSION_ID = "session-workspace";
+export const SESSION_ID = "session-screen";
 
-export const SCENARIO: ConsoleScenario = {
-  id: "workspace",
-  label: "Workspace",
-  purpose: "Drives the workspace surface's composition.",
+export const SCENARIO: Scenario = {
+  id: "session-screen",
+  label: "Session screen",
+  purpose: "Drives the session screen's composition.",
   sessionId: SESSION_ID,
   userIdsInJoinOrder: ["user-you"],
   startedAtIso: "2026-01-01T09:00:00.000Z",
@@ -39,19 +39,19 @@ export const SCENARIO: ConsoleScenario = {
   replies: [],
 };
 
-/** One session the workspace can be pointed at, with the store it renders. */
-export interface WorkspaceSession {
+/** One session the session screen can be pointed at, with the store it renders. */
+export interface SessionWithStore {
   readonly sessionId: string;
   readonly store: SessionStore;
 }
 
 /** A registry whose bodies say which kind they are, so a pane is identifiable. */
-export function testRegistry(): ConsolePaneRegistry {
-  const registry = new ConsolePaneRegistry();
-  for (const kind of ["timeline", "runs"] as const) {
+export function testRegistry(): PaneRegistry {
+  const registry = new PaneRegistry();
+  for (const kind of ["transcript", "runs"] as const) {
     registry.register({
       kind,
-      owner: "workspace-test",
+      owner: "session-screen-test",
       render: () => <TestPaneBody kind={kind} />,
     });
   }
@@ -66,16 +66,16 @@ export function testRegistry(): ConsolePaneRegistry {
  */
 export function sessionStore(sessionId: string = SESSION_ID): SessionStore {
   const store = new SessionStore({ sessionId });
-  store.initialise({ cursor: 0, entities: [] });
+  store.initialize({ cursor: 0, entities: [] });
   return store;
 }
 
-/** A body that says which kind it is, so a pane is identifiable in the rendered deck. */
+/** A body that says which kind it is, so a pane is identifiable in the rendered pane layout. */
 function TestPaneBody(props: { readonly kind: string }): React.JSX.Element {
   return <p data-body={props.kind}>{props.kind} body</p>;
 }
 
-export const SESSION_B_ID = "session-workspace-b";
+export const SESSION_B_ID = "session-screen-b";
 
 /** One gate a test opens and closes. Open by default, so nothing waits by accident. */
 class SettlementGate {
@@ -144,9 +144,9 @@ export class GatedPersistenceAdapter extends MemoryPersistenceAdapter {
 }
 
 /**
- * The workspace under the window's providers, which is where `AppFrame` mounts it.
+ * The session screen under the window's providers, which is where `AppFrame` mounts it.
  *
- * The deck inside reads `useAnnounce` to say what a pane drop settled on, and that
+ * The pane layout inside reads `useAnnounce` to say what a pane drop settled on, and that
  * hook throws outside the provider by design — so this wrapper is the production
  * mount shape rather than test scaffolding.
  */
@@ -166,42 +166,42 @@ export function memoryStore(): UiStateStore {
 }
 
 /** A second session, with a store of its own — never the first one's. */
-export function otherSession(): WorkspaceSession {
+export function otherSession(): SessionWithStore {
   const store = new SessionStore({ sessionId: SESSION_B_ID });
-  store.initialise({ cursor: 0, entities: [] });
+  store.initialize({ cursor: 0, entities: [] });
   return { sessionId: SESSION_B_ID, store };
 }
 
 /**
- * The workspace for one session, in the shape `AppFrame` mounts it in.
+ * The session screen for one session, in the shape `AppFrame` mounts it in.
  *
  * The provider carries the SAME bridge the surface is handed, because that is what the
- * frame does: one window, one transport, and one clock resolved off it — the deck reads
+ * frame does: one window, one transport, and one clock resolved off it — the pane layout reads
  * that clock for its rect tracker.
  */
 export function workspaceFor(
-  session: WorkspaceSession,
+  session: SessionWithStore,
   uiStateStore: UiStateStore,
   isKeyed: boolean,
-  bridge: ConsoleBridge = createFixtureBridge({ scenario: SCENARIO }),
+  bridge: PlatformBridge = createFixtureBridge({ scenario: SCENARIO }),
 ): React.JSX.Element {
   return (
-    <DesktopBridgeProvider bridge={bridge}>
+    <PlatformBridgeProvider bridge={bridge}>
       <LiveAnnouncerProvider>
-        <Workspace
+        <SessionScreen
           {...(isKeyed ? { key: session.sessionId } : {})}
           bridge={bridge}
           frameStore={
-            new FrameStore({ initialRoute: { kind: "workspace", sessionId: session.sessionId } })
+            new WindowStore({ initialRoute: { kind: "session", sessionId: session.sessionId } })
           }
           sessionStore={session.store}
           uiStateStore={uiStateStore}
           draftStore={new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT })}
-          route={{ kind: "workspace", sessionId: session.sessionId }}
+          route={{ kind: "session", sessionId: session.sessionId }}
           paneRegistry={testRegistry()}
         />
       </LiveAnnouncerProvider>
-    </DesktopBridgeProvider>
+    </PlatformBridgeProvider>
   );
 }
 
@@ -209,11 +209,11 @@ export function workspaceFor(
 export async function saveLayout(
   store: UiStateStore,
   partition: string,
-  kinds: readonly ("timeline" | "runs")[],
+  kinds: readonly ("transcript" | "runs")[],
 ): Promise<void> {
   const layout = new PaneLayoutStore({ restoredPaneCap: PANE_LAYOUT_RESTORED_PANE_CAP });
   for (const kind of kinds) {
-    layout.open({ kind, entity: undefined });
+    layout.open({ kind });
   }
   const result = await store.write(
     partition,

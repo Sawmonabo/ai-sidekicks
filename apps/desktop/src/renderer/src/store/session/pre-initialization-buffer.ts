@@ -1,26 +1,26 @@
 // The bounded hold for events that arrive before a store has a base state.
 //
-// **An event before initialisation is buffered, never applied.** A store with no
+// **An event before initialization is buffered, never applied.** A store with no
 // base snapshot cannot tell a first event from a resumed stream, and applying
 // against an empty base renders a session that looks complete and is not. Events
 // wait here until the read response lands, then drain.
 //
-// The hold is BOUNDED at `PRE_INITIALISATION_BUFFER_CAP`: a wait longer than a
+// The hold is BOUNDED at `PRE_INITIALIZATION_BUFFER_CAP`: a wait longer than a
 // handful of events is a read that is not coming rather than a race, and a buffer
 // that grew for it would hold a whole session's stream in memory to project none of
 // it. Past the bound the oldest is dropped and counted — and the drain re-derives
 // exactly which sequences the drop cost, because a hole between the snapshot cursor
 // and the oldest survivor is an ordinary gap the reconciler names on its own.
 
-import { PRE_INITIALISATION_BUFFER_CAP } from "./session-store-caps.js";
-import type { ConsoleSessionEvent } from "./entities/entities.js";
+import { PRE_INITIALIZATION_BUFFER_CAP } from "./session-store-caps.js";
+import type { ProjectedSessionEvent } from "./entities/entities.js";
 
 /** Events held for a base state, oldest first, never more than the cap. */
 export class PreInitializationBuffer {
-  readonly #held: ConsoleSessionEvent[] = [];
+  readonly #held: ProjectedSessionEvent[] = [];
   #dropCount = 0;
 
-  /** Events waiting for a base state. Never more than `PRE_INITIALISATION_BUFFER_CAP`. */
+  /** Events waiting for a base state. Never more than `PRE_INITIALIZATION_BUFFER_CAP`. */
   public get pendingCount(): number {
     return this.#held.length;
   }
@@ -45,9 +45,9 @@ export class PreInitializationBuffer {
    * to look at, and the loss the drop causes is reported either way — as the gap
    * between the snapshot cursor and the oldest survivor.
    */
-  public push(event: ConsoleSessionEvent): boolean {
+  public push(event: ProjectedSessionEvent): boolean {
     this.#held.push(event);
-    if (this.#held.length <= PRE_INITIALISATION_BUFFER_CAP) {
+    if (this.#held.length <= PRE_INITIALIZATION_BUFFER_CAP) {
       return false;
     }
     this.#held.shift();
@@ -56,7 +56,7 @@ export class PreInitializationBuffer {
   }
 
   /** Take everything held, leaving the buffer empty. */
-  public drain(): ConsoleSessionEvent[] {
+  public drain(): ProjectedSessionEvent[] {
     return this.#held.splice(0, this.#held.length);
   }
 }

@@ -24,7 +24,7 @@
 // It is terminal on `dispose()`. A pane that unmounts mid-stream must not be able
 // to re-arm a timer from a late event — "a timer that outlives its pane" is one of
 // the failure modes this substrate exists to make unrepresentable, and a `dispose`
-// that merely cancelled the current arm would leave the next `request` to start it
+// that merely canceled the current arm would leave the next `request` to start it
 // again.
 //
 // AND IT OWNS ITS SUPERSESSION. Every fire opens a round on this scheduler's own
@@ -32,7 +32,7 @@
 // cannot be abandoned is not a thing this class can produce. What a round is, and
 // which reads ignore theirs, is `read-cancellation.ts`'s to say.
 
-import { type ConsoleClock, type ScheduledHandle } from "../clock.js";
+import { type Clock, type ScheduledHandle } from "../clock.js";
 import { REFRESH_DEBOUNCE_MS, REFRESH_MAX_WAIT_MS } from "./refresh-caps.js";
 import { ReadScope, type ReadRound } from "./read-scope.js";
 
@@ -40,7 +40,7 @@ import { ReadScope, type ReadRound } from "./read-scope.js";
  * Why a refresh was requested. Rendered in diagnostics; never inferred.
  *
  * `user-request` is the one a person caused: somebody pressed the control that
- * reads again. It is its own member rather than borrowed from a neighbour, and the rule
+ * reads again. It is its own member rather than borrowed from a neighbor, and the rule
  * is that a press is a reason of its own — never disguised as a subscription, which
  * says a surface has just opened, and never as a terminal event, which says the wire
  * delivered something. Both of those are claims about the SYSTEM, and a diagnostics
@@ -70,7 +70,7 @@ export type RefreshPerformer = (
 ) => Promise<void>;
 
 export interface RefreshSchedulerOptions {
-  readonly clock: ConsoleClock;
+  readonly clock: Clock;
   readonly perform: RefreshPerformer;
   readonly debounceMs?: number;
   readonly maxWaitMs?: number;
@@ -79,7 +79,7 @@ export interface RefreshSchedulerOptions {
 }
 
 export class RefreshScheduler {
-  readonly #clock: ConsoleClock;
+  readonly #clock: Clock;
   /**
    * The read line every read this scheduler fires is on.
    *

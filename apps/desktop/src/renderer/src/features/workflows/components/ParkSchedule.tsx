@@ -36,7 +36,7 @@ const UNSCHEDULED_PARK_REMEDIES: Readonly<Record<WorkflowParkReason, string>> = 
  *
  * THE ARMED INSTANT CARRIES ITS DATE. A badge stands wherever a parked phase does —
  * in a run row, in the run pane's stack of cards — and none of those places carries a
- * day divider, which is the only thing that makes the ledger's date-free reading
+ * day divider, which is the only thing that makes the transcript's date-free reading
  * unambiguous. This surface used to render that reading, so a resume armed for
  * tomorrow morning and one armed for next week's were the same four digits on screen,
  * and the wire instant behind them was reachable only by hovering. `formatDateTime`

@@ -11,7 +11,7 @@
 
 import { act, renderHook } from "@testing-library/react";
 import { expect } from "vitest";
-import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import type {
   WorkflowDefinitionReadResult,
   WorkflowVersionBody,
@@ -103,11 +103,11 @@ export interface MountedAuthoring {
 }
 
 /** A bridge carrying exactly the seam an act reaches: the host's clipboard. */
-export function authoringBridge(parts: BridgeParts = {}): ConsoleBridge {
+export function authoringBridge(parts: BridgeParts = {}): PlatformBridge {
   const copyToClipboard = parts.copyToClipboard ?? (async () => undefined);
   return {
-    desktopBridge: { native: { copyToClipboard } },
-  } as unknown as ConsoleBridge;
+    native: { copyToClipboard },
+  } as unknown as PlatformBridge;
 }
 
 /**
@@ -119,7 +119,7 @@ export function authoringBridge(parts: BridgeParts = {}): ConsoleBridge {
  * cases never reach it.
  */
 export function mountAuthoring(
-  bridge: ConsoleBridge,
+  bridge: PlatformBridge,
   sessionId: string | undefined,
   body: WorkflowVersionBody,
   createDefinition: WorkflowDefinitionCreateCall = answeringCreate,

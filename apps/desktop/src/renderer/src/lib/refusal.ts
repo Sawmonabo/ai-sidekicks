@@ -1,7 +1,7 @@
 // One refusal shape for the whole console.
 //
 // A refusal has three RENDERINGS — inline on the control, a card in the surface, a banner
-// across the workspace — and `RefusalBanner` / `InlineRefusal` / `RefusalCard` all
+// across the session screen — and `RefusalBanner` / `InlineRefusal` / `RefusalCard` all
 // consume the same two fields. What the console lacked was one refusal VALUE for them to
 // consume: the daemon client, the fixture bridge, the when-clause parser, the key-binding
 // table, and the palette each minted their own vocabulary, so a surface that wanted to
@@ -28,15 +28,15 @@
 // value of its own closed union gets that union back on `code` and does not have to
 // re-state the narrowing by spreading the result. Nothing about the paragraph above
 // changes — this module still names no producer, and a caller passing a `string` still
-// gets a plain `ConsoleRefusal` back.
+// gets a plain `Refusal` back.
 //
 // The one import is `wire-errors.ts`, which is not a producer: it imports nothing
 // itself, and what is taken from it is the total property reader. See
-// {@link isConsoleRefusal}.
+// {@link isRefusal}.
 
 import { readGuardedProperty } from "./wire-errors.js";
 
-export interface ConsoleRefusal {
+export interface Refusal {
   /** Machine-readable, rendered verbatim. */
   readonly code: string;
   /** One actionable sentence. Never the refused value. */
@@ -59,7 +59,7 @@ export interface ConsoleRefusal {
  * `PersistenceRefusal` is written this way — so the generic result and the
  * hand-written declarations it satisfies have one form between them.
  */
-export interface NarrowedRefusal<Code extends string> extends ConsoleRefusal {
+export interface NarrowedRefusal<Code extends string> extends Refusal {
   readonly code: Code;
 }
 
@@ -71,12 +71,12 @@ export interface NarrowedRefusal<Code extends string> extends ConsoleRefusal {
  * refusal is the default and this is the exception: an error costs a stack unwind
  * and forces every caller into a `try`.
  */
-export class ConsoleRefusalError extends Error {
-  public readonly refusal: ConsoleRefusal;
+export class RefusalError extends Error {
+  public readonly refusal: Refusal;
 
-  public constructor(refusal: ConsoleRefusal, options?: { readonly cause?: unknown }) {
+  public constructor(refusal: Refusal, options?: { readonly cause?: unknown }) {
     super(`${refusal.origin}: ${refusal.code}: ${refusal.detail}`, options);
-    this.name = "ConsoleRefusalError";
+    this.name = "RefusalError";
     this.refusal = refusal;
   }
 }
@@ -94,7 +94,7 @@ export class ConsoleRefusalError extends Error {
  * with the value bound once so the two positions could not drift. Inference does that
  * for free and cannot drift at all, because there is only ever one position. A caller
  * that hands over a plain `string` infers `Code` as `string`, and
- * `NarrowedRefusal<string>` is structurally `ConsoleRefusal`, so no wide caller moves.
+ * `NarrowedRefusal<string>` is structurally `Refusal`, so no wide caller moves.
  */
 export function refuse<Code extends string>(
   origin: string,
@@ -141,7 +141,7 @@ export function refusedMemberPaths(
  * null-prototype FUNCTION carrying the three members is a refusal that the old
  * pre-check rejected outright.
  */
-export function isConsoleRefusal(value: unknown): value is ConsoleRefusal {
+export function isRefusal(value: unknown): value is Refusal {
   return (
     typeof readGuardedProperty(value, "code") === "string" &&
     typeof readGuardedProperty(value, "detail") === "string" &&

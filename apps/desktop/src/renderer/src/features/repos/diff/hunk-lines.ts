@@ -31,7 +31,7 @@ const HUNK_LINES_SITE = "console/repos/diff-pane/hunk-lines.ts";
  *
  * `\ No newline at end of file` is the only thing a `\` line has ever meant in a
  * unified patch, so the PREFIX is what this reads rather than the sentence after it:
- * the text is a producer's, it is localised by some of them, and a console matching
+ * the text is a producer's, it is localized by some of them, and a console matching
  * on English words would drop the annotation for exactly the patches it did not
  * write. Anything else the prefix could later carry is still an annotation of the
  * line above it, which is the fact this file records.
@@ -90,7 +90,7 @@ export function hunkLines(
       reportTripwire(
         "wire-figure-formatting",
         HUNK_LINES_SITE,
-        `a hunk body line carried the unrecognised prefix ${JSON.stringify(prefixedLine.slice(0, 1))}; it is not rendered and both line counters stop advancing at it, so every later number in this hunk is low`,
+        `a hunk body line carried the unrecognized prefix ${JSON.stringify(prefixedLine.slice(0, 1))}; it is not rendered and both line counters stop advancing at it, so every later number in this hunk is low`,
       );
       continue;
     }

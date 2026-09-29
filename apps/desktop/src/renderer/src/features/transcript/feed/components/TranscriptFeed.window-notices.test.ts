@@ -1,6 +1,6 @@
 // The ways this window is not the whole session, each said out loud.
 //
-// Three absences with three different next moves — an unrecognised type, a row the
+// Three absences with three different next moves — an unrecognized type, a row the
 // cap took, and a sequence that never arrived — and the failure this file guards is
 // one being reported as another. The scaffolding is `TranscriptFeed.test-support.tsx`'.
 
@@ -18,7 +18,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("the ledger feed — what it does not hold", () => {
+describe("the transcript feed — what it does not hold", () => {
   it("names the rows the cap took", () => {
     withLaidOutViewport();
     const feed = renderFeed(openSessionStoreWithGeneralLog(OVER_CAP_EVENT_COUNT));
@@ -31,7 +31,7 @@ describe("the ledger feed — what it does not hold", () => {
   it("names entries the stream numbered and never delivered", () => {
     withLaidOutViewport();
     const sessionStore = new SessionStore({ sessionId: SESSION_ID });
-    sessionStore.initialise({ cursor: -1, entities: [] });
+    sessionStore.initialize({ cursor: -1, entities: [] });
     sessionStore.applyBatch([
       {
         id: "event-0",

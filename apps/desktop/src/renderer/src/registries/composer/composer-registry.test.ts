@@ -9,64 +9,64 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { DuplicateRegistrationError } from "@renderer/lib/keyed-registry.js";
 import {
-  composerSeatRenderer,
-  registerComposerSeat,
-  unregisterComposerSeat,
-  type ComposerSeatRenderer,
+  findComposerRenderer,
+  registerComposer,
+  unregisterComposer,
+  type ComposerRenderer,
 } from "./composer-registry.js";
 
 /** A body whose props are never read: these cases are about the seat. */
-const composerBody: ComposerSeatRenderer = () => null;
+const composerBody: ComposerRenderer = () => null;
 
 afterEach(() => {
-  unregisterComposerSeat();
+  unregisterComposer();
 });
 
 describe("composer seat — one composer per session view", () => {
-  it("hands the workspace the body itself, not a wrapper", () => {
-    registerComposerSeat("composer-family", composerBody);
-    expect(composerSeatRenderer()).toBe(composerBody);
+  it("hands the session screen the body itself, not a wrapper", () => {
+    registerComposer("composer-family", composerBody);
+    expect(findComposerRenderer()).toBe(composerBody);
   });
 
   it("replaces when the same owner re-registers", () => {
     // A hot reload re-runs the composer family's module. Keeping the FIRST body
     // would leave the window rendering the pre-edit composer.
-    const replacement: ComposerSeatRenderer = () => null;
-    registerComposerSeat("composer-family", composerBody);
-    registerComposerSeat("composer-family", replacement);
-    expect(composerSeatRenderer()).toBe(replacement);
+    const replacement: ComposerRenderer = () => null;
+    registerComposer("composer-family", composerBody);
+    registerComposer("composer-family", replacement);
+    expect(findComposerRenderer()).toBe(replacement);
   });
 
   it("refuses a second owner rather than swapping", () => {
-    registerComposerSeat("composer-family", composerBody);
+    registerComposer("composer-family", composerBody);
     expect(() => {
-      registerComposerSeat("second-owner", () => null);
+      registerComposer("second-owner", () => null);
     }).toThrow(DuplicateRegistrationError);
     // The refusal must not have half-applied: the first body still renders.
-    expect(composerSeatRenderer()).toBe(composerBody);
+    expect(findComposerRenderer()).toBe(composerBody);
   });
 
   it("names both owners in the refusal, so the conflict is actionable", () => {
-    registerComposerSeat("composer-family", composerBody);
+    registerComposer("composer-family", composerBody);
     expect(() => {
-      registerComposerSeat("workflows-family", () => null);
+      registerComposer("workflows-family", () => null);
     }).toThrow(/composer-family[\s\S]*workflows-family/u);
   });
 });
 
 describe("composer seat — the empty answer", () => {
   it("negative control: an unfilled seat has no body", () => {
-    // Every case above reads `composerSeatRenderer`, and all of them would pass
+    // Every case above reads `findComposerRenderer`, and all of them would pass
     // over a seat that answered with a body nobody registered. This is also the
-    // state the workspace mounts against until the composer family lands: it
+    // state the session screen mounts against until the composer family lands: it
     // renders nothing rather than a placeholder that looks like a broken feature.
-    expect(composerSeatRenderer()).toBeUndefined();
+    expect(findComposerRenderer()).toBeUndefined();
   });
 
   it("is empty again once released", () => {
-    registerComposerSeat("composer-family", composerBody);
-    expect(composerSeatRenderer()).toBe(composerBody);
-    unregisterComposerSeat();
-    expect(composerSeatRenderer()).toBeUndefined();
+    registerComposer("composer-family", composerBody);
+    expect(findComposerRenderer()).toBe(composerBody);
+    unregisterComposer();
+    expect(findComposerRenderer()).toBeUndefined();
   });
 });

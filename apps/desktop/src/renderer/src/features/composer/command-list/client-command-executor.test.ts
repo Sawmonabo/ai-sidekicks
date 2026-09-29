@@ -1,6 +1,6 @@
-// That a recognised command actually PERFORMS its act, and that the composer waits.
+// That a recognized command actually PERFORMS its act, and that the composer waits.
 //
-// Driven through the real registry — `consoleCommands`, the one the palette and the
+// Driven through the real registry — `commandRegistry`, the one the palette and the
 // chord table read — rather than a stand-in, so the claim is about the surface a
 // person's `/name` really reaches. A local registry would prove the executor talks to
 // a registry and nothing about which.
@@ -11,7 +11,7 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { consoleCommands } from "@renderer/registries/commands/window-command-registry.js";
+import { commandRegistry } from "@renderer/registries/commands/window-command-registry.js";
 import { DEFAULT_ROUTE } from "@renderer/routing/routes.js";
 import { createClientCommandExecutor } from "./client-command-executor.js";
 import { clientCommandRefusal } from "./client-command-recognizer.js";
@@ -33,7 +33,7 @@ function registerCommand(command: {
   readonly when?: string;
   readonly run: () => void | Promise<void>;
 }): void {
-  consoleCommands.register({
+  commandRegistry.register({
     id: command.id,
     title: "Executor test command",
     group: "Test",
@@ -47,20 +47,20 @@ function executorOverConsoleRegistry(
   handlers: ComposerCommandLineHandlers = noComposerCommandLineHandlers(),
 ) {
   return createClientCommandExecutor({
-    readSurface: () => readComposerCommands(DEFAULT_ROUTE),
-    readDirectiveHandlers: () => handlers,
+    readCommands: () => readComposerCommands(DEFAULT_ROUTE),
+    readCommandLineHandlers: () => handlers,
     lineReadingCommandIds: LINE_READING_COMMAND_IDS,
   });
 }
 
 /** One line as the router builds it: the name, and the trimmed text it came from. */
-function directiveLine(commandName: string) {
+function commandLine(commandName: string) {
   return { commandName, text: `/${commandName}` };
 }
 
 afterEach(() => {
   for (const commandId of registeredIds.splice(0)) {
-    consoleCommands.unregister(commandId);
+    commandRegistry.unregister(commandId);
   }
 });
 
@@ -75,11 +75,11 @@ describe("createClientCommandExecutor", () => {
     });
     const executor = executorOverConsoleRegistry();
 
-    const outcome = await executor(directiveLine(RAN_COMMAND_ID));
+    const outcome = await executor(commandLine(RAN_COMMAND_ID));
 
     expect(outcome).toEqual({ status: "applied" });
     expect(ranCount).toBe(1);
-    expect(consoleCommands.recentCommandIds()).toContain(RAN_COMMAND_ID);
+    expect(commandRegistry.recentCommandIds()).toContain(RAN_COMMAND_ID);
   });
 
   it("waits for the command's own completion before reporting it applied", async () => {
@@ -96,7 +96,7 @@ describe("createClientCommandExecutor", () => {
     });
     const executor = executorOverConsoleRegistry();
 
-    const pending = executor(directiveLine(RAN_COMMAND_ID));
+    const pending = executor(commandLine(RAN_COMMAND_ID));
     expect(settled).toBe(false);
     release?.();
 
@@ -111,7 +111,7 @@ describe("createClientCommandExecutor", () => {
     });
     const executor = executorOverConsoleRegistry();
 
-    const outcome = await executor(directiveLine(FAILING_COMMAND_ID));
+    const outcome = await executor(commandLine(FAILING_COMMAND_ID));
 
     expect(outcome.status).toBe("refused");
     if (outcome.status !== "refused") {
@@ -133,7 +133,7 @@ describe("createClientCommandExecutor", () => {
     });
     const executor = executorOverConsoleRegistry();
 
-    const outcome = await executor(directiveLine(HIDDEN_COMMAND_ID));
+    const outcome = await executor(commandLine(HIDDEN_COMMAND_ID));
 
     expect(outcome.status).toBe("refused");
     if (outcome.status !== "refused") {
@@ -162,7 +162,7 @@ describe("createClientCommandExecutor", () => {
     // offered for discovery and nothing else.
     const executor = executorOverConsoleRegistry();
 
-    const outcome = await executor(directiveLine("compact"));
+    const outcome = await executor(commandLine("compact"));
 
     expect(outcome.status).toBe("refused");
     if (outcome.status !== "refused") {
@@ -173,7 +173,7 @@ describe("createClientCommandExecutor", () => {
 
   it("reads the registry at run time, so a late registration is reachable", async () => {
     const executor = executorOverConsoleRegistry();
-    const beforeRegistration = await executor(directiveLine(RAN_COMMAND_ID));
+    const beforeRegistration = await executor(commandLine(RAN_COMMAND_ID));
     expect(beforeRegistration.status).toBe("refused");
 
     let ranCount = 0;
@@ -184,7 +184,7 @@ describe("createClientCommandExecutor", () => {
       },
     });
 
-    expect(await executor(directiveLine(RAN_COMMAND_ID))).toEqual({
+    expect(await executor(commandLine(RAN_COMMAND_ID))).toEqual({
       status: "applied",
     });
     expect(ranCount).toBe(1);
@@ -217,19 +217,19 @@ describe("a command that reads arguments off its own line", () => {
     registerCommand({ id: "test.withoutArguments", run: invoked });
 
     await executorOverConsoleRegistry(new Map([["test.other", vi.fn()]]))(
-      directiveLine("test.withoutArguments"),
+      commandLine("test.withoutArguments"),
     );
 
     expect(invoked).toHaveBeenCalledTimes(1);
   });
 
   it("does not widen recognition: a handler for an unregistered id is unreachable", async () => {
-    // The recogniser answers first. A second registry that could claim a name the
+    // The recognizer answers first. A second registry that could claim a name the
     // console has never heard of is what `client-command-recognizer.ts` prevents.
     const handled = vi.fn();
 
     const outcome = await executorOverConsoleRegistry(new Map([["test.unregistered", handled]]))(
-      directiveLine("test.unregistered"),
+      commandLine("test.unregistered"),
     );
 
     expect(outcome.status).toBe("refused");
@@ -249,7 +249,7 @@ describe("a directive handler that fails", () => {
       new Map([["test.rejectingHandler", () => Promise.reject(new Error("the wire went away"))]]),
     );
 
-    const outcome = await executor(directiveLine("test.rejectingHandler"));
+    const outcome = await executor(commandLine("test.rejectingHandler"));
 
     expect(outcome.status).toBe("refused");
     if (outcome.status !== "refused") {
@@ -275,7 +275,7 @@ describe("a directive handler that fails", () => {
       ]),
     );
 
-    const outcome = await executor(directiveLine("test.throwingHandler"));
+    const outcome = await executor(commandLine("test.throwingHandler"));
 
     expect(outcome.status).toBe("refused");
     expect(outcome.status === "refused" ? outcome.refusal.detail : "").toContain(
@@ -295,6 +295,6 @@ describe("a directive handler that fails", () => {
       new Map([["test.refusingHandler", async () => handlerRefusal]]),
     );
 
-    expect(await executor(directiveLine("test.refusingHandler"))).toStrictEqual(handlerRefusal);
+    expect(await executor(commandLine("test.refusingHandler"))).toStrictEqual(handlerRefusal);
   });
 });

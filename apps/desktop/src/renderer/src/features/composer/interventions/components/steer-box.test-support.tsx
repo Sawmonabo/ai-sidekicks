@@ -7,7 +7,7 @@
 import { useState } from "react";
 import { act, render } from "@testing-library/react";
 import type { InterventionRequestResponse, RunState } from "@ai-sidekicks/contracts";
-import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { bridgeAnswering, type RecordedDaemonCall } from "@test/helpers/fixture-bridge.js";
 import { SteerBox } from "./SteerBox.js";
 import type { RunControlCommandRun } from "../../run-controls/contributions/run-control-commands.js";
@@ -51,7 +51,7 @@ export function interventionCalls(
 }
 
 /** The subject the surface keys its holders on; no case calls through it. */
-export function inertBridge(): ConsoleBridge {
+export function inertBridge(): PlatformBridge {
   return bridgeAnswering(async () => undefined).bridge;
 }
 

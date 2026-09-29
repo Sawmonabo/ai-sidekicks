@@ -1,4 +1,4 @@
-// The closed set of subsystems allowed to move the ledger.
+// The closed set of subsystems allowed to move the transcript.
 //
 // Its own leaf module rather than a declaration inside `scroll-chokepoint.ts`, for a
 // reason the split made unavoidable: `scroll-frame-writes.ts` queues writes BY caller
@@ -7,7 +7,7 @@
 // both of them, which is here.
 
 /**
- * Every subsystem allowed to move the ledger. Closed, and closed here.
+ * Every subsystem allowed to move the transcript. Closed, and closed here.
  *
  * A caller that is not on this list has not decided how it arbitrates against the
  * ones that are — which is the question the union exists to force.

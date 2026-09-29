@@ -4,7 +4,7 @@
 // it, and it runs each surface scoped to itself rather than scanning the document,
 // so a violation names the surface that owns it.
 //
-// EVERY REGISTERED SURFACE, WHICH IS THE WHOLE CLAIM. `registerWorkflowSurfaces`
+// EVERY REGISTERED SURFACE, WHICH IS THE WHOLE CLAIM. `registerWorkflowScreens`
 // claims one rail destination and `registerWorkflowPanes` claims TWO pane kinds, so
 // the table below carries a row for each: a family-wide tier that skipped one could not
 // fail on a regression unique to it.
@@ -53,7 +53,7 @@ import {
 } from "./axe-run.js";
 
 import { installMeridianTokens } from "@renderer/app/token-installation.js";
-import { CONSOLE_SCHEMES } from "@renderer/styles/tokens.js";
+import { COLOR_SCHEMES } from "@renderer/styles/tokens.js";
 
 /**
  * The surfaces this family ships, each named as a reader would name it, and the graph.
@@ -89,7 +89,7 @@ afterEach(async () => {
 
 describe("accessibility — the workflows surfaces", () => {
   for (const surface of AUDITED_SURFACES) {
-    for (const scheme of CONSOLE_SCHEMES) {
+    for (const scheme of COLOR_SCHEMES) {
       it(`has no axe violation on ${surface.label} in the ${scheme} scheme`, async () => {
         await emulateSystemScheme(scheme);
         const mounted = await surface.mount();
@@ -124,7 +124,7 @@ describe("accessibility — the workflows surfaces", () => {
         required: ["reviewers"],
       },
     });
-    // The subject, stated before it is read, on the phase-graph line's reasoning above:
+    // The subject, stated before it is read, on the run-graph line's reasoning above:
     // a form still waiting for its compiler draws no finding at all, so an audit taken
     // there covers a repeated control without the verdict this case is about.
     expect(isSchemaFormSettled(container)).toBe(true);

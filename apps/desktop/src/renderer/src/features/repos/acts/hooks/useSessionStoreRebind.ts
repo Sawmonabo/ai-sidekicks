@@ -1,7 +1,7 @@
 // The axis a subject key cannot carry: which SESSION STORE a held resource reads
 // against.
 //
-// `store/subject-scoped/subject-scoped-resource.ts` holds one resource per `(subject,
+// `hooks/subject-scoped/useSubjectScopedResource.ts` holds one resource per `(subject,
 // key)`, and every reading in the console that watches a session has THREE collaborators
 // for those two slots — the bridge it calls through, the identity it is addressed by, and
 // the store whose repair edge and named frames are two of the three admitted read

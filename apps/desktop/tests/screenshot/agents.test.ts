@@ -18,15 +18,15 @@ import { mountAgentsPane } from "./agent-mounts.js";
 import { captureSettled } from "./settled-capture.js";
 
 import { installMeridianTokens } from "@renderer/app/token-installation.js";
-import { type ConsoleScheme } from "@renderer/styles/tokens.js";
-import { CONSOLE_SCHEMES } from "@renderer/styles/tokens.js";
+import { type ColorScheme } from "@renderer/styles/tokens.js";
+import { COLOR_SCHEMES } from "@renderer/styles/tokens.js";
 
 /** The captures this file writes: the pane, once per scheme. */
 const PINNED_CAPTURES: readonly {
   readonly captureName: string;
-  readonly scheme: ConsoleScheme;
+  readonly scheme: ColorScheme;
   readonly mount: () => Promise<HTMLElement>;
-}[] = CONSOLE_SCHEMES.map((scheme) => ({
+}[] = COLOR_SCHEMES.map((scheme) => ({
   captureName: `agents-console-pane-${scheme}`,
   scheme,
   mount: mountAgentsPane,

@@ -1,4 +1,4 @@
-// The input-ask card: the provider's question, in the ledger, where it was asked.
+// The input-ask card: the provider's question, in the transcript, where it was asked.
 //
 // A mount may supply `body` to replace the card. `input-ask.ts` carries the reading this
 // card renders.
@@ -48,17 +48,17 @@ import {
 } from "@renderer/console/primitives/index.js";
 import { TypedAnswerField } from "./TypedAnswerField.js";
 import type {
-  DriverAskDelivery,
-  DriverAskReading,
+  AnswerDelivery,
+  QuestionReading,
 } from "@renderer/store/session-events/question-reading.js";
 
 import "./question-card.css";
 
 /** What the row hands a supplied body. */
 export interface QuestionCardBodyProps {
-  readonly ask: DriverAskReading;
+  readonly ask: QuestionReading;
   /** Where the answer this card last dispatched has got to. */
-  readonly delivery: DriverAskDelivery;
+  readonly delivery: AnswerDelivery;
   readonly onAnswer: (response: string) => void;
 }
 
@@ -72,7 +72,7 @@ export interface QuestionCardProps {
    * identically to a deliberate "none".
    */
   readonly body: ((props: QuestionCardBodyProps) => React.ReactNode) | undefined;
-  readonly ask: DriverAskReading;
+  readonly ask: QuestionReading;
   /**
    * The mount's reading of now, in epoch milliseconds.
    *
@@ -87,13 +87,13 @@ export interface QuestionCardProps {
    * Held by the row rather than here, because the dispatch is a wire call and this
    * card constructs none — the same split the countdown makes with the clock.
    */
-  readonly delivery: DriverAskDelivery;
+  readonly delivery: AnswerDelivery;
   /** Deliver an answer on the registered driver answer method. */
   readonly onAnswer: (response: string) => void;
 }
 
 /** The ask card: the built-in one, or the supplied `body` when the mount passes one. */
-export function InputAskCard(props: QuestionCardProps): React.JSX.Element {
+export function QuestionCard(props: QuestionCardProps): React.JSX.Element {
   if (props.body !== undefined) {
     return (
       <div className="meridian-input-ask">
@@ -171,7 +171,7 @@ function renderCountdown(
       <Nothing
         kind="computing"
         placement="inline"
-        title="Waiting for the daemon."
+        title="Waiting for the background service."
         detail="The stamped deadline has passed and this ask has not been settled on the wire yet."
       />
     );
@@ -193,8 +193,8 @@ function renderCountdown(
  * sentence in the same place. Two renderings would be two vocabularies for one wire.
  */
 function renderAnswerArms(
-  ask: DriverAskReading,
-  delivery: DriverAskDelivery,
+  ask: QuestionReading,
+  delivery: AnswerDelivery,
   onAnswer: (response: string) => void,
 ): React.ReactNode {
   // The two statuses in which no further answer may be dispatched: one is on the wire,
@@ -243,7 +243,7 @@ function renderAnswerArms(
  * the row's own event type. The refusal renders inline, which is rule 9's shape for
  * "nothing changed" — the arms above it stay exactly where they were.
  */
-function renderDelivery(delivery: DriverAskDelivery): React.ReactNode {
+function renderDelivery(delivery: AnswerDelivery): React.ReactNode {
   switch (delivery.status) {
     case "unsent":
       return null;
@@ -278,14 +278,14 @@ function renderDelivery(delivery: DriverAskDelivery): React.ReactNode {
  * which of the two things happened, because "expired" and "canceled" are different
  * events with different causes and a card that said only "closed" would collapse them.
  */
-function renderTerminal(ask: DriverAskReading): React.ReactNode {
+function renderTerminal(ask: QuestionReading): React.ReactNode {
   if (ask.state === "responded") {
     return (
       <Nothing
         kind="empty"
         placement="surface"
         title="This ask was answered."
-        detail="The delivered answer is shown as the daemon recorded it."
+        detail="The delivered answer is shown as the background service recorded it."
         {...(ask.deliveredAnswer === undefined
           ? {}
           : { action: <WireFigure value={ask.deliveredAnswer} title="Delivered answer" /> })}

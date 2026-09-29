@@ -822,7 +822,7 @@ describe("content partition routing and key-failure enumeration", () => {
       [8, 3],
       // Refusal 9 answers through ONE guard block over every shape the strict
       // layer can reject — a category mismatch, a missing member, an
-      // unrecognized one — because the block delegates the judgement to the
+      // unrecognized one — because the block delegates the judgment to the
       // registered variant rather than enumerating defects of its own.
       [9, 1],
     ]);
@@ -1595,7 +1595,7 @@ describe("session content key custody", () => {
 
   it("fences a concurrent mint even when the rotation itself fails", async () => {
     // The fence is bumped at `rewrapAll`'s ENTRY, ahead of its own width guard.
-    // Over-signalling costs a racing mint one spurious retry; under-signalling
+    // Over-signaling costs a racing mint one spurious retry; under-signaling
     // costs a session its bodies, so the ordering is one-directional on purpose.
     const { store, masterKeySource } = buildKeyStore();
     masterKeySource.beforeRead = () => {
@@ -2432,7 +2432,7 @@ describe("appending a row that carries machine-authored prose", () => {
 // that: it knows only what its own file spells.
 //
 // So this arm asserts the EQUIVALENCE, and DERIVES both halves rather than
-// re-spelling either. The codec half is behavioural — hand `writeEventWithPii`
+// re-spelling either. The codec half is behavioral — hand `writeEventWithPii`
 // a row in each category and observe whether the category guard answers. The
 // contracts half is a parse probe read against a control. Neither half restates
 // the list, so there is no third copy to drift.

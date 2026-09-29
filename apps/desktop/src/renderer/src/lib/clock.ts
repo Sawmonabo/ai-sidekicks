@@ -14,11 +14,11 @@
 // `ManualClock` is that counting instrument and the fixture's frozen clock at
 // once: nothing advances until a test or a scenario advances it.
 
-/** An opaque handle for cancelling scheduled work. */
+/** An opaque handle for canceling scheduled work. */
 export type ScheduledHandle = number;
 
 /** The clock and scheduler every console subsystem takes as a dependency. */
-export interface ConsoleClock {
+export interface Clock {
   /** Milliseconds since an arbitrary epoch. Monotonic within one clock. */
   now(): number;
   /** Run on the next paint opportunity. */
@@ -50,7 +50,7 @@ const frameScheduling = globalThis as unknown as FrameScheduling;
  * animation frames, and a substrate that threw there would be untestable outside
  * a browser.
  */
-export class RealClock implements ConsoleClock {
+export class RealClock implements Clock {
   /**
    * Armed work, keyed by the handle this clock issued.
    *
@@ -58,7 +58,7 @@ export class RealClock implements ConsoleClock {
    * that is the difference between `cancel` being idempotent and only looking it.
    * `requestAnimationFrame` and `setTimeout` number their handles in two
    * independent spaces that both start at 1, so a returned platform number does not
-   * say which space it came from. Cancelling a frame that had already run therefore
+   * say which space it came from. Canceling a frame that had already run therefore
    * fell through to `clearTimeout` carrying a number some unrelated timeout was
    * still holding — a cancellation of someone else's work, with nothing to see.
    */
@@ -96,7 +96,7 @@ export class RealClock implements ConsoleClock {
   public cancel(handle: ScheduledHandle): void {
     const armed = this.#armedWorkByHandle.get(handle);
     if (armed === undefined) {
-      // Never armed, already run, or already cancelled. All three are the no-op
+      // Never armed, already run, or already canceled. All three are the no-op
       // `cancel`'s idempotence promises, and none of them may reach a platform
       // call carrying a handle this clock no longer owns.
       return;
@@ -129,7 +129,7 @@ export class RealClock implements ConsoleClock {
  * have a timer armed?", which is how the idle-CPU budget's "no timer fires" claim
  * is checked rather than asserted.
  */
-export class ManualClock implements ConsoleClock {
+export class ManualClock implements Clock {
   #currentTime: number;
   #nextHandle = 1;
   #entries: ScheduledEntry[] = [];

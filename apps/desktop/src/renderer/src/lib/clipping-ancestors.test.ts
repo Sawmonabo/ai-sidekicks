@@ -79,7 +79,7 @@ describe("clippingAncestorsOf — the ancestors that clip", () => {
 
   it("negative control: the union is closed over exactly the tuple", () => {
     // A type-level foil, and it is the control on the declaration rather than on the
-    // behaviour: adding a sixth value to the tuple without adding it here fails to
+    // behavior: adding a sixth value to the tuple without adding it here fails to
     // compile, and so does naming one here that the tuple does not hold. Without it the
     // cases above would pass over a tuple that had quietly grown a member no reader knew
     // about.
@@ -109,7 +109,7 @@ describe("clippingAncestorsOf — which reading decides", () => {
   });
 
   it("finds an ancestor declared with the overflow shorthand alone", () => {
-    // The deck's shape, driven through the tier's REAL document rather than a fake,
+    // The pane layout's shape, driven through the tier's REAL document rather than a fake,
     // because the reading being pinned is that document's: `happy-dom` reports the empty
     // string for both axes of an element whose only declaration is the shorthand, so a
     // walk that read the axes alone found nothing here — which is what the browser copy
@@ -163,7 +163,7 @@ describe("clippingAncestorsOf — the walk is lazy", () => {
   });
 
   it("reads no style above the ancestor a caller stopped at", () => {
-    // The property the deck's early exit rests on. An eager walk would take one
+    // The property the pane layout's early exit rests on. An eager walk would take one
     // `getComputedStyle` per ancestor to the document root on every pass, and a pass is
     // armed on capture-phase document scroll.
     const outerClipper = document.createElement("div");

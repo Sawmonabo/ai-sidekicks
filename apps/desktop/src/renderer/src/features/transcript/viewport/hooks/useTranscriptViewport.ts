@@ -1,4 +1,4 @@
-// The React binding for the ledger frame: the virtualizer, and what a view reads.
+// The React binding for the transcript frame: the virtualizer, and what a view reads.
 //
 // `viewport-controller.ts` holds the policy; this module holds the React side of it.
 // The split is not cosmetic — the two options this adoption requires, `useFlushSync:
@@ -19,10 +19,10 @@ import {
   useSyncExternalStore,
 } from "react";
 
-import { type ConsoleClock } from "@renderer/lib/clock.js";
-import { type LedgerWindowReading } from "@renderer/lib/transcript-window-diagnostics.js";
+import { type Clock } from "@renderer/lib/clock.js";
+import { type TranscriptWindowReading } from "@renderer/lib/transcript-window-diagnostics.js";
 import { WINDOWED_ROW_INDEX_ATTRIBUTE } from "@renderer/console/primitives/index.js";
-import { LEDGER_OVERSCAN_ROWS } from "../viewport-constants.js";
+import { TRANSCRIPT_OVERSCAN_ROWS } from "../viewport-constants.js";
 import { ViewportController } from "../viewport-controller.js";
 import { type RetainedRowState } from "../retained-row-state-table.js";
 import { type ViewportConditions, type ViewportSnapshot } from "../viewport-snapshot.js";
@@ -40,7 +40,7 @@ export interface TranscriptViewportBinding {
   /**
    * Bring one row into view by its key, if this window still holds it.
    *
-   * Keyed rather than indexed because every caller — find's walk, a chapter's
+   * Keyed rather than indexed because every caller — find's walk, a run group's
    * header, a jump by event id — names a ROW, and an index is a fact about the current
    * window that a prune invalidates between the caller reading it and acting on it.
    * The lookup is over the reconciled snapshot, so a key the cap has already
@@ -48,7 +48,7 @@ export interface TranscriptViewportBinding {
    * index.
    *
    * Routed through the virtualizer's own `scrollToIndex`, which the controller
-   * binds to the ledger's scroll chokepoint — so this adds a caller, not a second
+   * binds to the transcript's scroll chokepoint — so this adds a caller, not a second
    * scroll writer.
    */
   readonly jumpToRow: (rowKey: string) => void;
@@ -83,20 +83,20 @@ export interface TranscriptViewportBinding {
    * or a computation over it, and this binding deliberately keeps that off the React
    * snapshot — publishing it there would notify the tree on every scrolled pixel.
    * Nothing in the console renders from it: the endurance tier reads it through the
-   * fixture handle, where the several ways a ledger can show nothing are different
+   * fixture handle, where the several ways a transcript can show nothing are different
    * findings that one row count answers identically. Stable across renders, so a
    * registration keyed on it registers once.
    */
-  readonly readWindowDiagnostics: () => LedgerWindowReading;
+  readonly readWindowDiagnostics: () => TranscriptWindowReading;
 }
 
 export interface UseTranscriptViewportOptions extends ViewportConditions {
   /**
    * The clock every timer in this frame is minted through. Fixed for the mount:
    * a viewport that swapped clocks mid-life would have work armed on one and
-   * cancelled on another.
+   * canceled on another.
    */
-  readonly clock: ConsoleClock;
+  readonly clock: Clock;
 }
 
 /**
@@ -142,7 +142,7 @@ export function useTranscriptViewport(
 
   const virtualizer = useVirtualizer<HTMLElement, HTMLElement>({
     count: snapshot.keyProjection.virtualKeys.length,
-    overscan: LEDGER_OVERSCAN_ROWS,
+    overscan: TRANSCRIPT_OVERSCAN_ROWS,
     // The attribute the row primitive WRITES, named here rather than left to the
     // library's identically-spelled default: the row and the measurement are two
     // sides of one seam, and a default is not a seam — a rename in the primitive
@@ -288,7 +288,7 @@ export function useTranscriptViewport(
       },
       [controller],
     ),
-    readWindowDiagnostics: useCallback((): LedgerWindowReading => {
+    readWindowDiagnostics: useCallback((): TranscriptWindowReading => {
       // `getVirtualItems()` FIRST, because it is the call that recomputes the range:
       // reading `virtualizer.range` before it would report the window as it was at
       // the last render rather than as it is now, and the two disagree exactly when

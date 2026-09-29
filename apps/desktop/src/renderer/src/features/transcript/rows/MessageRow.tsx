@@ -39,8 +39,8 @@
 // agent's reply, and is absent while there is none, so it never copies an empty answer.
 
 import { readWireString } from "@renderer/lib/wire-strings.js";
-import { Glyph, LedgerRow } from "@renderer/console/primitives/index.js";
-import { type InlineCardSeatProps } from "@renderer/console/seats/index.js";
+import { Glyph, TranscriptRowLayout } from "@renderer/console/primitives/index.js";
+import { type InlineCardProps } from "@renderer/console/seats/index.js";
 import { TranscriptRowGroup } from "../viewport/components/TranscriptRowGroup.js";
 import { type RowKindDescriptor } from "./row-kind.js";
 import type { HydratedRowProps } from "./hydrated-row-props.js";
@@ -62,7 +62,7 @@ export interface MessageRowProps extends HydratedRowProps {
    * member of any registered payload — `SteerPayload.attachments` is `unknown[]` by
    * contract — so a card that built these from the wire would be inventing the wire.
    */
-  readonly inlineCards?: readonly InlineCardSeatProps[] | undefined;
+  readonly inlineCards?: readonly InlineCardProps[] | undefined;
   /**
    * The edit affordance, or `undefined` while none is supplied.
    *
@@ -110,7 +110,7 @@ export function MessageRow(props: MessageRowProps): React.JSX.Element {
 
   return (
     <TranscriptRowGroup groupLabel="a message row">
-      <LedgerRow
+      <TranscriptRowLayout
         agentHueStep={props.actorHue?.step ?? -1}
         occurredAtIso={props.row.timestamp}
         authorLabel={props.row.actor ?? family.label}
@@ -149,7 +149,7 @@ export function MessageRow(props: MessageRowProps): React.JSX.Element {
             />
           )}
         </div>
-      </LedgerRow>
+      </TranscriptRowLayout>
     </TranscriptRowGroup>
   );
 }

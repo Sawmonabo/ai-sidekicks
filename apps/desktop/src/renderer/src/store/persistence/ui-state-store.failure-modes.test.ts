@@ -22,7 +22,7 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { consoleTripwires } from "@renderer/lib/tripwires.js";
+import { windowTripwires } from "@renderer/lib/tripwires.js";
 import { classifyOpenFailure, openUiStateDatabase } from "./indexeddb-persistence-adapter.js";
 import { MemoryPersistenceAdapter } from "./memory-persistence-adapter.js";
 import { UiStateStore } from "./ui-state-store.js";
@@ -31,8 +31,8 @@ import { UiStateStore } from "./ui-state-store.js";
 // they are RECORDED instead, because the point of these cases is to assert that the
 // breach was detected and described — a throw would only prove it was noticed.
 beforeEach(() => {
-  consoleTripwires.setThrowOnReport(false);
-  consoleTripwires.reset();
+  windowTripwires.setThrowOnReport(false);
+  windowTripwires.reset();
 });
 
 describe("failure matrix — the durable store cannot be opened", () => {
@@ -62,7 +62,7 @@ describe("failure matrix — the durable store cannot be opened", () => {
     expect(outcome).toStrictEqual({ outcome: "unavailable", reason: "no-indexeddb-global" });
   });
 
-  it("honours an EXPLICITLY absent factory on a host that has an ambient one", async () => {
+  it("honors an EXPLICITLY absent factory on a host that has an ambient one", async () => {
     // The arm a `??` coalesce cannot reach. On a host that HAS a global — every
     // browser, and this case — `options.indexedDbFactory ?? indexedDB` substitutes
     // the ambient factory for the caller's explicit `undefined` and opens durable
@@ -122,7 +122,7 @@ describe("failure matrix — the durable store cannot be opened", () => {
 
   it("trims once and then surfaces the refusal when the quota is exhausted", async () => {
     // The ceiling admits the first record (43 bytes by the adapter's estimator:
-    // partition + key + value class + serialised value) and cannot admit the
+    // partition + key + value class + serialized value) and cannot admit the
     // second (88) even with the first evicted. That is the case worth pinning:
     // the trim runs, frees a whole partition, and the write STILL fails — so the
     // refusal reaches the caller instead of being retried forever.
@@ -131,11 +131,13 @@ describe("failure matrix — the durable store cannot be opened", () => {
       sessionPartitionCap: 1,
     });
 
-    const first = await store.write("session-1", "layout", "layout", { deck: { width: 100 } });
+    const first = await store.write("session-1", "layout", "layout", {
+      paneLayout: { width: 100 },
+    });
     expect(first.outcome).toBe("written");
 
     const overflowing = await store.write("session-2", "layout", "layout", {
-      deck: { width: 100, height: 200, ratio: 3, offset: 4, gutter: 5 },
+      paneLayout: { width: 100, height: 200, ratio: 3, offset: 4, gutter: 5 },
     });
 
     expect(overflowing.outcome).toBe("refused");
@@ -162,7 +164,7 @@ describe("failure matrix — the persistence chokepoint is handed something it m
       expect(result.refusal.code).toBe("value-class-unknown");
       expect(result.refusal.detail).toContain("layout");
     }
-    expect(consoleTripwires.firingCount("persistence-value-class")).toBe(1);
+    expect(windowTripwires.firingCount("persistence-value-class")).toBe(1);
   });
 
   it("refuses user-authored prose inside an allowed class", async () => {
@@ -176,7 +178,7 @@ describe("failure matrix — the persistence chokepoint is handed something it m
     if (result.outcome === "refused") {
       expect(result.refusal.code).toBe("value-not-identifier-shaped");
     }
-    expect(consoleTripwires.firingCount("persistence-value-class")).toBe(1);
+    expect(windowTripwires.firingCount("persistence-value-class")).toBe(1);
   });
 
   it("refuses prose smuggled through an object KEY", async () => {
@@ -201,7 +203,7 @@ describe("failure matrix — the persistence chokepoint is handed something it m
     await expect(store.writeGlobal("scheme", "scheme", "dark")).resolves.toStrictEqual({
       outcome: "written",
     });
-    expect(consoleTripwires.totalFiringCount).toBe(0);
+    expect(windowTripwires.totalFiringCount).toBe(0);
   });
 });
 

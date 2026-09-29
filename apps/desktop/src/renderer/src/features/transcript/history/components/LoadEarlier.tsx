@@ -51,10 +51,10 @@ export function LoadEarlier(props: LoadEarlierAffordanceProps): React.JSX.Elemen
     return null;
   }
   return (
-    <div className="meridian-ledger-viewport__head">
+    <div className="meridian-transcript-viewport__head">
       <button
         type="button"
-        className="meridian-ledger-viewport__load-earlier"
+        className="meridian-transcript-viewport__load-earlier"
         onClick={loadEarlier}
         // Disabled while a page is in flight rather than hidden, so the control does
         // not vanish under the pointer that just pressed it. The reader drops a second

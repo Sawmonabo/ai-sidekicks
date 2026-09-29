@@ -65,20 +65,20 @@ export interface VisibleTranscriptWindow {
  * somebody scrolls, and re-deriving on a scroll is the render this frame's budget
  * exists to avoid. The row array's identity changes exactly on a reconcile.
  *
- * THE TWO LISTS NEST — `viewportRows ⊆ ledgerWindow.viewportRows` — because the window
+ * THE TWO LISTS NEST — `viewportRows ⊆ transcriptWindow.viewportRows` — because the window
  * cap ADOPTS the array it is handed rather than accumulating across ingests. That
  * nesting is what makes the partition below a decision and not a guess: a row the
  * viewport holds is on screen, and a row it does not is one the cap took.
  */
 export function useVisibleTranscriptWindow(
-  ledgerWindow: TranscriptWindowModel,
+  transcriptWindow: TranscriptWindowModel,
   viewportRows: readonly ViewportRow[],
 ): VisibleTranscriptWindow {
   return useMemo(() => {
     const visibleKeys = new Set(viewportRows.map((row) => row.key));
     const rows: TimelineRow[] = [];
     const prunedAwayRows: TimelineRow[] = [];
-    for (const row of ledgerWindow.rows) {
+    for (const row of transcriptWindow.rows) {
       if (visibleKeys.has(row.id)) {
         rows.push(row);
       } else {
@@ -93,5 +93,5 @@ export function useVisibleTranscriptWindow(
       hasEarlierRows: prunedAwayRows.length > 0,
       heldRowKeys: visibleKeys,
     };
-  }, [ledgerWindow, viewportRows]);
+  }, [transcriptWindow, viewportRows]);
 }

@@ -1,12 +1,12 @@
-// The footnote registry — one per timeline, keyed by source.
+// The footnote registry — one per transcript, keyed by source.
 //
 // The footnote registry is own-built, and nothing above this module says how it is
 // keyed. THIS MODULE DECIDES THAT, and the
-// rule is: one registry per timeline keyed by (source, identifier), so a definition line
+// rule is: one registry per transcript keyed by (source, identifier), so a definition line
 // never resolves as its own body.
 //
 // THE FAILURE THE KEYING PREVENTS. GFM footnotes are `[^1]` for the reference and
-// `[^1]: …` for the definition, and the identifier is scoped to the DOCUMENT. A ledger
+// `[^1]: …` for the definition, and the identifier is scoped to the DOCUMENT. A transcript
 // is not one document — it is hundreds of messages, each parsed separately, and `[^1]`
 // means a different thing in each. A registry keyed by identifier alone would let
 // message 40's definition answer message 3's reference, and — the case the rule above
@@ -17,7 +17,7 @@
 //
 // WHY A CLASS AND NOT A CONTEXT VALUE. Definitions arrive as blocks settle, from a
 // parse that runs outside React. A `useState` holding this would re-render every row in
-// the timeline each time any message declared a footnote.
+// the transcript each time any message declared a footnote.
 //
 // AND WHY IT IS STILL AN EXTERNAL STORE. A plain class with no subscription is written
 // from an effect — `StreamingMarkdown`'s registration hook — so a read during render
@@ -85,7 +85,7 @@ export class FootnoteRegistry {
    * Record a definition under its own source.
    *
    * Bounded, and eviction is oldest-first for the reason the cap's own rationale in
-   * `core/constants/ledger-card-caps.ts` gives: a
+   * `features/transcript/cards/card-caps.ts` gives: a
    * definition belongs to the message that carried it, the window retains a bounded
    * number of messages, and a definition older than the window's oldest row can never
    * be opened because the reference that would open it is gone too.
@@ -152,7 +152,7 @@ export class FootnoteRegistry {
    * Hear about one source's definitions changing, for as long as its body is mounted.
    *
    * Scoped to the source rather than to the registry, because one registry serves every
-   * row in the ledger: an unscoped signal would re-render every mounted reader
+   * row in the transcript: an unscoped signal would re-render every mounted reader
    * each time any message declared a note, which is the fan-out this class exists to
    * avoid. The filter is here rather than in the caller so the two halves of the
    * scoping — which key a change names and which key a reader waits on — stay in one

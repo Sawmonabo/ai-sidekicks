@@ -29,7 +29,7 @@
 
 import type { ProviderCommandBindingGroup } from "@ai-sidekicks/contracts";
 
-import type { ConsoleCommand } from "@renderer/registries/commands/command-types.js";
+import type { CommandDefinition } from "@renderer/registries/commands/command-types.js";
 import type { ComposerTarget } from "../composer-target.js";
 
 /** One act this console performs, offered where the composer is mounted. */
@@ -122,7 +122,7 @@ export function selectAddressedBindingGroup(
 
 /** Compose the two sources into one list, console acts first. */
 export function composeCommandList(input: {
-  readonly offeredCommands: readonly ConsoleCommand[];
+  readonly offeredCommands: readonly CommandDefinition[];
   readonly providerGroups: readonly ProviderCommandBindingGroup[];
 }): readonly CommandListEntry[] {
   const consoleEntries: CommandListEntry[] = input.offeredCommands.map((command) => ({

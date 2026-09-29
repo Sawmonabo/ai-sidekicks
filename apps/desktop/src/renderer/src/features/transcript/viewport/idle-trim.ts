@@ -1,6 +1,6 @@
-// What the ledger frame stops holding once the ledger has been still for a while.
+// What the transcript frame stops holding once the transcript has been still for a while.
 //
-// THE TWO THINGS A QUIET LEDGER KEEPS AND CANNOT USE. The cap next door bounds the
+// THE TWO THINGS A QUIET TRANSCRIPT KEEPS AND CANNOT USE. The cap next door bounds the
 // rows the window holds, and both of the tables that hang off those rows outlive
 // them on purpose:
 //
@@ -23,13 +23,13 @@
 // THERE IS NO TIMER, AND THAT IS THE DESIGN RATHER THAN A SIMPLIFICATION.
 // A timer on the console's steady state is ruled out — no timer fires except the
 // refresh scheduler's deadline and the presence heartbeat — and `TranscriptViewport.test.tsx`
-// holds the ledger to it by
+// holds the transcript to it by
 // asserting a settled frame has armed nothing. A dwell timer was written here first
 // and that case caught it. So the pass runs on the NEXT activity after a quiet period
 // instead: the gap is measured against the clock, and a `run` that arrives more than a
 // dwell after the previous one trims before it records itself.
 //
-// WHAT THAT COSTS, STATED RATHER THAN GLOSSED. A ledger that goes quiet and is never
+// WHAT THAT COSTS, STATED RATHER THAN GLOSSED. A transcript that goes quiet and is never
 // touched again keeps what it was holding until the frame is disposed — and a disposed
 // frame drops both tables whole, so nothing outlives it either way. The case this
 // leaves uncovered is a live frame nobody touches, which is also a frame whose
@@ -45,11 +45,11 @@
 
 import { TRANSCRIPT_IDLE_TRIM_DWELL_MS } from "./viewport-constants.js";
 import { type RowMeasurementTable } from "./row-measurement-table.js";
-import { type ConsoleClock } from "@renderer/lib/clock.js";
+import { type Clock } from "@renderer/lib/clock.js";
 import { type TranscriptWindow } from "./window-cap.js";
 
 export interface IdleMemoryTrimOptions {
-  readonly clock: ConsoleClock;
+  readonly clock: Clock;
   readonly window: TranscriptWindow;
   readonly measurements: RowMeasurementTable;
   /** Overridden by tests only; `frame-bounds.ts` owns the shipped value. */
@@ -67,7 +67,7 @@ export interface IdleTrimPass {
 }
 
 export class IdleMemoryTrim {
-  readonly #clock: ConsoleClock;
+  readonly #clock: Clock;
   readonly #window: TranscriptWindow;
   readonly #measurements: RowMeasurementTable;
   readonly #dwellMs: number;
@@ -94,7 +94,7 @@ export class IdleMemoryTrim {
   }
 
   /**
-   * Something happened in the ledger. Trim first if the ledger was quiet before it.
+   * Something happened in the transcript. Trim first if the transcript was quiet before it.
    *
    * The gap is measured against the PREVIOUS activity, so the pass runs at the end of
    * the quiet period rather than at the start of it — which is what makes the tables

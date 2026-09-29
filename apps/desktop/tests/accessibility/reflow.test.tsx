@@ -38,7 +38,7 @@ import {
 } from "./reflow.js";
 import { CONCURRENT_STREAMING_SCENARIO_ID } from "../../fixtures/scenarios/concurrent-streaming.js";
 import { createFixtureComposition } from "@renderer/app/fixture-composition.js";
-import { ConsoleRoot } from "@renderer/app/providers.js";
+import { AppProviders } from "@renderer/app/providers.js";
 import { installMeridianTokens } from "@renderer/app/token-installation.js";
 import { routeForDestination } from "@renderer/layout/NavigationRail/rail-navigation.js";
 import { RAIL_DESTINATIONS } from "@renderer/routing/route-readers.js";
@@ -48,7 +48,7 @@ import { formatRoute } from "@renderer/routing/routes.js";
 // stylesheet computes to when the row is given a column narrower than its text.
 import "@renderer/features/sessions/contributions/screens.js";
 import { SessionRow } from "@renderer/features/sessions/components/SessionRow.js";
-// The chunk root the settings surface's loader fetches, imported for its side effect:
+// The chunk root the settings screen's loader fetches, imported for its side effect:
 // `apps/desktop/AGENTS.md` puts a lazily-loaded directory's stylesheets behind that
 // root, and the case below is about what the keyboard sheet computes to when the meta
 // line is given a column narrower than the id on it.
@@ -98,7 +98,7 @@ describe("reflow — the console at 320 CSS px", () => {
     it(`needs no horizontal scroll at the ${destination} destination`, async () => {
       document.location.hash = formatRoute(routeForDestination(destination));
       await renderSettled(
-        <ConsoleRoot composition={createFixtureComposition(CONCURRENT_STREAMING_SCENARIO_ID)} />,
+        <AppProviders composition={createFixtureComposition(CONCURRENT_STREAMING_SCENARIO_ID)} />,
       );
 
       // Stated before it is read, so the width this case measured is in the record
@@ -121,7 +121,7 @@ describe("reflow — the console at 320 CSS px", () => {
     it(`needs no horizontal scroll on the ${page} settings page`, async () => {
       document.location.hash = formatRoute({ kind: "settings", page });
       await renderSettled(
-        <ConsoleRoot composition={createFixtureComposition(CONCURRENT_STREAMING_SCENARIO_ID)} />,
+        <AppProviders composition={createFixtureComposition(CONCURRENT_STREAMING_SCENARIO_ID)} />,
       );
 
       expect(window.innerWidth).toBe(REFLOW_MIN_WIDTH_PX);
@@ -139,7 +139,7 @@ describe("reflow — the console at 320 CSS px", () => {
     narrowTesterViewportTo(REFLOW_MIN_WIDTH_PX - 40);
     document.location.hash = formatRoute(routeForDestination("settings"));
     const { container } = await renderSettled(
-      <ConsoleRoot composition={createFixtureComposition(CONCURRENT_STREAMING_SCENARIO_ID)} />,
+      <AppProviders composition={createFixtureComposition(CONCURRENT_STREAMING_SCENARIO_ID)} />,
     );
 
     const frame = container.querySelector(".meridian-frame");
@@ -212,7 +212,7 @@ describe("reflow — the console at 320 CSS px", () => {
   it("finds a planted overflow, so a clean result means something", async () => {
     document.location.hash = formatRoute(routeForDestination("sessions"));
     const { container } = await renderSettled(
-      <ConsoleRoot composition={createFixtureComposition(CONCURRENT_STREAMING_SCENARIO_ID)} />,
+      <AppProviders composition={createFixtureComposition(CONCURRENT_STREAMING_SCENARIO_ID)} />,
     );
 
     const planted = plantHorizontalOverflow(container, REFLOW_MIN_WIDTH_PX);

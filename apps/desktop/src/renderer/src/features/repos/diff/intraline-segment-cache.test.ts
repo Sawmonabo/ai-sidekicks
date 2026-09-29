@@ -3,7 +3,7 @@
 //
 // The claims here are the ones the bound exists for, and every one of them is about
 // WORK rather than about output: that parsing a patch runs no word diff at all, that
-// materialising a row runs exactly one and a second read of that row runs none, that
+// materializing a row runs exactly one and a second read of that row runs none, that
 // the register does not grow without limit, and that a pair past the bounds keeps its
 // whole line and SAYS the comparison was declined. The library call is wrapped by the
 // mock below so the count is read off the library itself rather than off a figure this
@@ -19,7 +19,7 @@ import {
 } from "../diff-caps.js";
 import { buildDiffFixture } from "@test/helpers/diff-fixture.js";
 import { SMALL_DIFF_SHAPE } from "@test/helpers/diff-fixture-shapes.js";
-import { diffLineText, type ConsoleDiffModel, type DiffLine } from "./diff-model.js";
+import { diffLineText, type DiffModel, type DiffLine } from "./diff-model.js";
 import type { DiffLineRow } from "./diff-row-model.js";
 import { IntralineSegmentCache } from "./intraline-segment-cache.js";
 import { parseUnifiedPatch } from "./patch-parse.js";
@@ -53,7 +53,7 @@ beforeEach(() => {
 });
 
 /** One hunk's worth of prefixed body lines, under a header that counts both sides. */
-function modelOf(bodyLines: readonly string[]): ConsoleDiffModel {
+function modelOf(bodyLines: readonly string[]): DiffModel {
   const baseCount = bodyLines.filter((line) => !line.startsWith("+")).length;
   const headCount = bodyLines.filter((line) => !line.startsWith("-")).length;
   const patchText = [
@@ -72,7 +72,7 @@ function bodyRow(lineIndex: number): DiffLineRow {
 }
 
 /** One line of the first hunk of the first file, by its index in the body. */
-function bodyLineAt(model: ConsoleDiffModel, lineIndex: number): DiffLine {
+function bodyLineAt(model: DiffModel, lineIndex: number): DiffLine {
   const line = model.files[0]?.hunks[0]?.lines[lineIndex];
   if (line === undefined) {
     throw new Error(`the patch parsed to no body line at ${String(lineIndex)}`);
@@ -116,7 +116,7 @@ describe("intraline segmentation — when the word diff runs", () => {
     expect(wordDiffCalls).not.toHaveBeenCalled();
   });
 
-  it("runs one when a row is materialised, and none on a second read of that row", () => {
+  it("runs one when a row is materialized, and none on a second read of that row", () => {
     const cache = new IntralineSegmentCache(modelOf(MODIFIED_PAIR_BODY));
     const first = cache.readingFor(bodyRow(0), 0);
     expect(wordDiffCalls).toHaveBeenCalledTimes(1);

@@ -1,9 +1,9 @@
-// The wire vocabulary a chapter is folded against: which run-lifecycle types end a
+// The wire vocabulary a run group is folded against: which run-lifecycle types end a
 // run, which say it is not ended, which report a state at all, and where a run's
 // paying account is named.
 //
 // ITS OWN MODULE BESIDE THE FOLD, because the two answer different questions and grow
-// on different clocks. `run-groups.ts` decides how a window partitions into chapters and
+// on different clocks. `run-groups.ts` decides how a window partitions into run groups and
 // what one carries; this decides what the DAEMON'S OWN WORDS mean, and every entry
 // here is a claim about the registered event census rather than about this console.
 // A type added to the census is an edit here and nowhere else.
@@ -35,7 +35,7 @@ export type RunTerminalEventType = (typeof RUN_TERMINAL_EVENT_TYPES)[number];
  * The run-lifecycle event types that say a run is NOT ended, wire-verbatim.
  *
  * A terminal is not a one-way door. A rollback accepted from a finished run appends
- * a pause and a rewind for that same run before it can resume, so a chapter that
+ * a pause and a rewind for that same run before it can resume, so a run group that
  * only ever ACQUIRED a terminal kept a completion the daemon had already undone: it
  * stayed folded by rule 7's default, its header went on reading the old ending, and
  * every row appended after the rewind sat behind a receipt for something that did
@@ -48,7 +48,7 @@ export type RunTerminalEventType = (typeof RUN_TERMINAL_EVENT_TYPES)[number];
  * the six non-terminal STATES plus the rollback — every row that says the run is in
  * a state other than ended. The three non-state rows are deliberately absent: a
  * worker shutting down after a completion says nothing about the run, and reading it
- * as a reopening would unfold every finished chapter in the session.
+ * as a reopening would unfold every finished run group in the session.
  */
 export const RUN_REOPENING_EVENT_TYPES = [
   "run.queued",
@@ -73,7 +73,7 @@ export type RunReopeningEventType = (typeof RUN_REOPENING_EVENT_TYPES)[number];
  * lifetime — a later row naming a different one would be a run that changed who pays
  * mid-flight, which the account plane does not permit.
  */
-const CHAPTER_PAYING_ACCOUNT_MEMBER = "admittedProviderAccountId";
+const RUN_GROUP_PAYING_ACCOUNT_MEMBER = "admittedProviderAccountId";
 
 /**
  * The run-lifecycle types that report a STATE, wire-verbatim and derived rather than
@@ -82,7 +82,7 @@ const CHAPTER_PAYING_ACCOUNT_MEMBER = "admittedProviderAccountId";
  *
  * `run.rolled_back` is the exclusion and it is the whole reason this is a derivation
  * and not a third list. A rewind says the run came back; it does not say what state it
- * came back INTO. Reading it as one would leave a chapter reporting `run.rolled_back`
+ * came back INTO. Reading it as one would leave a run group reporting `run.rolled_back`
  * as the run's state until the next transition, and treating it as a state that
  * PERSISTS would be worse — so it clears the state instead, and the header says
  * nothing until the daemon says something.
@@ -114,6 +114,6 @@ export function isRunStateEventType(wireType: string): boolean {
  */
 export function payingAccountIdOf(row: TimelineRow): string | undefined {
   return row.kind === "run"
-    ? readWireString(row.payload[CHAPTER_PAYING_ACCOUNT_MEMBER])
+    ? readWireString(row.payload[RUN_GROUP_PAYING_ACCOUNT_MEMBER])
     : undefined;
 }

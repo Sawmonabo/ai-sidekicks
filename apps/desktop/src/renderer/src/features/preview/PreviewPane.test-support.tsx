@@ -9,8 +9,8 @@ import { act, render, screen, waitFor, type RenderResult } from "@testing-librar
 import { expect } from "vitest";
 
 import { unscriptedScenario } from "@test/helpers/fixture-bridge.js";
-import { consoleClockFor } from "@renderer/services/platform/hooks/useClock.js";
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { resolveBridgeClock } from "@renderer/services/platform/hooks/useClock.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { ManualClock } from "@renderer/lib/clock.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
@@ -49,12 +49,12 @@ export async function findRefusalBanner(): Promise<HTMLElement> {
  * Named rather than inlined at each mount, so suites that mount the same pane share one
  * window.
  */
-export function fixtureBrowserBridge(): ConsoleBridge {
+export function fixtureBrowserBridge(): PlatformBridge {
   return createFixtureBridge({ scenario: unscriptedScenario("browser-pane-test") });
 }
 
 /**
- * The context the deck hands this pane, over the shared builder.
+ * The context the pane layout hands this pane, over the shared builder.
  *
  * Exported because a second suite mounts the pane itself rather than through the
  * mounts below — the geometry binding's double-mount case needs the tree inside
@@ -68,11 +68,11 @@ export function fixtureBrowserBridge(): ConsoleBridge {
  * union's arm has none and the seat refuses one at this call site.
  */
 export function previewPaneContext(
-  bridge: ConsoleBridge = fixtureBrowserBridge(),
+  bridge: PlatformBridge = fixtureBrowserBridge(),
   paneId: string = DEFAULT_TEST_PANE_ID,
 ): {
   readonly context: PaneContextOf<"browser">;
-  readonly bridge: ConsoleBridge;
+  readonly bridge: PlatformBridge;
 } {
   return {
     bridge,
@@ -118,7 +118,7 @@ export function chromeFor(
 export const DEFAULT_TEST_PANE_ID = "pane-browser-1";
 
 /**
- * The swap a mounted pane can be put through without being remounted: a deck moves a
+ * The swap a mounted pane can be put through without being remounted: a pane layout moves a
  * slot to another pane. The pane's state has to say whose it is against it, and a suite
  * that could only mount a fresh tree could not reach the stale-subject case.
  */
@@ -129,13 +129,13 @@ export interface PreviewPaneSubjectMount {
 /**
  * Mount the pane and hand back the re-render that swaps which pane it is FOR.
  *
- * The swap is what a deck performs when a slot changes subject: React keeps the
+ * The swap is what a pane layout performs when a slot changes subject: React keeps the
  * component instance and hands it a different `paneId`, so every piece of state the
  * pane carries between renders has to say whose it is. A suite that could only mount
  * a fresh tree could not reach that case at all.
  */
 export async function mountPreviewPaneForSubject(
-  bridge: ConsoleBridge,
+  bridge: PlatformBridge,
   paneId: string,
   ProbeComponent?: React.ComponentType,
   acts: BrowserChromeActs = recordingActs(),
@@ -171,15 +171,15 @@ export async function mountPreviewPaneForSubject(
 }
 
 /**
- * What the pane's region is CALLED once `seats/ConsolePaneChrome` names it.
+ * What the pane's region is CALLED once `seats/PaneFrame` names it.
  *
  * The chrome names a pane by its whole address trail rather than by its kind — "the
- * session, then Browser" — and every mount in this family's suites is unbound, so the
+ * session, then Preview" — and every mount in this family's suites is unbound, so the
  * trail opens on the chrome's own no-address crumb. Spelled once here because it is a
  * property of the frame rather than of any one suite: a suite that hard-coded it would
  * be asserting the chrome's naming rule by accident, in as many places as it queried.
  */
-const UNBOUND_BROWSER_PANE_NAME = "No session Browser";
+const UNBOUND_PREVIEW_PANE_NAME = "No session Preview";
 
 /**
  * The mounted pane's region, read by role and name.
@@ -189,18 +189,18 @@ const UNBOUND_BROWSER_PANE_NAME = "No session Browser";
  * class selector and every suite here would go on passing.
  */
 export function previewPaneRegion(): HTMLElement {
-  return screen.getByRole("region", { name: UNBOUND_BROWSER_PANE_NAME });
+  return screen.getByRole("region", { name: UNBOUND_PREVIEW_PANE_NAME });
 }
 
 /**
  * Mount the pane's chrome and let its first effects settle.
  */
 export async function renderPreviewPane(
-  bridge?: ConsoleBridge,
+  bridge?: PlatformBridge,
   acts: BrowserChromeActs = recordingActs(),
 ): Promise<{
   readonly region: HTMLElement;
-  readonly bridge: ConsoleBridge;
+  readonly bridge: PlatformBridge;
 }> {
   const built = previewPaneContext(bridge);
   await act(async () => {
@@ -226,8 +226,8 @@ export async function renderPreviewPane(
  * narrowing is the whole condition rather than a guard around one: there is nothing
  * here to do.
  */
-export async function releaseQueuedPaneFrames(bridge: ConsoleBridge): Promise<void> {
-  const clock = consoleClockFor(bridge);
+export async function releaseQueuedPaneFrames(bridge: PlatformBridge): Promise<void> {
+  const clock = resolveBridgeClock(bridge);
   if (!(clock instanceof ManualClock)) {
     return;
   }

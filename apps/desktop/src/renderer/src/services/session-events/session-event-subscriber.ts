@@ -1,6 +1,6 @@
 // The one thing in the console that subscribes to the bridge.
 //
-// `store/session/session-hooks.ts` states the rule this module realises: "No component subscribes
+// `store/session/session-hooks.ts` states the rule this module realizes: "No component subscribes
 // to the bridge. Components subscribe to a STORE, and exactly one thing subscribes
 // to the bridge — the apply chokepoint." Until this class there was no such thing.
 // `SessionStoreRegistry.enqueue` had no caller anywhere in the tree and nothing
@@ -55,8 +55,8 @@
 // session, and nothing on screen said why.
 //
 // So the observation moved DOWN, onto the door every daemon subscription in the window
-// goes through (`bridge/transport/observed-subscription.ts`, reported into by
-// `bridge/daemon/daemon-streams.ts` and `seats/read/wire-access.ts` as well as by the open
+// goes through (`services/transport/observed-subscription.ts`, reported into by
+// `services/daemon/daemon-streams.ts` and `services/daemon/subscribe-daemon-event.ts` as well as by the open
 // below). This class reports nothing and subscribes once, for its whole life, to a
 // signal other openers move: the node's provider-account tail coming back is a
 // returning edge, and it is one a window with no bindable session can still observe.
@@ -72,22 +72,22 @@
 // `session.subscribe` will need: when the wire grows a request shape, this call
 // gains an argument and nothing else about the lifecycle moves.
 //
-// Reading a delivered payload is a different job (`bridge/daemon/session-event-payload.ts`): this
+// Reading a delivered payload is a different job (`services/daemon/session-event-payload.ts`): this
 // module owns WHICH sessions are bound, that one owns WHAT a payload looks like. The four reads
 // the endurance tier makes (`session-diagnostics-handle.ts`) are composed here, three off this
 // class's own state and one from the floor's registry, and handed out as `diagnostics`; the
 // window's registry hook gives them to the fixture composition, which alone writes the page.
 
-import type { LedgerWindowReading } from "@renderer/lib/transcript-window-diagnostics.js";
+import type { TranscriptWindowReading } from "@renderer/lib/transcript-window-diagnostics.js";
 import type { Unsubscribe } from "@renderer/lib/emitter.js";
-import { consoleLedgerWindows } from "@renderer/lib/transcript-window-diagnostics.js";
+import { transcriptWindowDiagnostics } from "@renderer/lib/transcript-window-diagnostics.js";
 import { lossyStringify } from "@renderer/lib/wire-errors.js";
 import { reportTripwire } from "@renderer/lib/tripwires.js";
 import { SESSION_EVENT_STREAM } from "../daemon/session-event-streams.js";
 import { openObservedSubscription } from "../transport/observed-subscription.js";
 import { readProjectedSessionEvent } from "../daemon/session-event-payload.js";
-import { type ConsoleBridge } from "../platform/platform-bridge.js";
-import { type ConsoleSessionDiagnostics } from "./session-diagnostics-handle.js";
+import { type PlatformBridge } from "../platform/platform-bridge.js";
+import { type SessionDiagnostics } from "./session-diagnostics-handle.js";
 import { FailedSubscriptionRetry } from "./failed-subscription-retry.js";
 import type { SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
 
@@ -96,17 +96,17 @@ const SITE = "console/frame/session-event-binder.ts";
 
 export interface SessionEventSubscriberOptions {
   readonly registry: SessionStoreRegistry;
-  readonly bridge: ConsoleBridge;
+  readonly bridge: PlatformBridge;
 }
 
-export class SessionEventBinder {
+export class SessionEventSubscriber {
   readonly #registry: SessionStoreRegistry;
-  readonly #bridge: ConsoleBridge;
+  readonly #bridge: PlatformBridge;
   readonly #unsubscribeBySessionId = new Map<string, Unsubscribe>();
   readonly #appliedEventCountBySessionId = new Map<string, number>();
   /** Which failed opens are remembered, and what one returning edge is worth. */
   readonly #retry: FailedSubscriptionRetry;
-  readonly #diagnostics: ConsoleSessionDiagnostics;
+  readonly #diagnostics: SessionDiagnostics;
   #unsubscribeFromRegistry: Unsubscribe | undefined;
   #unsubscribeFromTransportReconnect: Unsubscribe | undefined;
   #unreadableDeliveryCount = 0;
@@ -172,7 +172,7 @@ export class SessionEventBinder {
   }
 
   /** What the endurance tier reads about this binder, frozen and read-only. */
-  public get diagnostics(): ConsoleSessionDiagnostics {
+  public get diagnostics(): SessionDiagnostics {
     return this.#diagnostics;
   }
 
@@ -230,7 +230,7 @@ export class SessionEventBinder {
    * Release every subscription this binder holds. Final, and idempotent.
    *
    * The applied-event counts survive on purpose — see
-   * `ConsoleSessionDiagnostics.appliedEventCountFor` — and stay readable through
+   * `SessionDiagnostics.appliedEventCountFor` — and stay readable through
    * `diagnostics` for whoever still holds it.
    */
   public dispose(): void {
@@ -279,7 +279,7 @@ export class SessionEventBinder {
     if (this.#disposed || this.#unsubscribeBySessionId.has(sessionId)) {
       return;
     }
-    const subscribe = this.#bridge.desktopBridge.daemon.subscribe as SessionStreamSubscribe;
+    const subscribe = this.#bridge.daemon.subscribe as SessionStreamSubscribe;
     let release: Unsubscribe;
     try {
       release = openObservedSubscription(this.#bridge.transportReconnect, () =>
@@ -359,13 +359,13 @@ export class SessionEventBinder {
     this.#appliedEventCountBySessionId.set(sessionId, this.appliedEventCountFor(sessionId) + 1);
   }
 
-  #buildDiagnostics(): ConsoleSessionDiagnostics {
+  #buildDiagnostics(): SessionDiagnostics {
     return Object.freeze({
       openSessionIds: (): readonly string[] => this.#registry.openSessionIds,
       appliedEventCountFor: (sessionId: string): number => this.appliedEventCountFor(sessionId),
       boundSessionIds: (): readonly string[] => this.boundSessionIds,
-      ledgerWindowFor: (sessionId: string): LedgerWindowReading | null =>
-        consoleLedgerWindows.readingFor(sessionId),
+      transcriptWindowFor: (sessionId: string): TranscriptWindowReading | null =>
+        transcriptWindowDiagnostics.readingFor(sessionId),
     });
   }
 }
@@ -379,7 +379,7 @@ export class SessionEventBinder {
  * the daemon's event union lands. The event name is pinned to `string` (the
  * genuinely untypeable half) and the payload left `unknown`, which is honest: a
  * tighter payload type here would be a fiction, and `readProjectedSessionEvent`
- * (`bridge/daemon/session-event-payload.ts`) is what turns the `unknown` into something the
+ * (`services/daemon/session-event-payload.ts`) is what turns the `unknown` into something the
  * store may hold. Same posture as the two shipped renderer families that already
  * subscribe this way.
  */

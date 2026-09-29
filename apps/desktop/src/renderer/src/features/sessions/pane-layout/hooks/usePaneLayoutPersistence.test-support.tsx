@@ -1,4 +1,4 @@
-// The harness the deck-persistence suites drive the real hook through.
+// The harness the pane layout persistence suites drive the real hook through.
 //
 // Three suites now: `layout-persistence.restore-order.test.tsx` holds what the restore
 // and the save do to each other in TIME, `layout-persistence.read-failure.test.tsx`
@@ -27,13 +27,13 @@ import { usePaneLayoutPersistence } from "./usePaneLayoutPersistence.js";
 /** The one session every case here arranges, saves, and restores. */
 export const RESTORE_SESSION_ID = "session-restore";
 
-/** What a mounted surface offers a case that routes it, and what it reads back. */
+/** What a mounted screen offers a case that routes it, and what it reads back. */
 export interface MountedPaneLayoutPersistence {
   /**
-   * Route the mounted surface to another session, as the workspace does.
+   * Route the mounted screen to another session, as the session screen does.
    *
    * A re-render and not a remount, which is the whole shape the session-scope suite is
-   * about: the workspace stays mounted across a navigation between two open sessions,
+   * about: the session screen stays mounted across a navigation between two open sessions,
    * so anything the hook holds per MOUNT survives the route.
    */
   readonly routeTo: (sessionId: string | undefined) => void;
@@ -41,19 +41,19 @@ export interface MountedPaneLayoutPersistence {
   readonly restoreRefusalCodes: () => readonly string[];
 }
 
-export function deckLayout(): PaneLayoutStore {
+export function createPaneLayoutStore(): PaneLayoutStore {
   return new PaneLayoutStore({ restoredPaneCap: PANE_LAYOUT_RESTORED_PANE_CAP });
 }
 
 /** A saved arrangement, written through the grammar that reads it back. */
 export async function savePaneLayout(
   store: UiStateStore,
-  kinds: readonly ("timeline" | "runs" | "approvals")[],
+  kinds: readonly ("transcript" | "runs" | "approvals")[],
   sessionId: string = RESTORE_SESSION_ID,
 ): Promise<void> {
-  const layout = deckLayout();
+  const layout = createPaneLayoutStore();
   for (const kind of kinds) {
-    layout.open({ kind, entity: undefined });
+    layout.open({ kind });
   }
   const result = await store.write(
     sessionId,

@@ -176,7 +176,7 @@ export function refuseAmbiguousCreate(sentRevision: number | undefined): NewSess
     completedCalls: [],
     refusal: refuseNewSessionDraft(
       "session-create-unreadable",
-      "The daemon answered, but this build could not read the reply — so a session may have been created and this window cannot name it. Nothing else was sent. Check the sessions list rather than sending again: a second send would make a second session.",
+      "The background service answered, but this build could not read the reply — so a session may have been created and this window cannot name it. Nothing else was sent. Check the sessions list rather than sending again: a second send would make a second session.",
     ),
   };
 }

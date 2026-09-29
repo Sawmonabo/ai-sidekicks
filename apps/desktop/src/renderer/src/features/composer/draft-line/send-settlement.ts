@@ -19,7 +19,7 @@
 // nothing), a settlement would clear a draft typed on the second visit because the
 // first visit's send cleared the first visit's text, and a refusal written on the first
 // visit would read as current again. The visit is the composer's mirror of the holder's
-// own addressing epoch (`store/subject-scoped/subject-scoped-state.ts` states the same
+// own addressing epoch (`hooks/subject-scoped/useSubjectScopedState.ts` states the same
 // fact for the value it holds), so the latch key, the attempt register, and the
 // settlement identity all carry it.
 //
@@ -29,7 +29,7 @@
 // not resurrect it. A refusal that reappears minutes later, attached to nothing the
 // person just did, is a worse answer than no refusal at all.
 
-import type { ConsoleRefusal } from "@renderer/lib/refusal.js";
+import type { Refusal } from "@renderer/lib/refusal.js";
 
 /**
  * The acts whose settlements share the send bar's refusal surface.
@@ -62,7 +62,7 @@ export interface ComposerSettlementIdentity {
 /** A refusal held under the identity of the act that produced it. */
 export interface HeldComposerRefusal {
   readonly identity: ComposerSettlementIdentity;
-  readonly refusal: ConsoleRefusal;
+  readonly refusal: Refusal;
 }
 
 /**
@@ -76,7 +76,7 @@ export type ComposerRefusalsByOperation = Readonly<
 >;
 
 /**
- * The key one act's in-flight slot is held under, while it is still travelling.
+ * The key one act's in-flight slot is held under, while it is still traveling.
  *
  * The same three axes the identity carries, minus the attempt: the latch answers
  * whether THIS VISIT to this address already has a send going, and the attempt id is
@@ -86,7 +86,7 @@ export type ComposerRefusalsByOperation = Readonly<
  * settlement calls it cannot drift apart.
  *
  * The visit is what frees a returning visit's slot. Without it a call still
- * travelling for the first stay at a target held the key the second stay computes,
+ * traveling for the first stay at a target held the key the second stay computes,
  * so the second stay's Send found the slot taken by a call it could not see, and the
  * press did nothing at all — the one outcome a control may not have.
  *
@@ -182,7 +182,7 @@ export function isSettlementCurrent(
 export function withSettledRefusal(
   slots: ComposerRefusalsByOperation,
   identity: ComposerSettlementIdentity,
-  refusal: ConsoleRefusal | undefined,
+  refusal: Refusal | undefined,
 ): ComposerRefusalsByOperation {
   return {
     ...slots,
@@ -198,6 +198,6 @@ export function withSettledRefusal(
  * status is, which re-seeds on the render that first sees a new subject: the holder is
  * the guard, and a guard beside it would be a second answer to the same question.
  */
-export function renderableRefusal(slots: ComposerRefusalsByOperation): ConsoleRefusal | undefined {
+export function renderableRefusal(slots: ComposerRefusalsByOperation): Refusal | undefined {
   return slots.send?.refusal;
 }

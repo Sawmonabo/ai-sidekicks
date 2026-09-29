@@ -14,13 +14,13 @@ import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 
 import { CONTROLLER_DISPOSAL } from "@renderer/lib/subject-scoped/subject-scoped-disposal.js";
 import { useSubjectScopedResource } from "@renderer/hooks/subject-scoped/useSubjectScopedResource.js";
-import { consoleClockFor } from "@renderer/services/platform/hooks/useClock.js";
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { resolveBridgeClock } from "@renderer/services/platform/hooks/useClock.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 import type { ArtifactListReading, ArtifactRowActOutcome } from "../artifact-list-reading.js";
 import type { ArtifactOperations } from "../services/artifact-reads.js";
 import type { ArtifactPayloadOutcome } from "@renderer/store/artifacts/artifact-payload.js";
-import { ArtifactPaneReader } from "../artifact-list-reader.js";
+import { ArtifactListReader } from "../artifact-list-reader.js";
 
 /** What the hook hands its surface: the reading, and the acts it can put to the port. */
 export interface ArtifactListBinding {
@@ -52,26 +52,26 @@ export interface ArtifactListBinding {
  * on the seam's own terms.
  */
 export function useArtifactList(
-  bridge: ConsoleBridge,
+  bridge: PlatformBridge,
   sessionStore: SessionStore,
   subjectArtifactId: string,
   operations: ArtifactOperations,
 ): ArtifactListBinding {
   // The window's own clock, resolved once per bridge.
-  const clock = useMemo(() => consoleClockFor(bridge), [bridge]);
+  const clock = useMemo(() => resolveBridgeClock(bridge), [bridge]);
   // The reader reads the session's whole list, so the artifact id is not passed to it: the
   // key only decides whose subject-scoped state this reader holds.
   const subject = useMemo(() => ({ bridge, operations }), [bridge, operations]);
   const { value: reader, settle } = useSubjectScopedResource(
     subject,
     subjectArtifactId,
-    () => new ArtifactPaneReader({ ...operations, sessionStore, clock }),
+    () => new ArtifactListReader({ ...operations, sessionStore, clock }),
     CONTROLLER_DISPOSAL,
   );
   useEffect(() => {
     // The store axis only; disposal is the seam's.
     if (!reader.isReadingFor(sessionStore)) {
-      settle()(new ArtifactPaneReader({ ...operations, sessionStore, clock }));
+      settle()(new ArtifactListReader({ ...operations, sessionStore, clock }));
       return;
     }
     reader.start();

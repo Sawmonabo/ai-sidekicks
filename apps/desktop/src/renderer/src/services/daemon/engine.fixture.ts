@@ -64,11 +64,11 @@
 // quiet stretch of the script would never be delivered. Why they are two emitters
 // rather than one widened sink list is `scenario-delivery.ts`'s to state.
 
-import { ManualClock, type ConsoleClock } from "@renderer/lib/clock.js";
+import { ManualClock, type Clock } from "@renderer/lib/clock.js";
 import { parseInstant } from "@renderer/lib/instant.js";
 import { reportTripwire } from "@renderer/lib/tripwires.js";
 import { type EmitterSink, type Unsubscribe } from "@renderer/lib/emitter.js";
-import type { ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
+import type { ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 import { HeldReplyQueue, type ScenarioReplyOutcome } from "./held-reply-queue.fixture.js";
 import {
   ScenarioDelivery,
@@ -77,7 +77,7 @@ import {
 } from "./event-delivery.fixture.js";
 import type { UnpositionedSessionEvent } from "./session-log.fixture.js";
 import type { ScenarioReply } from "./scenario-reply.fixture.js";
-import type { ConsoleScenario } from "../../../../../fixtures/scenario.js";
+import type { Scenario } from "../../../../../fixtures/scenario.js";
 
 /**
  * The fixture scenario clock's tick, in milliseconds of scenario time. Every scenario's
@@ -104,16 +104,16 @@ export interface ScenarioProgress {
 }
 
 export interface ScenarioEngineOptions {
-  readonly scenario: ConsoleScenario;
+  readonly scenario: Scenario;
   /** Defaults to a `ManualClock`, which is what makes the fixture deterministic. */
-  readonly clock?: ConsoleClock & { advance?: (deltaMs: number) => void };
+  readonly clock?: Clock & { advance?: (deltaMs: number) => void };
   /** How far each `tick()` moves the frozen clock. */
   readonly tickMs?: number;
 }
 
 export class ScenarioEngine {
-  readonly #scenario: ConsoleScenario;
-  readonly #clock: ConsoleClock & { advance?: (deltaMs: number) => void };
+  readonly #scenario: Scenario;
+  readonly #clock: Clock & { advance?: (deltaMs: number) => void };
   readonly #tickMs: number;
   // Who is listening, and the record of what has landed. Every delivery this class
   // decides on goes out through it, and it decides no delivery of its own.
@@ -139,12 +139,12 @@ export class ScenarioEngine {
     this.#tickMs = options.tickMs ?? SCENARIO_TICK_MS;
   }
 
-  public get scenario(): ConsoleScenario {
+  public get scenario(): Scenario {
     return this.#scenario;
   }
 
   /** The frozen clock. Every console subsystem in fixture mode reads this one. */
-  public get clock(): ConsoleClock {
+  public get clock(): Clock {
     return this.#clock;
   }
 
@@ -230,7 +230,7 @@ export class ScenarioEngine {
    * into a torn-down subscriber is the failure this module's teardown exists to
    * prevent, and an append is a delivery.
    */
-  public appendEvent(event: UnpositionedSessionEvent): ConsoleSessionEvent | undefined {
+  public appendEvent(event: UnpositionedSessionEvent): ProjectedSessionEvent | undefined {
     if (this.#disposed) {
       reportTripwire(
         "apply-chokepoint-bypass",
@@ -257,7 +257,7 @@ export class ScenarioEngine {
    * beat triggers with the same row it had already given. Both halves are the same
    * defect, and neither is reachable without the record of what has actually landed.
    */
-  public deliveredEvents(): readonly ConsoleSessionEvent[] {
+  public deliveredEvents(): readonly ProjectedSessionEvent[] {
     return this.#delivery.deliveredEvents();
   }
 

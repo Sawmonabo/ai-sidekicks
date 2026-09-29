@@ -10,7 +10,7 @@
  * Design-language rules that govern this sheet: rule 8 — five absences render as five
  * different shapes, never collapsed. A kind supplies copy, a glyph, and a tone, and the
  * PLACEMENT supplies the box those are carried in. So every layout rule below is scoped
- * to one shape and every colour rule to neither — which is what lets `not-checked` keep
+ * to one shape and every color rule to neither — which is what lets `not-checked` keep
  * the dotted boundary rule 8 names for it while standing in for a whole pane rather
  * than a value.
  *
@@ -25,13 +25,13 @@
 
 /*
  * `not-loaded`: a skeleton in the row's shape. The neutral inline-start edge is the
- * ledger row's attribution edge with no attribution yet — which is exactly what is
+ * transcript row's attribution edge with no attribution yet — which is exactly what is
  * true while the read is in flight. Both belong to the row, so both are the block's.
  */
 .meridian-nothing--block.meridian-nothing--not-loaded {
   padding-block: var(--meridian-space-3);
   padding-inline-start: var(--meridian-space-4);
-  border-inline-start: var(--meridian-attribution-edge) solid var(--meridian-edge);
+  border-inline-start: var(--meridian-leading-edge) solid var(--meridian-edge);
 }
 
 .meridian-nothing__skeleton-bar {
@@ -83,7 +83,7 @@
 
 /* `error`: the red edge and ground are the kind's, at either shape. */
 .meridian-nothing--error {
-  border-inline-start: var(--meridian-attribution-edge) solid var(--meridian-red-mark);
+  border-inline-start: var(--meridian-leading-edge) solid var(--meridian-red-mark);
   background: var(--meridian-red-ground);
 }
 

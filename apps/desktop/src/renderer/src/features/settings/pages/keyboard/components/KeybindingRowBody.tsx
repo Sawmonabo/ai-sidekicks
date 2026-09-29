@@ -10,7 +10,7 @@
 
 import { useState, type ReactNode } from "react";
 
-import type { ConsoleRefusal } from "@renderer/lib/refusal.js";
+import type { Refusal } from "@renderer/lib/refusal.js";
 import {
   ChordHint,
   InlineRefusal,
@@ -27,7 +27,7 @@ import {
 export interface KeybindingRowBodyProps {
   readonly row: KeybindingRow;
   readonly recording: boolean;
-  readonly refusal: ConsoleRefusal | undefined;
+  readonly refusal: Refusal | undefined;
   readonly onStartRecording: () => void;
   readonly onRecorded: (recording: CompletedChordRecording) => void;
   readonly onReset: () => void;
@@ -92,7 +92,7 @@ export function KeybindingRowBody(props: KeybindingRowBodyProps): ReactNode {
           onBlur={() => {
             if (recording) {
               setHeldModifiers([]);
-              props.onRecorded({ outcome: "cancelled" });
+              props.onRecorded({ outcome: "canceled" });
             }
           }}
           onKeyDown={(event) => {

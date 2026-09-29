@@ -14,7 +14,7 @@
 // WHAT THE BUILDER GUARANTEES, AND WHY EACH GUARANTEE IS WORTH A FUNCTION CALL
 //
 //   • **The row id is positional too, and minted from the scenario's own stem.**
-//     `ConsoleSessionEvent.id` is the daemon's opaque row id, and the hydrated-event
+//     `ProjectedSessionEvent.id` is the daemon's opaque row id, and the hydrated-event
 //     read is keyed by it — so a beat without one is a row nothing can ask about. It
 //     is minted from a stem the scenario owns rather than from its session id,
 //     because a caller that composed the id back out of `{sessionId, sequence}` would
@@ -28,7 +28,7 @@
 //     twice: one in scenario time, one on the frozen clock the fixture reports. A
 //     script that let them disagree would put a row on screen whose timestamp
 //     contradicted the tick it arrived at, and every reading taken from that frame
-//     — a chapter's duration, a seam's position in the log — would be measuring two
+//     — a run group's duration, a seam's position in the log — would be measuring two
 //     different sessions.
 //   • **Entries are held to non-decreasing `atMs`.** The engine delivers beats by
 //     slicing from the delivered count and filtering by due time, so a beat whose
@@ -113,7 +113,7 @@ interface RunTransitionInput {
  *
  * Throws on a script that goes backwards in time rather than sorting it: sorting
  * would silently accept a rewritten ordering, and the ordering is the design of the
- * scenario — two lanes interleaving at particular ticks is what the ledger is being
+ * scenario — two lanes interleaving at particular ticks is what the transcript is being
  * measured against.
  */
 export function composeScriptBeats(options: ScriptOptions): readonly ScenarioBeat[] {

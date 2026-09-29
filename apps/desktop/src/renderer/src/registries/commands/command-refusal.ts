@@ -6,10 +6,10 @@
 // because the window's banner is the only rendering such an act has.
 
 import { type Unsubscribe } from "@renderer/lib/emitter.js";
-import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
+import { type Refusal } from "@renderer/lib/refusal.js";
 
 /** Publish this window's refusal rendering. The window calls it; nothing else does. */
-export function publishConsoleActRefusalSink(sink: (refusal: ConsoleRefusal) => void): Unsubscribe {
+export function publishCommandRefusalSink(sink: (refusal: Refusal) => void): Unsubscribe {
   return commandRefusals.publish(sink);
 }
 
@@ -18,15 +18,15 @@ export function publishConsoleActRefusalSink(sink: (refusal: ConsoleRefusal) => 
  *
  * Answers whether anything rendered it, so a caller with its own surface can fall back.
  */
-export function raiseConsoleActRefusal(refusal: ConsoleRefusal): boolean {
+export function raiseCommandRefusal(refusal: Refusal): boolean {
   return commandRefusals.raise(refusal);
 }
 
 /** The one published sink, withdrawn only by the publisher that set it. */
 class CommandRefusalChannel {
-  #sink: ((refusal: ConsoleRefusal) => void) | undefined;
+  #sink: ((refusal: Refusal) => void) | undefined;
 
-  public publish(sink: (refusal: ConsoleRefusal) => void): Unsubscribe {
+  public publish(sink: (refusal: Refusal) => void): Unsubscribe {
     this.#sink = sink;
     return () => {
       if (this.#sink === sink) {
@@ -35,7 +35,7 @@ class CommandRefusalChannel {
     };
   }
 
-  public raise(refusal: ConsoleRefusal): boolean {
+  public raise(refusal: Refusal): boolean {
     if (this.#sink === undefined) {
       return false;
     }

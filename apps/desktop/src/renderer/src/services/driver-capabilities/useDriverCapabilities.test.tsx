@@ -20,7 +20,7 @@ import { act, render } from "@testing-library/react";
 
 import { bridgeAnswering } from "@test/helpers/fixture-bridge.js";
 import { settleScheduledRead } from "@test/helpers/scheduled-read.js";
-import type { ConsoleBridge } from "../platform/platform-bridge.js";
+import type { PlatformBridge } from "../platform/platform-bridge.js";
 import {
   CapabilityProbe,
   answeringCapabilityReads,
@@ -200,7 +200,7 @@ describe("useDriverCapabilities — a read that failed says so", () => {
 describe("useDriverCapabilities — a settlement is never terminal", () => {
   /** One consumer bound to a session, so the repair reason is wired as a pane wires it. */
   function RepairingProbe(props: {
-    readonly bridge: ConsoleBridge;
+    readonly bridge: PlatformBridge;
     readonly sessionStore: SessionStore;
     readonly onReadout: (readout: DriverCapabilityReadout | undefined) => void;
   }): React.JSX.Element {
@@ -208,9 +208,9 @@ describe("useDriverCapabilities — a settlement is never terminal", () => {
     return <CapabilityProbe bridge={props.bridge} onReadout={props.onReadout} />;
   }
 
-  function initialisedStore(): SessionStore {
+  function initializedStore(): SessionStore {
     const store = new SessionStore({ sessionId: "019b7a33-3300-75e5-8510-ada11a5a55a5" });
-    store.initialise({ cursor: 0, entities: [] });
+    store.initialize({ cursor: 0, entities: [] });
     return store;
   }
 
@@ -250,7 +250,7 @@ describe("useDriverCapabilities — a settlement is never terminal", () => {
       { drivers: [reportFor("claude", [])] },
       { drivers: [reportFor("claude", ["rollback"])] },
     );
-    const sessionStore = initialisedStore();
+    const sessionStore = initializedStore();
     let readout: DriverCapabilityReadout | undefined = neverRead();
     await act(async () => {
       render(
@@ -275,7 +275,7 @@ describe("useDriverCapabilities — a settlement is never terminal", () => {
     expect(capabilityCallCount(counted)).toBe(1);
 
     act(() => {
-      sessionStore.initialise({ cursor: 4, entities: [] });
+      sessionStore.initialize({ cursor: 4, entities: [] });
     });
     await settleScheduledRead(counted.bridge);
 

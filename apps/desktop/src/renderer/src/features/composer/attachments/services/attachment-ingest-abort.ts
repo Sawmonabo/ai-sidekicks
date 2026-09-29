@@ -25,7 +25,7 @@ export class AttachmentSpoolReclaimer {
   /**
    * Ask for a spool back, best-effort, for a stream the daemon actually opened.
    *
-   * FIRED AND NOT AWAITED, because every caller is synchronous and terminal: a carrier
+   * FIRED AND NOT AWAITED, because every caller is synchronous and terminal: a staged list
    * that waited on a best-effort abort would hold a closed surface open for an answer
    * nobody is left to render. Nothing catches it, so a rejection surfaces as the page's
    * unhandled rejection.

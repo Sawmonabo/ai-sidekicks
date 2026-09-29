@@ -2,7 +2,7 @@
 //
 // A pane is reused. `DiffPane` and `InlineDiffCard` both take their model as a
 // prop, and a host that points either at a different change set hands it a
-// different `ConsoleDiffModel` on the next render. Two pieces of their state are
+// different `DiffModel` on the next render. Two pieces of their state are
 // addressed against that model and mean nothing without it:
 //
 //   • the SELECTED FILE PATH, which narrows the rows. A path the new diff does
@@ -25,7 +25,7 @@
 // `undefined` key from `useSubjectScopedState` directly, beside its own register.
 //
 // THE IDENTITY IS THE PROP REFERENCE, and there is no other candidate.
-// `ConsoleDiffModel` carries no id, and a key derived from `baseRef` / `headRef`
+// `DiffModel` carries no id, and a key derived from `baseRef` / `headRef`
 // would both miss a real change — two diffs of the same two refs can hold
 // different content — and claim a member the model does not have. So the model
 // IS the subject, and the key within it is `undefined`: one model is one subject
@@ -44,7 +44,7 @@ import { useCallback } from "react";
 
 import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
 
-import type { ConsoleDiffModel } from "../diff-model.js";
+import type { DiffModel } from "../diff-model.js";
 import { expandGap, type DiffGapExpansion } from "../diff-row-model.js";
 
 /**
@@ -52,7 +52,7 @@ import { expandGap, type DiffGapExpansion } from "../diff-row-model.js";
  *
  * A module-level constant rather than a fresh object per render, so every pass with
  * no diff is one subject and the seed is not re-run under a pane that is simply
- * waiting. It is never compared with a model — a `ConsoleDiffModel` is a different
+ * waiting. It is never compared with a model — a `DiffModel` is a different
  * object — so no diff can be mistaken for the absence of one.
  */
 const NO_DIFF_SUBJECT: object = {};
@@ -76,7 +76,7 @@ export interface DiffModelViewState {
  * model renumbers its files, and a gap in the second file would arrive as file
  * zero and resolve the first file's context.
  */
-export function useDiffModelViewState(diff: ConsoleDiffModel | undefined): DiffModelViewState {
+export function useDiffModelViewState(diff: DiffModel | undefined): DiffModelViewState {
   const { value, publish } = useSubjectScopedState<HeldDiffViewState>(
     diff ?? NO_DIFF_SUBJECT,
     undefined,

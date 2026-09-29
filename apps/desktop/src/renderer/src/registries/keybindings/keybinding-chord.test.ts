@@ -13,7 +13,7 @@
 import { describe, expect, it } from "vitest";
 
 import { CommandRegistry } from "../commands/command-registry.js";
-import { KeybindingConflictError, KeyBindingTable } from "./keybinding-table.js";
+import { KeybindingConflictError, KeybindingTable } from "./keybinding-table.js";
 
 describe("chord decoding — the comparator and the printer decode alike", () => {
   it("refuses two spellings of one keystroke as a conflict", () => {
@@ -27,7 +27,7 @@ describe("chord decoding — the comparator and the printer decode alike", () =>
       { id: "test.first", title: "First", group: "Test", run: () => undefined },
       { id: "test.second", title: "Second", group: "Test", run: () => undefined },
     ]);
-    const table = new KeyBindingTable({ registry, readContext: () => ({}) });
+    const table = new KeybindingTable({ registry, readContext: () => ({}) });
 
     expect(() => {
       table.setBindings([
@@ -38,7 +38,7 @@ describe("chord decoding — the comparator and the printer decode alike", () =>
   });
 
   it("does not call two different keys a conflict", () => {
-    // The negative half: a comparator that normalised too aggressively — folding
+    // The negative half: a comparator that normalized too aggressively — folding
     // `KeyK` to `K` and then `Keyboard` to `board`, say — would refuse bindings
     // that have nothing to do with each other.
     const registry = new CommandRegistry();
@@ -46,7 +46,7 @@ describe("chord decoding — the comparator and the printer decode alike", () =>
       { id: "test.first", title: "First", group: "Test", run: () => undefined },
       { id: "test.second", title: "Second", group: "Test", run: () => undefined },
     ]);
-    const table = new KeyBindingTable({ registry, readContext: () => ({}) });
+    const table = new KeybindingTable({ registry, readContext: () => ({}) });
 
     expect(() => {
       table.setBindings([

@@ -1,4 +1,4 @@
-// The two slots this directory owns: each draws only its empty frame while it has no body,
+// The two mount points this directory owns: each draws only its empty frame while it has no body,
 // and hands a supplied body exactly what its mount promised. A supplied body is rendered
 // and never called, so its hooks belong to it; the last describe drives that across the
 // transition where a called body's hooks would first join the wrapper's list.
@@ -30,7 +30,7 @@ const OPEN_PHASE: HumanFormPhase = {
   formRevision: 0,
 };
 
-/** Each slot's unfilled rendering, as one table so a third cannot skip a case. */
+/** Each mount point's unfilled rendering, as one table so a third cannot skip a case. */
 const UNFILLED_SLOTS: readonly (readonly [string, React.JSX.Element])[] = [
   ["run detail", <RunDetailMountPoint key="run-detail" workflowRunId="wfr-01" />],
   [
@@ -42,16 +42,16 @@ const UNFILLED_SLOTS: readonly (readonly [string, React.JSX.Element])[] = [
 // Resolved once so every case renders a loaded form whose submit is armed.
 beforeAll(resolveSchemaFormChunks);
 
-describe("an unfilled slot draws only its frame", () => {
+describe("an unfilled mount point draws only its frame", () => {
   it.each(UNFILLED_SLOTS)("%s stands as one empty frame", (_name, element) => {
     const { container } = render(element);
-    const frames = container.querySelectorAll(".meridian-workflow__slot");
+    const frames = container.querySelectorAll(".meridian-workflow__mount-point");
     expect(frames).toHaveLength(1);
     expect(frames[0]?.textContent).toBe("");
   });
 });
 
-describe("a filled slot receives exactly what the mount promised", () => {
+describe("a filled mount point receives exactly what the mount promised", () => {
   // Read off the first call's first argument rather than through
   // `toHaveBeenCalledWith`: React owns the argument list of a component it renders,
   // and an assertion on its ARITY would be a claim about React rather than about the
@@ -68,7 +68,7 @@ describe("a filled slot receives exactly what the mount promised", () => {
   });
 
   it("hands the run detail the served snapshot beside the run", async () => {
-    // The obligation this slot is under is that the run pane supplies the run
+    // The obligation this mount point is under is that the run pane supplies the run
     // snapshot. Handed over rather than left for the body to re-read: a body that
     // issued its own run read would put one question twice and hold two answers to
     // it on one screen.
@@ -92,7 +92,7 @@ describe("a filled slot receives exactly what the mount promised", () => {
   it("hands the human form the open phase, revision included, and the seat's submit", async () => {
     // The resolved phase VERBATIM, plus the one member the pane cannot resolve: the
     // bound submit the seat keeps. `toStrictEqual` is what makes that exact — a body
-    // handed a member this slot did not promise is as much a defect as a missing one.
+    // handed a member this mount point did not promise is as much a defect as a missing one.
     const body = vi.fn((_mount: HumanFormMount) => <p>form body</p>);
     await renderSwitchableMountPoint({ phase: OPEN_PHASE, body });
     expect(body.mock.calls[0]?.[0]).toStrictEqual({
@@ -108,7 +108,7 @@ describe("a filled slot receives exactly what the mount promised", () => {
     const body = vi.fn(() => <p>form body</p>);
     const { container } = await renderSwitchableMountPoint({ phase: undefined, body });
     expect(body).not.toHaveBeenCalled();
-    expect(container.querySelector(".meridian-workflow__slot")?.textContent).toBe("");
+    expect(container.querySelector(".meridian-workflow__mount-point")?.textContent).toBe("");
   });
 });
 
@@ -138,17 +138,19 @@ describe("a body that uses hooks keeps its own hook boundary", () => {
   it("tears the body down when the phase closes and reopens it on the next one", async () => {
     const recordTeardown = vi.fn();
     const body = statefulFormBody(recordTeardown);
-    const slot = await renderSwitchableMountPoint({ phase: undefined, body });
-    await slot.switchTo(OPEN_PHASE);
-    expect(slot.container.textContent).toContain(OPEN_PHASE.phaseId);
+    const mountPoint = await renderSwitchableMountPoint({ phase: undefined, body });
+    await mountPoint.switchTo(OPEN_PHASE);
+    expect(mountPoint.container.textContent).toContain(OPEN_PHASE.phaseId);
 
-    await slot.switchTo(undefined);
-    expect(slot.container.querySelector(".meridian-workflow__slot")?.textContent).toBe("");
+    await mountPoint.switchTo(undefined);
+    expect(mountPoint.container.querySelector(".meridian-workflow__mount-point")?.textContent).toBe(
+      "",
+    );
     expect(recordTeardown).toHaveBeenCalledTimes(1);
 
-    await slot.switchTo(SECOND_PHASE);
-    expect(slot.container.textContent).toContain(SECOND_PHASE.phaseId);
-    expect(slot.container.textContent).not.toContain(OPEN_PHASE.phaseId);
+    await mountPoint.switchTo(SECOND_PHASE);
+    expect(mountPoint.container.textContent).toContain(SECOND_PHASE.phaseId);
+    expect(mountPoint.container.textContent).not.toContain(OPEN_PHASE.phaseId);
   });
 
   /**

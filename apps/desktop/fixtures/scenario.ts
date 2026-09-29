@@ -21,16 +21,16 @@
 // about and what it plays.
 import type { UpdateState } from "@shared/preload-api.js";
 
-import type { ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
+import type { ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 import type { ScenarioReply } from "@renderer/services/daemon/scenario-reply.fixture.js";
 
 /** One scripted event and the tick it is due at, measured from scenario start. */
 export interface ScenarioBeat {
   readonly atMs: number;
-  readonly event: ConsoleSessionEvent;
+  readonly event: ProjectedSessionEvent;
 }
 
-export interface ConsoleScenario {
+export interface Scenario {
   readonly id: string;
   /** Shown in the fixture picker. Short; a name, not a sentence. */
   readonly label: string;
@@ -78,7 +78,7 @@ export interface ConsoleScenario {
    */
   readonly refusesSubmittedResumeCursor?: boolean;
   /**
-   * What the shell's updater reports, where the scenario states one.
+   * What the main process's updater reports, where the scenario states one.
    *
    * OPTIONAL, and the default is a bare `idle` carrying no last-check instant. That
    * default is load-bearing rather than incidental: `UpdateState`'s `idle` arm carries

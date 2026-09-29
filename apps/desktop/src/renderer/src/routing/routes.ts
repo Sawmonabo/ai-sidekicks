@@ -6,8 +6,8 @@
 // handler for a path that is not a file; a hash route asks for the same document every
 // time and carries its state after the `#`.
 //
-// The routes are one per icon-rail destination plus the session workspace. The
-// workspace is a route and NOT a rail destination: a session is reached from the
+// The routes are one per icon-rail destination plus the session screen. The
+// session screen is a route and NOT a rail destination: a session is reached from the
 // sessions destination, which is why `railDestinationFor` answers `sessions` for it.
 //
 // A route arriving MALFORMED (an unknown route name, too many segments, an empty
@@ -15,19 +15,19 @@
 // than rendering blank.
 
 /** Where the console currently is. A closed union — every arm renders something. */
-export type ConsoleRoute =
+export type AppRoute =
   | { readonly kind: "sessions" }
   // ONE ARM CARRYING AN OPTIONAL FOCUS, unlike the settings split below, and the
   // difference is what the two grammars can express. `#/settings` has nowhere to put
   // a page-scoped selection, so the pair `{page: undefined, selection}` is a value the
-  // formatter cannot write down and the split makes it unrepresentable. A workspace
+  // formatter cannot write down and the split makes it unrepresentable. A session screen
   // address always carries its session, so `{sessionId, workflowPhase}` is writable in
   // full and reads back byte-for-byte — there is no half-supplied context to forbid.
   //
-  // THE PHASE DEEP LINK IS A WORKSPACE ADDRESS RATHER THAN A DESTINATION OF ITS OWN.
+  // THE PHASE DEEP LINK IS A SESSION SCREEN ADDRESS RATHER THAN A DESTINATION OF ITS OWN.
   // `#/session/<sid>/workflow/<rid>/phase/<pid>` opens the session it names, focused
   // on one phase of one run — so the rail highlights `sessions` exactly as a bare
-  // workspace does, the surface the route mounts is the workspace, and the palette's
+  // session screen does, the screen the route mounts is the session screen, and the palette's
   // scope row names the session. A seventh route kind would have had to answer all
   // three of those questions again and would have answered them the same way.
   //
@@ -37,7 +37,7 @@ export type ConsoleRoute =
   // Without a written-down address the phase is reachable only by somebody who has
   // already navigated to it, which is the one person who does not need the link.
   | {
-      readonly kind: "workspace";
+      readonly kind: "session";
       readonly sessionId: string;
       /**
        * The phase this address is focused on, where it names one.
@@ -79,7 +79,7 @@ export type ConsoleRoute =
   // The pane kind travels as a bare `string` rather than as `PaneKind`, and that is
   // the DAG rather than laziness: `seats/` sits four families above `routing/`, so
   // this module cannot name that set. The surface the slot mounts holds the segment
-  // to `parseConsolePaneAddress`, which is the console's one admission point for an
+  // to `parsePaneAddress`, which is the console's one admission point for an
   // address that arrived untyped — the same predicate a restored layout snapshot is
   // held to, so a route a person types and a snapshot read off disk cannot disagree
   // about which kinds exist.
@@ -91,7 +91,7 @@ export type ConsoleRoute =
   | { readonly kind: "not-found"; readonly attempted: string };
 
 /** The route a window with no hash lands on. */
-export const DEFAULT_ROUTE: ConsoleRoute = { kind: "sessions" };
+export const DEFAULT_ROUTE: AppRoute = { kind: "sessions" };
 
 /**
  * Parse a location hash into a route.
@@ -101,9 +101,9 @@ export const DEFAULT_ROUTE: ConsoleRoute = { kind: "sessions" };
  * of this function and not a hope about its input — the two ways a hash breaks a
  * parser are both closed below. Every percent-escape goes through
  * {@link decodeSegment}, and every empty segment is refused before an arm reads
- * one, so neither a `URIError` nor a silently normalised path leaves here.
+ * one, so neither a `URIError` nor a silently normalized path leaves here.
  */
-export function parseRoute(hash: string): ConsoleRoute {
+export function parseRoute(hash: string): AppRoute {
   const afterHash = hash.startsWith("#") ? hash.slice(1) : hash;
   // The LEADING slash is the one optional separator; every other one is grammar.
   // The filter that used to drop empty segments deleted the evidence the arms
@@ -128,7 +128,7 @@ export function parseRoute(hash: string): ConsoleRoute {
   }
 
   if (head === "session") {
-    return workspaceRoute(hash, rest);
+    return sessionRoute(hash, rest);
   }
 
   if (head === "workflows") {
@@ -180,19 +180,19 @@ export function parseRoute(hash: string): ConsoleRoute {
 }
 
 /** Render a route back to a hash. Round-trips with `parseRoute`. */
-export function formatRoute(route: ConsoleRoute): string {
+export function formatRoute(route: AppRoute): string {
   switch (route.kind) {
     case "sessions":
       return "#/sessions";
-    case "workspace": {
-      const workspaceAddress = `#/session/${encodeURIComponent(route.sessionId)}`;
+    case "session": {
+      const sessionAddress = `#/session/${encodeURIComponent(route.sessionId)}`;
       // The keywords are written literally on both sides of one grammar, three lines
       // from the parse that reads them, so the pair cannot drift into a link that
-      // opens the workspace with its focus quietly dropped.
+      // opens the session screen with its focus quietly dropped.
       const { workflowPhase } = route;
       return workflowPhase === undefined
-        ? workspaceAddress
-        : `${workspaceAddress}/workflow/${encodeURIComponent(workflowPhase.workflowRunId)}/phase/${encodeURIComponent(workflowPhase.phaseId)}`;
+        ? sessionAddress
+        : `${sessionAddress}/workflow/${encodeURIComponent(workflowPhase.workflowRunId)}/phase/${encodeURIComponent(workflowPhase.phaseId)}`;
     }
     case "workflows":
       return "#/workflows";
@@ -234,7 +234,7 @@ function decodeSegment(segment: string): string | undefined {
 }
 
 /**
- * The two workspace addresses, read from the segments after `session`.
+ * The two session screen addresses, read from the segments after `session`.
  *
  * A HELPER RATHER THAN A THIRD BRANCH INSIDE {@link parseRoute}, because this arm is
  * the only one whose grammar has interior KEYWORDS — `workflow` and `phase` sit
@@ -244,11 +244,11 @@ function decodeSegment(segment: string): string | undefined {
  * function whose other arms are two lines each.
  *
  * The keyword positions are checked BEFORE the ids are decoded, so
- * `#/session/s/anything/r/phase/p` is not-found rather than a workspace address
+ * `#/session/s/anything/r/phase/p` is not-found rather than a session screen address
  * silently missing its focus. Every id still goes through {@link decodeSegment}, which
  * is what keeps {@link parseRoute} total over a malformed percent-escape.
  */
-function workspaceRoute(hash: string, rest: readonly string[]): ConsoleRoute {
+function sessionRoute(hash: string, rest: readonly string[]): AppRoute {
   const [sessionSegment, workflowKeyword, runSegment, phaseKeyword, phaseSegment] = rest;
   if (sessionSegment === undefined) {
     return notFound(hash);
@@ -261,7 +261,7 @@ function workspaceRoute(hash: string, rest: readonly string[]): ConsoleRoute {
     // The key is OMITTED rather than set to `undefined`: this is the arm
     // `#/session/<id>` has to give back, and the two are different values under
     // `exactOptionalPropertyTypes`.
-    return { kind: "workspace", sessionId };
+    return { kind: "session", sessionId };
   }
   if (
     rest.length !== 5 ||
@@ -276,9 +276,9 @@ function workspaceRoute(hash: string, rest: readonly string[]): ConsoleRoute {
   const phaseId = decodeSegment(phaseSegment);
   return workflowRunId === undefined || phaseId === undefined
     ? notFound(hash)
-    : { kind: "workspace", sessionId, workflowPhase: { workflowRunId, phaseId } };
+    : { kind: "session", sessionId, workflowPhase: { workflowRunId, phaseId } };
 }
 
-function notFound(attempted: string): ConsoleRoute {
+function notFound(attempted: string): AppRoute {
   return { kind: "not-found", attempted };
 }

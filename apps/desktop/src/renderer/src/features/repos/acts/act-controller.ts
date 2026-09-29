@@ -21,7 +21,7 @@
 // returns them, and a late answer landing under a newer question is the one state that
 // would let a consent be given for the wrong tree.
 //
-// SUPERSESSION IS `store/read/generation-latch.ts`'s AND NOT A FLAG OF ITS OWN. The act
+// SUPERSESSION IS `lib/reads/generation-latch.ts`'s AND NOT A FLAG OF ITS OWN. The act
 // half takes a key with `claim`, so a second press while one call is on the wire sends
 // nothing rather than being queued or superseding the first. The read half rides the
 // scheduler's round instead, which is a latch claim and an `AbortSignal` as one value, so
@@ -36,11 +36,11 @@
 // re-throws it.
 //
 // WHAT THIS IS NOT. It is not a store — nothing here is projected from the timeline —
-// and it holds no `ConsoleBridge` and knows no method name. Each call is a closure its
+// and it holds no `PlatformBridge` and knows no method name. Each call is a closure its
 // owner passes in, which is what keeps this module below `bridge/` in the console's DAG.
 
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
-import { type ConsoleClock } from "@renderer/lib/clock.js";
+import { type Clock } from "@renderer/lib/clock.js";
 import {
   ACT_IDLE,
   PREREQUISITE_NOT_READ,
@@ -68,7 +68,7 @@ export interface PrerequisiteReaderOptions<TValue> {
   /** What this reader's emitter reports under when a sink throws. */
   readonly label: string;
   /** The window's one clock, so this refresh coalesces on its surface's time base. */
-  readonly clock: ConsoleClock;
+  readonly clock: Clock;
   /** The session whose reconnect edge and named frames re-ask the question. */
   readonly sessionStore: SessionStore;
   /**
@@ -138,7 +138,7 @@ export class ActController<TSettlement extends ActSettlementArm> {
     send: () => Promise<TReplyValue>,
     settle: (value: TReplyValue) => ActOwnArm<TSettlement>,
   ): Promise<void> {
-    const round = this.#rounds.claim(this, ACT_KEY);
+    const round = this.#rounds.takeShell(this, ACT_KEY);
     if (round === undefined || this.#disposed) {
       round?.release();
       return;

@@ -12,7 +12,7 @@ import { act, render } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { RealClock, type ConsoleClock, type ScheduledHandle } from "@renderer/lib/clock.js";
+import { RealClock, type Clock, type ScheduledHandle } from "@renderer/lib/clock.js";
 // The unit factors come from the module that declares them rather than through the
 // family door: their door specifiers are claimed for the families that will read them
 // in production, and a claim a test retires is a claim nothing came to collect.
@@ -29,7 +29,7 @@ import {
  * The real clock, instrumented the same way — and the reason this file drives two.
  *
  * `ManualClock` computes a due instant from the delay it is handed, so a delay no
- * platform timer could hold is a number it stores and honours. The defect this
+ * platform timer could hold is a number it stores and honors. The defect this
  * subclass is here for lives one layer below that, in `setTimeout` itself, so the
  * clock under it has to be the one the console really runs on.
  */
@@ -55,7 +55,7 @@ const SIXTY_DAYS_MILLISECONDS = 60 * MILLISECONDS_PER_DAY;
  * hook would arm for, which is the whole of what the held instant decides.
  */
 function MountLifetimeInstantSurface(props: {
-  readonly clock: ConsoleClock;
+  readonly clock: Clock;
   readonly deadlines: readonly number[];
 }): React.JSX.Element {
   const [wokeAtMilliseconds] = useState(() => props.clock.now());
@@ -217,7 +217,7 @@ describe("useDeadlineWake — a deadline further out than a timer can hold", () 
   it("walks the deadline in ceiling-sized steps and wakes only when it is reached", () => {
     // The second half of the fix: clamping alone would arm one step and stop, so the
     // wake-up would simply never happen. Driven on the manual clock because it
-    // honours the delay it is handed — which is what makes "the step ran and another
+    // honors the delay it is handed — which is what makes "the step ran and another
     // was armed" observable rather than a claim about `setTimeout`.
     const clock = new CountingManualClock(MOUNTED_AT);
     const deadline = MOUNTED_AT + SIXTY_DAYS_MILLISECONDS;
@@ -315,7 +315,7 @@ describe("useDeadlineWake — the instant belongs to the clock it was read from"
   it("negative control: a replacement clock already past the deadline arms nothing", () => {
     // The other direction, so the claim is about reading the replacement rather than
     // about arming on every clock change — and the timer on the clock the consumer
-    // left is cancelled rather than carried.
+    // left is canceled rather than carried.
     const earlierClock = new CountingManualClock(MOUNTED_AT);
     const laterClock = new CountingManualClock(LATER_START);
     const wake = renderDeadlineWake(earlierClock, [DEADLINE_BETWEEN_THE_TWO_CLOCKS]);

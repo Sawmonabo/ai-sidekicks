@@ -1,5 +1,5 @@
 // The controls the section and its rows carry: the section's one mutating entry point, and a
-// card's way into the deck. Both mount the real section over scripted daemon calls, which is
+// card's way into the pane layout. Both mount the real section over scripted daemon calls, which is
 // why the mount and the container selectors they share live in
 // `repo-section.test-support.tsx`.
 
@@ -33,11 +33,11 @@ describe("RepoSection — the one mutating entry point", () => {
   });
 });
 
-describe("RepoSection — a card's way into the deck", () => {
-  it("opens a diff pane at the row's own address, in the deck it was handed", async () => {
+describe("RepoSection — a card's way into the pane layout", () => {
+  it("opens a diff pane at the row's own address, in the pane layout it was handed", async () => {
     // THE OPENER IS THE SEAT'S AND NOT A MODULE THIS FAMILY IMPORTS, which is what the
     // section is proving here: a sidebar rendered in an auxiliary window opens its panes
-    // in THAT window's deck, so every card's press has to arrive back through this
+    // in THAT window's pane layout, so every card's press has to arrive back through this
     // callback rather than through anything the family reached for itself.
     const openPane = vi.fn();
     const section = renderSection(sessionOperations(), openPane);

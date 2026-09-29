@@ -1,9 +1,9 @@
 import { useLayoutEffect, useState } from "react";
 
-import { RealClock, type ConsoleClock } from "@renderer/lib/clock.js";
-import { ForwardingConsoleClock } from "@renderer/lib/forwarding-clock.js";
-import type { ConsoleBridge } from "../platform-bridge.js";
-import { useConsoleBridge } from "./usePlatformBridge.js";
+import { RealClock, type Clock } from "@renderer/lib/clock.js";
+import { ForwardingClock } from "@renderer/lib/forwarding-clock.js";
+import type { PlatformBridge } from "../platform-bridge.js";
+import { usePlatformBridge } from "./usePlatformBridge.js";
 
 /**
  * The clock every subsystem this bridge feeds runs on.
@@ -16,26 +16,26 @@ import { useConsoleBridge } from "./usePlatformBridge.js";
  * to share. The real arm mints a fresh `RealClock` per caller, which is not a second time
  * base: every instance reads the same wall clock.
  */
-export function consoleClockFor(bridge: ConsoleBridge): ConsoleClock {
+export function resolveBridgeClock(bridge: PlatformBridge): Clock {
   return bridge.scenarioEngine?.clock ?? new RealClock();
 }
 
 /**
  * The clock this window runs on, pinned to the bridge it was resolved from.
  *
- * The pin is held rather than recomputed: the real arm of `consoleClockFor` mints a fresh
+ * The pin is held rather than recomputed: the real arm of `resolveBridgeClock` mints a fresh
  * `RealClock` per call, so read from a render body every consumer treating a clock as a
- * resource identity would rebuild once per render. The pin is a `ForwardingConsoleClock`
+ * resource identity would rebuild once per render. The pin is a `ForwardingClock`
  * rather than a reading, because the provider replaces its resolution in place with no
  * remount: its methods answer from whichever clock the window holds now, and its `cancel`
  * routes to the clock that armed the work. The clock is handed over from the layout phase,
  * so every passive effect of a commit reads the clock that commit resolved.
  */
-export function useConsoleClock(): ConsoleClock {
-  const bridge = useConsoleBridge();
-  const [clock] = useState(() => new ForwardingConsoleClock(consoleClockFor(bridge)));
+export function useClock(): Clock {
+  const bridge = usePlatformBridge();
+  const [clock] = useState(() => new ForwardingClock(resolveBridgeClock(bridge)));
   useLayoutEffect(() => {
-    clock.holdClock(consoleClockFor(bridge));
+    clock.holdClock(resolveBridgeClock(bridge));
   }, [clock, bridge]);
   return clock;
 }

@@ -2,12 +2,12 @@
 // the size scale every line is set on.
 //
 // Split out of `palette.ts` rather than authored beside it, and the seam is the
-// question each file answers. `palette.ts` answers "what colour is this?" — a
+// question each file answers. `palette.ts` answers "what color is this?" — a
 // system whose every value is measured against a contrast floor and whose tests
 // are ratio tests. This file answers "how is text set?", which no contrast
 // measurement touches. They were one file at 437 lines, past the point where a
 // module is doing one job, and the sizes and faces were the half that had nothing
-// to do with the colour tests reading the other half.
+// to do with the color tests reading the other half.
 //
 // Two modules read it, and the edge points one way in both cases. `generate-css.ts`
 // composes this and the palette into the one emitted sheet, which is where the two

@@ -34,10 +34,10 @@
 // computes on demand. A meter that woke the process to observe an idle console
 // would be spending exactly the budget it reports on.
 
-import { PERF_METER_BOUNDS } from "./performance-meter-bounds.js";
+import { PERFORMANCE_METER_BOUNDS } from "./performance-meter-bounds.js";
 
 /** The four things the console meters. Closed — the tuple is the declaration. */
-export const PERF_METER_KINDS = [
+export const PERFORMANCE_METER_KINDS = [
   // Milliseconds one scheduled frame spent draining its phases.
   "frame-time",
   // Reveal units one engine drained in one frame.
@@ -49,11 +49,11 @@ export const PERF_METER_KINDS = [
 ] as const;
 
 /** One metered kind, derived so the set is declared exactly once. */
-export type PerfMeterKind = (typeof PERF_METER_KINDS)[number];
+export type PerformanceMeterKind = (typeof PERFORMANCE_METER_KINDS)[number];
 
 /** What one series says when it is read. */
 export interface PerformanceMeterReading {
-  readonly kind: PerfMeterKind;
+  readonly kind: PerformanceMeterKind;
   /** The lane, store scope, or coordinator-scoped key the samples came from. */
   readonly seriesKey: string;
   /** Samples retained, which is at most the retention bound. */
@@ -85,7 +85,7 @@ export class PerformanceMeterRegistry {
    * so a lane named with any character at all is a key here and `readings()` recovers
    * the kind by standing in its map rather than by parsing it back out of a string.
    */
-  readonly #seriesByKind = new Map<PerfMeterKind, Map<string, BoundedSampleSeries>>();
+  readonly #seriesByKind = new Map<PerformanceMeterKind, Map<string, BoundedSampleSeries>>();
   #openSeriesCount = 0;
   #refusedSeriesCount = 0;
 
@@ -95,20 +95,20 @@ export class PerformanceMeterRegistry {
    * The series bound is over the registry and not over one kind's map, so four kinds
    * cannot quietly hold four times what the bound says.
    */
-  public record(kind: PerfMeterKind, seriesKey: string, sample: number): void {
+  public record(kind: PerformanceMeterKind, seriesKey: string, sample: number): void {
     // A non-finite sample is a measurement that failed, not a slow frame. Folding one
     // into the series would move every percentile permanently and silently.
     if (!Number.isFinite(sample)) {
       return;
     }
-    const boundedKey = seriesKey.slice(0, PERF_METER_BOUNDS.seriesKeyCharacterCount);
+    const boundedKey = seriesKey.slice(0, PERFORMANCE_METER_BOUNDS.seriesKeyCharacterCount);
     let seriesForKind = this.#seriesByKind.get(kind);
     const existing = seriesForKind?.get(boundedKey);
     if (existing !== undefined) {
       existing.record(sample);
       return;
     }
-    if (this.#openSeriesCount >= PERF_METER_BOUNDS.seriesCount) {
+    if (this.#openSeriesCount >= PERFORMANCE_METER_BOUNDS.seriesCount) {
       // Counted rather than dropped in silence: the count IS the finding, and it says
       // either that a producer is minting a key per event instead of per producer, or
       // that one which mints a key per producer is not retiring it when that producer
@@ -130,7 +130,7 @@ export class PerformanceMeterRegistry {
    * Retire one series, so the bound above counts LIVE producers and not past ones.
    *
    * WITHOUT THIS THE BOUND IS OVER HISTORY, which is the same thing as no bound at
-   * all for any producer whose key names an instance. A ledger feed mints a
+   * all for any producer whose key names an instance. A transcript feed mints a
    * coordinator on mount and disposes it on unmount; 64 mounts later every further
    * series is refused, and the p95 an author reads is the p95 of feeds that closed
    * hours ago while the feed on screen contributes nothing. That failure is silent —
@@ -147,8 +147,8 @@ export class PerformanceMeterRegistry {
    * a count that moved. Truncation runs the same way `record` runs it, so a key past
    * the character bound retires the series it opened.
    */
-  public retire(kind: PerfMeterKind, seriesKey: string): boolean {
-    const boundedKey = seriesKey.slice(0, PERF_METER_BOUNDS.seriesKeyCharacterCount);
+  public retire(kind: PerformanceMeterKind, seriesKey: string): boolean {
+    const boundedKey = seriesKey.slice(0, PERFORMANCE_METER_BOUNDS.seriesKeyCharacterCount);
     const seriesForKind = this.#seriesByKind.get(kind);
     if (seriesForKind === undefined || !seriesForKind.delete(boundedKey)) {
       return false;
@@ -161,8 +161,8 @@ export class PerformanceMeterRegistry {
   }
 
   /** One series' reading, or `null` where that series has recorded nothing. */
-  public reading(kind: PerfMeterKind, seriesKey: string): PerformanceMeterReading | null {
-    const boundedKey = seriesKey.slice(0, PERF_METER_BOUNDS.seriesKeyCharacterCount);
+  public reading(kind: PerformanceMeterKind, seriesKey: string): PerformanceMeterReading | null {
+    const boundedKey = seriesKey.slice(0, PERFORMANCE_METER_BOUNDS.seriesKeyCharacterCount);
     const series = this.#seriesByKind.get(kind)?.get(boundedKey);
     if (series === undefined || series.retainedCount === 0) {
       return null;
@@ -174,7 +174,7 @@ export class PerformanceMeterRegistry {
       sampleCount: series.retainedCount,
       recordedCount: series.recordedCount,
       median: nearestRankSample(sorted, 50),
-      upperPercentile: nearestRankSample(sorted, PERF_METER_BOUNDS.reportedPercentile),
+      upperPercentile: nearestRankSample(sorted, PERFORMANCE_METER_BOUNDS.reportedPercentile),
       worst: sorted[sorted.length - 1] ?? 0,
       latest: series.latest,
     };
@@ -220,16 +220,16 @@ export class PerformanceMeterRegistry {
  * already behind, and the meter must not be the reason a slow frame is slower.
  */
 class BoundedSampleSeries {
-  readonly #samples = new Float64Array(PERF_METER_BOUNDS.seriesSampleCount);
+  readonly #samples = new Float64Array(PERFORMANCE_METER_BOUNDS.seriesSampleCount);
   #writeIndex = 0;
   #retainedCount = 0;
   #recordedCount = 0;
 
   public record(sample: number): void {
     this.#samples[this.#writeIndex] = sample;
-    this.#writeIndex = (this.#writeIndex + 1) % PERF_METER_BOUNDS.seriesSampleCount;
+    this.#writeIndex = (this.#writeIndex + 1) % PERFORMANCE_METER_BOUNDS.seriesSampleCount;
     this.#recordedCount += 1;
-    if (this.#retainedCount < PERF_METER_BOUNDS.seriesSampleCount) {
+    if (this.#retainedCount < PERFORMANCE_METER_BOUNDS.seriesSampleCount) {
       this.#retainedCount += 1;
     }
   }
@@ -248,8 +248,8 @@ class BoundedSampleSeries {
       return 0;
     }
     const latestIndex =
-      (this.#writeIndex + PERF_METER_BOUNDS.seriesSampleCount - 1) %
-      PERF_METER_BOUNDS.seriesSampleCount;
+      (this.#writeIndex + PERFORMANCE_METER_BOUNDS.seriesSampleCount - 1) %
+      PERFORMANCE_METER_BOUNDS.seriesSampleCount;
     return this.#samples[latestIndex] ?? 0;
   }
 
@@ -289,14 +289,14 @@ function nearestRankSample(sortedSamples: readonly number[], percentile: number)
  * `null` and the class above becomes unreachable from every release entry — which is
  * what "compiled out" means here, as opposed to constructed and then not consulted.
  */
-export const devPerfMeters: PerformanceMeterRegistry | null = import.meta.env.DEV
+export const developmentPerformanceMeters: PerformanceMeterRegistry | null = import.meta.env.DEV
   ? new PerformanceMeterRegistry()
   : null;
 
 /**
  * The instant a producer measures a duration against.
  *
- * `performance.now()` and not the console's `ConsoleClock`, whose `now()` answers
+ * `performance.now()` and not the console's `Clock`, whose `now()` answers
  * `Date.now()`: its resolution is one millisecond, which is the whole of a frame
  * budget, so a frame timed against it reads 0 ms or 17 ms and nothing in between.
  *
@@ -306,20 +306,20 @@ export const devPerfMeters: PerformanceMeterRegistry | null = import.meta.env.DE
  * One home rather than a `performance.now()` at each producer, so the four durations
  * a reader compares are all measured off the same source.
  */
-export function perfMeterNow(): number {
+export function readPerformanceMeterTime(): number {
   return import.meta.env.DEV ? performance.now() : 0;
 }
 
 /**
  * Record a frame's cost. The call site shape every producer uses.
  *
- * The guard is the build literal and not a null check on `devPerfMeters`, so the
+ * The guard is the build literal and not a null check on `developmentPerformanceMeters`, so the
  * body folds to nothing in a built bundle and the call with it. A null check would
  * leave the producer recording into a registry that is not there.
  */
 export function recordFrameTime(seriesKey: string, milliseconds: number): void {
   if (import.meta.env.DEV) {
-    devPerfMeters?.record("frame-time", seriesKey, milliseconds);
+    developmentPerformanceMeters?.record("frame-time", seriesKey, milliseconds);
   }
 }
 
@@ -333,7 +333,7 @@ export function recordFrameTime(seriesKey: string, milliseconds: number): void {
  */
 export function recordRevealDrain(seriesKey: string, revealedUnitCount: number): void {
   if (import.meta.env.DEV) {
-    devPerfMeters?.record("reveal-drain", seriesKey, revealedUnitCount);
+    developmentPerformanceMeters?.record("reveal-drain", seriesKey, revealedUnitCount);
   }
 }
 
@@ -347,27 +347,27 @@ export function recordRevealDrain(seriesKey: string, revealedUnitCount: number):
  */
 export function retireFrameTimeSeries(seriesKey: string): void {
   if (import.meta.env.DEV) {
-    devPerfMeters?.retire("frame-time", seriesKey);
+    developmentPerformanceMeters?.retire("frame-time", seriesKey);
   }
 }
 
 /** Retire one composed reveal-drain series. Called from the coordinator's dispose. */
 export function retireRevealDrainSeries(seriesKey: string): void {
   if (import.meta.env.DEV) {
-    devPerfMeters?.retire("reveal-drain", seriesKey);
+    developmentPerformanceMeters?.retire("reveal-drain", seriesKey);
   }
 }
 
 /** Record how long one store's apply chokepoint took to fold one batch. */
 export function recordApplyLatency(storeScope: string, milliseconds: number): void {
   if (import.meta.env.DEV) {
-    devPerfMeters?.record("apply-latency", storeScope, milliseconds);
+    developmentPerformanceMeters?.record("apply-latency", storeScope, milliseconds);
   }
 }
 
 /** Record how many entries one store's partition holds. */
 export function recordStoreSize(storeScope: string, entryCount: number): void {
   if (import.meta.env.DEV) {
-    devPerfMeters?.record("store-size", storeScope, entryCount);
+    developmentPerformanceMeters?.record("store-size", storeScope, entryCount);
   }
 }

@@ -11,11 +11,11 @@ import type { KeybindingSnapshot } from "../keybinding-override-types.js";
  * keyboard silently disagreeing with the page describing it is the failure this seam
  * exists to prevent.
  */
-export function useKeybindingSurface(store: KeybindingOverrideStore): KeybindingSnapshot {
+export function useKeybindingSnapshot(store: KeybindingOverrideStore): KeybindingSnapshot {
   const subscribe = useCallback(
     (onStoreChange: () => void) => store.subscribe(onStoreChange),
     [store],
   );
-  const read = useCallback(() => store.surface, [store]);
+  const read = useCallback(() => store.snapshot, [store]);
   return useSyncExternalStore(subscribe, read, read);
 }

@@ -4,7 +4,7 @@
 // distinction they render from, which no rendering can witness: an empty object and
 // `undefined` produce the same head — no controls — so a context that quietly
 // defaulted to `{}` would be invisible there and would make "there is no host"
-// indistinguishable from a deck that supplied nothing.
+// indistinguishable from a pane layout that supplied nothing.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -35,7 +35,7 @@ describe("pane controls — the seam", () => {
 
   it("negative control: the absent answer is not an empty host", () => {
     // The whole distinction. Both render no controls, and only one of them means the
-    // pane is outside a deck.
+    // pane is outside a pane layout.
     expect(readSeam((probe) => probe).value).not.toStrictEqual({});
   });
 
@@ -45,12 +45,12 @@ describe("pane controls — the seam", () => {
       <PaneControlsContext.Provider value={controls}>{probe}</PaneControlsContext.Provider>
     ));
     // Identity, not equality: a seam that rebuilt the object would give every reader a
-    // fresh one and turn a memoised body into one that re-renders on every deck tick.
+    // fresh one and turn a memoized body into one that re-renders on every pane layout tick.
     expect(seam.value).toBe(controls);
   });
 
   it("negative control: a partial host is not filled in", () => {
-    // A deck that provides the close alone. A seam that supplied a default for the
+    // A pane layout that provides the close alone. A seam that supplied a default for the
     // other acts would hand the chrome controls the host cannot serve.
     const seam = readSeam((probe) => (
       <PaneControlsContext.Provider value={{ onClose: () => undefined }}>

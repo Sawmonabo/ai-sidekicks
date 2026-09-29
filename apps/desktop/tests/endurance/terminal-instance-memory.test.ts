@@ -18,7 +18,7 @@
 // exists to catch.
 //
 // So the pane is held WHOLE here: the built console in a real Electron window, a
-// `terminal` pane resolved out of the deck's own registry and mounted through a
+// `terminal` pane resolved out of the pane layout's own registry and mounted through a
 // real React commit, its emulator on a live WebGL2 context, bound to a session the
 // scenario engine has delivered into. The three claims that make that true are
 // asserted rather than assumed — the renderer mode each instance REPORTS, the
@@ -99,7 +99,7 @@ import {
   TEARDOWN_RESIDUE_FACTOR,
   type TerminalInstanceSeries,
 } from "./terminal-instance-series.js";
-import { TERMINAL_SCENARIO } from "../../fixtures/scenarios/terminal-lease.js";
+import { TERMINAL_LEASE_SCENARIO } from "../../fixtures/scenarios/terminal-lease.js";
 import {
   TERMINAL_BUDGET_MEASUREMENT_COLUMNS,
   TERMINAL_DEFAULT_SCROLLBACK_LINES,
@@ -193,7 +193,7 @@ describe.skipIf(!bundleIsBuilt)("endurance — one populated terminal pane, held
     }
 
     await withLaunchedApp(
-      enduranceLaunchOptions(TERMINAL_SCENARIO.id),
+      enduranceLaunchOptions(TERMINAL_LEASE_SCENARIO.id),
       async (consoleApplication) => {
         const heapProbe = await RendererHeapProbe.attachTo(consoleApplication);
         try {

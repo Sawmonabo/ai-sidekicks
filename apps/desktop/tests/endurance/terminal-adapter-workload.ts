@@ -34,7 +34,7 @@ const WRITE_BATCH_LINES = 500;
  * Named rather than skipped: a heap figure with no collection behind it is noise,
  * and a tier that is green because it measured noise is worse than one that is loud
  * about the gap. Takes the sampler rather than resolving its own collector, because
- * the resolution is memoised per sampler and a second resolution here would flip a
+ * the resolution is memoized per sampler and a second resolution here would flip a
  * process-wide flag the caller's sampler had already settled.
  */
 export function requireHeapCollector(sampler: HeapSampler): void {

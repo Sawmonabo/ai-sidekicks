@@ -7,7 +7,7 @@
  * viewport follows the scheme attribute with no conditional in JSX.
  */
 
-.meridian-ledger-viewport {
+.meridian-transcript-viewport {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   position: relative;
@@ -16,15 +16,15 @@
 }
 
 /*
- * The one scroll container in the ledger. A second box that scrolled anywhere
+ * The one scroll container in the transcript. A second box that scrolled anywhere
  * inside it would give the chokepoint a rival `scrollTop` it does not own, and the
  * reading anchor is an offset inside THIS box.
  *
  * `overscroll-behavior: contain` keeps a flick at the end of the log from scrolling
- * the window behind it, which on a pinned reading position reads as the ledger
+ * the window behind it, which on a pinned reading position reads as the transcript
  * having moved on its own.
  */
-.meridian-ledger-viewport__surface {
+.meridian-transcript-viewport__surface {
   /* PLACED, not auto-placed. The two tracks above were written for an error slot over
      a scroll surface, but `TranscriptErrors.tsx` returns null with no entries and both
      affordances are out of flow — so in the ordinary case the surface is the only
@@ -41,7 +41,7 @@
   min-height: 0;
 }
 
-.meridian-ledger-viewport__surface:focus-visible {
+.meridian-transcript-viewport__surface:focus-visible {
   outline: 2px solid var(--meridian-focus-ring);
   outline-offset: -2px;
 }
@@ -49,7 +49,7 @@
 /* Carries the whole log's height so the scrollbar is honest about how much there
    is, while only the rows near the fold exist in the document. The height is written
    by the virtualizer directly, so it is deliberately absent from this rule. */
-.meridian-ledger-viewport__sizer {
+.meridian-transcript-viewport__sizer {
   position: relative;
   width: 100%;
 }
@@ -64,7 +64,7 @@
  * `transform` declaration belongs here: a value in this rule would be overwritten on
  * the first scroll tick and would read as the row's position until then.
  */
-.meridian-ledger-viewport__row {
+.meridian-transcript-viewport__row {
   display: block;
   position: absolute;
   inset-inline: 0;
@@ -79,7 +79,7 @@
  * would change the content height and move the very reading position it exists to
  * protect.
  */
-.meridian-ledger-viewport__tail {
+.meridian-transcript-viewport__tail {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -98,7 +98,7 @@
  * exists to preserve is measured against that height. The two are one piece of
  * geometry at two ends of one box.
  */
-.meridian-ledger-viewport__head {
+.meridian-transcript-viewport__head {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -109,7 +109,7 @@
   pointer-events: none;
 }
 
-.meridian-ledger-viewport__load-earlier {
+.meridian-transcript-viewport__load-earlier {
   display: inline-flex;
   align-items: center;
   gap: var(--meridian-space-2);
@@ -123,12 +123,12 @@
   pointer-events: auto;
 }
 
-.meridian-ledger-viewport__load-earlier:disabled {
+.meridian-transcript-viewport__load-earlier:disabled {
   cursor: default;
   color: var(--meridian-text-faint);
 }
 
-.meridian-ledger-viewport__pin {
+.meridian-transcript-viewport__pin {
   padding: var(--meridian-space-1) var(--meridian-space-3);
   border-radius: var(--meridian-radius-sm);
   background: var(--meridian-surface-sunken);
@@ -138,9 +138,9 @@
 
 /*
  * The one primary act this surface offers. Quiet chrome everywhere else, so the
- * pill can be the only filled control in the ledger without competing with anything.
+ * pill can be the only filled control in the transcript without competing with anything.
  */
-.meridian-ledger-viewport__pill {
+.meridian-transcript-viewport__pill {
   display: inline-flex;
   align-items: center;
   gap: var(--meridian-space-2);
@@ -155,11 +155,11 @@
   transition: background-color var(--meridian-motion-quick) var(--meridian-ease-settle);
 }
 
-.meridian-ledger-viewport__pill:hover {
+.meridian-transcript-viewport__pill:hover {
   background: var(--meridian-surface);
 }
 
-.meridian-ledger-viewport__pill:focus-visible {
+.meridian-transcript-viewport__pill:focus-visible {
   outline: 2px solid var(--meridian-focus-ring);
   outline-offset: 2px;
 }
@@ -179,7 +179,7 @@
  * having nothing at this point, which is the one thing it is not.
  */
 .meridian-transcript-row-failure {
-  border-inline-start: var(--meridian-attribution-edge) solid var(--meridian-red-mark);
+  border-inline-start: var(--meridian-leading-edge) solid var(--meridian-red-mark);
   padding: var(--meridian-space-2) var(--meridian-space-3);
   background: var(--meridian-red-ground);
 }

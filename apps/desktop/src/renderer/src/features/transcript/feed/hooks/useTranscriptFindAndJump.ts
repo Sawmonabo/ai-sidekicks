@@ -29,14 +29,14 @@ export interface TranscriptFindAndJump {
 
 /** Wire the find field to the window it searches and the scroll writer it jumps through. */
 export function useTranscriptFindAndJump(inputs: {
-  /** What the chapter fold reported withholding, for the count beside the field. */
+  /** What the run group fold reported withholding, for the count beside the field. */
   readonly foldedAwayRows: readonly TimelineRow[];
   readonly visible: VisibleTranscriptWindow;
   /** The transcript's ONE scroll writer. Nothing here touches an element. */
   readonly jumpToRow: (rowId: string) => void;
-  readonly focusLedgerSurface: () => void;
+  readonly focusTranscriptViewport: () => void;
 }): TranscriptFindAndJump {
-  const { foldedAwayRows, visible, jumpToRow, focusLedgerSurface } = inputs;
+  const { foldedAwayRows, visible, jumpToRow, focusTranscriptViewport } = inputs;
 
   // Every stage, not just the rows on screen: what the walk cannot reach is counted
   // under the name of the stage holding it, each reported by the stage that removed it
@@ -59,8 +59,8 @@ export function useTranscriptFindAndJump(inputs: {
     // The field took focus when it opened, and it is unmounted by the close — so
     // without this focus falls to `body` and the next Tab restarts from the top of
     // the document, well away from the log somebody was reading.
-    focusLedgerSurface();
-  }, [closeFind, focusLedgerSurface]);
+    focusTranscriptViewport();
+  }, [closeFind, focusTranscriptViewport]);
 
   return { find, onStep, onClose };
 }

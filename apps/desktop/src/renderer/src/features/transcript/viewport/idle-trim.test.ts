@@ -17,8 +17,8 @@ import { PRUNABLE, TOP_LEVEL_ROW_COUNT, loadedWindow } from "./window-cap.test-s
 /** A dwell short enough to read in a case, long enough to be advanced past. */
 const TEST_DWELL_MS = 1_000;
 
-/** The newest chapter in the shared log — the one end of it the cap never drops. */
-const NEWEST_CHAPTER_KEY = `chapter-${String(TOP_LEVEL_ROW_COUNT - 1)}`;
+/** The newest run group in the shared log — the one end of it the cap never drops. */
+const NEWEST_RUN_GROUP_KEY = `run-group-${String(TOP_LEVEL_ROW_COUNT - 1)}`;
 
 /** A window holding the rows named, each a top-level row of its own. */
 function windowWithRows(rowKeys: readonly string[]): TranscriptWindow {
@@ -62,7 +62,7 @@ describe("the trim arms nothing", () => {
 
   it("does nothing when time passes and nothing else happens", () => {
     // The cost this design accepts, stated as a case rather than only in prose: a
-    // ledger nobody touches again keeps what it was holding until the frame is
+    // transcript nobody touches again keeps what it was holding until the frame is
     // disposed, and a disposed frame drops both tables whole.
     const { clock, measurements, trim } = fixture(["row-a"]);
     measurements.acceptedHeight("dropped-row", 80);
@@ -98,7 +98,7 @@ describe("the trim runs on the first activity after a quiet period", () => {
 
   it("measures the gap against the previous activity and not against the frame's birth", () => {
     // The negative control for where the stamp is taken. A trim that compared against
-    // its own construction would fire once, late, on a ledger that had never paused —
+    // its own construction would fire once, late, on a transcript that had never paused —
     // and then never again.
     const { clock, measurements, trim } = fixture(["row-a"]);
     for (let beat = 0; beat < 10; beat += 1) {
@@ -176,10 +176,13 @@ describe("the trim takes only what the frame cannot reach", () => {
     // driving a state the frame cannot actually produce.
     const clock = new ManualClock();
     const window = loadedWindow();
-    window.setLease("chapter-0", { density: "expanded", innerScrollTopPx: 44 });
-    window.setLease(NEWEST_CHAPTER_KEY, { density: "expanded", innerScrollTopPx: 30 });
+    window.setLease("run-group-0", { density: "expanded", innerScrollTopPx: 44 });
+    window.setLease(NEWEST_RUN_GROUP_KEY, { density: "expanded", innerScrollTopPx: 30 });
     window.prune(PRUNABLE);
-    expect(window.lease("chapter-0")).toStrictEqual({ density: "expanded", innerScrollTopPx: 44 });
+    expect(window.lease("run-group-0")).toStrictEqual({
+      density: "expanded",
+      innerScrollTopPx: 44,
+    });
 
     const trim = new IdleMemoryTrim({
       clock,
@@ -192,8 +195,8 @@ describe("the trim takes only what the frame cannot reach", () => {
     trim.noteActivity();
 
     expect(trim.lastPass?.parkedLeases).toBe(1);
-    expect(window.lease("chapter-0")).toBeUndefined();
-    expect(window.lease(NEWEST_CHAPTER_KEY)).toStrictEqual({
+    expect(window.lease("run-group-0")).toBeUndefined();
+    expect(window.lease(NEWEST_RUN_GROUP_KEY)).toStrictEqual({
       density: "expanded",
       innerScrollTopPx: 30,
     });

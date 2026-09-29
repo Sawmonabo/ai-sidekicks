@@ -20,7 +20,7 @@
 //
 //   • `sequence-reconciler.ts` — ordering, dedupe, the recorded holes, and the
 //     divergence bound past which a sequence is refused rather than admitted.
-//   • `pre-initialisation-buffer.ts` — the bounded hold for events that arrive
+//   • `pre-initialization-buffer.ts` — the bounded hold for events that arrive
 //     before a base state, and the counted drop at its cap.
 //   • `store/entities/entity-projection.ts` — running one event's projector all-or-nothing.
 //   • `store/entities/entity-partitions.ts` — the immutable partition merges a mutation performs.
@@ -57,7 +57,7 @@ import { createStore } from "zustand/vanilla";
 import type { StoreApi } from "zustand/vanilla";
 
 import {
-  perfMeterNow,
+  readPerformanceMeterTime,
   recordApplyLatency,
   recordStoreSize,
 } from "@renderer/lib/performance-meters/performance-meters.js";
@@ -67,7 +67,7 @@ import { foldAppliedBatch } from "./applied-batch-fold.js";
 import { worstDegradedCause, type SessionDegradedCause } from "../session-degradation.js";
 import { foldEarlierWindowPage, type EarlierWindowMerge } from "./earlier-window.js";
 import { EntityProjectionRunner } from "./entities/entity-projection-runner.js";
-import { type ConsoleSessionEvent, type EntityProjectorRegistry } from "./entities/entities.js";
+import { type ProjectedSessionEvent, type EntityProjectorTable } from "./entities/entities.js";
 import {
   GenerationLatch,
   type CurrentGenerationClaim,
@@ -102,8 +102,8 @@ export type { EarlierWindowMerge } from "./earlier-window.js";
 export interface SessionStoreOptions {
   readonly sessionId: string;
   /** Event-kind to projector. A kind with no projector contributes no entity. */
-  readonly projectors?: EntityProjectorRegistry;
-  /** Timeline rows retained. Unbounded when omitted; the ledger sets its own cap. */
+  readonly projectors?: EntityProjectorTable;
+  /** Timeline rows retained. Unbounded when omitted; the transcript sets its own cap. */
   readonly timelineCap?: number;
 }
 
@@ -118,7 +118,7 @@ export class SessionStore {
   readonly #store: StoreApi<SessionStoreState>;
   readonly #hueAllocator = new AgentHueAllocator();
   readonly #reconciler = new SequenceReconciler();
-  readonly #preInitialisationBuffer = new PreInitializationBuffer();
+  readonly #preInitializationBuffer = new PreInitializationBuffer();
   readonly #projectionRunner: EntityProjectionRunner;
   /**
    * What is still waiting on a person, held apart from the window it was learned from.
@@ -129,7 +129,7 @@ export class SessionStore {
    * register could publish a count over a session whose rows it never saw.
    */
   readonly #outstandingAsks = new WaitingOnPersonRegister();
-  readonly #reentrantQueue: ConsoleSessionEvent[] = [];
+  readonly #reentrantQueue: ProjectedSessionEvent[] = [];
   #applying = false;
   /**
    * Rows this store holds that arrived from behind its window's head.
@@ -137,7 +137,7 @@ export class SessionStore {
    * Private, and read by exactly one thing: `#retainedEnd`, which is the whole of what
    * the count is for — a log that has grown at its head is capped from the other end.
    * A count rather than a flag because zero is the same fact as "no backward page has
-   * landed", and it resets on `initialise`, which is the one act that re-establishes
+   * landed", and it resets on `initialize`, which is the one act that re-establishes
    * where the window starts.
    */
   #earlierEventCount = 0;
@@ -145,7 +145,7 @@ export class SessionStore {
   /**
    * Which window this store's log is currently a view of.
    *
-   * Re-taken by `initialise` and by nothing else, so it goes stale on exactly the act
+   * Re-taken by `initialize` and by nothing else, so it goes stale on exactly the act
    * that re-establishes where the window starts — including the read that answered at
    * the SAME position and still threw the old log away, which no comparison of head
    * cursors can see.
@@ -184,14 +184,14 @@ export class SessionStore {
     return this.#hueAllocator;
   }
 
-  /** Events waiting for a base state. Never more than `PRE_INITIALISATION_BUFFER_CAP`. */
-  public get pendingPreInitialisationCount(): number {
-    return this.#preInitialisationBuffer.pendingCount;
+  /** Events waiting for a base state. Never more than `PRE_INITIALIZATION_BUFFER_CAP`. */
+  public get pendingPreInitializationCount(): number {
+    return this.#preInitializationBuffer.pendingCount;
   }
 
-  /** Events this store dropped from the pre-initialisation buffer at the cap. */
-  public get preInitialisationDropCount(): number {
-    return this.#preInitialisationBuffer.dropCount;
+  /** Events this store dropped from the pre-initialization buffer at the cap. */
+  public get preInitializationDropCount(): number {
+    return this.#preInitializationBuffer.dropCount;
   }
 
   /** Sequences still retained for duplicate detection. Bounded by construction. */
@@ -236,9 +236,9 @@ export class SessionStore {
    * Idempotent against a rewind, and admitting the equal-cursor repair: the whole
    * rule is `admitsSnapshotAt`, which reads the state this store commits.
    */
-  public initialise(snapshot: SessionSnapshot): void {
+  public initialize(snapshot: SessionSnapshot): void {
     const current = this.#store.getState();
-    if (current.initialised && !admitsSnapshotAt(snapshot.cursor, current)) {
+    if (current.initialized && !admitsSnapshotAt(snapshot.cursor, current)) {
       return;
     }
 
@@ -281,7 +281,7 @@ export class SessionStore {
       }),
     );
 
-    const buffered = this.#preInitialisationBuffer.drain();
+    const buffered = this.#preInitializationBuffer.drain();
     if (buffered.length > 0) {
       this.applyBatch(buffered);
     }
@@ -312,7 +312,7 @@ export class SessionStore {
    * Takes a BATCH so a frame's worth of events is one transition; `apply` below is
    * sugar for a one-event batch and adds no second door.
    */
-  public applyBatch(events: readonly ConsoleSessionEvent[]): ApplyOutcome {
+  public applyBatch(events: readonly ProjectedSessionEvent[]): ApplyOutcome {
     if (this.#applying) {
       this.#reentrantQueue.push(...events);
       reportTripwire(
@@ -326,14 +326,14 @@ export class SessionStore {
     this.#applying = true;
     // The meters are development-only and fold away in a built bundle, where this
     // reads `0` and the recordings below record nothing.
-    const startedAt = perfMeterNow();
+    const startedAt = readPerformanceMeterTime();
     try {
       const current = this.#store.getState();
       const { outcome, nextState } = foldAppliedBatch(current, events, {
         sessionId: this.#sessionId,
         reconciler: this.#reconciler,
         projectionRunner: this.#projectionRunner,
-        preInitialisationBuffer: this.#preInitialisationBuffer,
+        preInitializationBuffer: this.#preInitializationBuffer,
         hueAllocator: this.#hueAllocator,
         outstandingAsks: this.#outstandingAsks,
         timelineCap: this.#timelineCap,
@@ -348,10 +348,10 @@ export class SessionStore {
       //
       // The size is taken from the state that was just SET rather than re-read from
       // the store, and it is the timeline rather than the partitions because the
-      // timeline is what the cap bounds and what the ledger mounts from. A batch
+      // timeline is what the cap bounds and what the transcript mounts from. A batch
       // that admitted nothing leaves `nextState` undefined and the gauge holds its
       // last reading, which is correct: nothing changed.
-      recordApplyLatency(this.#sessionId, perfMeterNow() - startedAt);
+      recordApplyLatency(this.#sessionId, readPerformanceMeterTime() - startedAt);
       if (nextState !== undefined) {
         recordStoreSize(this.#sessionId, nextState.timeline.length);
       }
@@ -366,7 +366,7 @@ export class SessionStore {
   }
 
   /** One-event convenience over `applyBatch`. Not a second chokepoint. */
-  public apply(event: ConsoleSessionEvent): ApplyOutcome {
+  public apply(event: ProjectedSessionEvent): ApplyOutcome {
     return this.applyBatch([event]);
   }
 
@@ -384,7 +384,7 @@ export class SessionStore {
    * admitted, nothing overlapping) from a page asked for at the wrong position
    * (nothing admitted, every row refused as not-earlier).
    */
-  public prependEarlierEvents(events: readonly ConsoleSessionEvent[]): EarlierWindowMerge {
+  public prependEarlierEvents(events: readonly ProjectedSessionEvent[]): EarlierWindowMerge {
     const current = this.#store.getState();
     const { merge, nextState } = foldEarlierWindowPage(current, events, {
       sessionId: this.#sessionId,

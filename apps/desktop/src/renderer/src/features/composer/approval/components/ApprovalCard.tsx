@@ -23,27 +23,27 @@
 // the page scroll they would otherwise cause. Base UI supplies the disclosure under
 // Meridian tokens — `@base-ui/react` is the one adopted widget family and ships zero
 // CSS; the row itself is two ordinary buttons, because a library button would add
-// weight without adding behaviour a `<button>` does not already have.
+// weight without adding behavior a `<button>` does not already have.
 
 import { useCallback, useId, useRef, useState } from "react";
 import { Collapsible } from "@base-ui/react/collapsible";
 import {
   ACCENT_FILL_CLASS,
   Chip,
-  RemediedRefusal,
+  RefusalWithRemedy,
   WireFigure,
   formatClockTime,
 } from "@renderer/console/primitives/index.js";
-import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
+import { type Refusal } from "@renderer/lib/refusal.js";
 import { isApprovalAnswerable } from "../approval-offer.js";
 import { ApprovalResource } from "./ApprovalResource.js";
 import {
-  CATEGORY_PHRASE,
-  STATE_PHRASE,
+  APPROVAL_CATEGORY_LABELS,
+  APPROVAL_STATE_LABELS,
   asApprovalCategory,
   asApprovalState,
 } from "@renderer/lib/approval-vocabulary.js";
-import { STATE_TONE } from "../approval-state-tones.js";
+import { APPROVAL_STATE_TONES } from "../approval-state-tones.js";
 import {
   type ApprovalRecord,
   type ApprovalResolveRequest,
@@ -61,7 +61,7 @@ export interface ApprovalCardProps {
   /** True while this record's own resolve call is in flight. */
   readonly isResolving: boolean;
   /** The refusal this record's last answer came back with, if any. */
-  readonly refusal: ConsoleRefusal | undefined;
+  readonly refusal: Refusal | undefined;
   readonly onResolve: (request: ApprovalResolveRequest) => void;
   /**
    * Extra body between the header and the action row — where a permission-kind
@@ -174,12 +174,12 @@ export function ApprovalCard(props: ApprovalCardProps): React.JSX.Element {
     >
       <header className="meridian-approval-card__head">
         <h3 className="meridian-approval-card__title" id={titleId}>
-          {category === undefined ? "Unrecognized category" : CATEGORY_PHRASE[category]}
+          {category === undefined ? "Unrecognized category" : APPROVAL_CATEGORY_LABELS[category]}
         </h3>
         <Chip mono label={record.category} tone={category === undefined ? "failure" : "neutral"} />
         <Chip
-          label={state === undefined ? record.state : STATE_PHRASE[state]}
-          tone={state === undefined ? "failure" : STATE_TONE[state]}
+          label={state === undefined ? record.state : APPROVAL_STATE_LABELS[state]}
+          tone={state === undefined ? "failure" : APPROVAL_STATE_TONES[state]}
         />
       </header>
 
@@ -258,7 +258,7 @@ export function ApprovalCard(props: ApprovalCardProps): React.JSX.Element {
         </>
       ) : null}
 
-      {props.refusal === undefined ? null : <RemediedRefusal refusal={props.refusal} />}
+      {props.refusal === undefined ? null : <RefusalWithRemedy refusal={props.refusal} />}
     </article>
   );
 }

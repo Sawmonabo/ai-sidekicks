@@ -13,10 +13,10 @@
 //
 // TWO ENTRY POINTS, AND THE DIFFERENCE IS THE WHOLE DESIGN.
 //
-//   • `parseSettledBlock` is memoised. A settled block's text never changes again, so
+//   • `parseSettledBlock` is memoized. A settled block's text never changes again, so
 //     its tree is computed once and kept until the byte cap evicts it. This is the half
 //     that makes a long message cheap.
-//   • `parseVolatileTail` is not memoised and is `remend`ed first. It changes every
+//   • `parseVolatileTail` is not memoized and is `remend`ed first. It changes every
 //     frame by construction, so a cache keyed on it would be a cache that never hits
 //     and grows without bound — the failure mode the byte cap exists to prevent, reached
 //     by caching the wrong half.
@@ -47,7 +47,7 @@ export type MarkdownBlockNode = MarkdownRoot["children"][number];
  *     ambiguous with a currency symbol, and closing it would turn "it cost $5" into an
  *     unterminated formula the moment a second `$` never arrives.
  *   • `linkMode` stays `"protocol"`, so an unfinished link becomes the sentinel URL the
- *     mapper recognises. `"text-only"` would drop the link's own text mid-stream and
+ *     mapper recognizes. `"text-only"` would drop the link's own text mid-stream and
  *     then re-introduce it, which is the flicker `markdown-rules.ts` rule 1 forbids.
  */
 const REMEND_OPTIONS = { inlineKatex: false, linkMode: "protocol" } as const;
@@ -156,7 +156,7 @@ export function parseSettledBlock(blockSource: string, definitionPreamble = ""):
  * `remend` is applied HERE and nowhere else — the "tail only" half of its
  * ADOPT-with-constraints row. Running it over a settled block would rewrite text that is
  * already complete, and running it over the whole message would rewrite the committed
- * prefix on every frame, which is the quadratic behaviour the split exists to avoid.
+ * prefix on every frame, which is the quadratic behavior the split exists to avoid.
  *
  * It runs on the tail BEFORE the preamble is prepended, so the synthetic definitions are
  * never among the constructs it inspects or closes.
@@ -193,7 +193,7 @@ function settledBlockCacheKey(blockSource: string, definitionPreamble: string): 
  * carries the real `[^1]: …` definition produces a `footnoteDefinition` for the same
  * identifier as the synthetic one, and that one is the author's and must survive.
  *
- * The filter runs inside the memoised path, so the array a caller holds is stable across
+ * The filter runs inside the memoized path, so the array a caller holds is stable across
  * renders and `SettledBlock`'s pointer comparison still skips the whole subtree.
  */
 function parseAgainstDefinitions(blockSource: string, definitionPreamble: string): MarkdownRoot {

@@ -9,7 +9,7 @@
 //
 // Why the values are pre-fitted into gamut here rather than left to the browser:
 // CSS Color 4 gamut-maps an out-of-gamut `oklch()` by reducing chroma along a
-// binary search against a deltaE bound. Modelling that in a test is guesswork,
+// binary search against a deltaE bound. Modeling that in a test is guesswork,
 // and a test that guesses at the renderer's mapping measures the guess. Every
 // Meridian color is therefore chroma-fitted (`fitChromaIntoSrgbGamut`) at
 // authoring time, so the emitted `oklch()` is already inside sRGB, the browser

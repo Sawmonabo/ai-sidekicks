@@ -2,7 +2,7 @@
 //
 // SPLIT FROM `diff-fixture.test-support.ts` ON THE SEAM BETWEEN A SHAPE AND ITS BYTES. That module
 // declares the shapes, holds the named fixtures, and turns a parsed patch into a
-// `ConsoleDiffModel` — the two things a patch cannot carry included. This one writes
+// `DiffModel` — the two things a patch cannot carry included. This one writes
 // the patch: hunk headers with the line numbers the format produces, the extended
 // headers a rename and a mode change carry, and the `\ No newline at end of file`
 // marker. Two subjects, and the file that held both was doing two jobs, which
@@ -70,7 +70,7 @@ export function buildPatchText(shape: DiffFixtureShape): string {
  *
  * WRITTEN OUT RATHER THAN GENERATED, because the whole subject is one exact pair of
  * lines: the deletion and the insertion carry the SAME text, and the only thing that
- * tells them apart is the marker on the second. A generator parameterised over this
+ * tells them apart is the marker on the second. A generator parameterized over this
  * would have one call site and would hide the one property the case is about.
  *
  * The marker is on the inserted side alone, which is what removing a newline looks

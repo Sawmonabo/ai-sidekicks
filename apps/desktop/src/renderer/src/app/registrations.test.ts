@@ -13,21 +13,15 @@ import {
 } from "@renderer/registries/commands/command-contributions.js";
 import { CommandRegistry } from "@renderer/registries/commands/command-registry.js";
 import {
-  ConsoleEntityProjectorRegistry,
-  consoleEntityProjectorRegistry,
+  EntityProjectorRegistry,
+  entityProjectorRegistry,
 } from "@renderer/registries/entity-projectors/entity-projector-registry.js";
 import {
-  InlineCardSeatRegistry,
-  inlineCardSeatRegistry,
+  InlineCardRegistry,
+  inlineCardRegistry,
 } from "@renderer/registries/inline-cards/inline-card-registry.js";
-import {
-  ConsolePaneRegistry,
-  consolePaneRegistry,
-} from "@renderer/registries/panes/pane-registry.js";
-import {
-  ConsoleSurfaceRegistry,
-  consoleSurfaceRegistry,
-} from "@renderer/registries/screens/screen-registry.js";
+import { PaneRegistry, paneRegistry } from "@renderer/registries/panes/pane-registry.js";
+import { ScreenRegistry, screenRegistry } from "@renderer/registries/screens/screen-registry.js";
 import {
   APPROVAL_FLOW_PROJECTOR_OWNER,
   APPROVAL_FLOW_PROJECTORS,
@@ -45,17 +39,17 @@ import { registerFeatureContributions } from "./registrations.js";
 /** Registries a case owns outright, with the command registry the surface writes into. */
 function ownedRegistries(): {
   readonly commands: CommandContributionRegistry;
-  readonly projectors: ConsoleEntityProjectorRegistry;
-  readonly surfaces: ConsoleSurfaceRegistry;
-  readonly panes: ConsolePaneRegistry;
-  readonly inlineCards: InlineCardSeatRegistry;
+  readonly projectors: EntityProjectorRegistry;
+  readonly screens: ScreenRegistry;
+  readonly panes: PaneRegistry;
+  readonly inlineCards: InlineCardRegistry;
 } {
   return {
     commands: new CommandContributionRegistry(new CommandRegistry()),
-    projectors: new ConsoleEntityProjectorRegistry(),
-    surfaces: new ConsoleSurfaceRegistry(),
-    panes: new ConsolePaneRegistry(),
-    inlineCards: new InlineCardSeatRegistry(),
+    projectors: new EntityProjectorRegistry(),
+    screens: new ScreenRegistry(),
+    panes: new PaneRegistry(),
+    inlineCards: new InlineCardRegistry(),
   };
 }
 
@@ -64,12 +58,12 @@ describe("registerFeatureContributions", () => {
     // A second owner on one slot, pane kind, card kind, chord or event kind throws.
     const registries = ownedRegistries();
     registerFeatureContributions(registries);
-    const firstSlots = registries.surfaces.registeredSlots();
+    const firstSlots = registries.screens.registeredSlots();
     const firstPaneKinds = registries.panes.registeredPaneKinds();
 
     registerFeatureContributions(registries);
 
-    expect(registries.surfaces.registeredSlots()).toStrictEqual(firstSlots);
+    expect(registries.screens.registeredSlots()).toStrictEqual(firstSlots);
     expect(registries.panes.registeredPaneKinds()).toStrictEqual(firstPaneKinds);
   });
 
@@ -81,23 +75,23 @@ describe("registerFeatureContributions", () => {
     expect({
       keyBindings: registries.commands.keyBindings().length > 0,
       projectors: Object.keys(registries.projectors.snapshot()).length > 0,
-      surfaces: registries.surfaces.registeredSlots().length > 0,
+      screens: registries.screens.registeredSlots().length > 0,
       panes: registries.panes.registeredPaneKinds().length > 0,
       inlineCards: registries.inlineCards.registeredCardKinds().length > 0,
     }).toStrictEqual({
       keyBindings: true,
       projectors: true,
-      surfaces: true,
+      screens: true,
       panes: true,
       inlineCards: true,
     });
     expect({
       keyBindings: contributedKeybindings(),
-      projectors: consoleEntityProjectorRegistry.snapshot(),
-      surfaces: consoleSurfaceRegistry.registeredSlots(),
-      panes: consolePaneRegistry.registeredPaneKinds(),
-      inlineCards: inlineCardSeatRegistry.registeredCardKinds(),
-    }).toStrictEqual({ keyBindings: [], projectors: {}, surfaces: [], panes: [], inlineCards: [] });
+      projectors: entityProjectorRegistry.snapshot(),
+      screens: screenRegistry.registeredSlots(),
+      panes: paneRegistry.registeredPaneKinds(),
+      inlineCards: inlineCardRegistry.registeredCardKinds(),
+    }).toStrictEqual({ keyBindings: [], projectors: {}, screens: [], panes: [], inlineCards: [] });
   });
 
   it.each([

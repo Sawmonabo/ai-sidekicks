@@ -767,7 +767,7 @@ export class RuntimeBindingStore {
     //
     // A NON-object report is passed through UNCOPIED, deliberately: this copy
     // makes no admission decision — it only decides what is read once — so the
-    // validator stays the SOLE owner of the accept/reject judgement and still
+    // validator stays the SOLE owner of the accept/reject judgment and still
     // sees (and refuses) exactly the value the caller supplied.
     // The property reads are themselves inside the getter/Proxy threat model:
     // a throwing accessor must surface as the seam's typed leak-safe refusal,
@@ -902,7 +902,7 @@ export class RuntimeBindingStore {
    * history. There is deliberately NO liveness filtering — the store owns no
    * liveness column by design (the seam), so the CALLER owns the liveness
    * intersection. A store-side "only the live one" filter would have to invent
-   * the liveness judgement, and inventing it in the storage layer is how two
+   * the liveness judgment, and inventing it in the storage layer is how two
    * different definitions of live end up in the same daemon.
    *
    * Empty input short-circuits to `[]` WITHOUT executing the statement — an

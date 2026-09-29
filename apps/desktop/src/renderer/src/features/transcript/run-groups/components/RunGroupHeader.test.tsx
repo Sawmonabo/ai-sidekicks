@@ -1,14 +1,14 @@
-// The chapter header, held to what a person can read off one folded run.
+// The run group header, held to what a person can read off one folded run.
 //
 // The two cases that matter are the ones a fold-level suite cannot make: a live
-// chapter had NOTHING on its line but an actor and a count, and the clipped figure
+// run group had NOTHING on its line but an actor and a count, and the clipped figure
 // named rows nothing could reach. Both are rendering claims, so both are read off the
 // rendered line.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { CHAPTER_VISIBLE_ROW_CAP } from "../../structure/structure-caps.js";
+import { RUN_GROUP_VISIBLE_ROW_CAP } from "../../structure/structure-caps.js";
 import { RunGroupHeader } from "./RunGroupHeader.js";
 import { groupRowsByRun } from "../run-groups.js";
 import { findRunGroup } from "../run-groups.test-support.js";
@@ -35,20 +35,20 @@ function oneRun(rowCount: number, payload?: Readonly<Record<string, unknown>>): 
 function renderHeader(rows: readonly TimelineRow[], isOpen = false): HTMLElement {
   const { container } = render(
     <RunGroupHeader
-      chapter={findRunGroup(groupRowsByRun(rows).chapters, RUN_ID)}
+      runGroup={findRunGroup(groupRowsByRun(rows).runGroups, RUN_ID)}
       isOpen={isOpen}
       onToggle={() => undefined}
     />,
   );
   const line = container.querySelector<HTMLElement>(".meridian-run-group-header");
   if (line === null) {
-    throw new Error("the chapter drew no header");
+    throw new Error("the run group drew no header");
   }
   return line;
 }
 
-describe("the chapter header — what one run's line says", () => {
-  it("says what the run is doing, which a live chapter could not say before", () => {
+describe("the run group header — what one run's line says", () => {
+  it("says what the run is doing, which a live run group could not say before", () => {
     expect(renderHeader(oneRun(3)).textContent).toContain("run.running");
   });
 
@@ -70,21 +70,21 @@ describe("the chapter header — what one run's line says", () => {
 });
 
 describe("the header's body — mounted only where there is something folded open", () => {
-  it("mounts no body while the chapter is folded", () => {
+  it("mounts no body while the run group is folded", () => {
     expect(
-      renderHeader(oneRun(CHAPTER_VISIBLE_ROW_CAP + 2)).querySelector(".meridian-run-group-body"),
+      renderHeader(oneRun(RUN_GROUP_VISIBLE_ROW_CAP + 2)).querySelector(".meridian-run-group-body"),
     ).toBeNull();
   });
 
-  it("mounts the clipped head once the chapter is open", () => {
-    const body = renderHeader(oneRun(CHAPTER_VISIBLE_ROW_CAP + 2), true).querySelector(
+  it("mounts the clipped head once the run group is open", () => {
+    const body = renderHeader(oneRun(RUN_GROUP_VISIBLE_ROW_CAP + 2), true).querySelector(
       ".meridian-run-group-body",
     );
     expect(body).not.toBeNull();
     expect(body?.textContent).toContain("entry 1");
   });
 
-  it("mounts no body for an open chapter that clips nothing", () => {
+  it("mounts no body for an open run group that clips nothing", () => {
     expect(renderHeader(oneRun(3), true).querySelector(".meridian-run-group-body")).toBeNull();
   });
 });

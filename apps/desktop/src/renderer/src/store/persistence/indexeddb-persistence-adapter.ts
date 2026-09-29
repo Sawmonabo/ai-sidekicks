@@ -23,7 +23,7 @@
 
 import { openDB, type DBSchema, type IDBPDatabase } from "idb";
 import { PERSISTENCE_QUOTA_PRESSURE_RATIO } from "../persistence-caps.js";
-import { RealClock, type ConsoleClock, type ScheduledHandle } from "@renderer/lib/clock.js";
+import { RealClock, type Clock, type ScheduledHandle } from "@renderer/lib/clock.js";
 import {
   PERSISTENCE_GLOBAL_PARTITION,
   PersistenceAdapterError,
@@ -39,7 +39,7 @@ import {
 import { refusePersistence } from "./persistence-refusals.js";
 
 /** The database this build reads and writes. Bumping the version is a migration. */
-export const CONSOLE_DATABASE_NAME = "sidekicks-ui-state";
+export const UI_STATE_DATABASE_NAME = "sidekicks-ui-state";
 export const UI_STATE_DATABASE_VERSION = 1;
 export const UI_STATE_STORE_NAME = "ui-state";
 
@@ -92,7 +92,7 @@ export interface OpenUiStateDatabaseOptions {
    * the refresh scheduler's deadline" claim. It also makes the timeout arm
    * testable in milliseconds of frozen time rather than in three real seconds.
    */
-  readonly clock?: ConsoleClock;
+  readonly clock?: Clock;
 }
 
 export class IndexedDbPersistenceAdapter implements PersistenceAdapter {
@@ -100,11 +100,11 @@ export class IndexedDbPersistenceAdapter implements PersistenceAdapter {
   public readonly durable = true;
   public readonly unavailableReason: PersistenceUnavailableReason | undefined = undefined;
 
-  readonly #database: IDBPDatabase<ConsoleDatabaseSchema>;
+  readonly #database: IDBPDatabase<UiStateDatabaseSchema>;
   readonly #storageManager: StorageManager | undefined;
 
   public constructor(
-    database: IDBPDatabase<ConsoleDatabaseSchema>,
+    database: IDBPDatabase<UiStateDatabaseSchema>,
     storageManager?: StorageManager | undefined,
   ) {
     this.#database = database;
@@ -144,7 +144,7 @@ export class IndexedDbPersistenceAdapter implements PersistenceAdapter {
     });
   }
 
-  public async summarisePartitions(): Promise<readonly PartitionSummary[]> {
+  public async summarizePartitions(): Promise<readonly PartitionSummary[]> {
     return await this.#guard(async () => {
       const summariesByPartition = new Map<
         string,
@@ -170,7 +170,7 @@ export class IndexedDbPersistenceAdapter implements PersistenceAdapter {
   }
 
   public async trimPartitions(keepSessionPartitions: number): Promise<number> {
-    const summaries = await this.summarisePartitions();
+    const summaries = await this.summarizePartitions();
     const doomed = summaries
       .filter((summary) => summary.partition !== PERSISTENCE_GLOBAL_PARTITION)
       .sort((left, right) => right.newestUpdatedAt - left.newestUpdatedAt)
@@ -260,7 +260,7 @@ export async function openUiStateDatabase(
     return { outcome: "unavailable", reason: "no-indexeddb-global" };
   }
 
-  const databaseName = options.databaseName ?? CONSOLE_DATABASE_NAME;
+  const databaseName = options.databaseName ?? UI_STATE_DATABASE_NAME;
   const openTimeoutMs = options.openTimeoutMs ?? DATABASE_OPEN_TIMEOUT_MS;
   const clock = options.clock ?? new RealClock();
 
@@ -273,7 +273,7 @@ export async function openUiStateDatabase(
   });
 
   try {
-    const opening = openDB<ConsoleDatabaseSchema>(databaseName, UI_STATE_DATABASE_VERSION, {
+    const opening = openDB<UiStateDatabaseSchema>(databaseName, UI_STATE_DATABASE_VERSION, {
       upgrade(database) {
         const store = database.createObjectStore(UI_STATE_STORE_NAME, {
           keyPath: ["partition", "key"],
@@ -328,7 +328,7 @@ export function classifyOpenFailure(error: unknown): PersistenceUnavailableReaso
   return "open-refused";
 }
 
-interface ConsoleDatabaseSchema extends DBSchema {
+interface UiStateDatabaseSchema extends DBSchema {
   [UI_STATE_STORE_NAME]: {
     key: [string, string];
     value: StoredRecord;

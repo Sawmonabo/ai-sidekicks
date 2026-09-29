@@ -10,10 +10,10 @@
 
 import { describe, expect, it } from "vitest";
 
-import { CONSOLE_SCENARIOS } from "../../../fixtures/index.js";
-import { FLAGSHIP_SCENARIO } from "../../../fixtures/scenarios/concurrent-streaming.js";
+import { SCENARIOS } from "../../../fixtures/index.js";
+import { CONCURRENT_STREAMING_SCENARIO } from "../../../fixtures/scenarios/concurrent-streaming.js";
 import { findScenarioContractDefects } from "./contract-check.js";
-import type { ConsoleScenario, ScenarioBeat } from "../../../fixtures/scenario.js";
+import type { Scenario, ScenarioBeat } from "../../../fixtures/scenario.js";
 
 /** Someone this session never joins, spelled as the branded id type declares. */
 const STRANGER_USER_ID = "019b79ee-0280-79a4-8110-cca0117a9999";
@@ -21,7 +21,7 @@ const STRANGER_USER_ID = "019b79ee-0280-79a4-8110-cca0117a9999";
 describe("scenario wire truth — the shipped seat board", () => {
   it("accepts every scenario a family has landed on the board", () => {
     expect(
-      findScenarioContractDefects(CONSOLE_SCENARIOS).map(
+      findScenarioContractDefects(SCENARIOS).map(
         (defect) => `${defect.scenarioId}: ${defect.subject} — ${defect.reason}`,
       ),
     ).toStrictEqual([]);
@@ -30,7 +30,7 @@ describe("scenario wire truth — the shipped seat board", () => {
 
 describe("the catalog", () => {
   it("carries unique ids, so the picker and the lookup cannot collide", () => {
-    const ids = CONSOLE_SCENARIOS.map((scenario) => scenario.id);
+    const ids = SCENARIOS.map((scenario) => scenario.id);
     expect(new Set(ids).size).toBe(ids.length);
   });
 });
@@ -39,7 +39,7 @@ describe("the catalog", () => {
 const CONTROL_QUEUE_ITEM_ID = "019b79ee-0280-7c11-8110-d1a4c1159902";
 
 /** Someone the concurrent-streaming joins, so a caller case varies the caller and nothing else. */
-const CONCURRENT_STREAMING_USER_ID = FLAGSHIP_SCENARIO.userIdsInJoinOrder[0] ?? "";
+const CONCURRENT_STREAMING_USER_ID = CONCURRENT_STREAMING_SCENARIO.userIdsInJoinOrder[0] ?? "";
 
 /**
  * The concurrent-streaming scenario playing exactly ONE beat, built from its own opening beat.
@@ -51,14 +51,14 @@ const CONCURRENT_STREAMING_USER_ID = FLAGSHIP_SCENARIO.userIdsInJoinOrder[0] ?? 
 function scenarioPlayingOneBeat(
   scenarioId: string,
   revise: (beat: ScenarioBeat) => ScenarioBeat,
-): ConsoleScenario {
-  const openingBeat = FLAGSHIP_SCENARIO.beats[0];
+): Scenario {
+  const openingBeat = CONCURRENT_STREAMING_SCENARIO.beats[0];
   if (openingBeat === undefined) {
     throw new Error(
       "the concurrent-streaming scenario plays no beats, so there is no beat to build from",
     );
   }
-  return { ...FLAGSHIP_SCENARIO, id: scenarioId, beats: [revise(openingBeat)] };
+  return { ...CONCURRENT_STREAMING_SCENARIO, id: scenarioId, beats: [revise(openingBeat)] };
 }
 
 describe("scenario wire truth — the shape a beat's envelope and payload have to hold", () => {
@@ -130,7 +130,9 @@ describe("scenario wire truth — the shape a beat's envelope and payload have t
     // empty one is neither a user nor the system arm, which omits the key, so
     // the delivery would be counted unreadable and dropped, which in a fixture reads as
     // a beat that renders nothing.
-    const runBeat = FLAGSHIP_SCENARIO.beats.find((beat) => beat.event.kind === "run.starting");
+    const runBeat = CONCURRENT_STREAMING_SCENARIO.beats.find(
+      (beat) => beat.event.kind === "run.starting",
+    );
     if (runBeat === undefined) {
       throw new Error(
         "the concurrent-streaming scenario plays no `run.starting` beat to build a case from",
@@ -138,7 +140,7 @@ describe("scenario wire truth — the shape a beat's envelope and payload have t
     }
     const defects = findScenarioContractDefects([
       {
-        ...FLAGSHIP_SCENARIO,
+        ...CONCURRENT_STREAMING_SCENARIO,
         id: "carries-an-empty-actor",
         beats: [
           {
@@ -146,7 +148,7 @@ describe("scenario wire truth — the shape a beat's envelope and payload have t
             atMs: 0,
             event: {
               ...runBeat.event,
-              sequence: FLAGSHIP_SCENARIO.beats[0]?.event.sequence ?? 1,
+              sequence: CONCURRENT_STREAMING_SCENARIO.beats[0]?.event.sequence ?? 1,
               actorId: "",
             },
           },
@@ -165,7 +167,7 @@ describe("scenario wire truth — the state a queue beat says its row moved to",
     scenarioId: string,
     eventKind: string,
     payload: Readonly<Record<string, unknown>>,
-  ): ConsoleScenario {
+  ): Scenario {
     return scenarioPlayingOneBeat(scenarioId, (beat) => ({
       ...beat,
       event: { ...beat.event, kind: eventKind, payload },
@@ -180,7 +182,7 @@ describe("scenario wire truth — the state a queue beat says its row moved to",
     // summary out of half a payload.
     const defects = findScenarioContractDefects([
       scenarioPlayingQueueBeat("names-no-queue-state", "queue_item.admitted", {
-        sessionId: FLAGSHIP_SCENARIO.sessionId,
+        sessionId: CONCURRENT_STREAMING_SCENARIO.sessionId,
         queueItemId: CONTROL_QUEUE_ITEM_ID,
       }),
     ]);
@@ -195,7 +197,7 @@ describe("scenario wire truth — the state a queue beat says its row moved to",
     // a row that moved two ways at once.
     const defects = findScenarioContractDefects([
       scenarioPlayingQueueBeat("names-two-queue-states", "queue_item.admitted", {
-        sessionId: FLAGSHIP_SCENARIO.sessionId,
+        sessionId: CONCURRENT_STREAMING_SCENARIO.sessionId,
         queueItemId: CONTROL_QUEUE_ITEM_ID,
         state: "queued",
       }),
@@ -213,7 +215,7 @@ describe("scenario wire truth — the state a queue beat says its row moved to",
     expect(
       findScenarioContractDefects([
         scenarioPlayingQueueBeat("names-the-announced-state", "queue_item.created", {
-          sessionId: FLAGSHIP_SCENARIO.sessionId,
+          sessionId: CONCURRENT_STREAMING_SCENARIO.sessionId,
           queueItemId: CONTROL_QUEUE_ITEM_ID,
           state: "queued",
         }),
@@ -230,7 +232,7 @@ describe("scenario wire truth — the caller a scenario answers its identity rea
     // wrong.
     const defects = findScenarioContractDefects([
       {
-        ...FLAGSHIP_SCENARIO,
+        ...CONCURRENT_STREAMING_SCENARIO,
         id: "names-a-caller-it-never-joins",
         callerUserId: STRANGER_USER_ID,
       },
@@ -247,7 +249,7 @@ describe("scenario wire truth — the caller a scenario answers its identity rea
     expect(
       findScenarioContractDefects([
         {
-          ...FLAGSHIP_SCENARIO,
+          ...CONCURRENT_STREAMING_SCENARIO,
           id: "names-a-caller-it-joins",
           callerUserId: CONCURRENT_STREAMING_USER_ID,
         },

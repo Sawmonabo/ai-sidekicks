@@ -3,7 +3,7 @@
 // A window handed a bridge plays it; one handed a composition plays what the composition
 // builds; one handed neither reads the preload. The provider holds no fixture branch: the
 // fixture launch is a composition built in `app/`, and a release build has none to hand
-// over. The context holds a `ConsoleBridge` and nothing else; no component reads
+// over. The context holds a `PlatformBridge` and nothing else; no component reads
 // `window.desktopBridge` or subscribes to a bridge event directly.
 //
 // The resolution is state, not a memo. A composition may build a `ScenarioEngine`, a mutable
@@ -13,30 +13,30 @@
 // an engine it built, never one a caller handed it.
 
 import { useEffect, useLayoutEffect, useState, type ReactNode } from "react";
-import { ForwardingConsoleClock } from "@renderer/lib/forwarding-clock.js";
-import type { ConsoleBridge } from "./platform-bridge.js";
+import { ForwardingClock } from "@renderer/lib/forwarding-clock.js";
+import type { PlatformBridge } from "./platform-bridge.js";
 import {
   BridgeCompositionContext,
   BridgeContext,
   type BridgeComposition,
   type BridgeResolution,
 } from "./bridge-context.js";
-import { consoleClockFor } from "./hooks/useClock.js";
+import { resolveBridgeClock } from "./hooks/useClock.js";
 import { createLiveBridge, readInstalledBridge } from "./live-bridge.js";
 
 /** The bridge provider's props. */
 export interface PlatformBridgeProviderProps {
   readonly children: ReactNode;
   /** A bridge to play as it is. Tests pass a fixture directly; a composition owns none of it. */
-  readonly bridge?: ConsoleBridge;
+  readonly bridge?: PlatformBridge;
   /** How to build the bridge when none is handed over. Absent, the window reads the preload. */
   readonly composition?: BridgeComposition;
   /**
    * A clock identity minted outside the tree, rebound onto the resolved bridge's clock.
    * The composition root arms the tripwire route at module scope, before any bridge exists,
-   * so its clock is a `ForwardingConsoleClock` passed in rather than reached for.
+   * so its clock is a `ForwardingClock` passed in rather than reached for.
    */
-  readonly clockToRebind?: ForwardingConsoleClock;
+  readonly clockToRebind?: ForwardingClock;
 }
 
 /**
@@ -46,14 +46,14 @@ export interface PlatformBridgeProviderProps {
  * from change or its own engine has been torn down — see the module header for why
  * neither a memo nor a plain re-creation is correct for a resource with a lifetime.
  */
-export function DesktopBridgeProvider(props: PlatformBridgeProviderProps): React.JSX.Element {
+export function PlatformBridgeProvider(props: PlatformBridgeProviderProps): React.JSX.Element {
   const { children, bridge, composition, clockToRebind } = props;
   const [resolved, setResolved] = useState<ResolvedConsoleBridge>(
     () => new ResolvedConsoleBridge(bridge, composition),
   );
 
   // The one clock the window reads, handed to the identity a caller armed before this
-  // tree existed. From the LAYOUT phase for `useConsoleClock`'s own reason: every
+  // tree existed. From the LAYOUT phase for `useClock`'s own reason: every
   // layout effect for a commit runs before any passive effect for it, so a consumer
   // reading time from an effect reads the clock this commit resolved. An unavailable
   // resolution has no clock to hand over and leaves the identity on whatever it was
@@ -63,7 +63,7 @@ export function DesktopBridgeProvider(props: PlatformBridgeProviderProps): React
     if (clockToRebind === undefined || resolution.status !== "ready") {
       return;
     }
-    clockToRebind.holdClock(consoleClockFor(resolution.bridge));
+    clockToRebind.holdClock(resolveBridgeClock(resolution.bridge));
   }, [clockToRebind, resolved]);
 
   // One effect, because replacement and installation are one decision made in one
@@ -97,14 +97,14 @@ export function DesktopBridgeProvider(props: PlatformBridgeProviderProps): React
  * bridge outlives this provider; one built here does not.
  */
 class ResolvedConsoleBridge {
-  readonly #suppliedBridge: ConsoleBridge | undefined;
+  readonly #suppliedBridge: PlatformBridge | undefined;
   readonly #composition: BridgeComposition | undefined;
   readonly #resolution: BridgeResolution;
   /** The engine this provider BUILT. `undefined` when the caller supplied the bridge. */
-  readonly #ownedEngine: ConsoleBridge["scenarioEngine"];
+  readonly #ownedEngine: PlatformBridge["scenarioEngine"];
 
   public constructor(
-    suppliedBridge: ConsoleBridge | undefined,
+    suppliedBridge: PlatformBridge | undefined,
     composition: BridgeComposition | undefined,
   ) {
     this.#suppliedBridge = suppliedBridge;
@@ -139,7 +139,7 @@ class ResolvedConsoleBridge {
    * resolved subject to compare against during render.
    */
   public isSupersededBy(
-    suppliedBridge: ConsoleBridge | undefined,
+    suppliedBridge: PlatformBridge | undefined,
     composition: BridgeComposition | undefined,
   ): boolean {
     if (suppliedBridge !== this.#suppliedBridge || composition !== this.#composition) {
@@ -170,7 +170,7 @@ class ResolvedConsoleBridge {
 }
 
 function resolveBridge(
-  suppliedBridge: ConsoleBridge | undefined,
+  suppliedBridge: PlatformBridge | undefined,
   composition: BridgeComposition | undefined,
 ): BridgeResolution {
   if (suppliedBridge !== undefined) {
@@ -186,7 +186,7 @@ function resolveBridge(
       unavailable: {
         reason: "preload-did-not-run",
         detail:
-          "This window loaded without its preload bridge, so it cannot reach the daemon or the control plane. Reopening the window usually fixes it; if it does not, the app needs restarting.",
+          "This window loaded without its preload bridge, so it cannot reach the background service or the control plane. Reopening the window usually fixes it; if it does not, the app needs restarting.",
       },
     };
   }

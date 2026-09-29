@@ -1,4 +1,4 @@
-// The terminal pane's body, as the deck's registry loads it.
+// The terminal pane's body, as the pane layout's registry loads it.
 //
 // A LOADER-BACKED BODY for `browser/pane/browser-pane-body.ts`'s reason, and this pane
 // is the one that makes the case hardest to argue with: the emulator chunk was already
@@ -17,11 +17,11 @@ import "./pane.css";
 import "../lease/lease.css";
 import "../emulator/emulator.css";
 
-import { paneBodyForKind, type ConsolePaneContext } from "@renderer/console/seats/index.js";
+import { paneBodyForKind, type PaneContext } from "@renderer/console/seats/index.js";
 import { TerminalPane } from "./components/TerminalPane.js";
 
 /**
- * The terminal pane, as the deck holds it.
+ * The terminal pane, as the pane layout holds it.
  *
  * IT ADVERTISES NO DETACH either, and for a different reason from the browser
  * pane's: this body does not hold a host view, it holds a process lease. A torn-off
@@ -37,7 +37,7 @@ import { TerminalPane } from "./components/TerminalPane.js";
  * one shared shell, so a mount at another kind's address would put a second surface on
  * that shell rather than merely drawing the wrong head.
  */
-export const Body: (context: ConsolePaneContext) => React.ReactNode = paneBodyForKind(
+export const Body: (context: PaneContext) => React.ReactNode = paneBodyForKind(
   "terminal",
   TerminalPane,
 );

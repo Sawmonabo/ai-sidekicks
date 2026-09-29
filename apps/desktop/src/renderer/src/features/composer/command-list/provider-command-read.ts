@@ -27,10 +27,10 @@
 
 import type { ProviderCommandBindingGroup } from "@ai-sidekicks/contracts";
 
-import { refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
+import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 import { callDaemon } from "@renderer/services/daemon/daemon-reply.js";
 import { readSessionId } from "@renderer/services/daemon/wire-identifiers.js";
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 
 /** The subsystem name every refusal this read raises carries. */
 export const PROVIDER_COMMAND_READ_ORIGIN = "composer-command-discovery";
@@ -60,7 +60,7 @@ export type ProviderCommandReadState =
   | { readonly phase: "not-checked" }
   | { readonly phase: "not-loaded" }
   | { readonly phase: "served"; readonly groups: readonly ProviderCommandBindingGroup[] }
-  | { readonly phase: "refused"; readonly refusal: ConsoleRefusal };
+  | { readonly phase: "refused"; readonly refusal: Refusal };
 
 /**
  * One enumeration request, resolved into exactly one settled state. Never throws.
@@ -71,7 +71,7 @@ export type ProviderCommandReadState =
  * never publishes because the round it was opened on is no longer the live one.
  */
 export async function settleEnumeration(
-  bridge: ConsoleBridge,
+  bridge: PlatformBridge,
   sessionId: string,
   agentId: string,
   signal: AbortSignal,
@@ -97,11 +97,11 @@ export async function settleEnumeration(
 }
 
 /** The refusal for a composer addressed at identifiers the wire would not accept. */
-function unparseableAddress(): ConsoleRefusal {
+function unparseableAddress(): Refusal {
   const code: ProviderCommandReadRefusalCode = "addressed-agent-unparseable";
   return refuse(
     PROVIDER_COMMAND_READ_ORIGIN,
     code,
-    "The console is holding identifiers for this agent that the daemon would not accept, so it asked for no enumeration. Reopen the session so its identifiers are read again.",
+    "The console is holding identifiers for this agent that the background service would not accept, so it asked for no enumeration. Reopen the session so its identifiers are read again.",
   );
 }

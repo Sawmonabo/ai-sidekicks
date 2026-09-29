@@ -6,7 +6,7 @@
 // frame, a keyboard activation racing the commit that disabled it.
 //
 // EVERY CASE DRIVES THE REAL `SignInPlane` over the real `startSignIn` and `cancelSignIn`
-// with stub calls. The single-flight guard under test is `store/read/generation-latch.ts`,
+// with stub calls. The single-flight guard under test is `lib/reads/generation-latch.ts`,
 // reached exactly as the shipped module reaches it, so a case here fails if that
 // register's refusal contract changes.
 
@@ -56,7 +56,7 @@ function planeOverServedCalls(): {
   const onFlowSettled = vi.fn();
   const calls = accountPlaneCalls({
     login: PROVIDER_SIGN_IN_ATTEMPT,
-    cancel: { status: "cancelled" },
+    cancel: { status: "canceled" },
   });
   return { plane: planeOver(calls, onFlowSettled), calls, onFlowSettled };
 }
@@ -134,7 +134,7 @@ describe("SignInPlane", () => {
     expect(plane.snapshot().flow.kind).toBe("live");
   });
 
-  it("offers the plane again once the running flow has been cancelled", async () => {
+  it("offers the plane again once the running flow has been canceled", async () => {
     const { plane, onFlowSettled } = planeOverServedCalls();
 
     plane.start(RUNNING_ACCOUNT_ID);
@@ -189,7 +189,7 @@ describe("SignInPlane", () => {
   it("ends a flow whose completion arrived before the start reply seated it", async () => {
     // The tail opens BEFORE `providerAccount.login` is called — the registered ordering
     // — so a flow that finishes fast reports its completion while the start reply is
-    // still travelling. The plane would otherwise seat an attempt that is already over
+    // still traveling. The plane would otherwise seat an attempt that is already over
     // and hold the key until somebody pressed cancel.
     const { plane, onFlowSettled } = planeOverServedCalls();
 

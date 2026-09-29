@@ -1,10 +1,10 @@
-// The ledger cards' bounds: the two byte-bounded caches, the two highlighting
+// The transcript cards' bounds: the two byte-bounded caches, the two highlighting
 // thresholds, the footnote registry, the tool row's one line, and the ANSI body's
 // first render.
 //
-// Spent under `ledger/cards/` and `ledger/markdown/`, declared here because
-// `cap-constant-home` allows a bound exactly one declaring module; what stays beside
-// those readers is the layout and lag figures that are not ceilings.
+// Spent under `rows/` (`rows/markdown/`, `rows/ansi/` and `ToolRow.tsx`), declared here so
+// each bound has one declaring module; what stays beside those readers is the layout and
+// lag figures that are not ceilings.
 
 /**
  * Bytes of parsed-block cache the renderer retains, across every card.
@@ -12,7 +12,7 @@
  * Bounded in bytes rather than in entries because the entries are markdown blocks and
  * their sizes span four orders of magnitude: a thousand one-line paragraphs and one
  * pasted file are the same entry count and not the same memory. Two mebibytes is
- * several long conversations' worth of settled prose at the ledger's density, and it
+ * several long conversations' worth of settled prose at the transcript's density, and it
  * is charged against the source text rather than the node tree because the source is
  * what the cache is keyed by and the only figure it can measure without walking.
  */
@@ -27,7 +27,7 @@ export const MARKDOWN_BLOCK_CACHE_BYTE_CAP = 2_097_152;
  * in them. The measured ratio is 21.5x, and one mebibyte of retained tokens divided by it
  * is about 48,771 source bytes; 48,000 is that rounded down, so the tokens stay INSIDE
  * the mebibyte rather than a little past it. It is a screenful of fenced blocks in
- * scrollback, and far below the point where retaining them costs more than re-tokenising
+ * scrollback, and far below the point where retaining them costs more than re-tokenizing
  * them.
  *
  * THE CONSEQUENCE, NAMED RATHER THAN LEFT TO BE FOUND: a block between this cap and
@@ -42,7 +42,7 @@ export const CODE_TOKEN_CACHE_BYTE_CAP = 48_000;
  *
  * Highlighting runs in a Worker above about 4 kB of source. The measurement is the
  * reason — the JavaScript engine costs about 8.1 ms per 2,700 bytes, so 4,096 bytes is
- * the last size whose tokenisation still fits inside one 16.7 ms frame beside the
+ * the last size whose tokenization still fits inside one 16.7 ms frame beside the
  * layout it has to leave room for.
  */
 export const CODE_WORKER_THRESHOLD_BYTES = 4096;
@@ -57,12 +57,12 @@ export const CODE_WORKER_THRESHOLD_BYTES = 4096;
  */
 export const CODE_HIGHLIGHT_SOURCE_BYTE_CAP = 262_144;
 /**
- * Footnote definitions a single timeline's registry retains.
+ * Footnote definitions a single transcript's registry retains.
  *
- * This console keeps one popover host per timeline with a definition registry keyed by
- * source — `ledger/cards/markdown/footnotes/footnote-registry.ts` states why. Bounded
+ * This console keeps one popover host per transcript with a definition registry keyed by
+ * source — `rows/markdown/footnotes/footnote-registry.ts` states why. Bounded
  * for the reason every cache in the console is: a definition belongs to the message
- * that carried it, and a log holds `LEDGER_WINDOW_ROW_CAP` rows, so a few definitions
+ * that carried it, and a log holds `TRANSCRIPT_WINDOW_ROW_CAP` rows, so a few definitions
  * per retained row is the whole reachable population and nothing above it can ever be
  * opened.
  */
@@ -72,7 +72,7 @@ export const FOOTNOTE_DEFINITION_CAP = 2048;
  *
  * Tool rows render as one line until opened. What that one line carries — glyph, tool
  * name, a one-clause summary, elapsed, and the result state — is this console's own
- * composition; the line is the constraint, and at the ledger's measure and mono figure
+ * composition; the line is the constraint, and at the transcript's measure and mono figure
  * column this is what fits beside the name and the elapsed without wrapping.
  */
 export const TOOL_SUMMARY_MAX_CHARACTERS = 96;

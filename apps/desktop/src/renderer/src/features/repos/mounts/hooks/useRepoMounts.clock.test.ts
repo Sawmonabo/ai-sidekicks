@@ -2,7 +2,7 @@
 //
 // THE READING CARRIES AN INSTANT AND THE CARDS SPEND IT. `readAtMilliseconds` is what
 // every age on a mount card is measured against, so the clock the hook hands its reader
-// decides what those figures SAY. `consoleClockFor` is the one answer to which clock a
+// decides what those figures SAY. `resolveBridgeClock` is the one answer to which clock a
 // window runs on; a reader stamping off a `RealClock` of its own would put two time
 // bases on one screen and make every age move with the day it was rendered.
 //

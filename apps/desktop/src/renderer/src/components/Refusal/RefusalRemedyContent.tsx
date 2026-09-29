@@ -33,7 +33,7 @@ export interface RefusalRemedyContentProps {
  *
  * @consumedBy a refusal that offers the person a remedy
  */
-export function RefusalRecovery(props: RefusalRemedyContentProps): React.JSX.Element {
+export function RefusalRemedyContent(props: RefusalRemedyContentProps): React.JSX.Element {
   const { remedy, children } = props;
   const distinctions = remedy !== undefined && "distinctions" in remedy ? remedy.distinctions : [];
   return (

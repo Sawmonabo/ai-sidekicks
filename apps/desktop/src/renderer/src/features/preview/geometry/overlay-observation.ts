@@ -26,7 +26,7 @@ import type {
   AirspaceMotionObserver,
   AirspaceOverlayElement,
 } from "@renderer/lib/airspace-registry.js";
-import type { ConsoleClock } from "@renderer/lib/clock.js";
+import type { Clock } from "@renderer/lib/clock.js";
 import type { Unsubscribe } from "@renderer/lib/emitter.js";
 import { hasRunningMotion, observeMotionStarts, sharesMotionWith } from "./element-motion.js";
 import { MotionFrameSampler } from "./motion-sampling.js";
@@ -39,7 +39,7 @@ import { MotionFrameSampler } from "./motion-sampling.js";
  * is the instrument the console counts timers with, so a sampler that minted one ran
  * on wall time inside a window whose every other timer was frozen.
  */
-export function overlayMotionObserver(clock: ConsoleClock): AirspaceMotionObserver {
+export function overlayMotionObserver(clock: Clock): AirspaceMotionObserver {
   const observation = new OverlayMotionObservation(clock);
   return (element, onMoved) =>
     isWatchableElement(element) ? observation.observe(element, onMoved) : () => undefined;
@@ -55,11 +55,11 @@ export function overlayMotionObserver(clock: ConsoleClock): AirspaceMotionObserv
  * document subscription per open dialog for a signal every one of them reads.
  */
 class OverlayMotionObservation {
-  readonly #clock: ConsoleClock;
+  readonly #clock: Clock;
   readonly #samplersByElement = new Map<Element, MotionFrameSampler>();
   #detachMotionStarts: Unsubscribe | undefined;
 
-  public constructor(clock: ConsoleClock) {
+  public constructor(clock: Clock) {
     this.#clock = clock;
   }
 

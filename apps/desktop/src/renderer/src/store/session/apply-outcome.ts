@@ -17,8 +17,8 @@ export interface ApplyOutcome {
   readonly buffered: number;
   readonly refusedForeignSession: number;
   readonly gapDetected: boolean;
-  /** Buffered events this batch pushed past `PRE_INITIALISATION_BUFFER_CAP`. */
-  readonly droppedBeforeInitialisation: number;
+  /** Buffered events this batch pushed past `PRE_INITIALIZATION_BUFFER_CAP`. */
+  readonly droppedBeforeInitialization: number;
   /**
    * Events refused because their sequence cannot be reconciled with this store's:
    * a jump past `MAX_REPAIRABLE_SEQUENCE_GAP` of accumulated loss, or a value no
@@ -35,7 +35,7 @@ export const NOTHING_APPLIED: Omit<ApplyOutcome, "buffered"> = {
   duplicates: 0,
   refusedForeignSession: 0,
   gapDetected: false,
-  droppedBeforeInitialisation: 0,
+  droppedBeforeInitialization: 0,
   refusedDivergedSequence: 0,
   projectionFailures: 0,
 };

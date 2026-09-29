@@ -75,7 +75,7 @@ export interface ProcessTableRow {
  * THE SENTINEL IS THE WHOLE POINT OF THE UNION. An unreadable listing used to
  * arrive as an EMPTY map, which is a reading — "nothing on this host claims that
  * pid" — and every consumer that took it as one was reading a failure as
- * evidence. The two answers owe opposite behaviour: an empty table is what
+ * evidence. The two answers owe opposite behavior: an empty table is what
  * clears a rootless verdict, and an unreadable one is what must refuse it.
  *
  * The optional budget is what is LEFT of the caller's own deadline, and it is
@@ -230,7 +230,7 @@ export function runBoundedHostQuery(
  * and that is not tidiness: `ps -o lstart=` emits `Sun Sep  7 02:25:10 2026`,
  * five whitespace-separated tokens for one value. It is kept VERBATIM apart from
  * the surrounding whitespace — re-joining split tokens would collapse the double
- * space a single-digit day is padded with, and a stamp normalised on one read and
+ * space a single-digit day is padded with, and a stamp normalized on one read and
  * not on the other compares unequal and reports every descendant as reissued.
  *
  * A line whose first two fields are not integers is a header or a warning and

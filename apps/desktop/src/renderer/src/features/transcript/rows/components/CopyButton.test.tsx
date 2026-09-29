@@ -7,29 +7,26 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createStubBridge } from "@shared/preload-api.js";
 import { TRANSIENT_STATUS_DURATION_MS } from "@renderer/lib/transient-status.js";
 import { createLiveBridge } from "@renderer/services/platform/live-bridge.js";
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { FIXTURE_APP_META } from "@renderer/services/platform/platform-bridge.fixture.js";
-import { DesktopBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
+import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import { CopyButton } from "./CopyButton.js";
 
 const MESSAGE_TEXT = "Rename `readFrozenRecord` and keep its callers.\n\nTwo files.";
 
-function bridgeCopyingWith(copyToClipboard: (text: string) => Promise<void>): ConsoleBridge {
+function bridgeCopyingWith(copyToClipboard: (text: string) => Promise<void>): PlatformBridge {
   const bridge = createLiveBridge(createStubBridge({ ...FIXTURE_APP_META }));
   return {
     ...bridge,
-    desktopBridge: {
-      ...bridge.desktopBridge,
-      native: { ...bridge.desktopBridge.native, copyToClipboard },
-    },
+    native: { ...bridge.native, copyToClipboard },
   };
 }
 
-async function pressCopy(bridge: ConsoleBridge): Promise<void> {
+async function pressCopy(bridge: PlatformBridge): Promise<void> {
   render(
-    <DesktopBridgeProvider bridge={bridge}>
+    <PlatformBridgeProvider bridge={bridge}>
       <CopyButton text={MESSAGE_TEXT} />
-    </DesktopBridgeProvider>,
+    </PlatformBridgeProvider>,
   );
   await act(async () => {
     fireEvent.click(screen.getByRole("button", { name: "Copy" }));

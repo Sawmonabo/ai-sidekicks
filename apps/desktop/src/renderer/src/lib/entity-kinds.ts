@@ -12,7 +12,7 @@
  * `emptyPartitions` returning an object with a hole in it, and every read of that
  * partition is `undefined` at a type that says it cannot be.
  */
-export const CONSOLE_ENTITY_KINDS = [
+export const ENTITY_KINDS = [
   "session",
   "user",
   "run",
@@ -51,10 +51,10 @@ export const CONSOLE_ENTITY_KINDS = [
 ] as const;
 
 /** One entity kind. Derived from the enumeration, never restated. */
-export type ConsoleEntityKind = (typeof CONSOLE_ENTITY_KINDS)[number];
+export type EntityKind = (typeof ENTITY_KINDS)[number];
 
 /** A reference to one entity: its kind and its wire-verbatim identifier. */
-export interface ConsoleEntityRef {
-  readonly kind: ConsoleEntityKind;
+export interface EntityRef {
+  readonly kind: EntityKind;
   readonly id: string;
 }

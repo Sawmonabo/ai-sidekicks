@@ -8,7 +8,7 @@
 // and the mount returned onto the reserved region. Whether a tier then saw the body came
 // down to how many turns a dynamic import happened to take — axe audits the reserved
 // region and a capture photographs it, and both are stable, green, and pictures of the
-// wrong thing. `ConsoleRoot.test-support.tsx` records the identical finding on the
+// wrong thing. `mount-app.tsx` records the identical finding on the
 // surface board; this is the mount every browser tier shares.
 //
 // IT BELONGS TO THE BROWSER TIER BECAUSE THE HARNESS DOES. `app-harness.ts` imports
@@ -25,10 +25,10 @@ import { afterEach, describe, expect, it } from "vitest";
 import { renderSettled } from "../helpers/app-harness.js";
 
 import { crossMacrotaskBoundary } from "../helpers/macrotask-boundary.js";
-import { consolePaneRegistry } from "@renderer/console/seats/index.js";
+import { paneRegistry } from "@renderer/console/seats/index.js";
 import { deferredBodyModule, syntheticPaneContextAt } from "../helpers/lazy-body-contexts.js";
-import { pendingPaneKindsIn } from "@renderer/components/LazyBody/pending-body-marker.js";
-import { type ConsolePaneContext } from "@renderer/registries/panes/pane-context.js";
+import { listPendingBodyNames } from "@renderer/components/LazyBody/pending-body-marker.js";
+import { type PaneContext } from "@renderer/registries/panes/pane-context.js";
 import { type PaneKind } from "@renderer/routing/panes/pane-kinds.js";
 
 /** The kind this case borrows. Nothing else in this file's graph registers one. */
@@ -53,14 +53,14 @@ const MOUNT_SETTLE_TURNS = 6;
 afterEach(() => {
   // The board is process-wide, so the registration has to be given back — a second case
   // in this tier would otherwise inherit a settled loader and prove nothing.
-  consolePaneRegistry.unregister(SYNTHETIC_KIND);
+  paneRegistry.unregister(SYNTHETIC_KIND);
   document.body.replaceChildren();
 });
 
 describe("the shared browser mount", () => {
   it("settles a body whose load a warm had already started", async () => {
-    const deferred = deferredBodyModule<ConsolePaneContext>();
-    consolePaneRegistry.register({
+    const deferred = deferredBodyModule<PaneContext>();
+    paneRegistry.register({
       kind: SYNTHETIC_KIND,
       owner: SYNTHETIC_OWNER,
       body: deferred.load,
@@ -69,15 +69,15 @@ describe("the shared browser mount", () => {
     // THE WARM, WHICH IS WHAT EVERY REAL PATH DOES BEFORE A MOUNT. One `preload` — the
     // same call the idle walk, the palette's highlighted entry and an opening address all
     // make — starts the load and leaves the promise in flight.
-    void consolePaneRegistry.preload(SYNTHETIC_KIND);
+    void paneRegistry.preload(SYNTHETIC_KIND);
 
     // THE OLD WALK'S OWN PREDICATE, PLANTED RATHER THAN DESCRIBED: with the module still
     // in flight the board already counts this kind as asked-for, so a walk over
     // `unloadedKeys()` has nothing to await and returns at once.
-    const unloadedKeysWhileInFlight: readonly PaneKind[] = consolePaneRegistry.unloadedKeys();
+    const unloadedKeysWhileInFlight: readonly PaneKind[] = paneRegistry.unloadedKeys();
     expect(unloadedKeysWhileInFlight).not.toContain(SYNTHETIC_KIND);
 
-    const body = consolePaneRegistry
+    const body = paneRegistry
       .descriptorFor(SYNTHETIC_KIND)
       ?.render(syntheticPaneContextAt(SYNTHETIC_KIND));
     let mountReturned = false;
@@ -100,6 +100,6 @@ describe("the shared browser mount", () => {
     deferred.arrive(() => LOADED_BODY_TEXT);
     const { container } = await mounting;
     expect(container.textContent).toContain(LOADED_BODY_TEXT);
-    expect(pendingPaneKindsIn(container)).toStrictEqual([]);
+    expect(listPendingBodyNames(container)).toStrictEqual([]);
   });
 });

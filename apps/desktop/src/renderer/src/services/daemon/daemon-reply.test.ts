@@ -13,7 +13,7 @@
 // says no shape a rejection arrives in leaves the door as an exception. The two
 // roles both suites play live in `daemon-reply.test-support.ts`.
 
-import { isConsoleRefusal } from "@renderer/lib/refusal.js";
+import { isRefusal } from "@renderer/lib/refusal.js";
 import { callDaemon, DAEMON_REPLY_REFUSAL_ORIGIN } from "./daemon-reply.js";
 import { describeFailingPaths } from "./failing-member-paths.js";
 import { refusalOf, SESSION_ID } from "@test/helpers/daemon-reply-refusal.js";
@@ -91,7 +91,7 @@ describe("callDaemon — a reply the contract does not admit is a refusal", () =
     expect(refusal.code).toBe("reply-unreadable");
     expect(refusal.origin).toBe(DAEMON_REPLY_REFUSAL_ORIGIN);
     expect(refusal.detail).toContain("presence.read");
-    expect(isConsoleRefusal(refusal)).toBe(true);
+    expect(isRefusal(refusal)).toBe(true);
   });
 
   it("names the failing member path", async () => {
@@ -149,7 +149,7 @@ describe("callDaemon — a request the contract does not admit is never sent", (
   it("what reaches the daemon is the parser's output, not the caller's object", async () => {
     // The parsed request travels. A forwarded reference would let a caller keep
     // mutating an object the console had already declared sendable, and would leave
-    // any member the schema normalises un-normalised on the wire.
+    // any member the schema normalizes un-normalized on the wire.
     const { bridge, calls } = bridgeAnswering(async () => servedPresenceReply(SEEN_AT));
     const request = { sessionId: SESSION_ID };
 

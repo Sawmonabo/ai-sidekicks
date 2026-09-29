@@ -1,9 +1,9 @@
-// How a case drives the settings surface: the window it is parked in, the mount, and a
+// How a case drives the settings screen: the window it is parked in, the mount, and a
 // keystroke into its search field.
 //
-// HOISTED ON THE SECOND SUITE, which is the package's rule. `SettingsSurface.test.tsx`
+// HOISTED ON THE SECOND SUITE, which is the package's rule. `SettingsScreen.test.tsx`
 // holds the four rules the surface is the enforcement of, and
-// `SettingsSurface.page-warm.test.tsx` holds when this board's deferred pages are
+// `SettingsScreen.page-warm.test.ts` holds when this board's deferred pages are
 // fetched — two disjoint claims about one surface, and both need the same window, the
 // same mount, and the same way of typing into the field. Written twice they would drift
 // the first time either grew a member.
@@ -12,24 +12,21 @@ import { act, render } from "@testing-library/react";
 
 import { settle } from "@test/helpers/settle.js";
 import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
-import { FrameStore } from "@renderer/store/window/window-store.js";
+import { WindowStore } from "@renderer/store/window/window-store.js";
 import { SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
 import { SettingsScreen } from "./SettingsScreen.js";
-import { registerSettingsSurface } from "./contributions/screens.js";
+import { registerSettingsScreen } from "./contributions/screens.js";
 import { type SettingsPageRegistry } from "./settings-pages.js";
-import {
-  ConsoleSurfaceRegistry,
-  type ConsoleSurfaceContext,
-} from "@renderer/console/seats/index.js";
+import { ScreenRegistry, type ScreenContext } from "@renderer/console/seats/index.js";
 // The descriptor type by its own specifier: no production module names it, so the
 // seats door publishes no line for it and the barrel census would fail one written
 // for this harness alone.
-import type { ConsoleSurfaceDescriptor } from "@renderer/registries/screens/screen-registry.js";
+import type { ScreenDescriptor } from "@renderer/registries/screens/screen-registry.js";
 
 /**
  * The render a window mounts, taken from the shipped registrar itself.
  *
- * Driven THROUGH `registerSettingsSurface` rather than around it. The page set that
+ * Driven THROUGH `registerSettingsScreen` rather than around it. The page set that
  * function composes is closed over and is not a value a suite may reach for, and
  * composing a second one here would be a copy that agrees with the shipped list until
  * someone adds a page to one of them — so claiming the slot and calling back the render
@@ -37,18 +34,18 @@ import type { ConsoleSurfaceDescriptor } from "@renderer/registries/screens/scre
  * It also makes the slot claim itself a covered fact: a registrar that claimed nothing
  * fails here rather than rendering an empty rail.
  */
-async function loadShippedSurfaceRender(): Promise<ConsoleSurfaceDescriptor["render"]> {
-  const surfaces = new ConsoleSurfaceRegistry();
-  registerSettingsSurface(surfaces);
+async function loadShippedSurfaceRender(): Promise<ScreenDescriptor["render"]> {
+  const screens = new ScreenRegistry();
+  registerSettingsScreen(screens);
   // The chunk, before the mount — which is what a window does too: the idle warm walks
   // this board after the first frame, and the rail's press warms the destination before
   // the route commits. Awaiting the same `preload` here is what makes the cases that
   // follow assertions about the RAIL rather than about how many turns a dynamic import
   // takes.
-  await surfaces.preload("settings");
-  const descriptor = surfaces.descriptorFor("settings");
+  await screens.preload("settings");
+  const descriptor = screens.descriptorFor("settings");
   if (descriptor === undefined) {
-    throw new Error("the settings registrar claimed no surface slot");
+    throw new Error("the settings registrar claimed no screen slot");
   }
   return descriptor.render;
 }
@@ -65,15 +62,15 @@ async function loadShippedSurfaceRender(): Promise<ConsoleSurfaceDescriptor["ren
  * it fails against a document the aborted one left behind — a dozen failures reported as
  * a dozen defects, none of them real, green standalone and red in the suite.
  *
- * So the fetch is memoised in a holder, and a suite that renders the shipped arm awaits
+ * So the fetch is memoized in a holder, and a suite that renders the shipped arm awaits
  * it once in `beforeAll`, where the budget belongs to a hook rather than to an assertion.
  * A class with a private field rather than a module-level `let`, per
  * `apps/desktop/AGENTS.md`.
  */
 class ShippedSurfaceRenderHolder {
-  #fetched: Promise<ConsoleSurfaceDescriptor["render"]> | undefined;
+  #fetched: Promise<ScreenDescriptor["render"]> | undefined;
 
-  public fetch(): Promise<ConsoleSurfaceDescriptor["render"]> {
+  public fetch(): Promise<ScreenDescriptor["render"]> {
     this.#fetched ??= loadShippedSurfaceRender();
     return this.#fetched;
   }
@@ -82,7 +79,7 @@ class ShippedSurfaceRenderHolder {
 const shippedSurfaceRenderHolder = new ShippedSurfaceRenderHolder();
 
 /** The shipped render, fetched on the first ask and handed back on every one after it. */
-export function shippedScreenRender(): Promise<ConsoleSurfaceDescriptor["render"]> {
+export function shippedScreenRender(): Promise<ScreenDescriptor["render"]> {
   return shippedSurfaceRenderHolder.fetch();
 }
 
@@ -99,8 +96,8 @@ export const CHUNK_WARM_TIMEOUT_MS = 120_000;
 
 /** A window parked on a settings address, plus the store that remembers where it has been. */
 export interface SettingsWindow {
-  readonly context: ConsoleSurfaceContext;
-  readonly frameStore: FrameStore;
+  readonly context: ScreenContext;
+  readonly frameStore: WindowStore;
 }
 
 /**
@@ -115,9 +112,9 @@ export function windowAt(
   page: string | undefined,
   openedSessionIds: readonly string[] = [],
 ): SettingsWindow {
-  const frameStore = new FrameStore();
+  const frameStore = new WindowStore();
   for (const sessionId of openedSessionIds) {
-    frameStore.navigate({ kind: "workspace", sessionId });
+    frameStore.navigate({ kind: "session", sessionId });
   }
   frameStore.navigate({ kind: "settings", page });
   return {
@@ -133,7 +130,7 @@ export function windowAt(
       // the one this harness renders.
       sessionStoreRegistry: new SessionStoreRegistry({ read: () => Promise.resolve(undefined) }),
       chooseScheme: () => undefined,
-    } as unknown as ConsoleSurfaceContext,
+    } as unknown as ScreenContext,
   };
 }
 
@@ -155,8 +152,8 @@ export function windowAt(
  * `core/settle.test-support.ts` records: a chain that grows one link deeper stops being
  * waited for, and the case then reports the absence of a rail that was still in flight.
  */
-export async function renderSurface(
-  context: ConsoleSurfaceContext,
+export async function renderSettingsScreen(
+  context: ScreenContext,
   pages?: SettingsPageRegistry,
 ): Promise<ReturnType<typeof render>> {
   const surface =

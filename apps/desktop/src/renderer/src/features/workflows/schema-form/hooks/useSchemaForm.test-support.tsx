@@ -35,7 +35,7 @@ import { act, render } from "@testing-library/react";
 import { answeredScalar, UNANSWERED_SCALAR } from "../answer/schema-draft.js";
 import { settle } from "@test/helpers/settle.js";
 import { useSchemaForm, type SchemaFormState } from "./useSchemaForm.js";
-import { schemaFormAnswerMount } from "../schema-form-mounts.js";
+import { schemaFormAnswerBody } from "../schema-form-mounts.js";
 import { loadSchemaValidatorCompiler } from "../json-schema-validator-loader.js";
 import { type SchemaMemberPath } from "../schema-member-path.js";
 
@@ -82,12 +82,12 @@ export function mountFormUnsettled(inputSchema: unknown): MountedSchemaForm {
  *
  * THE ONE PLACE ANYTHING IN THIS TREE WAITS FOR THAT CHUNK, and it lives here rather than
  * in whichever support was written first: three mounts across two families need it — this
- * hook's, the form host's beside it, and the workflows human-form slot's — and three copies
+ * hook's, the form host's beside it, and the workflows human-form mount point's — and three copies
  * of one await is exactly the shape where two wait and the third races. The test and
  * shared-code rules in `apps/desktop/AGENTS.md` say where the single copy goes: the lowest
  * module that owns the concern, which is the hook's own mount.
  *
- * Awaiting the loader rather than the module map: the loader memoises nothing itself, but
+ * Awaiting the loader rather than the module map: the loader memoizes nothing itself, but
  * the registry behind it does, so a caller arriving after the module has landed awaits a
  * settled promise and costs nothing.
  */
@@ -110,7 +110,7 @@ export async function resolveSchemaValidatorCompiler(): Promise<void> {
  * ~13-21 ms on this tree and failed about one run in three, on a park-card count naming
  * none of it. That is the evidence for warming BOTH, and the reason to keep doing so.
  *
- * THE ANSWER MOUNT AND NOT THE BARE CHUNK, because `LoadedLazyBody` holds a SECOND memo:
+ * THE ANSWER MOUNT AND NOT THE BARE CHUNK, because `LoaderBackedBody` holds a SECOND memo:
  * the settled body it renders directly. Resolving `schemaFormChunk` alone leaves that
  * memo empty, so a warmed mount still commits the reserved region for a frame — the one
  * thing a warm exists to avoid. Its own load awaits `schemaFormChunk.load()`, so a caller
@@ -118,7 +118,7 @@ export async function resolveSchemaValidatorCompiler(): Promise<void> {
  */
 export async function resolveSchemaFormChunks(): Promise<void> {
   await resolveSchemaValidatorCompiler();
-  await schemaFormAnswerMount.load();
+  await schemaFormAnswerBody.load();
 }
 
 /** Mount the hook, let its compiler land, and hand back a live handle on its state. */

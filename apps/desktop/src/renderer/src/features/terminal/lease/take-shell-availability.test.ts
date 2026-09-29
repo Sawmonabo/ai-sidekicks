@@ -14,8 +14,8 @@ import { THIS_DEVICE_ID } from "./lease-model.test-support.js";
 
 const IDENTITY_READ: TerminalDeviceIdentity = { status: "read", userId: THIS_DEVICE_ID };
 
-function resolve(holding: TerminalLeaseHolder, viewerIdentity: TerminalDeviceIdentity) {
-  return resolveTakeShellAvailability({ holding, viewerIdentity });
+function resolve(holding: TerminalLeaseHolder, deviceIdentity: TerminalDeviceIdentity) {
+  return resolveTakeShellAvailability({ holding, deviceIdentity });
 }
 
 describe("the acquisition control is offered on the identity alone", () => {

@@ -14,12 +14,12 @@
 // word this file chose. What survives is the one refusal the daemon ANSWERED with:
 // `run.intervene` settles with a lifecycle state, and a state that declined the
 // message is a refusal nothing rejected. Both leave as `core/refusal.ts`'s one
-// `ConsoleRefusal`, so `primitives/Refusal` renders either without knowing which it
+// `Refusal`, so `primitives/Refusal` renders either without knowing which it
 // got.
 
 import type { InterventionState } from "@ai-sidekicks/contracts";
 
-import { refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
+import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 
 /** The subsystem name every refusal the composer itself raises carries. */
 export const COMPOSER_REFUSAL_ORIGIN = "composer";
@@ -53,15 +53,15 @@ export const COMPOSER_REFUSAL_CODES = [
 export type ComposerRefusalCode = (typeof COMPOSER_REFUSAL_CODES)[number];
 
 /** Mint one composer-side refusal. */
-export function composerRefusal(code: ComposerRefusalCode, detail: string): ConsoleRefusal {
+export function composerRefusal(code: ComposerRefusalCode, detail: string): Refusal {
   return refuse(COMPOSER_REFUSAL_ORIGIN, code, detail);
 }
 
 /** The refusal for an identifier the registered wire schema would not accept. */
-export function unparseableIdentifier(subject: string): ConsoleRefusal {
+export function unparseableIdentifier(subject: string): Refusal {
   return composerRefusal(
     "identifier-unparseable",
-    `The console is holding an identifier for ${subject} that the daemon would not accept. Reopen the session so its identifiers are read again.`,
+    `The console is holding an identifier for ${subject} that the background service would not accept. Reopen the session so its identifiers are read again.`,
   );
 }
 
@@ -79,7 +79,7 @@ export function unparseableIdentifier(subject: string): ConsoleRefusal {
 export function interventionNotApplied(
   state: InterventionState,
   rejectionReason: string | undefined,
-): ConsoleRefusal {
+): Refusal {
   return refuse(
     DAEMON_REFUSAL_ORIGIN,
     rejectionReason ?? state,

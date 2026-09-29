@@ -33,7 +33,7 @@ import { detailRefusal } from "./definition-authoring.js";
  * Read the pasted text and submit what it describes into this session's own scope.
  *
  * THE TARGET IS THE NARROWEST SCOPE AND IS NOT A CHOICE, which is a decision rather
- * than an omission. A file carries no scope — it is bytes that travelled between
+ * than an omission. A file carries no scope — it is bytes that traveled between
  * machines — so somebody has to say where it lands, and the answer that needs no
  * picker and no authorization argument is the session a person is importing into.
  */
@@ -100,7 +100,7 @@ async function submitDefinition(
   runtime: AuthoringRuntime,
   request: WorkflowDefinitionCreateBody,
 ): Promise<void> {
-  const claim = runtime.latch.claim(
+  const claim = runtime.latch.takeShell(
     runtime.createDefinition,
     actKey("import", runtime.workflowDefinitionId),
   );
@@ -110,7 +110,7 @@ async function submitDefinition(
       refusal: detailRefusal(
         "act-in-flight",
         "A definition is already being submitted here. " +
-          "The first one is outstanding against the daemon and cannot be recalled.",
+          "The first one is outstanding against the background service and cannot be recalled.",
       ),
     });
     return;

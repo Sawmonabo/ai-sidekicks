@@ -1,6 +1,6 @@
 // Asking the composer for the caret, from a surface that is not the composer.
 //
-// `seats/composer/composer-seat.ts` is the contract for what the workspace HANDS the composer
+// `registries/composer/composer-registry.ts` is the contract for what the session screen HANDS the composer
 // on every render. This is the other direction, and it needed its own seam: a surface
 // that tells a person "send a message to an agent and its run appears here" is telling
 // them to do something it cannot help them start, and every remedy inside the console
@@ -19,7 +19,7 @@
 // replay: a request is about a person's attention right now, and a caret that jumps
 // into a composer which mounted seconds later would move focus out from under
 // whatever they had started doing instead. The emitter's own no-sink case is exactly
-// that behaviour, so nothing here adds a buffer to defeat it.
+// that behavior, so nothing here adds a buffer to defeat it.
 //
 // IT IS AN EVENT AND NOT A STORE, so nothing re-renders on an ask. Focus is an
 // imperative act on a DOM element, and routing it through rendered state would mean

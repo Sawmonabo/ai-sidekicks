@@ -1,6 +1,6 @@
 // The subjects and the open/close ledger both resource suites are driven with.
 //
-// One home for what `subject-scoped-resource.test.tsx` and
+// One home for what `useSubjectScopedResource.test.tsx` and
 // `subject-scoped-dropped-pass.test.tsx` share. The ledger is the whole instrument in
 // both — a leak and a double close are the two failures these suites exist to see, and
 // they are only visible if opens and closes are counted BY NAME against one record. A

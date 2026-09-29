@@ -1,26 +1,26 @@
-/* The deck: the panes, the separators between them, and the density presets.
+/* The pane layout: the panes, the separators between them, and the density presets.
  *
  * Every color is a Meridian custom property and every space a step on the scale,
- * so the deck follows the scheme attribute with no conditional in JSX.
+ * so the pane layout follows the scheme attribute with no conditional in JSX.
  */
 
-/* --- The deck ----------------------------------------------------------- */
+/* --- The pane layout ----------------------------------------------------------- */
 
 /*
- * The deck is bounded by the region it sits in, and `max-height` is what says so.
+ * The pane layout is bounded by the region it sits in, and `max-height` is what says so.
  *
  * `min-height: 0` lets a flex child shrink; it does not stop one from GROWING. With
- * no ceiling the deck took the height of whatever its panes wanted, so a pane whose
- * body overflowed pushed the deck past the workspace region and the pane's own
+ * no ceiling the pane layout took the height of whatever its panes wanted, so a pane whose
+ * body overflowed pushed the pane layout past the session screen region and the pane's own
  * scroller never engaged — the surface below it laid out in full, off the bottom of
- * the window, and every list inside it mounted every row it held. `.meridian-ledger-surface`
+ * the window, and every list inside it mounted every row it held. `.meridian-session-screen-shell`
  * carries the same ceiling one level up, and its rule states the measurement.
  *
- * A CEILING AND NOT A `height`: the two agree wherever the deck overflows and differ
+ * A CEILING AND NOT A `height`: the two agree wherever the pane layout overflows and differ
  * where it does not, so this bounds the broken case and moves no layout that already
  * fitted.
  */
-.meridian-deck {
+.meridian-pane-layout {
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -32,15 +32,15 @@
  * The panel group itself. `react-resizable-panels` fixes `display`,
  * `flex-direction`, `flex-wrap`, and `overflow` on this element and documents that
  * they cannot be overridden, so nothing here tries: the group is the row, and the
- * deck's own frame above carries anything that would have fought it.
+ * pane layout's own frame above carries anything that would have fought it.
  */
-.meridian-deck__group {
+.meridian-pane-layout__group {
   flex: 1 1 auto;
   min-width: 0;
   min-height: 0;
 }
 
-.meridian-deck__refusals {
+.meridian-pane-layout__refusals {
   display: flex;
   flex-direction: column;
   gap: var(--meridian-space-1);
@@ -52,7 +52,7 @@
  * the density floor rides its `minSize` — so what is left here is the pane's own
  * chrome and the marks a person reads off it.
  */
-.meridian-deck__pane {
+.meridian-pane-layout__pane {
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -63,10 +63,10 @@
 
 /*
  * The focused pane is marked on its own edge rather than by dimming its
- * neighbours: a deck where the unfocused panes fade reads as a deck where they
+ * neighbors: a pane layout where the unfocused panes fade reads as a pane layout where they
  * have stopped working.
  */
-.meridian-deck__pane--focused {
+.meridian-pane-layout__pane--focused {
   border-inline-start-color: var(--meridian-accent);
 }
 
@@ -77,8 +77,8 @@
  * as a pseudo-element so it costs no node and no React render — the class changes,
  * and the class is set only when the target or the edge actually changes.
  */
-.meridian-deck__pane--drop-before::after,
-.meridian-deck__pane--drop-after::after {
+.meridian-pane-layout__pane--drop-before::after,
+.meridian-pane-layout__pane--drop-after::after {
   content: "";
   position: absolute;
   inset-block: 0;
@@ -87,11 +87,11 @@
   pointer-events: none;
 }
 
-.meridian-deck__pane--drop-before::after {
+.meridian-pane-layout__pane--drop-before::after {
   inset-inline-start: 0;
 }
 
-.meridian-deck__pane--drop-after::after {
+.meridian-pane-layout__pane--drop-after::after {
   inset-inline-end: 0;
 }
 
@@ -101,7 +101,7 @@
  * paint. It is drawn as a hairline and hit as a bar — the width is the target and
  * the gradient is the line.
  */
-.meridian-deck__separator {
+.meridian-pane-layout__separator {
   width: var(--meridian-space-2);
   border: 0;
   background: linear-gradient(
@@ -113,8 +113,8 @@
   cursor: col-resize;
 }
 
-.meridian-deck__separator:hover,
-.meridian-deck__separator:focus-visible {
+.meridian-pane-layout__separator:hover,
+.meridian-pane-layout__separator:focus-visible {
   background: linear-gradient(
     to right,
     transparent 30%,
@@ -123,7 +123,7 @@
   );
 }
 
-.meridian-deck__separator:focus-visible {
+.meridian-pane-layout__separator:focus-visible {
   outline: 2px solid var(--meridian-focus-ring);
   outline-offset: -2px;
 }
@@ -133,22 +133,22 @@
 /*
  * The preset decides a minimum WIDTH, which the pane carries inline because the
  * number comes from `model/density.ts`. What lives here is the rhythm that goes with it:
- * a tighter deck sets its chrome tighter, so the extra pane a person bought is
+ * a tighter pane layout sets its chrome tighter, so the extra pane a person bought is
  * spent on content rather than on padding.
  *
- * SET AS CUSTOM PROPERTIES ON THE DECK, AND NEVER AS RULES ON THE PANE'S OWN CLASSES.
+ * SET AS CUSTOM PROPERTIES ON THE PANE LAYOUT, AND NEVER AS RULES ON THE PANE'S OWN CLASSES.
  * `meridian-pane__head` is the seats family's, and a second family writing a rule
  * against it makes the head's padding a question the CASCADE answers — whichever of
  * the two sheets the bundler emits last wins, and that order is a property of the
- * import graph rather than of either file. The deck states its rhythm as VALUES and
+ * import graph rather than of either file. The pane layout states its rhythm as VALUES and
  * `seats/pane-chrome.css` spends them, so one family declares the class and one
  * family decides the number, with nothing to order.
  */
-.meridian-deck[data-density="comfortable"] {
+.meridian-pane-layout[data-density="comfortable"] {
   --meridian-pane-head-padding-block: var(--meridian-space-3);
 }
 
-.meridian-deck[data-density="compact"] {
+.meridian-pane-layout[data-density="compact"] {
   --meridian-pane-head-padding-block: var(--meridian-space-1);
   --meridian-pane-head-font-size: var(--meridian-text-xs);
 }

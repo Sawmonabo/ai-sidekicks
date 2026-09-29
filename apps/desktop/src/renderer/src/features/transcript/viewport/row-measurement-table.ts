@@ -1,6 +1,6 @@
 // The residuals the virtualizer does not cover.
 //
-// `@tanstack/react-virtual` is adopted for the timeline's virtualization under our own
+// `@tanstack/react-virtual` is adopted for the transcript's virtualization under our own
 // scroll controller, and the adoption owes a named set of acceptance tests: documented
 // total-size cost, no hit-test per scroll event while following, epsilon compare on
 // measurements, a bounded prior ceiling, display settings in the prior validity key, and
@@ -9,7 +9,7 @@
 // The library answers two of those on its own — the total size is a memoized prefix
 // walk over its own measurements, and our `observeElementOffset` hands it an offset
 // the scroll chokepoint already sampled, so no scroll event costs a hit test. The
-// other four are ours, because the library's own behaviour is the opposite of what
+// other four are ours, because the library's own behavior is the opposite of what
 // this ledger needs:
 //
 //   • **Epsilon.** `virtual-core`'s `resizeItem` acts on `delta !== 0`, an exact
@@ -29,7 +29,7 @@
 //     distinct virtual key per row keeps every row in the window and counts the
 //     defect, which is degrading rather than discarding.
 
-import { LEDGER_WINDOW_ROW_CAP } from "../frame/frame-caps.js";
+import { TRANSCRIPT_WINDOW_ROW_CAP } from "../frame/frame-caps.js";
 import {
   TRANSCRIPT_GEOMETRY_EPSILON_PX,
   TRANSCRIPT_ROW_HEIGHT_ESTIMATE_PX,
@@ -82,7 +82,7 @@ export class RowMeasurementTable {
 
   public constructor(options: RowMeasurementTableOptions = {}) {
     this.#estimatedRowHeightPx = options.estimatedRowHeightPx ?? TRANSCRIPT_ROW_HEIGHT_ESTIMATE_PX;
-    this.#measurementCap = options.measurementCap ?? LEDGER_WINDOW_ROW_CAP;
+    this.#measurementCap = options.measurementCap ?? TRANSCRIPT_WINDOW_ROW_CAP;
   }
 
   /**

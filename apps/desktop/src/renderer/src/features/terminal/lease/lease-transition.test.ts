@@ -74,7 +74,7 @@ describe("reading one transition — the holder is the wire's, and both halves a
 
   it("refuses a `taken` that names nobody, rather than reading it as the free lease", () => {
     // The expensive direction: a shell the daemon has just handed to someone, offered
-    // as one anybody may claim.
+    // as one anybody may take.
     expect(
       readTerminalLeaseTransition(
         leaseEventWithPayload(READER_EVENT_SEQUENCE, {

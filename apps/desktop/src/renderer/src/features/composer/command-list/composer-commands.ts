@@ -8,7 +8,7 @@
 // the reserved `/` prefix a prefix that reserves nothing, which is the state this
 // module ends.
 //
-// WHERE THE REGISTRY COMES FROM. `consoleCommands` is the window-scoped registry in
+// WHERE THE REGISTRY COMES FROM. `commandRegistry` is the window-scoped registry in
 // `registries/commands/`, the one the palette reads. A second registry here would give a
 // person's `/frame.goToSettings` a list the palette has never heard of.
 //
@@ -16,26 +16,17 @@
 // a `when` clause over `CONSOLE_WHEN_CLAUSE_KEYS`, and a clause naming a key the
 // context does not carry evaluates FALSE. So a composer that hand-wrote five of six
 // keys would silently hide whichever command used the sixth. The context below is
-// typed as `ConsoleWhenClauseContext`, which is derived from that tuple — a key added
+// typed as `WindowWhenClauseContext`, which is derived from that tuple — a key added
 // to the frame's vocabulary is a compile error here rather than a command that
 // quietly stops being offered.
 
 import {
-  consoleCommands,
-  type ConsoleWhenClauseContext,
+  commandRegistry,
+  type WindowWhenClauseContext,
 } from "@renderer/registries/commands/window-command-registry.js";
-import { type CommandRegistry } from "@renderer/registries/commands/command-registry.js";
-import { type ConsoleCommand } from "@renderer/registries/commands/command-types.js";
-import type { ConsoleRoute } from "@renderer/routing/routes.js";
-
-/**
- * What the registry answers when a caller asks it to run something.
- *
- * Derived from the registry's own method rather than restated: the three arms are
- * the registry's closed vocabulary, and a fourth added there would reach every
- * consumer of this type as a compile error instead of an unhandled arm.
- */
-export type ConsoleCommandInvocationOutcome = ReturnType<CommandRegistry["invoke"]>;
+import { type CommandInvocationOutcome } from "@renderer/registries/commands/command-registry.js";
+import { type CommandDefinition } from "@renderer/registries/commands/command-types.js";
+import type { AppRoute } from "@renderer/routing/routes.js";
 
 /**
  * The narrow face of the console's command list the composer reads and acts through.
@@ -44,7 +35,7 @@ export type ConsoleCommandInvocationOutcome = ReturnType<CommandRegistry["invoke
  * where this composer is, which is what the discovery popover may LIST — offering a
  * command that does not apply here would be an invitation to a refusal.
  * `registeredCommandIds` is every id this window holds, visible or not, and it is
- * what a typed name is RECOGNISED against: a person who types the exact id of a
+ * what a typed name is RECOGNIZED against: a person who types the exact id of a
  * command that exists but does not apply here has not typed an unknown name, and
  * telling them so would send them looking for a spelling mistake they did not make.
  * Visibility still decides whether it RUNS — `invoke` is fail-closed on it — so the
@@ -52,27 +43,27 @@ export type ConsoleCommandInvocationOutcome = ReturnType<CommandRegistry["invoke
  */
 export interface ComposerCommands {
   /** Every command offered where this composer is, ordered by group then title. */
-  readonly offeredCommands: readonly ConsoleCommand[];
+  readonly offeredCommands: readonly CommandDefinition[];
   /** Every command this window has registered, in registration order, visible or not. */
   readonly registeredCommandIds: readonly string[];
   /** Run one by id, fail-closed on visibility. Never awaits the command itself. */
-  invoke(commandId: string): ConsoleCommandInvocationOutcome;
+  invoke(commandId: string): CommandInvocationOutcome;
 }
 
 /**
  * Read the console's commands as this composer's route sees them.
  *
- * Built per call rather than memoised at module scope: the registry is mutated by
+ * Built per call rather than memoized at module scope: the registry is mutated by
  * the frame's own registration effect, which runs AFTER a child mounts, so a list
  * captured once at mount would be the empty registry forever. Every caller reads it
  * at the moment a person asks — which is when the answer has to be current anyway.
  */
-export function readComposerCommands(route: ConsoleRoute): ComposerCommands {
+export function readComposerCommands(route: AppRoute): ComposerCommands {
   const whenContext = composerWhenContext(route);
   return {
-    offeredCommands: consoleCommands.commandsFor(whenContext),
-    registeredCommandIds: consoleCommands.all().map((command) => command.id),
-    invoke: (commandId: string) => consoleCommands.invoke(commandId, whenContext),
+    offeredCommands: commandRegistry.commandsFor(whenContext),
+    registeredCommandIds: commandRegistry.all().map((command) => command.id),
+    invoke: (commandId: string) => commandRegistry.invoke(commandId, whenContext),
   };
 }
 
@@ -86,14 +77,14 @@ export function readComposerCommands(route: ConsoleRoute): ComposerCommands {
  * neither can be true where the other is false.
  *
  * The three rail destinations are `false` for the same structural reason — the
- * composer is mounted under the workspace deck and does not render on the sessions
+ * composer is mounted on the session screen, under the pane layout, and does not render on the sessions
  * list, the workflows builder, or the settings pages.
  */
-function composerWhenContext(route: ConsoleRoute): ConsoleWhenClauseContext {
+function composerWhenContext(route: AppRoute): WindowWhenClauseContext {
   return {
     sessionActive: true,
     onSessions: false,
-    onWorkspace: route.kind === "workspace",
+    onSession: route.kind === "session",
     onWorkflows: false,
     onSettings: false,
   };

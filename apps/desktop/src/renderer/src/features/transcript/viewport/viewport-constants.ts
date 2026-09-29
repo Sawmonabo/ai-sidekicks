@@ -1,26 +1,23 @@
-// The ledger frame's named figures that are not ceilings.
+// The transcript frame's named figures that are not ceilings.
 //
-// THE CEILINGS ARE NOT HERE. `core/constants/` is the one DIRECTORY a bound may be
-// DECLARED in, so the window
-// cap, the element ceiling, the reveal engine's frame budget and its two walk caps,
-// and the parked-lease cap are declared there and read through the core door. What
-// stays is the estimate, the tolerance, the epsilon, the overscan, the witness count,
-// the catch-up multiplier, and the gate's tail window — measurements and factors
-// rather than bounds anything is checked against.
+// THE CEILINGS ARE NOT HERE. The window cap, the element ceiling, the reveal engine's
+// frame budget and its two walk caps, and the parked-lease cap are declared in
+// `../frame/frame-caps.ts`, beside the rest of the frame's bounds. What stays is the
+// estimate, the tolerance, the epsilon, the overscan, the witness count, the catch-up
+// multiplier, and the gate's tail window — measurements and factors rather than bounds
+// anything is checked against.
 //
 // Being light on the machine means every cap, window, and timeout is a named constant
 // with a one-line rationale. That rule is about the NAME and the rationale rather than
-// the file, which is why
-// the ceilings can move to the home and still satisfy it — each went with the
-// paragraph it was written with.
+// the file, which is why the ceilings can live in the caps file and still satisfy it —
+// each went with the paragraph it was written with.
 //
 // A number that appears inline in this subtree and is not a layout literal is a
 // review rejection: the rationale is the point, not the constant.
 //
-// `../cards/card-bounds.ts` is the ledger's only other file of this kind — the two of
-// them are the whole family — and it sits on the same split: every value here has a
-// spender inside `ledger/frame/`, and every value there has one inside
-// `ledger/cards/`.
+// `../rows/markdown/parse/segmentation-bounds.ts` is the transcript's only other file of
+// this kind, and it sits on the same split: every value here has a spender in
+// `reveal/`, `viewport/` or `scroll/`, and every value there has one in `rows/markdown/`.
 
 /**
  * Rows rendered beyond each edge of the viewport.
@@ -29,12 +26,12 @@
  * push into view, so a fast scroll meets measured rows rather than a blank band,
  * and small enough that the rendered set stays a fraction of the window cap.
  */
-export const LEDGER_OVERSCAN_ROWS = 6;
+export const TRANSCRIPT_OVERSCAN_ROWS = 6;
 
 /**
  * The height a row is assumed to have before it has been measured, in pixels.
  *
- * A ledger line with a gutter, a kind label, and two lines of body measures near
+ * A transcript line with a gutter, a kind label, and two lines of body measures near
  * this; the estimate only has to be close enough that the first paint's scrollbar
  * is not visibly wrong, because every mounted row replaces it with a measurement.
  */
@@ -45,7 +42,7 @@ export const TRANSCRIPT_ROW_HEIGHT_ESTIMATE_PX = 96;
  *
  * Sub-pixel scroll positions and a fractional row height mean an exact equality
  * test flickers between following and reading on every frame of a stream. One
- * ledger line's leading is the smallest band that cannot be crossed by rounding.
+ * transcript line's leading is the smallest band that cannot be crossed by rounding.
  */
 export const TRANSCRIPT_TAIL_TOLERANCE_PX = 24;
 
@@ -87,14 +84,14 @@ export const REVEAL_CATCH_UP_MULTIPLIER = 3;
 export const REVEAL_GATE_TAIL_CHARACTERS = 64;
 
 /**
- * How long the ledger must have been still for the next activity to trim first, in
+ * How long the transcript must have been still for the next activity to trim first, in
  * milliseconds.
  *
  * MEASURED, NEVER ARMED. `viewport/cycle/idle-trim.ts` runs its pass on the first activity
  * after a gap this wide rather than on a timer, because no timer is allowed on the
  * console's steady state and `TranscriptViewport.test.tsx` holds this frame to it. So this
  * is a threshold a
- * subtraction is compared against, and a ledger nobody is touching arms nothing.
+ * subtraction is compared against, and a transcript nobody is touching arms nothing.
  *
  * Two minutes because it has to be longer than every pause inside ordinary reading —
  * a person scrolling back, reading a long tool result, switching to another window to

@@ -37,8 +37,8 @@ describe("reading a wire-supplied value as a record", () => {
   });
 
   it("refuses a function, which is a property container and is not a body", () => {
-    // Deliberately different from `isConsoleRefusal`, which admits a null-prototype
-    // FUNCTION carrying its three members: that guard is recognising a value some
+    // Deliberately different from `isRefusal`, which admits a null-prototype
+    // FUNCTION carrying its three members: that guard is recognizing a value some
     // producer threw, and this one is deciding whether an untyped payload is a body.
     // No wire delivers a function, so one arriving here is a fault rather than a row.
     expect(isWireRecord(() => "run-1")).toBe(false);

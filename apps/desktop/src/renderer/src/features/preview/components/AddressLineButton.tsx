@@ -19,7 +19,7 @@ const CONTROL_GLYPH_SIZE = 13;
  * closed glyph family carries no directional arrow and no reload mark, and inventing
  * one at a call site is what `tokens/glyphs.ts` exists to prevent.
  *
- * It wears the family's own `meridian-browser-action` rather than a chrome-only button
+ * It wears the family's own `meridian-preview-action` rather than a chrome-only button
  * style, so the family keeps one button shape.
  */
 export function AddressLineButton(props: {
@@ -32,7 +32,7 @@ export function AddressLineButton(props: {
   return (
     <button
       type="button"
-      className="meridian-browser-action"
+      className="meridian-preview-action"
       disabled={props.disabled === true}
       onClick={props.onActivate}
     >

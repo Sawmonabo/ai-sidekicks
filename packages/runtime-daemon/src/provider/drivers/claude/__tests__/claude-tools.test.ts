@@ -153,7 +153,7 @@ describe("Claude tool catalog", () => {
   it("floors every effectful tool, including the plausible-but-unproven ones", () => {
     for (const name of ["Bash", "Write", "Edit", "WebFetch", "WebSearch", "TodoWrite", "Task"]) {
       const entry = CLAUDE_TOOL_CATALOG.find((tool) => tool.name === name);
-      expect(entry, `${name} must be catalogued`).toBeDefined();
+      expect(entry, `${name} must be cataloged`).toBeDefined();
       expect(entry?.idempotency_class, `${name} must floor`).toBe("manual_reconcile_only");
     }
   });

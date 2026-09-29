@@ -719,7 +719,7 @@ export class NodePtyHost implements PtyHost {
     }
     // Cancel any in-flight escalation timer before disposing. This MUST
     // run regardless of platform: a pending SIGTERM-armed escalation
-    // timer cancelled here prevents a stale `taskkill` from firing 2 s
+    // timer canceled here prevents a stale `taskkill` from firing 2 s
     // later (close-during-SIGTERM race).
     this.clearPendingEscalation(record);
     // Subscriptions disposed BEFORE the kill dispatch so any node-pty

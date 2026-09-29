@@ -1,13 +1,10 @@
 // The workflows feature's screen, the rail's workflows destination.
 
-import {
-  type ConsoleSurfaceRegistration,
-  type ConsoleSurfaceRegistry,
-} from "@renderer/console/seats/index.js";
+import { type ScreenRegistration, type ScreenRegistry } from "@renderer/console/seats/index.js";
 import { WORKFLOWS_OWNER } from "./panes.js";
 
-/** The surface slot this family claims: the rail's workflows destination. */
-const WORKFLOW_SURFACES: readonly ConsoleSurfaceRegistration[] = [
+/** The screen slot this family claims: the rail's workflows destination. */
+const WORKFLOW_SCREENS: readonly ScreenRegistration[] = [
   {
     slot: "workflows",
     owner: WORKFLOWS_OWNER,
@@ -18,15 +15,15 @@ const WORKFLOW_SURFACES: readonly ConsoleSurfaceRegistration[] = [
 ];
 
 /**
- * Claim this family's surface slots against a registry.
+ * Claim this family's screen slots against a registry.
  *
  * Takes the registry rather than the module-scope singleton, for
  * `registerWorkflowPanes`' reason: a test composes the same surfaces into a registry
  * it owns, and an auxiliary window composes a different subset without a second code
  * path.
  */
-export function registerWorkflowSurfaces(registry: ConsoleSurfaceRegistry): void {
-  for (const descriptor of WORKFLOW_SURFACES) {
+export function registerWorkflowScreens(registry: ScreenRegistry): void {
+  for (const descriptor of WORKFLOW_SCREENS) {
     registry.register(descriptor);
   }
 }

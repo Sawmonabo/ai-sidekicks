@@ -35,7 +35,7 @@ export interface DraftEntry {
 export interface DraftStoreOptions {
   /**
    * The reading the eviction order uses. A bare callback and NOT the console's
-   * `ConsoleClock` seam, which every other class in this family now takes: taking
+   * `Clock` seam, which every other class in this family now takes: taking
    * the seam would mean importing it, and this module is the one place in the
    * console that must import nothing at all — the drafts tripwire asserts exactly
    * that, because acquiring anything here is the first move of persisting a draft.
@@ -47,7 +47,7 @@ export interface DraftStoreOptions {
    * Ceiling on live drafts. Oldest is evicted past it, so a long session is bounded.
    *
    * Required, and supplied by the caller rather than defaulted here: the bound's
-   * home is `core/constants/persistence-caps.ts` and this module imports nothing at all, so a
+   * home is `store/persistence-caps.ts` and this module imports nothing at all, so a
    * default in this file would be the console's second home for one number.
    *
    * At least one, checked at construction. Zero makes every write evict its own

@@ -18,15 +18,12 @@
 // half it happened to be handed.
 //
 // It reads no wire itself. The `read` performer is supplied by the composition
-// root, which is what keeps this family below `bridge/` in the console's DAG.
+// root, which is what keeps `store/` below `services/` in the import direction.
 
-import { ConsoleRefusalError, refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
+import { RefusalError, refuse, type Refusal } from "@renderer/lib/refusal.js";
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
-import type { ConsoleSessionEvent } from "./entities/entities.js";
+import type { ProjectedSessionEvent } from "./entities/entities.js";
 import { OpenSessionEntry, type OpenSessionEntryOptions } from "./open-session-entry.js";
-// Deep rather than through `read/index.js`, for `open-session-entry.ts`'s reason:
-// that door reaches the trigger surface, which reads the session door, which
-// publishes the hooks that reach this module.
 import type { RefreshReason } from "@renderer/lib/reads/refresh-scheduler.js";
 import type { SessionDegradedCause, SessionStore } from "./session-store.js";
 import type { TimelineResumeDecision } from "./timeline-resume.js";
@@ -75,7 +72,7 @@ export class SessionStoreRegistry {
   readonly #resumeSettlements = new Emitter<string>("session resume settlement");
   // The open set as an array, rebuilt only when the set itself changes.
   //
-  // Load-bearing rather than a micro-optimisation: `useSyncExternalStore` compares
+  // Load-bearing rather than a micro-optimization: `useSyncExternalStore` compares
   // consecutive reads with `Object.is` and re-renders while they differ, so a getter
   // that spread the map on every call would hand React a fresh array every pass and
   // spin forever. Every mutation below is paired with `#forgetOpenSessionIds`, so the
@@ -102,7 +99,7 @@ export class SessionStoreRegistry {
       // The one seam here where a refusal travels as an exception rather than as a
       // value: `open` owes the caller a store and there is none, so there is no
       // return channel for a refusal to ride.
-      throw new ConsoleRefusalError(
+      throw new RefusalError(
         refuse(
           SESSION_REGISTRY_ORIGIN,
           "registry-disposed",
@@ -178,10 +175,7 @@ export class SessionStoreRegistry {
    * delivery for a session a person just closed is ordinary, and a throw would
    * make the bridge's own subscription the thing that breaks.
    */
-  public enqueue(
-    sessionId: string,
-    events: readonly ConsoleSessionEvent[],
-  ): ConsoleRefusal | undefined {
+  public enqueue(sessionId: string, events: readonly ProjectedSessionEvent[]): Refusal | undefined {
     const entry = this.#entriesBySessionId.get(sessionId);
     if (entry === undefined) {
       return this.#sessionNotOpen(sessionId, "apply events to");
@@ -191,7 +185,7 @@ export class SessionStoreRegistry {
   }
 
   /** Drain a session's queue now, without waiting for its coalescing window. */
-  public flush(sessionId: string): ConsoleRefusal | undefined {
+  public flush(sessionId: string): Refusal | undefined {
     const entry = this.#entriesBySessionId.get(sessionId);
     if (entry === undefined) {
       return this.#sessionNotOpen(sessionId, "flush");
@@ -216,7 +210,7 @@ export class SessionStoreRegistry {
    * `enqueue`'s reason: a cause raised for a session somebody just closed is
    * ordinary, and a throw would break the caller that was reporting a wire fault.
    */
-  public markDegraded(sessionId: string, cause: SessionDegradedCause): ConsoleRefusal | undefined {
+  public markDegraded(sessionId: string, cause: SessionDegradedCause): Refusal | undefined {
     const entry = this.#entriesBySessionId.get(sessionId);
     if (entry === undefined) {
       return this.#sessionNotOpen(sessionId, "mark degraded");
@@ -226,7 +220,7 @@ export class SessionStoreRegistry {
   }
 
   /** Ask for a re-read of one session, through its scheduler. Never a direct read. */
-  public requestRefresh(sessionId: string, reason: RefreshReason): ConsoleRefusal | undefined {
+  public requestRefresh(sessionId: string, reason: RefreshReason): Refusal | undefined {
     const entry = this.#entriesBySessionId.get(sessionId);
     if (entry === undefined) {
       return this.#sessionNotOpen(sessionId, "refresh");
@@ -259,7 +253,7 @@ export class SessionStoreRegistry {
    *
    * Not keyed by session, and that is the cheaper shape rather than the lazier one. A
    * subscription taken per session would have to survive that session opening AFTER
-   * the subscriber mounted, which is the ordinary order the workspace mounts in — so
+   * the subscriber mounted, which is the ordinary order the session screen mounts in — so
    * it would need its own registration bookkeeping for a fact the reader answers by
    * asking {@link timelineResumeFor} anyway. A reading woken for another session
    * re-reads its own decision, gets the identical object back, and React's own
@@ -346,7 +340,7 @@ export class SessionStoreRegistry {
     this.#openSessionIdsSnapshot = undefined;
   }
 
-  #sessionNotOpen(sessionId: string, attempted: string): ConsoleRefusal {
+  #sessionNotOpen(sessionId: string, attempted: string): Refusal {
     return refuse(
       SESSION_REGISTRY_ORIGIN,
       "session-not-open",

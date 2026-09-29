@@ -1,4 +1,4 @@
-// The seam, drawn: one line across the ledger, and every part of it wire-sourced.
+// The seam, drawn: one line across the transcript, and every part of it wire-sourced.
 //
 // WHY THIS EXISTS AS ITS OWN ROW RATHER THAN AS A CARD. A seam is not a message and
 // not a receipt — it is a change in the run's condition, and `system-message-classifier.ts` already
@@ -10,18 +10,18 @@
 // continuity, the declared losses and the failed switch's reason were derived on every
 // pass and shown nowhere.
 //
-// WHERE THE BOUNDARY BETWEEN THIS AND THE ROW SEAT SITS. Seams are the LEDGER's
+// WHERE THE BOUNDARY BETWEEN THIS AND THE ROW SEAT SITS. Seams are the TRANSCRIPT's
 // rows, not the seat's. The seat (`transcript-row-renderer.ts`) is filled
 // by whichever renderer owns a session's row BODIES, and a seam has no body: it has
 // a glyph, a label, and a handful of wire members laid on one line. So the feed
 // dispatches a seam row here BEFORE it delegates to the seat, and the seat contract
-// is left exactly as it was — this is a row the ledger draws itself, and widening
+// is left exactly as it was — this is a row the transcript draws itself, and widening
 // the seat to carry it would make every future row owner responsible for a
-// vocabulary that is the ledger's own.
+// vocabulary that is the transcript's own.
 //
 // THE FOUR PARTS ARE RENDER HELPERS AND NOT FOUR COMPONENTS. Each is a stateless,
 // hook-free fragment of ONE line, rendered from one place, and naming four components
-// for four spans of a sentence would put four fibers and four files where the ledger
+// for four spans of a sentence would put four fibers and four files where the transcript
 // has one row. `apps/desktop/AGENTS.md` puts one component in a `.tsx` module and this
 // module has one; what sits beside it is the shape `MessageContent.tsx`'s `renderBodyText`
 // already uses — a plain function returning markup, called rather than mounted.
@@ -33,8 +33,8 @@
 // `continuity` or loss value onto a fallback phrase would silently stop reporting
 // the newest kind of loss.
 
-import { Glyph, LedgerRow, Nothing } from "@renderer/console/primitives/index.js";
-import { type ActorHueAssignment } from "@renderer/styles/agent-hue.js";
+import { Glyph, TranscriptRowLayout, Nothing } from "@renderer/console/primitives/index.js";
+import { type AgentHueAssignment } from "@renderer/styles/agent-hue.js";
 import { SYSTEM_MESSAGE_BINDINGS } from "../system-message-kinds.js";
 import { type SystemMessageReading } from "../system-message-classifier.js";
 
@@ -43,7 +43,7 @@ import "./system-messages.css";
 export interface SystemMessageProps {
   readonly seam: SystemMessageReading;
   /** The actor's allocated hue, or `undefined` on an unattributed seam. */
-  readonly actorHue?: ActorHueAssignment | undefined;
+  readonly actorHue?: AgentHueAssignment | undefined;
   /** Whether a rollback later in the log put this seam behind it. */
   readonly isSuperseded?: boolean | undefined;
 }
@@ -53,7 +53,7 @@ export function SystemMessage(props: SystemMessageProps): React.JSX.Element {
   const { seam } = props;
   const binding = SYSTEM_MESSAGE_BINDINGS[seam.kind];
   return (
-    <LedgerRow
+    <TranscriptRowLayout
       agentHueStep={props.actorHue?.step ?? -1}
       occurredAtIso={seam.timestamp}
       authorLabel={seam.actorId ?? "Session"}
@@ -74,7 +74,7 @@ export function SystemMessage(props: SystemMessageProps): React.JSX.Element {
         {seamReason(seam)}
       </p>
       {seamWireAbsence(seam)}
-    </LedgerRow>
+    </TranscriptRowLayout>
   );
 }
 

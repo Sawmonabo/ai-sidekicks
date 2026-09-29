@@ -7,7 +7,7 @@
 // one, and declares it once: three of them do, and a fourth copy of these eight members
 // would be a second answer to "what is the smallest scenario the runtime accepts".
 
-import type { ConsoleScenario } from "../../../../../fixtures/scenario.js";
+import type { Scenario } from "../../../../../fixtures/scenario.js";
 
 /** The one instant every stand-in starts at, so two of them are ordered by nothing. */
 const STAND_IN_STARTED_AT_ISO = "2026-01-14T11:20:00.000Z";
@@ -22,7 +22,7 @@ export const FIXTURE_SCENARIO_SESSION_ID = "019b7a10-4c00-7d31-9f02-6b1a5e900001
  * suite that needs one states it by spreading, which is what keeps the thing it varies
  * legible beside seven members it does not.
  */
-export function scenarioNamed(id: string): ConsoleScenario {
+export function scenarioNamed(id: string): Scenario {
   return {
     id,
     label: id,

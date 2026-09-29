@@ -1,4 +1,4 @@
-// The ledger viewport — the virtualized feed, the reading anchor's pill, and the
+// The transcript viewport — the virtualized feed, the reading anchor's pill, and the
 // slot every row body is mounted through.
 //
 // This component RENDERS. Every decision it draws was made in a class:
@@ -6,13 +6,13 @@
 // window, and the window cap together and publishes one snapshot; this file turns
 // that snapshot into elements and does nothing else. No measurement, no
 // subscription, no offset arithmetic lives here — and no BINDING is minted here
-// either: the caller owns the one binding this ledger has and hands it down, so the
+// either: the caller owns the one binding this transcript has and hands it down, so the
 // find walk and the rows on screen are both reading the same virtualizer.
 //
 // THREE THINGS THE MARKUP HAS TO GET RIGHT:
 //
 //   • **One scroll container.** The surface below is the only scrollable box in the
-//     ledger. A second one anywhere inside it would give the chokepoint a rival
+//     transcript. A second one anywhere inside it would give the chokepoint a rival
 //     `scrollTop` it does not own, and the reading anchor is an offset INSIDE this
 //     box.
 //   • **A sizer, and rows placed inside it.** The sizer carries the whole log's
@@ -38,30 +38,30 @@
 // catch-up rate is marked with a class the
 // stylesheet answers in luminance; nothing here animates, and nothing pulses.
 
-import { WindowAbsences } from "@renderer/console/primitives/index.js";
+import { WindowNotices } from "@renderer/console/primitives/index.js";
 import { EmptyTranscript } from "./EmptyTranscript.js";
 import { type TranscriptErrorEntry } from "../transcript-errors.js";
 import { TranscriptErrors } from "./TranscriptErrors.js";
-import { VirtualRow, type TranscriptRowRenderer } from "./VirtualRow.js";
+import { VirtualRow, type ViewportRowRenderer } from "./VirtualRow.js";
 import { JumpToLatest } from "./JumpToLatest.js";
 import { type TranscriptViewportBinding } from "../hooks/useTranscriptViewport.js";
 
-/** What a surface hands the ledger viewport. */
+/** What a surface hands the transcript viewport. */
 export interface TranscriptViewportProps {
   /**
-   * The caller's binding — the one this ledger has.
+   * The caller's binding — the one this transcript has.
    *
    * TAKEN rather than minted. `useTranscriptViewport` builds a controller, a scroll
    * chokepoint, a reading anchor, and a virtualizer, and a viewport that minted its
    * own would give the surrounding surface a SECOND set: the session header's follow seat
    * would report a state nobody is scrolling, and `jumpToRow` would scroll a virtualizer
-   * with no element under it. One binding per ledger is the whole invariant, and
+   * with no element under it. One binding per transcript is the whole invariant, and
    * requiring it as a prop is what makes a second one unrepresentable rather than
    * merely discouraged.
    */
   readonly binding: TranscriptViewportBinding;
   /** STABLE across renders, or the memoized rows below re-render with it. */
-  readonly renderRow: TranscriptRowRenderer;
+  readonly renderRow: ViewportRowRenderer;
   /** Names the feed for a screen reader walking the window. */
   readonly feedLabel: string;
   /**
@@ -87,13 +87,13 @@ export interface TranscriptViewportProps {
 
 const NO_ERROR_ENTRIES: readonly TranscriptErrorEntry[] = [];
 
-/** The scrolling window over one ledger's rows, with its head and tail affordances. */
+/** The scrolling window over one transcript's rows, with its head and tail affordances. */
 export function TranscriptViewport(props: TranscriptViewportProps): React.JSX.Element {
   const { binding } = props;
   const { snapshot } = binding;
 
   return (
-    <div className="meridian-ledger-viewport">
+    <div className="meridian-transcript-viewport">
       <TranscriptErrors entries={props.errorEntries ?? NO_ERROR_ENTRIES} />
       {/*
        * The head act, floating over the top of the surface exactly as the tail
@@ -103,7 +103,7 @@ export function TranscriptViewport(props: TranscriptViewportProps): React.JSX.El
        */}
       {props.earlierHistoryControl}
       <div
-        className="meridian-ledger-viewport__surface"
+        className="meridian-transcript-viewport__surface"
         ref={binding.attachSurface}
         // The feed role is claimed only while there is something to be a feed OF,
         // and the articles it owns are `VirtualRow`'s half of the same claim.
@@ -125,7 +125,7 @@ export function TranscriptViewport(props: TranscriptViewportProps): React.JSX.El
         tabIndex={0}
       >
         <div
-          className="meridian-ledger-viewport__sizer"
+          className="meridian-transcript-viewport__sizer"
           ref={binding.attachSizer}
           role="presentation"
         >
@@ -156,7 +156,7 @@ export function TranscriptViewport(props: TranscriptViewportProps): React.JSX.El
          * Rows that share an identifier are a fact about what this viewport can draw
          * apart, so the notice sits here rather than with the window's own notices.
          */}
-        <WindowAbsences
+        <WindowNotices
           absences={[{ kind: "duplicate-key", count: snapshot.keyProjection.duplicateKeyCount }]}
           subject="entries"
         />

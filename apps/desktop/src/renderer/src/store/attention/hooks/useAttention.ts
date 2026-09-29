@@ -1,6 +1,6 @@
 import { createContext, useContext, type Context } from "react";
 
-import { ConsoleRefusalError, refuse } from "@renderer/lib/refusal.js";
+import { RefusalError, refuse } from "@renderer/lib/refusal.js";
 import type { SessionDirectoryState } from "../../session-directory/session-directory.js";
 import type { AttentionReading } from "../attention-summary.js";
 
@@ -33,12 +33,12 @@ const SESSION_ATTENTION_ORIGIN = "attention-provider";
  * mounted is a wiring defect, and the honest answers a fallback could give are both
  * wrong: an empty reading would render "nothing needs you" over a projection nobody
  * read, and a second read here would be the second answer this binding exists to
- * prevent. It is the rule `useConsoleBridge` already follows one layer down.
+ * prevent. It is the rule `usePlatformBridge` already follows one layer down.
  */
 export function useAttention(): WindowAttention {
   const held = useContext(WindowAttentionContext);
   if (held === undefined) {
-    throw new ConsoleRefusalError(
+    throw new RefusalError(
       refuse(
         SESSION_ATTENTION_ORIGIN,
         "binding-unmounted",

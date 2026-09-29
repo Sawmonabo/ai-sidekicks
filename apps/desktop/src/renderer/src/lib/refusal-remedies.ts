@@ -16,7 +16,7 @@
 // one. `session.not_found` can answer almost anything; `intervention.idempotency_conflict`
 // refuses a composer steer and a runs-pane control alike. Two surfaces writing their
 // own words for one code is how a person learns a remedy on one screen and does not
-// recognise it on the next.
+// recognize it on the next.
 //
 // AND EVERY KEY IS A CODE `error-contracts.md` ACTUALLY REGISTERS, which is checked
 // against that file rather than asserted here: a key the wire never sends answers
@@ -40,7 +40,7 @@ export type RefusalRendering = "inline" | "card" | "banner";
  * one of two variants: the app-wide table's entry, or a feature table's entry with the
  * exclusive cases one code stands for.
  */
-export type RefusalRemedy = AppRefusalRemedy | RefusalRecoveryCopy;
+export type RefusalRemedy = AppRefusalRemedy | CasedRefusalRemedy;
 
 /**
  * The app-wide table's entry: the shape a refusal calls for, its next move, and whether
@@ -52,7 +52,7 @@ export interface AppRefusalRemedy {
    *
    * A surface that has only one rendering ignores it; a surface that can raise a
    * banner reads it and raises one, which is how `session.not_found` reaches the
-   * workspace from a control that was pressed in one pane.
+   * session screen from a control that was pressed in one pane.
    */
   readonly rendering: RefusalRendering;
   /** The operator's next move, in the console's own words. Never a paraphrase. */
@@ -76,7 +76,7 @@ export interface AppRefusalRemedy {
  * move: an empty list says "there is exactly one move" instead of "somebody forgot to
  * write them".
  */
-export interface RefusalRecoveryCopy {
+export interface CasedRefusalRemedy {
   readonly nextMove: string;
   readonly distinctions: readonly string[];
 }
@@ -103,7 +103,7 @@ const REFUSAL_REMEDIES: Readonly<Record<string, AppRefusalRemedy>> = {
   "run.not_found": {
     rendering: "card",
     nextMove:
-      "This run is gone from the daemon. What is shown is the last state the stream reported.",
+      "This run is gone from the background service. What is shown is the last state the stream reported.",
     settled: true,
   },
   // The session itself is gone, so every control in this window is answering about

@@ -78,7 +78,7 @@ export const DIAGNOSTIC_COLLECTION_CEILING_MS: number =
 // measurement started one instant earlier than the bound it was compared
 // against. The cheap readings above sit in that gap, so a collection whose two
 // probes each ran to their cap measured strictly MORE than the budget it was
-// asserted to honour — the bound and its own measurement disagreed by
+// asserted to honor — the bound and its own measurement disagreed by
 // construction. One clock, one constant, set at the call site.
 //
 // The subprocess readings share ONE wall budget (DIAGNOSTIC_BUDGET_MS) rather
@@ -189,7 +189,7 @@ function renderDiagnosticDump(result: SpawnResult): string {
  * silently losing the very evidence the trail exists to provide.
  *
  * One instance PER STREAM. Sharing an instance across stdout and stderr would
- * splice the tail of one stream onto the head of the other and synthesise a
+ * splice the tail of one stream onto the head of the other and synthesize a
  * line neither of them emitted.
  */
 export class ReadinessLineScanner {
@@ -322,7 +322,7 @@ export function diagnoseMissingProbe(result: SpawnResult): string {
       "being shared with another Electron."
     );
   }
-  return "the process exited without emitting the probe line and without a recognised failure marker.";
+  return "the process exited without emitting the probe line and without a recognized failure marker.";
 }
 
 // The single renderer for "no probe line arrived". Both the assertion path and
@@ -330,7 +330,7 @@ export function diagnoseMissingProbe(result: SpawnResult): string {
 // what the real failure would print rather than a re-implementation of it.
 export function renderReadinessFailure(result: SpawnResult): string {
   return (
-    `Desktop shell never became ready: ${diagnoseMissingProbe(result)}\n` +
+    `Desktop main process never became ready: ${diagnoseMissingProbe(result)}\n` +
     `No \`${SMOKE_PROBE_TAG}\` line arrived within ${String(result.spawnBudgetMs)}ms.\n` +
     `Exit code: ${String(result.exitCode)}, signal: ${String(result.signal)}, elapsed: ${String(result.elapsedMs)}ms.\n` +
     renderDiagnosticDump(result)

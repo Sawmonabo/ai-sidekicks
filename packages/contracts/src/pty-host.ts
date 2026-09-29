@@ -9,7 +9,7 @@
 //     `bytes` fields are `Uint8Array` (already decoded); methods take
 //     flat parameters rather than envelopes. Daemon-only (Node context).
 //
-// Two backends implement the contract: a Rust sidecar binary marshalled
+// Two backends implement the contract: a Rust sidecar binary marshaled
 // over Content-Length framing, and an in-process `node-pty` fallback.
 
 import type { PtySignal, SpawnRequest, SpawnResponse } from "./pty-host-protocol.js";

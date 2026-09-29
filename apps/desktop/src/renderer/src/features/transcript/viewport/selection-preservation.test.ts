@@ -2,7 +2,7 @@
 //
 // The migration is simulated the way the block layer performs one: the row's inner
 // HTML is replaced with markup holding the SAME characters, which is exactly what a
-// settled block becoming a memoised static subtree does to the nodes a selection was
+// settled block becoming a memoized static subtree does to the nodes a selection was
 // anchored in.
 
 import { afterEach, describe, expect, it } from "vitest";
@@ -100,7 +100,7 @@ describe("RowSelectionGuard", () => {
     // What a migration does to a selection, stated as the condition rather than as a
     // rendering of it: the nodes the selection is anchored in are off the document.
     // A browser collapses at this point; jsdom keeps reporting the detached range, and
-    // the guard reads the anchor's connectedness rather than either behaviour.
+    // the guard reads the anchor's connectedness rather than either behavior.
     expect(window.getSelection()?.anchorNode?.isConnected).toBe(false);
 
     expect(guard.restoreAfterFlush(guard.generation)).toBe(true);

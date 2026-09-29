@@ -39,7 +39,7 @@ function readingAt(
   return { scrollTop, viewportHeight, contentHeight };
 }
 
-describe("the ledger geometry publisher — the tail", () => {
+describe("the transcript geometry publisher — the tail", () => {
   it("calls the viewport at the tail once it is within the tolerance", () => {
     // MOVED FROM `scroll-chokepoint.test.ts`, where it attached a recording surface and
     // scrolled it to reach the same three numbers. The arithmetic is the publisher's now.
@@ -72,7 +72,7 @@ describe("the ledger geometry publisher — the tail", () => {
   });
 });
 
-describe("the ledger geometry publisher — who is woken", () => {
+describe("the transcript geometry publisher — who is woken", () => {
   it("replays the last sample to a subscriber that arrives after it", () => {
     publisher.publish(readingAt(0), "scroll");
     const received: ScrollGeometry[] = [];

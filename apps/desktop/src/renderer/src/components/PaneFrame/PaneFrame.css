@@ -7,11 +7,11 @@
    pane that is not about anybody answers nothing rather than borrowing a color. */
 
 /* `flex: 1 1 auto` because a pane is a flex CHILD as often as it is a grid one, and the
-   initial `0 1 auto` is only harmless under the grid. The deck is a column flex chain
+   initial `0 1 auto` is only harmless under the grid. The pane layout is a column flex chain
    (`pane-layout.css`), so a pane mounted there never grew into its slot and was
    sized by its content instead — a 200 px section in a 600 px slot, measured — while the
    same sheet under a grid parent stretched correctly and hid it. `flex` is inert on a
-   grid item, so this declaration changes the deck's arrangement and leaves every grid
+   grid item, so this declaration changes the pane layout's arrangement and leaves every grid
    one exactly where it was; `tests/browser/pane-layout-pane-fill.test.tsx` holds both
    halves. A `height: 100%` would fit the same two slots today and break on the first
    slot that is not the full height of its own parent. */
@@ -31,14 +31,14 @@
  * TWO FOCUS TREATMENTS, AND THEY ANSWER DIFFERENT QUESTIONS.
  *
  * `:focus-visible` fires when the SECTION itself holds focus, which happens when the
- * deck routes focus to a pane — the `tabIndex={-1}` reach — and stops the moment focus
+ * pane layout routes focus to a pane — the `tabIndex={-1}` reach — and stops the moment focus
  * moves into a control inside it. That is the ring: a landing mark.
  *
  * `:focus-within` fires while the keyboard is anywhere inside, which is the state a
  * person acts on: "the pane I am typing in". Without it a pane is marked for one
  * keystroke and then reads as unfocused for the whole time it is being used. It is
  * drawn as a border and an inset shadow rather than an outline, because an outline on a
- * rounded container paints outside the radius and clips against the neighbour's edge.
+ * rounded container paints outside the radius and clips against the neighbor's edge.
  *
  * Their fallbacks differ for the same reason their treatments do: a ring falls back to
  * the ring token, a boundary to the neutral control boundary.
@@ -60,10 +60,10 @@
   gap: var(--meridian-space-3);
   align-items: center;
   min-height: 34px;
-  /* The block padding and the type size are the DECK's rhythm, spent here because this
-     family owns the class. Both fall back to the value a pane outside a deck wants — an
+  /* The block padding and the type size are the PANE LAYOUT's rhythm, spent here because this
+     family owns the class. Both fall back to the value a pane outside a pane layout wants — an
      auxiliary window mounts one with no density around it — so the pane is dressed with
-     or without a deck above it. */
+     or without a pane layout above it. */
   padding: var(--meridian-pane-head-padding-block, 0) var(--meridian-space-2)
     var(--meridian-pane-head-padding-block, 0) var(--meridian-space-3);
   font-size: var(--meridian-pane-head-font-size, inherit);

@@ -19,13 +19,13 @@
 import { describe, expect, it } from "vitest";
 
 import { ManualClock } from "@renderer/lib/clock.js";
-import { isConsoleRefusal } from "@renderer/lib/refusal.js";
+import { isRefusal } from "@renderer/lib/refusal.js";
 import { PersistenceAdapterError, type PartitionSummary } from "./persistence-adapter.js";
 import {
   MemoryPersistenceAdapter,
   type MemoryPersistenceAdapterOptions,
 } from "./memory-persistence-adapter.js";
-import { ReadFailureAdapter } from "@test/helpers/read-failure-persistence-adapter.js";
+import { ReadFailurePersistenceAdapter } from "@test/helpers/read-failure-persistence-adapter.js";
 import { UiStateStore } from "./ui-state-store.js";
 import { refusePersistence } from "./persistence-refusals.js";
 
@@ -50,7 +50,7 @@ describe("a store whose trim fails refuses the write rather than rejecting it", 
     // A one-byte ceiling puts the very first write over quota, so the store takes
     // its trim-and-retry arm immediately and the count that arm opens with fails.
     const store = new UiStateStore({
-      adapter: new BookkeepingFailureAdapter("summarise", connectionLost(), { capacityBytes: 1 }),
+      adapter: new BookkeepingFailureAdapter("summarize", connectionLost(), { capacityBytes: 1 }),
       clock: new ManualClock(1_000),
     });
 
@@ -59,7 +59,7 @@ describe("a store whose trim fails refuses the write rather than rejecting it", 
     expect(result.outcome).toBe("refused");
     if (result.outcome === "refused") {
       expect(result.refusal.code).toBe("adapter-unavailable");
-      expect(isConsoleRefusal(result.refusal)).toBe(true);
+      expect(isRefusal(result.refusal)).toBe(true);
     }
     // Counted, so the diagnostics surface shows a store that has begun to fail
     // rather than a write that quietly went nowhere.
@@ -113,8 +113,8 @@ describe("a store whose trim fails refuses the write rather than rejecting it", 
     // filed under a code that names storage.
     const store = new UiStateStore({
       adapter: new BookkeepingFailureAdapter(
-        "summarise",
-        new TypeError("summarisePartitions is not a function"),
+        "summarize",
+        new TypeError("summarizePartitions is not a function"),
         { capacityBytes: 1 },
       ),
       clock: new ManualClock(1_000),
@@ -135,11 +135,11 @@ describe("a store whose trim fails refuses the write rather than rejecting it", 
  * one operation misbehaves.
  */
 class BookkeepingFailureAdapter extends MemoryPersistenceAdapter {
-  readonly #failingOperation: "summarise" | "trim";
+  readonly #failingOperation: "summarize" | "trim";
   readonly #failure: Error;
 
   public constructor(
-    failingOperation: "summarise" | "trim",
+    failingOperation: "summarize" | "trim",
     failure: Error,
     options: MemoryPersistenceAdapterOptions = {},
   ) {
@@ -148,10 +148,10 @@ class BookkeepingFailureAdapter extends MemoryPersistenceAdapter {
     this.#failure = failure;
   }
 
-  public override summarisePartitions(): Promise<readonly PartitionSummary[]> {
-    return this.#failingOperation === "summarise"
+  public override summarizePartitions(): Promise<readonly PartitionSummary[]> {
+    return this.#failingOperation === "summarize"
       ? Promise.reject(this.#failure)
-      : super.summarisePartitions();
+      : super.summarizePartitions();
   }
 
   public override trimPartitions(keepSessionPartitions: number): Promise<number> {
@@ -163,7 +163,7 @@ class BookkeepingFailureAdapter extends MemoryPersistenceAdapter {
 
 describe("a read that failed is not a record that was never written", () => {
   it("answers `failed` where the record is unreachable and `absent` where it is not there", async () => {
-    const adapter = new ReadFailureAdapter();
+    const adapter = new ReadFailurePersistenceAdapter();
     const store = new UiStateStore({ adapter, clock: new ManualClock(1_000) });
     expect((await store.write("session-1", "expansion", "expansion", ["run-01"])).outcome).toBe(
       "written",
@@ -179,7 +179,7 @@ describe("a read that failed is not a record that was never written", () => {
 
   it("counts the failure on the store's health and still never throws", async () => {
     const store = new UiStateStore({
-      adapter: new ReadFailureAdapter(),
+      adapter: new ReadFailurePersistenceAdapter(),
       clock: new ManualClock(1_000),
     });
 
@@ -192,7 +192,7 @@ describe("a read that failed is not a record that was never written", () => {
     // `read` and `readGlobal` are documented as the lossy form and a number of
     // callers take them deliberately. Without this the union could have been added
     // beside a `read` that had quietly started throwing or reporting a record.
-    const adapter = new ReadFailureAdapter();
+    const adapter = new ReadFailurePersistenceAdapter();
     const store = new UiStateStore({ adapter, clock: new ManualClock(1_000) });
     await store.write("session-1", "expansion", "expansion", ["run-01"]);
 

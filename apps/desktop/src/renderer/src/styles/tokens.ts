@@ -21,7 +21,7 @@ import {
   CODE_TOKENS,
   HUE_WHEEL_CHROMA,
   HUE_WHEEL_LIGHTNESS,
-  ACTOR_HUE_STEPS,
+  HUE_WHEEL_STEPS,
   GROUND_TOKENS,
   TEXT_TOKENS,
   computeHueWheelAngle,
@@ -30,15 +30,15 @@ import {
 /**
  * Every console scheme, in the order the gallery and the screenshot tier walk them.
  *
- * The tuple is the declaration and `ConsoleScheme` follows from it, for the reason
+ * The tuple is the declaration and `ColorScheme` follows from it, for the reason
  * `SCHEME_PREFERENCES` states below at one remove: a scheme list and a scheme union
  * written separately agree until one is widened, and every walk in the console
  * iterates the list while every switch checks the union.
  */
-export const CONSOLE_SCHEMES = ["light", "dark"] as const;
+export const COLOR_SCHEMES = ["light", "dark"] as const;
 
 /** The color schemes the console renders in, derived from the tuple above. */
-export type ConsoleScheme = (typeof CONSOLE_SCHEMES)[number];
+export type ColorScheme = (typeof COLOR_SCHEMES)[number];
 
 /**
  * The preference value that names no scheme and defers to the operating system.
@@ -52,11 +52,11 @@ export const SYSTEM_SCHEME_PREFERENCE = "system";
 /**
  * What a person can CHOOSE, as opposed to what the console renders in.
  *
- * The distinction is load-bearing: `ConsoleScheme` is a resolved answer and always
+ * The distinction is load-bearing: `ColorScheme` is a resolved answer and always
  * paints something, while a preference may decline to answer and hand the question
  * to the OS. Nothing renders a `SchemePreference`; the frame resolves it first.
  */
-export type SchemePreference = ConsoleScheme | typeof SYSTEM_SCHEME_PREFERENCE;
+export type SchemePreference = ColorScheme | typeof SYSTEM_SCHEME_PREFERENCE;
 
 /**
  * Every preference value, DERIVED from the scheme list rather than re-listed.
@@ -67,7 +67,7 @@ export type SchemePreference = ConsoleScheme | typeof SYSTEM_SCHEME_PREFERENCE;
  * different list. Deriving it means adding a scheme widens all three at once.
  */
 export const SCHEME_PREFERENCES: readonly SchemePreference[] = [
-  ...CONSOLE_SCHEMES,
+  ...COLOR_SCHEMES,
   SYSTEM_SCHEME_PREFERENCE,
 ];
 
@@ -154,7 +154,7 @@ export const SCHEME_COLOR_TOKENS: readonly (readonly [string, SchemePair])[] = [
 const SCHEME_PAIR_BY_TOKEN_NAME = new Map<string, SchemePair>(SCHEME_COLOR_TOKENS);
 
 /** The token name of a user wheel step. */
-export function actorHueTokenName(step: number): string {
+export function formatHueWheelTokenName(step: number): string {
   return `hue-${String(step).padStart(2, "0")}`;
 }
 
@@ -164,7 +164,7 @@ export function actorHueTokenName(step: number): string {
  * step a user gets.
  */
 export const HUE_WHEEL: readonly OklchColor[] = Array.from(
-  { length: ACTOR_HUE_STEPS },
+  { length: HUE_WHEEL_STEPS },
   (_unused, step) =>
     resolve({
       lightness: HUE_WHEEL_LIGHTNESS,
@@ -177,7 +177,7 @@ export const HUE_WHEEL: readonly OklchColor[] = Array.from(
 export function readHueWheelColor(step: number): OklchColor {
   const color = HUE_WHEEL[step];
   if (color === undefined) {
-    throw new RangeError(`user hue step ${step} is outside the ${ACTOR_HUE_STEPS}-step wheel`);
+    throw new RangeError(`user hue step ${step} is outside the ${HUE_WHEEL_STEPS}-step wheel`);
   }
   return color;
 }
@@ -267,7 +267,7 @@ export const SUNKEN_WELL_GROUND_TOKEN_NAME = "surface-sunken";
 
 /**
  * The foregrounds painted on that well — the code families and the ANSI names that
- * carry a colour of their own.
+ * carry a color of their own.
  *
  * DERIVED from the two palette records rather than listed, so a family added there
  * is measured here on the same commit. That is the whole point of the move: these
@@ -287,7 +287,7 @@ export const TEXT_CONTRAST_FLOOR = 4.5;
 export const NON_TEXT_CONTRAST_FLOOR = 3;
 
 /** Resolve a scheme-varying color token for one scheme. Throws on an unknown name. */
-export function schemeColor(tokenName: string, scheme: ConsoleScheme): OklchColor {
+export function schemeColor(tokenName: string, scheme: ColorScheme): OklchColor {
   const pair = SCHEME_PAIR_BY_TOKEN_NAME.get(tokenName);
   if (pair === undefined) {
     throw new RangeError(`unknown Meridian color token ${tokenName}`);

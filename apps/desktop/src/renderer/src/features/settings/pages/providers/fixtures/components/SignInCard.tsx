@@ -18,7 +18,7 @@ import type { SignInFlowState } from "../sign-in-flow.js";
  *
  * NOTHING HERE IS A VERDICT ABOUT THE ACCOUNT. The daemon runs the provider's own
  * unmodified sign-in binary and reads nothing it writes, so what this card reports is
- * the state of the FLOW: started, live, or cancelled. Whether the account
+ * the state of the FLOW: started, live, or canceled. Whether the account
  * ended up authenticated is a registry question, and the page says so in the same
  * breath rather than implying it.
  *
@@ -40,7 +40,7 @@ export function SignInCard(props: {
       <Nothing
         kind="not-loaded"
         placement="inline"
-        title="Asking the daemon to start the provider’s sign-in."
+        title="Asking the background service to start the provider’s sign-in."
       />
     );
   }
@@ -70,7 +70,7 @@ export function SignInCard(props: {
       <button
         type="button"
         className="meridian-settings-page__action"
-        disabled={flow.kind === "cancelling"}
+        disabled={flow.kind === "canceling"}
         onClick={onCancel}
       >
         Cancel sign-in

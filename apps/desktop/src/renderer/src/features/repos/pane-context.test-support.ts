@@ -1,5 +1,5 @@
-import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
-import type { ConsolePaneAddress, ConsolePaneContext } from "@renderer/console/seats/index.js";
+import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
+import type { PaneAddress, PaneContext } from "@renderer/console/seats/index.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 
 /**
@@ -10,18 +10,18 @@ import { type SessionStore } from "@renderer/store/session/session-store.js";
  * own arm survives into the return. The binding half IS cast: the persistence stack
  * is three constructions no co-located case observes, and a builder that made them
  * anyway would put every pane suite on stores it never reads. A surface tier that
- * DOES mount the real deck composes `paneBinding` instead.
+ * DOES mount the real pane layout composes `paneBinding` instead.
  */
-export function paneContext<TAddress extends ConsolePaneAddress>(reached: {
+export function paneContext<TAddress extends PaneAddress>(reached: {
   readonly address: TAddress;
   readonly paneId: string;
-  readonly bridge?: ConsoleBridge | undefined;
+  readonly bridge?: PlatformBridge | undefined;
   readonly sessionStore?: SessionStore | undefined;
-}): Extract<ConsolePaneContext, TAddress> {
+}): Extract<PaneContext, TAddress> {
   return {
     ...reached.address,
     paneId: reached.paneId,
     bridge: reached.bridge,
     sessionStore: reached.sessionStore,
-  } as unknown as Extract<ConsolePaneContext, TAddress>;
+  } as unknown as Extract<PaneContext, TAddress>;
 }

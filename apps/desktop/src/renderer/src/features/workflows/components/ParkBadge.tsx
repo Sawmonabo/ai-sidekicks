@@ -24,7 +24,7 @@
 // prose, not in mono, on the same reasoning that keeps a daemon's refusal message
 // out of the mono column while its code stays in it.
 //
-// NOTHING HERE ADJUDICATES. Resuming, cancelling, and re-pinning are the daemon's
+// NOTHING HERE ADJUDICATES. Resuming, canceling, and re-pinning are the daemon's
 // decisions; this says what is true, and the surface that offers one of those actions
 // renders the daemon's typed refusal when the daemon declines it.
 //

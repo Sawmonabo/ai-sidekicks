@@ -1,4 +1,4 @@
-// The banners the workspace raises, when the same thing goes wrong twice.
+// The banners the session screen raises, when the same thing goes wrong twice.
 //
 // Every case drives the real surface rather than the fold: what a person sees is a
 // column of banners, and the defects this file exists for are things that column did —
@@ -7,7 +7,7 @@
 // touched, and a refusal raised in one session went on standing over the next.
 //
 // A banner is raised by a refused save, so each case commits an arrangement — cycling
-// deck focus commits one without opening or closing a pane — against a store whose
+// pane layout focus commits one without opening or closing a pane — against a store whose
 // writes have been made to fail.
 
 import { fireEvent, render, waitFor } from "@testing-library/react";
@@ -26,13 +26,13 @@ import {
   saveLayout,
   sessionStore,
   workspaceFor,
-  type WorkspaceSession,
+  type SessionWithStore,
 } from "./SessionScreen.test-support.js";
 
 /**
  * How the store answers a write.
  *
- * `reject` is a write that fails outright, which the workspace words itself; `refuse`
+ * `reject` is a write that fails outright, which the session screen words itself; `refuse`
  * is one the store turns into its own refusal, whose words are the store's. Two modes
  * because a column of two different banners needs two different sentences.
  */
@@ -61,32 +61,32 @@ async function storeWithSavedLayouts(): Promise<{
 }> {
   const adapter = new ScriptedWriteAdapter();
   const store = new UiStateStore({ adapter });
-  await saveLayout(store, SESSION_ID, ["timeline", "runs"]);
-  await saveLayout(store, SESSION_B_ID, ["timeline", "runs"]);
+  await saveLayout(store, SESSION_ID, ["transcript", "runs"]);
+  await saveLayout(store, SESSION_B_ID, ["transcript", "runs"]);
   return { store, adapter };
 }
 
-async function awaitRestoredDeck(container: HTMLElement): Promise<void> {
+async function awaitRestoredPaneLayout(container: HTMLElement): Promise<void> {
   await waitFor(() => {
-    expect(container.querySelectorAll(".meridian-deck__pane")).toHaveLength(2);
+    expect(container.querySelectorAll(".meridian-pane-layout__pane")).toHaveLength(2);
   });
 }
 
 /** Commit one arrangement, and let the write it queues settle. */
 async function commitArrangement(container: HTMLElement): Promise<void> {
-  const deck = container.querySelector(".meridian-deck");
-  expect(deck).not.toBeNull();
-  if (deck !== null) {
-    fireEvent.keyDown(deck, { key: "ArrowRight", altKey: true });
+  const paneLayoutElement = container.querySelector(".meridian-pane-layout");
+  expect(paneLayoutElement).not.toBeNull();
+  if (paneLayoutElement !== null) {
+    fireEvent.keyDown(paneLayoutElement, { key: "ArrowRight", altKey: true });
   }
   await crossMacrotaskBoundary();
   await crossMacrotaskBoundary();
 }
 
 /**
- * One workspace and one store, with the route between two sessions inside that mount.
+ * One session screen and one store, with the route between two sessions inside that mount.
  *
- * UNKEYED, which is the whole shape the second describe is about: the workspace stays
+ * UNKEYED, which is the whole shape the second describe is about: the session screen stays
  * mounted across a navigation between two open sessions, so a value held for the life
  * of the MOUNT survives the route. ONE bridge across both renders, because the fixture
  * mints a new one per call and a replaced transport is a second reason to drop what this
@@ -94,10 +94,10 @@ async function commitArrangement(container: HTMLElement): Promise<void> {
  */
 function renderRoutableSession(store: UiStateStore): {
   readonly container: HTMLElement;
-  readonly routeTo: (session: WorkspaceSession) => void;
+  readonly routeTo: (session: SessionWithStore) => void;
 } {
   const bridge = createFixtureBridge({ scenario: SCENARIO });
-  const first: WorkspaceSession = { sessionId: SESSION_ID, store: sessionStore() };
+  const first: SessionWithStore = { sessionId: SESSION_ID, store: sessionStore() };
   const { container, rerender } = render(workspaceFor(first, store, false, bridge));
   return {
     container,
@@ -108,7 +108,7 @@ function renderRoutableSession(store: UiStateStore): {
 }
 
 function bannerRows(container: HTMLElement): readonly HTMLElement[] {
-  return [...container.querySelectorAll<HTMLElement>(".meridian-workspace__banner")];
+  return [...container.querySelectorAll<HTMLElement>(".meridian-session-screen__banner")];
 }
 
 function rowCarrying(container: HTMLElement, text: string): HTMLElement {
@@ -126,7 +126,7 @@ async function dismiss(row: HTMLElement): Promise<void> {
   await crossMacrotaskBoundary();
 }
 
-describe("Workspace — the banner column", () => {
+describe("SessionScreen — the banner column", () => {
   it("counts a refusal raised three times rather than stacking three of it", async () => {
     // Every commit refuses with the same three fields, so three rows would say one
     // thing three times — three chances to dismiss the wrong one and no more
@@ -135,7 +135,7 @@ describe("Workspace — the banner column", () => {
     const { container } = render(
       workspaceFor({ sessionId: SESSION_ID, store: sessionStore() }, store, false),
     );
-    await awaitRestoredDeck(container);
+    await awaitRestoredPaneLayout(container);
     adapter.mode = "reject";
 
     await commitArrangement(container);
@@ -153,7 +153,7 @@ describe("Workspace — the banner column", () => {
     const { container } = render(
       workspaceFor({ sessionId: SESSION_ID, store: sessionStore() }, store, false),
     );
-    await awaitRestoredDeck(container);
+    await awaitRestoredPaneLayout(container);
     adapter.mode = "reject";
 
     await commitArrangement(container);
@@ -170,7 +170,7 @@ describe("Workspace — the banner column", () => {
     const { container } = render(
       workspaceFor({ sessionId: SESSION_ID, store: sessionStore() }, store, false),
     );
-    await awaitRestoredDeck(container);
+    await awaitRestoredPaneLayout(container);
     adapter.mode = "reject";
     await commitArrangement(container);
     adapter.mode = "refuse";
@@ -187,15 +187,15 @@ describe("Workspace — the banner column", () => {
   });
 });
 
-describe("Workspace — the banner column belongs to the session that raised it", () => {
-  it("stops showing one session's banners once the workspace routes to another", async () => {
-    // The defect: a mount-lifetime list. The workspace is not remounted between two
+describe("SessionScreen — the banner column belongs to the session that raised it", () => {
+  it("stops showing one session's banners once the session screen routes to another", async () => {
+    // The defect: a mount-lifetime list. The session screen is not remounted between two
     // open sessions, so a refusal raised while the first was on screen went on standing
-    // over the second's deck — a sentence about an act nobody performed in the session
+    // over the second's pane layout — a sentence about an act nobody performed in the session
     // they are looking at, with nothing on screen tying it to the one they left.
     const { store, adapter } = await storeWithSavedLayouts();
     const { container, routeTo } = renderRoutableSession(store);
-    await awaitRestoredDeck(container);
+    await awaitRestoredPaneLayout(container);
     adapter.mode = "reject";
     await commitArrangement(container);
     expect(bannerRows(container)).toHaveLength(1);
@@ -212,12 +212,12 @@ describe("Workspace — the banner column belongs to the session that raised it"
     // same triple, so the coalescing rule would count it rather than draw it.
     const { store, adapter } = await storeWithSavedLayouts();
     const { container, routeTo } = renderRoutableSession(store);
-    await awaitRestoredDeck(container);
+    await awaitRestoredPaneLayout(container);
     adapter.mode = "reject";
     await commitArrangement(container);
 
     routeTo(otherSession());
-    await awaitRestoredDeck(container);
+    await awaitRestoredPaneLayout(container);
     await commitArrangement(container);
 
     expect(bannerRows(container)).toHaveLength(1);

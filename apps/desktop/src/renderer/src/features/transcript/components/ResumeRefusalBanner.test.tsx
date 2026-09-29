@@ -1,31 +1,31 @@
-// The refused position reaches a screen, driven through the surface that mounts it.
+// The refused position reaches a screen, driven through the screen that mounts it.
 //
 // THE DEFECT THIS SUITE IS THE CONTROL FOR, IN BOTH DIRECTIONS. `timelineResumeFor`
 // had zero callers outside its own declaration once — the decision was computed on
 // every read, kept on the entry, forwarded by the registry, and rendered by nothing —
-// and the surface that closed that gap then rendered the WRONG arm: it reported a
+// and the screen that closed that gap then rendered the WRONG arm: it reported a
 // version skew on every read from every responder, because the rule it consulted
 // required a cursor member the shipped schema forbids. So this suite drives the
-// REGISTERED workspace surface, and the arm it asserts on is a refusal the daemon
+// REGISTERED session screen, and the arm it asserts on is a refusal the daemon
 // actually raised about a position this console actually sent.
 //
-// EVERYTHING BELOW THE SURFACE IS REAL: a real `SessionStoreRegistry` opening a real
+// EVERYTHING BELOW THE SCREEN IS REAL: a real `SessionStoreRegistry` opening a real
 // entry, whose real scheduler performs real reads, the second of which carries the
-// position the first acknowledged. The only stand-in is the workspace BODY, which is
+// position the first acknowledged. The only stand-in is the session screen BODY, which is
 // the composition root's parameter and is another family's component entirely.
 
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import { DesktopBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
+import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
-import { LEDGER_QUIET_SCENARIO } from "../../../../../../fixtures/scenarios/empty-session.js";
+import { EMPTY_SESSION_SCENARIO } from "../../../../../../fixtures/scenarios/empty-session.js";
 import { ManualClock } from "@renderer/lib/clock.js";
 import { settle as settleReactWork } from "@test/helpers/settle.js";
-import { ConsolePaneRegistry, ConsoleSurfaceRegistry } from "@renderer/console/seats/index.js";
-import type { ConsoleSurfaceContext } from "@renderer/console/seats/index.js";
+import { PaneRegistry, ScreenRegistry } from "@renderer/console/seats/index.js";
+import type { ScreenContext } from "@renderer/console/seats/index.js";
 import { SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
 import { type SessionSnapshot } from "@renderer/store/session/session-state.js";
-import { registerLedger } from "../contributions/screens.js";
+import { registerTranscriptScreens } from "../contributions/screens.js";
 
 const SESSION_ID = "session-resume-degraded";
 
@@ -52,14 +52,14 @@ function snapshotAt(cursor: number, acknowledged?: string): SessionSnapshot {
 }
 
 /**
- * Render the registered `workspace` surface over a registry whose reads follow a
+ * Render the registered `session` screen over a registry whose reads follow a
  * script, and refresh it `refreshes` times.
  *
- * The surface is resolved from a registry composed HERE rather than the process-wide
- * one, on `ledger.test.ts`' reasoning: a case that registered into the singleton would
+ * The screen is resolved from a registry composed HERE rather than the process-wide
+ * one, because a case that registered into the singleton would
  * be asserting over a board production also fills.
  */
-async function renderWorkspaceSurface(input: {
+async function renderSessionScreen(input: {
   readonly reads: readonly (SessionSnapshot | { readonly rejectWith: unknown })[];
   readonly refreshes: number;
 }): Promise<void> {
@@ -81,11 +81,13 @@ async function renderWorkspaceSurface(input: {
     },
   });
   const sessionStore = sessionStoreRegistry.open(SESSION_ID);
-  const surfaces = new ConsoleSurfaceRegistry();
-  registerLedger(surfaces, { workspace: () => <div data-testid="workspace-body" /> });
-  const descriptor = surfaces.descriptorFor("workspace");
+  const screens = new ScreenRegistry();
+  registerTranscriptScreens(screens, {
+    sessionScreen: () => <div data-testid="session-screen-body" />,
+  });
+  const descriptor = screens.descriptorFor("session");
   if (descriptor === undefined) {
-    throw new Error("the ledger family registered no workspace surface");
+    throw new Error("the transcript family registered no session screen");
   }
 
   for (let turn = 0; turn < input.refreshes; turn += 1) {
@@ -94,25 +96,25 @@ async function renderWorkspaceSurface(input: {
     await settleReactWork();
   }
 
-  // Under the provider, because this mounts the WHOLE workspace surface and the
+  // Under the provider, because this mounts the WHOLE session screen and the
   // surfaces composed into it read the bridge the way every console surface does. The
   // scenario is the quiet one: this suite's subject is the resume decision, which the
   // registry above settles, so a scenario with a script would be beats nothing here
   // reads. The gap fill mounted beside the resume notice renders nothing for a window
   // that is missing nothing, which every case here is.
   render(
-    <DesktopBridgeProvider bridge={createFixtureBridge({ scenario: LEDGER_QUIET_SCENARIO })}>
+    <PlatformBridgeProvider bridge={createFixtureBridge({ scenario: EMPTY_SESSION_SCENARIO })}>
       {descriptor.render({
-        route: { kind: "workspace", sessionId: SESSION_ID },
+        route: { kind: "session", sessionId: SESSION_ID },
         bridge: { source: "fixture" },
         frameStore: {},
         sessionStore,
         sessionStoreRegistry,
         uiStateStore: {},
         draftStore: {},
-        paneRegistry: new ConsolePaneRegistry(),
-      } as unknown as ConsoleSurfaceContext)}
-    </DesktopBridgeProvider>,
+        paneRegistry: new PaneRegistry(),
+      } as unknown as ScreenContext)}
+    </PlatformBridgeProvider>,
   );
   await settleReactWork();
 }
@@ -125,9 +127,9 @@ const REFUSES_THE_POSITION = {
   },
 };
 
-describe("the workspace surface renders the refused resume position", () => {
+describe("the session screen renders the refused resume position", () => {
   it("says the remembered position could not be resumed", async () => {
-    await renderWorkspaceSurface({
+    await renderSessionScreen({
       reads: [snapshotAt(7, ACKNOWLEDGED), REFUSES_THE_POSITION, snapshotAt(0)],
       refreshes: 2,
     });
@@ -139,9 +141,9 @@ describe("the workspace surface renders the refused resume position", () => {
   it("reaches the screen even though the recovering read establishes nothing", async () => {
     // The reason the decision carries its own notification. The recovery answers at
     // the beginning of the window, which `admitsSnapshotAt` refuses for arriving
-    // behind the store's cursor — so no store transition happens and a surface
+    // behind the store's cursor — so no store transition happens and a screen
     // subscribed to the projection's revision alone would render nothing at all.
-    await renderWorkspaceSurface({
+    await renderSessionScreen({
       reads: [snapshotAt(7, ACKNOWLEDGED), REFUSES_THE_POSITION, snapshotAt(0)],
       refreshes: 2,
     });
@@ -149,10 +151,10 @@ describe("the workspace surface renders the refused resume position", () => {
     expect(screen.getByText(REFUSAL_CODE)).toBeTruthy();
   });
 
-  it("negative control: an honoured position renders no notice at all", async () => {
-    // Without this, a surface that rendered the sentence unconditionally would pass
+  it("negative control: an honored position renders no notice at all", async () => {
+    // Without this, a screen that rendered the sentence unconditionally would pass
     // both cases above — and would tell every session its position was lost.
-    await renderWorkspaceSurface({
+    await renderSessionScreen({
       reads: [snapshotAt(7, ACKNOWLEDGED), snapshotAt(9, "9_1723291500000000000")],
       refreshes: 2,
     });
@@ -163,28 +165,28 @@ describe("the workspace surface renders the refused resume position", () => {
   it("negative control: a first read that acknowledges nothing renders no notice", async () => {
     // The arm the retired rule refused on: nothing acknowledged is the ordinary first
     // read, not a failure, and it is what every scripted scenario answers with. A
-    // surface that treated it as a refusal put a band above every workspace.
-    await renderWorkspaceSurface({ reads: [snapshotAt(0)], refreshes: 1 });
+    // screen that treated it as a refusal put a band above every session screen.
+    await renderSessionScreen({ reads: [snapshotAt(0)], refreshes: 1 });
 
     expect(screen.queryByText(REFUSAL_CODE)).toBeNull();
   });
 
-  it("negative control: the workspace body mounts on both arms", async () => {
+  it("negative control: the session screen body mounts on both arms", async () => {
     // The notice renders ABOVE the room and never in place of it. Without this, a
-    // surface that replaced the workspace with the refusal would satisfy the first
+    // screen that replaced the session screen with the refusal would satisfy the first
     // case while reporting an outage the daemon is not having.
-    await renderWorkspaceSurface({
+    await renderSessionScreen({
       reads: [snapshotAt(7, ACKNOWLEDGED), REFUSES_THE_POSITION, snapshotAt(0)],
       refreshes: 2,
     });
 
-    expect(screen.getByTestId("workspace-body")).toBeTruthy();
+    expect(screen.getByTestId("session-screen-body")).toBeTruthy();
   });
 
   it("clears once a later read settles a position of its own", async () => {
     // Not a permanent band. The decision is the newest completed read's, so the next
     // ordinary refresh replaces the refusal and this renders nothing.
-    await renderWorkspaceSurface({
+    await renderSessionScreen({
       reads: [
         snapshotAt(7, ACKNOWLEDGED),
         REFUSES_THE_POSITION,

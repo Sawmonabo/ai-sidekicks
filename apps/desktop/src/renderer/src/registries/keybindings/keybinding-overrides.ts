@@ -19,8 +19,8 @@
 // kept, and what a window does while one is being recorded is
 // `keybinding-override-store.ts`.
 
-import { refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
-import type { KeyBinding } from "../commands/command-types.js";
+import { refuse, type Refusal } from "@renderer/lib/refusal.js";
+import type { Keybinding } from "../commands/command-types.js";
 import { HOST_CHORD_PLATFORM, type ChordPlatform } from "@renderer/console/primitives/index.js";
 import { auditKeybindings, reservedChordReason } from "./keybinding-audit.js";
 
@@ -56,14 +56,14 @@ export const KEYBINDING_OVERRIDE_REFUSAL_ORIGIN = "keybinding-overrides";
  * union and widens at its boundary, so this renders through the same three refusal
  * renderings as a persistence refusal, with no translation where both are shown.
  */
-export interface KeybindingOverrideRefusal extends ConsoleRefusal {
+export interface KeybindingOverrideRefusal extends Refusal {
   readonly code: KeybindingOverrideRefusalCode;
 }
 
 /** What deciding a candidate chord needs beyond the chord and the command. */
 export interface CandidateChordInput {
   /** The chords the console ships. Overrides are composed onto this table. */
-  readonly defaults: readonly KeyBinding[];
+  readonly defaults: readonly Keybinding[];
   /** The overrides already held. The candidate is judged against them. */
   readonly overrides: KeybindingOverrideMap;
   readonly commandId: string;
@@ -82,10 +82,10 @@ export interface CandidateChordInput {
  * same table in the same order.
  */
 export function composeEffectiveBindings(
-  defaults: readonly KeyBinding[],
+  defaults: readonly Keybinding[],
   overrides: KeybindingOverrideMap,
-): readonly KeyBinding[] {
-  const effective: KeyBinding[] = [];
+): readonly Keybinding[] {
+  const effective: Keybinding[] = [];
   const boundByDefault = new Set<string>();
   for (const binding of defaults) {
     boundByDefault.add(binding.commandId);

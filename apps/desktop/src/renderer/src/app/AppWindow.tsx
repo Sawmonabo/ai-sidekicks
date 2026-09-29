@@ -18,18 +18,18 @@
 
 import { useLayoutEffect, useRef } from "react";
 
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence-caps.js";
-import { useFrameStore } from "@renderer/store/window/hooks/useWindowStore.js";
+import { useWindowStore } from "@renderer/store/window/hooks/useWindowStore.js";
 import { useLocationHash } from "@renderer/routing/hooks/useLocationHash.js";
 import { parseRoute } from "@renderer/routing/routes.js";
 import { DraftStore } from "@renderer/store/draft-store.js";
 import { type SessionSnapshotReader } from "@renderer/store/session/open-session-entry.js";
-import { FrameStore } from "@renderer/store/window/window-store.js";
-import { consoleEntityProjectorRegistry } from "@renderer/registries/entity-projectors/entity-projector-registry.js";
-import { consolePaneRegistry } from "@renderer/registries/panes/pane-registry.js";
-import { type ConsoleSurfaceContext } from "@renderer/registries/screens/screen-context.js";
-import { consoleSurfaceRegistry } from "@renderer/registries/screens/screen-registry.js";
+import { WindowStore } from "@renderer/store/window/window-store.js";
+import { entityProjectorRegistry } from "@renderer/registries/entity-projectors/entity-projector-registry.js";
+import { paneRegistry } from "@renderer/registries/panes/pane-registry.js";
+import { type ScreenContext } from "@renderer/registries/screens/screen-context.js";
+import { screenRegistry } from "@renderer/registries/screens/screen-registry.js";
 import { AppShell } from "@renderer/layout/AppShell/AppShell.js";
 import { useActiveSessionStore } from "./hooks/useActiveSessionStore.js";
 import { useHashRouteBinding } from "./hooks/useHashRouteBinding.js";
@@ -40,11 +40,11 @@ import { useUiStateStore } from "./hooks/useUiStateStore.js";
 import { useWindowFocusRefresh } from "./hooks/useWindowFocusRefresh.js";
 import { useWindowCommands } from "./hooks/useWindowCommands.js";
 import { AppRouter } from "./router.js";
-import { applyConsoleScheme } from "./token-installation.js";
+import { applyColorScheme } from "./token-installation.js";
 
 /** What the bootstrap hands the window once the bridge has resolved. */
 export interface AppWindowProps {
-  readonly bridge: ConsoleBridge;
+  readonly bridge: PlatformBridge;
   /** The call that reads one session's base state, handed to the session registry. */
   readonly readSession: SessionSnapshotReader;
 }
@@ -55,8 +55,8 @@ export function AppWindow(props: AppWindowProps): React.JSX.Element {
   // hash-to-route direction live for every later navigation.
   const hash = useLocationHash();
 
-  const frameStoreRef = useRef<FrameStore>(undefined);
-  frameStoreRef.current ??= new FrameStore({ initialRoute: parseRoute(hash) });
+  const frameStoreRef = useRef<WindowStore>(undefined);
+  frameStoreRef.current ??= new WindowStore({ initialRoute: parseRoute(hash) });
   const frameStore = frameStoreRef.current;
 
   // A hook, because this store owns a database connection; its opening returns at once,
@@ -69,25 +69,22 @@ export function AppWindow(props: AppWindowProps): React.JSX.Element {
   const draftStore = draftStoreRef.current;
 
   // The stores fold with what the composition claimed, handed in rather than reached for.
-  const sessionStoreRegistry = useSessionStoreRegistry(
-    consoleEntityProjectorRegistry,
-    props.readSession,
-  );
+  const sessionStoreRegistry = useSessionStoreRegistry(entityProjectorRegistry, props.readSession);
 
-  const route = useFrameStore(frameStore, (state) => state.route);
-  const lastOpenedSessionId = useFrameStore(frameStore, (state) => state.lastOpenedSessionId);
+  const route = useWindowStore(frameStore, (state) => state.route);
+  const lastOpenedSessionId = useWindowStore(frameStore, (state) => state.lastOpenedSessionId);
   const { schemePreference, chooseScheme } = useSchemePreference(frameStore, uiStateStore);
 
   // The token sheet is already on the document; the scheme attribute follows a setting
   // only a window with a bridge can read back.
   useLayoutEffect(() => {
-    applyConsoleScheme(document, schemePreference);
+    applyColorScheme(document, schemePreference);
   }, [schemePreference]);
 
   useHashRouteBinding(frameStore, hash);
 
   // Every loader-backed body on both boards, warmed on idle after the first frame.
-  useLazyBodyIdleWarm(consolePaneRegistry, consoleSurfaceRegistry);
+  useLazyBodyIdleWarm(paneRegistry, screenRegistry);
 
   // Window focus is a refresh reason, not a poll.
   useWindowFocusRefresh(frameStore, sessionStoreRegistry);
@@ -98,27 +95,27 @@ export function AppWindow(props: AppWindowProps): React.JSX.Element {
     windowStore: frameStore,
     uiStateStore,
     chooseScheme,
-    surfaceRegistry: consoleSurfaceRegistry,
+    screenRegistry,
   });
 
   const sessionStore = useActiveSessionStore(sessionStoreRegistry, frameStore.activeSessionId);
 
-  const surfaceContext: ConsoleSurfaceContext = {
+  const screenContext: ScreenContext = {
     route,
     bridge: props.bridge,
     frameStore,
     sessionStore,
     sessionStoreRegistry,
     // The board the composition registered every pane body into.
-    paneRegistry: consolePaneRegistry,
+    paneRegistry: paneRegistry,
     uiStateStore,
     draftStore,
     chooseScheme,
   };
 
   return (
-    <AppShell frameStore={frameStore} surfaceRegistry={consoleSurfaceRegistry} palette={palette}>
-      <AppRouter context={surfaceContext} />
+    <AppShell frameStore={frameStore} screenRegistry={screenRegistry} palette={palette}>
+      <AppRouter context={screenContext} />
     </AppShell>
   );
 }

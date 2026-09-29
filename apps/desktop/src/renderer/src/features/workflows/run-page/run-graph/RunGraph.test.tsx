@@ -177,7 +177,7 @@ describe("the drawn graph", () => {
     // edge SET is asserted over values in the layout and topology suites beside this
     // one. What this tier can see is whether the surface tells a person which
     // picture they are looking at.
-    expect(container.querySelector(".meridian-phase-graph__caption")?.textContent ?? "").toContain(
+    expect(container.querySelector(".meridian-run-graph__caption")?.textContent ?? "").toContain(
       "has not been read here",
     );
   });
@@ -191,7 +191,7 @@ describe("the drawn graph", () => {
     );
     await settleGraphLoad();
 
-    expect(container.querySelector(".meridian-phase-graph__caption")).toBeNull();
+    expect(container.querySelector(".meridian-run-graph__caption")).toBeNull();
     expect(container.querySelectorAll(".react-flow__node")).toHaveLength(TWO_PHASES.length);
   });
 

@@ -20,12 +20,12 @@
 // inventing one would be the console explaining what the daemon meant.
 
 import { refusalRemedyFor } from "@renderer/lib/refusal-remedies.js";
-import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
+import { type Refusal } from "@renderer/lib/refusal.js";
 import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
 import { RefusalCard } from "@renderer/components/Refusal/RefusalCard.js";
 
 export interface RefusalWithRemedyProps {
-  readonly refusal: ConsoleRefusal;
+  readonly refusal: Refusal;
   /**
    * Rendered after the console's own next move, for a surface that can say
    * something this table cannot — the failed bindings a goal mutation named, the
@@ -35,7 +35,7 @@ export interface RefusalWithRemedyProps {
 }
 
 /** The daemon's words, with the console's next move in the action slot. */
-export function RemediedRefusal(props: RefusalWithRemedyProps): React.JSX.Element {
+export function RefusalWithRemedy(props: RefusalWithRemedyProps): React.JSX.Element {
   const { refusal, detailAction } = props;
   const remedy = refusalRemedyFor(refusal.code);
   const action =

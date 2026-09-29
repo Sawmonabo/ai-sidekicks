@@ -1,7 +1,7 @@
 // The composer's keybinding: the chord that asks for the composer from anywhere in the window.
 
-import type { ConsoleCommandSurface } from "@renderer/registries/commands/command-contributions.js";
-import type { KeyBinding } from "@renderer/registries/commands/command-types.js";
+import type { CommandContributionRegistry } from "@renderer/registries/commands/command-contributions.js";
+import type { Keybinding } from "@renderer/registries/commands/command-types.js";
 import { COMPOSER_FOCUS_COMMAND_ID } from "./commands.js";
 
 /**
@@ -21,7 +21,7 @@ export const COMPOSER_FOCUS_CHORD = "$mod+KeyL";
  * it is to the composer, and the places a person most needs it from — a find field, a
  * filter box, a form — are text inputs.
  */
-export const COMPOSER_FOCUS_KEYBINDING: KeyBinding = {
+export const COMPOSER_FOCUS_KEYBINDING: Keybinding = {
   chord: COMPOSER_FOCUS_CHORD,
   commandId: COMPOSER_FOCUS_COMMAND_ID,
   allowInTextInput: true,
@@ -36,7 +36,7 @@ const COMPOSER_KEYBINDING_OWNER = "composer-keybindings";
  * Takes the surface rather than reaching for the module-scope one, so a test contributes
  * into a surface it owns.
  */
-export function registerComposerKeybindings(surface: ConsoleCommandSurface): void {
+export function registerComposerKeybindings(surface: CommandContributionRegistry): void {
   surface.contribute({
     owner: COMPOSER_KEYBINDING_OWNER,
     commands: [],

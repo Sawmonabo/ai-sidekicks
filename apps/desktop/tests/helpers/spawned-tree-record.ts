@@ -1,7 +1,7 @@
 // WHEN a spawned tree's identity is recorded, as the owner's own bookkeeping.
 //
 // Split out of `managed-electron-child.ts` beside it rather than left inside it
-// because that module owns a child's FATE — what is signalled, how many times,
+// because that module owns a child's FATE — what is signaled, how many times,
 // and what its terminal events mean — while this owns a question about TIME: at
 // which moments this process may write down what the tree is made of, and which
 // moments are too late. `process-tree/identity.ts` owns the readings themselves
@@ -122,7 +122,7 @@ export class SpawnedTreeRecord {
   /**
    * The identity a signal is re-verified against, captured or honestly unverified.
    *
-   * A tree signalled before its root was ever captured — the misuse path, where
+   * A tree signaled before its root was ever captured — the misuse path, where
    * the settle-time registrar refused — falls back to the unverified reading,
    * which is the honest one for a tree whose identity was never taken.
    */

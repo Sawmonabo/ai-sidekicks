@@ -7,14 +7,14 @@
 import { describe, expect, it } from "vitest";
 import type { ProviderCommandBindingGroup } from "@ai-sidekicks/contracts";
 
-import type { ConsoleCommand } from "@renderer/registries/commands/command-types.js";
+import type { CommandDefinition } from "@renderer/registries/commands/command-types.js";
 import {
   composeCommandList,
   filterCommandList,
   selectAddressedBindingGroup,
 } from "./command-list-entries.js";
 
-const OFFERED: readonly ConsoleCommand[] = [
+const OFFERED: readonly CommandDefinition[] = [
   { id: "frame.goToSettings", title: "Go to Settings", group: "Navigate", run: () => undefined },
 ];
 

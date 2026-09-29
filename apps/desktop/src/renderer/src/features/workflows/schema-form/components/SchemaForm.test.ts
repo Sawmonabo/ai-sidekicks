@@ -21,7 +21,7 @@ import { composedAnswer, renderForm } from "./SchemaFormHost.test-support.js";
 afterEach(cleanup);
 
 describe("the control a member shape draws", () => {
-  it("draws one labelled control for each of the five kinds", async () => {
+  it("draws one labeled control for each of the five kinds", async () => {
     await renderForm({
       type: "object",
       properties: {

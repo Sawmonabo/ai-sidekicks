@@ -9,30 +9,30 @@
 
 import { describe, expect, it } from "vitest";
 
-import { ACTOR_HUE_STEPS } from "./palette.js";
+import { HUE_WHEEL_STEPS } from "./palette.js";
 import { AgentHueAllocator } from "./agent-hue.js";
 
 describe("failure matrix — the agent hue wheel runs out of steps", () => {
   it("uses every step before any repeats, and wraps evenly past twelve", () => {
     const allocator = new AgentHueAllocator();
     const agentIds = Array.from(
-      { length: ACTOR_HUE_STEPS * 2 + 3 },
+      { length: HUE_WHEEL_STEPS * 2 + 3 },
       (_unused, index) => `agent-${String(index)}`,
     );
 
     const assignments = agentIds.map((agentId) => allocator.admit(agentId));
 
     expect(allocator.admittedCount).toBe(agentIds.length);
-    const firstTwelve = assignments.slice(0, ACTOR_HUE_STEPS);
-    expect(new Set(firstTwelve.map((one) => one.step)).size).toBe(ACTOR_HUE_STEPS);
+    const firstTwelve = assignments.slice(0, HUE_WHEEL_STEPS);
+    expect(new Set(firstTwelve.map((one) => one.step)).size).toBe(HUE_WHEEL_STEPS);
     expect(firstTwelve.some((one) => one.sharesStepWithEarlierUser)).toBe(false);
     // Past twelve, no step holds two more occupants than another.
-    const occupants = new Array<number>(ACTOR_HUE_STEPS).fill(0);
+    const occupants = new Array<number>(HUE_WHEEL_STEPS).fill(0);
     for (const one of assignments) {
       occupants[one.step] = (occupants[one.step] ?? 0) + 1;
     }
     expect(Math.max(...occupants) - Math.min(...occupants)).toBeLessThanOrEqual(1);
-    expect(assignments.slice(ACTOR_HUE_STEPS).every((one) => one.sharesStepWithEarlierUser)).toBe(
+    expect(assignments.slice(HUE_WHEEL_STEPS).every((one) => one.sharesStepWithEarlierUser)).toBe(
       true,
     );
   });

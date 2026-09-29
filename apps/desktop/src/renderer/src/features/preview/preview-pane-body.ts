@@ -1,4 +1,4 @@
-// The preview pane's body, as the deck's registry loads it.
+// The preview pane's body, as the pane layout's registry loads it.
 //
 // A LOADER-BACKED BODY, so none of this pane reaches the initial import graph. The
 // contribution registers it as `body: () => import("../preview-pane-body.js")`, and
@@ -18,11 +18,11 @@
 // components import theirs.
 import "./controls.css";
 
-import { paneBodyForKind, type ConsolePaneContext } from "@renderer/console/seats/index.js";
+import { paneBodyForKind, type PaneContext } from "@renderer/console/seats/index.js";
 import { PreviewPane } from "./PreviewPane.js";
 
 /**
- * The preview pane, as the deck holds it.
+ * The preview pane, as the pane layout holds it.
  *
  * Named `Body` because `seats/lazy-body/lazy-body.ts` fixes the export name a loader
  * module publishes: the registry composes one specifier shape, and a body module is
@@ -31,7 +31,7 @@ import { PreviewPane } from "./PreviewPane.js";
  * IT ADVERTISES NO DETACH, because a descriptor cannot. Whether this kind may be
  * torn off into a window of its own is `seats/pane/pane-kinds.ts`'s
  * `isDetachablePaneKind`, derived from the window model's own route set — one
- * answer for the whole deck rather than a boolean each family sets for the kind it
+ * answer for the whole pane layout rather than a boolean each family sets for the kind it
  * owns. The answer for `browser` is no, and the reason is a property of the kind:
  * the pane's body is a main-process view hosted in the window that owns
  * the pane, and following a detach would mean moving that host view between two
@@ -41,17 +41,17 @@ import { PreviewPane } from "./PreviewPane.js";
  * The registry holds one `render` per kind over the whole address union, and this body
  * is a view of the `browser` arm alone: the two untyped boundaries — a restored layout
  * row and a typed route — are where an address of another kind arrives without the
- * compiler, and mounting a browser body at one would draw a pane headed "Browser" over
+ * compiler, and mounting a browser body at one would draw a pane headed "Preview" over
  * something else entirely. The adapter narrows once and renders the kind-mismatch
  * refusal for the arm it cannot serve, which is the console's answer everywhere else:
- * one bad row loses that row rather than the deck.
+ * one bad row loses that row rather than the pane layout.
  *
  * The body still takes the context whole beneath it — it needs the pane id the browser
  * wire is keyed by, the bridge it dispatches through, the session whose shell frames
  * the trail, and the focus hue that attributes the pane — so no argument is
  * rebuilt here.
  */
-export const Body: (context: ConsolePaneContext) => React.ReactNode = paneBodyForKind(
+export const Body: (context: PaneContext) => React.ReactNode = paneBodyForKind(
   "browser",
   PreviewPane,
 );

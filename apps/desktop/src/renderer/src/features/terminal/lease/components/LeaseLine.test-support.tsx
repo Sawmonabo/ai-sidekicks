@@ -7,16 +7,16 @@
 
 import { render, type RenderResult } from "@testing-library/react";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
-import { FLAGSHIP_SCENARIO } from "../../../../../../../fixtures/scenarios/concurrent-streaming.js";
-import { TERMINAL_SCENARIO } from "../../../../../../../fixtures/scenarios/terminal-lease.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
+import { CONCURRENT_STREAMING_SCENARIO } from "../../../../../../../fixtures/scenarios/concurrent-streaming.js";
+import { TERMINAL_LEASE_SCENARIO } from "../../../../../../../fixtures/scenarios/terminal-lease.js";
 import { THIS_DEVICE_ID } from "../lease-model.test-support.js";
 import type {
   TerminalLeaseCall,
   TerminalLeaseCalls,
   UseTakeShellResult,
 } from "../hooks/useTakeShell.js";
-import { LeaseClaimControl } from "./LeaseClaimControl.js";
+import { LeaseTakeControl } from "./LeaseTakeControl.js";
 import { LeaseLine } from "./LeaseLine.js";
 import type { TerminalDeviceIdentity } from "../hooks/useTerminalDeviceIdentity.js";
 import { UNREAD_TERMINAL_LEASE, type TerminalLeaseState } from "../lease-model.js";
@@ -28,16 +28,16 @@ import { UNREAD_TERMINAL_LEASE, type TerminalLeaseState } from "../lease-model.j
  * wire-declared UUID, so the request the cases below assert on is the one a daemon
  * would actually be handed.
  */
-export const SESSION_ID: string = TERMINAL_SCENARIO.sessionId;
+export const SESSION_ID: string = TERMINAL_LEASE_SCENARIO.sessionId;
 
 /**
  * The other session this pane can be rebound to, read off another scenario.
  *
  * A second wire-declared id rather than a readable placeholder, for the reason the
- * first one is read off a scenario: the claim's whole subject is the session it was
+ * first one is read off a scenario: the take's whole subject is the session it was
  * made under, so the id it is compared against has to be one a daemon could emit.
  */
-export const OTHER_SESSION_ID: string = FLAGSHIP_SCENARIO.sessionId;
+export const OTHER_SESSION_ID: string = CONCURRENT_STREAMING_SCENARIO.sessionId;
 
 /**
  * The take call, held until a case settles it by name.
@@ -49,7 +49,9 @@ export const OTHER_SESSION_ID: string = FLAGSHIP_SCENARIO.sessionId;
 export class HeldLeaseCalls {
   readonly #heldSessionIds: string[] = [];
   readonly #heldResolvers: (() => void)[] = [];
-  public readonly bridge: ConsoleBridge = createFixtureBridge({ scenario: TERMINAL_SCENARIO });
+  public readonly bridge: PlatformBridge = createFixtureBridge({
+    scenario: TERMINAL_LEASE_SCENARIO,
+  });
   public readonly calls: TerminalLeaseCalls;
 
   public constructor() {
@@ -94,7 +96,7 @@ export function leaseState(overrides: Partial<TerminalLeaseState>): TerminalLeas
 /**
  * The identity every case below renders under unless it is about the other arms.
  *
- * Read, and read as this device: the claim control is gated on the identity having
+ * Read, and read as this device: the take control is gated on the identity having
  * landed, so a default of anything else would make every case in this file about the
  * withheld state instead of about the state it names.
  */
@@ -103,23 +105,27 @@ export const DEVICE_IDENTITY_READ: TerminalDeviceIdentity = {
   userId: THIS_DEVICE_ID,
 };
 
-/** A claim that has dispatched nothing. */
-export const IDLE_CLAIM: UseTakeShellResult = {
+/** A take that has dispatched nothing. */
+export const IDLE_TAKE: UseTakeShellResult = {
   isInFlight: false,
   take: () => undefined,
 };
 
-/** Render the lease line with its claim control under the given claim and identity. */
+/** Render the lease line with its take control under the given take and identity. */
 export function renderLease(
   state: TerminalLeaseState,
-  claim: UseTakeShellResult = IDLE_CLAIM,
-  viewerIdentity: TerminalDeviceIdentity = DEVICE_IDENTITY_READ,
+  takeShell: UseTakeShellResult = IDLE_TAKE,
+  deviceIdentity: TerminalDeviceIdentity = DEVICE_IDENTITY_READ,
 ): RenderResult {
   return render(
     <LeaseLine
       state={state}
       controls={
-        <LeaseClaimControl claim={claim} holding={state.holding} viewerIdentity={viewerIdentity} />
+        <LeaseTakeControl
+          takeShell={takeShell}
+          holding={state.holding}
+          deviceIdentity={deviceIdentity}
+        />
       }
     />,
   );
@@ -127,9 +133,9 @@ export function renderLease(
 
 /** The single affordance the line puts in its header, as something a test can press. */
 export function takeShellButton(container: HTMLElement): HTMLButtonElement {
-  const control = container.querySelector(".meridian-lease-line__claim");
+  const control = container.querySelector(".meridian-lease-line__take");
   if (!(control instanceof HTMLButtonElement)) {
-    throw new Error("the lease line rendered no claim control");
+    throw new Error("the lease line rendered no take control");
   }
   return control;
 }

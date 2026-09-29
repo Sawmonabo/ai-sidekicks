@@ -19,7 +19,7 @@
 // can exist perfectly well before anyone has decided which of its frames is worth
 // freezing, which is exactly why an unregistered scenario has to be a registry FAILURE
 // rather than a compiler error: the decision is owed, and the registry is what collects
-// the debt. Putting the member on `ConsoleScenario` would make forgetting impossible and
+// the debt. Putting the member on `Scenario` would make forgetting impossible and
 // deciding thoughtlessly easy, which is the wrong trade for a table this small.
 //
 // WHAT A NAME MEANS. `settled` is the tick at which every beat the script carries has
@@ -32,7 +32,7 @@
 // what a person writes in a document; no capture tier reads a reference file by it, and
 // a formatter with no caller is a handle nothing is held by.
 
-import type { ConsoleScenario } from "../../../../../fixtures/scenario.js";
+import type { Scenario } from "../../../../../fixtures/scenario.js";
 
 /** One pinned frame of one scenario: what it is called, and the tick it is taken at. */
 export interface ScenarioFrozenTick {
@@ -98,7 +98,7 @@ export function frozenTicksFor(
  * the build says so.
  */
 export function findScenariosWithoutFrozenTick(
-  scenarios: readonly ConsoleScenario[],
+  scenarios: readonly Scenario[],
   frozenTicks: FrozenTickTable = SCENARIO_FROZEN_TICKS,
 ): readonly string[] {
   return scenarios
@@ -114,7 +114,7 @@ export function findScenariosWithoutFrozenTick(
  * which reads exactly like a correct row until someone tries to capture it.
  */
 export function findFrozenTickRegistryDefects(
-  scenarios: readonly ConsoleScenario[],
+  scenarios: readonly Scenario[],
   frozenTicks: FrozenTickTable = SCENARIO_FROZEN_TICKS,
 ): readonly FrozenTickRegistryDefect[] {
   const defects: FrozenTickRegistryDefect[] = [];

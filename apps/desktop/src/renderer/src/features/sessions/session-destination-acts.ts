@@ -14,7 +14,7 @@
 // and the notification center offers no dismiss precisely because a client-side one
 // would be a heuristic standing in for it.
 
-import type { ConsoleSurfaceContext } from "@renderer/console/seats/index.js";
+import type { ScreenContext } from "@renderer/console/seats/index.js";
 import type { AttentionItem } from "@ai-sidekicks/contracts";
 import { settleSessionStart } from "./start/session-start.js";
 
@@ -31,9 +31,9 @@ export interface SessionDestinationActs {
 /**
  * Bind the destination's acts to one surface context.
  *
- * NOT A HOOK AND NOT MEMOISED, on the rule `ConsoleSurfaceContext` itself states: the
+ * NOT A HOOK AND NOT MEMOIZED, on the rule `ScreenContext` itself states: the
  * context is composed fresh on every frame render, so a dependency array naming it
- * memoises nothing. Nothing here needs a stable identity either — every consumer is
+ * memoizes nothing. Nothing here needs a stable identity either — every consumer is
  * rendered by the surface on every pass regardless, and the one callback that IS read
  * outside a render is read through the commit-time ref its own control holds.
  *
@@ -44,11 +44,11 @@ export interface SessionDestinationActs {
  * not.
  */
 export function sessionDestinationActs(
-  context: ConsoleSurfaceContext,
+  context: ScreenContext,
   recheckDirectory: () => void,
 ): SessionDestinationActs {
   const openSession = (sessionId: string): void => {
-    context.frameStore.navigate({ kind: "workspace", sessionId });
+    context.frameStore.navigate({ kind: "session", sessionId });
   };
   return {
     openSession,

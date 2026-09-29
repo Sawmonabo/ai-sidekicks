@@ -8,7 +8,7 @@
 // closed form, and `EntityRecord.tsx` is the only module that turns one into
 // markup — which is the same chokepoint discipline the figures module itself is.
 //
-// WHY THE BUILDERS TAKE `unknown`. `ConsoleEntity.body` is
+// WHY THE BUILDERS TAKE `unknown`. `StoredEntity.body` is
 // `Readonly<Record<string, unknown>>` — a renderer-local extension point whose
 // shape belongs to whichever view family registers the projector for that kind, and
 // no family has registered one yet. So a detail reads a body member by NAME, and
@@ -24,7 +24,7 @@
 // narrow its input renders the `not-checked` absence naming the member — never a
 // blank cell, never a zero, and never a dash standing in for both.
 
-import type { ConsoleEntity } from "@renderer/store/session/entities/entities.js";
+import type { StoredEntity } from "@renderer/store/session/entities/entities.js";
 import type { SessionDegradedCause } from "@renderer/store/session-degradation.js";
 import type { SessionStore } from "@renderer/store/session/session-store.js";
 import {
@@ -44,17 +44,17 @@ import { readWireString } from "@renderer/lib/wire-strings.js";
  */
 export interface EntityDetailProps {
   /** The stored record, or `undefined` where the store holds none for this id. */
-  readonly entity: ConsoleEntity | undefined;
-  /** The id the deck addressed this pane with, wire-verbatim. */
+  readonly entity: StoredEntity | undefined;
+  /** The id the pane layout addressed this pane with, wire-verbatim. */
   readonly entityId: string;
   /** The session store the record is read from. Details that compose read from it. */
   readonly sessionStore: SessionStore;
   /** `false` until the store's first read has answered. */
-  readonly isInitialised: boolean;
+  readonly isInitialized: boolean;
   /** Set while the projection is known-incomplete; `undefined` while it is whole. */
   readonly degradedCause: SessionDegradedCause | undefined;
   /**
-   * The pane this inspector was opened from, when the deck linked the two.
+   * The pane this inspector was opened from, when the pane layout linked the two.
    *
    * A PROP and never a coupling: an inspector may be linked to a source pane, and
    * this console's own rule — stated in `InspectedEntity.tsx` — still keeps every
@@ -78,7 +78,7 @@ export type EntityFacetValue =
   | { readonly form: "derived"; readonly text: string }
   | { readonly form: "unrecorded"; readonly detail: string };
 
-/** One labelled row of an entity's record. */
+/** One labeled row of an entity's record. */
 export interface EntityFacet {
   /** The member's name in the console's own words, not the body key. */
   readonly label: string;
@@ -86,7 +86,7 @@ export interface EntityFacet {
 }
 
 /** Read one member of an entity's kind-specific body. `undefined` where absent. */
-export function readBodyMember(entity: ConsoleEntity | undefined, memberName: string): unknown {
+export function readBodyMember(entity: StoredEntity | undefined, memberName: string): unknown {
   return entity?.body?.[memberName];
 }
 
@@ -166,12 +166,12 @@ export function expiryFacet(label: string, value: unknown, memberName: string): 
 /**
  * How many entities of one kind this session attributes to a user.
  *
- * Over `ConsoleEntity.attributedTo`, which the store TYPES — so this is a read of
+ * Over `StoredEntity.attributedTo`, which the store TYPES — so this is a read of
  * the projection rather than a guess at a body member, and it is the one relation
  * the inspector can compose today without a projector having landed.
  */
 export function countAttributedTo(
-  entities: Readonly<Record<string, ConsoleEntity>>,
+  entities: Readonly<Record<string, StoredEntity>>,
   userId: string,
 ): number {
   return Object.values(entities).filter((entity) => entity.attributedTo === userId).length;

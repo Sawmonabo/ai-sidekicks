@@ -5,13 +5,13 @@
 // its chord and its warm-up with it.
 
 import { RAIL_DESTINATIONS, type RailDestination } from "@renderer/routing/route-readers.js";
-import type { FrameStore } from "@renderer/store/window/window-store.js";
-import type { ConsoleCommandSurface } from "@renderer/registries/commands/command-contributions.js";
+import type { WindowStore } from "@renderer/store/window/window-store.js";
+import type { CommandContributionRegistry } from "@renderer/registries/commands/command-contributions.js";
 import type {
   FrameCommand,
   FrameKeybinding,
 } from "@renderer/registries/commands/window-command-registry.js";
-import type { ConsoleSurfaceRegistry } from "@renderer/registries/screens/screen-registry.js";
+import type { ScreenRegistry } from "@renderer/registries/screens/screen-registry.js";
 import { RAIL_ENTRY_TEMPLATES } from "./NavigationRail.js";
 import { routeForDestination, warmDestination } from "./rail-navigation.js";
 
@@ -59,7 +59,7 @@ export const RAIL_KEYBINDINGS: readonly FrameKeybinding[] = RAIL_DESTINATIONS.ma
  * phase and the first match wins. The commands they run close over a window's store,
  * so the window registers those when it mounts.
  */
-export function registerNavigationKeybindings(contributions: ConsoleCommandSurface): void {
+export function registerNavigationKeybindings(contributions: CommandContributionRegistry): void {
   contributions.contribute({
     owner: NAVIGATION_COMMAND_OWNER,
     commands: [],
@@ -75,8 +75,8 @@ export function registerNavigationKeybindings(contributions: ConsoleCommandSurfa
  * warms it again while its palette row is highlighted.
  */
 export function buildNavigationCommands(
-  frameStore: FrameStore,
-  surfaceRegistry: ConsoleSurfaceRegistry,
+  frameStore: WindowStore,
+  screenRegistry: ScreenRegistry,
 ): readonly FrameCommand[] {
   return RAIL_DESTINATIONS.map((destination) => ({
     id: RAIL_NAVIGATION_DETAILS[destination].commandId,
@@ -84,11 +84,11 @@ export function buildNavigationCommands(
     group: "Navigate",
     keywords: RAIL_NAVIGATION_DETAILS[destination].keywords,
     run: () => {
-      warmDestination(surfaceRegistry, destination);
+      warmDestination(screenRegistry, destination);
       frameStore.navigate(routeForDestination(destination));
     },
     preload: () => {
-      warmDestination(surfaceRegistry, destination);
+      warmDestination(screenRegistry, destination);
     },
   }));
 }

@@ -3,8 +3,8 @@
 // Split from `QueueContents.tsx`, which owns the read and the empty case,
 // while this owns one row.
 //
-// CANCELLABILITY IS THE WIRE'S ANSWER, NOT A LOOK. The state a row may be
-// cancelled from is a closed set kept here beside the control it gates, so the
+// CANCELABILITY IS THE WIRE'S ANSWER, NOT A LOOK. The state a row may be
+// canceled from is a closed set kept here beside the control it gates, so the
 // control and the rule that admits it cannot drift apart; the tone table sits with
 // it for the same reason.
 
@@ -12,7 +12,7 @@ import { Chip, WireFigure } from "@renderer/console/primitives/index.js";
 import type { QueueItemSummary } from "@ai-sidekicks/contracts";
 
 /** The one state a queue item can still be taken back from. */
-const CANCELLABLE_STATE = "queued";
+const CANCELABLE_STATE = "queued";
 
 /**
  * The tone each of the five states takes. Total over the closed set, so a sixth
@@ -61,7 +61,7 @@ export function QueueRow(props: {
           </dd>
         </div>
       </dl>
-      {item.state === CANCELLABLE_STATE ? (
+      {item.state === CANCELABLE_STATE ? (
         <button
           type="button"
           className="meridian-queue__cancel"

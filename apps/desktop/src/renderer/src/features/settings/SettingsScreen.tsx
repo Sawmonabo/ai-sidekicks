@@ -1,4 +1,4 @@
-// The settings surface: a rail of sections, a pane holding one, and a search that
+// The settings screen: a rail of sections, a pane holding one, and a search that
 // reaches both.
 //
 // THREE RULES THIS FILE IS THE ENFORCEMENT OF
@@ -15,17 +15,17 @@
 //     value. Which section is open lives in the ROUTE, so a deep link and a rail
 //     click are the same act and the back button works.
 //
-// The pane's own resolution happens during render, for `frame/composition/RouteSurface.tsx`'s
+// The pane's own resolution happens during render, for `app/router.tsx`'s
 // reason: the registry is composed at module scope, so a page is there to be looked
 // up on the first pass, and resolving in an effect would mean the first paint has
 // already said the page is missing.
 
 import { useCallback, useMemo, useState } from "react";
-import { useFrameStore } from "@renderer/store/window/hooks/useWindowStore.js";
-import { useShellState } from "@renderer/store/window/hooks/useMainProcessState.js";
+import { useWindowStore } from "@renderer/store/window/hooks/useWindowStore.js";
+import { useMainProcessState } from "@renderer/store/window/hooks/useMainProcessState.js";
 import { useOpenSessionStore } from "@renderer/store/session/hooks/useOpenSessionStore.js";
 import { settingsSelection } from "@renderer/routing/route-readers.js";
-import type { ConsoleSurfaceContext } from "@renderer/console/seats/index.js";
+import type { ScreenContext } from "@renderer/console/seats/index.js";
 import { matchSettingsPages, type SettingsPageRegistry } from "./settings-pages.js";
 import type { SettingsPageContext } from "./types.js";
 import { SETTINGS_PAGE_IDS, type SettingsPageId } from "@renderer/routing/settings-page-ids.js";
@@ -36,7 +36,7 @@ import { SettingsSearchResults } from "./components/SettingsSearchResults.js";
 import { SettingsPane } from "./components/SettingsPane.js";
 
 export interface SettingsScreenProps {
-  readonly context: ConsoleSurfaceContext;
+  readonly context: ScreenContext;
   /**
    * The pages this pane may render.
    *
@@ -69,9 +69,12 @@ export function SettingsScreen(props: SettingsScreenProps): React.JSX.Element {
   // opened in another destination would reach these pages only on the next
   // unrelated render. The frame's own readers subscribe through this hook and so
   // does this one, which is also why the settings family holds no copy of the id.
-  const retainedSessionId = useFrameStore(context.frameStore, (state) => state.lastOpenedSessionId);
+  const retainedSessionId = useWindowStore(
+    context.frameStore,
+    (state) => state.lastOpenedSessionId,
+  );
 
-  const openSection = useCallback(
+  const openPage = useCallback(
     (section: SettingsPageId): void => {
       context.frameStore.navigate({ kind: "settings", page: section });
     },
@@ -85,10 +88,10 @@ export function SettingsScreen(props: SettingsScreenProps): React.JSX.Element {
    */
   const openSearchHit = useCallback(
     (section: SettingsPageId): void => {
-      openSection(section);
+      openPage(section);
       setSettleOrdinal((held) => held + 1);
     },
-    [openSection],
+    [openPage],
   );
 
   // The RETAINED session, never the route's projection. Every settings address is
@@ -102,17 +105,17 @@ export function SettingsScreen(props: SettingsScreenProps): React.JSX.Element {
   // push signal fewer and never as a failure.
   const retainedSessionStore = useOpenSessionStore(context.sessionStoreRegistry, retainedSessionId);
 
-  // The window's shell condition, read from the store the frame keeps live. One
+  // The window's main process condition, read from the store the frame keeps live. One
   // subscription per window, and this is a reader of it rather than a second one.
-  const shellState = useShellState(context.frameStore);
+  const mainProcessState = useMainProcessState(context.frameStore);
 
   const pageContext: SettingsPageContext = {
     bridge: context.bridge,
-    openSection,
+    openPage,
     selection,
     retainedSessionId,
     retainedSessionStore,
-    shellState,
+    mainProcessState,
     uiStateStore: context.uiStateStore,
     chooseScheme: context.chooseScheme,
   };
@@ -123,7 +126,7 @@ export function SettingsScreen(props: SettingsScreenProps): React.JSX.Element {
   // `render:` pages walks in one step and fetches nothing.
   useSettingsPageIdleWarm(pages);
 
-  // Memoised on the registry and the query: the registry is composed once by the
+  // Memoized on the registry and the query: the registry is composed once by the
   // registrar and does not change while a window is open, so re-ranking on every
   // unrelated render would be work with no input change to justify it.
   const matches = useMemo(
@@ -144,7 +147,7 @@ export function SettingsScreen(props: SettingsScreenProps): React.JSX.Element {
             onOpenSection={openSearchHit}
           />
         ) : (
-          <SettingsPageList selectedSection={selectedSection} onOpenSection={openSection} />
+          <SettingsPageList selectedSection={selectedSection} onOpenSection={openPage} />
         )}
       </div>
       <div className="meridian-settings__pane">

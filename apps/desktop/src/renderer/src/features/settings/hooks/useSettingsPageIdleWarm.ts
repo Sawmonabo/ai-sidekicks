@@ -9,7 +9,7 @@
 // THE WALK IS THE MOUNT'S, NOT THE WINDOW'S, and that is the whole difference from
 // `frame/bindings/lazy-body-warm-binding.ts`. The two boards in `seats/` are the window's and are
 // composed once for it; the page board is composed per settings mount, so its walk is
-// built here, cancelled when this surface unmounts, and never outlives the registry it
+// built here, canceled when this surface unmounts, and never outlives the registry it
 // reads. A second settings window warms its own board and inherits nothing.
 //
 // AND IT IS NOT THAT BINDING REUSED, for two reasons that both stand alone. The console
@@ -54,9 +54,9 @@ export function useSettingsPageIdleWarm(
   const [warmScheduler] = useState(() => scheduler);
   useEffect(() => {
     // BUILT INSIDE THE SETUP rather than held across it. A walk is once-per-instance and
-    // permanently cancellable, and `StrictMode` replays every effect — so a walk held in
-    // state would be started by the first setup, cancelled by the synthetic cleanup, and
-    // found already-started-and-cancelled by the replay, leaving the board cold for the
+    // permanently cancelable, and `StrictMode` replays every effect — so a walk held in
+    // state would be started by the first setup, canceled by the synthetic cleanup, and
+    // found already-started-and-canceled by the replay, leaving the board cold for the
     // life of the surface with nothing failing and nothing logged.
     const walk = new LazyBodyIdleWarm(pages, warmScheduler);
     walk.start();

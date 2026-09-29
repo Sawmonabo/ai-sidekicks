@@ -2,7 +2,7 @@
 //
 // Not a test file — no `include` glob reaches it. Two things every file in the tier
 // has to agree on: the RULE SET, because a file running a narrower set would report
-// clean over violations its neighbour would have caught, and the FAILURE MESSAGE,
+// clean over violations its neighbor would have caught, and the FAILURE MESSAGE,
 // because the tier's whole claim is that a red run names the rule and the node
 // rather than saying a number went up. Both live here once.
 //

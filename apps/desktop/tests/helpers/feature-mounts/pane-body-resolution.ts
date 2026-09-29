@@ -11,7 +11,7 @@
 // PRELOAD RATHER THAN A WIDER SETTLE. A loader-backed registration hands back a
 // component that renders the pending fallback until its module lands, and the module
 // lands on a dynamic import — which under Vitest needs more than the one macrotask a
-// render settle crosses. `preload` is the registration's OWN loader, memoised, so
+// render settle crosses. `preload` is the registration's OWN loader, memoized, so
 // awaiting it is exact rather than generous: a statically registered kind has nothing to
 // load and settles immediately, and a loader-backed one is resolved before the first
 // render rather than one frame into it.
@@ -21,22 +21,22 @@ import type { ReactNode } from "react";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence-caps.js";
 import { DraftStore } from "@renderer/store/draft-store.js";
 import { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
-import { FrameStore } from "@renderer/store/window/window-store.js";
+import { WindowStore } from "@renderer/store/window/window-store.js";
 
 import {
-  ConsolePaneRegistry,
-  ConsoleSurfaceRegistry,
-  type ConsolePaneContext,
-  type ConsoleSurfaceContext,
+  PaneRegistry,
+  ScreenRegistry,
+  type PaneContext,
+  type ScreenContext,
   type PaneKind,
 } from "@renderer/console/seats/index.js";
-// The LEAF for this one name: `ConsoleSurfaceSlot` is deliberately off the seats door,
+// The LEAF for this one name: `ScreenName` is deliberately off the seats door,
 // which that door's own header states — no production module reaches it through one, and
 // the barrel census fails a line like that.
-import { type ConsoleSurfaceSlot } from "@renderer/registries/screens/screen-registry.js";
+import { type ScreenName } from "@renderer/registries/screens/screen-registry.js";
 
 /**
- * The body the deck holds for a kind, with its module already loaded.
+ * The body the pane layout holds for a kind, with its module already loaded.
  *
  * TAKES THE FAMILY'S OWN REGISTRAR AND BUILDS THE REGISTRY HERE, for the reason each
  * caller used to state separately: the registry is owner-scoped state, so two tiers
@@ -53,9 +53,9 @@ import { type ConsoleSurfaceSlot } from "@renderer/registries/screens/screen-reg
  */
 export async function resolvedPaneBody(
   kind: PaneKind,
-  registerPane: (registry: ConsolePaneRegistry) => void,
-): Promise<(context: ConsolePaneContext) => ReactNode> {
-  const registry = new ConsolePaneRegistry();
+  registerPane: (registry: PaneRegistry) => void,
+): Promise<(context: PaneContext) => ReactNode> {
+  const registry = new PaneRegistry();
   registerPane(registry);
   await registry.preload(kind);
   const descriptor = registry.descriptorFor(kind);
@@ -66,7 +66,7 @@ export async function resolvedPaneBody(
 }
 
 /**
- * The body the frame holds for a surface slot, with its module already loaded.
+ * The body the frame holds for a screen slot, with its module already loaded.
  *
  * The pane helper's shape on the other board, and it earns its own function rather than
  * a generic over both: the two boards key on different unions, and a signature abstract
@@ -79,15 +79,15 @@ export async function resolvedPaneBody(
  * window rather than one pane inside a settled frame.
  */
 export async function resolvedScreenBody(
-  slot: ConsoleSurfaceSlot,
-  registerSurface: (registry: ConsoleSurfaceRegistry) => void,
-): Promise<(context: ConsoleSurfaceContext) => ReactNode> {
-  const registry = new ConsoleSurfaceRegistry();
-  registerSurface(registry);
+  slot: ScreenName,
+  registerScreens: (registry: ScreenRegistry) => void,
+): Promise<(context: ScreenContext) => ReactNode> {
+  const registry = new ScreenRegistry();
+  registerScreens(registry);
   await registry.preload(slot);
   const descriptor = registry.descriptorFor(slot);
   if (descriptor === undefined) {
-    throw new Error(`no console surface is registered for the \`${slot}\` slot`);
+    throw new Error(`no screen is registered for the \`${slot}\` slot`);
   }
   return descriptor.render;
 }
@@ -99,10 +99,10 @@ export async function resolvedScreenBody(
  * mounted is also named; this supplies the binding every arm of the union shares.
  */
 export function paneBinding(
-  overrides: Pick<ConsolePaneContext, "paneId" | "bridge" | "sessionStore">,
-): Omit<ConsolePaneContext, "kind"> {
+  overrides: Pick<PaneContext, "paneId" | "bridge" | "sessionStore">,
+): Omit<PaneContext, "kind"> {
   return {
-    frameStore: new FrameStore(),
+    frameStore: new WindowStore(),
     uiStateStore: UiStateStore.opening(),
     draftStore: new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT }),
     linkedSourcePaneId: undefined,

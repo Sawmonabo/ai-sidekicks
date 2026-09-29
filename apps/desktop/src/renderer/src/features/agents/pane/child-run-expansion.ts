@@ -27,8 +27,8 @@
 import { type ChildRunExpandResponse, type RunId, type TimelineRow } from "@ai-sidekicks/contracts";
 
 import { callDaemon, type DaemonReply } from "@renderer/services/daemon/daemon-reply.js";
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
-import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
+import { type Refusal } from "@renderer/lib/refusal.js";
 import { ReadScope } from "@renderer/lib/reads/read-scope.js";
 
 /**
@@ -48,7 +48,7 @@ export interface ChildRunExpansion {
   /** Whether the daemon has more entries than this expansion read. */
   readonly hasUnreadEntries: boolean;
   /** Why the expansion failed, on the `expand-failed` arm only. */
-  readonly refusal: ConsoleRefusal | undefined;
+  readonly refusal: Refusal | undefined;
 }
 
 /** The state a child run starts in: summarized, with nothing read and nothing wrong. */
@@ -59,7 +59,7 @@ export const CHILD_RUN_SUMMARIZED: ChildRunExpansion = {
   refusal: undefined,
 };
 
-/** What one mounted ledger offers for a child-run summary row. */
+/** What one mounted transcript offers for a child-run summary row. */
 export interface ChildRunDisclosure {
   readonly expansionFor: (childRunId: RunId) => ChildRunExpansion;
   /** Expand a summarized child run, or fold an expanded one back. */
@@ -105,7 +105,7 @@ export class ChildRunExpansionState {
    * End every read line: outstanding expansions stop, and no later one is live.
    *
    * The expansions themselves are left as they stand — a holder handing this object
-   * back recognises the corpse through `isAbandoned` and mints a fresh one, so nothing
+   * back recognizes the corpse through `isAbandoned` and mints a fresh one, so nothing
    * here is ever read again.
    */
   public abandonReads(): void {
@@ -132,7 +132,7 @@ export class ChildRunExpansionState {
    * control that can never be pressed again, so the state this press replaced is
    * restored: the expansion did not happen, and the row says exactly that.
    */
-  public async expand(bridge: ConsoleBridge, childRunId: RunId): Promise<ChildRunExpansion> {
+  public async expand(bridge: PlatformBridge, childRunId: RunId): Promise<ChildRunExpansion> {
     const held = this.expansionFor(childRunId);
     // THE IN-FLIGHT FACT IS THE STATE ITSELF, not a second register beside it: this
     // act raises `expanding` synchronously and every terminal arm below leaves it,
@@ -226,7 +226,7 @@ export class ChildRunExpansionState {
  * family's; nothing is re-authored here.
  */
 async function readChildRunEntries(
-  bridge: ConsoleBridge,
+  bridge: PlatformBridge,
   childRunId: RunId,
   signal: AbortSignal,
 ): Promise<DaemonReply<ChildRunExpandResponse>> {

@@ -23,7 +23,7 @@ function row(id: string, state: ArtifactManifestRow["state"]): ArtifactManifestR
 }
 
 describe("artifact pane reading — replacing a row from its own read", () => {
-  it("replaces the row the read named and leaves its neighbours alone", () => {
+  it("replaces the row the read named and leaves its neighbors alone", () => {
     const listed: ArtifactsSectionState = {
       kind: "listed",
       rows: [row("first", "published"), row("second", "published")],

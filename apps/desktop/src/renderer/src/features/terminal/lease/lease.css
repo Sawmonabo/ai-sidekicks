@@ -10,7 +10,7 @@
  * this family out of the document the operator waits for.
  *
  * The console's design rules govern every rule here:
- *   • one desaturated cyan on the interactive thing, and nothing else. The claim
+ *   • one desaturated cyan on the interactive thing, and nothing else. The take
  *     control is that thing.
  *   • motion settles. The control spends `--meridian-motion-quick` and nothing
  *     overshoots.
@@ -53,7 +53,7 @@
    serious contrast failure in the light scheme. `--meridian-accent-text` is the
    accent's text-floor sibling, cleared at 4.5:1 against every ground. The control
    still reads as the primary one — it is the only accent-bordered thing on the line. */
-.meridian-lease-line__claim {
+.meridian-lease-line__take {
   font: inherit;
   padding: var(--meridian-space-1) var(--meridian-space-3);
   color: var(--meridian-accent-text);
@@ -66,16 +66,16 @@
     opacity var(--meridian-motion-quick) var(--meridian-ease-settle);
 }
 
-.meridian-lease-line__claim:hover:enabled {
+.meridian-lease-line__take:hover:enabled {
   background: var(--meridian-surface-raised);
 }
 
-.meridian-lease-line__claim:disabled {
+.meridian-lease-line__take:disabled {
   cursor: progress;
   opacity: 0.6;
 }
 
-.meridian-lease-line__claim:focus-visible {
+.meridian-lease-line__take:focus-visible {
   outline: 2px solid var(--meridian-focus-ring);
   outline-offset: 2px;
 }

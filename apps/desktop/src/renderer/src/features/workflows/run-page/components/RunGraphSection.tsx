@@ -29,7 +29,7 @@ import type { RunGraphNode, PhaseParkAttention } from "../run-graph/phase-topolo
  * it lives in the definition body, which the run read does not carry. Composing a label
  * out of the id, or passing the id as the name, would invent a fact.
  */
-export function RunPhaseGraph(props: {
+export function RunGraphSection(props: {
   readonly phases: readonly WorkflowPhaseState[];
 }): React.JSX.Element {
   // The park projection, once, and indexed by the phase it is about. A node is built

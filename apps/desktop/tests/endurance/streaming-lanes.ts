@@ -2,7 +2,7 @@
 //
 // WHY THIS IS A MODULE AND NOT A NUMBER IN A TEST. `budgets.json`'s
 // `frame-time-p95-four-lanes` bounds the renderer "while four agent lanes stream
-// concurrently into the ledger". A gate for that row has to establish that its
+// concurrently into the transcript". A gate for that row has to establish that its
 // sampled window contained four concurrent streaming lanes, and the only thing that
 // can establish it is the script the window played. A constant `4` written into the
 // harness would go on passing over a scenario that had stopped streaming, which is
@@ -22,7 +22,7 @@
 //     come before it leaves that state.
 //
 // The second conjunct is the load-bearing one. A run sitting in `running` with
-// nothing left to say is a lane the ledger draws and does not animate, and counting
+// nothing left to say is a lane the transcript draws and does not animate, and counting
 // it would let a script of four idle runs satisfy a budget about four streaming
 // ones. So the definition is "mid-turn with output still ahead of it", which is the
 // state the frame cost being measured actually belongs to.

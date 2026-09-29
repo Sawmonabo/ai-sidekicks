@@ -34,7 +34,7 @@ import { useSubjectRead } from "@renderer/hooks/useSubjectRead.js";
  * What the runs surface knows about a session's runs at one moment.
  *
  * Three states and no others, and the two unsettled ones come from the shared shape in
- * `store/read/subject-read-start.ts` rather than being spelled a third time here — so
+ * `features/workflows/subject-read-start.ts` rather than being spelled a third time here — so
  * this hook, the definitions directory and the run snapshot cannot drift about which
  * frame is allowed to claim nobody asked, or about which frame is allowed to hold the
  * previous call's answer.

@@ -3,7 +3,7 @@
 //
 // Every other console tier renders the console into something that is not the
 // application: happy-dom for the unit tier, a Chromium page for the three browser-mode
-// tiers. None of them can catch a defect that exists only in the shipped shell, and
+// tiers. None of them can catch a defect that exists only in the shipped app, and
 // this tier runs the code path a person installing the application would run.
 //
 // ONE ASSERTION LIBRARY, DELIBERATELY. Playwright ships its own auto-retrying `expect`
@@ -15,7 +15,7 @@
 // THE INCIDENT: `require` was reachable from the console.
 //
 // The hardening that keeps Node out of the renderer is a property of the BUILD, and a
-// build flavour is exactly the axis along which it regresses: the smoke probe
+// build flavor is exactly the axis along which it regresses: the smoke probe
 // asserts this against the smoke bundle through stdout, and this asserts it against
 // the fixtures bundle the console tiers run. The two cover two artifacts and neither
 // substitutes for the other.

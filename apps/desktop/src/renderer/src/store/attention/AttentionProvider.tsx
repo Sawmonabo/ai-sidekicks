@@ -29,7 +29,7 @@
 
 import { useCallback, useMemo, type ReactNode } from "react";
 
-import { type ConsoleClock } from "@renderer/lib/clock.js";
+import { type Clock } from "@renderer/lib/clock.js";
 import type { TransportReconnectObservable } from "@renderer/lib/transport-reconnect.js";
 import {
   requestSessionDirectoryRead,
@@ -57,7 +57,7 @@ export interface AttentionProviderProps {
   readonly transportReconnect: TransportReconnectObservable;
   readonly sessionStoreRegistry: SessionStoreRegistry;
   /** The window's clock, which the attention read's scheduling runs on. */
-  readonly clock: ConsoleClock;
+  readonly clock: Clock;
 }
 
 /**

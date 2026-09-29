@@ -8,7 +8,7 @@
 // pending pane body and the surface the window cannot hold.
 //
 // WHY NO IMAGE IS VERSIONED. A reference image is a gate only while the next run
-// renders under the same conditions, and font rasterisation moves with the operating
+// renders under the same conditions, and font rasterization moves with the operating
 // system: the same three comparisons this tier used to make disagreed by six pixels
 // of one keycap glyph on one developer Mac and by four figures on others. A gate that
 // is red for a reason the reader must know to discount is a gate the reader stops
@@ -32,10 +32,10 @@ import { requireCapturedElement } from "./captured-element.js";
 import { captureSettled } from "./settled-capture.js";
 
 import { createFixtureComposition } from "@renderer/app/fixture-composition.js";
-import { ConsoleRoot } from "@renderer/app/providers.js";
+import { AppProviders } from "@renderer/app/providers.js";
 import { installMeridianTokens } from "@renderer/app/token-installation.js";
 import { FIRST_RUN_SCENARIO_ID } from "../../fixtures/scenarios/first-run.js";
-import { CONSOLE_SCHEMES } from "@renderer/styles/tokens.js";
+import { COLOR_SCHEMES } from "@renderer/styles/tokens.js";
 
 /** What the console's outermost mounted element is, and what this file captures. */
 const FRAME_SELECTOR = ".meridian-frame";
@@ -57,11 +57,11 @@ afterEach(async () => {
 });
 
 describe("screenshot — the frame under the first-run scenario", () => {
-  for (const scheme of CONSOLE_SCHEMES) {
+  for (const scheme of COLOR_SCHEMES) {
     it(`renders the ${scheme} scheme`, async () => {
       await emulateSystemScheme(scheme);
       const { container } = await renderSettled(
-        <ConsoleRoot composition={createFixtureComposition(FIRST_RUN_SCENARIO_ID)} />,
+        <AppProviders composition={createFixtureComposition(FIRST_RUN_SCENARIO_ID)} />,
       );
 
       await captureSettled(
@@ -77,7 +77,7 @@ describe("screenshot — the frame under the first-run scenario", () => {
     // context row, the grouped command list, and the chord hints in the footer.
     await emulateSystemScheme("light");
     const { container } = await renderSettled(
-      <ConsoleRoot composition={createFixtureComposition(FIRST_RUN_SCENARIO_ID)} />,
+      <AppProviders composition={createFixtureComposition(FIRST_RUN_SCENARIO_ID)} />,
     );
     await pressKeys("{Control>}{Shift>}p{/Shift}{/Control}");
     await pressKeys("{Meta>}{Shift>}p{/Shift}{/Meta}");

@@ -11,12 +11,12 @@
 
 import type { DaemonEvent, DaemonMethod, EventEnvelope } from "@ai-sidekicks/contracts";
 import type { Unsubscribe } from "@shared/preload-api.js";
-import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
-import type { ConsoleClock } from "@renderer/lib/clock.js";
+import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
+import type { Clock } from "@renderer/lib/clock.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
-import type { ConsoleScenario, ScenarioBeat } from "../../fixtures/scenario.js";
+import type { Scenario, ScenarioBeat } from "../../fixtures/scenario.js";
 import type { ScenarioEngine } from "@renderer/services/daemon/engine.fixture.js";
-import { FLAGSHIP_SCENARIO } from "../../fixtures/scenarios/concurrent-streaming.js";
+import { CONCURRENT_STREAMING_SCENARIO } from "../../fixtures/scenarios/concurrent-streaming.js";
 
 /** The scripted latency both settling suites spend. Longer than one tick. */
 export const SCRIPTED_LATENCY_MS = 120;
@@ -43,7 +43,7 @@ export interface RecordedDaemonCall {
 
 /** A bridge whose call arm answers as the suite says, and the record of what it was asked. */
 export interface BridgeUnderTest {
-  readonly bridge: ConsoleBridge;
+  readonly bridge: PlatformBridge;
   readonly calls: readonly RecordedDaemonCall[];
 }
 
@@ -60,7 +60,7 @@ export function runTransitionBeat(payload: Readonly<Record<string, unknown>>): S
     atMs: 0,
     event: {
       id: "019b79ee-0280-7ea1-8110-e5e0d1150077",
-      sessionId: FLAGSHIP_SCENARIO.sessionId,
+      sessionId: CONCURRENT_STREAMING_SCENARIO.sessionId,
       sequence: 1,
       kind: "run.running",
       occurredAt: "2026-01-01T14:20:00.500Z",
@@ -77,12 +77,14 @@ export function runTransitionBeat(payload: Readonly<Record<string, unknown>>): S
  * the day a family scripts a beat past it, and a case that was asserting over the
  * whole script starts asserting over a prefix of it and still passes.
  */
-export function lastScriptedBeatMs(scenario: ConsoleScenario): number {
+export function lastScriptedBeatMs(scenario: Scenario): number {
   return scenario.beats.reduce((latest, beat) => Math.max(latest, beat.atMs), 0);
 }
 
 /** The real fixture bridge over a real scenario, and the real engine driving it. */
-export function createFixture(scenario: ConsoleScenario = FLAGSHIP_SCENARIO): FixtureUnderTest {
+export function createFixture(
+  scenario: Scenario = CONCURRENT_STREAMING_SCENARIO,
+): FixtureUnderTest {
   const bridge = createFixtureBridge({ scenario });
   const engine = bridge.scenarioEngine;
   if (engine === undefined) {
@@ -112,7 +114,7 @@ export function subscribeThroughBridge<Delivered = EventEnvelope>(
   eventName: string,
 ): readonly Delivered[] {
   const received: Delivered[] = [];
-  fixture.bridge.desktopBridge.daemon.subscribe(eventName as DaemonEvent, (payload: unknown) => {
+  fixture.bridge.daemon.subscribe(eventName as DaemonEvent, (payload: unknown) => {
     received.push(payload as Delivered);
   });
   return received;
@@ -126,11 +128,11 @@ export function subscribeThroughBridge<Delivered = EventEnvelope>(
  * cast to the `DaemonMethod` brand lives here rather than at each of them.
  */
 export function callBridge(
-  bridge: ConsoleBridge,
+  bridge: PlatformBridge,
   method: string,
   params?: unknown,
 ): Promise<unknown> {
-  return bridge.desktopBridge.daemon.call(method as DaemonMethod, params);
+  return bridge.daemon.call(method as DaemonMethod, params);
 }
 
 export function callThroughBridge(fixture: FixtureUnderTest, method: string): Promise<unknown> {
@@ -142,7 +144,7 @@ export function callThroughBridge(fixture: FixtureUnderTest, method: string): Pr
  *
  * A spread over a REAL bridge, which is the console's established shape for driving
  * one namespace member (`palette/commands/bridge-commands.test.tsx`). That the rest is real is
- * the point: a surface reaches the wire through `bridge.desktopBridge.daemon.call` and
+ * the point: a surface reaches the wire through `bridge.daemon.call` and
  * nothing else, so a case passing against a hand-built object would not have proved
  * it reached a bridge at all.
  *
@@ -158,13 +160,13 @@ export function callThroughBridge(fixture: FixtureUnderTest, method: string): Pr
  * here once rather than being spelled at each site that needs it.
  */
 export function withDaemonCall(
-  bridge: ConsoleBridge,
+  bridge: PlatformBridge,
   answer: (call: RecordedDaemonCall, passThrough: () => Promise<unknown>) => Promise<unknown>,
 ): BridgeUnderTest {
   const calls: RecordedDaemonCall[] = [];
   // Bound before the spread below, so the pass-through reaches the bridge this helper
   // WRAPPED rather than the arm it is building — which would call itself forever.
-  const wrappedCall = bridge.desktopBridge.daemon.call.bind(bridge.desktopBridge.daemon) as (
+  const wrappedCall = bridge.daemon.call.bind(bridge.daemon) as (
     method: string,
     params: unknown,
   ) => Promise<unknown>;
@@ -172,16 +174,13 @@ export function withDaemonCall(
     calls,
     bridge: {
       ...bridge,
-      desktopBridge: {
-        ...bridge.desktopBridge,
-        daemon: {
-          ...bridge.desktopBridge.daemon,
-          call: (async (method: string, params: unknown): Promise<unknown> => {
-            const recorded: RecordedDaemonCall = { method, params };
-            calls.push(recorded);
-            return answer(recorded, async () => wrappedCall(method, params));
-          }) as ConsoleBridge["desktopBridge"]["daemon"]["call"],
-        },
+      daemon: {
+        ...bridge.daemon,
+        call: (async (method: string, params: unknown): Promise<unknown> => {
+          const recorded: RecordedDaemonCall = { method, params };
+          calls.push(recorded);
+          return answer(recorded, async () => wrappedCall(method, params));
+        }) as PlatformBridge["daemon"]["call"],
       },
     },
   };
@@ -201,25 +200,21 @@ export function withDaemonCall(
  * daemon method throws until a build with a real one is installed.
  */
 export function withDaemonSubscribe(
-  bridge: ConsoleBridge,
+  bridge: PlatformBridge,
   open: (passThrough: () => Unsubscribe) => Unsubscribe,
-): ConsoleBridge {
+): PlatformBridge {
   // Bound before the spread, so the pass-through reaches the bridge this helper
   // WRAPPED rather than the arm it is building — which would call itself forever.
-  const wrappedSubscribe = bridge.desktopBridge.daemon.subscribe.bind(
-    bridge.desktopBridge.daemon,
-  ) as (event: string, handler: (payload: unknown) => void) => Unsubscribe;
+  const wrappedSubscribe = bridge.daemon.subscribe.bind(bridge.daemon) as (
+    event: string,
+    handler: (payload: unknown) => void,
+  ) => Unsubscribe;
   return {
     ...bridge,
-    desktopBridge: {
-      ...bridge.desktopBridge,
-      daemon: {
-        ...bridge.desktopBridge.daemon,
-        subscribe: ((event: string, handler: (payload: unknown) => void): Unsubscribe =>
-          open(() =>
-            wrappedSubscribe(event, handler),
-          )) as ConsoleBridge["desktopBridge"]["daemon"]["subscribe"],
-      },
+    daemon: {
+      ...bridge.daemon,
+      subscribe: ((event: string, handler: (payload: unknown) => void): Unsubscribe =>
+        open(() => wrappedSubscribe(event, handler))) as PlatformBridge["daemon"]["subscribe"],
     },
   };
 }
@@ -234,7 +229,7 @@ export function withDaemonSubscribe(
  */
 export function bridgeAnswering(
   answer: (call: RecordedDaemonCall, passThrough: () => Promise<unknown>) => Promise<unknown>,
-  scenario?: ConsoleScenario,
+  scenario?: Scenario,
 ): BridgeUnderTest {
   return withDaemonCall(createFixture(scenario).bridge, answer);
 }
@@ -250,7 +245,7 @@ export function bridgeAnswering(
  * The id is the caller's because the fixture names it in the refusal it raises: a
  * shared id would put one test's scenario name in another test's rendered failure.
  */
-export function unscriptedScenario(id: string): ConsoleScenario {
+export function unscriptedScenario(id: string): Scenario {
   return {
     id,
     label: "Nothing scripted",
@@ -266,14 +261,14 @@ export function unscriptedScenario(id: string): ConsoleScenario {
 /**
  * A bridge over a scenario that scripts nothing, whose window runs on this clock.
  *
- * `consoleClockFor` reads the scenario engine's clock, and `FixtureBridgeOptions` takes no
+ * `resolveBridgeClock` reads the scenario engine's clock, and `FixtureBridgeOptions` takes no
  * clock, so the engine member is replaced by hand. The scenario id is the caller's for the
  * reason `unscriptedScenario` gives.
  */
-export function bridgeOnClock(scenarioId: string, clock?: ConsoleClock): ConsoleBridge {
+export function bridgeOnClock(scenarioId: string, clock?: Clock): PlatformBridge {
   const bridge = createFixtureBridge({ scenario: unscriptedScenario(scenarioId) });
   if (clock === undefined) {
     return bridge;
   }
-  return { ...bridge, scenarioEngine: { clock } } as ConsoleBridge;
+  return { ...bridge, scenarioEngine: { clock } } as PlatformBridge;
 }

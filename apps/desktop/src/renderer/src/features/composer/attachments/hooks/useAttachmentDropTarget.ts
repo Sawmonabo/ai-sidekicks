@@ -2,7 +2,7 @@
 //
 // ONE BINDING FOR BOTH, because they are one act with two gestures: a person drops a
 // file on the message they are writing, or pastes one into it, and either way the
-// carrier is handed the same `File[]`. Two hooks would be two places to get the
+// staged list is handed the same `File[]`. Two hooks would be two places to get the
 // guard wrong.
 //
 // THE REGION IS THE WHOLE COMPOSER AND NOT A DROP STRIP. A target a person has to aim
@@ -123,7 +123,7 @@ export function useAttachmentDropTarget(options: AttachmentDropOptions): boolean
       deliver(event.dataTransfer?.files);
     };
     const onPaste = (event: ClipboardEvent): void => {
-      // The default is left alone unless files actually travelled, so pasting text
+      // The default is left alone unless files actually traveled, so pasting text
       // into the message line behaves exactly as it did before this binding existed.
       if (deliver(event.clipboardData?.files)) {
         event.preventDefault();

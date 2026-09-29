@@ -31,13 +31,13 @@
 //
 // AND ONE MORE THAT IS NOT NEGOTIABLE: an unparseable formula renders as its SOURCE, in
 // mono, beside a named absence — never as KaTeX's red error text, which is a stranger's
-// voice in the ledger, and never as nothing, which would read as the author having
+// voice in the transcript, and never as nothing, which would read as the author having
 // written nothing.
 //
 // WHICH IS WHY `throwOnError` IS TRUE HERE AND THE CALL SITS IN A `try`. Under
 // `throwOnError: false` KaTeX does not report a parse failure at all: it RESOLVES,
 // returning its own error rendering as the markup, so the `unrenderable` arm below is
-// unreachable and the source is never shown. Colouring that rendering away — the
+// unreachable and the source is never shown. Coloring that rendering away — the
 // `errorColor: "transparent"` this file used to pass — does not restore the arm; it
 // paints the stranger's voice invisible and leaves a sighted reader an empty box where a
 // formula was. Throwing is the only way this component learns the difference between a
@@ -114,7 +114,7 @@ function useKatexMarkup(source: string, isDisplayMode: boolean): MathRenderState
           // See this file's header. `renderToString` throws on a formula it cannot
           // parse, which is the only signal that distinguishes one from a formula it
           // typeset — and `errorColor` is deliberately not passed, because the only
-          // thing it could colour is a rendering this component never accepts.
+          // thing it could color is a rendering this component never accepts.
           throwOnError: true,
         });
         if (isMounted) {

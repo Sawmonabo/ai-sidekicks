@@ -1,7 +1,7 @@
-// The per-agent tool grant, on the card, as one line.
+// The per-agent tool allowlist, on the card, as one line.
 //
 // The per-agent tool control belongs here and the node-wide one in settings. Neither
-// half is a control on this card: the first is set when a sidekick starts from a
+// half is a control on this card: the first is set when an agent starts from a
 // definition and the second on the browser settings page.
 //
 // WHY THIS IS ITS OWN LINE AND NOT A ROW IN THE ECHO. The echo answers "what did the
@@ -35,7 +35,7 @@ export function ToolAllowlistLine(props: {
   readonly position: AgentToolAllowlistPosition;
 }): React.JSX.Element {
   return (
-    <p className="meridian-agent-card__tool-grant">
+    <p className="meridian-agent-card__tool-allowlist">
       <span className="meridian-agent-card__line-label">Tool grant</span>{" "}
       {positionSentence(props.position)}
     </p>

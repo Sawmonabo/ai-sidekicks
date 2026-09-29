@@ -1,13 +1,13 @@
 // The transcript-states scenario: three lanes ending in three different conditions.
 //
-// The session the ledger frame, the chapters, and the seams are all measured
+// The session the transcript frame, the run groups, and the seams are all measured
 // against. Each lane ends somewhere different, and the three
 // endings are exactly the ones a reader has to be able to tell apart in one frame:
 //
 //   • The implementer's run runs, blocks on an approval, unblocks, is rewound past
-//     a boundary, re-executes, and finishes — so its chapter is TERMINAL and folds
+//     a boundary, re-executes, and finishes — so its run group is TERMINAL and folds
 //     to a one-line past-tense receipt, with a superseded band inside it.
-//   • The reviewer's run runs, fails a tool call, and is PAUSED — so its chapter
+//   • The reviewer's run runs, fails a tool call, and is PAUSED — so its run group
 //     carries the pause seam and stays parked at the frozen tick.
 //   • The architect's run is still LIVE at the last beat, mid-turn, so the frame
 //     always has something streaming in it.
@@ -38,7 +38,7 @@
 //     the log can tell.
 //   • **A cost or token reading.** Not because the members are unnamed — the taxonomy
 //     leg names them, and `concurrent-streaming.ts` meters a cost against exactly that row
-//     — but because this session's subject is the transcript frame, the chapters and the
+//     — but because this session's subject is the transcript frame, the run groups and the
 //     seams, and the meter is not on any of them. Concurrent streaming is
 //     the scenario that moves the meter; a second one here would be a reading no surface
 //     in this session's frame reads. Scripting one would carry every member
@@ -55,7 +55,7 @@ import {
   createRunEntryBuilders,
   type ScriptEntry,
 } from "../data/script-entries.js";
-import type { ConsoleScenario } from "../scenario.js";
+import type { Scenario } from "../scenario.js";
 import {
   type ScenarioAgent,
   composeAttachedInstant,
@@ -91,7 +91,7 @@ const RUN_ARCHITECT = "019b793b-7b60-740e-8130-d1a4c1150113";
 /**
  * The child run the architect's turn opens, and the only run here with a parent.
  *
- * A CHILD RUN IS NOT A FOURTH LANE. The ledger summarizes it onto the one row that
+ * A CHILD RUN IS NOT A FOURTH LANE. The transcript summarizes it onto the one row that
  * names both it and its parent rather than drawing a lane of its own, which is why
  * this id is stated beside the three above and is deliberately not one of them: the
  * three are the compositions a reader has to tell apart in one frame, and this is
@@ -167,7 +167,7 @@ const TRANSCRIPT_STATES_AGENTS: readonly ScenarioAgent[] = [
  * The rewind anchor the implementer's run landed at.
  *
  * Named once because two things read it and they must agree: the boundary beat
- * declares it, and the superseded band the ledger draws is every row of that run
+ * declares it, and the superseded band the transcript draws is every row of that run
  * and epoch whose position EXCEEDS it. A second literal would let the band and the
  * boundary disagree about which turns are past.
  */
@@ -291,7 +291,7 @@ const TRANSCRIPT_STATES_SCRIPT: readonly ScriptEntry[] = [
 
   // THE HANDOFF, OBSERVED TWICE. A provider-native subagent opens under the reviewer's
   // tool call and finishes inside it, both beats carrying the SAME identity — which is
-  // why both are here. The ledger anchors a subagent at the first row naming it and
+  // why both are here. The transcript anchors a subagent at the first row naming it and
   // draws one handoff there; the completion joins that anchor and draws nothing of its
   // own, so one beat of the pair could never show the second was suppressed.
   lane.subagent(RUN_REVIEWER, {
@@ -378,7 +378,7 @@ const TRANSCRIPT_STATES_SCRIPT: readonly ScriptEntry[] = [
 
   // THE CHILD RUN, BORN HERE AND NOWHERE ELSE. The architect's turn opens a run of its
   // own, and this beat is the only one in the session naming both it and its parent —
-  // the taxonomy puts the orchestration linkage on the birth beat, and the ledger
+  // the taxonomy puts the orchestration linkage on the birth beat, and the transcript
   // summarizes the child onto exactly the row carrying it. Everything else the summary
   // states is derived from the rows below.
   lane.transition(RUN_ARCHITECT_CHILD, {
@@ -509,13 +509,13 @@ const TRANSCRIPT_STATES_SCRIPT: readonly ScriptEntry[] = [
   },
 ];
 
-export const LEDGER_SCENARIO_ID = "transcript-states";
+export const TRANSCRIPT_STATES_SCENARIO_ID = "transcript-states";
 
-export const TRANSCRIPT_STATES_SCENARIO: ConsoleScenario = {
-  id: LEDGER_SCENARIO_ID,
+export const TRANSCRIPT_STATES_SCENARIO: Scenario = {
+  id: TRANSCRIPT_STATES_SCENARIO_ID,
   label: "Three lanes",
   purpose:
-    "A session whose three runs end in three different conditions at once — one finished behind a rewind boundary, one parked, one still streaming — so the chapters and the seams all have something to render.",
+    "A session whose three runs end in three different conditions at once — one finished behind a rewind boundary, one parked, one still streaming — so the run groups and the seams all have something to render.",
   sessionId: SESSION_ID,
   // Join order IS hue order: the person first, then the agents in attach order,
   // which is what a real session's join log looks like.
@@ -587,7 +587,7 @@ export const TRANSCRIPT_STATES_SCENARIO: ConsoleScenario = {
         // acknowledged on its NEXT read, and a reply carrying only `latest` names
         // no position to submit. Behind `latest`, as a real one is — this
         // user has read most of the log and not all of it.
-        timelineCursors: { latest: "ledger-cursor-33", acknowledged: "ledger-cursor-30" },
+        timelineCursors: { latest: "transcript-cursor-33", acknowledged: "transcript-cursor-30" },
       },
     },
   ],

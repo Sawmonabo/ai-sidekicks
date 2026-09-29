@@ -36,7 +36,7 @@ export interface ClosableApplication {
  * Force-termination, as a seam.
  *
  * A constructor argument so a test can assert the SIGKILL happened without
- * signalling anything: a spy is an object literal, and these cases run INSIDE
+ * signaling anything: a spy is an object literal, and these cases run INSIDE
  * the runner, where a terminator that really killed something would deliver to
  * a whole process group — the launched tree only because playwright-core spawns
  * detached, and somebody else's group for any other pid it is handed.
@@ -61,7 +61,7 @@ export interface ProcessTerminator {
    */
   readonly terminate: (processId: number, remainingBudgetMilliseconds: number) => boolean;
   /**
-   * Whether that process may still EXECUTE, asked without signalling it.
+   * Whether that process may still EXECUTE, asked without signaling it.
    *
    * On the same seam as `terminate` rather than a fourth constructor argument,
    * because the two are one subject: `terminationSucceeded` already decides a

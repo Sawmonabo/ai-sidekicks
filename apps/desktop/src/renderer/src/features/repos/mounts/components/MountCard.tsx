@@ -44,7 +44,7 @@ import type {
   WorkspaceExecutionModeCapabilitiesReadResponse,
   WorkspaceId,
 } from "@ai-sidekicks/contracts";
-import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import {
   Chip,
   Glyph,
@@ -76,7 +76,7 @@ export interface MountCardProps {
   /** Per workspace: the mode a switch is on the wire for, where one is. */
   readonly pendingModeByWorkspaceId: Readonly<Record<string, ExecutionMode>>;
   /** The bridge each control takes its clock from. */
-  readonly bridge: ConsoleBridge;
+  readonly bridge: PlatformBridge;
   /** The calls each control on this card makes. */
   readonly operations: RepoOperations;
   /** The session each control takes its reconnect and stale-frame triggers from. */
@@ -207,7 +207,7 @@ export function MountCard(props: MountCardProps): React.JSX.Element {
                 }}
               />
               {/* Beside the card and not inside it: a card renders what its own read
-                  said, and opening a pane is the deck's act rather than a column. */}
+                  said, and opening a pane is the pane layout's act rather than a column. */}
               <OpenDiffControl
                 subject={{ kind: "workspace", id: workspace.id }}
                 onOpenDiff={props.onOpenDiff}

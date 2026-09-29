@@ -12,7 +12,7 @@
 //   * The git seam of `WorktreeService` is left at its PRODUCTION default —
 //     `execFile` against the real `git` binary. The services are therefore
 //     exercised through the same process seam a daemon uses; nothing about the
-//     invocation is modelled here. `ExecutionRootService`
+//     invocation is modeled here. `ExecutionRootService`
 //     takes its `git` / `filesystem` seams with no defaults, so this suite
 //     supplies real ones rather than stubs.
 //   * Every fixture repository is HOSTILE: sentinel hooks are installed in its
@@ -704,7 +704,7 @@ function insertMount(repoMountId: string, canonicalRoot: string): void {
 /**
  * Seed a workspace directly.
  *
- * Raw INSERT rather than `WorkspaceService.bind`: a bind lands `provisioning`
+ * Raw INSERT rather than `WorkspaceService.bind`: a bind lands `preparing`
  * with no root, and these cases start from a workspace that already has one.
  * Every case that cares about a TRANSITION still drives the real primitives
  * through the service under test.
@@ -972,7 +972,7 @@ describe("the worktree lifecycle on real git: create -> dirty -> merged -> retir
     async () => {
       const created = await createWorktree("feature/login");
       // A real uncommitted change in the real checkout — `status --porcelain`
-      // reads it, nothing is modelled.
+      // reads it, nothing is modeled.
       writeFileSync(join(created.fsRoot, "scratch-notes.txt"), "work in progress\n");
 
       // The unacknowledged candidate REFUSES.

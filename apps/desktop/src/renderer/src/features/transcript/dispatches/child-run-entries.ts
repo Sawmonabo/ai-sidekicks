@@ -1,14 +1,14 @@
-// Child runs and handoffs, as structure the ledger can draw.
+// Child runs and handoffs, as structure the transcript can draw.
 //
 // WHAT WAS MISSING. A row carries `childRunSummary` and nothing rendered it: the
-// chapter header raised an incompleteness marker over a whole chapter and the child
+// run group header raised an incompleteness marker over a whole run group and the child
 // run itself — its state, how much it holds, and which node produced it — reached no
 // row at all. A handoff was worse off still: work changing hands read as an ordinary
 // receipt in the log beside every other row.
 //
 // TWO ENTRY KINDS, ONE INDEX, because they are asked the same way at the same moment:
 // the feed's row renderer holds one window and asks, per row, "is this row one of the
-// ledger's own treatments". Two indexes would be two passes over one window for two
+// transcript's own treatments". Two indexes would be two passes over one window for two
 // lookups that are always both performed.
 //
 // A HANDOFF IS A PROJECTION ENTRY AND NEVER AN EVENT TYPE. `handoff` is an entry the
@@ -32,7 +32,7 @@ import {
 } from "@ai-sidekicks/contracts";
 
 import { readWireString } from "@renderer/lib/wire-strings.js";
-// The ledger's one open-payload reader, which answers the `rollback_boundary` arm's
+// The transcript's one open-payload reader, which answers the `rollback_boundary` arm's
 // TYPED payload with an empty record rather than widening it into a bag.
 import { projectedPayload } from "@renderer/store/session-events/wire-payload.js";
 import { SubagentAnchorIndex } from "./subagent-anchors.js";
@@ -98,8 +98,8 @@ export interface HandoffEntry {
   /**
    * The child run this handoff opened, when the row names one.
    *
-   * What the handoff thread is drawn to: the child run's chapter header is keyed by
-   * its run id, so a handoff that names one can be threaded to the chapter it
+   * What the handoff thread is drawn to: the child run's run group header is keyed by
+   * its run id, so a handoff that names one can be threaded to the run group it
    * started and one that does not draws no thread rather than an invented one.
    */
   readonly childRunId: string | undefined;
@@ -158,7 +158,7 @@ export class ChildRunIndex {
  * The member is on `TimelineRowBase`, so it reaches all four arms and this reads it
  * without narrowing on `kind`: a child run summarized onto a `general` row is still a
  * child run, and dropping it because the row carries no run attribution would hide
- * background work — which this ledger forbids in terms.
+ * background work — which this transcript forbids in terms.
  */
 export function deriveChildRunEntries(rows: readonly TimelineRow[]): readonly ChildRunEntry[] {
   const entriesByChildRunId = new Map<string, ChildRunEntryUnderConstruction>();
@@ -254,8 +254,8 @@ interface ChildRunEntryUnderConstruction {
  * The summary is consulted FIRST because it is a parsed contract shape and the
  * payload member is a free-form read: where a row carries both, the one the schema
  * validated wins. Neither is invented from the row's own `runId`, which on these rows
- * is the PARENT — threading a handoff to its own parent chapter would draw a line
- * from a row to the chapter it already sits in.
+ * is the PARENT — threading a handoff to its own parent run group would draw a line
+ * from a row to the run group it already sits in.
  */
 function childRunIdOf(row: TimelineRow): string | undefined {
   return row.childRunSummary?.runId ?? readWireString(projectedPayload(row)["childRunId"]);

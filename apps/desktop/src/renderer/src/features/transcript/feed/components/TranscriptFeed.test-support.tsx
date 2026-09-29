@@ -4,7 +4,7 @@
 // the narrowing, and the two seats — and every one of them needs the same three
 // things: a laid-out box, a mount under a bridge, and a way to press a contributed
 // palette row. Written once here, on
-// `ledger/structure/timeline-rows.test-support.ts`' terms: a module beside the code it serves,
+// `features/transcript/timeline-rows.test-support.ts`' terms: a module beside the code it serves,
 // consumed by tests and by nothing else.
 //
 // THE LOGS ARE NOT HERE. A store builder needs no DOM and no React, and the pane's
@@ -18,31 +18,31 @@
 import { act, render } from "@testing-library/react";
 import { vi } from "vitest";
 
-import { LEDGER_WINDOW_ROW_CAP } from "../../frame/frame-caps.js";
-import { DesktopBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
+import { TRANSCRIPT_WINDOW_ROW_CAP } from "../../frame/frame-caps.js";
+import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { useRetainedRowState } from "../../viewport/hooks/useRetainedRowState.js";
-import { LEDGER_QUIET_SCENARIO } from "../../../../../../../fixtures/scenarios/empty-session.js";
-import { consoleCommandSurface } from "@renderer/registries/commands/command-contributions.js";
-import { consoleCommands } from "@renderer/registries/commands/window-command-registry.js";
+import { EMPTY_SESSION_SCENARIO } from "../../../../../../../fixtures/scenarios/empty-session.js";
+import { commandContributionRegistry } from "@renderer/registries/commands/command-contributions.js";
+import { commandRegistry } from "@renderer/registries/commands/window-command-registry.js";
 import {
   TRANSCRIPT_COMMAND_OWNER,
   registerTranscriptCommands,
 } from "../../contributions/commands.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
-import { type TimelineRowSlotProps } from "@renderer/console/seats/index.js";
+import { type TranscriptRowProps } from "@renderer/console/seats/index.js";
 import { TranscriptFeed } from "./TranscriptFeed.js";
 
 export const LAID_OUT_VIEWPORT_HEIGHT_PX = 400;
 
-/** The deck pane every fixture feed is the body of, so its seat is read under one key. */
-export const TRANSCRIPT_FIXTURE_PANE_ID = "pane-ledger-fixture";
+/** The pane every fixture feed is the body of, so its seat is read under one key. */
+export const TRANSCRIPT_FIXTURE_PANE_ID = "pane-transcript-fixture";
 const LAID_OUT_CONTENT_HEIGHT_PX = 10_000;
 export const SHORT_LOG_EVENT_COUNT = 10;
-export const OVER_CAP_EVENT_COUNT: number = LEDGER_WINDOW_ROW_CAP + 50;
+export const OVER_CAP_EVENT_COUNT: number = TRANSCRIPT_WINDOW_ROW_CAP + 50;
 
 /**
- * Give the ledger a laid-out, scrollable box for the length of one case.
+ * Give the transcript a laid-out, scrollable box for the length of one case.
  *
  * Both reads are load-bearing and neither is the module under test: the
  * virtualizer treats a zero outer size as "no range at all", and the scroll
@@ -58,7 +58,7 @@ export function withLaidOutViewport(): void {
 }
 
 /**
- * Mount the feed under a bridge, because the ledger reads the console clock.
+ * Mount the feed under a bridge, because the transcript reads the console clock.
  *
  * `onRowMounted` is how a case reads the three decisions the list makes for a row:
  * they reach the seat as arguments and never as markup, so a case that only read
@@ -66,11 +66,11 @@ export function withLaidOutViewport(): void {
  */
 export function renderFeed(
   sessionStore: SessionStore,
-  onRowMounted?: (mount: TimelineRowSlotProps) => void,
-  renderRowBody?: (mount: TimelineRowSlotProps) => React.JSX.Element,
+  onRowMounted?: (mount: TranscriptRowProps) => void,
+  renderRowBody?: (mount: TranscriptRowProps) => React.JSX.Element,
 ): HTMLElement {
   const { container } = render(
-    <DesktopBridgeProvider bridge={createFixtureBridge({ scenario: LEDGER_QUIET_SCENARIO })}>
+    <PlatformBridgeProvider bridge={createFixtureBridge({ scenario: EMPTY_SESSION_SCENARIO })}>
       <TranscriptFeed
         sessionStore={sessionStore}
         paneId={TRANSCRIPT_FIXTURE_PANE_ID}
@@ -80,11 +80,11 @@ export function renderFeed(
         }}
         feedLabel="Session timeline"
       />
-    </DesktopBridgeProvider>,
+    </PlatformBridgeProvider>,
   );
-  const feed = container.querySelector(".meridian-ledger");
+  const feed = container.querySelector(".meridian-transcript-feed");
   if (!(feed instanceof HTMLElement)) {
-    throw new Error("LedgerFeed rendered no ledger element");
+    throw new Error("TranscriptFeed rendered no transcript element");
   }
   return feed;
 }
@@ -98,7 +98,7 @@ export function renderFeed(
  * reaches the window and comes back as the density the seat is handed. This row is
  * the smallest thing that can perform the write from inside the tree.
  */
-export function LeasingRowBody(props: TimelineRowSlotProps): React.JSX.Element {
+export function LeasingRowBody(props: TranscriptRowProps): React.JSX.Element {
   const rowLease = useRetainedRowState();
   return (
     <button
@@ -118,19 +118,19 @@ export function LeasingRowBody(props: TimelineRowSlotProps): React.JSX.Element {
 }
 
 /**
- * Contribute the ledger's palette rows into this window's real command surface.
+ * Contribute the transcript's palette rows into this window's real command surface.
  *
  * The real one rather than a private registry, because the seam under test is
  * exactly that a command contributed at COMPOSITION time reaches a feed mounted
  * later. A test-owned surface would prove the acts fire and nothing about that.
  */
 export function contributeTranscriptCommands(): void {
-  registerTranscriptCommands(consoleCommandSurface);
+  registerTranscriptCommands(commandContributionRegistry);
 }
 
 /** Leave the window with none of this family's rows, so cases do not leak into each other. */
 export function withdrawTranscriptCommands(): void {
-  consoleCommandSurface.contribute({
+  commandContributionRegistry.contribute({
     owner: TRANSCRIPT_COMMAND_OWNER,
     commands: [],
     keyBindings: [],
@@ -139,7 +139,7 @@ export function withdrawTranscriptCommands(): void {
 
 /** Run one contributed command by id, the way the palette does. */
 export function dispatchCommand(commandId: string): void {
-  const command = consoleCommands
+  const command = commandRegistry
     .commandsFor({ sessionActive: true })
     .find((candidate) => candidate.id === commandId);
   if (command === undefined) {

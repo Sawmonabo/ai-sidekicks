@@ -1,11 +1,11 @@
-// The ledger under a log as long as it claims to survive.
+// The transcript under a log as long as it claims to survive.
 //
 // WHAT THIS FILE MEASURES, AND WHY IT IS THE ONLY THING IN THIS TIER THAT DOES NOT
 // LAUNCH ELECTRON
 //
-// Its two neighbours hold a real window open and read the renderer's heap. This one
-// measures the ledger's own FOLD — `deriveLedgerWindow`, which turns a session's
-// event log into rows, chapters, seams and a superseded index — over a
+// Its two neighbors hold a real window open and read the renderer's heap. This one
+// measures the transcript's own FOLD — `deriveTranscriptWindow`, which turns a session's
+// event log into rows, run groups, seams and a superseded index — over a
 // generated session of ten thousand rows.
 //
 // It cannot be one of those runs, and the reason is structural rather than a
@@ -55,12 +55,12 @@ import { runInNewContext } from "node:vm";
 
 import { describe, expect, it } from "vitest";
 
-import type { ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
+import type { ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 import { createTranscriptEnduranceFixture } from "./transcript-endurance.test-support.js";
-import { deriveLedgerWindow } from "@renderer/features/transcript/window/transcript-window.js";
+import { deriveTranscriptWindow } from "@renderer/features/transcript/window/transcript-window.js";
 
 /**
- * The length of log this tier measures the ledger at.
+ * The length of log this tier measures the transcript at.
  *
  * Passed to the generator EXPLICITLY on every call in this file rather than left to
  * its default, on the generator's own reasoning: an endurance reading names the row
@@ -80,7 +80,7 @@ const LINEARITY_PROBE_ROW_COUNT = 2_500;
  * (2,500 rows fold in ~2.5 ms, 10,000 in ~11 ms, best of five on an eight-core
  * laptop), and this leaves comfortably over the noise while sitting half way to the
  * quadratic figure it exists to catch. Fixed per-call overhead can only push the
- * ratio DOWN — the larger fold amortises it further — so it cannot manufacture a
+ * ratio DOWN — the larger fold amortizes it further — so it cannot manufacture a
  * failure here.
  */
 const SUPERLINEAR_COST_RATIO_CEILING = 8;
@@ -92,7 +92,7 @@ const REPEATED_FOLD_COUNT = 20;
  * What twenty folds of a ten-thousand-row log may add to the heap and still pass.
  *
  * Not zero, because V8 keeps code objects, inline caches and deoptimization data
- * alive across a run and none of that is the ledger's doing. Not a fraction of the
+ * alive across a run and none of that is the transcript's doing. Not a fraction of the
  * baseline either, for `steady-state.test.ts`' reason: what is being bounded is a
  * leak, and a leak's size has nothing to do with how large the process was to begin
  * with.
@@ -124,14 +124,14 @@ function resolveForcedCollection(): () => void {
   const exposed: unknown = runInNewContext("gc");
   if (typeof exposed !== "function") {
     throw new Error(
-      "this runtime exposed no collector under --expose-gc, so no heap figure in this tier would describe what the ledger retains",
+      "this runtime exposed no collector under --expose-gc, so no heap figure in this tier would describe what the transcript retains",
     );
   }
   return exposed as () => void;
 }
 
 /** One generated session's log, as the events a store would have admitted. */
-function enduranceTimeline(rowCount: number): readonly ConsoleSessionEvent[] {
+function enduranceTimeline(rowCount: number): readonly ProjectedSessionEvent[] {
   return createTranscriptEnduranceFixture({ rowCount }).beats.map((beat) => beat.event);
 }
 
@@ -153,7 +153,7 @@ function settledHeapBytes(): number {
 }
 
 /**
- * How long the ledger's fold takes over one log, best of several passes.
+ * How long the transcript's fold takes over one log, best of several passes.
  *
  * The best rather than the mean, because the distribution is one-sided: a sample can
  * be slowed by a collection or by the scheduler and nothing can make one faster than
@@ -161,13 +161,13 @@ function settledHeapBytes(): number {
  * be eliminated as dead code — and read as a length rather than discarded, because a
  * fold whose output nobody touches is a fold the compiler is free to shorten.
  */
-function fastestFoldMilliseconds(timeline: readonly ConsoleSessionEvent[]): number {
+function fastestFoldMilliseconds(timeline: readonly ProjectedSessionEvent[]): number {
   let fastestPass = Number.POSITIVE_INFINITY;
   for (let sampleIndex = 0; sampleIndex < MEASUREMENT_SAMPLE_COUNT; sampleIndex += 1) {
     const startedAt = performance.now();
-    const ledgerWindow = deriveLedgerWindow(timeline, false);
+    const transcriptWindow = deriveTranscriptWindow(timeline, false);
     const elapsedMilliseconds = performance.now() - startedAt;
-    if (ledgerWindow.rows.length === 0) {
+    if (transcriptWindow.rows.length === 0) {
       throw new Error("the fold produced no rows, so its timing describes nothing");
     }
     fastestPass = Math.min(fastestPass, elapsedMilliseconds);
@@ -191,7 +191,7 @@ function fastestFoldMilliseconds(timeline: readonly ConsoleSessionEvent[]): numb
  * that way, and the control failed for a reason that had nothing to do with the
  * shape it was planted to prove.
  */
-function quadraticFoldMilliseconds(timeline: readonly ConsoleSessionEvent[]): number {
+function quadraticFoldMilliseconds(timeline: readonly ProjectedSessionEvent[]): number {
   let fastestPass = Number.POSITIVE_INFINITY;
   for (let sampleIndex = 0; sampleIndex < MEASUREMENT_SAMPLE_COUNT; sampleIndex += 1) {
     const startedAt = performance.now();
@@ -212,7 +212,7 @@ function quadraticFoldMilliseconds(timeline: readonly ConsoleSessionEvent[]): nu
   return fastestPass;
 }
 
-describe("endurance — the ledger's fold over a long session", () => {
+describe("endurance — the transcript's fold over a long session", () => {
   it("folds every row of a ten-thousand-row session into one complete window", () => {
     // The control for everything else here. A fold that silently dropped most of the
     // log would be fast, would retain almost nothing, and would satisfy both of the
@@ -220,33 +220,33 @@ describe("endurance — the ledger's fold over a long session", () => {
     const timeline = enduranceTimeline(ENDURANCE_ROW_COUNT);
     expect(timeline).toHaveLength(ENDURANCE_ROW_COUNT);
 
-    const ledgerWindow = deriveLedgerWindow(timeline, false);
+    const transcriptWindow = deriveTranscriptWindow(timeline, false);
 
     // Every event the generator scripts is a registered kind the projection places,
     // so every one becomes a row; a window that dropped an event family would
     // otherwise still read as complete.
-    expect(ledgerWindow.rows).toHaveLength(ENDURANCE_ROW_COUNT);
+    expect(transcriptWindow.rows).toHaveLength(ENDURANCE_ROW_COUNT);
     // The virtualizer's identity list and the body lookup are two views of one set:
     // a viewport row with no body renders the not-loaded absence, and a body with no
     // viewport row is never drawn at all.
-    expect(ledgerWindow.viewportRows).toHaveLength(ledgerWindow.rows.length);
-    expect(ledgerWindow.rowsByKey.size).toBe(ledgerWindow.rows.length);
-    // Every generated chapter closes, so the window holds no live turn — and every
-    // row that hangs from a chapter is collapsed under the terminal-chapter fold.
-    // The rows that are NOT collapsed are exactly the ones that belong to no chapter:
+    expect(transcriptWindow.viewportRows).toHaveLength(transcriptWindow.rows.length);
+    expect(transcriptWindow.rowsByKey.size).toBe(transcriptWindow.rows.length);
+    // Every generated run group closes, so the window holds no live turn — and every
+    // row that hangs from a run group is collapsed under the terminal run group fold.
+    // The rows that are NOT collapsed are exactly the ones that belong to no run group:
     // the session's opening beats, whose arm structurally carries no run. Stated that
     // way rather than as a count, so the claim does not encode how many beats the
     // generator happens to spend opening a session — and it still fails the day the
-    // chapter index stops recognising a run's terminal at scale, because those rows
+    // run group index stops recognizing a run's terminal at scale, because those rows
     // would join the uncollapsed set carrying a run.
-    expect(ledgerWindow.hasActiveTurn).toBe(false);
+    expect(transcriptWindow.hasActiveTurn).toBe(false);
     const uncollapsedRowKinds = new Set(
-      ledgerWindow.rows
-        .filter((row) => !ledgerWindow.collapsedRowIds.has(row.id))
+      transcriptWindow.rows
+        .filter((row) => !transcriptWindow.collapsedRowIds.has(row.id))
         .map((row) => row.kind),
     );
     expect([...uncollapsedRowKinds]).toStrictEqual(["general"]);
-    expect(ledgerWindow.collapsedRowIds.size).toBeGreaterThan(0);
+    expect(transcriptWindow.collapsedRowIds.size).toBeGreaterThan(0);
   });
 
   it("does not fold superlinearly as the log grows", () => {
@@ -256,11 +256,11 @@ describe("endurance — the ledger's fold over a long session", () => {
     const longFoldMilliseconds = fastestFoldMilliseconds(enduranceTimeline(ENDURANCE_ROW_COUNT));
     const costRatio = longFoldMilliseconds / shortFoldMilliseconds;
 
-    // Reported before the assertion, on the reasoning both neighbours state: a gate
+    // Reported before the assertion, on the reasoning both neighbors state: a gate
     // that speaks only when it fails gives a reviewer no way to watch a margin
     // shrink over months until the day it crosses.
     process.stdout.write(
-      `[console-endurance] ledger fold ${shortFoldMilliseconds.toFixed(2)} ms at ` +
+      `[console-endurance] transcript fold ${shortFoldMilliseconds.toFixed(2)} ms at ` +
         `${String(LINEARITY_PROBE_ROW_COUNT)} rows, ${longFoldMilliseconds.toFixed(2)} ms at ` +
         `${String(ENDURANCE_ROW_COUNT)} rows — ${costRatio.toFixed(2)}× over a 4× log ` +
         `(ceiling ${String(SUPERLINEAR_COST_RATIO_CEILING)}×)\n`,
@@ -299,7 +299,7 @@ describe("endurance — the ledger's fold over a long session", () => {
     const retainedBytes = finalHeapBytes - baselineHeapBytes;
 
     process.stdout.write(
-      `[console-endurance] ledger fold retention ${String(Math.round(retainedBytes / 1024))} kB ` +
+      `[console-endurance] transcript fold retention ${String(Math.round(retainedBytes / 1024))} kB ` +
         `over ${String(REPEATED_FOLD_COUNT)} folds of ${String(ENDURANCE_ROW_COUNT)} rows ` +
         `(ceiling ${String(Math.round(REPEATED_FOLD_RETENTION_CEILING_BYTES / 1024))} kB)\n`,
     );
@@ -314,7 +314,7 @@ describe("endurance — the ledger's fold over a long session", () => {
     // case above sensitive rather than merely quiet.
     const timeline = enduranceTimeline(ENDURANCE_ROW_COUNT);
     const baselineHeapBytes = settledHeapBytes();
-    const heldWindow = deriveLedgerWindow(timeline, false);
+    const heldWindow = deriveTranscriptWindow(timeline, false);
     const heldHeapBytes = settledHeapBytes();
     // Read through the held window AFTER the measurement, so it is unambiguously
     // still reachable at the moment the heap was sampled.
@@ -322,7 +322,7 @@ describe("endurance — the ledger's fold over a long session", () => {
 
     const windowBytes = heldHeapBytes - baselineHeapBytes;
     process.stdout.write(
-      `[console-endurance] one held ledger window ${String(Math.round(windowBytes / 1024))} kB ` +
+      `[console-endurance] one held transcript window ${String(Math.round(windowBytes / 1024))} kB ` +
         `at ${String(ENDURANCE_ROW_COUNT)} rows\n`,
     );
     expect(windowBytes).toBeGreaterThan(REPEATED_FOLD_RETENTION_CEILING_BYTES);
@@ -335,11 +335,11 @@ describe("endurance — the ledger's fold over a long session", () => {
  * A named function rather than an inline statement, because what matters is that no
  * binding outlives the call: a loop that assigned each window to a variable in the
  * enclosing scope would hold the last one alive, and the reading would then be
- * measuring the test rather than the ledger. The length is read so the fold cannot
+ * measuring the test rather than the transcript. The length is read so the fold cannot
  * be eliminated as dead.
  */
-function dropFoldOf(timeline: readonly ConsoleSessionEvent[]): void {
-  const rowCount = deriveLedgerWindow(timeline, false).rows.length;
+function dropFoldOf(timeline: readonly ProjectedSessionEvent[]): void {
+  const rowCount = deriveTranscriptWindow(timeline, false).rows.length;
   if (rowCount === 0) {
     throw new Error("the fold produced no rows, so nothing was measured");
   }

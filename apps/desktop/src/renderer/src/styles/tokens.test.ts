@@ -3,24 +3,24 @@
 // `SCHEME_PREFERENCES` had three hand-written copies — one in the store, one in the
 // persistence value classes, one here — and the way that fails is silent: a third
 // scheme would be renderable, refused on write, and accepted on read, each by a
-// different list. The list is derived now, and `ConsoleScheme` is derived from the
+// different list. The list is derived now, and `ColorScheme` is derived from the
 // same tuple rather than written beside it. Neither derivation is visible at a call
 // site, so the cases below are what says the wiring is real: adding a scheme has to
 // widen the preference list and the guard together, and nothing may widen the guard
 // without widening the list.
 //
-// `contrast.test.ts` beside this file measures the colours. This file is about the
-// vocabulary the colours are looked up through.
+// `contrast.test.ts` beside this file measures the colors. This file is about the
+// vocabulary the colors are looked up through.
 
 import { describe, expect, it } from "vitest";
 import {
-  CONSOLE_SCHEMES,
+  COLOR_SCHEMES,
   SCHEME_COLOR_TOKENS,
   SCHEME_PREFERENCES,
   SYSTEM_SCHEME_PREFERENCE,
   TOKEN_PREFIX,
   isSchemePreference,
-  actorHueTokenName,
+  formatHueWheelTokenName,
   schemeColor,
   tokenReference,
   tokenVariableName,
@@ -28,21 +28,21 @@ import {
 
 describe("the scheme vocabulary — one tuple, three readers", () => {
   it("renders in light and dark", () => {
-    expect(CONSOLE_SCHEMES).toStrictEqual(["light", "dark"]);
+    expect(COLOR_SCHEMES).toStrictEqual(["light", "dark"]);
   });
 
   it("offers every scheme as a preference, plus the one that defers to the system", () => {
     // Derived, not re-listed: this is the assertion that the derivation is what is
     // actually shipped rather than a comment on a hand-written copy.
-    expect(SCHEME_PREFERENCES).toStrictEqual([...CONSOLE_SCHEMES, SYSTEM_SCHEME_PREFERENCE]);
-    expect(SCHEME_PREFERENCES).toHaveLength(CONSOLE_SCHEMES.length + 1);
+    expect(SCHEME_PREFERENCES).toStrictEqual([...COLOR_SCHEMES, SYSTEM_SCHEME_PREFERENCE]);
+    expect(SCHEME_PREFERENCES).toHaveLength(COLOR_SCHEMES.length + 1);
   });
 
   it("keeps the system preference out of the set of things that paint", () => {
-    // `ConsoleScheme` is a resolved answer and always paints something; a
+    // `ColorScheme` is a resolved answer and always paints something; a
     // preference may decline to answer. Conflating them is how "system" reaches a
-    // colour lookup that has no such column.
-    expect(CONSOLE_SCHEMES).not.toContain(SYSTEM_SCHEME_PREFERENCE);
+    // color lookup that has no such column.
+    expect(COLOR_SCHEMES).not.toContain(SYSTEM_SCHEME_PREFERENCE);
   });
 });
 
@@ -74,15 +74,15 @@ describe("token names — the one place a CSS custom property is spelled", () =>
   });
 
   it("zero-pads a wheel step, so the emitted sheet sorts in wheel order", () => {
-    expect(actorHueTokenName(0)).toBe("hue-00");
-    expect(actorHueTokenName(9)).toBe("hue-09");
-    expect(actorHueTokenName(11)).toBe("hue-11");
+    expect(formatHueWheelTokenName(0)).toBe("hue-00");
+    expect(formatHueWheelTokenName(9)).toBe("hue-09");
+    expect(formatHueWheelTokenName(11)).toBe("hue-11");
   });
 });
 
 describe("schemeColor — resolving a token for one scheme", () => {
   it("returns the value the generated sheet emits for that scheme", () => {
-    for (const scheme of CONSOLE_SCHEMES) {
+    for (const scheme of COLOR_SCHEMES) {
       const resolved = schemeColor("text", scheme);
       const entry = SCHEME_COLOR_TOKENS.find(([tokenName]) => tokenName === "text");
       expect(resolved).toStrictEqual(entry?.[1][scheme]);

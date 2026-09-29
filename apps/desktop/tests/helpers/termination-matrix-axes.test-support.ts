@@ -41,7 +41,7 @@ export type RootState =
  * What the platform said about the kill this path issued.
  *
  * `never-asked` is a fourth answer rather than a shade of refusal: a path that
- * declines to signal at all and one that signalled and was refused are different
+ * declines to signal at all and one that signaled and was refused are different
  * facts, and conflating them would let a cell asserting "the stranger was never
  * touched" be satisfied by one that touched it and lost.
  */

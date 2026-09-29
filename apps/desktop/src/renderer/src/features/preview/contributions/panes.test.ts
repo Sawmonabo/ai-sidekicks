@@ -1,15 +1,15 @@
-// The preview pane's registration terms: the deck holds the pane on the terms the
+// The preview pane's registration terms: the pane layout holds the pane on the terms the
 // descriptor states.
 
 import { describe, expect, it } from "vitest";
 
-import { ConsolePaneRegistry } from "@renderer/console/seats/index.js";
-import { registerBrowserPanes } from "./panes.js";
+import { PaneRegistry } from "@renderer/console/seats/index.js";
+import { registerPreviewPanes } from "./panes.js";
 
-describe("preview — claiming the deck's browser pane", () => {
-  it("claims the browser kind on terms the deck can hold it by", () => {
-    const registry = new ConsolePaneRegistry();
-    registerBrowserPanes(registry);
+describe("preview — claiming the pane layout's browser pane", () => {
+  it("claims the browser kind on terms the pane layout can hold it by", () => {
+    const registry = new PaneRegistry();
+    registerPreviewPanes(registry);
     const descriptor = registry.descriptorFor("browser");
     expect(descriptor?.kind).toBe("browser");
     expect(descriptor?.owner).toBe("browser");
@@ -18,18 +18,18 @@ describe("preview — claiming the deck's browser pane", () => {
   });
 
   it("composes into the registry it is handed, never a module-scope one", () => {
-    const claimed = new ConsolePaneRegistry();
-    const untouched = new ConsolePaneRegistry();
-    registerBrowserPanes(claimed);
+    const claimed = new PaneRegistry();
+    const untouched = new PaneRegistry();
+    registerPreviewPanes(claimed);
     expect(claimed.registeredPaneKinds()).toStrictEqual(["browser"]);
     expect(untouched.registeredPaneKinds()).toStrictEqual([]);
   });
 
   it("survives being composed twice, as a hot reload does it", () => {
-    const registry = new ConsolePaneRegistry();
+    const registry = new PaneRegistry();
     expect(() => {
-      registerBrowserPanes(registry);
-      registerBrowserPanes(registry);
+      registerPreviewPanes(registry);
+      registerPreviewPanes(registry);
     }).not.toThrow();
   });
 
@@ -37,8 +37,8 @@ describe("preview — claiming the deck's browser pane", () => {
     // Without this, every case above would pass over a registry whose duplicate
     // policy was "last writer wins" — and which body mounted would then depend on
     // module evaluation order rather than on anyone's decision.
-    const registry = new ConsolePaneRegistry();
-    registerBrowserPanes(registry);
+    const registry = new PaneRegistry();
+    registerPreviewPanes(registry);
     expect(() => {
       registry.register({
         kind: "browser",

@@ -1,23 +1,10 @@
-// The timeline row slot — the one seat the timeline subtree absorbs by import.
+// The transcript row renderer: the one body every transcript row is drawn with.
 //
-// THE ABSORB-BY-IMPORT RULE, WHICH IS WHAT THIS SEAT IS FOR
-//
-// Every other seat in this family is filled by a console view family and stays
-// filled. This one is filled TWICE, in two PRs, and the second deletes the first:
-//
-//   1. The workspace family registers a FIXTURE SHELL here — a row that renders the
-//      ledger primitive against the fixture scenarios so the timeline surface is
-//      real before the real rows exist.
-//   2. The `timeline/` subtree replaces that registration in its own PR — and
-//      DELETES the shell in the same diff. Two registrations would not merely be
-//      untidy: the seat is owner-scoped, so the second owner is refused and the
-//      timeline stops rendering at import time.
-//
-// `apps/desktop/AGENTS.md` states the boundary this rests on: "The console imports
-// no plan-owned renderer subtree whose owner mounts into it — `timeline/`, … Those
-// reach the frame by calling `registerConsoleSurface`, which is a call and not an
-// import". The same holds here: the console never imports `timeline/`, and
-// `timeline/` reaches the row by calling `registerTimelineRowRenderer`.
+// The transcript feature registers it (`contributions/transcript-rows.ts`, under
+// `TRANSCRIPT_ROW_OWNER`) and the transcript pane reads it back through
+// `findTranscriptRowRenderer`. It holds one renderer, owner-scoped: the same owner may
+// register again, which is what a hot reload does, and a different owner is refused by
+// name, so which body draws the rows never depends on module import order.
 //
 // WHY THE PROPS ARE NOT JUST `row`
 //
@@ -25,36 +12,36 @@
 // carries, and a renderer that re-derived them would be a second source of truth
 // for each:
 //
-//   • `actorHue` is allocated by `ActorHueAllocator` over the session's
+//   • `actorHue` is allocated by `AgentHueAllocator` over the session's
 //     join log — order-dependent state no single row can see.
 //   • `isSuperseded` is a rollback-boundary ranking over the rows AROUND this one.
 //     Only `TimelineRow`'s `run` arm carries a `superseded` marker at all; a
 //     `general` row after a boundary is superseded too and says so nowhere in its
 //     own shape.
-//   • `density` is the list's collapse state for this row, under the timeline's
+//   • `density` is the list's collapse state for this row, under the transcript's
 //     density budgets.
 
 import type { TimelineRow } from "@ai-sidekicks/contracts";
 
-import { type ActorHueAssignment } from "@renderer/styles/agent-hue.js";
-import { SingleSlotSeat } from "@renderer/lib/single-entry-registry.js";
+import { type AgentHueAssignment } from "@renderer/styles/agent-hue.js";
+import { SingleEntryRegistry } from "@renderer/lib/single-entry-registry.js";
 
 /**
- * A row's collapse state, under the timeline's density rule: tool rows render as one
- * line until opened; run chapters collapse once terminal and the live chapter stays
+ * A row's collapse state, under the transcript's density rule: tool rows render as one
+ * line until opened; run groups collapse once terminal and the live run group stays
  * open.
  *
  * Two values and not a numeric scale: the rule is about what is COLLAPSED, and a
  * comfortable/compact spacing axis would be a second, unrelated meaning wearing
  * the same word.
  */
-export const TIMELINE_ROW_DENSITIES = ["collapsed", "expanded"] as const;
+export const TRANSCRIPT_ROW_DENSITIES = ["collapsed", "expanded"] as const;
 
 /** One row's collapse state. Derived from the enumeration, never restated. */
-export type TimelineRowDensity = (typeof TIMELINE_ROW_DENSITIES)[number];
+export type TranscriptRowDensity = (typeof TRANSCRIPT_ROW_DENSITIES)[number];
 
-/** What the timeline list hands each row. */
-export interface TimelineRowSlotProps {
+/** What the transcript list hands each row. */
+export interface TranscriptRowProps {
   /** The projected row, wire-verbatim, as `@ai-sidekicks/contracts` defines it. */
   readonly row: TimelineRow;
   /**
@@ -67,44 +54,40 @@ export interface TimelineRowSlotProps {
    * could not render that, and `undefined` is the fail-closed answer rather than step
    * zero, which belongs to somebody.
    */
-  readonly actorHue: ActorHueAssignment | undefined;
+  readonly actorHue: AgentHueAssignment | undefined;
   /** Whether a rollback boundary later in the list supersedes this row. */
   readonly isSuperseded: boolean;
-  readonly density: TimelineRowDensity;
+  readonly density: TranscriptRowDensity;
 }
 
 /** The row body. Returns `React.ReactNode` so the list can render it directly. */
-export type TimelineRowRenderer = (props: TimelineRowSlotProps) => React.ReactNode;
+export type TranscriptRowRenderer = (props: TranscriptRowProps) => React.ReactNode;
 
-const timelineRowSeat = new SingleSlotSeat<TimelineRowRenderer>(
-  "timeline row",
-  "the fixture shell is REPLACED by the timeline subtree, not registered beside it — delete the shell in the PR that registers the real row",
+const transcriptRowRegistry = new SingleEntryRegistry<TranscriptRowRenderer>(
+  "transcript row",
+  "the transcript draws every row with one renderer, registered once by the transcript feature",
 );
 
 /**
- * The call a row owner makes to fill the seat.
+ * Register the transcript's row renderer.
  *
- * Both owners call this: the fixture shell first, then the `timeline/` subtree in
- * the PR that deletes the shell. The owner-scoped policy is what makes forgetting
- * the deletion loud — a second owner is refused by name rather than winning or
- * losing by import order.
+ * A second owner is refused by name rather than winning or losing by import order.
  */
-export function registerTimelineRowRenderer(owner: string, render: TimelineRowRenderer): void {
-  timelineRowSeat.register({ owner, render });
+export function registerTranscriptRowRenderer(owner: string, render: TranscriptRowRenderer): void {
+  transcriptRowRegistry.register({ owner, render });
 }
 
 /**
- * Release the seat.
+ * Release the registered renderer.
  *
- * Test scaffolding: the seat is module-scope, so a case that fills it would leak
- * into the next one. The shell is retired by DELETING its registration, never by
- * calling this.
+ * Test scaffolding: the registry is module-scope, so a case that fills it would leak
+ * into the next one.
  */
-export function unregisterTimelineRowRenderer(): void {
-  timelineRowSeat.unregister();
+export function unregisterTranscriptRowRenderer(): void {
+  transcriptRowRegistry.unregister();
 }
 
-/** The row body, or `undefined` while the seat is empty. */
-export function timelineRowRenderer(): TimelineRowRenderer | undefined {
-  return timelineRowSeat.renderer();
+/** The row body, or `undefined` while nothing is registered. */
+export function findTranscriptRowRenderer(): TranscriptRowRenderer | undefined {
+  return transcriptRowRegistry.renderer();
 }

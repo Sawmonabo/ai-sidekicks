@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useSyncExternalStore } from "react";
 
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { useWindowReadTriggers } from "@renderer/store/reads/hooks/useWindowReadTriggers.js";
 import {
   AgentLibraryView,
@@ -18,7 +18,7 @@ import {
  * and no request.
  */
 export function useAgentLibraryView(
-  bridge: ConsoleBridge,
+  bridge: PlatformBridge,
   calls: AgentRegistryCalls,
 ): {
   readonly view: AgentLibraryView;

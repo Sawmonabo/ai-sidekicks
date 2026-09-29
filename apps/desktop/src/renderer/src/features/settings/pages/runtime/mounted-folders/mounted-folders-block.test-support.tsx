@@ -9,7 +9,7 @@
 
 import type { RepoMountReadResponse, WorkspaceListResponse } from "@ai-sidekicks/contracts";
 import { act, render } from "@testing-library/react";
-import { DesktopBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
+import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { unscriptedScenario } from "@test/helpers/fixture-bridge.js";
 import { ManualClock } from "@renderer/lib/clock.js";
@@ -124,12 +124,12 @@ export async function renderSettledBlock(reading: {
   // about the runner rather than about the read.
   const announcer = new LiveAnnouncer({ clock });
   // Under the bridge provider, because the list below this page takes the window's
-  // clock from `useConsoleClock` — the console's one answer to which clock a window
+  // clock from `useClock` — the console's one answer to which clock a window
   // runs on, and the resolution the provider's own error message says every console
   // surface renders inside. The supplied bridge is the context's, so nothing about
   // what this case answers moves.
   const { container } = render(
-    <DesktopBridgeProvider bridge={context.bridge}>
+    <PlatformBridgeProvider bridge={context.bridge}>
       <LiveAnnouncerProvider announcer={announcer}>
         <MountedFoldersBlock>
           <MountedFolderList
@@ -140,7 +140,7 @@ export async function renderSettledBlock(reading: {
           />
         </MountedFoldersBlock>
       </LiveAnnouncerProvider>
-    </DesktopBridgeProvider>,
+    </PlatformBridgeProvider>,
   );
   const settle = async (): Promise<void> => {
     await act(async () => {

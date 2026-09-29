@@ -18,7 +18,7 @@ import type { RunState } from "@ai-sidekicks/contracts";
 
 import { driverAskIdentitySegments } from "./driver-ask-identity.js";
 import { structuralKey } from "@renderer/lib/structural-key.js";
-import type { ConsoleSessionEvent } from "../entities/entities.js";
+import type { ProjectedSessionEvent } from "../entities/entities.js";
 
 /** How the run-lifecycle taxonomy denormalizes a state onto its event type. */
 export const RUN_STATE_EVENT_PREFIX = "run.";
@@ -123,7 +123,7 @@ export interface RequestLifecycle {
  * the payload itself would be a second place that knows what a run event calls its run,
  * and the two would drift the first time the taxonomy moved.
  */
-export function runIdOf(event: ConsoleSessionEvent): string | undefined {
+export function runIdOf(event: ProjectedSessionEvent): string | undefined {
   return correlationIdOf(event, RUN_CORRELATION_MEMBER);
 }
 
@@ -180,7 +180,7 @@ export function isAttentionRunState(state: string | undefined): boolean {
  * Through the same encoder every other key here takes, so an unidentified ask and an
  * identified one cannot collide however a session id or an ask id happens to be spelt.
  */
-export function uncorrelatedKey(event: ConsoleSessionEvent): string {
+export function uncorrelatedKey(event: ProjectedSessionEvent): string {
   return structuralKey(["uncorrelated", event.sessionId, String(event.sequence)]);
 }
 
@@ -194,12 +194,12 @@ export function uncorrelatedKey(event: ConsoleSessionEvent): string {
  *
  * AND SCOPED WHERE THE LIFECYCLE SAYS ITS ID IS NOT UNIQUE ON ITS OWN. Which segments a
  * driver ask is identified by, and in which order, is `core/driver-ask-identity.ts`' and
- * is deliberately not spelled here — the ledger's ask card keys its own terminal fold on
+ * is deliberately not spelled here — the transcript's ask card keys its own terminal fold on
  * the same pair, and one surface answering that question differently from the other is
  * how an answer given in one run settles a card in another.
  */
 export function identifiedRequestKeyOf(
-  event: ConsoleSessionEvent,
+  event: ProjectedSessionEvent,
   lifecycle: RequestLifecycle,
 ): string | undefined {
   const requestId = correlationIdOf(event, lifecycle.correlationMember);
@@ -235,7 +235,7 @@ export function lifecycleFor(kind: string): RequestLifecycle | undefined {
  * and stringifying whatever arrived would key two different asks on `"[object Object]"`
  * and let one close the other.
  */
-function correlationIdOf(event: ConsoleSessionEvent, member: string): string | undefined {
+function correlationIdOf(event: ProjectedSessionEvent, member: string): string | undefined {
   const value = event.payload?.[member];
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }

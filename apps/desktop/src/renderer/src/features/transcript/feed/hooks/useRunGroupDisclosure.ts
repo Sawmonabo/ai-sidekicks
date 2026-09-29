@@ -1,15 +1,15 @@
 import { useCallback, useMemo } from "react";
 
-import { useConsoleBridge } from "@renderer/services/platform/hooks/usePlatformBridge.js";
+import { usePlatformBridge } from "@renderer/services/platform/hooks/usePlatformBridge.js";
 import { useSessionScopedState } from "@renderer/console/seats/index.js";
 import { RunGroupFoldState } from "../../run-groups/run-group-fold-state.js";
 import { type RunGroup } from "../../run-groups/run-groups.js";
 import { type RunGroupDisclosure } from "../run-group-fold.js";
 
 /**
- * Hold one session's chapter disclosure.
+ * Hold one session's run group disclosure.
  *
- * `RunGroupFoldState` is the single owner of the rule — a live chapter answers
+ * `RunGroupFoldState` is the single owner of the rule — a live run group answers
  * open before any stored state is read — so this hook does not restate it; it
  * publishes the instance's opened set so a toggle repaints. The set is derived from
  * the instance and written nowhere else, which is what keeps it one source of truth
@@ -22,7 +22,7 @@ import { type RunGroupDisclosure } from "../run-group-fold.js";
  * published mirror are one fact.
  */
 export function useRunGroupDisclosure(sessionId: string): RunGroupDisclosure {
-  const bridge = useConsoleBridge();
+  const bridge = usePlatformBridge();
   const collapse = useSessionScopedState(bridge, sessionId, () => new RunGroupFoldState());
   const opened = useSessionScopedState<ReadonlySet<string>>(
     bridge,
@@ -35,19 +35,19 @@ export function useRunGroupDisclosure(sessionId: string): RunGroupDisclosure {
     publishOpened(new Set(collapseState.openedTerminalRunIds));
   }, [collapseState, publishOpened]);
   const toggle = useCallback(
-    (chapter: RunGroup) => {
-      if (collapseState.isOpen(chapter)) {
-        collapseState.close(chapter);
+    (runGroup: RunGroup) => {
+      if (collapseState.isOpen(runGroup)) {
+        collapseState.close(runGroup);
       } else {
-        collapseState.open(chapter);
+        collapseState.open(runGroup);
       }
       publish();
     },
     [collapseState, publish],
   );
   const collapseAllTerminal = useCallback(
-    (chapters: readonly RunGroup[]) => {
-      collapseState.collapseAllTerminal(chapters);
+    (runGroups: readonly RunGroup[]) => {
+      collapseState.collapseAllTerminal(runGroups);
       publish();
     },
     [collapseState, publish],

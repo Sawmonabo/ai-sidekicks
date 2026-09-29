@@ -142,7 +142,7 @@ describe("find field — the walk", () => {
 describe("find field — the chord puts the caret in the field", () => {
   it("takes focus and selects the query when the field is asked for", () => {
     // The chord's whole point is that the next keystroke enters the query. Before
-    // this the field mounted with focus still on the ledger or the palette.
+    // this the field mounted with focus still on the transcript or the palette.
     const harness = renderField({ query: "hit" });
     expect(document.activeElement).toBe(harness.input);
     expect(harness.input.selectionStart).toBe(0);

@@ -2,7 +2,7 @@
 //
 // The root mounts the console.
 //
-// Everything the console needs it builds for itself: `ConsoleRoot` installs the
+// Everything the console needs it builds for itself: `AppProviders` installs the
 // token sheet before first paint, resolves the bridge, creates the per-window stores,
 // and mounts whatever the route names.
 //
@@ -12,7 +12,7 @@
 
 import type { BridgeComposition } from "@renderer/services/platform/bridge-context.js";
 import { composeFixtureLaunch } from "./fixture-composition.js";
-import { ConsoleRoot } from "./providers.js";
+import { AppProviders } from "./providers.js";
 
 /**
  * The fixture composition this window's launch asks for, or `undefined` for a normal launch.
@@ -37,7 +37,7 @@ export function App(): React.JSX.Element {
   // under `exactOptionalPropertyTypes`, so an explicit `undefined` is a different value
   // from an absent prop and the normal launch has to omit it.
   return (
-    <ConsoleRoot
+    <AppProviders
       {...(FIXTURE_COMPOSITION === undefined ? {} : { composition: FIXTURE_COMPOSITION })}
     />
   );

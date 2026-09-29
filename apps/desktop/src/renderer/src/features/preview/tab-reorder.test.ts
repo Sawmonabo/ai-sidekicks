@@ -13,7 +13,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  BROWSER_TAB_DRAG_MEDIA_TYPE,
+  PAGE_TAB_DRAG_MEDIA_TYPE,
   isTabDrag,
   pageMoveIndex,
   readTabDragPayload,
@@ -88,7 +88,7 @@ describe("the tab drag payload", () => {
 
   it("reads nothing off an empty payload on the right type", () => {
     const transfer = dragTransfer();
-    transfer.setData(BROWSER_TAB_DRAG_MEDIA_TYPE, "");
+    transfer.setData(PAGE_TAB_DRAG_MEDIA_TYPE, "");
     expect(readTabDragPayload(transfer)).toBeUndefined();
   });
 });

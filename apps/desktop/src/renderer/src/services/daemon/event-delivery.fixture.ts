@@ -38,7 +38,7 @@
 // engine is gone.
 
 import { Emitter, type EmitterSink, type Unsubscribe } from "@renderer/lib/emitter.js";
-import type { ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
+import type { ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 import { ScenarioSessionLog, type UnpositionedSessionEvent } from "./session-log.fixture.js";
 
 /**
@@ -48,14 +48,14 @@ import { ScenarioSessionLog, type UnpositionedSessionEvent } from "./session-log
  * names the engine's flat sink `Set` as one of the three copies it exists to
  * replace, and the alias keeps the scenario's own vocabulary readable at call sites.
  */
-export type ScenarioSink = EmitterSink<readonly ConsoleSessionEvent[]>;
+export type ScenarioSink = EmitterSink<readonly ProjectedSessionEvent[]>;
 
 /** What one subscriber asks beyond being handed later beats. */
 export interface ScenarioSubscribeOptions {
   /**
    * Deliver the already-delivered prefix on attach, then tail.
    *
-   * The registered behaviour of the whole-session stream and of nothing else. A
+   * The registered behavior of the whole-session stream and of nothing else. A
    * narrowed run stream and the relay are live streams: replaying a projection into
    * one would hand a runs surface transitions it is not opening a subscription for.
    */
@@ -64,11 +64,11 @@ export interface ScenarioSubscribeOptions {
 
 export class ScenarioDelivery {
   // The subscribe / emit / unsubscribe idiom is `core/emitter.ts`'s. Two of its
-  // behaviours matter here specifically: delivery iterates a SNAPSHOT, so a pane
+  // behaviors matter here specifically: delivery iterates a SNAPSHOT, so a pane
   // that unsubscribes during a beat cannot make a sibling pane miss the beat it was
   // still subscribed for; and a throwing sink does not silence the others, so one
   // broken surface does not stop a scenario delivering to the rest.
-  readonly #beats = new Emitter<readonly ConsoleSessionEvent[]>("scenario beat");
+  readonly #beats = new Emitter<readonly ProjectedSessionEvent[]>("scenario beat");
   readonly #advances = new Emitter<number>("scenario advance");
   // Where a delivered frame's position comes from, and the record a late subscriber is
   // replayed. One line for scripted beats and appended frames alike.
@@ -112,7 +112,7 @@ export class ScenarioDelivery {
    * already taken a position, and a beat delivered at the number its author wrote
    * would be a duplicate the store drops.
    */
-  public admitScriptedBeats(events: readonly ConsoleSessionEvent[]): void {
+  public admitScriptedBeats(events: readonly ProjectedSessionEvent[]): void {
     this.#beats.emit(this.#log.admitScriptedBeats(events));
   }
 
@@ -124,7 +124,7 @@ export class ScenarioDelivery {
    * it takes and the positions the beats after it take are one decision — see
    * `scenario-log.ts` for why an appended frame shifts the rest.
    */
-  public appendEvent(event: UnpositionedSessionEvent): ConsoleSessionEvent {
+  public appendEvent(event: UnpositionedSessionEvent): ProjectedSessionEvent {
     const appended = this.#log.appendEvent(event);
     this.#beats.emit([appended]);
     return appended;
@@ -142,7 +142,7 @@ export class ScenarioDelivery {
    * slice, and every scripted beat after one is delivered at a position its author did
    * not write.
    */
-  public deliveredEvents(): readonly ConsoleSessionEvent[] {
+  public deliveredEvents(): readonly ProjectedSessionEvent[] {
     return this.#log.delivered();
   }
 

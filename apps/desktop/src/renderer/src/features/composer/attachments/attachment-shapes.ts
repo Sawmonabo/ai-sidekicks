@@ -35,7 +35,7 @@
 //     nothing in this module reads it, and no field anywhere holds a whole payload.
 //   • No payload on an entry that cannot send it. A handle is not a copy, but it is a
 //     KEEP: the browser holds those bytes for as long as anything can still reach the
-//     `Blob`, so a carrier that kept every finished upload's source kept every finished
+//     `Blob`, so a staged list that kept every finished upload's source kept every finished
 //     upload — a hundred megabytes each, until the sidebar unmounted. The entry is
 //     therefore a union over its own state: the arms that can still send carry the
 //     payload and the terminal arms carry name, size, media type, and the minted
@@ -52,7 +52,7 @@ import type { IngestRefusalDisposition, UnresolvedAttachmentCause } from "./atta
 /**
  * Where one attachment's ingest stands. Closed.
  *
- * `abandoned` is its own member and not a flavour of `refused`: nobody refused it, the
+ * `abandoned` is its own member and not a flavor of `refused`: nobody refused it, the
  * user stopped sending and the daemon's reaper claims the spool. Rendering the
  * two the same way would tell a user their cancellation was an error.
  */
@@ -252,7 +252,7 @@ export function isSendingAttachmentIngestEntry(
  * would carry that entry's `payload` straight through into a `complete` one — which is
  * the leak this exists to close, dressed as a one-line convenience.
  *
- * `undefined` for the one move that cannot be honoured: a record putting a settled
+ * `undefined` for the one move that cannot be honored: a record putting a settled
  * entry back into a sending state, whose bytes are already gone. The ledger writes
  * nothing rather than minting an entry that claims a payload it does not have.
  */

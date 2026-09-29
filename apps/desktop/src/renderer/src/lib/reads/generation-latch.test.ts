@@ -19,27 +19,27 @@ import { SUBJECT_ONE, SUBJECT_TWO } from "@test/helpers/subject-fixtures.js";
 describe("GenerationLatch — single flight, per subject and per key", () => {
   it("admits the first claim on a key and refuses the second", () => {
     const latch = new GenerationLatch();
-    expect(latch.claim(SUBJECT_ONE, "compact")).toBeDefined();
-    expect(latch.claim(SUBJECT_ONE, "compact")).toBeUndefined();
+    expect(latch.takeShell(SUBJECT_ONE, "compact")).toBeDefined();
+    expect(latch.takeShell(SUBJECT_ONE, "compact")).toBeUndefined();
   });
 
   it("holds each key and each subject apart", () => {
     const latch = new GenerationLatch();
-    expect(latch.claim(SUBJECT_ONE, "compact")).toBeDefined();
-    expect(latch.claim(SUBJECT_ONE, "detach")).toBeDefined();
-    expect(latch.claim(SUBJECT_TWO, "compact")).toBeDefined();
+    expect(latch.takeShell(SUBJECT_ONE, "compact")).toBeDefined();
+    expect(latch.takeShell(SUBJECT_ONE, "detach")).toBeDefined();
+    expect(latch.takeShell(SUBJECT_TWO, "compact")).toBeDefined();
   });
 
   it("admits a key again once the claim that held it releases", () => {
     const latch = new GenerationLatch();
-    const claim = latch.claim(SUBJECT_ONE, "compact");
+    const claim = latch.takeShell(SUBJECT_ONE, "compact");
     claim?.release();
-    expect(latch.claim(SUBJECT_ONE, "compact")).toBeDefined();
+    expect(latch.takeShell(SUBJECT_ONE, "compact")).toBeDefined();
   });
 
   it("runs a settlement while the claim is current and answers that it ran", () => {
     const latch = new GenerationLatch();
-    const claim = latch.claim(SUBJECT_ONE, "compact");
+    const claim = latch.takeShell(SUBJECT_ONE, "compact");
     let applied = 0;
     expect(
       claim?.settle(() => {
@@ -51,7 +51,7 @@ describe("GenerationLatch — single flight, per subject and per key", () => {
 
   it("drops a settlement whose key was superseded, and frees the key", () => {
     const latch = new GenerationLatch();
-    const claim = latch.claim(SUBJECT_ONE, "compact");
+    const claim = latch.takeShell(SUBJECT_ONE, "compact");
     latch.supersede(SUBJECT_ONE, "compact");
     let applied = 0;
     expect(
@@ -61,13 +61,13 @@ describe("GenerationLatch — single flight, per subject and per key", () => {
     ).toBe(false);
     expect(applied).toBe(0);
     expect(claim?.isCurrent).toBe(false);
-    expect(latch.claim(SUBJECT_ONE, "compact")).toBeDefined();
+    expect(latch.takeShell(SUBJECT_ONE, "compact")).toBeDefined();
   });
 
   it("drops every outstanding settlement when the whole register is superseded", () => {
     const latch = new GenerationLatch();
-    const onSubjectOne = latch.claim(SUBJECT_ONE, "compact");
-    const onSubjectTwo = latch.claim(SUBJECT_TWO, "detach");
+    const onSubjectOne = latch.takeShell(SUBJECT_ONE, "compact");
+    const onSubjectTwo = latch.takeShell(SUBJECT_TWO, "detach");
     latch.supersedeAll();
     expect(onSubjectOne?.settle(() => undefined)).toBe(false);
     expect(onSubjectTwo?.settle(() => undefined)).toBe(false);
@@ -76,8 +76,8 @@ describe("GenerationLatch — single flight, per subject and per key", () => {
   it("negative control: those same claims settle when nothing supersedes them", () => {
     // Without this, "dropped" above would be satisfied by a claim that never settles.
     const latch = new GenerationLatch();
-    const onSubjectOne = latch.claim(SUBJECT_ONE, "compact");
-    const onSubjectTwo = latch.claim(SUBJECT_TWO, "detach");
+    const onSubjectOne = latch.takeShell(SUBJECT_ONE, "compact");
+    const onSubjectTwo = latch.takeShell(SUBJECT_TWO, "detach");
     expect(onSubjectOne?.settle(() => undefined)).toBe(true);
     expect(onSubjectTwo?.settle(() => undefined)).toBe(true);
   });
@@ -87,19 +87,19 @@ describe("GenerationLatch — single flight, per subject and per key", () => {
     // unconditional delete and freed a call that was still in flight, so a second
     // press dispatched a duplicate.
     const latch = new GenerationLatch();
-    const abandoned = latch.claim(SUBJECT_ONE, "compact");
+    const abandoned = latch.takeShell(SUBJECT_ONE, "compact");
     latch.supersede(SUBJECT_ONE, "compact");
-    const live = latch.claim(SUBJECT_ONE, "compact");
+    const live = latch.takeShell(SUBJECT_ONE, "compact");
     abandoned?.release();
     expect(live?.isCurrent).toBe(true);
-    expect(latch.claim(SUBJECT_ONE, "compact")).toBeUndefined();
+    expect(latch.takeShell(SUBJECT_ONE, "compact")).toBeUndefined();
   });
 
   it("reissues no serial, so a re-claimed key never revives an abandoned settlement", () => {
     const latch = new GenerationLatch();
-    const abandoned = latch.claim(SUBJECT_ONE, "compact");
+    const abandoned = latch.takeShell(SUBJECT_ONE, "compact");
     latch.supersedeAll();
-    latch.claim(SUBJECT_ONE, "compact");
+    latch.takeShell(SUBJECT_ONE, "compact");
     expect(abandoned?.settle(() => undefined)).toBe(false);
   });
 
@@ -110,33 +110,33 @@ describe("GenerationLatch — single flight, per subject and per key", () => {
     const latch = new GenerationLatch();
     latch.supersedeAll();
     latch.supersedeAll();
-    expect(latch.claim(SUBJECT_ONE, "compact")).toBeDefined();
+    expect(latch.takeShell(SUBJECT_ONE, "compact")).toBeDefined();
   });
 
   it("settles without releasing, so a control may stay closed past its answer", () => {
     const latch = new GenerationLatch();
-    const claim = latch.claim(SUBJECT_ONE, "compact");
+    const claim = latch.takeShell(SUBJECT_ONE, "compact");
     claim?.settle(() => undefined);
-    expect(latch.claim(SUBJECT_ONE, "compact")).toBeUndefined();
+    expect(latch.takeShell(SUBJECT_ONE, "compact")).toBeUndefined();
     claim?.release();
-    expect(latch.claim(SUBJECT_ONE, "compact")).toBeDefined();
+    expect(latch.takeShell(SUBJECT_ONE, "compact")).toBeDefined();
   });
 
   it("is idempotent on both terminal acts", () => {
     const latch = new GenerationLatch();
-    const claim = latch.claim(SUBJECT_ONE, "compact");
+    const claim = latch.takeShell(SUBJECT_ONE, "compact");
     claim?.release();
     claim?.release();
     latch.supersede(SUBJECT_ONE, "compact");
     latch.supersede(SUBJECT_ONE, "never-claimed");
-    expect(latch.claim(SUBJECT_ONE, "compact")).toBeDefined();
+    expect(latch.takeShell(SUBJECT_ONE, "compact")).toBeDefined();
   });
 });
 
 describe("GenerationLatch — supersedeAndClaim, for the write whose newest intent wins", () => {
   it("admits every caller, including one whose key is already held", () => {
     const latch = new GenerationLatch();
-    expect(latch.claim(SUBJECT_ONE, "goal")).toBeDefined();
+    expect(latch.takeShell(SUBJECT_ONE, "goal")).toBeDefined();
     expect(latch.supersedeAndClaim(SUBJECT_ONE, "goal")).toBeDefined();
     expect(latch.supersedeAndClaim(SUBJECT_ONE, "goal")).toBeDefined();
   });
@@ -146,14 +146,14 @@ describe("GenerationLatch — supersedeAndClaim, for the write whose newest inte
     // stopped holding anything at all.
     const latch = new GenerationLatch();
     latch.supersedeAndClaim(SUBJECT_ONE, "goal");
-    expect(latch.claim(SUBJECT_ONE, "goal")).toBeUndefined();
+    expect(latch.takeShell(SUBJECT_ONE, "goal")).toBeUndefined();
   });
 
   it("drops the settlement of the act it displaced", () => {
     // The whole point of superseding rather than queueing: the older write installs
     // nothing, so a reply that overtakes the newer one cannot be shown as the answer.
     const latch = new GenerationLatch();
-    const displaced = latch.claim(SUBJECT_ONE, "goal");
+    const displaced = latch.takeShell(SUBJECT_ONE, "goal");
     const admitted = latch.supersedeAndClaim(SUBJECT_ONE, "goal");
     let applied = 0;
     expect(
@@ -172,16 +172,16 @@ describe("GenerationLatch — supersedeAndClaim, for the write whose newest inte
 
   it("never lets the displaced act release the key its successor holds", () => {
     const latch = new GenerationLatch();
-    const displaced = latch.claim(SUBJECT_ONE, "goal");
+    const displaced = latch.takeShell(SUBJECT_ONE, "goal");
     const admitted = latch.supersedeAndClaim(SUBJECT_ONE, "goal");
     displaced?.release();
     expect(admitted.isCurrent).toBe(true);
-    expect(latch.claim(SUBJECT_ONE, "goal")).toBeUndefined();
+    expect(latch.takeShell(SUBJECT_ONE, "goal")).toBeUndefined();
   });
 
   it("leaves the key free once the admitted act releases it", () => {
     const latch = new GenerationLatch();
-    latch.claim(SUBJECT_ONE, "goal");
+    latch.takeShell(SUBJECT_ONE, "goal");
     latch.supersedeAndClaim(SUBJECT_ONE, "goal").release();
     expect(latch.heldKeyCount(SUBJECT_ONE)).toBe(0);
   });
@@ -199,7 +199,7 @@ describe("GenerationLatch — asking whether a key is held, without taking it", 
   it("answers for a free key and for a held one", () => {
     const latch = new GenerationLatch();
     expect(latch.isHeld(SUBJECT_ONE, "retry")).toBe(false);
-    latch.claim(SUBJECT_ONE, "retry");
+    latch.takeShell(SUBJECT_ONE, "retry");
     expect(latch.isHeld(SUBJECT_ONE, "retry")).toBe(true);
   });
 
@@ -208,7 +208,7 @@ describe("GenerationLatch — asking whether a key is held, without taking it", 
     // able to ask when it is free without that question consuming the answer.
     const latch = new GenerationLatch();
     expect(latch.isHeld(SUBJECT_ONE, "retry")).toBe(false);
-    expect(latch.claim(SUBJECT_ONE, "retry")).toBeDefined();
+    expect(latch.takeShell(SUBJECT_ONE, "retry")).toBeDefined();
   });
 
   it("negative control: claiming as the predicate refuses the very act it admitted", () => {
@@ -216,30 +216,30 @@ describe("GenerationLatch — asking whether a key is held, without taking it", 
     // by TAKING, so asking with it holds the key — and the dispatch the caller then
     // makes finds the key held by its own question.
     const latch = new GenerationLatch();
-    const askedWithAClaim = latch.claim(SUBJECT_ONE, "retry") === undefined;
+    const askedWithAClaim = latch.takeShell(SUBJECT_ONE, "retry") === undefined;
     expect(askedWithAClaim).toBe(false);
-    expect(latch.claim(SUBJECT_ONE, "retry")).toBeUndefined();
+    expect(latch.takeShell(SUBJECT_ONE, "retry")).toBeUndefined();
   });
 
   it("goes back to free on release and on supersede", () => {
     const latch = new GenerationLatch();
-    latch.claim(SUBJECT_ONE, "retry")?.release();
+    latch.takeShell(SUBJECT_ONE, "retry")?.release();
     expect(latch.isHeld(SUBJECT_ONE, "retry")).toBe(false);
-    latch.claim(SUBJECT_ONE, "retry");
+    latch.takeShell(SUBJECT_ONE, "retry");
     latch.supersede(SUBJECT_ONE, "retry");
     expect(latch.isHeld(SUBJECT_ONE, "retry")).toBe(false);
   });
 
   it("reports a key superseded across the whole register as free", () => {
     const latch = new GenerationLatch();
-    latch.claim(SUBJECT_ONE, "retry");
+    latch.takeShell(SUBJECT_ONE, "retry");
     latch.supersedeAll();
     expect(latch.isHeld(SUBJECT_ONE, "retry")).toBe(false);
   });
 
   it("holds each key and each subject apart", () => {
     const latch = new GenerationLatch();
-    latch.claim(SUBJECT_ONE, "retry");
+    latch.takeShell(SUBJECT_ONE, "retry");
     expect(latch.isHeld(SUBJECT_ONE, "abort")).toBe(false);
     expect(latch.isHeld(SUBJECT_TWO, "retry")).toBe(false);
   });
@@ -258,7 +258,7 @@ describe("GenerationLatch — the register is bounded", () => {
   it("holds nothing for a subject once every key is released", () => {
     const latch = new GenerationLatch();
     for (let dispatch = 0; dispatch < 1000; dispatch += 1) {
-      const claim = latch.claim(SUBJECT_ONE, `run-${String(dispatch)}`);
+      const claim = latch.takeShell(SUBJECT_ONE, `run-${String(dispatch)}`);
       claim?.settle(() => undefined);
       claim?.release();
     }
@@ -268,7 +268,7 @@ describe("GenerationLatch — the register is bounded", () => {
   it("holds nothing for a subject once its keys are superseded", () => {
     const latch = new GenerationLatch();
     for (let dispatch = 0; dispatch < 1000; dispatch += 1) {
-      latch.claim(SUBJECT_ONE, `run-${String(dispatch)}`);
+      latch.takeShell(SUBJECT_ONE, `run-${String(dispatch)}`);
       latch.supersede(SUBJECT_ONE, `run-${String(dispatch)}`);
     }
     expect(latch.heldKeyCount(SUBJECT_ONE)).toBe(0);
@@ -277,7 +277,7 @@ describe("GenerationLatch — the register is bounded", () => {
   it("negative control: unreleased keys do accumulate, so the counter is real", () => {
     const latch = new GenerationLatch();
     for (let dispatch = 0; dispatch < 1000; dispatch += 1) {
-      latch.claim(SUBJECT_ONE, `run-${String(dispatch)}`);
+      latch.takeShell(SUBJECT_ONE, `run-${String(dispatch)}`);
     }
     expect(latch.heldKeyCount(SUBJECT_ONE)).toBe(1000);
     latch.supersedeAll();

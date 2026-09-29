@@ -79,14 +79,14 @@ export function readChunkAcknowledgement(
   if (acknowledgement.ingestId !== sentIngestId) {
     return {
       status: "unusable",
-      detail: `The daemon acknowledged ${String(acknowledgement.ingestId)} for a chunk sent on ${sentIngestId}, so the reply belongs to another upload.`,
+      detail: `The background service acknowledged ${String(acknowledgement.ingestId)} for a chunk sent on ${sentIngestId}, so the reply belongs to another upload.`,
     };
   }
   const { receivedBytes } = acknowledgement;
   if (!Number.isFinite(receivedBytes) || receivedBytes <= entry.receivedBytes) {
     return {
       status: "unusable",
-      detail: `The daemon acknowledged ${String(receivedBytes)} spooled bytes on ${sentIngestId} after this client had already sent ${String(entry.receivedBytes)}, so the stream's offset is no longer shared.`,
+      detail: `The background service acknowledged ${String(receivedBytes)} spooled bytes on ${sentIngestId} after this client had already sent ${String(entry.receivedBytes)}, so the stream's offset is no longer shared.`,
     };
   }
   if (receivedBytes > entry.declared.byteLength) {

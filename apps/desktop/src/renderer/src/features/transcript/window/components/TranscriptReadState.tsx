@@ -1,7 +1,7 @@
 // Where this window is in its own read: still filling, catching up, or neither.
 //
 // WHAT WAS MISSING. The store has carried both facts since it was written —
-// `initialised` is false until a read response lands, and `degradedCause` is sticky
+// `initialized` is false until a read response lands, and `degradedCause` is sticky
 // while the projection is known-incomplete and cleared only by a completed re-pull —
 // and neither reached the pane. So a session whose first read was in flight rendered
 // exactly like a session that had never had anything happen in it, and a window that
@@ -10,7 +10,7 @@
 // TWO ARMS AND NEVER BOTH, AND THE STANDING CAUSE LEADS. The shells used to win, on
 // the reading that a window which has not been read yet has nothing to be behind ON —
 // and that reading is false for the one cause a first read can raise. `read-failed` is
-// marked when the read is refused or rejects, which leaves the store uninitialised and
+// marked when the read is refused or rejects, which leaves the store uninitialized and
 // the cause standing, so the pane drew `aria-busy` loading shells for as long as the
 // failure lasted and never said the read had already ended. The cause decides at any
 // point in the read: while one stands this names it, and only a window with no cause
@@ -25,7 +25,7 @@
 // `role="status"`, so the element around it carries none — two nested status regions
 // announce the same sentence twice.
 //
-// AND IT NAMES THE CAUSE RATHER THAN SUMMARISING IT. The five causes are five
+// AND IT NAMES THE CAUSE RATHER THAN SUMMARIZING IT. The five causes are five
 // different things to know — a stream this store could not follow at all is not a read
 // that failed — so the cause is rendered as itself, in mono, beside one sentence that
 // says what is being done about it.
@@ -39,7 +39,7 @@ import { Nothing } from "@renderer/console/primitives/index.js";
 /**
  * How many row shells a window that has not been read yet draws.
  *
- * Twelve is a screen of ledger at this density: enough that the shape on screen is
+ * Twelve is a screen of transcript at this density: enough that the shape on screen is
  * the shape the rows will take, and few enough that the first read replacing them is
  * one repaint rather than a page of shells collapsing.
  */

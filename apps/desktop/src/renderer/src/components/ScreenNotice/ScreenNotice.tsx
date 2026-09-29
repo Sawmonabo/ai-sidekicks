@@ -9,8 +9,8 @@
 // there is nothing you can do".
 //
 // ITS OWN MODULE because it has more than one producer:
-// `frame/composition/RouteSurface.tsx` raises two of these — the unknown address and
-// the session still opening — and the ledger and `seats/surface/PendingSurfaceBody.tsx`
+// `app/router.tsx` raises two of these — the unknown address and
+// the session still opening — and the transcript and `registries/screens/PendingScreenBody.tsx`
 // draw through it too. A second centering wrapper in any of them would be two
 // renderings of one idea, drifting apart the first time either measure changed, and
 // only the screenshot tier would ever see it.
@@ -30,11 +30,11 @@ import "./ScreenNotice.css";
 import { ChordHint } from "../ChordHint/ChordHint.js";
 import { COMMAND_PALETTE_OPEN_CHORD } from "@renderer/lib/chord-format.js";
 
-export function SurfaceAbsence(props: { readonly children: React.ReactNode }): React.JSX.Element {
+export function ScreenNotice(props: { readonly children: React.ReactNode }): React.JSX.Element {
   return (
-    <div className="meridian-surface-absence">
-      <div className="meridian-surface-absence__body">{props.children}</div>
-      <p className="meridian-surface-absence__hint">
+    <div className="meridian-screen-notice">
+      <div className="meridian-screen-notice__body">{props.children}</div>
+      <p className="meridian-screen-notice__hint">
         <ChordHint chord={COMMAND_PALETTE_OPEN_CHORD} /> opens the command palette.
       </p>
     </div>

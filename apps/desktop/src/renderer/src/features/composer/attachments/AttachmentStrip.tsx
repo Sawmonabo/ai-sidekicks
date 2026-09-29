@@ -4,7 +4,7 @@
 // attachment surface, and an empty row reserving space would be a permanent reminder of a
 // thing nobody has done.
 //
-// THE COUNT IS RENDERED AND THE DAEMON DECIDES. The daemon refuses the whole carrier at
+// THE COUNT IS RENDERED AND THE DAEMON DECIDES. The daemon refuses the whole staged list at
 // acceptance and the bound is operator-tunable, so the running count is a figure a person
 // reads and never a gate this strip closes: the eleventh file is handed to the daemon
 // exactly as the first is.
@@ -13,17 +13,17 @@
 // strip holds that a message can reference.
 
 import { DerivedFigure, formatCount } from "@renderer/console/primitives/index.js";
-import { attachmentCarrierFill } from "./attachment-bounds.js";
-import type { AttachmentCarrierBinding } from "./hooks/useStagedAttachments.js";
+import { stagedAttachmentsFill } from "./attachment-bounds.js";
+import type { StagedAttachmentsBinding } from "./hooks/useStagedAttachments.js";
 import { AttachmentChip } from "./AttachmentChip.js";
 import { composerAttachmentChip } from "./composer-attachment-chip.js";
 import { composeSendAttachmentReference } from "./send-attachment-reference.js";
 
 import "./AttachmentStrip.css";
 
-/** What the strip reads: the session's attachment carrier, and whether a file is being dragged. */
+/** What the strip reads: the session's staged attachments, and whether a file is being dragged. */
 export interface AttachmentStripProps {
-  readonly stagedAttachments: AttachmentCarrierBinding;
+  readonly stagedAttachments: StagedAttachmentsBinding;
   /** True while a file drag is over the composer, so the strip can say it will land. */
   readonly isDraggingFiles: boolean;
 }
@@ -35,7 +35,7 @@ export function AttachmentStrip(props: AttachmentStripProps): React.JSX.Element 
   if (entries.length === 0 && !props.isDraggingFiles) {
     return null;
   }
-  const fill = attachmentCarrierFill(entries.length);
+  const fill = stagedAttachmentsFill(entries.length);
   const reference = composeSendAttachmentReference(entries);
   return (
     // A `section` and not a `div`: `aria-label` on a generic element names nothing. A
@@ -67,7 +67,8 @@ export function AttachmentStrip(props: AttachmentStripProps): React.JSX.Element 
           text={`${formatCount(fill.attached)} of ${formatCount(fill.allowance)} attached`}
         />
         <span className="meridian-composer-attachments__fill-source">
-          The default bound. An operator can raise it, and the daemon decides at acceptance.
+          The default bound. An operator can raise it, and the background service decides at
+          acceptance.
         </span>
       </p>
       {reference.disposition === "none" ? null : (

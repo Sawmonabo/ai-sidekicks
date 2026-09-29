@@ -49,7 +49,7 @@
 // rendering the old park and its form indefinitely, saying in the same breath that the
 // answer had been recorded.
 
-import { refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
+import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 import { useGenerationLatch } from "@renderer/hooks/useGenerationLatch.js";
 import { type GenerationClaim } from "@renderer/lib/reads/generation-latch.js";
 import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
@@ -173,7 +173,7 @@ export function useHumanFormSubmit(
         publishOutcome({ kind: "refused", refusal: answerNotComposedRefusal() });
         return;
       }
-      const claim = latch.claim(submitForm, phase.phaseRunId);
+      const claim = latch.takeShell(submitForm, phase.phaseRunId);
       if (claim === undefined) {
         publishOutcome({ kind: "refused", refusal: submitAlreadyInFlightRefusal() });
         return;
@@ -204,7 +204,7 @@ function submittedOutcome(
 }
 
 /** The refusal an answer that is not a set of named values earns. */
-function answerNotComposedRefusal(): ConsoleRefusal {
+function answerNotComposedRefusal(): Refusal {
   const code: WorkflowHumanFormRefusalCode = "answer-not-composed";
   return refuse(
     WORKFLOW_HUMAN_FORM_ORIGIN,
@@ -214,11 +214,11 @@ function answerNotComposedRefusal(): ConsoleRefusal {
 }
 
 /** The refusal a second press earns while the first answer is still outstanding. */
-function submitAlreadyInFlightRefusal(): ConsoleRefusal {
+function submitAlreadyInFlightRefusal(): Refusal {
   const code: WorkflowHumanFormRefusalCode = "submit-already-in-flight";
   return refuse(
     WORKFLOW_HUMAN_FORM_ORIGIN,
     code,
-    "This answer is already with the daemon. Wait for it to come back before sending another.",
+    "This answer is already with the background service. Wait for it to come back before sending another.",
   );
 }

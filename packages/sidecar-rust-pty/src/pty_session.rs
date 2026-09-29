@@ -888,7 +888,7 @@ const DROP_KILL_ESCALATION_DEADLINE: std::time::Duration = std::time::Duration::
 ///
 /// Killing the child triggers the natural termination chain:
 ///
-/// 1. Child is signalled → child exits → kernel closes the child's
+/// 1. Child is signaled → child exits → kernel closes the child's
 ///    side of the PTY (the slave end).
 /// 2. The slave-close surfaces as `Ok(0)` (EOF) on the reader task's
 ///    next `read()` call. The reader exits its `loop { ... }` and
@@ -910,7 +910,7 @@ const DROP_KILL_ESCALATION_DEADLINE: std::time::Duration = std::time::Duration::
 /// has dropped the registry, the Tokio runtime is itself winding down
 /// (the writer task is the only remaining drain step). Spawning new
 /// async work onto a runtime that is about to be dropped risks the
-/// task being silently cancelled before it sleeps the full deadline.
+/// task being silently canceled before it sleeps the full deadline.
 ///
 /// A `std::thread::spawn` is OS-managed; it survives the Tokio runtime
 /// shutdown and runs to completion independent of any async

@@ -1,12 +1,12 @@
 // The published-artifact card a transcript row carries.
 //
-// Diffs, attachments and published artifacts go in the timeline as cards inside the row
+// Diffs, attachments and published artifacts go in the transcript as cards inside the row
 // that produced them, because they belong to that turn.
 //
 // Two features meet at the seat and neither imports the other: the transcript renders the
 // seat and the inspector owns the body, registered from `contributions/inline-cards.ts`.
 //
-// The seat hands over a `ConsoleEntityRef` and no manifest or bridge, so this body makes no
+// The seat hands over a `EntityRef` and no manifest or bridge, so this body makes no
 // read: it renders the identity it was given, and the manifest row when its caller has one.
 
 import "./inline-artifact-card.css";

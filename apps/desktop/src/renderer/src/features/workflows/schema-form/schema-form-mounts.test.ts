@@ -14,9 +14,9 @@ import { SchemaFormAnswer } from "./components/SchemaFormAnswer.js";
 import { SchemaFormPreview } from "./components/SchemaFormPreview.js";
 import {
   SchemaFormChunk,
-  schemaFormAnswerMount,
+  schemaFormAnswerBody,
   schemaFormChunk,
-  schemaFormPreviewMount,
+  schemaFormPreviewBody,
   type SchemaFormModule,
 } from "./schema-form-mounts.js";
 
@@ -38,7 +38,7 @@ describe("the schema form chunk's loader", () => {
     expect(loader.isLoadStarted).toBe(true);
   });
 
-  it("memoises: a run pane and a definition row mounting together share one fetch", () => {
+  it("memoizes: a run pane and a definition row mounting together share one fetch", () => {
     const loader = new SchemaFormChunk();
     // Promise identity is the observable. Two distinct promises would mean two entries
     // into the module, which is the race the memo exists to prevent.
@@ -61,8 +61,8 @@ describe("the mounts the seats door publishes", () => {
     // One fetch behind both, which is the whole reason the mounts take a loader rather
     // than naming the specifier twice: a definition row and a waiting phase opening in
     // one frame must not start two entries into the kit.
-    const answer = await schemaFormAnswerMount.load();
-    const preview = await schemaFormPreviewMount.load();
+    const answer = await schemaFormAnswerBody.load();
+    const preview = await schemaFormPreviewBody.load();
 
     expect(answer.Body).toBe(SchemaFormAnswer);
     expect(preview.Body).toBe(SchemaFormPreview);

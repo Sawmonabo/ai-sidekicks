@@ -2,7 +2,7 @@ import "./mounted-folders.css";
 
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import { useConsoleClock } from "@renderer/services/platform/hooks/useClock.js";
+import { useClock } from "@renderer/services/platform/hooks/useClock.js";
 import {
   Nothing,
   formatCount,
@@ -36,12 +36,12 @@ export function MountedFolderList(props: {
   // advances this read's coalescing window exactly when it advances everything else's.
   //
   // From the window's own clock hook rather than resolved inside the memo below. The
-  // live arm of `consoleClockFor` MINTS, so its result is identity-unstable by
+  // live arm of `resolveBridgeClock` MINTS, so its result is identity-unstable by
   // construction, and a memo is a hint React is free to discard — resolving there
   // could rebuild this `dispose()`-bearing read around a new clock on a pass nothing
   // moved on. The hook pins the resolution in state, which is where a resource
   // identity belongs.
-  const clock = useConsoleClock();
+  const clock = useClock();
   // The openings made for this list. Its only job is to be a dependency the read's
   // construction can be moved by: a subscription that could not be opened at all is
   // terminal without one, because the read seam skips the snapshot in that arm and
@@ -130,12 +130,7 @@ export function MountedFolderList(props: {
   }
   if (state.value.readings.length === 0) {
     return (
-      <Nothing
-        kind="empty"
-        placement="surface"
-        title="This session has mounted no repositories."
-        detail="A mount arrives when a repository is attached to this session from the workspace surface."
-      />
+      <Nothing kind="empty" placement="surface" title="This session has mounted no repositories." />
     );
   }
   return (
@@ -150,8 +145,7 @@ export function MountedFolderList(props: {
       {state.value.unreadMountCount > 0 ? (
         <p className="meridian-settings-page__aside">
           {formatCount(state.value.unreadMountCount)} further mounts in this session were not read.
-          The inventory opens a bounded number of mounts per visit, and the rest are named by the
-          workspace surface rather than dropped here without saying so.
+          The inventory opens a bounded number of mounts per visit.
         </p>
       ) : null}
     </>

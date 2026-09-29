@@ -112,7 +112,7 @@ const COLLECTION_VIEWBOX_SIZES: Readonly<Record<string, number>> = {
  * All five INHERIT, which is why taking them off the body works at all: a
  * `<path>` with none of them draws with whatever the root `<svg>` declares.
  * `fill` is on the list for rule 1's sake — a face that fills reads heavier
- * than its neighbours at 16 px, so stripping it is the enforcement of that rule
+ * than its neighbors at 16 px, so stripping it is the enforcement of that rule
  * rather than a formatting preference.
  */
 const DRAWN_PRESENTATION_ATTRIBUTE =

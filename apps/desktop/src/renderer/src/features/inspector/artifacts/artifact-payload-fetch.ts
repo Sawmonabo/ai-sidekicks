@@ -64,7 +64,7 @@ export class ArtifactPayloadFetches {
    * no payload so the control is not held for a fetch that ended.
    */
   public async fetch(artifactId: string): Promise<ArtifactPayloadOutcome> {
-    const round = this.#fetches.claim(this, PAYLOAD_FETCH_KEY);
+    const round = this.#fetches.takeShell(this, PAYLOAD_FETCH_KEY);
     if (round === undefined) {
       throw new Error(`A payload fetch is already in flight; ${artifactId} was not asked for.`);
     }

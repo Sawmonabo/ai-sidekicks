@@ -1,6 +1,6 @@
 // The one place the console names a daemon EVENT.
 //
-// `DesktopBridge.daemon.subscribe` is declared over the same `never`-shaped brand
+// `PlatformBridge.daemon.subscribe` is declared over the same `never`-shaped brand
 // its `call` sibling is: no string literal is assignable until that brand narrows to
 // the real name union, so every caller in this repository casts. This module is the
 // console's single copy, and it is a seat rather than any one family's module because
@@ -11,19 +11,19 @@
 // THE CALL SIDE IS NOT HERE, AND ITS ABSENCE IS THE POINT. This module used to cast
 // `daemon.call` the same way, with each caller pinning the request and response
 // types by hand and nothing checking that the pin matched the wire. That is now
-// `bridge/daemon/daemon-reply.ts`: a registry keyed by method name, holding the contracts
+// `services/daemon/daemon-reply.ts`: a registry keyed by method name, holding the contracts
 // package's own schemas, parsing the request before it goes and the reply when it
 // lands. A second call door here would be a second answer to which methods exist
 // and what they carry — so there is one, and it is next door.
 //
 // WHY A SUBSCRIPTION STILL CASTS. A subscribe names a STREAM and answers with an
 // unsubscribe handle; it has no reply to parse, so the registry has nothing to bind
-// it to. Which names are streams is `bridge/daemon/session-event-streams.ts`'s
-// table, and what each carries is `bridge/daemon/session-event-stream-kinds.ts`'s.
+// it to. Which names are streams is `services/daemon/session-event-streams.ts`'s
+// table, and what each carries is `services/daemon/session-event-stream-kinds.ts`'s.
 import type { Unsubscribe } from "@shared/preload-api.js";
 
 import { openObservedSubscription } from "../transport/observed-subscription.js";
-import { type ConsoleBridge } from "../platform/platform-bridge.js";
+import { type PlatformBridge } from "../platform/platform-bridge.js";
 
 /**
  * Subscribe to one daemon event.
@@ -33,7 +33,7 @@ import { type ConsoleBridge } from "../platform/platform-bridge.js";
  * is what presence does — types it as `void` and reads nothing out of it.
  *
  * THE OPEN IS REPORTED, through the bridge family's own rule for what an open proves
- * (`bridge/transport/observed-subscription.ts`). Every view family that subscribes
+ * (`services/transport/observed-subscription.ts`). Every view family that subscribes
  * reaches the wire here, so this is one of the console's few live readings of whether
  * the transport is there at all — and the window's retry of a session whose own bind
  * failed depends on a reading taken somewhere other than that binding.
@@ -41,11 +41,11 @@ import { type ConsoleBridge } from "../platform/platform-bridge.js";
  * @consumedBy a surface that listens for one daemon event
  */
 export function subscribeDaemonEvent<TPayload>(
-  bridge: ConsoleBridge,
+  bridge: PlatformBridge,
   event: string,
   handler: (payload: TPayload) => void,
 ): Unsubscribe {
-  const subscribe = bridge.desktopBridge.daemon.subscribe as unknown as (
+  const subscribe = bridge.daemon.subscribe as unknown as (
     eventName: string,
     onPayload: (payload: TPayload) => void,
   ) => Unsubscribe;

@@ -1,11 +1,11 @@
 // One backward `timeline.read` window, read as the console's own event log.
 //
 // THE SECOND DECODE BOUNDARY, ON THE FIRST ONE'S TERMS. `session-event-payload.ts`
-// narrows a delivered `EventEnvelope` into `ConsoleSessionEvent`, because
+// narrows a delivered `EventEnvelope` into `ProjectedSessionEvent`, because
 // `store/entities/entities.ts` puts exactly one module between the wire and everything above
 // it. This module is that boundary for the other frame the daemon answers a session's
 // log with — a `timeline.read` page — and it exists for the same reason: the store's
-// log is `ConsoleSessionEvent` and a family above the bridge may not read a wire
+// log is `ProjectedSessionEvent` and a family above the bridge may not read a wire
 // shape.
 //
 // WHY A PAGE IS DECODED BACKWARDS INTO THE LOG RATHER THAN RENDERED AS ROWS.
@@ -19,12 +19,12 @@
 // derived against the one it does. One projection, one origin.
 //
 // SO THE DECODE IS TOTAL AND LOSES NOTHING THE LOG HOLDS. Every member
-// `ConsoleSessionEvent` carries is required on `TimelineRowBase` except `actor`,
+// `ProjectedSessionEvent` carries is required on `TimelineRowBase` except `actor`,
 // which is optional in both, so there is no arm here for a row that cannot be read
 // and no count of rows dropped: a page that parsed against the registered schema
 // decodes completely. What is dropped is the daemon's derived triple, which this
 // console re-derives, and `category` — which the forward boundary also checks and
-// does not carry, because no reader of `ConsoleSessionEvent` reads one.
+// does not carry, because no reader of `ProjectedSessionEvent` reads one.
 //
 // WHAT THE REPLY SAYS ABOUT WHETHER MORE REMAIN IS THE REPLY'S, NEVER THIS MODULE'S.
 // `hasMore` is required on both arms and the continuing arm's `nextCursor` is
@@ -34,7 +34,7 @@
 
 import type { TimelineReadResponse, TimelineRow } from "@ai-sidekicks/contracts";
 
-import type { ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
+import type { ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 
 /** One backward window, in the shape the store's log speaks. */
 export interface EarlierTimelinePage {
@@ -45,7 +45,7 @@ export interface EarlierTimelinePage {
    * `entries` to run oldest-to-newest, so a second sort would be a second ordering of
    * one log — and the store's own merge orders what it admits anyway.
    */
-  readonly events: readonly ConsoleSessionEvent[];
+  readonly events: readonly ProjectedSessionEvent[];
   /**
    * Whether rows remain before this window. The reply's `hasMore`, verbatim.
    *
@@ -96,7 +96,7 @@ export function readEarlierTimelinePage(response: TimelineReadResponse): Earlier
  * without asserting the typed shape away, and costs one object per row of a page a
  * person pressed a control to fetch.
  */
-function readTimelineRowAsEvent(row: TimelineRow): ConsoleSessionEvent {
+function readTimelineRowAsEvent(row: TimelineRow): ProjectedSessionEvent {
   return {
     id: row.id,
     sessionId: row.sessionId,

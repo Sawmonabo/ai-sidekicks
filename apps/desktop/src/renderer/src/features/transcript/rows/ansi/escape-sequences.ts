@@ -73,7 +73,7 @@ export function carriesAnsiEscapes(source: string): boolean {
  * `content`, where they would reach the page as text. So the residue is removed here,
  * after the parse rather than before it: the sequences the library DOES consume are
  * the ones carrying the styling, and a pre-pass over the source would take those with
- * them and render a build log in one colour.
+ * them and render a build log in one color.
  *
  * A body carrying no escape is returned BY IDENTITY, which is nearly every body.
  *
@@ -118,11 +118,11 @@ function endOfSequenceAt(text: string, escapeAt: number): number {
   }
   if (introducer === "[") {
     // CSI: parameter bytes, then intermediates, then one final byte.
-    return endOfParameterisedSequence(text, escapeAt + 2, "0", "?");
+    return endOfParameterizedSequence(text, escapeAt + 2, "0", "?");
   }
   if (isWithin(introducer, " ", "/")) {
     // An escape carrying intermediate bytes — `ESC ( B` and its family.
-    return endOfParameterisedSequence(text, escapeAt + 1, " ", "/");
+    return endOfParameterizedSequence(text, escapeAt + 1, " ", "/");
   }
   // A parameterless escape, and anything else: the introducer and one byte.
   return escapeAt + 2;
@@ -140,7 +140,7 @@ function endOfSequenceAt(text: string, escapeAt: number): number {
  * leaves its tail on screen: the two-byte `ESC \` and the single-byte C1 form.
  *
  * AND AN ESCAPE THAT IS NOT ST ENDS THE CONTROL WHERE IT STANDS, which is
- * resynchronisation rather than consumption — a payload containing one belongs to a
+ * resynchronization rather than consumption — a payload containing one belongs to a
  * sequence nobody terminated, so the scan hands that escape back to the caller's loop
  * to be read as the start of whatever it introduces. The cursor has advanced past the
  * introducer by then, so the walk always moves forward and a body of unterminated
@@ -163,7 +163,7 @@ function endOfStringControl(text: string, from: number, endsAtBell: boolean): nu
 }
 
 /** Where a sequence ends after its parameter and intermediate bytes and one final. */
-function endOfParameterisedSequence(
+function endOfParameterizedSequence(
   text: string,
   from: number,
   parameterLow: string,

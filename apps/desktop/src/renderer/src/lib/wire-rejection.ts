@@ -2,7 +2,7 @@
 //
 // A rejected promise off the bridge can be anything: an `Error`, a wire envelope
 // that crossed the preload boundary as a plain object, an SDK `Error` subclass
-// carrying the code on a property, a `ConsoleRefusal` a fixture threw, a string, a
+// carrying the code on a property, a `Refusal` a fixture threw, a string, a
 // symbol, `undefined`, or a null-prototype object that throws inside `String()`.
 // Before this module every family answered that with its own function, and the six
 // answers disagreed on five separate axes — how many arms, whether a carried refusal
@@ -60,7 +60,7 @@ import {
   wireRetryExtension,
   withRefusalExtensions,
   type RefusalExtensions,
-  type ExtendedConsoleRefusal,
+  type ExtendedRefusal,
 } from "./refusal-extensions.js";
 import { refuse } from "./refusal.js";
 
@@ -86,15 +86,15 @@ export interface RejectionFallback {
 /**
  * A rejection, as the one shape the console renders.
  *
- * A `ConsoleRefusal` widened by the REGISTERED extension members and by nothing else
+ * A `Refusal` widened by the REGISTERED extension members and by nothing else
  * (`refusal-extensions.ts`), so every renderer that already takes a refusal takes
  * this unchanged and only a surface that reads one of those members has to know it
- * exists. `isConsoleRefusal` is structural, so this satisfies it.
+ * exists. `isRefusal` is structural, so this satisfies it.
  *
  * Named here rather than declared here, because what it is IS the extended refusal:
  * a second interface saying so would be the mirrored union the package forbids.
  */
-export type WireRefusal = ExtendedConsoleRefusal;
+export type WireRefusal = ExtendedRefusal;
 
 /**
  * Normalize any rejection into the console's one refusal shape.
@@ -235,12 +235,12 @@ function rebuiltRefusal(members: RefusalMembers): WireRefusal | undefined {
  * Ordered most specific first, because each earlier arm carries a code the later
  * ones would throw away:
  *
- *   1. A value that already IS a `ConsoleRefusal` keeps its own author, its own code
+ *   1. A value that already IS a `Refusal` keeps its own author, its own code
  *      and any retry hint it carries — rebuilt onto a fresh object rather than passed
  *      through by reference, for the reason {@link rebuiltRefusal} states.
- *   2. A value CARRYING a refusal (`ConsoleRefusalError`, the fixture bridge's error,
+ *   2. A value CARRYING a refusal (`RefusalError`, the fixture bridge's error,
  *      and any other error built around one) is unwrapped, and rebuilt the same way.
- *      The check is STRUCTURAL rather than `instanceof ConsoleRefusalError`, and that
+ *      The check is STRUCTURAL rather than `instanceof RefusalError`, and that
  *      is strictly stronger: `instanceof` walks a prototype chain, which a value that
  *      crossed a realm or a structured clone no longer has, and the failure mode
  *      there is silent — the refusal falls to the terminal arm and its author's code

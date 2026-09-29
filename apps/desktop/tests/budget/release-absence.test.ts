@@ -52,8 +52,8 @@ import { DESKTOP_PACKAGE_ROOT } from "../../scripts/budget/budget-registry.mjs";
 import { FIXTURE_GLOBAL_NAMES } from "@renderer/app/fixture-global-names.js";
 import { FIXTURE_LAUNCH_GLOBAL } from "@shared/fixture-launch.js";
 import {
-  PERF_METER_KINDS,
-  type PerfMeterKind,
+  PERFORMANCE_METER_KINDS,
+  type PerformanceMeterKind,
 } from "@renderer/lib/performance-meters/performance-meters.js";
 import {
   BUILD_TARGETS,
@@ -76,7 +76,7 @@ const CONSOLE_PRESENCE_MARKER = "meridian-frame";
  * The perf-meter kinds a release renderer must not carry, named rather than derived.
  *
  * NOT EVERY KIND IN THE TUPLE, and the exceptions are the whole design. `"reveal-drain"`
- * is also a `ledger/frame/viewport/cycle/window-cap.ts` reason code and a
+ * is also a `features/transcript/viewport/window-cap.ts` reason code and a
  * `viewport-prune-cycle.ts` case label, and `"frame-time"` is written by surfaces that
  * have nothing to do with the meters: real product strings a clean release build carries
  * for their own reasons, so sweeping the tuple whole would fail on a correct bundle and be
@@ -101,7 +101,7 @@ const CONSOLE_PRESENCE_MARKER = "meridian-frame";
 const RELEASE_ABSENT_METER_KINDS = [
   "apply-latency",
   "store-size",
-] as const satisfies readonly PerfMeterKind[];
+] as const satisfies readonly PerformanceMeterKind[];
 
 /**
  * Which built files carry a marker.
@@ -169,7 +169,7 @@ describe("release build — the fixture surface is absent, not merely unreachabl
     // without a `typecheck` beside it.
     expect(RELEASE_ABSENT_METER_KINDS.length).toBeGreaterThan(0);
     for (const kind of RELEASE_ABSENT_METER_KINDS) {
-      expect(PERF_METER_KINDS).toContain(kind);
+      expect(PERFORMANCE_METER_KINDS).toContain(kind);
     }
   });
 
@@ -180,7 +180,7 @@ describe("release build — the fixture surface is absent, not merely unreachabl
       `"${kind}" reached the built tree, so a release renderer is carrying the dev-tier ` +
         "perf meters. Either `out/renderer` currently holds a fixtures build — " +
         "`pnpm build:fixtures` and `pnpm build` write the same directory — or a recording " +
-        "entry point has left its `import.meta.env.DEV` guard, or `PERF_METER_KINDS` " +
+        "entry point has left its `import.meta.env.DEV` guard, or `PERFORMANCE_METER_KINDS` " +
         "gained a production reader that keeps the tuple in the graph. The guard is the " +
         "mechanism the module's own header claims; this is the outcome.",
     ).toStrictEqual([]);

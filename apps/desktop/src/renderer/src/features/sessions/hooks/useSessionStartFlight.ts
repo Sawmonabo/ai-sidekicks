@@ -5,7 +5,7 @@
 // a person two sessions and give them one.
 //
 // SO THE ACT TAKES A KEY, AND THE KEY IS THE CONSOLE'S ONE REGISTER.
-// `store/read/generation-latch.ts` owns it. A boolean here would be the copy that drifts,
+// `lib/reads/generation-latch.ts` owns it. A boolean here would be the copy that drifts,
 // and — the reason the register exists at all — a rendered boolean cannot refuse the
 // second press in the first press's own frame: the handler reads the flag from the
 // render that produced it, so both presses find the surface idle. `claim` decides and
@@ -34,7 +34,7 @@ import { type GenerationClaim } from "@renderer/lib/reads/generation-latch.js";
  * The one act this destination has in flight per bridge: creating a session.
  *
  * A key inside the bridge's own key space rather than an identity, per
- * `store/read/generation-latch.ts`: one window creates one session at a time.
+ * `lib/reads/generation-latch.ts`: one window creates one session at a time.
  */
 const SESSION_CREATE_KEY = "session-create";
 
@@ -75,7 +75,7 @@ export function useSessionStartFlight(subject: object, putsTheCall: boolean): Se
     if (!putsTheCall) {
       return true;
     }
-    const claim = latch.claim(subject, SESSION_CREATE_KEY);
+    const claim = latch.takeShell(subject, SESSION_CREATE_KEY);
     if (claim === undefined) {
       return false;
     }

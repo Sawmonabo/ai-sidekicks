@@ -38,7 +38,7 @@ describe("a formula that does not typeset", () => {
   it("takes the source arm and says so, rather than a formula-shaped blank", async () => {
     // The failure this case exists for is invisible by construction: under a KaTeX told
     // not to throw, a parse error comes back AS MARKUP, so the component records it as
-    // typeset and the reader is shown KaTeX's own error rendering — coloured away to
+    // typeset and the reader is shown KaTeX's own error rendering — colored away to
     // nothing, in the arrangement this replaces. Nothing on screen would say the formula
     // failed, and the source would never appear.
     const { container } = render(<MathBlock source={String.raw`\frac{1`} isDisplayMode />);

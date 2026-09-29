@@ -371,7 +371,7 @@ async function runChangedTier(): Promise<void> {
     process.stderr.write(`${LOG_PREFIX} could not run vitest: ${result.error.message}\n`);
     process.exit(1);
   }
-  // A signalled run reports a null status, and exiting 0 on it would report a
+  // A signaled run reports a null status, and exiting 0 on it would report a
   // killed suite as a passing one — the same false success as the defect above.
   if (result.status === null) {
     process.stderr.write(`${LOG_PREFIX} vitest was terminated by ${String(result.signal)}.\n`);

@@ -30,14 +30,14 @@
 // stays the authored record that `tests/helpers/scenario-contract-check/contract-check.ts` checks and that a reader
 // reasons about — the shift is a property of one playback, not of the scenario.
 
-import type { ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
+import type { ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 
 /** An event to append, before the log has told it where it lands. */
-export type UnpositionedSessionEvent = Omit<ConsoleSessionEvent, "sequence">;
+export type UnpositionedSessionEvent = Omit<ProjectedSessionEvent, "sequence">;
 
 /** What one scenario playback has delivered, and where the next frame goes. */
 export class ScenarioSessionLog {
-  readonly #delivered: ConsoleSessionEvent[] = [];
+  readonly #delivered: ProjectedSessionEvent[] = [];
   #appendedCount = 0;
 
   /**
@@ -47,7 +47,7 @@ export class ScenarioSessionLog {
    * lending out the log's own array would let the next delivery mutate a batch a
    * store has already reconciled.
    */
-  public delivered(): readonly ConsoleSessionEvent[] {
+  public delivered(): readonly ProjectedSessionEvent[] {
     return [...this.#delivered];
   }
 
@@ -72,8 +72,8 @@ export class ScenarioSessionLog {
    * decision, and a log that emitted would be a second delivery path.
    */
   public admitScriptedBeats(
-    events: readonly ConsoleSessionEvent[],
-  ): readonly ConsoleSessionEvent[] {
+    events: readonly ProjectedSessionEvent[],
+  ): readonly ProjectedSessionEvent[] {
     return events.map((event) =>
       this.#record({ ...event, sequence: event.sequence + this.#appendedCount }),
     );
@@ -87,7 +87,7 @@ export class ScenarioSessionLog {
    * to before its first advance starts at one, which is where its own first beat
    * would have started.
    */
-  public appendEvent(event: UnpositionedSessionEvent): ConsoleSessionEvent {
+  public appendEvent(event: UnpositionedSessionEvent): ProjectedSessionEvent {
     this.#appendedCount += 1;
     return this.#record({ ...event, sequence: this.#lastDeliveredSequence() + 1 });
   }
@@ -97,7 +97,7 @@ export class ScenarioSessionLog {
     return this.#delivered.at(-1)?.sequence ?? 0;
   }
 
-  #record(event: ConsoleSessionEvent): ConsoleSessionEvent {
+  #record(event: ProjectedSessionEvent): ProjectedSessionEvent {
     this.#delivered.push(event);
     return event;
   }

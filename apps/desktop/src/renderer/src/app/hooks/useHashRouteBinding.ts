@@ -30,8 +30,8 @@
 import { useEffect, useRef } from "react";
 
 import { formatRoute } from "@renderer/routing/routes.js";
-import { useFrameStore } from "@renderer/store/window/hooks/useWindowStore.js";
-import { type FrameStore } from "@renderer/store/window/window-store.js";
+import { useWindowStore } from "@renderer/store/window/hooks/useWindowStore.js";
+import { type WindowStore } from "@renderer/store/window/window-store.js";
 
 /**
  * Bind this window's location hash to its route, in both directions.
@@ -42,13 +42,13 @@ import { type FrameStore } from "@renderer/store/window/window-store.js";
  *   store at construction and drives this binding afterwards, and two subscriptions
  *   to one browser value are two answers to the same question.
  */
-export function useHashRouteBinding(frameStore: FrameStore, hash: string): void {
+export function useHashRouteBinding(frameStore: WindowStore, hash: string): void {
   // The hash this binding wrote and has not yet heard back. A ref rather than state:
   // nothing renders from it, and re-rendering the window to record what it just did
   // would be a pass that changes no pixel.
   const unheardWrite = useRef<string | undefined>(undefined);
 
-  const route = useFrameStore(frameStore, (state) => state.route);
+  const route = useWindowStore(frameStore, (state) => state.route);
 
   // Hash → route.
   useEffect(() => {

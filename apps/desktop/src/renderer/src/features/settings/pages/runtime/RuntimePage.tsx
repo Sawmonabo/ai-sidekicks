@@ -2,7 +2,7 @@
 //
 // The daemon's state belongs in the frame as a chip, with its DETAIL (the attempt count
 // and the last heartbeat) one click away, diagnostic only and never editable. This is
-// that click. Starting a stopped runtime is a shell spawn rather than a call, and that
+// that click. Starting a stopped runtime is a main-process spawn rather than a call, and that
 // control lives on the frame's own offline banner, beside the state that makes it the
 // right thing to press.
 //
@@ -34,9 +34,9 @@ import { useCallback, useState, type ReactNode } from "react";
 
 import { Chip, Nothing, WireFigure } from "@renderer/console/primitives/index.js";
 import {
-  UNREPORTED_SHELL_NOTICE,
-  describeShellConnection,
-  type ShellState,
+  UNREPORTED_DAEMON_NOTICE,
+  describeDaemonConnection,
+  type MainProcessState,
 } from "@renderer/store/window/main-process-state.js";
 import type { SettingsPageContext } from "../../types.js";
 import {
@@ -56,7 +56,7 @@ import { MountedFoldersBlock } from "./mounted-folders/MountedFoldersBlock.js";
  *
  * A SENTENCE AND NEVER A BARE DISABLE, on the rule the join form states: a control
  * grayed out with no cause reads as broken. Cancel is disabled beside the primary
- * rather than left live, because nothing behind the bridge is cancellable — a Cancel
+ * rather than left live, because nothing behind the bridge is cancelable — a Cancel
  * offered after the call went out would read as retracting it, and it retracts
  * nothing. Both actions leave together when the settlement clears the confirmation.
  */
@@ -98,14 +98,14 @@ export function RuntimePage(props: RuntimePageProps): ReactNode {
   return (
     <section className="meridian-settings-page" aria-label="Runtime">
       <p className="meridian-settings-page__lede">
-        What the shell knows about the runtime on this machine. Everything below is read from the
-        supervisor and is not editable here.
+        What the main process knows about the runtime on this machine. Everything below is read from
+        the supervisor and is not editable here.
       </p>
 
       <section className="meridian-settings-page__block">
         <h3 className="meridian-settings-page__block-title">Supervisor</h3>
         <dl className="meridian-settings-page__facts">
-          {renderSupervisorFacts(props.context.shellState)}
+          {renderSupervisorFacts(props.context.mainProcessState)}
         </dl>
       </section>
 
@@ -118,7 +118,7 @@ export function RuntimePage(props: RuntimePageProps): ReactNode {
 
 /** The two blocks that call the daemon: its own reported status, and stop and restart. */
 export function DaemonOperationsBlocks(props: DaemonOperationsBlocksProps): ReactNode {
-  const { shellState } = props.context;
+  const { mainProcessState } = props.context;
   const [confirming, setConfirming] = useState<DaemonControl | undefined>(undefined);
   const [settlement, setSettlement] = useState<DaemonControlSettlement | undefined>(undefined);
   const onSettled = useCallback((next: DaemonControlSettlement) => {
@@ -131,7 +131,7 @@ export function DaemonOperationsBlocks(props: DaemonOperationsBlocksProps): Reac
   // and the settlements this page's own dispatches produced.
   const status = useDaemonStatus(
     props.context.bridge,
-    { connection: shellState.connection, settledControlCount: control.settledCount },
+    { connection: mainProcessState.connection, settledControlCount: control.settledCount },
     props.operations,
   );
 
@@ -190,7 +190,7 @@ export function DaemonOperationsBlocks(props: DaemonOperationsBlocksProps): Reac
  * reason the connection is a union: a row reading "attempt — of 5" on a connected
  * window would be a field with nothing in it pretending to be a measurement.
  */
-function renderSupervisorFacts(state: ShellState): ReactNode {
+function renderSupervisorFacts(state: MainProcessState): ReactNode {
   const { connection, lastHeartbeatAt, negotiation } = state;
   return (
     <>
@@ -200,11 +200,11 @@ function renderSupervisorFacts(state: ShellState): ReactNode {
           <Nothing
             kind="not-checked"
             placement="inline"
-            title={UNREPORTED_SHELL_NOTICE.title}
-            detail={UNREPORTED_SHELL_NOTICE.detail}
+            title={UNREPORTED_DAEMON_NOTICE.title}
+            detail={UNREPORTED_DAEMON_NOTICE.detail}
           />
         ) : (
-          <span>{describeShellConnection(connection)}</span>
+          <span>{describeDaemonConnection(connection)}</span>
         ),
       )}
       {connection.kind === "reconnecting"
@@ -290,7 +290,7 @@ function renderStatusRegion(reading: DaemonStatusReading): ReactNode {
           kind="computing"
           placement="surface"
           title="Asking the runtime"
-          detail="The status the daemon reports about itself, which is a different question from what the supervisor observed."
+          detail="The status the background service reports about itself, which is a different question from what the supervisor observed."
         />
       );
     case "read":

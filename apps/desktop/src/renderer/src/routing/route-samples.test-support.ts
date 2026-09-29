@@ -8,17 +8,17 @@
 // these are cases, and a production module publishing its own test corpus would be a
 // shipping symbol nothing ships.
 
-import type { ConsoleRoute } from "./routes.js";
+import type { AppRoute } from "./routes.js";
 
 /** Main-window routes, including the arms that carry an optional segment. */
-export const MAIN_WINDOW_ROUTES: readonly ConsoleRoute[] = [
+export const MAIN_WINDOW_ROUTES: readonly AppRoute[] = [
   { kind: "sessions" },
-  { kind: "workspace", sessionId: "session-1" },
+  { kind: "session", sessionId: "session-1" },
   // The same arm carrying its optional focus — the phase deep link a park banner
-  // hands out. Listed beside the bare workspace so both suites are asked about the
+  // hands out. Listed beside the bare session screen so both suites are asked about the
   // pair rather than about whichever one somebody remembered.
   {
-    kind: "workspace",
+    kind: "session",
     sessionId: "session-1",
     workflowPhase: { workflowRunId: "run-1", phaseId: "review" },
   },

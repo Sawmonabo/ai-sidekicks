@@ -69,7 +69,7 @@ export class ExecutionModeSelections {
    * follow it.
    */
   public async request(workspaceId: WorkspaceId, executionMode: ExecutionMode): Promise<void> {
-    const claim = this.#inFlight.claim(this, workspaceId);
+    const claim = this.#inFlight.takeShell(this, workspaceId);
     if (claim === undefined) {
       return;
     }
@@ -131,5 +131,5 @@ export class ExecutionModeSelections {
  */
 export function selectionInFlightCopy(pendingMode: ExecutionMode | undefined): string {
   const subject = pendingMode === undefined ? "A switch" : `A switch to ${pendingMode}`;
-  return `${subject} has been sent for this workspace and the daemon has not answered yet. Nothing else is sent until it settles.`;
+  return `${subject} has been sent for this workspace and the background service has not answered yet. Nothing else is sent until it settles.`;
 }

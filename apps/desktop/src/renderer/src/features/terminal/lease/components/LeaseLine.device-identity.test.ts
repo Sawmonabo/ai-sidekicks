@@ -1,4 +1,4 @@
-// The claim control is gated on knowing which device this is.
+// The take control is gated on knowing which device this is.
 //
 // The last of the line's prohibitions, and its own file because it is the one that
 // withholds the control entirely: the surface acts on this device's behalf and the fold
@@ -11,13 +11,13 @@
 
 import { describe, expect, it } from "vitest";
 
-import { IDLE_CLAIM, leaseState, renderLease } from "./LeaseLine.test-support.js";
+import { IDLE_TAKE, leaseState, renderLease } from "./LeaseLine.test-support.js";
 import { OTHER_DEVICE_ID } from "../lease-model.test-support.js";
 
-describe("the claim control is gated on knowing which device this is", () => {
-  /** The claim control, or `null` — the shape the withheld cases need. */
-  function offeredClaimControl(container: HTMLElement): Element | null {
-    return container.querySelector(".meridian-lease-line__claim");
+describe("the take control is gated on knowing which device this is", () => {
+  /** The take control, or `null` — the shape the withheld cases need. */
+  function offeredTakeControl(container: HTMLElement): Element | null {
+    return container.querySelector(".meridian-lease-line__take");
   }
 
   const HELD_BY_SOMEBODY = leaseState({
@@ -27,16 +27,16 @@ describe("the claim control is gated on knowing which device this is", () => {
   });
 
   it("offers no control while the identity read is still out", () => {
-    const { container } = renderLease(HELD_BY_SOMEBODY, IDLE_CLAIM, {
+    const { container } = renderLease(HELD_BY_SOMEBODY, IDLE_TAKE, {
       status: "not-loaded",
     });
-    expect(offeredClaimControl(container)).toBeNull();
+    expect(offeredTakeControl(container)).toBeNull();
   });
 
   it("negative control: a read identity DOES get the control", () => {
     // Without this the withheld case would pass against a line that had simply
-    // stopped rendering the claim control at all.
+    // stopped rendering the take control at all.
     const { container } = renderLease(HELD_BY_SOMEBODY);
-    expect(offeredClaimControl(container)?.textContent).toBe("Take the shell");
+    expect(offeredTakeControl(container)?.textContent).toBe("Take the shell");
   });
 });

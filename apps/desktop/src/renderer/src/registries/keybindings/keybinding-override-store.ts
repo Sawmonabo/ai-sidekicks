@@ -6,7 +6,7 @@
 // carry it:
 //
 //   • **One accessor, never the raw table.** The frame's key dispatch and the
-//     Keyboard page both read `surface.bindings`. A consumer reading the shipped table
+//     Keyboard page both read `snapshot.bindings`. A consumer reading the shipped table
 //     directly would install, or print, the chords a person replaced — and the two
 //     surfaces would then disagree about which keyboard this window has, which is the
 //     exact defect a person cannot debug. The page needs the SHIPPED table too, to say
@@ -39,12 +39,12 @@
 // control's own press.
 
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
-import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
+import { type Refusal } from "@renderer/lib/refusal.js";
 import {
   contributedKeybindings,
   subscribeToCommandContributions,
 } from "../commands/command-contributions.js";
-import { type KeyBinding } from "../commands/command-types.js";
+import { type Keybinding } from "../commands/command-types.js";
 import type { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
 import { GenerationLatch } from "@renderer/lib/reads/generation-latch.js";
 import { HOST_CHORD_PLATFORM, type ChordPlatform } from "@renderer/lib/chord-format.js";
@@ -83,7 +83,7 @@ const HYDRATION_KEY = "hydrate";
  * the state has one owner.
  */
 export class KeybindingOverrideStore {
-  readonly #readDefaults: () => readonly KeyBinding[];
+  readonly #readDefaults: () => readonly Keybinding[];
   readonly #platform: ChordPlatform;
   readonly #changes = new Emitter<void>("keybinding override change");
   #overrides: KeybindingOverrideMap = {};
@@ -94,13 +94,13 @@ export class KeybindingOverrideStore {
   /**
    * The rounds this store's overrides have moved through.
    *
-   * TWO ROLES, ONE GENERATION, which is the shape `store/read/generation-latch.ts`
+   * TWO ROLES, ONE GENERATION, which is the shape `lib/reads/generation-latch.ts`
    * describes — a monotonic serial, so a superseded settlement is IGNORED rather than
    * claimed to have been stopped — and which
    * `features/settings/machine-settings/machine-settings-store.ts` takes the same way:
    * a rebinding SUPERSEDES a hydration already in flight — the record that read
    * answers with is the map from before the choice, which is the rule
-   * `app/hooks/useSchemePreference.ts` states for the colour scheme — and a second hydration
+   * `app/hooks/useSchemePreference.ts` states for the color scheme — and a second hydration
    * supersedes the first, because two of them are two answers to one question and
    * only the later one was asked.
    */
@@ -122,7 +122,7 @@ export class KeybindingOverrideStore {
   }
 
   /** What to install and what to draw. One object, stable between changes. */
-  public get surface(): KeybindingSnapshot {
+  public get snapshot(): KeybindingSnapshot {
     const shippedBindings = this.#snapshot === undefined ? this.#readDefaults() : [];
     this.#snapshot ??= {
       bindings: composeEffectiveBindings(shippedBindings, this.#overrides),
@@ -223,13 +223,13 @@ export class KeybindingOverrideStore {
   }
 
   /** Forget one override, restoring whatever the console ships for that command. */
-  public async reset(commandId: string): Promise<ConsoleRefusal | undefined> {
+  public async reset(commandId: string): Promise<Refusal | undefined> {
     const { [commandId]: _dropped, ...remaining } = this.#overrides;
     return await this.#apply(commandId, remaining);
   }
 
   /** Forget every override. The keyboard is the one the console ships. */
-  public async resetAll(): Promise<ConsoleRefusal | undefined> {
+  public async resetAll(): Promise<Refusal | undefined> {
     return await this.#apply(undefined, {});
   }
 
@@ -237,7 +237,7 @@ export class KeybindingOverrideStore {
    * Suspend the console keyboard while a chord is being recorded.
    *
    * A pair rather than a setter, so a call site reads as what it does. `endRecording`
-   * is safe twice: a cancelled recorder and a completed one both end here.
+   * is safe twice: a canceled recorder and a completed one both end here.
    */
   public beginRecording(): void {
     if (!this.#recording) {
@@ -264,7 +264,7 @@ export class KeybindingOverrideStore {
   async #apply(
     commandId: string | undefined,
     overrides: KeybindingOverrideMap,
-  ): Promise<ConsoleRefusal | undefined> {
+  ): Promise<Refusal | undefined> {
     this.#overrides = overrides;
     this.#overrideRounds.supersedeAll();
     // A hydration refusal names a row this window declined. The row it named has
@@ -284,7 +284,7 @@ export class KeybindingOverrideStore {
    * cannot name: the frame attaches before it renders a surface that can rebind, so
    * the only callers reaching that arm drive the model directly.
    */
-  async #persist(): Promise<ConsoleRefusal | undefined> {
+  async #persist(): Promise<Refusal | undefined> {
     const uiStateStore = this.#uiStateStore;
     if (uiStateStore === undefined) {
       return undefined;
@@ -325,7 +325,7 @@ export class KeybindingOverrideStore {
  * reaches the seam the frame installs from without a store threaded through a page
  * contract that deliberately carries none.
  */
-export const consoleKeybindingOverrides: KeybindingOverrideStore = new KeybindingOverrideStore({
+export const keybindingOverrides: KeybindingOverrideStore = new KeybindingOverrideStore({
   defaults: contributedKeybindings,
   subscribeToDefaults: subscribeToCommandContributions,
 });

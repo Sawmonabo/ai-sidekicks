@@ -12,13 +12,13 @@
 //
 // SO THE REFUSAL IS STRUCTURAL RATHER THAN A WAIT. There is no timer to tune and no
 // "settled" heuristic to get wrong: `PendingPaneBody` stamps a marker while its module
-// is in flight, `pendingPaneKindsIn` reads it back, and a capture whose tree carries one
+// is in flight, `listPendingBodyNames` reads it back, and a capture whose tree carries one
 // fails by name. A surface that needs its body first awaits it in its own mount helper —
 // which is where the knowledge of what that surface is waiting for lives.
 //
 // AND THE SECOND HALF OF THE SAME FAILURE IS THE WINDOW. A settled surface taller than
 // the tester window was photographed to the window's bottom edge and then in the page's
-// own background colour for every row beneath it, because a Playwright element
+// own background color for every row beneath it, because a Playwright element
 // screenshot is a CLIP in page coordinates and nothing paints an iframe's overflow.
 // Every image
 // over 900 px carried that: real content to row 899, then pure white to the bottom, in
@@ -29,7 +29,7 @@
 //
 // ONE SHAPE OF SURFACE STOPS THE GROWING RATHER THAN SATISFYING IT. A destination
 // sized from the window is one window tall plus its own padding at every window, so
-// the loop below recognises that — on the SECOND pass after the first, having grown
+// the loop below recognizes that — on the SECOND pass after the first, having grown
 // once more to tell it apart from a surface that reflowed while the first window was
 // opening — puts the window back, and photographs it at the tier's own size. The
 // reason and its consequence are `capture-viewport.ts`'s to state, and
@@ -42,10 +42,10 @@
 import { expect } from "vitest";
 import { page } from "vitest/browser";
 
-// The LEAF and not the family door: `pendingPaneKindsIn` has no production reader, so
+// The LEAF and not the family door: `listPendingBodyNames` has no production reader, so
 // `console/seats/index.ts` carries no line for it — a door line only a test reaches is
 // what the module-shape rules in `apps/desktop/AGENTS.md` reject.
-import { pendingPaneKindsIn } from "@renderer/components/LazyBody/pending-body-marker.js";
+import { listPendingBodyNames } from "@renderer/components/LazyBody/pending-body-marker.js";
 import { settle } from "../helpers/settle.js";
 import { captureWindowStep, stabilityWaitMsFor, type CaptureViewport } from "./capture-viewport.js";
 
@@ -54,7 +54,7 @@ import { captureWindowStep, stabilityWaitMsFor, type CaptureViewport } from "./c
  *
  * Opening a window is a layout change, so a surface can answer the first grow with a
  * taller box than the one that was measured — a deferred image lands, a container
- * reflows — and settle on the second. A surface sized BY its window is recognised on
+ * reflows — and settle on the second. A surface sized BY its window is recognized on
  * the second pass after the first and spends two of these on being confirmed, for the
  * reason `CONFIRMING_NON_CLOSING_PASSES` states; what the rest of the budget bounds is
  * the surface that keeps closing the gap by a little each pass, which would otherwise
@@ -94,7 +94,7 @@ class TesterWindowDriver implements CaptureWindowDriver {
  * Refuse a capture whose tree still holds an unloaded pane body.
  *
  * TAKES THE KINDS RATHER THAN THE ELEMENT, which is what makes the refusal itself
- * testable without a browser: the DOM read is `pendingPaneKindsIn`'s and has its own
+ * testable without a browser: the DOM read is `listPendingBodyNames`'s and has its own
  * suite beside the marker it reads, and this half is a pure function a node tier can
  * plant a failure into. Fused into one function, the only way to prove the refusal
  * fires would be to mint a real half-loaded capture, which is the thing it exists to
@@ -285,14 +285,14 @@ export class CaptureWindow {
  * `holdWhole` has run. `capture-viewport.ts` states the rule and owns the number.
  */
 export async function captureSettled(element: Element, captureName: string): Promise<void> {
-  assertNoPendingPaneBodies(pendingPaneKindsIn(element), captureName);
+  assertNoPendingPaneBodies(listPendingBodyNames(element), captureName);
   const captureWindow = new CaptureWindow({
     width: window.innerWidth,
     height: window.innerHeight,
   });
   try {
     await captureWindow.holdWhole(element, captureName);
-    assertNoPendingPaneBodies(pendingPaneKindsIn(element), captureName);
+    assertNoPendingPaneBodies(listPendingBodyNames(element), captureName);
     await expect(element).toMatchScreenshot(captureName, {
       timeout: stabilityWaitMsFor(captureWindow.heldViewportRatio),
     });

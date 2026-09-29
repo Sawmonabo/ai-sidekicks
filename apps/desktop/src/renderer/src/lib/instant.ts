@@ -88,8 +88,8 @@ const RFC_3339_DATE_TIME =
  * reader can check. One base literal carries the encoding and the rest are arithmetic
  * over it, so a wrong factor is a wrong multiplier and never a wrong magnitude.
  *
- * NOT IN `core/constants/`, which holds the console's CAPS — a bound somebody chose,
- * each with a rationale for the number. These are not chosen: they are what the units
+ * NOT IN A `*-caps.ts` MODULE, which holds a CAP — a bound somebody chose, with a
+ * rationale for the number. These are not chosen: they are what the units
  * are, and they belong beside the reading that makes the millisecond the unit.
  */
 export const MILLISECONDS_PER_SECOND = 1_000;
@@ -144,7 +144,7 @@ export type InstantReading = Instant | MalformedInstant;
  *     reports the change instead of absorbing it.
  *
  * The default is `"any-offset"` because that is what the grammar above already was,
- * so a caller that has not thought about its plane keeps the behaviour it had rather
+ * so a caller that has not thought about its plane keeps the behavior it had rather
  * than silently gaining a refusal.
  */
 export type InstantOffsetPolicy = "any-offset" | "utc-only";

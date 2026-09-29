@@ -15,7 +15,7 @@
 // values the renderer and the pane hold, which this module reads and does not declare.
 //
 // WHY THE FLATTENING IS AN INDEX AND NOT AN ARRAY. A forty-file, five-thousand
-// line change set is about five thousand rows; materialising them costs an object
+// line change set is about five thousand rows; materializing them costs an object
 // per row that is alive for as long as the diff is open, and every gap expansion
 // rebuilds all of them. This class stores the per-file and per-hunk OFFSETS —
 // tens of numbers — and answers `rowAt` by binary search, so the memory it holds
@@ -26,7 +26,7 @@
 // renderer asks; every test of it runs without a DOM, which is what lets the
 // endurance tier measure a five-thousand-line change set at all.
 
-import type { ConsoleDiffModel, DiffLine, DiffViewMode } from "./diff-model.js";
+import type { DiffModel, DiffLine, DiffViewMode } from "./diff-model.js";
 import {
   diffGapKey,
   type DiffGapExpansion,
@@ -44,7 +44,7 @@ import {
  * The flattened row index of one diff, under one expansion state, narrowed to at
  * most one of its files.
  *
- * Immutable: an expansion produces a NEW index, which is what makes a memoised
+ * Immutable: an expansion produces a NEW index, which is what makes a memoized
  * renderer correct — a mutated index would report new rows against an unchanged
  * identity and the rows on screen would not move.
  *
@@ -56,14 +56,14 @@ import {
  * it is and the flattening skips the others.
  */
 export class DiffRowIndex {
-  readonly #model: ConsoleDiffModel;
+  readonly #model: DiffModel;
   readonly #expansion: DiffGapExpansion;
   readonly #fileSpans: readonly FileRowSpan[];
   readonly #rowCount: number;
   #bodyLayoutBuildCount = 0;
 
   public constructor(
-    model: ConsoleDiffModel,
+    model: DiffModel,
     expansion: DiffGapExpansion = new Map(),
     /** Show only the file at this wire-verbatim path. Absent shows every file. */
     shownFilePath?: string,
@@ -131,7 +131,7 @@ export class DiffRowIndex {
   }
 
   /** The diff these rows address. */
-  public get model(): ConsoleDiffModel {
+  public get model(): DiffModel {
     return this.#model;
   }
 

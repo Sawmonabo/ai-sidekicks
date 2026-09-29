@@ -8,7 +8,7 @@
 //
 //   • **The boundary and the pattern are one decision.** A rule that covers a whole
 //     category for a whole session is a different grant from one that covers a
-//     single path for one run, and the two controls that decide that are labelled
+//     single path for one run, and the two controls that decide that are labeled
 //     and disclosed together rather than sitting apart.
 //   • **The copy claims nothing the corpus has not registered.** No per-category
 //     syntax is registered anywhere — no path-prefix rule, no host-matching rule, no
@@ -35,7 +35,7 @@ import { Select } from "@base-ui/react/select";
 import { OverlaySelectPopup } from "@renderer/console/primitives/index.js";
 import {
   REMEMBERED_SCOPE_KINDS,
-  SCOPE_KIND_PHRASE,
+  RULE_SCOPE_LABELS,
   type RememberedScopeKind,
 } from "@renderer/lib/approval-vocabulary.js";
 import { type ApprovalResolveRequest } from "@renderer/services/approvals/approval-records.js";
@@ -131,7 +131,7 @@ export function RememberDecision(props: RememberDecisionProps): React.JSX.Elemen
           <OverlaySelectPopup className="meridian-approval-card__scope-popup">
             {REMEMBERED_SCOPE_KINDS.map((kind) => (
               <Select.Item className="meridian-approval-card__scope-item" key={kind} value={kind}>
-                <Select.ItemText>{SCOPE_KIND_PHRASE[kind]}</Select.ItemText>
+                <Select.ItemText>{RULE_SCOPE_LABELS[kind]}</Select.ItemText>
               </Select.Item>
             ))}
           </OverlaySelectPopup>

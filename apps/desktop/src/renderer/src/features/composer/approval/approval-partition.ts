@@ -13,7 +13,7 @@
 // nothing needs them while the read is still running.
 
 import { type ApprovalRecord } from "@renderer/services/approvals/approval-records.js";
-import { type ConsoleEntity } from "@renderer/store/session/entities/entities.js";
+import { type StoredEntity } from "@renderer/store/session/entities/entities.js";
 import { type ReadPhase } from "@renderer/lib/read-phase.js";
 import { providerAskFor, type ProviderAsk } from "./provider-ask.js";
 
@@ -33,7 +33,7 @@ export interface PartitionedApprovals {
  * @consumedBy the approvals pane's provider ask framing
  */
 export function providerAsksIn(
-  entities: Readonly<Record<string, ConsoleEntity>>,
+  entities: Readonly<Record<string, StoredEntity>>,
 ): ReadonlyMap<string, ProviderAsk> {
   const asks = new Map<string, ProviderAsk>();
   for (const [approvalRequestId, entity] of Object.entries(entities)) {

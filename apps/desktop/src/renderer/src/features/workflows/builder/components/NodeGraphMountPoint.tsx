@@ -1,9 +1,9 @@
-// The node-graph canvas's slot — two node kinds, one edge kind, and the connection
+// The node-graph canvas's mount point — two node kinds, one edge kind, and the connection
 // predicate that refuses a shape while it is being dragged rather than at save.
 //
 // OWNED BY THE WORKFLOW ENGINE. The canvas is its own authoring surface: the entry
 // node plus the four phase classes, the gate on a phase's outgoing shoulder, the
-// agent avatars and binding badge inside a node, the labelled back-reference, and
+// agent avatars and binding badge inside a node, the labeled back-reference, and
 // the seven shapes a connection may never complete. This console frames that canvas;
 // it does not draw one.
 //
@@ -15,7 +15,7 @@
 // all of them are properties of the body that draws editable nodes: controlled mode
 // over an edited definition, a connection-validity predicate evaluated during the
 // drag, a keyboard connect mode, and durable layout. None of that is built here, and
-// a chrome that built it would be authoring the body this slot exists to reserve.
+// a chrome that built it would be authoring the body this mount point exists to reserve.
 // The library reaching the run pane changes nothing about that: it arrives on a lazy
 // chunk that no initial bundle path imports, so the cost of the graph is paid by the
 // surface that draws one.
@@ -50,7 +50,7 @@ export interface NodeGraphMount {
    * The one durable home for canvas geometry, under the `layout` value class.
    *
    * Handed over whole rather than as a narrowed geometry port: narrowing would fix
-   * a serialisation the body has not chosen yet, and the property that matters is
+   * a serialization the body has not chosen yet, and the property that matters is
    * that there is one store and the body did not open a second.
    */
   readonly uiStateStore: UiStateStore;
@@ -67,7 +67,7 @@ export interface NodeGraphMountPointProps extends NodeGraphMount {
   /**
    * The body, once there is one.
    *
-   * Optional and absent everywhere in this repository: the pane mounts the slot
+   * Optional and absent everywhere in this repository: the pane mounts the mount point
    * with no body, so the shell stands. It is a prop rather than a lookup so the
    * mount obligation above is provably delivered — this directory's own test
    * supplies a body and reads back exactly what the pane promised it.

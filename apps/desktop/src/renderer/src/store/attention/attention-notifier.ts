@@ -50,7 +50,7 @@
 //
 // WHAT THIS CLASS DELIBERATELY DOES NOT DO. It applies no preference filter and no
 // quiet-hours rule. Non-matching events are dropped at the control plane before they
-// are ever emitted, and the shell honors the OS do-not-disturb setting, so either one
+// are ever emitted, and the main process honors the OS do-not-disturb setting, so either one
 // re-implemented here would be a second authority over a decision already made — and
 // a second authority that cannot see the inputs the first one had.
 

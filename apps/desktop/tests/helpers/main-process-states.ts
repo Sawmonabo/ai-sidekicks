@@ -1,6 +1,6 @@
-// The supervisor states the shell suite drives over.
+// The supervisor states the main-process suites drive over.
 
-import type { ShellConnection } from "@renderer/store/window/main-process-state.js";
+import type { DaemonConnection } from "@renderer/store/window/main-process-state.js";
 
 /**
  * Every arm a supervisor actually reports, `unreported` excluded.
@@ -9,7 +9,7 @@ import type { ShellConnection } from "@renderer/store/window/main-process-state.
  * said, and a suite quantifying over it beside the reported arms would be asserting
  * that silence means something.
  */
-export const REPORTED_CONNECTIONS: readonly ShellConnection[] = [
+export const REPORTED_CONNECTIONS: readonly DaemonConnection[] = [
   { kind: "probing" },
   { kind: "starting" },
   { kind: "connected" },

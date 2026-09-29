@@ -149,7 +149,7 @@ import {
 // shared with every other Electron harness.
 import { TEST_TIMEOUT_SLACK_MS } from "./helpers/electron-child.js";
 
-describe("desktop shell substrate boot", () => {
+describe("desktop main process boot", () => {
   it("verifies built bundle exists before spawning Electron", () => {
     // Fail-fast diagnostic. If the test runs without the smoke bundle
     // present, the Electron spawn would fail with a cryptic "cannot
@@ -341,7 +341,7 @@ describe("desktop shell substrate boot", () => {
       // Classified, not the catch-all arm — the reader is told which
       // precondition failed.
       expect(failureMessage).toContain("was not serving");
-      expect(failureMessage).not.toContain("without a recognised failure marker");
+      expect(failureMessage).not.toContain("without a recognized failure marker");
 
       // The dump itself, with the offending display named in it.
       expect(failureMessage).toContain("--- readiness events observed ---");
@@ -410,7 +410,7 @@ describe("desktop shell substrate boot", () => {
       expect(result.timedOut).toBe(true);
 
       // THE structural claim, asserted against a measurement of itself: the
-      // collection honoured its own bound.
+      // collection honored its own bound.
       //
       // Deliberately not asserted as "total elapsed < deadline + budget +
       // grace". That form is arithmetically equivalent only if teardown is
@@ -436,11 +436,11 @@ describe("desktop shell substrate boot", () => {
 
       // The readiness failure, not a bare timeout: classified, and carrying the
       // dump with the at-deadline readings in it.
-      expect(failureMessage).toContain("Desktop shell never became ready");
+      expect(failureMessage).toContain("Desktop main process never became ready");
       expect(failureMessage).toContain(
         `still running at the ${String(FORCED_STALL_SPAWN_TIMEOUT_MS)}ms deadline`,
       );
-      expect(failureMessage).not.toContain("without a recognised failure marker");
+      expect(failureMessage).not.toContain("without a recognized failure marker");
       expect(failureMessage).toContain("--- environment ---");
 
       // The at-deadline capture ran and its readings are present — the point of

@@ -12,7 +12,7 @@
 // too. That claim is invisible to a DOM assertion reading one attribute and is
 // exactly what an image holds, so the addresses are captured rather than described:
 //
-//   • the session's own composer, which is what focus outside the deck addresses —
+//   • the session's own composer, which is what focus outside the pane layout addresses —
 //     the composition a person meets first;
 //   • a working run, the new-turn path;
 //   • a run waiting on a person, which is the one address that sketch labels
@@ -34,7 +34,7 @@ import { type MountedView } from "../helpers/feature-mounts/mount-queries.js";
 import { captureSettled } from "./settled-capture.js";
 
 import { installMeridianTokens } from "@renderer/app/token-installation.js";
-import { CONSOLE_SCHEMES } from "@renderer/styles/tokens.js";
+import { COLOR_SCHEMES } from "@renderer/styles/tokens.js";
 
 /**
  * The surfaces this tier captures, each with the name its image is written under.
@@ -71,10 +71,10 @@ afterEach(async () => {
  */
 const PINNED_CAPTURES: readonly {
   readonly captureName: string;
-  readonly scheme: (typeof CONSOLE_SCHEMES)[number];
+  readonly scheme: (typeof COLOR_SCHEMES)[number];
   readonly mount: () => Promise<MountedView>;
 }[] = PINNED_SURFACES.flatMap((surface) =>
-  CONSOLE_SCHEMES.map((scheme) => ({
+  COLOR_SCHEMES.map((scheme) => ({
     captureName: `${surface.captureName}-${scheme}`,
     scheme,
     mount: surface.mount,
@@ -87,7 +87,7 @@ describe("screenshot — the composer surfaces", () => {
   // that mints — the second capture overwrites the first and both cases go green
   // against one image — so the uniqueness claim is asserted where it can be seen.
   it("writes one distinctly-named capture per surface per scheme", () => {
-    expect(PINNED_CAPTURES).toHaveLength(PINNED_SURFACES.length * CONSOLE_SCHEMES.length);
+    expect(PINNED_CAPTURES).toHaveLength(PINNED_SURFACES.length * COLOR_SCHEMES.length);
     expect(new Set(PINNED_CAPTURES.map((capture) => capture.captureName)).size).toBe(
       PINNED_CAPTURES.length,
     );

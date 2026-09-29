@@ -21,7 +21,7 @@ export function WorktreeEntityDetail(props: EntityDetailProps): React.JSX.Elemen
       heading="Worktree"
       entityId={props.entityId}
       state={props.entity?.state}
-      isInitialised={props.isInitialised}
+      isInitialized={props.isInitialized}
       hasRecord={props.entity !== undefined}
       degradedCause={props.degradedCause}
       degradedConsequence="a worktree that has since been merged or retired could still read as ready."

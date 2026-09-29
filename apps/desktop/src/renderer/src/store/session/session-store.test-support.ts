@@ -12,13 +12,13 @@
 // infinity, a value far past the millisecond range — and a builder that threw on them
 // would fail the test before the store ever saw the event it is supposed to refuse.
 
-import type { ConsoleSessionEvent } from "./entities/entities.js";
+import type { ProjectedSessionEvent } from "./entities/entities.js";
 import { eventOfKind } from "@test/helpers/session-events.js";
 
 /** One event at `sequence`, on the session every suite drives. */
 export function eventAt(
   sequence: number,
-  overrides: Partial<ConsoleSessionEvent> = {},
-): ConsoleSessionEvent {
+  overrides: Partial<ProjectedSessionEvent> = {},
+): ProjectedSessionEvent {
   return { ...eventOfKind("session-1", "run.starting", sequence), ...overrides };
 }

@@ -1,7 +1,7 @@
 // What the composition root WIRES, proved by driving the composed window.
 //
 // Four claims here, and none of them is visible from the modules underneath: each
-// is a fact about how `ConsoleRoot` joins two pieces that are individually correct.
+// is a fact about how `AppProviders` joins two pieces that are individually correct.
 //
 //   • **Regaining focus re-reads.** The scheduler names `window-focus` a refresh
 //     reason; only this file can say when it happened.
@@ -20,7 +20,7 @@
 //     this file can say that the record a mounted window makes is stamped off the clock
 //     that window ended up running on.
 //
-// Every case drives the real `ConsoleRoot` against the fixture bridge the
+// Every case drives the real `AppProviders` against the fixture bridge the
 // `console-unit` project compiles in, so nothing here is a stand-in for the thing
 // under test. The one instrument is a spy on the REAL `SessionStoreRegistry`
 // prototype: the registry is created inside the frame and there is no other way to
@@ -33,12 +33,12 @@
 import { act, cleanup, fireEvent, type RenderResult } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
 
-import { consoleDiagnosticCapture } from "@renderer/lib/diagnostic-capture/diagnostic-capture.js";
+import { windowDiagnosticCapture } from "@renderer/lib/diagnostic-capture/diagnostic-capture.js";
 import { parseInstant } from "@renderer/lib/instant.js";
-import { consoleTripwires } from "@renderer/lib/tripwires.js";
+import { windowTripwires } from "@renderer/lib/tripwires.js";
 import { SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
-import { consoleCommands } from "@renderer/registries/commands/window-command-registry.js";
-import { SESSIONS_HASH, mountConsole } from "@test/helpers/mount-app.js";
+import { commandRegistry } from "@renderer/registries/commands/window-command-registry.js";
+import { SESSIONS_HASH, mountApp } from "@test/helpers/mount-app.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 
 const BRIDGE_COMMAND_IDS = ["bridge.copyBuildDetails", "bridge.checkForUpdates"] as const;
@@ -89,7 +89,7 @@ function backgroundOf(mounted: RenderResult): HTMLElement {
   return background;
 }
 
-describe("ConsoleRoot — regaining focus re-reads every open session", () => {
+describe("AppProviders — regaining focus re-reads every open session", () => {
   let requestRefreshOfEverySession: MockInstance<
     SessionStoreRegistry["requestRefreshOfEverySession"]
   >;
@@ -111,7 +111,7 @@ describe("ConsoleRoot — regaining focus re-reads every open session", () => {
   });
 
   it("asks for one refresh when a blurred window comes back", async () => {
-    await mountConsole();
+    await mountApp();
 
     await dispatchWindowEvent("blur");
     await dispatchWindowEvent("focus");
@@ -123,7 +123,7 @@ describe("ConsoleRoot — regaining focus re-reads every open session", () => {
   it("negative control: a focus event on a window that never lost focus asks for nothing", async () => {
     // A window that was never blurred missed nothing, and re-reading on every
     // focus event the platform raises would be the poll this design refuses.
-    await mountConsole();
+    await mountApp();
 
     await dispatchWindowEvent("focus");
 
@@ -131,7 +131,7 @@ describe("ConsoleRoot — regaining focus re-reads every open session", () => {
   });
 });
 
-describe("ConsoleRoot — the palette's bridge-backed acts are mounted", () => {
+describe("AppProviders — the palette's bridge-backed acts are mounted", () => {
   beforeEach(() => {
     window.location.hash = SESSIONS_HASH;
   });
@@ -144,13 +144,13 @@ describe("ConsoleRoot — the palette's bridge-backed acts are mounted", () => {
     // Asserted absent first: the registry is module-scoped, so a case that only
     // checked presence would pass over a leftover registration from another mount.
     for (const commandId of BRIDGE_COMMAND_IDS) {
-      expect(consoleCommands.has(commandId), commandId).toBe(false);
+      expect(commandRegistry.has(commandId), commandId).toBe(false);
     }
 
-    const mounted = await mountConsole();
+    const mounted = await mountApp();
 
     for (const commandId of BRIDGE_COMMAND_IDS) {
-      expect(consoleCommands.has(commandId), commandId).toBe(true);
+      expect(commandRegistry.has(commandId), commandId).toBe(true);
     }
 
     act(() => {
@@ -158,7 +158,7 @@ describe("ConsoleRoot — the palette's bridge-backed acts are mounted", () => {
     });
 
     for (const commandId of BRIDGE_COMMAND_IDS) {
-      expect(consoleCommands.has(commandId), commandId).toBe(false);
+      expect(commandRegistry.has(commandId), commandId).toBe(false);
     }
   });
 
@@ -166,15 +166,15 @@ describe("ConsoleRoot — the palette's bridge-backed acts are mounted", () => {
     // The palette reads the registry once per revision. Two registration effects
     // would mean two bumps and a window in which the palette lists half the
     // commands it has.
-    await mountConsole();
+    await mountApp();
 
-    expect(consoleCommands.has("frame.goToSessions")).toBe(true);
-    expect(consoleCommands.has("frame.goToWorkflows")).toBe(true);
-    expect(consoleCommands.has("bridge.copyBuildDetails")).toBe(true);
+    expect(commandRegistry.has("frame.goToSessions")).toBe(true);
+    expect(commandRegistry.has("frame.goToWorkflows")).toBe(true);
+    expect(commandRegistry.has("bridge.copyBuildDetails")).toBe(true);
   });
 });
 
-describe("ConsoleRoot — a modal overlay inerts the frame's background", () => {
+describe("AppProviders — a modal overlay inerts the frame's background", () => {
   beforeEach(() => {
     window.location.hash = SESSIONS_HASH;
   });
@@ -189,7 +189,7 @@ describe("ConsoleRoot — a modal overlay inerts the frame's background", () => 
     // the chord toggles the state; nothing below this file proves the two are
     // joined, and they were not — the prop existed, the palette opened, and the
     // rail and the whole surface stayed in the accessibility tree underneath it.
-    const mounted = await mountConsole();
+    const mounted = await mountApp();
     expect(backgroundOf(mounted).hasAttribute("inert")).toBe(false);
 
     await pressPaletteChord();
@@ -205,7 +205,7 @@ describe("ConsoleRoot — a modal overlay inerts the frame's background", () => 
   it("negative control: the platform modifier and K does not open the palette", async () => {
     // The palette's chord is Shift and P, so a window that also opened on K would pass
     // the case above while binding the wrong keys.
-    const mounted = await mountConsole();
+    const mounted = await mountApp();
 
     await pressWithModifier({ key: "k", code: "KeyK" });
 
@@ -213,28 +213,28 @@ describe("ConsoleRoot — a modal overlay inerts the frame's background", () => 
   });
 });
 
-describe("ConsoleRoot — every tripwire this process reports reaches the capture", () => {
+describe("AppProviders — every tripwire this process reports reaches the capture", () => {
   afterEach(() => {
     cleanup();
   });
 
   it("carries a report into the diagnostic capture, armed by importing the root", () => {
-    // The route is armed at module scope, so importing `ConsoleRoot` is what arms it —
+    // The route is armed at module scope, so importing `AppProviders` is what arms it —
     // no mount is needed and none is performed. What is asserted is the JOIN: a report
     // made against the process registry arrives at the process capture.
-    consoleTripwires.setThrowOnReport(false);
+    windowTripwires.setThrowOnReport(false);
 
     const batches: string[] = [];
-    const detachForwarder = consoleDiagnosticCapture.installForwarder((jsonLines) => {
+    const detachForwarder = windowDiagnosticCapture.installForwarder((jsonLines) => {
       batches.push(jsonLines);
     });
     try {
-      consoleTripwires.report({
+      windowTripwires.report({
         kind: "bridge-shape-drift",
-        site: "ConsoleRoot.test",
+        site: "AppProviders.test",
         detail: "a report made to prove the route is armed",
       });
-      consoleDiagnosticCapture.flush();
+      windowDiagnosticCapture.flush();
 
       expect(
         batches.join("\n"),
@@ -242,8 +242,8 @@ describe("ConsoleRoot — every tripwire this process reports reaches the captur
       ).toContain("a report made to prove the route is armed");
     } finally {
       detachForwarder();
-      consoleTripwires.setThrowOnReport(true);
-      consoleTripwires.reset();
+      windowTripwires.setThrowOnReport(true);
+      windowTripwires.reset();
     }
   });
 
@@ -253,18 +253,18 @@ describe("ConsoleRoot — every tripwire this process reports reaches the captur
     // engine's FROZEN clock, and a record stamped off wall time lands hours from the
     // frame it describes — unpinnable by a reference capture and disagreeing with
     // every other timestamp the same window produced.
-    consoleTripwires.setThrowOnReport(false);
+    windowTripwires.setThrowOnReport(false);
 
     const batches: string[] = [];
-    const detachForwarder = consoleDiagnosticCapture.installForwarder((jsonLines) => {
+    const detachForwarder = windowDiagnosticCapture.installForwarder((jsonLines) => {
       batches.push(jsonLines);
     });
     try {
-      await mountConsole();
+      await mountApp();
 
       const detail = "a report made to prove the route reads the window's clock";
-      consoleTripwires.report({ kind: "bridge-shape-drift", site: "ConsoleRoot.test", detail });
-      consoleDiagnosticCapture.flush();
+      windowTripwires.report({ kind: "bridge-shape-drift", site: "AppProviders.test", detail });
+      windowDiagnosticCapture.flush();
 
       const routed = batches
         .flatMap((batch) => batch.split("\n"))
@@ -279,8 +279,8 @@ describe("ConsoleRoot — every tripwire this process reports reaches the captur
       ).toBeGreaterThan(ONE_DAY_IN_MILLISECONDS);
     } finally {
       detachForwarder();
-      consoleTripwires.setThrowOnReport(true);
-      consoleTripwires.reset();
+      windowTripwires.setThrowOnReport(true);
+      windowTripwires.reset();
     }
   });
 });

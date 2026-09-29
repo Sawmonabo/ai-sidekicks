@@ -1,4 +1,4 @@
-// The ledger's global two-phase frame coordinator — the one scheduler the frame's
+// The transcript's global two-phase frame coordinator — the one scheduler the frame's
 // per-frame work is ordered through.
 //
 // Being light on the machine prices the console at one frame for four streaming lanes,
@@ -47,12 +47,12 @@
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
 import { lossyStringify } from "@renderer/lib/wire-errors.js";
 import {
-  perfMeterNow,
+  readPerformanceMeterTime,
   recordFrameTime,
   retireFrameTimeSeries,
   retireRevealDrainSeries,
 } from "@renderer/lib/performance-meters/performance-meters.js";
-import { type ConsoleClock, type ScheduledHandle } from "@renderer/lib/clock.js";
+import { type Clock, type ScheduledHandle } from "@renderer/lib/clock.js";
 
 /**
  * The frame's phases, in the order every frame runs them.
@@ -88,13 +88,13 @@ export interface AnimationFrameDiagnostic {
 }
 
 export interface AnimationFrameCoordinatorOptions {
-  readonly clock: ConsoleClock;
+  readonly clock: Clock;
 }
 
 /** Per-frame work, ordered by phase and coalesced by task key. */
 export class AnimationFrameCoordinator {
-  readonly #clock: ConsoleClock;
-  readonly #diagnosticEmitter = new Emitter<AnimationFrameDiagnostic>("ledger frame diagnostic");
+  readonly #clock: Clock;
+  readonly #diagnosticEmitter = new Emitter<AnimationFrameDiagnostic>("animation frame diagnostic");
   /** One insertion-ordered queue per phase; a key holds at most one task. */
   readonly #queueByPhase = new Map<AnimationFramePhase, Map<string, () => void>>(
     ANIMATION_FRAME_PHASES.map((phase) => [phase, new Map<string, () => void>()]),
@@ -210,7 +210,7 @@ export class AnimationFrameCoordinator {
   /**
    * Drop a submitted task. Idempotent, and safe for a key that never ran.
    *
-   * Cancelling the LAST pending task releases the armed frame too. That is the
+   * Canceling the LAST pending task releases the armed frame too. That is the
    * idle-CPU budget's precondition moving with the scheduler: the claim used to be
    * each subsystem's — "a settled engine has no timer armed" — and once every one of
    * them submits here instead, a coordinator holding a frame for an empty queue is
@@ -312,7 +312,7 @@ export class AnimationFrameCoordinator {
   #drainFrame(): void {
     // The meters are development-only: a built bundle reads `0` here and records
     // nothing below.
-    const startedAt = perfMeterNow();
+    const startedAt = readPerformanceMeterTime();
     for (const [phaseIndex, phase] of ANIMATION_FRAME_PHASES.entries()) {
       const queue = this.#queueByPhase.get(phase);
       if (queue === undefined || queue.size === 0) {
@@ -326,7 +326,7 @@ export class AnimationFrameCoordinator {
       }
     }
     this.#drainingPhaseIndex = undefined;
-    recordFrameTime(this.#coordinatorId, perfMeterNow() - startedAt);
+    recordFrameTime(this.#coordinatorId, readPerformanceMeterTime() - startedAt);
     // AFTER the recording and before the next frame is armed: the sample belongs to
     // the frame that has just finished, and arming first would put the next frame's
     // scheduling inside this one's reading.

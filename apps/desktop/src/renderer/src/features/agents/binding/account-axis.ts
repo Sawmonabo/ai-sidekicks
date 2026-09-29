@@ -50,8 +50,11 @@ import {
   type ProviderReadiness,
 } from "@ai-sidekicks/contracts";
 
-import { readRefusalOf, type WireReadState } from "@renderer/services/wire-reads/read-lifecycle.js";
-import type { ConsoleRefusal } from "@renderer/lib/refusal.js";
+import {
+  findReadRefusal,
+  type WireReadState,
+} from "@renderer/services/wire-reads/read-lifecycle.js";
+import type { Refusal } from "@renderer/lib/refusal.js";
 
 /**
  * What this axis asks of the window's one account-plane reading.
@@ -99,7 +102,7 @@ export interface AccountChoice {
 export type AccountAxisReading =
   | { readonly kind: "driver-unchosen" }
   | { readonly kind: "reading" }
-  | { readonly kind: "refused"; readonly refusal: ConsoleRefusal }
+  | { readonly kind: "refused"; readonly refusal: Refusal }
   | { readonly kind: "unknown-provider"; readonly driverName: string }
   | {
       readonly kind: "served";
@@ -146,7 +149,7 @@ export function accountAxisReadingFor(
   // member: a reading whose newest read served carries no refusal even where an
   // earlier one failed, and the member alone would render a healed reading's last
   // failure for the life of the window.
-  const refusal = readRefusalOf(registry);
+  const refusal = findReadRefusal(registry);
   if (refusal !== undefined) {
     return { kind: "refused", refusal };
   }

@@ -1,12 +1,12 @@
 // The one command root the composer registers for workflows, and how its line reads.
 //
 // The session composer registers exactly one command root, `workflow`, with exactly one
-// verb, `start`: `/workflow start <name>`. The root is what the recogniser matches and
+// verb, `start`: `/workflow start <name>`. The root is what the recognizer matches and
 // the palette lists; the verb and the definition name that follows it are this module's
 // grammar and nobody else's.
 //
 // THE ROOT IS THE REGISTERED ID AND THE VERB IS NOT PART OF IT. The composer splits a
-// directive line at the first run of whitespace and hands the recogniser the FIRST WORD
+// directive line at the first run of whitespace and hands the recognizer the FIRST WORD
 // alone, so a registered id carrying a space is unreachable by construction. Registering
 // `workflow.start` would parse the documented form `/workflow start <name>` as the
 // unregistered name `workflow`, a loud refusal for the one line that must work, and the
@@ -14,13 +14,13 @@
 // namespace spent on one verb: a second verb is a second word in THIS grammar rather
 // than a second registered id.
 //
-// THE VERB SET IS CLOSED AND DECLARED ONCE. An unrecognised verb is its own reading
+// THE VERB SET IS CLOSED AND DECLARED ONCE. An unrecognized verb is its own reading
 // rather than an absent name, because the two have different remedies: one is a
 // spelling a person can fix and the other is a workflow that does not exist.
 
 import { readSlashCommandName } from "../../slash-command-syntax.js";
 
-/** The console command id this family registers, recognises, and is listed under. */
+/** The console command id this family registers, recognizes, and is listed under. */
 export const WORKFLOW_COMMAND_ROOT = "workflow";
 
 /**

@@ -8,17 +8,17 @@
 // every step, so a host that slept moves the wake-up nowhere.
 
 import { useMemo } from "react";
-import { useConsoleClock } from "@renderer/services/platform/hooks/useClock.js";
+import { useClock } from "@renderer/services/platform/hooks/useClock.js";
 import { parseInstant } from "@renderer/lib/instant.js";
 import { useDeadlineWake } from "@renderer/hooks/useDeadlineWake.js";
 import {
-  askSettledBy,
-  type DriverAskReading,
+  applyQuestionSettlement,
+  type QuestionReading,
 } from "@renderer/store/session-events/question-reading.js";
 import { useQuestionSettlement } from "@renderer/store/session-events/hooks/useQuestionSettlement.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 import { useQuestionAnswer } from "./hooks/useQuestionAnswer.js";
-import { InputAskCard } from "./QuestionCard.js";
+import { QuestionCard } from "./QuestionCard.js";
 
 export interface BoundQuestionCardProps {
   /**
@@ -28,7 +28,7 @@ export interface BoundQuestionCardProps {
    * attribution beside it: the reading and the dispatcher then name one run by
    * construction, and no caller can hand a row an ask belonging to another.
    */
-  readonly ask: DriverAskReading;
+  readonly ask: QuestionReading;
   /** The session the ask belongs to, whose store folds every settlement it admits. */
   readonly sessionStore: SessionStore;
 }
@@ -38,16 +38,19 @@ export interface BoundQuestionCardProps {
  *
  * @consumedBy the composer's question card
  */
-export function FixtureShellAskRow(props: BoundQuestionCardProps): React.JSX.Element {
+export function BoundQuestionCard(props: BoundQuestionCardProps): React.JSX.Element {
   const askAnswer = useQuestionAnswer(props.ask.runId, props.ask.askId);
-  const clock = useConsoleClock();
+  const clock = useClock();
   // THE WINDOW'S ANSWER TO "IS THIS ASK STILL OPEN", not this row's and not this
   // mount's. The row says only what its own event type says, and the delivery state
   // beside it is local to a mount and resets with one — so a request answered from
   // another window, or answered here and then scrolled out and back, kept its controls.
   // The session store folds every settlement; this is the lookup and the merge.
   const askTerminal = useQuestionSettlement(props.sessionStore, props.ask);
-  const ask = useMemo(() => askSettledBy(props.ask, askTerminal), [props.ask, askTerminal]);
+  const ask = useMemo(
+    () => applyQuestionSettlement(props.ask, askTerminal),
+    [props.ask, askTerminal],
+  );
   // ARMED ONLY WHILE THE ASK IS OPEN. A settled ask draws no countdown, so a wake-up
   // for its stamped deadline would be a timer this row can never spend.
   const deadlines = useMemo(
@@ -57,7 +60,7 @@ export function FixtureShellAskRow(props: BoundQuestionCardProps): React.JSX.Ele
   );
   const nowEpochMilliseconds = useDeadlineWake(clock, deadlines);
   return (
-    <InputAskCard
+    <QuestionCard
       body={undefined}
       ask={ask}
       nowEpochMilliseconds={nowEpochMilliseconds}

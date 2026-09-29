@@ -3,8 +3,8 @@
 import "./mount-controls.css";
 
 import { useCallback } from "react";
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
-import { type ConsolePaneOpener } from "@renderer/console/seats/index.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
+import { type PaneOpener } from "@renderer/console/seats/index.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 
 import { AttachRepositoryDialog } from "./attach/AttachRepositoryDialog.js";
@@ -15,12 +15,12 @@ import { MountList } from "./components/MountList.js";
 import { RepoMountsSummary } from "./components/RepoMountsSummary.js";
 
 export interface RepoSectionProps {
-  readonly bridge: ConsoleBridge;
+  readonly bridge: PlatformBridge;
   readonly sessionStore: SessionStore;
   /** Whether the section is expanded; collapsed, it shows only the summary line. */
   readonly isOpen: boolean;
-  /** How the section opens a pane in its own window's deck. */
-  readonly openPane: ConsolePaneOpener;
+  /** How the section opens a pane in its own window's pane layout. */
+  readonly openPane: PaneOpener;
   /** The calls the section makes. Must be the same object between renders. */
   readonly operations: RepoOperations;
 }
@@ -35,14 +35,14 @@ export function RepoSection(props: RepoSectionProps): React.JSX.Element {
 
   const copyCanonicalRoot = useCallback(
     (canonicalRoot: string) => {
-      void bridge.desktopBridge.native.copyToClipboard(canonicalRoot);
+      void bridge.native.copyToClipboard(canonicalRoot);
     },
     [bridge],
   );
 
-  // THE SECTION IS WHERE THE OPENER LIVES, because the deck is handed to a section
+  // THE SECTION IS WHERE THE OPENER LIVES, because the pane layout is handed to a section
   // rather than imported by one — a sidebar rendered in an auxiliary window opens its
-  // panes in THAT window's deck. The rows below take a callback and never the opener,
+  // panes in THAT window's pane layout. The rows below take a callback and never the opener,
   // so no card knows a pane address exists.
   const openDiff = useCallback(
     (subject: OpenDiffSubject) => {

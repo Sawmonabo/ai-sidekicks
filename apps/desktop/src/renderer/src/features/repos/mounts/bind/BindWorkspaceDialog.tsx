@@ -5,7 +5,7 @@
 //
 // IT IS `Dialog` AND NOT `AlertDialog`. This is data entry a person may abandon at no
 // cost; the alert variant is for a consequence being consented to, which is what the
-// re-attach and the root disposals use.
+// re-attach and the root removal use.
 //
 // IT IS OFFERED ONLY WHERE THE CARD OFFERS BIND CONTROLS AT ALL, which the card decides
 // from the mount's lifecycle and health axes — so a detached, unreachable, or drifted
@@ -18,7 +18,7 @@ import { Dialog } from "@base-ui/react/dialog";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { ExecutionMode } from "@ai-sidekicks/contracts";
-import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { Nothing, OverlayDialogPopup, WireFigure } from "@renderer/console/primitives/index.js";
 import type { SessionStore } from "@renderer/store/session/session-store.js";
 import type { RepoOperations } from "../../repo-operations.js";
@@ -32,7 +32,7 @@ import { EMPTY_BIND_FORM, resolveBindForm, type BindFormState } from "./bind-for
 const MODE_GROUP_NAME = "meridian-bind-mode";
 
 export interface BindWorkspaceDialogProps {
-  readonly bridge: ConsoleBridge;
+  readonly bridge: PlatformBridge;
   /** The pre-bind read and the bind the dialog sends. */
   readonly operations: Pick<RepoOperations, "bindWorkspace" | "readMountExecutionModes">;
   /** The mount a new workspace binds on. */
@@ -196,7 +196,7 @@ function renderModes(
  * What the bind did.
  *
  * The bind answers with the mode it bound and the workspace's state, and no root: a
- * `provisioning` answer is a bind that worked, and the card reports the root from the
+ * `preparing` answer is a bind that worked, and the card reports the root from the
  * workspace list once it exists.
  */
 function renderSettlement(reading: BindReading): React.JSX.Element | null {

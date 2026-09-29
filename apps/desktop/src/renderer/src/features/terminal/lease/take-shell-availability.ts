@@ -1,6 +1,6 @@
 // Whether this device may take the shell.
 //
-// A FOLD RATHER THAN A CONDITION IN THE LINE, on `lease-claim.ts`'s rule: the lease
+// A FOLD RATHER THAN A CONDITION IN THE LINE, on `lease-model.ts`'s rule: the lease
 // line RENDERS, and the moment it acquires a rule that rule belongs somewhere it can
 // be driven without mounting React.
 //
@@ -28,9 +28,9 @@ export type TakeShellAvailability = { readonly control: "acquire" } | { readonly
  */
 export function resolveTakeShellAvailability(input: {
   readonly holding: TerminalLeaseHolder;
-  readonly viewerIdentity: TerminalDeviceIdentity;
+  readonly deviceIdentity: TerminalDeviceIdentity;
 }): TakeShellAvailability {
-  if (input.holding === "held-by-this-device" || input.viewerIdentity.status !== "read") {
+  if (input.holding === "held-by-this-device" || input.deviceIdentity.status !== "read") {
     return { control: "none" };
   }
   return { control: "acquire" };

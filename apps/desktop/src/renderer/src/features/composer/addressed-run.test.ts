@@ -8,7 +8,7 @@
 import { describe, expect, it } from "vitest";
 import type { RunState } from "@ai-sidekicks/contracts";
 
-import type { ConsoleEntity } from "@renderer/store/session/entities/entities.js";
+import type { StoredEntity } from "@renderer/store/session/entities/entities.js";
 import { RUN_STATE_ADMITS_STEER, resolveAddressedRun, stateAdmitsSteer } from "./addressed-run.js";
 
 const AGENT_ID = "agent-implementer";
@@ -34,11 +34,11 @@ const WIRE_RUN_STATES = [
   "failed",
 ] as const satisfies readonly RunState[];
 
-function run(id: string, state: RunState, touchedAt: string): ConsoleEntity {
+function run(id: string, state: RunState, touchedAt: string): StoredEntity {
   return { kind: "run", id, state, touchedAt, body: { agentId: AGENT_ID, runVersion: 4 } };
 }
 
-function partition(...entities: readonly ConsoleEntity[]): Record<string, ConsoleEntity> {
+function partition(...entities: readonly StoredEntity[]): Record<string, StoredEntity> {
   return Object.fromEntries(entities.map((entity) => [entity.id, entity]));
 }
 
@@ -72,7 +72,7 @@ describe("RUN_STATE_ADMITS_STEER — total over the contract's own union", () =>
 describe("stateAdmitsSteer — the store's string, read through the registered schema", () => {
   it("refuses a state outside the union rather than reading it as live", () => {
     expect(stateAdmitsSteer("running")).toBe(true);
-    expect(stateAdmitsSteer("cancelled")).toBe(false);
+    expect(stateAdmitsSteer("canceled")).toBe(false);
     expect(stateAdmitsSteer(undefined)).toBe(false);
   });
 });
@@ -104,7 +104,7 @@ describe("resolveAddressedRun — the newest run that still admits a steer", () 
 
   it("ignores a live run bound to another agent", () => {
     const mine = run("run-mine", "paused", "2026-01-01T10:00:00.000Z");
-    const theirs: ConsoleEntity = {
+    const theirs: StoredEntity = {
       kind: "run",
       id: "run-theirs",
       state: "running",

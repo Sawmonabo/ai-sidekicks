@@ -12,10 +12,10 @@
 // goes through it. The scheme's key is shared because a second reader, the end-to-end
 // tier opening its own connection, addresses that record directly.
 
-import type { ConsoleRefusal } from "@renderer/lib/refusal.js";
+import type { Refusal } from "@renderer/lib/refusal.js";
 import type { Unsubscribe } from "@renderer/lib/emitter.js";
 import type { ChordPlatform } from "@renderer/console/primitives/index.js";
-import type { KeyBinding } from "../commands/command-types.js";
+import type { Keybinding } from "../commands/command-types.js";
 import type { KeybindingOverride, KeybindingOverrideRefusal } from "./keybinding-overrides.js";
 
 /** The key the override map occupies inside the window-wide partition. */
@@ -32,7 +32,7 @@ export type KeybindingBindResult =
   | {
       readonly outcome: "bound";
       readonly chord: KeybindingOverride;
-      readonly unsaved: ConsoleRefusal | undefined;
+      readonly unsaved: Refusal | undefined;
     }
   | { readonly outcome: "refused"; readonly refusal: KeybindingOverrideRefusal };
 
@@ -52,7 +52,7 @@ export interface KeybindingHydrationRefusal {
  */
 export interface KeybindingSnapshot {
   /** The effective table: the shipped chords with this window's overrides applied. */
-  readonly bindings: readonly KeyBinding[];
+  readonly bindings: readonly Keybinding[];
   /**
    * The shipped table these overrides were composed ONTO, as it was read.
    *
@@ -65,7 +65,7 @@ export interface KeybindingSnapshot {
    * IS the whole base; the day the base is composed, that page reads this member and
    * nothing else about it changes.
    */
-  readonly shippedBindings: readonly KeyBinding[];
+  readonly shippedBindings: readonly Keybinding[];
   /** True while a chord is being recorded, which suspends the console keyboard. */
   readonly recording: boolean;
 }
@@ -77,7 +77,7 @@ export interface KeybindingOverrideStoreOptions {
    * A reader rather than the table, so a base that grows as families contribute is
    * read at composition time instead of captured at construction.
    */
-  readonly defaults: () => readonly KeyBinding[];
+  readonly defaults: () => readonly Keybinding[];
   /**
    * Signals that the shipped table has moved, where it can. Absent means it cannot.
    *

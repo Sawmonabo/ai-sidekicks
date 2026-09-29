@@ -4,8 +4,8 @@
 // focus, on reconnect, and on the terminal events the owning surface names. Three of
 // those four were wired and the third was not — `RefreshReason` named `reconnect`, one
 // session-scoped producer raised it from a session store's own repair edge, and a
-// window-scoped reading (this node's diagnostics, this node's accounts, the shell's
-// preferences) had no session, therefore no repair edge, and therefore no reconnect at
+// window-scoped reading (this node's diagnostics, this node's accounts, the machine's
+// settings) had no session, therefore no repair edge, and therefore no reconnect at
 // all.
 //
 // WHY THE INTERFACE IS HERE AND THE EMITTER IS NOT
@@ -18,7 +18,7 @@
 //
 // `core/` is the floor both may reach, and what lives here is the half a consumer
 // needs: the subscribe view. It holds no state, decides nothing, and names no
-// transport. `bridge/transport/transport-reconnect.ts` is the implementation, and it
+// transport. `services/transport/transport-reconnect.ts` is the implementation, and it
 // is the only thing in the console allowed to decide that a reconnect happened.
 //
 // ONE FACT, NOT A CONNECTION STATE. Deliberately not `isConnected` or a three-arm

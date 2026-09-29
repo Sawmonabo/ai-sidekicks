@@ -38,11 +38,11 @@
 // session's projection is whole again after having not been — which is what the
 // refresh policy means by reconnect, observed rather than assumed.
 //
-// A BASE STATE IS NOT A FRAME. `initialise()` establishes a session's history in one
+// A BASE STATE IS NOT A FRAME. `initialize()` establishes a session's history in one
 // transition, and a named kind sitting inside that backfill describes something the
 // reader's own first read already reflects. Re-reading on it would put a second burst
 // behind every session open for no new information, so the scan runs only over
-// transitions of an already-initialised store.
+// transitions of an already-initialized store.
 
 import { eventTriggersRead, type ReadTriggerTarget } from "./read-triggers.js";
 import type { SessionStore } from "../session/session-store.js";
@@ -131,7 +131,7 @@ export class SessionRefreshTriggers {
     if (previous.degradedCause !== undefined && state.degradedCause === undefined) {
       this.#target.requestRead("reconnect");
     }
-    if (!previous.initialised || state.cursor <= previous.cursor) {
+    if (!previous.initialized || state.cursor <= previous.cursor) {
       return;
     }
     const admitted = state.timeline.filter((event) => event.sequence > previous.cursor);

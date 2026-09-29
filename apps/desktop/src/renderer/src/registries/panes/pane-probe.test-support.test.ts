@@ -12,7 +12,7 @@ import { describe, expect, it } from "vitest";
 
 import { PANE_KINDS, type PaneKind } from "@renderer/routing/panes/pane-kinds.js";
 import { firstFreePaneKind, registerFreePaneKindProbe } from "./pane-probe.test-support.js";
-import { ConsolePaneRegistry } from "./pane-registry.js";
+import { PaneRegistry } from "./pane-registry.js";
 
 /** The set's own first and third members, named by position rather than by hand. */
 const [FIRST_KIND, SECOND_KIND, THIRD_KIND] = PANE_KINDS;
@@ -52,7 +52,7 @@ describe("pane probe — the kind a composition left free", () => {
 
 describe("pane probe — registering it", () => {
   it("puts a body on a free kind and reports which", () => {
-    const registry = new ConsolePaneRegistry();
+    const registry = new PaneRegistry();
 
     const probed = registerFreePaneKindProbe(registry, "pane-probe.test");
 
@@ -61,7 +61,7 @@ describe("pane probe — registering it", () => {
   });
 
   it("skips the kinds a composition already claimed", () => {
-    const registry = new ConsolePaneRegistry();
+    const registry = new PaneRegistry();
     registry.register({ kind: FIRST_KIND, owner: "composition", render: () => null });
 
     const probed = registerFreePaneKindProbe(registry, "pane-probe.test");
@@ -74,7 +74,7 @@ describe("pane probe — registering it", () => {
     // The arm the board reaches once every family has landed. The probe reports
     // that it did nothing, and it must not have unregistered somebody's body to
     // make room for itself.
-    const registry = new ConsolePaneRegistry();
+    const registry = new PaneRegistry();
     for (const kind of PANE_KINDS) {
       registry.register({ kind, owner: "composition", render: () => null });
     }
@@ -88,6 +88,6 @@ describe("pane probe — registering it", () => {
   it("negative control: a fresh registry holds nothing on its own", () => {
     // Without it, the first case would pass over a registry that reported a kind
     // nobody put in it, which is how a registration assertion goes vacuous.
-    expect(new ConsolePaneRegistry().registeredPaneKinds()).toStrictEqual([]);
+    expect(new PaneRegistry().registeredPaneKinds()).toStrictEqual([]);
   });
 });

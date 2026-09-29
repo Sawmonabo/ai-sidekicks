@@ -12,11 +12,11 @@ import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import {
-  ASK_ANSWER_UNSENT,
-  type DriverAskDelivery,
-  type DriverAskReading,
+  UNSENT_ANSWER_DELIVERY,
+  type AnswerDelivery,
+  type QuestionReading,
 } from "@renderer/store/session-events/question-reading.js";
-import { InputAskCard } from "./QuestionCard.js";
+import { QuestionCard } from "./QuestionCard.js";
 
 /**
  * Ten o'clock, as the mount would read it, and five past, as the daemon stamps it.
@@ -29,7 +29,7 @@ import { InputAskCard } from "./QuestionCard.js";
 const NOW_MILLISECONDS = Date.UTC(2026, 8, 2, 10, 0, 0);
 const PAST_THE_DEADLINE_MILLISECONDS = Date.UTC(2026, 8, 2, 10, 6, 0);
 
-function pendingAsk(overrides: Partial<DriverAskReading> = {}): DriverAskReading {
+function pendingAsk(overrides: Partial<QuestionReading> = {}): QuestionReading {
   return {
     askId: "ask-01",
     // The card renders nothing off the run and the reading requires it, so a fixture
@@ -45,7 +45,7 @@ function pendingAsk(overrides: Partial<DriverAskReading> = {}): DriverAskReading
 }
 
 /** One refused delivery, carrying the door's own refusal shape. */
-const REFUSED_DELIVERY: DriverAskDelivery = {
+const REFUSED_DELIVERY: AnswerDelivery = {
   status: "refused",
   response: "develop",
   refusal: {
@@ -56,20 +56,20 @@ const REFUSED_DELIVERY: DriverAskDelivery = {
 };
 
 function renderCard(
-  ask: DriverAskReading,
+  ask: QuestionReading,
   overrides: {
     readonly nowEpochMilliseconds?: number;
-    readonly delivery?: DriverAskDelivery;
+    readonly delivery?: AnswerDelivery;
     readonly onAnswer?: (response: string) => void;
-    readonly body?: (props: { readonly ask: DriverAskReading }) => React.ReactNode;
+    readonly body?: (props: { readonly ask: QuestionReading }) => React.ReactNode;
   } = {},
 ): HTMLElement {
   const { container } = render(
-    <InputAskCard
+    <QuestionCard
       body={overrides.body}
       ask={ask}
       nowEpochMilliseconds={overrides.nowEpochMilliseconds ?? NOW_MILLISECONDS}
-      delivery={overrides.delivery ?? ASK_ANSWER_UNSENT}
+      delivery={overrides.delivery ?? UNSENT_ANSWER_DELIVERY}
       onAnswer={overrides.onAnswer ?? (() => undefined)}
     />,
   );
@@ -145,7 +145,7 @@ describe("the countdown", () => {
     const container = renderCard(pendingAsk(), {
       nowEpochMilliseconds: PAST_THE_DEADLINE_MILLISECONDS,
     });
-    expect(container.textContent).toContain("Waiting for the daemon.");
+    expect(container.textContent).toContain("Waiting for the background service.");
     expect(container.textContent).not.toContain("expired");
   });
 
@@ -205,12 +205,12 @@ describe("the terminals", () => {
  * a component that decides nothing.
  */
 function MountedWithDelivery(props: {
-  readonly ask: DriverAskReading;
-  readonly settled: DriverAskDelivery;
+  readonly ask: QuestionReading;
+  readonly settled: AnswerDelivery;
 }): React.JSX.Element {
-  const [delivery, setDelivery] = useState<DriverAskDelivery>(ASK_ANSWER_UNSENT);
+  const [delivery, setDelivery] = useState<AnswerDelivery>(UNSENT_ANSWER_DELIVERY);
   return (
-    <InputAskCard
+    <QuestionCard
       body={undefined}
       ask={props.ask}
       nowEpochMilliseconds={NOW_MILLISECONDS}

@@ -70,7 +70,7 @@ const goalPayloadSchema = z.object({ goal: z.object({ text: z.string() }) });
  *
  * `originSeq` takes the envelope sequence's own injectivity ceiling, imported from the
  * contract rather than restated, so a value a fold could not tell apart from its
- * neighbour is not read as an order at all.
+ * neighbor is not read as an order at all.
  */
 export interface GoalOriginKeys {
   readonly originNodeId: string;

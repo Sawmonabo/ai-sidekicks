@@ -22,7 +22,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { HOST_CHORD_PLATFORM, PLATFORM_MODIFIER_TOKEN } from "@renderer/lib/chord-format.js";
 import { subscribeToComposerFocus } from "@renderer/console/seats/index.js";
-import { mountConsole } from "@test/helpers/mount-app.js";
+import { mountApp } from "@test/helpers/mount-app.js";
 
 const openSubscriptions: (() => void)[] = [];
 
@@ -59,7 +59,7 @@ afterEach(() => {
 describe("the composer chord in the window that has the composer", () => {
   it("asks the mounted composer for the caret", async () => {
     const takeFocus = vi.fn();
-    const mounted = await mountConsole();
+    const mounted = await mountApp();
     listenForComposerFocus(takeFocus);
 
     pressKey("KeyL", { withPrimaryModifier: true });
@@ -75,7 +75,7 @@ describe("the composer chord in the window that has the composer", () => {
     // Typing an `l` into the window is not a request for the composer. Without this,
     // a table that had bound the key with no modifier would satisfy the case above.
     const takeFocus = vi.fn();
-    const mounted = await mountConsole();
+    const mounted = await mountApp();
     listenForComposerFocus(takeFocus);
 
     pressKey("KeyL", { withPrimaryModifier: false });
@@ -91,7 +91,7 @@ describe("the composer chord in the window that has the composer", () => {
     // The other half. A table that answered every modified press would pass the
     // first case, and would take a chord a family bound to something else.
     const takeFocus = vi.fn();
-    const mounted = await mountConsole();
+    const mounted = await mountApp();
     listenForComposerFocus(takeFocus);
 
     pressKey("KeyJ", { withPrimaryModifier: true });
@@ -108,7 +108,7 @@ describe("the composer chord in the window that has the composer", () => {
     // leaked one goes on asking a composer that unmounted with the window, which is
     // the shape a stray listener always takes.
     const takeFocus = vi.fn();
-    const mounted = await mountConsole();
+    const mounted = await mountApp();
     listenForComposerFocus(takeFocus);
     act(() => {
       mounted.unmount();

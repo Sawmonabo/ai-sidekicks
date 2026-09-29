@@ -3,12 +3,12 @@
 // A faked surface context that records what the acts call: which routes were
 // navigated to and which sessions the registry was asked to open.
 
-import type { ConsoleSurfaceContext } from "@renderer/console/seats/index.js";
+import type { ScreenContext } from "@renderer/console/seats/index.js";
 
 /**
  * The fields the acts read, and nothing else.
  *
- * Cast rather than fully constructed, for `RouteSurface.test.tsx`'s reason: a real
+ * Cast rather than fully constructed, for `app/router.test.tsx`'s reason: a real
  * context carries three stores, one of which opens a database on construction, and
  * building all of that to hand two members to code that reads two would make the setup
  * the subject.
@@ -33,7 +33,7 @@ export function contextWith(options: {
   readonly isRegistryDisposed?: boolean;
   /** Every route the acts navigated to, appended in order. */
   readonly navigations?: unknown[];
-}): ConsoleSurfaceContext {
+}): ScreenContext {
   return {
     frameStore: {
       navigate: (route: unknown) => {
@@ -52,5 +52,5 @@ export function contextWith(options: {
         options.openedSessionIds?.push(sessionId);
       },
     },
-  } as unknown as ConsoleSurfaceContext;
+  } as unknown as ScreenContext;
 }

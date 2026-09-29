@@ -38,6 +38,6 @@ export interface RowRevealProviderProps {
 }
 
 /** Publish one transcript's reveal channel to the row bodies it mounts. */
-export function LedgerRowRevealProvider(props: RowRevealProviderProps): React.JSX.Element {
+export function RowRevealProvider(props: RowRevealProviderProps): React.JSX.Element {
   return <RowRevealContext value={props.channel}>{props.children}</RowRevealContext>;
 }

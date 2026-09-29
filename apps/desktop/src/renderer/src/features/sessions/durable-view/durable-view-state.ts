@@ -27,7 +27,7 @@
 // is still in flight; `commit` installs immediately, so the record that then comes
 // back is older than what is on screen. The mutation generation is the ordering the
 // store itself supplies — `hydrate` captures it before its read and applies the
-// record only if it is still current, exactly as `settings/shared/shell-preferences/shell-preferences-store.ts`
+// record only if it is still current, exactly as `features/settings/machine-settings/machine-settings-store.ts`
 // ignores a superseded reply. It still marks the state hydrated, because the read
 // DID settle and a remount must not re-ask; what is discarded is the value, not the
 // fact that the question was answered.
@@ -36,7 +36,7 @@
 // record, so two of them in flight at once are two whole records racing for the same
 // key: pinning a session and then pinning a second one before the first write
 // settles could leave the one-pin snapshot durable, and the adapter's own settlement
-// order is not the order the acts happened in. So the writes are SERIALISED — one at
+// order is not the order the acts happened in. So the writes are SERIALIZED — one at
 // the store at a time, the newest snapshot nothing has carried yet waiting behind it,
 // and a later act REPLACING that waiting snapshot rather than queueing after it,
 // because the value is a full record and writing the intermediate one first would
@@ -44,7 +44,7 @@
 // every issued snapshot in the order it was issued, ending on the newest.
 
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
-import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
+import { type Refusal } from "@renderer/lib/refusal.js";
 import type { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
 import { GenerationLatch } from "@renderer/lib/reads/generation-latch.js";
 
@@ -102,7 +102,7 @@ export class DurableViewState<TValue extends PersistedValue> {
   #value: TValue;
   #hydrated = false;
   #disposed = false;
-  #lastRefusal: ConsoleRefusal | undefined;
+  #lastRefusal: Refusal | undefined;
   /**
    * The round local acts are on, so a hydration or a write that started before one
    * of them can tell that it is answering an older question. Here the read is what
@@ -173,7 +173,7 @@ export class DurableViewState<TValue extends PersistedValue> {
   }
 
   /** The last refusal this state saw, or `undefined`. Rendered, never swallowed. */
-  public get lastRefusal(): ConsoleRefusal | undefined {
+  public get lastRefusal(): Refusal | undefined {
     return this.#lastRefusal;
   }
 

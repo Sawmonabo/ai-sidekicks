@@ -4,8 +4,8 @@ import type { HydratedSessionEventContent } from "@ai-sidekicks/contracts";
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { inlineCardSeatRegistry, type InlineCardSeatProps } from "@renderer/console/seats/index.js";
-import { DesktopBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
+import { inlineCardRegistry, type InlineCardProps } from "@renderer/console/seats/index.js";
+import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { MessageRow } from "./MessageRow.js";
 import { classifyTranscriptRow } from "./row-kind.js";
@@ -20,7 +20,7 @@ function renderMessageCard(
     readonly payload?: Readonly<Record<string, unknown>>;
     readonly content?: HydratedSessionEventContent;
     readonly liveText?: string;
-    readonly inlineCards?: readonly InlineCardSeatProps[];
+    readonly inlineCards?: readonly InlineCardProps[];
     readonly editAffordance?: React.ReactNode;
     readonly reasoningSurface?: React.ReactNode;
   } = {},
@@ -35,7 +35,7 @@ function renderMessageCard(
     throw new Error(`${row.type} is not a message kind`);
   }
   const { container } = render(
-    <DesktopBridgeProvider bridge={createFixtureBridge({ scenario: FIRST_RUN_SCENARIO })}>
+    <PlatformBridgeProvider bridge={createFixtureBridge({ scenario: FIRST_RUN_SCENARIO })}>
       <MessageRow
         row={row}
         rowKind={rowKind}
@@ -49,7 +49,7 @@ function renderMessageCard(
         {...(overrides.inlineCards === undefined ? {} : { inlineCards: overrides.inlineCards })}
         editControl={overrides.editAffordance}
       />
-    </DesktopBridgeProvider>,
+    </PlatformBridgeProvider>,
   );
   return container;
 }
@@ -146,7 +146,7 @@ describe("the row's own controls", () => {
 });
 
 describe("a message's inline cards", () => {
-  const diffCard: InlineCardSeatProps = {
+  const diffCard: InlineCardProps = {
     kind: "diff",
     runId: "run-01",
     diffArtifactId: "diff-artifact-01",
@@ -168,7 +168,7 @@ describe("a message's inline cards", () => {
   });
 
   it("renders the registered body once a family fills the seat", () => {
-    inlineCardSeatRegistry.register("diff", {
+    inlineCardRegistry.register("diff", {
       owner: "a test",
       render: () => <span>a diff</span>,
     });
@@ -179,7 +179,7 @@ describe("a message's inline cards", () => {
         container.querySelector(".meridian-message-card__card .meridian-nothing--not-checked"),
       ).toBeNull();
     } finally {
-      inlineCardSeatRegistry.unregister("diff");
+      inlineCardRegistry.unregister("diff");
     }
   });
 

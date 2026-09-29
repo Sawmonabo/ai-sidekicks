@@ -10,7 +10,7 @@ import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { ManualClock } from "@renderer/lib/clock.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import type { ReadArtifact } from "./services/artifact-reads.js";
-import { ArtifactPaneReader } from "./artifact-list-reader.js";
+import { ArtifactListReader } from "./artifact-list-reader.js";
 import {
   LISTED_ONE_ROW,
   SESSION_ID,
@@ -22,7 +22,7 @@ import {
 } from "@test/helpers/artifact-list-readers.js";
 
 /** The preview text the reading holds, or an empty string while it holds another arm. */
-function fetchedText(reader: ArtifactPaneReader): string {
+function fetchedText(reader: ArtifactListReader): string {
   const { payload } = reader.snapshot;
   return payload?.status === "text" ? payload.text : "";
 }
@@ -123,7 +123,7 @@ describe("artifact pane actions — one payload fetch in flight, each with its o
       .fn<ReadArtifact>()
       .mockRejectedValueOnce(new Error("the read failed"))
       .mockResolvedValueOnce(inlinePayloadRead(SERVED_SUMMARY.id, "the retry"));
-    const reader = new ArtifactPaneReader({
+    const reader = new ArtifactListReader({
       listArtifacts: async () => LISTED_ONE_ROW,
       readArtifact: artifactRead,
       sessionStore: new SessionStore({ sessionId: SESSION_ID }),

@@ -1,6 +1,6 @@
 // The pane kind the repos feature claims: the diff pane.
 
-import type { ConsolePaneRegistry } from "@renderer/console/seats/index.js";
+import type { PaneRegistry } from "@renderer/console/seats/index.js";
 import { REPOS_FEATURE_OWNER } from "./owner.js";
 
 /**
@@ -11,7 +11,7 @@ import { REPOS_FEATURE_OWNER } from "./owner.js";
  * a pane may be torn off is a property of the kind, answered once by
  * `isDetachablePaneKind`.
  */
-export function registerReposPanes(registry: ConsolePaneRegistry): void {
+export function registerReposPanes(registry: PaneRegistry): void {
   registry.register({
     kind: "diff",
     owner: REPOS_FEATURE_OWNER,

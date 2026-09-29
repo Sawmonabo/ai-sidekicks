@@ -1,6 +1,6 @@
 // The seat between a chord and a mounted feed.
 //
-// Two questions decide whether a ledger command acts on the right thing: which
+// Two questions decide whether a transcript command acts on the right thing: which
 // mount a press reaches when more than one is up, and what happens when none is.
 // Both are driven here against the seat itself, with no palette and no window —
 // the command side is `contributions/commands.test.ts`'.
@@ -27,8 +27,8 @@ function namedActs(name: string, fired: string[]): TranscriptActs {
   };
 }
 
-describe("mounted ledger — which feed an act reaches", () => {
-  it("performs on the mounted ledger and says so", () => {
+describe("mounted transcript — which feed an act reaches", () => {
+  it("performs on the mounted transcript and says so", () => {
     const fired: string[] = [];
     const seat = new MountedTranscript();
     seat.adopt(namedActs("pane", fired));
@@ -37,7 +37,7 @@ describe("mounted ledger — which feed an act reaches", () => {
   });
 
   it("acts on the newest mount while both are up", () => {
-    // Two timeline panes in one window are two feeds, and the chord acts on the one
+    // Two transcript panes in one window are two feeds, and the chord acts on the one
     // that was mounted last rather than on whichever the list happens to start with.
     const fired: string[] = [];
     const seat = new MountedTranscript();
@@ -80,9 +80,9 @@ describe("mounted ledger — which feed an act reaches", () => {
   });
 });
 
-describe("mounted ledger — a component holds the seat for its lifetime", () => {
+describe("mounted transcript — a component holds the seat for its lifetime", () => {
   /** A stand-in for the feed: it holds the seat and renders nothing. */
-  function LedgerMountProbe(props: {
+  function TranscriptMountProbe(props: {
     readonly name: string;
     readonly fired: string[];
     readonly seat: MountedTranscript;
@@ -94,7 +94,7 @@ describe("mounted ledger — a component holds the seat for its lifetime", () =>
   it("takes the seat while mounted and gives it back on unmount", () => {
     const fired: string[] = [];
     const seat = new MountedTranscript();
-    const mounted = render(createElement(LedgerMountProbe, { name: "feed", fired, seat }));
+    const mounted = render(createElement(TranscriptMountProbe, { name: "feed", fired, seat }));
     expect(seat.mountedCount).toBe(1);
     seat.perform("jumpToLatest");
     expect(fired).toStrictEqual(["feed:jumpToLatest"]);
@@ -104,14 +104,14 @@ describe("mounted ledger — a component holds the seat for its lifetime", () =>
 
   it("acts through the latest render's callbacks rather than the first render's", () => {
     // A feed rebuilds its acts every pass, and a seat holding the first pass would
-    // call into a window's state as it was when the ledger opened.
+    // call into a window's state as it was when the transcript opened.
     const firstPass: string[] = [];
     const laterPass: string[] = [];
     const seat = new MountedTranscript();
     const mounted = render(
-      createElement(LedgerMountProbe, { name: "feed", fired: firstPass, seat }),
+      createElement(TranscriptMountProbe, { name: "feed", fired: firstPass, seat }),
     );
-    mounted.rerender(createElement(LedgerMountProbe, { name: "feed", fired: laterPass, seat }));
+    mounted.rerender(createElement(TranscriptMountProbe, { name: "feed", fired: laterPass, seat }));
     seat.perform("stepFindNext");
     expect(laterPass).toStrictEqual(["feed:stepFindNext"]);
     expect(firstPass).toStrictEqual([]);

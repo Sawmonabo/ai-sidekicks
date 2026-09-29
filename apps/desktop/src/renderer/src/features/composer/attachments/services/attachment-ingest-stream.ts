@@ -2,7 +2,7 @@
 // the ledger entry the stream is about.
 //
 // SPLIT FROM `attachment-ingest-machine.ts` ON THE SEAM BETWEEN AN ACT AND A WIRE. That
-// module owns what a user's act does to the carrier's record — attach, retry,
+// module owns what a user's act does to the staged list's record — attach, retry,
 // abandon, remove — a set of synchronous decisions over the ledger. This one
 // owns what happens on the wire afterwards, and hands the middle leg to
 // `attachment-ingest-chunks.ts`, which is a loop rather than a call. Three subjects,
@@ -10,7 +10,7 @@
 //
 // THE PROTOCOL IS OWN-BUILT, and this module is where that is decided and why: the
 // chunking, the decoded-byte accounting, and the replay-safe retry are all CONTRACT
-// behaviour, and a generic upload library would obscure every one of them. So
+// behavior, and a generic upload library would obscure every one of them. So
 // this is a class with private fields rather than a hook holding four `useState`s.
 //
 // WHAT IT CALLS. Every leg goes through the `AttachmentIngestPort` the client was handed,
@@ -37,7 +37,7 @@
 import type { SessionId } from "@ai-sidekicks/contracts";
 import { lossyStringify } from "@renderer/lib/wire-errors.js";
 import { reportTripwire } from "@renderer/lib/tripwires.js";
-import { type ConsoleClock } from "@renderer/lib/clock.js";
+import { type Clock } from "@renderer/lib/clock.js";
 import type { AttachmentSpoolReclaimer } from "./attachment-ingest-abort.js";
 import type { AttachmentIngestPort } from "./attachment-ingest-answer.js";
 import { AttachmentChunkStream } from "./attachment-ingest-chunks.js";
@@ -50,8 +50,8 @@ export const INGEST_STREAM_SITE = "console/repos/attachments/attachment-ingest-s
 export interface AttachmentIngestStreamDriverOptions {
   readonly port: IngestLegs;
   readonly sessionId: SessionId;
-  readonly clock: ConsoleClock;
-  /** The carrier's own record. Written here, owned next door. */
+  readonly clock: Clock;
+  /** The staged list's own record. Written here, owned next door. */
   readonly ledger: AttachmentIngestEntries;
   /** Where a spool this driver opened and could not reach the ledger with is given back. */
   readonly reclaimer: AttachmentSpoolReclaimer;
@@ -61,7 +61,7 @@ export interface AttachmentIngestStreamDriverOptions {
  * One attachment's stream, from Init to Complete, driven on demand.
  *
  * THE RUNNING SET IS RE-ENTRANCY AND NOT SUPERSESSION, which is why it is a set here
- * rather than a key taken from `store/read/generation-latch.ts`. Supersession in this family
+ * rather than a key taken from `lib/reads/generation-latch.ts`. Supersession in this family
  * is the ledger's stamp, which that register already supplies; what this one answers is
  * whether a second `drive` for the same attachment would put a second Init on the wire —
  * and the caller has to be able to ASK, because a retry offered while a stream is
@@ -71,7 +71,7 @@ export interface AttachmentIngestStreamDriverOptions {
 export class AttachmentIngestStreamDriver {
   readonly #port: Pick<AttachmentIngestPort, "begin" | "complete">;
   readonly #sessionId: SessionId;
-  readonly #clock: ConsoleClock;
+  readonly #clock: Clock;
   readonly #ledger: AttachmentIngestEntries;
   readonly #reclaimer: AttachmentSpoolReclaimer;
   readonly #chunks: AttachmentChunkStream;

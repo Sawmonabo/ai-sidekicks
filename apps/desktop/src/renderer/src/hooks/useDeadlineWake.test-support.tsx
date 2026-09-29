@@ -12,7 +12,7 @@
 
 import { render } from "@testing-library/react";
 
-import { ManualClock, type ConsoleClock, type ScheduledHandle } from "@renderer/lib/clock.js";
+import { ManualClock, type Clock, type ScheduledHandle } from "@renderer/lib/clock.js";
 import { useDeadlineWake } from "./useDeadlineWake.js";
 
 /**
@@ -35,18 +35,18 @@ export const MOUNTED_AT = 1_000;
 export interface MountedWake {
   readonly instant: () => number;
   readonly setDeadlines: (next: readonly number[]) => void;
-  readonly setClock: (next: ConsoleClock) => void;
+  readonly setClock: (next: Clock) => void;
 }
 
 export function DeadlineWakeProbe(props: {
-  readonly clock: ConsoleClock;
+  readonly clock: Clock;
   readonly deadlines: readonly number[];
 }): React.JSX.Element {
   const nowMilliseconds = useDeadlineWake(props.clock, props.deadlines);
   return <output>{String(nowMilliseconds)}</output>;
 }
 
-export function renderDeadlineWake(clock: ConsoleClock, deadlines: readonly number[]): MountedWake {
+export function renderDeadlineWake(clock: Clock, deadlines: readonly number[]): MountedWake {
   const { container, rerender } = render(<DeadlineWakeProbe clock={clock} deadlines={deadlines} />);
   const showing = { clock, deadlines };
   const show = (): void => {

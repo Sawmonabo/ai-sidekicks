@@ -70,10 +70,10 @@ import { z } from "zod";
 
 import { payloadNamesSession } from "@renderer/lib/wire-session-attribution.js";
 import type {
-  ConsoleSessionEvent,
+  ProjectedSessionEvent,
   EntityMutation,
   EntityProjector,
-  EntityProjectorRegistry,
+  EntityProjectorTable,
 } from "../session/entities/entities.js";
 import { type ApprovalState } from "@renderer/lib/approval-vocabulary.js";
 
@@ -236,7 +236,7 @@ const NO_KIND_MEMBERS: Readonly<Record<string, WireMemberSchema>> = Object.freez
  * on each answer with none.
  */
 export const projectApprovalFlowEvent: EntityProjector = (
-  event: ConsoleSessionEvent,
+  event: ProjectedSessionEvent,
 ): readonly EntityMutation[] => {
   const payload = event.payload;
   // First, and for every kind at once: the beat is folded into the store it was
@@ -279,7 +279,7 @@ export const projectApprovalFlowEvent: EntityProjector = (
  * One function under every kind rather than one per kind: the fold is the same for
  * all six, and six near-copies is how a seventh gets a subtly different one.
  */
-export const APPROVAL_FLOW_PROJECTORS: EntityProjectorRegistry = buildApprovalFlowProjectors();
+export const APPROVAL_FLOW_PROJECTORS: EntityProjectorTable = buildApprovalFlowProjectors();
 
 /**
  * The owner the approval-flow kinds are registered under, so a conflicting claim names
@@ -287,7 +287,7 @@ export const APPROVAL_FLOW_PROJECTORS: EntityProjectorRegistry = buildApprovalFl
  */
 export const APPROVAL_FLOW_PROJECTOR_OWNER = "composer";
 
-function buildApprovalFlowProjectors(): EntityProjectorRegistry {
+function buildApprovalFlowProjectors(): EntityProjectorTable {
   const projectors: Record<string, EntityProjector> = {};
   for (const eventKind of APPROVAL_FLOW_EVENT_KINDS) {
     projectors[eventKind] = projectApprovalFlowEvent;

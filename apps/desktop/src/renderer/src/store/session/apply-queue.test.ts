@@ -17,14 +17,14 @@ import { describe, expect, it } from "vitest";
 
 import { APPLY_COALESCE_MS } from "@renderer/lib/reads/refresh-caps.js";
 import { ManualClock } from "@renderer/lib/clock.js";
-import type { ConsoleSessionEvent } from "./entities/entities.js";
+import type { ProjectedSessionEvent } from "./entities/entities.js";
 import { eventOfKind } from "@test/helpers/session-events.js";
 import { ApplyQueue } from "./apply-queue.js";
 
 describe("ApplyQueue — a frame's worth of events is one drain", () => {
   it("coalesces a burst into one drain on one frame, with no time advanced", () => {
     const clock = new ManualClock(0);
-    const drains: (readonly ConsoleSessionEvent[])[] = [];
+    const drains: (readonly ProjectedSessionEvent[])[] = [];
     const queue = new ApplyQueue({
       clock,
       drain: (events) => {
@@ -59,7 +59,7 @@ describe("ApplyQueue — a frame's worth of events is one drain", () => {
     // `drainCount` stuck at one — would pass the coalescing case above while the
     // queue delivered nothing after the first frame.
     const clock = new ManualClock(0);
-    const drains: (readonly ConsoleSessionEvent[])[] = [];
+    const drains: (readonly ProjectedSessionEvent[])[] = [];
     const queue = new ApplyQueue({
       clock,
       drain: (events) => {
@@ -131,11 +131,11 @@ describe("ApplyQueue — a drain that throws", () => {
    *  projector rejecting a malformed payload, which is the only way the console's
    *  own drain can raise at all. */
   class FailingDrainRecorder {
-    readonly drainedBatches: (readonly ConsoleSessionEvent[])[] = [];
+    readonly drainedBatches: (readonly ProjectedSessionEvent[])[] = [];
     readonly failures: unknown[] = [];
     #remainingFailures: number;
 
-    public readonly drain = (events: readonly ConsoleSessionEvent[]): void => {
+    public readonly drain = (events: readonly ProjectedSessionEvent[]): void => {
       if (this.#remainingFailures > 0) {
         this.#remainingFailures -= 1;
         throw new TypeError("the store refused this batch");

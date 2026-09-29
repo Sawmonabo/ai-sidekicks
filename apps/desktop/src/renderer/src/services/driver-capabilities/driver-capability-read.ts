@@ -25,7 +25,7 @@
 // a refresh: a control that vanished and came back on every window focus would be a worse
 // reading than a slightly stale one.
 
-import type { ConsoleRefusal } from "@renderer/lib/refusal.js";
+import type { Refusal } from "@renderer/lib/refusal.js";
 import {
   NO_TRIGGERING_EVENT_KINDS,
   type ReadTriggerTarget,
@@ -37,8 +37,8 @@ import type {
   DriverCapabilityReadout,
 } from "@renderer/store/driver-capabilities/driver-capability-readout.js";
 import { callDaemon } from "../daemon/daemon-reply.js";
-import { consoleClockFor } from "../platform/hooks/useClock.js";
-import { type ConsoleBridge } from "../platform/platform-bridge.js";
+import { resolveBridgeClock } from "../platform/hooks/useClock.js";
+import { type PlatformBridge } from "../platform/platform-bridge.js";
 
 /** No run has a named binding yet. Frozen so no caller writes one in place. */
 const NO_RUN_BINDINGS: ReadonlyMap<string, string> = new Map<string, string>();
@@ -68,18 +68,18 @@ class BridgeCapabilityRead implements ReadTriggerTarget {
    * connection was repaired, and never because a run ended.
    */
   public readonly triggeringEventKinds: ReadonlySet<string> = NO_TRIGGERING_EVENT_KINDS;
-  readonly #bridge: ConsoleBridge;
+  readonly #bridge: PlatformBridge;
   readonly #scheduler: RefreshScheduler;
   readonly #listeners = new Set<() => void>();
   #readout: DriverCapabilityReadout | undefined;
 
-  public constructor(bridge: ConsoleBridge) {
+  public constructor(bridge: PlatformBridge) {
     this.#bridge = bridge;
     this.#scheduler = new RefreshScheduler({
       // The fixture's frozen clock wherever a scenario is playing and the real one
       // otherwise, resolved once per bridge — the frozen clock is the only clock the
       // renderer reads in fixture mode.
-      clock: consoleClockFor(bridge),
+      clock: resolveBridgeClock(bridge),
       perform: async (_reasons, round) => {
         await this.#read(round);
       },
@@ -166,7 +166,7 @@ class BridgeCapabilityRead implements ReadTriggerTarget {
 }
 
 /** A reading that declares nothing, carrying the reason it declares nothing. */
-function refusedReadout(readRefusal: ConsoleRefusal): DriverCapabilityReadout {
+function refusedReadout(readRefusal: Refusal): DriverCapabilityReadout {
   return {
     flagsByDriverName: NO_DECLARATIONS,
     driverNameByRunId: NO_RUN_BINDINGS,
@@ -183,9 +183,9 @@ function refusedReadout(readRefusal: ConsoleRefusal): DriverCapabilityReadout {
  * test's fixture bridge cannot serve a later test its reply.
  */
 class DriverCapabilityReadCache {
-  readonly #readingByBridge = new WeakMap<ConsoleBridge, BridgeCapabilityRead>();
+  readonly #readingByBridge = new WeakMap<PlatformBridge, BridgeCapabilityRead>();
 
-  public reading(bridge: ConsoleBridge): BridgeCapabilityRead {
+  public reading(bridge: PlatformBridge): BridgeCapabilityRead {
     const held = this.#readingByBridge.get(bridge);
     if (held !== undefined) {
       return held;

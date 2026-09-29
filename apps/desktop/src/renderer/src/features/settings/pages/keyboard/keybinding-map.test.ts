@@ -5,8 +5,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  type ConsoleCommand,
-  type KeyBinding,
+  type CommandDefinition,
+  type Keybinding,
 } from "@renderer/registries/commands/command-types.js";
 import {
   composeKeybindingRows,
@@ -16,7 +16,7 @@ import {
   type ChordRecording,
 } from "./keybinding-map.js";
 
-function command(id: string, title: string, group = "Navigation"): ConsoleCommand {
+function command(id: string, title: string, group = "Navigation"): CommandDefinition {
   return { id, title, group, run: () => undefined };
 }
 
@@ -43,7 +43,7 @@ describe("composing rows", () => {
     command("frame.goToSessions", "Go to sessions"),
     command("app.checkForUpdates", "Check for updates", "Application"),
   ];
-  const bindings: readonly KeyBinding[] = [
+  const bindings: readonly Keybinding[] = [
     { chord: "$mod+1", commandId: "frame.goToSessions" },
     { chord: "$mod+2", commandId: "frame.goToWorkflows", when: "sessionActive" },
   ];
@@ -55,9 +55,9 @@ describe("composing rows", () => {
       shippedBindings: bindings,
       platform: "darwin",
     });
-    const workspace = rows.find((row) => row.commandId === "frame.goToWorkflows");
-    expect(workspace?.chord).toBe("$mod+2");
-    expect(workspace?.whenExpression).toBe("sessionActive");
+    const workflows = rows.find((row) => row.commandId === "frame.goToWorkflows");
+    expect(workflows?.chord).toBe("$mod+2");
+    expect(workflows?.whenExpression).toBe("sessionActive");
   });
 
   it("leaves a command with no binding without a chord rather than inventing one", () => {
@@ -193,7 +193,7 @@ describe("reading a keystroke as a chord", () => {
 
   it("cancels on Escape and clears on Backspace or Delete, pressed alone", () => {
     expect(readChordFromEvent(press({ key: "Escape", code: "Escape" }))).toEqual({
-      outcome: "cancelled",
+      outcome: "canceled",
     });
     expect(readChordFromEvent(press({ key: "Backspace", code: "Backspace" }))).toEqual({
       outcome: "cleared",
@@ -266,7 +266,7 @@ describe("reading what is held right now", () => {
 });
 
 describe("filtering rows", () => {
-  const bindings: readonly KeyBinding[] = [
+  const bindings: readonly Keybinding[] = [
     { chord: "$mod+1", commandId: "frame.goToSessions", when: "sessionActive" },
   ];
   const rows = composeKeybindingRows({

@@ -19,7 +19,7 @@ import { useWindowReadTriggers } from "@renderer/store/reads/hooks/useWindowRead
 import { type ReadTriggerTarget } from "@renderer/store/reads/read-triggers.js";
 import { type RefreshReason } from "@renderer/lib/reads/refresh-scheduler.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
-import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { SessionQueueReading, type QueueCalls, type QueueFeed } from "./queue-reading.js";
 
 /**
@@ -29,7 +29,7 @@ import { SessionQueueReading, type QueueCalls, type QueueFeed } from "./queue-re
  * entry itself is dropped once nobody is watching.
  */
 class SessionQueueReadings {
-  readonly #bySession = new WeakMap<ConsoleBridge, Map<string, SessionQueueReading>>();
+  readonly #bySession = new WeakMap<PlatformBridge, Map<string, SessionQueueReading>>();
 
   /**
    * The live reading for this pair, minting one where the entry is free.
@@ -40,7 +40,11 @@ class SessionQueueReadings {
    * render and its subscribe. Resolving again at subscribe time is what makes that
    * commit end with ONE live registered reading.
    */
-  public reading(bridge: ConsoleBridge, sessionId: string, calls: QueueCalls): SessionQueueReading {
+  public reading(
+    bridge: PlatformBridge,
+    sessionId: string,
+    calls: QueueCalls,
+  ): SessionQueueReading {
     let forBridge = this.#bySession.get(bridge);
     if (forBridge === undefined) {
       forBridge = new Map<string, SessionQueueReading>();
@@ -65,7 +69,7 @@ class SessionQueueReadings {
 
   /** Watch this pair's reading, resolved at subscribe time rather than at render. */
   public watch(
-    bridge: ConsoleBridge,
+    bridge: PlatformBridge,
     sessionId: string,
     calls: QueueCalls,
     listener: () => void,
@@ -86,7 +90,7 @@ const sessionQueueReadings = new SessionQueueReadings();
  * that holds only the session id, and a repair is a fact about a session store.
  */
 export function useQueueFeed(
-  bridge: ConsoleBridge,
+  bridge: PlatformBridge,
   sessionId: string,
   calls: QueueCalls,
 ): QueueFeed {
@@ -133,7 +137,7 @@ export function useQueueFeed(
  * clearing is the console's nearest reading of a stream that stopped and came back.
  */
 export function useQueueRepairRead(
-  bridge: ConsoleBridge,
+  bridge: PlatformBridge,
   sessionStore: SessionStore,
   calls: QueueCalls,
 ): void {

@@ -17,7 +17,7 @@
 // builder and differ in one argument each:
 //
 //   • the session's own default, which is what a composer addresses when focus is not
-//     in the deck;
+//     in the pane layout;
 //   • the provider-bound path with the run still `running`;
 //   • the provider-bound path with the run `waiting_for_input`, which is where the
 //     composer scenario ends and the one state the design calls "steer".
@@ -39,17 +39,17 @@
 import type { ReactElement } from "react";
 
 import { renderSettled } from "../app-harness.js";
-import { COMPOSER_SCENARIO } from "../../../fixtures/scenarios/waiting-for-input.js";
+import { WAITING_FOR_INPUT_SCENARIO } from "../../../fixtures/scenarios/waiting-for-input.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { settleScheduledRead } from "../scheduled-read.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence-caps.js";
 import { DraftStore } from "@renderer/store/draft-store.js";
-import { FrameStore } from "@renderer/store/window/window-store.js";
+import { WindowStore } from "@renderer/store/window/window-store.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
-import { type ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
+import { type ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 import { MessageComposer } from "@renderer/features/composer/Composer.js";
-import type { ConsolePaneAddress } from "@renderer/console/seats/index.js";
+import type { PaneAddress } from "@renderer/console/seats/index.js";
 import { COMPOSED_ENTITY_PROJECTORS } from "./projector-composition.js";
 import { type MountedView } from "./mount-queries.js";
 
@@ -62,7 +62,9 @@ import { type MountedView } from "./mount-queries.js";
  * a baseline of the wrong composition under the provider-bound name.
  */
 function composerAgentId(): string {
-  const attached = COMPOSER_SCENARIO.beats.find((beat) => beat.event.kind === "agent.attached");
+  const attached = WAITING_FOR_INPUT_SCENARIO.beats.find(
+    (beat) => beat.event.kind === "agent.attached",
+  );
   const agentId = attached?.event.payload?.["agentId"];
   if (typeof agentId !== "string") {
     throw new Error("the composer scenario attaches no agent, so no provider-bound address exists");
@@ -79,20 +81,20 @@ function composerAgentId(): string {
  */
 function composerSessionStore(throughKind: string): SessionStore {
   const store = new SessionStore({
-    sessionId: COMPOSER_SCENARIO.sessionId,
+    sessionId: WAITING_FOR_INPUT_SCENARIO.sessionId,
     projectors: COMPOSED_ENTITY_PROJECTORS,
   });
-  store.initialise({ cursor: 0, entities: [] });
-  const lastIndex = COMPOSER_SCENARIO.beats.findLastIndex(
+  store.initialize({ cursor: 0, entities: [] });
+  const lastIndex = WAITING_FOR_INPUT_SCENARIO.beats.findLastIndex(
     (beat) => beat.event.kind === throughKind,
   );
   if (lastIndex < 0) {
     throw new Error(`the composer scenario plays no \`${throughKind}\` beat`);
   }
   store.applyBatch(
-    COMPOSER_SCENARIO.beats
+    WAITING_FOR_INPUT_SCENARIO.beats
       .slice(0, lastIndex + 1)
-      .map((beat) => beat.event as ConsoleSessionEvent),
+      .map((beat) => beat.event as ProjectedSessionEvent),
   );
   return store;
 }
@@ -110,7 +112,7 @@ function composerSessionStore(throughKind: string): SessionStore {
  * is why the constant it advances by is not imported here any more.
  */
 async function mountSurfaceSettled(
-  bridge: ConsoleBridge,
+  bridge: PlatformBridge,
   element: ReactElement,
 ): Promise<HTMLElement> {
   const { container } = await renderSettled(element);
@@ -146,24 +148,24 @@ function requireNoReadInFlight(container: HTMLElement): void {
 /** Mount the composer at one address, over a store fed to one point in the log. */
 async function mountComposerAt(options: {
   readonly throughKind: string;
-  readonly focusedPane: ConsolePaneAddress | undefined;
+  readonly focusedPane: PaneAddress | undefined;
 }): Promise<MountedView> {
-  const bridge = createFixtureBridge({ scenario: COMPOSER_SCENARIO });
+  const bridge = createFixtureBridge({ scenario: WAITING_FOR_INPUT_SCENARIO });
   const container = await mountSurfaceSettled(
     bridge,
     <MessageComposer
       sessionStore={composerSessionStore(options.throughKind)}
       bridge={bridge}
       draftStore={new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT })}
-      frameStore={new FrameStore()}
-      route={{ kind: "workspace", sessionId: COMPOSER_SCENARIO.sessionId }}
+      frameStore={new WindowStore()}
+      route={{ kind: "session", sessionId: WAITING_FOR_INPUT_SCENARIO.sessionId }}
       focusedPane={options.focusedPane}
     />,
   );
   return { element: requireRegion(container, "Message composer"), bridge };
 }
 
-/** The composer with focus outside the deck: addressed at the session. */
+/** The composer with focus outside the pane layout: addressed at the session. */
 export async function mountComposerSessionDefault(): Promise<MountedView> {
   return mountComposerAt({ throughKind: "run.running", focusedPane: undefined });
 }
@@ -172,7 +174,7 @@ export async function mountComposerSessionDefault(): Promise<MountedView> {
 export async function mountComposerProviderBoundRunning(): Promise<MountedView> {
   return mountComposerAt({
     throughKind: "run.running",
-    focusedPane: { kind: "agent-console", entity: { kind: "agent", id: composerAgentId() } },
+    focusedPane: { kind: "agents", entity: { kind: "agent", id: composerAgentId() } },
   });
 }
 
@@ -180,7 +182,7 @@ export async function mountComposerProviderBoundRunning(): Promise<MountedView> 
 export async function mountComposerProviderBoundWaiting(): Promise<MountedView> {
   return mountComposerAt({
     throughKind: "run.waiting_for_input",
-    focusedPane: { kind: "agent-console", entity: { kind: "agent", id: composerAgentId() } },
+    focusedPane: { kind: "agents", entity: { kind: "agent", id: composerAgentId() } },
   });
 }
 
@@ -195,7 +197,7 @@ export async function mountComposerProviderBoundWaiting(): Promise<MountedView> 
 function requireRegion(container: HTMLElement, accessibleName: string): HTMLElement {
   const region = container.querySelector(`[aria-label="${accessibleName}"]`);
   if (!(region instanceof HTMLElement)) {
-    throw new Error(`nothing in the mounted tree is labelled \`${accessibleName}\``);
+    throw new Error(`nothing in the mounted tree is labeled \`${accessibleName}\``);
   }
   return region;
 }

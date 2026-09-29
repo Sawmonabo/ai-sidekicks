@@ -4,7 +4,7 @@
 // it, the way `primitives/announce/live-region.test-support.ts` is imported. One list for all of them: two
 // lists differing in which element carries the stop would let one suite pass on a
 // shape the other rejects. The scans that read it live in
-// `windowed-row-index.test-support.ts`; the list with a neighbour to tab to is
+// `windowed-row-index.test-support.ts`; the list with a neighbor to tab to is
 // `ListWithNeighbor.test-support.tsx`.
 //
 // THE FIXTURE HANDS THE HOOK THE SHAPE A VIRTUALIZER HANDS BACK: the mounted row

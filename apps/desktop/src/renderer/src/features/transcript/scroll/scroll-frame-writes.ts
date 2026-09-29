@@ -1,4 +1,4 @@
-// The ledger's phase-one write queue — the half of the scroll chokepoint that
+// The transcript's phase-one write queue — the half of the scroll chokepoint that
 // belongs to a FRAME rather than to a gesture.
 //
 // `scroll-chokepoint.ts` owns what a write IS: the closed caller union, the clamp,
@@ -75,7 +75,7 @@ export class ScrollFrameWrites {
     }
     if (this.#frameCoordinator !== undefined) {
       throw new Error(
-        "LedgerScrollFrameWrites: a second frame coordinator was adopted; one controller writes inside one frame",
+        "ScrollFrameWrites: a second frame coordinator was adopted; one controller writes inside one frame",
       );
     }
     this.#frameCoordinator = frameCoordinator;
@@ -149,7 +149,7 @@ export class ScrollFrameWrites {
     if (existing !== undefined) {
       return existing;
     }
-    const taskKey = frameCoordinator.claimTaskKey(`ledger-scroll-${caller}`);
+    const taskKey = frameCoordinator.claimTaskKey(`transcript-scroll-${caller}`);
     this.#taskKeyByCaller.set(caller, taskKey);
     return taskKey;
   }

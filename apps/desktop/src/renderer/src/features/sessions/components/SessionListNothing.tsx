@@ -7,7 +7,7 @@
 // was buried inside a ternary about array length, in a file whose other job is the
 // list, the heading, and the start control.
 //
-// `rows/session-directory-rows.ts` owns `sessionsAbsenceKindFor`, so the merge and
+// `rows/session-directory-rows.ts` owns `sessionListNothingKindFor`, so the merge and
 // the absence agree by construction rather than by two switches written to match. A
 // SERVED directory with no rows is `empty`, because that question was put and
 // answered. A read still in flight is `not-loaded`. Collapsing the two is the
@@ -19,7 +19,7 @@ import type { SessionDirectoryState } from "@renderer/console/seats/index.js";
 import { Nothing } from "@renderer/console/primitives/index.js";
 
 /** What stands in for an empty list: a read still in flight, or a node that answered with none. */
-export function SessionListNothing(props: SessionsAbsenceProps): React.JSX.Element {
+export function SessionListNothing(props: SessionListNothingProps): React.JSX.Element {
   const { directory } = props;
   if (directory.status === "reading") {
     // No action on this arm, and the primitive is why: a read in flight renders as
@@ -42,7 +42,7 @@ export function SessionListNothing(props: SessionsAbsenceProps): React.JSX.Eleme
   );
 }
 
-interface SessionsAbsenceProps {
+interface SessionListNothingProps {
   readonly directory: SessionDirectoryState;
   readonly action: ReactNode;
 }

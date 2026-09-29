@@ -2,7 +2,7 @@
 //
 // Each table is asserted TOTAL over its own tuple rather than against a hand-typed
 // list, so widening a tuple without widening its tables fails here instead of
-// rendering a nameless token in whichever deck first opened the pane. The
+// rendering a nameless token in whichever pane layout first opened the pane. The
 // classifiers are asserted fail-closed, because "this build does not know that
 // value" and "that value is a member" are the two answers that must not merge.
 
@@ -12,11 +12,11 @@ import {
   APPROVAL_CATEGORIES,
   APPROVAL_DECISIONS,
   APPROVAL_STATES,
-  CATEGORY_PHRASE,
+  APPROVAL_CATEGORY_LABELS,
   INVALIDATION_TRIGGERS,
   REMEMBERED_SCOPE_KINDS,
-  SCOPE_KIND_PHRASE,
-  STATE_PHRASE,
+  RULE_SCOPE_LABELS,
+  APPROVAL_STATE_LABELS,
   asApprovalCategory,
   asApprovalState,
 } from "./approval-vocabulary.js";
@@ -56,20 +56,20 @@ describe("the closed sets are the sets the design fixes", () => {
 describe("every table is total over its own set", () => {
   it("names every category, state, and scope kind", () => {
     for (const category of APPROVAL_CATEGORIES) {
-      expect(CATEGORY_PHRASE[category]).not.toBe("");
+      expect(APPROVAL_CATEGORY_LABELS[category]).not.toBe("");
     }
     for (const state of APPROVAL_STATES) {
-      expect(STATE_PHRASE[state]).not.toBe("");
+      expect(APPROVAL_STATE_LABELS[state]).not.toBe("");
     }
     for (const kind of REMEMBERED_SCOPE_KINDS) {
-      expect(SCOPE_KIND_PHRASE[kind]).not.toBe("");
+      expect(RULE_SCOPE_LABELS[kind]).not.toBe("");
     }
   });
 
   it("negative control: a name outside a set has no entry", () => {
     // Without this the totality cases above would also pass over a lookup that
     // answered a phrase for every string, which is the failure they exist to catch.
-    const phraseByCategory: Readonly<Record<string, string | undefined>> = CATEGORY_PHRASE;
+    const phraseByCategory: Readonly<Record<string, string | undefined>> = APPROVAL_CATEGORY_LABELS;
     expect(phraseByCategory["tool_exec"]).toBeUndefined();
   });
 });

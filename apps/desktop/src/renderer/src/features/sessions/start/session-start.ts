@@ -17,11 +17,11 @@
 //   3. THE WINDOW NAVIGATES. Last, because it is the one step a person sees, and
 //      because it is the step that ends this surface's mount.
 
-import type { ConsoleSurfaceContext } from "@renderer/console/seats/index.js";
+import type { ScreenContext } from "@renderer/console/seats/index.js";
 
 /** What the destination hands this act, and everything the act touches. */
 export interface SessionStartSettlement {
-  readonly sessionStoreRegistry: ConsoleSurfaceContext["sessionStoreRegistry"];
+  readonly sessionStoreRegistry: ScreenContext["sessionStoreRegistry"];
   /** Where a settled start goes. */
   readonly openSession: (sessionId: string) => void;
   /** Declare the node's directory stale, so the sessions list reads it again. */

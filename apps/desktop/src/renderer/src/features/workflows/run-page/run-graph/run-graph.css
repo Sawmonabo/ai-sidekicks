@@ -14,7 +14,7 @@
  * component writes those inline from its own props, and a stylesheet that set one
  * would silently overrule a caller.
  *
- * TWO COLOURS IN `base.css` REACH NO CUSTOM PROPERTY AT ALL, so the "all of them
+ * TWO COLORS IN `base.css` REACH NO CUSTOM PROPERTY AT ALL, so the "all of them
  * from Meridian" rule cannot be met by tokens alone and the rules are overridden
  * directly:
  *   • `.react-flow__attribution a { color: #999 }` — this one RENDERS on this
@@ -37,7 +37,7 @@
  *   • rule 8 — the absence blocks are the primitives' and are not restyled here.
  */
 
-.meridian-phase-graph {
+.meridian-run-graph {
   /*
    * Local geometry, named here because it is this surface's and nothing else's.
    * Unitless where the library feeds the value to an SVG `stroke-width` attribute
@@ -45,20 +45,20 @@
    */
 
   /* The one hairline this surface draws, matching the console's own 1px edges. */
-  --meridian-phase-graph-hairline: 1px;
+  --meridian-run-graph-hairline: 1px;
 
   /* Edge stroke. Half a step above the hairline so a connector reads as a line
      with a direction rather than as another box edge. */
-  --meridian-phase-graph-stroke: 1.5;
+  --meridian-run-graph-stroke: 1.5;
 
   /* Mark stroke, for the outline of a shape rather than the length of a line. */
-  --meridian-phase-graph-mark-stroke: 2;
+  --meridian-run-graph-mark-stroke: 2;
 
   /* What the canvas is tall when nothing above it says otherwise: two ranks and most of a third at
      1×, rather than a collapsed hairline. Declared once and spent twice on the canvas below — as
      the size it STATES and as the minimum a shorter seat may flex it to. The wrapper derives its
      own minimum from that child: two copies of one number are two numbers once one is edited. */
-  --meridian-phase-graph-canvas-block-size: 20rem;
+  --meridian-run-graph-canvas-block-size: 20rem;
 
   display: flex;
   flex: 1;
@@ -98,13 +98,13 @@
  * time the picture is incomplete, which on a build with no definition read is every
  * time.
  */
-.meridian-phase-graph__caption {
+.meridian-run-graph__caption {
   margin: var(--meridian-space-2) 0 0;
   color: var(--meridian-text-muted);
   font-size: var(--meridian-text-sm);
 }
 
-.meridian-phase-graph__canvas {
+.meridian-run-graph__canvas {
   /*
    * THE BLOCK SIZE IS STATED AND NOT ONLY FLOORED, and that is what makes a graph
    * appear at all. The library's root writes `height: 100%` INLINE, and a percentage
@@ -115,16 +115,16 @@
    * sunken ground stood alone under a caption saying the phases were shown. And
    * content-sized is not the exotic case: `seats/pane-chrome.css` states no block size,
    * so a pane is as tall as its body wherever nothing bounds it — mounted for a
-   * capture, in a window of its own, or before a deck has laid it out. `flex: 1 1 auto`
+   * capture, in a window of its own, or before a pane layout has laid it out. `flex: 1 1 auto`
    * keeps the growth this box always had: the basis is the declaration below, so a
    * BOUNDED seat still stretches the canvas past that size, and the floor keeps a seat
    * too short for it from shrinking it under the height it paints at.
    */
   flex: 1 1 auto;
-  block-size: var(--meridian-phase-graph-canvas-block-size);
-  min-block-size: var(--meridian-phase-graph-canvas-block-size);
+  block-size: var(--meridian-run-graph-canvas-block-size);
+  min-block-size: var(--meridian-run-graph-canvas-block-size);
   background: var(--meridian-surface-sunken);
-  border: var(--meridian-phase-graph-hairline) solid var(--meridian-edge);
+  border: var(--meridian-run-graph-hairline) solid var(--meridian-edge);
   border-radius: var(--meridian-radius-md);
   overflow: hidden;
 }
@@ -136,20 +136,20 @@
  * another plan gets the library's defaults until it makes its own decision, and a
  * two-class selector also outranks `base.css`'s single class without `!important`.
  */
-.meridian-phase-graph .react-flow {
+.meridian-run-graph .react-flow {
   /* Edges. */
   --xy-edge-stroke: var(--meridian-edge-strong);
   --xy-edge-stroke-default: var(--meridian-edge-strong);
   --xy-edge-stroke-selected: var(--meridian-accent);
   --xy-edge-stroke-selected-default: var(--meridian-accent);
-  --xy-edge-stroke-width: var(--meridian-phase-graph-stroke);
-  --xy-edge-stroke-width-default: var(--meridian-phase-graph-stroke);
+  --xy-edge-stroke-width: var(--meridian-run-graph-stroke);
+  --xy-edge-stroke-width-default: var(--meridian-run-graph-stroke);
 
   /* The connection line. No connect mode exists here; set so none can paint. */
   --xy-connectionline-stroke: var(--meridian-accent);
   --xy-connectionline-stroke-default: var(--meridian-accent);
-  --xy-connectionline-stroke-width: var(--meridian-phase-graph-stroke);
-  --xy-connectionline-stroke-width-default: var(--meridian-phase-graph-stroke);
+  --xy-connectionline-stroke-width: var(--meridian-run-graph-stroke);
+  --xy-connectionline-stroke-width-default: var(--meridian-run-graph-stroke);
 
   /* The attribution plate. */
   --xy-attribution-background-color: var(--meridian-surface);
@@ -162,14 +162,14 @@
   --xy-minimap-mask-background-color-default: var(--meridian-surface-sunken);
   --xy-minimap-mask-stroke-color: var(--meridian-edge);
   --xy-minimap-mask-stroke-color-default: var(--meridian-edge);
-  --xy-minimap-mask-stroke-width: var(--meridian-phase-graph-stroke);
-  --xy-minimap-mask-stroke-width-default: var(--meridian-phase-graph-stroke);
+  --xy-minimap-mask-stroke-width: var(--meridian-run-graph-stroke);
+  --xy-minimap-mask-stroke-width-default: var(--meridian-run-graph-stroke);
   --xy-minimap-node-background-color: var(--meridian-edge);
   --xy-minimap-node-background-color-default: var(--meridian-edge);
   --xy-minimap-node-stroke-color: var(--meridian-edge-strong);
   --xy-minimap-node-stroke-color-default: var(--meridian-edge-strong);
-  --xy-minimap-node-stroke-width: var(--meridian-phase-graph-mark-stroke);
-  --xy-minimap-node-stroke-width-default: var(--meridian-phase-graph-mark-stroke);
+  --xy-minimap-node-stroke-width: var(--meridian-run-graph-mark-stroke);
+  --xy-minimap-node-stroke-width-default: var(--meridian-run-graph-mark-stroke);
 
   /* The canvas ground and its optional pattern. The three pattern defaults are read
      directly by the sheet, which is why each is named rather than only its author
@@ -183,12 +183,11 @@
 
   /* The built-in node box. This surface renders its own node, so these reach only
      a node kind it does not draw — set so an unknown kind falls back into Meridian
-     rather than into the library's grey. */
-  --xy-node-border: var(--meridian-phase-graph-hairline) solid var(--meridian-edge);
-  --xy-node-border-default: var(--meridian-phase-graph-hairline) solid var(--meridian-edge);
-  --xy-node-border-selected: var(--meridian-phase-graph-hairline) solid var(--meridian-accent);
-  --xy-node-border-selected-default: var(--meridian-phase-graph-hairline) solid
-    var(--meridian-accent);
+     rather than into the library's gray. */
+  --xy-node-border: var(--meridian-run-graph-hairline) solid var(--meridian-edge);
+  --xy-node-border-default: var(--meridian-run-graph-hairline) solid var(--meridian-edge);
+  --xy-node-border-selected: var(--meridian-run-graph-hairline) solid var(--meridian-accent);
+  --xy-node-border-selected-default: var(--meridian-run-graph-hairline) solid var(--meridian-accent);
   --xy-node-color: var(--meridian-text);
   --xy-node-color-default: var(--meridian-text);
 
@@ -199,29 +198,29 @@
   /* Selection and resize. Neither gesture exists on this surface. */
   --xy-selection-background-color: var(--meridian-surface-sunken);
   --xy-selection-background-color-default: var(--meridian-surface-sunken);
-  --xy-selection-border: var(--meridian-phase-graph-hairline) dashed var(--meridian-edge-strong);
-  --xy-selection-border-default: var(--meridian-phase-graph-hairline) dashed
+  --xy-selection-border: var(--meridian-run-graph-hairline) dashed var(--meridian-edge-strong);
+  --xy-selection-border-default: var(--meridian-run-graph-hairline) dashed
     var(--meridian-edge-strong);
   --xy-resize-background-color: var(--meridian-accent);
   --xy-resize-background-color-default: var(--meridian-accent);
 }
 
-/* The one library colour that renders here and reaches no custom property. */
-.meridian-phase-graph .react-flow__attribution {
+/* The one library color that renders here and reaches no custom property. */
+.meridian-run-graph .react-flow__attribution {
   font-size: var(--meridian-text-xs);
 }
 
-.meridian-phase-graph .react-flow__attribution a {
+.meridian-run-graph .react-flow__attribution a {
   color: var(--meridian-text-muted);
 }
 
-.meridian-phase-graph .react-flow__attribution a:focus-visible {
+.meridian-run-graph .react-flow__attribution a:focus-visible {
   outline: 2px solid var(--meridian-focus-ring);
   outline-offset: 2px;
 }
 
 /* The focus ring a keyboard reader gets on every phase, in the console's one form. */
-.meridian-phase-graph .react-flow__node:focus-visible {
+.meridian-run-graph .react-flow__node:focus-visible {
   outline: 2px solid var(--meridian-focus-ring);
   outline-offset: 2px;
 }
@@ -238,7 +237,7 @@
   inline-size: 100%;
   padding: var(--meridian-space-2) var(--meridian-space-3);
   background: var(--meridian-surface);
-  border: var(--meridian-phase-graph-hairline) solid var(--meridian-edge);
+  border: var(--meridian-run-graph-hairline) solid var(--meridian-edge);
   border-radius: var(--meridian-radius-sm);
   color: var(--meridian-text);
   font-family: var(--meridian-font-sans);
@@ -266,7 +265,7 @@
 /*
  * The phase's wire identifier. Always drawn, and always in the mono signature rule 4
  * gives a wire-true figure — the `WireFigure` inside carries the face; this span
- * carries only the size, the colour and the clip.
+ * carries only the size, the color and the clip.
  *
  * Two lines when it stands alone, which is the case every read reachable today
  * produces: an identifier is long, and one clipped line of it identifies nothing.
@@ -281,7 +280,7 @@
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   /* Break inside the identifier rather than past the box: a hyphenated wire id has
-     no space to wrap at, so without this it would run under its neighbour. */
+     no space to wrap at, so without this it would run under its neighbor. */
   overflow-wrap: anywhere;
 }
 
@@ -307,7 +306,7 @@
  * park: rule 3 spends amber on "a person is needed", and a phase the engine armed a
  * readable resume for needs nobody — so it is marked and not tinted. The two rules
  * below are the whole of the difference; the mark's text differs with them, so the
- * distinction survives for a reader who sees no colour at all.
+ * distinction survives for a reader who sees no color at all.
  */
 .meridian-phase-node__park {
   padding-inline: var(--meridian-space-1);
@@ -350,7 +349,7 @@
  * than by hue — the full-strength text token on the state word against `text-muted` for
  * a completed phase and `text-faint` for the two that are not going to run — over the
  * same control-boundary edge `completed` carries. The state WORD differs in every case
- * regardless, so the distinction survives for a reader who sees no colour at all.
+ * regardless, so the distinction survives for a reader who sees no color at all.
  */
 .meridian-phase-node[data-state="running"] {
   border-color: var(--meridian-edge-strong);

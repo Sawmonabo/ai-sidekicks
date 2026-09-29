@@ -22,7 +22,7 @@
 //   1. **One geometry.** Every face is drawn inside a square box, stroked at
 //      {@link GLYPH_STROKE_WIDTH} scaled to that box, with round caps and joins,
 //      and never filled. A glyph that fills is a glyph that reads heavier than
-//      its neighbours at 16 px, and the rail is the console's most-seen surface.
+//      its neighbors at 16 px, and the rail is the console's most-seen surface.
 //      Tabler draws at a 24-unit box and a 2-unit stroke and puts those
 //      attributes on the drawing elements, so the rule is APPLIED at compile
 //      time — `vitest/icon-compilation.ts` strips what an icon set brought and
@@ -111,19 +111,18 @@ export const GLYPH_SIZE_CHROME = 14;
  * set is CLOSED; the face map's totality over it is what the compiler checks.
  */
 export const GLYPH_NAMES = [
-  // --- The top-level destinations (the design language's surface set) and the session
-  // workspace reached from the first of them.
+  // --- The top-level destinations (the design language's surface set).
   "sessions",
-  "workspace",
   "settings",
   // --- Entity and pane kinds — the breadcrumb's kind glyph.
   "agent",
   "run",
   "approval",
   "artifact",
+  "workspace",
   "worktree",
   "repo",
-  "timeline",
+  "transcript",
   "terminal",
   "browser",
   "workflow",

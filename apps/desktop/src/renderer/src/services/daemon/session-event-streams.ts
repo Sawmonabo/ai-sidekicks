@@ -8,7 +8,7 @@
 // and `scenario-subscriptions.fixture.ts` has to route by the same table to answer the
 // way the daemon would. Two copies of the rule would let the producer and the
 // consumer drift while every test still passed — which is exactly what happened
-// before this table existed: the fixture recognised one stream name and delivered
+// before this table existed: the fixture recognized one stream name and delivered
 // NOTHING to a subscriber that named either of the other two, so every run beat a
 // scenario scripts was invisible to the surface that had asked for it, and the
 // silence was indistinguishable from a quiet session.
@@ -94,7 +94,7 @@ export interface NarrowedSessionEventStream {
   /**
    * This stream's kinds, taken from the contract-bound record next door that
    * declares them and frozen there. Typed as strings because a subscriber's event
-   * `kind` arrives wire-verbatim: the membership test IS what recognises it, and the
+   * `kind` arrives wire-verbatim: the membership test IS what recognizes it, and the
    * registration proof lives on that record rather than on this list.
    */
   readonly carriedKinds: readonly string[];

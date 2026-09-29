@@ -2,7 +2,7 @@
 
 import { useCallback, useMemo, useState } from "react";
 
-import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { useGenerationLatch } from "@renderer/hooks/useGenerationLatch.js";
 import type { DaemonOperations } from "./useDaemonStatus.js";
 
@@ -50,7 +50,7 @@ export interface DaemonControlDispatch {
  * latch is mount-scoped, so a reply arriving after the page is gone installs nothing.
  */
 export function useDaemonControl(
-  bridge: ConsoleBridge,
+  bridge: PlatformBridge,
   operations: DaemonOperations,
   onSettled: (settlement: DaemonControlSettlement) => void,
 ): DaemonControlDispatch {
@@ -59,7 +59,7 @@ export function useDaemonControl(
   const [settledCount, setSettledCount] = useState(0);
   const put = useCallback(
     async (control: DaemonControl) => {
-      const dispatch = dispatchLatch.claim(bridge, DAEMON_CONTROL_KEY);
+      const dispatch = dispatchLatch.takeShell(bridge, DAEMON_CONTROL_KEY);
       if (dispatch === undefined) {
         return;
       }

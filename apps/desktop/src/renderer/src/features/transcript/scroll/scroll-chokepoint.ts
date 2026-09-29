@@ -1,10 +1,10 @@
-// The ledger's scroll chokepoint — the one module in the console that writes a
+// The transcript's scroll chokepoint — the one module in the console that writes a
 // scroll offset.
 //
 // Two static tripwires sit here — no `scrollTop` write outside the chokepoint, and no
 // `scrollIntoView` — with review the reader that rejects a second writer. THE REST IS
 // THIS MODULE'S: one scroll controller
-// per timeline pane, every caller a member of a closed caller union and named in the
+// per transcript pane, every caller a member of a closed caller union and named in the
 // write, and glides replacing `scrollIntoView` everywhere.
 //
 // FOUR DECISIONS THIS MODULE MAKES, each of which that rule forces:
@@ -33,7 +33,7 @@
 // coalescing frame may make a row measurement late and may not make the height the window
 // ranges against late. What stays here is which sink is installed, and what a pass reads.
 
-import { type ConsoleClock } from "@renderer/lib/clock.js";
+import { type Clock } from "@renderer/lib/clock.js";
 import { type Unsubscribe } from "@renderer/lib/emitter.js";
 import { type AnimationFrameCoordinator } from "../animation-frame-coordinator.js";
 import { OverflowMeasurementBatch } from "../viewport/overflow-measurement-batch.js";
@@ -71,12 +71,12 @@ export interface ScrollContainer {
 export type OverflowMeasurementSink = (geometry: ScrollGeometry) => void;
 
 export interface ScrollControllerOptions {
-  readonly clock: ConsoleClock;
+  readonly clock: Clock;
   /** Within this many pixels of the bottom counts as the tail. */
   readonly tailTolerancePx?: number;
 }
 
-export class LedgerScrollController {
+export class ScrollController {
   /** What a sample MEANS, and who is woken by one. One publisher per controller. */
   readonly #geometryPublisher: ScrollGeometryPublisher;
   readonly #writeCountByCaller = new Map<ScrollCaller, number>();
@@ -123,9 +123,9 @@ export class LedgerScrollController {
    * Re-attaching detaches the previous surface first: a pane that re-mounts must
    * not leave a listener on a node React has already dropped.
    *
-   * AND IT ARMS ITS OWN OVERFLOW PASS. That detach cancelled the frame the outgoing
+   * AND IT ARMS ITS OWN OVERFLOW PASS. That detach canceled the frame the outgoing
    * attachment armed — right, since a pass on a detached controller samples nothing —
-   * but the obligation was the LEDGER's and not the departed node's, and an heir that
+   * but the obligation was the TRANSCRIPT's and not the departed node's, and an heir that
    * inherited none waited on the next resize. Coalesced, so an attachment that is also
    * resized still costs one pass. The BOX is not what this covers: that is published on
    * the line above and again by `publishOnResize`, neither of which waits for a frame.
@@ -191,7 +191,7 @@ export class LedgerScrollController {
   }
 
   /**
-   * Move the ledger. The only `scrollTop` write in the console.
+   * Move the transcript. The only `scrollTop` write in the console.
    *
    * Returns what happened rather than `void` so a caller can tell a skipped no-op
    * from a write that landed somewhere else — which is the difference between "the

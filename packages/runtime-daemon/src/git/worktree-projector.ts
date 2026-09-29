@@ -37,7 +37,7 @@
 //     render every row the status read returns"), and this is its
 //     precondition: a view cannot render a row the read filtered away. The
 //     only narrowing below is the caller's explicit `repoMountId` filter — a
-//     REQUEST parameter, never a state judgement. No branch in this module
+//     REQUEST parameter, never a state judgment. No branch in this module
 //     reads a row's `state` at all; the field is copied across and validated,
 //     never tested.
 //

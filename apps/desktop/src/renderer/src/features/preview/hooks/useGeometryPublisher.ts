@@ -7,7 +7,7 @@
 // component's markup would skip.
 //
 // A BINDING OUTLIVES ITS SUBJECT. React keeps a pane instance while the window hands
-// it a different bridge or the deck hands it a different pane, so every rule here is
+// it a different bridge or the pane layout hands it a different pane, so every rule here is
 // about the pass where the state still holds the PREVIOUS binding.
 
 import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
@@ -18,8 +18,8 @@ import { useSubjectScopedResource } from "@renderer/hooks/subject-scoped/useSubj
 import { type SubjectScopedDisposal } from "@renderer/lib/subject-scoped/subject-scoped-disposal.js";
 import { airspaceRegistryFor } from "@renderer/lib/airspace-registries.js";
 import { type AirspaceRegistry } from "@renderer/lib/airspace-registry.js";
-import { consoleClockFor } from "@renderer/services/platform/hooks/useClock.js";
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { resolveBridgeClock } from "@renderer/services/platform/hooks/useClock.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import type { PaneSubject } from "../types.js";
 
 /**
@@ -39,7 +39,7 @@ function createGeometryBinding(
   subject: PaneSubject,
   host: AttachedPaneViewHost,
 ): BoundGeometryPublisher {
-  const clock = consoleClockFor(subject.bridge);
+  const clock = resolveBridgeClock(subject.bridge);
   const airspace: AirspaceRegistry = airspaceRegistryFor(document);
   return {
     ...subject,
@@ -92,7 +92,7 @@ export interface BoundGeometryPublisher extends PaneSubject {
  *
  * THE BINDING IS HELD BY THE CONSOLE'S SUBJECT-SCOPED RESOURCE HOLDER. A binding
  * outlives its subject: React keeps the instance while the window hands it a different
- * bridge or the deck hands it a different pane. The three arms that follow are the
+ * bridge or the pane layout hands it a different pane. The three arms that follow are the
  * holder's:
  *
  *   • A CHANGED SUBJECT (another bridge, pane or view host) opens its own binding
@@ -113,7 +113,7 @@ export interface BoundGeometryPublisher extends PaneSubject {
  * other way — both idempotent, and both terminal by the publisher's own contract.
  */
 export function useGeometryPublisher(
-  bridge: ConsoleBridge,
+  bridge: PlatformBridge,
   paneId: string,
   viewHost: AttachedPaneViewHost,
 ): {

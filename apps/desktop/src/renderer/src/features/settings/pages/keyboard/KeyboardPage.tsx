@@ -26,11 +26,11 @@ import "./keyboard.css";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 
-import type { ConsoleRefusal } from "@renderer/lib/refusal.js";
+import type { Refusal } from "@renderer/lib/refusal.js";
 import { auditKeybindings } from "@renderer/registries/keybindings/keybinding-audit.js";
-import { consoleCommands } from "@renderer/registries/commands/window-command-registry.js";
-import { consoleKeybindingOverrides } from "@renderer/registries/keybindings/keybinding-override-store.js";
-import { useKeybindingSurface } from "@renderer/registries/keybindings/hooks/useKeybindingSnapshot.js";
+import { commandRegistry } from "@renderer/registries/commands/window-command-registry.js";
+import { keybindingOverrides } from "@renderer/registries/keybindings/keybinding-override-store.js";
+import { useKeybindingSnapshot } from "@renderer/registries/keybindings/hooks/useKeybindingSnapshot.js";
 import {
   COMMAND_PALETTE_OPEN_CHORD,
   ChordHint,
@@ -61,7 +61,7 @@ export function KeyboardPage(): ReactNode {
   // The effective table, and whether the console keyboard is suspended. Read
   // through the frame's one accessor, so this page cannot draw a keyboard that
   // differs from the one installed.
-  const keybindingSurface = useKeybindingSurface(consoleKeybindingOverrides);
+  const keybindingSurface = useKeybindingSnapshot(keybindingOverrides);
 
   // Commands are read on EVERY render pass, not once per visit. The registry is a
   // mutable object with no change signal of its own, and the frame registers this
@@ -73,7 +73,7 @@ export function KeyboardPage(): ReactNode {
   // remembering is what lets the page see it, and it adds no second subscription to
   // a registry that publishes none. The BINDINGS are live for their own reason:
   // those are what this page changes.
-  const commands = consoleCommands.all();
+  const commands = commandRegistry.all();
   const rows = composeKeybindingRows({
     commands,
     bindings: keybindingSurface.bindings,
@@ -82,7 +82,7 @@ export function KeyboardPage(): ReactNode {
     // composed onto it, so reading a default out of it would answer with the override
     // the reset removes.
     shippedBindings: keybindingSurface.shippedBindings,
-    overrides: consoleKeybindingOverrides.overrides,
+    overrides: keybindingOverrides.overrides,
   });
   const audit = useMemo(() => auditKeybindings(keybindingSurface.bindings), [keybindingSurface]);
   const visibleRows = matchKeybindingRows(rows, query);
@@ -90,15 +90,15 @@ export function KeyboardPage(): ReactNode {
 
   // A recorder still armed when the page goes away would leave the console keyboard
   // suspended for the life of the window.
-  useEffect(() => () => consoleKeybindingOverrides.endRecording(), []);
+  useEffect(() => () => keybindingOverrides.endRecording(), []);
 
   const stopRecording = useCallback(() => {
-    consoleKeybindingOverrides.endRecording();
+    keybindingOverrides.endRecording();
     setRecordingCommandId(undefined);
   }, []);
 
   const startRecording = useCallback((commandId: string) => {
-    consoleKeybindingOverrides.beginRecording();
+    keybindingOverrides.beginRecording();
     setRecordingCommandId(commandId);
     setReport(undefined);
   }, []);
@@ -107,8 +107,8 @@ export function KeyboardPage(): ReactNode {
     async (row: KeybindingRow, recording: AppliedChordRecording): Promise<void> => {
       const result =
         recording.outcome === "cleared"
-          ? await consoleKeybindingOverrides.unbind(row.commandId)
-          : await consoleKeybindingOverrides.bind(row.commandId, recording.chord);
+          ? await keybindingOverrides.unbind(row.commandId)
+          : await keybindingOverrides.bind(row.commandId, recording.chord);
       if (result.outcome === "refused") {
         setReport({ commandId: row.commandId, refusal: result.refusal });
         announce(`${row.title} kept its chord. ${result.refusal.detail}`);
@@ -122,7 +122,7 @@ export function KeyboardPage(): ReactNode {
 
   const resetRow = useCallback(
     async (row: KeybindingRow): Promise<void> => {
-      const unsaved = await consoleKeybindingOverrides.reset(row.commandId);
+      const unsaved = await keybindingOverrides.reset(row.commandId);
       setReport(undefined);
       announce(
         unsaved === undefined
@@ -134,7 +134,7 @@ export function KeyboardPage(): ReactNode {
   );
 
   const resetEveryRow = useCallback(async (): Promise<void> => {
-    const unsaved = await consoleKeybindingOverrides.resetAll();
+    const unsaved = await keybindingOverrides.resetAll();
     setReport(undefined);
     announce(
       unsaved === undefined
@@ -190,7 +190,7 @@ export function KeyboardPage(): ReactNode {
                   }}
                   onRecorded={(recording) => {
                     stopRecording();
-                    if (recording.outcome !== "cancelled") {
+                    if (recording.outcome !== "canceled") {
                       void settleRecording(row, recording);
                     }
                   }}
@@ -256,9 +256,9 @@ export function KeyboardPage(): ReactNode {
             ))}
           </ul>
         )}
-        {consoleKeybindingOverrides.hydrationRefusals.length === 0 ? null : (
+        {keybindingOverrides.hydrationRefusals.length === 0 ? null : (
           <ul className="meridian-settings-page__list">
-            {consoleKeybindingOverrides.hydrationRefusals.map((declined) => (
+            {keybindingOverrides.hydrationRefusals.map((declined) => (
               <li key={declined.commandId}>
                 <InlineRefusal
                   code={declined.refusal.code}
@@ -291,14 +291,14 @@ export function KeyboardPage(): ReactNode {
 /** What the last rebinding said, if it said anything. One act, one answer. */
 interface KeyboardActReport {
   readonly commandId: string;
-  readonly refusal: ConsoleRefusal;
+  readonly refusal: Refusal;
 }
 
 /** What a settled rebinding says, and never more than it knows. */
 function describeBinding(
   title: string,
   chord: string | null,
-  unsaved: ConsoleRefusal | undefined,
+  unsaved: Refusal | undefined,
 ): string {
   const act =
     chord === null

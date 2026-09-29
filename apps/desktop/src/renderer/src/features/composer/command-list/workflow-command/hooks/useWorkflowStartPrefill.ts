@@ -5,7 +5,7 @@
 // the directive on the line and ask for the caret, which is the act a person who found
 // the command in a list actually wants. The command-line handler is what runs when
 // the line is complete. Both are registered under the ROOT id, so the keyboard page,
-// the discovery popover, and the recogniser are all naming one command.
+// the discovery popover, and the recognizer are all naming one command.
 //
 // A PREFILL IS A WRITE, AND A WRITE OVER UNSENT TEXT IS A LOSS. `DraftStore.write`
 // replaces the key's whole text and keeps no history, so a palette entry that wrote
@@ -21,8 +21,8 @@
 
 import { useCallback, useMemo, useState } from "react";
 
-import { useConsoleCommandSeat } from "@renderer/registries/commands/hooks/useRegisterCommands.js";
-import { type ConsoleCommand } from "@renderer/registries/commands/command-types.js";
+import { useRegisterCommands } from "@renderer/registries/commands/hooks/useRegisterCommands.js";
+import { type CommandDefinition } from "@renderer/registries/commands/command-types.js";
 import type { DraftStore } from "@renderer/store/draft-store.js";
 import { requestComposerFocus } from "@renderer/console/seats/index.js";
 import {
@@ -86,7 +86,7 @@ export function useWorkflowStartPrefill(options: {
     requestComposerFocus();
   }, [draftStore, draftKey]);
 
-  const commands = useMemo<readonly ConsoleCommand[]>(
+  const commands = useMemo<readonly CommandDefinition[]>(
     () => [
       {
         id: WORKFLOW_COMMAND_ROOT,
@@ -106,7 +106,7 @@ export function useWorkflowStartPrefill(options: {
     ],
     [draftStore, draftKey, writePrefill],
   );
-  useConsoleCommandSeat(WORKFLOW_START_COMMAND_OWNER, commands);
+  useRegisterCommands(WORKFLOW_START_COMMAND_OWNER, commands);
 
   const replaceLine = useCallback(() => {
     setDisplacedText(undefined);

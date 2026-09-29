@@ -1,4 +1,4 @@
-// The producer half of the diff family: unified patch text in, `ConsoleDiffModel`
+// The producer half of the diff family: unified patch text in, `DiffModel`
 // out, plus the intraline word diff one changed line pair is segmented by.
 //
 // The diff viewer splits in two and this file is the ADOPTED half: `diff` 9.0.0
@@ -16,7 +16,7 @@
 // paid more than the whole rest of the patch (a single 18,889-character pair inside a
 // 5,000-line patch measured 831 ms on its own, 2026-09-02). A parsed line therefore
 // carries ONE whole-line segment, which is its text; `intraline-segment-cache.ts` derives
-// the split when a row is materialised, memoised and size-bounded. `intralineSegments`
+// the split when a row is materialized, memoized and size-bounded. `intralineSegments`
 // below is still this module's, because it is the adopted library's seam and parse
 // and intraline compute sit on one side of it.
 //
@@ -35,7 +35,7 @@
 //   • `DiffHunk.precedingContext` — the hidden context a gap row reveals — has no
 //     representation in a unified patch at all: a patch's context lines are INSIDE
 //     its hunks. A parsed hunk therefore carries an empty `precedingContext`, and a
-//     caller that has the surrounding file supplies it. Synthesising one from the
+//     caller that has the surrounding file supplies it. Synthesizing one from the
 //     hunk's own leading context would move lines a reader can already see into a
 //     collapsed gap and claim the gap had revealed them.
 //   • The compared refs are the caller's own answer, so they are parameters here rather
@@ -80,7 +80,7 @@ import { parsePatch } from "diff/lib/patch/parse.js";
 import type { StructuredPatch } from "diff/lib/types.js";
 
 import { hunkLines } from "./hunk-lines.js";
-import type { ConsoleDiffModel, DiffFile, DiffIntralineSegment } from "./diff-model.js";
+import type { DiffModel, DiffFile, DiffIntralineSegment } from "./diff-model.js";
 import { wholeLineSegments } from "./diff-model.js";
 
 /** The compared states the caller names, carried onto the parsed model verbatim. */
@@ -108,10 +108,7 @@ const GIT_PATH_PREFIXES = ["a/", "b/"] as const;
  * a line's two numbers advance on DIFFERENT sides, and a renderer handed a base
  * number on an inserted line would display a line that does not exist in the base.
  */
-export function parseUnifiedPatch(
-  patchText: string,
-  comparedStates: ComparedStates,
-): ConsoleDiffModel {
+export function parseUnifiedPatch(patchText: string, comparedStates: ComparedStates): DiffModel {
   const files: DiffFile[] = [];
   // Read once for the whole patch, and consumed in the order `parsePatch` hands the
   // hunks back — both walks read the same text top to bottom, so the nth declared
@@ -189,7 +186,7 @@ const HUNK_HEADER_PATTERN = /^@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@/;
  * the pairing below. Two walks of one text pair by ordinal, and that is sound only
  * while both walks agree line for line. This used to split on `\r\n` and on a bare
  * `\v`, `\f`, `\r`, or `\u0085`, which is strictly more separators than the library
- * recognises: a hunk body line carrying a lone carriage return — an ordinary line in a
+ * recognizes: a hunk body line carrying a lone carriage return — an ordinary line in a
  * file with old-Mac endings — was ONE line to the parser and TWO to this scanner, so a
  * `@@` header inside such a line was counted as declared with no hunk to pair it with,
  * and every later hunk took the previous one's header.
@@ -333,7 +330,7 @@ function extendedHeaderChange(structuredPatch: StructuredPatch): ExtendedHeaderC
 }
 
 /**
- * Fold neighbouring segments that carry the same verdict into one.
+ * Fold neighboring segments that carry the same verdict into one.
  *
  * Filtering one side out of a word diff leaves runs that were separated only by the
  * other side's tokens, and a model that carried them separately would make an

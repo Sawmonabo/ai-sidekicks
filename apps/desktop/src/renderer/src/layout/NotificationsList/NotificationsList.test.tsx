@@ -7,11 +7,11 @@
 
 import { act, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { DesktopBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
+import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import { type AttentionItem } from "@ai-sidekicks/contracts";
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
-import { useConsoleBridge } from "@renderer/services/platform/hooks/usePlatformBridge.js";
-import { useConsoleClock } from "@renderer/services/platform/hooks/useClock.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
+import { usePlatformBridge } from "@renderer/services/platform/hooks/usePlatformBridge.js";
+import { useClock } from "@renderer/services/platform/hooks/useClock.js";
 import { ManualClock } from "@renderer/lib/clock.js";
 import { REFRESH_DEBOUNCE_MS } from "@renderer/lib/reads/refresh-caps.js";
 import { refuse } from "@renderer/lib/refusal.js";
@@ -20,7 +20,7 @@ import { formatClockTime, formatDateTime } from "@renderer/console/primitives/in
 import { SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
 import { NotificationsList } from "./NotificationsList.js";
 import {
-  AttentionPlane,
+  AttentionSummary,
   type AttentionReading,
   type RefusedAttentionSession,
 } from "@renderer/store/attention/attention-summary.js";
@@ -48,7 +48,7 @@ function readingOf(
 ): AttentionReading {
   return {
     phase: "read",
-    plane: new AttentionPlane(items),
+    plane: new AttentionSummary(items),
     droppedCount: 0,
     refusedSessions,
     addressedSessionIds: ADDRESSED_SESSION_IDS,
@@ -158,7 +158,7 @@ describe("members the boundary refused", () => {
       <NotificationsList
         reading={{
           phase: "read",
-          plane: new AttentionPlane([item()]),
+          plane: new AttentionSummary([item()]),
           droppedCount: 2,
           refusedSessions: [],
           addressedSessionIds: ADDRESSED_SESSION_IDS,
@@ -183,7 +183,7 @@ describe("members the boundary refused", () => {
       <NotificationsList
         reading={{
           phase: "read",
-          plane: new AttentionPlane([]),
+          plane: new AttentionSummary([]),
           droppedCount: 2,
           refusedSessions: [],
           addressedSessionIds: ADDRESSED_SESSION_IDS,
@@ -238,7 +238,7 @@ describe("a read that did not cover every session", () => {
       <NotificationsList
         reading={{
           phase: "read",
-          plane: new AttentionPlane([]),
+          plane: new AttentionSummary([]),
           droppedCount: 1,
           refusedSessions: [refusedSession("session-b")],
           addressedSessionIds: ADDRESSED_SESSION_IDS,
@@ -302,7 +302,7 @@ describe("what makes the attention read run again", () => {
 
   /** A bridge whose attention signal a case can fire, and whose listeners it can count. */
   function bridgeOn(clock: ManualClock): {
-    readonly bridge: ConsoleBridge;
+    readonly bridge: PlatformBridge;
     readonly wake: () => void;
     readonly listenerCount: () => number;
   } {
@@ -316,7 +316,7 @@ describe("what makes the attention read run again", () => {
           listeners.delete(onSignal);
         };
       },
-    } as unknown as ConsoleBridge;
+    } as unknown as PlatformBridge;
     return {
       bridge,
       wake: () => {
@@ -334,7 +334,7 @@ describe("what makes the attention read run again", () => {
 
   /** Open one session whose store has a base state, so a settled event projects. */
   function openInitializedSession(registry: SessionStoreRegistry): string {
-    registry.open("session-a").initialise({ cursor: 0, entities: [] });
+    registry.open("session-a").initialize({ cursor: 0, entities: [] });
     return "session-a";
   }
 
@@ -356,8 +356,8 @@ describe("what makes the attention read run again", () => {
     readonly read: AttentionProjectionReadCall;
     readonly registry: SessionStoreRegistry;
   }): React.JSX.Element {
-    const bridge = useConsoleBridge();
-    const clock = useConsoleClock();
+    const bridge = usePlatformBridge();
+    const clock = useClock();
     return (
       <NotificationsList
         reading={useAttentionProjection(
@@ -371,14 +371,14 @@ describe("what makes the attention read run again", () => {
   }
 
   function mount(
-    bridge: ConsoleBridge,
+    bridge: PlatformBridge,
     read: AttentionProjectionReadCall,
     registry: SessionStoreRegistry,
   ): ReturnType<typeof render> {
     return render(
-      <DesktopBridgeProvider bridge={bridge}>
+      <PlatformBridgeProvider bridge={bridge}>
         <ReadThroughCenter read={read} registry={registry} />
-      </DesktopBridgeProvider>,
+      </PlatformBridgeProvider>,
     );
   }
 
@@ -433,9 +433,9 @@ describe("what makes the attention read run again", () => {
 
     await act(async () => {
       view.rerender(
-        <DesktopBridgeProvider bridge={bridgeOn(clock).bridge}>
+        <PlatformBridgeProvider bridge={bridgeOn(clock).bridge}>
           <ReadThroughCenter read={read} registry={registry} />
-        </DesktopBridgeProvider>,
+        </PlatformBridgeProvider>,
       );
     });
     await releaseCoalescedRead(clock);

@@ -1,7 +1,7 @@
 // The four ways a pane moves while its own box stays exactly the shape it was.
 //
 // Each source here is a case a size observer on the element reports as nothing at all:
-// the deck reorders its seats, a sibling shrinks and the flex line redistributes, a
+// the pane layout reorders its seats, a sibling shrinks and the flex line redistributes, a
 // rail slides in carrying everything inside it, and a fixed-size box beside it is given
 // a new width in one step by a class. The pane's rectangle is wrong for the whole of
 // each of them and the platform never says so on the element itself.
@@ -48,7 +48,7 @@ describe("observeElementPosition — the sources that reach it", () => {
 
   it("negative control: the element's OWN children changing is content, not placement", async () => {
     // Watching the element's child list instead of its ancestors' would fire on every
-    // render of whatever the pane contains and never once on the deck reordering it.
+    // render of whatever the pane contains and never once on the pane layout reordering it.
     installFakeResizeObserver();
     const { element } = attachedPair();
     const onMove = vi.fn();

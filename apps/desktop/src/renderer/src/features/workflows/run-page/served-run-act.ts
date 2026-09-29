@@ -12,7 +12,7 @@
 // this pane owes the workflow plan's body and nothing else — so a console-local re-arm
 // member added to it would widen a contract this console does not own. A context is the
 // shape the corpus already uses at exactly this seam: `seats/pane/pane-controls.ts` is the
-// deck's own acts reaching the chrome it renders, for the same reason and with the same
+// pane layout's own acts reaching the chrome it renders, for the same reason and with the same
 // absence rule.
 //
 // AND IT CARRIES THE ACT RATHER THAN THE COUNT. What a body knows is that the daemon

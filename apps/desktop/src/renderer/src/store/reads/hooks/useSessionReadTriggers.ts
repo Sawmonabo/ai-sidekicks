@@ -1,7 +1,7 @@
 import { useEffect, useMemo } from "react";
 
 import { eventTriggersRead, type ReadTriggerTarget } from "../read-triggers.js";
-import type { ConsoleSessionEvent } from "../../session/entities/entities.js";
+import type { ProjectedSessionEvent } from "../../session/entities/entities.js";
 import { useSessionDegradedCause } from "../../session/hooks/useSessionInitialized.js";
 import { useSessionStore } from "../../session/hooks/useOpenSessionStore.js";
 import { type SessionStore } from "../../session/session-store.js";
@@ -77,7 +77,7 @@ class ReadTriggerMemory {
    * for a signal already requested is the re-read loop this cursor exists to stop.
    */
   public observeTimeline(
-    timeline: readonly ConsoleSessionEvent[],
+    timeline: readonly ProjectedSessionEvent[],
     target: ReadTriggerTarget,
   ): boolean {
     for (let position = timeline.length - 1; position >= 0; position -= 1) {
@@ -104,6 +104,6 @@ class ReadTriggerMemory {
   }
 }
 
-function selectTimeline(state: SessionStoreState): readonly ConsoleSessionEvent[] {
+function selectTimeline(state: SessionStoreState): readonly ProjectedSessionEvent[] {
   return state.timeline;
 }

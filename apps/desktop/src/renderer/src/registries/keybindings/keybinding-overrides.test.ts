@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { KeyBinding } from "../commands/command-types.js";
+import type { Keybinding } from "../commands/command-types.js";
 import {
   KEYBINDING_OVERRIDE_REFUSAL_CODES,
   KEYBINDING_OVERRIDE_REFUSAL_ORIGIN,
@@ -12,7 +12,7 @@ import {
   refuseCandidateChord,
 } from "./keybinding-overrides.js";
 
-const DEFAULTS: readonly KeyBinding[] = [
+const DEFAULTS: readonly Keybinding[] = [
   { chord: "$mod+1", commandId: "frame.goToSessions" },
   { chord: "$mod+2", commandId: "frame.goToWorkflows" },
 ];

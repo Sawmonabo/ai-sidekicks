@@ -5,7 +5,7 @@
 // free function below both. The fallback code set it defaults from sits below it too,
 // in `reads/read-failure-codes.ts`.
 
-import { ConsoleRefusalError, isConsoleRefusal, type ConsoleRefusal } from "./refusal.js";
+import { RefusalError, isRefusal, type Refusal } from "./refusal.js";
 import { normalizeWireRejection } from "./wire-rejection.js";
 import { wireRejectionToError } from "./wire-errors.js";
 import { READ_FAILED } from "./reads/read-failure-codes.js";
@@ -18,7 +18,7 @@ import { READ_FAILED } from "./reads/read-failure-codes.js";
  * back BY REFERENCE: the normalizer REBUILDS from the three members it reads —
  * deliberately, so nothing of a hostile rejection survives onto the answer — which
  * would drop any member a console-built refusal carries beyond those. So a value that
- * is already a `ConsoleRefusal` is not renormalized.
+ * is already a `Refusal` is not renormalized.
  *
  * Everything else goes to `normalizeWireRejection`, which is total and owns every
  * other reading: a daemon envelope keeps its own code (folding those into
@@ -38,15 +38,15 @@ import { READ_FAILED } from "./reads/read-failure-codes.js";
  * own message, read through the repository's total stringifier, so a refusal this
  * console synthesizes still carries the author's words rather than a guess.
  */
-export function consoleRefusalFrom(
+export function coerceToRefusal(
   error: unknown,
   origin: string,
   fallbackCode: string = READ_FAILED,
-): ConsoleRefusal {
-  if (error instanceof ConsoleRefusalError) {
+): Refusal {
+  if (error instanceof RefusalError) {
     return error.refusal;
   }
-  if (isConsoleRefusal(error)) {
+  if (isRefusal(error)) {
     return error;
   }
   return normalizeWireRejection(origin, error, {

@@ -1,4 +1,4 @@
-import { WindowAbsences } from "@renderer/console/primitives/index.js";
+import { WindowNotices } from "@renderer/console/primitives/index.js";
 
 /**
  * The two ways this window holds less than the session: rows the cap took, and
@@ -8,7 +8,7 @@ export function TranscriptWindowNotices(
   props: TranscriptWindowNoticesProps,
 ): React.JSX.Element | null {
   return (
-    <WindowAbsences
+    <WindowNotices
       absences={[
         { kind: "dropped", count: props.droppedRowCount },
         ...(props.hasUnreceivedEntries ? ([{ kind: "never-received" }] as const) : []),

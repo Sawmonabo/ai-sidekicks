@@ -15,7 +15,7 @@ import { ManualClock } from "@renderer/lib/clock.js";
 import type { RefreshReason } from "@renderer/lib/reads/refresh-scheduler.js";
 import {
   emptySnapshot,
-  eventAt,
+  runEventAt,
   projectors,
   readsNothing,
   settleMicrotasks,
@@ -32,11 +32,11 @@ describe("SessionStoreRegistry — applies go through the queue, reads through t
       applyCoalesceMs: 0,
     });
     const store = registry.open("session-1");
-    store.initialise(emptySnapshot(0));
+    store.initialize(emptySnapshot(0));
     const revisionBefore = store.snapshot().revision;
 
-    registry.enqueue("session-1", [eventAt(1, "run-1"), eventAt(2, "run-2")]);
-    registry.enqueue("session-1", [eventAt(3, "run-3")]);
+    registry.enqueue("session-1", [runEventAt(1, "run-1"), runEventAt(2, "run-2")]);
+    registry.enqueue("session-1", [runEventAt(3, "run-3")]);
 
     // Nothing has reached the store yet: the queue holds the frame.
     expect(store.snapshot().revision).toBe(revisionBefore);
@@ -67,12 +67,12 @@ describe("SessionStoreRegistry — applies go through the queue, reads through t
       applyCoalesceMs: 0,
     });
     const store = registry.open("session-1");
-    store.initialise(emptySnapshot(0));
+    store.initialize(emptySnapshot(0));
     const revisionBefore = store.snapshot().revision;
 
-    registry.enqueue("session-1", [eventAt(1, "run-1")]);
+    registry.enqueue("session-1", [runEventAt(1, "run-1")]);
     clock.runFrame();
-    registry.enqueue("session-1", [eventAt(2, "run-2")]);
+    registry.enqueue("session-1", [runEventAt(2, "run-2")]);
     clock.runFrame();
 
     expect(store.snapshot().revision).toBe(revisionBefore + 2);
@@ -106,8 +106,8 @@ describe("SessionStoreRegistry — applies go through the queue, reads through t
     expect(readCalls).toStrictEqual([["subscribe", "window-focus", "reconnect"]]);
     expect(registry.refreshCountFor("session-1")).toBe(1);
     // The read is what establishes the store; the registry does not make the
-    // caller remember to call `initialise` afterwards.
-    expect(store.snapshot().initialised).toBe(true);
+    // caller remember to call `initialize` afterwards.
+    expect(store.snapshot().initialized).toBe(true);
     expect(store.snapshot().cursor).toBe(7);
     expect(store.snapshot().partitions.run["session-1-run"]?.state).toBe("queued");
     registry.disposeAll();
@@ -142,7 +142,7 @@ describe("SessionStoreRegistry — applies go through the queue, reads through t
       applyCoalesceMs: 0,
     });
     registry.open("session-1");
-    registry.enqueue("session-1", [eventAt(1, "run-1")]);
+    registry.enqueue("session-1", [runEventAt(1, "run-1")]);
     registry.requestRefresh("session-1", "subscribe");
 
     // Two arms live: one frame for the queue, one timeout for the scheduler.

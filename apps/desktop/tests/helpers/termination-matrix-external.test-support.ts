@@ -11,7 +11,7 @@
 // decision with the scripted collaborators from
 // `termination-matrix-tools.test-support.ts`; where the verdict alone is
 // satisfiable the wrong way, the cell also asserts the EVIDENCE — which pid was
-// signalled and which was not — because a path that reports a tree gone because
+// signaled and which was not — because a path that reports a tree gone because
 // its root is gone answers `true` without ever naming a member.
 
 import { expect } from "vitest";
@@ -121,9 +121,9 @@ export const EXTERNAL_TERMINATION_CELLS: readonly TerminationCell[] = [
     // table under the same row shape this tree's own descendant sits in. A kill
     // list built from that table hands `taskkill` a process this package never
     // started — the same false success as walking a reissued pid, arriving
-    // through the door marked `gone`. Two claims: the stranger was not signalled,
+    // through the door marked `gone`. Two claims: the stranger was not signaled,
     // and the member this tree captured was.
-    name: "a stale parent row under a dead root pid is read, never signalled",
+    name: "a stale parent row under a dead root pid is read, never signaled",
     axes: {
       root: "reaped-with-a-stale-parent-row",
       platformAnswer: "refused-then-delivered",
@@ -142,7 +142,7 @@ export const EXTERNAL_TERMINATION_CELLS: readonly TerminationCell[] = [
       const terminated = terminateExternalTree(ROOT_PID, "SIGKILL", tools);
       expect(
         tools.killedFrom,
-        "a process this tree never captured was signalled — the stale parent row is being used as a kill list",
+        "a process this tree never captured was signaled — the stale parent row is being used as a kill list",
       ).not.toContain(STALE_PARENT_ROW_PID);
       expect(
         tools.killedFrom,
@@ -157,7 +157,7 @@ export const EXTERNAL_TERMINATION_CELLS: readonly TerminationCell[] = [
     // only numbers would hand `taskkill` a stranger with the root's identity
     // check reporting nothing wrong, because the root is not what moved. The
     // stamp each member is captured with is what refuses it.
-    name: "a captured member whose own pid was reissued is not signalled",
+    name: "a captured member whose own pid was reissued is not signaled",
     axes: {
       root: "reaped-with-nothing-behind-it",
       platformAnswer: "never-asked",
@@ -173,7 +173,7 @@ export const EXTERNAL_TERMINATION_CELLS: readonly TerminationCell[] = [
       const terminated = terminateExternalTree(ROOT_PID, "SIGKILL", tools);
       expect(
         tools.killedFrom,
-        "the pid a captured member used to hold was signalled — the capture is being trusted without its stamp",
+        "the pid a captured member used to hold was signaled — the capture is being trusted without its stamp",
       ).toStrictEqual([]);
       return Promise.resolve(terminated);
     },
@@ -229,7 +229,7 @@ export const EXTERNAL_TERMINATION_CELLS: readonly TerminationCell[] = [
       const terminated = terminateExternalTree(ROOT_PID, "SIGKILL", tools);
       expect(
         tools.killedFrom,
-        "a pid was signalled although the root names nothing and nothing was captured — something was guessed at",
+        "a pid was signaled although the root names nothing and nothing was captured — something was guessed at",
       ).toStrictEqual([]);
       return Promise.resolve(terminated);
     },
@@ -270,7 +270,7 @@ export const EXTERNAL_TERMINATION_CELLS: readonly TerminationCell[] = [
       const terminated = terminateExternalTree(ROOT_PID, "SIGKILL", tools);
       expect(
         tools.killedFrom,
-        "a pid was signalled although this host named none — an unreadable listing is being read as a table",
+        "a pid was signaled although this host named none — an unreadable listing is being read as a table",
       ).toStrictEqual([]);
       return Promise.resolve(terminated);
     },
@@ -283,8 +283,8 @@ export const EXTERNAL_TERMINATION_CELLS: readonly TerminationCell[] = [
     // used to latch `ManagedElectronChild` as killed while this package's own
     // descendant kept running. Two claims, and the second is the one the verdict
     // alone cannot make: nothing reachable through the reissued number was
-    // signalled, and the member captured while the pid was still this tree's was.
-    name: "a reissued root pid is signalled by nothing, and the tree it no longer names is not reported killed",
+    // signaled, and the member captured while the pid was still this tree's was.
+    name: "a reissued root pid is signaled by nothing, and the tree it no longer names is not reported killed",
     axes: {
       root: "recycled",
       platformAnswer: "refused-throughout",
@@ -298,11 +298,11 @@ export const EXTERNAL_TERMINATION_CELLS: readonly TerminationCell[] = [
       const terminated = terminateExternalTree(ROOT_PID, "SIGKILL", tools);
       expect(
         tools.killedFrom,
-        "the reissued root pid was signalled — an unrelated process was terminated by this cleanup",
+        "the reissued root pid was signaled — an unrelated process was terminated by this cleanup",
       ).not.toContain(ROOT_PID);
       expect(
         tools.killedFrom,
-        "the parent table was walked from a reissued pid — the stranger's own child was signalled",
+        "the parent table was walked from a reissued pid — the stranger's own child was signaled",
       ).not.toContain(IMPOSTOR_CHILD_PID);
       expect(
         tools.killedFrom,
@@ -331,7 +331,7 @@ export const EXTERNAL_TERMINATION_CELLS: readonly TerminationCell[] = [
       const terminated = terminateExternalTree(ROOT_PID, "SIGKILL", tools);
       expect(
         tools.killedFrom,
-        "something was signalled over a tree already gone — the reissued pid is being asked about rather than read",
+        "something was signaled over a tree already gone — the reissued pid is being asked about rather than read",
       ).toStrictEqual([]);
       return Promise.resolve(terminated);
     },
@@ -357,7 +357,7 @@ export const EXTERNAL_TERMINATION_CELLS: readonly TerminationCell[] = [
       const terminated = terminateExternalTree(ROOT_PID, "SIGKILL", tools);
       expect(
         tools.killedFrom,
-        "a pid was signalled although this tree is unobservable — something was guessed at",
+        "a pid was signaled although this tree is unobservable — something was guessed at",
       ).toStrictEqual([]);
       return Promise.resolve(terminated);
     },

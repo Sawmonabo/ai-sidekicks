@@ -4,12 +4,12 @@
 // surfaces and nothing else, and reaches into this module's exports.
 
 import { within } from "@testing-library/react";
-import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 
 /** The element a tier reads, and the bridge it was mounted against. */
 export interface MountedView {
   readonly element: HTMLElement;
-  readonly bridge: ConsoleBridge;
+  readonly bridge: PlatformBridge;
 }
 
 /**
@@ -23,12 +23,12 @@ export interface MountedView {
  * heading it points at.
  *
  * A PATTERN AS WELL AS A STRING, because a pane's name is its whole address trail:
- * `seats/pane/ConsolePaneChrome` names a pane "session-1 workspace-01 Diff" so two panes of
+ * `seats/pane/PaneFrame` names a pane "session-1 workspace-01 Diff" so two panes of
  * one kind are told apart by what they are views of. A caller that wants to say "the diff
  * pane, whichever subject it is over" anchors a pattern at the kind; a caller naming a
  * surface whose name is fixed still passes the string.
  */
-export function requireLabelledRegion(
+export function requireLabeledRegion(
   container: HTMLElement,
   accessibleName: string | RegExp,
 ): HTMLElement {

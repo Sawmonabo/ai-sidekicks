@@ -74,19 +74,19 @@ describe("ManualClock — nothing moves until it is told to", () => {
 
   it("cancels one piece of work without touching its twin", () => {
     const clock = new ManualClock();
-    let cancelledRan = false;
+    let canceledRan = false;
     let twinRan = false;
-    const cancelled = clock.scheduleTimeout(() => {
-      cancelledRan = true;
+    const canceled = clock.scheduleTimeout(() => {
+      canceledRan = true;
     }, 10);
     clock.scheduleTimeout(() => {
       twinRan = true;
     }, 10);
 
-    clock.cancel(cancelled);
+    clock.cancel(canceled);
     clock.advance(20);
 
-    expect(cancelledRan).toBe(false);
+    expect(canceledRan).toBe(false);
     expect(twinRan).toBe(true);
   });
 });

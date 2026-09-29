@@ -30,7 +30,7 @@ import {
 } from "./axe-run.js";
 
 import { installMeridianTokens } from "@renderer/app/token-installation.js";
-import { CONSOLE_SCHEMES } from "@renderer/styles/tokens.js";
+import { COLOR_SCHEMES } from "@renderer/styles/tokens.js";
 
 /** The surfaces this family ships, each named as a reader would name it. */
 const AUDITED_SURFACES: readonly {
@@ -53,7 +53,7 @@ afterEach(async () => {
 
 describe("accessibility — the composer surfaces", () => {
   for (const surface of AUDITED_SURFACES) {
-    for (const scheme of CONSOLE_SCHEMES) {
+    for (const scheme of COLOR_SCHEMES) {
       it(`has no axe violation on ${surface.label} in the ${scheme} scheme`, async () => {
         await emulateSystemScheme(scheme);
         const mounted = await surface.mount();

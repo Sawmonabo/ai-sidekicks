@@ -165,7 +165,7 @@ describe("the park attention fold — the badge count", () => {
 describe("the park attention fold — the amber", () => {
   it("spends amber on a fold where ANY park needs a person", () => {
     // Fail-closed: an entry standing for two waits, one of which nobody will end on
-    // its own, needs somebody. The armed park alone would have earned no colour.
+    // its own, needs somebody. The armed park alone would have earned no color.
     const entries = foldOf([
       run({
         workflowRunId: "run-a",

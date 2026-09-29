@@ -78,7 +78,7 @@ const REPO_MOUNT_STATES: Record<RepoMountState, true> = {
   archived: true,
 };
 const WORKSPACE_STATES: Record<WorkspaceState, true> = {
-  provisioning: true,
+  preparing: true,
   ready: true,
   busy: true,
   stale: true,
@@ -285,7 +285,7 @@ describe("repo_mounts and workspaces schema shape", () => {
     expect(byName.get("id")?.notnull).toBe(1);
 
     // `execution_mode` has no default: a bind always names its mode.
-    expect(byName.get("state")?.dflt_value).toBe("'provisioning'");
+    expect(byName.get("state")?.dflt_value).toBe("'preparing'");
     expect(byName.get("metadata")?.dflt_value).toBe("'{}'");
     for (const column of columns.filter(
       (candidate) => !["state", "metadata"].includes(candidate.name),
@@ -441,7 +441,7 @@ describe("repo_mounts and workspaces schema shape", () => {
         id: "workspace-provisioning",
         executionMode: "provisioned-worktree",
         fsRoot: null,
-        state: "provisioning",
+        state: "preparing",
       });
     }).not.toThrow();
   });

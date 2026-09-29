@@ -1,27 +1,27 @@
-/* The transcript's cross-directory styles: the workspace screen's shell, the loaded
+/* The transcript's cross-directory styles: the session screen's shell, the loaded
  * feed's grid, and the few rules worn by rows in more than one of the feature's folders.
  *
  * Loaded with the composition root rather than with the lazy pane chunk, because the
- * eagerly registered workspace screen draws `.meridian-ledger-surface` before any pane
+ * eagerly registered session screen draws `.meridian-session-screen-shell` before any pane
  * body has loaded.
  *
- *   • `.meridian-ledger-surface`, the workspace screen's wrapper (`TranscriptSurface.tsx`,
+ *   • `.meridian-session-screen-shell`, the session screen's wrapper (`SessionScreenShell.tsx`,
  *     which imports this sheet).
- *   • `.meridian-ledger` and `.meridian-ledger__body`, the feed's grid
+ *   • `.meridian-transcript-feed` and `.meridian-transcript-feed__body`, the feed's grid
  *     (`feed/components/TranscriptFeed.tsx`).
- *   • `.meridian-ledger-retry`, worn by the viewport's failed-row control and by the
+ *   • `.meridian-transcript-retry`, worn by the viewport's failed-row control and by the
  *     ANSI output's.
  *
  * Every color is a Meridian custom property and every space a step on the scale, so
  * the feature follows the scheme attribute with no conditional in JSX.
  */
 
-/* --- The deck's shell --------------------------------------------------- */
+/* --- The pane layout's shell --------------------------------------------------- */
 
 /*
- * The empty-deck state: one pane, full width, filling the surface.
+ * The empty pane layout state: one pane, full width, filling the surface.
  *
- * A grid rather than a block, because `.meridian-frame__surface` is a scroll
+ * A grid rather than a block, because `.meridian-frame__screen` is a scroll
  * container and a percentage-height chain through a block would collapse the moment
  * the pane's own body wanted to scroll instead. `minmax(0, 1fr)` in both axes is what
  * lets the feed inside be the thing that scrolls.
@@ -29,7 +29,7 @@
  * AND `max-height` IS WHAT MAKES THAT TRUE RATHER THAN INTENDED. `min-height: 100%`
  * is a floor and this box has no `height`, so a session whose log outgrew the window
  * grew the surface instead of scrolling inside it: the frame's own scroller took the
- * overflow, the ledger's track resolved to its content, and the viewport mounted a
+ * overflow, the transcript's track resolved to its content, and the viewport mounted a
  * row for every entry in the session — a virtualized list laying out and painting the
  * whole log every frame, with a cost that grew with the session rather than with the
  * screen. Measured on the endurance workload, 51 of 51 rows mounted in a 5 541-pixel
@@ -39,7 +39,7 @@
  * surface that overflows and differ for one that does not, and only this one leaves
  * every already-fitting surface exactly where it was.
  */
-.meridian-ledger-surface {
+.meridian-session-screen-shell {
   display: grid;
   grid-template-rows: minmax(0, 1fr);
   min-width: 0;
@@ -47,7 +47,7 @@
   max-height: 100%;
 }
 
-/* --- The loaded ledger -------------------------------------------------- */
+/* --- The loaded transcript -------------------------------------------------- */
 
 /*
  * The whole feed for one session: an optional find strip above, and below it the
@@ -59,7 +59,7 @@
  * row on screen for a reason the reader did not ask for. The grid keeps the
  * window's track the whole remainder either way.
  */
-.meridian-ledger {
+.meridian-transcript-feed {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   min-width: 0;
@@ -74,14 +74,14 @@
  * row — be the element that scrolls: a `1fr` track floors at its content's min-content
  * height, so the log would grow the row instead of overflowing inside it.
  */
-.meridian-ledger__body {
+.meridian-transcript-feed__body {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   min-width: 0;
   min-height: 0;
 }
 
-.meridian-ledger-retry {
+.meridian-transcript-retry {
   padding: var(--meridian-space-1) var(--meridian-space-3);
   border: 1px solid var(--meridian-edge-strong);
   border-radius: var(--meridian-radius-sm);
@@ -91,7 +91,7 @@
   cursor: pointer;
 }
 
-.meridian-ledger-retry:focus-visible {
+.meridian-transcript-retry:focus-visible {
   outline: 2px solid var(--meridian-focus-ring);
   outline-offset: 2px;
 }

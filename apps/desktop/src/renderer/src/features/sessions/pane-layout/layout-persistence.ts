@@ -3,17 +3,17 @@
 import { refuse, type NarrowedRefusal } from "@renderer/lib/refusal.js";
 import { PANE_LAYOUT_REFUSAL_ORIGIN } from "./pane-layout-snapshot.js";
 
-/** The durable record the deck's arrangement is saved under, per session. */
+/** The durable record the pane layout's arrangement is saved under, per session. */
 export const PANE_LAYOUT_RECORD_KEY = "pane-layout";
 
-/** Why the workspace itself refused. Closed, so a second cause is a decision. */
+/** Why a pane layout save refused. Closed, so a second cause is a decision. */
 export const PANE_LAYOUT_SAVE_REFUSAL_CODES = ["layout-save-failed"] as const;
 
-/** One workspace refusal code. Derived, so the vocabulary is declared once. */
+/** One pane layout save refusal code. Derived, so the vocabulary is declared once. */
 export type PaneLayoutSaveRefusalCode = (typeof PANE_LAYOUT_SAVE_REFUSAL_CODES)[number];
 
 /**
- * How far one surface's restore has got, for one arrangement and one session.
+ * How far one screen's restore has got, for one arrangement and one session.
  *
  * TWO ANSWERS AND NEITHER IS RENDER STATE. "Has this restore been dispatched" gates
  * an effect, and a flag that re-rendered would re-run the very effect it gates;
@@ -23,11 +23,11 @@ export type PaneLayoutSaveRefusalCode = (typeof PANE_LAYOUT_SAVE_REFUSAL_CODES)[
  * from wherever they are asked.
  *
  * WHAT IT IS ADDRESSED BY IS THE POINT. Held per `(arrangement, session)` through
- * `store/subject-scoped/subject-scoped-state.ts`, so routing to another open session
+ * `hooks/subject-scoped/useSubjectScopedState.ts`, so routing to another open session
  * re-arms it and a `UiStateStore` REPLACEMENT — a reconnect re-mints the store and
  * hands it down without remounting anything — does not. A restore that re-ran there
  * would replace a
- * deck the person has been arranging for minutes with whatever the record holds,
+ * pane layout the person has been arranging for minutes with whatever the record holds,
  * which reads as the window silently undoing their work.
  *
  * It owns nothing, so it is a value and not a resource: there is no disposal, and a
@@ -60,7 +60,7 @@ export class RestoreProgress {
    *
    * A read abandoned before it settled — the effect torn down, the strict-mode
    * double mount — has adopted nothing, so the next pass must be free to read again.
-   * A settled restore is never re-armed by this: it has already replaced the deck,
+   * A settled restore is never re-armed by this: it has already replaced the pane layout,
    * and reading a second time is what this whole holder exists to prevent.
    */
   public abandon(): void {
@@ -74,15 +74,15 @@ export class RestoreProgress {
  * Raise one, from the closed vocabulary above.
  *
  * `refuse` takes its code as a `string`, so a call site that spelled one wrong
- * would compile and render a code no reader could look up. Everything this surface
+ * would compile and render a code no reader could look up. Everything this screen
  * refuses goes through here instead, where the union is what binds.
  */
 export function refusePaneLayoutSave(
   code: PaneLayoutSaveRefusalCode,
   detail: string,
-): WorkspaceRefusal {
+): PaneLayoutSaveRefusal {
   return refuse(PANE_LAYOUT_REFUSAL_ORIGIN, code, detail);
 }
 
-/** A typed workspace refusal — `core`'s one refusal shape, narrowed on `code`. */
-type WorkspaceRefusal = NarrowedRefusal<PaneLayoutSaveRefusalCode>;
+/** A typed pane layout save refusal — `core`'s one refusal shape, narrowed on `code`. */
+type PaneLayoutSaveRefusal = NarrowedRefusal<PaneLayoutSaveRefusalCode>;

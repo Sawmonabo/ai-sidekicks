@@ -23,7 +23,7 @@ describe("a settled composed send", () => {
 
     expect(openedSessionIds).toStrictEqual([CREATED_SESSION_ID]);
     expect(directoryRechecks).toBe(1);
-    expect(navigations).toStrictEqual([{ kind: "workspace", sessionId: CREATED_SESSION_ID }]);
+    expect(navigations).toStrictEqual([{ kind: "session", sessionId: CREATED_SESSION_ID }]);
   });
 
   it("does not open a store through a registry this window has already left", () => {
@@ -37,7 +37,7 @@ describe("a settled composed send", () => {
       () => undefined,
     ).settleStartedSession(CREATED_SESSION_ID);
 
-    expect(navigations).toStrictEqual([{ kind: "workspace", sessionId: CREATED_SESSION_ID }]);
+    expect(navigations).toStrictEqual([{ kind: "session", sessionId: CREATED_SESSION_ID }]);
   });
 });
 
@@ -57,6 +57,6 @@ describe("an attention item", () => {
       createdAt: "2026-01-01T10:00:00.000Z",
     });
 
-    expect(navigations).toStrictEqual([{ kind: "workspace", sessionId: "session-node" }]);
+    expect(navigations).toStrictEqual([{ kind: "session", sessionId: "session-node" }]);
   });
 });

@@ -1,23 +1,23 @@
-// One pane's frame, and the body the deck resolves for it.
+// One pane's frame, and the body the pane layout resolves for it.
 //
-// ITS OWN MODULE BECAUSE IT IS A DIFFERENT SUBJECT. `Deck.tsx` decides which panes
+// ITS OWN MODULE BECAUSE IT IS A DIFFERENT SUBJECT. `SessionPaneLayout.tsx` decides which panes
 // exist, in what order, at what widths, and which one has focus — questions about
 // the SET. This file answers one question about a SINGLE member: given a pane and
 // the registry, what is drawn, and what is drawn when nothing is registered for its
 // kind. Neither half reads the other's state, which is why the cut is here and not
 // at a line count.
 //
-// Nothing here leaves the family: both symbols are reached only from `Deck.tsx`,
-// so the workspace door carries neither.
+// Nothing here leaves the family: both symbols are reached only from `SessionPaneLayout.tsx`,
+// so the session screen door carries neither.
 
 import { memo, useCallback, useMemo, useState } from "react";
 import { Panel } from "react-resizable-panels";
 
-import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
+import { type Refusal } from "@renderer/lib/refusal.js";
 import {
   PaneControlsContext,
-  type ConsolePaneContext,
-  type ConsolePaneRegistry,
+  type PaneContext,
+  type PaneRegistry,
   type PaneControls,
 } from "@renderer/console/seats/index.js";
 import { PaneBody } from "./PaneBody.js";
@@ -32,17 +32,17 @@ export interface SessionPaneSlotProps {
   readonly pane: SessionPane;
   readonly isFocused: boolean;
   readonly density: PaneLayoutDensity;
-  readonly registry: ConsolePaneRegistry;
+  readonly registry: PaneRegistry;
   /**
    * What this pane's body is handed, or why its address cannot be served.
    *
    * A pane's kind and its entity reference come off a restored snapshot or a route,
    * so the pair is not known to be an address any body admits until it is parsed. The
    * refusal arm is what a slot draws instead of a body — never a throw, which would
-   * take the whole deck down for one pane, and never a body handed an address it
+   * take the whole pane layout down for one pane, and never a body handed an address it
    * cannot serve, which would query a partition that has never held the row.
    */
-  readonly paneContextFor: (pane: SessionPane) => ConsolePaneContext | ConsoleRefusal;
+  readonly paneContextFor: (pane: SessionPane) => PaneContext | Refusal;
   readonly dragCoordinator: PaneLayoutDragCoordinator;
   /** The edge a drop would land on, when a drag is currently over this pane. */
   readonly dropIndicator: PaneDropIndicator["edge"] | undefined;
@@ -53,14 +53,14 @@ export interface SessionPaneSlotProps {
 }
 
 /**
- * One pane's frame, and the body resolved through the deck's single mount door.
+ * One pane's frame, and the body resolved through the pane layout's single mount door.
  *
- * Memoised on purpose: the console's frame budgets are written against a four-lane
- * streaming session, and an unmemoised map re-renders four pane bodies for every
+ * Memoized on purpose: the console's frame budgets are written against a four-lane
+ * streaming session, and an unmemoized map re-renders four pane bodies for every
  * event that touches one of them.
  */
 export const SessionPaneSlot: React.NamedExoticComponent<SessionPaneSlotProps> = memo(
-  function DeckPaneSlot(props: SessionPaneSlotProps): React.JSX.Element {
+  function SessionPaneSlotBody(props: SessionPaneSlotProps): React.JSX.Element {
     const { dragCoordinator, pane, onClose, onFocus, trackElement, untrackElement } = props;
     const descriptor = props.registry.descriptorFor(pane.kind);
 
@@ -103,11 +103,11 @@ export const SessionPaneSlot: React.NamedExoticComponent<SessionPaneSlotProps> =
     }
 
     const paneClassName = [
-      "meridian-deck__pane",
-      props.isFocused ? "meridian-deck__pane--focused" : undefined,
+      "meridian-pane-layout__pane",
+      props.isFocused ? "meridian-pane-layout__pane--focused" : undefined,
       props.dropIndicator === undefined
         ? undefined
-        : `meridian-deck__pane--drop-${props.dropIndicator}`,
+        : `meridian-pane-layout__pane--drop-${props.dropIndicator}`,
     ]
       .filter((token): token is string => token !== undefined)
       .join(" ");

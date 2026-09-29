@@ -1,7 +1,7 @@
 // Diff models the surfaces are built and measured against, until a wire makes one.
 //
 // THE FIXTURE SHELL FOR AN ABSENT OWNER. Nothing in the running console produces a
-// `ConsoleDiffModel`, because no daemon method returns patch bytes. This module is the
+// `DiffModel`, because no daemon method returns patch bytes. This module is the
 // shell that stands in the producer's place — DELETED, not filled, the day a wire hands
 // the console patch bytes, along with `diff-fixture-shapes.test-support.ts`,
 // `diff-fixture-patch.test-support.ts`, and every import of the three. What survives that
@@ -30,7 +30,7 @@
 
 import { buildPatchText } from "./diff-fixture-patch.test-support.js";
 import type { DiffFixtureShape } from "./diff-fixture-shapes.js";
-import type { ConsoleDiffModel, DiffLine } from "@renderer/features/repos/diff/diff-model.js";
+import type { DiffModel, DiffLine } from "@renderer/features/repos/diff/diff-model.js";
 import { wholeLineSegments } from "@renderer/features/repos/diff/diff-model.js";
 import { parseUnifiedPatch } from "@renderer/features/repos/diff/patch-parse.js";
 
@@ -43,7 +43,7 @@ const FIXTURE_COMPARED_STATES = { baseRef: "main", headRef: "feat/rate-limit-wir
  * carry: the hidden context above each hunk (`patch-parse.ts` explains why a parsed
  * hunk has none).
  */
-export function buildDiffFixture(shape: DiffFixtureShape): ConsoleDiffModel {
+export function buildDiffFixture(shape: DiffFixtureShape): DiffModel {
   const parsed = parseUnifiedPatch(buildPatchText(shape), FIXTURE_COMPARED_STATES);
   return {
     ...parsed,

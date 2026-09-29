@@ -9,7 +9,7 @@
 // setup again on the SAME memoized reader: `dispose` is terminal, so the replayed
 // `start()` returned early and the section sat unread, with nothing on screen to say
 // why. `useSubjectScopedResource` answers the first; the binding's re-mint arm answers
-// the second, on `useAttachmentCarrier`'s pattern.
+// the second, on `useStagedAttachments`'s pattern.
 //
 // A WORKSPACE-LIST READ IS THE OBSERVABLE, because reader identity is not one: the list
 // is the first call every started reader makes, so counting it counts readers that were

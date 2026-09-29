@@ -1,4 +1,4 @@
-// The Send button's behaviour, so the button itself only renders.
+// The Send button's behavior, so the button itself only renders.
 //
 // This package's structure rules put every construction, subscription, and
 // derivation in a class or a hook. The router is a class and the history walk is a
@@ -13,7 +13,7 @@
 // EVERY OPERATION STATE IS KEYED TO THE ADDRESS THE ACT WAS ISSUED AT, and the latch is
 // not the status. `status` is what the surface RENDERS, and a handler reading it sees
 // the value from the render that produced it — so two Enter presses in one frame would
-// both read `idle` and both dispatch. Neither is hook-wide: a send still travelling for
+// both read `idle` and both dispatch. Neither is hook-wide: a send still traveling for
 // one target does not hold the composer when the person re-addresses it. Both halves
 // are keyed through the holders `console/bridge/` publishes rather than through
 // anything local: the console's one `GenerationLatch` holds the slot under
@@ -58,7 +58,7 @@
 // it holds the per-address histories.
 //
 // THE UNSENT BODY LIVES IN THE SUPPLIED `DraftStore` AND NOWHERE ELSE. The
-// workspace hands the composer seat a window-lifetime store, keyed per address; a
+// session screen hands the composer seat a window-lifetime store, keyed per address; a
 // `useState` string here would be a second home for the same text, and the two
 // differ exactly where it matters — a remount loses the local copy, and a prop-only
 // address change keeps it, so the person's words reappear under a target they did
@@ -80,14 +80,14 @@ import { AnsweredRunVersions } from "../answered-run-versions.js";
 import type { SendController, SendControllerDependencies } from "../send-controller-contract.js";
 
 /**
- * What a recognised command with nowhere to run says.
+ * What a recognized command with nowhere to run says.
  *
  * Names the state rather than the wiring: a person cannot act on "no executor was
  * supplied", and can act on knowing their text is still there and the command did
  * not run.
  */
 const NO_EXECUTOR_DETAIL =
-  "That command was recognised but nothing here can run it, so nothing happened. Your message is still in the line.";
+  "That command was recognized but nothing here can run it, so nothing happened. Your message is still in the line.";
 
 /** Build the controller for one addressed composer. */
 export function useSendController(dependencies: SendControllerDependencies): SendController {
@@ -100,7 +100,7 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
     recognizeClientCommand,
     recognizeProviderCommand,
   } = dependencies;
-  // Allocated on first use rather than on every render, which a bare initialiser
+  // Allocated on first use rather than on every render, which a bare initializer
   // would do and then discard.
   const runVersionsRef = useRef<AnsweredRunVersions | null>(null);
   const runVersions = (runVersionsRef.current ??= new AnsweredRunVersions());
@@ -128,7 +128,7 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
     issue: issueSettlementIdentity,
     isCurrent,
   } = useSettlementIdentities(bridge, draftKey);
-  // What the button renders while an act is travelling, held under the address that act
+  // What the button renders while an act is traveling, held under the address that act
   // was issued at, and the two writers a settlement reaches it by. Its own module
   // because it is a different job with a different lifetime: nothing there reaches a
   // wire, and every reading in it is dropped by a re-address or a replaced bridge.
@@ -166,7 +166,7 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
     // and a refusal card would report a failure where the only thing that happened
     // is that they were early.
     const latchKey = addressedOperationKey(draftKey, visit, "send");
-    const claim = operationLatch.claim(bridge, latchKey);
+    const claim = operationLatch.takeShell(bridge, latchKey);
     if (claim === undefined) {
       return;
     }

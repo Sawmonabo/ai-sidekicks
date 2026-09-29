@@ -3,7 +3,7 @@
 // WHAT THIS IS ABOUT. The tail keeps the rows current while it is up, and the snapshot
 // read is what says what the whole list is. A stream that dropped and was repaired must
 // take a fresh snapshot, or the pane shows the list as it stood before the drop with
-// every row the daemon queued or cancelled in between missing.
+// every row the daemon queued or canceled in between missing.
 //
 // WHY THE CONTROL IS THE WHOLE CASE. A reading that had simply started polling would
 // pass the positive assertion, so the negative one — time passing, no repair, and the
@@ -18,17 +18,17 @@ import { SessionStore } from "@renderer/store/session/session-store.js";
 import { queueFeedBridge } from "./queue-feed.test-support.js";
 import { useQueueFeed, useQueueRepairRead } from "./queue-feed.js";
 import type { QueueCalls, QueueFeed } from "./queue-reading.js";
-import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 
 /** A session whose snapshot has landed, which is what makes a repair observable. */
-function initialisedStore(): SessionStore {
+function initializedStore(): SessionStore {
   const store = new SessionStore({ sessionId: "019b7a33-3300-75e5-8510-ada11a5a55a5" });
-  store.initialise({ cursor: 0, entities: [] });
+  store.initialize({ cursor: 0, entities: [] });
   return store;
 }
 
 function QueueProbe(props: {
-  readonly bridge: ConsoleBridge;
+  readonly bridge: PlatformBridge;
   readonly queueCalls: QueueCalls;
   readonly sessionStore: SessionStore;
 }): null {
@@ -40,7 +40,7 @@ function QueueProbe(props: {
 describe("the queue reading re-reads on a repair", () => {
   it("takes a fresh snapshot when the session's degraded flag clears", async () => {
     const { bridge, queueCalls, listedSessionIds } = queueFeedBridge();
-    const sessionStore = initialisedStore();
+    const sessionStore = initializedStore();
     await act(async () => {
       render(<QueueProbe bridge={bridge} queueCalls={queueCalls} sessionStore={sessionStore} />);
     });
@@ -56,7 +56,7 @@ describe("the queue reading re-reads on a repair", () => {
     expect(listedSessionIds).toHaveLength(1);
 
     act(() => {
-      sessionStore.initialise({ cursor: 4, entities: [] });
+      sessionStore.initialize({ cursor: 4, entities: [] });
     });
     await settleScheduledRead(bridge);
     expect(listedSessionIds).toHaveLength(2);
@@ -64,7 +64,7 @@ describe("the queue reading re-reads on a repair", () => {
 
   it("negative control: nothing re-reads without a reason", async () => {
     const { bridge, queueCalls, listedSessionIds } = queueFeedBridge();
-    const sessionStore = initialisedStore();
+    const sessionStore = initializedStore();
     await act(async () => {
       render(<QueueProbe bridge={bridge} queueCalls={queueCalls} sessionStore={sessionStore} />);
     });
@@ -89,7 +89,7 @@ describe("the queue reading re-reads on a repair", () => {
           }, 0);
         }),
     };
-    const sessionStore = initialisedStore();
+    const sessionStore = initializedStore();
     let phase: QueueFeed["phase"] | undefined;
     function ParkedProbe(): null {
       phase = useQueueFeed(bridge, sessionStore.sessionId, parked).phase;
@@ -108,7 +108,7 @@ describe("the queue reading re-reads on a repair", () => {
     // The window half, wired by `useQueueFeed` itself, so a surface holding only the
     // session id still stops showing a list read before the person was away.
     const { bridge, queueCalls, listedSessionIds } = queueFeedBridge();
-    const sessionStore = initialisedStore();
+    const sessionStore = initializedStore();
     await act(async () => {
       render(<QueueProbe bridge={bridge} queueCalls={queueCalls} sessionStore={sessionStore} />);
     });

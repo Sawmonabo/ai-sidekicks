@@ -29,10 +29,10 @@
 
 import { act, fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { DesktopBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
+import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
-import { LEDGER_QUIET_SCENARIO } from "../../../../../../../fixtures/scenarios/empty-session.js";
-import { type TimelineRowSlotProps } from "@renderer/console/seats/index.js";
+import { EMPTY_SESSION_SCENARIO } from "../../../../../../../fixtures/scenarios/empty-session.js";
+import { type TranscriptRowProps } from "@renderer/console/seats/index.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 import { TranscriptFeed } from "./TranscriptFeed.js";
 import {
@@ -54,12 +54,12 @@ afterEach(() => {
 
 interface FeedParentProps {
   readonly sessionStore: SessionStore;
-  readonly renderTimelineRow: (mount: TimelineRowSlotProps) => React.JSX.Element;
+  readonly renderTimelineRow: (mount: TranscriptRowProps) => React.JSX.Element;
   /**
    * Moved to make the parent render, and read by nothing.
    *
    * A pane above this feed re-renders for its own reasons — a tab change, a
-   * neighbouring dock, a resize — and every one of them hands the feed a fresh props
+   * neighboring dock, a resize — and every one of them hands the feed a fresh props
    * object while the three values inside it stay the same.
    */
   readonly renderNudge: number;
@@ -69,14 +69,14 @@ interface FeedParentProps {
 function FeedParent(props: FeedParentProps): React.JSX.Element {
   void props.renderNudge;
   return (
-    <DesktopBridgeProvider bridge={FIXTURE_BRIDGE}>
+    <PlatformBridgeProvider bridge={FIXTURE_BRIDGE}>
       <TranscriptFeed
         sessionStore={props.sessionStore}
         paneId={TRANSCRIPT_FIXTURE_PANE_ID}
         renderTimelineRow={props.renderTimelineRow}
         feedLabel="Session timeline"
       />
-    </DesktopBridgeProvider>
+    </PlatformBridgeProvider>
   );
 }
 
@@ -87,16 +87,16 @@ function FeedParent(props: FeedParentProps): React.JSX.Element {
  * re-renders the whole subtree and would make every count below move for a reason
  * that is this file's own doing.
  */
-const FIXTURE_BRIDGE = createFixtureBridge({ scenario: LEDGER_QUIET_SCENARIO });
+const FIXTURE_BRIDGE = createFixtureBridge({ scenario: EMPTY_SESSION_SCENARIO });
 
-describe("the ledger feed — what a parent's render costs the rows", () => {
+describe("the transcript feed — what a parent's render costs the rows", () => {
   it("draws no row body again when the parent re-renders with the same values", () => {
     withLaidOutViewport();
     let rowBodyRenders = 0;
     const sessionStore = openSessionStoreWithGeneralLog(SHORT_LOG_EVENT_COUNT);
     // Stable across the re-render below, so the only thing that can move the
     // callback's identity is the dependency this case is about.
-    const renderTimelineRow = (mount: TimelineRowSlotProps): React.JSX.Element => {
+    const renderTimelineRow = (mount: TranscriptRowProps): React.JSX.Element => {
       rowBodyRenders += 1;
       return <p>{mount.row.summary}</p>;
     };
@@ -131,7 +131,7 @@ describe("the ledger feed — what a parent's render costs the rows", () => {
     withLaidOutViewport();
     let rowBodyRenders = 0;
     const sessionStore = openSessionStoreWithGeneralLog(SHORT_LOG_EVENT_COUNT);
-    const countingRenderer = (mount: TimelineRowSlotProps): React.JSX.Element => {
+    const countingRenderer = (mount: TranscriptRowProps): React.JSX.Element => {
       rowBodyRenders += 1;
       return <p>{mount.row.summary}</p>;
     };
@@ -173,7 +173,7 @@ function admitOneMoreEntry(sessionStore: SessionStore, sequence: number): void {
   });
 }
 
-describe("the ledger feed — what one admitted event costs the rows", () => {
+describe("the transcript feed — what one admitted event costs the rows", () => {
   it("draws no row body again for a row the event did not change", () => {
     withLaidOutViewport();
     const drawsByRowId = new Map<string, number>();

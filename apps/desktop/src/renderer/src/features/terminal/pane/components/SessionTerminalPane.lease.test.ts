@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 import { renderPane, storeThrough } from "./TerminalPane.test-support.js";
 
 describe("terminal pane — bound to a session", () => {
-  it("folds the holding off the log rather than off a claim", () => {
+  it("folds the holding off the log rather than off a take", () => {
     // Through the first transition, which is a `taken`. No identity read has landed
     // in this case, so the hold is one this device does not have.
     const region = renderPane(storeThrough(1));

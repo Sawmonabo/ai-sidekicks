@@ -7,14 +7,14 @@
 // composition the send cases need.
 
 import { fireEvent, render, type RenderResult } from "@testing-library/react";
-import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { bridgeAnswering, type RecordedDaemonCall } from "@test/helpers/fixture-bridge.js";
 import { DEFAULT_ROUTE } from "@renderer/routing/routes.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence-caps.js";
 import { DraftStore } from "@renderer/store/draft-store.js";
-import { FrameStore } from "@renderer/store/window/window-store.js";
+import { WindowStore } from "@renderer/store/window/window-store.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
-import type { ComposerSeatProps, ConsolePaneAddress } from "@renderer/console/seats/index.js";
+import type { ComposerProps, PaneAddress } from "@renderer/console/seats/index.js";
 import { ProviderCommandEnumeration } from "../../command-list/provider-command-enumeration.js";
 import { SESSION_ID, STEER_APPLIED } from "../send-router.test-support.js";
 import { DraftLine } from "./DraftLine.js";
@@ -25,12 +25,12 @@ export interface MountedDraftLine {
   readonly result: RenderResult;
   readonly line: HTMLTextAreaElement;
   /** The window store the bar escalates into, for a case that reads its banners. */
-  readonly frameStore: FrameStore;
+  readonly frameStore: WindowStore;
 }
 
 export function openSessionStore(): SessionStore {
   const sessionStore = new SessionStore({ sessionId: SESSION_ID });
-  sessionStore.initialise({ cursor: 0, entities: [] });
+  sessionStore.initialize({ cursor: 0, entities: [] });
   return sessionStore;
 }
 
@@ -52,10 +52,10 @@ export function mountDraftLine(options: {
   readonly calls: ComposerSendCalls;
   readonly draftStore: DraftStore;
   readonly sessionStore: SessionStore;
-  readonly focusedPane?: ConsolePaneAddress | undefined;
+  readonly focusedPane?: PaneAddress | undefined;
   readonly commandEnumeration?: ProviderCommandEnumeration;
 }): MountedDraftLine {
-  const frameStore = new FrameStore();
+  const frameStore = new WindowStore();
   const result = render(
     <LineAndSend
       seat={{
@@ -84,7 +84,7 @@ export function mountLine(options: {
   readonly draftStore: DraftStore;
   readonly sessionStore: SessionStore;
 }): MountedDraftLine {
-  const frameStore = new FrameStore();
+  const frameStore = new WindowStore();
   const result = render(
     <DraftLine
       sessionStore={options.sessionStore}
@@ -103,13 +103,13 @@ export function mountLine(options: {
 }
 
 /** The transport the bar's held state belongs to; every call goes through `calls` instead. */
-function inertBridge(): ConsoleBridge {
+function inertBridge(): PlatformBridge {
   return bridgeAnswering(async () => undefined).bridge;
 }
 
 /** The line beside Send, over one draft store. */
 function LineAndSend(props: {
-  readonly seat: ComposerSeatProps;
+  readonly seat: ComposerProps;
   readonly calls: ComposerSendCalls;
   readonly commandEnumeration: ProviderCommandEnumeration;
 }): React.JSX.Element {
@@ -154,13 +154,13 @@ export interface AddressableDraftLine {
   /** The directive line, or a throw naming what was missing. */
   line(): HTMLTextAreaElement;
   /** The window store the bar escalates into, for a case that reads its banners. */
-  readonly frameStore: FrameStore;
+  readonly frameStore: WindowStore;
 }
 
 /** A store holding two agents, each with a steerable run that has tripped. */
 export function storeWithTwoTrippedAgents(): SessionStore {
   const sessionStore = new SessionStore({ sessionId: SESSION_ID });
-  sessionStore.initialise({
+  sessionStore.initialize({
     cursor: 0,
     entities: [
       { kind: "agent", id: FIRST_AGENT_ID, body: { name: "Ada", driverName: "claude" } },
@@ -190,8 +190,8 @@ export function storeWithTwoTrippedAgents(): SessionStore {
   return sessionStore;
 }
 
-export function paneFor(agentId: string): ConsolePaneAddress {
-  return { kind: "agent-console", entity: { kind: "agent", id: agentId } };
+export function paneFor(agentId: string): PaneAddress {
+  return { kind: "agents", entity: { kind: "agent", id: agentId } };
 }
 
 /** One mounted bar whose focused pane the case moves, without remounting it. */
@@ -201,7 +201,7 @@ export function mountAddressable(calls: ComposerSendCalls): AddressableDraftLine
   });
   const sessionStore = storeWithTwoTrippedAgents();
   const enumeration = new ProviderCommandEnumeration();
-  const frameStore = new FrameStore();
+  const frameStore = new WindowStore();
   const bridge = inertBridge();
   const barFor = (agentId: string): React.JSX.Element => (
     <LineAndSend

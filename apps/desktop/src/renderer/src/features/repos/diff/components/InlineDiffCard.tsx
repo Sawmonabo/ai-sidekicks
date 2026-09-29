@@ -1,8 +1,8 @@
-// The diff card a ledger row carries, and the seat registration that fills it.
+// The diff card a transcript row carries, and the seat registration that fills it.
 //
-// Diff cards go in the timeline at a height cap and then offer "show all", and THIS
+// Diff cards go in the transcript at a height cap and then offer "show all", and THIS
 // CARD'S OWN RULE says exactly how
-// that behaves: an inline timeline card uses the same
+// that behaves: an inline transcript card uses the same
 // renderer at a height cap, expanded to that cap by default with collapse
 // retained, plus expand-in-place and jump-to-end. No capped diff ends in a fade
 // with nowhere to go.
@@ -60,7 +60,7 @@ import { INLINE_DIFF_CARD_HEIGHT_CAP_PX } from "../../diff-caps.js";
 import { DiffChangeSet } from "./DiffChangeSet.js";
 import { DiffRenderer } from "./DiffRenderer.js";
 import { useDiffViewControls } from "../hooks/useDiffViewControls.js";
-import { type ConsoleDiffModel } from "../diff-model.js";
+import { type DiffModel } from "../diff-model.js";
 import { useDiffModelViewState } from "../hooks/useDiffModelViewState.js";
 // TYPE-ONLY, AND THAT IS LOAD-BEARING RATHER THAN TIDY. `patch-parse.ts` is where the
 // adopted diff library is called, and this card is registered eagerly — a value import
@@ -72,14 +72,14 @@ import type { ComparedStates } from "../patch-parse.js";
 export interface InlineDiffCardProps {
   readonly card: DiffInlineCardProps;
   /** The diff to render. Absent until a wire produces one — see the header. */
-  readonly diff?: ConsoleDiffModel;
+  readonly diff?: DiffModel;
 }
 
 export function InlineDiffCard(props: InlineDiffCardProps): React.JSX.Element {
   const headingId = useId();
   const viewControls = useDiffViewControls();
   // The gap expansion is the MODEL's, and this card is reused for whichever diff
-  // its ledger row carries, so it comes from the same hook the pane reads —
+  // its transcript row carries, so it comes from the same hook the pane reads —
   // keyed by the prop reference, dropped when that moves. The card narrows to no
   // file, so it reads only the expansion half.
   const { expansion, expandGapAt } = useDiffModelViewState(props.diff);
@@ -96,7 +96,7 @@ export function InlineDiffCard(props: InlineDiffCardProps): React.JSX.Element {
           Diff
         </h4>
         {/* Wire-verbatim, and the diff rather than the run: the run is the row's own
-            subject and repeating it here would say nothing the ledger has not already
+            subject and repeating it here would say nothing the transcript has not already
             said one line above. The manifest id is not rendered beside it — it is the
             provenance and retention of the same object, which is a reading the
             artifact surfaces do, not a second name for what this card shows. */}
@@ -158,7 +158,7 @@ export function InlineDiffCard(props: InlineDiffCardProps): React.JSX.Element {
                     past this card to the rest of the conversation", and focusing
                     the sentinel below does exactly that — the browser brings a
                     focused element into view, the caret lands where reading
-                    resumes, and no code writes `scrollTop`, which the ledger's
+                    resumes, and no code writes `scrollTop`, which the transcript's
                     own scroll chokepoint owns. A link to a fragment would
                     additionally rewrite the location hash, which this console
                     routes on. */}

@@ -16,8 +16,8 @@
 // synchronous latch: this handler reads the status from the render that produced it.
 
 import { useMemo } from "react";
-import { RemediedRefusal } from "@renderer/console/primitives/index.js";
-import type { ComposerSeatProps } from "@renderer/console/seats/index.js";
+import { RefusalWithRemedy } from "@renderer/console/primitives/index.js";
+import type { ComposerProps } from "@renderer/console/seats/index.js";
 import { useRefusalBannerEscalation } from "../../hooks/useRefusalBannerEscalation.js";
 import { useComposerAddress } from "../../hooks/useComposerAddress.js";
 import { useCommandHandling } from "../../command-list/hooks/useCommandHandling.js";
@@ -27,7 +27,7 @@ import type { ComposerSendCalls } from "../send-dispatch.js";
 import { useSendController } from "../hooks/useSendController.js";
 
 /** What Send is handed beyond the seat's own props. */
-export type SendButtonProps = ComposerSeatProps & {
+export type SendButtonProps = ComposerProps & {
   /** The two daemon calls a send makes. */
   readonly calls: ComposerSendCalls;
   /**
@@ -46,18 +46,18 @@ export function SendButton(props: SendButtonProps): React.JSX.Element {
   // No handler is supplied for a command that reads its arguments off the line, so the
   // executor leaves such a line as typed. The map is stable so the zone's latest-ref is
   // not rewritten on every render.
-  const directiveHandlers = useMemo(noComposerCommandLineHandlers, []);
-  // BOTH HALVES OR NEITHER. The router will not intercept a name its recogniser does
+  const commandLineHandlers = useMemo(noComposerCommandLineHandlers, []);
+  // BOTH HALVES OR NEITHER. The router will not intercept a name its recognizer does
   // not claim, and an intercepted name with no executor refuses rather than running,
   // so the two are supplied together by the zone that owns both.
   const commandZone = useCommandHandling({
     route: props.route,
     commandEnumeration: props.commandEnumeration,
-    // The same address the send path acts on, so the name this zone recognises as
+    // The same address the send path acts on, so the name this zone recognizes as
     // published comes from the addressed run's own binding and not from a sibling
     // binding the same agent happens to hold.
     target: address.target,
-    directiveHandlers,
+    commandLineHandlers,
   });
   const controller = useSendController({
     bridge: props.bridge,
@@ -70,7 +70,7 @@ export function SendButton(props: SendButtonProps): React.JSX.Element {
   });
   // A SEND THAT LEARNED THE SESSION IS GONE IS NOT THIS BUTTON'S NEWS ALONE. The refusal
   // still renders below, beside the control that produced it — that is where a person
-  // pressing Send looks — but the remedy table calls `session.not_found` a workspace
+  // pressing Send looks — but the remedy table calls `session.not_found` a session screen
   // banner, so the frame is told too: every pane is drawing a session that has left the
   // node. The hook decides which codes qualify and raises each condition once, so
   // nothing here reads the table and a dismissed banner stays dismissed.
@@ -97,7 +97,7 @@ export function SendButton(props: SendButtonProps): React.JSX.Element {
         // send router reaches `intervention.idempotency_conflict`,
         // `run.version_conflict`, and `session.not_found`, and each of those has a
         // next move the daemon's own sentence does not carry.
-        <RemediedRefusal refusal={controller.refusal} />
+        <RefusalWithRemedy refusal={controller.refusal} />
       )}
     </>
   );

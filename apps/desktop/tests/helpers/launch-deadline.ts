@@ -167,7 +167,7 @@ export function tierTimeoutFor(bodyAllowanceMs: number): number {
 /**
  * The rejection a deadline raises when its OWN budget, rather than the work, settled first.
  *
- * A type rather than a bare `Error` so a caller can recognise it by identity. What a
+ * A type rather than a bare `Error` so a caller can recognize it by identity. What a
  * caller actually wants to know — "was that my budget, or did the work fail?" — was
  * previously re-derived by reading the clock a second time, which answers a different
  * question and answers it wrong at the boundary (`LaunchDeadline.raisedExpiry`).

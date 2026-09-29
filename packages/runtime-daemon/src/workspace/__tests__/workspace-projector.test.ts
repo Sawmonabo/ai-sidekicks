@@ -91,7 +91,7 @@ const LATER_PROBE_INSTANT: string = "2026-08-04T12:00:30.000Z";
 // over a stale roster — which is precisely the drift verification exists to
 // catch.
 const ALL_WORKSPACE_STATES = [
-  "provisioning",
+  "preparing",
   "ready",
   "busy",
   "stale",
@@ -271,7 +271,7 @@ describe("computeWorkspaceHealth — stale derivation", () => {
 });
 
 describe("computeWorkspaceHealth — states that owe no probe", () => {
-  for (const state of ["provisioning", "stale", "archived"] as const) {
+  for (const state of ["preparing", "stale", "archived"] as const) {
     it(`answers a ${state} workspace from the row alone, with no probe instant`, () => {
       expect(computeWorkspaceHealth(workspaceRow(state), null)).toEqual({
         observedState: state,
@@ -305,12 +305,12 @@ describe("computeWorkspaceHealth — states that owe no probe", () => {
   it("answers a provisioning workspace whether or not its row still carries a root", () => {
     // `fs_root` may or may not still hold the pre-switch root mid-reprovision;
     // either way the state, not the column, decides that no probe is owed.
-    const withRoot = computeWorkspaceHealth(workspaceRow("provisioning"), null);
-    const withoutRoot = computeWorkspaceHealth(workspaceRow("provisioning", null), null);
+    const withRoot = computeWorkspaceHealth(workspaceRow("preparing"), null);
+    const withoutRoot = computeWorkspaceHealth(workspaceRow("preparing", null), null);
 
-    expect(withRoot.observedState).toBe("provisioning");
+    expect(withRoot.observedState).toBe("preparing");
     expect(withRoot.checkedAt).toBeNull();
-    expect(withoutRoot.observedState).toBe("provisioning");
+    expect(withoutRoot.observedState).toBe("preparing");
   });
 });
 

@@ -1,4 +1,4 @@
-// How long this shell gives the daemon to finish writing before it stops it.
+// How long the main process gives the daemon to finish writing before it stops it.
 //
 // The quit path holds Electron's quit open while the daemon flushes, and gives up when
 // this budget passes so a drain that never settles cannot keep the app from closing.

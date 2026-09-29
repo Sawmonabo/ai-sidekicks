@@ -5,7 +5,7 @@
 // was recorded for — the launcher shim exits early and is reaped, which makes
 // that window ordinary here rather than exotic. What closes it is a per-instance
 // start stamp: captured while the process is certainly the one meant, re-read
-// before anything is signalled, and compared. `start-stamps.ts` owns what such a
+// before anything is signaled, and compared. `start-stamps.ts` owns what such a
 // comparison is allowed to prove; this module owns the STATE it is spent on.
 //
 // TWO THINGS CARRY AN IDENTITY, AND FOR DIFFERENT REASONS
@@ -19,7 +19,7 @@
 //     Once the root pid is gone or reissued, the captured set is what a rootless
 //     tree is addressed by — and a captured pid is a number like any other, so a
 //     capture without a stamp hands the arm a stranger to kill one indirection
-//     along. That is the same defect as signalling the root, and it is why
+//     along. That is the same defect as signaling the root, and it is why
 //     `CapturedTreeMember` is a pair rather than a pid.
 //
 // AND A CAPTURE IS ONLY EVER TAKEN WHILE THE ROOT IS STILL ALIVE
@@ -71,7 +71,7 @@ import {
  * Whether the pid a tree is addressed THROUGH still names that tree's root.
  *
  * Three answers rather than two, because "not ours" splits into two facts that
- * owe different behaviour — `arms.ts` has the mechanism. `gone` means the root
+ * owe different behavior — `arms.ts` has the mechanism. `gone` means the root
  * exited and its number names nothing; `recycled` means the number names an
  * unrelated process, so neither it nor anything reached through it is this
  * tree's.
@@ -84,7 +84,7 @@ export type TreeRootIdentity = "same" | "gone" | "recycled";
  * The sentinel is already this directory's answer for "the host would not
  * answer", and every capture path here treats it as "keep what you had" rather
  * than "the tree is empty" — so a platform whose arm never consumes a capture
- * gets the correct behaviour by construction and pays for no host query to get
+ * gets the correct behavior by construction and pays for no host query to get
  * it. The predicate is `budget.ts`'s, which is also where the reservation for
  * these readings is derived, so a platform cannot pay a cost the enclosing
  * budgets have not reserved.
@@ -99,7 +99,7 @@ const DESCENDANT_LISTING_READER: ProcessTableReader = TERMINATION_CONSUMES_CAPTU
  * THE HANDLE A PID IS NOT. `terminateExternalTree` walks a tree DOWN from its
  * root pid, and by the time a disposal runs that pid may name an unrelated
  * process — the shim exits early and is reaped, which is the ordinary shape here
- * and not a corner of one. Signalling it terminates a stranger, the platform
+ * and not a corner of one. Signaling it terminates a stranger, the platform
  * exits zero, and `ManagedElectronChild` latches on the zero while the browser
  * this package spawned keeps running. So the tree carries an identity from the
  * moment it is spawned, and every later signal re-reads it first.
@@ -232,7 +232,7 @@ export class SpawnedTreeIdentity {
    * A capture REPLACES the previous one rather than accumulating, which is what
    * makes a late child reachable: the set is what the tree looked like at the
    * last live reading, and a member that has since exited is filtered by the
-   * caller's own liveness pass before anything is signalled.
+   * caller's own liveness pass before anything is signaled.
    *
    * ONLY A READABLE LISTING MAY REPLACE IT. `readProcessTable` answers an
    * unreadable host with its own SENTINEL — a query that would not start, spent

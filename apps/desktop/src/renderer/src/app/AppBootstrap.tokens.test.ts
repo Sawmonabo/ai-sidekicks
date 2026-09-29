@@ -6,7 +6,7 @@
 // all — is on the tokens, and the frame below the gate does not install a second
 // copy for every window that works.
 //
-// Both cases drive the real `ConsoleRoot`. The one instrument is a spy on the REAL
+// Both cases drive the real `AppProviders`. The one instrument is a spy on the REAL
 // bridge barrel, and it is a spy rather than a replacement: `resolveBridge` answers
 // `unavailable` only when no bridge is supplied AND fixtures are compiled out, and
 // this tier compiles them in — so without it the branch that renders the recovery
@@ -18,7 +18,7 @@
 import { cleanup } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useBridgeResolution } from "@renderer/services/platform/hooks/useBridgeResolution.js";
-import { SESSIONS_HASH, mountConsole } from "@test/helpers/mount-app.js";
+import { SESSIONS_HASH, mountApp } from "@test/helpers/mount-app.js";
 import { MERIDIAN_STYLE_ELEMENT_ID } from "./token-installation.js";
 
 // Spied, never replaced: every export of the bridge provider keeps its real
@@ -26,7 +26,7 @@ import { MERIDIAN_STYLE_ELEMENT_ID } from "./token-installation.js";
 // missing-preload resolution can state it for that case alone.
 vi.mock(import("@renderer/services/platform/hooks/useBridgeResolution.js"), { spy: true });
 
-describe("ConsoleRoot — every state it can render sits on the Meridian tokens", () => {
+describe("AppProviders — every state it can render sits on the Meridian tokens", () => {
   // The tokens are installed on the DOCUMENT, so they outlive `cleanup()` and
   // every case here would otherwise read a sheet an earlier one left behind.
   // Removing it first is what makes the assertions about THIS render.
@@ -52,7 +52,7 @@ describe("ConsoleRoot — every state it can render sits on the Meridian tokens"
     // otherwise. It is also the state a person is most likely to be reading when
     // something has gone wrong, and it used to arrive in browser defaults: no
     // custom properties, and none of the `html, body { height: 100% }` rules the
-    // card is centred against.
+    // card is centered against.
     vi.mocked(useBridgeResolution).mockReturnValue({
       status: "unavailable",
       unavailable: {
@@ -64,7 +64,7 @@ describe("ConsoleRoot — every state it can render sits on the Meridian tokens"
     // below was written by this render and not by an earlier file.
     expect(document.getElementById(MERIDIAN_STYLE_ELEMENT_ID)).toBeNull();
 
-    const mounted = await mountConsole();
+    const mounted = await mountApp();
 
     expect(mounted.container.textContent).toContain("This window cannot reach the app.");
     // The frame really did not mount: no rail, so nothing below the gate ran.
@@ -83,7 +83,7 @@ describe("ConsoleRoot — every state it can render sits on the Meridian tokens"
     // cascade for every window that works.
     expect(document.getElementById(MERIDIAN_STYLE_ELEMENT_ID)).toBeNull();
 
-    const mounted = await mountConsole();
+    const mounted = await mountApp();
 
     expect(mounted.container.querySelector(".meridian-rail")).not.toBeNull();
     expect(document.querySelectorAll(`#${MERIDIAN_STYLE_ELEMENT_ID}`)).toHaveLength(1);

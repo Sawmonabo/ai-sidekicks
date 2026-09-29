@@ -96,7 +96,7 @@ describe("a spawned Electron child does not outlive the test that spawned it", (
   );
 
   it(
-    "counts a second kill as done rather than signalling a reaped pid again",
+    "counts a second kill as done rather than signaling a reaped pid again",
     async () => {
       const registrar = new RecordingSettleRegistrar();
       const { managed, childPid, grandchildPid } = await spawnChildWithGrandchild(registrar);

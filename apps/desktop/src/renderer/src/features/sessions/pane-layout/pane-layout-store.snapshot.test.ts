@@ -1,4 +1,4 @@
-// What a saved deck layout carries, and the five ways a saved one can be wrong.
+// What a saved pane layout carries, and the five ways a saved one can be wrong.
 //
 // The restore cases are the point of this file. Three of the five are ORDINARY —
 // a record written by another build, a pane kind this one has not got, an entity
@@ -14,8 +14,8 @@
 // Every clean assertion below has a negative control, because the failure mode
 // that matters here is a validator that passes everything.
 //
-// How the layout behaves when the deck moves it — opening, ordering, focus, and the
-// panel group's settled sizes — is `deck-layout.test.ts`.
+// How the layout behaves when the pane layout moves it — opening, ordering, focus, and the
+// panel group's settled sizes — is `pane-layout-store.test.ts`.
 
 import { describe, expect, it } from "vitest";
 
@@ -29,10 +29,10 @@ function emptyLayout(): PaneLayoutStore {
   return new PaneLayoutStore({ restoredPaneCap: PANE_LAYOUT_RESTORED_PANE_CAP });
 }
 
-/** A layout holding one session-scoped timeline and one worktree-scoped inspector. */
+/** A layout holding one session-scoped transcript and one worktree-scoped inspector. */
 function twoPaneLayout(): PaneLayoutStore {
   const layout = emptyLayout();
-  layout.open({ kind: "timeline", entity: undefined });
+  layout.open({ kind: "transcript" });
   layout.open({ kind: "inspector", entity: { kind: "worktree", id: "worktree-01" } });
   return layout;
 }
@@ -50,7 +50,7 @@ describe("PaneLayoutStore — what a snapshot carries", () => {
     expect(report.refusals).toStrictEqual([]);
     expect(report.restoredPaneCount).toBe(2);
     expect(restored.snapshot().panes.map((pane) => pane.kind)).toStrictEqual([
-      "timeline",
+      "transcript",
       "inspector",
     ]);
     expect(restored.snapshot().panes[1]?.entity).toStrictEqual({
@@ -66,7 +66,7 @@ describe("PaneLayoutStore — what a snapshot carries", () => {
     // layout snapshot, so a restart cannot reopen a page nobody asked for.
     const layout = twoPaneLayout();
     const source = layout.snapshot().panes[0];
-    layout.open({ kind: "browser", entity: undefined, sourcePaneId: source?.paneId ?? "" });
+    layout.open({ kind: "browser" }, { linkedSourcePaneId: source?.paneId ?? "" });
     const written = Object.values(layout.toSnapshot())
       .map((entry) => entry["kind"])
       .filter((kind) => kind !== undefined);
@@ -79,7 +79,7 @@ describe("PaneLayoutStore — what a snapshot carries", () => {
     const layout = twoPaneLayout();
     const restored = emptyLayout();
     restored.restore(layout.toSnapshot());
-    const minted = restored.open({ kind: "approvals", entity: undefined });
+    const minted = restored.open({ kind: "approvals" });
     const ids = restored.snapshot().panes.map((pane) => pane.paneId);
     expect(new Set(ids).size).toBe(ids.length);
     expect(ids).toContain(minted);
@@ -89,7 +89,7 @@ describe("PaneLayoutStore — what a snapshot carries", () => {
 describe("PaneLayoutStore — what a restore refuses", () => {
   it("discards a snapshot of an unknown version WHOLE", () => {
     // A grammar this build does not know is a grammar whose members it cannot
-    // interpret, and a half-restored deck hides which half went missing.
+    // interpret, and a half-restored pane layout hides which half went missing.
     const layout = twoPaneLayout();
     const snapshot = layout.toSnapshot();
     const header = snapshot[PANE_LAYOUT_SNAPSHOT_HEADER_KEY];
@@ -159,14 +159,14 @@ describe("PaneLayoutStore — what a restore refuses", () => {
   });
 
   it("drops a pane whose entity kind that pane kind is not a view of", () => {
-    // `timeline` is a view of the session; an artifact is not.
+    // `transcript` is a view of the session; an artifact is not.
     // A weaker admission here passes the row on to a body that refuses it later,
     // leaving a pane nothing can render sitting in one of the cap's slots — and
     // written straight back out on the next save, so it survives every restart.
     const snapshot = twoPaneLayout().toSnapshot();
     snapshot["pane-95"] = {
       position: 5,
-      kind: "timeline",
+      kind: "transcript",
       sizePermille: 300,
       entityKind: "artifact",
       entityId: "artifact-02",
@@ -226,9 +226,9 @@ describe("PaneLayoutStore — what a restore refuses", () => {
     // Without this, every case above would pass over an admission that had simply
     // stopped admitting anything with an entity on it.
     const layout = emptyLayout();
-    layout.open({ kind: "timeline", entity: undefined });
+    layout.open({ kind: "transcript" });
     layout.open({ kind: "artifact", entity: { kind: "artifact", id: "artifact-01" } });
-    layout.open({ kind: "runs", entity: undefined });
+    layout.open({ kind: "runs" });
 
     expect(emptyLayout().restore(layout.toSnapshot()).restoredPaneCount).toBe(3);
   });

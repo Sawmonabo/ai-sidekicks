@@ -287,8 +287,8 @@ describe("partial-read — a coverage gap is counted, and is its own fact", () =
     const coverage = sentenceOf({ kind: "unchecked", uncheckedCount: 3, newestRefusal: undefined });
     const unreadable = sentenceOf(unreadableDeliveryReading(3, undefined));
     expect(coverage).not.toBe(unreadable);
-    expect(unreadable).toContain("behind what the daemon has sent");
-    expect(coverage).not.toContain("behind what the daemon has sent");
+    expect(unreadable).toContain("behind what the background service has sent");
+    expect(coverage).not.toContain("behind what the background service has sent");
   });
 });
 

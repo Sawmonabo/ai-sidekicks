@@ -26,7 +26,7 @@
 //     reject the other's well-formed payload — the property that makes one
 //     untagged stream safe to parse.
 //   • The two `run.subscribe*` request shapes are pinned against the two
-//     members a copy of a neighbouring subscribe shape would bring with it: a
+//     members a copy of a neighboring subscribe shape would bring with it: a
 //     `runId` filter (the subscription is session-scoped and fans out per run
 //     client-side) and a replay cursor (`run.*` carries none).
 //   • The `index.ts` barrel re-exports every symbol this task provides — the
@@ -515,7 +515,7 @@ describe("RunStateChangeEvent", () => {
       completionKind: "turn",
       intendedClose: true,
       executionPosture: { networkAccess: "none", writableRoots: ["/w"], mode: "trusted" },
-      trigger: "workflow_phase_cancelled",
+      trigger: "workflow_phase_canceled",
       parentRunId: PARENT_RUN_ID,
       internalHelper: false,
       admittedUnpricedCapCents: 500,
@@ -591,7 +591,7 @@ describe("RunStateChangeEvent", () => {
     // the strict shape at a consumer.
     //
     // DELETE THIS CASE in the same diff that adds the two members. It asserts
-    // a temporary gap, not designed behaviour: left standing, it is a passing
+    // a temporary gap, not designed behavior: left standing, it is a passing
     // test that says the opposite of what the adding task needs.
     for (const smuggled of [{ agentId: "agent-1" }, { effectiveRunConfig: { turnLimit: 8 } }]) {
       expect(() =>
@@ -838,7 +838,7 @@ describe("run-control subscription requests", () => {
   it.each(subscribeSchemas)("%s refuses a replay-cursor member", (_name, schema) => {
     // `SessionSubscribeRequest` declares `afterCursor` for replay. `run.*`
     // replays nothing, so neither cursor member has a producer here and the
-    // absence is a decision — copying the neighbouring shape must fail.
+    // absence is a decision — copying the neighboring shape must fail.
     expect(() => schema.parse({ sessionId: SESSION_ID, afterCursor: "0" })).toThrow();
     expect(() => schema.parse({ sessionId: SESSION_ID, lastEventId: "0" })).toThrow();
   });

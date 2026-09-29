@@ -3,14 +3,14 @@
 //
 // The addressed arm is asserted on the REGIONS it mounts rather than on its copy, which
 // is this family's to reword. Two of them are the reason the arm exists: an addressed
-// pane that dropped its slots would look identical to one that had them and be useless
+// pane that dropped its mount points would look identical to one that had them and be useless
 // the day a body lands.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import type { PaneContextOf } from "@renderer/console/seats/index.js";
-import type { ConsoleEntityRef } from "@renderer/lib/entity-kinds.js";
+import type { EntityRef } from "@renderer/lib/entity-kinds.js";
 import { DEFINITION_ID } from "../definitions/detail/hooks/useWorkflowDefinitionAuthoring.test-support.js";
 import { PROBE_SESSION_ID } from "../workflows-probe.test-support.js";
 import { WorkflowBuilderPane } from "./WorkflowBuilderPane.js";
@@ -19,10 +19,10 @@ import { WorkflowBuilderPane } from "./WorkflowBuilderPane.js";
  * What a cast pane context may be addressed at.
  *
  * Any console entity or none — the set the pane's own two guards project, rather than
- * `ConsolePaneAddress`'s own arm for this kind, because the cases below drive exactly
+ * `PaneAddress`'s own arm for this kind, because the cases below drive exactly
  * the addresses the arm makes unconstructible and the guards still refuse.
  */
-type AddressedEntity = ConsoleEntityRef | undefined;
+type AddressedEntity = EntityRef | undefined;
 
 /**
  * The fields the pane and its chrome read, and nothing else.
@@ -30,7 +30,7 @@ type AddressedEntity = ConsoleEntityRef | undefined;
  * Cast rather than constructed, the idiom `RunPage.test-support.tsx`
  * established: a real pane context carries three stores, one of which opens a database
  * on construction. The two stores travel as markers because this pane only hands them
- * on — the slots' own tests are where what a body receives is checked.
+ * on — the mount points' own tests are where what a body receives is checked.
  *
  * THE CAST IS ALSO WHAT LETS THE MISADDRESSED CASES EXIST. `PaneContextOf` declares
  * this arm's entity as a definition reference, and the addresses below are exactly the
@@ -61,7 +61,7 @@ function renderPane(context: PaneContextOf<"workflow-builder">): HTMLElement {
   return section;
 }
 
-// The kind this pane authors, and the kind it does not: `CONSOLE_ENTITY_KINDS` registers
+// The kind this pane authors, and the kind it does not: `ENTITY_KINDS` registers
 // both `workflow-definition` and `workflow-run`, and the misaddress is the subject of its
 // own cases.
 const ADDRESSED = { kind: "workflow-definition", id: DEFINITION_ID } as const;
@@ -77,11 +77,11 @@ describe("workflow builder pane — with no definition to open", () => {
 });
 
 describe("workflow builder pane — with a definition to open", () => {
-  it("mounts the node-graph and drafts slots inside the ready strip", () => {
+  it("mounts the node-graph and drafts mount points inside the ready strip", () => {
     // The strip renders children on its `ready` arm alone, so a pane that handed it
     // another state would drop these two silently.
     const section = renderPane(paneContext(ADDRESSED));
-    expect(section.querySelectorAll(".meridian-workflow__slot")).toHaveLength(2);
+    expect(section.querySelectorAll(".meridian-workflow__mount-point")).toHaveLength(2);
   });
 });
 
@@ -97,9 +97,9 @@ describe("workflow builder pane — with an address it does not author", () => {
 
   it("mounts no body for a subject it will not open", () => {
     // The refusal has to be the whole surface: a pane that refused in a banner and still
-    // mounted its two slots would have composed the read the banner says it did not.
+    // mounted its two mount points would have composed the read the banner says it did not.
     const section = renderPane(paneContext(MISADDRESSED));
-    expect(section.querySelectorAll(".meridian-workflow__slot")).toHaveLength(0);
+    expect(section.querySelectorAll(".meridian-workflow__mount-point")).toHaveLength(0);
   });
 
   it("negative control: the same pane opens on the kind it does author", () => {
@@ -107,6 +107,6 @@ describe("workflow builder pane — with an address it does not author", () => {
     // which would make the builder unreachable rather than fail-closed.
     const section = renderPane(paneContext(ADDRESSED));
     expect(section.querySelector(".meridian-refusal--banner")).toBeNull();
-    expect(section.querySelectorAll(".meridian-workflow__slot")).toHaveLength(2);
+    expect(section.querySelectorAll(".meridian-workflow__mount-point")).toHaveLength(2);
   });
 });

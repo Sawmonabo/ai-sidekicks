@@ -28,7 +28,7 @@ export type WindowAbsence =
   | { readonly kind: "duplicate-key"; readonly count: number };
 
 /** What a notice renders as. */
-export interface WindowAbsenceNotice {
+export interface WindowNoticeText {
   readonly kind: NothingKind;
   readonly title: string;
   readonly detail?: string;
@@ -38,7 +38,7 @@ export interface WindowAbsenceNotice {
  * What a notice says, about `subject`: a lowercase plural noun phrase naming what the
  * window holds ("entries").
  */
-export function windowAbsenceNotice(absence: WindowAbsence, subject: string): WindowAbsenceNotice {
+export function buildWindowNoticeText(absence: WindowAbsence, subject: string): WindowNoticeText {
   switch (absence.kind) {
     case "dropped":
       return {
@@ -57,11 +57,11 @@ export function windowAbsenceNotice(absence: WindowAbsence, subject: string): Wi
  * Every notice worth showing, in the caller's order. A counted absence at zero says
  * nothing and is dropped here, so a caller hands over what it derived.
  */
-export function windowAbsenceNotices(
+export function buildWindowNoticeTexts(
   absences: readonly WindowAbsence[],
   subject: string,
-): readonly WindowAbsenceNotice[] {
+): readonly WindowNoticeText[] {
   return absences
     .filter((absence) => absence.kind === "never-received" || absence.count > 0)
-    .map((absence) => windowAbsenceNotice(absence, subject));
+    .map((absence) => buildWindowNoticeText(absence, subject));
 }

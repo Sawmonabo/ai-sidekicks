@@ -13,7 +13,7 @@
 //
 // THE THIRD IS WHAT THIS FILE IS FOR NOW. The strip used to draw the family's own pane
 // chrome: a `<section>`, a kind glyph and an `<h2>`. Every pane in the console wears
-// `seats/ConsolePaneChrome`, whose crumb trail IS the pane's accessible name — so a
+// `seats/PaneFrame`, whose crumb trail IS the pane's accessible name — so a
 // heading inside the body would name the pane a second time and a region inside the
 // body would give a person navigating by region two stops for one surface. So this file
 // asserts the absence of a heading, because one that crept back would look like an

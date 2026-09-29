@@ -16,37 +16,37 @@
  * edge hues, and rule 7's hover footer.
  *
  * The edge spans both rows of the grid so a revealed footer does not leave a gap in
- * the attribution — a ledger line is one line, footer or no footer.
+ * the attribution — a transcript line is one line, footer or no footer.
  */
-.meridian-ledger-row {
+.meridian-transcript-row-layout {
   display: grid;
   grid-template-areas:
     "edge gutter body"
     "edge gutter footer";
-  grid-template-columns: var(--meridian-attribution-edge) minmax(0, 9.5rem) minmax(0, 1fr);
+  grid-template-columns: var(--meridian-leading-edge) minmax(0, 9.5rem) minmax(0, 1fr);
   column-gap: var(--meridian-space-3);
   padding-block: var(--meridian-space-2);
   padding-inline-end: var(--meridian-space-4);
   transition: background-color var(--meridian-motion-quick) var(--meridian-ease-settle);
 }
 
-.meridian-ledger-row:hover {
+.meridian-transcript-row-layout:hover {
   background: var(--meridian-surface-sunken);
 }
 
-.meridian-ledger-row__edge {
+.meridian-transcript-row-layout__edge {
   grid-area: edge;
   border-radius: 1px;
   background: var(--meridian-row-hue);
 }
 
 /* No user owns this row, so the edge reads as a boundary rather than an
-   identity. Dimmed, never coloured — a guess would be worse than an absence. */
-.meridian-ledger-row--unattributed .meridian-ledger-row__edge {
+   identity. Dimmed, never colored — a guess would be worse than an absence. */
+.meridian-transcript-row-layout--unattributed .meridian-transcript-row-layout__edge {
   opacity: 0.6;
 }
 
-.meridian-ledger-row__gutter {
+.meridian-transcript-row-layout__gutter {
   display: flex;
   grid-area: gutter;
   flex-direction: column;
@@ -54,7 +54,7 @@
   min-inline-size: 0;
 }
 
-.meridian-ledger-row__actor {
+.meridian-transcript-row-layout__actor {
   overflow: hidden;
   color: var(--meridian-text);
   font-size: var(--meridian-text-sm);
@@ -65,12 +65,12 @@
 
 /* The gutter's figures are the row's quietest reading, so it asks the figure for its
    faint face through the figure's own door rather than declaring the figure here. */
-.meridian-ledger-row__gutter {
+.meridian-transcript-row-layout__gutter {
   --meridian-figure-wire-color: var(--meridian-text-faint);
   --meridian-figure-wire-size: var(--meridian-text-xs);
 }
 
-.meridian-ledger-row__body {
+.meridian-transcript-row-layout__body {
   grid-area: body;
   /* "Content in a single measure" — rule 1, literally. */
   max-inline-size: 78ch;
@@ -80,19 +80,19 @@
   line-height: 1.55;
 }
 
-.meridian-ledger-row__meta {
+.meridian-transcript-row-layout__meta {
   display: flex;
   align-items: center;
   gap: var(--meridian-space-2);
   margin-block-end: var(--meridian-space-1);
 }
 
-.meridian-ledger-row__kind {
+.meridian-transcript-row-layout__kind {
   --meridian-figure-wire-color: var(--meridian-text-faint);
   --meridian-figure-wire-size: var(--meridian-text-xs);
 }
 
-.meridian-ledger-row__superseded-mark {
+.meridian-transcript-row-layout__superseded-mark {
   color: var(--meridian-text-faint);
   font-size: var(--meridian-text-xs);
 }
@@ -101,11 +101,11 @@
  * A superseded turn is still part of the log — it is dimmed, never removed and never
  * struck through, because the row still says what happened at the time it happened.
  */
-.meridian-ledger-row--superseded .meridian-ledger-row__body {
+.meridian-transcript-row-layout--superseded .meridian-transcript-row-layout__body {
   opacity: 0.62;
 }
 
-.meridian-ledger-row--superseded .meridian-ledger-row__edge {
+.meridian-transcript-row-layout--superseded .meridian-transcript-row-layout__edge {
   opacity: 0.45;
 }
 
@@ -116,7 +116,7 @@
  * from swallowing a click. Tab reaches a `pointer-events: none` element perfectly
  * well, so the keyboard path is unaffected by the pointer guard.
  */
-.meridian-ledger-row__footer {
+.meridian-transcript-row-layout__footer {
   display: flex;
   grid-area: footer;
   align-items: center;
@@ -127,8 +127,8 @@
   pointer-events: none;
 }
 
-.meridian-ledger-row:hover .meridian-ledger-row__footer,
-.meridian-ledger-row:focus-within .meridian-ledger-row__footer {
+.meridian-transcript-row-layout:hover .meridian-transcript-row-layout__footer,
+.meridian-transcript-row-layout:focus-within .meridian-transcript-row-layout__footer {
   opacity: 1;
   pointer-events: auto;
 }
@@ -138,7 +138,7 @@
  *
  * The footer above is a fixed grid area; a family that wants one control to appear on
  * the row's hover — a card's disclosure, say — has nowhere to put it and would have to
- * write `.meridian-ledger-row:hover .its-own-class` in its own sheet. That is a second
+ * write `.meridian-transcript-row-layout:hover .its-own-class` in its own sheet. That is a second
  * family declaring this family's class, which makes the reveal a question the cascade
  * answers rather than a rule either sheet states. So the contract is a CLASS: the
  * primitive owns when a thing is revealed, and the family owns what the thing is.
@@ -148,17 +148,17 @@
  * inline is over nothing, and a guard here would break a click on a disclosure that a
  * family had left permanently visible under its own rule.
  */
-.meridian-ledger-row__revealed {
+.meridian-transcript-row-layout__revealed {
   opacity: 0;
   transition: opacity var(--meridian-motion-quick) var(--meridian-ease-settle);
 }
 
-.meridian-ledger-row:hover .meridian-ledger-row__revealed,
-.meridian-ledger-row:focus-within .meridian-ledger-row__revealed {
+.meridian-transcript-row-layout:hover .meridian-transcript-row-layout__revealed,
+.meridian-transcript-row-layout:focus-within .meridian-transcript-row-layout__revealed {
   opacity: 1;
 }
 
-.meridian-ledger-row :focus-visible {
+.meridian-transcript-row-layout :focus-visible {
   outline: 2px solid var(--meridian-focus-ring);
   outline-offset: 2px;
 }

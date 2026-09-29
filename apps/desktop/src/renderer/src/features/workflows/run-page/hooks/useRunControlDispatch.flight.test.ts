@@ -112,12 +112,12 @@ describe("an answer is about the run that asked", () => {
     });
     await settle();
     // And run A's answer lands nowhere: settling it under run B would tell an operator
-    // that the run in front of them had been cancelled when it had not.
+    // that the run in front of them had been canceled when it had not.
     expect(controls.latest().cancel.outcome.kind).toBe("idle");
     expect(controls.latest().servedActCount).toBe(0);
   });
 
-  it("lets the newly addressed run be cancelled while the old one's act is outstanding", async () => {
+  it("lets the newly addressed run be canceled while the old one's act is outstanding", async () => {
     // The run belongs in the single-flight key, not just the action. Without it, run A's
     // outstanding cancel would refuse run B's FIRST press — a pane that retargets in
     // place would offer a control the operator cannot use, for a reason about a run

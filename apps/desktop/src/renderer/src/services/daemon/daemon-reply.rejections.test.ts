@@ -17,8 +17,8 @@
 // The PARSE arm is `daemon-reply.test.ts` beside this file, and the two roles both
 // suites play live in `daemon-reply.test-support.ts`.
 
-import { ConsoleRefusalError, refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
-import type { ConsoleBridge } from "../platform/platform-bridge.js";
+import { RefusalError, refuse, type Refusal } from "@renderer/lib/refusal.js";
+import type { PlatformBridge } from "../platform/platform-bridge.js";
 import { callDaemon } from "./daemon-reply.js";
 import { refusalOf, SESSION_ID } from "@test/helpers/daemon-reply-refusal.js";
 import { bridgeAnswering, createFixture } from "@test/helpers/fixture-bridge.js";
@@ -26,7 +26,7 @@ import { bridgeAnswering, createFixture } from "@test/helpers/fixture-bridge.js"
 /**
  * The retry bound a refusal carries, read structurally.
  *
- * `DaemonReply.refusal` is typed `ConsoleRefusal` on purpose — a surface renders a
+ * `DaemonReply.refusal` is typed `Refusal` on purpose — a surface renders a
  * refusal, and only one offering a retry has to know the member exists — while
  * `normalizeWireRejection` answers the `WireRefusal` that widens it by exactly this
  * optional member. Read here rather than imported so this suite does not become the
@@ -34,7 +34,7 @@ import { bridgeAnswering, createFixture } from "@test/helpers/fixture-bridge.js"
  * type no surface reads yet.
  */
 function retryBoundOf(
-  refusal: ConsoleRefusal,
+  refusal: Refusal,
 ): { readonly afterSeconds?: number; readonly atEpochMilliseconds?: number } | undefined {
   return (
     refusal as {
@@ -106,11 +106,11 @@ describe("callDaemon — a rejection becomes a refusal and never an exception", 
   });
 
   it("keeps a carried console refusal, origin and all", async () => {
-    // The fixture bridge's own errors arrive this way. Re-labelling one would lose
+    // The fixture bridge's own errors arrive this way. Re-labeling one would lose
     // the subsystem it names, which is the whole point of `origin`.
     const carried = refuse("fixture-bridge", "reply-unscripted", "the scenario scripts no reply");
     const { bridge } = bridgeAnswering(async () => {
-      throw new ConsoleRefusalError(carried);
+      throw new RefusalError(carried);
     });
 
     const refusal = refusalOf(await callDaemon(bridge, "presence.read", { sessionId: SESSION_ID }));
@@ -126,7 +126,7 @@ describe("callDaemon — a rejection becomes a refusal and never an exception", 
     // code this console invented.
     const carried = refuse("fixture-bridge", "reply-unscripted", "the scenario scripts no reply");
     const cloned: unknown = {
-      name: "ConsoleRefusalError",
+      name: "RefusalError",
       message: `${carried.origin}: ${carried.code}: ${carried.detail}`,
       refusal: carried,
     };
@@ -197,16 +197,13 @@ describe("callDaemon — a rejection becomes a refusal and never an exception", 
     // itself: the shared arm is `async`, so a throw inside it is already a
     // rejection, which is the one thing this case must not assert.
     const fixture = createFixture().bridge;
-    const bridge: ConsoleBridge = {
+    const bridge: PlatformBridge = {
       ...fixture,
-      desktopBridge: {
-        ...fixture.desktopBridge,
-        daemon: {
-          ...fixture.desktopBridge.daemon,
-          call: (() => {
-            throw new Error("the preload did not install a handler");
-          }) as ConsoleBridge["desktopBridge"]["daemon"]["call"],
-        },
+      daemon: {
+        ...fixture.daemon,
+        call: (() => {
+          throw new Error("the preload did not install a handler");
+        }) as PlatformBridge["daemon"]["call"],
       },
     };
 

@@ -3,7 +3,7 @@
 // Every rule this object carries — when a value is discarded, which publisher may
 // write, what a late settlement does — is a property of the SUBJECT moving and not
 // of a render happening, which is what makes it drivable with no React at all. The
-// React half lives in `subject-scoped-state.test.tsx`, needs a tree, and asserts a
+// React half lives in `useSubjectScopedState.test.tsx`, needs a tree, and asserts a
 // different thing: which frames a re-address paints.
 //
 // A VISIT IS ADDRESSED AND CONFIRMED, because a render is not a commit. `visit(…)` is
@@ -17,7 +17,7 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { consoleTripwires } from "../tripwires.js";
+import { windowTripwires } from "../tripwires.js";
 import { SUBJECT_ONE, SUBJECT_TWO } from "@test/helpers/subject-fixtures.js";
 import { visit } from "./subject-scoped-holder.test-support.js";
 import { SubjectScopedHolder } from "./subject-scoped-holder.js";
@@ -29,13 +29,13 @@ let restoreThrowOnReport = false;
 
 beforeEach(() => {
   restoreThrowOnReport = import.meta.env.DEV;
-  consoleTripwires.setThrowOnReport(false);
-  consoleTripwires.reset();
+  windowTripwires.setThrowOnReport(false);
+  windowTripwires.reset();
 });
 
 afterEach(() => {
-  consoleTripwires.setThrowOnReport(restoreThrowOnReport);
-  consoleTripwires.reset();
+  windowTripwires.setThrowOnReport(restoreThrowOnReport);
+  windowTripwires.reset();
 });
 
 describe("SubjectScopedHolder — the rule, with no renderer involved", () => {

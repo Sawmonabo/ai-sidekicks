@@ -8,7 +8,7 @@
 // spellings.
 //
 // WHY THE CONSOLE DECLARES IT AT ALL. None of it is registered in any code package:
-// there is no `workflow` root in the daemon method union, no `DesktopBridge`
+// there is no `workflow` root in the daemon method union, no `PlatformBridge`
 // namespace naming one, and no phase or run type anywhere under `packages/`. A run
 // pane or a builder built against a shape that exists nowhere would have to invent
 // it inside a view family, so the shapes are declared here, on the substrate.
@@ -18,7 +18,7 @@
 //
 // WHY THE VOCABULARIES ARE TUPLES AND THE NARROWINGS ARE NOT. An operation that
 // answers with a state can answer with a SUBSET of one of these unions — a successful
-// cancel is only ever `cancelled`, a start is only ever `pending` or `running`. Such a
+// cancel is only ever `canceled`, a start is only ever `pending` or `running`. Such a
 // subset is derived with `Extract`, so the full vocabulary keeps exactly one home here
 // and a narrowing cannot quietly become a second spelling of it.
 //
@@ -40,7 +40,7 @@ export const WORKFLOW_RUN_STATES = [
   "suspended",
   "completed",
   "failed",
-  "cancelled",
+  "canceled",
 ] as const;
 
 /** One run status. Derived, so the vocabulary has exactly one home. */

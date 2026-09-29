@@ -9,7 +9,7 @@ import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { ParkedDaemonCalls } from "./parked-daemon-calls.test-support.js";
-import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import type { ComposerSendCalls } from "../send-dispatch.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence-caps.js";
 import { DraftStore } from "@renderer/store/draft-store.js";
@@ -29,7 +29,7 @@ function sessionTarget(sessionId: string): ComposerRunTarget {
 
 /** Reports the controller out of the tree at whichever address the case supplies. */
 function AddressableProbe(props: {
-  readonly bridge: ConsoleBridge;
+  readonly bridge: PlatformBridge;
   readonly calls: ComposerSendCalls;
   readonly draftStore: DraftStore;
   readonly target: ComposerRunTarget;
@@ -203,7 +203,7 @@ describe("useSendController — a settlement is keyed to the address it was sent
 describe("useSendController — an operation's busy state belongs to the address it was issued at", () => {
   it("leaves the next address idle while a send for the previous one is still going", async () => {
     // The finding: the sending status and the single-flight latch were hook-wide, so
-    // a message still travelling to one session left the composer read-only for the
+    // a message still traveling to one session left the composer read-only for the
     // session the person had moved to — until the first call settled, and forever
     // where it never did.
     const driven = driveAddressableComposer();

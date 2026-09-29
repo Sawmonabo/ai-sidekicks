@@ -23,7 +23,7 @@ export interface HighlightRequestMessage {
 /**
  * What the worker posts back.
  *
- * `lines` is `undefined` for a block the worker could not tokenise — a grammar that
+ * `lines` is `undefined` for a block the worker could not tokenize — a grammar that
  * failed to load, a core that could not be created. The caller renders the block plain,
  * so the absence is a value rather than a rejected promise: a worker that answers
  * nothing at all would leave the request pending for the life of the page.

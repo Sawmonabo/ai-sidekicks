@@ -9,7 +9,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { isConsoleRefusal } from "@renderer/lib/refusal.js";
+import { isRefusal } from "@renderer/lib/refusal.js";
 import { CLOSE_TAB_CHORD } from "./chord-claim.js";
 import { KEYBOARD_HANDBACK_REFUSAL_ORIGIN } from "./keyboard-handback.js";
 import { attachedPaneRoot, chord, handbackOver } from "./keyboard-handback.test-support.js";
@@ -117,7 +117,7 @@ describe("KeyboardHandback.replay", () => {
     if (outcome.status !== "refused") {
       throw new Error("unreachable");
     }
-    expect(isConsoleRefusal(outcome.refusal)).toBe(true);
+    expect(isRefusal(outcome.refusal)).toBe(true);
     expect(outcome.refusal.origin).toBe(KEYBOARD_HANDBACK_REFUSAL_ORIGIN);
     expect(outcome.refusal.code).toBe("not-claimable");
     expect(handback.replayCount).toBe(0);

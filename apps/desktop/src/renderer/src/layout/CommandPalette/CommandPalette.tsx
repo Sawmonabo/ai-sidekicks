@@ -53,7 +53,7 @@ import { useCommandPalette, type CommandPaletteProps } from "./hooks/useCommandP
  *
  * Controlled on `open`: the frame decides whether it is showing, and the palette
  * asks for a change. The open chord installs ONE listener of its own rather than
- * riding `KeyBindingTable`, because it is shell chrome and not a contributed
+ * riding `KeybindingTable`, because it is shell chrome and not a contributed
  * command — it has to work before any family has registered anything, and it has
  * to work while a person is typing in the composer.
  */

@@ -158,7 +158,7 @@ export const WorktreeStateSchema: z.ZodType<WorktreeState> = z.enum([
 // (refused in the factory's own doc comment: it would re-close the node-id.ts
 // eager-cycle class and widen every family member's accept set at once).
 // Parameterizing keeps each member's accept set exactly its owning plan's
-// vocabulary — a worktree payload claiming `attached` or `provisioning`, or a
+// vocabulary — a worktree payload claiming `attached` or `preparing`, or a
 // workspace payload claiming `merged`, stays a parse error.
 //
 // EMITTER'S OBLIGATION: `worktreeId` populated on every `worktree.*`
@@ -375,7 +375,7 @@ export const ExecutionModeSelectResponseSchema: z.ZodType<ExecutionModeSelectRes
     // `workspace.mode_unsupported` refusal, never a substituted mode quietly
     // reported here.
     executionMode: ExecutionModeSchema,
-    // The post-select workspace position — `provisioning` while the root
+    // The post-select workspace position — `preparing` while the root
     // awaits prepare. Composes the FULL 5-value `WorkspaceStateSchema` and is
     // NOT narrowed to that literal: the ratified block types the field
     // `WorkspaceState`, exactly as `WorkspaceBindResponse.state` does. Contrast

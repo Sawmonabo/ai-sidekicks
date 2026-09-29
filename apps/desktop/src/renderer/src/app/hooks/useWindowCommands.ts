@@ -9,37 +9,37 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import type { ConsoleRefusal } from "@renderer/lib/refusal.js";
-import type { ConsoleRoute } from "@renderer/routing/routes.js";
+import type { Refusal } from "@renderer/lib/refusal.js";
+import type { AppRoute } from "@renderer/routing/routes.js";
 import type { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
-import type { FrameStore } from "@renderer/store/window/window-store.js";
+import type { WindowStore } from "@renderer/store/window/window-store.js";
 import type { SchemePreference } from "@renderer/styles/tokens.js";
 import { subscribeToCommandContributions } from "@renderer/registries/commands/command-contributions.js";
-import { publishConsoleActRefusalSink } from "@renderer/registries/commands/command-refusal.js";
-import type { ConsoleCommand } from "@renderer/registries/commands/command-types.js";
+import { publishCommandRefusalSink } from "@renderer/registries/commands/command-refusal.js";
+import type { CommandDefinition } from "@renderer/registries/commands/command-types.js";
 import type { WhenClauseContext } from "@renderer/registries/commands/when-clause/when-clause.js";
 import {
-  consoleCommands,
+  commandRegistry,
   registerCommands,
-  type ConsoleWhenClauseContext,
+  type WindowWhenClauseContext,
 } from "@renderer/registries/commands/window-command-registry.js";
-import { useKeybindingSurface } from "@renderer/registries/keybindings/hooks/useKeybindingSnapshot.js";
-import { consoleKeybindingOverrides } from "@renderer/registries/keybindings/keybinding-override-store.js";
-import { KeyBindingTable } from "@renderer/registries/keybindings/keybinding-table.js";
-import type { ConsoleSurfaceRegistry } from "@renderer/registries/screens/screen-registry.js";
+import { useKeybindingSnapshot } from "@renderer/registries/keybindings/hooks/useKeybindingSnapshot.js";
+import { keybindingOverrides } from "@renderer/registries/keybindings/keybinding-override-store.js";
+import { KeybindingTable } from "@renderer/registries/keybindings/keybinding-table.js";
+import type { ScreenRegistry } from "@renderer/registries/screens/screen-registry.js";
 import type { CommandPaletteProps } from "@renderer/layout/CommandPalette/hooks/useCommandPalette.js";
 import { buildNavigationCommands } from "@renderer/layout/NavigationRail/navigation-commands.js";
 import { buildColorSchemeCommand, useBridgeCommands } from "@renderer/features/settings/index.js";
 
 /** What the window's own commands are built against: this window's route, stores and screens. */
 export interface WindowCommandsInput {
-  readonly route: ConsoleRoute;
+  readonly route: AppRoute;
   /**
    * The session this window has in hand, which outlives a route that names none;
    * `sessionActive` is derived from it rather than from the route.
    */
   readonly lastOpenedSessionId: string | undefined;
-  readonly windowStore: FrameStore;
+  readonly windowStore: WindowStore;
   /**
    * This window's durable store, for the keybinding overrides: a rebound chord is
    * installed whether or not anybody opens the Keyboard page.
@@ -48,7 +48,7 @@ export interface WindowCommandsInput {
   /** This window's act for choosing a color scheme, which the `Color scheme` row cycles. */
   readonly chooseScheme: (preference: SchemePreference) => void;
   /** The screen registry this window mounts through, for the destinations' own warm-up. */
-  readonly surfaceRegistry: ConsoleSurfaceRegistry;
+  readonly screenRegistry: ScreenRegistry;
 }
 
 /**
@@ -59,16 +59,16 @@ export interface WindowCommandsInput {
 export function useWindowCommands(
   input: WindowCommandsInput,
 ): Pick<CommandPaletteProps, "context" | "bindings" | "revision" | "open" | "onOpenChange"> {
-  const { route, lastOpenedSessionId, windowStore, uiStateStore, chooseScheme, surfaceRegistry } =
+  const { route, lastOpenedSessionId, windowStore, uiStateStore, chooseScheme, screenRegistry } =
     input;
 
   // Derived from the route rather than stored, so the palette cannot disagree with the
   // rail about where the window is.
-  const whenContext: ConsoleWhenClauseContext = useMemo(
+  const whenContext: WindowWhenClauseContext = useMemo(
     () => ({
       sessionActive: lastOpenedSessionId !== undefined,
       onSessions: route.kind === "sessions",
-      onWorkspace: route.kind === "workspace",
+      onSession: route.kind === "session",
       onWorkflows: route.kind === "workflows",
       onSettings: route.kind === "settings",
     }),
@@ -88,7 +88,7 @@ export function useWindowCommands(
   // A bridge-backed command with no surface of its own refuses on a window banner,
   // which the store composes.
   const raiseRefusalBanner = useCallback(
-    (refusal: ConsoleRefusal) => {
+    (refusal: Refusal) => {
       windowStore.raiseRefusalBanner(refusal);
     },
     [windowStore],
@@ -99,11 +99,11 @@ export function useWindowCommands(
 
   // The shipped chords with this person's overrides composed onto them, and whether
   // the keyboard is suspended for a recording.
-  const keybindingSurface = useKeybindingSurface(consoleKeybindingOverrides);
+  const keybindingSurface = useKeybindingSnapshot(keybindingOverrides);
 
-  const keyBindingsRef = useRef<KeyBindingTable>(undefined);
-  keyBindingsRef.current ??= new KeyBindingTable({
-    registry: consoleCommands,
+  const keyBindingsRef = useRef<KeybindingTable>(undefined);
+  keyBindingsRef.current ??= new KeybindingTable({
+    registry: commandRegistry,
     readContext: () => whenContextRef.current,
   });
   const keyBindings = keyBindingsRef.current;
@@ -112,8 +112,8 @@ export function useWindowCommands(
   // double-render) does not collide with the first. `registerAll` is atomic, so a
   // duplicate adds none of the list and the cleanup cannot remove another mount's command.
   useEffect(() => {
-    const windowCommands: readonly ConsoleCommand[] = [
-      ...buildNavigationCommands(windowStore, surfaceRegistry),
+    const windowCommands: readonly CommandDefinition[] = [
+      ...buildNavigationCommands(windowStore, screenRegistry),
       buildColorSchemeCommand(() => windowStore.getState().schemePreference, chooseScheme),
       ...bridgeCommands,
     ];
@@ -125,21 +125,21 @@ export function useWindowCommands(
       setCommandRevision((revision) => revision + 1);
     });
     // Published for as long as the commands are registered: the same lifetime.
-    const withdrawRefusalSink = publishConsoleActRefusalSink(raiseRefusalBanner);
+    const withdrawRefusalSink = publishCommandRefusalSink(raiseRefusalBanner);
     setCommandRevision((revision) => revision + 1);
     return () => {
       withdrawRefusalSink();
       stopWatchingContributions();
       for (const command of windowCommands) {
-        consoleCommands.unregister(command.id);
+        commandRegistry.unregister(command.id);
       }
     };
-  }, [bridgeCommands, windowStore, raiseRefusalBanner, surfaceRegistry, chooseScheme]);
+  }, [bridgeCommands, windowStore, raiseRefusalBanner, screenRegistry, chooseScheme]);
 
   // The overrides a person authored, read back once per window. Not awaited:
   // `hydrateFrom` absorbs a failed read, so a rejection escaping here is a defect.
   useEffect(() => {
-    void consoleKeybindingOverrides.hydrateFrom(uiStateStore);
+    void keybindingOverrides.hydrateFrom(uiStateStore);
   }, [uiStateStore]);
 
   // Swapped in place, so a rebinding never detaches and re-attaches the listener.

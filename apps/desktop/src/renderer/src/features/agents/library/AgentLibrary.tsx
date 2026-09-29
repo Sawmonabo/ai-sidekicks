@@ -34,7 +34,7 @@
 
 import type { ReactNode } from "react";
 
-import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { type AgentRegistryCalls } from "./library-view.js";
 import { useAgentLibraryView } from "./hooks/useAgentLibraryView.js";
 import { useDefinitionSettlementAnnouncement } from "./hooks/useDefinitionSettlementAnnouncement.js";
@@ -68,7 +68,7 @@ const AGENT_REGISTRY_RULES: readonly AgentRegistryRule[] = [
 
 /** What the page needs: the bridge for its clock and triggers, and the registry calls. */
 export interface AgentLibraryProps {
-  readonly bridge: ConsoleBridge;
+  readonly bridge: PlatformBridge;
   /** Held stable by the caller: a new object restarts the read. */
   readonly calls: AgentRegistryCalls;
 }
@@ -84,21 +84,21 @@ export function AgentDefinitionsFrame(props: {
   readonly children?: ReactNode;
 }): React.JSX.Element {
   return (
-    <section className="meridian-agent-definitions" aria-label="Sidekicks">
-      <header className="meridian-agent-definitions__head">
-        <h2 className="meridian-agent-definitions__title">Sidekicks</h2>
-        <p className="meridian-agent-definitions__lede">
+    <section className="meridian-agent-library" aria-label="Sidekicks">
+      <header className="meridian-agent-library__head">
+        <h2 className="meridian-agent-library__title">Sidekicks</h2>
+        <p className="meridian-agent-library__lede">
           A sidekick you have tuned once — its provider, its instructions, its goal, the tools it
           may reach — kept so the next session starts from it instead of from nothing.
         </p>
         {props.actions}
       </header>
 
-      <dl className="meridian-agent-definitions__rules">
+      <dl className="meridian-agent-library__rules">
         {AGENT_REGISTRY_RULES.map((rule) => (
-          <div className="meridian-agent-definitions__rule" key={rule.term}>
-            <dt className="meridian-agent-definitions__rule-term">{rule.term}</dt>
-            <dd className="meridian-agent-definitions__rule-statement">{rule.statement}</dd>
+          <div className="meridian-agent-library__rule" key={rule.term}>
+            <dt className="meridian-agent-library__rule-term">{rule.term}</dt>
+            <dd className="meridian-agent-library__rule-statement">{rule.statement}</dd>
           </div>
         ))}
       </dl>
@@ -118,7 +118,7 @@ export function AgentLibrary(props: AgentLibraryProps): React.JSX.Element {
       actions={
         <button
           type="button"
-          className="meridian-agent-definitions__new"
+          className="meridian-agent-library__new"
           // Pressed rather than merely styled: which subject is selected is state a
           // person has to be able to read.
           aria-pressed={snapshot.editorSubject?.kind === "new"}
@@ -130,9 +130,9 @@ export function AgentLibrary(props: AgentLibraryProps): React.JSX.Element {
         </button>
       }
     >
-      <div className="meridian-agent-definitions__columns">
-        <section className="meridian-agent-definitions__column" aria-label="Saved sidekicks">
-          <h3 className="meridian-agent-definitions__column-title">Saved</h3>
+      <div className="meridian-agent-library__columns">
+        <section className="meridian-agent-library__column" aria-label="Saved sidekicks">
+          <h3 className="meridian-agent-library__column-title">Saved</h3>
           <SavedDefinitions snapshot={snapshot} view={view} />
         </section>
       </div>

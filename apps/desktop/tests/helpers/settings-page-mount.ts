@@ -4,13 +4,13 @@
 // to it has to reach every harness that builds one: the builder is here, and a new member is
 // one compile error in one file.
 
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { MemoryPersistenceAdapter } from "@renderer/store/persistence/memory-persistence-adapter.js";
 import { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import {
-  UNREPORTED_SHELL_STATE,
-  type ShellState,
+  UNREPORTED_MAIN_PROCESS_STATE,
+  type MainProcessState,
 } from "@renderer/store/window/main-process-state.js";
 import type { SettingsPageContext } from "@renderer/features/settings/types.js";
 
@@ -25,7 +25,7 @@ import type { SettingsPageContext } from "@renderer/features/settings/types.js";
  */
 export interface SettingsPageContextOverrides {
   readonly retainedSessionStore?: SessionStore | undefined;
-  readonly shellState?: ShellState | undefined;
+  readonly mainProcessState?: MainProcessState | undefined;
   readonly selection?: string | undefined;
   readonly uiStateStore?: UiStateStore | undefined;
 }
@@ -37,8 +37,8 @@ export interface SettingsPageContextOverrides {
  * window that has opened no session, which several cases exist to drive, and a default
  * would silently answer those with a session id instead.
  *
- * `shellState` defaults to the seeded unreported value rather than to a healthy one: a
- * page mounted by a case that says nothing about the shell is a page in a window nobody
+ * `mainProcessState` defaults to the seeded unreported value rather than to a healthy one: a
+ * page mounted by a case that says nothing about the main process is a page in a window nobody
  * has told anything.
  * A case that renders a degraded arm names its own.
  *
@@ -47,22 +47,22 @@ export interface SettingsPageContextOverrides {
  * reached. A case driving the deep link names its own subject.
  *
  * `uiStateStore` defaults to a fresh memory-backed store — see
- * {@link consoleTestUiStateStore} for why the real one and not a double, and why one
+ * {@link testUiStateStore} for why the real one and not a double, and why one
  * per call.
  */
 export function settingsPageContextWith(
-  bridge: ConsoleBridge,
+  bridge: PlatformBridge,
   retainedSessionId: string | undefined,
   overrides: SettingsPageContextOverrides = {},
 ): SettingsPageContext {
   return {
     bridge,
-    openSection: () => undefined,
+    openPage: () => undefined,
     selection: overrides.selection,
     retainedSessionId,
     retainedSessionStore: overrides.retainedSessionStore,
-    shellState: overrides.shellState ?? UNREPORTED_SHELL_STATE,
-    uiStateStore: overrides.uiStateStore ?? consoleTestUiStateStore(),
+    mainProcessState: overrides.mainProcessState ?? UNREPORTED_MAIN_PROCESS_STATE,
+    uiStateStore: overrides.uiStateStore ?? testUiStateStore(),
     chooseScheme: () => undefined,
   } satisfies SettingsPageContext;
 }
@@ -80,7 +80,7 @@ export function settingsPageContextWith(
  * A fresh one per call, because the health ledger's counts are cumulative for the
  * store's lifetime: two cases sharing one store would read each other's refusals.
  */
-export function consoleTestUiStateStore(
+export function testUiStateStore(
   adapter: MemoryPersistenceAdapter = new MemoryPersistenceAdapter(),
 ): UiStateStore {
   return new UiStateStore({ adapter });

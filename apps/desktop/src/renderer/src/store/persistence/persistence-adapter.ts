@@ -14,11 +14,11 @@
 // quota gauge carries the same reason so a surface reading only the gauge cannot
 // report a silent nothing where a degradation belongs.
 
-import { ConsoleRefusalError } from "@renderer/lib/refusal.js";
+import { RefusalError } from "@renderer/lib/refusal.js";
 import type { PersistenceRefusal } from "./persistence-refusals.js";
 import type { PersistedValueClass } from "./persisted-value-classes.js";
 
-/** Which adapter is serving the store. Rendered; never inferred from behaviour. */
+/** Which adapter is serving the store. Rendered; never inferred from behavior. */
 export type PersistenceAdapterKind = "indexeddb" | "memory";
 
 /**
@@ -101,7 +101,7 @@ export interface PersistenceAdapter {
   /** Rejects with a `PersistenceAdapterError` on quota exhaustion. */
   write(record: StoredRecord): Promise<void>;
   delete(partition: string, key: string): Promise<void>;
-  summarisePartitions(): Promise<readonly PartitionSummary[]>;
+  summarizePartitions(): Promise<readonly PartitionSummary[]>;
   /**
    * Drop least-recently-touched SESSION partitions until at most
    * `keepSessionPartitions` remain, and return how many were dropped.
@@ -119,13 +119,13 @@ export interface PersistenceAdapter {
 /**
  * An adapter-level failure, carrying the refusal the store will surface.
  *
- * A `ConsoleRefusalError` rather than a second error class doing the same job: the
+ * A `RefusalError` rather than a second error class doing the same job: the
  * console has one refusal-carrying exception, and an adapter failure caught three
- * layers up is `isConsoleRefusal`-readable without anyone having to know this
+ * layers up is `isRefusal`-readable without anyone having to know this
  * subtree exists. All this subclass adds is the narrowed refusal type and its own
  * name.
  */
-export class PersistenceAdapterError extends ConsoleRefusalError {
+export class PersistenceAdapterError extends RefusalError {
   /**
    * Narrowed, not redeclared: the base constructor assigns the field and `declare`
    * emits no class member, so this is a type-level narrowing with no runtime
@@ -156,14 +156,14 @@ export function describeQuotaUnavailability(gauge: QuotaGauge): string | undefin
 
 /**
  * The partition holding preferences that belong to the window rather than to one
- * session (the colour scheme, the keybinding overrides). Deliberately a reserved
+ * session (the color scheme, the keybinding overrides). Deliberately a reserved
  * identifier rather than an empty string, so a bug that loses a session id writes
  * somewhere obviously wrong instead of silently into the global bucket.
  */
 export const PERSISTENCE_GLOBAL_PARTITION = "global";
 
 /**
- * The key the colour scheme occupies inside that partition.
+ * The key the color scheme occupies inside that partition.
  *
  * Beside the partition rather than beside the store's `writeGlobal`, because
  * partition and key are one address and splitting an address across two modules

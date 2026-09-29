@@ -3,8 +3,8 @@
 
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
 import { CommandRegistry } from "./command-registry.js";
-import type { ConsoleCommand, KeyBinding } from "./command-types.js";
-import { consoleCommands } from "./window-command-registry.js";
+import type { CommandDefinition, Keybinding } from "./command-types.js";
+import { commandRegistry } from "./window-command-registry.js";
 
 /**
  * One owner's commands and chords, contributed together.
@@ -14,8 +14,8 @@ import { consoleCommands } from "./window-command-registry.js";
 export interface CommandContribution {
   /** The owner, for the owner-scoped replace. */
   readonly owner: string;
-  readonly commands: readonly ConsoleCommand[];
-  readonly keyBindings: readonly KeyBinding[];
+  readonly commands: readonly CommandDefinition[];
+  readonly keyBindings: readonly Keybinding[];
 }
 
 /**
@@ -25,11 +25,6 @@ export interface CommandContribution {
  * hands the owner back to whichever contribution is still live beneath it.
  */
 export type CommandContributionRelease = () => void;
-
-/** What a feature contributes its commands through. */
-export interface ConsoleCommandSurface {
-  contribute(contribution: CommandContribution): CommandContributionRelease;
-}
 
 /**
  * The contributions, owner-scoped, and the signal that they changed.
@@ -43,7 +38,7 @@ export interface ConsoleCommandSurface {
  * Exported so a test can build a second instance: "a second composition holds its own
  * contributors" is a property of the class, unprovable against the window's singleton.
  */
-export class CommandContributionRegistry implements ConsoleCommandSurface {
+export class CommandContributionRegistry {
   readonly #registry: CommandRegistry;
   readonly #contributionsByOwner = new Map<string, CommandContribution>();
   readonly #changes = new Emitter<void>("command contribution");
@@ -78,7 +73,7 @@ export class CommandContributionRegistry implements ConsoleCommandSurface {
   }
 
   /** Every contributed chord, in the order the owners first contributed. */
-  public keyBindings(): readonly KeyBinding[] {
+  public keyBindings(): readonly Keybinding[] {
     return [...this.#contributionsByOwner.values()].flatMap(
       (contribution) => contribution.keyBindings,
     );
@@ -147,17 +142,14 @@ const NO_CONTRIBUTION: readonly [] = Object.freeze([]);
 
 /** This window's command contributions. */
 export const commandContributionRegistry: CommandContributionRegistry =
-  new CommandContributionRegistry(consoleCommands);
-
-/** The contribution half of this window's contributions, for the features. */
-export const consoleCommandSurface: ConsoleCommandSurface = commandContributionRegistry;
+  new CommandContributionRegistry(commandRegistry);
 
 /**
  * Every contributed chord, in the order the owners first contributed.
  *
  * First-contribution order, so re-composing one owner never reorders another's chords.
  */
-export function contributedKeybindings(): readonly KeyBinding[] {
+export function contributedKeybindings(): readonly Keybinding[] {
   return commandContributionRegistry.keyBindings();
 }
 

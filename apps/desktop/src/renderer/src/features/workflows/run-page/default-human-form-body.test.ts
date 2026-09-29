@@ -1,9 +1,9 @@
-// The console's own body for the human-form slot, over the wait the probe run parks.
+// The console's own body for the human-form mount point, over the wait the probe run parks.
 //
 // That a phase parked on a person is answerable from the pane that shows it: the prompt
 // is on screen, the schema draws its controls, a schema outside the drawn set opens the
 // JSON editor, and the press puts the submit with the revision the form was composed
-// against. Every case drives the slot and not the shell, since the submit and the
+// against. Every case drives the mount point and not the shell, since the submit and the
 // single-flight guard are the seat's. What happens as the mount moves is in
 // `default-human-form-body.transitions.test.ts`; what a supplied body is handed is in
 // `HumanFormSubmitBinding.test.tsx`.
@@ -98,7 +98,7 @@ describe("a waiting phase is answerable where the pane shows it", () => {
   it("draws only its empty frame where no phase is waiting on a person", async () => {
     const container = await renderMountPoint(undefined);
     expect(container.querySelector(".meridian-schema-answer")).toBeNull();
-    expect(container.querySelector(".meridian-workflow__slot")?.textContent).toBe("");
+    expect(container.querySelector(".meridian-workflow__mount-point")?.textContent).toBe("");
   });
 });
 
@@ -144,7 +144,7 @@ describe("the press composes the registered submit", () => {
     });
     await settle();
 
-    expect(screen.getByText(/The daemon recorded this answer/u)).not.toBeNull();
+    expect(screen.getByText(/The background service recorded this answer/u)).not.toBeNull();
   });
 
   it("speaks the settlement through a status live region", async () => {
@@ -158,7 +158,7 @@ describe("the press composes the registered submit", () => {
     await settle();
 
     expect(screen.getByRole("status").textContent).toContain(
-      "The daemon recorded this answer and one output came of it.",
+      "The background service recorded this answer and one output came of it.",
     );
   });
 });
@@ -282,7 +282,9 @@ describe("a submit call that fails", () => {
       // A key held for the life of the form would have refused the second press as a
       // duplicate of a call that ended.
       expect(probe.requests).toHaveLength(2);
-      expect(container.textContent ?? "").not.toContain("This answer is already with the daemon.");
+      expect(container.textContent ?? "").not.toContain(
+        "This answer is already with the background service.",
+      );
     },
   );
 });
@@ -332,12 +334,12 @@ describe("a submission moves the run read only when the daemon took it", () => {
     // every press, whether or not anything reached the daemon.
     const probe = watchingSubmits();
     const recordServedAct = vi.fn();
-    const slot = await renderSwitchableMountPoint({
+    const mountPoint = await renderSwitchableMountPoint({
       phase: { ...fixtureWaitPhase(), inputSchema: RAW_ARM_SCHEMA },
       submitForm: probe.submitForm,
       recordServedAct,
     });
-    const editor = slot.container.querySelector("textarea");
+    const editor = mountPoint.container.querySelector("textarea");
     if (editor === null) {
       throw new Error("the raw arm rendered no editor");
     }
@@ -347,7 +349,7 @@ describe("a submission moves the run read only when the daemon took it", () => {
     });
     await settle();
 
-    expect(slot.container.querySelector(".meridian-refusal")).not.toBeNull();
+    expect(mountPoint.container.querySelector(".meridian-refusal")).not.toBeNull();
     expect(probe.requests).toStrictEqual([]);
     expect(recordServedAct).not.toHaveBeenCalled();
   });

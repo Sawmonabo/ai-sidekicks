@@ -74,22 +74,22 @@ describe("the reason a run carries", () => {
   it("says a cancellation is one, in prose rather than in the failure treatment", () => {
     const root = renderRow(
       run({
-        state: "cancelled",
-        failureReason: "Cancelled: the incident was resolved out of band.",
+        state: "canceled",
+        failureReason: "Canceled: the incident was resolved out of band.",
       }),
     );
 
     expect(reasonOf(root, "meridian-run-row__reason")).toBe(
-      "Cancellation reason Cancelled: the incident was resolved out of band.",
+      "Cancellation reason Canceled: the incident was resolved out of band.",
     );
     // The daemon's sentence verbatim, with only the name in front of it added.
     expect(root.querySelector(".meridian-run-row__reason")?.textContent).toContain(
-      "Cancelled: the incident was resolved out of band.",
+      "Canceled: the incident was resolved out of band.",
     );
     expect(root.querySelector(".meridian-run-row__failure")).toBeNull();
   });
 
-  it("keeps the failure treatment, unlabelled, for a run that failed", () => {
+  it("keeps the failure treatment, unlabeled, for a run that failed", () => {
     // Negative control for the case above: it would pass over a row that had dropped
     // the failure arm entirely and called every reason a cancellation.
     const root = renderRow(
@@ -113,10 +113,10 @@ describe("the reason a run carries", () => {
   });
 
   it("spends the status chip's tone on the status and the treatment on the reason", () => {
-    // A cancelled run is settled rather than broken, so neither the chip nor the
+    // A canceled run is settled rather than broken, so neither the chip nor the
     // reason wears the failure hue — the two facts are told apart by words here.
     const root = renderRow(
-      run({ state: "cancelled", failureReason: "Cancelled: superseded by a newer run." }),
+      run({ state: "canceled", failureReason: "Canceled: superseded by a newer run." }),
     );
 
     expect(root.querySelector(".meridian-chip--failure")).toBeNull();
@@ -128,7 +128,7 @@ describe("the reason a run carries", () => {
 
 describe("the start a row reads", () => {
   // A run list has no day divider above it, so the two runs below — started at the
-  // same hour a week apart — are the pair the ledger's date-free reading collapses.
+  // same hour a week apart — are the pair the transcript's date-free reading collapses.
   const startedOnTheFirst = "2026-09-01T10:00:00.000Z";
   const startedOnTheEighth = "2026-09-08T10:00:00.000Z";
 
@@ -143,7 +143,7 @@ describe("the start a row reads", () => {
     expect(startFigureText(startedOnTheEighth)).not.toBe(startFigureText(startedOnTheFirst));
   });
 
-  it("negative control: the ledger's date-free reading renders the two identically", () => {
+  it("negative control: the transcript's date-free reading renders the two identically", () => {
     // The finding. Without it the case above would pass over a row that differed for
     // some other reason and would not name the reading that lost the day.
     expect(formatClockTime(startedOnTheEighth)).toBe(formatClockTime(startedOnTheFirst));

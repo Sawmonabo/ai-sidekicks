@@ -24,7 +24,7 @@ import type { TimelineRow } from "@ai-sidekicks/contracts";
  * Declared here because this is where the walk is, and declared at all because it
  * was the family's one closed set restated inline: ten bare unions across six
  * modules and two directories, in a family where every other closed set — the seam
- * kinds, the row offers, the chapter lifecycles — is an `as const` with a
+ * kinds, the row offers, the run group lifecycles — is an `as const` with a
  * derived type. A third direction (a find that jumps to the head) would have meant
  * editing ten declarations with nothing reporting a missed one; from here it is a
  * compile error at every consumer.
@@ -76,7 +76,7 @@ export function emptyFindResult(searchedRowCount: number): FindResult {
  * is a literal search over text somebody is looking at.
  *
  * An empty or whitespace-only query matches nothing rather than everything —
- * "everything" is what the ledger already shows, and a field that highlighted every
+ * "everything" is what the transcript already shows, and a field that highlighted every
  * row the moment it was focused would be noise.
  */
 export function findInTranscript(rows: readonly TimelineRow[], query: string): FindResult {
@@ -122,7 +122,7 @@ function matchFieldOf(row: TimelineRow, needle: string): FindMatch["matchedIn"] 
  * Where the walk sits before anything has been selected.
  *
  * Negative rather than `undefined` because the field renders "n of m" from the
- * same number, and a sentinel one comparison recognises is what keeps the two
+ * same number, and a sentinel one comparison recognizes is what keeps the two
  * readings — "nothing is selected" and "the first match is selected" — from
  * collapsing into index 0.
  */

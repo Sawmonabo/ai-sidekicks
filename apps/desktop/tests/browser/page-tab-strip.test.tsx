@@ -26,9 +26,9 @@ import { renderSettled } from "../helpers/app-harness.js";
 import { crossMacrotaskBoundary } from "../helpers/macrotask-boundary.js";
 
 import { installMeridianTokens } from "@renderer/app/token-installation.js";
-import { TabStrip } from "@renderer/features/preview/components/PageTabStrip.js";
-import { threeBrowserPages } from "@renderer/features/preview/page-list-reading.test-support.js";
-import { BROWSER_TAB_DRAG_MEDIA_TYPE } from "@renderer/features/preview/tab-reorder.js";
+import { PageTabStrip } from "@renderer/features/preview/components/PageTabStrip.js";
+import { threePreviewPages } from "@renderer/features/preview/page-list-reading.test-support.js";
+import { PAGE_TAB_DRAG_MEDIA_TYPE } from "@renderer/features/preview/tab-reorder.js";
 // The family door, imported for its side effect: this package puts a family's
 // stylesheet behind its own barrel and nowhere else, and two of the cases below are
 // about what that stylesheet computes to.
@@ -53,8 +53,8 @@ async function mountStrip(): Promise<DraggedStrip> {
   installMeridianTokens(document);
   const reordered: { readonly pageId: string; readonly toIndex: number }[] = [];
   const { container } = await renderSettled(
-    <TabStrip
-      reading={threeBrowserPages()}
+    <PageTabStrip
+      reading={threePreviewPages()}
       onSelect={() => undefined}
       onClose={() => undefined}
       onReorder={(pageId, toIndex) => {
@@ -63,7 +63,7 @@ async function mountStrip(): Promise<DraggedStrip> {
     />,
   );
   return {
-    tabs: [...container.querySelectorAll<HTMLElement>(".meridian-browser-tab")],
+    tabs: [...container.querySelectorAll<HTMLElement>(".meridian-preview-tab")],
     reordered,
   };
 }
@@ -116,8 +116,8 @@ describe("dragging a tab, against the browser's own drag store", () => {
     // `"none"` however the writer behaves. An assertion that cannot fail for the right
     // reason cannot pass for it either — the cursor shape it governs is verified by
     // dragging a tab, and by nothing that runs unattended.
-    expect([...transfer.types]).toContain(BROWSER_TAB_DRAG_MEDIA_TYPE);
-    expect(transfer.getData(BROWSER_TAB_DRAG_MEDIA_TYPE)).toBe("page-a");
+    expect([...transfer.types]).toContain(PAGE_TAB_DRAG_MEDIA_TYPE);
+    expect(transfer.getData(PAGE_TAB_DRAG_MEDIA_TYPE)).toBe("page-a");
 
     expect(await dispatchDrag(strip.tabs[2] as HTMLElement, "dragover", transfer)).toBe(true);
     await dispatchDrag(strip.tabs[2] as HTMLElement, "drop", transfer);
@@ -133,12 +133,12 @@ describe("dragging a tab, against the browser's own drag store", () => {
     const atRest = borderStartColorOf(target);
 
     await dispatchDrag(target, "dragover", transfer);
-    expect(target.className).toContain("meridian-browser-tab--drop-before");
+    expect(target.className).toContain("meridian-preview-tab--drop-before");
     const marked = borderStartColorOf(target);
     expect(marked).not.toBe(atRest);
 
     await dispatchDrag(target, "drop", transfer);
-    expect(target.className).not.toContain("meridian-browser-tab--drop-before");
+    expect(target.className).not.toContain("meridian-preview-tab--drop-before");
     expect(borderStartColorOf(target)).toBe(atRest);
   });
 

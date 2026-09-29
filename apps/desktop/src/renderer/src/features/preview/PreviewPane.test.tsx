@@ -1,4 +1,4 @@
-// The browser pane's chrome never presents a control that lies about what it can do: the
+// The preview pane's chrome never presents a control that lies about what it can do: the
 // chrome never derives navigability, so with no reported state every history control is
 // disabled rather than optimistically live.
 //
@@ -22,17 +22,17 @@ import {
 /** The platform modifier that closes a tab, as an event initializer. */
 const CLOSE_TAB_MODIFIER = HOST_CHORD_PLATFORM === "darwin" ? { metaKey: true } : { ctrlKey: true };
 
-describe("browser pane chrome", () => {
+describe("preview pane chrome", () => {
   it("is named by the trail it sits on rather than by its kind alone", async () => {
-    // Through `aria-labelledby` and never `aria-label`: `seats/ConsolePaneChrome` names
+    // Through `aria-labelledby` and never `aria-label`: `seats/PaneFrame` names
     // every pane by its whole address — the session it belongs to, then what the pane is
-    // — so two browser panes in one deck are told apart. This mount addresses no session,
+    // — so two preview panes in one pane layout are told apart. This mount addresses no session,
     // so the trail opens on the chrome's own no-address crumb.
     const { region } = await renderPreviewPane();
     const crumbs = document.getElementById(region.getAttribute("aria-labelledby") ?? "");
 
     expect(region.getAttribute("aria-label")).toBeNull();
-    expect(crumbs?.textContent).toBe("No sessionBrowser");
+    expect(crumbs?.textContent).toBe("No sessionPreview");
   });
 
   it("disables every history control while no state has been reported", async () => {
@@ -58,7 +58,7 @@ describe("browser pane chrome", () => {
   });
 });
 
-describe("browser pane address field", () => {
+describe("preview pane address field", () => {
   it("refuses a filesystem destination without dispatching a navigation", async () => {
     const navigations: string[] = [];
     await renderPreviewPane(undefined, recordingActs(navigations));
@@ -84,7 +84,7 @@ describe("browser pane address field", () => {
   });
 });
 
-describe("browser pane close-tab chord", () => {
+describe("preview pane close-tab chord", () => {
   it("swallows the platform chord, so it cannot reach the window and close it", async () => {
     const { region } = await renderPreviewPane();
     const event = new KeyboardEvent("keydown", {

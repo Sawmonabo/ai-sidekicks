@@ -1,7 +1,7 @@
 // The console's one live announcer.
 //
 // The console's headless primitives are own-built, and this is the one every family
-// after the substrate would otherwise re-mint: a deck drop outcome, a run-state change,
+// after the substrate would otherwise re-mint: a pane layout drop outcome, a run-state change,
 // an attention item, a toast. Each of those minting its own `aria-live` node is not a
 // style problem — a screen reader reads live regions in the order the DOM mutates them,
 // so N regions is N speakers talking over each other, and the second one to change wins
@@ -17,7 +17,7 @@
 //      speak through. This is why the announcer is a long-lived object with a
 //      `dispose()` rather than a function that renders something.
 //
-//   2. **Announcements are serialised, not overwritten.** A reader speaks one
+//   2. **Announcements are serialized, not overwritten.** A reader speaks one
 //      message at a time. Replacing a region's text a frame after setting it means
 //      the first message was never heard, so a second announcement arriving inside
 //      the hold window is QUEUED behind the standing one and published when it
@@ -34,7 +34,7 @@
 //      after the clear is a real second announcement and is spoken again.
 //
 //   4. **One armed timer, ever.** The console's idle-CPU budget is checked by
-//      counting armed work on the `ConsoleClock` seam, so the announcer arms at
+//      counting armed work on the `Clock` seam, so the announcer arms at
 //      most one timeout at a time — for the earliest lane deadline — and re-arms
 //      from inside its own tick. Nothing polls, and an idle announcer holds no
 //      handle at all.
@@ -44,7 +44,7 @@ import {
   LIVE_ANNOUNCEMENT_HOLD_MS,
   LIVE_ANNOUNCEMENT_QUEUE_CAP,
 } from "./live-announcement-caps.js";
-import { RealClock, type ConsoleClock, type ScheduledHandle } from "@renderer/lib/clock.js";
+import { RealClock, type Clock, type ScheduledHandle } from "@renderer/lib/clock.js";
 
 /**
  * The two speech channels, declared once.
@@ -70,7 +70,7 @@ export interface LiveAnnouncementState {
 
 export interface LiveAnnouncerOptions {
   /** Defaults to `RealClock`. The clear deadline is the only timer this class arms. */
-  readonly clock?: ConsoleClock;
+  readonly clock?: Clock;
   /** Defaults to `LIVE_ANNOUNCEMENT_QUEUE_CAP`, per lane. */
   readonly queueCap?: number;
   /** Defaults to `LIVE_ANNOUNCEMENT_HOLD_MS`. */
@@ -80,7 +80,7 @@ export interface LiveAnnouncerOptions {
 const SILENT: LiveAnnouncementState = { polite: "", assertive: "" };
 
 export class LiveAnnouncer {
-  readonly #clock: ConsoleClock;
+  readonly #clock: Clock;
   readonly #queueCap: number;
   readonly #holdMs: number;
   readonly #changes = new Emitter<LiveAnnouncementState>("live announcement");

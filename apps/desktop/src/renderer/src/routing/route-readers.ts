@@ -13,7 +13,7 @@
 // per call site is a reader per call site to disagree with, which is what
 // `routeSessionId` and `settingsSelection` each record below.
 
-import type { ConsoleRoute } from "./routes.js";
+import type { AppRoute } from "./routes.js";
 
 /**
  * Destinations on the icon rail, in rail order. Closed; the rail renders exactly
@@ -30,7 +30,7 @@ export const RAIL_DESTINATIONS = ["sessions", "workflows", "settings"] as const;
 export type RailDestination = (typeof RAIL_DESTINATIONS)[number];
 
 /**
- * One phase of one run, as a workspace address names it.
+ * One phase of one run, as a session screen address names it.
  *
  * DERIVED FROM THE ARM RATHER THAN RESTATED BESIDE IT, which is the console's rule for
  * a closed shape with more than one reader: a second declaration here would be a shape
@@ -38,22 +38,22 @@ export type RailDestination = (typeof RAIL_DESTINATIONS)[number];
  * reports neither.
  */
 export type WorkflowPhaseFocus = NonNullable<
-  Extract<ConsoleRoute, { kind: "workspace" }>["workflowPhase"]
+  Extract<AppRoute, { kind: "session" }>["workflowPhase"]
 >;
 
 /**
  * Which rail destination is current, or `undefined` where the route lights none.
  *
- * The map is NOT one-to-one, and `workspace` is the arm that makes it so: a
+ * The map is NOT one-to-one, and `session` is the arm that makes it so: a
  * session is reached FROM the sessions destination, so a window sitting in a
- * workspace is still under that destination and the rail highlights it there.
+ * session screen is still under that destination and the rail highlights it there.
  * Answering with a destination of its own would name an icon the rail does not
  * render, and the current-destination highlight would simply go out.
  */
-export function railDestinationFor(route: ConsoleRoute): RailDestination | undefined {
+export function railDestinationFor(route: AppRoute): RailDestination | undefined {
   switch (route.kind) {
     case "sessions":
-    case "workspace":
+    case "session":
       return "sessions";
     case "workflows":
       return "workflows";
@@ -74,7 +74,7 @@ export function railDestinationFor(route: ConsoleRoute): RailDestination | undef
  * first one to write `route.page === undefined ? undefined : route.selection` slightly
  * differently is a page opened for a provider it was not opened for.
  */
-export function settingsSelection(route: ConsoleRoute): string | undefined {
+export function settingsSelection(route: AppRoute): string | undefined {
   return route.kind === "settings" && route.page !== undefined ? route.selection : undefined;
 }
 
@@ -86,7 +86,7 @@ export function settingsSelection(route: ConsoleRoute): string | undefined {
  * object itself would have to know that rule to round-trip, and a caller with no
  * selection would have to remember not to write the key at all.
  */
-export function settingsRoute(page: string, selection: string | undefined): ConsoleRoute {
+export function settingsRoute(page: string, selection: string | undefined): AppRoute {
   return selection === undefined
     ? { kind: "settings", page }
     : { kind: "settings", page, selection };
@@ -100,9 +100,9 @@ export function settingsRoute(page: string, selection: string | undefined): Cons
  * for itself, and the two that already did — the frame store's active session and
  * a mount's subject — had written two different walks over one union.
  */
-export function routeSessionId(route: ConsoleRoute): string | undefined {
+export function routeSessionId(route: AppRoute): string | undefined {
   switch (route.kind) {
-    case "workspace":
+    case "session":
     case "pane-harness":
       return route.sessionId;
     case "sessions":
@@ -119,21 +119,21 @@ export function routeSessionId(route: ConsoleRoute): string | undefined {
  * PUBLISHED, WHERE THE COMPARISON BELOW USED TO BE THE ONLY READER. The address
  * `#/session/<sid>/workflow/<rid>/phase/<pid>` parsed into a route nothing outside this
  * family consumed, so following the link changed the hash and the route identity and
- * left the window on an unfocused workspace — the phase was addressable and still
+ * left the window on an unfocused session screen — the phase was addressable and still
  * unreachable. The surface that mounts it asks this question, and asking it through one
  * accessor is what keeps the arm's optionality answered in one place rather than at
  * each consumer.
  *
  * TOTAL OVER THE UNION, like {@link routeSessionId} beside it: every other arm answers
  * `undefined` rather than being narrowed away at the call site, because a caller
- * holding a `ConsoleRoute` is exactly the caller that does not yet know which arm it is.
+ * holding an `AppRoute` is exactly the caller that does not yet know which arm it is.
  */
-export function routeWorkflowPhase(route: ConsoleRoute): WorkflowPhaseFocus | undefined {
-  return route.kind === "workspace" ? route.workflowPhase : undefined;
+export function routeWorkflowPhase(route: AppRoute): WorkflowPhaseFocus | undefined {
+  return route.kind === "session" ? route.workflowPhase : undefined;
 }
 
 /** Structural route comparison, so an unchanged hash costs no transition. */
-export function routesAreEqual(left: ConsoleRoute, right: ConsoleRoute): boolean {
+export function routesAreEqual(left: AppRoute, right: AppRoute): boolean {
   if (left.kind !== right.kind) {
     return false;
   }
@@ -141,9 +141,9 @@ export function routesAreEqual(left: ConsoleRoute, right: ConsoleRoute): boolean
     case "sessions":
     case "workflows":
       return true;
-    case "workspace":
+    case "session":
       return (
-        right.kind === "workspace" &&
+        right.kind === "session" &&
         left.sessionId === right.sessionId &&
         workflowPhaseFocusesAreEqual(left.workflowPhase, right.workflowPhase)
       );
@@ -165,10 +165,10 @@ export function routesAreEqual(left: ConsoleRoute, right: ConsoleRoute): boolean
 }
 
 /**
- * The workspace arm's focus, compared field by field.
+ * The session screen arm's focus, compared field by field.
  *
  * Both-absent is EQUAL and one-absent is not, which is the whole content of the
- * comparison: a bare workspace address and one focused on a phase of it are two
+ * comparison: a bare session screen address and one focused on a phase of it are two
  * different places, and treating them as one would make navigating from a run row to
  * its phase cost no transition and render nothing new.
  */

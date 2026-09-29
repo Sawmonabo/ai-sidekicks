@@ -12,7 +12,7 @@
 // table is checked against this list in both directions and a new code does not
 // compile until somebody has decided how it is treated.
 
-import { refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
+import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 
 /** Why the chokepoint refused a write. Rendered verbatim; never swallowed. */
 export const PERSISTENCE_REFUSAL_CODES = [
@@ -44,11 +44,11 @@ export const PERSISTENCE_REFUSAL_ORIGIN = "persistence";
  * closed union this family owns. Deliberately not a second refusal vocabulary:
  * that module's header states the arrangement — "each producer keeps its own
  * closed code union and widens into this shape at its boundary" — so a
- * persistence refusal satisfies `isConsoleRefusal` and renders through the same
+ * persistence refusal satisfies `isRefusal` and renders through the same
  * three refusal renderings as every other one, instead of needing a translation
  * at every surface that wants to show two kinds of refusal at once.
  */
-export interface PersistenceRefusal extends ConsoleRefusal {
+export interface PersistenceRefusal extends Refusal {
   readonly code: PersistenceRefusalCode;
 }
 

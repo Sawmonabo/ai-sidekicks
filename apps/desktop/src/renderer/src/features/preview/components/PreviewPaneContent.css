@@ -20,14 +20,14 @@
  * box grows inside the body slot that sheet leaves — so a second always-on hue edge
  * here would be a second answer to "who" one element inside the first.
  */
-.meridian-browser-pane {
+.meridian-preview-pane {
   display: flex;
   flex: 1 1 auto;
   flex-direction: column;
   min-block-size: 0;
 }
 
-.meridian-browser-chrome {
+.meridian-preview-chrome {
   display: flex;
   align-items: center;
   gap: var(--meridian-space-2);
@@ -36,14 +36,14 @@
   /* The bar is one centered row, so the shared action button takes its inline
      arrangement here, through the doors `../controls.css` declares. The button's own
      class is never declared outside the sheet that owns it. */
-  --meridian-browser-action-align-self: center;
-  --meridian-browser-action-display: inline-flex;
-  --meridian-browser-action-align-items: center;
-  --meridian-browser-action-gap: var(--meridian-space-1);
-  --meridian-browser-action-white-space: nowrap;
+  --meridian-preview-action-align-self: center;
+  --meridian-preview-action-display: inline-flex;
+  --meridian-preview-action-align-items: center;
+  --meridian-preview-action-gap: var(--meridian-space-1);
+  --meridian-preview-action-white-space: nowrap;
 }
 
-.meridian-browser-chrome__address {
+.meridian-preview-chrome__address {
   flex: 1 1 auto;
   min-inline-size: 0;
   padding: var(--meridian-space-1) var(--meridian-space-2);
@@ -55,7 +55,7 @@
   font-size: var(--meridian-text-sm);
 }
 
-.meridian-browser-chrome__address:focus-visible {
+.meridian-preview-chrome__address:focus-visible {
   outline: 2px solid var(--meridian-focus-ring);
   outline-offset: 1px;
 }
@@ -65,7 +65,7 @@
  * this box reports is what a native view is eventually positioned to, and an
  * unclipped box reports coordinates that reach past the pane.
  */
-.meridian-browser-pane__viewport {
+.meridian-preview-pane__viewport {
   position: relative;
   flex: 1 1 auto;
   min-block-size: 0;

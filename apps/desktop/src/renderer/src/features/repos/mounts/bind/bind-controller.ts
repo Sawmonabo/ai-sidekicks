@@ -26,7 +26,7 @@ import type {
   WorkspaceBindResponse,
   WorkspaceExecutionModeCapabilitiesReadResponse,
 } from "@ai-sidekicks/contracts";
-import type { ConsoleClock } from "@renderer/lib/clock.js";
+import type { Clock } from "@renderer/lib/clock.js";
 import { ActControllerBase } from "../../acts/act-controller-base.js";
 import { type ActReading } from "../../acts/act-reading.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
@@ -52,7 +52,7 @@ export interface BindControllerOptions {
   /** The session a bound workspace belongs to, whose frames re-ask the pre-bind question. */
   readonly sessionStore: SessionStore;
   /** The window's one clock, so this refresh coalesces on the section's time base. */
-  readonly clock: ConsoleClock;
+  readonly clock: Clock;
 }
 
 /** The two calls this controller makes. */

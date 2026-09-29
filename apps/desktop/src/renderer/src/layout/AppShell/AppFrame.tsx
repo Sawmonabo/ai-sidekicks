@@ -15,7 +15,7 @@
 // clock the renderer reads in fixture mode binds it. Left on `RealClock` it was the one
 // subsystem in a fixture window still reading wall time: a refusal raised by a scenario
 // beat cleared on how fast the runner happened to be, so what a reader hears and what a
-// screenshot captures both depended on the host. `useConsoleClock` is the same answer
+// screenshot captures both depended on the host. `useClock` is the same answer
 // `app/hooks/useUiStateStore.ts` and `app/hooks/useSessionStoreRegistry.ts` ask
 // for, and the frame is where it is asked because `primitives/` sits below `bridge/` in
 // the family DAG and cannot ask for itself.
@@ -24,7 +24,7 @@
 // one-component rule: the banner announcement hook has to run BELOW this provider —
 // context is read by tree position — and a component cannot consume a provider it
 // renders itself.
-import { useConsoleClock } from "@renderer/services/platform/hooks/useClock.js";
+import { useClock } from "@renderer/services/platform/hooks/useClock.js";
 import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
 import { FrameChrome, type FrameChromeProps } from "./FrameChrome.js";
 
@@ -41,7 +41,7 @@ export type AppFrameProps = FrameChromeProps;
 
 /** The window's chrome, wrapped in the announcer that outlives every surface in it. */
 export function AppFrame(props: AppFrameProps): React.JSX.Element {
-  const announcerClock = useConsoleClock();
+  const announcerClock = useClock();
   return (
     <LiveAnnouncerProvider clock={announcerClock}>
       <FrameChrome {...props} />

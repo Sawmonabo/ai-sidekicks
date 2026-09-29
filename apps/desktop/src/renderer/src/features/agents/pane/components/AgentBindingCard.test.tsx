@@ -6,10 +6,10 @@ import { describe, expect, it } from "vitest";
 
 import { TOOL_ALLOWLIST_NAMED_CAP } from "../../agents-caps.js";
 import { formatCount } from "@renderer/console/primitives/index.js";
-import { AgentCard } from "./AgentBindingCard.js";
-import type { AgentRosterEntry } from "@renderer/services/wire-shapes/agents.js";
+import { AgentBindingCard } from "./AgentBindingCard.js";
+import type { AgentListEntry } from "@renderer/services/wire-shapes/agents.js";
 
-const RUNNING: AgentRosterEntry = {
+const RUNNING: AgentListEntry = {
   agentId: "agent-scout",
   name: "Scout",
   driverName: "claude",
@@ -43,12 +43,12 @@ function toolsRowTextOf(container: HTMLElement): string {
 }
 
 function grantLineTextOf(container: HTMLElement): string {
-  return container.querySelector(".meridian-agent-card__tool-grant")?.textContent ?? "";
+  return container.querySelector(".meridian-agent-card__tool-allowlist")?.textContent ?? "";
 }
 
 describe("agent card — the effective binding", () => {
   it("names each axis the reply carried", () => {
-    const { container } = render(<AgentCard agent={RUNNING} />);
+    const { container } = render(<AgentBindingCard agent={RUNNING} />);
     const effective = container.querySelector(".meridian-agent-card__effective")?.textContent ?? "";
     expect(effective).toContain("claude-sonnet");
     expect(effective).toContain("high");
@@ -56,7 +56,7 @@ describe("agent card — the effective binding", () => {
 
   it("says what an absent axis MEANS rather than leaving it blank", () => {
     const { container } = render(
-      <AgentCard agent={{ agentId: "agent-scout", driverName: "claude" }} />,
+      <AgentBindingCard agent={{ agentId: "agent-scout", driverName: "claude" }} />,
     );
     const effective = container.querySelector(".meridian-agent-card__effective")?.textContent ?? "";
     expect(effective).toContain("the provider's registered default");
@@ -66,7 +66,7 @@ describe("agent card — the effective binding", () => {
   it("negative control: a carried axis does not print its absence sentence", () => {
     // Without this, the case above would pass over a card that printed every
     // absence meaning unconditionally.
-    const { container } = render(<AgentCard agent={RUNNING} />);
+    const { container } = render(<AgentBindingCard agent={RUNNING} />);
     const effective = container.querySelector(".meridian-agent-card__effective")?.textContent ?? "";
     expect(effective).not.toContain("the provider's default for this model");
   });
@@ -74,7 +74,7 @@ describe("agent card — the effective binding", () => {
 
 describe("agent card — the declared output speed is never the requested one", () => {
   it("reads NOT YET OBSERVED and names the three causes", () => {
-    const { container } = render(<AgentCard agent={RUNNING} />);
+    const { container } = render(<AgentBindingCard agent={RUNNING} />);
     expect(observedTextOf(container)).toContain("not yet observed");
     // The requested value is on the card, and must not be borrowed for this line.
     expect(observedTextOf(container)).not.toContain("fast");
@@ -84,7 +84,7 @@ describe("agent card — the declared output speed is never the requested one", 
     // Without this, the case above would pass over a card whose observed line was a
     // fixed sentence that could never carry a provider reading at all.
     const { container } = render(
-      <AgentCard
+      <AgentBindingCard
         agent={{
           ...RUNNING,
           observedOutputSpeed: { declared: "standard", reason: "account tier" },
@@ -100,7 +100,7 @@ describe("agent card — the declared output speed is never the requested one", 
 describe("agent card — the resolved configuration", () => {
   it("renders the snapshot", () => {
     const { container } = render(
-      <AgentCard
+      <AgentBindingCard
         agent={{
           ...RUNNING,
           resolvedFromDefinitionId: "definition-scout",
@@ -120,7 +120,7 @@ describe("agent card — the resolved configuration", () => {
   });
 
   it("negative control: an agent with no resolved configuration shows no echo", () => {
-    const { container } = render(<AgentCard agent={RUNNING} />);
+    const { container } = render(<AgentBindingCard agent={RUNNING} />);
     expect(container.querySelector(".meridian-agent-card__resolved")).toBeNull();
   });
 
@@ -128,7 +128,7 @@ describe("agent card — the resolved configuration", () => {
     // A configuration resolved inline names no definition. A Definition row would
     // invent one.
     const { container } = render(
-      <AgentCard agent={{ ...RUNNING, resolvedConfiguration: FULLY_REPORTED }} />,
+      <AgentBindingCard agent={{ ...RUNNING, resolvedConfiguration: FULLY_REPORTED }} />,
     );
     const disclosure =
       container.querySelector(".meridian-agent-card__disclosure")?.textContent ?? "";
@@ -140,7 +140,7 @@ describe("agent card — the resolved configuration", () => {
     // Without this the case above would pass over a card that had stopped naming a
     // definition at all, which loses the one thing the disclosure exists to say.
     const { container } = render(
-      <AgentCard
+      <AgentBindingCard
         agent={{
           ...RUNNING,
           resolvedFromDefinitionId: "definition-scout",
@@ -158,7 +158,7 @@ describe("agent card — the resolved configuration", () => {
     // "No tools at all" is the applied configuration and the strictest posture the
     // agent can have — a choice somebody made, not the daemon staying silent.
     const { container } = render(
-      <AgentCard
+      <AgentBindingCard
         agent={{ ...RUNNING, resolvedConfiguration: { ...FULLY_REPORTED, toolAllowlist: [] } }}
       />,
     );
@@ -171,7 +171,7 @@ describe("agent card — the resolved configuration", () => {
     // allowlist for an axis the daemon never answered — the same conflation, in the
     // other direction.
     const { container } = render(
-      <AgentCard agent={{ ...RUNNING, resolvedConfiguration: FULLY_REPORTED }} />,
+      <AgentBindingCard agent={{ ...RUNNING, resolvedConfiguration: FULLY_REPORTED }} />,
     );
     expect(toolsRowTextOf(container)).not.toContain("empty allowlist");
     expect(toolsRowTextOf(container)).not.toContain("No tools");
@@ -189,7 +189,7 @@ describe("agent card — the resolved configuration", () => {
       (_unused, index) => `tool-${String(index)}`,
     );
     const { container } = render(
-      <AgentCard
+      <AgentBindingCard
         agent={{ ...RUNNING, resolvedConfiguration: { ...FULLY_REPORTED, toolAllowlist } }}
       />,
     );
@@ -205,7 +205,7 @@ describe("agent card — the resolved configuration", () => {
 
   it("negative control: a populated allowlist still names its tools", () => {
     const { container } = render(
-      <AgentCard
+      <AgentBindingCard
         agent={{
           ...RUNNING,
           resolvedConfiguration: { ...FULLY_REPORTED, toolAllowlist: ["read", "write"] },
@@ -226,7 +226,7 @@ describe("agent card — one wire state, one reading of it", () => {
     // "not reported" three lines below it — a card contradicting itself about the one
     // axis its whole tool-governance section exists to state.
     const { container } = render(
-      <AgentCard agent={{ ...RUNNING, resolvedConfiguration: FULLY_REPORTED }} />,
+      <AgentBindingCard agent={{ ...RUNNING, resolvedConfiguration: FULLY_REPORTED }} />,
     );
 
     expect(grantLineTextOf(container)).toContain("default tool set");
@@ -239,7 +239,7 @@ describe("agent card — one wire state, one reading of it", () => {
     // Without this the case above would pass over a card that had stopped saying
     // "not reported" anywhere at all — which loses the fourth position outright and
     // is the same conflation the projection was built to refuse.
-    const { container } = render(<AgentCard agent={{ agentId: "agent-scout" }} />);
+    const { container } = render(<AgentBindingCard agent={{ agentId: "agent-scout" }} />);
 
     expect(grantLineTextOf(container)).toContain("Not reported");
     expect(container.querySelector(".meridian-agent-card__resolved")).toBeNull();
@@ -250,7 +250,7 @@ describe("agent card — one wire state, one reading of it", () => {
     // "No tools." twice on one card. The line states the position; the disclosure adds
     // only what the line left out.
     const { container } = render(
-      <AgentCard
+      <AgentBindingCard
         agent={{ ...RUNNING, resolvedConfiguration: { ...FULLY_REPORTED, toolAllowlist: [] } }}
       />,
     );

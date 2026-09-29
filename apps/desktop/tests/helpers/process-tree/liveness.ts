@@ -47,7 +47,7 @@ import { runBoundedHostQuery } from "./readers.js";
 export type ProcessLiveness = "gone" | "zombie" | "running";
 
 /**
- * Whether a pid names a process at all, without signalling it.
+ * Whether a pid names a process at all, without signaling it.
  *
  * Signal 0 performs the permission and existence checks and delivers nothing —
  * on Windows too, where Node maps it onto a handle open. `EPERM` means the
@@ -107,7 +107,7 @@ export function processGroupExists(processId: number): boolean {
  *
  * A pure function over the text so both arms below can be driven by a test
  * without a real zombie, which is not a thing a test can reliably manufacture:
- * whether one lingers at all is the reaping behaviour of an init this process
+ * whether one lingers at all is the reaping behavior of an init this process
  * does not own.
  */
 export function isTerminatedProcessState(stateCode: string): boolean {

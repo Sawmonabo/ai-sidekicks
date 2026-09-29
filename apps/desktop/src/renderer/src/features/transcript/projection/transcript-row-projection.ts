@@ -2,14 +2,14 @@
 //
 // THE SECOND HALF OF THE SHELL, AND IT DIES WITH THE FIRST. `TranscriptRow.tsx`
 // renders one row; this decides which rows there are. Both exist for the same
-// bounded reason and both are deleted by the change that registers the timeline
+// bounded reason and both are deleted by the change that registers the transcript
 // subtree's real rows, because that subtree brings its own read.
 //
 // WHY A PROJECTION IS NEEDED AT ALL, WHICH IS A FACT ABOUT THE WIRE
 //
 // `TimelineRow` is a READ PROJECTION the daemon builds. The console reaches it only
 // through the backward page read (`services/daemon/timeline-page.ts`), and that reader
-// decodes every row into a `ConsoleSessionEvent` before the store sees it, which is
+// decodes every row into a `ProjectedSessionEvent` before the store sees it, which is
 // also what the live subscription delivers: session id, sequence, wire type, instant, actor, payload —
 // the raw log and not the projection. So the surface has two honest options: render
 // nothing until a projection reaches it, or state what the log itself supports and
@@ -41,7 +41,7 @@
 //   • `position`. The arm's `position` is the daemon's projection-resolved run
 //     position. What the log supports is the row's ORDINAL WITHIN ITS RUN in this
 //     window, which is the property every consumer here actually spends —
-//     chapters fold on it and bands rank on it —
+//     run groups fold on it and bands rank on it —
 //     and which agrees with the daemon's ordering even though it is not the
 //     daemon's number.
 //   • `epoch`. Re-execution reuses ordinals, and the wire says nothing about which
@@ -89,7 +89,7 @@ import {
 } from "@ai-sidekicks/contracts";
 
 import { readRollbackBoundaryPayload } from "@renderer/services/daemon/rollback-boundary-payload.js";
-import { type ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
+import { type ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 import { attributedRunIdOf } from "./run-attribution.js";
 import { deriveChildRunSummaries } from "./child-run-summaries.js";
 
@@ -104,7 +104,7 @@ export interface TranscriptRowProjection {
 /**
  * The registered census, read by a free-form wire type.
  *
- * The census is keyed by the registered union, and `ConsoleSessionEvent.kind` is a
+ * The census is keyed by the registered union, and `ProjectedSessionEvent.kind` is a
  * wire-verbatim `string` by contract — an event whose type this build does not know
  * is exactly the case this lookup exists to answer, so narrowing the key first
  * would be assuming the answer. The widening is on a READ-ONLY map, so nothing can
@@ -123,8 +123,8 @@ const EMPTY_PROJECTION: TranscriptRowProjection = { rows: [] };
  * the caller memoize on the log's identity alone and what makes a replay of the
  * same window byte-identical between runs.
  */
-export function projectFixtureShellRows(
-  events: readonly ConsoleSessionEvent[],
+export function projectTranscriptRows(
+  events: readonly ProjectedSessionEvent[],
 ): TranscriptRowProjection {
   if (events.length === 0) {
     return EMPTY_PROJECTION;
@@ -216,7 +216,7 @@ type RollbackBoundaryRow = Extract<TimelineRow, { readonly kind: "rollback_bound
 
 /** The members every arm spreads, all of them wire-verbatim but `summary`. */
 function commonRowFields(
-  event: ConsoleSessionEvent,
+  event: ProjectedSessionEvent,
   category: EventCategory,
 ): {
   readonly id: string;
@@ -251,7 +251,7 @@ function commonRowFields(
  * whose cutoff nobody can trust: a band drawn from a bad cutoff hides real rows.
  */
 function projectRollbackBoundary(
-  event: ConsoleSessionEvent,
+  event: ProjectedSessionEvent,
   progression: RunProgression,
 ): RollbackBoundaryRow | undefined {
   const boundary = readRollbackBoundaryPayload(event.payload);

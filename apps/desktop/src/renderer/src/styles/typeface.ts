@@ -3,8 +3,8 @@
 // UI text is set in a humanist grotesque and every wire-true figure in mono, and the
 // two families are IBM Plex Sans and IBM Plex Mono, VARIABLE builds, from the foundry's
 // own packages. Until this module existed the two families were named in
-// `tokens/typography.ts` and nowhere loaded, so the console rendered in whichever face
-// the host happened to carry — which makes the type scale, the ledger's fixed gutter,
+// `styles/typography.ts` and nowhere loaded, so the console rendered in whichever face
+// the host happened to carry — which makes the type scale, the transcript's fixed gutter,
 // and every screenshot reference a property of the operator's machine rather than of
 // the design.
 //
@@ -27,7 +27,7 @@
 //      38 688 B for the mono — 220 440 B for the whole type foundation — against
 //      the complete builds, which carry every subset. A variable file is what
 //      serves the weights: the console's stylesheets ask for 400, 500, 600 and
-//      `palette/palette.css` asks for 640, and each of those is a real instance
+//      `layout/CommandPalette/command-palette.css` asks for 640, and each of those is a real instance
 //      rather than the nearest of three static cuts. Each FAMILY carries its own
 //      `unicode-range`, copied from that package's own stylesheets for its splits,
 //      so a codepoint outside it is not rendered wrong — it falls through to the
@@ -37,18 +37,17 @@
 //      constant for both would claim coverage of two files from the contents of
 //      one.
 //
-//   2. **Both styles, because a synthesized oblique is not the face.** Eleven
-//      rules across six stylesheets set `font-style: italic`, and both families
+//   2. **Both styles, because a synthesized oblique is not the face.** Seven
+//      rules across five stylesheets set `font-style: italic`, and both families
 //      are reached — but which family a rule reaches was read out of the CASCADE
-//      rather than off the rule, because most of these rules set no family of
-//      their own. MONO italic is reached twice: the ANSI body
-//      (`ledger/cards/cards.css` — `.meridian-ansi--italic` under a
-//      `.meridian-ansi__body` that sets the mono token) and one browser-chrome
-//      context (`browser/pane/chrome/chrome.css`, the `--unnamed` rule, which
-//      inherits mono from `.meridian-browser-tabs__context` above it). Everything
-//      else is SANS: all three diff italics set the sans family explicitly and say
-//      so, and the markdown, session-header, pane-chrome, and remaining chrome rules
-//      resolve to the body's sans stack. A family that declared only its upright
+//      rather than off the rule, because some of these rules set no family of
+//      their own. MONO italic is reached once: the ANSI body
+//      (`features/transcript/rows/ansi/ansi.css` — `.meridian-ansi--italic` under a
+//      `.meridian-ansi__body` that sets the mono token). Everything else is SANS:
+//      the three diff italics (`diff.css`) and the tool row's absent name
+//      (`rows.css`) set the sans family explicitly, and the markdown image's alt text
+//      (`markdown.css`) and the pane's absent crumb (`PaneFrame.css`) resolve to the
+//      body's sans stack. A family that declared only its upright
 //      face would not lose those runs: the browser would SLANT the outlines and paint a
 //      faux italic, a shear of the wrong drawing rather than the italic the
 //      foundry cut — whose own letterforms and spacing would then never reach the
@@ -70,7 +69,7 @@
 //   4. **`font-display: block`, not `swap`.** These files are served from the
 //      renderer scheme off local disk, so the block period is measured in
 //      milliseconds and no operator sees it. `swap` would trade that invisible
-//      wait for a visible reflow — every ledger row, gutter, and mono figure laid
+//      wait for a visible reflow — every transcript row, gutter, and mono figure laid
 //      out in a fallback metric and then relaid — which is the one motion the
 //      design language does not sanction, because nobody asked for it.
 //
@@ -96,15 +95,15 @@
 //      so once it was on the root no descendant could narrow the feature again. As
 //      an `@font-face` DESCRIPTOR it is scoped by construction instead: it sets the
 //      initial features of that face, so it applies wherever the face is selected
-//      and nowhere else. Chromium honours the descriptor from 140 (`@font-face` /
+//      and nowhere else. Chromium honors the descriptor from 140 (`@font-face` /
 //      `font-feature-settings` on MDN's compatibility table, the `FontFace`
 //      interface's `featureSettings` surface); Electron 44 runs Chromium 152, read
 //      off the pinned binary on 2026-09-09. `tnum` is deliberately NOT declared —
-//      see `tokens/typography.ts` for the measurement that settles it.
+//      see `styles/typography.ts` for the measurement that settles it.
 //
 //   7. **The Pi split is not shipped, so five glyphs the console draws fall to the
 //      host face.** The console declares Latin-1 only, and the arrows
-//      `primitives/chord/chord-format.ts` renders on every keybinding row and
+//      `lib/chord-format.ts` renders on every keybinding row and
 //      palette entry — `U+2190`-`U+2193` and `U+21A9` — sit in the foundry's **Pi**
 //      split, which both packages publish and this module does not declare. So a
 //      chord row paints its arrows from whatever the host supplies, beside Plex
@@ -126,7 +125,7 @@
 //   The `font-family` DESCRIPTOR is the name the token stack asks for, and it is
 //   not the name inside the file. These builds are called `IBM Plex Sans Var` and
 //   `IBM Plex Mono Var` internally; a `@font-face` descriptor names the face for
-//   CSS lookup and is free to differ, so `tokens/typography.ts` keeps asking for
+//   CSS lookup and is free to differ, so `styles/typography.ts` keeps asking for
 //   `"IBM Plex Sans"` and `"IBM Plex Mono"` — the design's own statement of what
 //   the console is set in — and these rules are what supplies them.
 //
@@ -229,7 +228,7 @@ const MONO_FEATURE_SETTINGS = '"zero" 1';
 
 /** One self-hosted face: a family, a style, the axes its file carries, and those bytes. */
 interface TypefaceFace {
-  /** The family name the `FONT_STACKS` entry in `tokens/typography.ts` names first. */
+  /** The family name the `FONT_STACKS` entry in `styles/typography.ts` names first. */
   readonly family: string;
   /** Which cut this file is, and therefore which runs it is selected for. */
   readonly style: TypefaceStyle;
@@ -244,7 +243,7 @@ interface TypefaceFace {
    *
    * A DESCRIPTOR rather than a property, so the feature is scoped to the face by
    * construction — see decision 6 in the header for why the root could not hold
-   * the scoping and what Chromium version honours this.
+   * the scoping and what Chromium version honors this.
    */
   readonly featureSettings: string | null;
   /** The emitted asset URL, resolved by the bundler from the package path. */

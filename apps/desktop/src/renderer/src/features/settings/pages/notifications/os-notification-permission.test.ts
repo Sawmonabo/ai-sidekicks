@@ -109,7 +109,7 @@ describe("the OS permission probe — a stale answer never overwrites a fresh on
   });
 
   it("publishes nothing at all once the surface is gone", async () => {
-    // A probe still travelling when the surface unmounts. `dispose` supersedes every
+    // A probe still traveling when the surface unmounts. `dispose` supersedes every
     // round, so its answer finds no key naming its serial.
     const harness = probeHarness();
     harness.read.requestRead("subscribe");

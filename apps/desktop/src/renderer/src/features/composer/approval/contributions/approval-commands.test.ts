@@ -7,7 +7,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { type ApprovalRecord } from "@renderer/services/approvals/approval-records.js";
-import { refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
+import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 import {
   approvalCommandRows,
   performApprovalCommand,
@@ -33,7 +33,7 @@ function pendingRecord(approvalRequestId: string): ApprovalRecord {
 }
 
 /** The refusal that says somebody else answered: `settled` in the shared table. */
-function alreadyResolved(approvalRequestId: string): ReadonlyMap<string, ConsoleRefusal> {
+function alreadyResolved(approvalRequestId: string): ReadonlyMap<string, Refusal> {
   return new Map([
     [
       approvalRequestId,
@@ -46,7 +46,7 @@ function inputFor(overrides: Partial<ApprovalCommandInput> = {}): ApprovalComman
   return {
     pending: [pendingRecord(FIRST_REQUEST)],
     resolvingApprovalIds: new Set<string>(),
-    resolveRefusalByApprovalId: new Map<string, ConsoleRefusal>(),
+    resolveRefusalByApprovalId: new Map<string, Refusal>(),
     resolve: () => undefined,
     ...overrides,
   };

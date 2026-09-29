@@ -10,7 +10,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { encodeBase64 } from "./base64.js";
 import { readWireString } from "@renderer/lib/wire-strings.js";
-import { consoleTripwires } from "@renderer/lib/tripwires.js";
+import { windowTripwires } from "@renderer/lib/tripwires.js";
 import { CHUNK_ACKNOWLEDGEMENT_UNUSABLE_CODE } from "./services/attachment-ingest-acknowledgement.js";
 import {
   ScriptedIngestPort,
@@ -26,13 +26,13 @@ function carriesAPayload(request: Readonly<Record<string, unknown>>): boolean {
 }
 
 beforeEach(() => {
-  consoleTripwires.setThrowOnReport(false);
-  consoleTripwires.reset();
+  windowTripwires.setThrowOnReport(false);
+  windowTripwires.reset();
 });
 
 afterEach(() => {
-  consoleTripwires.reset();
-  consoleTripwires.setThrowOnReport(import.meta.env.DEV);
+  windowTripwires.reset();
+  windowTripwires.setThrowOnReport(import.meta.env.DEV);
 });
 
 describe("ingest client — the payload reaches the daemon", () => {
@@ -134,6 +134,6 @@ describe("ingest client — the ledger advances on what the daemon acknowledged"
 
     expect(client.snapshot[0]?.state).toBe("complete");
     expect(client.snapshot[0]?.refusal).toBeUndefined();
-    expect(consoleTripwires.totalFiringCount).toBe(0);
+    expect(windowTripwires.totalFiringCount).toBe(0);
   });
 });

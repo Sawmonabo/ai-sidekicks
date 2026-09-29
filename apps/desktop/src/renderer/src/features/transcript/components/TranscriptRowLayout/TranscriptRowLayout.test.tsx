@@ -1,4 +1,4 @@
-// The ledger row's three load-bearing decisions, pinned.
+// The transcript row's three load-bearing decisions, pinned.
 //
 // Two of them are about attribution and one is about provenance, and all three fail
 // in ways a screenshot would not catch:
@@ -16,7 +16,7 @@
 //
 // And one cost claim, checked the only way a cost claim can be: by counting calls.
 // `formatClockTime` builds a fresh `Intl.DateTimeFormat` per call, and this row is
-// what every ledger surface in the console is made of, so the gutter reading is
+// what every transcript surface in the console is made of, so the gutter reading is
 // memoized on the instant. The suite spies the real formatter rather than a stand-in
 // — `{ spy: true }` keeps the implementation, so every other case here still reads
 // the true string.
@@ -24,9 +24,9 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { ACTOR_HUE_STEPS } from "@renderer/styles/palette.js";
-import { actorHueTokenName } from "@renderer/styles/tokens.js";
-import { LedgerRow } from "./TranscriptRowLayout.js";
+import { HUE_WHEEL_STEPS } from "@renderer/styles/palette.js";
+import { formatHueWheelTokenName } from "@renderer/styles/tokens.js";
+import { TranscriptRowLayout } from "./TranscriptRowLayout.js";
 import { formatClockTime } from "@renderer/lib/wire-figures.js";
 
 vi.mock(import("@renderer/lib/wire-figures.js"), { spy: true });
@@ -38,22 +38,24 @@ function renderRow(element: React.JSX.Element): HTMLElement {
   const { container } = render(element);
   const row = container.firstElementChild;
   if (!(row instanceof HTMLElement)) {
-    throw new Error("LedgerRow rendered no element");
+    throw new Error("TranscriptRowLayout rendered no element");
   }
   return row;
 }
 
 function edgeOf(row: HTMLElement): HTMLElement {
-  const edge = row.querySelector(".meridian-ledger-row__edge");
+  const edge = row.querySelector(".meridian-transcript-row-layout__edge");
   if (!(edge instanceof HTMLElement)) {
-    throw new Error("LedgerRow rendered no attribution edge");
+    throw new Error("TranscriptRowLayout rendered no attribution edge");
   }
   return edge;
 }
 
-function basicRow(overrides: Partial<React.ComponentProps<typeof LedgerRow>> = {}): HTMLElement {
+function basicRow(
+  overrides: Partial<React.ComponentProps<typeof TranscriptRowLayout>> = {},
+): HTMLElement {
   return renderRow(
-    <LedgerRow
+    <TranscriptRowLayout
       agentHueStep={0}
       occurredAtIso={OCCURRED_AT}
       authorLabel="Ada"
@@ -63,8 +65,8 @@ function basicRow(overrides: Partial<React.ComponentProps<typeof LedgerRow>> = {
   );
 }
 
-describe("LedgerRow — the row is a work-log line, named by its author", () => {
-  it("renders an article labelled by the actor element", () => {
+describe("TranscriptRowLayout — the row is a work-log line, named by its author", () => {
+  it("renders an article labeled by the actor element", () => {
     const row = basicRow();
     expect(row.tagName).toBe("ARTICLE");
 
@@ -75,25 +77,25 @@ describe("LedgerRow — the row is a work-log line, named by its author", () => 
   });
 });
 
-describe("LedgerRow — attribution fails closed rather than into someone else's hue", () => {
+describe("TranscriptRowLayout — attribution fails closed rather than into someone else's hue", () => {
   it("carries the user's own hue token for a step on the wheel", () => {
     const row = basicRow({ agentHueStep: 7 });
     expect(edgeOf(row).style.getPropertyValue("--meridian-row-hue")).toBe(
-      `var(--meridian-${actorHueTokenName(7)})`,
+      `var(--meridian-${formatHueWheelTokenName(7)})`,
     );
-    expect(row.classList.contains("meridian-ledger-row--unattributed")).toBe(false);
+    expect(row.classList.contains("meridian-transcript-row-layout--unattributed")).toBe(false);
   });
 
   it("refuses to wrap or clamp a step that is off the wheel", () => {
-    const offWheelSteps = [ACTOR_HUE_STEPS, ACTOR_HUE_STEPS + 3, -1, 1.5, Number.NaN];
-    const onWheelHues = Array.from({ length: ACTOR_HUE_STEPS }, (_unused, step) =>
+    const offWheelSteps = [HUE_WHEEL_STEPS, HUE_WHEEL_STEPS + 3, -1, 1.5, Number.NaN];
+    const onWheelHues = Array.from({ length: HUE_WHEEL_STEPS }, (_unused, step) =>
       edgeOf(basicRow({ agentHueStep: step })).style.getPropertyValue("--meridian-row-hue"),
     );
 
     for (const step of offWheelSteps) {
       const row = basicRow({ agentHueStep: step });
       const hue = edgeOf(row).style.getPropertyValue("--meridian-row-hue");
-      expect(row.classList.contains("meridian-ledger-row--unattributed")).toBe(true);
+      expect(row.classList.contains("meridian-transcript-row-layout--unattributed")).toBe(true);
       expect(hue).toBe("var(--meridian-edge-strong)");
       // The control that names the defect: a modulo wrap would land step 12 on
       // step 0's hue and step 15 on step 3's, and both would still render.
@@ -102,7 +104,7 @@ describe("LedgerRow — attribution fails closed rather than into someone else's
 
     // ...and the on-wheel hues really are twelve distinct values, so the assertion
     // above is checking a populated set rather than an empty one.
-    expect(new Set(onWheelHues).size).toBe(ACTOR_HUE_STEPS);
+    expect(new Set(onWheelHues).size).toBe(HUE_WHEEL_STEPS);
   });
 
   it("keeps the hue off the body text by putting it only on the edge", () => {
@@ -112,9 +114,11 @@ describe("LedgerRow — attribution fails closed rather than into someone else's
   });
 });
 
-describe("LedgerRow — no formatted figure hides the value the daemon sent", () => {
+describe("TranscriptRowLayout — no formatted figure hides the value the daemon sent", () => {
   it("shows the clock reading and carries the exact instant in `title`", () => {
-    const gutterFigure = basicRow().querySelector(".meridian-ledger-row__gutter .meridian-figure");
+    const gutterFigure = basicRow().querySelector(
+      ".meridian-transcript-row-layout__gutter .meridian-figure",
+    );
     expect(gutterFigure?.getAttribute("title")).toBe(OCCURRED_AT);
     expect(gutterFigure?.textContent).toBe(formatClockTime(OCCURRED_AT));
     // The control: the visible text is a READING, so it must not be the wire value
@@ -127,7 +131,7 @@ describe("LedgerRow — no formatted figure hides the value the daemon sent", ()
     formatter.mockClear();
 
     const { rerender, container } = render(
-      <LedgerRow
+      <TranscriptRowLayout
         agentHueStep={0}
         occurredAtIso={OCCURRED_AT}
         authorLabel="Ada"
@@ -141,7 +145,7 @@ describe("LedgerRow — no formatted figure hides the value the daemon sent", ()
     // and none of them moving the instant the row is stamped with.
     for (const kindLabel of ["tool.invoked", "tool.result"]) {
       rerender(
-        <LedgerRow
+        <TranscriptRowLayout
           agentHueStep={0}
           occurredAtIso={OCCURRED_AT}
           authorLabel="Ada"
@@ -150,13 +154,15 @@ describe("LedgerRow — no formatted figure hides the value the daemon sent", ()
       );
     }
     // The control that the re-renders were real: the row's own text moved.
-    expect(container.querySelector(".meridian-ledger-row__kind")?.textContent).toBe("tool.result");
+    expect(container.querySelector(".meridian-transcript-row-layout__kind")?.textContent).toBe(
+      "tool.result",
+    );
     expect(formatter).toHaveBeenCalledTimes(1);
 
     // ...and the memo is keyed on the instant rather than frozen at mount, so a row
     // whose instant moves is re-read rather than showing the moment before it.
     rerender(
-      <LedgerRow
+      <TranscriptRowLayout
         agentHueStep={0}
         occurredAtIso={LATER_INSTANT}
         authorLabel="Ada"
@@ -165,29 +171,30 @@ describe("LedgerRow — no formatted figure hides the value the daemon sent", ()
     );
     expect(formatter).toHaveBeenCalledTimes(2);
     expect(
-      container.querySelector(".meridian-ledger-row__gutter .meridian-figure")?.textContent,
+      container.querySelector(".meridian-transcript-row-layout__gutter .meridian-figure")
+        ?.textContent,
     ).toBe(formatter.mock.results[1]?.value);
   });
 
   it("renders the event kind mono and verbatim", () => {
     const kind = basicRow({ kindLabel: "  usage.context_compacted  " }).querySelector(
-      ".meridian-ledger-row__kind .meridian-figure--wire",
+      ".meridian-transcript-row-layout__kind .meridian-figure--wire",
     );
     expect(kind?.textContent).toBe("  usage.context_compacted  ");
   });
 });
 
-describe("LedgerRow — superseded rows and the revealed footer", () => {
+describe("TranscriptRowLayout — superseded rows and the revealed footer", () => {
   it("marks a superseded row in its class and in visible text", () => {
     const row = basicRow({ isSuperseded: true });
-    expect(row.classList.contains("meridian-ledger-row--superseded")).toBe(true);
-    expect(row.querySelector(".meridian-ledger-row__superseded-mark")?.textContent).toBe(
+    expect(row.classList.contains("meridian-transcript-row-layout--superseded")).toBe(true);
+    expect(row.querySelector(".meridian-transcript-row-layout__superseded-mark")?.textContent).toBe(
       "Superseded",
     );
 
     const ordinary = basicRow();
-    expect(ordinary.classList.contains("meridian-ledger-row--superseded")).toBe(false);
-    expect(ordinary.querySelector(".meridian-ledger-row__superseded-mark")).toBeNull();
+    expect(ordinary.classList.contains("meridian-transcript-row-layout--superseded")).toBe(false);
+    expect(ordinary.querySelector(".meridian-transcript-row-layout__superseded-mark")).toBeNull();
   });
 
   it("renders the footer into the tree so Tab can reach it, and omits it when empty", () => {
@@ -195,9 +202,9 @@ describe("LedgerRow — superseded rows and the revealed footer", () => {
     // element is IN the tree while hidden. A footer conditionally mounted on hover
     // is unreachable by keyboard, which is the failure rule 7's reveal must avoid.
     const withFooter = basicRow({ footer: <button type="button">Edit</button> });
-    expect(withFooter.querySelector(".meridian-ledger-row__footer button")?.textContent).toBe(
-      "Edit",
-    );
-    expect(basicRow().querySelector(".meridian-ledger-row__footer")).toBeNull();
+    expect(
+      withFooter.querySelector(".meridian-transcript-row-layout__footer button")?.textContent,
+    ).toBe("Edit");
+    expect(basicRow().querySelector(".meridian-transcript-row-layout__footer")).toBeNull();
   });
 });

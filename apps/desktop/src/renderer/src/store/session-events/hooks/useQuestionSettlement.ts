@@ -8,7 +8,7 @@ import { useMemo } from "react";
 
 import { useSessionPartition } from "../../session/hooks/useOpenSessionStore.js";
 import type { SessionStore } from "../../session/session-store.js";
-import type { DriverAskReading, QuestionSettlement } from "../question-reading.js";
+import type { QuestionReading, QuestionSettlement } from "../question-reading.js";
 import { findQuestionSettlement } from "../question-settlement-projection.js";
 
 /**
@@ -17,7 +17,7 @@ import { findQuestionSettlement } from "../question-settlement-projection.js";
  */
 export function useQuestionSettlement(
   sessionStore: SessionStore,
-  ask: DriverAskReading,
+  ask: QuestionReading,
 ): QuestionSettlement | undefined {
   const questions = useSessionPartition(sessionStore, "question");
   return useMemo(() => findQuestionSettlement(questions, ask), [questions, ask]);

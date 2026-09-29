@@ -12,7 +12,7 @@
 
 import { render } from "@testing-library/react";
 import { StrictMode, createElement, type ReactElement } from "react";
-import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { ManualClock } from "@renderer/lib/clock.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import { bridgeOnClock } from "@test/helpers/fixture-bridge.js";
@@ -35,7 +35,7 @@ export const OTHER_HOSTED_ARTIFACT_ID = "artifact-attachment-02";
  * reader for that reason instead of the one the case is about.
  */
 export interface PayloadHostSubject {
-  readonly bridge: ConsoleBridge;
+  readonly bridge: PlatformBridge;
   readonly sessionStore: SessionStore;
   readonly operations: ArtifactOperations;
   /** The clock every subsystem under the host reads. `readThrough` moves it. */

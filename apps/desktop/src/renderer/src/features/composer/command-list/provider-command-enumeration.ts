@@ -19,7 +19,7 @@
 // writer is what keeps "when is this read live" a question with one answer.
 //
 // THE KEY INCLUDES THE BRIDGE, BECAUSE THE BRIDGE IS PART OF WHICH BINDING THIS IS.
-// `DesktopBridgeProvider` can replace its bridge under a composer that stays addressed
+// `PlatformBridgeProvider` can replace its bridge under a composer that stays addressed
 // to the same session and agent, and a key of session and agent alone reads that as
 // "nothing moved" — so the surface would be served the OLD bridge's catalog, which
 // breaks the routing rule this holder exists to keep. The key is therefore compared by
@@ -48,7 +48,7 @@
 
 import { ReadScope } from "@renderer/lib/reads/read-scope.js";
 import { settleEnumeration, type ProviderCommandReadState } from "./provider-command-read.js";
-import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import {
   composeCommandList,
   selectAddressedBindingGroup,
@@ -58,7 +58,7 @@ import {
 
 /** Which binding an enumeration was read under. A change discards before it re-reads. */
 export interface ProviderCommandReadKey {
-  readonly bridge: ConsoleBridge;
+  readonly bridge: PlatformBridge;
   readonly sessionId: string;
   readonly agentId: string;
 }
@@ -169,7 +169,7 @@ export class ProviderCommandEnumeration {
    * that into the key would re-read the enumeration on every turn; what it must move
    * is which group is READ OUT, which is exactly what selecting here does. Both readers
    * of this enumeration take the same selection, so the list a person saw and the
-   * name the send path recognises name one binding.
+   * name the send path recognizes name one binding.
    */
   public publishedEntryNamed(
     commandName: string,

@@ -110,7 +110,7 @@ describe("the hashed body — the entry record", () => {
   });
 
   it("refuses an unsupported start mode by name rather than defaulting it", () => {
-    // The pin. A reader that dropped an unrecognised entry left the daemon to
+    // The pin. A reader that dropped an unrecognized entry left the daemon to
     // materialize `manual`, so a definition its author expects to run on a schedule
     // imported as one that runs when somebody presses a button — a change of WHEN the
     // workflow runs, reported as a success.

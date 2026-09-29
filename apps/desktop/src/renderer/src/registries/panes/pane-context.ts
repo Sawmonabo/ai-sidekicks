@@ -1,8 +1,8 @@
 // What a pane body is handed, below every module that hands it one.
 //
 // HOISTED OUT OF `pane-registry.ts`, and the reason is a cycle rather than tidiness. The
-// deck's board mounts a reserved frame while a loader-backed body is in flight, so the
-// registry reaches `PendingPaneBody.tsx`, which draws `ConsolePaneChrome.tsx` — and both
+// pane layout's board mounts a reserved frame while a loader-backed body is in flight, so the
+// registry reaches `PendingPaneBody.tsx`, which draws `PaneFrame.tsx` — and both
 // of those name the context a pane is mounted with, which the registry used to declare.
 // That is a back-edge from a module the registry imports to the registry itself, and the
 // layering gate counts type edges (`tsPreCompilationDeps`) precisely so a cycle cannot
@@ -12,12 +12,12 @@
 //
 // It imports nothing from this family, which is the property that makes it a floor
 // rather than one more node in the graph.
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { type DraftStore } from "@renderer/store/draft-store.js";
 import { type UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
-import { type FrameStore } from "@renderer/store/window/window-store.js";
+import { type WindowStore } from "@renderer/store/window/window-store.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
-import { type ConsolePaneAddress } from "@renderer/routing/panes/pane-address.js";
+import { type PaneAddress } from "@renderer/routing/panes/pane-address.js";
 
 /**
  * Everything a pane body is handed. Nothing here is global; all of it is per pane,
@@ -29,42 +29,42 @@ import { type ConsolePaneAddress } from "@renderer/routing/panes/pane-address.js
  * context on its `kind` narrows its `entity` with it — the property the union
  * exists for, carried through to every registered body.
  */
-export type ConsolePaneContext = ConsolePaneAddress & ConsolePaneBinding;
+export type PaneContext = PaneAddress & PaneBinding;
 
 /** What a pane is bound to, beside the address it was opened at. */
-interface ConsolePaneBinding {
-  /** This pane's identity in the deck, stable across a layout restore. */
+interface PaneBinding {
+  /** This pane's identity in the pane layout, stable across a layout restore. */
   readonly paneId: string;
-  readonly bridge: ConsoleBridge;
-  readonly frameStore: FrameStore;
+  readonly bridge: PlatformBridge;
+  readonly frameStore: WindowStore;
   /** The session store for the pane's session, or `undefined` on a bare route. */
   readonly sessionStore: SessionStore | undefined;
   readonly uiStateStore: UiStateStore;
   readonly draftStore: DraftStore;
   /**
-   * The pane this one was opened FROM, when the deck linked the two — a value
+   * The pane this one was opened FROM, when the pane layout linked the two — a value
    * passed in and never a handle held, so a linked pane stays independently
    * movable, detachable, and closable.
    *
    * A required member carrying `undefined` when unlinked, on `sessionStore`'s
-   * precedent: an optional member would read identically whether the deck decided
+   * precedent: an optional member would read identically whether the pane layout decided
    * there was no source pane or forgot to pass one, and only one of those is a
    * deliberate answer.
    *
-   * WHETHER A RESTORED LAYOUT RESTORES THE LINK IS THE DECK'S CALL, AND IT IS
+   * WHETHER A RESTORED LAYOUT RESTORES THE LINK IS THE PANE LAYOUT'S CALL, AND IT IS
    * ALREADY EXPRESSIBLE. `persistence/value-classes.ts`'s `layout` class admits a
    * per-pane record whose members are numbers, booleans, and identifier-shaped
-   * strings, and a pane id is identifier-shaped — so a deck that writes the link
+   * strings, and a pane id is identifier-shaped — so a pane layout that writes the link
    * into its layout entry gets it back on restore, through the closed value-class
    * set exactly as it stands. No class is widened here, and nothing on this
-   * substrate writes such a member: until the deck that owns the layout writes one,
+   * substrate writes such a member: until the pane layout writes one,
    * a restored pane comes back unlinked.
    */
   readonly linkedSourcePaneId: string | undefined;
   /**
    * The focus ring's color, as a `var()` reference produced by
    * `tokens/tokenReference`. The hue answers "who" everywhere, pane focus rings
-   * included. `undefined` where the deck has no actor to attribute the pane to, which
+   * included. `undefined` where the pane layout has no actor to attribute the pane to, which
    * is the fail-closed answer: an unattributed pane takes the neutral boundary rather
    * than someone else's hue.
    */

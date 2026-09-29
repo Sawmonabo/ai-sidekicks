@@ -131,7 +131,7 @@ import {
 import {
   OutboundFrameTripwire,
   OutboundTextFrameWriter,
-  ProviderBindingQuarantine,
+  RuntimeBindingQuarantine,
   UNRECOGNIZED_TURN_EVIDENCE,
   composeSupersededDeliveryRunFailure,
   composeTextNeutralizationRunFailure,
@@ -185,7 +185,7 @@ const UNDESCRIBED_FAILURE_DETAIL =
 // "Declared" means exactly this: the driver states, up front, how long it will
 // wait for the provider's own typed compaction evidence before reporting the
 // OPERATION failed. It is not a guess at how long a compaction takes and it is
-// not a timeout on the provider — the provider is never cancelled, and a
+// not a timeout on the provider — the provider is never canceled, and a
 // boundary frame that arrives after this elapses still travels its ordinary
 // route and still produces its `usage.context_compacted` row.
 //
@@ -2250,7 +2250,7 @@ export interface ClaudeSessionLifecycleDependencies {
    * turns into the `transcript_replay` flag — a composed daemon binds this as a
    * closure over that probe and the executable path the capability read
    * resolved. One reading serving both is what keeps the declared flag and this
-   * driver's behaviour from disagreeing about one build.
+   * driver's behavior from disagreeing about one build.
    *
    * OPTIONAL, and absent means every replay refuses — the honest state at this
    * pin, where no published build carries a seeding surface.
@@ -2429,7 +2429,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
   readonly #sessionSlots: Map<SessionId, ClaudeSessionSlot> = new Map();
   readonly #sessionIdByRunId: Map<RunId, SessionId> = new Map();
   // The intended-close producer half. One gate per session, installed at establishment
-  // and signalled at the top of `closeSession`; the terminal-emission boundary
+  // and signaled at the top of `closeSession`; the terminal-emission boundary
   // in `event-normalizer.ts` is the CONSUMER that stamps the flag, because that
   // is the module that owns the terminal frame.
   //
@@ -2458,7 +2458,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
   // lifetime is this object's.
   readonly #outboundTextFrameWriter: OutboundTextFrameWriter;
   readonly #outboundFrameTripwire: OutboundFrameTripwire;
-  readonly #providerBindingQuarantine: ProviderBindingQuarantine = new ProviderBindingQuarantine();
+  readonly #runtimeBindingQuarantine: RuntimeBindingQuarantine = new RuntimeBindingQuarantine();
   readonly #onTextNeutralizationFailure: (
     sessionId: SessionId,
     runId: RunId,
@@ -2544,7 +2544,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
     this.#outboundFrameTripwire = new OutboundFrameTripwire({
       isScopeRetired: (scopeKey: string): boolean =>
         !this.#sessionSlots.has(scopeKey as SessionId) ||
-        this.#providerBindingQuarantine.isSessionDisposed(scopeKey),
+        this.#runtimeBindingQuarantine.isSessionDisposed(scopeKey),
     });
   }
 
@@ -2684,7 +2684,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
       return this.#buildResumeFailure(classifyRecoveryCondition(error), describeFailure(error));
     }
 
-    // The identity gate. Claude answers a resume it cannot honour (a
+    // The identity gate. Claude answers a resume it cannot honor (a
     // working-directory mismatch is the documented case) by starting a FRESH
     // session, which announces its own id. Adopting that session would be the
     // silent replacement.
@@ -2784,7 +2784,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
     // words. Asked here, the refusal names the neutralization instead. Released
     // at establishment, so the promised recovery — a fresh spawn under this id —
     // is the thing that lifts it.
-    this.#providerBindingQuarantine.assertSessionAttachable(dispatch.sessionId);
+    this.#runtimeBindingQuarantine.assertSessionAttachable(dispatch.sessionId);
 
     const live = this.#findLiveSession(dispatch.sessionId);
     if (live === undefined) {
@@ -3085,8 +3085,8 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
     // cannot reach the condemned process by the other door. `startRun` resolves
     // a session, so a run-keyed refusal alone would leave the next run free to
     // dispatch onto the same channel.
-    this.#providerBindingQuarantine.disposeSession(ruling.sessionId);
-    this.#providerBindingQuarantine.disposeRun(ruling.runId, ruling.sessionId);
+    this.#runtimeBindingQuarantine.disposeSession(ruling.sessionId);
+    this.#runtimeBindingQuarantine.disposeRun(ruling.runId, ruling.sessionId);
     this.#reportTextNeutralizationFailure(
       ruling.sessionId,
       ruling.runId,
@@ -4166,7 +4166,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
     // a quiet `undefined` would read as "this run has no channel yet" — the one
     // reading that invites a retry into the same swallow. The refusal carries
     // the SAME code the run terminal did, so one cause reads as one cause.
-    this.#providerBindingQuarantine.assertRunAttachable(runId);
+    this.#runtimeBindingQuarantine.assertRunAttachable(runId);
     const sessionId = this.#sessionIdByRunId.get(runId);
     if (sessionId === undefined) {
       return undefined;
@@ -4820,7 +4820,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
     // quarantine names a BINDING, not an identifier: a fresh channel now answers
     // for this session id, so the refusal a prior trip installed has outlived
     // the process it condemned.
-    this.#providerBindingQuarantine.releaseSession(live.sessionId);
+    this.#runtimeBindingQuarantine.releaseSession(live.sessionId);
   }
 
   // The listener half of registration, separated so the slot rollback above has
@@ -4888,7 +4888,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
     // Base registers and the session's own thread identity, established before
     // any frame can be metered against them.
     this.#bindSessionThread(band, live.sessionId, live.providerSessionId, live.establishment);
-    // Through the same accessor `closeSession` uses, so a close signalled while
+    // Through the same accessor `closeSession` uses, so a close signaled while
     // this establishment was in flight finds its latch still set rather than
     // replaced by a fresh gate.
     this.#intendedCloseGateFor(live.sessionId);
@@ -5098,9 +5098,9 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
         // swallowed the text by either door. The run key alone is not enough:
         // `startRun` resolves a SESSION, so a run-keyed refusal would leave the
         // next run free to dispatch onto the same channel.
-        this.#providerBindingQuarantine.disposeSession(sessionId);
+        this.#runtimeBindingQuarantine.disposeSession(sessionId);
       }
-      this.#providerBindingQuarantine.disposeRun(runId, sessionId);
+      this.#runtimeBindingQuarantine.disposeRun(runId, sessionId);
       this.#reportTextNeutralizationFailure(
         sessionId,
         runId,
@@ -5151,10 +5151,10 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
         continue;
       }
       const runId = this.#runIdBoundToSession(ruling.joinKey, sessionId);
-      if (runId === undefined || this.#providerBindingQuarantine.isRunDisposed(runId)) {
+      if (runId === undefined || this.#runtimeBindingQuarantine.isRunDisposed(runId)) {
         continue;
       }
-      this.#providerBindingQuarantine.disposeRun(runId, sessionId);
+      this.#runtimeBindingQuarantine.disposeRun(runId, sessionId);
       this.#reportTextNeutralizationFailure(
         sessionId,
         runId,

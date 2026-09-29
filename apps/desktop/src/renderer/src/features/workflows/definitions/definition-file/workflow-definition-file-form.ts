@@ -47,7 +47,7 @@
 // marker apart from a version string nothing could have stored.
 //
 // AND THE MARKER IS NOT SENT. `WorkflowDefinitionCreateBody` carries no schema member:
-// it is a property of the FILE, so it is read to recognise one and then dropped, and a
+// it is a property of the FILE, so it is read to recognize one and then dropped, and a
 // parser that smuggled it into the request would be widening a registered shape.
 //
 // AND THIS MODULE IS OFF THE INITIAL IMPORT GRAPH, which is why the parser is imported
@@ -155,7 +155,7 @@ export interface WorkflowDefinitionImportTarget {
  */
 export function serializeDefinitionFile(body: WorkflowVersionBody): string {
   const fileDocument = new Document({}, { version: "1.2", schema: "core" });
-  // Double-quoted deliberately and not left to the writer's own judgement: the value is
+  // Double-quoted deliberately and not left to the writer's own judgment: the value is
   // a string, and the quoting is what keeps it one on the way back in.
   const marker = new Scalar(body.schemaVersion);
   marker.type = Scalar.QUOTE_DOUBLE;
@@ -171,7 +171,7 @@ export function serializeDefinitionFile(body: WorkflowVersionBody): string {
  * Read pasted text as a definition file, and compose the create body it stands for.
  *
  * THE TARGET IS THE CALLER'S AND NOT THE FILE'S. A file carries no session and no
- * scope — it is bytes that travelled between machines — and a parser that took a scope
+ * scope — it is bytes that traveled between machines — and a parser that took a scope
  * out of one would let a pasted file decide where it lands, which is the decision the
  * daemon's operator-scope authorization is keyed on. So the caller states the target
  * and the file states the definition.

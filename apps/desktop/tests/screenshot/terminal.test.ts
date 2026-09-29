@@ -11,7 +11,7 @@ import { mountTerminalPane } from "../helpers/feature-mounts/terminal.js";
 import { captureSettled } from "./settled-capture.js";
 
 import { installMeridianTokens } from "@renderer/app/token-installation.js";
-import { CONSOLE_SCHEMES } from "@renderer/styles/tokens.js";
+import { COLOR_SCHEMES } from "@renderer/styles/tokens.js";
 
 beforeEach(() => {
   document.location.hash = "";
@@ -24,7 +24,7 @@ afterEach(async () => {
 });
 
 describe("screenshot — the terminal pane", () => {
-  for (const scheme of CONSOLE_SCHEMES) {
+  for (const scheme of COLOR_SCHEMES) {
     it(`renders terminal-pane-held-lease in the ${scheme} scheme`, async () => {
       // Through the system preference rather than a stamped attribute: the token sheet's
       // dark layer is a `prefers-color-scheme` block, which is what a default install

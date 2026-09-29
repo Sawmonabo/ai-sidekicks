@@ -37,7 +37,7 @@ export function TranscriptFeedHeader(props: TranscriptFeedHeaderProps): React.JS
         />
       ) : null}
       {/* Two mounts and two subjects, because the two cuts are two facts with two
-          exits: nothing brings a pruned row back, and opening a chapter header brings
+          exits: nothing brings a pruned row back, and opening a run group header brings
           the folded ones. One mount carrying both states would say the same sentence
           twice over a subject nobody could act on. */}
       <PartialRead
@@ -46,7 +46,7 @@ export function TranscriptFeedHeader(props: TranscriptFeedHeaderProps): React.JS
       />
       <PartialRead
         states={[matchWalkReading(find.result.totalMatchCount, find.foldedAwayMatchCount)]}
-        subject="the run chapters this ledger has folded"
+        subject="the run groups this transcript has folded"
       />
     </>
   );

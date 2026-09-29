@@ -1,5 +1,5 @@
-// The logs a case needs when it is about a CHAPTER — a run that ended, a run that is
-// still going, a folded chapter's messages, and a seam.
+// The logs a case needs when it is about a RUN GROUP — a run that ended, a run that is
+// still going, a folded run group's messages, and a seam.
 //
 // SPLIT FROM `transcript-logs.test-support.ts`, which keeps the fixture vocabulary
 // and the plain logs. The two files hold two subjects: a case about the cap, a
@@ -7,14 +7,14 @@
 // shaped so a FOLD rule can fail over it — two lanes rather than one, a boundary with
 // a different actor from its run, a receipt that has to stay under its header. Kept
 // in one file the pile was over four hundred lines and a reader looking for the
-// terminal-chapter log met eight builders on the way.
+// terminal run group log met eight builders on the way.
 //
 // The session id, the instants and the row ids are still that module's. A log written
 // against its own clock would be a second fixture epoch, which is the thing a shared
 // stamp exists to prevent.
 
 import { SessionStore } from "@renderer/store/session/session-store.js";
-import { type ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
+import { type ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 import {
   LIVE_RUN_ID,
   SESSION_ID,
@@ -27,13 +27,13 @@ import {
  * A store holding one run that ENDED and one that is still going.
  *
  * Two lanes rather than one because the fold's rule is a difference between them:
- * the terminal chapter draws a header and folds to it and its receipt, the live one
+ * the terminal run group draws a header and folds to it and its receipt, the live one
  * draws none and keeps every row on screen. A single-lane log would pass over a fold
  * that folded everything.
  */
 export function openSessionStoreWithTerminalRunGroup(): SessionStore {
   const sessionStore = new SessionStore({ sessionId: SESSION_ID });
-  sessionStore.initialise({ cursor: -1, entities: [] });
+  sessionStore.initialize({ cursor: -1, entities: [] });
   sessionStore.applyBatch([
     {
       id: transcriptFixtureEventId(0),
@@ -95,12 +95,12 @@ export const FOLDED_RUN_GROUP_MESSAGE_ROW_COUNT = 3;
  *
  * Shaped for the narrowing's ordering and for nothing else. The finished run's
  * members are `assistant_output` and the live run's is `tool_activity`, so the two
- * families name the two chapters: narrowing to the first can only be satisfied from
- * inside a chapter that is folded shut by default, and narrowing to the second
- * empties that chapter entirely. A single-family log would pass over a narrowing
+ * families name the two run groups: narrowing to the first can only be satisfied from
+ * inside a run group that is folded shut by default, and narrowing to the second
+ * empties that run group entirely. A single-family log would pass over a narrowing
  * that never looked inside a fold at all.
  */
-export function foldedMessageRunGroupLog(): readonly ConsoleSessionEvent[] {
+export function foldedMessageRunGroupLog(): readonly ProjectedSessionEvent[] {
   const messageRows = Array.from(
     { length: FOLDED_RUN_GROUP_MESSAGE_ROW_COUNT },
     (_unused, index) => ({
@@ -150,14 +150,14 @@ export function foldedMessageRunGroupLog(): readonly ConsoleSessionEvent[] {
 /**
  * A store whose one run is still live and carries a compaction seam.
  *
- * Live on purpose: the seam row and the chapter fold are two different dispatches in
- * the same renderer, and a seam inside a folded chapter would be hidden by the fold
+ * Live on purpose: the seam row and the run group fold are two different dispatches in
+ * the same renderer, and a seam inside a folded run group would be hidden by the fold
  * rather than drawn — which would make a case about the seam pass or fail for the
  * fold's reasons.
  */
 export function openSessionStoreWithSystemMessage(): SessionStore {
   const sessionStore = new SessionStore({ sessionId: SESSION_ID });
-  sessionStore.initialise({ cursor: -1, entities: [] });
+  sessionStore.initialize({ cursor: -1, entities: [] });
   sessionStore.applyBatch([
     {
       id: transcriptFixtureEventId(0),

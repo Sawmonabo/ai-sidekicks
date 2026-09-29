@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 
-import { consoleClockFor } from "@renderer/services/platform/hooks/useClock.js";
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { resolveBridgeClock } from "@renderer/services/platform/hooks/useClock.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { CONTROLLER_DISPOSAL } from "@renderer/lib/subject-scoped/subject-scoped-disposal.js";
 import { useSubjectScopedResource } from "@renderer/hooks/subject-scoped/useSubjectScopedResource.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
@@ -33,14 +33,14 @@ import { WorkflowRunLiveRefresh } from "../run-live-refresh.js";
  * @consumedBy the run pane's live refresh
  */
 export function useWorkflowRunLiveRefresh(
-  bridge: ConsoleBridge,
+  bridge: PlatformBridge,
   sessionStore: SessionStore | undefined,
   workflowRunId: string | undefined,
 ): number {
   // The window's own clock, resolved once per bridge — `use-artifact-reading.ts`'s
   // shape. A reading that minted a clock of its own would coalesce on wall time while
   // the world it watches ran on the window's.
-  const clock = useMemo(() => consoleClockFor(bridge), [bridge]);
+  const clock = useMemo(() => resolveBridgeClock(bridge), [bridge]);
   const openRounds = useCallback(
     () => new WorkflowRunLiveRefresh({ clock, sessionStore, workflowRunId }),
     [clock, sessionStore, workflowRunId],

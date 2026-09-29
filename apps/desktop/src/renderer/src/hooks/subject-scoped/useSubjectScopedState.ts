@@ -15,15 +15,15 @@
 //
 // A HOLDER DROPS A VALUE; A RESOURCE HAS TO BE DISPOSED, and that half is
 // deliberately not here. A caller whose value owns a subscription, a registry, or a
-// database connection takes `subject-scoped-resource.ts` instead: seeding runs during
+// database connection takes `useSubjectScopedResource.ts` instead: seeding runs during
 // the render, so a pass React DISCARDS still ran it, and the value that pass produced
 // is held by nothing a commit will ever clean up. This hook's `initial` is for a value
 // a drop releases.
 //
 // WHAT THIS IS NOT. It is not single-flight: whether an act may be dispatched at all
-// is `store/read/generation-latch.ts`, which a handler has to decide inside its own tick. It is
+// is `lib/reads/generation-latch.ts`, which a handler has to decide inside its own tick. It is
 // not a cache — nothing here survives the subject it was held for. And it is not a
-// scheduler; a burst collapsing into one read is `store/read/refresh-scheduler.ts`.
+// scheduler; a burst collapsing into one read is `lib/reads/refresh-scheduler.ts`.
 
 import {
   useCallback,
@@ -98,7 +98,7 @@ export function useSubjectScopedState<TValue>(
 /**
  * Subscribe React to an already-addressed holder, and hand back its two write moments.
  *
- * The React half of the hook above, split out because `subject-scoped-resource.ts`
+ * The React half of the hook above, split out because `useSubjectScopedResource.ts`
  * needs exactly this and differs only in what it does about the value's LIFETIME —
  * two copies of a subscription with their own equality rules is the second path this
  * family's one door exists to keep shut.

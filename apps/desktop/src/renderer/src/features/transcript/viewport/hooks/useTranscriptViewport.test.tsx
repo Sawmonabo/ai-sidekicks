@@ -2,7 +2,7 @@
 //
 // The controller's own cases drive it directly — `viewport-controller.test.ts` owns
 // the prune, the reading floor, and the refusals. What only THIS file can say is
-// that a mounted ledger ever re-asks: the reconcile effect keys on the row set and
+// that a mounted transcript ever re-asks: the reconcile effect keys on the row set and
 // the two activity flags, so a window the cap refused while somebody was reading
 // above the tail is re-asked only if something in the tree calls for it. Without the
 // second effect every case here passes the first half and fails the second, which is
@@ -26,7 +26,7 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { LEDGER_WINDOW_ROW_CAP } from "../../frame/frame-caps.js";
+import { TRANSCRIPT_WINDOW_ROW_CAP } from "../../frame/frame-caps.js";
 import { ManualClock } from "@renderer/lib/clock.js";
 import { TRANSCRIPT_TAIL_TOLERANCE_PX } from "../viewport-constants.js";
 import { useTranscriptViewport, type TranscriptViewportBinding } from "./useTranscriptViewport.js";
@@ -45,7 +45,7 @@ const TAIL_OFFSET_PX = CONTENT_HEIGHT_PX - VIEWPORT_HEIGHT_PX;
  */
 const NEAR_TAIL_OFFSET_PX = TAIL_OFFSET_PX - TRANSCRIPT_TAIL_TOLERANCE_PX / 2;
 const SETTLED_ROW_COUNT = 20;
-const OVER_CAP_ROW_COUNT = LEDGER_WINDOW_ROW_CAP + 40;
+const OVER_CAP_ROW_COUNT = TRANSCRIPT_WINDOW_ROW_CAP + 40;
 const CALM = { hasActiveTurn: false, isRevealDraining: false } as const;
 
 function syntheticRows(count: number): readonly ViewportRow[] {
@@ -112,7 +112,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("the ledger viewport binding — a prune the window refused", () => {
+describe("the transcript viewport binding — a prune the window refused", () => {
   it("is re-asked when the reader returns to the tail, with no new rows", () => {
     withLaidOutViewport();
     const { binding, surface } = mountBinding(syntheticRows(SETTLED_ROW_COUNT));
@@ -131,7 +131,7 @@ describe("the ledger viewport binding — a prune the window refused", () => {
     scrollTo(surface, TAIL_OFFSET_PX);
 
     expect(binding.result.current.snapshot.reading.mode).toBe("following");
-    expect(binding.result.current.snapshot.rows).toHaveLength(LEDGER_WINDOW_ROW_CAP);
+    expect(binding.result.current.snapshot.rows).toHaveLength(TRANSCRIPT_WINDOW_ROW_CAP);
   });
 
   it("negative control: a re-render that changes nothing leaves the reader's window whole", () => {
@@ -155,7 +155,7 @@ describe("the ledger viewport binding — a prune the window refused", () => {
   });
 });
 
-describe("the ledger viewport binding — a prune the write itself refused", () => {
+describe("the transcript viewport binding — a prune the write itself refused", () => {
   it("takes the rows once the write that vetoed them has finished", () => {
     // THE DEPENDENCY THIS CASE SPENDS. The retry effect keys on the reading mode,
     // the pin, and the last prune outcome. Here the reader never leaves the tail and
@@ -190,7 +190,7 @@ describe("the ledger viewport binding — a prune the write itself refused", () 
 
     expect(refusedUnderTheVeto).toBe("scroll-write");
     expect(binding.result.current.snapshot.reading.mode).toBe("following");
-    expect(binding.result.current.snapshot.rows).toHaveLength(LEDGER_WINDOW_ROW_CAP);
+    expect(binding.result.current.snapshot.rows).toHaveLength(TRANSCRIPT_WINDOW_ROW_CAP);
   });
 
   it("negative control: a glide that refuses nothing re-asks for no prune", () => {
@@ -217,7 +217,7 @@ describe("the ledger viewport binding — a prune the write itself refused", () 
   });
 });
 
-describe("the ledger viewport binding — a prune a pin held back", () => {
+describe("the transcript viewport binding — a prune a pin held back", () => {
   it("takes the rows when the pin lifts, with the reading mode unmoved", () => {
     // THE SECOND DEPENDENCY, spent the same way. Pinning history suppresses prune
     // and lifting it moves neither the row set, nor either activity flag, nor the
@@ -243,7 +243,7 @@ describe("the ledger viewport binding — a prune a pin held back", () => {
     });
 
     expect(binding.result.current.snapshot.reading.mode).toBe(pinnedReadingMode);
-    expect(binding.result.current.snapshot.rows).toHaveLength(LEDGER_WINDOW_ROW_CAP);
+    expect(binding.result.current.snapshot.rows).toHaveLength(TRANSCRIPT_WINDOW_ROW_CAP);
   });
 
   it("negative control: the window stays whole for as long as the pin is held", () => {

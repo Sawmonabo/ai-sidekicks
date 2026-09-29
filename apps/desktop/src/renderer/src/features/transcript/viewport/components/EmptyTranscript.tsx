@@ -1,7 +1,7 @@
-// What an empty ledger window draws.
+// What an empty transcript window draws.
 
 import { Nothing } from "@renderer/console/primitives/index.js";
-import { EMPTY_LEDGER_WORDS } from "../empty-transcript-words.js";
+import { EMPTY_TRANSCRIPT_WORDS } from "../empty-transcript-words.js";
 
 /** The window with nothing in it, in the console's own shape for an absence. */
 export function EmptyTranscript(): React.JSX.Element {
@@ -9,8 +9,8 @@ export function EmptyTranscript(): React.JSX.Element {
     <Nothing
       kind="empty"
       placement="surface"
-      title={EMPTY_LEDGER_WORDS.title}
-      detail={EMPTY_LEDGER_WORDS.detail}
+      title={EMPTY_TRANSCRIPT_WORDS.title}
+      detail={EMPTY_TRANSCRIPT_WORDS.detail}
     />
   );
 }

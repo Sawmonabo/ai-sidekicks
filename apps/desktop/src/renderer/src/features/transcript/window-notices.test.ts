@@ -2,14 +2,14 @@
 
 import { describe, expect, it } from "vitest";
 
-import { windowAbsenceNotice, windowAbsenceNotices } from "./window-notices.js";
+import { buildWindowNoticeText, buildWindowNoticeTexts } from "./window-notices.js";
 
 const SUBJECT = "entries";
 
 describe("window notices — what there is to say", () => {
   it("says nothing about a counted absence of zero", () => {
     expect(
-      windowAbsenceNotices(
+      buildWindowNoticeTexts(
         [
           { kind: "dropped", count: 0 },
           { kind: "duplicate-key", count: 0 },
@@ -20,7 +20,7 @@ describe("window notices — what there is to say", () => {
   });
 
   it("says every absence a window really has, in the caller's order", () => {
-    const notices = windowAbsenceNotices(
+    const notices = buildWindowNoticeTexts(
       [
         { kind: "dropped", count: 0 },
         { kind: "duplicate-key", count: 3 },
@@ -35,11 +35,11 @@ describe("window notices — what there is to say", () => {
   });
 
   it("keeps the countless notice, which a count filter alone would drop", () => {
-    expect(windowAbsenceNotices([{ kind: "never-received" }], SUBJECT)).toHaveLength(1);
+    expect(buildWindowNoticeTexts([{ kind: "never-received" }], SUBJECT)).toHaveLength(1);
   });
 
   it("formats the dropped count through the figures chokepoint", () => {
-    expect(windowAbsenceNotice({ kind: "dropped", count: 1200 }, SUBJECT).detail).toContain(
+    expect(buildWindowNoticeText({ kind: "dropped", count: 1200 }, SUBJECT).detail).toContain(
       "1,200",
     );
   });

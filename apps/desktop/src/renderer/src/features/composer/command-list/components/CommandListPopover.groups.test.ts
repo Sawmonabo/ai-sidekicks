@@ -1,4 +1,4 @@
-// The discovery list is two labelled groups, and the cursor still walks one sequence.
+// The discovery list is two labeled groups, and the cursor still walks one sequence.
 //
 // Its own suite rather than more cases in the popover's: those are about WHICH entries
 // reach the list and what a press answers with, and these are about the sectioning
@@ -7,7 +7,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { consoleCommands } from "@renderer/registries/commands/window-command-registry.js";
+import { commandRegistry } from "@renderer/registries/commands/window-command-registry.js";
 import {
   activeRow,
   agentPane,
@@ -27,7 +27,7 @@ const GROUPED_COMMAND_ID = "composer-discovery-groups.act";
 
 /** Register one console command, so both groups have something in them. */
 function registerConsoleCommand(): void {
-  consoleCommands.register({
+  commandRegistry.register({
     id: GROUPED_COMMAND_ID,
     title: "A console act",
     group: "Test",
@@ -65,7 +65,7 @@ function namesUnderGroup(container: HTMLElement, labelText: string): readonly st
 const PROVIDER_GROUP_LABEL = "Discovery, not runnable";
 const CONSOLE_GROUP_LABEL = "This console's commands — these run here";
 
-describe("CommandListPopover — the list is two labelled groups", () => {
+describe("CommandListPopover — the list is two labeled groups", () => {
   it("names the provider half 'discovery, not runnable' and the console half its own", async () => {
     registerConsoleCommand();
     const mounted = await mountComposer({
@@ -104,7 +104,7 @@ describe("CommandListPopover — the list is two labelled groups", () => {
 
   it("draws no group over an empty half", async () => {
     // No console command is registered here, so the console half has nothing in it —
-    // and a labelled section with no rows would assert a category the filtered
+    // and a labeled section with no rows would assert a category the filtered
     // catalog does not have.
     const mounted = await mountComposer({
       bridge: bridgeEnumerating(await scenarioBindingGroups()),

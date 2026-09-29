@@ -1,4 +1,4 @@
-// The ledger window's cap cycle: one prune, asked with every condition that can
+// The transcript window's cap cycle: one prune, asked with every condition that can
 // refuse it, and the re-ask a refusal owes.
 //
 // WHY THIS IS ITS OWN OBJECT. `viewport-controller.ts` is the wiring — it owns the
@@ -30,8 +30,8 @@
 import { IdleMemoryTrim, type IdleTrimPass } from "./idle-trim.js";
 import { type ReadingAnchor } from "../scroll/reading-anchor.js";
 import { type RowMeasurementTable } from "./row-measurement-table.js";
-import { type LedgerScrollController } from "../scroll/scroll-chokepoint.js";
-import { type ConsoleClock } from "@renderer/lib/clock.js";
+import { type ScrollController } from "../scroll/scroll-chokepoint.js";
+import { type Clock } from "@renderer/lib/clock.js";
 import { type ViewportConditions } from "./viewport-snapshot.js";
 import {
   type TranscriptWindow,
@@ -43,8 +43,8 @@ export interface ViewportPruneCycleOptions {
   readonly window: TranscriptWindow;
   readonly measurements: RowMeasurementTable;
   readonly anchor: ReadingAnchor;
-  readonly scroll: LedgerScrollController;
-  readonly clock: ConsoleClock;
+  readonly scroll: ScrollController;
+  readonly clock: Clock;
   /** Overridden by tests only; `frame-bounds.ts` owns the shipped dwell. */
   readonly idleTrimDwellMs?: number;
 }
@@ -61,13 +61,13 @@ export class ViewportPruneCycle {
   readonly #window: TranscriptWindow;
   readonly #measurements: RowMeasurementTable;
   readonly #anchor: ReadingAnchor;
-  readonly #scroll: LedgerScrollController;
+  readonly #scroll: ScrollController;
   /**
    * The time bound on what a pass leaves behind.
    *
    * OWNED HERE BECAUSE `run` IS THE ACTIVITY SIGNAL. The trim measures a quiet
-   * ledger against the clock, and this method is called once per reconcile — the
-   * frame's own definition of the ledger having moved. Holding it in the controller
+   * transcript against the clock, and this method is called once per reconcile — the
+   * frame's own definition of the transcript having moved. Holding it in the controller
    * would have meant a second reader of that same fact.
    */
   readonly #idleTrim: IdleMemoryTrim;
@@ -135,7 +135,7 @@ export class ViewportPruneCycle {
    * the pruned rows were.
    */
   public run(conditions: ViewportConditions): ViewportPruneCycleResult {
-    // Before anything else: the ledger has moved. If it had been still for a dwell,
+    // Before anything else: the transcript has moved. If it had been still for a dwell,
     // this is where the trim runs — the end of the quiet period, which is the moment
     // the tables it walks are known to be stale.
     this.#idleTrim.noteActivity();

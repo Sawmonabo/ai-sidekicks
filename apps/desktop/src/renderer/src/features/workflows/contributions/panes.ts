@@ -1,9 +1,6 @@
 // The workflows feature's pane kinds, `workflow-run` and `workflow-builder`.
 
-import {
-  type ConsolePaneRegistration,
-  type ConsolePaneRegistry,
-} from "@renderer/console/seats/index.js";
+import { type PaneRegistration, type PaneRegistry } from "@renderer/console/seats/index.js";
 
 /**
  * The feature's owner string, as the pane and screen registries' duplicate policy reads it.
@@ -21,14 +18,14 @@ export const WORKFLOWS_OWNER = "workflows";
  *
  * THE NARROWING AND ITS REFUSAL ARE THE SEAT'S, NOT THIS FAMILY'S. The registry hands
  * every body the whole context union and only one arm is each pane's; the mismatched
- * arm is unreachable through the deck and is rendered rather than thrown anyway,
+ * arm is unreachable through the pane layout and is rendered rather than thrown anyway,
  * because `core/refusal.ts`' rule is that a boundary refuses by name and leaves the
  * surface standing. Six families answering that once each is six sentences for one
  * case, which is what `paneBodyForKind` exists to prevent — applied by each body module
  * this table names rather than here, since a loader-form registration carries a
  * specifier and not a render.
  */
-const WORKFLOW_PANES: readonly ConsolePaneRegistration[] = [
+const WORKFLOW_PANES: readonly PaneRegistration[] = [
   {
     kind: "workflow-run",
     owner: WORKFLOWS_OWNER,
@@ -59,7 +56,7 @@ const WORKFLOW_PANES: readonly ConsolePaneRegistration[] = [
  * owns, and an auxiliary window composes a different subset without a second code
  * path.
  */
-export function registerWorkflowPanes(registry: ConsolePaneRegistry): void {
+export function registerWorkflowPanes(registry: PaneRegistry): void {
   for (const descriptor of WORKFLOW_PANES) {
     registry.register(descriptor);
   }

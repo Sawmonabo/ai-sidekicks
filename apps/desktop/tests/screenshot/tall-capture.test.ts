@@ -8,7 +8,7 @@
 // of them was stable and self-consistent and blank below the window's edge.
 //
 // SO THIS PROBE READS THE IMAGE. It renders a surface far taller than the window, paints
-// its last hundred rows a colour no console token carries, holds the window open through
+// its last hundred rows a color no console token carries, holds the window open through
 // the same `CaptureWindow` every capture goes through, and then DECODES the capture and
 // asserts what is in it. Against the unfixed window logic the band comes back `#ffffff` —
 // the page's own background, which is the whole finding — and no assertion about the
@@ -19,7 +19,7 @@
 // console surface. The window bookkeeping is the real class's, so what is proved here is
 // the mechanism `settled-capture.ts` composes rather than a second copy of it.
 //
-// AND IT IS PINNED TO NO HOST. The colours are flat fills, so there is no glyph and no
+// AND IT IS PINNED TO NO HOST. The colors are flat fills, so there is no glyph and no
 // font in the claim — it holds on any machine that can run the tier.
 
 import { afterEach, describe, expect, it } from "vitest";
@@ -46,14 +46,14 @@ const PROBE_WIDTH_PX = 1200;
 /** How far in from the document's left edge the surface starts. */
 const PROBE_LEFT_PX = 24;
 
-/** The field, in a colour `tokens/palette.ts` carries nowhere. */
-const PROBE_FIELD_COLOUR = "#00ffff";
+/** The field, in a color `tokens/palette.ts` carries nowhere. */
+const PROBE_FIELD_COLOR = "#00ffff";
 
-/** The band, in a second such colour, so neither can be mistaken for the other. */
-const PROBE_BAND_COLOUR = "#ff00ff";
+/** The band, in a second such color, so neither can be mistaken for the other. */
+const PROBE_BAND_COLOR = "#ff00ff";
 
 /** What an unpainted row comes back as, and what the defect produced below the window. */
-const PAGE_BACKGROUND_COLOUR = "#ffffff";
+const PAGE_BACKGROUND_COLOR = "#ffffff";
 
 /**
  * How far the window-derived surface below hangs past whatever window it is in.
@@ -64,7 +64,7 @@ const PAGE_BACKGROUND_COLOUR = "#ffffff";
  */
 const PROBE_OVERHANG_PX = 64;
 
-/** A surface taller than any window this tier opens, with its last rows in one colour. */
+/** A surface taller than any window this tier opens, with its last rows in one color. */
 function mountTallProbeSurface(): HTMLElement {
   const surface = document.createElement("div");
   surface.style.position = "absolute";
@@ -72,7 +72,7 @@ function mountTallProbeSurface(): HTMLElement {
   surface.style.left = `${String(PROBE_LEFT_PX)}px`;
   surface.style.width = `${String(PROBE_WIDTH_PX)}px`;
   surface.style.height = `${String(PROBE_HEIGHT_PX)}px`;
-  surface.style.background = PROBE_FIELD_COLOUR;
+  surface.style.background = PROBE_FIELD_COLOR;
 
   const band = document.createElement("div");
   band.style.position = "absolute";
@@ -80,7 +80,7 @@ function mountTallProbeSurface(): HTMLElement {
   band.style.right = "0";
   band.style.bottom = "0";
   band.style.height = `${String(PROBE_BAND_HEIGHT_PX)}px`;
-  band.style.background = PROBE_BAND_COLOUR;
+  band.style.background = PROBE_BAND_COLOR;
   surface.append(band);
 
   document.body.append(surface);
@@ -102,7 +102,7 @@ function mountWindowDerivedProbeSurface(): HTMLElement {
   surface.style.left = `${String(PROBE_LEFT_PX)}px`;
   surface.style.width = `${String(PROBE_WIDTH_PX)}px`;
   surface.style.height = `calc(100vh + ${String(PROBE_OVERHANG_PX)}px)`;
-  surface.style.background = PROBE_FIELD_COLOUR;
+  surface.style.background = PROBE_FIELD_COLOR;
   document.body.append(surface);
   return surface;
 }
@@ -142,28 +142,26 @@ describe("the screenshot tier's capture reaches the whole element", () => {
     const image = await capturePixelsOf(surface, "tall-probe");
 
     // The dimensions first, so a capture that was clipped rather than blanked fails
-    // here with the two numbers rather than in the band assertion with a colour.
+    // here with the two numbers rather than in the band assertion with a color.
     expect(image.width).toBe(PROBE_WIDTH_PX);
     expect(image.height).toBe(surface.scrollHeight);
 
     // The band, at both its edges. Before the fix these rows are `#ffffff` — the page
     // showing through where the iframe stopped painting.
-    expect(image.rowColours(image.height - 1)).toStrictEqual([PROBE_BAND_COLOUR]);
-    expect(image.rowColours(image.height - PROBE_BAND_HEIGHT_PX)).toStrictEqual([
-      PROBE_BAND_COLOUR,
-    ]);
+    expect(image.rowColors(image.height - 1)).toStrictEqual([PROBE_BAND_COLOR]);
+    expect(image.rowColors(image.height - PROBE_BAND_HEIGHT_PX)).toStrictEqual([PROBE_BAND_COLOR]);
 
     // The field immediately above it, so the band assertion is not satisfied by an
     // image that is magenta everywhere — and a row deep in the region the window never
     // used to reach, which is the row the defect turned white.
-    expect(image.rowColours(image.height - PROBE_BAND_HEIGHT_PX - 1)).toStrictEqual([
-      PROBE_FIELD_COLOUR,
+    expect(image.rowColors(image.height - PROBE_BAND_HEIGHT_PX - 1)).toStrictEqual([
+      PROBE_FIELD_COLOR,
     ]);
-    expect(image.rowColours(windowHeightBefore * 2)).toStrictEqual([PROBE_FIELD_COLOUR]);
+    expect(image.rowColors(windowHeightBefore * 2)).toStrictEqual([PROBE_FIELD_COLOR]);
 
     // Nothing in the image is the page's own background, which is the whole finding
     // stated as the property that failed: every row of this capture was painted.
-    expect(image.rowColours(0)).not.toContain(PAGE_BACKGROUND_COLOUR);
+    expect(image.rowColors(0)).not.toContain(PAGE_BACKGROUND_COLOR);
   });
 
   it("puts the window back after a capture that grew it", async () => {
@@ -197,7 +195,7 @@ describe("the screenshot tier's capture reaches the whole element", () => {
     // residual this arm accepts, it is bounded by the surface's own padding, and a
     // change in its size fails here rather than appearing at the bottom of an image
     // nobody scrolls to.
-    expect(image.rowColours(windowBefore.height - 1)).toStrictEqual([PROBE_FIELD_COLOUR]);
-    expect(image.rowColours(image.height - 1)).toStrictEqual([PAGE_BACKGROUND_COLOUR]);
+    expect(image.rowColors(windowBefore.height - 1)).toStrictEqual([PROBE_FIELD_COLOR]);
+    expect(image.rowColors(image.height - 1)).toStrictEqual([PAGE_BACKGROUND_COLOR]);
   });
 });

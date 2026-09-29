@@ -1,4 +1,4 @@
-// What the human-form slot does when its mount moves underneath it: between a branching
+// What the human-form mount point does when its mount moves underneath it: between a branching
 // run's waits, between the two precisions one numeric control admits, and across a run
 // read that refreshes the revision under a live attempt. Each drives the same tree
 // through a re-render, since a fresh `render` would discard the state under test.
@@ -38,16 +38,16 @@ describe("a run that parks two waits at once", () => {
       phaseRunId: SECOND_WAIT_PHASE_RUN_ID,
       phaseId: SECOND_WAIT_PHASE_ID,
     };
-    // One schema object across both waits: the compiled validator is memoised on it, so a
+    // One schema object across both waits: the compiled validator is memoized on it, so a
     // second object would clear the form for a reason that is not the phase.
     expect(second.inputSchema).toBe(first.inputSchema);
-    const slot = await renderSwitchableMountPoint({ phase: first });
+    const mountPoint = await renderSwitchableMountPoint({ phase: first });
     fireEvent.change(screen.getByLabelText(/Notes/u), {
       target: { value: "for the first branch" },
     });
     expect(screen.getByLabelText(/Notes/u)).toHaveProperty("value", "for the first branch");
 
-    await slot.switchTo(second);
+    await mountPoint.switchTo(second);
 
     expect(screen.getByLabelText(/Notes/u)).toHaveProperty("value", "");
   });
@@ -62,11 +62,14 @@ describe("a run that parks two waits at once", () => {
       phaseRunId: SECOND_WAIT_PHASE_RUN_ID,
       phaseId: SECOND_WAIT_PHASE_ID,
     };
-    const slot = await renderSwitchableMountPoint({ phase: first, submitForm: probe.submitForm });
+    const mountPoint = await renderSwitchableMountPoint({
+      phase: first,
+      submitForm: probe.submitForm,
+    });
     fireEvent.change(screen.getByLabelText(/Notes/u), {
       target: { value: "for the first branch" },
     });
-    await slot.switchTo(second);
+    await mountPoint.switchTo(second);
     await act(async () => {
       pressSubmit();
     });
@@ -125,7 +128,7 @@ describe("a run read that refreshes under a live attempt", () => {
     // daemon's optimistic comparison would accept it over whatever moved the run.
     const probe = watchingSubmits();
     const composedAgainst = fixtureWaitPhase();
-    const slot = await renderSwitchableMountPoint({
+    const mountPoint = await renderSwitchableMountPoint({
       phase: composedAgainst,
       submitForm: probe.submitForm,
     });
@@ -133,7 +136,10 @@ describe("a run read that refreshes under a live attempt", () => {
       target: { value: "answered before the refresh" },
     });
 
-    await slot.switchTo({ ...composedAgainst, formRevision: composedAgainst.formRevision + 1 });
+    await mountPoint.switchTo({
+      ...composedAgainst,
+      formRevision: composedAgainst.formRevision + 1,
+    });
 
     // The attempt did not change, so the draft stands.
     expect(screen.getByLabelText(/Notes/u)).toHaveProperty("value", "answered before the refresh");
@@ -151,9 +157,12 @@ describe("a run read that refreshes under a live attempt", () => {
     // revision it ever saw.
     const probe = watchingSubmits();
     const first = fixtureWaitPhase();
-    const slot = await renderSwitchableMountPoint({ phase: first, submitForm: probe.submitForm });
+    const mountPoint = await renderSwitchableMountPoint({
+      phase: first,
+      submitForm: probe.submitForm,
+    });
 
-    await slot.switchTo({
+    await mountPoint.switchTo({
       ...first,
       phaseRunId: SECOND_WAIT_PHASE_RUN_ID,
       phaseId: SECOND_WAIT_PHASE_ID,

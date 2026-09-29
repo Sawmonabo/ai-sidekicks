@@ -1,7 +1,7 @@
 // When an upload lets go of the user's bytes, and when it may not.
 //
 // A `Blob` is a handle rather than a copy, but it is a KEEP: the browser holds the file
-// behind it for as long as anything can reach it. A carrier that held one per attachment
+// behind it for as long as anything can reach it. A staged list that held one per attachment
 // and released none would pin ten files' worth of memory for ten finished uploads until
 // the surface unmounted — invisible, because every figure on the card is a number the
 // ledger already has.
@@ -69,7 +69,7 @@ describe("attachment payload release — a finished upload lets the bytes go", (
   it("releases the payload when a user stops sending", async () => {
     // Abandonment is terminal in the other direction: the daemon's reaper claims the
     // spool and no artifact is minted, so nothing here will ever send these bytes
-    // either. Holding them would keep a file alive for an upload somebody cancelled.
+    // either. Holding them would keep a file alive for an upload somebody canceled.
     const port = new ScriptedIngestPort();
     const client = clientOver(port);
     port.holdChunks();
@@ -178,7 +178,7 @@ describe("attachment payload release — a finished upload lets the bytes go", (
 
     expect(ledger.current("attachment-1")?.state).toBe("complete");
     // Nothing was written, so no round was superseded: a continuation holding the
-    // earlier stamp still recognises this entry rather than reading it as one that
+    // earlier stamp still recognizes this entry rather than reading it as one that
     // moved.
     expect(ledger.currentIfUnchanged("attachment-1", stampAfterCompletion)).toBeDefined();
   });

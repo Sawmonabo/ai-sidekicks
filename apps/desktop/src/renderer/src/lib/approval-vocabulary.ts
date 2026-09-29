@@ -13,13 +13,13 @@
 // `ApprovalState`, no `ApprovalCategory`, no `RememberedScope`, and no
 // `InvalidationTrigger` — the surface's whole wire column reads FIXTURE for that
 // reason. So these are renderer-local projection contracts on the same terms
-// `store/entities/entities.ts` states for `ConsoleSessionEvent`: the console narrows an
+// `store/entities/entities.ts` states for `ProjectedSessionEvent`: the console narrows an
 // `unknown` reply at one boundary, and the day the contract package registers the
 // real unions this module is deleted rather than reconciled.
 //
 // EVERY TABLE BELOW IS TOTAL OVER ITS SET BY CONSTRUCTION. A tenth category or a
 // sixth state fails to compile here rather than rendering as a nameless token in
-// whichever deck first opened the pane. A value the wire sends that this build
+// whichever pane layout first opened the pane. A value the wire sends that this build
 // does not know is NOT asserted into a member: the classifiers at the bottom
 // answer `undefined`, and the surface renders the wire string verbatim under an
 // unrecognized treatment, which is the fail-closed projection rule.
@@ -83,7 +83,7 @@ export type InvalidationTrigger = (typeof INVALIDATION_TRIGGERS)[number];
  * phrase exists so a person reads a sentence rather than an identifier; it never
  * replaces the token.
  */
-export const CATEGORY_PHRASE: Readonly<Record<ApprovalCategory, string>> = {
+export const APPROVAL_CATEGORY_LABELS: Readonly<Record<ApprovalCategory, string>> = {
   tool_execution: "Run a tool",
   file_write: "Write to a file",
   network_access: "Reach the network",
@@ -93,8 +93,8 @@ export const CATEGORY_PHRASE: Readonly<Record<ApprovalCategory, string>> = {
   human_phase_contribution: "Contribute to a phase",
 };
 
-/** What a state is called on screen. Total for `CATEGORY_PHRASE`'s reason. */
-export const STATE_PHRASE: Readonly<Record<ApprovalState, string>> = {
+/** What a state is called on screen. Total for `APPROVAL_CATEGORY_LABELS`'s reason. */
+export const APPROVAL_STATE_LABELS: Readonly<Record<ApprovalState, string>> = {
   pending: "Waiting on a decision",
   approved: "Approved",
   rejected: "Rejected",
@@ -109,7 +109,7 @@ export const STATE_PHRASE: Readonly<Record<ApprovalState, string>> = {
  * with the run and a session-scoped one outlives every run in the session, and the
  * control that offers them is the one place that difference has to be legible.
  */
-export const SCOPE_KIND_PHRASE: Readonly<Record<RememberedScopeKind, string>> = {
+export const RULE_SCOPE_LABELS: Readonly<Record<RememberedScopeKind, string>> = {
   run: "This run only",
   session: "This whole session",
 };
@@ -122,17 +122,17 @@ export const SCOPE_KIND_PHRASE: Readonly<Record<RememberedScopeKind, string>> = 
  * `undefined` here instead of being asserted into a member it does not belong to.
  */
 export function asApprovalCategory(value: string): ApprovalCategory | undefined {
-  return isOwnKey(CATEGORY_PHRASE, value) ? (value as ApprovalCategory) : undefined;
+  return isOwnKey(APPROVAL_CATEGORY_LABELS, value) ? (value as ApprovalCategory) : undefined;
 }
 
 /** Classify a wire-verbatim state. Fail-closed, for `asApprovalCategory`'s reason. */
 export function asApprovalState(value: string): ApprovalState | undefined {
-  return isOwnKey(STATE_PHRASE, value) ? (value as ApprovalState) : undefined;
+  return isOwnKey(APPROVAL_STATE_LABELS, value) ? (value as ApprovalState) : undefined;
 }
 
 /** Classify a wire-verbatim remembered-scope kind. Fail-closed, same reason. */
 export function asRememberedScopeKind(value: string): RememberedScopeKind | undefined {
-  return isOwnKey(SCOPE_KIND_PHRASE, value) ? (value as RememberedScopeKind) : undefined;
+  return isOwnKey(RULE_SCOPE_LABELS, value) ? (value as RememberedScopeKind) : undefined;
 }
 
 /**
@@ -145,9 +145,9 @@ export function asRememberedScopeKind(value: string): RememberedScopeKind | unde
  * minted, and two copies of one fail-closed rule drift the moment one of them gains
  * a third kind.
  */
-export function rememberedScopeKindPhrase(kind: string): string {
+export function describeRuleScope(kind: string): string {
   const known = asRememberedScopeKind(kind);
-  return known === undefined ? kind : SCOPE_KIND_PHRASE[known];
+  return known === undefined ? kind : RULE_SCOPE_LABELS[known];
 }
 
 /**

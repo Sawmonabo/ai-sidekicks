@@ -1,7 +1,7 @@
 // The find walk's reading, and the sentence the shared primitive says for it.
 //
 // Both halves, because either alone passes over the defect this rebind answers: a
-// model asserting `{kind: "cut"}` would pass while the ledger kept its own two
+// model asserting `{kind: "cut"}` would pass while the transcript kept its own two
 // notices beside it, and a render asserting a sentence would pass over a model that
 // reported a cut walk as whole. So the cases below drive `matchWalkReading` into
 // `PartialRead` and read what reaches the screen.
@@ -54,10 +54,10 @@ describe("the find walk's reading, on screen", () => {
   });
 
   it("says a fold cut the walk, under its own subject", () => {
-    renderWalk(2, 5, "the run chapters this ledger has folded");
+    renderWalk(2, 5, "the run groups this transcript has folded");
     expect(
       screen.getByText(
-        /read before the answer for the run chapters this ledger has folded was cut short, so what is not shown here may still exist/u,
+        /read before the answer for the run groups this transcript has folded was cut short, so what is not shown here may still exist/u,
       ),
     ).toBeTruthy();
   });

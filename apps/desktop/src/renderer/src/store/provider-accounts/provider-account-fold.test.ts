@@ -13,7 +13,7 @@ import {
   type ProviderAccountUsageWindow,
 } from "@ai-sidekicks/contracts";
 
-import { ProviderQuotaFold, decideUsageWindowMerge } from "./provider-account-fold.js";
+import { ProviderAccountFold, decideUsageWindowMerge } from "./provider-account-fold.js";
 
 // Minted through the registered schema rather than cast, so a case cannot file a
 // reading under an id the wire would refuse.
@@ -59,7 +59,7 @@ function usageWindow(
 }
 
 /** One key's reading, or a thrown failure naming what the fold holds instead. */
-function usedPercentFor(fold: ProviderQuotaFold, limitId: string): number {
+function usedPercentFor(fold: ProviderAccountFold, limitId: string): number {
   const readings = fold.readings();
   const found = readings.find((reading) => reading.limitId === limitId);
   if (found === undefined) {
@@ -128,25 +128,25 @@ describe("decideUsageWindowMerge — consumption does not fall inside one window
   });
 });
 
-describe("ProviderQuotaFold — the readings a surface renders", () => {
+describe("ProviderAccountFold — the readings a surface renders", () => {
   it("keeps the high-water figure when the wire sends a lower one for the same window", () => {
-    const fold = new ProviderQuotaFold();
-    fold.seatAccount(account());
-    fold.mergeWindow(usageWindow({ usedPercent: 90, observedAt: EARLIER }));
+    const fold = new ProviderAccountFold();
+    fold.putAccount(account());
+    fold.mergeUsageWindow(usageWindow({ usedPercent: 90, observedAt: EARLIER }));
 
-    expect(fold.mergeWindow(usageWindow({ usedPercent: 20, observedAt: LATER }))).toBe(
+    expect(fold.mergeUsageWindow(usageWindow({ usedPercent: 20, observedAt: LATER }))).toBe(
       "dropped-below-high-water",
     );
     expect(usedPercentFor(fold, "weekly-all")).toBe(90);
   });
 
   it("takes the lower figure once the window has reset", () => {
-    const fold = new ProviderQuotaFold();
-    fold.seatAccount(account());
-    fold.mergeWindow(usageWindow({ usedPercent: 90, observedAt: EARLIER }));
+    const fold = new ProviderAccountFold();
+    fold.putAccount(account());
+    fold.mergeUsageWindow(usageWindow({ usedPercent: 90, observedAt: EARLIER }));
 
     expect(
-      fold.mergeWindow(
+      fold.mergeUsageWindow(
         usageWindow({ usedPercent: 20, observedAt: LATER, resetsAt: NEXT_WINDOW_RESET }),
       ),
     ).toBe("seated");
@@ -154,17 +154,17 @@ describe("ProviderQuotaFold — the readings a surface renders", () => {
   });
 
   it("marks a reading behind its own account's generation stale", () => {
-    const fold = new ProviderQuotaFold();
-    fold.seatAccount(account({ credentialGeneration: 2 }));
-    fold.mergeWindow(usageWindow({ observedCredentialGeneration: 1 }));
+    const fold = new ProviderAccountFold();
+    fold.putAccount(account({ credentialGeneration: 2 }));
+    fold.mergeUsageWindow(usageWindow({ observedCredentialGeneration: 1 }));
 
     expect(fold.readings()[0]?.isStale).toBe(true);
   });
 
   it("takes a removed account's readings with it", () => {
-    const fold = new ProviderQuotaFold();
-    fold.seatAccount(account());
-    fold.mergeWindow(usageWindow());
+    const fold = new ProviderAccountFold();
+    fold.putAccount(account());
+    fold.mergeUsageWindow(usageWindow());
     expect(fold.readings()).toHaveLength(1);
 
     fold.forgetAccount(ACCOUNT_ID);
@@ -174,10 +174,10 @@ describe("ProviderQuotaFold — the readings a surface renders", () => {
 
   it("negative control: two windows of one length stay apart under their limit ids", () => {
     // The pair key, and the whole reason the readings are not keyed by duration.
-    const fold = new ProviderQuotaFold();
-    fold.seatAccount(account());
-    fold.mergeWindow(usageWindow({ usedPercent: 90 }));
-    fold.mergeWindow(
+    const fold = new ProviderAccountFold();
+    fold.putAccount(account());
+    fold.mergeUsageWindow(usageWindow({ usedPercent: 90 }));
+    fold.mergeUsageWindow(
       usageWindow({ limitId: "weekly-opus", label: "Weekly, Opus", usedPercent: 30 }),
     );
 
@@ -186,14 +186,14 @@ describe("ProviderQuotaFold — the readings a surface renders", () => {
   });
 });
 
-describe("ProviderQuotaFold — the account labels a surface joins a handle to", () => {
+describe("ProviderAccountFold — the account labels a surface joins a handle to", () => {
   it("labels an account that has no observed window at all", () => {
     // The membership difference that makes this a second answer rather than a scan
     // over the readings: an account the registry carries has a label whether or not
     // a quota row has ever been observed for it, and a surface naming its handle
     // needs that label. Scanning `readings()` for one would find nothing here.
-    const fold = new ProviderQuotaFold();
-    fold.seatAccount(account());
+    const fold = new ProviderAccountFold();
+    fold.putAccount(account());
 
     expect(fold.readings()).toStrictEqual([]);
     expect([...fold.accountLabels()]).toStrictEqual([[ACCOUNT_ID, "Team"]]);
@@ -203,16 +203,16 @@ describe("ProviderQuotaFold — the account labels a surface joins a handle to",
     // The registry sends state and not deltas, so a renamed account is re-seated
     // whole; a label that stuck at the first reading would name the account by a
     // word its operator has already changed.
-    const fold = new ProviderQuotaFold();
-    fold.seatAccount(account());
-    fold.seatAccount(account({ displayLabel: "Team (renamed)" }));
+    const fold = new ProviderAccountFold();
+    fold.putAccount(account());
+    fold.putAccount(account({ displayLabel: "Team (renamed)" }));
 
     expect(fold.accountLabels().get(ACCOUNT_ID)).toBe("Team (renamed)");
   });
 
   it("drops a removed account's label, so a stale handle joins to nothing", () => {
-    const fold = new ProviderQuotaFold();
-    fold.seatAccount(account());
+    const fold = new ProviderAccountFold();
+    fold.putAccount(account());
     expect(fold.accountLabels().has(ACCOUNT_ID)).toBe(true);
 
     fold.forgetAccount(ACCOUNT_ID);
@@ -223,6 +223,6 @@ describe("ProviderQuotaFold — the account labels a surface joins a handle to",
   it("negative control: the rows are empty before anything is seated", () => {
     // Without this, every assertion above would also pass over a `accountLabels`
     // that answered with one fixed row whatever the fold held.
-    expect([...new ProviderQuotaFold().accountLabels()]).toStrictEqual([]);
+    expect([...new ProviderAccountFold().accountLabels()]).toStrictEqual([]);
   });
 });

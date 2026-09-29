@@ -3,14 +3,14 @@
 // so they live here once rather than being copied into the file written second.
 
 import { AgentsPaneModels } from "../agents-pane-models.js";
-import type { AgentConsoleCalls } from "../../agent-reads.js";
+import type { AgentsPaneCalls } from "../../agent-reads.js";
 import { unscriptedScenario, withDaemonCall } from "@test/helpers/fixture-bridge.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import {
-  type AgentRosterReading,
+  type AgentListReading,
   type ChildRunLinkReading,
 } from "@renderer/services/wire-shapes/agents.js";
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 
 /**
@@ -32,7 +32,7 @@ export interface ScriptedDaemon {
  * The calls reach the bridge's own call arm through the shared `withDaemonCall`, which is
  * where the reach lives; this file holds no copy of the bridge's namespace shape.
  */
-export function bridgeCalling(scriptedDaemon: ScriptedDaemon): ConsoleBridge {
+export function bridgeCalling(scriptedDaemon: ScriptedDaemon): PlatformBridge {
   const base = createFixtureBridge({ scenario: unscriptedScenario("agent-binding-column") });
   return withDaemonCall(
     base,
@@ -46,10 +46,10 @@ export function bridgeCalling(scriptedDaemon: ScriptedDaemon): ConsoleBridge {
  * The roster and the child-run links are taken as calls by the models, so a suite decides
  * their answers here rather than through the bridge.
  */
-function callsAnswering(scriptedDaemon: ScriptedDaemon): AgentConsoleCalls {
+function callsAnswering(scriptedDaemon: ScriptedDaemon): AgentsPaneCalls {
   return {
     listAgents: async (request) =>
-      (await scriptedDaemon.answer("agent.list", request)) as AgentRosterReading,
+      (await scriptedDaemon.answer("agent.list", request)) as AgentListReading,
     readChildRunLinks: async (request) =>
       (await scriptedDaemon.answer(
         "orchestration.childRunLinkRead",
@@ -61,7 +61,7 @@ function callsAnswering(scriptedDaemon: ScriptedDaemon): AgentConsoleCalls {
 const openedModels: AgentsPaneModels[] = [];
 
 /** A daemon that answers the roster read with a fixed roster. */
-export class RosterDaemon {
+export class AgentListDaemon {
   readonly #roster: readonly unknown[];
 
   public readonly answer = async (method: string): Promise<unknown> => {
@@ -90,7 +90,7 @@ export function disposeOpenedModels(): void {
 
 /** The real models over that bridge and daemon, disposed after the test that opened them. */
 export function modelsOver(
-  bridge: ConsoleBridge,
+  bridge: PlatformBridge,
   scriptedDaemon: ScriptedDaemon,
   sessionId = "session-9",
 ): AgentsPaneModels {

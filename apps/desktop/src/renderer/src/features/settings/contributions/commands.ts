@@ -3,13 +3,13 @@
 //
 // Every bridge act settles. The palette drops the promise a command returns, so a `run`
 // that rejected would show the person nothing; each act catches its own failure and hands
-// it to the caller's sink as a `ConsoleRefusal`. The refusal detail is a constant sentence,
+// it to the caller's sink as a `Refusal`. The refusal detail is a constant sentence,
 // never the caught error's message: that text comes from the main process across IPC, may
 // be a stack, and names a subsystem the person cannot act on.
 
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
-import { refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
-import type { ConsoleCommand } from "@renderer/registries/commands/command-types.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
+import { refuse, type Refusal } from "@renderer/lib/refusal.js";
+import type { CommandDefinition } from "@renderer/registries/commands/command-types.js";
 import { nextSchemePreference, type SchemePreference } from "@renderer/styles/tokens.js";
 
 /** Why a bridge-backed command could not complete. */
@@ -25,7 +25,7 @@ export type BridgeCommandRefusalCode = (typeof BRIDGE_COMMAND_REFUSAL_CODES)[num
 export const BRIDGE_COMMAND_REFUSAL_ORIGIN = "palette-bridge-command";
 
 /** Where a refused act is rendered. Supplied by the surface that owns the copy. */
-export type BridgeCommandRefusalSink = (refusal: ConsoleRefusal) => void;
+export type BridgeCommandRefusalSink = (refusal: Refusal) => void;
 
 /**
  * The bridge-backed commands, for a bridge the caller already holds.
@@ -34,9 +34,9 @@ export type BridgeCommandRefusalSink = (refusal: ConsoleRefusal) => void;
  * React tree: the hook is the wiring, this is the behavior.
  */
 export function buildBridgeCommands(
-  bridge: ConsoleBridge,
+  bridge: PlatformBridge,
   onRefusal: BridgeCommandRefusalSink,
-): readonly ConsoleCommand[] {
+): readonly CommandDefinition[] {
   return [
     {
       id: "bridge.copyBuildDetails",
@@ -47,9 +47,9 @@ export function buildBridgeCommands(
         // Read from the bridge rather than from `navigator`: `app` meta is what the
         // MAIN process reports, and under the fixture it is pinned, so a screenshot
         // of this command's result does not move with the developer's machine.
-        const { version, platform, arch, locale } = bridge.desktopBridge.app;
+        const { version, platform, arch, locale } = bridge.app;
         await settle(onRefusal, "clipboard-unavailable", CLIPBOARD_REFUSAL_DETAIL, () =>
-          bridge.desktopBridge.native.copyToClipboard(
+          bridge.native.copyToClipboard(
             `AI Sidekicks ${version} — ${platform}/${arch} — ${locale}`,
           ),
         );
@@ -64,9 +64,9 @@ export function buildBridgeCommands(
         // Requests the check and returns. The updater's own state arrives through
         // `update.subscribe`, which belongs to whichever surface renders it — a
         // command that awaited an outcome here would be a second reader of a state
-        // machine the shell already observes.
+        // machine the main process already observes.
         await settle(onRefusal, "update-check-unavailable", UPDATE_REFUSAL_DETAIL, () =>
-          bridge.desktopBridge.update.requestCheck(),
+          bridge.update.requestCheck(),
         );
       },
     },
@@ -82,7 +82,7 @@ export function buildBridgeCommands(
 export function buildColorSchemeCommand(
   readScheme: () => SchemePreference,
   chooseScheme: (preference: SchemePreference) => void,
-): ConsoleCommand {
+): CommandDefinition {
   return {
     id: "settings.cycleColorScheme",
     title: "Color scheme",

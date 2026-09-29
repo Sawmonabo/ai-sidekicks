@@ -15,7 +15,7 @@
 // the provider-account quota feed both open streams; those two sit in different
 // families with no edge between them, so `apps/desktop/AGENTS.md`'s
 // hoist-on-the-second-use rule puts the helper in the lowest family that can hold a
-// `ConsoleBridge` — this one.
+// `PlatformBridge` — this one.
 //
 // WHAT THE WIDENING DOES AND DOES NOT ADMIT. The stream name is pinned to `string`
 // (the genuinely untypeable half) and the delivered payload is left `unknown`, which
@@ -27,9 +27,9 @@
 
 import type { RunQueueSubscribeRequest, RunStateSubscribeRequest } from "@ai-sidekicks/contracts";
 
-import { ConsoleRefusalError, refuse } from "@renderer/lib/refusal.js";
+import { RefusalError, refuse } from "@renderer/lib/refusal.js";
 import { type Unsubscribe } from "@renderer/lib/emitter.js";
-import type { ConsoleBridge } from "../platform/platform-bridge.js";
+import type { PlatformBridge } from "../platform/platform-bridge.js";
 import { openObservedSubscription } from "../transport/observed-subscription.js";
 
 /**
@@ -84,10 +84,10 @@ export interface DaemonStreamOpen {
  * and relaxing it to admit a request with no session would delete that guarantee for
  * the two `run.*` feeds in order to serve a stream that never had a session to name.
  * Two functions, one widening — `#openStream` is the only place either reaches
- * `bridge.desktopBridge.daemon.subscribe`.
+ * `bridge.daemon.subscribe`.
  */
 export function subscribeNodeDaemon(
-  bridge: ConsoleBridge,
+  bridge: PlatformBridge,
   streamName: string,
   handler: (payload: unknown) => void,
 ): Unsubscribe {
@@ -100,7 +100,7 @@ export function subscribeNodeDaemon(
  *
  * WHAT HAPPENS TO THE REQUEST TODAY, EXACTLY. It is VALIDATED and HELD, and it is
  * not yet forwarded, because there is nowhere to forward it to:
- * `DesktopBridge.daemon.subscribe<E>(event, handler)` carries an event name and a
+ * `PlatformBridge.daemon.subscribe<E>(event, handler)` carries an event name and a
  * handler and NO request-parameter channel, and the preload bridge contract pins
  * that signature as an early placeholder whose shape — positional parameter, options
  * bag, or an event-to-params map — belongs to the daemon and transport work and is
@@ -121,13 +121,13 @@ export function subscribeNodeDaemon(
  * @consumedBy the run queue's and run state's live feeds
  */
 export function subscribeDaemon(
-  bridge: ConsoleBridge,
+  bridge: PlatformBridge,
   stream: DaemonStreamOpen,
   handler: (payload: unknown) => void,
 ): Unsubscribe {
   const { sessionId } = stream.request;
   if (typeof sessionId !== "string" || sessionId.length === 0) {
-    throw new ConsoleRefusalError(
+    throw new RefusalError(
       refuse(
         DAEMON_STREAM_REFUSAL_ORIGIN,
         "stream-request-unscoped",
@@ -147,11 +147,11 @@ export function subscribeDaemon(
  * bindable session has no other way to observe.
  */
 function openStream(
-  bridge: ConsoleBridge,
+  bridge: PlatformBridge,
   streamName: string,
   handler: (payload: unknown) => void,
 ): Unsubscribe {
-  const subscribe = bridge.desktopBridge.daemon.subscribe as (
+  const subscribe = bridge.daemon.subscribe as (
     event: string,
     handler: (payload: unknown) => void,
   ) => Unsubscribe;

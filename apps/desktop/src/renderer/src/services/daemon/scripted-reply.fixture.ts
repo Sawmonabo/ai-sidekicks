@@ -117,7 +117,7 @@ export async function settleScriptedReply(
  * Answer one request/response call from the scenario, or reject by name.
  *
  * The classification is `settleScriptedReply`'s; this is the arm that turns each
- * settlement into what a `DesktopBridge` method may do, which is resolve or reject
+ * settlement into what a `PlatformBridge` method may do, which is resolve or reject
  * and nothing else. Three of the four settlements are rejections here, and each
  * rejects with a different value on purpose: an unscripted call is a fixture
  * AUTHORING error, a reply the clock never released is a fixture failure carrying the

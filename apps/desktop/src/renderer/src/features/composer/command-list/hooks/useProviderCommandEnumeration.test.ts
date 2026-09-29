@@ -6,7 +6,7 @@
 
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { COMPOSER_SCENARIO } from "../../../../../../../fixtures/scenarios/waiting-for-input.js";
+import { WAITING_FOR_INPUT_SCENARIO } from "../../../../../../../fixtures/scenarios/waiting-for-input.js";
 import { ProviderCommandEnumeration } from "../provider-command-enumeration.js";
 import { useProviderCommandEnumeration } from "./useProviderCommandEnumeration.js";
 import {
@@ -131,7 +131,7 @@ describe("useProviderCommandEnumeration", () => {
         bridge,
         target: {
           path: "session-message",
-          sessionId: COMPOSER_SCENARIO.sessionId,
+          sessionId: WAITING_FOR_INPUT_SCENARIO.sessionId,
         },
         isOpen: true,
       }),

@@ -1,10 +1,8 @@
 // The pane-kind set is the spec's set, in the spec's order.
 //
-// The console's design fixes both. The bullet, verbatim:
-//
-//   "**Pane kinds, a closed set:** `timeline`, `inspector`, `runs`, `approvals`,
-//   `diff`, `artifact`, `workflow-run`, `workflow-builder`, `browser`, `terminal`,
-//   `agent-console`."
+// The console's design fixes both: a closed set of `transcript`, `inspector`, `runs`,
+// `approvals`, `diff`, `artifact`, `workflow-run`, `workflow-builder`, `browser`,
+// `terminal` and `agents`.
 //
 // The transcription below is compared to `PANE_KINDS` by `toStrictEqual`, which
 // is an ORDERED comparison — a reorder fails here, and a reorder is not cosmetic:
@@ -12,15 +10,15 @@
 // it. Reading the spec file itself would be the stronger check and is not
 // available: `node:fs` is banned in renderer programs, and the design documents sit
 // outside this package's Vite root, so the honest arrangement is a transcription that
-// a reviewer can diff against the quote above.
+// a reviewer can diff against the design.
 
 import { describe, expect, it } from "vitest";
 
 import { PANE_KINDS, isPaneKind, type PaneKind } from "./pane-kinds.js";
 
-/** The eleven kinds of the spec bullet quoted above, in its own order. */
+/** The eleven kinds of the design, in its own order. */
 const SPEC_PANE_KINDS: readonly string[] = [
-  "timeline",
+  "transcript",
   "inspector",
   "runs",
   "approvals",
@@ -30,7 +28,7 @@ const SPEC_PANE_KINDS: readonly string[] = [
   "workflow-builder",
   "browser",
   "terminal",
-  "agent-console",
+  "agents",
 ];
 
 describe("pane kinds — the closed set the design fixes", () => {
@@ -58,17 +56,17 @@ describe("pane kinds — the guard layout restore drops against", () => {
     // `true` for every string — which is exactly the shape a `typeof value ===
     // "string"` check degenerates into if the membership test is dropped.
     const refused: readonly unknown[] = [
-      "Timeline",
+      "Transcript",
       "workflow_run",
-      "agentconsole",
+      "agent",
       "pane",
       "",
-      " timeline",
+      " transcript",
       null,
       undefined,
       11,
-      ["timeline"],
-      { kind: "timeline" },
+      ["transcript"],
+      { kind: "transcript" },
     ];
     for (const value of refused) {
       expect(isPaneKind(value)).toBe(false);

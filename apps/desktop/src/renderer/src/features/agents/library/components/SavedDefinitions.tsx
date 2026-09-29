@@ -31,7 +31,7 @@ export function SavedDefinitions(props: {
   }
   return (
     <>
-      <ul className="meridian-agent-definitions__rows">
+      <ul className="meridian-agent-library__rows">
         {reading.rows.map((row) => (
           <li key={row.definitionId}>
             <SavedDefinitionRow

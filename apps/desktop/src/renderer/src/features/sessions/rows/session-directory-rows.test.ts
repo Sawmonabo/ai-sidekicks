@@ -11,7 +11,7 @@ import { describe, expect, it } from "vitest";
 import type { SessionDirectoryState } from "@renderer/console/seats/index.js";
 import {
   mergeSessionRows,
-  sessionsAbsenceKindFor,
+  sessionListNothingKindFor,
   withAttentionSeverity,
 } from "./session-directory-rows.js";
 import type { SessionListRow } from "./session-rows.js";
@@ -33,10 +33,10 @@ function projectedRow(overrides: Partial<SessionListRow> & { sessionId: string }
   };
 }
 
-describe("sessionsAbsenceKindFor — the read decides, not the row count", () => {
+describe("sessionListNothingKindFor — the read decides, not the row count", () => {
   it("maps each of the two read states to its own kind", () => {
-    expect(sessionsAbsenceKindFor({ status: "reading" })).toBe("not-loaded");
-    expect(sessionsAbsenceKindFor(servedDirectory([]))).toBe("empty");
+    expect(sessionListNothingKindFor({ status: "reading" })).toBe("not-loaded");
+    expect(sessionListNothingKindFor(servedDirectory([]))).toBe("empty");
   });
 });
 

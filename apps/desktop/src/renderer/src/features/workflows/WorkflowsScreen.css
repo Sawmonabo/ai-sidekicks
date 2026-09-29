@@ -2,7 +2,7 @@
  * The workflows screen's own composition: the column its runs section stands in, and the
  * pane host that replaces it while a pane is open. Imported by `WorkflowsScreen.tsx`.
  *
- * Values come from the generated token sheet: there is no literal colour and no literal
+ * Values come from the generated token sheet: there is no literal color and no literal
  * length off the space scale, and nothing animates.
  */
 
@@ -45,8 +45,8 @@
 }
 
 /*
- * The slot's opened pane. On a bare route there is no deck to put one in, so the pane stands
- * where the destination was, under one control back to it. A column rather than a deck: one
+ * The mount point's opened pane. On a bare route there is no pane layout to put one in, so the pane stands
+ * where the destination was, under one control back to it. A column rather than a pane layout: one
  * pane at a time, no layout, nothing beside it.
  */
 .meridian-workflows-pane-host {

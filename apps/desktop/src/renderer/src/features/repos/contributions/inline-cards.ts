@@ -2,7 +2,7 @@
 
 import { createElement } from "react";
 
-import { type InlineCardSeatRegistry } from "@renderer/console/seats/index.js";
+import { type InlineCardRegistry } from "@renderer/console/seats/index.js";
 import { InlineDiffCard } from "../diff/components/InlineDiffCard.js";
 import { REPOS_FEATURE_OWNER } from "./owner.js";
 
@@ -14,7 +14,7 @@ import { REPOS_FEATURE_OWNER } from "./owner.js";
  * running window's. Registered from here rather than at the card module's scope, so a
  * hot reload re-runs one module.
  */
-export function registerRepos(inlineCardSeats: InlineCardSeatRegistry): void {
+export function registerReposInlineCards(inlineCardSeats: InlineCardRegistry): void {
   inlineCardSeats.register("diff", {
     owner: REPOS_FEATURE_OWNER,
     render: (cardProps) => createElement(InlineDiffCard, { card: cardProps }),

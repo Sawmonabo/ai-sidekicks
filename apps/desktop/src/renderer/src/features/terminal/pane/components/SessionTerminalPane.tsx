@@ -22,7 +22,7 @@ const TERMINAL_PANE_WORD = "Terminal";
 /**
  * The emulator's accessible name, inside the pane.
  *
- * `seats/ConsolePaneChrome` names the pane's own region, from a title table that is
+ * `seats/PaneFrame` names the pane's own region, from a title table that is
  * module-private to it — deliberately, so the view families cannot each spell the same
  * pane two ways — and the emulator INSIDE it is still this family's to name. Deriving
  * from a local word rather than reaching for that table is what keeps the private table

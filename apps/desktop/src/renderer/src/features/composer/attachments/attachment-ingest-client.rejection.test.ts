@@ -13,7 +13,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { RealClock } from "@renderer/lib/clock.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
-import { consoleTripwires } from "@renderer/lib/tripwires.js";
+import { windowTripwires } from "@renderer/lib/tripwires.js";
 import { AttachmentSpoolReclaimer } from "./services/attachment-ingest-abort.js";
 import type { AttachmentIngestPort } from "./services/attachment-ingest-answer.js";
 import { PAYLOAD_READ_REFUSAL_CODE } from "./services/attachment-ingest-chunks.js";
@@ -32,13 +32,13 @@ import {
 } from "./services/attachment-ingest-stream.js";
 
 beforeEach(() => {
-  consoleTripwires.setThrowOnReport(false);
-  consoleTripwires.reset();
+  windowTripwires.setThrowOnReport(false);
+  windowTripwires.reset();
 });
 
 afterEach(() => {
-  consoleTripwires.reset();
-  consoleTripwires.setThrowOnReport(import.meta.env.DEV);
+  windowTripwires.reset();
+  windowTripwires.setThrowOnReport(import.meta.env.DEV);
 });
 
 describe("ingest client — a file that stops being readable", () => {
@@ -90,14 +90,14 @@ describe("ingest client — a subscriber that throws while the ledger publishes"
     client.subscribe(() => {
       publishCount += 1;
       if (publishCount > 1) {
-        throw new Error("a subscriber failed while receiving the carrier");
+        throw new Error("a subscriber failed while receiving the staged list");
       }
     });
     client.attach(SMALL_SOURCE);
     await crossMacrotaskBoundary();
 
-    expect(consoleTripwires.firingCount("apply-chokepoint-bypass")).toBe(1);
-    const [report] = consoleTripwires.reports();
+    expect(windowTripwires.firingCount("apply-chokepoint-bypass")).toBe(1);
+    const [report] = windowTripwires.reports();
     expect(report?.site).toBe(INGEST_STREAM_SITE);
     expect(report?.detail).toContain("attachment-1");
     // The write landed before the fan-out failed, which is why this reports rather than
@@ -114,7 +114,7 @@ describe("ingest client — a subscriber that throws while the ledger publishes"
     client.attach(SMALL_SOURCE);
     await crossMacrotaskBoundary();
 
-    expect(consoleTripwires.totalFiringCount).toBe(0);
+    expect(windowTripwires.totalFiringCount).toBe(0);
     expect(client.snapshot[0]?.state).toBe("complete");
   });
 });
@@ -141,7 +141,7 @@ describe("ingest driver — a rejected port call reaches the caller", () => {
       });
 
       await expect(driver.drive("attachment-1")).rejects.toBe(rejection);
-      expect(consoleTripwires.totalFiringCount).toBe(0);
+      expect(windowTripwires.totalFiringCount).toBe(0);
       expect(driver.isRunning("attachment-1")).toBe(false);
     },
   );

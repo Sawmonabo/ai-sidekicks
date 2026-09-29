@@ -3,7 +3,7 @@
 // DRIVEN THROUGH THE CARD RATHER THAN THE ARM, because the subject is what a document
 // holding two open asks contains: a provider mints its ask ids per provider session, so
 // two runs blocked at once legitimately raise `ask-01` each, and both cards are on
-// screen in the same ledger. An arm rendered alone can never show that.
+// screen in the same transcript. An arm rendered alone can never show that.
 //
 // AND THE ASSERTION IS THE LABEL ASSOCIATION, not the id string. What a shared id costs
 // is exactly this: activating either label focuses the first matching field, so one
@@ -15,10 +15,10 @@ import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import {
-  ASK_ANSWER_UNSENT,
-  type DriverAskReading,
+  UNSENT_ANSWER_DELIVERY,
+  type QuestionReading,
 } from "@renderer/store/session-events/question-reading.js";
-import { InputAskCard } from "./QuestionCard.js";
+import { QuestionCard } from "./QuestionCard.js";
 import type { RunId } from "@ai-sidekicks/contracts";
 
 /** The provider-minted id both runs legitimately raise. */
@@ -29,7 +29,7 @@ const SECOND_RUN_ID = "019b79ee-0280-740e-8110-d1a4c1150002" as RunId;
 
 const NOW_MILLISECONDS = Date.UTC(2026, 8, 2, 10, 0, 0);
 
-function askOn(runId: RunId): DriverAskReading {
+function askOn(runId: RunId): QuestionReading {
   return {
     askId: SHARED_ASK_ID,
     runId,
@@ -41,17 +41,17 @@ function askOn(runId: RunId): DriverAskReading {
   };
 }
 
-/** Both open asks in one document, exactly as one ledger window holds them. */
+/** Both open asks in one document, exactly as one transcript window holds them. */
 function renderBothAsks(): HTMLElement {
   const { container } = render(
     <>
       {[FIRST_RUN_ID, SECOND_RUN_ID].map((runId) => (
-        <InputAskCard
+        <QuestionCard
           key={runId}
           body={undefined}
           ask={askOn(runId)}
           nowEpochMilliseconds={NOW_MILLISECONDS}
-          delivery={ASK_ANSWER_UNSENT}
+          delivery={UNSENT_ANSWER_DELIVERY}
           onAnswer={() => {
             // The dispatch is another suite's subject; this one is about identity.
           }}

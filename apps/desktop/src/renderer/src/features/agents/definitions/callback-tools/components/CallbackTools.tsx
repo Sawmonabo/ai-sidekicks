@@ -24,7 +24,7 @@
 // component that read one flag and inferred both would report an unread driver as a
 // registry that holds nothing.
 //
-// TWO THINGS THIS COMPONENT WILL NOT DO. It never synthesises the registry from
+// TWO THINGS THIS COMPONENT WILL NOT DO. It never synthesizes the registry from
 // observed tool rows, which would report only tools that have already been called.
 // And it never presents a callback tool as ungoverned or as a provider tool: every
 // daemon-registered callback tool is Cedar-governed identically to a provider tool,
@@ -82,7 +82,7 @@ export function CallbackTools(props: CallbackToolsProps): React.JSX.Element | nu
         kind="not-checked"
         placement="surface"
         title="The bound driver's capability flags have not been read."
-        detail="Whether this session's agents can reach a daemon-hosted tool at all is a flag on the driver, and this build has not read one. Nothing is reported here until it has, because an empty list under a heading would report a registry that exists and holds nothing."
+        detail="Whether this session's agents can reach a tool the background service hosts at all is a flag on the driver, and this build has not read one. Nothing is reported here until it has, because an empty list under a heading would report a registry that exists and holds nothing."
       />
     );
   }
@@ -91,7 +91,7 @@ export function CallbackTools(props: CallbackToolsProps): React.JSX.Element | nu
       <Nothing
         kind="not-loaded"
         placement="surface"
-        title="Reading the daemon-hosted tool registry."
+        title="Reading the registry of tools the background service hosts."
       />
     );
   }
@@ -99,11 +99,11 @@ export function CallbackTools(props: CallbackToolsProps): React.JSX.Element | nu
     return (
       <div className="meridian-callback-tools meridian-callback-tools--withheld">
         <p className="meridian-callback-tools__note">
-          The registry is withheld. Spawn does not expose these tools while the daemon has no
-          registered approval-create seam, so an agent cannot reach them, and a stray invocation is
-          answered <WireFigure value="denied" /> by the host&apos;s runtime backstop with a driver
-          diagnostic beside it — never completed without a policy decision, and never left
-          unanswered.
+          The registry is withheld. Spawn does not expose these tools while the background service
+          has no registered approval-create seam, so an agent cannot reach them, and a stray
+          invocation is answered <WireFigure value="denied" /> by the host&apos;s runtime backstop
+          with a driver diagnostic beside it — never completed without a policy decision, and never
+          left unanswered.
         </p>
         <CallbackToolRows tools={props.registry.tools} deniedTone />
       </div>
@@ -112,9 +112,9 @@ export function CallbackTools(props: CallbackToolsProps): React.JSX.Element | nu
   return (
     <div className="meridian-callback-tools">
       <p className="meridian-callback-tools__note">
-        These are constructed and trusted by the daemon rather than produced by a provider. Each one
-        is governed exactly as a provider tool is, its invocations land as ordinary tool rows, and
-        none of them bypasses the approval pipeline.
+        These are constructed and trusted by the background service rather than produced by a
+        provider. Each one is governed exactly as a provider tool is, its invocations land as
+        ordinary tool rows, and none of them bypasses the approval pipeline.
       </p>
       <CallbackToolRows tools={props.registry.tools} />
     </div>

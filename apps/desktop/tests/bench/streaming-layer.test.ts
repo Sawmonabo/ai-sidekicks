@@ -7,10 +7,10 @@
 // The console admits a library only after its bytes, heap, and frame cost are
 // measured against an own build, and the
 // console's streaming block layer is the largest own build in the tree: an
-// incremental block segmenter, a memoised settled-block parse, and a tail that is the
+// incremental block segmenter, a memoized settled-block parse, and a tail that is the
 // only text `remend` is applied to. The design track's decision A8 says that layer
 // "ships only on a measured win over the library path" — and until this file there
-// was no arm that measured it, so the layer would have merged ungated with the ledger
+// was no arm that measured it, so the layer would have merged ungated with the transcript
 // holding only the store fan-out rows.
 //
 // ─────────────────────────────────────────────────────────────────────────────
@@ -22,7 +22,7 @@
 //
 //   • **own** — `MarkdownBlockSegmenter` splits each cumulative snapshot into settled
 //     blocks and a volatile tail; the settled blocks go through `parseSettledBlock`,
-//     which memoises by block text, and only the tail is re-parsed per delta.
+//     which memoizes by block text, and only the tail is re-parsed per delta.
 //   • **library** — no segmentation and no memo: every delta re-parses the whole
 //     accumulated message, which is what a card built directly on the parser does.
 //
@@ -213,7 +213,7 @@ test(
       },
       {
         benchmarkId: "streaming-layer.own",
-        label: "Own layer — incremental segmentation with a memoised settled-block parse",
+        label: "Own layer — incremental segmentation with a memoized settled-block parse",
         unit: "ms/delta",
         samples: own.samples,
         context: {

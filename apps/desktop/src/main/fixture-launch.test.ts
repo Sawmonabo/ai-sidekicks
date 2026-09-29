@@ -7,15 +7,15 @@
 import { describe, expect, it } from "vitest";
 
 import { FIRST_RUN_SCENARIO } from "../../fixtures/scenarios/first-run.js";
-import { FLAGSHIP_SCENARIO } from "../../fixtures/scenarios/concurrent-streaming.js";
+import { CONCURRENT_STREAMING_SCENARIO } from "../../fixtures/scenarios/concurrent-streaming.js";
 import { checkFixtureLaunchAgainstCatalog, parseFixtureLaunch } from "./fixture-launch.js";
 
 /** What Electron and a test driver put on a command line besides the app's own arguments. */
-const SHELL_ARGUMENTS = ["--user-data-dir=/tmp/profile", "--inspect=0", "out/main/index.js"];
+const ELECTRON_ARGUMENTS = ["--user-data-dir=/tmp/profile", "--inspect=0", "out/main/index.js"];
 
 describe("parseFixtureLaunch", () => {
   it("reads a normal launch as no fixture launch", () => {
-    expect(parseFixtureLaunch(SHELL_ARGUMENTS)).toBeUndefined();
+    expect(parseFixtureLaunch(ELECTRON_ARGUMENTS)).toBeUndefined();
   });
 
   it.each([
@@ -25,8 +25,8 @@ describe("parseFixtureLaunch", () => {
       ["--fixture", "first-run", "--session", "session-a"],
       { scenarioId: "first-run", sessionId: "session-a" },
     ],
-  ])("reads %j among the shell's arguments", (launchArguments, launch) => {
-    expect(parseFixtureLaunch([...SHELL_ARGUMENTS, ...launchArguments])).toEqual(launch);
+  ])("reads %j among the main process's arguments", (launchArguments, launch) => {
+    expect(parseFixtureLaunch([...ELECTRON_ARGUMENTS, ...launchArguments])).toEqual(launch);
   });
 
   it.each([
@@ -39,7 +39,7 @@ describe("parseFixtureLaunch", () => {
     ],
     [["--session", "session-a"], "--session opens a session in a fixture scenario"],
   ])("refuses %j", (launchArguments, refusal) => {
-    expect(() => parseFixtureLaunch([...SHELL_ARGUMENTS, ...launchArguments])).toThrow(refusal);
+    expect(() => parseFixtureLaunch([...ELECTRON_ARGUMENTS, ...launchArguments])).toThrow(refusal);
   });
 });
 
@@ -50,8 +50,8 @@ describe("checkFixtureLaunchAgainstCatalog", () => {
     ).resolves.toBeUndefined();
     await expect(
       checkFixtureLaunchAgainstCatalog({
-        scenarioId: FLAGSHIP_SCENARIO.id,
-        sessionId: FLAGSHIP_SCENARIO.sessionId,
+        scenarioId: CONCURRENT_STREAMING_SCENARIO.id,
+        sessionId: CONCURRENT_STREAMING_SCENARIO.sessionId,
       }),
     ).resolves.toBeUndefined();
   });
@@ -66,8 +66,8 @@ describe("checkFixtureLaunchAgainstCatalog", () => {
     await expect(
       checkFixtureLaunchAgainstCatalog({
         scenarioId: FIRST_RUN_SCENARIO.id,
-        sessionId: FLAGSHIP_SCENARIO.sessionId,
+        sessionId: CONCURRENT_STREAMING_SCENARIO.sessionId,
       }),
-    ).rejects.toThrow(`not "${FLAGSHIP_SCENARIO.sessionId}"`);
+    ).rejects.toThrow(`not "${CONCURRENT_STREAMING_SCENARIO.sessionId}"`);
   });
 });

@@ -69,7 +69,7 @@ export function windowOpenHandlerOf(browserWindow: unknown): (details: { url: st
 /**
  * The listener registered for one navigation event on a window's `webContents`.
  *
- * Parameterised on the event rather than one accessor per seam, because the two
+ * Parameterized on the event rather than one accessor per seam, because the two
  * seams take the SAME classification: a case that exercises `will-navigate` and
  * a case that exercises `will-redirect` differ in one string and nothing else,
  * which is the property the redirect seam exists to have.

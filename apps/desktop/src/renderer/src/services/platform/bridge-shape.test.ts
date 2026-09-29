@@ -1,11 +1,11 @@
 // The fixture-bridge shape claim, as a test.
 //
 // The claim: the fixture bridge is typed from the same `packages/contracts`
-// desktop-bridge types as the live bridge, and is shape-identical to `DesktopBridge`
+// desktop-bridge types as the live bridge, and is shape-identical to `PlatformBridge`
 // namespace for namespace.
 //
 // WHY A RUNTIME TEST FOR SOMETHING THE TYPES ALREADY SAY. Both bridges are declared
-// `DesktopBridge`, so a namespace added to the contract breaks the fixture at
+// `PlatformBridge`, so a namespace added to the contract breaks the fixture at
 // compile time. What the compiler cannot see is the LIVE side: `window.desktopBridge`
 // is installed by a preload across `contextBridge`, which structurally clones the
 // object graph, and the renderer's belief that it satisfies the interface is a
@@ -18,7 +18,7 @@
 // remembered, and would go on passing over a fixture that dropped a method the
 // hand-list also forgot. The comparison enumerates both objects at runtime, and the
 // only listing anywhere is `bridge-shape.ts`'s namespace table, which is keyed by
-// `keyof DesktopBridge` and therefore cannot go stale.
+// `keyof PreloadApi` and therefore cannot go stale.
 import { afterEach, describe, expect, it } from "vitest";
 
 import { createStubBridge, type PreloadApi } from "@shared/preload-api.js";
@@ -28,14 +28,14 @@ import {
   diffBridgeShapes,
   type BridgeShape,
 } from "./bridge-shape.js";
-import type { ConsoleBridge } from "./platform-bridge.js";
+import type { PlatformBridge } from "./platform-bridge.js";
 import { FIXTURE_APP_META, createFixtureBridge } from "./platform-bridge.fixture.js";
 import { createLiveBridge, readInstalledBridge } from "./live-bridge.js";
 import { findScenario } from "../../../../../fixtures/index.js";
 import { FIRST_RUN_SCENARIO_ID } from "../../../../../fixtures/scenarios/first-run.js";
 
 /**
- * Install a bridge the way the preload does, and hand back the live `ConsoleBridge`
+ * Install a bridge the way the preload does, and hand back the live `PlatformBridge`
  * the console would have resolved.
  *
  * Goes through `readInstalledBridge` rather than calling `createLiveBridge` with the
@@ -43,20 +43,20 @@ import { FIRST_RUN_SCENARIO_ID } from "../../../../../fixtures/scenarios/first-r
  * this test drives. A helper that skipped it would be testing a bridge the console
  * would have refused.
  */
-function resolveLiveBridgeFrom(installed: unknown): ConsoleBridge | undefined {
+function resolveLiveBridgeFrom(installed: unknown): PlatformBridge | undefined {
   (globalThis as { desktopBridge?: unknown }).desktopBridge = installed;
   const read = readInstalledBridge();
   return read === undefined ? undefined : createLiveBridge(read);
 }
 
-function fixtureBridge(): ConsoleBridge {
+function fixtureBridge(): PlatformBridge {
   return createFixtureBridge({ scenario: findScenario(FIRST_RUN_SCENARIO_ID) });
 }
 
-function shapesOf(left: ConsoleBridge, right: ConsoleBridge): readonly string[] {
+function shapesOf(left: PlatformBridge, right: PlatformBridge): readonly string[] {
   return diffBridgeShapes(
-    { label: "the live bridge", shape: describeBridgeShape(left.desktopBridge) },
-    { label: "the fixture bridge", shape: describeBridgeShape(right.desktopBridge) },
+    { label: "the live bridge", shape: describeBridgeShape(left) },
+    { label: "the fixture bridge", shape: describeBridgeShape(right) },
   );
 }
 
@@ -78,16 +78,16 @@ describe("the fixture bridge is shape-identical to the live bridge", () => {
   it("covers every namespace the contract declares, so the comparison is not vacuous", () => {
     // Without this, two bridges that had both lost the same namespace — or an
     // enumeration that read nothing at all — would compare equal and pass. The
-    // namespace table is keyed by `keyof DesktopBridge`, so this is the point
+    // namespace table is keyed by `keyof PreloadApi`, so this is the point
     // where the runtime reading is tied back to the contract.
     const live = resolveLiveBridgeFrom(createStubBridge(FIXTURE_APP_META));
     const fixture = fixtureBridge();
     const expected = [...DESKTOP_BRIDGE_NAMESPACES].sort();
 
     expect(live).toBeDefined();
-    expect([...describeBridgeShape(fixture.desktopBridge).keys()].sort()).toStrictEqual(expected);
+    expect([...describeBridgeShape(fixture).keys()].sort()).toStrictEqual(expected);
     if (live !== undefined) {
-      expect([...describeBridgeShape(live.desktopBridge).keys()].sort()).toStrictEqual(expected);
+      expect([...describeBridgeShape(live).keys()].sort()).toStrictEqual(expected);
     }
   });
 
@@ -95,7 +95,7 @@ describe("the fixture bridge is shape-identical to the live bridge", () => {
     // The other vacuity arm: a describer that returned an empty member list for
     // every namespace would satisfy both tests above. Every namespace the contract
     // declares carries at least one member, so an empty one is a reading failure.
-    const shape: BridgeShape = describeBridgeShape(fixtureBridge().desktopBridge);
+    const shape: BridgeShape = describeBridgeShape(fixtureBridge());
     for (const namespace of DESKTOP_BRIDGE_NAMESPACES) {
       expect(shape.get(namespace)?.length ?? 0).toBeGreaterThan(0);
     }

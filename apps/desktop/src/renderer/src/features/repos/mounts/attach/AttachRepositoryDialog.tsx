@@ -19,7 +19,7 @@ import "./attach.css";
 
 import { Dialog } from "@base-ui/react/dialog";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { Nothing, OverlayDialogPopup, WireFigure } from "@renderer/console/primitives/index.js";
 import type { RepoOperations } from "../../repo-operations.js";
 import { type AttachRequestReading } from "./attach-controller.js";
@@ -28,7 +28,7 @@ import { EMPTY_ATTACH_FORM, resolveAttachForm, type AttachFormState } from "./at
 
 /** What the attach dialog is bound to: the session section, and the call it sends. */
 export interface AttachRepositoryDialogProps {
-  readonly bridge: ConsoleBridge;
+  readonly bridge: PlatformBridge;
   /** The attach the dialog sends. */
   readonly operations: Pick<RepoOperations, "attachRepository">;
   /** The session whose section the dialog is drawn in. */

@@ -41,11 +41,11 @@ describe("the agent library — the editor's subject", () => {
   it("selects the compose arm for a new definition", async () => {
     const { container } = renderAgentLibrary(new RegistryStub({ lists: [[definition()]] }));
     await settle();
-    const create = container.querySelector<HTMLButtonElement>(".meridian-agent-definitions__new");
+    const create = container.querySelector<HTMLButtonElement>(".meridian-agent-library__new");
     expect(create?.getAttribute("aria-pressed")).toBe("false");
     await press(create);
     expect(
-      container.querySelector(".meridian-agent-definitions__new")?.getAttribute("aria-pressed"),
+      container.querySelector(".meridian-agent-library__new")?.getAttribute("aria-pressed"),
     ).toBe("true");
   });
 

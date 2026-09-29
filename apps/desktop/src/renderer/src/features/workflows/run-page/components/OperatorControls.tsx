@@ -57,7 +57,7 @@
 //
 // AND BOTH OF THOSE ARE ANSWERS ABOUT ONE RUN. A typed cancellation reason and a
 // chosen re-pin target are the operator's answers about the run in front of them, and
-// the pane holding this component is RETARGETED IN PLACE — the deck rewrites its
+// the pane holding this component is RETARGETED IN PLACE — the pane layout rewrites its
 // address and hands the same instance another run. Held for the mount, the reason
 // carried over as a sentence about a run it was never written about, and the re-pin
 // carried a version id that is in the new run's chain nowhere: the picker fell back to
@@ -143,7 +143,7 @@ export function OperatorControls(props: OperatorControlsProps): React.JSX.Elemen
   // has something to say about which region the operator should be looking at.
   const reasonDisclosure = useRef<HTMLDetailsElement>(null);
   const reasonField = useRef<HTMLTextAreaElement>(null);
-  // Memoised because the reason is bounded in KIBIBYTES, so the encode this runs is
+  // Memoized because the reason is bounded in KIBIBYTES, so the encode this runs is
   // over a genuinely large string on the last keystroke before the bound and would
   // otherwise repeat on every unrelated render of the pane around it.
   const budget = useMemo(() => cancelReasonBudget(reason), [reason]);
@@ -223,7 +223,7 @@ function revealReasonField(fields: CancelFieldState): void {
  * Cancel, with its optional reason one disclosure away.
  *
  * The reason is behind a `<details>` because rule 7 puts the secondary thing one
- * click away and because cancelling without a reason is the common act — a field
+ * click away and because canceling without a reason is the common act — a field
  * always open would make the empty case look unfinished. `<details>` is the
  * platform's own disclosure, so it is keyboard-reachable and announced without this
  * file inventing a toggle.
@@ -260,7 +260,7 @@ function renderCancel(control: WorkflowCancelControl, fields: CancelFieldState):
           Cancel this run
         </button>
         <span className="meridian-workflow-run-controls__note">
-          Cancelling is never queued and never waits on a provider window.
+          Canceling is never queued and never waits on a provider window.
         </span>
       </div>
       {pastBound ? <InlineRefusal {...reasonPastBoundRefusal(fields.budget)} /> : null}

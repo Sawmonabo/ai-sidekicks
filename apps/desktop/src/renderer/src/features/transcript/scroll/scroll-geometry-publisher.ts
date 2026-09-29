@@ -1,4 +1,4 @@
-// The ledger's geometry publication: what three numbers MEAN, and who is woken by them.
+// The transcript's geometry publication: what three numbers MEAN, and who is woken by them.
 //
 // SPLIT OUT OF `scroll-chokepoint.ts` ON THE SEAM THAT MODULE'S OWN TEXT NAMES.
 // Its third decision — "Geometry is published, not polled: a replayable,
@@ -23,7 +23,7 @@
 // `scroll-callers.ts` records the same shape one seam over.
 
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
-import { type ConsoleClock } from "@renderer/lib/clock.js";
+import { type Clock } from "@renderer/lib/clock.js";
 import {
   TRANSCRIPT_GEOMETRY_EPSILON_PX,
   TRANSCRIPT_TAIL_TOLERANCE_PX,
@@ -48,7 +48,7 @@ export interface ScrollGeometryReading {
 }
 
 export interface ScrollGeometryPublisherOptions {
-  readonly clock: ConsoleClock;
+  readonly clock: Clock;
   /**
    * Within this many pixels of the bottom counts as the tail.
    *
@@ -61,16 +61,16 @@ export interface ScrollGeometryPublisherOptions {
 }
 
 /**
- * Holds the ledger's last geometry sample and wakes the subscribers a new one is news for.
+ * Holds the transcript's last geometry sample and wakes the subscribers a new one is news for.
  *
  * One per scroll controller. A class rather than a closure because the held sample,
  * the emitter and the tolerance are one object's state and the module level is not a
  * place to keep them.
  */
 export class ScrollGeometryPublisher {
-  readonly #clock: ConsoleClock;
+  readonly #clock: Clock;
   readonly #tailTolerancePx: number;
-  readonly #emitter = new Emitter<ScrollGeometry>("ledger geometry");
+  readonly #emitter = new Emitter<ScrollGeometry>("transcript scroll geometry");
 
   #lastGeometry: ScrollGeometry | undefined;
 

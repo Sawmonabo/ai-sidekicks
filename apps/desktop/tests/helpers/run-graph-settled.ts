@@ -26,7 +26,7 @@
 // canvas asks the library to fit the sequence into its box, and the fit lands as a
 // FRACTIONAL scale on the viewport — 0.715 for this fixture's four phases — so every
 // line box inside every node sits at a fractional device-pixel offset. Two captures
-// taken on either side of the fit's commit rasterise those offsets to different
+// taken on either side of the fit's commit rasterize those offsets to different
 // pixels: the glyph shapes are identical and individual text lines move by exactly
 // one pixel, which is the 582-pixel disagreement the screenshot tier reported, while
 // it still compared, against an image taken on its own runner from its own commit.
@@ -112,7 +112,7 @@ function fittedViewportTransform(surface: HTMLElement): string | undefined {
  * (`browser/workflow-run-geometry.test.tsx`), which measures the canvas by name.
  */
 function isGraphPainted(surface: HTMLElement): boolean {
-  const paintedRoot = surface.querySelector<HTMLElement>(".meridian-phase-graph .react-flow");
+  const paintedRoot = surface.querySelector<HTMLElement>(".meridian-run-graph .react-flow");
   if (paintedRoot === null) {
     return false;
   }
@@ -120,7 +120,7 @@ function isGraphPainted(surface: HTMLElement): boolean {
   if (rootBox.height <= 0 || rootBox.width <= 0) {
     return false;
   }
-  return [...surface.querySelectorAll<HTMLElement>(".meridian-phase-graph .react-flow__node")].some(
+  return [...surface.querySelectorAll<HTMLElement>(".meridian-run-graph .react-flow__node")].some(
     (node) => {
       const nodeBox = node.getBoundingClientRect();
       return (
@@ -145,7 +145,7 @@ function isGraphPainted(surface: HTMLElement): boolean {
  * knows draws a graph.
  */
 export function isRunGraphSettled(surface: HTMLElement): boolean {
-  if (surface.querySelector(".meridian-phase-graph") === null) {
+  if (surface.querySelector(".meridian-run-graph") === null) {
     return true;
   }
   return fittedViewportTransform(surface) !== undefined && isGraphPainted(surface);
@@ -164,7 +164,7 @@ export function isRunGraphSettled(surface: HTMLElement): boolean {
  * is the only clock that answers it.
  */
 export async function awaitRunGraphSettled(surface: HTMLElement): Promise<void> {
-  if (surface.querySelector(".meridian-phase-graph") === null) {
+  if (surface.querySelector(".meridian-run-graph") === null) {
     return;
   }
   await waitFor(

@@ -69,7 +69,7 @@ export class OrderedChildTeardown {
     this.#settled = true;
     for (let attempt = 0; attempt < DISPOSAL_ATTEMPTS; attempt += 1) {
       // The FIRST disposal is unconditional, even against a child whose `close`
-      // has already been delivered, because signalling is not all it does: it
+      // has already been delivered, because signaling is not all it does: it
       // also releases an armed escalation timer, and a pending timer is a claim
       // on a worker that is being torn down.
       this.#managed.dispose();
@@ -93,7 +93,7 @@ export class OrderedChildTeardown {
    * unlink mostly succeeds anyway and hides the bug, and on Windows an open
    * handle makes the removal fail outright.
    *
-   * The already-fired arm is not an optimisation: `close` is delivered at most
+   * The already-fired arm is not an optimization: `close` is delivered at most
    * once, so a listener registered after it would wait out the whole bound on
    * every ordinary teardown. The spent-bound arm REMOVES its listener, because
    * the loop above comes back: without it a retried disposal leaves one dead

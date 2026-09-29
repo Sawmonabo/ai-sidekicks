@@ -11,23 +11,24 @@
 //   • **It does not decide the new order.** Every drop calls
 //     `PaneLayoutStore.reorderPane`, which is the same method the Alt+Shift chord and
 //     the pane menu already commit through. A drag that computed its own order
-//     would be a second implementation of the deck's one reorder rule.
+//     would be a second implementation of the pane layout's one reorder rule.
 //   • **It does not render a preview.** The library's drag is the browser's own
 //     HTML5 drag, so the browser draws the dragged element and no React render
 //     happens per frame — which is the reason the row picks this library over the
 //     pointer-event families it names under AVOID.
 //   • **It does not offer a keyboard drag.** The library provides none by design
-//     (its accessibility guidance says so in terms), and the deck already has the
+//     (its accessibility guidance says so in terms), and the pane layout already has the
 //     accessible equivalent: Alt+Shift+Arrow moves the focused pane. The gesture is
 //     an addition to that path, never a replacement for it.
 //
 // STATE LIVES IN A CLASS. The indicator is one value — which pane, which edge —
 // that changes many times during a drag and is read by one component. Held in
-// `useState` inside the deck it would be set from a library callback outside
+// `useState` inside the pane layout it would be set from a library callback outside
 // React's knowledge, which is exactly the shape `useSyncExternalStore` exists for.
 
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
 import { type Announce, type AnnouncementPoliteness } from "@renderer/console/primitives/index.js";
+import { TITLE_BY_PANE_KIND } from "@renderer/components/PaneFrame/PaneFrame.js";
 import { type PaneKind } from "@renderer/console/seats/index.js";
 import type { PaneLayoutStore } from "./pane-layout-store.js";
 
@@ -35,8 +36,8 @@ import type { PaneLayoutStore } from "./pane-layout-store.js";
  * The key a pane drag's payload is carried under.
  *
  * Namespaced rather than a bare `paneId`, because the element adapter's monitor
- * sees every element drag on the page: a `paneLayout.paneId` key is what lets the deck's
- * monitor tell a pane header from a ledger row somebody else made draggable, and a
+ * sees every element drag on the page: a `paneLayout.paneId` key is what lets the pane layout's
+ * monitor tell a pane header from a transcript row somebody else made draggable, and a
  * payload it does not recognize is one it declines to act on rather than one it
  * misreads.
  */
@@ -61,14 +62,14 @@ export interface PaneDropAnnouncement {
 }
 
 /**
- * The deck's live drag state: what is in the air, and where it would land.
+ * The pane layout's live drag state: what is in the air, and where it would land.
  *
- * One instance per deck. Every mutation publishes, and publishes only on a real
+ * One instance per pane layout. Every mutation publishes, and publishes only on a real
  * change, so a pointer crossing a pane without crossing its midpoint costs no
  * render at all — the budget the row's "no per-frame renders" constraint states.
  */
 export class PaneLayoutDragCoordinator {
-  readonly #changes = new Emitter<PaneDropIndicator | undefined>("deck drag change");
+  readonly #changes = new Emitter<PaneDropIndicator | undefined>("pane drag change");
   #indicator: PaneDropIndicator | undefined;
   #draggedPaneId: string | undefined;
 
@@ -122,7 +123,7 @@ export function paneIdFromDragData(data: Record<string, unknown>): string | unde
 /**
  * Which edge of `element` the pointer at `clientX` is nearer.
  *
- * Own-built rather than the library's hitbox package: the deck needs one axis and
+ * Own-built rather than the library's hitbox package: the pane layout needs one axis and
  * two outcomes, the arithmetic is one comparison, and the row admits the core
  * package only — a second package for a midpoint test would be a dependency added
  * ahead of a need.
@@ -160,8 +161,8 @@ export function dropPosition(
  *
  * The live-region strings for layout, panes and drag are own-built, and this is where
  * they are built. The outcome of a drop is invisible to a person who is not watching
- * the deck move, and the LIBRARY says nothing: it reports that a drag ended, not
- * whether the deck changed.
+ * the pane layout move, and the LIBRARY says nothing: it reports that a drag ended, not
+ * whether the pane layout changed.
  *
  * A move is POLITE and a drop that changed nothing is ASSERTIVE. That looks
  * backwards until the lanes are read as `live-announcer.ts` defines them — the
@@ -169,8 +170,8 @@ export function dropPosition(
  * drop released over empty space or back onto the position it started from. A move
  * that landed is the ordinary outcome and waits its turn.
  *
- * The position is stated one-based and against the deck's own count, because
- * "position 2" alone is a number a person has to hold the deck's size in their head
+ * The position is stated one-based and against the pane layout's own count, because
+ * "position 2" alone is a number a person has to hold the pane layout's size in their head
  * to use.
  */
 export function paneDropAnnouncement(
@@ -180,10 +181,13 @@ export function paneDropAnnouncement(
   paneCount: number,
 ): PaneDropAnnouncement {
   if (fromPosition === toPosition) {
-    return { message: `The ${paneKind} pane was not moved.`, politeness: "assertive" };
+    return {
+      message: `The ${TITLE_BY_PANE_KIND[paneKind]} pane was not moved.`,
+      politeness: "assertive",
+    };
   }
   return {
-    message: `Moved the ${paneKind} pane to position ${String(toPosition + 1)} of ${String(paneCount)}.`,
+    message: `Moved the ${TITLE_BY_PANE_KIND[paneKind]} pane to position ${String(toPosition + 1)} of ${String(paneCount)}.`,
     politeness: "polite",
   };
 }
@@ -198,14 +202,14 @@ export function paneDropAnnouncement(
  * silently stale, which is the same class of defect as not raising one.
  *
  * `announce` is a PARAMETER and not a `useAnnounce()` call here. The hook context is
- * read once, by the deck component that mounts this monitor; a second read inside
+ * read once, by the pane layout component that mounts this monitor; a second read inside
  * the drag seam would make every host of this module a host of the announcer too.
  *
  * WHETHER THE PANE MOVED IS MEASURED, NOT ASSUMED. `dropPosition` can answer with a
- * position the deck is already in — dropping "before the pane on my right" is the
+ * position the pane layout is already in — dropping "before the pane on my right" is the
  * position the dragged pane already holds — and `PaneLayoutStore.reorderPane` clamps and
  * then no-ops. So the announcement reads the pane's index before and after rather
- * than trusting that a defined drop position means a changed deck.
+ * than trusting that a defined drop position means a changed pane layout.
  */
 export function commitPaneDrop(
   layout: PaneLayoutStore,
@@ -220,7 +224,7 @@ export function commitPaneDrop(
   const fromPosition = before.findIndex((pane) => pane.paneId === draggedPaneId);
   const draggedPane = before[fromPosition];
   if (draggedPane === undefined) {
-    // A drag whose pane left the deck while it was in the air. Nothing to move and
+    // A drag whose pane left the pane layout while it was in the air. Nothing to move and
     // nothing to name, so nothing is said — an announcement about a pane that is
     // gone is worse than silence.
     return;

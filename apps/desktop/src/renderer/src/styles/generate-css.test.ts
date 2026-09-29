@@ -26,10 +26,15 @@ import { describe, expect, it } from "vitest";
 import { BOUNDED_ENUMERATION_MAX_ROWS } from "./palette.js";
 import { ENUMERATION_ROW_HEIGHT_REM } from "./palette.js";
 import { BOUNDED_ENUMERATION_HEIGHT_REM } from "./palette.js";
-import { HUE_WHEEL, SCHEME_COLOR_TOKENS, actorHueTokenName, tokenVariableName } from "./tokens.js";
+import {
+  HUE_WHEEL,
+  SCHEME_COLOR_TOKENS,
+  formatHueWheelTokenName,
+  tokenVariableName,
+} from "./tokens.js";
 import { formatOklch } from "./color.js";
 import { generateMeridianCss } from "./generate-css.js";
-import { CONSOLE_SCHEMES } from "./tokens.js";
+import { COLOR_SCHEMES } from "./tokens.js";
 
 /** Custom-property NAMES a declaration block defines, e.g. `--meridian-text`. */
 function definedTokenVariables(css: string): Set<string> {
@@ -112,9 +117,9 @@ describe("assets — the generated token sheet", () => {
     }
   });
 
-  it("emits every colour through the shared formatter, never a hand-rounded literal", () => {
+  it("emits every color through the shared formatter, never a hand-rounded literal", () => {
     const css = generateMeridianCss();
-    for (const scheme of CONSOLE_SCHEMES) {
+    for (const scheme of COLOR_SCHEMES) {
       for (const [tokenName, pair] of SCHEME_COLOR_TOKENS) {
         expect(
           css.includes(`${tokenVariableName(tokenName)}: ${formatOklch(pair[scheme])};`),
@@ -123,7 +128,7 @@ describe("assets — the generated token sheet", () => {
       }
     }
     HUE_WHEEL.forEach((hue, step) => {
-      const variableName = tokenVariableName(actorHueTokenName(step));
+      const variableName = tokenVariableName(formatHueWheelTokenName(step));
       expect(css).toContain(`${variableName}: ${formatOklch(hue)};`);
     });
   });

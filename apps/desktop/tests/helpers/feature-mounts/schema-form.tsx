@@ -13,10 +13,10 @@
 // which on the raw arm means no findings and no `aria-invalid` on the editor. That is a
 // different composition from the one either tier says it is looking at.
 //
-// AND THE WAIT IS ON A STATE, NEVER ON A COUNT OF TURNS. `phase-graph-settled.ts` states
+// AND THE WAIT IS ON A STATE, NEVER ON A COUNT OF TURNS. `run-graph-settled.ts` states
 // the general reason and this surface supplies a sharper one: the compiler's door is
-// memoised (`SchemaValidatorCompilerChunk` holds one module promise per renderer), and a
-// memoised promise is still a promise — the hook's own `then` lands on a later microtask
+// memoized (`SchemaValidatorCompilerChunk` holds one module promise per renderer), and a
+// memoized promise is still a promise — the hook's own `then` lands on a later microtask
 // and installs the verdict through a state update, so resolving the compiler ahead of the
 // mount makes the hook's load CHEAP and does not make it synchronous. Before the memo
 // landed, that resolution reached the tree after `renderSettled`'s single macrotask
@@ -77,7 +77,7 @@ import { resolveSchemaFormChunks } from "@renderer/features/workflows/schema-for
  *
  * A ceiling on a hang, not a wait anybody expects to spend — the compile lands within a
  * turn or two of the mount on an idle host. It THROWS rather than returning, on
- * `phase-graph-settled.ts`'s reasoning: a tier that audited a form which never got its
+ * `run-graph-settled.ts`'s reasoning: a tier that audited a form which never got its
  * verdict reports clean over the surface it was written to cover.
  */
 export const SCHEMA_FORM_VERDICT_DEADLINE_MS = 5_000;

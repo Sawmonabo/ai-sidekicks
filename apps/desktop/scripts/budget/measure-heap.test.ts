@@ -18,7 +18,7 @@
 // that CLI, with a stand-in entity map retained: no Chromium, no renderer
 // isolate, no React, no DOM, no console store. That gate reported 5 % of budget
 // and would have kept reporting it with the shipped renderer arbitrarily far over
-// the limit, so the one behaviour worth pinning here is that naming the CLI as
+// the limit, so the one behavior worth pinning here is that naming the CLI as
 // the measurer fails loudly instead of restoring the green.
 
 import { readFileSync, writeFileSync } from "node:fs";

@@ -1,6 +1,6 @@
 // A disposal minted per render is not a lifetime.
 //
-// Split from `subject-scoped-resource.test.tsx` on the seam the hook itself draws:
+// Split from `useSubjectScopedResource.test.tsx` on the seam the hook itself draws:
 // that file is about WHAT IS OPEN — which render opened a resource and which close
 // retires it — and this one is about the identity of the `close` a caller hands in.
 // The two are separate because the defect was: `close` sat in the resource lifetime's

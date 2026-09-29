@@ -54,9 +54,9 @@
 // THE THREE RUN VERBS ARE RUN-ADDRESSED, AND RESOLUTION IS INJECTED. A run id is
 // globally unique, so the wire shapes carry no session selector — a second
 // addressing key would have no honest answer when the two disagreed. Turning a
-// run id into a driver is a LIVENESS judgement (`runtime_bindings` is 1:many per
+// run id into a driver is a LIVENESS judgment (`runtime_bindings` is 1:many per
 // run and retains superseded pre-relaunch rows), and `RuntimeBindingStore`
-// deliberately owns no liveness column so that the judgement is made in exactly
+// deliberately owns no liveness column so that the judgment is made in exactly
 // one place. This module therefore takes `resolveDriverForRun` as an injected
 // dependency rather than reaching for `findByRun` and picking the newest row —
 // picking here would be a wire handler inventing a second definition of "live",
@@ -85,7 +85,7 @@
 // daemon resolves an id to bytes yet and neither dispatcher reads the list — the
 // Codex one builds `steerRun` from `runId` / `content` / `expectedTurnId` / the
 // idempotency key, so a supported steer would return `applied` having dropped
-// every element. The contract is right and the daemon is what cannot honour it,
+// every element. The contract is right and the daemon is what cannot honor it,
 // so the refusal lives at the dispatch boundary rather than in the schema (which
 // would make the arm unsendable for good) and rather than in each dispatcher
 // (which would be the same rule written twice). See
@@ -196,9 +196,9 @@ export interface DriverCatalogDeps {
  * `resolveDriverForRun` is the liveness seam. It answers "which driver is
  * currently bound to this run", returning `undefined` when the run is unknown or
  * holds no live binding, and its implementor — the bootstrap orchestrator's
- * session engine, which owns the liveness judgement — is deliberately outside
+ * session engine, which owns the liveness judgment — is deliberately outside
  * this module. See the file header for why a handler must not make that
- * judgement itself.
+ * judgment itself.
  */
 export interface DriverDispatchDeps {
   readonly providerRegistry: Pick<ProviderRegistry, "lookup">;
@@ -216,7 +216,7 @@ export interface DriverDispatchDeps {
 // DATA for the handler to sequence — a resolver that threw `driver.unavailable`
 // itself would land liveness ahead of the authorization step and let a denied
 // caller's answer vary with binding state. The three-armed union is the same
-// liveness seam `resolveDriverForRun` draws (the judgement lives with the
+// liveness seam `resolveDriverForRun` draws (the judgment lives with the
 // bootstrap orchestrator's session engine, never in a wire handler), widened by
 // the one distinction these session-scoped verbs owe: an address that does not
 // resolve versus a resolved address no live binding backs.
@@ -525,14 +525,14 @@ function requireDriverOperation(
  * the list, so a supported steer would answer `applied` having dropped every
  * element. A silently shortened attachment list is precisely the failure the
  * typed carrier exists to prevent, so the carrier is refused WHOLE rather than
- * partially honoured. The Claude arm sends nothing today and degrades, but it
+ * partially honored. The Claude arm sends nothing today and degrades, but it
  * is refused on the same terms: `degraded` would tell the orchestration layer
  * to queue-and-interrupt with attachments the daemon equally cannot deliver.
  *
  * `driver.capability_unsupported` rather than a new code: no driver declares an
  * attachment-delivery leg, which is the same fact the registry's flag gate and
  * the operation check above report, and this refusal lifts the moment a driver
- * can honour the arm. Message, numerics, and `data.fields` mirror
+ * can honor the arm. Message, numerics, and `data.fields` mirror
  * `requireDriverOperation` exactly so the two cannot drift, and no new fields
  * member is minted (the count is not carried: the caller sent the list this
  * refusal answers).

@@ -1,9 +1,9 @@
-// The deck's single mount door: one owner per pane kind.
+// The pane layout's single mount door: one owner per pane kind.
 //
-// The deck rule, in structural terms: one entity opens one pane, through a single
+// The pane layout rule, in structural terms: one entity opens one pane, through a single
 // mount door and a tripwire that fails on a second. This module is that door. A view
 // family is HANDED this table by the composition and claims the kind it owns inside its
-// own `register<Family>` entry point; the deck resolves a pane's kind to a descriptor
+// own `register<Family>` entry point; the pane layout resolves a pane's kind to a descriptor
 // and mounts it. There is deliberately no module-scope convenience that writes into the
 // process-wide instance — a family calling one would compose into production from
 // inside a composition that had handed it somewhere else.
@@ -11,7 +11,7 @@
 // WHY THIS IS NOT `registries/screens/screen-registry.ts`, BESIDE IT IN THIS FAMILY
 //
 // A SURFACE is what a route mounts — one per navigable destination, at most one on
-// screen. A PANE is what the deck holds — several at once, opened by the sidebar,
+// screen. A PANE is what the pane layout holds — several at once, opened by the sidebar,
 // keyed by the entity they are a view of. The two tables answer different questions and are
 // keyed by different closed sets, so folding them together would mean one key
 // space in which a route and a pane could collide.
@@ -20,10 +20,10 @@
 // `KeyedRegistry` with `duplicatePolicy: "owner-scoped"` rather than two
 // hand-rolled tables that agree today.
 //
-// PANES CAN NAME THE PANE THEY WERE OPENED FROM, AND STILL NOT HOLD IT. A deck
-// links two panes when one opens the other — an inspector opened from a ledger row
+// PANES CAN NAME THE PANE THEY WERE OPENED FROM, AND STILL NOT HOLD IT. A pane layout
+// links two panes when one opens the other — an inspector opened from a transcript row
 // is a view OF that row's pane — and the link travels as an identifier passed in at
-// mount (`ConsolePaneContext.linkedSourcePaneId`), never as a handle held. That is
+// mount (`PaneContext.linkedSourcePaneId`), never as a handle held. That is
 // the design's independence rule made structural: a linked pane is still moved
 // and closed on its own, because the only thing it has of its source is a
 // string, and a string cannot be dereferenced into a body.
@@ -31,17 +31,17 @@
 import { createElement } from "react";
 
 import { KeyedRegistry } from "@renderer/lib/keyed-registry.js";
-import { LoadedLazyBody, type LazyBodyLoader } from "@renderer/components/LazyBody/lazy-body.js";
+import { LoaderBackedBody, type LazyBodyLoader } from "@renderer/components/LazyBody/lazy-body.js";
 import { PendingPaneBody } from "./PendingPaneBody.js";
-import { type ConsolePaneContext } from "./pane-context.js";
+import { type PaneContext } from "./pane-context.js";
 import { PANE_KINDS, type PaneKind } from "@renderer/routing/panes/pane-kinds.js";
 
 /** What a family registers to claim a pane kind. */
-export interface ConsolePaneDescriptor {
+export interface PaneDescriptor {
   readonly kind: PaneKind;
   /** The task or family that owns it, so an unrendered kind names someone. */
   readonly owner: string;
-  readonly render: (context: ConsolePaneContext) => React.ReactNode;
+  readonly render: (context: PaneContext) => React.ReactNode;
 }
 
 /**
@@ -60,26 +60,26 @@ export interface ConsolePaneDescriptor {
  * time by a registry that cannot know which the family meant. The `never` arms are what
  * make the compiler refuse a registration carrying both.
  */
-export type ConsolePaneRegistration =
+export type PaneRegistration =
   | (ConsolePaneRegistrationBase & {
-      readonly render: (context: ConsolePaneContext) => React.ReactNode;
+      readonly render: (context: PaneContext) => React.ReactNode;
       readonly body?: never;
     })
   | (ConsolePaneRegistrationBase & {
-      readonly body: LazyBodyLoader<ConsolePaneContext>;
+      readonly body: LazyBodyLoader<PaneContext>;
       readonly render?: never;
     });
 
-export class ConsolePaneRegistry {
+export class PaneRegistry {
   // `"owner-scoped"`, for `registries/screens/screen-registry.ts`'s reason: re-registering
   // under the same owner replaces (a hot reload re-runs a family's module), and a
   // different owner claiming a taken kind is a conflict rather than a swap,
   // because which body mounts would otherwise depend on module import order.
-  readonly #descriptorsByKind = new KeyedRegistry<PaneKind, ConsolePaneDescriptor>({
+  readonly #descriptorsByKind = new KeyedRegistry<PaneKind, PaneDescriptor>({
     duplicatePolicy: "owner-scoped",
     describeWhat: "pane kind",
     ownerOf: (descriptor) => descriptor.owner,
-    duplicateHint: "the deck mounts one body per pane kind, through a single door",
+    duplicateHint: "the pane layout mounts one body per pane kind, from one registration",
   });
 
   /**
@@ -90,17 +90,17 @@ export class ConsolePaneRegistry {
    * body it is about to render arrived as a chunk. Keeping the two apart is what lets
    * both registration forms produce one resolved descriptor shape.
    */
-  readonly #loadedBodiesByKind = new Map<PaneKind, LoadedLazyBody<ConsolePaneContext>>();
+  readonly #loadedBodiesByKind = new Map<PaneKind, LoaderBackedBody<PaneContext>>();
 
   /**
    * Claim a pane kind. A second claim by a different owner is an error, not a swap.
    *
-   * A loader-form registration is normalised here: the registry builds the one
-   * `LoadedLazyBody` for it — one memoised promise and one stable lazy component — and
+   * A loader-form registration is normalized here: the registry builds the one
+   * `LoaderBackedBody` for it — one memoized promise and one stable lazy component — and
    * stores the descriptor whose `render` mounts it. So `descriptorFor` answers the same
    * shape for both forms, and nothing downstream branches on how a body was registered.
    */
-  public register(registration: ConsolePaneRegistration): void {
+  public register(registration: PaneRegistration): void {
     if (registration.body === undefined) {
       // REGISTERED FIRST, THEN THE LOADER TABLE IS TRIMMED, which is the loader arm's
       // ordering read from the other side. Deleting first meant a refused registration —
@@ -118,7 +118,7 @@ export class ConsolePaneRegistry {
     }
     // The fallback is the pane's own empty chrome, supplied here rather than by the
     // generic machinery: what a pane reserves while it loads is a pane-shaped question.
-    const loadedBody = new LoadedLazyBody(registration.body, (context: ConsolePaneContext) =>
+    const loadedBody = new LoaderBackedBody(registration.body, (context: PaneContext) =>
       createElement(PendingPaneBody, { context }),
     );
     // Registered BEFORE the descriptor, so a `register` the keyed registry refuses —
@@ -145,7 +145,7 @@ export class ConsolePaneRegistry {
    * before it is certain, which is exactly the moment a loader can be paid for off the
    * critical path.
    *
-   * Idempotent by construction: the promise is memoised on the registration, so calling
+   * Idempotent by construction: the promise is memoized on the registration, so calling
    * this on every arrow-key press costs one fetch. A component-form kind and an
    * unregistered kind both settle immediately with nothing to do — a caller preloading
    * an address it has not opened yet must not have to ask first whether the kind is
@@ -167,7 +167,7 @@ export class ConsolePaneRegistry {
     return PANE_KINDS.filter((kind) => this.#loadedBodiesByKind.get(kind)?.isResolved === false);
   }
 
-  public descriptorFor(kind: PaneKind): ConsolePaneDescriptor | undefined {
+  public descriptorFor(kind: PaneKind): PaneDescriptor | undefined {
     return this.#descriptorsByKind.get(kind);
   }
 
@@ -190,9 +190,9 @@ interface ConsolePaneRegistrationBase {
 }
 
 /** The process-wide registry the view families call at module scope. */
-export const consolePaneRegistry: ConsolePaneRegistry = new ConsolePaneRegistry();
+export const paneRegistry: PaneRegistry = new PaneRegistry();
 
 /** Which pane kinds the process-wide registry has a body for. */
 export function registeredPaneKinds(): readonly PaneKind[] {
-  return consolePaneRegistry.registeredPaneKinds();
+  return paneRegistry.registeredPaneKinds();
 }

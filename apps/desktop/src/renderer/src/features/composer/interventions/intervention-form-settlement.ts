@@ -7,7 +7,7 @@
 // them. No JSX here, so every arm is drivable from a test with no rendered tree at
 // all, which is what the exhaustive tails below are worth.
 
-import { refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
+import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 import type { RunControlOutcome } from "../run-controls/services/run-control-dispatch.js";
 import type { RunControlAdmissionRefusal } from "../run-controls/hooks/useRunControlDispatch.js";
 
@@ -25,8 +25,8 @@ export const RUN_INTERVENTION_REFUSAL_ORIGIN = "run-intervention";
  */
 export type InterventionFormSettlement =
   | { readonly kind: "landed" }
-  | { readonly kind: "refused"; readonly notice: ConsoleRefusal }
-  | { readonly kind: "recorded"; readonly notice: ConsoleRefusal };
+  | { readonly kind: "refused"; readonly notice: Refusal }
+  | { readonly kind: "recorded"; readonly notice: Refusal };
 
 /**
  * Read one settled dispatch the way this form has to act on it.
@@ -79,7 +79,7 @@ export function readInterventionFormSettlement(
         notice: refuse(
           RUN_INTERVENTION_REFUSAL_ORIGIN,
           settledState,
-          "The daemon recorded this intervention and has not applied it yet. Your text is on that record; confirming again would raise a second one, so this control stays latched until you close it.",
+          "The background service recorded this intervention and has not applied it yet. Your text is on that record; confirming again would raise a second one, so this control stays latched until you close it.",
         ),
       };
     default:
@@ -93,13 +93,13 @@ export function readInterventionFormSettlement(
  * Total over the closed refusal set, so a second reason fails to compile here rather
  * than reaching a user as an empty sentence beside a form that did nothing.
  */
-export function admissionRefusal(reason: RunControlAdmissionRefusal): ConsoleRefusal {
+export function admissionRefusal(reason: RunControlAdmissionRefusal): Refusal {
   return refuse(RUN_INTERVENTION_REFUSAL_ORIGIN, reason, ADMISSION_REFUSAL_DETAIL[reason]);
 }
 
 /** What the form says beside a rejected settlement; the wire cause is the refusal's code. */
 const REJECTED_DETAIL =
-  "The daemon did not apply this. What you typed is still here — change what it asks for and confirm again, or cancel to close without sending.";
+  "The background service did not apply this. What you typed is still here — change what it asks for and confirm again, or cancel to close without sending.";
 
 /**
  * The `satisfies never` tail. A seventh intervention state fails to compile here
@@ -112,7 +112,7 @@ function unreadableSettlement(state: never): InterventionFormSettlement {
     notice: refuse(
       RUN_INTERVENTION_REFUSAL_ORIGIN,
       String(unreadable),
-      "The daemon answered with a state this console has no reading for, so nothing here claims the intervention landed. What you typed is still here.",
+      "The background service answered with a state this console has no reading for, so nothing here claims the intervention landed. What you typed is still here.",
     ),
   };
 }

@@ -19,15 +19,15 @@ import {
   subscribeNodeDaemon,
 } from "../daemon/daemon-streams.js";
 import { createFixtureBridge } from "../platform/platform-bridge.fixture.js";
-import { type ConsoleBridge } from "../platform/platform-bridge.js";
+import { type PlatformBridge } from "../platform/platform-bridge.js";
 import { withDaemonSubscribe } from "@test/helpers/fixture-bridge.js";
 import type { ScenarioEngine } from "../daemon/engine.fixture.js";
-import { FLAGSHIP_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
+import { CONCURRENT_STREAMING_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
 import { APPLY_COALESCE_MS } from "@renderer/lib/reads/refresh-caps.js";
 import { type Unsubscribe } from "@renderer/lib/emitter.js";
-import { consoleTripwires } from "@renderer/lib/tripwires.js";
+import { windowTripwires } from "@renderer/lib/tripwires.js";
 import { SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
-import { SessionEventBinder } from "./session-event-subscriber.js";
+import { SessionEventSubscriber } from "./session-event-subscriber.js";
 import { PAST_EVERY_BEAT_MS, SESSION_ID } from "./session-event-subscriber.test-support.js";
 
 /**
@@ -64,9 +64,9 @@ class ScriptedStreamOutage {
 /** A binder over a transport whose first opens throw, and the reads it asks for. */
 interface OutageHarness {
   readonly registry: SessionStoreRegistry;
-  readonly binder: SessionEventBinder;
+  readonly binder: SessionEventSubscriber;
   readonly engine: ScenarioEngine;
-  readonly bridge: ConsoleBridge;
+  readonly bridge: PlatformBridge;
   readonly outage: ScriptedStreamOutage;
   /** Every reason the registry's read was actually performed for, in order. */
   readonly reasonsSeen: string[];
@@ -85,7 +85,7 @@ interface OutageHarness {
  * request rather than a debounce interval away.
  */
 function createOutageHarness(refusalCount: number): OutageHarness {
-  const base = createFixtureBridge({ scenario: FLAGSHIP_SCENARIO });
+  const base = createFixtureBridge({ scenario: CONCURRENT_STREAMING_SCENARIO });
   const engine = base.scenarioEngine;
   if (engine === undefined) {
     throw new Error("the fixture bridge built no scenario engine, so there is nothing to drive");
@@ -103,7 +103,7 @@ function createOutageHarness(refusalCount: number): OutageHarness {
   });
   return {
     registry,
-    binder: new SessionEventBinder({ registry, bridge }),
+    binder: new SessionEventSubscriber({ registry, bridge }),
     engine,
     bridge,
     outage,
@@ -115,11 +115,11 @@ function createOutageHarness(refusalCount: number): OutageHarness {
 // they are RECORDED instead, because these cases assert that a breach was detected
 // and described — a throw would only prove it was noticed.
 beforeEach(() => {
-  consoleTripwires.setThrowOnReport(false);
-  consoleTripwires.reset();
+  windowTripwires.setThrowOnReport(false);
+  windowTripwires.reset();
 });
 
-describe("SessionEventBinder — the opens that failed, and what one returning edge is worth", () => {
+describe("SessionEventSubscriber — the opens that failed, and what one returning edge is worth", () => {
   it("retains a session whose stream open threw, and says so on its store", () => {
     // The leak this closes: the early return left the session with no subscription
     // AND no initial read, and the registry's `opened` change for it had already been
@@ -139,7 +139,7 @@ describe("SessionEventBinder — the opens that failed, and what one returning e
     // No stream and no read: the second half of the same gap, and the half a
     // subscription-only fix would leave open.
     expect(reasonsSeen).toEqual([]);
-    expect(consoleTripwires.firingCount("apply-chokepoint-bypass")).toBe(1);
+    expect(windowTripwires.firingCount("apply-chokepoint-bypass")).toBe(1);
 
     binder.dispose();
   });
@@ -152,7 +152,7 @@ describe("SessionEventBinder — the opens that failed, and what one returning e
 
     // The wire comes back, driven straight into the signal so this case states what a
     // returning edge is worth without also depending on who observed it. Who reports
-    // one is `bridge/transport/observed-subscription.ts`, and the case below drives
+    // one is `services/transport/observed-subscription.ts`, and the case below drives
     // that path rather than this one.
     bridge.transportReconnect.observe("reachable");
 
@@ -229,7 +229,9 @@ describe("SessionEventBinder — the opens that failed, and what one returning e
     expect(binder.retriedBindCount).toBe(1);
     expect(binder.boundSessionIds).toEqual([SESSION_ID]);
     engine.advance(PAST_EVERY_BEAT_MS);
-    expect(binder.appliedEventCountFor(SESSION_ID)).toBe(FLAGSHIP_SCENARIO.beats.length);
+    expect(binder.appliedEventCountFor(SESSION_ID)).toBe(
+      CONCURRENT_STREAMING_SCENARIO.beats.length,
+    );
 
     releaseFirstTail();
     releaseSecondTail();

@@ -5,10 +5,10 @@
 // this feature's own bodies registered into it.
 //
 // Everything here is real except the persistence stores, which are cast away for
-// `RouteSurface.test.tsx`'s reason: constructing them opens a database to hand a branch that
+// `app/router.test.tsx`'s reason: constructing them opens a database to hand a branch that
 // never touches it. The session store is `undefined` because `#/workflows` names no session.
 // The bodies reach the board through `registerWorkflowPanes`, the family's own registration
-// call, rather than a hand-built table: the screen's claim is that it mounts what the deck
+// call, rather than a hand-built table: the screen's claim is that it mounts what the pane layout
 // would mount.
 //
 // THE SCREEN IS MOUNTED WITH A SERVED RUN DIRECTORY, so a suite opens a run by pressing a
@@ -16,14 +16,14 @@
 
 import { fireEvent, render } from "@testing-library/react";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
-import { FLAGSHIP_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
+import { CONCURRENT_STREAMING_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
 import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
-import type { ConsoleRoute } from "@renderer/routing/routes.js";
-import { FrameStore } from "@renderer/store/window/window-store.js";
+import type { AppRoute } from "@renderer/routing/routes.js";
+import { WindowStore } from "@renderer/store/window/window-store.js";
 import {
-  ConsolePaneRegistry,
-  type ConsolePaneContext,
-  type ConsoleSurfaceContext,
+  PaneRegistry,
+  type PaneContext,
+  type ScreenContext,
 } from "@renderer/console/seats/index.js";
 import { registerWorkflowPanes } from "./contributions/panes.js";
 import type { WorkflowRunDirectoryState } from "./runs/hooks/useWorkflowRunDirectory.js";
@@ -45,26 +45,26 @@ export const SERVED_DIRECTORY: WorkflowRunDirectoryState = {
  * would make the second depend on whether the first had run.
  */
 export interface ComposedWindow {
-  readonly context: ConsoleSurfaceContext;
-  readonly paneRegistry: ConsolePaneRegistry;
+  readonly context: ScreenContext;
+  readonly paneRegistry: PaneRegistry;
 }
 
 /** The surface context the screen is handed, and this composition's own pane board. */
 export function composeWindow(): ComposedWindow {
-  const frameStore = new FrameStore();
-  const committedRoute: ConsoleRoute = { kind: "workflows" };
+  const frameStore = new WindowStore();
+  const committedRoute: AppRoute = { kind: "workflows" };
   frameStore.navigate(committedRoute);
-  const paneRegistry = new ConsolePaneRegistry();
+  const paneRegistry = new PaneRegistry();
   registerWorkflowPanes(paneRegistry);
   return {
     paneRegistry,
     context: {
       route: committedRoute,
-      bridge: createFixtureBridge({ scenario: FLAGSHIP_SCENARIO }),
+      bridge: createFixtureBridge({ scenario: CONCURRENT_STREAMING_SCENARIO }),
       frameStore,
       sessionStore: undefined,
       paneRegistry,
-    } as unknown as ConsoleSurfaceContext,
+    } as unknown as ScreenContext,
   };
 }
 
@@ -79,8 +79,8 @@ export function withReplacedBridge(composed: ComposedWindow): ComposedWindow {
     paneRegistry: composed.paneRegistry,
     context: {
       ...composed.context,
-      bridge: createFixtureBridge({ scenario: FLAGSHIP_SCENARIO }),
-    } as unknown as ConsoleSurfaceContext,
+      bridge: createFixtureBridge({ scenario: CONCURRENT_STREAMING_SCENARIO }),
+    } as unknown as ScreenContext,
   };
 }
 
@@ -104,8 +104,8 @@ export function remountWorkflowsScreen(
  * the body on that composition's board, so nothing outside the case sees it and no
  * teardown is owed.
  */
-export function probeRunPane(paneRegistry: ConsolePaneRegistry): readonly ConsolePaneContext[] {
-  const mountedContexts: ConsolePaneContext[] = [];
+export function probeRunPane(paneRegistry: PaneRegistry): readonly PaneContext[] {
+  const mountedContexts: PaneContext[] = [];
   paneRegistry.unregister("workflow-run");
   paneRegistry.register({
     kind: "workflow-run",

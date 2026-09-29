@@ -3,7 +3,7 @@
 // SPLIT FROM `window-cap.test.ts`, which is about the cap itself, the refusals a prune
 // can answer with, and the reading floor. The subjects here are the two the cap
 // depends on rather than states: the SEAM to the lease table, so a pruned row's
-// arrangement survives its row, and the COUNTING rule, so a folded chapter is one
+// arrangement survives its row, and the COUNTING rule, so a folded run group is one
 // entry and a run-only log is still bounded. The two suites were one file over the
 // size at which a file is doing two jobs.
 
@@ -19,15 +19,18 @@ import {
   syntheticWindowRows,
 } from "./window-cap.test-support.js";
 
-describe("the ledger window — leases and cursors", () => {
+describe("the transcript window — leases and cursors", () => {
   // The SEAM only. What parking means and the bound it is held to are
   // `retained-row-state-table.test.ts`'s; this case pins that the prune reaches it at all.
   it("re-parks a pruned row's lease under a synthetic key, and hands it back", () => {
     const window = loadedWindow();
-    window.setLease("chapter-0", { density: "expanded", innerScrollTopPx: 44 });
+    window.setLease("run-group-0", { density: "expanded", innerScrollTopPx: 44 });
     window.prune(PRUNABLE);
-    expect(window.rows().some((row) => row.key === "chapter-0")).toBe(false);
-    expect(window.lease("chapter-0")).toStrictEqual({ density: "expanded", innerScrollTopPx: 44 });
+    expect(window.rows().some((row) => row.key === "run-group-0")).toBe(false);
+    expect(window.lease("run-group-0")).toStrictEqual({
+      density: "expanded",
+      innerScrollTopPx: 44,
+    });
   });
 
   it("cuts at the pin's cursor while pinned and at the oldest retained row otherwise", () => {
@@ -52,14 +55,14 @@ describe("the ledger window — leases and cursors", () => {
     // and it can only do that if the row reaches it at all.
     const window = new TranscriptWindow();
     window.ingest([
-      { key: "chapter-0", parentKey: undefined, rootCursor: "cursor-0" },
-      { key: "chapter-0", parentKey: undefined, rootCursor: "cursor-1" },
+      { key: "run-group-0", parentKey: undefined, rootCursor: "cursor-0" },
+      { key: "run-group-0", parentKey: undefined, rootCursor: "cursor-1" },
     ]);
     expect(window.rows()).toHaveLength(2);
   });
 
   it("counts a row whose parent is not in the window, so a run-only log is capped", () => {
-    // The shape the ledger actually produces: every row names its run, and the run
+    // The shape the transcript actually produces: every row names its run, and the run
     // itself is not a row. Read as "has a parent, therefore a child", the window
     // counted nobody and a session that never left one run grew without a ceiling.
     const window = new TranscriptWindow({ topLevelCap: 10 });
@@ -75,7 +78,7 @@ describe("the ledger window — leases and cursors", () => {
 
   it("negative control: the same rows under a parent the window holds count once", () => {
     // Without this the case above would pass over a window that had simply stopped
-    // honouring parents at all. Give the run a row of its own and the fifty entries
+    // honoring parents at all. Give the run a row of its own and the fifty entries
     // collapse into one countable head — the property the cap has always had.
     const window = new TranscriptWindow({ topLevelCap: 10 });
     window.ingest([
@@ -87,10 +90,10 @@ describe("the ledger window — leases and cursors", () => {
     expect(window.size).toBe(51);
   });
 
-  it("counts a folded chapter as one, so the cap bounds chapters and not rows", () => {
-    // The load-bearing consequence of the ledger emitting a chapter header. Before
+  it("counts a folded run group as one, so the cap bounds run groups and not rows", () => {
+    // The load-bearing consequence of the transcript emitting a run group header. Before
     // it, every run row named its run, no row WAS that run, and the cap counted each
-    // of them — so ten chapters of a hundred rows read as a thousand against the
+    // of them — so ten run groups of a hundred rows read as a thousand against the
     // ceiling. With the header present the same log is ten.
     const window = new TranscriptWindow({ topLevelCap: 4 });
     window.ingest(foldedRunGroupLog(10));
@@ -99,7 +102,7 @@ describe("the ledger window — leases and cursors", () => {
     expect(outcome.applied).toBe(true);
     expect(outcome.topLevelRetained).toBe(4);
     // Header and receipt leave together — the ancestor closure — so no receipt is
-    // left hanging under a chapter the window no longer holds.
+    // left hanging under a run group the window no longer holds.
     expect(window.rows().map((row) => row.key)).toEqual([
       "run-6",
       "run-6-receipt",
@@ -115,7 +118,7 @@ describe("the ledger window — leases and cursors", () => {
   it("negative control: the same receipts with no header count one apiece", () => {
     // Without this the case above would pass over a cap that had stopped counting
     // anything. Take the headers away and the ten receipts are ten orphans, each its
-    // own top-level row — which is exactly the reading the ledger used to give it.
+    // own top-level row — which is exactly the reading the transcript used to give it.
     const window = new TranscriptWindow({ topLevelCap: 4 });
     window.ingest(foldedRunGroupLog(10).filter((row) => row.parentKey !== undefined));
     expect(window.topLevelRowKeys()).toHaveLength(10);

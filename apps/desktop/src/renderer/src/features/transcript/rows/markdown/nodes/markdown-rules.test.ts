@@ -37,7 +37,7 @@ describe("deferred fences", () => {
 
   it("negative control: an absent info string defers nothing", () => {
     // A fence with no language must take the ordinary code path; deferring it would
-    // hold back every unlabelled block in the log until it settled.
+    // hold back every unlabeled block in the log until it settled.
     expect(isDeferredFenceLanguage(null)).toBe(false);
     expect(isDeferredFenceLanguage(undefined)).toBe(false);
     expect(isDeferredFenceLanguage("")).toBe(false);

@@ -31,9 +31,9 @@ import type { AttachmentIngestEntry } from "./attachment-shapes.js";
 // --- Where the bounds live -----------------------------------------------
 //
 // NOT HERE. The attachment byte cap, the per-message cap, the stream lifetime and the
-// stall disclosure are behavioural limits several modules spend, and most of them
+// stall disclosure are behavioral limits several modules spend, and most of them
 // mirror a normative default the wire registers. A presentation module holding them
-// would make this file a configuration authority its neighbours had to import to learn
+// would make this file a configuration authority its neighbors had to import to learn
 // a number the daemon owns, so they sit in `attachment-caps.ts` with their rationales
 // and their wire sources, and the two this file's own arithmetic spends are imported
 // above like any other consumer's.
@@ -99,8 +99,8 @@ export function ingestCeilingRemainingMs(
  *
  * The DEADLINE rather than only the predicate, because two callers need it and they
  * need the same one: the card asks whether the instant it was handed is past it, and
- * the carrier asks when to hand the card a fresher instant. Two subtractions against
- * one threshold would be two places for the threshold to be spent, and a carrier that
+ * the staged list asks when to hand the card a fresher instant. Two subtractions against
+ * one threshold would be two places for the threshold to be spent, and a staged list that
  * woke a second early would render a card that was still not stalled.
  */
 export function ingestStallDisclosureAtMs(entry: AttachmentIngestEntry): number | undefined {

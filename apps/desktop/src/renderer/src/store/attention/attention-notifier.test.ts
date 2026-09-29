@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 
 import { ATTENTION_NOTIFIED_ITEM_CAP } from "./attention-notifier.js";
 import type { AttentionItem } from "@ai-sidekicks/contracts";
-import { AttentionPlane, type AnsweredAttentionReading } from "./attention-summary.js";
+import { AttentionSummary, type AnsweredAttentionReading } from "./attention-summary.js";
 import { AttentionNotifier } from "./attention-notifier.js";
 
 /**
@@ -50,7 +50,7 @@ function settledRead(
 ): AnsweredAttentionReading {
   return {
     phase: "read",
-    plane: new AttentionPlane(items),
+    plane: new AttentionSummary(items),
     droppedCount: 0,
     refusedSessions: [],
     addressedSessionIds,

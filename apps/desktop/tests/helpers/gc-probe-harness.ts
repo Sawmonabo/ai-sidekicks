@@ -185,7 +185,7 @@ export function spawnElectronGcProbe(): Promise<GcProbeSpawnResult> {
     // Two things it supplies that the superseded shape could not: the child
     // leads its own process group, so the kill reaches the browser process
     // behind the `node_modules/.bin/electron` shim rather than orphaning it —
-    // SIGKILL is unforwardable, so signalling the shim alone was how the
+    // SIGKILL is unforwardable, so signaling the shim alone was how the
     // measured orphans were made — and the kill is registered on
     // `onTestFinished`, so it runs on every outcome the test has rather than
     // only on the one a timer was armed for.

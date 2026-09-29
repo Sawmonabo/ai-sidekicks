@@ -18,14 +18,14 @@
 export const ATTACHMENT_BYTE_CAP_DEFAULT: number = 100 * 1024 * 1024;
 
 /**
- * Attachments one carrier may name, at the shipped default.
+ * Attachments one staged list may name, at the shipped default.
  *
  * `max_attachments_per_carrier`, derived from the quota envelope rather than
- * picked: one maximally-sized carrier exactly saturates the per-session relay
- * budget. Operator-tunable over a 1 – 50 range. Bound on the CARRIER and never on
+ * picked: one maximally-sized staged list exactly saturates the per-session relay
+ * budget. Operator-tunable over a 1 – 50 range. Bound on the STAGED LIST and never on
  * an ingest stream, which carries exactly one payload and has no count to cap.
  */
-export const ATTACHMENTS_PER_CARRIER_CAP_DEFAULT = 10;
+export const ATTACHMENTS_PER_MESSAGE_CAP_DEFAULT = 10;
 
 /**
  * Wall-clock ceiling on one ingest stream, measured from its first call.

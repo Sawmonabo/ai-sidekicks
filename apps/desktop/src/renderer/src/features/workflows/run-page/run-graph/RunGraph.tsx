@@ -42,7 +42,7 @@
 //
 // THE WRAPPER IS UNSTYLED UNTIL THE CHUNK LANDS, and that is the arrangement rather
 // than an oversight: this family's sheet rides the lazy chunk, so before it arrives
-// `.meridian-phase-graph` matches no rule. Nothing that renders in that window needs
+// `.meridian-run-graph` matches no rule. Nothing that renders in that window needs
 // one — the absence primitive and the refusal banner both come from `primitives/`,
 // whose sheet is in the initial bundle, and the wrapper's only job until then is to
 // be the block they stand in. That matters most on the arm where the chunk never
@@ -103,7 +103,7 @@ export function RunGraph(props: RunGraphProps): React.JSX.Element {
 
   if (props.phases.length === 0) {
     return (
-      <div className="meridian-phase-graph">
+      <div className="meridian-run-graph">
         <Nothing
           kind="empty"
           placement="surface"
@@ -116,7 +116,7 @@ export function RunGraph(props: RunGraphProps): React.JSX.Element {
 
   if (layout.status === "malformed") {
     return (
-      <div className="meridian-phase-graph">
+      <div className="meridian-run-graph">
         <Nothing
           kind="error"
           placement="surface"
@@ -129,18 +129,18 @@ export function RunGraph(props: RunGraphProps): React.JSX.Element {
 
   if (graphModule.status !== "loaded") {
     return (
-      <div className="meridian-phase-graph">{renderUnloadedCanvas(graphModule, retryChunk)}</div>
+      <div className="meridian-run-graph">{renderUnloadedCanvas(graphModule, retryChunk)}</div>
     );
   }
 
-  // Bound to a capitalised local because JSX reads a lowercase leading identifier as
+  // Bound to a capitalized local because JSX reads a lowercase leading identifier as
   // a tag name; the component itself is the one the loader resolved.
   const LoadedRunGraphCanvas = graphModule.module.RunGraphCanvas;
   return (
-    <div className="meridian-phase-graph">
+    <div className="meridian-run-graph">
       <LoadedRunGraphCanvas layout={layout} label={props.label} />
       {layout.topologyAbsence === undefined ? null : (
-        <p className="meridian-phase-graph__caption">
+        <p className="meridian-run-graph__caption">
           {TOPOLOGY_ABSENCE_CAPTIONS[layout.topologyAbsence]}
         </p>
       )}

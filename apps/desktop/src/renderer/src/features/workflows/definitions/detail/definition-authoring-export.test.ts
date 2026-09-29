@@ -102,7 +102,7 @@ describe("exporting — the settlement is the host's answer and not the serializ
     expect(mounted.current().exportedFile).toContain(FILE_MARKER);
   });
 
-  it("settles only once the host's own write fulfils", async () => {
+  it("settles only once the host's own write fulfills", async () => {
     // The negative control for the case above: without it, that one would hold over an
     // export that never settled at all.
     const takers: Array<() => void> = [];

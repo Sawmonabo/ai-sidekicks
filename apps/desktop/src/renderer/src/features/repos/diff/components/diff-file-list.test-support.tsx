@@ -10,7 +10,7 @@ import { fireEvent, render } from "@testing-library/react";
 
 import { DiffFileList } from "./DiffFileList.js";
 import { buildDiffFixture } from "@test/helpers/diff-fixture.js";
-import { type ConsoleDiffModel } from "../diff-model.js";
+import { type DiffModel } from "../diff-model.js";
 
 /**
  * A repository-wide patch: five thousand files, one changed line each.
@@ -19,7 +19,7 @@ import { type ConsoleDiffModel } from "../diff-model.js";
  * windowing claim can be made against at all and generating it twice generates it
  * twice — in two files whose shapes could then differ without anything failing.
  */
-export const REPOSITORY_WIDE_DIFF: ConsoleDiffModel = buildDiffFixture({
+export const REPOSITORY_WIDE_DIFF: DiffModel = buildDiffFixture({
   fileCount: 5_000,
   hunksPerFile: 1,
   linesPerHunk: 1,
@@ -29,7 +29,7 @@ export const REPOSITORY_WIDE_DIFF: ConsoleDiffModel = buildDiffFixture({
 });
 
 /** Mount the list over one change set, with the selection the case is about. */
-export function renderFileList(diff: ConsoleDiffModel, selectedFilePath?: string): HTMLElement {
+export function renderFileList(diff: DiffModel, selectedFilePath?: string): HTMLElement {
   return render(
     <DiffFileList
       diff={diff}
@@ -46,10 +46,7 @@ export function renderFileList(diff: ConsoleDiffModel, selectedFilePath?: string
  * assumes is a broken case and not a state to assert about — and a `function`
  * declaration carries no narrowing a guard beside the fixture would have made.
  */
-export function fixtureFileAt(
-  diff: ConsoleDiffModel,
-  fileIndex: number,
-): ConsoleDiffModel["files"][number] {
+export function fixtureFileAt(diff: DiffModel, fileIndex: number): DiffModel["files"][number] {
   const file = diff.files[fileIndex];
   if (file === undefined) {
     throw new Error(`the generated change set has no file at ${String(fileIndex)}`);

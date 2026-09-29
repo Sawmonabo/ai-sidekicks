@@ -19,46 +19,46 @@ export interface TranscriptJumpReach {
  * readings the folded arm consults, in one value, because the table below is keyed by
  * absence and cannot take an argument list per arm.
  */
-interface LedgerJumpActContext {
+interface TranscriptJumpActContext {
   readonly foldedWindow: TranscriptWindowModel;
   readonly openedTerminalRunIds: ReadonlySet<string>;
-  /** Open the shut chapter holding this row, so the jump that follows can land. */
+  /** Open the shut run group holding this row, so the jump that follows can land. */
   readonly openFoldsHoldingRow: (row: TimelineRow) => void;
   readonly requestJump: (rowId: string) => void;
 }
 
-/** How one absence resolves its act, or answers that this ledger offers none. */
-type LedgerJumpAct = (
+/** How one absence resolves its act, or answers that this transcript offers none. */
+type TranscriptJumpAct = (
   row: TimelineRow,
-  context: LedgerJumpActContext,
+  context: TranscriptJumpActContext,
 ) => TranscriptJumpReach | undefined;
 
 /**
- * The act each absence deserves over THIS ledger, or `undefined` where none exists.
+ * The act each absence deserves over THIS transcript, or `undefined` where none exists.
  *
  * A TABLE KEYED BY ABSENCE, total over `ROW_JUMP_ABSENCES` by `satisfies`, so a
  * narrowing added to the pipeline cannot compile and fall through to "Open that
- * chapter and go to it", offering an act that could not reach the row.
+ * run group and go to it", offering an act that could not reach the row.
  *
  * An act is resolved per outcome rather than per absence because both arms are only
  * conditionally reachable:
  *
- *   • A row a fold dropped is reachable by opening the chapter that is holding it. That
- *     act does not reach a row whose chapter is already OPEN and which sits past the
- *     chapter's own row cap — toggling there would close the chapter and take the rest
+ *   • A row a fold dropped is reachable by opening the run group that is holding it. That
+ *     act does not reach a row whose run group is already OPEN and which sits past the
+ *     run group's own row cap — toggling there would close the run group and take the rest
  *     of the run off screen too — so that case, and only that case, offers nothing.
  *   • A row the cap took is reachable by nothing. This console subscribes to the
  *     log and holds no read that fetches a range of it, so the honest surface is
  *     the sentence alone.
  */
 const JUMP_ACTS = {
-  "folded-into-chapter": (row, context) => {
-    const chapterRunId = findRunGroupRunIdInWindow(row, context.foldedWindow);
-    if (chapterRunId === undefined || context.openedTerminalRunIds.has(chapterRunId)) {
+  "folded-into-run-group": (row, context) => {
+    const runGroupRunId = findRunGroupRunIdInWindow(row, context.foldedWindow);
+    if (runGroupRunId === undefined || context.openedTerminalRunIds.has(runGroupRunId)) {
       return undefined;
     }
     return {
-      label: "Open that chapter and go to it",
+      label: "Open that run group and go to it",
       perform: () => {
         context.openFoldsHoldingRow(row);
         context.requestJump(row.id);
@@ -66,10 +66,10 @@ const JUMP_ACTS = {
     };
   },
   "outside-window": () => undefined,
-} satisfies Readonly<Record<RowJumpAbsence, LedgerJumpAct>>;
+} satisfies Readonly<Record<RowJumpAbsence, TranscriptJumpAct>>;
 
 /**
- * The act this ledger offers for one outcome, or `undefined` where it offers none.
+ * The act this transcript offers for one outcome, or `undefined` where it offers none.
  *
  * The two non-absence arms answer before the table is consulted, and each for its
  * own reason rather than for one shared one: a row the viewport is showing needs no

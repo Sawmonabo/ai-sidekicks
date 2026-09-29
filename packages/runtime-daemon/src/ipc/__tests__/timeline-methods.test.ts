@@ -298,7 +298,7 @@ describe("timeline method-name registration", () => {
       method: TIMELINE_READ_METHOD,
       // The cast is the point: it stands in for a handler wired to the wrong
       // operation. Without it the mistake is a compile error — which is the
-      // binder's first line of defence — so the runtime backstop can only be
+      // binder's first line of defense — so the runtime backstop can only be
       // exercised by defeating the type check deliberately.
       handler: (async () => reasoningResponse) as unknown as Handler<
         TimelineReadRequest,
@@ -384,8 +384,8 @@ describe("timeline method-name registration", () => {
     // otherwise: the `@ts-expect-error` below is the assertion, enforced by CI
     // typecheck, and deleting the exclusion turns that suppression into an
     // unused-directive error. At RUNTIME the suppressed call still registers —
-    // asserting a throw here would claim a defence the binder does not have,
-    // and the registration below records the real behaviour.
+    // asserting a throw here would claim a defense the binder does not have,
+    // and the registration below records the real behavior.
     const registry = new MethodRegistryImpl();
     registerTimelineMethod(registry, {
       // @ts-expect-error `timeline.subscribe` is not a query method: it binds
@@ -502,7 +502,7 @@ describe("timeline method-name registration", () => {
       const producer = capturedProducer as unknown as LocalSubscriptionProducer<TimelineRow>;
       // The cast stands in for a Phase-2 projection wired to the wrong shape.
       // Without it this is a compile error, which is the binder's first line
-      // of defence; the runtime backstop can only be exercised by defeating
+      // of defense; the runtime backstop can only be exercised by defeating
       // the type check deliberately. The value below is the subscribe ACK —
       // the exact shape a handler that confused the two schemas would emit.
       producer.next({ subscriptionId: "not-a-row" } as unknown as TimelineRow);
@@ -962,7 +962,7 @@ describe("timeline method-name registration", () => {
       registry.dispatch(TIMELINE_SUBSCRIBE_METHOD, { sessionId: SESSION_ID }, dispatchContext),
     ).rejects.toThrow("session not found");
 
-    // The allocated entry was drained: `next` on a cancelled producer is a
+    // The allocated entry was drained: `next` on a canceled producer is a
     // documented silent no-op, so nothing reaches the transport afterwards.
     const producer = capturedProducer as unknown as LocalSubscriptionProducer<TimelineRow>;
     producer.next(timelineRow);

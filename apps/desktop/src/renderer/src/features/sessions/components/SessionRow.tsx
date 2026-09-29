@@ -11,8 +11,8 @@ export interface SessionRowProps {
 /**
  * One row.
  *
- * Memoised, so a projection read that changes one session's attention re-renders
- * that row and not its neighbours. The comparison is the default shallow one and
+ * Memoized, so a projection read that changes one session's attention re-renders
+ * that row and not its neighbors. The comparison is the default shallow one and
  * that is sufficient here: `rows` is rebuilt from the store's own references, and
  * the callback is stable for the life of the surface.
  */

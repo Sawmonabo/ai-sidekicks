@@ -9,7 +9,7 @@
 //
 // AND WHY EACH STAGE'S OWN REPORT LEAVES WITH IT. The counts beside the find
 // field are made of exactly these separations — a match the cap took and one a folded
-// chapter holds are two states with two different exits — so the stage that removed
+// run group holds are two states with two different exits — so the stage that removed
 // the rows is the one that publishes them.
 // Re-deriving the difference downstream re-walked the whole projection on every
 // appended row for as long as a query sat in the field.
@@ -27,10 +27,10 @@
 
 import { useEffect } from "react";
 
-import { consoleLedgerWindows } from "@renderer/lib/transcript-window-diagnostics.js";
-import { type ConsoleClock } from "@renderer/lib/clock.js";
-import { useLedgerFrameCoordinator } from "../../hooks/useAnimationFrameCoordinator.js";
-import { useLedgerReveal, type RevealBinding } from "../../reveal/hooks/useReveal.js";
+import { transcriptWindowDiagnostics } from "@renderer/lib/transcript-window-diagnostics.js";
+import { type Clock } from "@renderer/lib/clock.js";
+import { useAnimationFrameCoordinator } from "../../hooks/useAnimationFrameCoordinator.js";
+import { useReveal, type RevealBinding } from "../../reveal/hooks/useReveal.js";
 import {
   useTranscriptViewport,
   type TranscriptViewportBinding,
@@ -54,7 +54,7 @@ import { useRunGroupDisclosure } from "./useRunGroupDisclosure.js";
 export interface TranscriptFeedWindowsInputs {
   readonly sessionStore: SessionStore;
   /** The frame coordinator's clock, minted once by the mount that holds this chain. */
-  readonly clock: ConsoleClock;
+  readonly clock: Clock;
 }
 
 /**
@@ -67,12 +67,12 @@ export interface TranscriptFeedWindowsInputs {
  */
 export interface TranscriptFeedWindows {
   readonly firstReadSettled: boolean;
-  readonly chapterDisclosure: RunGroupDisclosure;
-  /** Every member row of every chapter, before any fold. */
+  readonly runGroupDisclosure: RunGroupDisclosure;
+  /** Every member row of every run group, before any fold. */
   readonly unfurledWindow: TranscriptWindowModel;
-  readonly chapterFold: TranscriptPipelineStage;
-  /** The last model window: chapter-folded. */
-  readonly ledgerWindow: TranscriptWindowModel;
+  readonly runGroupFold: TranscriptPipelineStage;
+  /** The last model window: folded by run group. */
+  readonly transcriptWindow: TranscriptWindowModel;
   readonly reveal: RevealBinding;
   readonly viewport: TranscriptViewportBinding;
   /** What the viewport reconciled onto the screen, with both absences separable. */
@@ -86,18 +86,18 @@ export function useTranscriptFeedWindows(
   // The same reading `<TranscriptReadState>` draws its shells from, so the empty
   // sentence and the loading shells cannot both be on screen.
   const firstReadSettled = useTranscriptFirstReadSettled(inputs.sessionStore);
-  // The fold is the MOUNT's, not the log's: which finished chapters a person has
+  // The fold is the MOUNT's, not the log's: which finished run groups a person has
   // opened is a fact about who is reading, so it is held here and handed to the
   // derivation rather than folded into it.
-  const chapterDisclosure = useRunGroupDisclosure(inputs.sessionStore.sessionId);
-  // THE UNFURLED PROJECTION — every member row of every chapter, before any fold.
+  const runGroupDisclosure = useRunGroupDisclosure(inputs.sessionStore.sessionId);
+  // THE UNFURLED PROJECTION — every member row of every run group, before any fold.
   const unfurledWindow = useTranscriptProjection(inputs.sessionStore);
-  const chapterFold = useFoldedRunGroups(
+  const runGroupFold = useFoldedRunGroups(
     unfurledWindow,
-    chapterDisclosure.openedTerminalRunIds,
+    runGroupDisclosure.openedTerminalRunIds,
     inputs.sessionStore.sessionId,
   );
-  const ledgerWindow = chapterFold.window;
+  const transcriptWindow = runGroupFold.window;
   // THE REVEAL ENGINE IS THIS FEED'S, minted once and disposed with it. What it
   // publishes reaches a row through the frame's own channel; what it is DOING reaches
   // the viewport as the drain state, which used to be the literal `false` — a default
@@ -106,30 +106,30 @@ export function useTranscriptFeedWindows(
   // object can order the whole paint: phase one is the viewport's scroll writes and
   // phase two is the reveal drain, and a coordinator minted inside either would order
   // that half against nothing.
-  const frameCoordinator = useLedgerFrameCoordinator(inputs.clock);
-  const reveal = useLedgerReveal({ frameCoordinator });
+  const frameCoordinator = useAnimationFrameCoordinator(inputs.clock);
+  const reveal = useReveal({ frameCoordinator });
   const viewport = useTranscriptViewport({
     clock: inputs.clock,
-    rows: ledgerWindow.viewportRows,
-    hasActiveTurn: ledgerWindow.hasActiveTurn,
+    rows: transcriptWindow.viewportRows,
+    hasActiveTurn: transcriptWindow.hasActiveTurn,
     isRevealDraining: reveal.isDraining,
   });
 
   // WHAT THIS WINDOW IS SHOWING, PUBLISHED FOR A DRIVER PROCESS TO READ. Registered
   // here because this is where the session id and the one binding meet. The reading
   // exists for the endurance tier, which drives a real window from outside the
-  // renderer and can otherwise tell "the ledger mounted nothing" from "the ledger has
+  // renderer and can otherwise tell "the transcript mounted nothing" from "the transcript has
   // nothing to mount" only by guessing; it reaches the page only through the session
   // diagnostics a fixture composition installs. The reader is stable, so this registers
   // once per mount rather than once per render.
   const readWindowDiagnostics = viewport.readWindowDiagnostics;
   const diagnosticsSessionId = inputs.sessionStore.sessionId;
   useEffect(
-    () => consoleLedgerWindows.register(diagnosticsSessionId, readWindowDiagnostics),
+    () => transcriptWindowDiagnostics.register(diagnosticsSessionId, readWindowDiagnostics),
     [diagnosticsSessionId, readWindowDiagnostics],
   );
 
-  // A lane whose row this window no longer holds, or holds only inside a chapter that
+  // A lane whose row this window no longer holds, or holds only inside a run group that
   // has reached its terminal, is a turn that is over: the engine drops it so a
   // finished lane stops costing memory. Asked of the engine's own lanes, which are at
   // most one per streaming row — walking the window instead would be a pass over the
@@ -137,21 +137,22 @@ export function useTranscriptFeedWindows(
   const retireRevealLanes = reveal.retireLanes;
   useEffect(() => {
     retireRevealLanes(
-      (laneId) => !ledgerWindow.rowsByKey.has(laneId) || ledgerWindow.collapsedRowIds.has(laneId),
+      (laneId) =>
+        !transcriptWindow.rowsByKey.has(laneId) || transcriptWindow.collapsedRowIds.has(laneId),
     );
-  }, [retireRevealLanes, ledgerWindow]);
+  }, [retireRevealLanes, transcriptWindow]);
 
   // Read back off the viewport's own reconciled snapshot, so find is looking at the
   // window on screen rather than at the log behind it. What the cap took is the
   // difference between the two.
-  const visible = useVisibleTranscriptWindow(ledgerWindow, viewport.snapshot.rows);
+  const visible = useVisibleTranscriptWindow(transcriptWindow, viewport.snapshot.rows);
 
   return {
     firstReadSettled,
-    chapterDisclosure,
+    runGroupDisclosure,
     unfurledWindow,
-    chapterFold,
-    ledgerWindow,
+    runGroupFold,
+    transcriptWindow,
     reveal,
     viewport,
     visible,

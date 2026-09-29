@@ -1,9 +1,8 @@
-// The deck's pane kinds, as one closed set.
+// The pane kinds, as one closed set.
 //
-// The console's design fixes this set and fixes its members: "Pane kinds, a closed
-// set: `timeline`, `inspector`, `runs`, `approvals`,
-// `diff`, `artifact`, `workflow-run`, `workflow-builder`, `browser`, `terminal`,
-// `agent-console`." The order below is that bullet's own order, and
+// The console's design fixes this set and fixes its members: `transcript`, `inspector`,
+// `runs`, `approvals`, `diff`, `artifact`, `workflow-run`, `workflow-builder`, `browser`,
+// `terminal`, `agents`. The order below is the design's own order, and
 // `pane-kinds.test.ts` compares the two by string equality rather than by eye.
 //
 // WHY THE SET IS DECLARED HERE AND NOT IN THE FAMILY THAT RENDERS EACH PANE
@@ -16,11 +15,11 @@
 // would have nothing to drop against.
 //
 // The tuple is the declaration and the union is derived from it, for the reason
-// `seats/surface/surface-registry.ts` gives about its own slots: a union written beside a
+// `registries/screens/screen-registry.ts` gives about its own slots: a union written beside a
 // hand-repeated array is two closed sets that agree until someone widens one.
 
 /**
- * Every kind of pane the deck can hold, in the design's own order.
+ * Every kind of pane the pane layout can hold, in the design's own order.
  *
  * Two members are built now and wired live only once the decisions behind them
  * land — `browser` (a main-process `WebContentsView`) and `terminal` (gated on the
@@ -30,7 +29,7 @@
  * wires land.
  */
 export const PANE_KINDS = [
-  "timeline",
+  "transcript",
   "inspector",
   "runs",
   "approvals",
@@ -40,7 +39,7 @@ export const PANE_KINDS = [
   "workflow-builder",
   "browser",
   "terminal",
-  "agent-console",
+  "agents",
 ] as const;
 
 /** One pane kind. Derived from the enumeration, never restated. */
@@ -62,7 +61,7 @@ export function isPaneKind(value: unknown): value is PaneKind {
  * The pane kinds a layout snapshot never carries.
  *
  * The browser pane is EPHEMERAL: it is opened for a task and it is not part of the
- * workspace a person comes back to. The consequence is mechanical rather than aesthetic
+ * session screen a person comes back to. The consequence is mechanical rather than aesthetic
  * — restoring one would ask the main process to attach a view host, load a page, and
  * spend a paying account's memory for a session nobody has opened yet, on every cold
  * start, forever.

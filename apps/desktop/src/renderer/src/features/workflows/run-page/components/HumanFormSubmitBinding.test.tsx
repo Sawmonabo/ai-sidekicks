@@ -79,10 +79,10 @@ describe("the seat keeps the submit and the settlement, and the body keeps neith
 
     // In the live region, inside the seat's own slot rather than the body's.
     expect(screen.getByRole("status").textContent).toContain(
-      "The daemon recorded this answer and one output came of it.",
+      "The background service recorded this answer and one output came of it.",
     );
-    expect(container.querySelector(".meridian-workflow__slot")?.textContent ?? "").toContain(
-      "The daemon recorded this answer",
+    expect(container.querySelector(".meridian-workflow__mount-point")?.textContent ?? "").toContain(
+      "The background service recorded this answer",
     );
   });
 

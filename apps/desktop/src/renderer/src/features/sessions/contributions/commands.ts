@@ -1,19 +1,19 @@
-// What the deck contributes to the palette, and how a press reaches the deck that is
+// What the pane layout contributes to the palette, and how a press reaches the pane layout that is
 // actually on screen.
 //
-// The five acts are `deck-acts.ts`'; this file is the seam between them and the
+// The five acts are `pane-layout-acts.ts`'; this file is the seam between them and the
 // window's command surface: a mounted-surface seat plus a contribution made at
 // composition time. Nothing here crosses a family boundary and nothing here belongs in
 // `seats/`.
 //
 // CONTRIBUTED AT COMPOSITION TIME, RESOLVED AT PRESS TIME. A command is built once per
-// window, before any deck exists; the deck comes and goes with the route. So each row
-// resolves the mounted deck when it runs, and an empty seat is a REFUSAL a person
+// window, before any pane layout exists; the pane layout comes and goes with the route. So each row
+// resolves the mounted pane layout when it runs, and an empty seat is a REFUSAL a person
 // reads rather than a press that does nothing.
 //
 // WHY NO CHORD IS CLAIMED HERE, WHICH IS A DECISION AND NOT AN OMISSION.
 //
-// The deck already binds these five keystrokes on its own element — Alt+Arrow to
+// The pane layout already binds these five keystrokes on its own element — Alt+Arrow to
 // cycle, Alt+Shift+Arrow to move, Alt+Backspace to close — and it guards them with
 // `isEditableTarget`, the WIDE question: does the focused widget own its arrow keys?
 // A find field, a combobox and a listbox all do, and `primitives/editable-target.ts`
@@ -24,19 +24,19 @@
 // installs in the CAPTURE phase, and it consumes any press whose command RAN —
 // `preventDefault` plus `stopPropagation`, on the reasoning that a press which ran
 // something is the console's. Binding these same keystrokes there would therefore
-// preempt the deck's handler and, inside a listbox or a combobox, run the deck act and
+// preempt the pane layout's handler and, inside a listbox or a combobox, run the pane layout act and
 // eat the widget's arrow key. Moving the wide guard into the acts would not help: the
 // act would decline and the table would consume the press anyway, because a command
 // that ran is what the table measures. The only place the guard could live is a
 // `when` clause, and the console's clause vocabulary is a closed set of route keys.
 //
-// So the keystrokes stay the deck's, where the wide guard is, and the palette rows are
+// So the keystrokes stay the pane layout's, where the wide guard is, and the palette rows are
 // what this file adds: the same five acts, discoverable by name, reachable from
-// anywhere in the session, and refusing out loud when there is no deck to act on.
+// anywhere in the session, and refusing out loud when there is no pane layout to act on.
 
-import { raiseConsoleActRefusal } from "@renderer/registries/commands/command-refusal.js";
-import { type ConsoleCommand } from "@renderer/registries/commands/command-types.js";
-import { type ConsoleCommandSurface } from "@renderer/registries/commands/command-contributions.js";
+import { raiseCommandRefusal } from "@renderer/registries/commands/command-refusal.js";
+import { type CommandDefinition } from "@renderer/registries/commands/command-types.js";
+import { type CommandContributionRegistry } from "@renderer/registries/commands/command-contributions.js";
 import type { PaneLayoutActName, PaneLayoutActs } from "../pane-layout/pane-layout-acts.js";
 import {
   mountedPaneLayouts,
@@ -66,10 +66,10 @@ const WHEN_SESSION_ACTIVE = "sessionActive";
  * The contribution door is owner-scoped, so composing twice — a hot reload, a second
  * test — replaces these rows instead of raising on their ids.
  */
-export const PANE_LAYOUT_COMMAND_OWNER = "workspace-deck";
+export const PANE_LAYOUT_COMMAND_OWNER = "pane-layout";
 
 /** Build the palette commands, given the acts each one performs. */
-export function paneLayoutPaletteCommands(acts: PaneLayoutActs): readonly ConsoleCommand[] {
+export function paneLayoutPaletteCommands(acts: PaneLayoutActs): readonly CommandDefinition[] {
   return [
     {
       id: "paneLayout.focusNextPane",
@@ -115,18 +115,18 @@ export function paneLayoutPaletteCommands(acts: PaneLayoutActs): readonly Consol
 }
 
 /**
- * Contribute the deck's commands to a window.
+ * Contribute the pane layout's commands to a window.
  *
  * Takes the surface rather than reaching for the module-scope door, for
  * `registerTranscriptCommands`' reason: a test contributes into a surface it owns.
  */
 export function registerPaneLayoutCommands(
-  surface: ConsoleCommandSurface,
-  seat: MountedPaneLayouts = mountedPaneLayouts,
+  surface: CommandContributionRegistry,
+  mountedLayouts: MountedPaneLayouts = mountedPaneLayouts,
 ): void {
   surface.contribute({
     owner: PANE_LAYOUT_COMMAND_OWNER,
-    commands: paneLayoutPaletteCommands(actsOnTheMountedDeck(seat)),
+    commands: paneLayoutPaletteCommands(actsOnTheMountedPaneLayout(mountedLayouts)),
     keyBindings: [],
   });
 }
@@ -136,11 +136,11 @@ export function registerPaneLayoutCommands(
  *
  * Written out rather than derived from a name list, so a SIXTH act added to `PaneLayoutActs`
  * fails to compile here instead of being contributed as a command that reaches the
- * mounted deck through nothing.
+ * mounted pane layout through nothing.
  */
-function actsOnTheMountedDeck(seat: MountedPaneLayouts): PaneLayoutActs {
+function actsOnTheMountedPaneLayout(mountedLayouts: MountedPaneLayouts): PaneLayoutActs {
   const perform = (act: PaneLayoutActName): void => {
-    performOnMountedDeck(seat, act);
+    performOnMountedPaneLayout(mountedLayouts, act);
   };
   return {
     focusNextPane: () => {
@@ -162,9 +162,12 @@ function actsOnTheMountedDeck(seat: MountedPaneLayouts): PaneLayoutActs {
 }
 
 /** Perform one act, and state the refusal where a person can see it. */
-function performOnMountedDeck(seat: MountedPaneLayouts, act: PaneLayoutActName): void {
-  const outcome = seat.perform(act);
+function performOnMountedPaneLayout(
+  mountedLayouts: MountedPaneLayouts,
+  act: PaneLayoutActName,
+): void {
+  const outcome = mountedLayouts.perform(act);
   if (outcome.status === "refused") {
-    raiseConsoleActRefusal(outcome.refusal);
+    raiseCommandRefusal(outcome.refusal);
   }
 }

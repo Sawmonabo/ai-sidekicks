@@ -33,7 +33,7 @@
 // authority stamped when a session was started, which then answered a first send with
 // a switch nobody was changing any more and spread a pin map the durable record had
 // moved past. So the holder is declared at MODULE scope by the module that owns the
-// binding — `consoleShellPreferences` in `settings/shared/shell-preferences/` is the
+// binding — `machineSettingsHolder` in `features/settings/machine-settings/` is the
 // same shape for the same reason — and module scope is window scope here, since an
 // auxiliary window is its own renderer process and no channel joins two windows'
 // module graphs. One holder per binding kind per window, so a remount finds the
@@ -45,7 +45,7 @@
 // effect or an event handler calls and is the only place a binding is minted or
 // disposed. One method doing both would let a render React discards dispose the
 // binding the committed tree is subscribed to — the exact failure
-// `settings/shared/shell-preferences/shell-preferences-holder.ts` records against its own first shape.
+// `features/settings/machine-settings/machine-settings-holder.ts` records against its own first shape.
 
 import type { Unsubscribe } from "@renderer/lib/emitter.js";
 import type { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";

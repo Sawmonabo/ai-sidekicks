@@ -10,11 +10,11 @@
 // Nothing here runs on import. `providers.tsx` calls it once with the window's registries;
 // a test calls it with registries of its own.
 
-import type { ConsoleEntityProjectorRegistry } from "@renderer/registries/entity-projectors/entity-projector-registry.js";
-import type { ConsoleCommandSurface } from "@renderer/registries/commands/command-contributions.js";
-import type { InlineCardSeatRegistry } from "@renderer/registries/inline-cards/inline-card-registry.js";
-import type { ConsolePaneRegistry } from "@renderer/registries/panes/pane-registry.js";
-import type { ConsoleSurfaceRegistry } from "@renderer/registries/screens/screen-registry.js";
+import type { EntityProjectorRegistry } from "@renderer/registries/entity-projectors/entity-projector-registry.js";
+import type { CommandContributionRegistry } from "@renderer/registries/commands/command-contributions.js";
+import type { InlineCardRegistry } from "@renderer/registries/inline-cards/inline-card-registry.js";
+import type { PaneRegistry } from "@renderer/registries/panes/pane-registry.js";
+import type { ScreenRegistry } from "@renderer/registries/screens/screen-registry.js";
 import { registerNavigationKeybindings } from "@renderer/layout/NavigationRail/navigation-commands.js";
 import {
   APPROVAL_FLOW_PROJECTOR_OWNER,
@@ -28,10 +28,10 @@ import {
   RUN_LIFECYCLE_PROJECTOR_OWNER,
   RUN_LIFECYCLE_PROJECTORS,
 } from "@renderer/store/session-events/run-lifecycle-projector.js";
-import { registerAgentConsolePane } from "@renderer/features/agents/index.js";
+import { registerAgentsPane } from "@renderer/features/agents/index.js";
 import {
   registerComposerCommands,
-  registerComposerFamily,
+  registerComposerView,
   registerComposerInlineCards,
   registerComposerKeybindings,
 } from "@renderer/features/composer/index.js";
@@ -39,32 +39,32 @@ import {
   registerInspectorInlineCards,
   registerInspectorPane,
 } from "@renderer/features/inspector/index.js";
-import { registerBrowserPanes } from "@renderer/features/preview/index.js";
-import { registerRepos, registerReposPanes } from "@renderer/features/repos/index.js";
+import { registerPreviewPanes } from "@renderer/features/preview/index.js";
+import { registerReposInlineCards, registerReposPanes } from "@renderer/features/repos/index.js";
 import {
   registerPaneLayoutCommands,
-  registerSessionsSurface,
-  Workspace,
+  registerSessionsFlyout,
+  SessionScreen,
 } from "@renderer/features/sessions/index.js";
-import { registerSettingsSurface } from "@renderer/features/settings/index.js";
-import { registerTerminalPanes } from "@renderer/features/terminal/index.js";
+import { registerSettingsScreen } from "@renderer/features/settings/index.js";
+import { registerTerminalPane } from "@renderer/features/terminal/index.js";
 import {
-  registerLedger,
-  registerLedgerPanes,
+  registerTranscriptScreens,
+  registerTranscriptPanes,
   registerTranscriptCommands,
 } from "@renderer/features/transcript/index.js";
 import {
   registerWorkflowPanes,
-  registerWorkflowSurfaces,
+  registerWorkflowScreens,
 } from "@renderer/features/workflows/index.js";
 
 /** The registries a composition writes into. */
 export interface ContributionRegistries {
-  readonly commands: ConsoleCommandSurface;
-  readonly projectors: ConsoleEntityProjectorRegistry;
-  readonly surfaces: ConsoleSurfaceRegistry;
-  readonly panes: ConsolePaneRegistry;
-  readonly inlineCards: InlineCardSeatRegistry;
+  readonly commands: CommandContributionRegistry;
+  readonly projectors: EntityProjectorRegistry;
+  readonly screens: ScreenRegistry;
+  readonly panes: PaneRegistry;
+  readonly inlineCards: InlineCardRegistry;
 }
 
 /**
@@ -74,7 +74,7 @@ export interface ContributionRegistries {
  * claim replaces its first.
  */
 export function registerFeatureContributions(registries: ContributionRegistries): void {
-  const { commands, projectors, surfaces, panes, inlineCards } = registries;
+  const { commands, projectors, screens, panes, inlineCards } = registries;
 
   // The rail's chords first: the chord table's first match wins, so a feature registered
   // earlier could take `$mod+1` from the rail.
@@ -88,21 +88,21 @@ export function registerFeatureContributions(registries: ContributionRegistries)
   projectors.registerAll(APPROVAL_FLOW_PROJECTORS, APPROVAL_FLOW_PROJECTOR_OWNER);
   projectors.registerAll(QUESTION_SETTLEMENT_PROJECTORS, QUESTION_SETTLEMENT_PROJECTOR_OWNER);
 
-  registerLedger(surfaces, { workspace: Workspace });
-  registerSessionsSurface(surfaces);
-  registerSettingsSurface(surfaces);
-  registerWorkflowSurfaces(surfaces);
+  registerTranscriptScreens(screens, { sessionScreen: SessionScreen });
+  registerSessionsFlyout(screens);
+  registerSettingsScreen(screens);
+  registerWorkflowScreens(screens);
 
-  registerLedgerPanes(panes);
+  registerTranscriptPanes(panes);
   registerInspectorPane(panes);
-  registerAgentConsolePane(panes);
+  registerAgentsPane(panes);
   registerReposPanes(panes);
   registerWorkflowPanes(panes);
-  registerBrowserPanes(panes);
-  registerTerminalPanes(panes);
+  registerPreviewPanes(panes);
+  registerTerminalPane(panes);
 
-  registerComposerFamily();
+  registerComposerView();
   registerComposerInlineCards(inlineCards);
-  registerRepos(inlineCards);
+  registerReposInlineCards(inlineCards);
   registerInspectorInlineCards(inlineCards);
 }

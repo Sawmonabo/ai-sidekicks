@@ -11,7 +11,7 @@
 //     the card is laid out against. One installer, one call site; the failure
 //     branch gets no copy of its own.
 //   • **The failure arm is a component boundary rather than an `if` further down.**
-//     Everything below this holds a resolved `ConsoleBridge` by construction, which
+//     Everything below this holds a resolved `PlatformBridge` by construction, which
 //     is what lets the frame's own command surface contribute the palette's
 //     bridge-backed acts: those are built by a hook that throws when the bridge is
 //     unavailable — correctly, since a component reaching for a missing bridge is a
@@ -61,7 +61,7 @@ export function AppBootstrap(): React.JSX.Element {
  *
  * The scheme ATTRIBUTE deliberately does not ride here. It is a projection of a
  * preference read back from the durable store, which only a window with a bridge
- * has; and `applyConsoleScheme` writes the attribute for an explicit choice and
+ * has; and `applyColorScheme` writes the attribute for an explicit choice and
  * REMOVES it for `"system"`, so applying a default here would be a no-op on the
  * one arm this hoist exists for and a clobber of the frame's own value on the
  * other — React runs a child's layout effect before its parent's, so the parent

@@ -4,16 +4,16 @@
 // WHY IT EXISTS. The console budgets bound one `terminal` pane instance, and a budget's
 // harness has to hold the subject the row names: the emulator, its WebGL renderer, and
 // the pane's own React tree, lease, and store state. Nothing in this revision mounts a
-// registered pane — the deck that will open them is a later family's — so the endurance
+// registered pane — the pane layout that will open them is a later family's — so the endurance
 // tier had no window in which one could be held, and the row sat ungated for want of a
 // mount rather than for want of a measurement. This is that mount, and it is
 // deliberately the smallest one that is honest: an address, the registry's own resolve,
 // and a control that opens another instance.
 //
 // WHY IT RESOLVES THROUGH THE REGISTRY AND NEVER IMPORTS A PANE. The thing being
-// measured is what the DECK would mount, which is the descriptor a family
-// registered — the one the terminal feature's `registerTerminalPanes` declares,
-// reached by `ConsolePaneRegistry.descriptorFor`. A harness that imported `TerminalPane`
+// measured is what the PANE LAYOUT would mount, which is the descriptor a family
+// registered — the one the terminal feature's `registerTerminalPane` declares,
+// reached by `PaneRegistry.descriptorFor`. A harness that imported `TerminalPane`
 // directly would measure a component that happens to sit beside the registration,
 // and would keep measuring it on the day the registration changed.
 //
@@ -42,28 +42,25 @@
 // so the instances themselves were handed to a session they had never been bound to.
 //
 // WHAT THE SUBJECT IS, AND WHAT IT IS NOT. What this surface holds is one pane
-// instance and everything that instance owns. It is NOT a deck: there is no tab
+// instance and everything that instance owns. It is NOT a pane layout: there is no tab
 // strip, no layout, no drag target, and no detach path, and that is the right
 // boundary rather than a gap — the row's own sentence bounds "one `terminal` pane
 // instance … the `@xterm/xterm` instance, its WebGL renderer, and the pane's own
-// state", and a reading taken inside a deck would fold the deck's chrome into a
-// per-instance figure and report a pane over its budget for the deck's own cost.
+// state", and a reading taken inside a pane layout would fold the pane layout's chrome into a
+// per-instance figure and report a pane over its budget for the pane layout's own cost.
 
 import { useState } from "react";
 
 import { Nothing } from "@renderer/console/primitives/index.js";
 import { PaneHarnessFrame } from "./PaneHarnessFrame.js";
 import { paneHarnessInstances } from "./pane-harness-instances.js";
-import {
-  parseConsolePaneAddress,
-  type ConsolePaneRegistry,
-} from "@renderer/console/seats/index.js";
-import { type ConsoleSurfaceContext } from "@renderer/console/seats/index.js";
+import { parsePaneAddress, type PaneRegistry } from "@renderer/console/seats/index.js";
+import { type ScreenContext } from "@renderer/console/seats/index.js";
 
 /** The harness screen's inputs: the route's context and the pane board it resolves from. */
 export interface PaneHarnessScreenProps {
-  readonly context: ConsoleSurfaceContext;
-  readonly paneRegistry: ConsolePaneRegistry;
+  readonly context: ScreenContext;
+  readonly paneRegistry: PaneRegistry;
 }
 
 /**
@@ -78,7 +75,7 @@ export function PaneHarnessScreen(props: PaneHarnessScreenProps): React.JSX.Elem
   const { route } = context;
 
   if (route.kind !== "pane-harness") {
-    // Unreachable through `surfaceSlotFor`, which maps this slot from this arm
+    // Unreachable through `findScreenNameForRoute`, which maps this slot from this arm
     // alone. Rendered rather than thrown because a surface that throws takes the
     // window's error boundary and reports a crash for what is a composition
     // mistake with a name.
@@ -98,7 +95,7 @@ export function PaneHarnessScreen(props: PaneHarnessScreenProps): React.JSX.Elem
   // same predicate a layout snapshot read off disk is held to. A hash anyone can
   // type is exactly the second boundary that function names, so the harness holds
   // its segment to it rather than deciding for itself which kinds exist.
-  const address = parseConsolePaneAddress(route.paneKind, undefined);
+  const address = parsePaneAddress(route.paneKind, undefined);
   if ("code" in address) {
     return (
       <PaneHarnessFrame instanceCount={0} paneKindLabel={route.paneKind}>
@@ -122,7 +119,7 @@ export function PaneHarnessScreen(props: PaneHarnessScreenProps): React.JSX.Elem
           kind="empty"
           placement="surface"
           title="No family has registered a body for this pane kind."
-          detail={`"${address.kind}" is one of the deck's pane kinds and nothing in this build renders it, so there is no instance for a harness to hold.`}
+          detail={`"${address.kind}" is one of the pane kinds and nothing in this build renders it, so there is no instance for a harness to hold.`}
         />
       </PaneHarnessFrame>
     );

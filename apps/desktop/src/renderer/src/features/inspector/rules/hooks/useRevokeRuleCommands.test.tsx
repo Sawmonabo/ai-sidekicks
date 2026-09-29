@@ -14,7 +14,7 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest";
 
 import { type RememberedRule } from "@renderer/services/approvals/approval-records.js";
-import { consoleCommands } from "@renderer/registries/commands/window-command-registry.js";
+import { commandRegistry } from "@renderer/registries/commands/window-command-registry.js";
 import { RememberedRules } from "../components/RememberedRules.js";
 import { offersRevoke } from "../contributions/revoke-rule-commands.js";
 
@@ -51,7 +51,7 @@ function renderGrants(options: {
 
 /** The row this list contributes for one rule, or nothing where it offers none. */
 function revokeCommandFor(ruleId: string) {
-  return consoleCommands.get(`approvals.ruleRevoke.${ruleId}`);
+  return commandRegistry.get(`approvals.ruleRevoke.${ruleId}`);
 }
 
 /**
@@ -137,7 +137,7 @@ describe("what a contributed row does", () => {
     expect(onRevoke.mock.calls).toStrictEqual([[SECOND_RULE]]);
   });
 
-  it("is cancellable from the control, with zero mutations", () => {
+  it("is cancelable from the control, with zero mutations", () => {
     const onRevoke = vi.fn();
     renderGrants({ rules: [rule()], onRevoke });
 

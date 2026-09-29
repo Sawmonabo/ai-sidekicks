@@ -1,6 +1,6 @@
 // What a caught render failure is RECORDED as.
 //
-// The boundary's other behaviours — the fallback card, the retry remount — are read
+// The boundary's other behaviors — the fallback card, the retry remount — are read
 // off the screen by the browser and screenshot tiers. The claim that only a unit
 // test can hold is the one about the diagnostic band: a surface that threw while
 // rendering mutated no store, so it must not land in the count that says a store
@@ -16,21 +16,21 @@ import { render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { reportTripwire } from "@renderer/lib/tripwires.js";
-import { consoleTripwires } from "@renderer/lib/tripwires.js";
-import { SurfaceErrorBoundary } from "./ErrorBoundary.js";
+import { windowTripwires } from "@renderer/lib/tripwires.js";
+import { ErrorBoundary } from "./ErrorBoundary.js";
 
 const RENDER_FAILURE_MESSAGE = "the timeline could not render this row";
 
-/** A surface that fails the way a real one does: during its own render. */
-function ExplodingSurface(): React.JSX.Element {
+/** A region that fails the way a real one does: during its own render. */
+function ExplodingRegion(): React.JSX.Element {
   throw new Error(RENDER_FAILURE_MESSAGE);
 }
 
-function CalmSurface(): React.JSX.Element {
+function CalmRegion(): React.JSX.Element {
   return <p>the timeline rendered</p>;
 }
 
-describe("SurfaceErrorBoundary — a render crash is recorded as a render crash", () => {
+describe("ErrorBoundary — a render crash is recorded as a render crash", () => {
   let restoreThrowOnReport = false;
 
   beforeEach(() => {
@@ -38,13 +38,13 @@ describe("SurfaceErrorBoundary — a render crash is recorded as a render crash"
     // `componentDidCatch` would turn into a second failure inside React's own
     // error handling. The recording arm is the one under test here.
     restoreThrowOnReport = import.meta.env.DEV;
-    consoleTripwires.setThrowOnReport(false);
-    consoleTripwires.reset();
+    windowTripwires.setThrowOnReport(false);
+    windowTripwires.reset();
   });
 
   afterEach(() => {
-    consoleTripwires.setThrowOnReport(restoreThrowOnReport);
-    consoleTripwires.reset();
+    windowTripwires.setThrowOnReport(restoreThrowOnReport);
+    windowTripwires.reset();
   });
 
   it("counts the failure under the render-failure kind and leaves the apply count alone", () => {
@@ -53,28 +53,28 @@ describe("SurfaceErrorBoundary — a render crash is recorded as a render crash"
       "console/primitives/ErrorBoundary.test.tsx",
       "a genuine store bypass, recorded before the crash",
     );
-    const applyBypassBefore = consoleTripwires.firingCount("apply-chokepoint-bypass");
+    const applyBypassBefore = windowTripwires.firingCount("apply-chokepoint-bypass");
 
     render(
-      <SurfaceErrorBoundary surfaceName="The timeline">
-        <ExplodingSurface />
-      </SurfaceErrorBoundary>,
+      <ErrorBoundary regionName="The timeline">
+        <ExplodingRegion />
+      </ErrorBoundary>,
     );
 
-    expect(consoleTripwires.firingCount("surface-render-failure")).toBe(1);
-    expect(consoleTripwires.firingCount("apply-chokepoint-bypass")).toBe(applyBypassBefore);
+    expect(windowTripwires.firingCount("surface-render-failure")).toBe(1);
+    expect(windowTripwires.firingCount("apply-chokepoint-bypass")).toBe(applyBypassBefore);
   });
 
   it("names the surface and carries the thrown message, so the record is actionable", () => {
     render(
-      <SurfaceErrorBoundary surfaceName="The approvals pane">
-        <ExplodingSurface />
-      </SurfaceErrorBoundary>,
+      <ErrorBoundary regionName="The approvals pane">
+        <ExplodingRegion />
+      </ErrorBoundary>,
     );
 
-    const report = consoleTripwires.reports().at(-1);
+    const report = windowTripwires.reports().at(-1);
     expect(report?.kind).toBe("surface-render-failure");
-    expect(report?.site).toBe("SurfaceErrorBoundary(The approvals pane)");
+    expect(report?.site).toBe("ErrorBoundary(The approvals pane)");
     expect(report?.detail).toContain(RENDER_FAILURE_MESSAGE);
   });
 
@@ -82,11 +82,11 @@ describe("SurfaceErrorBoundary — a render crash is recorded as a render crash"
     // Without this, a boundary that reported on every mount would satisfy both
     // cases above and still be wrong.
     render(
-      <SurfaceErrorBoundary surfaceName="The timeline">
-        <CalmSurface />
-      </SurfaceErrorBoundary>,
+      <ErrorBoundary regionName="The timeline">
+        <CalmRegion />
+      </ErrorBoundary>,
     );
 
-    expect(consoleTripwires.totalFiringCount).toBe(0);
+    expect(windowTripwires.totalFiringCount).toBe(0);
   });
 });

@@ -9,7 +9,7 @@
 import { describe, expect, it } from "vitest";
 
 import { refuse } from "@renderer/lib/refusal.js";
-import { WireReadLifecycle, readRefusalOf } from "./read-lifecycle.js";
+import { WireReadLifecycle, findReadRefusal } from "./read-lifecycle.js";
 
 const READ_REFUSED = refuse("session-queue", "reply-unreadable", "The reply did not parse.");
 const OPEN_REFUSED = refuse("console-daemon-stream", "stream-unavailable", "The daemon is a stub.");
@@ -28,7 +28,7 @@ describe("a served read clears the refusal that preceded it", () => {
     // "the newest read failed"; and the accessor derives the same answer from the
     // phase, so a later arm that forgot the clear still renders honestly.
     expect(lifecycle.state.readRefusal).toBeUndefined();
-    expect(readRefusalOf(lifecycle.state)).toBeUndefined();
+    expect(findReadRefusal(lifecycle.state)).toBeUndefined();
   });
 
   it("negative control: a refusal nothing has superseded is still carried", () => {
@@ -38,14 +38,14 @@ describe("a served read clears the refusal that preceded it", () => {
     lifecycle.markOpen();
     lifecycle.refuseRead(READ_REFUSED);
 
-    expect(readRefusalOf(lifecycle.state)?.code).toBe("reply-unreadable");
+    expect(findReadRefusal(lifecycle.state)?.code).toBe("reply-unreadable");
   });
 
   it("renders nothing for a refusal stranded on a served phase", () => {
     // The accessor's own claim, stated over the shape it defends against: a state
     // whose phase says served and whose member still carries a refusal renders none.
-    expect(readRefusalOf({ phase: "read", readRefusal: READ_REFUSED })).toBeUndefined();
-    expect(readRefusalOf({ phase: "reading", readRefusal: READ_REFUSED })).toBeUndefined();
+    expect(findReadRefusal({ phase: "read", readRefusal: READ_REFUSED })).toBeUndefined();
+    expect(findReadRefusal({ phase: "reading", readRefusal: READ_REFUSED })).toBeUndefined();
   });
 });
 

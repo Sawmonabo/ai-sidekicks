@@ -8,7 +8,7 @@
 // TWO AXES, ONE PRECEDENCE. The media type is the axis where both readings can stand
 // together; the NAME is the axis where the derived one replaces the declaration
 // outright. They live here together because the provenance vocabulary is one closed set
-// and because a card that read a name from one place and labelled it from another is
+// and because a card that read a name from one place and labeled it from another is
 // exactly the disagreement this module exists to make impossible.
 //
 // It takes an entry and returns readings. It stores nothing, formats nothing, and is

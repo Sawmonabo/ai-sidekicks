@@ -22,8 +22,8 @@ export interface TranscriptStructureActInputs {
   /** The transcript's one scroll writer, for the walk's jumps. */
   readonly jumpToRow: (rowId: string) => void;
   readonly jumpToTail: () => void;
-  /** Fold every terminal chapter the feed has open. */
-  readonly collapseAllTerminalChapters: () => void;
+  /** Fold every terminal run group the feed has open. */
+  readonly collapseAllTerminalRunGroups: () => void;
 }
 
 /**
@@ -49,6 +49,6 @@ export function buildTranscriptStructureActs(inputs: TranscriptStructureActInput
       stepAndJump("previous");
     },
     jumpToLatest: inputs.jumpToTail,
-    foldEveryRun: inputs.collapseAllTerminalChapters,
+    foldEveryRun: inputs.collapseAllTerminalRunGroups,
   };
 }

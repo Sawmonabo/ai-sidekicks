@@ -7,8 +7,8 @@
 // something the other did not.
 //
 // IT RENDERS NOTHING, WHICH IS WHAT LETS IT SIT ANYWHERE. A wrapper element inside a
-// `Suspense` fallback would be a box in a layout the deck sizes, and the console already
-// removed one adapter that had to declare `display: contents` to stop a deck seeing it.
+// `Suspense` fallback would be a box in a layout the pane layout sizes, and the console already
+// removed one adapter that had to declare `display: contents` to stop a pane layout seeing it.
 // What this needs is not a node but a POSITION in the tree — the effect ordering React
 // guarantees within one commit is the whole mechanism, and an effect needs no DOM.
 //

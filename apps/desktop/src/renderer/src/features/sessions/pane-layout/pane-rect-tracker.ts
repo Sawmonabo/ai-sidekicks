@@ -28,7 +28,7 @@
 //      that is four writes for one moved edge.
 //
 // The clock is a dependency rather than a bare `requestAnimationFrame`, on
-// `store/read/refresh-scheduler.ts`' reasoning: a frozen clock is what lets a test assert that
+// `lib/reads/refresh-scheduler.ts`' reasoning: a frozen clock is what lets a test assert that
 // the write did NOT happen during the callback and DID happen on the next frame.
 // Nothing here arms an interval.
 //
@@ -37,7 +37,7 @@
 // only the WHEN.
 
 import { type AirspaceRegistry } from "@renderer/lib/airspace-registry.js";
-import { type ConsoleClock, type ScheduledHandle } from "@renderer/lib/clock.js";
+import { type Clock, type ScheduledHandle } from "@renderer/lib/clock.js";
 import { type Unsubscribe } from "@renderer/lib/emitter.js";
 import { NATIVE_VIEW_MINIMUM_VISIBLE_PX } from "./pane-layout-measures.js";
 import {
@@ -49,7 +49,7 @@ import {
 
 /** What a tracker is built from: its frame clock, its write sink and the window's airspace. */
 export interface PaneRectTrackerOptions {
-  readonly clock: ConsoleClock;
+  readonly clock: Clock;
   /** Where a deduped batch of rects is written. Called at most once per frame. */
   readonly onFlush: (rects: readonly TrackedRect[]) => void;
   /**
@@ -65,7 +65,7 @@ export interface PaneRectTrackerOptions {
 
 /** Tracks each pane's visible rect and writes the changed ones at most once per frame. */
 export class PaneRectTracker {
-  readonly #clock: ConsoleClock;
+  readonly #clock: Clock;
   readonly #onFlush: (rects: readonly TrackedRect[]) => void;
   readonly #airspace: AirspaceRegistry;
   readonly #elementsByPaneId = new Map<string, Element>();
@@ -96,7 +96,7 @@ export class PaneRectTracker {
     // above the first, and any registered overlay MOVING, are changes the registry is
     // right to publish — the browser family's publisher re-samples rectangles on
     // exactly those — and re-measuring every tracked pane for them would spend the
-    // whole deck on an answer that cannot differ.
+    // whole pane layout on an answer that cannot differ.
     this.#releaseAirspace = options.airspace.subscribeToChanges(() => {
       const isOccupied = this.#airspace.registeredCount > 0;
       if (isOccupied === this.#wasAirspaceOccupied) {
@@ -151,7 +151,7 @@ export class PaneRectTracker {
    *
    * This is the function all four invalidation sources call — the
    * `ResizeObserver` callback, the window's `resize` listener, the capture-phase
-   * `scroll` listener, and the deck itself when it moves a pane. It reads the DOM
+   * `scroll` listener, and the pane layout itself when it moves a pane. It reads the DOM
    * and arms one frame; the host's write happens there and nowhere else.
    */
   public invalidate(source: RectInvalidationSource): void {

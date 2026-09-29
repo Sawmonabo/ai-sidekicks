@@ -1,6 +1,6 @@
 // What keeps a two-way binding from oscillating.
 //
-// Every case here drives the REAL hook against a real `FrameStore` and the real
+// Every case here drives the REAL hook against a real `WindowStore` and the real
 // `window.location.hash`. Nothing is stubbed: the whole subject is how the browser's
 // own `hashchange` interleaves with a navigation, and a stand-in for the hash would
 // be a stand-in for the thing under test.
@@ -18,23 +18,23 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { formatRoute } from "@renderer/routing/routes.js";
-import { FrameStore } from "@renderer/store/window/window-store.js";
+import { WindowStore } from "@renderer/store/window/window-store.js";
 import { useLocationHash } from "@renderer/routing/hooks/useLocationHash.js";
 import { useHashRouteBinding } from "./useHashRouteBinding.js";
 
 const SESSIONS_HASH = "#/sessions";
 const SETTINGS_HASH = "#/settings";
-const WORKSPACE_HASH = "#/session/session-alpha";
+const SESSION_HASH = "#/session/session-alpha";
 
-function BoundFrame(props: { readonly frameStore: FrameStore }): React.JSX.Element {
+function BoundFrame(props: { readonly frameStore: WindowStore }): React.JSX.Element {
   const hash = useLocationHash();
   useHashRouteBinding(props.frameStore, hash);
   return <div data-testid="bound" />;
 }
 
 /** Mount the binding on the hash the window is currently at. */
-async function bind(): Promise<FrameStore> {
-  const frameStore = new FrameStore({ initialRoute: { kind: "sessions" } });
+async function bind(): Promise<WindowStore> {
+  const frameStore = new WindowStore({ initialRoute: { kind: "sessions" } });
   await act(async () => {
     render(<BoundFrame frameStore={frameStore} />);
     await crossMacrotaskBoundary();
@@ -76,11 +76,11 @@ describe("useHashRouteBinding", () => {
     const frameStore = await bind();
 
     await act(async () => {
-      window.location.hash = WORKSPACE_HASH;
+      window.location.hash = SESSION_HASH;
     });
     await settleQueuedBrowserTask();
 
-    expect(frameStore.getState().route).toEqual({ kind: "workspace", sessionId: "session-alpha" });
+    expect(frameStore.getState().route).toEqual({ kind: "session", sessionId: "session-alpha" });
   });
 
   it("publishes the route it was navigated to", async () => {
@@ -97,16 +97,16 @@ describe("useHashRouteBinding", () => {
   });
 
   it("does not let the echo of its own write undo a later navigation", async () => {
-    window.location.hash = WORKSPACE_HASH;
-    const frameStore = new FrameStore({
-      initialRoute: { kind: "workspace", sessionId: "session-alpha" },
+    window.location.hash = SESSION_HASH;
+    const frameStore = new WindowStore({
+      initialRoute: { kind: "session", sessionId: "session-alpha" },
     });
     await act(async () => {
       render(<BoundFrame frameStore={frameStore} />);
       await crossMacrotaskBoundary();
     });
 
-    // Leave the workspace. The binding writes `#/settings`; the browser has not
+    // Leave the session screen. The binding writes `#/settings`; the browser has not
     // delivered that `hashchange` back yet.
     await act(async () => {
       frameStore.navigate({ kind: "settings", page: undefined });
@@ -114,14 +114,14 @@ describe("useHashRouteBinding", () => {
     expect(window.location.hash).toBe(SETTINGS_HASH);
 
     // Navigate again while the echo is still in flight. The echo names Settings and
-    // the person is asking for the workspace; the echo is not news and must not win.
+    // the person is asking for the session screen; the echo is not news and must not win.
     await act(async () => {
-      frameStore.navigate({ kind: "workspace", sessionId: "session-alpha" });
+      frameStore.navigate({ kind: "session", sessionId: "session-alpha" });
     });
     await settleQueuedBrowserTask();
 
-    expect(frameStore.getState().route).toEqual({ kind: "workspace", sessionId: "session-alpha" });
-    expect(window.location.hash).toBe(WORKSPACE_HASH);
+    expect(frameStore.getState().route).toEqual({ kind: "session", sessionId: "session-alpha" });
+    expect(window.location.hash).toBe(SESSION_HASH);
   });
 
   it("publishes nothing it has to take back when a hash change and a navigation land in one commit", async () => {
@@ -139,14 +139,14 @@ describe("useHashRouteBinding", () => {
     // the hash and the route disagree.
     await act(async () => {
       window.location.hash = SETTINGS_HASH;
-      frameStore.navigate({ kind: "workspace", sessionId: "session-alpha" });
+      frameStore.navigate({ kind: "session", sessionId: "session-alpha" });
     });
     await settleQueuedBrowserTask();
     window.removeEventListener("hashchange", recordAddressChange);
 
     // The hash and the route agree, and the binding got there in ONE address change
     // — the one the test made. A writer publishing the route its render closed over
-    // would have put the workspace in the address, heard the adopt had already moved
+    // would have put the session screen in the address, heard the adopt had already moved
     // the store, and put Settings back: two more entries for the back button to walk
     // through, and an address that briefly named somewhere the window is not going.
     expect(window.location.hash).toBe(formatRoute(frameStore.getState().route));

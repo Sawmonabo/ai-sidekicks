@@ -4,7 +4,7 @@
 // than a flag on it because the two are different components in the widget family:
 // `AlertDialog.Root` does not dismiss on an outside press, which is the whole reason a
 // confirmation uses it, and a shell that took the family as a parameter would be one
-// component choosing between two behaviours a caller cannot see from the call site.
+// component choosing between two behaviors a caller cannot see from the call site.
 //
 // The airspace kind is `dialog` and is not a parameter: 12.3 enumerates the kinds by
 // what they are on screen, and a confirmation is a dialog.

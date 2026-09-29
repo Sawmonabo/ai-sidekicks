@@ -1,6 +1,6 @@
 // A fixture subscription delivers only what the caller asked for.
 //
-// The fixture is shape-identical to `DesktopBridge`, and `bridge-shape.test.ts`
+// The fixture is shape-identical to `PlatformBridge`, and `bridge-shape.test.ts`
 // turns that into a checked claim. Shape is the cheap half. This file is one of the
 // three places where a fixture that matched the contract's SHAPE was still answering
 // something the live bridge never would: `daemon.subscribe` takes an event name and
@@ -38,15 +38,15 @@ import {
   lastScriptedBeatMs,
   subscribeThroughBridge,
 } from "@test/helpers/fixture-bridge.js";
-import { FLAGSHIP_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
+import { CONCURRENT_STREAMING_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
 import { RUN_STATE_EVENT_STREAM, SESSION_EVENT_STREAM } from "./session-event-streams.js";
 
 /** Past the concurrent-streaming script's last beat, read off the script so it cannot go stale. */
-const PAST_EVERY_BEAT_MS = lastScriptedBeatMs(FLAGSHIP_SCENARIO) + 100;
+const PAST_EVERY_BEAT_MS = lastScriptedBeatMs(CONCURRENT_STREAMING_SCENARIO) + 100;
 
 /** How many beats of one kind the concurrent-streaming plays, read off the script. */
 function concurrentStreamingBeatCountOfKind(kind: string): number {
-  return FLAGSHIP_SCENARIO.beats.filter((beat) => beat.event.kind === kind).length;
+  return CONCURRENT_STREAMING_SCENARIO.beats.filter((beat) => beat.event.kind === kind).length;
 }
 
 describe("fixture bridge — a subscription delivers only the event it named", () => {
@@ -77,7 +77,7 @@ describe("fixture bridge — a subscription delivers only the event it named", (
 
     fixture.engine.advance(PAST_EVERY_BEAT_MS);
 
-    expect(received).toHaveLength(FLAGSHIP_SCENARIO.beats.length);
+    expect(received).toHaveLength(CONCURRENT_STREAMING_SCENARIO.beats.length);
     expect(new Set(received.map((envelope) => envelope.type)).size).toBeGreaterThan(1);
   });
 
@@ -99,7 +99,7 @@ describe("fixture bridge — a subscription delivers only the event it named", (
 
     const attachedBeatCount = concurrentStreamingBeatCountOfKind("agent.attached");
     expect(attachedBeatCount).toBeGreaterThan(0);
-    expect(streamed).toHaveLength(FLAGSHIP_SCENARIO.beats.length);
+    expect(streamed).toHaveLength(CONCURRENT_STREAMING_SCENARIO.beats.length);
     expect(attached.map((envelope) => envelope.type)).toStrictEqual(
       Array.from({ length: attachedBeatCount }, () => "agent.attached"),
     );
@@ -116,7 +116,7 @@ describe("fixture bridge — the whole-session stream is replay-then-tail", () =
     fixture.engine.advance(MID_SCRIPT_MS);
     const elapsed = fixture.engine.progress.deliveredBeatCount;
     expect(elapsed).toBeGreaterThan(0);
-    expect(elapsed).toBeLessThan(FLAGSHIP_SCENARIO.beats.length);
+    expect(elapsed).toBeLessThan(CONCURRENT_STREAMING_SCENARIO.beats.length);
 
     const received = subscribeThroughBridge(fixture, SESSION_EVENT_STREAM);
     expect(received).toHaveLength(elapsed);
@@ -127,7 +127,7 @@ describe("fixture bridge — the whole-session stream is replay-then-tail", () =
     // consumes this stream out of degradation: a subscriber handed only the tail
     // reads every position it missed as a gap.
     expect(received.map((envelope) => envelope.sequence)).toStrictEqual(
-      FLAGSHIP_SCENARIO.beats.map((beat) => beat.event.sequence),
+      CONCURRENT_STREAMING_SCENARIO.beats.map((beat) => beat.event.sequence),
     );
   });
 
@@ -137,7 +137,7 @@ describe("fixture bridge — the whole-session stream is replay-then-tail", () =
     fixture.engine.advance(PAST_EVERY_BEAT_MS);
     const received = subscribeThroughBridge(fixture, SESSION_EVENT_STREAM);
 
-    expect(received).toHaveLength(FLAGSHIP_SCENARIO.beats.length);
+    expect(received).toHaveLength(CONCURRENT_STREAMING_SCENARIO.beats.length);
   });
 
   it("negative control: the narrowed run stream and a bare event type stay live", () => {
@@ -163,7 +163,7 @@ describe("fixture bridge — the whole-session stream is replay-then-tail", () =
     fixture.engine.advance(PAST_EVERY_BEAT_MS);
 
     expect(received.map((envelope) => envelope.id)).toStrictEqual(
-      FLAGSHIP_SCENARIO.beats.map((beat) => beat.event.id),
+      CONCURRENT_STREAMING_SCENARIO.beats.map((beat) => beat.event.id),
     );
   });
 });

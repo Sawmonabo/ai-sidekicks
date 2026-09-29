@@ -585,7 +585,7 @@ export type IdempotencyClass = "idempotent" | "compensable" | "manual_reconcile_
 //     provider-reported account/plan descriptor (e.g. a plan name + seat email),
 //     so the short-prose tier, NOT the 32 KiB failure-detail tier: unlike a
 //     resume failure it wraps no stack trace, and unlike a name token it is a
-//     sentence. A reject here loses only descriptive colour — the probe's
+//     sentence. A reject here loses only descriptive color — the probe's
 //     `status`, which carries the fail-closed admission decision, is unaffected.
 //   • DRIVER_TOOL_CALL_ID_MAX_LEN (256) — `CallbackToolInvocation.toolCallId`;
 //     an opaque provider correlation id, sized on the same opaque-handle tier as
@@ -896,7 +896,7 @@ export interface SteerPayload {
   // `driver.capability_unsupported` — before any driver method runs, because the
   // alternative is a supported steer answering `applied` after silently dropping
   // every element. The type is deliberately NOT narrowed to express that: the
-  // carrier contract is correct and the daemon is what is not yet able to honour
+  // carrier contract is correct and the daemon is what is not yet able to honor
   // it, so the refusal lifts with a code change and no wire change.
   attachments?: ArtifactId[] | undefined;
   expectedTurnId?: string | undefined;
@@ -1022,7 +1022,7 @@ export const RecoveryConditionSchema: z.ZodType<RecoveryCondition, RecoveryCondi
 // `RecoverySpanClassification` — the SIBLING classification of the halted span's
 // CONTENT. Orthogonal to `RecoveryCondition` above: that axis names WHY the run
 // needs an operator, this one names WHAT the diverged/halted span contains, so
-// policy can tier on blast radius. Deliberately NOT modelled as a widening of
+// policy can tier on blast radius. Deliberately NOT modeled as a widening of
 // `RecoveryCondition` — the two answer different questions, and conflating them
 // would overload operator-remediation routing.
 //
@@ -1064,7 +1064,7 @@ export const RecoverySpanClassificationSchema: z.ZodType<
 // REPLACEMENT structurally inexpressible: the `failed` variant carries a
 // `RecoveryCondition` + a `RecoverySpanClassification` + `providerFailureDetail` and has
 // NO `bindingId`, so a failed resume cannot be conflated with a successful one — the type
-// system forbids returning a binding while signalling failure. requires resume failure to
+// system forbids returning a binding while signaling failure. requires resume failure to
 // "surface `provider failure` detail and a visible `recovery-needed` condition; it must
 // not silently create a replacement provider session under the same canonical run."
 // Resumed-case timestamps live on `runtime_bindings.updated_at`; this shape carries only
@@ -1252,7 +1252,7 @@ export interface ProviderUsageLimitSignal {
 // Everything below is reachable ONLY from the four operations added to
 // `ProviderDriver` above, or from the spawn/turn carriers those operations share.
 // The nominal-vs-Zod split follows the file header's rule mechanically, with no
-// new judgement: daemon-CONSTRUCTED params and daemon-CONSTRUCTED config stay
+// new judgment: daemon-CONSTRUCTED params and daemon-CONSTRUCTED config stay
 // nominal; the two result envelopes (`ForkConversationResult`,
 // `DriverAuthProbeResult`) and the two driver-normalized seam shapes
 // (`CallbackToolInvocation`, `McpServerStatusEmission`) are Zod-parsed because
@@ -1474,7 +1474,7 @@ export type CanonicalReasoningDisclosure = "private" | "summary";
 
 // Whether a tool result came from the provider or was minted by the pipeline's
 // pairing repair. Recorded because a repaired result is a DECLARED loss, and a
-// consumer that cannot tell the two apart cannot honour the declaration.
+// consumer that cannot tell the two apart cannot honor the declaration.
 export type CanonicalToolResultProvenance = "provider" | "repaired";
 
 // One unit of turn content.
@@ -2379,7 +2379,7 @@ export type DriverTransportConfig =
 //     32 KiB failure tier: a reason wraps no stack trace, and the helper rejects
 //     rather than truncating, so an over-long one refuses the whole
 //     intervention. That is the right trade for a field whose loss costs only
-//     descriptive colour while the intervention itself is expressible without
+//     descriptive color while the intervention itself is expressible without
 //     it.
 //   • DRIVER_WIRE_STEER_CONTENT_MAX_LEN (16384) — `SteerPayload.content`, the
 //     user's actual directive text. Prose/message tier, sized like the

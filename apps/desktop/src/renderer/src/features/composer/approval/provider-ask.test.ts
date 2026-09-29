@@ -8,9 +8,9 @@
 import { describe, expect, it } from "vitest";
 
 import { providerAskFor } from "./provider-ask.js";
-import { type ConsoleEntity } from "@renderer/store/session/entities/entities.js";
+import { type StoredEntity } from "@renderer/store/session/entities/entities.js";
 
-function approvalEntity(body: Readonly<Record<string, unknown>> | undefined): ConsoleEntity {
+function approvalEntity(body: Readonly<Record<string, unknown>> | undefined): StoredEntity {
   return {
     kind: "approval",
     id: "approval-1",

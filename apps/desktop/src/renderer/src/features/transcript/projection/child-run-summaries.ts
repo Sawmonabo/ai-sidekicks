@@ -1,5 +1,5 @@
 // The child runs this window's log names, summarized — the shell's half of the seam
-// `ledger/structure/child-runs/` reads.
+// `dispatches/child-run-entries.ts` reads.
 //
 // WHAT WAS MISSING, AND IT WAS A GAP BETWEEN TWO CORRECT MODULES. `ChildRunIndex`
 // finds every row carrying `childRunSummary` and draws it; the shell projection
@@ -55,7 +55,7 @@
 import { type ChildRunSummary, type RunId, type RunState } from "@ai-sidekicks/contracts";
 import { runStateForTransitionKind } from "@renderer/store/session-events/run-state-kinds.js";
 import { readWireString } from "@renderer/lib/wire-strings.js";
-import { type ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
+import { type ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 import { attributedRunIdOf } from "./run-attribution.js";
 
 /**
@@ -90,7 +90,7 @@ const CONTEXT_COMPACTED_TYPE = "usage.context_compacted";
  * is projected — the property the caller's memo depends on.
  */
 export function deriveChildRunSummaries(
-  events: readonly ConsoleSessionEvent[],
+  events: readonly ProjectedSessionEvent[],
 ): ReadonlyMap<string, ChildRunSummary> {
   const readingsByRunId = new Map<string, ChildRunReading>();
   for (const event of events) {
@@ -105,7 +105,7 @@ export function deriveChildRunSummaries(
     if (reading === undefined) {
       // Not a child run, or a row that arrived before its creation row did. Either
       // way there is nothing to summarize: a child whose parent nothing named is a
-      // run, and the ledger already draws one.
+      // run, and the transcript already draws one.
       continue;
     }
     reading.eventCount += 1;
@@ -142,7 +142,7 @@ interface ChildRunReading {
  */
 function admitChildRun(
   readingsByRunId: Map<string, ChildRunReading>,
-  event: ConsoleSessionEvent,
+  event: ProjectedSessionEvent,
   runId: string,
 ): void {
   const payload = event.payload;

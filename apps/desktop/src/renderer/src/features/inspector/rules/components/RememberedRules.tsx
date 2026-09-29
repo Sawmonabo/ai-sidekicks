@@ -9,7 +9,7 @@
 //   • **The grantor is a grantor.** `userId` is an audit key, never a match key —
 //     the copy says whose grant it is and never implies it covers anyone else's
 //     direction.
-//   • **Revoke is two-step, and only the confirming click mutates.** Cancelling
+//   • **Revoke is two-step, and only the confirming click mutates.** Canceling
 //     returns to idle with zero mutations, which is a property of this component
 //     rather than a promise about it: the mutation call sits on one handler. The
 //     palette reaches the same act by ENTERING that confirmation — `useRevokeRuleCommands.ts`
@@ -39,10 +39,7 @@
 import { useState } from "react";
 import { Chip, Nothing, WireFigure, formatCount } from "@renderer/console/primitives/index.js";
 import { type RememberedRule } from "@renderer/services/approvals/approval-records.js";
-import {
-  asRememberedScopeKind,
-  rememberedScopeKindPhrase,
-} from "@renderer/lib/approval-vocabulary.js";
+import { asRememberedScopeKind, describeRuleScope } from "@renderer/lib/approval-vocabulary.js";
 import { RevokeRuleControl } from "./RevokeRuleControl.js";
 import { offersRevoke } from "../contributions/revoke-rule-commands.js";
 import { useRevokeRuleCommands } from "../hooks/useRevokeRuleCommands.js";
@@ -75,7 +72,7 @@ export function RememberedRules(props: RememberedRulesProps): React.JSX.Element 
         kind="error"
         placement="surface"
         title="Standing permissions could not be read."
-        detail={`The daemon answered, and all ${formatCount(props.unreadableCount)} of the rows it carried were shaped in a way this build cannot read. Whether any permission is in force is unknown from here — it is not known to be none.`}
+        detail={`The background service answered, and all ${formatCount(props.unreadableCount)} of the rows it carried were shaped in a way this build cannot read. Whether any permission is in force is unknown from here — it is not known to be none.`}
       />
     ) : (
       <Nothing
@@ -88,43 +85,43 @@ export function RememberedRules(props: RememberedRulesProps): React.JSX.Element 
   }
 
   return (
-    <div className="meridian-grants">
+    <div className="meridian-remembered-rules">
       {props.unreadableCount > 0 ? (
-        <p className="meridian-grants__unreadable">
+        <p className="meridian-remembered-rules__unreadable">
           The reply carried rows this build could not read, so this list is shorter than what the
-          daemon holds.
+          background service holds.
         </p>
       ) : null}
-      <ul className="meridian-grants__list">
+      <ul className="meridian-remembered-rules__list">
         {rulesInForce.map((rule) => (
-          <li className="meridian-grants__row" key={rule.ruleId}>
-            <div className="meridian-grants__line">
+          <li className="meridian-remembered-rules__row" key={rule.ruleId}>
+            <div className="meridian-remembered-rules__line">
               <Chip mono label={rule.category} />
               <Chip
-                label={rememberedScopeKindPhrase(rule.scope.kind)}
+                label={describeRuleScope(rule.scope.kind)}
                 tone={asRememberedScopeKind(rule.scope.kind) === undefined ? "failure" : "neutral"}
               />
-              <span className="meridian-grants__grantor">
+              <span className="meridian-remembered-rules__grantor">
                 granted by <WireFigure value={rule.userId} />
               </span>
               <WireFigure value={rule.grantedAt} />
             </div>
-            <div className="meridian-grants__detail">
+            <div className="meridian-remembered-rules__detail">
               {rule.scope.pattern === undefined ? (
-                <span className="meridian-grants__pattern">
+                <span className="meridian-remembered-rules__pattern">
                   No pattern, so this covers the whole category inside that boundary.
                 </span>
               ) : (
-                <span className="meridian-grants__pattern">
+                <span className="meridian-remembered-rules__pattern">
                   Pattern <WireFigure value={rule.scope.pattern} />
                 </span>
               )}
               {rule.runId === undefined ? null : (
-                <span className="meridian-grants__run">
+                <span className="meridian-remembered-rules__run">
                   Run <WireFigure value={rule.runId} />
                 </span>
               )}
-              <span className="meridian-grants__node">
+              <span className="meridian-remembered-rules__node">
                 Node <WireFigure value={rule.nodeId} />
               </span>
             </div>

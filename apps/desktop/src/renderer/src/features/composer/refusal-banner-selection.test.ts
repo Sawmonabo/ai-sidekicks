@@ -20,7 +20,7 @@ describe("which refusal a collection hands over", () => {
   });
 
   it("answers with the FIRST banner-class candidate, which is the preferred one", () => {
-    const lessPreferred = refuse("ledger", "session.not_found", "Gone before the read.");
+    const lessPreferred = refuse("transcript", "session.not_found", "Gone before the read.");
     expect(
       preferredBannerClassRefusalAmong([undefined, GONE_SESSION, lessPreferred]),
     ).toStrictEqual(GONE_SESSION);
@@ -31,7 +31,7 @@ describe("which refusal a collection hands over", () => {
     // that noticed one vanished session under two origins would otherwise raise two
     // banners saying one thing — each call that rejected wears its calling surface's
     // own origin.
-    const atThePort = refuse("ledger", "session.not_found", "Gone before the read.");
+    const atThePort = refuse("transcript", "session.not_found", "Gone before the read.");
     expect(preferredBannerClassRefusalAmong([GONE_SESSION, atThePort])).toStrictEqual(GONE_SESSION);
   });
 
@@ -41,7 +41,7 @@ describe("which refusal a collection hands over", () => {
 
   it("negative control: an ordinary refusal stays the surface's own business", () => {
     // Without this the selector would pass while escalating everything, which would
-    // put one pane's read failure across the whole workspace.
+    // put one pane's read failure across the whole session screen.
     expect(preferredBannerClassRefusalAmong([PANE_REFUSAL, undefined])).toBeUndefined();
     expect(preferredBannerClassRefusalAmong([undefined, undefined, undefined])).toBeUndefined();
   });

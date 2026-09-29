@@ -20,7 +20,7 @@ import { act, render } from "@testing-library/react";
 import { useEffect, useState, type ReactElement } from "react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { consoleTripwires } from "@renderer/lib/tripwires.js";
+import { windowTripwires } from "@renderer/lib/tripwires.js";
 import { useSubjectScopedResource } from "./useSubjectScopedResource.js";
 import type { NamedFixtureSubject } from "@test/helpers/subject-fixtures.js";
 import {
@@ -37,13 +37,13 @@ import { useSubjectScopedState } from "./useSubjectScopedState.js";
 const THROW_ON_REPORT_BEFORE_THE_SUITE = import.meta.env.DEV;
 
 beforeEach(() => {
-  consoleTripwires.setThrowOnReport(false);
-  consoleTripwires.reset();
+  windowTripwires.setThrowOnReport(false);
+  windowTripwires.reset();
 });
 
 afterEach(() => {
-  consoleTripwires.setThrowOnReport(THROW_ON_REPORT_BEFORE_THE_SUITE);
-  consoleTripwires.reset();
+  windowTripwires.setThrowOnReport(THROW_ON_REPORT_BEFORE_THE_SUITE);
+  windowTripwires.reset();
 });
 
 interface DiscardProbeProps {
@@ -213,7 +213,7 @@ describe("useSubjectScopedResource — a committed resource is closed once, by t
 
     expect(ledger.opened).toStrictEqual(["discarded", "published"]);
     expect(ledger.closed).toStrictEqual(["discarded"]);
-    expect(consoleTripwires.totalFiringCount).toBe(0);
+    expect(windowTripwires.totalFiringCount).toBe(0);
 
     view.unmount();
     expect(ledger.closed).toStrictEqual(["discarded", "published"]);
@@ -277,7 +277,7 @@ describe("useSubjectScopedResource — two publishes before one commit", () => {
     });
 
     expect(ledger.closed).not.toContain("published once");
-    expect(consoleTripwires.totalFiringCount).toBe(0);
+    expect(windowTripwires.totalFiringCount).toBe(0);
   });
 });
 
@@ -311,7 +311,7 @@ describe("useSubjectScopedResource — an open that settles after the subject ha
     expect(ledger.closed).toStrictEqual(["discarded", "opened too late"]);
     // And the surface goes on reading through the visit it is addressed at.
     expect(view.container.textContent).toBe("settled");
-    expect(consoleTripwires.firingCount("apply-chokepoint-bypass")).toBe(1);
+    expect(windowTripwires.firingCount("apply-chokepoint-bypass")).toBe(1);
 
     view.unmount();
     expect(ledger.closed).toStrictEqual(["discarded", "opened too late", "settled"]);

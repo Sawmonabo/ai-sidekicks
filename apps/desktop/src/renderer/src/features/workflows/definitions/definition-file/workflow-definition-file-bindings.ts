@@ -51,7 +51,7 @@ const REF_SCOPED_BINDING_KEYS = ["provider", "scope", "scopeRef", "serverName"] 
  * They are already refused by the admitted-key check above — neither tuple carries one
  * — so this exists for the SENTENCE and not for the decision. A person who pasted a
  * binding with an `approvalMode` in it needs to read that the facet is the node
- * operator's and not that a key was unrecognised.
+ * operator's and not that a key was unrecognized.
  */
 const GOVERNANCE_FACET_KEYS = ["enabled", "approvalMode", "idempotencyClass"] as const;
 

@@ -1,11 +1,11 @@
-// The human phase's form slot — where the prompt, the schema-derived controls, and the
+// The human phase's form mount point — where the prompt, the schema-derived controls, and the
 // submission that carries the revision they were composed against are mounted.
 //
 // THE FORM STANDING HERE IS THE CONSOLE'S OWN SHELL (`default-human-form-body.ts`): a real form over
 // the schema the run read carried. The `body` prop replaces it with a supplied body.
 //
 // THE BODY IS MOUNTED INSIDE THE SUBMIT CHANNEL AND NOT DIRECTLY IN THE SEAT. The mount
-// this slot hands over is therefore the channel's pair — the resolved phase and whichever
+// this mount point hands over is therefore the channel's pair — the resolved phase and whichever
 // body is to stand in it — and the channel composes the body's mount from the phase plus
 // the `submit` it holds. That indirection is the whole of the seat's promise: the submit
 // call, the single-flight guard, the captured revision, the re-armed run read and the
@@ -34,7 +34,7 @@ import type { HumanFormBody, HumanFormPhase } from "../human-form-mount.js";
 import { EngineMountPoint } from "../../components/EngineMountPoint.js";
 
 /**
- * What the human-form slot is given: the open phase, an optional replacement body, and the
+ * What the human-form mount point is given: the open phase, an optional replacement body, and the
  * call that submits.
  */
 export interface HumanFormMountPointProps {
@@ -71,7 +71,7 @@ export function HumanFormMountPoint(props: HumanFormMountPointProps): React.JSX.
       // No phase means no channel and no body, and never a body rendered against a
       // placeholder: a form composed against a phase nobody resolved would be answerable
       // in appearance and unsubmittable in fact. The mount reads the absence and renders
-      // the empty frame, so this slot states its rule and composes nothing.
+      // the empty frame, so this mount point states its rule and composes nothing.
       mount={phase === undefined ? undefined : { phase, body, submitForm }}
     />
   );

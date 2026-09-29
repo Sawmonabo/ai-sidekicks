@@ -11,7 +11,7 @@
 // declared in `vitest/tier-projects.ts` and spread below — there is no
 // `playwright.config.ts` anywhere in this repository, and the two tiers that
 // need a real Electron window do not want one: `e2e` and `endurance` run in a
-// NODE environment where the test file is the DRIVER, and they launch the shell
+// NODE environment where the test file is the DRIVER, and they launch the main process
 // through `tests/helpers/electron-harness.ts`,
 // which holds the single `_electron` call site. Playwright is a library on both
 // halves of this package rather than a second runner — browser mode drives it
@@ -69,7 +69,7 @@ export default defineConfig({
           // while `launch.smoke.test.ts` is trying to complete a cold Chromium
           // boot against its spawn deadline, and both are also the runner's FIRST
           // Electron launches, so they contend for the same cold per-`$HOME`
-          // Chromium initialisation (fontconfig cache build, NSS DB creation).
+          // Chromium initialization (fontconfig cache build, NSS DB creation).
           //
           // Measured on the failing run (GitHub Actions run 33571210321):
           // vitest reported `tests 41.32s` against a wall `Duration 27.58s`,
@@ -78,7 +78,7 @@ export default defineConfig({
           // its own header's ~5 s expectation, and the smoke boot — measured at
           // 462-510 ms unloaded — never reached `did-finish-load`.
           //
-          // Serialising costs ~14 s of wall time in this project and removes
+          // Serializing costs ~14 s of wall time in this project and removes
           // the contention outright. It is deliberately NOT a longer timeout —
           // this change alters no budget. (`SPAWN_TIMEOUT_MS` was separately
           // re-derived 15 s -> 30 s from the CI numbers this fix's own runs

@@ -33,7 +33,7 @@
 // doing rather than about what the ask has become.
 
 import { readWireString } from "@renderer/lib/wire-strings.js";
-import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
+import { type Refusal } from "@renderer/lib/refusal.js";
 import type { RunId, TimelineRow } from "@ai-sidekicks/contracts";
 import { projectedPayload } from "./wire-payload.js";
 
@@ -69,7 +69,7 @@ export interface QuestionOption {
 }
 
 /** One input ask, as much of it as the row's payload actually carries. */
-export interface DriverAskReading {
+export interface QuestionReading {
   readonly askId: string;
   /**
    * The run this ask blocks, off the row's own arm — `undefined` on a row attributing
@@ -115,21 +115,21 @@ export interface DriverAskReading {
  * is what a retry re-sends and what keeps a draft that was never delivered, and
  * `delivering` is what a second press is refused against.
  */
-export type DriverAskDelivery =
+export type AnswerDelivery =
   | { readonly status: "unsent" }
   | { readonly status: "delivering"; readonly response: string }
   | { readonly status: "accepted"; readonly response: string }
   | {
       readonly status: "refused";
       readonly response: string;
-      readonly refusal: ConsoleRefusal;
+      readonly refusal: Refusal;
     };
 
 /** What a terminal settles a question as: the members a terminal is authoritative about. */
-export type QuestionSettlement = Pick<DriverAskReading, "state" | "deliveredAnswer">;
+export type QuestionSettlement = Pick<QuestionReading, "state" | "deliveredAnswer">;
 
 /** Nothing dispatched. The state every ask starts in, as one frozen value. */
-export const ASK_ANSWER_UNSENT: DriverAskDelivery = Object.freeze({ status: "unsent" });
+export const UNSENT_ANSWER_DELIVERY: AnswerDelivery = Object.freeze({ status: "unsent" });
 
 /**
  * Read one row as an input ask, or answer that it is not one.
@@ -137,10 +137,10 @@ export const ASK_ANSWER_UNSENT: DriverAskDelivery = Object.freeze({ status: "uns
  * `undefined` covers three distinct rejections and deliberately renders as the same
  * "this is not an ask row" for the caller: a row of another type, a permission-kind
  * ask, and an ask row carrying no usable `askId`. None of the three is a surface the
- * ledger's ask card may draw, and a caller that wanted to tell them apart would be
+ * transcript's ask card may draw, and a caller that wanted to tell them apart would be
  * asking this reader to classify rows it does not own.
  */
-export function readQuestion(row: TimelineRow): DriverAskReading | undefined {
+export function readQuestion(row: TimelineRow): QuestionReading | undefined {
   const question = readQuestionPayload(row.type, projectedPayload(row));
   // The `run` arm is the only one carrying an attribution, and the `general` arm is the
   // non-run arm by construction — so this narrows on `kind` rather than guessing a run
@@ -159,7 +159,7 @@ export function readQuestion(row: TimelineRow): DriverAskReading | undefined {
 export function readQuestionPayload(
   eventType: string,
   payload: Readonly<Record<string, unknown>>,
-): Omit<DriverAskReading, "runId"> | undefined {
+): Omit<QuestionReading, "runId"> | undefined {
   const state = STATE_BY_EVENT_TYPE[eventType as (typeof QUESTION_EVENT_TYPES)[number]];
   if (state === undefined) {
     return undefined;
@@ -195,10 +195,10 @@ export function readQuestionPayload(
  * A reading that is already terminal is returned UNCHANGED rather than merged with
  * itself — the terminal row draws its own disposition, which is what it always did.
  */
-export function askSettledBy(
-  ask: DriverAskReading,
+export function applyQuestionSettlement(
+  ask: QuestionReading,
   terminal: QuestionSettlement | undefined,
-): DriverAskReading {
+): QuestionReading {
   if (terminal === undefined || ask.state !== "requested") {
     return ask;
   }

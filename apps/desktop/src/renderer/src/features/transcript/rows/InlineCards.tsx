@@ -8,12 +8,12 @@
 import { Chip, Nothing } from "@renderer/console/primitives/index.js";
 import {
   inlineCardBody,
-  inlineCardSeatRegistry,
-  type InlineCardSeatProps,
+  inlineCardRegistry,
+  type InlineCardProps,
 } from "@renderer/console/seats/index.js";
 
 export interface InlineCardsProps {
-  readonly cards: readonly InlineCardSeatProps[];
+  readonly cards: readonly InlineCardProps[];
 }
 
 /**
@@ -41,7 +41,7 @@ export function InlineCards(props: InlineCardsProps): React.JSX.Element | null {
               title={`No ${card.kind} card is registered in this window.`}
             />
           ) : (
-            inlineCardSeatRegistry.render(card)
+            inlineCardRegistry.render(card)
           )}
         </div>
       ))}
@@ -56,7 +56,7 @@ export function InlineCards(props: InlineCardsProps): React.JSX.Element | null {
  * there is not one: each arm carries the identity its own body fetches with, which is
  * `inline-card-seats.ts`' whole reason for being a union rather than a record.
  */
-function inlineCardKey(card: InlineCardSeatProps): string {
+function inlineCardKey(card: InlineCardProps): string {
   switch (card.kind) {
     case "diff":
       return `diff:${card.runId}:${card.diffArtifactId}`;

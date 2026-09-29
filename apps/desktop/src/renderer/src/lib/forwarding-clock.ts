@@ -5,7 +5,7 @@
 // its whole life: `LiveAnnouncerProvider` pins the clock it is given in `useState` and
 // re-mints its announcer when that pin moves, so a clock with a fresh identity per
 // render would rebuild the announcer once a render. But the window's clock is not a
-// constant either — `DesktopBridgeProvider` replaces its resolution IN PLACE, with
+// constant either — `PlatformBridgeProvider` replaces its resolution IN PLACE, with
 // no remount of the tree below it, and the replacement carries a different scenario
 // engine and therefore a different frozen clock. A pinned reading is then a retired
 // engine's time, which is the exact conflation the fixture rule forbids: "the fixture
@@ -30,10 +30,10 @@
 // strands that work — which is the retired engine's own end, and a fact about
 // disposing an engine rather than about this seam.
 
-import type { ConsoleClock, ScheduledHandle } from "./clock.js";
+import type { Clock, ScheduledHandle } from "./clock.js";
 
 /**
- * A stable `ConsoleClock` over a clock the caller may replace.
+ * A stable `Clock` over a clock the caller may replace.
  *
  * Constructed once per mount and handed the window's CURRENT clock through
  * {@link holdClock} whenever that changes, rather than closing over a resolver: the
@@ -42,12 +42,12 @@ import type { ConsoleClock, ScheduledHandle } from "./clock.js";
  * runs before any passive effect for it, so the clock this holds when a consumer's
  * effect reads it is the one that commit resolved.
  */
-export class ForwardingConsoleClock implements ConsoleClock {
-  #clock: ConsoleClock;
+export class ForwardingClock implements Clock {
+  #clock: Clock;
   readonly #armed = new Map<ScheduledHandle, ArmedElsewhere>();
   #nextHandle: ScheduledHandle = 1;
 
-  public constructor(clock: ConsoleClock) {
+  public constructor(clock: Clock) {
     this.#clock = clock;
   }
 
@@ -57,7 +57,7 @@ export class ForwardingConsoleClock implements ConsoleClock {
    * Work armed on the previous clock keeps its route home, because the map holds the
    * clock rather than a lookup performed at cancel time.
    */
-  public holdClock(clock: ConsoleClock): void {
+  public holdClock(clock: Clock): void {
     this.#clock = clock;
   }
 
@@ -98,11 +98,11 @@ export class ForwardingConsoleClock implements ConsoleClock {
    * Mint this seam's own handle for work the underlying clock arms.
    *
    * The entry is dropped BEFORE the caller's callback runs, so a callback that arms
-   * more work cannot be cancelled through the handle of the work that scheduled it,
+   * more work cannot be canceled through the handle of the work that scheduled it,
    * and a fired handle leaves nothing behind to grow the map.
    */
   #arm(
-    clock: ConsoleClock,
+    clock: Clock,
     armOn: (settle: () => void) => ScheduledHandle,
     callback: () => void,
   ): ScheduledHandle {
@@ -119,6 +119,6 @@ export class ForwardingConsoleClock implements ConsoleClock {
 
 /** Which clock is behind one handed-out handle, and what that clock called the work. */
 interface ArmedElsewhere {
-  readonly clock: ConsoleClock;
+  readonly clock: Clock;
   readonly handle: ScheduledHandle;
 }

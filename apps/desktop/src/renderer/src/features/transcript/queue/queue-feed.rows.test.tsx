@@ -20,9 +20,9 @@ import {
 } from "./queue-feed.test-support.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 
-describe("a queued item is cancelled once", () => {
+describe("a queued item is canceled once", () => {
   it("issues one mutation for two synchronous presses on one row", async () => {
-    const { bridge, queueCalls, cancelledItemIds } = queueFeedBridge();
+    const { bridge, queueCalls, canceledItemIds } = queueFeedBridge();
     let held: QueueFeed | undefined;
     render(
       <QueueFeedProbe
@@ -45,14 +45,14 @@ describe("a queued item is cancelled once", () => {
       void cancelItem(QUEUE_ITEM_ID);
       void cancelItem(QUEUE_ITEM_ID);
     });
-    expect(cancelledItemIds).toStrictEqual([QUEUE_ITEM_ID]);
+    expect(canceledItemIds).toStrictEqual([QUEUE_ITEM_ID]);
   });
 
   it("negative control: two rows pressed once each are two mutations", async () => {
     // Without this the case above would pass over a chokepoint that dispatched
     // NOTHING, which is a different defect with the same count. The latch is per id,
     // and this is the case that says so.
-    const { bridge, queueCalls, cancelledItemIds } = queueFeedBridge();
+    const { bridge, queueCalls, canceledItemIds } = queueFeedBridge();
     let held: QueueFeed | undefined;
     render(
       <QueueFeedProbe
@@ -69,11 +69,11 @@ describe("a queued item is cancelled once", () => {
       void held?.cancelItem(QUEUE_ITEM_A);
       void held?.cancelItem(QUEUE_ITEM_B);
     });
-    expect(cancelledItemIds).toStrictEqual([QUEUE_ITEM_A, QUEUE_ITEM_B]);
+    expect(canceledItemIds).toStrictEqual([QUEUE_ITEM_A, QUEUE_ITEM_B]);
   });
 
   it("takes the row's cancel again once the first has settled", async () => {
-    const { bridge, queueCalls, cancelledItemIds } = queueFeedBridge();
+    const { bridge, queueCalls, canceledItemIds } = queueFeedBridge();
     let held: QueueFeed | undefined;
     render(
       <QueueFeedProbe
@@ -94,7 +94,7 @@ describe("a queued item is cancelled once", () => {
     act(() => {
       void held?.cancelItem(QUEUE_ITEM_ID);
     });
-    expect(cancelledItemIds).toStrictEqual([QUEUE_ITEM_ID, QUEUE_ITEM_ID]);
+    expect(canceledItemIds).toStrictEqual([QUEUE_ITEM_ID, QUEUE_ITEM_ID]);
   });
 
   it("holds one row's cancel without holding another's", async () => {

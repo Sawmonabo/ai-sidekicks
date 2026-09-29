@@ -1,7 +1,7 @@
 // Send calls that park until the case settles them.
 //
 // A scripted answer arrives on its own schedule, which suits "what does this surface
-// do with the reply" and not "what does it do while the reply is still travelling":
+// do with the reply" and not "what does it do while the reply is still traveling":
 // a call issued under one address, completing after the surface has moved to another.
 // Parking the call puts the case in charge of that interval.
 //
@@ -16,20 +16,20 @@
 // It sits in the composer family and not under `test/console/` because the renderer
 // project compiles under `rootDir: apps/desktop/src`, so a renderer file cannot import
 // from `apps/desktop/test/...`.
-import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { bridgeAnswering } from "@test/helpers/fixture-bridge.js";
-import { COMPOSER_SCENARIO } from "../../../../../../../fixtures/scenarios/waiting-for-input.js";
+import { WAITING_FOR_INPUT_SCENARIO } from "../../../../../../../fixtures/scenarios/waiting-for-input.js";
 import type { ComposerSendCalls } from "../send-dispatch.js";
 import { interventionResponse, sendCallsAnswering } from "../send-router.test-support.js";
 
 export class ParkedDaemonCalls {
   readonly #parked: ParkedCall[] = [];
-  public readonly bridge: ConsoleBridge;
+  public readonly bridge: PlatformBridge;
   public readonly calls: ComposerSendCalls;
 
   public constructor() {
     // The composer's own scenario, because these cases are the composer's.
-    this.bridge = bridgeAnswering(async () => undefined, COMPOSER_SCENARIO).bridge;
+    this.bridge = bridgeAnswering(async () => undefined, WAITING_FOR_INPUT_SCENARIO).bridge;
     this.calls = sendCallsAnswering(
       async () =>
         new Promise((resolve) => {

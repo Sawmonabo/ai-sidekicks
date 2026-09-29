@@ -38,16 +38,16 @@ describe("parsing ANSI output", () => {
     expect(spans.map((span) => span.text).join("")).not.toContain(ESCAPE);
   });
 
-  it("names the colour rather than resolving it", () => {
+  it("names the color rather than resolving it", () => {
     const { spans } = parseAnsiSpans(`${ESCAPE}[31mfailed`);
     expect(spans[0]?.foreground).toBe("red");
     expect(ANSI_COLOR_NAMES).toContain("red");
   });
 
-  it("renders a colour the console does not reproduce in the inherited foreground", () => {
-    // A 256-colour or true-colour run carries the tool's own palette, which has no
+  it("renders a color the console does not reproduce in the inherited foreground", () => {
+    // A 256-color or true-color run carries the tool's own palette, which has no
     // honest mapping onto this console's. It reads as plain text rather than as a
-    // nearest-neighbour guess.
+    // nearest-neighbor guess.
     const { spans } = parseAnsiSpans(`${ESCAPE}[38;5;208mamber-ish`);
     expect(spans[0]?.text).toBe("amber-ish");
     expect(spans[0]?.foreground).toBeUndefined();
@@ -63,7 +63,7 @@ describe("parsing ANSI output", () => {
     expect(spans[0]?.decorations).toStrictEqual([]);
   });
 
-  it("keeps the stream's own two colours under reverse video, unswapped", () => {
+  it("keeps the stream's own two colors under reverse video, unswapped", () => {
     // The span reports what the STREAM said; the swap is a render-time relation between
     // the two channels, and lives with the class names.
     const { spans } = parseAnsiSpans(`${ESCAPE}[31m${ESCAPE}[42m${ESCAPE}[7mswapped`);
@@ -74,7 +74,7 @@ describe("parsing ANSI output", () => {
 
   it("undoes the library's own default substitution, leaving the unset channel unset", () => {
     // Anser fills a missing channel with white/black before it swaps. Rendered, that pair
-    // is muted grey on faint grey in this console — a substitution that reverses nothing.
+    // is muted gray on faint gray in this console — a substitution that reverses nothing.
     const bare = parseAnsiSpans(`${ESCAPE}[7mbare`);
     expect(bare.spans[0]?.foreground).toBeUndefined();
     expect(bare.spans[0]?.background).toBeUndefined();
@@ -127,7 +127,7 @@ describe("parsing ANSI output", () => {
 
   it("takes the cap from its caller, so a fold can be lifted for one block", () => {
     // `AnsiOutput` re-parses the same source under a wider cap when the reader asks for
-    // the rest. Without a cap parameter the tail of a colour-heavy command is reachable
+    // the rest. Without a cap parameter the tail of a color-heavy command is reachable
     // by nothing, because reopening the card re-parses exactly the same capped sequence.
     const source = styledRuns(10);
     const folded = parseAnsiSpans(source, 4);
@@ -184,8 +184,8 @@ describe("the class names one span carries", () => {
   });
 
   it("paints a bare reversed run in the console's own default pair, swapped", () => {
-    // `ESC[7m` on its own sets neither colour, so both ends of the swap are the console's
-    // defaults: the body's background becomes the text colour and its foreground the fill.
+    // `ESC[7m` on its own sets neither color, so both ends of the swap are the console's
+    // defaults: the body's background becomes the text color and its foreground the fill.
     expect(
       ansiSpanClassNames({
         text: "x",
@@ -200,7 +200,7 @@ describe("the class names one span carries", () => {
     ]);
   });
 
-  it("swaps one explicit colour against the console's default for the other channel", () => {
+  it("swaps one explicit color against the console's default for the other channel", () => {
     expect(
       ansiSpanClassNames({
         text: "x",
@@ -221,7 +221,7 @@ describe("the class names one span carries", () => {
     ).toStrictEqual(["meridian-ansi__fg--green", "meridian-ansi__bg--default-foreground"]);
   });
 
-  it("swaps two explicit colours and keeps every decoration", () => {
+  it("swaps two explicit colors and keeps every decoration", () => {
     expect(
       ansiSpanClassNames({
         text: "x",
@@ -247,7 +247,7 @@ describe("the class names one span carries", () => {
     expect(bare).toHaveLength(2);
   });
 
-  it("negative control: an unreversed span with both colours does not swap them", () => {
+  it("negative control: an unreversed span with both colors does not swap them", () => {
     expect(
       ansiSpanClassNames({
         text: "x",

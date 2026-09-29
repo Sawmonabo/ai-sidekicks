@@ -3,7 +3,7 @@
 // Two modes, and both are about the moment a base state arrives late. The repair
 // read answers AT the cursor the store already reached, which a naive
 // "only a newer snapshot may land" guard discards — leaving a hole nothing on the
-// wire can ever fill. And the pre-initialisation buffer holds events for a read
+// wire can ever fill. And the pre-initialization buffer holds events for a read
 // that may never come, so its cap is a real loss and the loss has to be named
 // rather than absorbed.
 //
@@ -13,8 +13,8 @@
 
 import { describe, expect, it } from "vitest";
 
-import { PRE_INITIALISATION_BUFFER_CAP } from "./session-store-caps.js";
-import type { ConsoleSessionEvent } from "./entities/entities.js";
+import { PRE_INITIALIZATION_BUFFER_CAP } from "./session-store-caps.js";
+import type { ProjectedSessionEvent } from "./entities/entities.js";
 import { eventAt } from "./session-store.test-support.js";
 import { SessionStore } from "./session-store.js";
 
@@ -27,7 +27,7 @@ describe("failure matrix — the repair read answers at the cursor the store alr
    */
   function degradedAtCursorSeven(): SessionStore {
     const store = new SessionStore({ sessionId: "session-1" });
-    store.initialise({ cursor: 5, entities: [] });
+    store.initialize({ cursor: 5, entities: [] });
     store.apply(eventAt(7));
     return store;
   }
@@ -37,7 +37,7 @@ describe("failure matrix — the repair read answers at the cursor the store alr
     expect(store.snapshot().degradedCause).toBe("sequence-gap");
     expect(store.snapshot().gaps).toStrictEqual([{ fromSequence: 6, toSequence: 6 }]);
 
-    store.initialise({
+    store.initialize({
       cursor: 7,
       entities: [],
       timeline: [eventAt(6), eventAt(7)],
@@ -55,7 +55,7 @@ describe("failure matrix — the repair read answers at the cursor the store alr
     const store = degradedAtCursorSeven();
     const before = store.snapshot();
 
-    store.initialise({
+    store.initialize({
       cursor: 6,
       entities: [],
       timeline: [eventAt(6)],
@@ -74,32 +74,32 @@ describe("failure matrix — the repair read answers at the cursor the store alr
     // ordinary focus refresh, and a snapshot carrying no timeline would empty the
     // one the store had.
     const store = new SessionStore({ sessionId: "session-1" });
-    store.initialise({ cursor: 0, entities: [] });
+    store.initialize({ cursor: 0, entities: [] });
     store.apply(eventAt(1));
     const before = store.snapshot();
 
-    store.initialise({ cursor: 1, entities: [] });
+    store.initialize({ cursor: 1, entities: [] });
 
     expect(store.snapshot()).toBe(before);
     expect(store.snapshot().timeline.map((event) => event.sequence)).toStrictEqual([1]);
   });
 });
 
-describe("failure matrix — events arrive before initialisation and the read never comes", () => {
-  function eventsFrom(count: number): ConsoleSessionEvent[] {
+describe("failure matrix — events arrive before initialization and the read never comes", () => {
+  function eventsFrom(count: number): ProjectedSessionEvent[] {
     return Array.from({ length: count }, (_unused, index) => eventAt(index + 1));
   }
 
-  it("bounds the pre-initialisation buffer, dropping the oldest and recording the loss", () => {
+  it("bounds the pre-initialization buffer, dropping the oldest and recording the loss", () => {
     const store = new SessionStore({ sessionId: "session-1" });
     const overflowBy = 3;
 
-    const outcome = store.applyBatch(eventsFrom(PRE_INITIALISATION_BUFFER_CAP + overflowBy));
+    const outcome = store.applyBatch(eventsFrom(PRE_INITIALIZATION_BUFFER_CAP + overflowBy));
 
-    expect(outcome.buffered).toBe(PRE_INITIALISATION_BUFFER_CAP + overflowBy);
-    expect(outcome.droppedBeforeInitialisation).toBe(overflowBy);
-    expect(store.preInitialisationDropCount).toBe(overflowBy);
-    expect(store.pendingPreInitialisationCount).toBe(PRE_INITIALISATION_BUFFER_CAP);
+    expect(outcome.buffered).toBe(PRE_INITIALIZATION_BUFFER_CAP + overflowBy);
+    expect(outcome.droppedBeforeInitialization).toBe(overflowBy);
+    expect(store.preInitializationDropCount).toBe(overflowBy);
+    expect(store.pendingPreInitializationCount).toBe(PRE_INITIALIZATION_BUFFER_CAP);
     // The loss is visible immediately rather than only once a read lands, because
     // a store whose read never comes would otherwise drop in silence forever.
     expect(store.snapshot().degradedCause).toBe("sequence-gap");
@@ -108,14 +108,14 @@ describe("failure matrix — events arrive before initialisation and the read ne
   it("re-derives exactly which sequences the cap cost, once a base state arrives", () => {
     const store = new SessionStore({ sessionId: "session-1" });
     const overflowBy = 3;
-    store.applyBatch(eventsFrom(PRE_INITIALISATION_BUFFER_CAP + overflowBy));
+    store.applyBatch(eventsFrom(PRE_INITIALIZATION_BUFFER_CAP + overflowBy));
 
-    store.initialise({ cursor: 0, entities: [] });
+    store.initialize({ cursor: 0, entities: [] });
 
     const timeline = store.snapshot().timeline;
-    expect(timeline).toHaveLength(PRE_INITIALISATION_BUFFER_CAP);
+    expect(timeline).toHaveLength(PRE_INITIALIZATION_BUFFER_CAP);
     expect(timeline[0]?.sequence).toBe(overflowBy + 1);
-    expect(store.pendingPreInitialisationCount).toBe(0);
+    expect(store.pendingPreInitializationCount).toBe(0);
     // The dropped sequences are named rather than guessed at: the drain runs the
     // same gap detection every other admission does.
     expect(store.snapshot().gaps).toStrictEqual([{ fromSequence: 1, toSequence: 3 }]);
@@ -125,14 +125,14 @@ describe("failure matrix — events arrive before initialisation and the read ne
   it("negative control: a buffer inside the cap drops nothing and drains whole", () => {
     const store = new SessionStore({ sessionId: "session-1" });
 
-    const outcome = store.applyBatch(eventsFrom(PRE_INITIALISATION_BUFFER_CAP));
-    expect(outcome.droppedBeforeInitialisation).toBe(0);
-    expect(store.preInitialisationDropCount).toBe(0);
+    const outcome = store.applyBatch(eventsFrom(PRE_INITIALIZATION_BUFFER_CAP));
+    expect(outcome.droppedBeforeInitialization).toBe(0);
+    expect(store.preInitializationDropCount).toBe(0);
     expect(store.snapshot().degradedCause).toBeUndefined();
 
-    store.initialise({ cursor: 0, entities: [] });
+    store.initialize({ cursor: 0, entities: [] });
 
-    expect(store.snapshot().timeline).toHaveLength(PRE_INITIALISATION_BUFFER_CAP);
+    expect(store.snapshot().timeline).toHaveLength(PRE_INITIALIZATION_BUFFER_CAP);
     expect(store.snapshot().gaps).toStrictEqual([]);
     expect(store.snapshot().degradedCause).toBeUndefined();
   });

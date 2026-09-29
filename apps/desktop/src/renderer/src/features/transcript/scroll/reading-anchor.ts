@@ -1,4 +1,4 @@
-// The reading anchor — the ledger's promise that it will not move the page you are
+// The reading anchor — the transcript's promise that it will not move the page you are
 // reading.
 //
 // THE PROMISE IS THIS MODULE'S: never take the reading position away from a person
@@ -6,7 +6,7 @@
 // anchor, follow, and window-cap controller are own-built, because no library has a
 // sub-row reading anchor — and every rule below is that promise made mechanical:
 //
-//   • **Following is a STATE, not a default.** The ledger follows the tail only
+//   • **Following is a STATE, not a default.** The transcript follows the tail only
 //     while the viewport is at the tail. The moment a person scrolls up, appends
 //     stop moving the offset and start counting instead — which is what the tail
 //     pill counts.
@@ -118,7 +118,7 @@ export class ReadingAnchor {
    * reader at the bottom, and they are at the bottom. LEAVING it takes a `"scroll"`
    * sample, because a viewport that shrank raises the distance from the tail with
    * no reader action at all, and dropping a follower out of following because the
-   * window got smaller is the ledger deciding to stop following on its own.
+   * window got smaller is the transcript deciding to stop following on its own.
    */
   public observeGeometry(geometry: ScrollGeometry): void {
     if (geometry.isAtTail) {

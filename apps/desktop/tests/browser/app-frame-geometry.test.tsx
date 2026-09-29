@@ -4,7 +4,7 @@
 // is a reason rather than a preference: happy-dom returns zeroes from every
 // `getBoundingClientRect`, resolves no custom property through the cascade, and
 // lays nothing out. Under it, "the rail is 56 px wide", "the attribution edge is
-// 2 px", and "the ledger row's hue resolves to the user's colour" all pass
+// 2 px", and "the transcript row's hue resolves to the user's color" all pass
 // while measuring nothing at all. Those live here, in real Chromium, where the
 // numbers come from a layout engine.
 //
@@ -16,15 +16,15 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { emulateSystemScheme, pressKeys, renderSettled } from "../helpers/app-harness.js";
 
 import { createFixtureComposition } from "@renderer/app/fixture-composition.js";
-import { ConsoleRoot } from "@renderer/app/providers.js";
-import { applyConsoleScheme, installMeridianTokens } from "@renderer/app/token-installation.js";
+import { AppProviders } from "@renderer/app/providers.js";
+import { applyColorScheme, installMeridianTokens } from "@renderer/app/token-installation.js";
 import { MERIDIAN_STYLE_ELEMENT_ID } from "@renderer/app/token-installation.js";
 import { FIRST_RUN_SCENARIO_ID } from "../../fixtures/scenarios/first-run.js";
-import { ATTRIBUTION_EDGE_WIDTH_PX } from "@renderer/styles/palette.js";
+import { LEADING_EDGE_WIDTH_PX } from "@renderer/styles/palette.js";
 import { MOTION_DURATIONS_MS } from "@renderer/styles/motion.js";
 import { tokenVariableName } from "@renderer/styles/tokens.js";
 import { ManualClock } from "@renderer/lib/clock.js";
-import { LedgerScrollController } from "@renderer/features/transcript/scroll/scroll-chokepoint.js";
+import { ScrollController } from "@renderer/features/transcript/scroll/scroll-chokepoint.js";
 
 /**
  * Wait for the platform to deliver a resize observation, then run the frame it
@@ -55,11 +55,11 @@ function tokenValue(tokenName: string): string {
 beforeEach(() => {
   document.location.hash = "";
   installMeridianTokens(document);
-  applyConsoleScheme(document, "light");
+  applyColorScheme(document, "light");
 });
 
 afterEach(async () => {
-  applyConsoleScheme(document, "system");
+  applyColorScheme(document, "system");
   // Leave the emulated system preference where the page found it, so a later case
   // is not measured under whichever scheme this one finished in.
   await emulateSystemScheme("light");
@@ -72,7 +72,7 @@ describe("browser — the token sheet reaches the cascade", () => {
     expect(document.querySelectorAll(`#${MERIDIAN_STYLE_ELEMENT_ID}`)).toHaveLength(1);
   });
 
-  it("resolves a colour token through the cascade rather than to an empty string", () => {
+  it("resolves a color token through the cascade rather than to an empty string", () => {
     // The unit tier reads the TypeScript record; only a real cascade proves the
     // record reached the document. An unresolved custom property is the empty
     // string, which paints as "inherit" and is invisible.
@@ -81,16 +81,16 @@ describe("browser — the token sheet reaches the cascade", () => {
   });
 
   it("carries the attribution edge and the motion durations as real values", () => {
-    expect(tokenValue("attribution-edge")).toBe(`${String(ATTRIBUTION_EDGE_WIDTH_PX)}px`);
+    expect(tokenValue("leading-edge")).toBe(`${String(LEADING_EDGE_WIDTH_PX)}px`);
     expect(tokenValue("motion-settle")).toBe(`${String(MOTION_DURATIONS_MS["motion-settle"])}ms`);
   });
 
   it("swaps the palette when the scheme attribute flips, in both directions", () => {
     const light = tokenValue("ground");
-    applyConsoleScheme(document, "dark");
+    applyColorScheme(document, "dark");
     const dark = tokenValue("ground");
     expect(dark).not.toBe(light);
-    applyConsoleScheme(document, "light");
+    applyColorScheme(document, "light");
     expect(tokenValue("ground")).toBe(light);
   });
 
@@ -105,16 +105,16 @@ describe("browser — the token sheet reaches the cascade", () => {
     // left in force the document paints light and Chromium paints its own UI dark
     // inside it. The mirror mismatch is reachable the same way.
     await emulateSystemScheme("dark");
-    applyConsoleScheme(document, "light");
+    applyColorScheme(document, "light");
     expect(getComputedStyle(document.documentElement).colorScheme).toBe("light");
 
     await emulateSystemScheme("light");
-    applyConsoleScheme(document, "dark");
+    applyColorScheme(document, "dark");
     expect(getComputedStyle(document.documentElement).colorScheme).toBe("dark");
 
     // Negative control: with no choice expressed the root keeps offering both, so
     // a system-scheme window still follows the OS rather than being pinned light.
-    applyConsoleScheme(document, "system");
+    applyColorScheme(document, "system");
     expect(getComputedStyle(document.documentElement).colorScheme).toBe("light dark");
   });
 });
@@ -122,7 +122,7 @@ describe("browser — the token sheet reaches the cascade", () => {
 describe("browser — the frame lays out", () => {
   it("gives the rail a real width and the surface the rest of the row", async () => {
     const { container } = await renderSettled(
-      <ConsoleRoot composition={createFixtureComposition(FIRST_RUN_SCENARIO_ID)} />,
+      <AppProviders composition={createFixtureComposition(FIRST_RUN_SCENARIO_ID)} />,
     );
 
     const rail = container.querySelector(".meridian-rail");
@@ -149,7 +149,7 @@ describe("browser — the frame lays out", () => {
     // than by setting state proves the whole path — the chord listener, the
     // registry, the `when` evaluation, and the overlay's portal.
     await renderSettled(
-      <ConsoleRoot composition={createFixtureComposition(FIRST_RUN_SCENARIO_ID)} />,
+      <AppProviders composition={createFixtureComposition(FIRST_RUN_SCENARIO_ID)} />,
     );
 
     expect(document.querySelector("[role='dialog']")).toBeNull();
@@ -171,7 +171,7 @@ describe("browser — the frame lays out", () => {
 
   it("does not scroll the frame horizontally at a narrow window", async () => {
     const { container } = await renderSettled(
-      <ConsoleRoot composition={createFixtureComposition(FIRST_RUN_SCENARIO_ID)} />,
+      <AppProviders composition={createFixtureComposition(FIRST_RUN_SCENARIO_ID)} />,
     );
     const frame = container.querySelector(".meridian-frame");
     expect(frame).not.toBeNull();
@@ -184,7 +184,7 @@ describe("browser — the frame lays out", () => {
   });
 });
 
-describe("browser — a pane that changed size reaches the ledger's geometry", () => {
+describe("browser — a pane that changed size reaches the transcript's geometry", () => {
   it("publishes the new viewport height from a real resize observation", async () => {
     // The unit tier drives the measurement pass by hand. Only a real engine has a
     // `ResizeObserver`, a layout, and a box that answers a height at all — and the
@@ -197,7 +197,7 @@ describe("browser — a pane that changed size reaches the ledger's geometry", (
     document.body.append(scrollSurface);
 
     const clock = new ManualClock();
-    const controller = new LedgerScrollController({ clock });
+    const controller = new ScrollController({ clock });
     try {
       controller.attach(scrollSurface);
       const viewportHeights: number[] = [];

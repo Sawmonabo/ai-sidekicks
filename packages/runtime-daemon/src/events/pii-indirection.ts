@@ -284,7 +284,7 @@ interface SealedContentPartition {
  *
  * `contentType` is deliberately absent: the producer knows the media type of
  * what it emitted, and this codec never could. The split is what makes the
- * refusal arm checkable by name rather than by judgement.
+ * refusal arm checkable by name rather than by judgment.
  */
 const CODEC_OWNED_CONTENT_PAYLOAD_KEYS: readonly string[] = [
   CONTENT_CIPHERTEXT_DIGEST_PAYLOAD_KEY,
@@ -325,7 +325,7 @@ export class CodecOwnedContentKeyError extends Error {
  * for a caller that invokes it directly.
  *
  * THE ONE OTHER `INSERT INTO session_events` IN THE TREE IS EXEMPT, and the
- * reason is not a judgement call: `SessionService.append` writes zero-filled
+ * reason is not a judgment call: `SessionService.append` writes zero-filled
  * `prev_hash` / `row_hash` / `daemon_signature` placeholders, throws unless the
  * service was constructed with the identity-checked
  * `UnsignedPlaceholderAppendToken` (so it is unreachable from a production
@@ -1921,7 +1921,7 @@ function embedCiphertextDigest(
   // silently vanishing, and `EventEnvelope[MemberName]` pins each value's type,
   // so a member wired to a DIFFERENTLY-typed source (`sequence: input.id`,
   // `payload: input.actor`) is a compile error. Its limit, stated rather than
-  // glossed: same-typed neighbours are not covered — `id` / `type` / `occurredAt`
+  // glossed: same-typed neighbors are not covered — `id` / `type` / `occurredAt`
   // are all plain `string` and `correlationId` / `causationId` are both `string |
   // undefined`, so swapping a pair inside either group type-checks.
   const canonicalMembers: { [MemberName in keyof EventEnvelope]-?: EventEnvelope[MemberName] } = {
@@ -2130,7 +2130,7 @@ export function isContentCiphertextDigestBound(
  *
  * RECEIVED ROWS REQUIRE THE COLUMN ABSENT — a stricter arm, not a softer one.
  * The digest a received row carries is the ORIGIN daemon's claim about bytes
- * that never travelled, so any local ciphertext under it is precisely what a
+ * that never traveled, so any local ciphertext under it is precisely what a
  * planted value would be made to match: comparing would report BOUND for an
  * attacker's row and would be the one fail-open in this file. Absent is the only
  * shape a received row may hold.

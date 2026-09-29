@@ -8,7 +8,7 @@ import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { act, fireEvent, render } from "@testing-library/react";
 import { useEffect, useState } from "react";
 import { describe, expect, it } from "vitest";
-import { consoleCommands } from "@renderer/registries/commands/window-command-registry.js";
+import { commandRegistry } from "@renderer/registries/commands/window-command-registry.js";
 import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
 import { KeyboardPage } from "./KeyboardPage.js";
 import { composeSettingsPages } from "../../settings-pages.js";
@@ -95,10 +95,10 @@ const LATE_COMMAND = {
 function LateRegisteringFrame(): React.JSX.Element {
   const [commandRevision, setCommandRevision] = useState(0);
   useEffect(() => {
-    consoleCommands.register(LATE_COMMAND);
+    commandRegistry.register(LATE_COMMAND);
     setCommandRevision((revision) => revision + 1);
     return () => {
-      consoleCommands.unregister(LATE_COMMAND.id);
+      commandRegistry.unregister(LATE_COMMAND.id);
     };
   }, []);
   return (
@@ -134,7 +134,7 @@ describe("keyboard page — a command registered after the page first rendered",
     );
     expect(rowOf(container, "app.checkForUpdates")).toBeDefined();
 
-    consoleCommands.unregister("app.checkForUpdates");
+    commandRegistry.unregister("app.checkForUpdates");
     await act(async () => {
       rerender(
         <LiveAnnouncerProvider>
@@ -151,7 +151,7 @@ describe("keyboard page — a command registered after the page first rendered",
     // Without this the cases above would pass over a page that drew a row for every
     // id it was ever asked about, which would prove nothing about the read.
     for (const commandId of TEST_COMMAND_IDS) {
-      consoleCommands.unregister(commandId);
+      commandRegistry.unregister(commandId);
     }
     const { container } = renderKeyboardPage();
 

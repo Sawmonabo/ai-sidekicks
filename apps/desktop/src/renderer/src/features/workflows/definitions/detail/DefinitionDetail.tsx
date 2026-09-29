@@ -10,7 +10,7 @@
 //
 // WHAT THIS IS NOT. It is not the canvas. The node graph, the inspector and the
 // connection-validity predicate are the workflow engine's body, mounted through the
-// builder pane's own typed slots; this is the read the canvas will be drawn from and
+// builder pane's own typed mount points; this is the read the canvas will be drawn from and
 // the acts that carry a definition somewhere else.
 
 import { Nothing, WireFigure, formatCount } from "@renderer/console/primitives/index.js";

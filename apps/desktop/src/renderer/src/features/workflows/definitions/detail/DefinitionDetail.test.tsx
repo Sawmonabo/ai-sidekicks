@@ -8,7 +8,7 @@
 
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { PROBE_SESSION_ID, settle } from "../../workflows-probe.test-support.js";
 import { DefinitionDetail } from "./DefinitionDetail.js";
 import {
@@ -45,7 +45,7 @@ const SERVED: Extract<WorkflowDefinitionDetailState, { status: "served" }> = {
 /** The detail wired to the real authoring hook, the way a container hands it its props. */
 function DetailWithActs(props: {
   readonly detail: WorkflowDefinitionDetailState;
-  readonly bridge: ConsoleBridge;
+  readonly bridge: PlatformBridge;
   readonly createDefinition: WorkflowDefinitionCreateCall;
 }): React.JSX.Element {
   const authoring = useWorkflowDefinitionAuthoring(

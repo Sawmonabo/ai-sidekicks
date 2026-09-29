@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { airspaceRegistryFor } from "@renderer/lib/airspace-registries.js";
-import { type ConsoleClock } from "@renderer/lib/clock.js";
+import { type Clock } from "@renderer/lib/clock.js";
 import { PaneRectTracker } from "../pane-rect-tracker.js";
 import { type TrackedRect } from "../pane-rect-geometry.js";
 
@@ -14,7 +14,7 @@ import { type TrackedRect } from "../pane-rect-geometry.js";
  * write, the exact opposite of what it is for.
  */
 export function usePaneRectTracker(options: {
-  readonly clock: ConsoleClock;
+  readonly clock: Clock;
   readonly onRects?: (rects: readonly TrackedRect[]) => void;
 }): PaneRectTracker {
   const sink = useRef(options.onRects);
@@ -29,7 +29,7 @@ export function usePaneRectTracker(options: {
         onFlush: (rects) => sink.current?.(rects),
         // Off the DOCUMENT and not off a prop, on `browser/pane/geometry-binding.ts`'s
         // reading of the same rule: the overlays register on the registry their own
-        // element's document holds, so a deck handed one by a caller would be tracking
+        // element's document holds, so a pane layout handed one by a caller would be tracking
         // an airspace nothing claims — which is what four prop hops of an `airspace`
         // nobody ever passed had this family doing.
         airspace: airspaceRegistryFor(document),

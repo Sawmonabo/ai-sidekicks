@@ -3,7 +3,7 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { WindowAbsences } from "./WindowNotices.js";
+import { WindowNotices } from "./WindowNotices.js";
 import { type WindowAbsence } from "../../window-notices.js";
 
 const EVERY_NOTICE: readonly WindowAbsence[] = [
@@ -13,11 +13,11 @@ const EVERY_NOTICE: readonly WindowAbsence[] = [
 ];
 
 function renderNotices(...absences: readonly WindowAbsence[]): HTMLElement {
-  const { container } = render(<WindowAbsences absences={absences} subject="entries" />);
+  const { container } = render(<WindowNotices absences={absences} subject="entries" />);
   return container;
 }
 
-describe("WindowAbsences", () => {
+describe("WindowNotices", () => {
   it("renders nothing when the window is the whole session", () => {
     expect(renderNotices().innerHTML).toBe("");
     expect(renderNotices({ kind: "dropped", count: 0 }).innerHTML).toBe("");

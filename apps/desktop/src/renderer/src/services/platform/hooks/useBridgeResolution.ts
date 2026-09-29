@@ -10,7 +10,7 @@ export function useBridgeResolution(): BridgeResolution {
   const resolution = useContext(BridgeContext);
   if (resolution === undefined) {
     throw new Error(
-      "useConsoleBridge was called outside <DesktopBridgeProvider>. Every console surface renders inside the provider so the fixture is substitutable.",
+      "usePlatformBridge was called outside <PlatformBridgeProvider>. Every console surface renders inside the provider so the fixture is substitutable.",
     );
   }
   return resolution;

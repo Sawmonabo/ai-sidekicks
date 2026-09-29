@@ -1,5 +1,5 @@
 // The composer's trailing rail: the context meter. The attachment strip is not mounted
-// until the composer has an ingest port to hand its carrier.
+// until the composer has an ingest port to hand its staged list.
 //
 // The rail selects the session's timeline once and folds it to the newest context reading
 // of the ADDRESSED RUN. The address is an input to the fold, not a session-wide sweep, so
@@ -7,9 +7,9 @@
 // the session and not to a run asks the fold for nothing.
 
 import { useMemo } from "react";
-import type { ComposerSeatProps } from "@renderer/console/seats/index.js";
+import type { ComposerProps } from "@renderer/console/seats/index.js";
 import { useSessionStore } from "@renderer/store/session/hooks/useOpenSessionStore.js";
-import { type ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
+import { type ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 import { type SessionStoreState } from "@renderer/store/session/session-state.js";
 import { useComposerAddress } from "../hooks/useComposerAddress.js";
 import { ContextRing } from "../context-ring/ContextRing.js";
@@ -25,10 +25,11 @@ import "./ComposerToolbar.css";
  * filtered here would rebuild an array every notification and re-render the rail on
  * every event in the session.
  */
-const selectTimeline = (state: SessionStoreState): readonly ConsoleSessionEvent[] => state.timeline;
+const selectTimeline = (state: SessionStoreState): readonly ProjectedSessionEvent[] =>
+  state.timeline;
 
 /** The composer's trailing rail: how full the conversation is. */
-export function ComposerToolbar(props: ComposerSeatProps): React.JSX.Element {
+export function ComposerToolbar(props: ComposerProps): React.JSX.Element {
   const timeline = useSessionStore(props.sessionStore, selectTimeline);
   const address = useComposerAddress(props.sessionStore, props.focusedPane);
   // Folded AFTER the address, because the address is an input: the reading this

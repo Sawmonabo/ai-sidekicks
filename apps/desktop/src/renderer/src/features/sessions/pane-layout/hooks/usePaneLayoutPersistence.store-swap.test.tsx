@@ -3,10 +3,10 @@
 //
 // The failure this file exists for is silent in both directions and looks like
 // nothing at all: the composition root re-mints the `UiStateStore` on a reconnect and
-// hands the new one down, the workspace subtree is keyed on the session and does not
+// hands the new one down, the session screen subtree is keyed on the session and does not
 // remount, and a writer minted in a `useState` initializer goes on writing into the
 // store that was retired. Every later arrangement is filed where nothing will read it
-// again, and the deck on screen is the only place it still exists.
+// again, and the pane layout on screen is the only place it still exists.
 //
 // So the assertion is about WHICH store was asked, not about whether a write
 // happened: two adapters, one per store, and a ledger on each.
@@ -25,18 +25,18 @@ import {
   saveLayout,
   sessionStore,
   workspaceFor,
-  type WorkspaceSession,
+  type SessionWithStore,
 } from "../../SessionScreen.test-support.js";
 
 /** One arrangement the probe below files, in the shape the `layout` class admits. */
 const PROBE_RECORD: PersistedLayoutRecord = { $probe: { version: 1 } };
 
-/** Cycle deck focus, which commits an arrangement without opening or closing a pane. */
-function cycleDeckFocus(container: HTMLElement): void {
-  const deck = container.querySelector(".meridian-deck");
-  expect(deck).not.toBeNull();
-  if (deck !== null) {
-    fireEvent.keyDown(deck, { key: "ArrowRight", altKey: true });
+/** Cycle pane layout focus, which commits an arrangement without opening or closing a pane. */
+function cyclePaneFocus(container: HTMLElement): void {
+  const paneLayoutElement = container.querySelector(".meridian-pane-layout");
+  expect(paneLayoutElement).not.toBeNull();
+  if (paneLayoutElement !== null) {
+    fireEvent.keyDown(paneLayoutElement, { key: "ArrowRight", altKey: true });
   }
 }
 
@@ -44,24 +44,24 @@ function storeOver(adapter: GatedPersistenceAdapter): UiStateStore {
   return new UiStateStore({ adapter });
 }
 
-describe("Workspace — the arrangement follows the store on screen", () => {
+describe("SessionScreen — the arrangement follows the store on screen", () => {
   it("asks the store it was handed last, and never the one it was handed first", async () => {
     const retiredAdapter = new GatedPersistenceAdapter();
     const liveAdapter = new GatedPersistenceAdapter();
     const retiredStore = storeOver(retiredAdapter);
-    await saveLayout(retiredStore, SESSION_ID, ["timeline", "runs"]);
-    const session: WorkspaceSession = { sessionId: SESSION_ID, store: sessionStore() };
+    await saveLayout(retiredStore, SESSION_ID, ["transcript", "runs"]);
+    const session: SessionWithStore = { sessionId: SESSION_ID, store: sessionStore() };
 
     // Unkeyed, because that is the shape the defect lives in: the same session with a
     // replaced store re-renders this subtree rather than remounting it.
     const { container, rerender } = render(workspaceFor(session, retiredStore, false));
     await waitFor(() => {
-      expect(container.querySelectorAll(".meridian-deck__pane")).toHaveLength(2);
+      expect(container.querySelectorAll(".meridian-pane-layout__pane")).toHaveLength(2);
     });
 
     rerender(workspaceFor(session, storeOver(liveAdapter), false));
     const askedOfRetiredStore = retiredAdapter.asked.length;
-    cycleDeckFocus(container);
+    cyclePaneFocus(container);
     await crossMacrotaskBoundary();
 
     await waitFor(() => {
@@ -112,40 +112,40 @@ describe("Workspace — the arrangement follows the store on screen", () => {
   });
 });
 
-describe("Workspace — the restore runs once for the session on screen", () => {
+describe("SessionScreen — the restore runs once for the session on screen", () => {
   it("does not read the record again when the store is replaced under it", async () => {
     // `PaneLayoutStore.restore` replaces wholesale, which is right at a mount against an
-    // empty deck and wrong against one somebody has been arranging: the two records
-    // below deliberately disagree, so a second restore is visible as the deck losing a
+    // empty pane layout and wrong against one somebody has been arranging: the two records
+    // below deliberately disagree, so a second restore is visible as the pane layout losing a
     // pane rather than as nothing at all.
     const firstStore = storeOver(new GatedPersistenceAdapter());
-    await saveLayout(firstStore, SESSION_ID, ["timeline", "runs"]);
+    await saveLayout(firstStore, SESSION_ID, ["transcript", "runs"]);
     const secondStore = storeOver(new GatedPersistenceAdapter());
-    await saveLayout(secondStore, SESSION_ID, ["timeline"]);
-    const session: WorkspaceSession = { sessionId: SESSION_ID, store: sessionStore() };
+    await saveLayout(secondStore, SESSION_ID, ["transcript"]);
+    const session: SessionWithStore = { sessionId: SESSION_ID, store: sessionStore() };
 
     const { container, rerender } = render(workspaceFor(session, firstStore, false));
     await waitFor(() => {
-      expect(container.querySelectorAll(".meridian-deck__pane")).toHaveLength(2);
+      expect(container.querySelectorAll(".meridian-pane-layout__pane")).toHaveLength(2);
     });
 
     rerender(workspaceFor(session, secondStore, false));
     await crossMacrotaskBoundary();
     await crossMacrotaskBoundary();
 
-    expect(container.querySelectorAll(".meridian-deck__pane")).toHaveLength(2);
+    expect(container.querySelectorAll(".meridian-pane-layout__pane")).toHaveLength(2);
   });
 
-  it("negative control: the second store's record really is a one-pane deck", async () => {
+  it("negative control: the second store's record really is a pane layout of one pane", async () => {
     // Without this, the case above would pass over two records that said the same
     // thing, and the assertion would be about nothing.
     const secondStore = storeOver(new GatedPersistenceAdapter());
-    await saveLayout(secondStore, SESSION_ID, ["timeline"]);
-    const session: WorkspaceSession = { sessionId: SESSION_ID, store: sessionStore() };
+    await saveLayout(secondStore, SESSION_ID, ["transcript"]);
+    const session: SessionWithStore = { sessionId: SESSION_ID, store: sessionStore() };
 
     const { container } = render(workspaceFor(session, secondStore, false));
     await waitFor(() => {
-      expect(container.querySelectorAll(".meridian-deck__pane")).toHaveLength(1);
+      expect(container.querySelectorAll(".meridian-pane-layout__pane")).toHaveLength(1);
     });
   });
 });

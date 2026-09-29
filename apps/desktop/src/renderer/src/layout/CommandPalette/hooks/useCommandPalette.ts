@@ -19,7 +19,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { PALETTE_RESULT_CAP } from "@renderer/styles/palette.js";
+import { COMMAND_PALETTE_RESULT_CAP } from "@renderer/registries/commands/command-palette-caps.js";
 import {
   COMMAND_PALETTE_OPEN_CHORD,
   formatCount,
@@ -32,7 +32,7 @@ import {
   parseChord,
 } from "@renderer/registries/keybindings/keybinding-chord.js";
 import {
-  type KeyBindingTable,
+  type KeybindingTable,
   type KeybindingTarget,
 } from "@renderer/registries/keybindings/keybinding-table.js";
 import type { WhenClauseContext } from "@renderer/registries/commands/when-clause/when-clause.js";
@@ -59,7 +59,7 @@ export interface CommandPaletteProps {
   /** Which chord convention to print. Passed in so a fixture can pin it. */
   readonly platform: ChordPlatform;
   /** Supplies each row's chord. Omit and rows print no chord rather than a wrong one. */
-  readonly bindings?: KeyBindingTable;
+  readonly bindings?: KeybindingTable;
   /**
    * The scoped-context row: what these commands act on.
    *
@@ -245,7 +245,7 @@ export function useCommandPalette(props: CommandPaletteProps): CommandPaletteSta
   const resultCountLabel =
     results.length === 1
       ? "1 command"
-      : `${formatCount(results.length)} commands${results.length === PALETTE_RESULT_CAP ? " shown; refine to narrow" : ""}`;
+      : `${formatCount(results.length)} commands${results.length === COMMAND_PALETTE_RESULT_CAP ? " shown; refine to narrow" : ""}`;
 
   return {
     query,

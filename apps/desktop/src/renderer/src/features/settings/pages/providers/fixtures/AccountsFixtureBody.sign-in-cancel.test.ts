@@ -17,11 +17,11 @@ import {
 } from "./account-plane-bridge.test-support.js";
 import {
   ACCOUNT_REGISTRY,
-  mountShell,
+  mountAccountsPage,
   pressFirstStartControl,
   registryReportingCompleted,
   startControls,
-  type MountedShell,
+  type MountedAccountsPage,
 } from "./accounts-fixture-body.test-support.js";
 
 afterEach(() => {
@@ -31,12 +31,12 @@ afterEach(() => {
 const SIGN_IN_CARD = '[aria-label="Sign-in in progress"]';
 
 /** Mount the shell with a start and a cancel that answer, and press its start once. */
-async function mountWithLiveSignIn(): Promise<MountedShell> {
-  const mounted = mountShell({
+async function mountWithLiveSignIn(): Promise<MountedAccountsPage> {
+  const mounted = mountAccountsPage({
     registry: ACCOUNT_REGISTRY,
     operations: accountPlaneCalls({
       login: PROVIDER_SIGN_IN_ATTEMPT,
-      cancel: { status: "cancelled" },
+      cancel: { status: "canceled" },
     }),
   });
   await act(async () => {
@@ -57,7 +57,7 @@ describe("the sign-in card, when a flow ends", () => {
     });
 
     expect(container.querySelector(SIGN_IN_CARD)).toBeNull();
-    expect(container.textContent).toContain("The sign-in was cancelled");
+    expect(container.textContent).toContain("The sign-in was canceled");
     expect(startControls(container).every((control) => control.disabled)).toBe(false);
     expect(requestRegistryRead).toHaveBeenCalledTimes(1);
   });

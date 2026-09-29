@@ -74,7 +74,7 @@ describe("diff file list — a change that lives only in the extended headers", 
     const { renamed } = EXTENDED_HEADER_FIXTURE_FILES;
     expect(changeNoteFor(container, renamed.to)).toBe(`renamed from ${renamed.from}`);
     // The counts stay: they are true, and a suppressed pair would make this the
-    // one row a reader cannot compare with its neighbours.
+    // one row a reader cannot compare with its neighbors.
     expect(entryFor(container, renamed.to).textContent).toContain("+0");
   });
 
@@ -228,7 +228,7 @@ describe("diff file list — the filter belongs to the change set it filters", (
   it("negative control: a re-render at the same change set keeps what was typed", () => {
     // Without this the case above would pass against a filter cleared on every render,
     // which would erase a user's narrowing on any unrelated pane update — and a
-    // deck composes a fresh props object on each of its own renders.
+    // pane layout composes a fresh props object on each of its own renders.
     const { container, rerender } = render(
       <DiffFileList
         diff={TEXTUAL_ONLY_DIFF}

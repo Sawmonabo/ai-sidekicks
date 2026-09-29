@@ -52,9 +52,9 @@
 // it again, which would cost two reads per refresh for as long as it stayed refused.
 //
 // WHY THE DECISION CARRIES ITS OWN NOTIFICATION. It used to ride the store's revision
-// bump on the claim that a completed read writes the decision AND calls `initialise`
+// bump on the claim that a completed read writes the decision AND calls `initialize`
 // in the same tick. That pairing is not sound and the refusal path is where it breaks:
-// `initialise` consults `admitsSnapshotAt`, which REFUSES a snapshot behind the store's
+// `initialize` consults `admitsSnapshotAt`, which REFUSES a snapshot behind the store's
 // cursor — and the re-read after a refused position answers at the beginning of the
 // window, which is exactly behind it. So the read completes, the decision settles, the
 // revision does not move, and a reading subscribed to the revision alone never learns
@@ -62,15 +62,10 @@
 // callback the registry supplies, and the reading subscribes to that.
 //
 // It reads no wire itself. The `read` performer is supplied by the composition
-// root, which is what keeps this family below `bridge/` in the console's DAG.
+// root, which is what keeps `store/` below `services/` in the import direction.
 
-import { RealClock, type ConsoleClock } from "@renderer/lib/clock.js";
-import type { EntityProjectorRegistry } from "./entities/entities.js";
-// Deep rather than through `read/index.js`, and `store/read/read-triggers.ts`'s own reach
-// back into `session/` is why: that door is an edge to the trigger surface, which reads
-// the session door, which publishes the hooks that reach this directory's registry — so a
-// fifth edge from here would close a ring `no-circular` fails. The package's module-shape
-// rule names this deep edge as the remedy for exactly that shape.
+import { RealClock, type Clock } from "@renderer/lib/clock.js";
+import type { EntityProjectorTable } from "./entities/entities.js";
 import { ApplyQueue } from "./apply-queue.js";
 import { RefreshScheduler, type RefreshReason } from "@renderer/lib/reads/refresh-scheduler.js";
 import { type ApplyOutcome } from "./apply-outcome.js";
@@ -97,7 +92,7 @@ import {
  * `async (sessionId) => …` satisfies this type exactly and drops the position in
  * silence — which is what shipped, and what `tsc` had no opinion about. The parameter
  * is required because it is not optional information: every caller of this type has a
- * position or has decided it has none. What HOLDS the forwarding is the behavioural
+ * position or has decided it has none. What HOLDS the forwarding is the behavioral
  * gate in `frame/session/session-lifecycle.bridge-swap.test.tsx`, which composes the real
  * adapter over a recording bridge and asserts the cursor reaches the request — a test
  * of the seam rather than of its signature, because the signature cannot fail.
@@ -135,9 +130,9 @@ export interface OpenSessionEntryOptions {
    */
   readonly onTimelineResumeSettled?: () => void;
   /** Defaults to `RealClock`. Every queue and scheduler made from this shares it. */
-  readonly clock?: ConsoleClock;
+  readonly clock?: Clock;
   /** Event-kind projectors handed to each store opened. */
-  readonly projectors?: EntityProjectorRegistry;
+  readonly projectors?: EntityProjectorTable;
   /** Timeline rows each store retains. */
   readonly timelineCap?: number;
   /** Apply-queue coalescing window. `0` means one drain per paint. */
@@ -281,7 +276,7 @@ export class OpenSessionEntry {
       this.#rememberNextResumePosition(resolveTimelineResume(snapshot.timelineCursors));
       // The recovering read submitted nothing, so the window it established opens at
       // the beginning of the log and there is no position before it to name.
-      this.store.initialise(snapshot);
+      this.store.initialize(snapshot);
       return;
     }
     if (snapshot === undefined) {
@@ -290,24 +285,24 @@ export class OpenSessionEntry {
     const decision = resolveTimelineResume(snapshot.timelineCursors);
     this.#rememberNextResumePosition(decision);
     // Settled BEFORE the base state is established, so the decision a reader sees
-    // beside an initialised store is the one that read produced rather than its
+    // beside an initialized store is the one that read produced rather than its
     // predecessor's — and settled unconditionally, so a completed read always says
     // where the next one starts and not only when it went wrong.
     this.#settleTimelineResume(decision);
     // A completed re-pull is the ONE thing that clears the sticky degraded
-    // flag — `initialise` does that — which is why the read lands here and
+    // flag — `initialize` does that — which is why the read lands here and
     // not on a caller that might forget.
     //
     // AND THE POSITION THIS READ WAS PERFORMED FROM TRAVELS WITH IT, because this
     // object is the only one that knows it: a session's stream replays from the
     // submitted cursor, so that cursor is where the window this read establishes
     // BEGINS, and the reply carries no member naming its oldest row. Without it the
-    // ledger has no position to ask the log's earlier rows for and would have to
+    // transcript has no position to ask the log's earlier rows for and would have to
     // invent one out of an opaque cursor's bytes, which `timeline-resume.ts` refuses
     // for the whole console. Omitted rather than passed as `undefined` where none was
     // submitted: the member is optional and this package forbids the explicit-
     // undefined form.
-    this.store.initialise(
+    this.store.initialize(
       submitted === undefined ? snapshot : { ...snapshot, readFromCursor: submitted },
     );
   }
@@ -349,7 +344,7 @@ export class OpenSessionEntry {
 function needsAuthoritativeRepull(outcome: ApplyOutcome): boolean {
   return (
     outcome.gapDetected ||
-    outcome.droppedBeforeInitialisation > 0 ||
+    outcome.droppedBeforeInitialization > 0 ||
     outcome.refusedDivergedSequence > 0 ||
     outcome.projectionFailures > 0
   );

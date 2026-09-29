@@ -29,29 +29,29 @@ import {
   type CommandInvocationOutcome,
   CommandRegistry,
 } from "@renderer/registries/commands/command-registry.js";
-import { type ConsoleCommand } from "@renderer/registries/commands/command-types.js";
+import { type CommandDefinition } from "@renderer/registries/commands/command-types.js";
 import { CommandPalette } from "./CommandPalette.js";
 import type { WhenClauseContext } from "@renderer/registries/commands/when-clause/when-clause.js";
 
-/** The reading a person opens the palette on: they are looking at a session workspace. */
-const ON_WORKSPACE: WhenClauseContext = {
+/** The reading a person opens the palette on: they are looking at a session screen. */
+const ON_SESSION: WhenClauseContext = {
   sessionActive: true,
   onSessions: false,
-  onWorkspace: true,
+  onSession: true,
   onWorkflows: false,
   onSettings: false,
 };
 
 /** Where the route moves to underneath them. Every command above is hidden here. */
 const ON_SETTINGS: WhenClauseContext = {
-  ...ON_WORKSPACE,
-  onWorkspace: false,
+  ...ON_SESSION,
+  onSession: false,
   onSettings: true,
 };
 
-const WORKSPACE_COMMAND_ID = "test.interruptTheRun";
+const SESSION_COMMAND_ID = "test.interruptTheRun";
 const SETTINGS_COMMAND_ID = "test.openKeyboardPage";
-const WORKSPACE_COMMAND_TITLE = "Interrupt the run";
+const SESSION_COMMAND_TITLE = "Interrupt the run";
 const SETTINGS_COMMAND_TITLE = "Open the keyboard page";
 
 /** Which command ran, in the order it was asked. The only thing a `run` records. */
@@ -60,14 +60,14 @@ interface RunLedger {
 }
 
 /** The command the palette opens over. Its own factory, so a case can re-register it. */
-function workspaceCommand(ledger: RunLedger): ConsoleCommand {
+function sessionCommand(ledger: RunLedger): CommandDefinition {
   return {
-    id: WORKSPACE_COMMAND_ID,
-    title: WORKSPACE_COMMAND_TITLE,
+    id: SESSION_COMMAND_ID,
+    title: SESSION_COMMAND_TITLE,
     group: "Run",
-    when: "onWorkspace",
+    when: "onSession",
     run: () => {
-      ledger.ran.push(WORKSPACE_COMMAND_ID);
+      ledger.ran.push(SESSION_COMMAND_ID);
     },
   };
 }
@@ -78,7 +78,7 @@ function workspaceCommand(ledger: RunLedger): ConsoleCommand {
  * Non-overlapping on purpose: every assertion here is about WHICH reading was used, and
  * a command offered under both contexts would render identically either way.
  */
-function settingsCommand(ledger: RunLedger): ConsoleCommand {
+function settingsCommand(ledger: RunLedger): CommandDefinition {
   return {
     id: SETTINGS_COMMAND_ID,
     title: SETTINGS_COMMAND_TITLE,
@@ -137,18 +137,18 @@ function pressRow(title: string): void {
 }
 
 /**
- * The palette open over the workspace, with a way to move the route under it.
+ * The palette open over the session screen, with a way to move the route under it.
  *
  * `open` stays `true` across the re-render on purpose: the frame is what closes this,
  * and holding it open is what lets a case assert that the palette did NOT ask to close.
  */
-function openPaletteOverWorkspace(ledger: RunLedger): {
+function openPaletteOverSession(ledger: RunLedger): {
   readonly registry: RecordingCommandRegistry;
   readonly openChanges: boolean[];
   readonly moveRouteToSettings: () => void;
 } {
   const registry = new RecordingCommandRegistry();
-  registry.registerAll([workspaceCommand(ledger), settingsCommand(ledger)]);
+  registry.registerAll([sessionCommand(ledger), settingsCommand(ledger)]);
   const openChanges: boolean[] = [];
   const shared = {
     registry,
@@ -159,7 +159,7 @@ function openPaletteOverWorkspace(ledger: RunLedger): {
     platform: "darwin" as const,
   };
   const { rerender } = render(
-    <CommandPalette {...shared} context={ON_WORKSPACE} scopeLabel="Session mercury" />,
+    <CommandPalette {...shared} context={ON_SESSION} scopeLabel="Session mercury" />,
   );
   return {
     registry,
@@ -173,18 +173,18 @@ function openPaletteOverWorkspace(ledger: RunLedger): {
 describe("the palette — the captured command context", () => {
   it("keeps the rows it opened with while the route moves underneath it", async () => {
     const ledger: RunLedger = { ran: [] };
-    const palette = openPaletteOverWorkspace(ledger);
+    const palette = openPaletteOverSession(ledger);
     await settle();
-    expect(optionTitles()).toStrictEqual([WORKSPACE_COMMAND_TITLE]);
+    expect(optionTitles()).toStrictEqual([SESSION_COMMAND_TITLE]);
 
     palette.moveRouteToSettings();
     await settle();
 
     // The list a person is reading does not change under their hands, and every search
     // the palette performed while open was performed against the reading it opened on.
-    expect(optionTitles()).toStrictEqual([WORKSPACE_COMMAND_TITLE]);
+    expect(optionTitles()).toStrictEqual([SESSION_COMMAND_TITLE]);
     expect(palette.registry.searchedContexts.length).toBeGreaterThan(0);
-    expect(palette.registry.searchedContexts.every((searched) => searched === ON_WORKSPACE)).toBe(
+    expect(palette.registry.searchedContexts.every((searched) => searched === ON_SESSION)).toBe(
       true,
     );
   });
@@ -193,16 +193,16 @@ describe("the palette — the captured command context", () => {
     // The half a rows-only assertion cannot make: a dispatch handed the live context
     // would find this command hidden and run nothing at all, silently.
     const ledger: RunLedger = { ran: [] };
-    const palette = openPaletteOverWorkspace(ledger);
+    const palette = openPaletteOverSession(ledger);
     await settle();
     palette.moveRouteToSettings();
     await settle();
 
-    pressRow(WORKSPACE_COMMAND_TITLE);
+    pressRow(SESSION_COMMAND_TITLE);
     await settle();
 
-    expect(ledger.ran).toStrictEqual([WORKSPACE_COMMAND_ID]);
-    expect(palette.registry.invokedContexts).toStrictEqual([ON_WORKSPACE]);
+    expect(ledger.ran).toStrictEqual([SESSION_COMMAND_ID]);
+    expect(palette.registry.invokedContexts).toStrictEqual([ON_SESSION]);
     expect(refusalText()).toBeUndefined();
     // And it closes, which is the ordinary path this suite must not lose.
     expectAskedToClose(palette.openChanges);
@@ -213,13 +213,13 @@ describe("the palette — the captured command context", () => {
     // instead would be the mis-targeting the capture exists to prevent, arriving by the
     // one path the capture does not cover.
     const ledger: RunLedger = { ran: [] };
-    const palette = openPaletteOverWorkspace(ledger);
+    const palette = openPaletteOverSession(ledger);
     await settle();
     palette.moveRouteToSettings();
     await settle();
-    palette.registry.unregister(WORKSPACE_COMMAND_ID);
+    palette.registry.unregister(SESSION_COMMAND_ID);
 
-    pressRow(WORKSPACE_COMMAND_TITLE);
+    pressRow(SESSION_COMMAND_TITLE);
     await settle();
 
     expect(ledger.ran).toStrictEqual([]);
@@ -231,7 +231,7 @@ describe("the palette — the captured command context", () => {
     expect(refusalText()).toContain("no longer registered");
     // Still open, and the rows a person was reading are still there — the inline shape.
     expect(palette.openChanges).toStrictEqual([]);
-    expect(optionTitles()).toStrictEqual([WORKSPACE_COMMAND_TITLE]);
+    expect(optionTitles()).toStrictEqual([SESSION_COMMAND_TITLE]);
   });
 
   it("negative control: an ordinary press renders no refusal and leaves none behind", async () => {
@@ -239,18 +239,18 @@ describe("the palette — the captured command context", () => {
     // The second half is the clearing rule: a refusal is a fact about one press, and
     // one left standing over a later successful run would be a false report.
     const ledger: RunLedger = { ran: [] };
-    const palette = openPaletteOverWorkspace(ledger);
+    const palette = openPaletteOverSession(ledger);
     await settle();
-    palette.registry.unregister(WORKSPACE_COMMAND_ID);
-    pressRow(WORKSPACE_COMMAND_TITLE);
+    palette.registry.unregister(SESSION_COMMAND_ID);
+    pressRow(SESSION_COMMAND_TITLE);
     await settle();
     expect(refusalText()).toBeDefined();
 
-    palette.registry.register(workspaceCommand(ledger));
-    pressRow(WORKSPACE_COMMAND_TITLE);
+    palette.registry.register(sessionCommand(ledger));
+    pressRow(SESSION_COMMAND_TITLE);
     await settle();
 
-    expect(ledger.ran).toStrictEqual([WORKSPACE_COMMAND_ID]);
+    expect(ledger.ran).toStrictEqual([SESSION_COMMAND_ID]);
     expect(refusalText()).toBeUndefined();
     expectAskedToClose(palette.openChanges);
   });

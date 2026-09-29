@@ -16,7 +16,7 @@
 // where the rendering does.
 //
 
-import type { ConsoleRefusal } from "@renderer/lib/refusal.js";
+import type { Refusal } from "@renderer/lib/refusal.js";
 
 /**
  * Every state a workflows state strip can be in, in the order a surface moves through
@@ -24,7 +24,7 @@ import type { ConsoleRefusal } from "@renderer/lib/refusal.js";
  * mounted.
  *
  * The tuple is the declaration and the union's discriminant is derived from it, for
- * `seats/surface/surface-registry.ts`'s reason: a union written beside a hand-repeated array
+ * `registries/screens/screen-registry.ts`'s reason: a union written beside a hand-repeated array
  * is two closed sets that agree until someone widens one, and the compiler sees
  * neither drift.
  */
@@ -44,7 +44,7 @@ export type WorkflowStripStateKind = (typeof WORKFLOW_STRIP_STATES)[number];
 export type WorkflowStripState =
   | { readonly kind: "not-loaded"; readonly title: string }
   | { readonly kind: "empty"; readonly title: string }
-  | { readonly kind: "refused"; readonly refusal: ConsoleRefusal }
+  | { readonly kind: "refused"; readonly refusal: Refusal }
   | { readonly kind: "ready" };
 
 /**
@@ -54,6 +54,6 @@ export type WorkflowStripState =
  * arrives from a bridge call is the value that reaches the renderer — `origin`
  * included, which stays off the screen and is kept for the diagnostic band.
  */
-export function refusedWorkflowStrip(refusal: ConsoleRefusal): WorkflowStripState {
+export function refusedWorkflowStrip(refusal: Refusal): WorkflowStripState {
   return { kind: "refused", refusal };
 }

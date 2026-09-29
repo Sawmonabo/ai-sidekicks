@@ -44,7 +44,7 @@ import { MARKDOWN_SETTLE_LAG_BLOCKS } from "./segmentation-bounds.js";
 export interface MarkdownSegmentation {
   /**
    * Complete blocks far enough behind the tail to be final. Each is parsed once and
-   * memoised by its own text.
+   * memoized by its own text.
    */
   readonly settledBlocks: readonly string[];
   /**
@@ -80,7 +80,7 @@ type BlockContainer = { readonly kind: "indented-code" } | ListContainer;
 /** The list arm of that set, named so the reader that builds one can be typed by it. */
 interface ListContainer {
   readonly kind: "list";
-  /** Columns of indent the marker itself sat at, so a sibling can be recognised. */
+  /** Columns of indent the marker itself sat at, so a sibling can be recognized. */
   readonly markerIndent: number;
   /**
    * The marker's own delimiter — a bullet character, or an ordered list's `.` / `)`.

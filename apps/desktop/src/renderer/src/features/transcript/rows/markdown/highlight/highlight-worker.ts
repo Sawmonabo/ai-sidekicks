@@ -3,7 +3,7 @@
 // Shiki runs in a Worker above about 4 kB of source, and the frame budget is why: the
 // JavaScript regex
 // engine costs about 8.1 ms per 2,700 bytes, so a 65,536-byte block is 183 ms — eleven
-// frames if it runs where the ledger is drawing.
+// frames if it runs where the transcript is drawing.
 //
 // IT IS AN ENTRY POINT, NOT A MODULE ANYBODY IMPORTS. `highlight-scheduler.ts` reaches
 // it through `new Worker(new URL(…), { type: "module" })`, which the bundler resolves

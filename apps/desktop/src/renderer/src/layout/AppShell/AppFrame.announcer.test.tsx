@@ -18,14 +18,14 @@
 import { act, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
-import { FLAGSHIP_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
+import { CONCURRENT_STREAMING_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
 import { LIVE_ANNOUNCEMENT_HOLD_MS } from "@renderer/components/LiveAnnouncer/live-announcement-caps.js";
-import type { FrameBanner } from "@renderer/store/window/window-store.js";
+import type { WindowBanner } from "@renderer/store/window/window-store.js";
 import { liveRegionOf, liveRegionText } from "@test/helpers/live-region.js";
 import { AppFrame } from "./AppFrame.js";
 import {
-  CalmSurface,
+  CalmScreen,
   SESSIONS_ROUTE,
   backgroundOf,
   bridgeWrapper,
@@ -34,7 +34,7 @@ import {
 } from "@test/helpers/app-frame-fixtures.js";
 
 /** A refusal wide enough for a banner: what the whole room can do has changed. */
-const REFUSAL_BANNER: FrameBanner = {
+const REFUSAL_BANNER: WindowBanner = {
   id: "banner-session-not-found",
   code: "session.not_found",
   detail: "That session could not be found, so no run can start here.",
@@ -42,7 +42,7 @@ const REFUSAL_BANNER: FrameBanner = {
 };
 
 /** The running engine, or a failure that names what was missing rather than `undefined`. */
-function scenarioEngineOf(bridge: ConsoleBridge): NonNullable<ConsoleBridge["scenarioEngine"]> {
+function scenarioEngineOf(bridge: PlatformBridge): NonNullable<PlatformBridge["scenarioEngine"]> {
   const engine = bridge.scenarioEngine;
   if (engine === undefined) {
     throw new Error("the fixture bridge exposed no scenario engine");
@@ -54,7 +54,7 @@ describe("AppFrame — the window has one live announcer, and the banner reaches
   it("mounts exactly one region pair, empty, before anything is announced", () => {
     const { container } = render(
       <AppFrame {...frameProps(SESSIONS_ROUTE)}>
-        <CalmSurface />
+        <CalmScreen />
       </AppFrame>,
       { wrapper: liveBridgeWrapper() },
     );
@@ -69,7 +69,7 @@ describe("AppFrame — the window has one live announcer, and the banner reaches
   it("keeps the regions outside the wrapper a modal overlay makes inert", () => {
     const { container } = render(
       <AppFrame {...frameProps(SESSIONS_ROUTE)} modalOverlayOpen>
-        <CalmSurface />
+        <CalmScreen />
       </AppFrame>,
       { wrapper: liveBridgeWrapper() },
     );
@@ -84,7 +84,7 @@ describe("AppFrame — the window has one live announcer, and the banner reaches
   it("announces a raised banner in the assertive region, and only when it is raised", () => {
     const { container, rerender } = render(
       <AppFrame {...frameProps(SESSIONS_ROUTE)}>
-        <CalmSurface />
+        <CalmScreen />
       </AppFrame>,
       { wrapper: liveBridgeWrapper() },
     );
@@ -92,7 +92,7 @@ describe("AppFrame — the window has one live announcer, and the banner reaches
 
     rerender(
       <AppFrame {...frameProps(SESSIONS_ROUTE, [REFUSAL_BANNER])}>
-        <CalmSurface />
+        <CalmScreen />
       </AppFrame>,
     );
 
@@ -120,7 +120,7 @@ describe("AppFrame — the window has one live announcer, and the banner reaches
     try {
       const { container, rerender } = render(
         <AppFrame {...frameProps(SESSIONS_ROUTE, [REFUSAL_BANNER])}>
-          <CalmSurface />
+          <CalmScreen />
         </AppFrame>,
         { wrapper: liveBridgeWrapper() },
       );
@@ -133,7 +133,7 @@ describe("AppFrame — the window has one live announcer, and the banner reaches
 
       rerender(
         <AppFrame {...frameProps(SESSIONS_ROUTE, [REFUSAL_BANNER])} modalOverlayOpen>
-          <CalmSurface />
+          <CalmScreen />
         </AppFrame>,
       );
 
@@ -157,10 +157,10 @@ describe("AppFrame — the announcer runs on the window's clock", () => {
     // test.
     vi.useFakeTimers();
     try {
-      const bridge = createFixtureBridge({ scenario: FLAGSHIP_SCENARIO });
+      const bridge = createFixtureBridge({ scenario: CONCURRENT_STREAMING_SCENARIO });
       const { container } = render(
         <AppFrame {...frameProps(SESSIONS_ROUTE, [REFUSAL_BANNER])}>
-          <CalmSurface />
+          <CalmScreen />
         </AppFrame>,
         { wrapper: bridgeWrapper(bridge) },
       );
@@ -192,7 +192,7 @@ describe("AppFrame — the announcer runs on the window's clock", () => {
     try {
       const { container } = render(
         <AppFrame {...frameProps(SESSIONS_ROUTE, [REFUSAL_BANNER])}>
-          <CalmSurface />
+          <CalmScreen />
         </AppFrame>,
         { wrapper: liveBridgeWrapper() },
       );

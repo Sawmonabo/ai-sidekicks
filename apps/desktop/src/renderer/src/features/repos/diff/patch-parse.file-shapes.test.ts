@@ -11,7 +11,7 @@
 import { describe, expect, it } from "vitest";
 
 import { diffLineText } from "./diff-model.js";
-import { PLAIN_PATCH, linesOfFirstHunk, parsePlain } from "@test/helpers/patch-parsing.js";
+import { PLAIN_PATCH, linesOfFirstHunk, parsePlainPatch } from "@test/helpers/patch-parsing.js";
 
 /** A rename with no textual change at all: the whole change is in the headers. */
 const RENAME_ONLY_PATCH = [
@@ -67,20 +67,20 @@ describe("parseUnifiedPatch — a change that lives only in the extended headers
     // The bug, exercised: the mapping kept the selected path and `hunks`, so this
     // file reached both surfaces as `+0 −0` under `docs/decisions/after.md` and the
     // name a reader is actually looking for was gone.
-    const file = parsePlain(RENAME_ONLY_PATCH).files[0];
+    const file = parsePlainPatch(RENAME_ONLY_PATCH).files[0];
     expect(file?.path).toBe("docs/decisions/after.md");
     expect(file?.renamedFrom).toBe("docs/decisions/before.md");
     expect(file?.hunks).toStrictEqual([]);
   });
 
   it("carries both modes where the patch declared the file's mode changed", () => {
-    const file = parsePlain(MODE_ONLY_PATCH).files[0];
+    const file = parsePlainPatch(MODE_ONLY_PATCH).files[0];
     expect(file?.path).toBe("scripts/release.sh");
     expect(file?.modeChange).toStrictEqual({ from: "100644", to: "100755" });
   });
 
   it("carries the binary marker, which is the only thing such a patch says", () => {
-    const file = parsePlain(BINARY_PATCH).files[0];
+    const file = parsePlainPatch(BINARY_PATCH).files[0];
     expect(file?.path).toBe("assets/logo.png");
     expect(file?.binary).toBe(true);
   });
@@ -89,13 +89,13 @@ describe("parseUnifiedPatch — a change that lives only in the extended headers
     // Folding the two would tell a reader the original is gone. `parsePatch` reads
     // `copy from` into the same `oldFileName` and a different flag, so the two are
     // told apart by the flag rather than by the path.
-    const file = parsePlain(COPY_ONLY_PATCH).files[0];
+    const file = parsePlainPatch(COPY_ONLY_PATCH).files[0];
     expect(file?.copiedFrom).toBe("config/base.yml");
     expect(file?.renamedFrom).toBeUndefined();
   });
 
   it("keeps the header fact beside the hunks when a rename also changed lines", () => {
-    const file = parsePlain(RENAME_WITH_HUNK_PATCH).files[0];
+    const file = parsePlainPatch(RENAME_WITH_HUNK_PATCH).files[0];
     expect(file?.renamedFrom).toBe("src/old-name.ts");
     expect(file?.hunks).toHaveLength(1);
     expect(file?.hunks[0]?.header).toBe("@@ -1,2 +1,2 @@");
@@ -106,7 +106,7 @@ describe("parseUnifiedPatch — a change that lives only in the extended headers
     // `renamedFrom` from the `---` line would pass every case above, and every
     // ordinary file in a change set would carry a note about a change it did not
     // have.
-    for (const file of parsePlain(PLAIN_PATCH).files) {
+    for (const file of parsePlainPatch(PLAIN_PATCH).files) {
       expect(file.renamedFrom).toBeUndefined();
       expect(file.copiedFrom).toBeUndefined();
       expect(file.modeChange).toBeUndefined();
@@ -127,7 +127,7 @@ describe("parseUnifiedPatch — a change that lives only in the extended headers
       "+const fresh = true;",
       "",
     ].join("\n");
-    expect(parsePlain(created).files[0]?.modeChange).toBeUndefined();
+    expect(parsePlainPatch(created).files[0]?.modeChange).toBeUndefined();
   });
 });
 

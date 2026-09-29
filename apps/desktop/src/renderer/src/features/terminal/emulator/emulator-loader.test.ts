@@ -28,7 +28,7 @@ describe("the emulator loader", () => {
     expect(loader.isLoadStarted).toBe(true);
   });
 
-  it("memoises: two surfaces mounting together share one fetch", () => {
+  it("memoizes: two surfaces mounting together share one fetch", () => {
     const loader = new TerminalEmulatorLoader();
     // Promise identity is the observable. Two distinct promises would mean two
     // entries into the module, which is the race the memo exists to prevent.

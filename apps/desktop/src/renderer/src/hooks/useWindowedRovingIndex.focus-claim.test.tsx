@@ -91,10 +91,10 @@ describe("useWindowedRovingIndex — a move to the row the keyboard is on arms n
     expect(document.activeElement?.textContent).toBe("row 39");
 
     await pressEnd(list);
-    const neighbour = neighborOf(container);
-    neighbour.focus();
+    const neighbor = neighborOf(container);
+    neighbor.focus();
     rerender(<ListWithNeighbor rowCount={40} windowStart={0} windowLength={40} />);
-    expect(document.activeElement).toBe(neighbour);
+    expect(document.activeElement).toBe(neighbor);
   });
 
   it("still moves for a key whose landing place is a different row", async () => {
@@ -113,16 +113,16 @@ describe("useWindowedRovingIndex — a move to the row the keyboard is on arms n
     // Without this, the first case would also pass against a harness whose rerender
     // never re-runs the effect, or against a hook that had stopped moving focus at
     // all. Same shape, same rerender, one difference — the move goes somewhere — and
-    // focus is taken off the neighbour, which is the steal the first case denies.
+    // focus is taken off the neighbor, which is the steal the first case denies.
     const { container, rerender } = render(
       <ListWithNeighbor rowCount={40} windowStart={0} windowLength={4} />,
     );
     const list = listOf(container);
     await pressEnd(list);
-    const neighbour = neighborOf(container);
-    neighbour.focus();
+    const neighbor = neighborOf(container);
+    neighbor.focus();
     rerender(<ListWithNeighbor rowCount={40} windowStart={36} windowLength={4} />);
-    expect(document.activeElement).not.toBe(neighbour);
+    expect(document.activeElement).not.toBe(neighbor);
     expect(document.activeElement?.textContent).toBe("row 39");
   });
 });

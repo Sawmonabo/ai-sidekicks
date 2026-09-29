@@ -1,6 +1,6 @@
 // Which arm a reconcile owes the reading position, and what each one writes.
 //
-// Driven against a REAL `ReadingAnchor` and a REAL `LedgerScrollController` over a
+// Driven against a REAL `ReadingAnchor` and a REAL `ScrollController` over a
 // detached surface, so the arbitration is asserted through the objects that arbitrate.
 // The two collaborators the controller supplies as functions — the retained key list
 // and a row's offset — are the seam this suite steers, which is what makes the head
@@ -10,7 +10,7 @@ import { describe, expect, it } from "vitest";
 
 import { ManualClock } from "@renderer/lib/clock.js";
 import { ReadingAnchor } from "../scroll/reading-anchor.js";
-import { LedgerScrollController } from "../scroll/scroll-chokepoint.js";
+import { ScrollController } from "../scroll/scroll-chokepoint.js";
 import {
   createCountingScrollContainer,
   type CountingScrollContainer,
@@ -22,7 +22,7 @@ const ROW_HEIGHT_PX = 40;
 interface HoldUnderTest {
   readonly hold: ViewportDeferredHold;
   readonly anchor: ReadingAnchor;
-  readonly scroll: LedgerScrollController;
+  readonly scroll: ScrollController;
   /** The layout engine's stand-in — `happy-dom` answers zero for every dimension. */
   readonly surface: CountingScrollContainer;
   readonly immediateHolds: () => number;
@@ -31,7 +31,7 @@ interface HoldUnderTest {
 
 function holdUnderTest(): HoldUnderTest {
   const anchor = new ReadingAnchor();
-  const scroll = new LedgerScrollController({ clock: new ManualClock() });
+  const scroll = new ScrollController({ clock: new ManualClock() });
   const surface = createCountingScrollContainer({ initialScrollTop: 0 });
   scroll.attach(surface);
   let rowKeys: readonly string[] = [];
@@ -71,7 +71,7 @@ function scrollAwayFromTail(anchor: ReadingAnchor): void {
   });
 }
 
-describe("LedgerDeferredHold — which arm a reconcile arms", () => {
+describe("TranscriptDeferredHold — which arm a reconcile arms", () => {
   it("holds the anchored position immediately when nothing was deferred", () => {
     const subject = holdUnderTest();
     scrollAwayFromTail(subject.anchor);
@@ -186,7 +186,7 @@ describe("LedgerDeferredHold — which arm a reconcile arms", () => {
   });
 });
 
-describe("LedgerDeferredHold — three windows, two pages, one row under the reader", () => {
+describe("TranscriptDeferredHold — three windows, two pages, one row under the reader", () => {
   /** Which row the top of the viewport is showing, at this flat row height. */
   function rowAtViewportTop(rowKeys: readonly string[], scrollTopPx: number): string | undefined {
     return rowKeys[Math.floor(scrollTopPx / ROW_HEIGHT_PX)];

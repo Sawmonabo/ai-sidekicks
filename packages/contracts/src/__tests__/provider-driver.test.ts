@@ -325,7 +325,7 @@ class MockProviderDriver implements ProviderDriver {
   public replayTranscript(params: ReplayTranscriptParams): Promise<DriverTranscriptReplayResult> {
     // The degraded arm is the memo floor standing in, and a memo settlement that
     // named no loss would be rejected by the envelope's own schema — so the mock
-    // declares it rather than modelling a driver the contract refuses.
+    // declares it rather than modeling a driver the contract refuses.
     return params.frames.length === 0
       ? Promise.resolve({
           status: "degraded",
@@ -644,7 +644,7 @@ describe("ProviderDriver contract: off-union capability flag is a type error", (
 // `RecoveryCondition` + a `RecoverySpanClassification` + `providerFailureDetail` and has NO
 // `bindingId` and NO `sessionPosition`; the `resumed` variant carries `bindingId` +
 // `sessionPosition` and neither failure axis. So a resume CANNOT return a binding while
-// signalling failure — the type system forbids conflating a failed resume with a successful one
+// signaling failure — the type system forbids conflating a failed resume with a successful one
 // (resume failure must surface provider-failure detail + a visible recovery-needed condition, and
 // must NOT silently create a replacement session under the same canonical run).
 

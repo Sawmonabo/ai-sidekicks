@@ -88,10 +88,10 @@ describe("the window's attention provider — the reading outlives a destination
     await settle();
     expect(mounted.container.textContent).toBe("the sessions destination:read:served");
 
-    mounted.rerender(providerOver("the workspace"));
+    mounted.rerender(providerOver("the session screen"));
     await settle();
 
-    expect(mounted.container.textContent).toBe("the workspace:read:served");
+    expect(mounted.container.textContent).toBe("the session screen:read:served");
     expect(attentionReads).toBe(1);
     expect(directoryReads).toBe(1);
   });

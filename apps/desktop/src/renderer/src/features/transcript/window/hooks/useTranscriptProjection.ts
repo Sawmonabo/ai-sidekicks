@@ -1,22 +1,22 @@
 import { useMemo } from "react";
 
-import { useConsoleBridge } from "@renderer/services/platform/hooks/usePlatformBridge.js";
+import { usePlatformBridge } from "@renderer/services/platform/hooks/usePlatformBridge.js";
 import { useSessionScopedState } from "@renderer/console/seats/index.js";
-import { type ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
+import { type ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 import { useSessionStore } from "@renderer/store/session/hooks/useOpenSessionStore.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 import { TranscriptRowRetention } from "../row-retention.js";
-import { deriveLedgerWindow, type TranscriptWindowModel } from "../transcript-window.js";
+import { deriveTranscriptWindow, type TranscriptWindowModel } from "../transcript-window.js";
 
 /**
  * Subscribe to one session's log and project it, UNFURLED.
  *
  * The subscription is the store's `timeline` and its gap list and nothing else, so a
- * change to an entity partition — a run transition the ledger already saw as a row —
+ * change to an entity partition — a run transition the transcript already saw as a row —
  * does not re-project the log. The store replaces the log's identity only when it
  * admits an event, which is what makes the memo fire exactly then.
  *
- * EVERY MEMBER ROW IS IN THE RESULT, including the ones a closed chapter will fold
+ * EVERY MEMBER ROW IS IN THE RESULT, including the ones a closed run group will fold
  * away. This is the window a narrowing is applied to, so a facet count and a
  * narrowing both see a finished run's messages, tools and users rather than
  * only the receipt its fold would have left.
@@ -30,7 +30,7 @@ export function useTranscriptProjection(sessionStore: SessionStore): TranscriptW
   // render for the subject-scoped holder's reason: the pass that first sees a new
   // session already reads that session's own table, which a ref written in the body
   // could not promise and an effect would deliver one commit late.
-  const bridge = useConsoleBridge();
+  const bridge = usePlatformBridge();
   const retention = useSessionScopedState(
     bridge,
     sessionStore.sessionId,
@@ -38,15 +38,15 @@ export function useTranscriptProjection(sessionStore: SessionStore): TranscriptW
   );
   const heldRetention = retention.value;
   return useMemo(
-    () => deriveLedgerWindow(timeline, hasUnreceivedEntries, heldRetention),
+    () => deriveTranscriptWindow(timeline, hasUnreceivedEntries, heldRetention),
     [timeline, hasUnreceivedEntries, heldRetention],
   );
 }
 
 /** The log this window holds. A named function, so the selector identity is stable. */
 function readTimeline(state: {
-  readonly timeline: readonly ConsoleSessionEvent[];
-}): readonly ConsoleSessionEvent[] {
+  readonly timeline: readonly ProjectedSessionEvent[];
+}): readonly ProjectedSessionEvent[] {
   return state.timeline;
 }
 

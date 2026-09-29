@@ -1,7 +1,7 @@
 // Unobtrusive windows for the automated tiers — test builds only.
 //
 // Every Electron tier (the smoke probe, the GC probe, end-to-end, endurance)
-// launches the real shell with a real window, and a window is revealed through
+// launches the real main process with a real window, and a window is revealed through
 // `BrowserWindow.show()`. On macOS that call ACTIVATES the application: the
 // Dock icon appears, keyboard focus moves to the new window, and an operator on
 // a full-screen Space is switched to the Space the window opened on. One
@@ -10,7 +10,7 @@
 // they were doing.
 //
 // The tiers therefore ask for UNOBTRUSIVE windows through one environment
-// variable, and a test build honours it in three places:
+// variable, and a test build honors it in three places:
 //
 //   1. the activation policy — macOS `accessory`, so the application has no
 //      Dock icon and is never activated on a window's behalf;
@@ -35,7 +35,7 @@
 //
 // The platform split in (2) is a measured one, not a preference. Electron's
 // `disable_hidden` patch, which is what a throttling-off setting switches on,
-// keeps animation frames running for an occluded, minimised, AND hidden window
+// keeps animation frames running for an occluded, minimized, AND hidden window
 // on macOS, but on Windows only for the first two — a hidden window there stops
 // painting (electron/electron#31016). A never-revealed window is therefore a
 // faithful measurement surface on macOS and not on Windows, so Windows keeps

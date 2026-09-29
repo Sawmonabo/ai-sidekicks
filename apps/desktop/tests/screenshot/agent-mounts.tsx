@@ -28,17 +28,17 @@ import {
   AGENT_ON_CLAUDE,
   AGENT_ON_CODEX,
 } from "@renderer/features/agents/pane/components/agent-binding-column.test-support.js";
-import { agentConsolePaneBody } from "@renderer/features/agents/pane/agents-pane-body.js";
+import { agentsPaneBody } from "@renderer/features/agents/pane/agents-pane-body.js";
 import { settleReads } from "@renderer/features/agents/pane/agents-pane.test-support.js";
-import type { AgentConsoleCalls } from "@renderer/features/agents/agent-reads.js";
+import type { AgentsPaneCalls } from "@renderer/features/agents/agent-reads.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence-caps.js";
 import { unscriptedScenario } from "../helpers/fixture-bridge.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { DraftStore } from "@renderer/store/draft-store.js";
 import { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
-import { type ConsolePaneContext } from "@renderer/console/seats/index.js";
-import { FrameStore } from "@renderer/store/window/window-store.js";
+import { type PaneContext } from "@renderer/console/seats/index.js";
+import { WindowStore } from "@renderer/store/window/window-store.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import { COMPOSED_ENTITY_PROJECTORS } from "../helpers/feature-mounts/projector-composition.js";
 
@@ -46,7 +46,7 @@ import { COMPOSED_ENTITY_PROJECTORS } from "../helpers/feature-mounts/projector-
 const SESSION_ID = "session-agents";
 
 /** The roster this surface shows: two agents on two providers, and no child runs. */
-const AGENT_CONSOLE_CALLS: AgentConsoleCalls = {
+const AGENTS_PANE_CALLS: AgentsPaneCalls = {
   listAgents: () => Promise.resolve({ agents: [AGENT_ON_CLAUDE, AGENT_ON_CODEX] }),
   readChildRunLinks: () => Promise.resolve({ links: [], rejectedCreates: [] }),
 };
@@ -66,24 +66,24 @@ function requireRendered(root: ParentNode, selector: string): HTMLElement {
   return element;
 }
 
-const renderAgentConsolePane = agentConsolePaneBody(AGENT_CONSOLE_CALLS);
+const renderAgentsPaneBody = agentsPaneBody(AGENTS_PANE_CALLS);
 
 /** The pane body as a component, because bodies hold hooks and must be mounted, not called. */
-function AgentConsolePaneBody(props: { readonly context: ConsolePaneContext }): ReactNode {
-  return renderAgentConsolePane(props.context);
+function AgentsPaneBody(props: { readonly context: PaneContext }): ReactNode {
+  return renderAgentsPaneBody(props.context);
 }
 
-/** The deck context a pane is mounted with, about one named agent. */
+/** The pane layout context a pane is mounted with, about one named agent. */
 function paneContext(
-  bridge: ConsoleBridge,
+  bridge: PlatformBridge,
   sessionStore: SessionStore,
   agentId: string,
-): ConsolePaneContext {
+): PaneContext {
   return {
-    kind: "agent-console",
-    paneId: "pane-agent-console-surface",
+    kind: "agents",
+    paneId: "pane-agents",
     entity: { kind: "agent", id: agentId },
-    frameStore: new FrameStore(),
+    frameStore: new WindowStore(),
     uiStateStore: UiStateStore.opening(),
     draftStore: new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT }),
     // Nothing opened this pane from another: every tier mounts one body directly.
@@ -100,18 +100,18 @@ function agentsSessionStore(): SessionStore {
     sessionId: SESSION_ID,
     projectors: COMPOSED_ENTITY_PROJECTORS,
   });
-  store.initialise({ cursor: 0, entities: [] });
+  store.initialize({ cursor: 0, entities: [] });
   return store;
 }
 
 /** The pane mounted over the fixture roster, addressed at the agent on `claude`. */
 async function renderAgentsPane(): Promise<{
   readonly container: HTMLElement;
-  readonly bridge: ConsoleBridge;
+  readonly bridge: PlatformBridge;
 }> {
   const bridge = createFixtureBridge({ scenario: unscriptedScenario("agents-screenshot") });
   const context = paneContext(bridge, agentsSessionStore(), AGENT_ON_CLAUDE.agentId);
-  const { container } = await renderSettled(<AgentConsolePaneBody context={context} />);
+  const { container } = await renderSettled(<AgentsPaneBody context={context} />);
   await settleReads(bridge);
   // Deliberately NOT inside `act`: the roster read resolves in a promise React knows
   // nothing about, and an `act` scope holds the resulting commit back until it exits,

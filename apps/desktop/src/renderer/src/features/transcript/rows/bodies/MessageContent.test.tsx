@@ -178,7 +178,7 @@ describe("the media type its producer declared", () => {
 
   it("reads the type through its parameters and its case", () => {
     // `contentType` is a free-form wire string, so the value arrives as the producer
-    // spelled it. A comparison against the raw member answers "unrecognised" for both of
+    // spelled it. A comparison against the raw member answers "unrecognized" for both of
     // these and drops a real markdown reply onto the plain arm.
     for (const declared of ["text/markdown; charset=utf-8", "TEXT/Markdown"]) {
       const container = renderDeclaredBody("an ordinary **reply**", declared);

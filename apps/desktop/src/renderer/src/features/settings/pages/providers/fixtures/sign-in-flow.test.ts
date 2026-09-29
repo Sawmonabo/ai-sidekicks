@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 
 import type { ProviderAccountId, ProviderAccountRegisterResponse } from "@ai-sidekicks/contracts";
 
-import type { ConsoleRefusal } from "@renderer/lib/refusal.js";
+import type { Refusal } from "@renderer/lib/refusal.js";
 
 import {
   accountPlaneCalls,
@@ -64,12 +64,12 @@ describe("startSignIn", () => {
 });
 
 describe("cancelSignIn", () => {
-  it("says the sign-in was cancelled when the daemon cancelled one", async () => {
+  it("says the sign-in was canceled when the daemon canceled one", async () => {
     const state = await cancelSignIn(
-      accountPlaneCalls({ cancel: { status: "cancelled" } }).cancelLogin,
+      accountPlaneCalls({ cancel: { status: "canceled" } }).cancelLogin,
       PROVIDER_SIGN_IN_ATTEMPT,
     );
-    expect(endedBecause(state)).toContain("was cancelled");
+    expect(endedBecause(state)).toContain("was canceled");
   });
 
   it("says there was nothing to cancel when the daemon found none", async () => {
@@ -88,12 +88,12 @@ describe("cancelSignIn", () => {
       accountPlaneCalls({ cancel: { status: "notFound" } }).cancelLogin,
       PROVIDER_SIGN_IN_ATTEMPT,
     );
-    expect(endedBecause(state)).not.toContain("was cancelled");
+    expect(endedBecause(state)).not.toContain("was canceled");
   });
 
   it("never claims the account is authenticated", async () => {
     const state = await cancelSignIn(
-      accountPlaneCalls({ cancel: { status: "cancelled" } }).cancelLogin,
+      accountPlaneCalls({ cancel: { status: "canceled" } }).cancelLogin,
       PROVIDER_SIGN_IN_ATTEMPT,
     );
     expect(endedBecause(state)).not.toMatch(/authenticated/iu);
@@ -135,7 +135,7 @@ describe("readRegistrationFields", () => {
   }
 
   /** The refusal one reading carries, or `undefined` where it admitted the fields. */
-  function refusalOf(reading: RegistrationFieldReading): ConsoleRefusal | undefined {
+  function refusalOf(reading: RegistrationFieldReading): Refusal | undefined {
     return reading.kind === "refused" ? reading.refusal : undefined;
   }
 

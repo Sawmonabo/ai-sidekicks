@@ -11,8 +11,8 @@ import { describe, expect, it } from "vitest";
 import { type RunId, type SessionId } from "@ai-sidekicks/contracts";
 
 import { bridgeAnswering } from "@test/helpers/fixture-bridge.js";
-import { DesktopBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { ChildRunExpansionState, type ChildRunDisclosure } from "./child-run-expansion.js";
 import { useChildRunDisclosure } from "./hooks/useChildRunDisclosure.js";
@@ -55,7 +55,7 @@ function expansionReply(
 
 /** What a case holds a scripted expansion with, and the act that lets it answer. */
 interface HeldExpansions {
-  readonly bridge: ConsoleBridge;
+  readonly bridge: PlatformBridge;
   /** Let every expansion this bridge is holding answer. */
   readonly release: () => void;
 }
@@ -240,11 +240,11 @@ describe("child-run expansion — one read line per child, and what ends one", (
 describe("the disclosure a row presses — what is on screen while the read runs", () => {
   /** One session's disclosure, over a bridge whose expansions the case releases. */
   function mountDisclosure(
-    bridge: ConsoleBridge,
+    bridge: PlatformBridge,
   ): ReturnType<typeof renderHook<ChildRunDisclosure, unknown>> {
     return renderHook(() => useChildRunDisclosure(SESSION_ID), {
       wrapper: ({ children }: { readonly children?: React.ReactNode }) =>
-        createElement(DesktopBridgeProvider, { bridge, children }),
+        createElement(PlatformBridgeProvider, { bridge, children }),
     });
   }
 

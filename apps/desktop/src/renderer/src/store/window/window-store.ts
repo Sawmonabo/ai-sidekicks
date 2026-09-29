@@ -18,24 +18,24 @@
 // are open", which stays the registry's alone.
 
 import { createStore, type StoreApi } from "zustand/vanilla";
-import type { ConsoleRefusal } from "@renderer/lib/refusal.js";
+import type { Refusal } from "@renderer/lib/refusal.js";
 import { ModalDialogClaims } from "./modal-dialog-claims.js";
 import { toReadableStore, type ReadableStore } from "../readable-store.js";
 import {
-  UNREPORTED_SHELL_STATE,
+  UNREPORTED_MAIN_PROCESS_STATE,
   mainProcessReportsAreEqual,
-  type ShellState,
+  type MainProcessState,
 } from "./main-process-state.js";
-import { DEFAULT_ROUTE, parseRoute, type ConsoleRoute } from "@renderer/routing/routes.js";
+import { DEFAULT_ROUTE, parseRoute, type AppRoute } from "@renderer/routing/routes.js";
 import { routeSessionId, routesAreEqual } from "@renderer/routing/route-readers.js";
 import { SYSTEM_SCHEME_PREFERENCE, type SchemePreference } from "@renderer/styles/tokens.js";
 
 /**
  * One frame-level banner — the third of the three refusal RENDERINGS: a refusal that
- * changes what the whole room can do goes across the workspace rather than inline on a
+ * changes what the whole room can do goes across the session screen rather than inline on a
  * control.
  *
- * The two rendered fields are taken from `ConsoleRefusal` rather than re-declared
+ * The two rendered fields are taken from `Refusal` rather than re-declared
  * beside it, so a producer spreads a refusal straight into a banner
  * (`{ id, dismissible, ...refusal }`) and the three renderings cannot drift into
  * three shapes. `origin` is deliberately NOT picked up: rule 9 fixes on-screen
@@ -44,13 +44,13 @@ import { SYSTEM_SCHEME_PREFERENCE, type SchemePreference } from "@renderer/style
  *
  * A type-only import, so this adds no runtime edge from `store/` into `core/`.
  */
-export interface FrameBanner extends Pick<ConsoleRefusal, "code" | "detail"> {
+export interface WindowBanner extends Pick<Refusal, "code" | "detail"> {
   readonly id: string;
   readonly dismissible: boolean;
 }
 
 export interface WindowStoreState {
-  readonly route: ConsoleRoute;
+  readonly route: AppRoute;
   /**
    * The session this window most recently had in hand, kept after the route stops
    * naming one.
@@ -67,7 +67,7 @@ export interface WindowStoreState {
    * nothing is open — the registry is fresh — so a restored id would offer a way
    * back into a session this window is not in, which may since have been deleted,
    * archived, or moved to another node; the frame would be promising something only
-   * the daemon can honour. The window re-seeds this from the hash it opens at, which
+   * the daemon can honor. The window re-seeds this from the hash it opens at, which
    * is the one session a reload genuinely does restore.
    */
   readonly lastOpenedSessionId: string | undefined;
@@ -79,9 +79,8 @@ export interface WindowStoreState {
    * WHY THE FRAME CANNOT ASK. The adopted dialog family runs under `modal="trap-focus"`,
    * which traps focus and leaves inerting the app root to the shell — so the shell has to
    * know that a dialog is up. It knows that for the palette, whose open state it owns. It
-   * cannot know it for a card a VIEW family renders: `console-view-family-isolation`
-   * forbids the frame from importing one, so there is no seam for the frame to read and
-   * the family has to publish. This is that seam, and it is on the WINDOW store because
+   * cannot know it for a card a feature renders: the frame imports no feature, so there
+   * is no seam for the frame to read and the feature has to publish. This is that seam, and it is on the WINDOW store because
    * that is what the fact is about — a window with a card up, not a session with one.
    *
    * THE PALETTE IS DELIBERATELY NOT RECORDED HERE. Its open state already has an
@@ -91,11 +90,11 @@ export interface WindowStoreState {
    *
    * DERIVED FROM A REGISTER AND WRITTEN BY NOBODY. Two window-scoped surfaces can be
    * up at once, and while each published this cell directly the first to close cleared
-   * it under the one still open. {@link FrameStore.modalDialogClaims} holds the
+   * it under the one still open. {@link WindowStore.modalDialogClaims} holds the
    * claimants and owns the only write; this cell is `size > 0` and nothing else.
    */
-  readonly isModalSurfaceOpen: boolean;
-  readonly banners: readonly FrameBanner[];
+  readonly isModalDialogOpen: boolean;
+  readonly banners: readonly WindowBanner[];
   /**
    * True while the window has focus; the refresh scheduler's `window-focus` reason.
    *
@@ -104,7 +103,7 @@ export interface WindowStoreState {
    */
   readonly isWindowFocused: boolean;
   /**
-   * What the shell has reported about itself, folded with this window's own
+   * What the main process has reported about itself, folded with this window's own
    * recovery state.
    *
    * WINDOW STATE AND NOT SESSION STATE, which is why it is here rather than on a
@@ -113,21 +112,21 @@ export interface WindowStoreState {
    * store with the main one — has its own bridge and therefore its own
    * report.
    *
-   * `store/shell/shell-state.ts` owns the vocabulary and the two derivations every reader
+   * `store/window/main-process-state.ts` owns the vocabulary and the two derivations every reader
    * shares; this store owns the one copy. It is here rather than in the frame family
    * because its readers span the DAG in both directions — the palette below the
    * frame, the settings pages and the sessions list above it — and a value declared
    * in `frame/` is one none of them may import.
    */
-  readonly mainProcessState: ShellState;
+  readonly mainProcessState: MainProcessState;
 }
 
 export interface WindowStoreOptions {
-  readonly initialRoute?: ConsoleRoute;
+  readonly initialRoute?: AppRoute;
   readonly initialSchemePreference?: SchemePreference;
 }
 
-export class FrameStore {
+export class WindowStore {
   readonly #store: StoreApi<WindowStoreState>;
   /**
    * The open modal surfaces this window holds, and the one writer of the cell above.
@@ -149,13 +148,13 @@ export class FrameStore {
       lastOpenedSessionId: routeSessionId(initialRoute),
       schemePreference: options.initialSchemePreference ?? SYSTEM_SCHEME_PREFERENCE,
       isPaletteOpen: false,
-      isModalSurfaceOpen: false,
+      isModalDialogOpen: false,
       banners: [],
       isWindowFocused: documentReportsWindowFocus(),
-      mainProcessState: UNREPORTED_SHELL_STATE,
+      mainProcessState: UNREPORTED_MAIN_PROCESS_STATE,
     }));
     this.#modalDialogClaims = new ModalDialogClaims((isAnyHeld) => {
-      this.#setModalSurfaceOpen(isAnyHeld);
+      this.#setModalDialogOpen(isAnyHeld);
     });
   }
 
@@ -174,14 +173,14 @@ export class FrameStore {
   }
 
   /**
-   * The session Workspace goes back to: the last one this window opened, whether or
+   * The session the session screen returns to: the last one this window opened, whether or
    * not the current route still names it. `undefined` until one has been opened.
    */
   public get lastOpenedSessionId(): string | undefined {
     return this.#store.getState().lastOpenedSessionId;
   }
 
-  public navigate(route: ConsoleRoute): void {
+  public navigate(route: AppRoute): void {
     this.#setRoute(route);
   }
 
@@ -207,7 +206,7 @@ export class FrameStore {
    * Where a family-owned modal surface takes and gives up its claim on the window.
    *
    * Handed out rather than wrapped in a pair of methods on this class, so a claim is
-   * something a surface HOLDS: `modal-surface-claims.ts` states why the register can
+   * something a surface HOLDS: `modal-dialog-claims.ts` states why the register can
    * add and remove only the caller's own id and offers no clear-all.
    */
   public get modalDialogClaims(): ModalDialogClaims {
@@ -215,15 +214,15 @@ export class FrameStore {
   }
 
   /**
-   * Record what the shell says about itself.
+   * Record what the main process says about itself.
    *
    * Compared before it is written, because the subscription behind it answers with a
    * fresh object per frame: an unguarded write on every heartbeat would re-render
    * every reader of the state for a value that did not move. The comparison is written
-   * over the connection union in `shell-state.ts`, so a new arm fails to compile there
+   * over the connection union in `main-process-state.ts`, so a new arm fails to compile there
    * rather than comparing false forever.
    */
-  public publishMainProcessReport(report: ShellState): void {
+  public publishMainProcessReport(report: MainProcessState): void {
     const { mainProcessState } = this.#store.getState();
     if (mainProcessReportsAreEqual(mainProcessState, report)) {
       return;
@@ -239,7 +238,7 @@ export class FrameStore {
   }
 
   /** Raise a banner. A second banner with the same id replaces the first. */
-  public raiseBanner(banner: FrameBanner): void {
+  public raiseBanner(banner: WindowBanner): void {
     const banners = this.#store.getState().banners.filter((existing) => existing.id !== banner.id);
     this.#store.setState({ banners: [...banners, banner] });
   }
@@ -254,7 +253,7 @@ export class FrameStore {
    * overwrite each other. The code alone was enough while one producer existed;
    * it stopped being enough the moment a second one did.
    */
-  public raiseRefusalBanner(refusal: ConsoleRefusal): void {
+  public raiseRefusalBanner(refusal: Refusal): void {
     this.raiseBanner({
       id: `${refusal.origin}:${refusal.code}`,
       dismissible: true,
@@ -285,11 +284,11 @@ export class FrameStore {
    * unguarded write on an unchanged value would re-render the rail, the surface, and
    * every banner for a fact that did not move.
    */
-  #setModalSurfaceOpen(isModalSurfaceOpen: boolean): void {
-    if (this.#store.getState().isModalSurfaceOpen === isModalSurfaceOpen) {
+  #setModalDialogOpen(isModalDialogOpen: boolean): void {
+    if (this.#store.getState().isModalDialogOpen === isModalDialogOpen) {
       return;
     }
-    this.#store.setState({ isModalSurfaceOpen });
+    this.#store.setState({ isModalDialogOpen });
   }
 
   /**
@@ -298,9 +297,9 @@ export class FrameStore {
    * Both directions of the route — the rail's `navigate` and the hash's
    * `adoptHash` — pass through here so the retained session cannot be left behind
    * by one of them. A route that names no session leaves it alone, which is the
-   * whole behaviour: leaving a workspace does not make it unreachable.
+   * whole behavior: leaving a session screen does not make it unreachable.
    */
-  #setRoute(route: ConsoleRoute): void {
+  #setRoute(route: AppRoute): void {
     const sessionId = routeSessionId(route);
     this.#store.setState(
       sessionId === undefined ? { route } : { route, lastOpenedSessionId: sessionId },
@@ -318,7 +317,7 @@ export class FrameStore {
  * IT IS READ RATHER THAN ASSUMED, which is the whole of why it exists. The cell was
  * seeded `true` and moved only on a later transition, so a window that opened WITHOUT
  * focus — an auxiliary window placed behind the one a person is in, a main window
- * restored minimised, any window opened while the person was in another application —
+ * restored minimized, any window opened while the person was in another application —
  * never received the `blur` that would have corrected it and spent its whole life
  * claiming an audience it did not have. That is not cosmetic: the attention emitter
  * withholds a banner about the session a FOCUSED window is already showing, so every
@@ -327,7 +326,7 @@ export class FrameStore {
  * BOTH READINGS, CONJOINED, because neither implies the other and the audience rule
  * means both. `hasFocus()` answers whether this document holds the keyboard —
  * a visible window beside a focused one does not — and `visibilityState` answers
- * whether it is on screen at all, which a minimised window that had focus when it went
+ * whether it is on screen at all, which a minimized window that had focus when it went
  * down is not. The conjunction also fails in the safer direction: a banner about
  * something already on screen is a smaller harm than silence about something that is
  * not.

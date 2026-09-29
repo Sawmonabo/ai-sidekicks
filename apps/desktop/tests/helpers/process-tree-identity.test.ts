@@ -11,7 +11,7 @@
 // AND THE SAME QUESTION IS ASKED OF EVERY DESCENDANT. The captured set is what a
 // rootless tree is addressed by once its root pid is gone, so a capture that is
 // only a list of numbers hands the arm a stranger to kill one indirection along —
-// the same defect as signalling a reissued root. Each member therefore carries
+// the same defect as signaling a reissued root. Each member therefore carries
 // the stamp it was captured with, and `verifyCapturedMembers` is where that pair
 // is spent.
 //
@@ -82,7 +82,7 @@ describe("process termination — a pid is a NAME, and the operating system reis
     // number went to somebody else — so the process table now hangs the
     // STRANGER's child off that pid. A capture refreshed there would hand the
     // termination arm a pid to kill that this package never started, which is
-    // the same defect as signalling the root, one indirection along.
+    // the same defect as signaling the root, one indirection along.
     let table: ReadonlyMap<number, ProcessTableRow> = CAPTURED_TREE_TABLE;
     const stamps = new ScriptedStartStamps(["stamp-at-spawn", "stamp-at-spawn", "somebody-else"]);
     const identity = new SpawnedTreeIdentity(
@@ -207,7 +207,7 @@ describe("process termination — a captured descendant is a pair, not a pid", (
     // THE FAILURE DIRECTION, and it is the opposite of the case above on purpose.
     // A row missing from the listing is the ordinary shape of a descendant that
     // has already exited — the caller's own liveness reading filters that one
-    // before anything is signalled — and an EMPTY listing is a read that failed.
+    // before anything is signaled — and an EMPTY listing is a read that failed.
     // Reading either as "this member is somebody else now" would disarm the
     // rootless arm on exactly the host whose readings do not work.
     expect(verifyCapturedMembers([capturedChild], processTableOf([]))).toStrictEqual([

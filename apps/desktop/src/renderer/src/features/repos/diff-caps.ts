@@ -4,7 +4,7 @@
 /**
  * How tall an inline diff card is before it offers to grow.
  *
- * A diff card in the timeline gets a height cap and then offers "show all", and
+ * A diff card in the transcript gets a height cap and then offers "show all", and
  * `InlineDiffCard.tsx` has the card open EXPANDED to that cap rather than collapsed. The
  * figure is about fifteen rows — a hunk's worth of reading, which is what makes the card
  * useful in place — while still leaving the turn that produced it visible above and
@@ -49,7 +49,7 @@ export const DIFF_INTRALINE_PAIR_CHARACTER_PRODUCT_CAP = 1_000_000;
 /**
  * Computed intraline segmentations held before the oldest is dropped.
  *
- * Intraline is computed when a row is materialised, so a reader who scrolls a
+ * Intraline is computed when a row is materialized, so a reader who scrolls a
  * five-thousand-line change set end to end would otherwise accumulate one segment list
  * per changed line and hold them for as long as the diff is open. A viewport plus its
  * overscan is tens of rows; this holds several screens of scrollback, so scrolling back

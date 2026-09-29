@@ -1,7 +1,7 @@
 // The in-memory adapter: what the console uses when there is no durable store.
 //
 // It is not a stub. It is the whole persistence layer for a renderer whose scheme was not
-// registered privileged, and for every test that wants the store's behaviour without a
+// registered privileged, and for every test that wants the store's behavior without a
 // database. It therefore implements the full seam — partitions, LRU trim, a quota gauge —
 // so that a code path exercised only under the memory adapter is not a code path nobody
 // ever runs.
@@ -107,7 +107,7 @@ export class MemoryPersistenceAdapter implements PersistenceAdapter {
     return Promise.resolve();
   }
 
-  public summarisePartitions(): Promise<readonly PartitionSummary[]> {
+  public summarizePartitions(): Promise<readonly PartitionSummary[]> {
     this.#assertOpen();
     const summaries: PartitionSummary[] = [];
     for (const [partition, records] of this.#recordsByPartition) {

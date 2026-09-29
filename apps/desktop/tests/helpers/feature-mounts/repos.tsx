@@ -21,7 +21,7 @@
 //     from the other's mount: `identity_mismatch` needs a persisted identity anchor a
 //     plain directory has none of, and the unreachable row's path is the thing that
 //     stopped answering.
-//   • The DIFF PANE takes its model as a prop and no wire produces one, so the deck's
+//   • The DIFF PANE takes its model as a prop and no wire produces one, so the pane layout's
 //     own body renders the `not-checked` absence — which is the emptiest frame the
 //     surface has and would pin a baseline of a box. The pane is mounted with
 //     `extendedHeaderChangeSet()` instead, which is the composition `DiffPane.tsx`
@@ -42,7 +42,7 @@ import {
 import { RepoSection } from "@renderer/features/repos/mounts/RepoSection.js";
 import { renderSettled } from "../app-harness.js";
 import { extendedHeaderChangeSet, scenarioBridgeAndStore } from "./repos-fixtures.js";
-import { requireElement, requireLabelledRegion, type MountedView } from "./mount-queries.js";
+import { requireElement, requireLabeledRegion, type MountedView } from "./mount-queries.js";
 
 /**
  * The repos sidebar section, open, with its three mounts read.
@@ -102,5 +102,5 @@ export async function mountDiffPane(): Promise<MountedView> {
   // Anchored at the kind rather than spelled whole: the chrome names the pane by its
   // trail, so the full name carries the session id and the workspace this diff is a view
   // of — both stated by the fixture, and neither this module's to restate.
-  return { element: requireLabelledRegion(container, /Diff$/u), bridge };
+  return { element: requireLabeledRegion(container, /Review$/u), bridge };
 }

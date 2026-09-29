@@ -54,7 +54,7 @@ describe("the renderer pool", () => {
     // contexts, and a ledger that answered the second acquisition idempotently
     // reported one while the page was holding two.
     expect(second).not.toBe(first);
-    expect(pool.heldSlotCount).toBe(2);
+    expect(pool.heldContextCount).toBe(2);
     expect(pool.createdContextCount).toBe(2);
     expect(pool.heldContextCountFor("a")).toBe(2);
   });
@@ -69,7 +69,7 @@ describe("the renderer pool", () => {
     // One pane closed; the other is still on a live context. Under the id-keyed
     // ledger this deletion took the ONE record both panes shared, so the page went
     // on drawing on a context nothing was counting as held.
-    expect(pool.heldSlotCount).toBe(1);
+    expect(pool.heldContextCount).toBe(1);
     expect(pool.heldContextCountFor("a")).toBe(1);
     expect(pool.holds("a")).toBe(true);
     // And the allowance stays spent, because releasing is not reclaiming.
@@ -110,9 +110,9 @@ describe("the renderer pool", () => {
     pool.reclaim(foreignLease);
     pool.reclaim({ terminalId: "a" });
 
-    expect(pool.heldSlotCount).toBe(1);
+    expect(pool.heldContextCount).toBe(1);
     expect(pool.createdContextCount).toBe(1);
-    expect(anotherLedger.heldSlotCount).toBe(1);
+    expect(anotherLedger.heldContextCount).toBe(1);
   });
 
   it("takes a lease back, and takes it back twice without going negative", () => {
@@ -120,7 +120,7 @@ describe("the renderer pool", () => {
     const lease = grantedLease(pool, "a");
     pool.release(lease);
     pool.release(lease);
-    expect(pool.heldSlotCount).toBe(0);
+    expect(pool.heldContextCount).toBe(0);
     expect(pool.acquire("c")).toBeDefined();
   });
 
@@ -185,7 +185,7 @@ describe("the ledger counts contexts created, not terminals drawing", () => {
     // Nothing is drawing, and the page has still created twelve contexts. The
     // thirteenth pane opens on the DOM renderer rather than taking a context away
     // from a terminal that is still on screen.
-    expect(pool.heldSlotCount).toBe(0);
+    expect(pool.heldContextCount).toBe(0);
     expect(pool.createdContextCount).toBe(CHURN_CYCLES);
     expect(pool.isExhausted).toBe(true);
     expect(pool.acquire("one-cycle-too-many")).toBeUndefined();
@@ -202,7 +202,7 @@ describe("the ledger counts contexts created, not terminals drawing", () => {
         pool.release(lease);
       }
     }
-    expect(pool.heldSlotCount).toBe(0);
+    expect(pool.heldContextCount).toBe(0);
     expect(pool.createdContextCount).toBe(CHURN_CYCLES);
   });
 
@@ -224,7 +224,7 @@ describe("the ledger counts contexts created, not terminals drawing", () => {
     pool.reclaim(lease);
     pool.reclaim({ terminalId: "never-held" });
     expect(pool.createdContextCount).toBe(0);
-    expect(pool.heldSlotCount).toBe(0);
+    expect(pool.heldContextCount).toBe(0);
   });
 
   it("sweeps every context a terminal is holding, for a caller with no lease", () => {

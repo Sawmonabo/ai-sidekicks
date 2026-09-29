@@ -18,7 +18,7 @@ import "./account-plane-handoff.css";
 
 import type { ReactNode } from "react";
 
-import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
+import { type Refusal } from "@renderer/lib/refusal.js";
 import { InlineRefusal } from "@renderer/console/primitives/index.js";
 import { type SettingsPageId } from "@renderer/routing/settings-page-ids.js";
 import { SETTINGS_PAGE_LABELS } from "@renderer/features/settings/settings-page-labels.js";
@@ -26,8 +26,8 @@ import { accountPlaneHandoffFor } from "../account-plane-handoff.js";
 import { ACCOUNT_PLANE_HANDOFF_SENTENCES } from "../account-plane-sentences.js";
 
 export function AccountPlaneRefusal(props: {
-  readonly refusal: ConsoleRefusal;
-  readonly openSection: (section: SettingsPageId) => void;
+  readonly refusal: Refusal;
+  readonly openPage: (section: SettingsPageId) => void;
   /**
    * The section this refusal is being rendered ON, where it is on one at all.
    *
@@ -39,7 +39,7 @@ export function AccountPlaneRefusal(props: {
   readonly currentSection?: SettingsPageId | undefined;
 }): ReactNode {
   const handoff = accountPlaneHandoffFor(props.refusal.code);
-  const { openSection } = props;
+  const { openPage } = props;
   const isAlreadyThere = handoff !== undefined && handoff.section === props.currentSection;
   return (
     <>
@@ -54,7 +54,7 @@ export function AccountPlaneRefusal(props: {
               type="button"
               className="meridian-account-handoff__action"
               onClick={() => {
-                openSection(handoff.section);
+                openPage(handoff.section);
               }}
             >
               Open {SETTINGS_PAGE_LABELS[handoff.section]}

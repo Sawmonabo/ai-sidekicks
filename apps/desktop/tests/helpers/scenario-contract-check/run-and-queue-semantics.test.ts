@@ -11,9 +11,9 @@
 // accepts.
 
 import { describe, expect, it } from "vitest";
-import { FLAGSHIP_SCENARIO } from "../../../fixtures/scenarios/concurrent-streaming.js";
+import { CONCURRENT_STREAMING_SCENARIO } from "../../../fixtures/scenarios/concurrent-streaming.js";
 import { findScenarioContractDefects } from "./contract-check.js";
-import type { ConsoleScenario, ScenarioBeat } from "../../../fixtures/scenario.js";
+import type { Scenario, ScenarioBeat } from "../../../fixtures/scenario.js";
 
 /** A session the branded schema accepts that is not the one the concurrent-streaming scenario's beats travel on. */
 const STRANGER_SESSION_ID = "019b79ee-0280-75e5-8510-ada11a5a7777";
@@ -31,17 +31,21 @@ function scenarioWithFirstBeatOfKindReplaced(
   scenarioId: string,
   kind: string,
   replace: (beat: ScenarioBeat) => ScenarioBeat,
-): ConsoleScenario {
-  const beatIndex = FLAGSHIP_SCENARIO.beats.findIndex((beat) => beat.event.kind === kind);
+): Scenario {
+  const beatIndex = CONCURRENT_STREAMING_SCENARIO.beats.findIndex(
+    (beat) => beat.event.kind === kind,
+  );
   if (beatIndex === -1) {
     throw new Error(
       `the concurrent-streaming scenario plays no \`${kind}\` beat to build a case from`,
     );
   }
   return {
-    ...FLAGSHIP_SCENARIO,
+    ...CONCURRENT_STREAMING_SCENARIO,
     id: scenarioId,
-    beats: FLAGSHIP_SCENARIO.beats.map((beat, at) => (at === beatIndex ? replace(beat) : beat)),
+    beats: CONCURRENT_STREAMING_SCENARIO.beats.map((beat, at) =>
+      at === beatIndex ? replace(beat) : beat,
+    ),
   };
 }
 
@@ -53,7 +57,7 @@ describe("scenario wire truth — a run beat that reports two states at once", (
    * about the state pair and nothing else: every other member is the beat the
    * seat board already ships and the predicate already accepts.
    */
-  function scenarioWithStartingBeatState(scenarioId: string, newState: string): ConsoleScenario {
+  function scenarioWithStartingBeatState(scenarioId: string, newState: string): Scenario {
     return scenarioWithFirstBeatOfKindReplaced(scenarioId, "run.starting", (beat) => ({
       ...beat,
       event: { ...beat.event, payload: { ...beat.event.payload, newState } },
@@ -111,10 +115,12 @@ describe("scenario wire truth — a run beat that reports two states at once", (
     // this leg reads claims no state for it — so the shipped creation beat, which
     // names `newState: "queued"` and no state it came from, is not this leg's
     // business and stays clean.
-    const queuedBeat = FLAGSHIP_SCENARIO.beats.find((beat) => beat.event.kind === "run.queued");
+    const queuedBeat = CONCURRENT_STREAMING_SCENARIO.beats.find(
+      (beat) => beat.event.kind === "run.queued",
+    );
 
     expect(queuedBeat?.event.payload?.["newState"]).toBe("queued");
-    expect(findScenarioContractDefects([FLAGSHIP_SCENARIO])).toStrictEqual([]);
+    expect(findScenarioContractDefects([CONCURRENT_STREAMING_SCENARIO])).toStrictEqual([]);
   });
 });
 
@@ -129,7 +135,7 @@ describe("scenario wire truth — a run beat held to the whole shape its stream 
   function scenarioWithStartingBeatPayload(
     scenarioId: string,
     payload: Readonly<Record<string, unknown>>,
-  ): ConsoleScenario {
+  ): Scenario {
     return scenarioWithFirstBeatOfKindReplaced(scenarioId, "run.starting", (beat) => ({
       ...beat,
       event: { ...beat.event, payload },
@@ -143,8 +149,9 @@ describe("scenario wire truth — a run beat held to the whole shape its stream 
    * member varies it against the payload the seat board actually carries.
    */
   function shippedStartingPayload(): Readonly<Record<string, unknown>> {
-    const payload = FLAGSHIP_SCENARIO.beats.find((beat) => beat.event.kind === "run.starting")
-      ?.event.payload;
+    const payload = CONCURRENT_STREAMING_SCENARIO.beats.find(
+      (beat) => beat.event.kind === "run.starting",
+    )?.event.payload;
     if (payload === undefined) {
       throw new Error(
         "the concurrent-streaming scenario plays no `run.starting` beat to read a payload from",
@@ -175,7 +182,7 @@ describe("scenario wire truth — a run beat held to the whole shape its stream 
     // author fixes the beat in one pass instead of one member per run.
     const defects = findScenarioContractDefects([
       scenarioWithStartingBeatPayload("names-its-session-and-no-more", {
-        sessionId: FLAGSHIP_SCENARIO.sessionId,
+        sessionId: CONCURRENT_STREAMING_SCENARIO.sessionId,
         newState: "starting",
       }),
     ]);
@@ -229,7 +236,7 @@ describe("scenario wire truth — a rollback beat whose payload names the wrong 
   function scenarioWithRollbackBeat(
     scenarioId: string,
     payloadSessionId: string | undefined,
-  ): ConsoleScenario {
+  ): Scenario {
     return scenarioWithFirstBeatOfKindReplaced(scenarioId, "run.starting", (beat) => ({
       ...beat,
       event: {
@@ -275,7 +282,10 @@ describe("scenario wire truth — a rollback beat whose payload names the wrong 
     // between that and a predicate no scenario carrying a rollback could satisfy.
     expect(
       findScenarioContractDefects([
-        scenarioWithRollbackBeat("rollback-names-its-own-session", FLAGSHIP_SCENARIO.sessionId),
+        scenarioWithRollbackBeat(
+          "rollback-names-its-own-session",
+          CONCURRENT_STREAMING_SCENARIO.sessionId,
+        ),
       ]),
     ).toStrictEqual([]);
   });
@@ -286,7 +296,7 @@ describe("scenario wire truth — the run kinds no narrowed stream projects", ()
   function scenarioWithQueuedPayload(
     scenarioId: string,
     payload: Readonly<Record<string, unknown>>,
-  ): ConsoleScenario {
+  ): Scenario {
     return scenarioWithFirstBeatOfKindReplaced(scenarioId, "run.queued", (beat) => ({
       ...beat,
       event: { ...beat.event, payload },
@@ -304,7 +314,7 @@ describe("scenario wire truth — the run kinds no narrowed stream projects", ()
     scenarioId: string,
     kind: string,
     payload: Readonly<Record<string, unknown>>,
-  ): ConsoleScenario {
+  ): Scenario {
     return scenarioWithFirstBeatOfKindReplaced(scenarioId, "run.starting", (beat) => ({
       ...beat,
       event: { ...beat.event, kind, payload },
@@ -313,7 +323,7 @@ describe("scenario wire truth — the run kinds no narrowed stream projects", ()
 
   /** The identity every run-lifecycle payload carries, taken off the shipped beat. */
   const RUN_IDENTITY = {
-    sessionId: FLAGSHIP_SCENARIO.sessionId,
+    sessionId: CONCURRENT_STREAMING_SCENARIO.sessionId,
     runId: "019b79ee-0280-740e-8110-d1a4c1150011",
     runVersion: 2,
   };
@@ -326,7 +336,7 @@ describe("scenario wire truth — the run kinds no narrowed stream projects", ()
     // projector then folded it into a run with no version and no state.
     const defects = findScenarioContractDefects([
       scenarioWithQueuedPayload("creation-names-half-a-payload", {
-        sessionId: FLAGSHIP_SCENARIO.sessionId,
+        sessionId: CONCURRENT_STREAMING_SCENARIO.sessionId,
         runId: RUN_IDENTITY.runId,
       }),
     ]);
@@ -355,7 +365,7 @@ describe("scenario wire truth — the run kinds no narrowed stream projects", ()
     for (const kind of ["run.turn_started", "run.worker_shutdown"]) {
       const defects = findScenarioContractDefects([
         scenarioWithForwardRunBeat(`${kind}-names-no-run`, kind, {
-          sessionId: FLAGSHIP_SCENARIO.sessionId,
+          sessionId: CONCURRENT_STREAMING_SCENARIO.sessionId,
         }),
       ]);
 
@@ -371,7 +381,7 @@ describe("scenario wire truth — the run kinds no narrowed stream projects", ()
     // scenario that scripts one — unshippable. The optional members are carried too,
     // because the registered shapes name them and a leg that refused them would be
     // stricter than the wire.
-    expect(findScenarioContractDefects([FLAGSHIP_SCENARIO])).toStrictEqual([]);
+    expect(findScenarioContractDefects([CONCURRENT_STREAMING_SCENARIO])).toStrictEqual([]);
     expect(
       findScenarioContractDefects([
         scenarioWithForwardRunBeat("init-is-complete", "run.provider_initialized", {
@@ -397,7 +407,7 @@ describe("scenario wire truth — the run kinds no narrowed stream projects", ()
     // in the projection's own words, which is how a reader tells which rule it broke.
     const defects = findScenarioContractDefects([
       scenarioWithForwardRunBeat("transition-names-half-a-payload", "run.starting", {
-        sessionId: FLAGSHIP_SCENARIO.sessionId,
+        sessionId: CONCURRENT_STREAMING_SCENARIO.sessionId,
         newState: "starting",
       }),
     ]);
@@ -413,7 +423,7 @@ describe("scenario wire truth — a run beat claiming it moved to the state it w
   function scenarioWithStartingBeatPreviousState(
     scenarioId: string,
     previousState: string,
-  ): ConsoleScenario {
+  ): Scenario {
     return scenarioWithFirstBeatOfKindReplaced(scenarioId, "run.starting", (beat) => ({
       ...beat,
       event: { ...beat.event, payload: { ...beat.event.payload, previousState } },

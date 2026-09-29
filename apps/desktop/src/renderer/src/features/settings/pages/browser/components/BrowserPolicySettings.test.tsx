@@ -78,7 +78,7 @@ describe("browser policy rows — the position drawn", () => {
     expect(onToggle).toHaveBeenCalledWith("file-boundary", true);
   });
 
-  it("negative control: no shell-config key string reaches the screen", () => {
+  it("negative control: no main-process config key string reaches the screen", () => {
     // The preference keys are not the renderer's to name. A row that rendered one would
     // publish a wire vocabulary the renderer does not own.
     const text = renderPolicy({ positions: positions(false, true) }).textContent ?? "";

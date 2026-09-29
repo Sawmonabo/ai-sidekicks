@@ -11,8 +11,8 @@
 
 import { useMemo } from "react";
 
-import { useConsoleCommandSeat } from "@renderer/registries/commands/hooks/useRegisterCommands.js";
-import { type ConsoleCommand } from "@renderer/registries/commands/command-types.js";
+import { useRegisterCommands } from "@renderer/registries/commands/hooks/useRegisterCommands.js";
+import { type CommandDefinition } from "@renderer/registries/commands/command-types.js";
 import { useLatestRef } from "@renderer/console/primitives/index.js";
 import { RUN_CONTROL_PRESENTATION } from "../run-control-presentation.js";
 import {
@@ -65,7 +65,7 @@ export function useRunControlCommands(input: RunControlCommandInput): void {
     [signature, inputRef],
   );
 
-  useConsoleCommandSeat(RUN_CONTROL_COMMAND_OWNER, commands);
+  useRegisterCommands(RUN_CONTROL_COMMAND_OWNER, commands);
 }
 
 /**
@@ -80,7 +80,7 @@ export function useRunControlCommands(input: RunControlCommandInput): void {
 function buildRunControlCommand(
   row: RunControlCommandRow,
   inputRef: React.RefObject<RunControlCommandInput>,
-): ConsoleCommand {
+): CommandDefinition {
   return {
     id: `runs.${row.control}.${row.runId}`,
     title: row.title,

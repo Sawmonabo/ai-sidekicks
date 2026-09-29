@@ -10,7 +10,7 @@ import { startWorkflowFromLine, type WorkflowStartInput } from "../start-workflo
 /**
  * The command-line handler this composer's executor prefers over `invoke`.
  *
- * Keyed by the ROOT id, which is the id the recogniser claims and the palette lists,
+ * Keyed by the ROOT id, which is the id the recognizer claims and the palette lists,
  * so the map cannot claim a name the console has never heard of.
  */
 export function useWorkflowStartHandlers(input: WorkflowStartInput): ComposerCommandLineHandlers {

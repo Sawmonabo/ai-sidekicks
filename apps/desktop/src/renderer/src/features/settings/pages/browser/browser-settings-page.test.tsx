@@ -15,40 +15,37 @@ import { afterEach, describe, expect, it } from "vitest";
 import { settle } from "@test/helpers/settle.js";
 import { createFixture } from "@test/helpers/fixture-bridge.js";
 import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
-import { FrameStore } from "@renderer/store/window/window-store.js";
+import { WindowStore } from "@renderer/store/window/window-store.js";
 import { SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
-import { registerSettingsSurface } from "../../contributions/screens.js";
+import { registerSettingsScreen } from "../../contributions/screens.js";
 import { SETTINGS_PAGES, SettingsPageRegistry } from "../../settings-pages.js";
-import {
-  ConsoleSurfaceRegistry,
-  type ConsoleSurfaceContext,
-} from "@renderer/console/seats/index.js";
+import { ScreenRegistry, type ScreenContext } from "@renderer/console/seats/index.js";
 // The pending marker's reader by its own leaf specifier: the seats door publishes the
 // ATTRIBUTE, which a producer needs, and not this reader, whose consumers outside that
 // directory are tests.
-import { pendingPaneBodiesIn } from "@renderer/components/LazyBody/pending-body-marker.js";
+import { findPendingBodies } from "@renderer/components/LazyBody/pending-body-marker.js";
 
 afterEach(() => {
   cleanup();
 });
 
 /**
- * The settings surface a window mounts, parked on the browser address.
+ * The settings screen a window mounts, parked on the browser address.
  *
- * Driven through `registerSettingsSurface` rather than around it, so the slot claim is
+ * Driven through `registerSettingsScreen` rather than around it, so the slot claim is
  * itself a covered fact. What this answers is whether the shipped board claims the
  * section — the page's own contents are the next helper's subject, because this mount
  * holds the page registry the surface composed and no suite may reach for it.
  */
 async function renderShippedSettingsAtBrowser(): Promise<HTMLElement> {
-  const surfaces = new ConsoleSurfaceRegistry();
-  registerSettingsSurface(surfaces);
-  await surfaces.preload("settings");
-  const descriptor = surfaces.descriptorFor("settings");
+  const screens = new ScreenRegistry();
+  registerSettingsScreen(screens);
+  await screens.preload("settings");
+  const descriptor = screens.descriptorFor("settings");
   if (descriptor === undefined) {
-    throw new Error("the settings registrar claimed no surface slot");
+    throw new Error("the settings registrar claimed no screen slot");
   }
-  const frameStore = new FrameStore();
+  const frameStore = new WindowStore();
   frameStore.navigate({ kind: "settings", page: "browser" });
   const context = {
     route: frameStore.getState().route,
@@ -56,7 +53,7 @@ async function renderShippedSettingsAtBrowser(): Promise<HTMLElement> {
     frameStore,
     sessionStoreRegistry: new SessionStoreRegistry({ read: () => Promise.resolve(undefined) }),
     chooseScheme: () => undefined,
-  } as unknown as ConsoleSurfaceContext;
+  } as unknown as ScreenContext;
   const { container } = render(
     <LiveAnnouncerProvider>{descriptor.render(context)}</LiveAnnouncerProvider>,
   );
@@ -82,7 +79,7 @@ describe("the browser settings section", () => {
     // claims `browser`. What stands in its place is the page's own reservation, which is
     // the loader form working rather than a page that failed to render.
     expect(container.textContent ?? "").not.toContain("has not been built yet");
-    expect(pendingPaneBodiesIn(container).length).toBe(1);
+    expect(findPendingBodies(container).length).toBe(1);
   });
 
   it("negative control: the table's entry is what puts the page on a board", () => {

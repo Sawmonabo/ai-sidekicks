@@ -1,4 +1,4 @@
-// worktree-projector behaviour.
+// worktree-projector behavior.
 //
 // No database, no temp directory, no clock: the module under test performs no
 // I/O, so every branch is driven by handing it rows directly. Both halves of
@@ -424,7 +424,7 @@ describe("projectWorktreeStatusRead — the repoMountId filter", () => {
     expect(response).toEqual({ worktrees: [] });
   });
 
-  it("never filters on state — the filter is a mount key, not a lifecycle judgement", () => {
+  it("never filters on state — the filter is a mount key, not a lifecycle judgment", () => {
     const rows = ALL_WORKTREE_STATES.map((state) =>
       worktreeRow({ state, repo_mount_id: MOUNT_A_ID }),
     );

@@ -11,7 +11,7 @@
 // and declares nothing about it.
 //
 // ELIGIBILITY IS NEVER COMPUTED HERE, AND THAT IS WHY THERE IS NO REFUSED CONTROL.
-// Whether a run may be cancelled or resumed is a daemon adjudication, and nothing in
+// Whether a run may be canceled or resumed is a daemon adjudication, and nothing in
 // this console can know it before it asks. So a control is OFFERED and its press puts
 // the question; an act the daemon served lands on {@link WorkflowRunControlOutcome}
 // beside the button that asked it.
@@ -28,7 +28,7 @@
 
 import { WORKFLOW_CANCEL_REASON_BYTE_CAP } from "@ai-sidekicks/contracts";
 
-import { refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
+import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 import type { WorkflowRunState } from "../runs/run-list-rows.js";
 // The console's one byte measurement, through the family door that publishes it.
 // This surface bounds a cancellation reason exactly as the durable path bounds a
@@ -73,9 +73,9 @@ export type WorkflowRunControlRefusalCode = "reason-past-bound" | "act-already-i
 /** What a served `workflow.runCancel` answers with. */
 export interface WorkflowRunCancelReply {
   readonly workflowRunId: string;
-  readonly state: Extract<WorkflowRunState, "cancelled">;
-  readonly cancelledEventId: string;
-  readonly alreadyCancelled: boolean;
+  readonly state: Extract<WorkflowRunState, "canceled">;
+  readonly canceledEventId: string;
+  readonly alreadyCanceled: boolean;
 }
 
 /** What a served `workflow.runResume` answers with. */
@@ -114,7 +114,7 @@ export type WorkflowRunControlOutcome =
       /** What that state means for the operator, in this console's own words. */
       readonly detail: string;
     }
-  | { readonly kind: "refused"; readonly refusal: ConsoleRefusal };
+  | { readonly kind: "refused"; readonly refusal: Refusal };
 
 /** The outcome a control stands at before anything has been pressed on this run. */
 export const IDLE_RUN_CONTROL_OUTCOME: WorkflowRunControlOutcome = { kind: "idle" };
@@ -153,7 +153,7 @@ export function cancelReasonBudget(reason: string): CancelReasonBudget {
  * `core/refusal.ts` fixes `detail` as one actionable sentence that is never the
  * refused value itself.
  */
-export function reasonPastBoundRefusal(budget: CancelReasonBudget): ConsoleRefusal {
+export function reasonPastBoundRefusal(budget: CancelReasonBudget): Refusal {
   // Bound through the closed vocabulary before it reaches `refuse`, whose `code`
   // parameter is a deliberately-wide `string` — `core/refusal.ts` cannot close it
   // without importing every producer and inverting the DAG. The annotation is what
@@ -168,7 +168,7 @@ export function reasonPastBoundRefusal(budget: CancelReasonBudget): ConsoleRefus
 
 /** What each action is called where a person reads a sentence about it. */
 const ACTION_PROSE: Readonly<Record<WorkflowRunControlAction, string>> = {
-  cancel: "Cancelling a run",
+  cancel: "Canceling a run",
   resume: "Resuming a run",
 };
 
@@ -242,7 +242,7 @@ export interface WorkflowResumeControl extends WorkflowResumeDispatch {
  * all, so a console that rendered it as an adjudication would be asserting one that
  * never happened.
  */
-export function actAlreadyInFlightRefusal(action: WorkflowRunControlAction): ConsoleRefusal {
+export function actAlreadyInFlightRefusal(action: WorkflowRunControlAction): Refusal {
   const code: WorkflowRunControlRefusalCode = "act-already-in-flight";
   return refuse(
     WORKFLOW_RUN_CONTROL_ORIGIN,

@@ -22,16 +22,16 @@ import {
   RUNNING_RUN,
 } from "./composer-toolbar.test-support.js";
 import type {
-  ConsoleEntity,
-  ConsoleSessionEvent,
+  StoredEntity,
+  ProjectedSessionEvent,
 } from "@renderer/store/session/entities/entities.js";
-import type { ConsolePaneAddress } from "@renderer/console/seats/index.js";
+import type { PaneAddress } from "@renderer/console/seats/index.js";
 import { CONTEXT_COMPACTED_EVENT_KIND } from "../context-ring/context-window-reading.js";
 
 describe("ComposerToolbar — absence before assertion", () => {
   it("renders the not-checked meter when the daemon has reported nothing", () => {
     const container = mountToolbar([], ADDRESSED);
-    expect(container.querySelector(".meridian-context-meter")).toBeNull();
+    expect(container.querySelector(".meridian-context-ring")).toBeNull();
     expect(container.querySelector(".meridian-nothing--not-checked")).not.toBeNull();
   });
 
@@ -62,9 +62,9 @@ describe("ComposerToolbar — absence before assertion", () => {
     );
 
     for (const container of [nearFull, pastTheWindow]) {
-      expect(container.querySelector(".meridian-context-meter__hint")).toBeNull();
+      expect(container.querySelector(".meridian-context-ring__hint")).toBeNull();
       expect(
-        container.querySelector(".meridian-context-meter__fill")?.getAttributeNames(),
+        container.querySelector(".meridian-context-ring__fill")?.getAttributeNames(),
       ).toStrictEqual(["class", "style"]);
       expect(container.querySelector('[role="status"]')).toBeNull();
     }
@@ -95,10 +95,10 @@ describe("ComposerToolbar — absence before assertion", () => {
       ADDRESSED,
     );
 
-    expect(container.querySelector(".meridian-context-meter__source")?.textContent).toContain(
+    expect(container.querySelector(".meridian-context-ring__source")?.textContent).toContain(
       "estimated",
     );
-    expect(container.querySelector(".meridian-context-meter__source-note")?.textContent).toContain(
+    expect(container.querySelector(".meridian-context-ring__source-note")?.textContent).toContain(
       "approximate",
     );
   });
@@ -107,8 +107,8 @@ describe("ComposerToolbar — absence before assertion", () => {
     // Without this the case above would hold over a meter that explained itself on
     // every reading, which would make the two grades that matter invisible.
     const container = mountToolbar([contextWindowEvent(1)], ADDRESSED);
-    expect(container.querySelector(".meridian-context-meter__source-note")).toBeNull();
-    expect(container.querySelector(".meridian-context-meter__source")?.textContent).toContain(
+    expect(container.querySelector(".meridian-context-ring__source-note")).toBeNull();
+    expect(container.querySelector(".meridian-context-ring__source")?.textContent).toContain(
       "provider_reported",
     );
   });
@@ -118,14 +118,14 @@ describe("ComposerToolbar — the meter reads the conversation it is addressed t
   const SECOND_AGENT_ID = "agent-reviewer";
   const SECOND_RUN_ID = "3c2b1a09-8f7e-4d6c-9b5a-4938271605fe";
 
-  const SECOND_AGENT: ConsoleEntity = {
+  const SECOND_AGENT: StoredEntity = {
     kind: "agent",
     id: SECOND_AGENT_ID,
     state: "running",
     body: { name: "Priya", driverName: "claude" },
   };
 
-  const SECOND_RUN: ConsoleEntity = {
+  const SECOND_RUN: StoredEntity = {
     kind: "run",
     id: SECOND_RUN_ID,
     state: "running",
@@ -134,7 +134,7 @@ describe("ComposerToolbar — the meter reads the conversation it is addressed t
   };
 
   /** Two conversations metered in one session, the SECOND run's row the newer. */
-  const BOTH_METERED: readonly ConsoleSessionEvent[] = [
+  const BOTH_METERED: readonly ProjectedSessionEvent[] = [
     {
       ...contextWindowEvent(3),
       payload: {
@@ -159,8 +159,8 @@ describe("ComposerToolbar — the meter reads the conversation it is addressed t
 
   const BOTH_AGENTS = [AGENT, RUNNING_RUN, SECOND_AGENT, SECOND_RUN];
 
-  function paneOn(agentId: string): ConsolePaneAddress {
-    return { kind: "agent-console", entity: { kind: "agent", id: agentId } };
+  function paneOn(agentId: string): PaneAddress {
+    return { kind: "agents", entity: { kind: "agent", id: agentId } };
   }
 
   it("draws the addressed run's fullness while another run meters later and higher", () => {
@@ -195,7 +195,7 @@ describe("ComposerToolbar — the meter reads the conversation it is addressed t
     // this composer's.
     const container = mountToolbar(BOTH_METERED, { entities: BOTH_AGENTS });
 
-    expect(container.querySelector(".meridian-context-meter")).toBeNull();
+    expect(container.querySelector(".meridian-context-ring")).toBeNull();
     expect(
       container.querySelector(".meridian-composer__meters .meridian-nothing--not-checked"),
     ).not.toBeNull();
@@ -206,7 +206,7 @@ describe("ComposerToolbar — a compaction moves the meter off its stale figure"
   function compactionRow(
     sequence: number,
     payload: Readonly<Record<string, unknown>>,
-  ): ConsoleSessionEvent {
+  ): ProjectedSessionEvent {
     return {
       id: `event-${String(sequence)}`,
       sessionId: SESSION_ID,
@@ -232,7 +232,7 @@ describe("ComposerToolbar — a compaction moves the meter off its stale figure"
   it("returns to the absence where the boundary carried no count", () => {
     const container = mountToolbar([contextWindowEvent(1), compactionRow(2, {})], ADDRESSED);
 
-    expect(container.querySelector(".meridian-context-meter")).toBeNull();
+    expect(container.querySelector(".meridian-context-ring")).toBeNull();
     expect(
       container.querySelector(".meridian-composer__meters .meridian-nothing--not-checked"),
     ).not.toBeNull();

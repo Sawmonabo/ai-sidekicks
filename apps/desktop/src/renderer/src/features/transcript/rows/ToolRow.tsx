@@ -33,7 +33,7 @@ import { readWireString } from "@renderer/lib/wire-strings.js";
 import {
   Chip,
   Glyph,
-  LedgerRow,
+  TranscriptRowLayout,
   formatDuration,
   type ChipTone,
 } from "@renderer/console/primitives/index.js";
@@ -92,7 +92,7 @@ export function ToolRow(props: ToolRowProps): React.JSX.Element {
 
   return (
     <TranscriptRowGroup groupLabel="a tool row">
-      <LedgerRow
+      <TranscriptRowLayout
         agentHueStep={hueStepOf(props)}
         occurredAtIso={props.row.timestamp}
         authorLabel={props.row.actor ?? family.label}
@@ -126,7 +126,7 @@ export function ToolRow(props: ToolRowProps): React.JSX.Element {
               // The second class is the primitives family's reveal slot: the row owns
               // WHEN a secondary control appears and this family owns what it is, so
               // neither sheet has to name the other's class.
-              className="meridian-tool-card__disclosure meridian-ledger-row__revealed"
+              className="meridian-tool-card__disclosure meridian-transcript-row-layout__revealed"
               aria-expanded={isOpen}
               onClick={props.onDensityToggle}
             >
@@ -154,7 +154,7 @@ export function ToolRow(props: ToolRowProps): React.JSX.Element {
             label={`Output of ${toolName ?? "an unnamed tool"}`}
           />
         ) : null}
-      </LedgerRow>
+      </TranscriptRowLayout>
     </TranscriptRowGroup>
   );
 }
@@ -180,7 +180,7 @@ export function clampSummary(summary: string): string {
 /**
  * The row's step on the twelve-step wheel, or a step outside it.
  *
- * `-1` rather than `0`: step zero belongs to somebody, and `LedgerRow` treats any step
+ * `-1` rather than `0`: step zero belongs to somebody, and `TranscriptRowLayout` treats any step
  * outside the wheel as unattributed and falls back to the neutral control boundary. That
  * is the fail-closed answer, and it is the primitive's rule rather than a second one.
  */

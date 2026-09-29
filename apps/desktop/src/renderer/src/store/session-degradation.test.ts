@@ -21,10 +21,10 @@ import {
 import { eventOfKind } from "@test/helpers/session-events.js";
 import { SessionStore } from "./session/session-store.js";
 
-/** An initialised store with nothing wrong with it. */
+/** An initialized store with nothing wrong with it. */
 function healthyStore(): SessionStore {
   const store = new SessionStore({ sessionId: "session-1" });
-  store.initialise({ cursor: 0, entities: [] });
+  store.initialize({ cursor: 0, entities: [] });
   return store;
 }
 
@@ -134,7 +134,7 @@ describe("an external degradation reaching an already-degraded store", () => {
     const store = gappedStore();
     store.markDegraded("subscription-closed");
 
-    store.initialise({
+    store.initialize({
       cursor: 2,
       entities: [],
       timeline: [

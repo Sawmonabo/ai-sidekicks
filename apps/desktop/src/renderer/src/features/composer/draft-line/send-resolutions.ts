@@ -8,7 +8,7 @@
 
 import type { InterventionRequestPayload, QueueItemCreateRequest } from "@ai-sidekicks/contracts";
 
-import type { ConsoleRefusal } from "@renderer/lib/refusal.js";
+import type { Refusal } from "@renderer/lib/refusal.js";
 import type { ComposerSendPath } from "../composer-target.js";
 import type { ProviderCommandEntry } from "../command-list/command-list-entries.js";
 
@@ -39,7 +39,7 @@ export interface ComposerClientCommandResolution {
 
 export interface ComposerRefusedResolution {
   readonly outcome: "refused";
-  readonly refusal: ConsoleRefusal;
+  readonly refusal: Refusal;
 }
 
 export type ComposerSendResolution =
@@ -52,7 +52,7 @@ export type ComposerSendResolution =
 export type ComposerSendOutcome =
   | { readonly status: "sent"; readonly path: ComposerSendPath }
   | { readonly status: "intercepted"; readonly commandName: string }
-  | { readonly status: "refused"; readonly refusal: ConsoleRefusal };
+  | { readonly status: "refused"; readonly refusal: Refusal };
 
 /**
  * Whether a name is a registered client command.
@@ -60,7 +60,7 @@ export type ComposerSendOutcome =
  * A PORT rather than a registry handle: the composer seat is handed a session
  * store, a bridge, a draft store, a route, and a focused pane, and no command
  * registry — so the router takes the one predicate it needs. The default answers
- * `false` for every name, which means an unrecognised `/word` refuses loudly and
+ * `false` for every name, which means an unrecognized `/word` refuses loudly and
  * names the escape, and no text is ever silently sent as prose.
  */
 export type ClientCommandPredicate = (commandName: string) => boolean;

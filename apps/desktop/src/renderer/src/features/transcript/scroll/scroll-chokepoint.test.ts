@@ -22,7 +22,7 @@ import { ManualClock } from "@renderer/lib/clock.js";
 import { TRANSCRIPT_GEOMETRY_EPSILON_PX } from "../viewport/viewport-constants.js";
 import { createCountingScrollContainer } from "./scroll-container.test-support.js";
 import { SCROLL_CALLERS } from "./scroll-callers.js";
-import { LedgerScrollController } from "./scroll-chokepoint.js";
+import { ScrollController } from "./scroll-chokepoint.js";
 import type { ScrollGeometry } from "./geometry-sample.js";
 import type { ScrollContainer } from "./scroll-chokepoint.js";
 
@@ -95,12 +95,12 @@ class RecordingScrollSurface implements ScrollContainer {
 }
 
 let clock: ManualClock;
-let controller: LedgerScrollController;
+let controller: ScrollController;
 let surface: RecordingScrollSurface;
 
 beforeEach(() => {
   clock = new ManualClock();
-  controller = new LedgerScrollController({ clock });
+  controller = new ScrollController({ clock });
   surface = new RecordingScrollSurface(500, 5000);
 });
 
@@ -334,12 +334,12 @@ describe("the scroll chokepoint — prune veto, batching, and teardown", () => {
     expect(clock.pendingCount).toBe(0);
   });
 
-  it("re-arms the pass for the surface a re-attach brought, not the one it cancelled", () => {
+  it("re-arms the pass for the surface a re-attach brought, not the one it canceled", () => {
     // THE STARVATION THIS RULES OUT. `attach` detaches first, and detach cancels the
     // armed frame — correctly, since a pass on a detached controller samples nothing.
-    // But the obligation the cancelled frame carried belongs to the LEDGER and not to
+    // But the obligation the canceled frame carried belongs to the TRANSCRIPT and not to
     // the surface that has gone: under a frozen fixture clock a remount arrives before
-    // the frame it armed ever runs, so every cycle armed one and cancelled it, and the
+    // the frame it armed ever runs, so every cycle armed one and canceled it, and the
     // box was never re-measured for any of them. A re-attach owes its own pass.
     const outgoing = createCountingScrollContainer({ clientHeight: 300, scrollHeight: 4000 });
     const incoming = createCountingScrollContainer({ clientHeight: 640, scrollHeight: 9000 });

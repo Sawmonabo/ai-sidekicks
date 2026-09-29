@@ -19,7 +19,7 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 
-import { type ConsoleClock } from "@renderer/lib/clock.js";
+import { type Clock } from "@renderer/lib/clock.js";
 import { LiveAnnouncer } from "./live-announcer.js";
 import { LiveAnnouncerContext } from "./live-announcer-context.js";
 import { LiveRegion } from "./LiveRegion.js";
@@ -42,12 +42,12 @@ export interface LiveAnnouncerProviderProps {
    * reaching past the frozen one — a refusal raised in a scenario would clear on how
    * fast the runner happened to be rather than on the beat that advanced time, which
    * makes an accessibility assertion and a screenshot of a standing banner both
-   * unrepeatable. The frame reads `useConsoleClock` and hands the answer down; this
+   * unrepeatable. The frame reads `useClock` and hands the answer down; this
    * family sits below the bridge in the DAG and cannot ask for itself.
    *
    * Ignored when `announcer` is supplied — that announcer arrived with its own.
    */
-  readonly clock?: ConsoleClock;
+  readonly clock?: Clock;
 }
 
 /**
@@ -65,7 +65,7 @@ export function LiveAnnouncerProvider(props: LiveAnnouncerProviderProps): React.
   // on one clock for its life, and the re-mint arm below has to build the second
   // announcer on the same one the first was built on. A caller reading the clock
   // in its own render body would otherwise hand a new identity down every pass.
-  const [clock] = useState<ConsoleClock | undefined>(() => props.clock);
+  const [clock] = useState<Clock | undefined>(() => props.clock);
   const [ownedAnnouncer, setOwnedAnnouncer] = useState<LiveAnnouncer>(() => mintAnnouncer(clock));
   const suppliedAnnouncer = props.announcer;
   const announcer = suppliedAnnouncer ?? ownedAnnouncer;
@@ -99,6 +99,6 @@ export function LiveAnnouncerProvider(props: LiveAnnouncerProviderProps): React.
  * `exactOptionalPropertyTypes`, so the two are different types and only one of
  * them reaches the constructor's own `RealClock` default.
  */
-function mintAnnouncer(clock: ConsoleClock | undefined): LiveAnnouncer {
+function mintAnnouncer(clock: Clock | undefined): LiveAnnouncer {
   return new LiveAnnouncer(clock === undefined ? {} : { clock });
 }

@@ -13,7 +13,7 @@ import { describe, expect, it } from "vitest";
 
 import { buildDiffFixture } from "@test/helpers/diff-fixture.js";
 import { SMALL_DIFF_SHAPE } from "@test/helpers/diff-fixture-shapes.js";
-import { type ConsoleDiffModel } from "../diff-model.js";
+import { type DiffModel } from "../diff-model.js";
 
 import { DiffPane } from "./DiffPane.js";
 import {
@@ -93,7 +93,7 @@ describe("diff pane — expanding a gap in a file that is not the first", () => 
    * difference observable, because the first file is the one a renumbered index
    * would have reached for.
    */
-  const UNEVEN_GAP_DIFF: ConsoleDiffModel = (() => {
+  const UNEVEN_GAP_DIFF: DiffModel = (() => {
     const whole = buildDiffFixture(SMALL_DIFF_SHAPE);
     return {
       ...whole,
@@ -149,7 +149,7 @@ describe("diff pane — expanding a gap in a file that is not the first", () => 
 
 describe("diff pane — reused for a different diff", () => {
   /** A change set whose files share no path with the fixture's. */
-  const OTHER_DIFF: ConsoleDiffModel = (() => {
+  const OTHER_DIFF: DiffModel = (() => {
     const whole = buildDiffFixture(SMALL_DIFF_SHAPE);
     return {
       ...whole,

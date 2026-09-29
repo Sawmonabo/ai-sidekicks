@@ -1,26 +1,26 @@
 // The collaborators every session-store-registry suite constructs a registry with.
 //
 // AT THE FAMILY ROOT AND NOT IN `session/`, for `session-event.test-support.ts`'s
-// reason: six families outside this one build their initialised store through it, and
+// reason: six families outside this one build their initialized store through it, and
 // `read/`'s scheduler suites settle microtasks through it, so it is the family's
 // scaffolding rather than one sub-module's.
 //
 // One home for the reader, the projector, the event and snapshot builders, the
-// microtask settle, and the initialised store the sibling suites share. Nothing here
+// microtask settle, and the initialized store the sibling suites share. Nothing here
 // is a stand-in for the registry: it is the surrounding cast, and a second copy of the
 // projector would let two suites disagree about what an applied event looks like.
 //
-// AND IT IS THE HOME FOR THE STORE ITSELF, which is what `initialisedStore` is doing
+// AND IT IS THE HOME FOR THE STORE ITSELF, which is what `initializedStore` is doing
 // at the bottom of this file. Three families had written that builder — the run
 // console, the workspace mounts page, and this directory's own event-signal suite —
 // byte for byte, in three trees whose authors do not read each other's diffs. They
-// agreed only because none of them had been touched: `SessionStore.initialise` growing
+// agreed only because none of them had been touched: `SessionStore.initialize` growing
 // a required member would have had to move in three places, and the one left behind
 // would have gone green over a store its siblings no longer build.
 
 import type {
-  ConsoleSessionEvent,
-  EntityProjectorRegistry,
+  ProjectedSessionEvent,
+  EntityProjectorTable,
 } from "@renderer/store/session/entities/entities.js";
 import type { SessionSnapshotReader } from "@renderer/store/session/open-session-entry.js";
 import { eventOfKind } from "./session-events.js";
@@ -29,13 +29,13 @@ import { SessionStore, type SessionSnapshot } from "@renderer/store/session/sess
 /** A reader that establishes nothing. The honest "no wire is registered" answer. */
 export const readsNothing: SessionSnapshotReader = () => Promise.resolve(undefined);
 
-function runIdOf(event: ConsoleSessionEvent): string {
+function runIdOf(event: ProjectedSessionEvent): string {
   const raw = event.payload?.["runId"];
   return typeof raw === "string" ? raw : "unknown-run";
 }
 
 /** One projector, so an applied event is observable as an entity rather than a count. */
-export const projectors: EntityProjectorRegistry = {
+export const projectors: EntityProjectorTable = {
   "run.starting": (event) => [
     {
       operation: "upsert",
@@ -45,7 +45,7 @@ export const projectors: EntityProjectorRegistry = {
 };
 
 /** One event at `sequence`, carrying the run id the projector reads. */
-export function eventAt(sequence: number, runId: string): ConsoleSessionEvent {
+export function runEventAt(sequence: number, runId: string): ProjectedSessionEvent {
   return eventOfKind("session-1", "run.starting", sequence, { runId });
 }
 
@@ -62,13 +62,13 @@ export async function settleMicrotasks(): Promise<void> {
 }
 
 /**
- * An initialised store, so an appended event is admitted rather than buffered.
+ * An initialized store, so an appended event is admitted rather than buffered.
  *
  * Built from {@link emptySnapshot} rather than from a second base-state literal, so
  * the shape a store is opened with is written once in this file too.
  */
-export function initialisedStore(sessionId: string): SessionStore {
+export function initializedStore(sessionId: string): SessionStore {
   const sessionStore = new SessionStore({ sessionId });
-  sessionStore.initialise(emptySnapshot(0));
+  sessionStore.initialize(emptySnapshot(0));
   return sessionStore;
 }

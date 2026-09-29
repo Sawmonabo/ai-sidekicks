@@ -24,8 +24,8 @@
 import { lossyStringify } from "@renderer/lib/wire-errors.js";
 
 import { KeyedRegistry } from "@renderer/lib/keyed-registry.js";
-import { PALETTE_RECENTS_CAP } from "@renderer/styles/palette.js";
-import type { ConsoleCommand } from "./command-types.js";
+import { COMMAND_PALETTE_RECENTS_CAP } from "./command-palette-caps.js";
+import type { CommandDefinition } from "./command-types.js";
 import {
   compareCommandsForDisplay,
   rankCommandsForEmptyQuery,
@@ -64,7 +64,7 @@ export type CommandInvocationOutcome =
 export class CommandRegistry {
   // `"throw"`: two contributors claiming one id is a real conflict, and keeping
   // either one would make which command runs depend on module evaluation order.
-  readonly #commandsById = new KeyedRegistry<string, ConsoleCommand>({
+  readonly #commandsById = new KeyedRegistry<string, CommandDefinition>({
     duplicatePolicy: "throw",
     describeWhat: "command",
     duplicateHint:
@@ -74,7 +74,7 @@ export class CommandRegistry {
   readonly #whenClauses = new WhenClauseCache();
 
   /** Register one command. Throws `DuplicateRegistrationError` on a repeated id. */
-  public register(command: ConsoleCommand): void {
+  public register(command: CommandDefinition): void {
     this.#commandsById.register(command.id, command);
   }
 
@@ -83,7 +83,7 @@ export class CommandRegistry {
    * a duplicate half way through a family's contribution leaves the registry
    * exactly as it was rather than half-populated.
    */
-  public registerAll(commands: readonly ConsoleCommand[]): void {
+  public registerAll(commands: readonly CommandDefinition[]): void {
     this.#commandsById.registerAll(commands.map((command) => [command.id, command]));
   }
 
@@ -101,7 +101,7 @@ export class CommandRegistry {
     return this.#commandsById.has(commandId);
   }
 
-  public get(commandId: string): ConsoleCommand | undefined {
+  public get(commandId: string): CommandDefinition | undefined {
     return this.#commandsById.get(commandId);
   }
 
@@ -111,7 +111,7 @@ export class CommandRegistry {
   }
 
   /** Every registered command, in registration order, ignoring visibility. */
-  public all(): readonly ConsoleCommand[] {
+  public all(): readonly CommandDefinition[] {
     return this.#commandsById.all();
   }
 
@@ -131,8 +131,8 @@ export class CommandRegistry {
   }
 
   /** Every command offered in this context, ordered by group then title. */
-  public commandsFor(context: WhenClauseContext): readonly ConsoleCommand[] {
-    const visible: ConsoleCommand[] = [];
+  public commandsFor(context: WhenClauseContext): readonly CommandDefinition[] {
+    const visible: CommandDefinition[] = [];
     for (const command of this.#commandsById.all()) {
       if (this.#whenClauses.evaluate(command.when, context)) {
         visible.push(command);
@@ -173,8 +173,8 @@ export class CommandRegistry {
       this.#recentCommandIds.splice(existingIndex, 1);
     }
     this.#recentCommandIds.unshift(commandId);
-    if (this.#recentCommandIds.length > PALETTE_RECENTS_CAP) {
-      this.#recentCommandIds.length = PALETTE_RECENTS_CAP;
+    if (this.#recentCommandIds.length > COMMAND_PALETTE_RECENTS_CAP) {
+      this.#recentCommandIds.length = COMMAND_PALETTE_RECENTS_CAP;
     }
   }
 

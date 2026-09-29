@@ -14,7 +14,7 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { consoleTripwires } from "@renderer/lib/tripwires.js";
+import { windowTripwires } from "@renderer/lib/tripwires.js";
 import {
   ATTACHMENT_ACKNOWLEDGEMENT_SITE,
   readChunkAcknowledgement,
@@ -49,13 +49,13 @@ beforeEach(() => {
   // The process-wide registry throws in a development build, which is what an author
   // should see. These cases assert the RECORD, so they read it in the recording arm
   // and put the configuration back afterwards.
-  consoleTripwires.setThrowOnReport(false);
-  consoleTripwires.reset();
+  windowTripwires.setThrowOnReport(false);
+  windowTripwires.reset();
 });
 
 afterEach(() => {
-  consoleTripwires.reset();
-  consoleTripwires.setThrowOnReport(import.meta.env.DEV);
+  windowTripwires.reset();
+  windowTripwires.setThrowOnReport(import.meta.env.DEV);
 });
 
 describe("chunk acknowledgement — the offset is the daemon's", () => {
@@ -68,7 +68,7 @@ describe("chunk acknowledgement — the offset is the daemon's", () => {
       receivedBytes: 200,
     });
     expect(reading).toStrictEqual({ status: "acknowledged", receivedBytes: 200 });
-    expect(consoleTripwires.totalFiringCount).toBe(0);
+    expect(windowTripwires.totalFiringCount).toBe(0);
   });
 
   it("refuses an acknowledgement that names another stream", () => {
@@ -109,8 +109,8 @@ describe("chunk acknowledgement — the offset is the daemon's", () => {
       receivedBytes: 400,
     });
     expect(reading).toStrictEqual({ status: "acknowledged", receivedBytes: 300 });
-    expect(consoleTripwires.firingCount("wire-figure-formatting")).toBe(1);
-    expect(consoleTripwires.reports()[0]?.site).toBe(ATTACHMENT_ACKNOWLEDGEMENT_SITE);
+    expect(windowTripwires.firingCount("wire-figure-formatting")).toBe(1);
+    expect(windowTripwires.reports()[0]?.site).toBe(ATTACHMENT_ACKNOWLEDGEMENT_SITE);
   });
 
   it("negative control: a lawful total reports nothing and is taken verbatim", () => {
@@ -121,11 +121,11 @@ describe("chunk acknowledgement — the offset is the daemon's", () => {
       receivedBytes: 300,
     });
     expect(reading).toStrictEqual({ status: "acknowledged", receivedBytes: 300 });
-    expect(consoleTripwires.totalFiringCount).toBe(0);
+    expect(windowTripwires.totalFiringCount).toBe(0);
   });
 
   it("throws in the loud arm, so an author meets the defect where they caused it", () => {
-    consoleTripwires.setThrowOnReport(true);
+    windowTripwires.setThrowOnReport(true);
     expect(() =>
       readChunkAcknowledgement(entryDeclaring(300), INGEST_ID, {
         ingestId: INGEST_ID,
@@ -134,6 +134,6 @@ describe("chunk acknowledgement — the offset is the daemon's", () => {
     ).toThrow();
     // The record exists on both arms — that is the tripwire contract, and a caught
     // throw that left no evidence would defeat the diagnostic band.
-    expect(consoleTripwires.firingCount("wire-figure-formatting")).toBe(1);
+    expect(windowTripwires.firingCount("wire-figure-formatting")).toBe(1);
   });
 });

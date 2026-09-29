@@ -3,10 +3,10 @@
 // The rail names the three destinations and highlights where the window is. The
 // destination set is the routing family's and the highlight is the rail's; only a
 // driven window shows them agreeing, and only a driven window shows a session
-// workspace sitting under the sessions destination rather than under an icon that is
+// session screen sitting under the sessions destination rather than under an icon that is
 // not drawn.
 //
-// Every case drives the real `ConsoleRoot` against the fixture bridge the
+// Every case drives the real `AppProviders` against the fixture bridge the
 // `console-unit` project compiles in. What the composition root wires beyond the
 // rail is `providers.test.ts`; the token sheet is
 // `AppBootstrap.tokens.test.ts`.
@@ -14,11 +14,11 @@
 import { act, cleanup, fireEvent, type RenderResult } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { SESSIONS_HASH, mountConsole, settleRegisteredBodies } from "@test/helpers/mount-app.js";
+import { SESSIONS_HASH, mountApp, settleRegisteredBodies } from "@test/helpers/mount-app.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 
 /** A window opened straight into a session, the way a saved link does. */
-const WORKSPACE_HASH = "#/session/session-alpha";
+const SESSION_HASH = "#/session/session-alpha";
 
 const WORKFLOWS_HASH = "#/workflows";
 
@@ -41,9 +41,9 @@ function currentRailDestination(mounted: RenderResult): string | null {
   return current === null ? null : current.getAttribute("aria-label");
 }
 
-describe("ConsoleRoot — the rail's three destinations, and where the window is", () => {
+describe("AppProviders — the rail's three destinations, and where the window is", () => {
   beforeEach(() => {
-    window.location.hash = WORKSPACE_HASH;
+    window.location.hash = SESSION_HASH;
   });
 
   afterEach(() => {
@@ -55,7 +55,7 @@ describe("ConsoleRoot — the rail's three destinations, and where the window is
     // The defect: the rail shipped a Workspace destination where the surface set names
     // Workflows, so the destination that opens the workflow builder could not be reached at
     // all and one that has no address of its own carried an icon.
-    const mounted = await mountConsole();
+    const mounted = await mountApp();
 
     const labels = [...mounted.container.querySelectorAll(".meridian-rail__button")].map((button) =>
       button.getAttribute("aria-label"),
@@ -63,18 +63,18 @@ describe("ConsoleRoot — the rail's three destinations, and where the window is
     expect(labels).toStrictEqual(["Sessions", "Workflows", "Settings"]);
   });
 
-  it("puts a session workspace under the sessions destination", async () => {
+  it("puts a session screen under the sessions destination", async () => {
     // A window opened straight into a session is INSIDE the sessions destination,
     // which is where a person got there from. Highlighting nothing — the answer a
     // rail gives when the route names a destination it does not draw — reads as
     // the console losing track of where it is.
-    const mounted = await mountConsole();
+    const mounted = await mountApp();
 
     expect(currentRailDestination(mounted)).toBe("Sessions");
   });
 
   it("navigates to the workflows destination and highlights it", async () => {
-    const mounted = await mountConsole();
+    const mounted = await mountApp();
 
     await clickRailDestination(mounted, "Workflows");
 
@@ -86,6 +86,6 @@ describe("ConsoleRoot — the rail's three destinations, and where the window is
     // again if the family stopped registering, and a check for "something is on
     // screen" would not notice.
     expect(mounted.container.querySelectorAll(".meridian-workflows-destination")).toHaveLength(1);
-    expect(mounted.container.querySelector(".meridian-surface-absence")).toBeNull();
+    expect(mounted.container.querySelector(".meridian-screen-notice")).toBeNull();
   });
 });

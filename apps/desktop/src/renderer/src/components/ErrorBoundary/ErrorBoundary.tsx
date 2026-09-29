@@ -4,7 +4,7 @@
 // window: three other panes were fine and the person loses them. So the frame nests
 // boundaries — one around the frame itself as a last resort, one around each region —
 // and a failed region renders its failure card in its own footprint while its
-// neighbours keep working.
+// neighbors keep working.
 //
 // This is a class because React's error-boundary contract has no hook form:
 // `getDerivedStateFromError` and `componentDidCatch` exist only on classes.
@@ -18,21 +18,21 @@ import { reportTripwire } from "@renderer/lib/tripwires.js";
 
 /** What a boundary wraps, what to call it when it fails, and an optional fallback. */
 export interface ErrorBoundaryProps {
-  /** What failed, in the person's words: "the timeline", "the approvals pane". */
-  readonly surfaceName: string;
+  /** What failed, in the person's words: "the transcript", "the approvals pane". */
+  readonly regionName: string;
   readonly children: ReactNode;
   /** Rendered instead of the default card, when a surface wants its own. */
   readonly fallback?: (error: Error, retry: () => void) => ReactNode;
 }
 
 /** Catches a render failure in its subtree, reports it, and offers a retry in place. */
-export class SurfaceErrorBoundary extends Component<ErrorBoundaryProps, SurfaceErrorBoundaryState> {
+export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
   public constructor(props: ErrorBoundaryProps) {
     super(props);
     this.state = { error: undefined, attempt: 0 };
   }
 
-  public static getDerivedStateFromError(error: unknown): Partial<SurfaceErrorBoundaryState> {
+  public static getDerivedStateFromError(error: unknown): Partial<ErrorBoundaryState> {
     return { error: error instanceof Error ? error : new Error(String(error)) };
   }
 
@@ -49,7 +49,7 @@ export class SurfaceErrorBoundary extends Component<ErrorBoundaryProps, SurfaceE
     // broken every time any pane hit a rendering bug.
     reportTripwire(
       "surface-render-failure",
-      `SurfaceErrorBoundary(${this.props.surfaceName})`,
+      `ErrorBoundary(${this.props.regionName})`,
       `${error.message}${describeComponentStack(errorInfo)}`,
     );
   }
@@ -60,7 +60,7 @@ export class SurfaceErrorBoundary extends Component<ErrorBoundaryProps, SurfaceE
       // `display: contents`, not a plain div. The element exists only to carry the
       // `key` that remounts the subtree on retry, and a box in the tree is a box a
       // surface's layout has to survive: an unstyled `height: auto` div between the
-      // frame's surface slot and its child breaks every percentage-height chain
+      // frame's screen slot and its child breaks every percentage-height chain
       // through it, which is exactly how the first full-height surface came out
       // pinned to the top of the window. `display: contents` keeps the remount and
       // removes the box. Safe on a bare div, which has no implicit ARIA role to
@@ -77,11 +77,11 @@ export class SurfaceErrorBoundary extends Component<ErrorBoundaryProps, SurfaceE
     if (this.props.fallback !== undefined) {
       return this.props.fallback(error, retry);
     }
-    return <RenderFailureCard regionName={this.props.surfaceName} error={error} onRetry={retry} />;
+    return <RenderFailureCard regionName={this.props.regionName} error={error} onRetry={retry} />;
   }
 }
 
-interface SurfaceErrorBoundaryState {
+interface ErrorBoundaryState {
   readonly error: Error | undefined;
   /** Bumped by `retry`, remounting the subtree so a transient failure can clear. */
   readonly attempt: number;

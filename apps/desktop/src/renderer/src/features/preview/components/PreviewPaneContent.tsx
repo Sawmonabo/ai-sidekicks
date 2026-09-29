@@ -3,8 +3,8 @@
 // The chrome derives nothing. Back and forward are enabled from the view's reported
 // history state and the tabs are drawn from the page list, both handed in as readings,
 // and every control dispatches through the acts it is handed, so the component holds no
-// subscription and no second copy of either. `PreviewPane.tsx` is what the deck mounts;
-// this is the body that goes inside `seats/ConsolePaneChrome`, which draws the section,
+// subscription and no second copy of either. `PreviewPane.tsx` is what the pane layout mounts;
+// this is the body that goes inside `seats/PaneFrame`, which draws the section,
 // its accessible name and the actor's hue.
 //
 // The close-tab chord is claimed here: left alone, the platform chord closes the window.
@@ -29,13 +29,13 @@ import {
 import { describeChordEvent, isCloseTabChord } from "../handback/chord-claim.js";
 import { type NavigationReading } from "../types.js";
 import { activePageOf, type PageListReading } from "../page-list-reading.js";
-import { TabStrip } from "./PageTabStrip.js";
+import { PageTabStrip } from "./PageTabStrip.js";
 import { HOST_CHORD_PLATFORM, Nothing, RefusalBanner } from "@renderer/console/primitives/index.js";
 import { usePreviewPaneActs } from "../hooks/usePreviewPaneActs.js";
 import { useGeometryPublisher } from "../hooks/useGeometryPublisher.js";
 import { usePaneAddressField } from "../hooks/usePaneAddressField.js";
 import { AddressLineButton } from "./AddressLineButton.js";
-import { ConsolePaneChrome, type PaneContextOf } from "@renderer/console/seats/index.js";
+import { PaneFrame, type PaneContextOf } from "@renderer/console/seats/index.js";
 import type { PreviewPaneRejectionFallback } from "../pane-refusals.js";
 
 /** What the control that hands the page to the system browser refuses with. */
@@ -56,7 +56,7 @@ export interface BrowserChromeActs {
   readonly reorderPage: (pageId: string, toIndex: number) => void;
 }
 
-/** What the pane's content draws from, beside the deck's context. */
+/** What the pane's content draws from, beside the pane layout's context. */
 export interface PreviewPaneContentProps extends PaneContextOf<"browser"> {
   /** Where the page is, and whether it can go back or forward. */
   readonly navigation: NavigationReading;
@@ -109,7 +109,7 @@ export function PreviewPaneContent(props: PreviewPaneContentProps): React.JSX.El
       return;
     }
     runAct(async () => {
-      await bridge.desktopBridge.native.openExternal(url);
+      await bridge.native.openExternal(url);
       return undefined;
     }, OPEN_EXTERNAL_FALLBACK);
   }, [bridge, refuseLocally, reportedUrl, runAct]);
@@ -148,21 +148,21 @@ export function PreviewPaneContent(props: PreviewPaneContentProps): React.JSX.El
   return (
     // The chord claim rides the frame's own section, so it covers the head the frame
     // draws above the body as well as everything inside it.
-    <ConsolePaneChrome
+    <PaneFrame
       kind="browser"
       sessionId={sessionId}
       focusHue={focusHue}
       onKeyDownCapture={onCloseTabChord}
     >
-      <div className="meridian-browser-pane" tabIndex={-1}>
-        <TabStrip
+      <div className="meridian-preview-pane" tabIndex={-1}>
+        <PageTabStrip
           reading={pages}
           onSelect={acts.selectPage}
           onClose={acts.closePage}
           onReorder={acts.reorderPage}
         />
 
-        <form onSubmit={submitDestination} className="meridian-browser-chrome">
+        <form onSubmit={submitDestination} className="meridian-preview-chrome">
           <AddressLineButton
             label="Back"
             disabled={(reported?.backDepth ?? 0) === 0}
@@ -193,7 +193,7 @@ export function PreviewPaneContent(props: PreviewPaneContentProps): React.JSX.El
               setAddressField(editingAddressField(event.target.value));
             }}
             onKeyDown={onAddressKeyDown}
-            className="meridian-browser-chrome__address"
+            className="meridian-preview-chrome__address"
           />
           {/* Always available: it is what the pane falls back to when nothing else acts. */}
           <AddressLineButton
@@ -210,7 +210,7 @@ export function PreviewPaneContent(props: PreviewPaneContentProps): React.JSX.El
         <div
           ref={geometry.hostRef}
           data-pane-viewport={paneId}
-          className="meridian-browser-pane__viewport"
+          className="meridian-preview-pane__viewport"
         >
           {geometry.outcome?.status === "suppressed" ? (
             <Nothing
@@ -222,6 +222,6 @@ export function PreviewPaneContent(props: PreviewPaneContentProps): React.JSX.El
           ) : null}
         </div>
       </div>
-    </ConsolePaneChrome>
+    </PaneFrame>
   );
 }

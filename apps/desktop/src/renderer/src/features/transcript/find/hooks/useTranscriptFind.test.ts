@@ -15,7 +15,7 @@ import {
   useVisibleTranscriptWindow,
   type VisibleTranscriptWindow,
 } from "../../window/hooks/useVisibleTranscriptWindow.js";
-import { deriveLedgerWindow } from "../../window/transcript-window.js";
+import { deriveTranscriptWindow } from "../../window/transcript-window.js";
 import {
   EVERY_ROW_QUERY,
   LOG_EVENT_COUNT,
@@ -50,14 +50,14 @@ describe("the walk when the result moves under it", () => {
     );
   }
 
-  const wholeLog = deriveLedgerWindow(syntheticEventLog(LOG_EVENT_COUNT), false).rows;
+  const wholeLog = deriveTranscriptWindow(syntheticEventLog(LOG_EVENT_COUNT), false).rows;
 
   /**
    * The find state over two stages of one pipeline, the folded one a prefix of the other.
    *
    * The fold REPORTS what it removed, which is what the hook counts, so a prefix models
    * the pipeline exactly at this seam: the rows the fold took are the unfurled log's tail
-   * past the folded one. Building a terminal run chapter would produce the same set and
+   * past the folded one. Building a terminal run group would produce the same set and
    * nothing else.
    */
   function findOverPipeline(stages: {
@@ -65,7 +65,7 @@ describe("the walk when the result moves under it", () => {
     readonly folded: number;
   }): RenderHookResult<TranscriptFindState, unknown> {
     const modelOf = (count: number): TranscriptWindowModel =>
-      deriveLedgerWindow(syntheticEventLog(count), false);
+      deriveTranscriptWindow(syntheticEventLog(count), false);
     const foldedWindow = modelOf(stages.folded);
     return renderHook(() =>
       useTranscriptFind({
@@ -120,7 +120,7 @@ describe("the walk when the result moves under it", () => {
     expect(result.current.currentMatchIndex).toBe(SELECTED_MATCH_INDEX);
   });
 
-  it("counts matches a folded chapter is holding", () => {
+  it("counts matches a folded run group is holding", () => {
     // Every finished run folds by default, so on a completed session most of the log is
     // behind a run group header and this is most of the matches.
     const { result } = findOverPipeline({ unfurled: 10, folded: 8 });
@@ -165,10 +165,10 @@ describe("the walk when the result moves under it", () => {
 describe("the find field's own open act", () => {
   /** The find state over one whole window, with nothing pruned. */
   function findOverWholeLog(): RenderHookResult<TranscriptFindState, void> {
-    const ledgerWindow = deriveLedgerWindow(syntheticEventLog(LOG_EVENT_COUNT), false);
+    const transcriptWindow = deriveTranscriptWindow(syntheticEventLog(LOG_EVENT_COUNT), false);
     return renderHook(() =>
       useTranscriptFind({
-        visible: useVisibleTranscriptWindow(ledgerWindow, ledgerWindow.viewportRows),
+        visible: useVisibleTranscriptWindow(transcriptWindow, transcriptWindow.viewportRows),
         // Nothing is folded here, so the fold reports the shared empty removal.
         foldedAwayRows: NO_ROWS_REMOVED,
       }),

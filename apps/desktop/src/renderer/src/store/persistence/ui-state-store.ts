@@ -6,7 +6,7 @@
 // not one. The adapters are deliberately not exported from the console's barrel, so the
 // only reachable path to a durable byte is this class.
 //
-// Four behaviours are worth stating because they are decisions rather than
+// Four behaviors are worth stating because they are decisions rather than
 // mechanics:
 //
 //   1. **Refuse; never repair.** An address that is not identifier-shaped, a
@@ -33,7 +33,7 @@
 //      same thing. What separates the two classes is not whether a caller writes at
 //      all but whether it writes a value it DERIVED from the absence back over the
 //      same record: a layout restore does — it opens its fallback arrangement and
-//      files it — so one failed read destroys a deck the adapter is still holding,
+//      files it — so one failed read destroys a pane layout the adapter is still holding,
 //      and both layout restores therefore take `readOutcome`. A caller that only
 //      re-files a constant mark, or that writes nothing until a person acts, reads
 //      the same answer either way and takes the projection.
@@ -53,7 +53,7 @@ import {
   PERSISTENCE_RECORD_BYTE_CAP,
   PERSISTENCE_SESSION_PARTITION_CAP,
 } from "../persistence-caps.js";
-import { RealClock, type ConsoleClock } from "@renderer/lib/clock.js";
+import { RealClock, type Clock } from "@renderer/lib/clock.js";
 import {
   PERSISTENCE_GLOBAL_PARTITION,
   PersistenceAdapterError,
@@ -113,14 +113,14 @@ export interface UiStateStoreOptions {
    * trim — which orders entirely on these stamps — can be driven on frozen time
    * instead of on whether two writes happened to land in the same millisecond.
    */
-  readonly clock?: ConsoleClock;
+  readonly clock?: Clock;
 }
 
 export class UiStateStore {
   readonly #adapterReady: Promise<PersistenceAdapter>;
   readonly #sessionPartitionCap: number;
   readonly #recordByteCap: number;
-  readonly #clock: ConsoleClock;
+  readonly #clock: Clock;
   readonly #health = new PersistenceHealthTracker();
   #closed = false;
 
@@ -185,7 +185,7 @@ export class UiStateStore {
       return this.#refuse(
         refusePersistence(
           "value-too-large",
-          `${valueClass} at ${site} serialises to ${String(recordByteLength)} bytes including its address, past the ${String(this.#recordByteCap)}-byte ceiling for one UI-state record`,
+          `${valueClass} at ${site} serializes to ${String(recordByteLength)} bytes including its address, past the ${String(this.#recordByteCap)}-byte ceiling for one UI-state record`,
         ),
         site,
       );
@@ -384,7 +384,7 @@ export class UiStateStore {
 
   /** Session partitions only — the global one is never counted and never trimmed. */
   async #countSessionPartitions(): Promise<number> {
-    const summaries = await (await this.#adapterReady).summarisePartitions();
+    const summaries = await (await this.#adapterReady).summarizePartitions();
     return summaries.filter((summary) => summary.partition !== PERSISTENCE_GLOBAL_PARTITION).length;
   }
 }

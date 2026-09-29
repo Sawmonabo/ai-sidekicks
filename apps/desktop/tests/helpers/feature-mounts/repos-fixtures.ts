@@ -8,10 +8,10 @@
 // NOTHING HERE RENDERS AND NOTHING HERE WAITS. Every export is inert, so a tier that
 // wants a different composition states a new mount rather than reaching in and mutating
 // one of these.
-import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { buildDiffFixture } from "../diff-fixture.js";
 import { EXTENDED_HEADER_DIFF_SHAPE } from "../diff-fixture-shapes.js";
-import type { ConsoleDiffModel } from "@renderer/features/repos/diff/diff-model.js";
+import type { DiffModel } from "@renderer/features/repos/diff/diff-model.js";
 import { bridgeOnClock } from "@test/helpers/fixture-bridge.js";
 import { SESSION_ID } from "@renderer/features/repos/mounts/repo-mounts.test-support.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
@@ -25,7 +25,7 @@ import { COMPOSED_ENTITY_PROJECTORS } from "./projector-composition.js";
  * entity, so a partition a surface reads answers the empty map an empty session answers,
  * and a mount cannot tell the two apart.
  */
-export function scenarioBridgeAndStore(): { bridge: ConsoleBridge; sessionStore: SessionStore } {
+export function scenarioBridgeAndStore(): { bridge: PlatformBridge; sessionStore: SessionStore } {
   return {
     bridge: bridgeOnClock("repos"),
     sessionStore: new SessionStore({
@@ -47,6 +47,6 @@ export function scenarioBridgeAndStore(): { bridge: ConsoleBridge; sessionStore:
  * Built per call rather than shared, because a model two tiers hold one copy of would
  * make the second tier's mount depend on whether the first had run.
  */
-export function extendedHeaderChangeSet(): ConsoleDiffModel {
+export function extendedHeaderChangeSet(): DiffModel {
   return buildDiffFixture(EXTENDED_HEADER_DIFF_SHAPE);
 }

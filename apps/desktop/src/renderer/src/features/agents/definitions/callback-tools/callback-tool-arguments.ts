@@ -11,7 +11,7 @@
 // IT IS A READER AND NOT A VALIDATOR. Nothing here decides whether the daemon's
 // schema is well-formed or reports that it is not: the registry is daemon-curated and
 // daemon-trusted, and a console that refused to draw a row over a keyword it did not
-// recognise would be asserting a schema dialect the wire never promised. A member
+// recognize would be asserting a schema dialect the wire never promised. A member
 // that is not the shape JSON Schema names simply contributes no argument.
 //
 // REQUIRED FIRST, AND ORDER IS THE SCHEMA'S OWN OTHERWISE. What a person opening this

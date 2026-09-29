@@ -2,7 +2,7 @@
 // pane never showed.
 //
 // Both cases drive a REAL store rather than a stubbed reading: the claim is that the
-// pane follows `initialised` and `degradedCause`, and a fixture that published those
+// pane follows `initialized` and `degradedCause`, and a fixture that published those
 // two names itself would pass over a component reading neither.
 
 import { render } from "@testing-library/react";
@@ -37,8 +37,8 @@ describe("before the first read lands", () => {
 describe("when the first read itself failed", () => {
   it("says so rather than drawing shells for a read that is already over", () => {
     // `OpenSessionEntry` marks `read-failed` when the first read is refused or
-    // rejects, and leaves the store uninitialised — so a pane that asked
-    // "initialised?" first drew twelve `aria-busy` shells for as long as the failure
+    // rejects, and leaves the store uninitialized — so a pane that asked
+    // "initialized?" first drew twelve `aria-busy` shells for as long as the failure
     // stood and never told anybody the read had ended.
     const sessionStore = openStore();
     sessionStore.markDegraded("read-failed");
@@ -57,13 +57,13 @@ describe("when the first read itself failed", () => {
 describe("once the window has been read", () => {
   it("draws nothing at all while the projection is keeping up", () => {
     const sessionStore = openStore();
-    sessionStore.initialise({ cursor: 0, entities: [] });
+    sessionStore.initialize({ cursor: 0, entities: [] });
     expect(readStateOf(sessionStore).textContent).toBe("");
   });
 
   it("carries the catching-up mark while the store is behind, naming the cause", () => {
     const sessionStore = openStore();
-    sessionStore.initialise({ cursor: 0, entities: [] });
+    sessionStore.initialize({ cursor: 0, entities: [] });
     sessionStore.markDegraded("sequence-gap");
     const container = readStateOf(sessionStore);
     expect(container.textContent).toContain("Catching up.");
@@ -74,7 +74,7 @@ describe("once the window has been read", () => {
 
   it("negative control: the shells are gone, so the two arms are never both drawn", () => {
     const sessionStore = openStore();
-    sessionStore.initialise({ cursor: 0, entities: [] });
+    sessionStore.initialize({ cursor: 0, entities: [] });
     sessionStore.markDegraded("stream-diverged");
     expect(
       readStateOf(sessionStore).querySelectorAll(".meridian-transcript-window-skeleton__row"),

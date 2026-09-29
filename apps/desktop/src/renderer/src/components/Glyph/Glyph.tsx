@@ -14,7 +14,7 @@
 // "graphic" beside a label the user has already heard is noise. A glyph WITH a
 // `title` is the control's only name, so it becomes an image carrying that name.
 // There is no third case, which is why an icon-only control in this console cannot
-// ship unlabelled by accident.
+// ship unlabeled by accident.
 //
 // The face is rendered as a component rather than as a `<path>` inside an `<svg>`
 // this module writes, and the props below land on that face's own root element.
@@ -38,16 +38,16 @@ export interface GlyphProps {
 
 export function Glyph(props: GlyphProps): React.JSX.Element {
   const size = props.size ?? GLYPH_DEFAULT_SIZE;
-  const isLabelled = props.title !== undefined;
+  const isLabeled = props.title !== undefined;
   const Face = GLYPH_ICONS[props.name];
   return (
     <Face
       className="meridian-glyph"
       width={size}
       height={size}
-      role={isLabelled ? "img" : undefined}
+      role={isLabeled ? "img" : undefined}
       aria-label={props.title}
-      aria-hidden={isLabelled ? undefined : true}
+      aria-hidden={isLabeled ? undefined : true}
     />
   );
 }

@@ -2,7 +2,7 @@
 //
 // The interception arm is the one send path that reaches no wire, so nothing about
 // it is observable from the call stub the send bar's own cases use. These drive
-// the real hook over the real `DraftStore` and assert the settlements a recognised
+// the real hook over the real `DraftStore` and assert the settlements a recognized
 // command can have: it ran, it was refused, nothing here could run it, or it reads
 // its arguments off the line and had no handler.
 
@@ -12,7 +12,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { bridgeAnswering } from "@test/helpers/fixture-bridge.js";
 import { refuse } from "@renderer/lib/refusal.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence-caps.js";
-import { consoleCommands } from "@renderer/registries/commands/window-command-registry.js";
+import { commandRegistry } from "@renderer/registries/commands/window-command-registry.js";
 import { DEFAULT_ROUTE } from "@renderer/routing/routes.js";
 import { DraftStore } from "@renderer/store/draft-store.js";
 import type { ComposerSessionTarget } from "../../composer-target.js";
@@ -134,7 +134,7 @@ describe("useSendController — an intercepted command awaits its executor", () 
   it("refuses under a named code when nothing is wired to run the command", async () => {
     // The negative control for both cases above, and the defect this closes: before
     // the executor existed the controller cleared the line here and reported
-    // nothing, so a recognised command looked like it had succeeded.
+    // nothing, so a recognized command looked like it had succeeded.
     const driven = driveController(undefined);
 
     act(() => {
@@ -151,12 +151,12 @@ describe("useSendController — an intercepted command awaits its executor", () 
 
 describe("useSendController — a command that reads its line and has no handler", () => {
   afterEach(() => {
-    consoleCommands.unregister(WORKFLOW_COMMAND_ROOT);
+    commandRegistry.unregister(WORKFLOW_COMMAND_ROOT);
   });
 
   it("leaves the line as typed, draws nothing, and records no history", async () => {
     const paletteAct = vi.fn();
-    consoleCommands.register({
+    commandRegistry.register({
       id: WORKFLOW_COMMAND_ROOT,
       title: "Start a workflow",
       group: "Workflow",
@@ -164,8 +164,8 @@ describe("useSendController — a command that reads its line and has no handler
     });
     const driven = driveController(
       createClientCommandExecutor({
-        readSurface: () => readComposerCommands(DEFAULT_ROUTE),
-        readDirectiveHandlers: noComposerCommandLineHandlers,
+        readCommands: () => readComposerCommands(DEFAULT_ROUTE),
+        readCommandLineHandlers: noComposerCommandLineHandlers,
         lineReadingCommandIds: LINE_READING_COMMAND_IDS,
       }),
     );

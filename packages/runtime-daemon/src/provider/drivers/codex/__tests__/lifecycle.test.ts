@@ -135,7 +135,7 @@ import {
 interface JsonRpcAnswer {
   result?: unknown;
   // `data` is optional on the wire and carries the pinned provider's structured
-  // refusal detail. Modelled here so the fake can emit a realistic refusal.
+  // refusal detail. Modeled here so the fake can emit a realistic refusal.
   error?: { code: number; message: string; data?: unknown };
   /**
    * Frames emitted in the SAME read chunk as this answer, after it.
@@ -459,7 +459,7 @@ class FakeCodexAppServer implements PtyHost {
 interface ScheduledTimeout {
   callback: () => void;
   delayMs: number;
-  cancelled: boolean;
+  canceled: boolean;
 }
 
 function makeManualScheduler(): {
@@ -473,18 +473,18 @@ function makeManualScheduler(): {
   const scheduled: ScheduledTimeout[] = [];
   const fired: number[] = [];
   const schedule: CodexScheduleTimeout = (callback, delayMs) => {
-    const entry: ScheduledTimeout = { callback, delayMs, cancelled: false };
+    const entry: ScheduledTimeout = { callback, delayMs, canceled: false };
     scheduled.push(entry);
     return () => {
-      entry.cancelled = true;
+      entry.canceled = true;
     };
   };
   return {
     schedule,
     fireAll: () => {
       for (const entry of scheduled) {
-        if (!entry.cancelled) {
-          entry.cancelled = true;
+        if (!entry.canceled) {
+          entry.canceled = true;
           fired.push(entry.delayMs);
           entry.callback();
         }
@@ -505,8 +505,8 @@ function makeManualScheduler(): {
     fireDelay: (delayMs: number) => {
       let firedHere = 0;
       for (const entry of scheduled) {
-        if (!entry.cancelled && entry.delayMs === delayMs) {
-          entry.cancelled = true;
+        if (!entry.canceled && entry.delayMs === delayMs) {
+          entry.canceled = true;
           fired.push(entry.delayMs);
           entry.callback();
           firedHere += 1;
@@ -514,17 +514,16 @@ function makeManualScheduler(): {
       }
       return firedHere;
     },
-    pendingDelays: () =>
-      scheduled.filter((entry) => !entry.cancelled).map((entry) => entry.delayMs),
+    pendingDelays: () => scheduled.filter((entry) => !entry.canceled).map((entry) => entry.delayMs),
     /**
-     * The delays that ACTUALLY ran, as distinct from the ones cancelled.
+     * The delays that ACTUALLY ran, as distinct from the ones canceled.
      *
      * The two are indistinguishable through `pendingCount` — a settled wait
      * cancels its own timer, and so does an expired one — so an immediacy
      * assertion ("this settled without any timer firing") needs its own record.
      */
     firedDelays: () => fired,
-    pendingCount: () => scheduled.filter((entry) => !entry.cancelled).length,
+    pendingCount: () => scheduled.filter((entry) => !entry.canceled).length,
   };
 }
 
@@ -760,7 +759,7 @@ interface ManagerHarnessOptions {
    *
    * Left unbound by default, exactly as the production composition leaves it, so
    * every test that does not name it exercises the unreadable settlement — which
-   * is the shipped teardown-and-replay behaviour.
+   * is the shipped teardown-and-replay behavior.
    */
   userTurnReadback?: UserTurnReadbackReader;
 }
@@ -944,7 +943,7 @@ describe("CodexDriver spawn and handshake", () => {
     expect(spawnRequest?.cwd).toBe(SESSION_CWD);
   });
 
-  it("pins the prelude string that the measured PTY behaviour requires", () => {
+  it("pins the prelude string that the measured PTY behavior requires", () => {
     // Canonical mode caps one input line at 1024 bytes on Darwin and silently
     // discards anything longer, so `-icanon` is what makes this protocol
     // deliverable at all; `-echo` stops the reader seeing its own frames; `&&`
@@ -1433,7 +1432,7 @@ describe("CodexDriver resumeSession", () => {
 });
 
 // --------------------------------------------------------------------------
-// Transport behaviour
+// Transport behavior
 // --------------------------------------------------------------------------
 
 describe("CodexAppServerConnection transport", () => {
@@ -1797,7 +1796,7 @@ describe("CodexDriver session ownership", () => {
   //
   // Honest limit: this does not discriminate the route sweep itself. A stale
   // entry and a swept one both dead-end (the stale one resolves to a record with
-  // no such turn), so the sweep has no behavioural observable on this class's
+  // no such turn), so the sweep has no behavioral observable on this class's
   // surface -- it bounds map growth across repeated resumes, and the only way to
   // assert that directly would be a test-only accessor on a production class.
   it("reports no active turn for a run that predates a resume", async () => {
@@ -2024,7 +2023,7 @@ describe("CodexLifecycleManager probeAuth", () => {
     // refresh tokens single-use with no grace window, so a probe that refreshed
     // would END the login it was checking rather than observe it. Both members
     // are asserted PRESENT, not merely falsy — `GetAuthStatusParams` types them
-    // required-but-nullable, so omitting either leaves the behaviour to the
+    // required-but-nullable, so omitting either leaves the behavior to the
     // provider's default.
     expect(harness.server.framesForMethod("getAuthStatus")[0]?.["params"]).toEqual({
       includeToken: false,
@@ -2382,7 +2381,7 @@ describe("CodexDriver credential-policy strip at the spawn seam", () => {
     // The denied name SURVIVES, which is the DROP arm stated as an assertion.
     // `trusted` types `credentialPolicyRef?: never`, so a policy sitting beside
     // it in the bag is a wiring inconsistency and not a stricter grant the
-    // posture made. Honouring it here while the resume path drops it would
+    // posture made. Honoring it here while the resume path drops it would
     // rebuild the create/resume asymmetry mirror-imaged — one session stripping
     // on create and not on relaunch.
     expect(harness.server.spawnRequests[0]?.env).toEqual([
@@ -2531,7 +2530,7 @@ describe("CodexDriver credential-policy strip at the spawn seam", () => {
     ]);
   });
 
-  it("honours the resumed posture on a COLD resume, which has no record to reuse", async () => {
+  it("honors the resumed posture on a COLD resume, which has no record to reuse", async () => {
     // The daemon-restart case, and the one the manager-wide config cannot serve:
     // `resumeSpawnConfig` is a single construction-time object, so it can carry
     // at most one policy for every session on the node — here, none at all.
@@ -2694,7 +2693,7 @@ describe("CodexDriver provider-account precedence at the spawn seam", () => {
     // REQUIRED wherever a resume runs: the resume holds the new connection and
     // the superseded one at once, and the fake's listener registry is keyed by
     // pty session id — shared ids let the predecessor's later unsubscribe delete
-    // the live reader. A fixture artifact of the double-spawn, not a behaviour.
+    // the live reader. A fixture artifact of the double-spawn, not a behavior.
     harness.server.uniqueSpawnSessionIds = true;
     harness.server.on("thread/start", () => threadStartResult());
     harness.server.on("thread/resume", () => threadStartResult(1));
@@ -2736,7 +2735,7 @@ describe("CodexDriver provider-account precedence at the spawn seam", () => {
   it("keeps the legacy config-bag channel working when the typed member is absent", async () => {
     // The account plane is not shipped, so the bag is still how in-tree callers
     // name an account. Making the typed member authoritative must not retire the
-    // fallback — an unchanged caller keeps its unchanged behaviour.
+    // fallback — an unchanged caller keeps its unchanged behavior.
     const harness = accountHarness();
 
     await harness.driver.createSession({
@@ -2827,7 +2826,7 @@ describe("CodexDriver provider-account precedence at the spawn seam", () => {
   });
 
   it("REFUSES a COLD resume that names an account the available environment was not built for", async () => {
-    // WHY THIS CANNOT BE HONOURED, which is a stronger reason than a precedence
+    // WHY THIS CANNOT BE HONORED, which is a stronger reason than a precedence
     // rule. With no record to relaunch from, `cwd` and `env` come from the
     // node-wide `resumeSpawnConfig` — and that `env` is the CONSTRUCTED
     // credential environment the daemon built for the DEFAULT account. This
@@ -2943,7 +2942,7 @@ describe("CodexDriver provider-account precedence at the spawn seam", () => {
   it("REFUSES a WARM resume that names an account while the live record bound NONE", async () => {
     // THE SAME DIVERGENCE CLASS AS THE COLD ARM, reached from the other side. A
     // warm resume relaunches under the LIVE RECORD's environment, and a record
-    // whose create bound no account carries an ambient one. Honouring the typed
+    // whose create bound no account carries an ambient one. Honoring the typed
     // member here would report the admitted account off a binding whose child
     // authenticates as whoever that ambient environment belongs to — metadata
     // and credentials divergent, which is the shape the gate exists to refuse
@@ -4768,7 +4767,7 @@ describe("CodexLifecycleManager turn route lifetime", () => {
   });
 
   it("consumes a steer's frame on its ack when the acknowledged turn AGED OUT of the settled memory", async () => {
-    // The same window as the read-chunk case above, reached by ageing instead
+    // The same window as the read-chunk case above, reached by aging instead
     // of by ordering. The settled memory is bounded, and the acknowledgement
     // continuation reads ABSENCE from it as "that turn can still rule this
     // frame" — so a burst of terminals arriving in the steer response's own
@@ -4820,7 +4819,7 @@ describe("CodexLifecycleManager turn route lifetime", () => {
     await drainMicrotasks();
 
     // The premise, asserted rather than assumed: this stayed under the ceiling,
-    // so the trip below is the ageing guard's and not the overflow refusal's.
+    // so the trip below is the aging guard's and not the overflow refusal's.
     expect(
       harness.diagnostics.filter(
         (diagnostic) => diagnostic.kind === "settled-turn-memory-overflowed",
@@ -6534,7 +6533,7 @@ describe("CodexDriver forkConversation (leg 1, native `thread/fork`)", () => {
           (cause: unknown) => cause,
         );
 
-      // Asserted as a labelled pair rather than a bare negative so a failure
+      // Asserted as a labeled pair rather than a bare negative so a failure
       // names WHICH refusal was misread, which is the whole diagnostic value of
       // driving three shapes through one arm.
       expect({
@@ -8819,7 +8818,7 @@ describe("CodexDriver callback-tool round trip (leg 3)", () => {
 describe("CodexLifecycleManager.compactContext (native)", () => {
   // A child thread of this session's own thread. Declared here rather than
   // reused from the routing suite's block scope so this leg's child case cannot
-  // be silently repointed by an edit to a neighbouring describe.
+  // be silently repointed by an edit to a neighboring describe.
   const CHILD_THREAD_ID = "01a04202-0148-7ae2-8560-child0000002";
 
   async function compactionHarness(): Promise<ManagerHarness> {
@@ -8872,7 +8871,7 @@ describe("CodexLifecycleManager.compactContext (native)", () => {
     });
     await drainMicrotasks();
     // A FORWARD-COMPATIBILITY vector, not a pinned one: no member of the
-    // pinned payload carries a position, so this pins the reader's behaviour
+    // pinned payload carries a position, so this pins the reader's behavior
     // for a pin that starts publishing one rather than asserting today's wire.
     emitCompactionBoundary(harness, { threadId: THREAD_ID, turnId: TURN_ID, boundaryPosition: 7 });
 
@@ -9821,7 +9820,7 @@ describe("CodexLifecycleManager.listProviderCommands (live read)", () => {
     // subscribe register the new reader and the predecessor's later unsubscribe
     // then DELETE it, leaving the live connection deaf and every later request
     // unanswered. That is a fixture artifact of the double-spawn, not a driver
-    // behaviour.
+    // behavior.
     harness.server.uniqueSpawnSessionIds = true;
     harness.server.on("thread/start", () => threadStartResult());
     harness.server.on("thread/resume", () => threadStartResult(1));

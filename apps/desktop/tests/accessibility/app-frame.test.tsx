@@ -29,10 +29,10 @@ import {
 } from "./axe-run.js";
 
 import { createFixtureComposition } from "@renderer/app/fixture-composition.js";
-import { ConsoleRoot } from "@renderer/app/providers.js";
+import { AppProviders } from "@renderer/app/providers.js";
 import { installMeridianTokens } from "@renderer/app/token-installation.js";
 import { FIRST_RUN_SCENARIO_ID } from "../../fixtures/scenarios/first-run.js";
-import { CONSOLE_SCHEMES } from "@renderer/styles/tokens.js";
+import { COLOR_SCHEMES } from "@renderer/styles/tokens.js";
 
 beforeEach(() => {
   document.location.hash = "";
@@ -44,15 +44,15 @@ afterEach(async () => {
 });
 
 describe("accessibility — the frame", () => {
-  for (const scheme of CONSOLE_SCHEMES) {
+  for (const scheme of COLOR_SCHEMES) {
     it(`has no axe violation in the ${scheme} scheme`, async () => {
-      // Through the system preference, because `ConsoleRoot` owns the scheme
+      // Through the system preference, because `AppProviders` owns the scheme
       // attribute and would overwrite a stamped one on its first paint — which
       // would silently run both cases against the light palette and report the
       // contrast rules as clean in a scheme nobody measured.
       await emulateSystemScheme(scheme);
       const { container } = await renderSettled(
-        <ConsoleRoot composition={createFixtureComposition(FIRST_RUN_SCENARIO_ID)} />,
+        <AppProviders composition={createFixtureComposition(FIRST_RUN_SCENARIO_ID)} />,
       );
 
       expect(describeViolations(await runTierAxe(container))).toStrictEqual([]);

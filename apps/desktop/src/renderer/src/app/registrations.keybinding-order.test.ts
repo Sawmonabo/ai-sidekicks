@@ -7,7 +7,7 @@
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import {
-  consoleCommandSurface,
+  commandContributionRegistry,
   contributedKeybindings,
 } from "@renderer/registries/commands/command-contributions.js";
 import { RAIL_KEYBINDINGS } from "@renderer/layout/NavigationRail/navigation-commands.js";
@@ -24,7 +24,7 @@ describe("registrations — the window's chord table order", () => {
   }, WHOLE_COMPOSITION_IMPORT_TIMEOUT_MS);
 
   afterEach(() => {
-    consoleCommandSurface.contribute({ owner: TEST_OWNER, commands: [], keyBindings: [] });
+    commandContributionRegistry.contribute({ owner: TEST_OWNER, commands: [], keyBindings: [] });
   });
 
   it("puts the rail's chords before every feature's", () => {
@@ -36,7 +36,7 @@ describe("registrations — the window's chord table order", () => {
   it("negative control: a contribution made after composition lands after the rail's", () => {
     // Without this the case above would pass over a reader that answered the rail's
     // chords from somewhere other than the contributions.
-    consoleCommandSurface.contribute({
+    commandContributionRegistry.contribute({
       owner: TEST_OWNER,
       commands: [
         { id: "keybinding-order-test.act", title: "Act", group: "Test", run: () => undefined },

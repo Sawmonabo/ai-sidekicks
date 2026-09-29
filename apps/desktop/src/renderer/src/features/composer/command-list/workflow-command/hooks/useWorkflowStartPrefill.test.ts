@@ -15,7 +15,7 @@ import { act, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence-caps.js";
-import { consoleCommands } from "@renderer/registries/commands/window-command-registry.js";
+import { commandRegistry } from "@renderer/registries/commands/window-command-registry.js";
 import { DraftStore } from "@renderer/store/draft-store.js";
 import { DEFAULT_ROUTE } from "@renderer/routing/routes.js";
 import { readComposerCommands } from "../../composer-commands.js";
@@ -52,7 +52,7 @@ function lineText(draftStore: DraftStore): string | undefined {
 afterEach(() => {
   // The seat releases on unmount, but a case that threw mid-act would otherwise leave
   // this window's registry holding the row for the next one.
-  consoleCommands.unregister(WORKFLOW_COMMAND_ROOT);
+  commandRegistry.unregister(WORKFLOW_COMMAND_ROOT);
 });
 
 describe("decideWorkflowStartPrefill", () => {
@@ -138,9 +138,9 @@ describe("the palette entry", () => {
   it("is registered under the command root, so one command has one name", () => {
     mountPrefillSurface();
 
-    expect(consoleCommands.get(WORKFLOW_COMMAND_ROOT)?.title).toBe("Start a workflow");
-    // The superseded dotted id is nobody's command: the palette, the recogniser, and
+    expect(commandRegistry.get(WORKFLOW_COMMAND_ROOT)?.title).toBe("Start a workflow");
+    // The superseded dotted id is nobody's command: the palette, the recognizer, and
     // the keyboard page all name the root.
-    expect(consoleCommands.has("workflow.start")).toBe(false);
+    expect(commandRegistry.has("workflow.start")).toBe(false);
   });
 });

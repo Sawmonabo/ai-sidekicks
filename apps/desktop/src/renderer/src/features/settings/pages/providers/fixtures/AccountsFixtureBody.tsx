@@ -12,7 +12,7 @@ import "./accounts-fixture-body.css";
 
 import type { ProviderAccount } from "@ai-sidekicks/contracts";
 import { useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
-import { useConsoleClock } from "@renderer/services/platform/hooks/useClock.js";
+import { useClock } from "@renderer/services/platform/hooks/useClock.js";
 import { type ProviderAccountReadout } from "../provider-account-readout.js";
 import { Nothing } from "@renderer/console/primitives/index.js";
 import { AccountDetail } from "./components/AccountDetail.js";
@@ -36,7 +36,7 @@ import {
 import { TokenRegistrationForm } from "./components/TokenRegistrationForm.js";
 
 /** The daemon verbs the shell drives. Held stable by the caller. */
-export interface AccountsShellOperations {
+export interface AccountOperations {
   readonly login: ProviderAccountLoginCall;
   readonly cancelLogin: ProviderAccountLoginCancelCall;
   readonly register: ProviderAccountRegisterCall;
@@ -46,7 +46,7 @@ export interface AccountsShellOperations {
  * What the shell renders the account list from: the registry's accounts, readiness
  * projection and quota rows, and whether the first read has landed.
  */
-export interface AccountRegistryReading extends Pick<
+export interface AccountListReading extends Pick<
   ProviderAccountReadout,
   "accounts" | "readiness" | "usageWindows" | "newestLoginCompletion"
 > {
@@ -58,15 +58,15 @@ export interface AccountRegistryReading extends Pick<
  * form, drawn from the reading and the verbs it is handed.
  */
 export function AccountsFixtureBody(props: {
-  readonly registry: AccountRegistryReading;
+  readonly registry: AccountListReading;
   /** Asks for a fresh registry read once a sign-in flow has ended. Held stable by the caller. */
   readonly requestRegistryRead: () => void;
-  readonly operations: AccountsShellOperations;
+  readonly operations: AccountOperations;
 }): ReactNode {
   const { registry, requestRegistryRead, operations } = props;
   // The scenario's frozen clock under the fixture, the real one otherwise, so an
   // observation's age is measured on the clock the scenario is driving.
-  const clock = useConsoleClock();
+  const clock = useClock();
   const [selectedAccountId, setSelectedAccountId] = useState<string | undefined>(undefined);
   // Built in a memo and disposed in an effect, so a memo React discards costs an object
   // rather than a call in flight.

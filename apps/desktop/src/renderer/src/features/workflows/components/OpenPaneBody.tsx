@@ -7,11 +7,7 @@
 // import from its host, and no door line, because nothing outside this family
 // composes it.
 
-import type {
-  ConsolePaneAddress,
-  ConsolePaneContext,
-  ConsoleSurfaceContext,
-} from "@renderer/console/seats/index.js";
+import type { PaneAddress, PaneContext, ScreenContext } from "@renderer/console/seats/index.js";
 
 /**
  * The registered body for one address, or nothing when the kind has none.
@@ -21,19 +17,19 @@ import type {
  * into, never from the process-wide one.
  */
 export function OpenPaneBody(props: {
-  readonly address: ConsolePaneAddress;
-  readonly context: ConsoleSurfaceContext;
+  readonly address: PaneAddress;
+  readonly context: ScreenContext;
 }): React.JSX.Element {
   const { address, context } = props;
   const descriptor = context.paneRegistry.descriptorFor(address.kind);
   if (descriptor === undefined) {
     return <></>;
   }
-  // Through the address's own discriminant: `ConsolePaneAddress` is a kind-scoped
+  // Through the address's own discriminant: `PaneAddress` is a kind-scoped
   // union, so a session-scoped arm carries no entity to name a pane after and a bare
   // arm carries none yet.
   const addressedEntityId = "entity" in address ? address.entity?.id : undefined;
-  const paneContext: ConsolePaneContext = {
+  const paneContext: PaneContext = {
     ...address,
     // Deterministic in the address rather than minted, so re-opening the same subject
     // is the same pane and React keeps whatever state its body holds.

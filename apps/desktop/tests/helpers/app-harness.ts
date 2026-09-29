@@ -5,7 +5,7 @@
 // way. A per-tier copy of this would be three chances to mount it differently and
 // then compare results as if they were comparable.
 //
-// The one thing it does beyond `render` is WAIT. `ConsoleRoot` starts async work
+// The one thing it does beyond `render` is WAIT. `AppProviders` starts async work
 // on mount — the durable persistence adapter is opened and the store is upgraded
 // from the in-memory one when it settles, deliberately, so first paint never waits
 // on a database. A test that asserts immediately after `render` therefore asserts
@@ -15,8 +15,8 @@
 // person would actually be looking at.
 //
 // AND THE SECOND THING IT OWNS IS WHAT THAT MOUNT LEFT BEHIND. The store the mount
-// opened is DURABLE and it is shared: the sidebar's collapse, the deck's
-// arrangement and the colour scheme are written into one IndexedDB database per
+// opened is DURABLE and it is shared: the sidebar's collapse, the pane layout's
+// arrangement and the color scheme are written into one IndexedDB database per
 // origin, and unmounting the tree closes a connection rather than removing a
 // record. So a case that collapsed the sidebar was restored into the NEXT case's
 // mount, and the screenshot tier minted a reference named for an expanded sidebar
@@ -31,27 +31,27 @@ import { act, cleanup, render } from "@testing-library/react";
 import type { ReactElement } from "react";
 
 import { crossMacrotaskBoundary } from "./macrotask-boundary.js";
-import { CONSOLE_DATABASE_NAME } from "@renderer/store/persistence/indexeddb-persistence-adapter.js";
-import { consolePaneRegistry, consoleSurfaceRegistry } from "@renderer/console/seats/index.js";
-import { type ConsoleScheme } from "@renderer/styles/tokens.js";
+import { UI_STATE_DATABASE_NAME } from "@renderer/store/persistence/indexeddb-persistence-adapter.js";
+import { paneRegistry, screenRegistry } from "@renderer/console/seats/index.js";
+import { type ColorScheme } from "@renderer/styles/tokens.js";
 
 /**
  * Load every deferred body the console's own boards are holding.
  *
  * WHY THE MOUNT DOES THIS AND NOT THE TIER. A loader-backed body arrives on its own
  * chunk, and a dynamic import needs more than the one macrotask a render settle
- * crosses — so a tier mounting `ConsoleRoot` at an address whose surface or pane is
+ * crosses — so a tier mounting `AppProviders` at an address whose surface or pane is
  * deferred settles onto the reserved region and reads, audits, or PHOTOGRAPHS that.
  * Waiting for it in each spec is the shape that fails: three specs that wait and a
  * fourth that races look identical in a diff, and the fourth is green.
  *
  * THE PROCESS-WIDE BOARDS AND NOT A FAMILY'S. A family mount builds its own registry
- * and resolves one body through `surfaces/pane-body-resolution.ts`; this is the other
+ * and resolves one body through `feature-mounts/pane-body-resolution.ts`; this is the other
  * path — a route commits, the frame opens whatever the address resolves to, and what
  * has to be loaded is whatever the doors this file's importer pulled in registered.
  * Nothing here enumerates kinds: both boards report their own registered keys.
  *
- * EVERY REGISTERED KEY, NOT THE UNLOADED ONES — `ConsoleRoot.test-support.tsx`'s rule,
+ * EVERY REGISTERED KEY, NOT THE UNLOADED ONES — `mount-app.tsx`'s rule,
  * and this file needed it for a reason that one does not have. `unloadedKeys()` reports
  * the keys nothing has ASKED for yet, and mounting IS an ask: a tier that mounts
  * directly at a lazy address — which the accessibility and screenshot tiers do — has
@@ -65,12 +65,8 @@ import { type ConsoleScheme } from "@renderer/styles/tokens.js";
  */
 async function loadRegisteredBodies(): Promise<void> {
   await Promise.all([
-    ...consolePaneRegistry
-      .registeredPaneKinds()
-      .map(async (kind) => consolePaneRegistry.preload(kind)),
-    ...consoleSurfaceRegistry
-      .registeredSlots()
-      .map(async (slot) => consoleSurfaceRegistry.preload(slot)),
+    ...paneRegistry.registeredPaneKinds().map(async (kind) => paneRegistry.preload(kind)),
+    ...screenRegistry.registeredSlots().map(async (slot) => screenRegistry.preload(slot)),
   ]);
 }
 
@@ -91,7 +87,7 @@ export async function pressKeys(sequence: string): Promise<void> {
 /**
  * Put the page in a scheme the way a person's operating system does.
  *
- * NOT by stamping the scheme attribute: `ConsoleRoot` owns that attribute and
+ * NOT by stamping the scheme attribute: `AppProviders` owns that attribute and
  * writes its own store's preference into it in a layout effect, so a test that
  * set it before mounting would have it overwritten with the default `"system"`
  * on the first paint — which is exactly how the first dark-scheme screenshot
@@ -102,7 +98,7 @@ export async function pressKeys(sequence: string): Promise<void> {
  * Chromium-only, through CDP. The browser-mode tiers pin Chromium, so this is a
  * capability of the configured browser rather than an assumption about browsers.
  */
-export async function emulateSystemScheme(scheme: ConsoleScheme): Promise<void> {
+export async function emulateSystemScheme(scheme: ColorScheme): Promise<void> {
   await cdp().send("Emulation.setEmulatedMedia", {
     features: [{ name: "prefers-color-scheme", value: scheme }],
   });
@@ -143,7 +139,7 @@ interface AppMount {
  * this function's: a surface built over a fixture scenario schedules its reads on that
  * scenario's frozen clock, and `bridge/readings/scheduled-read.test-support.ts` is
  * what advances one. A caller holding a bridge settles both
- * (`surfaces/composer.tsx`); a caller mounting `ConsoleRoot`, which builds its own
+ * (`feature-mounts/composer.tsx`); a caller mounting `AppProviders`, which builds its own
  * bridge, has only this.
  */
 export async function renderSettled(element: ReactElement): Promise<AppMount> {
@@ -192,28 +188,28 @@ async function settleOneTurn(): Promise<void> {
 }
 
 /**
- * The scroll container the workspace mounts on every session route.
+ * The scroll container the session screen mounts on every session route.
  *
  * The frame is the window's permanent shell and is on the page from the first commit,
  * so a wait on it returns immediately and hands back a console whose session route has
- * not resolved yet. The workspace mounts this body on every session route whether or
+ * not resolved yet. The session screen mounts this body on every session route whether or
  * not that session has rows, so a wait on it observes the MOUNT rather than the
  * arrival of content.
  */
 export const SESSION_ROUTE_BODY_SELECTOR: string =
-  ".meridian-frame__surface .meridian-ledger__body";
+  ".meridian-frame__screen .meridian-transcript-feed__body";
 
 /**
  * How long a session route gets to arrive before the window is called half-mounted.
  *
  * A DEADLINE, and it replaced a fixed count of forty settle turns on 2026-09-02. That
  * count was a wait measured in the wrong unit: a mount is not one turn of work —
- * `ConsoleRoot` opens a durable persistence adapter, the session registry opens a
- * store, and the store initialises from the bridge's own session read, each resolving
+ * `AppProviders` opens a durable persistence adapter, the session registry opens a
+ * store, and the store initializes from the bridge's own session read, each resolving
  * a promise whose continuation schedules the next — and how many turns those take is a
  * property of the machine, not of the console. Forty of them are about 190 ms, which
  * is enough for a WARM mount and was not enough for a cold one on the pinned
- * `macos-15` runner: the first case in the ledger's file refused there while the
+ * `macos-15` runner: the first case in the transcript's file refused there while the
  * second, on the same route 1.1 s later, passed.
  *
  * A third of the tier's own timeout, read from the resolved configuration rather than
@@ -275,7 +271,7 @@ export async function awaitSessionRouteMounted(container: HTMLElement): Promise<
 export async function resetDurableAppState(): Promise<void> {
   cleanup();
   await settleOneTurn();
-  await deleteConsoleDatabase();
+  await deleteUiStateDatabase();
 }
 
 /**
@@ -293,15 +289,15 @@ export async function resetDurableAppState(): Promise<void> {
  * host on which this function isolates nothing, and answering quietly there would
  * report the absence of isolation as isolation.
  */
-async function deleteConsoleDatabase(): Promise<void> {
+async function deleteUiStateDatabase(): Promise<void> {
   if (typeof indexedDB === "undefined") {
     throw new Error(
-      `this page has no indexedDB global, so ${CONSOLE_DATABASE_NAME} cannot be deleted and every ` +
+      `this page has no indexedDB global, so ${UI_STATE_DATABASE_NAME} cannot be deleted and every ` +
         "case after this one would mount over the records the case before it wrote",
     );
   }
 
-  const deletion = indexedDB.deleteDatabase(CONSOLE_DATABASE_NAME);
+  const deletion = indexedDB.deleteDatabase(UI_STATE_DATABASE_NAME);
   await new Promise<void>((resolve, reject) => {
     deletion.onsuccess = (): void => {
       resolve();
@@ -309,7 +305,7 @@ async function deleteConsoleDatabase(): Promise<void> {
     deletion.onerror = (): void => {
       reject(
         new Error(
-          `${CONSOLE_DATABASE_NAME} refused to be deleted (${describeDeletionFailure(deletion.error)}), ` +
+          `${UI_STATE_DATABASE_NAME} refused to be deleted (${describeDeletionFailure(deletion.error)}), ` +
             "so the next mount would be restored into the arrangement the last one left",
         ),
       );
@@ -317,7 +313,7 @@ async function deleteConsoleDatabase(): Promise<void> {
     deletion.onblocked = (): void => {
       reject(
         new Error(
-          `${CONSOLE_DATABASE_NAME} is still open, so its deletion is blocked: a console mounted ` +
+          `${UI_STATE_DATABASE_NAME} is still open, so its deletion is blocked: a console mounted ` +
             "earlier in this page never had its store closed, and the next mount would be restored " +
             "into the arrangement that console left",
         ),

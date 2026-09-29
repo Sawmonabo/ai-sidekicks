@@ -7,12 +7,12 @@
 // beside it.
 import { createStubBridge } from "@shared/preload-api.js";
 import type { ReactNode } from "react";
-import { DesktopBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { createLiveBridge } from "@renderer/services/platform/live-bridge.js";
 import { FIXTURE_APP_META } from "@renderer/services/platform/platform-bridge.fixture.js";
-import type { ConsoleRoute } from "@renderer/routing/routes.js";
-import type { FrameBanner } from "@renderer/store/window/window-store.js";
+import type { AppRoute } from "@renderer/routing/routes.js";
+import type { WindowBanner } from "@renderer/store/window/window-store.js";
 import {
   RAIL_ENTRY_TEMPLATES,
   type RailEntry,
@@ -22,22 +22,22 @@ const RAIL_ENTRIES: readonly RailEntry[] = [
   { destination: "sessions", ...RAIL_ENTRY_TEMPLATES.sessions },
 ];
 
-export const SESSIONS_ROUTE: ConsoleRoute = { kind: "sessions" };
+export const SESSIONS_ROUTE: AppRoute = { kind: "sessions" };
 
-export function CalmSurface(): React.JSX.Element {
-  return <p>the settings surface rendered</p>;
+export function CalmScreen(): React.JSX.Element {
+  return <p>the settings screen rendered</p>;
 }
 
 /** Everything `AppFrame` needs that a case is not making a claim about. */
 export function frameProps(
-  route: ConsoleRoute,
-  banners: readonly FrameBanner[] = [],
+  route: AppRoute,
+  banners: readonly WindowBanner[] = [],
 ): {
-  route: ConsoleRoute;
+  route: AppRoute;
   railEntries: readonly RailEntry[];
   railDestination: undefined;
   onSelectDestination: () => void;
-  banners: readonly FrameBanner[];
+  banners: readonly WindowBanner[];
   onDismissBanner: () => void;
 } {
   return {
@@ -61,10 +61,10 @@ export function frameProps(
  * real concurrent-streaming scenario.
  */
 export function bridgeWrapper(
-  bridge: ConsoleBridge,
+  bridge: PlatformBridge,
 ): (props: { readonly children: ReactNode }) => React.JSX.Element {
   return function BridgeHost(props: { readonly children: ReactNode }): React.JSX.Element {
-    return <DesktopBridgeProvider bridge={bridge}>{props.children}</DesktopBridgeProvider>;
+    return <PlatformBridgeProvider bridge={bridge}>{props.children}</PlatformBridgeProvider>;
   };
 }
 

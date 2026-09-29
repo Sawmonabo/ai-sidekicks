@@ -18,7 +18,7 @@
 // created is what gets removed, and a suite registers one hook however many trees it
 // plants.
 //
-// AND IT STANDS BESIDE THOSE NEIGHBOURS RATHER THAN INSIDE ONE OF THEM. None of them
+// AND IT STANDS BESIDE THOSE NEIGHBORS RATHER THAN INSIDE ONE OF THEM. None of them
 // owns a register-a-resource-and-release-it-after-the-case role for this to be an
 // instance of: `cleanup-contract.ts` is the contract one LAUNCHED APPLICATION's cleanup
 // is handed, `bounded-cleanup.ts` is the bounded close-or-kill race that produces a

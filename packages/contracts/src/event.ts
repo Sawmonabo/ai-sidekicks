@@ -808,7 +808,7 @@ export function withEpochStamp<
  * sealed user partition to the row's signature without carrying the
  * plaintext into the signed bytes.
  *
- * SNAKE_CASE beside camelCase neighbours, deliberately: spells both members of
+ * SNAKE_CASE beside camelCase neighbors, deliberately: spells both members of
  * this pair that way, and rows have been signed under these exact literals
  * since the sealing codec shipped. A spelling "cleanup" here would not tidy
  * anything — it would break signature verification on every existing PII row.
@@ -1091,14 +1091,14 @@ export const RepoDetachedEventSchema: z.ZodType<RepoDetachedEvent> = z
 // Emitted at the head of a (re)provisioning transition — the
 // `WorkspaceService.beginRootPreparation`.
 export interface WorkspacePreparingEvent extends EventEnvelope {
-  type: "workspace.provisioning";
+  type: "workspace.preparing";
   category: "session_lifecycle";
   payload: RepoWorkspaceLifecycleVariantPayload;
 }
 export const WorkspacePreparingEventSchema: z.ZodType<WorkspacePreparingEvent> = z
   .object({
     ...buildCommonShape(),
-    type: z.literal("workspace.provisioning"),
+    type: z.literal("workspace.preparing"),
     category: z.literal("session_lifecycle"),
     payload: repoWorkspaceLifecycleVariantPayloadSchema,
   })
@@ -2293,7 +2293,7 @@ export const SessionEventSchema: z.ZodType<SessionEvent> = z.discriminatedUnion(
   z
     .object({
       ...buildCommonShape(),
-      type: z.literal("workspace.provisioning"),
+      type: z.literal("workspace.preparing"),
       category: z.literal("session_lifecycle"),
       payload: repoWorkspaceLifecycleVariantPayloadSchema,
     })
@@ -2560,7 +2560,7 @@ export type SessionEventType =
   | "agent.config_updated"
   | "repo.attached"
   | "repo.detached"
-  | "workspace.provisioning"
+  | "workspace.preparing"
   | "workspace.ready"
   | "workspace.stale"
   | "workspace.archived"
@@ -2645,7 +2645,7 @@ export const SESSION_EVENT_TYPES: readonly SessionEvent["type"][] = [
   "session.created",
   "repo.attached",
   "repo.detached",
-  "workspace.provisioning",
+  "workspace.preparing",
   "workspace.ready",
   "workspace.stale",
   "workspace.archived",
@@ -2758,7 +2758,7 @@ export const SESSION_LIFECYCLE_EVENT_TYPES: readonly SessionEventType[] = [
   "agent.config_updated",
   "repo.attached",
   "repo.detached",
-  "workspace.provisioning",
+  "workspace.preparing",
   "workspace.ready",
   "workspace.stale",
   "workspace.archived",
@@ -2923,7 +2923,7 @@ const SESSION_EVENT_CATEGORY_RECORD = {
   "agent.config_updated": "session_lifecycle",
   "repo.attached": "session_lifecycle",
   "repo.detached": "session_lifecycle",
-  "workspace.provisioning": "session_lifecycle",
+  "workspace.preparing": "session_lifecycle",
   "workspace.ready": "session_lifecycle",
   "workspace.stale": "session_lifecycle",
   "workspace.archived": "session_lifecycle",

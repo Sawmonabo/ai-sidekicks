@@ -24,7 +24,7 @@
 // the most.
 //
 // ONE READ, ONE HOOK, NO EFFECT. The schema comes off the phase the caller already holds
-// and the hook memoises the plan and the compiled validator on it, so a keystroke re-walks
+// and the hook memoizes the plan and the compiled validator on it, so a keystroke re-walks
 // nothing.
 
 import { SchemaForm } from "./SchemaForm.js";

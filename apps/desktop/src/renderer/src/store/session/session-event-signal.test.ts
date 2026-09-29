@@ -15,7 +15,7 @@ import { describe, expect, it } from "vitest";
 import type { SessionStore } from "./session-store.js";
 import { eventOfKind } from "@test/helpers/session-events.js";
 import { subscribeToSessionEventKinds } from "./session-event-signal.js";
-import { initialisedStore } from "@test/helpers/session-store-fixtures.js";
+import { initializedStore } from "@test/helpers/session-store-fixtures.js";
 
 /** A subscribed counter over one watched set, plus the store it watches. */
 function watchedSignalCount(sessionId: string): {
@@ -23,7 +23,7 @@ function watchedSignalCount(sessionId: string): {
   readonly signalCount: () => number;
   readonly unsubscribe: () => void;
 } {
-  const sessionStore = initialisedStore(sessionId);
+  const sessionStore = initializedStore(sessionId);
   let signals = 0;
   const unsubscribe = subscribeToSessionEventKinds(sessionStore, ["run.queued"], () => {
     signals += 1;
@@ -55,7 +55,7 @@ describe("the session-event signal", () => {
     // A filter that scanned the whole timeline rather than the slice this
     // transition admitted would signal on the run already sitting in it, on a
     // transition that carried nothing the caller watches.
-    const sessionStore = initialisedStore("signal-newly-admitted");
+    const sessionStore = initializedStore("signal-newly-admitted");
     sessionStore.apply(eventOfKind(sessionStore.sessionId, "run.queued", 1));
     let signals = 0;
     const unsubscribe = subscribeToSessionEventKinds(sessionStore, ["run.queued"], () => {
@@ -85,7 +85,7 @@ describe("the session-event signal", () => {
   it("negative control: the store does deliver the transitions these cases count over", () => {
     // Without this, every clean result above would also hold for a store that
     // notified nobody — which is the one way this whole file could be vacuous.
-    const sessionStore = initialisedStore("signal-instrument");
+    const sessionStore = initializedStore("signal-instrument");
     let transitions = 0;
     const unsubscribe = sessionStore.readable.subscribe(() => {
       transitions += 1;

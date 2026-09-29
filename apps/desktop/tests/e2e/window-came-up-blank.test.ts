@@ -3,7 +3,7 @@
 //
 // Every other console tier renders the console into something that is not the
 // application: happy-dom for the unit tier, a Chromium page for the three browser-mode
-// tiers. None of them can catch a defect that exists only in the shipped shell, and
+// tiers. None of them can catch a defect that exists only in the shipped app, and
 // this tier runs the code path a person installing the application would run.
 //
 // ONE ASSERTION LIBRARY, DELIBERATELY. Playwright ships its own auto-retrying `expect`
@@ -12,7 +12,7 @@
 // timeouts are read from a test context this runner does not provide. Waiting is
 // explicit (`locator.waitFor`, `expect.poll`) and asserting is Vitest's.
 //
-// THE INCIDENT: the shell opened a window and the console was not in it.
+// THE INCIDENT: the main process opened a window and the console was not in it.
 //
 // Two shapes of the same report, and the seams they land on are different. The window
 // is served from a scheme that was never registered as standard, so the document has
@@ -77,7 +77,7 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — console came up blank", () => {
         state: "visible",
         timeout: consoleApplication.bodyAllowance.boundedMs(IN_WINDOW_STEP_TIMEOUT_MS),
       });
-      expect(await consoleWindow.locator(".meridian-surface-absence").count()).toBe(0);
+      expect(await consoleWindow.locator(".meridian-screen-notice").count()).toBe(0);
 
       // The COMPOSED absence, in a real window, which is the half of the pair that
       // makes the other half mean something: without it, "no absence wrapper on
@@ -88,22 +88,22 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — console came up blank", () => {
       // IT IS THE HARNESS'S ADMISSION REFUSAL, AND NO LONGER ITS RESERVED ARM. Every
       // previous revision of this probe pointed at a destination nobody owned — off
       // `#/workflows` when the workflows family took it, off `#/window/timeline/…` once the
-      // ledger claimed the last unowned SURFACE slot, and then one layer down at a pane
-      // kind the deck declared and no family rendered. That last address is gone too:
+      // transcript claimed the last unowned SCREEN slot, and then one layer down at a pane
+      // kind the pane layout declared and no family rendered. That last address is gone too:
       // `registeredPaneKinds()` now answers with all eleven of `PANE_KINDS`, so no address
       // anywhere in a built console reaches a reserved arm, and each earlier revision's
       // own instruction — re-point it, do not delete it — ends here, at the point it
       // named: there is no slot left to be told to reserve.
       //
       // What replaces it is an absence a family can never claim away, because it does
-      // not fire on a pane kind at all: `PaneHarnessSurface` holds the address segment
-      // to `parseConsolePaneAddress`, the console's one admission point for an address
+      // not fire on a pane kind at all: `PaneHarnessScreen` holds the address segment
+      // to `parsePaneAddress`, the console's one admission point for an address
       // that arrived untyped, and a segment that names no kind is refused there. That
       // is also the STRONGER end-to-end subject of the two — a reserved arm is a state
       // a shipped build can only reach through its own composition mistake, while a
       // mistyped hash is a thing a person actually does. The reserved arms themselves
       // stay pinned where they can be driven directly, with a registry that holds no
-      // descriptor: `PaneHarnessSurface.test.tsx` for this one and `RouteSurface.test.tsx`
+      // descriptor: `PaneHarnessScreen.test.tsx` for this one and `app/router.test.tsx`
       // for the slot layer above it. Point this back at a reserved arm the day a kind is
       // declared in `PANE_KINDS` ahead of the family that renders it.
       //
@@ -114,7 +114,7 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — console came up blank", () => {
         window.location.hash = `#/pane-harness/not-a-pane-kind/${sessionId}`;
       }, FIRST_RUN_SCENARIO.sessionId);
       // `--block` is the composed placement, and asserting it is the other half of
-      // "not a bare line": the surface layer proved that with `SurfaceAbsence`, and
+      // "not a bare line": the surface layer proved that with `ScreenNotice`, and
       // this arm renders its `Nothing` inside the harness region instead, where the
       // placement modifier is what carries the same claim.
       await consoleWindow

@@ -12,7 +12,7 @@
 // ITS OWN MODULE because the daemon fixture, its subscriptions and the platform fixture all
 // raise it; declared here, each reads one leaf and none of them reads another.
 
-import { ConsoleRefusalError, refuse } from "@renderer/lib/refusal.js";
+import { RefusalError, refuse } from "@renderer/lib/refusal.js";
 
 /**
  * The codes a scripted reply that never arrived refuses with.
@@ -73,7 +73,7 @@ export const FIXTURE_BRIDGE_REFUSAL_ORIGIN = "fixture-bridge";
 /**
  * Thrown when a surface asks the fixture for something no scenario scripts.
  *
- * A `ConsoleRefusalError` and not a bare `Error` carrying a code of its own.
+ * A `RefusalError` and not a bare `Error` carrying a code of its own.
  * `core/refusal.ts` names this module as one of the five that had minted their own
  * refusal vocabulary, and the cost was concrete: a surface wanting to render a
  * fixture failure had to translate it to reach one renderer. It stays a NAMED
@@ -85,7 +85,7 @@ export const FIXTURE_BRIDGE_REFUSAL_ORIGIN = "fixture-bridge";
  * bridge method, which is machine-readable provenance, and `detail` is the sentence
  * a person acts on.
  */
-export class FixtureBridgeError extends ConsoleRefusalError {
+export class FixtureBridgeError extends RefusalError {
   public readonly call: string;
 
   public constructor(call: string, code: FixtureBridgeRefusalCode, detail: string) {

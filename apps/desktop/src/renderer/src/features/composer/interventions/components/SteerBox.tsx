@@ -32,10 +32,10 @@
 // daemon's own code.
 
 import { useCallback, useEffect, useId, useMemo } from "react";
-import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { InlineRefusal } from "@renderer/console/primitives/index.js";
 import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
-import { refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
+import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 import {
   RUN_INTERVENTION_REFUSAL_ORIGIN,
   admissionRefusal,
@@ -58,7 +58,7 @@ export interface SteerBoxProps {
    * own — `surface.dispatch` does — but its state is about one transport and one
    * run, and a replacement retires both.
    */
-  readonly bridge: ConsoleBridge;
+  readonly bridge: PlatformBridge;
   readonly run: RunControlCommandRun;
   readonly surface: RunControlDispatchState;
   /** Close the composer. Raised on cancel, and on a settlement that landed. */
@@ -88,7 +88,7 @@ interface PendingDispatch {
  */
 interface ComposedForm {
   readonly body: string;
-  readonly localRefusal: ConsoleRefusal | undefined;
+  readonly localRefusal: Refusal | undefined;
   readonly pendingDispatch: PendingDispatch | undefined;
   /**
    * Whether this form has already asked to be closed.

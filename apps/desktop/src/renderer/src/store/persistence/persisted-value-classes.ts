@@ -194,7 +194,7 @@ const isIdentifierString: ShapeValidator = (value) =>
  */
 const SHAPE_VALIDATORS: Readonly<Record<PersistedValueClass, ShapeValidator>> = {
   /**
-   * A deck layout: pane ids to a record of numbers (sizes, order) and booleans
+   * A pane layout: pane ids to a record of numbers (sizes, order) and booleans
    * (collapsed). Deliberately no free-form member — a layout that needed one
    * would be carrying something that is not layout.
    */
@@ -268,7 +268,7 @@ export function isPersistedValueClass(candidate: string): candidate is Persisted
 
 /**
  * The chokepoint's validator. Returns a refusal or `undefined`; it never
- * normalises, truncates, or repairs, because a store that silently fixes a write
+ * normalizes, truncates, or repairs, because a store that silently fixes a write
  * hides the caller that made it.
  */
 export function validatePersistedValue(
@@ -292,7 +292,7 @@ export function validatePersistedValue(
  * THE byte measurement. Every cap the chokepoint applies is counted through this
  * one function, over the whole record rather than over its value alone.
  *
- * It sits with the value type it serialises rather than in a module of its own:
+ * It sits with the value type it serializes rather than in a module of its own:
  * `JSON.stringify` over a `PersistableValue` is the measurement, and a module
  * holding the ruler while the thing being measured is declared next door would be
  * two files for one fact.

@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { caretAtEnd, caretAtStart } from "./draft-line.js";
 
 describe("the edge offsets are what let an arrow recall at all", () => {
-  it("recognises a collapsed caret at each edge", () => {
+  it("recognizes a collapsed caret at each edge", () => {
     expect(caretAtStart({ selectionStart: 0, selectionEnd: 0, textLength: 9 })).toBe(true);
     expect(caretAtEnd({ selectionStart: 9, selectionEnd: 9, textLength: 9 })).toBe(true);
   });

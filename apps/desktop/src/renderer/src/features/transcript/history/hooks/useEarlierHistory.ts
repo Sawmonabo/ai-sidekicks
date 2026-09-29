@@ -9,7 +9,7 @@
 //
 // THE HOLDER IS SESSION-SCOPED, NOT MOUNT-SCOPED, for `useChildRunDisclosure`'s
 // reason: this console holds session stores open across a navigation, so a walk held
-// by the mount would carry one session's position into the next session's ledger. The
+// by the mount would carry one session's position into the next session's transcript. The
 // subject is the bridge as well as the session id, because a bridge replacement — a
 // reconnect, a second window's own instance, the fixture's scenario switch — retires
 // every call in flight through it.
@@ -26,7 +26,7 @@
 // verdict whose whole point is that it is the producer's.
 
 import { useCallback, useMemo, useState } from "react";
-import { useConsoleBridge } from "@renderer/services/platform/hooks/usePlatformBridge.js";
+import { usePlatformBridge } from "@renderer/services/platform/hooks/usePlatformBridge.js";
 import { useSessionStore } from "@renderer/store/session/hooks/useOpenSessionStore.js";
 import { useSubjectScopedResource } from "@renderer/hooks/subject-scoped/useSubjectScopedResource.js";
 import { type SubjectScopedDisposal } from "@renderer/lib/subject-scoped/subject-scoped-disposal.js";
@@ -57,7 +57,7 @@ export interface EarlierHistoryPaging extends EarlierHistoryState {
  * was let go of is not a line that can be handed to the next render: the session this
  * walk was addressed at is gone, its outstanding page belongs to nobody, and a page
  * landing afterwards must not grow a log the console has moved off. `isClosed` is what
- * makes React's double-mount survivable — the disposed reader is recognised and a
+ * makes React's double-mount survivable — the disposed reader is recognized and a
  * fresh one minted, rather than the pane spending its life pressing a control on a
  * line that can never open a live round again.
  */
@@ -79,7 +79,7 @@ export function useEarlierHistory(
   sessionStore: SessionStore,
   readEarlierPage: EarlierPageRead,
 ): EarlierHistoryPaging {
-  const bridge = useConsoleBridge();
+  const bridge = usePlatformBridge();
   const held = useSubjectScopedResource(
     bridge,
     sessionStore.sessionId,

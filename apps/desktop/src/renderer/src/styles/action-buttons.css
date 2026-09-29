@@ -35,8 +35,8 @@
    control here is quiet chrome. */
 .meridian-approval-card__scope-trigger,
 .meridian-approval-card__action,
-.meridian-grants__revoke,
-.meridian-grants__cancel {
+.meridian-remembered-rules__revoke,
+.meridian-remembered-rules__cancel {
   padding: var(--meridian-space-1) var(--meridian-space-3);
   font: inherit;
   font-size: var(--meridian-text-sm);
@@ -47,8 +47,8 @@
    one thing `meridian-accent-fill` exists to keep in a single place. */
 .meridian-approval-card__scope-trigger,
 .meridian-approval-card__action--reject,
-.meridian-grants__revoke,
-.meridian-grants__cancel {
+.meridian-remembered-rules__revoke,
+.meridian-remembered-rules__cancel {
   color: var(--meridian-text);
   background: var(--meridian-surface);
   border: 1px solid var(--meridian-edge-strong);
@@ -57,8 +57,8 @@
 }
 
 .meridian-approval-card__action:focus-visible,
-.meridian-grants__revoke:focus-visible,
-.meridian-grants__cancel:focus-visible,
+.meridian-remembered-rules__revoke:focus-visible,
+.meridian-remembered-rules__cancel:focus-visible,
 .meridian-approval-card__disclosure-trigger:focus-visible,
 .meridian-approval-card__scope-trigger:focus-visible,
 .meridian-callback-tools__schema-trigger:focus-visible,

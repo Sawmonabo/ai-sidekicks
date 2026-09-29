@@ -1,7 +1,7 @@
 import type { ProviderReadiness } from "@ai-sidekicks/contracts";
 import type { ReactNode } from "react";
 
-import type { ConsoleRefusal } from "@renderer/lib/refusal.js";
+import type { Refusal } from "@renderer/lib/refusal.js";
 import { Chip, DerivedFigure, formatDateTime } from "@renderer/console/primitives/index.js";
 import { RemedyLine } from "./RemedyLine.js";
 
@@ -34,7 +34,7 @@ export function ReadinessRow(props: {
   /** Why this row's start may not be pressed right now, where it may not be. */
   readonly startBlockedReason: string | undefined;
   /** The last refusal this row's own start was answered with, where there is one. */
-  readonly startRefusal: ConsoleRefusal | undefined;
+  readonly startRefusal: Refusal | undefined;
 }): ReactNode {
   const { readiness, onStartSignIn, startBlockedReason, startRefusal } = props;
   const { remedy } = readiness;

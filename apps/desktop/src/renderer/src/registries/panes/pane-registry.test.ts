@@ -1,6 +1,6 @@
-// One owner per pane kind, and the declaration order the deck answers in.
+// One owner per pane kind, and the declaration order the pane layout answers in.
 //
-// The deck rule stated structurally — a single mount door and a tripwire that fails
+// The pane layout rule stated structurally — a single mount door and a tripwire that fails
 // on a second — is enforced by the registry's `"owner-scoped"` policy. Six families
 // claim pane kinds on six branches, so the failure this file exists for is two of them
 // claiming one kind: without the refusal, which body mounts would depend on module
@@ -10,55 +10,55 @@ import { describe, expect, it } from "vitest";
 
 import { DuplicateRegistrationError } from "@renderer/lib/keyed-registry.js";
 import {
-  type ConsolePaneAddress,
-  type ConsolePaneLink,
-  type ConsolePaneOpener,
+  type PaneAddress,
+  type PaneLink,
+  type PaneOpener,
 } from "@renderer/routing/panes/pane-address.js";
 import { PANE_KINDS } from "@renderer/routing/panes/pane-kinds.js";
 import {
-  ConsolePaneRegistry,
-  consolePaneRegistry,
+  PaneRegistry,
+  paneRegistry,
   registeredPaneKinds,
-  type ConsolePaneDescriptor,
+  type PaneDescriptor,
 } from "./pane-registry.js";
 
 /** A descriptor whose render is never called: these cases are about the table. */
-function descriptor(kind: ConsolePaneDescriptor["kind"], owner: string): ConsolePaneDescriptor {
+function descriptor(kind: PaneDescriptor["kind"], owner: string): PaneDescriptor {
   return { kind, owner, render: () => null };
 }
 
 describe("pane registry — one owner per kind", () => {
   it("replaces when the same owner re-claims", () => {
     // A hot reload re-runs a family's module. Refusing that would make the console
-    // unreloadable; silently keeping the FIRST would leave the deck rendering the
+    // unreloadable; silently keeping the FIRST would leave the pane layout rendering the
     // pre-edit body, which reads as an edit that did nothing.
-    const registry = new ConsolePaneRegistry();
+    const registry = new PaneRegistry();
     const beforeEdit = descriptor("diff", "repos-family");
     const afterEdit = descriptor("diff", "repos-family");
     registry.register(beforeEdit);
     registry.register(afterEdit);
     expect(registry.registeredPaneKinds()).toStrictEqual(["diff"]);
     // Identity of the BODY, not shape and not of the descriptor object: the registry
-    // normalises both registration forms into a descriptor of its own, so what says
-    // which body the deck mounts is the `render` it kept. The two registrations are
+    // normalizes both registration forms into a descriptor of its own, so what says
+    // which body the pane layout mounts is the `render` it kept. The two registrations are
     // structurally identical, so a registry that kept the FIRST would satisfy every
-    // shape assertion while the deck went on rendering the pre-edit body.
+    // shape assertion while the pane layout went on rendering the pre-edit body.
     expect(registry.descriptorFor("diff")?.render).toBe(afterEdit.render);
     expect(registry.descriptorFor("diff")?.render).not.toBe(beforeEdit.render);
   });
 
   it("refuses a second owner rather than swapping", () => {
-    const registry = new ConsolePaneRegistry();
-    registry.register(descriptor("timeline", "workspace-family"));
+    const registry = new PaneRegistry();
+    registry.register(descriptor("transcript", "transcript-family"));
     expect(() => {
-      registry.register(descriptor("timeline", "second-owner"));
+      registry.register(descriptor("transcript", "second-owner"));
     }).toThrow(DuplicateRegistrationError);
     // The first owner keeps the kind: a refused claim must not have half-applied.
-    expect(registry.descriptorFor("timeline")?.owner).toBe("workspace-family");
+    expect(registry.descriptorFor("transcript")?.owner).toBe("transcript-family");
   });
 
   it("names both owners in the refusal, so the conflict is actionable", () => {
-    const registry = new ConsolePaneRegistry();
+    const registry = new PaneRegistry();
     registry.register(descriptor("runs", "composer-family"));
     expect(() => {
       registry.register(descriptor("runs", "workflows-family"));
@@ -68,21 +68,17 @@ describe("pane registry — one owner per kind", () => {
 
 describe("pane registry — declaration order, not registration order", () => {
   it("reports registered kinds in the spec's order", () => {
-    const registry = new ConsolePaneRegistry();
+    const registry = new PaneRegistry();
     // Registered back to front, so an implementation that reported insertion
     // order rather than declaration order would answer differently.
-    registry.register(descriptor("agent-console", "third"));
+    registry.register(descriptor("agents", "third"));
     registry.register(descriptor("approvals", "second"));
-    registry.register(descriptor("timeline", "first"));
-    expect(registry.registeredPaneKinds()).toStrictEqual([
-      "timeline",
-      "approvals",
-      "agent-console",
-    ]);
+    registry.register(descriptor("transcript", "first"));
+    expect(registry.registeredPaneKinds()).toStrictEqual(["transcript", "approvals", "agents"]);
   });
 
   it("reports only kinds that were claimed", () => {
-    const registry = new ConsolePaneRegistry();
+    const registry = new PaneRegistry();
     registry.register(descriptor("artifact", "repos-family"));
     for (const kind of PANE_KINDS) {
       expect(registry.registeredPaneKinds().includes(kind)).toBe(kind === "artifact");
@@ -90,7 +86,7 @@ describe("pane registry — declaration order, not registration order", () => {
   });
 
   it("forgets a kind once it is released", () => {
-    const registry = new ConsolePaneRegistry();
+    const registry = new PaneRegistry();
     registry.register(descriptor("browser", "browser-terminal-family"));
     registry.unregister("browser");
     expect(registry.registeredPaneKinds()).toStrictEqual([]);
@@ -100,7 +96,7 @@ describe("pane registry — declaration order, not registration order", () => {
   it("negative control: a fresh registry claims nothing on its own", () => {
     // Every case above reads `registeredPaneKinds`, and all of them would pass
     // over a registry that reported kinds nobody registered.
-    expect(new ConsolePaneRegistry().registeredPaneKinds()).toStrictEqual([]);
+    expect(new PaneRegistry().registeredPaneKinds()).toStrictEqual([]);
   });
 });
 
@@ -114,13 +110,11 @@ describe("pane registry — the module-scope door", () => {
     // family that called it would write into production from inside a composition
     // that had handed it another board.
     try {
-      consolePaneRegistry.register(descriptor("workflow-builder", "pane-registry-test"));
-      expect(consolePaneRegistry.descriptorFor("workflow-builder")?.owner).toBe(
-        "pane-registry-test",
-      );
+      paneRegistry.register(descriptor("workflow-builder", "pane-registry-test"));
+      expect(paneRegistry.descriptorFor("workflow-builder")?.owner).toBe("pane-registry-test");
       expect(registeredPaneKinds()).toContain("workflow-builder");
     } finally {
-      consolePaneRegistry.unregister("workflow-builder");
+      paneRegistry.unregister("workflow-builder");
     }
   });
 
@@ -128,31 +122,31 @@ describe("pane registry — the module-scope door", () => {
     // Without this the case above would pass against a registry that had been
     // holding the descriptor since some earlier file ran, and would keep passing if
     // `registeredPaneKinds` stopped reading the registry at all.
-    expect(consolePaneRegistry.descriptorFor("workflow-builder")).toBeUndefined();
+    expect(paneRegistry.descriptorFor("workflow-builder")).toBeUndefined();
     expect(registeredPaneKinds()).not.toContain("workflow-builder");
   });
 });
 
 describe("pane opener — a pane that opens another can name itself", () => {
   /**
-   * A deck-shaped opener: it records what it was asked for, exactly as a deck
+   * A pane-layout-shaped opener: it records what it was asked for, exactly as a pane layout
    * would copy the link onto the new pane's context.
    *
-   * Driven here rather than left to the ledger deck to discover, for the reason
-   * the module-scope door above is driven here: the deck ships on another branch,
+   * Driven here rather than left to the pane layout to discover, for the reason
+   * the module-scope door above is driven here: the pane layout ships on another branch,
    * so the seat's second parameter would otherwise be a contract nothing exercises
    * until the first consumer gets it wrong.
    */
   function recordingOpener(): {
-    readonly openPane: ConsolePaneOpener;
+    readonly openPane: PaneOpener;
     readonly opens: {
-      readonly address: ConsolePaneAddress;
-      readonly link: ConsolePaneLink | undefined;
+      readonly address: PaneAddress;
+      readonly link: PaneLink | undefined;
     }[];
   } {
     const opens: {
-      readonly address: ConsolePaneAddress;
-      readonly link: ConsolePaneLink | undefined;
+      readonly address: PaneAddress;
+      readonly link: PaneLink | undefined;
     }[] = [];
     return {
       openPane: (address, link) => {
@@ -165,16 +159,16 @@ describe("pane opener — a pane that opens another can name itself", () => {
   // A worktree, because the address union types `entity` PER KIND and a `diff`
   // pane is a view of a worktree or a workspace. An artifact reference here is
   // not a fixture detail the compiler now lets pass.
-  const diffAddress: ConsolePaneAddress = {
+  const diffAddress: PaneAddress = {
     kind: "diff",
     entity: { kind: "worktree", id: "worktree-7" },
   };
 
-  it("carries the source pane id through to the deck", () => {
+  it("carries the source pane id through to the pane layout", () => {
     const { openPane, opens } = recordingOpener();
-    openPane(diffAddress, { linkedSourcePaneId: "pane-ledger-2" });
+    openPane(diffAddress, { linkedSourcePaneId: "pane-transcript-2" });
     expect(opens).toStrictEqual([
-      { address: diffAddress, link: { linkedSourcePaneId: "pane-ledger-2" } },
+      { address: diffAddress, link: { linkedSourcePaneId: "pane-transcript-2" } },
     ]);
   });
 

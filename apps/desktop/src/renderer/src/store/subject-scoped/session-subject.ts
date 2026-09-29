@@ -11,7 +11,7 @@
 // name: a rebuilt `SessionStore` for the same session passes an id comparison on the
 // first committed render after the replacement and hands back models bound to a
 // projection that was just retired. That holder is a registry rather than render
-// state (`agents/run-console/agent-console-model.ts`), it runs outside React, and what
+// state (`features/agents/pane/agents-pane-models.ts`), it runs outside React, and what
 // it needs is the predicate and not the storage. It states the same rule in the same
 // terms and holds nothing.
 import { type SessionStore } from "../session/session-store.js";

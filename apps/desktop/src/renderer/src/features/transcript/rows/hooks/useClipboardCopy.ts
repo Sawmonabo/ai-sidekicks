@@ -2,8 +2,8 @@ import { useEffect, useRef, useState } from "react";
 
 import type { ScheduledHandle } from "@renderer/lib/clock.js";
 import { TRANSIENT_STATUS_DURATION_MS } from "@renderer/lib/transient-status.js";
-import { useConsoleClock } from "@renderer/services/platform/hooks/useClock.js";
-import { useConsoleBridge } from "@renderer/services/platform/hooks/usePlatformBridge.js";
+import { useClock } from "@renderer/services/platform/hooks/useClock.js";
+import { usePlatformBridge } from "@renderer/services/platform/hooks/usePlatformBridge.js";
 
 /** Where a copy control stands: at rest, or showing how its last press ended. */
 export type ClipboardCopyStatus = "rest" | "copied" | "failed";
@@ -21,8 +21,8 @@ export interface ClipboardCopy {
  * where the fixture rejects; both end as `failed`, which the control says in place.
  */
 export function useClipboardCopy(text: string): ClipboardCopy {
-  const bridge = useConsoleBridge();
-  const clock = useConsoleClock();
+  const bridge = usePlatformBridge();
+  const clock = useClock();
   const [status, setStatus] = useState<ClipboardCopyStatus>("rest");
   const resetHandle = useRef<ScheduledHandle | undefined>(undefined);
   const mounted = useRef(true);
@@ -56,7 +56,7 @@ export function useClipboardCopy(text: string): ClipboardCopy {
 
   const copy = (): void => {
     try {
-      bridge.desktopBridge.native.copyToClipboard(text).then(
+      bridge.native.copyToClipboard(text).then(
         () => {
           settle("copied");
         },

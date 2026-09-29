@@ -19,7 +19,7 @@ import { describe, expect, it } from "vitest";
 
 import type { ExecutionPosture } from "@ai-sidekicks/contracts";
 
-import type { ConsoleSessionEvent } from "../session/entities/entities.js";
+import type { ProjectedSessionEvent } from "../session/entities/entities.js";
 import { projectRunLifecycleEvent } from "./run-lifecycle-projector.js";
 import { SYNTHETIC_SESSION_ID } from "./run-lifecycle-projector.test-support.js";
 
@@ -41,10 +41,10 @@ const SANDBOXED_POSTURE: ExecutionPosture = {
 /**
  * One synthetic run event, so a case can drive a payload no scenario scripts.
  *
- * Sequence 1 so a store initialised at cursor 0 reads it as the next event rather
+ * Sequence 1 so a store initialized at cursor 0 reads it as the next event rather
  * than as a gap, which would degrade the store for a hole the case never had.
  */
-function runEvent(kind: string, payload: Readonly<Record<string, unknown>>): ConsoleSessionEvent {
+function runEvent(kind: string, payload: Readonly<Record<string, unknown>>): ProjectedSessionEvent {
   return {
     id: "019b79ee-0280-7ea1-8110-e5e0d1150802",
     sessionId: SYNTHETIC_SESSION_ID,
@@ -62,7 +62,7 @@ function runEvent(kind: string, payload: Readonly<Record<string, unknown>>): Con
 
 describe("the registered payload members the body carries", () => {
   /** The body one event folds to, or a failure naming what the projector answered. */
-  function bodyOf(event: ConsoleSessionEvent): Readonly<Record<string, unknown>> {
+  function bodyOf(event: ProjectedSessionEvent): Readonly<Record<string, unknown>> {
     const [mutation] = projectRunLifecycleEvent(event);
     if (mutation?.operation !== "upsert") {
       throw new Error(`the projector answered no upsert for ${event.kind}`);

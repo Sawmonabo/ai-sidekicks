@@ -10,14 +10,14 @@
 
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { devPerfMeters } from "@renderer/lib/performance-meters/performance-meters.js";
+import { developmentPerformanceMeters } from "@renderer/lib/performance-meters/performance-meters.js";
 import { eventAt } from "./session-store.test-support.js";
 import { SessionStore } from "./session-store.js";
 
 const SESSION_ID = "session-1";
 
 beforeEach(() => {
-  devPerfMeters?.reset();
+  developmentPerformanceMeters?.reset();
 });
 
 describe("the apply chokepoint's perf-meter readings", () => {
@@ -25,27 +25,28 @@ describe("the apply chokepoint's perf-meter readings", () => {
     // The registry is `null` only in a release build, where every recording call
     // folds away with it. A null here means this project lost the fixture define,
     // and every assertion below would be vacuous.
-    expect(devPerfMeters, "the console-unit project is not compiling the fixture define").not.toBe(
-      null,
-    );
+    expect(
+      developmentPerformanceMeters,
+      "the console-unit project is not compiling the fixture define",
+    ).not.toBe(null);
 
     const store = new SessionStore({ sessionId: SESSION_ID });
-    store.initialise({ cursor: 0, entities: [] });
+    store.initialize({ cursor: 0, entities: [] });
     store.applyBatch([eventAt(1), eventAt(2)]);
 
-    const latency = devPerfMeters?.reading("apply-latency", SESSION_ID) ?? null;
+    const latency = developmentPerformanceMeters?.reading("apply-latency", SESSION_ID) ?? null;
     expect(
       latency,
       "the apply chokepoint recorded no latency for a batch it admitted",
     ).not.toBeNull();
-    // Two applies so far — the initialise drain and this batch — and every one of
+    // Two applies so far — the initialize drain and this batch — and every one of
     // them is a fold this store performed.
     expect(Number(latency?.recordedCount)).toBeGreaterThan(0);
     expect(Number(latency?.latest)).toBeGreaterThanOrEqual(0);
 
-    const size = devPerfMeters?.reading("store-size", SESSION_ID) ?? null;
+    const size = developmentPerformanceMeters?.reading("store-size", SESSION_ID) ?? null;
     expect(size, "the apply chokepoint recorded no size after admitting a batch").not.toBeNull();
-    // A GAUGE: the latest reading is the reading, and it is the timeline the ledger
+    // A GAUGE: the latest reading is the reading, and it is the timeline the transcript
     // mounts from rather than a count of what this batch happened to carry.
     expect(size?.latest).toBe(store.snapshot().timeline.length);
   });
@@ -53,30 +54,41 @@ describe("the apply chokepoint's perf-meter readings", () => {
   it("keys the readings by session, so two stores are two series", () => {
     const first = new SessionStore({ sessionId: SESSION_ID });
     const second = new SessionStore({ sessionId: "session-2" });
-    first.initialise({ cursor: 0, entities: [] });
-    second.initialise({ cursor: 0, entities: [] });
+    first.initialize({ cursor: 0, entities: [] });
+    second.initialize({ cursor: 0, entities: [] });
     first.applyBatch([eventAt(1)]);
     second.applyBatch([{ ...eventAt(1), sessionId: "session-2" }]);
 
     // Two stores, two series under each kind — what fails here is a producer keying
     // by a constant, which would fold both sessions' costs into one reading.
-    expect(devPerfMeters?.reading("apply-latency", SESSION_ID)?.seriesKey).toBe(SESSION_ID);
-    expect(devPerfMeters?.reading("apply-latency", "session-2")?.seriesKey).toBe("session-2");
-    expect(devPerfMeters?.reading("store-size", SESSION_ID)?.seriesKey).toBe(SESSION_ID);
-    expect(devPerfMeters?.reading("store-size", "session-2")?.seriesKey).toBe("session-2");
+    expect(developmentPerformanceMeters?.reading("apply-latency", SESSION_ID)?.seriesKey).toBe(
+      SESSION_ID,
+    );
+    expect(developmentPerformanceMeters?.reading("apply-latency", "session-2")?.seriesKey).toBe(
+      "session-2",
+    );
+    expect(developmentPerformanceMeters?.reading("store-size", SESSION_ID)?.seriesKey).toBe(
+      SESSION_ID,
+    );
+    expect(developmentPerformanceMeters?.reading("store-size", "session-2")?.seriesKey).toBe(
+      "session-2",
+    );
   });
 
   it("leaves the size gauge alone when a batch admits nothing", () => {
     const store = new SessionStore({ sessionId: SESSION_ID });
-    store.initialise({ cursor: 0, entities: [] });
+    store.initialize({ cursor: 0, entities: [] });
     store.applyBatch([eventAt(1)]);
-    const admittedSize = devPerfMeters?.reading("store-size", SESSION_ID)?.recordedCount ?? 0;
+    const admittedSize =
+      developmentPerformanceMeters?.reading("store-size", SESSION_ID)?.recordedCount ?? 0;
 
     // Addressed to another session: refused whole, no state written.
     store.applyBatch([eventAt(2, { sessionId: "session-elsewhere" })]);
 
     // The latency still moved — the fold ran and cost something — while the gauge did
     // not, because nothing it gauges changed.
-    expect(devPerfMeters?.reading("store-size", SESSION_ID)?.recordedCount).toBe(admittedSize);
+    expect(developmentPerformanceMeters?.reading("store-size", SESSION_ID)?.recordedCount).toBe(
+      admittedSize,
+    );
   });
 });

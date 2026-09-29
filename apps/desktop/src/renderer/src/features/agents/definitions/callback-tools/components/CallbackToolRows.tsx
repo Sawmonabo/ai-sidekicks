@@ -53,7 +53,7 @@ export function CallbackToolRows(props: {
             {props.deniedTone === true ? (
               <Chip label="denied" tone="failure" />
             ) : (
-              <Chip label="daemon-hosted" />
+              <Chip label="background service" />
             )}
             <span className="meridian-callback-tools__description">{row.tool.description}</span>
           </div>

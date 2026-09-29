@@ -8,7 +8,7 @@
 // taking the verification code the operator was typing and the cancel control that was
 // the only way to stop the flow, over a press the page should never have accepted.
 //
-// SO THE GUARD IS `store/read/generation-latch.ts` AND NOT A FLAG. Single flight is that
+// SO THE GUARD IS `lib/reads/generation-latch.ts` AND NOT A FLAG. Single flight is that
 // register's one job, its key is per SUBJECT rather than per mount, and its refusal is
 // the answer `claim` already gives: a key that is held answers `undefined`, in the same
 // tick as the press, before anything is dispatched. A boolean read out of the rendered
@@ -17,7 +17,7 @@
 // layer down from the one this module exists to close.
 //
 // AND IT HOLDS NO WIRE. The two calls are handed in bound: a class that publishes a
-// snapshot AND holds a `ConsoleBridge` is a reading, and the console requires every one
+// snapshot AND holds a `PlatformBridge` is a reading, and the console requires every one
 // of those to be refreshable through a scheduler and the trigger contract. A start and a
 // cancel are acts a person takes, not answers that go stale, so this takes the
 // operations rather than the connection.
@@ -27,14 +27,14 @@
 // words are composed here and the caller hands in the label it holds. Two spellings of
 // one fact drift apart, and the drift is invisible because both of them render.
 //
-// Exactly two things end a flow: a cancel that answered `cancelled` or `notFound`, and
+// Exactly two things end a flow: a cancel that answered `canceled` or `notFound`, and
 // the registry's own tail reporting that attempt completed
 // ({@link SignInPlane.noteLoginCompleted}).
 
 import type { ProviderAccountId, ProviderAccountLoginResponse } from "@ai-sidekicks/contracts";
 
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
-import { refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
+import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 import { GenerationLatch } from "@renderer/lib/reads/generation-latch.js";
 import {
   IDLE_PROVIDER_SIGN_IN_FLOW,
@@ -67,7 +67,7 @@ export interface SignInFlowTrackerSnapshot {
   /** The flow this window is running, where it is running one. */
   readonly flow: SignInFlowState;
   /** The last refused start per account, dropped when that account is tried again. */
-  readonly refusalByAccountId: ReadonlyMap<ProviderAccountId, ConsoleRefusal>;
+  readonly refusalByAccountId: ReadonlyMap<ProviderAccountId, Refusal>;
   /** Bumped on every transition, so `useSyncExternalStore` sees a new identity. */
   readonly revision: number;
 }
@@ -84,7 +84,7 @@ export interface SignInFlowTrackerOptions {
   /** Cancel the flow this plane is tracking. Likewise supplied by the caller. */
   readonly cancelSignIn: (attempt: ProviderAccountLoginResponse) => Promise<SignInCancelOutcome>;
   /**
-   * Called once a cancelled flow has settled, either way.
+   * Called once a canceled flow has settled, either way.
    *
    * The plane learns nothing about the ACCOUNT from a flow ending — the daemon reads
    * nothing the provider's login binary writes — so the only honest response is to ask
@@ -110,7 +110,7 @@ export class SignInFlowTracker {
    * Which flow this plane is on, through the console's one single-flight register.
    *
    * The key is held from the start that took it until the flow leaves the plane —
-   * ended or cancelled — so a settlement arriving for a round something has
+   * ended or canceled — so a settlement arriving for a round something has
    * superseded installs nothing and a disposed plane installs nothing at all.
    */
   readonly #flows = new GenerationLatch();
@@ -119,7 +119,7 @@ export class SignInFlowTracker {
    *
    * Held because the tail opens BEFORE `providerAccount.login` is called — the ordering
    * the registered contract states — so a flow that finishes fast reports its
-   * completion while the start reply is still travelling. Without this the plane would
+   * completion while the start reply is still traveling. Without this the plane would
    * seat an attempt that is already over and hold the key until somebody pressed
    * cancel. ONE id and not a set: the daemon runs one brokered flow at a time, so the
    * newest completion is the only one a seating attempt could be.
@@ -155,7 +155,7 @@ export class SignInFlowTracker {
     if (this.#isDisposed) {
       return;
     }
-    const claim = this.#flows.claim(this, SIGN_IN_FLOW_KEY);
+    const claim = this.#flows.takeShell(this, SIGN_IN_FLOW_KEY);
     if (claim === undefined) {
       this.#publish({
         refusalByAccountId: this.#refusalsWith(
@@ -175,7 +175,7 @@ export class SignInFlowTracker {
       claim.settle(() => {
         if (outcome.attempt.attemptId === this.#completedAttemptId) {
           // The registry reported this very attempt finished while its start reply was
-          // still travelling, which the registered ordering makes ordinary: the tail is
+          // still traveling, which the registered ordering makes ordinary: the tail is
           // open before the call goes out. Seating it would put a card on screen for a
           // flow that is over.
           claim.release();
@@ -190,7 +190,7 @@ export class SignInFlowTracker {
   /**
    * Cancel the live flow.
    *
-   * `cancelled` and `notFound` are both the daemon telling this window there is no flow
+   * `canceled` and `notFound` are both the daemon telling this window there is no flow
    * of its making left, so both end the flow and free the key.
    */
   public cancel(): void {
@@ -200,7 +200,7 @@ export class SignInFlowTracker {
     }
     const { accountId, attempt } = flow;
     const round = this.#flows.currentClaim(this, SIGN_IN_FLOW_KEY);
-    this.#publish({ flow: { kind: "cancelling", accountId, attempt } });
+    this.#publish({ flow: { kind: "canceling", accountId, attempt } });
     void this.#cancelSignIn(attempt).then((outcome) => {
       round.settle(() => {
         this.#flows.supersede(this, SIGN_IN_FLOW_KEY);
@@ -263,12 +263,12 @@ export class SignInFlowTracker {
 
   #refusalsWith(
     accountId: ProviderAccountId,
-    refusal: ConsoleRefusal,
-  ): ReadonlyMap<ProviderAccountId, ConsoleRefusal> {
+    refusal: Refusal,
+  ): ReadonlyMap<ProviderAccountId, Refusal> {
     return new Map(this.#snapshot.refusalByAccountId).set(accountId, refusal);
   }
 
-  #refusalsWithout(accountId: ProviderAccountId): ReadonlyMap<ProviderAccountId, ConsoleRefusal> {
+  #refusalsWithout(accountId: ProviderAccountId): ReadonlyMap<ProviderAccountId, Refusal> {
     const remaining = new Map(this.#snapshot.refusalByAccountId);
     remaining.delete(accountId);
     return remaining;
@@ -329,7 +329,7 @@ export function describeRunningSignIn(options: {
  * a daemon refusal that never happened. The detail is the sentence above without a
  * label, because a refusal reaches the row from here and the registry is the surface's.
  */
-function startAlreadyRunning(isTheSameAccount: boolean): ConsoleRefusal {
+function startAlreadyRunning(isTheSameAccount: boolean): Refusal {
   return refuse(
     SIGN_IN_REFUSAL_ORIGIN,
     START_ALREADY_RUNNING_CODE,

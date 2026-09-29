@@ -3,7 +3,7 @@
 // The cases run over the table's own keys rather than over a list written here, so a
 // kind given a record arrives in this file as cases.
 //
-// The four states are asserted through the REAL store — `initialise` and
+// The four states are asserted through the REAL store — `initialize` and
 // `markDegraded` are what a session does to itself — rather than through
 // hand-built props, because the ranking under test is a claim about what those
 // three store readings mean together.
@@ -12,7 +12,7 @@ import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { SessionStore } from "@renderer/store/session/session-store.js";
-import { type ConsoleEntityKind } from "@renderer/lib/entity-kinds.js";
+import { type EntityKind } from "@renderer/lib/entity-kinds.js";
 import { ENTITY_DETAIL_BY_KIND, type EntityDetailKind } from "./entity-detail-by-kind.js";
 import { InspectedEntity } from "./components/InspectedEntity.js";
 
@@ -26,9 +26,9 @@ function unreadStore(): SessionStore {
 }
 
 /** A store that has answered, holding one record of the given kind. */
-function readStore(kind: ConsoleEntityKind): SessionStore {
+function readStore(kind: EntityKind): SessionStore {
   const store = new SessionStore({ sessionId: SESSION_ID });
-  store.initialise({
+  store.initialize({
     cursor: 1,
     entities: [
       {

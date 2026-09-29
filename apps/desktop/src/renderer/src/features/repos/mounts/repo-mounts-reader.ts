@@ -39,7 +39,7 @@ import type {
   WorkspaceId,
 } from "@ai-sidekicks/contracts";
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
-import { type ConsoleClock } from "@renderer/lib/clock.js";
+import { type Clock } from "@renderer/lib/clock.js";
 import { RefreshScheduler, type RefreshReason } from "@renderer/lib/reads/refresh-scheduler.js";
 import { SessionRefreshTriggers } from "@renderer/store/reads/session-refresh-triggers.js";
 import { type ReadRound } from "@renderer/lib/reads/read-scope.js";
@@ -69,7 +69,7 @@ export interface RepoMountsReaderOptions {
   /**
    * The clock this section's reading is stamped with. Supplied, never defaulted.
    *
-   * REQUIRED, BECAUSE A DEFAULT WOULD BE THE WALL CLOCK. `consoleClockFor` is the one
+   * REQUIRED, BECAUSE A DEFAULT WOULD BE THE WALL CLOCK. `resolveBridgeClock` is the one
    * answer to which clock a window runs on, and under the fixture that is the
    * scenario's frozen clock — so a reader that fell back to a `RealClock` of its own
    * stamped `readAtMilliseconds` on wall time while the deadline wake-up beside it ran
@@ -77,7 +77,7 @@ export interface RepoMountsReaderOptions {
    * a different string every day. A reader without a clock is a construction error
    * rather than a reader on the machine's clock.
    */
-  readonly clock: ConsoleClock;
+  readonly clock: Clock;
 }
 
 /** Reads a session's mounts, workspaces and roots, and hosts the mode switch. */
@@ -97,7 +97,7 @@ export class RepoMountsReader implements ReadTriggerTarget {
   readonly #operations: RepoOperations;
   readonly #sessionStore: SessionStore;
   readonly #sessionId: string;
-  readonly #clock: ConsoleClock;
+  readonly #clock: Clock;
   readonly #scheduler: RefreshScheduler;
   readonly #triggers: SessionRefreshTriggers;
   readonly #selections: ExecutionModeSelections;

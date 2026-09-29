@@ -3,7 +3,7 @@
 //
 // Every other console tier renders the console into something that is not the
 // application: happy-dom for the unit tier, a Chromium page for the three browser-mode
-// tiers. None of them can catch a defect that exists only in the shipped shell, and
+// tiers. None of them can catch a defect that exists only in the shipped app, and
 // this tier runs the code path a person installing the application would run.
 //
 // ONE ASSERTION LIBRARY, DELIBERATELY. Playwright ships its own auto-retrying `expect`
@@ -12,7 +12,7 @@
 // timeouts are read from a test context this runner does not provide. Waiting is
 // explicit (`locator.waitFor`, `expect.poll`) and asserting is Vitest's.
 //
-// THE INCIDENT: the colour scheme a person chose was back to the default after a
+// THE INCIDENT: the color scheme a person chose was back to the default after a
 // restart.
 //
 // The applied attribute is written synchronously and the durable record is not, so
@@ -38,7 +38,7 @@ import {
   SCHEME_PREFERENCE_KEY,
 } from "@renderer/store/persistence/persistence-adapter.js";
 import {
-  CONSOLE_DATABASE_NAME,
+  UI_STATE_DATABASE_NAME,
   UI_STATE_STORE_NAME,
 } from "@renderer/store/persistence/indexeddb-persistence-adapter.js";
 import { SCHEME_ATTRIBUTE } from "@renderer/styles/generate-css.js";
@@ -51,8 +51,8 @@ import { LaunchDeadline } from "../helpers/launch-deadline.js";
 
 const bundleIsBuilt = fixtureBundleExists();
 
-describe.skipIf(!bundleIsBuilt)("end-to-end — colour scheme lost on reload", () => {
-  it("persists an explicit colour scheme across a reload", async () => {
+describe.skipIf(!bundleIsBuilt)("end-to-end — color scheme lost on reload", () => {
+  it("persists an explicit color scheme across a reload", async () => {
     await withLaunchedApp({}, async (consoleApplication) => {
       const consoleWindow = consoleApplication.window;
       const readScheme = async (): Promise<string | null> =>
@@ -100,7 +100,7 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — colour scheme lost on reload", (
               };
             }),
           [
-            CONSOLE_DATABASE_NAME,
+            UI_STATE_DATABASE_NAME,
             UI_STATE_STORE_NAME,
             PERSISTENCE_GLOBAL_PARTITION,
             SCHEME_PREFERENCE_KEY,

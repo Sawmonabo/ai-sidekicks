@@ -1,7 +1,7 @@
 // When a confirmation discards the settlement standing under it, and when it must not.
 //
 // THE CONFIRM CONTROL IS AN `AlertDialog.Close`, AND THAT IS THE WHOLE DEFECT. Both of
-// this family's confirmations put the consequence inside the popup and the settlement
+// this family's confirmations put their question inside the popup and the settlement
 // on the card, because a settlement drawn inside a dialog the confirm press closes is
 // drawn into a popup that is already gone. So the confirm press does two things in one
 // act: it sends, and it closes. A discard rule wired to `onOpenChange` and keyed on the
@@ -12,7 +12,7 @@
 //
 // SO THE DISCARD IS KEYED ON THE TWO MOMENTS IT BELONGS TO. A confirmation OPENING is a
 // new consideration of the act, so nothing an earlier press settled stands under it; a
-// confirmation CANCELLED is a person walking away from one, so the record they walked
+// confirmation CANCELED is a person walking away from one, so the record they walked
 // away from goes with them. The confirm press is neither — it is what produces the next
 // settlement, and it is the one close this module exists to leave alone.
 //
@@ -33,7 +33,7 @@ export interface ConfirmationLifecycle {
    */
   readonly openChanged: (isOpen: boolean) => void;
   /** Hand to the cancel `AlertDialog.Close`'s `onClick`, and to no other control. */
-  readonly cancelled: () => void;
+  readonly canceled: () => void;
 }
 
 /**
@@ -52,8 +52,8 @@ export function useConfirmationLifecycle(discardSettlement: () => void): Confirm
     },
     [discardSettlement],
   );
-  const cancelled = useCallback(() => {
+  const canceled = useCallback(() => {
     discardSettlement();
   }, [discardSettlement]);
-  return useMemo(() => ({ openChanged, cancelled }), [openChanged, cancelled]);
+  return useMemo(() => ({ openChanged, canceled }), [openChanged, canceled]);
 }

@@ -6,19 +6,19 @@
 // effect runs after that commit, and the walk's own scheduler then waits for an idle
 // callback on top of it.
 //
-// ONE WALK PER BOARD, both boards. The deck's pane registry and the frame's surface
+// ONE WALK PER BOARD, both boards. The pane layout's pane registry and the frame's surface
 // registry each hold loader-backed bodies, and `LazyBodyIdleWarm` is generic in the key
 // precisely so this file arms the same walk over both rather than owning two.
 //
 // THE WALKS ARE THE WINDOW'S, not the process's. Each is constructed for this frame and
-// cancelled when it unmounts — an auxiliary window closing must not leave an idle
+// canceled when it unmounts — an auxiliary window closing must not leave an idle
 // callback re-arming against a board its window no longer reads.
 //
 // AND EACH EFFECT SETUP BUILDS ITS OWN PAIR, which is the correction to holding them in
-// state across the effect. A walk is once-per-instance and permanently cancellable — the
+// state across the effect. A walk is once-per-instance and permanently cancelable — the
 // two properties that make it safe — and `StrictMode` replays every effect: setup starts
 // the walks, the synthetic cleanup cancels them, and the replayed setup finds the SAME
-// objects already started and already cancelled, so it returns and both boards stay cold
+// objects already started and already canceled, so it returns and both boards stay cold
 // for the life of the window. Nothing reports it; the console simply stops warming.
 // Constructing inside the setup makes the walk's lifetime the EFFECT's lifetime, which
 // is what it always meant. It costs no extra walks per render either: the effect's
@@ -30,8 +30,8 @@ import { useEffect, useState } from "react";
 import {
   LazyBodyIdleWarm,
   idleWarmScheduler,
-  type ConsolePaneRegistry,
-  type ConsoleSurfaceRegistry,
+  type PaneRegistry,
+  type ScreenRegistry,
   type IdleWarmScheduler,
 } from "@renderer/console/seats/index.js";
 
@@ -46,8 +46,8 @@ import {
  * and the default is the feature-detected one, which is what a window wants.
  */
 export function useLazyBodyIdleWarm(
-  paneRegistry: ConsolePaneRegistry,
-  surfaceRegistry: ConsoleSurfaceRegistry,
+  paneRegistry: PaneRegistry,
+  screenRegistry: ScreenRegistry,
   scheduler: IdleWarmScheduler = idleWarmScheduler(),
 ): void {
   // PINNED, and this is the one thing that must not move into the effect. The default
@@ -59,7 +59,7 @@ export function useLazyBodyIdleWarm(
   useEffect(() => {
     const walks = [
       new LazyBodyIdleWarm(paneRegistry, warmScheduler),
-      new LazyBodyIdleWarm(surfaceRegistry, warmScheduler),
+      new LazyBodyIdleWarm(screenRegistry, warmScheduler),
     ];
     for (const walk of walks) {
       walk.start();
@@ -69,5 +69,5 @@ export function useLazyBodyIdleWarm(
         walk.cancel();
       }
     };
-  }, [paneRegistry, surfaceRegistry, warmScheduler]);
+  }, [paneRegistry, screenRegistry, warmScheduler]);
 }

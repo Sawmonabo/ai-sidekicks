@@ -8,7 +8,7 @@
 // for. Nothing here composes a provider command, completes one, or offers one the read
 // did not carry.
 //
-// THE LIST IS TWO LABELLED GROUPS AND NEVER ONE FLAT RUN. The console's own commands
+// THE LIST IS TWO LABELED GROUPS AND NEVER ONE FLAT RUN. The console's own commands
 // are acts this window performs; the provider's are names it will not send. `CommandListGroup`
 // carries the heading and the `role="group"` that states the difference before a press;
 // what stays here is the partition, which preserves each row's position in the single
@@ -84,20 +84,20 @@ const PROVIDER_GROUP_LABEL = "Discovery, not runnable";
  * A separate component for two reasons. The active-entry cursor is born with the
  * surface and dies with it, so a cursor held above the open state cannot survive a
  * dismissal and point at a row from a list nobody is looking at. And the catalog is
- * READ HERE, on every render this component makes, rather than memoised above it:
+ * READ HERE, on every render this component makes, rather than memoized above it:
  * the console's command registry is filled by the frame's own registration effect
  * after a child mounts, so a list captured once would be the empty registry for the
  * life of the window.
  */
 export function CommandListPopover(props: CommandListPopoverProps): React.JSX.Element {
-  const { prefix, readSurface, enumeration, addressed, stepIntoListToken } = props;
+  const { prefix, readCommands, enumeration, addressed, stepIntoListToken } = props;
   const { onDismiss } = props;
   const listId = useId();
   const ledeId = `${listId}-lede`;
   const listRef = useRef<HTMLUListElement | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
   const [actionOutcome, setActionOutcome] = useState<CommandOutcome | undefined>(undefined);
-  // Set only by a press that could not be honoured, and cleared by the next move or
+  // Set only by a press that could not be honored, and cleared by the next move or
   // the next act, so the region never keeps answering a gesture the person has left.
   const [activationNotice, setActivationNotice] = useState<string | undefined>(undefined);
 
@@ -109,7 +109,7 @@ export function CommandListPopover(props: CommandListPopoverProps): React.JSX.El
       ? selectAddressedBindingGroup(enumeration.groups, addressed)
       : undefined;
   const catalog = composeCommandList({
-    offeredCommands: readSurface().offeredCommands,
+    offeredCommands: readCommands().offeredCommands,
     providerGroups: addressedGroup === undefined ? [] : [addressedGroup],
   });
   const entries = filterCommandList(catalog, prefix);
@@ -122,11 +122,11 @@ export function CommandListPopover(props: CommandListPopoverProps): React.JSX.El
   const executor = useMemo(
     () =>
       createClientCommandExecutor({
-        readSurface,
-        readDirectiveHandlers: noComposerCommandLineHandlers,
+        readCommands,
+        readCommandLineHandlers: noComposerCommandLineHandlers,
         lineReadingCommandIds: PICKED_ENTRY_READS_NO_LINE,
       }),
-    [readSurface],
+    [readCommands],
   );
 
   const boundedIndex = entries.length === 0 ? -1 : Math.min(activeIndex, entries.length - 1);
@@ -222,7 +222,7 @@ export function CommandListPopover(props: CommandListPopoverProps): React.JSX.El
           onKeyDown={onListKeyDown}
         >
           {/* An EMPTY group is left out rather than drawn with a heading over
-              nothing: a labelled section with no rows asserts a category the filtered
+              nothing: a labeled section with no rows asserts a category the filtered
               catalog does not have. Nothing is filtered by being in a group — every
               entry reaches exactly one of the two. */}
           {consoleRows.length === 0 ? null : (
@@ -272,7 +272,7 @@ export function CommandListPopover(props: CommandListPopoverProps): React.JSX.El
 
 interface CommandListPopoverProps {
   readonly prefix: string;
-  readonly readSurface: () => ComposerCommands;
+  readonly readCommands: () => ComposerCommands;
   readonly enumeration: ReturnType<typeof useProviderCommandEnumeration>;
   readonly addressed: AddressedProviderBinding;
   readonly stepIntoListToken: number;

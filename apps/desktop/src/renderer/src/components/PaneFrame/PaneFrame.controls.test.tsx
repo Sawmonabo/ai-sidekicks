@@ -2,17 +2,17 @@
 //
 // Its own file rather than two more suites beside the frame's, because it is a different
 // subject and the two together were past the package's ceiling. Everything here arrives
-// from outside the chrome — through `PaneControlsContext`, which the deck provides around
+// from outside the chrome — through `PaneControlsContext`, which the pane layout provides around
 // every pane body, or through an explicit prop, which is how a host that owns one pane's
-// lifetime outside a deck keeps its close button pointed at the right thing.
+// lifetime outside a pane layout keeps its close button pointed at the right thing.
 //
 // The claims are about ABSENCE as much as presence: a control drawn disabled instead of
 // absent looks deliberate, and a context that silently loses to an explicit prop — or
-// wins over it — is a difference nobody sees until a pane is mounted outside a deck.
+// wins over it — is a difference nobody sees until a pane is mounted outside a pane layout.
 
 import { describe, expect, it } from "vitest";
 
-import { ConsolePaneChrome } from "./PaneFrame.js";
+import { PaneFrame } from "./PaneFrame.js";
 import { renderPaneFrame } from "./PaneFrame.test-support.js";
 import { PaneControlsContext } from "./pane-controls.js";
 
@@ -22,39 +22,39 @@ function controlLabels(pane: HTMLElement): readonly (string | null)[] {
   );
 }
 
-describe("ConsolePaneChrome — where the controls come from", () => {
+describe("PaneFrame — where the controls come from", () => {
   it("draws no control when nobody can close the pane", () => {
     const pane = renderPaneFrame(
-      <ConsolePaneChrome kind="timeline" sessionId="session-1" focusHue={undefined}>
+      <PaneFrame kind="transcript" sessionId="session-1" focusHue={undefined}>
         <p>body</p>
-      </ConsolePaneChrome>,
+      </PaneFrame>,
     );
     expect(controlLabels(pane)).toStrictEqual([]);
   });
 
-  it("takes the close from the deck's context", () => {
+  it("takes the close from the pane layout's context", () => {
     const pane = renderPaneFrame(
       <PaneControlsContext.Provider value={{ onClose: () => undefined }}>
-        <ConsolePaneChrome kind="timeline" sessionId="session-1" focusHue={undefined}>
+        <PaneFrame kind="transcript" sessionId="session-1" focusHue={undefined}>
           <p>body</p>
-        </ConsolePaneChrome>
+        </PaneFrame>
       </PaneControlsContext.Provider>,
     );
     expect(controlLabels(pane)).toStrictEqual(["Close this pane"]);
   });
 
-  it("lets an explicit prop win over the context, so a non-deck host keeps its pane", () => {
+  it("lets an explicit prop win over the context, so a non-pane-layout host keeps its pane", () => {
     const performed: string[] = [];
     const pane = renderPaneFrame(
       <PaneControlsContext.Provider
         value={{
           onClose: () => {
-            performed.push("deck");
+            performed.push("context");
           },
         }}
       >
-        <ConsolePaneChrome
-          kind="timeline"
+        <PaneFrame
+          kind="transcript"
           sessionId="session-1"
           focusHue={undefined}
           onClose={() => {
@@ -62,7 +62,7 @@ describe("ConsolePaneChrome — where the controls come from", () => {
           }}
         >
           <p>body</p>
-        </ConsolePaneChrome>
+        </PaneFrame>
       </PaneControlsContext.Provider>,
     );
     pane.querySelector<HTMLButtonElement>(".meridian-pane__control")?.click();
@@ -72,14 +72,14 @@ describe("ConsolePaneChrome — where the controls come from", () => {
   it("puts the kind's own actions before the close", () => {
     const pane = renderPaneFrame(
       <PaneControlsContext.Provider value={{ onClose: () => undefined }}>
-        <ConsolePaneChrome
+        <PaneFrame
           kind="diff"
           sessionId="session-1"
           focusHue={undefined}
           actions={<button type="button">Stage</button>}
         >
           <p>body</p>
-        </ConsolePaneChrome>
+        </PaneFrame>
       </PaneControlsContext.Provider>,
     );
     const buttons = [...pane.querySelectorAll("button")].map((button) => button.textContent);
@@ -88,7 +88,7 @@ describe("ConsolePaneChrome — where the controls come from", () => {
   });
 });
 
-describe("ConsolePaneChrome — the drag handle", () => {
+describe("PaneFrame — the drag handle", () => {
   it("hands the host its own head element, which is what the drag adapter binds to", () => {
     const registered: (HTMLElement | null)[] = [];
     const pane = renderPaneFrame(
@@ -99,9 +99,9 @@ describe("ConsolePaneChrome — the drag handle", () => {
           },
         }}
       >
-        <ConsolePaneChrome kind="timeline" sessionId="session-1" focusHue={undefined}>
+        <PaneFrame kind="transcript" sessionId="session-1" focusHue={undefined}>
           <p>body</p>
-        </ConsolePaneChrome>
+        </PaneFrame>
       </PaneControlsContext.Provider>,
     );
     expect(registered[0]).toBe(pane.querySelector(".meridian-pane__head"));
@@ -109,13 +109,13 @@ describe("ConsolePaneChrome — the drag handle", () => {
 
   it("negative control: a pane with no host registers nothing and is undraggable", () => {
     // Without this the chrome could be registering unconditionally, which would make a
-    // pane mounted outside a deck draggable onto a deck it is not part of.
+    // pane mounted outside a pane layout draggable onto a pane layout it is not part of.
     const registered: (HTMLElement | null)[] = [];
     renderPaneFrame(
       <PaneControlsContext.Provider value={{ onClose: () => undefined }}>
-        <ConsolePaneChrome kind="timeline" sessionId="session-1" focusHue={undefined}>
+        <PaneFrame kind="transcript" sessionId="session-1" focusHue={undefined}>
           <p>body</p>
-        </ConsolePaneChrome>
+        </PaneFrame>
       </PaneControlsContext.Provider>,
     );
     expect(registered).toStrictEqual([]);

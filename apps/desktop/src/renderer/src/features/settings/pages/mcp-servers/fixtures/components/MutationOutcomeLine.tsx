@@ -32,7 +32,11 @@ export function MutationOutcomeLine(props: { readonly outcome: McpMutationOutcom
   }
   if (outcome.kind === "sending") {
     return (
-      <Nothing kind="not-loaded" placement="inline" title="Asking the daemon to apply this." />
+      <Nothing
+        kind="not-loaded"
+        placement="inline"
+        title="Asking the background service to apply this."
+      />
     );
   }
   const { result } = outcome;
@@ -43,8 +47,8 @@ export function MutationOutcomeLine(props: { readonly outcome: McpMutationOutcom
       </p>
       {result.liveResults === undefined ? (
         <p className="meridian-settings-page__aside">
-          The daemon reported no live leg for this change — nothing was holding this binding open
-          when it was applied.
+          The background service reported no live leg for this change — nothing was holding this
+          binding open when it was applied.
         </p>
       ) : (
         renderLiveResults(result.liveResults)
@@ -69,7 +73,7 @@ function renderLiveResults(results: readonly McpLiveApplicationResult[]): ReactN
   if (results.length === 0) {
     return (
       <p className="meridian-settings-page__aside">
-        The daemon reported an empty set of live legs — it looked, and there were none.
+        The background service reported an empty set of live legs — it looked, and there were none.
       </p>
     );
   }

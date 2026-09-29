@@ -20,8 +20,8 @@
 // reaches only an unhandled rejection a shipped window does not report.
 
 import { callDaemon, type DaemonReplyRefusalCode } from "@renderer/services/daemon/daemon-reply.js";
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
-import { consoleRefusalFrom, type FirstTurnQueueCall } from "@renderer/console/seats/index.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
+import { coerceToRefusal, type FirstTurnQueueCall } from "@renderer/console/seats/index.js";
 import {
   NEW_SESSION_DRAFT_REFUSAL_ORIGIN,
   RUN_QUEUE_CREATE_METHOD,
@@ -40,7 +40,7 @@ import {
  * turn would send the person's words twice.
  */
 export interface NewSessionSendRequest {
-  readonly bridge: ConsoleBridge;
+  readonly bridge: PlatformBridge;
   /** Queues the first message on the session, once it exists. */
   readonly queueFirstTurn: FirstTurnQueueCall;
   readonly sessionId: string | undefined;
@@ -162,7 +162,7 @@ async function resolveSession(
       // created.
       //
       // NARROW ON PURPOSE, and the boundary is the door's own vocabulary rather than a
-      // judgement made here: `request-unsendable` means nothing left this process,
+      // judgment made here: `request-unsendable` means nothing left this process,
       // `read-abandoned` is never reachable on a mutation (the door is handed no
       // cancellation here), and `call-rejected` is the call itself failing — which this module
       // treats as a plain refusal, because widening the ambiguous arm to every
@@ -212,7 +212,7 @@ async function queueFirstTurn(
   } catch (error: unknown) {
     // The session exists whatever happened here, so the failure is reported as a
     // partial send that a second press resumes, and never as a send that made nothing.
-    const { detail } = consoleRefusalFrom(
+    const { detail } = coerceToRefusal(
       error,
       NEW_SESSION_DRAFT_REFUSAL_ORIGIN,
       "first-turn-failed",

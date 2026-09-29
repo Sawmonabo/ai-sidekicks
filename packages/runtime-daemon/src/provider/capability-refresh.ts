@@ -225,7 +225,7 @@ export const CAPABILITY_REFRESH_INTERVAL_MS: number = 15 * 60 * 1000;
  * cancel provider work; this bound covers the single failure only the scheduler
  * can see — a leg that never settles at all, which would hold its
  * `#pollsInFlight` key forever and wedge both the cadence and `refreshNow` for
- * that node lifetime. It abandons the leg's promise rather than cancelling it.
+ * that node lifetime. It abandons the leg's promise rather than canceling it.
  */
 export const CAPABILITY_REFRESH_POLL_LEG_TIMEOUT_MS: number = 2 * 60 * 1000;
 
@@ -423,7 +423,7 @@ type PollLegOutcome<TValue> =
 /**
  * Run one poll leg under a bounded deadline.
  *
- * On timeout the leg's promise is ABANDONED, not cancelled — nothing here can
+ * On timeout the leg's promise is ABANDONED, not canceled — nothing here can
  * cancel provider work, which is why the seam owns the real deadline. The
  * abandoned promise is pre-handled (both settlement paths are attached before
  * the race), so a late rejection is never an unhandled rejection.

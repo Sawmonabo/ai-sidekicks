@@ -34,7 +34,7 @@
 //
 // AND EVERY RE-READ GOES THROUGH THE CHOKEPOINT. `PushDrivenRead` is the console's
 // one push-driven read discipline — subscribe first, treat the push as opaque,
-// coalesce through `store/read/refresh-scheduler.ts`'s `RefreshScheduler`, serialize so no stale
+// coalesce through `lib/reads/refresh-scheduler.ts`'s `RefreshScheduler`, serialize so no stale
 // reply wins, and never return a loaded surface to its loading shape. A second read
 // engine written here would be a second answer to all five of those questions; a
 // stream of settling events therefore costs one read rather than one read per event.
@@ -48,15 +48,15 @@
 import { useEffect, useMemo } from "react";
 import type { Unsubscribe } from "@shared/preload-api.js";
 
-import { type ConsoleClock } from "@renderer/lib/clock.js";
-import { ConsoleRefusalError } from "@renderer/lib/refusal.js";
+import { type Clock } from "@renderer/lib/clock.js";
+import { RefusalError } from "@renderer/lib/refusal.js";
 import { type AttentionItem } from "@ai-sidekicks/contracts";
 import { PushDrivenRead, type PushDrivenReadState } from "../../reads/push-driven-read.js";
 import { usePushDrivenRead } from "../../reads/hooks/usePushDrivenRead.js";
 import { subscribeToOpenSessions } from "../../session/open-session-signal.js";
 import { type SessionStoreRegistry } from "../../session/session-store-registry.js";
 import {
-  AttentionPlane,
+  AttentionSummary,
   type AttentionReading,
   type RefusedAttentionSession,
 } from "../attention-summary.js";
@@ -112,7 +112,7 @@ const ATTENTION_READ_ORIGIN = "attention-plane";
 export function useAttentionProjection(
   read: AttentionProjectionReadCall,
   sessionStoreRegistry: SessionStoreRegistry,
-  clock: ConsoleClock,
+  clock: Clock,
   subscribeToAttention: AttentionSubscribeCall,
 ): AttentionReading {
   const projectionRead = useMemo(
@@ -144,11 +144,11 @@ export function useAttentionProjection(
  * for the ones this window has open, the bridge for every session it can name — and
  * a window that took only the first went permanently quiet about a directory session
  * it never opened. Both are opaque, both call the same handler, and the read they
- * wake coalesces through `store/read/refresh-scheduler.ts`, so a change the two happen to report
+ * wake coalesces through `lib/reads/refresh-scheduler.ts`, so a change the two happen to report
  * together still costs one read rather than two.
  *
  * Released in the order they were taken, and every one of them: a partial teardown
- * would leave the surviving half signalling into a read that has been disposed.
+ * would leave the surviving half signaling into a read that has been disposed.
  */
 function subscribeToAttentionChanges(
   subscribeToAttention: AttentionSubscribeCall,
@@ -174,11 +174,11 @@ function attentionReadingFrom(
     return { phase: "reading" };
   }
   if (state.kind === "failed") {
-    throw new ConsoleRefusalError(state.refusal);
+    throw new RefusalError(state.refusal);
   }
   return {
     phase: "read",
-    plane: new AttentionPlane(state.value.items),
+    plane: new AttentionSummary(state.value.items),
     droppedCount: state.value.droppedCount,
     // Both halves of coverage carried through untouched: which sessions were asked
     // and which of them went unanswered are the reader's facts, and re-deriving

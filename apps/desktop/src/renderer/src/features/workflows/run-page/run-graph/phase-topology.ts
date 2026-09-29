@@ -16,7 +16,7 @@
 // business importing a module that decides pixels.
 //
 // NOTHING HERE IMPORTS THE GRAPH LIBRARY, not even for a type, for the reason its
-// neighbour states: both sit on the initial bundle path, and a static edge into
+// neighbor states: both sit on the initial bundle path, and a static edge into
 // `@xyflow/react` would pull the chunk the lazy arrangement exists to keep out.
 
 /**

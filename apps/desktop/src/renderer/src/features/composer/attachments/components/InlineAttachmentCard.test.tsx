@@ -2,7 +2,7 @@
 //
 // Two claims: the seat is filled by this family, and the body it mounts is the SAME
 // `AttachmentCard` the attachment surface renders rather than a second one written for
-// the timeline. The second is checkable because that card carries its own classes, and
+// the transcript. The second is checkable because that card carries its own classes, and
 // it matters because an unresolved marker is read for details two renderers would drift
 // on — which of the six causes, and what the remedy is.
 
@@ -13,8 +13,8 @@ import { INGEST_STALL_DISCLOSURE_MS } from "../attachment-caps.js";
 import type { AttachmentIngestEntry } from "../attachment-shapes.js";
 
 import {
-  InlineCardSeatRegistry,
-  inlineCardSeatRegistry,
+  InlineCardRegistry,
+  inlineCardRegistry,
   type AttachmentInlineCardProps,
 } from "@renderer/console/seats/index.js";
 import { registerComposerInlineCards } from "../../contributions/inline-cards.js";
@@ -55,8 +55,8 @@ describe("inline attachment card — the seat", () => {
    *
    * The registrar writes only what it is handed, so there is nothing to release afterwards.
    */
-  function fill(): InlineCardSeatRegistry {
-    const seats = new InlineCardSeatRegistry();
+  function fill(): InlineCardRegistry {
+    const seats = new InlineCardRegistry();
     registerComposerInlineCards(seats);
     return seats;
   }
@@ -76,14 +76,14 @@ describe("inline attachment card — the seat", () => {
   it("negative control: an unfilled board answers nothing", () => {
     // Without this, the two cases above would pass over a board that answered from
     // somewhere else entirely, and the registration call would be doing nothing.
-    expect(new InlineCardSeatRegistry().bodyFor("attachment")).toBeUndefined();
+    expect(new InlineCardRegistry().bodyFor("attachment")).toBeUndefined();
   });
 
   it("writes the board it is given and never the process-wide one", () => {
     // The registrar closes over no singleton. A body that reached one would render
     // correctly in every case above and still leak into the running console.
     fill();
-    expect(inlineCardSeatRegistry.registeredCardKinds()).toStrictEqual([]);
+    expect(inlineCardRegistry.registeredCardKinds()).toStrictEqual([]);
   });
 });
 

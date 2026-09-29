@@ -4,7 +4,7 @@
 // is `row-jump.test.ts`'. What is only true here is that
 // every absence the pipeline names has a DECIDED act — the table is driven from the
 // exported tuple, so a narrowing added to the pipeline and not to the table is
-// a red test rather than a row silently offered the chapter fold's button — and that
+// a red test rather than a row silently offered the run group fold's button — and that
 // a deferred request is spent exactly once, by the row it named, and dies with the
 // question that asked for it.
 
@@ -23,10 +23,13 @@ import { foldedMessageRunGroupLog } from "../run-group-logs.test-support.js";
 import { jumpOutcomeRowId } from "./event-jump.js";
 import { useDeferredRowJump } from "./hooks/useDeferredRowJump.js";
 import { useTranscriptJumpReach } from "./hooks/useTranscriptJumpReach.js";
-import { deriveLedgerWindow, type TranscriptWindowModel } from "../window/transcript-window.js";
+import { deriveTranscriptWindow, type TranscriptWindowModel } from "../window/transcript-window.js";
 
-/** The loaded projection of a finished chapter beside a live run. */
-const LOADED_WINDOW: TranscriptWindowModel = deriveLedgerWindow(foldedMessageRunGroupLog(), false);
+/** The loaded projection of a finished run group beside a live run. */
+const LOADED_WINDOW: TranscriptWindowModel = deriveTranscriptWindow(
+  foldedMessageRunGroupLog(),
+  false,
+);
 
 /** A message row of the finished run, which the shut fold keeps off screen. */
 const FOLDED_ROW: TimelineRow = rowOf(projectedRowId(1));
@@ -53,7 +56,7 @@ function recordingActs(): {
   };
 }
 
-/** The reach for one outcome over a window whose chapters are shut unless named. */
+/** The reach for one outcome over a window whose run groups are shut unless named. */
 function reachFor(
   outcome: RowJumpOutcome | undefined,
   acts: ReturnType<typeof recordingActs>,
@@ -74,7 +77,7 @@ function reachFor(
 describe("the act an absence offers", () => {
   it("decides every absence the pipeline names", () => {
     // Totality, driven from the tuple the classifier walks: a narrowing that fell
-    // through to "Open that chapter and go to it" would offer an act that cannot reach
+    // through to "Open that run group and go to it" would offer an act that cannot reach
     // the row.
     for (const absence of ROW_JUMP_ABSENCES) {
       const acts = recordingActs();
@@ -84,23 +87,23 @@ describe("the act an absence offers", () => {
     }
   });
 
-  it("opens the chapter and holds the jump for a row the fold dropped", () => {
+  it("opens the run group and holds the jump for a row the fold dropped", () => {
     const acts = recordingActs();
-    const reach = reachFor({ status: "folded-into-chapter", row: FOLDED_ROW }, acts);
+    const reach = reachFor({ status: "folded-into-run-group", row: FOLDED_ROW }, acts);
 
-    expect(reach?.label).toBe("Open that chapter and go to it");
+    expect(reach?.label).toBe("Open that run group and go to it");
     reach?.perform();
     expect(acts.performed).toStrictEqual(["open-folds", `request-jump:${FOLDED_ROW.id}`]);
   });
 
-  it("withholds the chapter act while that chapter is already open", () => {
-    // Toggling an OPEN chapter closes it, taking the rest of the run off screen —
-    // so a row past the chapter's own cap is reached by nothing this build has.
+  it("withholds the run group act while that run group is already open", () => {
+    // Toggling an OPEN run group closes it, taking the rest of the run off screen —
+    // so a row past the run group's own cap is reached by nothing this build has.
     const acts = recordingActs();
 
     expect(
       reachFor(
-        { status: "folded-into-chapter", row: FOLDED_ROW },
+        { status: "folded-into-run-group", row: FOLDED_ROW },
         acts,
         new Set([TERMINAL_RUN_ID]),
       ),
@@ -215,11 +218,11 @@ describe("the deferred jump", () => {
     expect(deferred.jumps).toStrictEqual([OTHER_ROW.id]);
   });
 
-  it("abandons a request the ledger is no longer being asked about", () => {
+  it("abandons a request the transcript is no longer being asked about", () => {
     // THE DEFECT: the request cleared only on a successful jump or a replacement,
     // and closing the find field resets the query and nothing else — so a request
     // whose act never widened the window outlived the field, and playback reaching
-    // that row minutes later scrolled the ledger away from what somebody was
+    // that row minutes later scrolled the transcript away from what somebody was
     // reading with nothing on screen explaining why.
     const deferred = mountDeferredJump();
     deferred.request(REQUESTED_ROW.id);

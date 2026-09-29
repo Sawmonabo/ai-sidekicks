@@ -6,12 +6,12 @@
 // a header the others never build.
 
 import { render } from "@testing-library/react";
-import { DesktopBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
+import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { USER_YOU } from "../../../../../../../fixtures/scenarios/concurrent-streaming.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
-import { type ConsoleEntity } from "@renderer/store/session/entities/entities.js";
-import type { ConsoleScenario } from "../../../../../../../fixtures/scenario.js";
+import { type StoredEntity } from "@renderer/store/session/entities/entities.js";
+import type { Scenario } from "../../../../../../../fixtures/scenario.js";
 
 export const SESSION_ID = "session-header";
 
@@ -33,8 +33,8 @@ export interface StoreWithOptions {
    */
   readonly readFromCursor?: string;
   /** Entities the read carried, for a case about what the base state authoritatively holds. */
-  readonly entities?: readonly ConsoleEntity[];
-  /** Rows the store retains, so a case can drive the cap the way the ledger does. */
+  readonly entities?: readonly StoredEntity[];
+  /** Rows the store retains, so a case can drive the cap the way the transcript does. */
   readonly timelineCap?: number;
 }
 
@@ -46,7 +46,7 @@ export function storeWith(
     sessionId: SESSION_ID,
     ...(options.timelineCap === undefined ? {} : { timelineCap: options.timelineCap }),
   });
-  store.initialise({
+  store.initialize({
     cursor: timeline.length,
     entities: options.entities ?? [],
     ...(options.readFromCursor === undefined ? {} : { readFromCursor: options.readFromCursor }),
@@ -69,7 +69,7 @@ export function storeWith(
  * The header reads nothing through the bridge, but the mount still needs one, so every
  * case renders inside a bridge whose scenario declares no answer.
  */
-export const SESSION_HEADER_SILENT_SCENARIO: ConsoleScenario = {
+export const SESSION_HEADER_SILENT_SCENARIO: Scenario = {
   id: "session-header-silent",
   label: "Session header, nothing scripted",
   purpose: "A session with no scripted replies.",
@@ -82,7 +82,7 @@ export const SESSION_HEADER_SILENT_SCENARIO: ConsoleScenario = {
 
 export interface RenderSessionHeaderOptions {
   /** Which scenario the bridge is built from. Silent by default. */
-  readonly scenario?: ConsoleScenario;
+  readonly scenario?: Scenario;
 }
 
 export function renderSessionHeader(
@@ -91,9 +91,9 @@ export function renderSessionHeader(
 ): HTMLElement {
   const scenario = options.scenario ?? SESSION_HEADER_SILENT_SCENARIO;
   const { container } = render(
-    <DesktopBridgeProvider bridge={createFixtureBridge({ scenario })}>
+    <PlatformBridgeProvider bridge={createFixtureBridge({ scenario })}>
       {element}
-    </DesktopBridgeProvider>,
+    </PlatformBridgeProvider>,
   );
   const bar = container.querySelector(".meridian-session-header");
   if (!(bar instanceof HTMLElement)) {

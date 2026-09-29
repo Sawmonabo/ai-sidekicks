@@ -14,7 +14,7 @@
 //     one kind's map, whose identity only changes when that kind changes, so a
 //     `run.*` burst re-renders the runs list and nothing else. `useSessionEntity`
 //     narrows further to one row, so a row re-renders when its own entity changes
-//     and not when its neighbour does.
+//     and not when its neighbor does.
 //
 // zustand v5's `useStore` compares with `Object.is` and does no shallow-equality
 // pass, which is exactly what these selectors want: the store merges immutably, so
@@ -38,8 +38,8 @@
 import { useCallback, useSyncExternalStore } from "react";
 import { useStore } from "zustand";
 
-import type { ConsoleEntity } from "../entities/entities.js";
-import type { ConsoleEntityKind, ConsoleEntityRef } from "@renderer/lib/entity-kinds.js";
+import type { StoredEntity } from "../entities/entities.js";
+import type { EntityKind, EntityRef } from "@renderer/lib/entity-kinds.js";
 import type { SessionStoreRegistry } from "../session-store-registry.js";
 import {
   selectEntity,
@@ -75,7 +75,7 @@ export function useOpenSessionStore(
 /**
  * The sessions this window has open, in open order.
  *
- * The console has no session-DIRECTORY read — no `DesktopBridge` member lists the
+ * The console has no session-DIRECTORY read — no `PlatformBridge` member lists the
  * sessions on a node — so this registry is the only session set the renderer can name,
  * and a surface that needs one reads it here rather than inventing a source.
  *
@@ -104,8 +104,8 @@ export function useSessionStore<TSelected>(
 /** One entity kind's map. Identity changes only when that kind changes. */
 export function useSessionPartition(
   store: SessionStore,
-  kind: ConsoleEntityKind,
-): Readonly<Record<string, ConsoleEntity>> {
+  kind: EntityKind,
+): Readonly<Record<string, StoredEntity>> {
   const select = useCallback((state: SessionStoreState) => selectPartition(state, kind), [kind]);
   return useStore(store.readable, select);
 }
@@ -117,10 +117,7 @@ export function useSessionPartition(
  * ordinary `useSessionEntity(store, { kind: "run", id })` — a fresh literal every
  * render — does not rebuild the selector on every pass.
  */
-export function useSessionEntity(
-  store: SessionStore,
-  ref: ConsoleEntityRef,
-): ConsoleEntity | undefined {
+export function useSessionEntity(store: SessionStore, ref: EntityRef): StoredEntity | undefined {
   const { kind, id } = ref;
   const select = useCallback(
     (state: SessionStoreState) => selectEntity(state, { kind, id }),

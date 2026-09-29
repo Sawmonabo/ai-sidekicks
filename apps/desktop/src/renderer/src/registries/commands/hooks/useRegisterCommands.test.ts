@@ -3,7 +3,7 @@
 // Two claims, and the second is the one a hand-written effect gets wrong. The first
 // is the ordinary lifecycle: rows are in the registry while the surface is mounted
 // and gone when it is not. The second is that a contribution SIGNALS — the palette
-// memoises its search against a revision, so a registration nothing announces is a
+// memoizes its search against a revision, so a registration nothing announces is a
 // command a person cannot find — and that a stale mount's teardown never clears a
 // live one's rows.
 
@@ -15,14 +15,14 @@ import {
   CommandContributionRegistry,
   subscribeToCommandContributions,
 } from "../command-contributions.js";
-import { consoleCommands } from "../window-command-registry.js";
-import { useConsoleCommandSeat } from "./useRegisterCommands.js";
-import type { ConsoleCommand } from "../command-types.js";
+import { commandRegistry } from "../window-command-registry.js";
+import { useRegisterCommands } from "./useRegisterCommands.js";
+import type { CommandDefinition } from "../command-types.js";
 
 const OWNER = "command-seat-suite";
 
 /** One inert command. The seat is about registration, not about what a command does. */
-function command(id: string): ConsoleCommand {
+function command(id: string): CommandDefinition {
   return {
     id,
     title: `Do ${id}`,
@@ -33,7 +33,7 @@ function command(id: string): ConsoleCommand {
 
 /** The ids this window currently holds under the suite's own namespace. */
 function registeredSuiteIds(): readonly string[] {
-  return consoleCommands
+  return commandRegistry
     .all()
     .map((entry) => entry.id)
     .filter((id) => id.startsWith("suite."));
@@ -43,7 +43,7 @@ describe("a surface's command seat", () => {
   it("registers on mount and removes on unmount", () => {
     const commands = [command("suite.one"), command("suite.two")];
     const mounted = renderHook(() => {
-      useConsoleCommandSeat(OWNER, commands);
+      useRegisterCommands(OWNER, commands);
     });
 
     expect(registeredSuiteIds()).toEqual(["suite.one", "suite.two"]);
@@ -58,14 +58,14 @@ describe("a surface's command seat", () => {
     const stopWatching = subscribeToCommandContributions(() => {
       signals += 1;
     });
-    const commands = [command("suite.signalled")];
+    const commands = [command("suite.signaled")];
     const mounted = renderHook(() => {
-      useConsoleCommandSeat(OWNER, commands);
+      useRegisterCommands(OWNER, commands);
     });
 
     // The contribution itself is the signal: `registerCommands` would have
     // put the row in the registry and told nobody, which is a command the open
-    // palette has already memoised past.
+    // palette has already memoized past.
     expect(signals).toBeGreaterThan(0);
 
     mounted.unmount();
@@ -74,8 +74,8 @@ describe("a surface's command seat", () => {
 
   it("replaces its own rows rather than raising on a duplicate id", () => {
     const first = renderHook(
-      ({ commands }: { commands: readonly ConsoleCommand[] }) => {
-        useConsoleCommandSeat(OWNER, commands);
+      ({ commands }: { commands: readonly CommandDefinition[] }) => {
+        useRegisterCommands(OWNER, commands);
       },
       { initialProps: { commands: [command("suite.one")] } },
     );
@@ -89,15 +89,15 @@ describe("a surface's command seat", () => {
 
   it("leaves a live surface's rows alone when a superseded mount tears down", () => {
     // Two mounts of one surface, the second arriving before the first goes: the
-    // deck can hold two panes of a kind, and development-mode React remounts one.
+    // pane layout can hold two panes of a kind, and development-mode React remounts one.
     // Owner-scoped replace means the second owns the rows, so the FIRST one's
     // cleanup must not take them — which is what a plain effect does, leaving a
     // living pane whose commands have silently left the palette.
     const older = renderHook(() => {
-      useConsoleCommandSeat(OWNER, [command("suite.older")]);
+      useRegisterCommands(OWNER, [command("suite.older")]);
     });
     const newer = renderHook(() => {
-      useConsoleCommandSeat(OWNER, [command("suite.newer")]);
+      useRegisterCommands(OWNER, [command("suite.newer")]);
     });
 
     expect(registeredSuiteIds()).toEqual(["suite.newer"]);
@@ -118,10 +118,10 @@ describe("a surface's command seat", () => {
     // replaced the owner with an empty contribution — so the pane still on screen
     // lost every act it offers, and the palette said nothing about why.
     const older = renderHook(() => {
-      useConsoleCommandSeat(OWNER, [command("suite.older")]);
+      useRegisterCommands(OWNER, [command("suite.older")]);
     });
     const newer = renderHook(() => {
-      useConsoleCommandSeat(OWNER, [command("suite.newer")]);
+      useRegisterCommands(OWNER, [command("suite.newer")]);
     });
 
     newer.unmount();
@@ -138,13 +138,13 @@ describe("a surface's command seat", () => {
     // "restore the first one". Closing the middle mount changes nothing on screen;
     // closing the newest then falls back past it to the oldest.
     const first = renderHook(() => {
-      useConsoleCommandSeat(OWNER, [command("suite.first")]);
+      useRegisterCommands(OWNER, [command("suite.first")]);
     });
     const second = renderHook(() => {
-      useConsoleCommandSeat(OWNER, [command("suite.second")]);
+      useRegisterCommands(OWNER, [command("suite.second")]);
     });
     const third = renderHook(() => {
-      useConsoleCommandSeat(OWNER, [command("suite.third")]);
+      useRegisterCommands(OWNER, [command("suite.third")]);
     });
 
     second.unmount();

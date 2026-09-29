@@ -9,7 +9,7 @@
 // 18,889-character pair inside a 5,000-line patch measured 831 ms on its own
 // (2026-09-02), on the main thread, before anything was drawn.
 //
-// SO IT IS COMPUTED WHEN A ROW IS MATERIALISED, WHICH IS THE ONE MOMENT IT IS NEEDED.
+// SO IT IS COMPUTED WHEN A ROW IS MATERIALIZED, WHICH IS THE ONE MOMENT IT IS NEEDED.
 // `diff-row-index.ts` answers which rows exist; the virtualizer asks for the ones
 // a scroll position needs; the row renderer asks this module for that row's
 // segmentation. A diff nobody scrolls to the bottom of never computes the bottom's
@@ -20,7 +20,7 @@
 // virtualization has already made both lazy and small. The cost this module removes is
 // the whole change set's; what is left is one pair per row a person is looking at.
 //
-// MEMOISED PER PAIR, BOUNDED BOTH WAYS. A scroll re-renders its window on every tick,
+// MEMOIZED PER PAIR, BOUNDED BOTH WAYS. A scroll re-renders its window on every tick,
 // so a row asked for twice must not be computed twice — and a reader who scrolls a
 // large change set end to end must not accumulate one segment list per changed line.
 // The register below is keyed by hunk and PAIR and holds
@@ -58,7 +58,7 @@ import {
 import {
   diffLineText,
   wholeLineSegments,
-  type ConsoleDiffModel,
+  type DiffModel,
   type DiffIntralineSegment,
   type DiffLine,
 } from "./diff-model.js";
@@ -104,7 +104,7 @@ const EMPTY_LINE: DiffLine = { kind: "context", segments: [{ text: "", changed: 
  * invalidates a segmentation.
  */
 export class IntralineSegmentCache {
-  readonly #model: ConsoleDiffModel;
+  readonly #model: DiffModel;
   /**
    * The computed readings, least recently read first.
    *
@@ -115,7 +115,7 @@ export class IntralineSegmentCache {
   readonly #readingByPair = new Map<string, IntralinePairReading>();
   #computeCount = 0;
 
-  public constructor(model: ConsoleDiffModel) {
+  public constructor(model: DiffModel) {
     this.#model = model;
   }
 
@@ -123,7 +123,7 @@ export class IntralineSegmentCache {
    * How many word diffs this cache has actually run.
    *
    * The laziness assertion, not an inference — `DiffRowIndex.bodyLayoutBuildCount`'s
-   * rule. A correct cache runs one per materialised pair and none at parse time, and a
+   * rule. A correct cache runs one per materialized pair and none at parse time, and a
    * renderer that recomputed per scroll tick would grow this while handing back
    * identical segments, which no segment-level assertion can see.
    */

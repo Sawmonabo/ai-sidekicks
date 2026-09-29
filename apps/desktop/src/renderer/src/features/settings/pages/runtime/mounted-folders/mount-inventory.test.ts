@@ -21,7 +21,7 @@ import {
 } from "./mounted-folders.test-support.js";
 import { PAST_REFRESH_DEBOUNCE_MS } from "@test/helpers/settle.js";
 import { eventOfKind } from "@test/helpers/session-events.js";
-import { initialisedStore } from "@test/helpers/session-store-fixtures.js";
+import { initializedStore } from "@test/helpers/session-store-fixtures.js";
 
 /**
  * Let the scheduler's in-flight read settle without advancing the clock.
@@ -205,7 +205,7 @@ describe("what refreshes the inventory", () => {
   }
 
   it("re-reads when a run this session was executing reaches a terminal", async () => {
-    const sessionStore = initialisedStore(SESSION_ID);
+    const sessionStore = initializedStore(SESSION_ID);
     const { clock, read, listCallCount } = await startedRead(sessionStore);
     expect(listCallCount()).toBe(1);
 
@@ -218,7 +218,7 @@ describe("what refreshes the inventory", () => {
   });
 
   it("re-reads when a workspace lifecycle event changes which mounts this session names", async () => {
-    const sessionStore = initialisedStore(SESSION_ID);
+    const sessionStore = initializedStore(SESSION_ID);
     const { clock, read, listCallCount } = await startedRead(sessionStore);
 
     sessionStore.apply(eventOfKind(sessionStore.sessionId, "workspace.ready", 1));
@@ -232,7 +232,7 @@ describe("what refreshes the inventory", () => {
   it("costs one re-read for a burst, never one per event", async () => {
     // The coalescing claim, counted rather than assumed: three mount-affecting
     // events inside one window are one inventory read on the other side of it.
-    const sessionStore = initialisedStore(SESSION_ID);
+    const sessionStore = initializedStore(SESSION_ID);
     const { clock, read, listCallCount } = await startedRead(sessionStore);
 
     sessionStore.applyBatch([
@@ -250,7 +250,7 @@ describe("what refreshes the inventory", () => {
   it("negative control: an event outside the watched set refreshes nothing", async () => {
     // Without this the cases above would pass over a read that re-read on every
     // store transition, which is a poll wearing a subscription's clothes.
-    const sessionStore = initialisedStore(SESSION_ID);
+    const sessionStore = initializedStore(SESSION_ID);
     const { clock, read, listCallCount } = await startedRead(sessionStore);
 
     sessionStore.apply(eventOfKind(sessionStore.sessionId, "run.starting", 1));
@@ -265,7 +265,7 @@ describe("what refreshes the inventory", () => {
     // The store IS the signal. Without one the read is focus-driven, which is the
     // state this case pins so the binding above cannot be mistaken for something
     // the read does on its own.
-    const sessionStore = initialisedStore(SESSION_ID);
+    const sessionStore = initializedStore(SESSION_ID);
     const { clock, read, listCallCount } = await startedRead(undefined);
 
     sessionStore.apply(eventOfKind(sessionStore.sessionId, "run.completed", 1));
@@ -277,7 +277,7 @@ describe("what refreshes the inventory", () => {
   });
 
   it("hears nothing more once the page has left", async () => {
-    const sessionStore = initialisedStore(SESSION_ID);
+    const sessionStore = initializedStore(SESSION_ID);
     const { clock, read, listCallCount } = await startedRead(sessionStore);
     read.dispose();
 

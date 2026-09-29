@@ -6,7 +6,7 @@
 // plus the two the chokepoint answers with memory: a subscriber writing back during
 // notification, and the dedupe set over a long-lived session. The other modes have
 // their own files: `failure-modes.repair.test.ts` for the authoritative re-read and
-// the pre-initialisation cap, `failure-modes.sequence.test.ts` for a delivered
+// the pre-initialization cap, `failure-modes.sequence.test.ts` for a delivered
 // sequence the store cannot reconcile, and `failure-modes.projection.test.ts` for a
 // projector that throws.
 //
@@ -22,7 +22,7 @@
 
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { consoleTripwires } from "@renderer/lib/tripwires.js";
+import { windowTripwires } from "@renderer/lib/tripwires.js";
 import { eventAt } from "./session-store.test-support.js";
 import { SessionStore } from "./session-store.js";
 
@@ -32,12 +32,12 @@ import { SessionStore } from "./session-store.js";
 // only one of the four that can reach a tripwire: `applyBatch`'s re-entrancy guard
 // is the store's single `reportTripwire` call site.
 beforeEach(() => {
-  consoleTripwires.setThrowOnReport(false);
-  consoleTripwires.reset();
+  windowTripwires.setThrowOnReport(false);
+  windowTripwires.reset();
 });
 
-describe("failure matrix — a bridge event arrives before the store is initialised", () => {
-  it("buffers rather than dropping, and drains in sequence order once initialised", () => {
+describe("failure matrix — a bridge event arrives before the store is initialized", () => {
+  it("buffers rather than dropping, and drains in sequence order once initialized", () => {
     const store = new SessionStore({ sessionId: "session-1" });
 
     const early = store.applyBatch([eventAt(3), eventAt(2)]);
@@ -45,7 +45,7 @@ describe("failure matrix — a bridge event arrives before the store is initiali
     expect(early.buffered).toBe(2);
     expect(store.snapshot().timeline).toHaveLength(0);
 
-    store.initialise({ cursor: 1, entities: [] });
+    store.initialize({ cursor: 1, entities: [] });
 
     // Both buffered events land, ordered, with no gap recorded: the events were
     // never missing, only early. Dropping them would have left a hole the console
@@ -58,7 +58,7 @@ describe("failure matrix — a bridge event arrives before the store is initiali
 
   it("refuses an event addressed to another session instead of mixing it in", () => {
     const store = new SessionStore({ sessionId: "session-1" });
-    store.initialise({ cursor: 0, entities: [] });
+    store.initialize({ cursor: 0, entities: [] });
 
     const outcome = store.applyBatch([eventAt(1, { sessionId: "session-2" })]);
 
@@ -69,7 +69,7 @@ describe("failure matrix — a bridge event arrives before the store is initiali
 
   it("records the missing sequences when a gap opens rather than renumbering", () => {
     const store = new SessionStore({ sessionId: "session-1" });
-    store.initialise({ cursor: 0, entities: [] });
+    store.initialize({ cursor: 0, entities: [] });
 
     const outcome = store.applyBatch([eventAt(1), eventAt(4)]);
 
@@ -81,7 +81,7 @@ describe("failure matrix — a bridge event arrives before the store is initiali
 describe("failure matrix — a subscriber writes back into the apply chokepoint", () => {
   it("queues the re-entrant batch, applies it, and names the subscriber as the defect", () => {
     const store = new SessionStore({ sessionId: "session-1" });
-    store.initialise({ cursor: 0, entities: [] });
+    store.initialize({ cursor: 0, entities: [] });
 
     let hasReentered = false;
     const unsubscribe = store.readable.subscribe(() => {
@@ -102,14 +102,14 @@ describe("failure matrix — a subscriber writes back into the apply chokepoint"
     // The re-entrant events are not lost — they are applied after the outer batch
     // settles, so state stays consistent — but the breach is recorded.
     expect(store.snapshot().timeline.map((event) => event.sequence)).toStrictEqual([1, 2]);
-    expect(consoleTripwires.firingCount("apply-chokepoint-bypass")).toBe(1);
-    const report = consoleTripwires.reports()[0];
+    expect(windowTripwires.firingCount("apply-chokepoint-bypass")).toBe(1);
+    const report = windowTripwires.reports()[0];
     expect(report?.detail).toContain("re-entrant applyBatch");
   });
 
   it("applies a duplicate sequence exactly once", () => {
     const store = new SessionStore({ sessionId: "session-1" });
-    store.initialise({ cursor: 0, entities: [] });
+    store.initialize({ cursor: 0, entities: [] });
 
     store.applyBatch([eventAt(1)]);
     const second = store.applyBatch([eventAt(1)]);
@@ -123,7 +123,7 @@ describe("failure matrix — a subscriber writes back into the apply chokepoint"
 describe("failure matrix — dedupe memory over a long-lived session", () => {
   it("releases the sequences the cursor already refuses, so the set stays a batch wide", () => {
     const store = new SessionStore({ sessionId: "session-1" });
-    store.initialise({ cursor: 0, entities: [] });
+    store.initialize({ cursor: 0, entities: [] });
 
     const batchSize = 100;
     const batchCount = 50;
@@ -147,7 +147,7 @@ describe("failure matrix — dedupe memory over a long-lived session", () => {
     // The set's whole remaining job. A release that cleared it mid-batch would
     // admit the second copy of a sequence the same batch already carried.
     const store = new SessionStore({ sessionId: "session-1" });
-    store.initialise({ cursor: 0, entities: [] });
+    store.initialize({ cursor: 0, entities: [] });
 
     const outcome = store.applyBatch([eventAt(1), eventAt(1), eventAt(2)]);
 
@@ -158,7 +158,7 @@ describe("failure matrix — dedupe memory over a long-lived session", () => {
 
   it("negative control: a replay below the cursor is still rejected", () => {
     const store = new SessionStore({ sessionId: "session-1" });
-    store.initialise({ cursor: 0, entities: [] });
+    store.initialize({ cursor: 0, entities: [] });
     store.applyBatch([eventAt(1), eventAt(2), eventAt(3)]);
 
     const replay = store.applyBatch([eventAt(2), eventAt(3)]);

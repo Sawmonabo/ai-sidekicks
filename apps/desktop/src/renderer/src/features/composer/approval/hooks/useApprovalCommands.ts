@@ -5,8 +5,8 @@
 
 import { useMemo } from "react";
 
-import { useConsoleCommandSeat } from "@renderer/registries/commands/hooks/useRegisterCommands.js";
-import { type ConsoleCommand } from "@renderer/registries/commands/command-types.js";
+import { useRegisterCommands } from "@renderer/registries/commands/hooks/useRegisterCommands.js";
+import { type CommandDefinition } from "@renderer/registries/commands/command-types.js";
 import { useLatestRef } from "@renderer/console/primitives/index.js";
 import {
   APPROVAL_COMMAND_OWNER,
@@ -51,14 +51,14 @@ export function useApprovalCommands(input: ApprovalCommandInput): void {
     [signature, inputRef],
   );
 
-  useConsoleCommandSeat(APPROVAL_COMMAND_OWNER, commands);
+  useRegisterCommands(APPROVAL_COMMAND_OWNER, commands);
 }
 
 /** One command, reading everything that moves through the ref at invoke time. */
 function buildApprovalCommand(
   row: ApprovalCommandRow,
   inputRef: React.RefObject<ApprovalCommandInput>,
-): ConsoleCommand {
+): CommandDefinition {
   const recordId = row.record.approvalRequestId;
   return {
     id: `approvals.${row.kind}.${recordId}`,

@@ -1,4 +1,4 @@
-// The projector's own behaviour, apart from the bridge that calls it.
+// The projector's own behavior, apart from the bridge that calls it.
 //
 // `services/daemon/daemon.fixture.run-streams.test.ts` drives this module through a real bridge and
 // a real engine, which is the right way to prove that a subscriber receives the
@@ -24,10 +24,10 @@ import { describe, expect, it } from "vitest";
 
 import { RunStateChangeEventSchema, RunRolledBackEventSchema } from "@ai-sidekicks/contracts";
 
-import type { ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
+import type { ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 import { PROBE_RUN_ID, runTransitionBeat } from "@test/helpers/fixture-bridge.js";
 import { projectRunStreamDelivery } from "./run-stream-projection.fixture.js";
-import { FLAGSHIP_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
+import { CONCURRENT_STREAMING_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
 import {
   RUN_QUEUE_EVENT_STREAM,
   RUN_STATE_EVENT_STREAM,
@@ -42,7 +42,7 @@ function transitionPayload(
   overrides: Readonly<Record<string, unknown>> = {},
 ): Readonly<Record<string, unknown>> {
   return {
-    sessionId: FLAGSHIP_SCENARIO.sessionId,
+    sessionId: CONCURRENT_STREAMING_SCENARIO.sessionId,
     runId: PROBE_RUN_ID,
     runVersion: 4,
     previousState: "starting",
@@ -57,9 +57,11 @@ function transitionPayload(
  * Built off the shared transition beat and then re-kinded, so the envelope members are
  * the ones the fixture's own beats carry and the cases below are about the payload.
  */
-function rollbackBeatEvent(overrides: Readonly<Record<string, unknown>> = {}): ConsoleSessionEvent {
+function rollbackBeatEvent(
+  overrides: Readonly<Record<string, unknown>> = {},
+): ProjectedSessionEvent {
   const beat = runTransitionBeat({
-    sessionId: FLAGSHIP_SCENARIO.sessionId,
+    sessionId: CONCURRENT_STREAMING_SCENARIO.sessionId,
     runId: PROBE_RUN_ID,
     runVersion: 5,
     targetPosition: 2,
@@ -217,7 +219,7 @@ describe("run-stream projection — the rollback arm's session, which the payloa
     // The louder half of the same defect. The durable row is what the timeline's
     // boundary entry refines against the envelope, so the two cannot disagree — and
     // before the check the disagreement was resolved silently, in the envelope's
-    // favour, by overwriting the evidence.
+    // favor, by overwriting the evidence.
     const projection = projectRunStreamDelivery(
       RUN_STATE_EVENT_STREAM,
       rollbackBeatEvent({ sessionId: OTHER_SESSION_ID }),
@@ -229,7 +231,7 @@ describe("run-stream projection — the rollback arm's session, which the payloa
     }
     // Both values, so a scenario author reads which two sessions were in hand rather
     // than that something about a session was wrong.
-    expect(projection.detail).toContain(FLAGSHIP_SCENARIO.sessionId);
+    expect(projection.detail).toContain(CONCURRENT_STREAMING_SCENARIO.sessionId);
     expect(projection.detail).toContain(OTHER_SESSION_ID);
   });
 
@@ -247,7 +249,7 @@ describe("run-stream projection — the rollback arm's session, which the payloa
       return;
     }
     expect(projection.delivery).toStrictEqual({
-      sessionId: FLAGSHIP_SCENARIO.sessionId,
+      sessionId: CONCURRENT_STREAMING_SCENARIO.sessionId,
       runId: PROBE_RUN_ID,
       runVersion: 5,
       targetPosition: 2,
@@ -265,9 +267,9 @@ const PROBE_QUEUE_ROW: Readonly<Record<string, unknown>> = {
 };
 
 /** One `queue_item.created` beat, whose kind announces the `queued` state. */
-function queueBeatEvent(overrides: Readonly<Record<string, unknown>> = {}): ConsoleSessionEvent {
+function queueBeatEvent(overrides: Readonly<Record<string, unknown>> = {}): ProjectedSessionEvent {
   const beat = runTransitionBeat({
-    sessionId: FLAGSHIP_SCENARIO.sessionId,
+    sessionId: CONCURRENT_STREAMING_SCENARIO.sessionId,
     queueItemId: PROBE_QUEUE_ITEM_ID,
     state: "queued",
     ...overrides,
@@ -315,7 +317,7 @@ describe("run-stream projection — the session every arm's payload names", () =
       if (projection?.status !== "unprojectable") {
         return;
       }
-      expect(projection.detail).toContain(FLAGSHIP_SCENARIO.sessionId);
+      expect(projection.detail).toContain(CONCURRENT_STREAMING_SCENARIO.sessionId);
       expect(projection.detail).toContain(OTHER_SESSION_ID);
     });
 

@@ -1,6 +1,6 @@
 // A registered approvals row answers through the render that is ON SCREEN.
 //
-// The rows are memoised on what they SAY, so everything that moves underneath them —
+// The rows are memoized on what they SAY, so everything that moves underneath them —
 // the pending records and the two dispatchers — is read through a ref when a person
 // presses Enter. That makes WHERE the ref is written the whole safety property: a
 // pass React discards has already run this hook, and a pass discarded while the pane
@@ -20,8 +20,8 @@ import {
   type ApprovalRecord,
   type ApprovalResolveRequest,
 } from "@renderer/services/approvals/approval-records.js";
-import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
-import { consoleCommands } from "@renderer/registries/commands/window-command-registry.js";
+import { type Refusal } from "@renderer/lib/refusal.js";
+import { commandRegistry } from "@renderer/registries/commands/window-command-registry.js";
 import { SuspendsWhenAsked, abandonOneRenderPass } from "@test/helpers/abandoned-pass.js";
 import { type ApprovalCommandInput } from "../contributions/approval-commands.js";
 import { useApprovalCommands } from "./useApprovalCommands.js";
@@ -50,7 +50,7 @@ function inputResolvingThrough(
   return {
     pending: [pendingRecord()],
     resolvingApprovalIds: new Set<string>(),
-    resolveRefusalByApprovalId: new Map<string, ConsoleRefusal>(),
+    resolveRefusalByApprovalId: new Map<string, Refusal>(),
     resolve,
   };
 }
@@ -98,7 +98,7 @@ describe("the approvals palette rows answer through the committed render", () =>
     await abandonOneRenderPass(() => {
       readdress.current?.();
     });
-    consoleCommands.get(APPROVE_COMMAND_ID)?.run();
+    commandRegistry.get(APPROVE_COMMAND_ID)?.run();
 
     // The row is the one the committed render contributed, and the discarded pass
     // must have moved nothing it reads. The rows say the same thing in both passes,
@@ -135,7 +135,7 @@ describe("the approvals palette rows answer through the committed render", () =>
         readdress={readdress}
       />,
     );
-    consoleCommands.get(APPROVE_COMMAND_ID)?.run();
+    commandRegistry.get(APPROVE_COMMAND_ID)?.run();
 
     expect(committedResolve).not.toHaveBeenCalled();
     expect(laterResolve).toHaveBeenCalledTimes(1);

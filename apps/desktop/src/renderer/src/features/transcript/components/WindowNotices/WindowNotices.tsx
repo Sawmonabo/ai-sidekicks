@@ -7,9 +7,9 @@
 // facts about a window rather than a read landing under somebody's eyes.
 
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
-import { windowAbsenceNotices, type WindowAbsence } from "../../window-notices.js";
+import { buildWindowNoticeTexts, type WindowAbsence } from "../../window-notices.js";
 
-export interface WindowAbsencesProps {
+export interface WindowNoticesProps {
   /**
    * Every way this window is less than the thing it is a window onto.
    *
@@ -24,8 +24,8 @@ export interface WindowAbsencesProps {
 }
 
 /** What this window is not, said out loud. Renders nothing when it is the whole of it. */
-export function WindowAbsences(props: WindowAbsencesProps): React.JSX.Element | null {
-  const notices = windowAbsenceNotices(props.absences, props.subject);
+export function WindowNotices(props: WindowNoticesProps): React.JSX.Element | null {
+  const notices = buildWindowNoticeTexts(props.absences, props.subject);
   if (notices.length === 0) {
     return null;
   }

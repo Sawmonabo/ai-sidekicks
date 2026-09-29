@@ -1,7 +1,7 @@
 // The live bridge: the ONLY module in the console that reads `window.desktopBridge`, and the
 // one reader of the fixture launch the preload exposes beside it.
 //
-// Everything above this file takes a `ConsoleBridge` from React context, which is
+// Everything above this file takes a `PlatformBridge` from React context, which is
 // what makes the fixture substitutable at all. A single stray `window.desktopBridge` in
 // a component would quietly make that component unrenderable under the fixture, and
 // nobody would notice until a screenshot run failed for an unrelated reason — so
@@ -20,7 +20,7 @@ import { isWireRecord } from "@renderer/lib/wire-record.js";
 import { DESKTOP_BRIDGE_NAMESPACES } from "./bridge-shape.js";
 import { FIXTURE_LAUNCH_GLOBAL, type FixtureLaunch } from "@shared/fixture-launch.js";
 import type { PreloadApi } from "@shared/preload-api.js";
-import type { ConsoleBridge } from "./platform-bridge.js";
+import type { PlatformBridge } from "./platform-bridge.js";
 import { TransportReconnectSignal } from "../transport/transport-reconnect.js";
 
 /** The installed preload bridge, or `undefined` when the preload did not run. */
@@ -44,9 +44,9 @@ export function readFixtureLaunch(): FixtureLaunch | undefined {
 }
 
 /** Wrap the installed preload bridge for console use. */
-export function createLiveBridge(desktopBridge: PreloadApi): ConsoleBridge {
+export function createLiveBridge(preloadApi: PreloadApi): PlatformBridge {
   return {
-    desktopBridge,
+    ...preloadApi,
     // No attention signal, and that is this bridge's honest answer rather than a
     // stub. The attention projection is not a wire this transport serves yet, so a
     // signal that woke that read would be a wake-up for a question nothing on this
@@ -73,7 +73,7 @@ export function createLiveBridge(desktopBridge: PreloadApi): ConsoleBridge {
  * bridge missing entirely is a runtime state this function exists to name.
  *
  * The namespace list is `bridge-shape.ts`'s, not a second copy — that module holds
- * it as a table keyed by `keyof DesktopBridge`, so a namespace added to the
+ * it as a table keyed by `keyof PreloadApi`, so a namespace added to the
  * contract cannot slip past this probe unlisted.
  *
  * The record reading is `core/isWireRecord`, not a hand-written `typeof … === "object"`

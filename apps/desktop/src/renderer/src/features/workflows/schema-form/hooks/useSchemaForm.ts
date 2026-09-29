@@ -176,7 +176,7 @@ const NOTHING_DISPLAYED: SchemaControlView = { value: undefined, unreadableText:
 /**
  * Hold one schema-derived form.
  *
- * The schema is read ONCE per identity: the plan is memoised on it and the validator is
+ * The schema is read ONCE per identity: the plan is memoized on it and the validator is
  * compiled once per identity per mount, so a re-render from a keystroke re-walks nothing
  * and re-compiles nothing. A caller handing a fresh object literal every render would
  * defeat that, which is why every caller in this tree reads the schema off a value the
@@ -234,13 +234,13 @@ export function useSchemaForm(inputSchema: unknown): SchemaFormState {
       round.release();
     };
   }, [compileRounds, inputSchema]);
-  // Memoised through its inputs rather than on its own: both arms this returns are values
+  // Memoized through its inputs rather than on its own: both arms this returns are values
   // the memo and the state above already hold — the mapper's plan itself, or the one held
   // fallback — so the result is stable across a re-render without a third cache to keep in
   // step.
   const plan = choosePlanForValidator(mappedPlan, validator);
   // Seeded per control from what the plan says each one opens holding, and read once: the
-  // header's reason, and why this is an initialiser rather than anything that re-runs.
+  // header's reason, and why this is an initializer rather than anything that re-runs.
   const [draft, setDraft] = useState<SchemaFormDraft>(() => seedDraftFromPlan(plan));
   const [rawText, setRawText] = useState<string>(EMPTY_RAW_TEXT);
 

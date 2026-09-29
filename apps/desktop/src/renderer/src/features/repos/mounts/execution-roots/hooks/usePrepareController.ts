@@ -14,8 +14,8 @@
 // and the hook takes no first read for it.
 
 import { useCallback, useEffect, useMemo } from "react";
-import { consoleClockFor } from "@renderer/services/platform/hooks/useClock.js";
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { resolveBridgeClock } from "@renderer/services/platform/hooks/useClock.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { useSessionScopedActController } from "../../../acts/hooks/useActController.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 import {
@@ -54,7 +54,7 @@ export interface PrepareBinding {
  * made under it.
  */
 export function usePrepareController(
-  bridge: ConsoleBridge,
+  bridge: PlatformBridge,
   subject: PrepareSubject,
   sessionStore: SessionStore,
   operations: PrepareOperations,
@@ -62,7 +62,7 @@ export function usePrepareController(
   // THE CLOCK COMES FROM THE BRIDGE: one window, one time base. Memoized because the real
   // arm mints a fresh clock per call and a new object every render would re-mint the
   // controller beneath it.
-  const clock = useMemo(() => consoleClockFor(bridge), [bridge]);
+  const clock = useMemo(() => resolveBridgeClock(bridge), [bridge]);
   const { controller, reading } = useSessionScopedActController(
     bridge,
     `${subject.workspaceId} ${subject.executionMode}`,

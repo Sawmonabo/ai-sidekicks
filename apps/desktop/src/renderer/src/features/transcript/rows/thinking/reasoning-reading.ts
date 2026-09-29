@@ -21,12 +21,12 @@
 //                     this arm exists to prevent, so the copy names the withholding
 //                     and the component renders `policyReason` verbatim beside it.
 //
-// NO PER-SESSION TOGGLE IS MODELLED, deliberately: visibility follows product
+// NO PER-SESSION TOGGLE IS MODELED, deliberately: visibility follows product
 // policy and there are no session overrides, so the surface offers a read and never
 // a preference. A `showReasoning` flag anywhere in this family would be a second
 // answer to a question the daemon already answers.
 
-import type { ConsoleRefusal } from "@renderer/lib/refusal.js";
+import type { Refusal } from "@renderer/lib/refusal.js";
 import type { ReasoningSurfaceReadResponse, RunId, TimelineRow } from "@ai-sidekicks/contracts";
 
 /** One arm of the contract's closed availability discriminant. */
@@ -54,7 +54,7 @@ export type ReasoningReading =
   | { readonly status: "not-asked" }
   | { readonly status: "reading" }
   | { readonly status: "read"; readonly response: ReasoningSurfaceReadResponse }
-  | { readonly status: "refused"; readonly refusal: ConsoleRefusal };
+  | { readonly status: "refused"; readonly refusal: Refusal };
 
 /** What one arm says of itself when it carries no entries to show. */
 export interface ReasoningAvailabilityCopy {

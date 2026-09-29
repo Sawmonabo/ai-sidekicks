@@ -16,7 +16,7 @@ import {
 
 describe("ComposerSendRouter — a fulfilled intervention is not a successful send", () => {
   it("keeps the message for a steer the run rejected, and renders the daemon's cause", async () => {
-    // The finding: fulfilment was treated as success, so a normally rejected steer
+    // The finding: fulfillment was treated as success, so a normally rejected steer
     // cleared the user's draft as if it had landed. The draft is the send
     // bar's to clear and it clears on `sent` alone, so a refusal here is what keeps
     // the words in the line.
@@ -52,7 +52,7 @@ describe("ComposerSendRouter — a fulfilled intervention is not a successful se
     expect(outcome).toStrictEqual({ status: "sent", path: "provider-bound" });
   });
 
-  it("treats the two fallback states as sends, because the message travelled", async () => {
+  it("treats the two fallback states as sends, because the message traveled", async () => {
     // `accepted` is the daemon's admission and `degraded` is the orchestration layer
     // having fallen back — the transition table puts both on the path where the run
     // takes the message, so keeping the draft would invite a duplicate steer.

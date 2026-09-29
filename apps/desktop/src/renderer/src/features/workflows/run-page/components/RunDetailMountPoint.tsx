@@ -1,13 +1,13 @@
-// The run detail's slot: where a body that draws the run's phase sections, retry iterations,
+// The run detail's mount point: where a body that draws the run's phase sections, retry iterations,
 // pool waits and completed outputs is mounted. It is a prop and this pane supplies none, so
-// the slot draws its empty frame.
+// the mount point draws its empty frame.
 //
 // WHAT THE MOUNT CARRIES. `RunDetailMount` is what a body receives: the run's identifier,
 // and the run snapshot the pane already holds beside this mount. The snapshot key is present
 // exactly while the read is served, so its presence says which read state the pane is in
 // rather than a null the body would have to interpret.
 //
-// THE FORM IS NOT OPENED FROM HERE. The human phase's form has a slot of its own, mounted
+// THE FORM IS NOT OPENED FROM HERE. The human phase's form has a mount point of its own, mounted
 // beside this one, and a body here is handed no seam to it.
 
 import type { WorkflowRunSnapshot } from "@renderer/services/wire-shapes/workflow-projection.js";
@@ -35,7 +35,7 @@ export interface RunDetailMount {
  */
 export type RunDetailBody = (mount: RunDetailMount) => React.ReactNode;
 
-/** What the run detail slot is given: the mount a body receives, and the body itself. */
+/** What the run detail mount point is given: the mount a body receives, and the body itself. */
 export interface RunDetailMountPointProps extends RunDetailMount {
   /**
    * The body, once there is one.
@@ -46,7 +46,7 @@ export interface RunDetailMountPointProps extends RunDetailMount {
   readonly body?: RunDetailBody;
 }
 
-/** The run detail body over the mount, or an empty frame while the slot has no body. */
+/** The run detail body over the mount, or an empty frame while the mount point has no body. */
 export function RunDetailMountPoint(props: RunDetailMountPointProps): React.JSX.Element {
   const { body, ...mount } = props;
   return <EngineMountPoint body={body} mount={mount} />;

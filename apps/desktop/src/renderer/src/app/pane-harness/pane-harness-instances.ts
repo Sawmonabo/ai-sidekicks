@@ -8,25 +8,21 @@
 // Held apart for two reasons. The first is the ordinary one: a per-instance identity
 // rule and a context-composition rule are both testable without a DOM, and neither
 // needs React to state. The second is the rule the harness itself rests on — the
-// thing being measured is what the DECK would mount, which is the descriptor a family
-// registered, so this module takes `ConsolePaneDescriptor` and never a pane component,
+// thing being measured is what the PANE LAYOUT would mount, which is the descriptor a family
+// registered, so this module takes `PaneDescriptor` and never a pane component,
 // and a harness that imported one directly would measure a component that happens to
 // sit beside the registration.
 
-import type {
-  ConsolePaneAddress,
-  ConsolePaneContext,
-  ConsolePaneDescriptor,
-} from "@renderer/console/seats/index.js";
-import type { ConsoleSurfaceContext } from "@renderer/console/seats/index.js";
+import type { PaneAddress, PaneContext, PaneDescriptor } from "@renderer/console/seats/index.js";
+import type { ScreenContext } from "@renderer/console/seats/index.js";
 
 /** One mounted pane: its key, the registered body, and what that body is handed. */
 export interface PaneHarnessInstance {
   /** React's reconciliation identity for this instance. */
   readonly key: string;
   /** The registered body, named so the caller's element reads as a component. */
-  readonly PaneBody: ConsolePaneDescriptor["render"];
-  readonly context: ConsolePaneContext;
+  readonly PaneBody: PaneDescriptor["render"];
+  readonly context: PaneContext;
 }
 
 /**
@@ -43,7 +39,7 @@ export interface PaneHarnessInstance {
  * rebuilding them and a pane bound to one session went on running against another.
  */
 export function paneInstanceId(
-  address: ConsolePaneAddress,
+  address: PaneAddress,
   sessionId: string,
   instanceIndex: number,
 ): string {
@@ -56,17 +52,17 @@ export function paneInstanceId(
  * Every store comes off the surface context rather than being minted here: the
  * budget's subject is a pane in a RUNNING console, so the pane reads the window's
  * own bridge, frame store, session store, durable UI state, and drafts — the same
- * five a deck would hand it. The two members a deck decides and this harness does
+ * five a pane layout would hand it. The two members a pane layout decides and this harness does
  * not are passed absent rather than invented: nothing opened this pane from another
  * pane, and no actor is attributed to it, which is the neutral answer
- * `ConsolePaneContext` documents for both.
+ * `PaneContext` documents for both.
  */
 export function paneContextFor(
-  context: ConsoleSurfaceContext,
-  address: ConsolePaneAddress,
+  context: ScreenContext,
+  address: PaneAddress,
   sessionId: string,
   instanceIndex: number,
-): ConsolePaneContext {
+): PaneContext {
   return {
     ...address,
     paneId: paneInstanceId(address, sessionId, instanceIndex),
@@ -89,9 +85,9 @@ export function paneContextFor(
  * guard would take the window's error boundary for an arithmetic slip.
  */
 export function paneHarnessInstances(
-  descriptor: ConsolePaneDescriptor,
-  context: ConsoleSurfaceContext,
-  address: ConsolePaneAddress,
+  descriptor: PaneDescriptor,
+  context: ScreenContext,
+  address: PaneAddress,
   sessionId: string,
   openInstanceCount: number,
 ): readonly PaneHarnessInstance[] {

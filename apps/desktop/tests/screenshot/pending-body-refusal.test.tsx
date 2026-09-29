@@ -25,8 +25,8 @@ import { describe, expect, it } from "vitest";
 import { renderSettled } from "../helpers/app-harness.js";
 import { captureSettled } from "./settled-capture.js";
 
-import { ConsolePaneRegistry } from "@renderer/console/seats/index.js";
-import type { ConsolePaneContext } from "@renderer/console/seats/index.js";
+import { PaneRegistry } from "@renderer/console/seats/index.js";
+import type { PaneContext } from "@renderer/console/seats/index.js";
 // The LEAF: `LazyBodyModule` is the loader's own return type and has no production
 // reader through the seats door, which is the shape that door's header refuses a line
 // for. `seats/lazy-body/lazy-body.test.tsx` reaches it the same way.
@@ -46,28 +46,28 @@ const PLANTED_OWNER = "pending-body-refusal-control";
  * standing up a bridge and three stores to prove a refusal would be a fixture testing
  * the fixture. The cast says so rather than hiding behind a builder.
  */
-function plantedPaneContext(): ConsolePaneContext {
+function plantedPaneContext(): PaneContext {
   return {
     kind: PLANTED_KIND,
     sessionStore: undefined,
     focusHue: undefined,
-  } as unknown as ConsolePaneContext;
+  } as unknown as PaneContext;
 }
 
 /** A registry holding one kind whose module is still in flight, forever. */
-function registryWithPendingBody(): ConsolePaneRegistry {
-  const registry = new ConsolePaneRegistry();
+function registryWithPendingBody(): PaneRegistry {
+  const registry = new PaneRegistry();
   registry.register({
     kind: PLANTED_KIND,
     owner: PLANTED_OWNER,
-    body: () => new Promise<LazyBodyModule<ConsolePaneContext>>(() => undefined),
+    body: () => new Promise<LazyBodyModule<PaneContext>>(() => undefined),
   });
   return registry;
 }
 
 /** The same, with a body that lands — preloaded, as every mount helper preloads. */
-async function registryWithLoadedBody(): Promise<ConsolePaneRegistry> {
-  const registry = new ConsolePaneRegistry();
+async function registryWithLoadedBody(): Promise<PaneRegistry> {
+  const registry = new PaneRegistry();
   registry.register({
     kind: PLANTED_KIND,
     owner: PLANTED_OWNER,
@@ -77,7 +77,7 @@ async function registryWithLoadedBody(): Promise<ConsolePaneRegistry> {
   return registry;
 }
 
-async function mountPane(registry: ConsolePaneRegistry): Promise<HTMLElement> {
+async function mountPane(registry: PaneRegistry): Promise<HTMLElement> {
   const { container } = await renderSettled(
     <>{registry.descriptorFor(PLANTED_KIND)?.render(plantedPaneContext())}</>,
   );

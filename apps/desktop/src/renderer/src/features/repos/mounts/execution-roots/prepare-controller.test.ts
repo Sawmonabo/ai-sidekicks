@@ -114,7 +114,7 @@ describe("ExecutionRootPrepareController — the reuse check", () => {
 
 describe("ExecutionRootPrepareController — the prepare", () => {
   it("publishes the root the daemon put on disk, settled the only way a prepare settles", async () => {
-    // `ready` AND NOT `provisioning`, which is a claim about the producer rather than
+    // `ready` AND NOT `preparing`, which is a claim about the producer rather than
     // about the fixture: the execution-root service awaits the reprovision completion
     // before it answers and every path that does not reach it throws, so a settlement
     // this surface renders as "prepared / provisioning" is a pair no daemon can send.

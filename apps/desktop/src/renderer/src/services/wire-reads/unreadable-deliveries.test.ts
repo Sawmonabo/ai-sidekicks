@@ -11,7 +11,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { refuse, refusedMemberPaths, type ConsoleRefusal } from "@renderer/lib/refusal.js";
+import { refuse, refusedMemberPaths, type Refusal } from "@renderer/lib/refusal.js";
 import {
   UnreadableDeliveryCounter,
   unreadableDeliveryRefusalComposerFor,
@@ -19,7 +19,7 @@ import {
 } from "./unreadable-deliveries.js";
 
 /** A composer shaped exactly as the two real ones are: origin, code, member paths. */
-function testRefusalFor(issues: UnreadableDeliveryIssues): ConsoleRefusal {
+function testRefusalFor(issues: UnreadableDeliveryIssues): Refusal {
   return refuse("test-stream", "delivery-unreadable", refusedMemberPaths(issues).join(", "));
 }
 

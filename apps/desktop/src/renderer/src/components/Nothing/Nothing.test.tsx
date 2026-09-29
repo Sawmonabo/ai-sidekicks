@@ -84,7 +84,7 @@ describe("Nothing — shape follows placement, and placement alone", () => {
   it("renders the placement's shape for every kind in the set", () => {
     // The grid, in full: no cell of it reads the kind to decide the shape, which is
     // the whole claim. `not-checked` at `surface` is the cell that used to be
-    // impossible — a badge centred in a pane — and it is not called out here,
+    // impossible — a badge centered in a pane — and it is not called out here,
     // because a rule that needs its hardest case called out is a rule with an
     // exception in it.
     for (const placement of NOTHING_PLACEMENTS) {
@@ -174,7 +174,7 @@ describe("Nothing — each kind says what its own next move needs", () => {
       "Loading the sessions",
     );
     // The control: the bars are uneven on purpose — three equal bars read as a
-    // table, and the shape being imitated is a ledger row.
+    // table, and the shape being imitated is a transcript row.
     const barWidths = [...notLoaded.querySelectorAll(".meridian-nothing__skeleton-bar")].map(
       (bar) => (bar instanceof HTMLElement ? bar.style.width : ""),
     );

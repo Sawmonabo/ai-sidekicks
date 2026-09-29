@@ -2,8 +2,8 @@
 // beside it.
 //
 // The pane shows output and this line only. The line states the holder from the fold
-// and never derives it from a claim: it moves when a `pty.control_changed` transition
-// reaches the fold, and not before. The claim control is `LeaseClaimControl.tsx`, which
+// and never derives it from a take: it moves when a `pty.control_changed` transition
+// reaches the fold, and not before. The take control is `LeaseTakeControl.tsx`, which
 // a caller puts in `controls`.
 
 import type { ReactNode } from "react";
@@ -15,7 +15,7 @@ import { type TerminalLeaseHolder, type TerminalLeaseState } from "../lease-mode
 /** What the lease line shows: the folded state and an optional control slot. */
 export interface LeaseLineProps {
   readonly state: TerminalLeaseState;
-  /** What sits beside the holder statement: the claim control, where a caller has one. */
+  /** What sits beside the holder statement: the take control, where a caller has one. */
   readonly controls?: ReactNode;
 }
 

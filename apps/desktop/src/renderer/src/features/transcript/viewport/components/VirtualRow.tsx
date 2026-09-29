@@ -26,7 +26,7 @@ import { usePreservedRowSelection } from "../hooks/usePreservedRowSelection.js";
 import type { ViewportRow } from "../viewport-snapshot.js";
 
 /**
- * What a ledger row is in the accessibility tree.
+ * What a transcript row is in the accessibility tree.
  *
  * Named once rather than spelled at the call below, because it is half of a pairing
  * whose other half lives one module up: `TranscriptViewport` claims the WAI-ARIA feed
@@ -37,7 +37,7 @@ import type { ViewportRow } from "../viewport-snapshot.js";
 const LEDGER_ROW_ROLE = "article" as const;
 
 /** How a row body is drawn. Supplied by whoever owns the row vocabulary. */
-export type TranscriptRowRenderer = (row: ViewportRow) => React.ReactNode;
+export type ViewportRowRenderer = (row: ViewportRow) => React.ReactNode;
 
 export interface VirtualRowProps {
   /** The virtualizer reads this back off the element to identify the row. */
@@ -45,7 +45,7 @@ export interface VirtualRowProps {
   /** How long the whole log is — not how many rows are mounted. */
   readonly totalRowCount: number;
   readonly row: ViewportRow;
-  readonly renderRow: TranscriptRowRenderer;
+  readonly renderRow: ViewportRowRenderer;
   readonly attachRow: (element: HTMLElement | null) => void;
 }
 
@@ -81,7 +81,7 @@ export const VirtualRow: React.MemoExoticComponent<(props: VirtualRowProps) => R
       <WindowedListRow
         as="div"
         role={LEDGER_ROW_ROLE}
-        className="meridian-ledger-viewport__row"
+        className="meridian-transcript-viewport__row"
         rowIndex={props.rowIndex}
         totalRowCount={props.totalRowCount}
         rowRef={attachRowElement}

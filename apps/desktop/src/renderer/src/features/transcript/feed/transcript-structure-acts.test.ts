@@ -8,8 +8,8 @@
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
-import { publishConsoleActRefusalSink } from "@renderer/registries/commands/command-refusal.js";
+import { type Refusal } from "@renderer/lib/refusal.js";
+import { publishCommandRefusalSink } from "@renderer/registries/commands/command-refusal.js";
 import { emptyFindResult } from "../find/find-model.js";
 import { type TranscriptFindState } from "../find/hooks/useTranscriptFind.js";
 import {
@@ -26,7 +26,7 @@ const WALKED_ROW_ID = "row-the-walk-found";
 /**
  * A find state whose members record rather than derive.
  *
- * `useTranscriptFind`'s real behaviour is `useTranscriptFind.test.ts`'; what matters
+ * `useTranscriptFind`'s real behavior is `useTranscriptFind.test.ts`'; what matters
  * here is which member an act calls, which a recording stand-in answers and a real
  * hook would only obscure.
  */
@@ -72,19 +72,19 @@ function actInputs(
     jumpToTail: () => {
       trace.push("jumpToTail");
     },
-    collapseAllTerminalChapters: () => {
-      trace.push("collapseAllTerminalChapters");
+    collapseAllTerminalRunGroups: () => {
+      trace.push("collapseAllTerminalRunGroups");
     },
   };
 }
 
 /** Every refusal raised on the frame's channel for the length of one case. */
 function collectRaisedRefusals(): {
-  readonly raised: ConsoleRefusal[];
+  readonly raised: Refusal[];
   readonly withdraw: () => void;
 } {
-  const raised: ConsoleRefusal[] = [];
-  const withdraw = publishConsoleActRefusalSink((refusal) => {
+  const raised: Refusal[] = [];
+  const withdraw = publishCommandRefusalSink((refusal) => {
     raised.push(refusal);
   });
   return { raised, withdraw };
@@ -125,10 +125,10 @@ describe("the transcript's acts — what each one reaches", () => {
     expect(trace).toStrictEqual(["jumpToTail"]);
   });
 
-  it("folds every terminal chapter this feed has open", () => {
+  it("folds every terminal run group this feed has open", () => {
     const trace: ActTrace = [];
     buildTranscriptStructureActs(actInputs(trace)).foldEveryRun();
-    expect(trace).toStrictEqual(["collapseAllTerminalChapters"]);
+    expect(trace).toStrictEqual(["collapseAllTerminalRunGroups"]);
   });
 
   it("fires nothing merely by being built", () => {
@@ -146,15 +146,15 @@ describe("the transcript's acts — none of them refuses", () => {
     withdrawSink = undefined;
   });
 
-  it("folds the chapters rather than refusing over a control that now exists", () => {
-    // The refusal this replaces said every finished chapter was already folded and
-    // no control opened one. Both halves are false now that a chapter header is a
+  it("folds the run groups rather than refusing over a control that now exists", () => {
+    // The refusal this replaces said every finished run group was already folded and
+    // no control opened one. Both halves are false now that a run group header is a
     // disclosure, so the press does the fold and raises nothing.
     const trace: ActTrace = [];
     const { raised, withdraw } = collectRaisedRefusals();
     withdrawSink = withdraw;
     buildTranscriptStructureActs(actInputs(trace)).foldEveryRun();
-    expect(trace).toStrictEqual(["collapseAllTerminalChapters"]);
+    expect(trace).toStrictEqual(["collapseAllTerminalRunGroups"]);
     expect(raised).toStrictEqual([]);
   });
 

@@ -27,7 +27,7 @@ describe("readSlashCommandName", () => {
     expect(readSlashCommandName("  /compact")).toBeUndefined();
   });
 
-  it("reads a doubled slash as the name it is, so nothing recognises it", () => {
+  it("reads a doubled slash as the name it is, so nothing recognizes it", () => {
     expect(readSlashCommandName("//not a command")).toBe("/not");
   });
 

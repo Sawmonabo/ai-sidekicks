@@ -29,8 +29,8 @@
 
 import { reservedChordReason } from "@renderer/registries/keybindings/keybinding-audit.js";
 import {
-  type ConsoleCommand,
-  type KeyBinding,
+  type CommandDefinition,
+  type Keybinding,
 } from "@renderer/registries/commands/command-types.js";
 import { type KeybindingOverrideMap } from "@renderer/registries/keybindings/keybinding-overrides.js";
 import { scoreSubsequence } from "@ai-sidekicks/search-ranking";
@@ -81,7 +81,7 @@ export interface KeybindingRow {
  */
 export type ChordRecording =
   | { readonly outcome: "captured"; readonly chord: string }
-  | { readonly outcome: "cancelled" }
+  | { readonly outcome: "canceled" }
   | { readonly outcome: "cleared" }
   | {
       readonly outcome: "incomplete";
@@ -109,7 +109,7 @@ export type CompletedChordRecording = Exclude<ChordRecording, { readonly outcome
 /** The two that change a binding. A cancellation changes nothing and is neither. */
 export type AppliedChordRecording = Exclude<
   CompletedChordRecording,
-  { readonly outcome: "cancelled" }
+  { readonly outcome: "canceled" }
 >;
 
 /**
@@ -121,8 +121,8 @@ export type AppliedChordRecording = Exclude<
  * one console does not have two ideas about how its acts are arranged.
  */
 export function composeKeybindingRows(options: {
-  readonly commands: readonly ConsoleCommand[];
-  readonly bindings: readonly KeyBinding[];
+  readonly commands: readonly CommandDefinition[];
+  readonly bindings: readonly Keybinding[];
   /**
    * The table the console SHIPS, so each row can name the chord a reset restores.
    *
@@ -130,7 +130,7 @@ export function composeKeybindingRows(options: {
    * render a reset control that promises something it cannot name, and an omitted
    * argument would produce exactly that silently.
    */
-  readonly shippedBindings: readonly KeyBinding[];
+  readonly shippedBindings: readonly Keybinding[];
   readonly overrides?: KeybindingOverrideMap;
   readonly platform?: ChordPlatform;
 }): readonly KeybindingRow[] {
@@ -247,7 +247,7 @@ export function readChordFromEvent(
 ): ChordRecording {
   const bare = !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey;
   if (bare && event.key === "Escape") {
-    return { outcome: "cancelled" };
+    return { outcome: "canceled" };
   }
   if (bare && (event.key === "Backspace" || event.key === "Delete")) {
     return { outcome: "cleared" };

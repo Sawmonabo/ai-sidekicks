@@ -2,7 +2,7 @@
 //
 // The defect this file exists for is the one a caller worked around rather than
 // reported: `normalizeWireRejection` rebuilds, the rebuild knew three members, and a
-// refusal thrown as a `ConsoleRefusalError` came out the other side without the members
+// refusal thrown as a `RefusalError` came out the other side without the members
 // its producer widened it by — so a caller kept arms handing the candidate back BY
 // REFERENCE, which is the one thing the rebuild exists to prevent.
 //
@@ -20,13 +20,13 @@ import {
   readRefusalExtensions,
   wireRetryExtension,
 } from "./refusal-extensions.js";
-import { ConsoleRefusalError, refuse, type ConsoleRefusal } from "./refusal.js";
+import { RefusalError, refuse, type Refusal } from "./refusal.js";
 import { normalizeWireRejection } from "./wire-rejection.js";
 
 /**
  * A refusal widened by both registered members, plus a discriminant that is not one.
  */
-function widenedRefusal(): ConsoleRefusal & Record<string, unknown> {
+function widenedRefusal(): Refusal & Record<string, unknown> {
   return {
     ...refuse("sessions", "session.goal_delivery_failed", "Not delivered to every agent."),
     status: "unavailable",
@@ -114,7 +114,7 @@ describe("refusal extensions — a rebuild carries the registered set and nothin
 
   it("carries it through an error the refusal was thrown as, too", () => {
     // A refusal raised as a throw so a read body can settle into its failure arm.
-    const carried = normalizeWireRejection("sessions", new ConsoleRefusalError(widenedRefusal()));
+    const carried = normalizeWireRejection("sessions", new RefusalError(widenedRefusal()));
 
     expect(carried.failedBindingIds).toStrictEqual(["binding-a"]);
     expect(carried.retry).toStrictEqual({ afterSeconds: 30 });
@@ -128,7 +128,7 @@ describe("refusal extensions — a rebuild carries the registered set and nothin
 
     expect(Object.hasOwn(normalized, "status")).toBe(false);
     // Both paths, because the extensions travel on both and so would the discriminant.
-    const carried = normalizeWireRejection("repos", new ConsoleRefusalError(widenedRefusal()));
+    const carried = normalizeWireRejection("repos", new RefusalError(widenedRefusal()));
     expect(Object.hasOwn(carried, "status")).toBe(false);
   });
 

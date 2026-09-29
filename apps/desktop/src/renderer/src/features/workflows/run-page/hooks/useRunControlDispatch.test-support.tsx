@@ -16,9 +16,9 @@ export const RUN_B = "run-b";
 /** A served cancel, in the shape the operation's own signature fixes. */
 export const CANCELED: WorkflowRunCancelReply = {
   workflowRunId: RUN_A,
-  state: "cancelled",
-  cancelledEventId: "evt-cancel-01",
-  alreadyCancelled: false,
+  state: "canceled",
+  canceledEventId: "evt-cancel-01",
+  alreadyCanceled: false,
 };
 
 /** Calls whose cancel stays in flight until the case serves it, and what they were asked. */

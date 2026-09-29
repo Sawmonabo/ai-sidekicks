@@ -1,18 +1,18 @@
 // The seats family's door — and the one place view families reach each other.
 //
-// The family holds the session workspace's shared vocabulary: the seats through
+// The family holds the session screen's shared vocabulary: the seats through
 // which the view families hand each other panes, a composer, sidebar sections,
-// timeline rows, and inline cards, and the surface registry through which a family
+// transcript rows, and inline cards, and the screen registry through which a family
 // hands the frame a whole route's body. It sits directly above `bridge/` and below
 // `palette/` and `frame/` in the console's DAG.
 //
 // WHY THAT POSITION, AND NOT INSIDE A VIEW FAMILY. These contracts used to live at
 // `workspace/seats/` and were published by `workspace/index.ts`. `workspace/` is a
-// VIEW FAMILY — the ledger and the composer author bodies in it — and a view family
+// VIEW FAMILY — the transcript and the composer author bodies in it — and a view family
 // sits at the TOP of the DAG, above the frame. But the frame composes the pane
 // registry singleton, so the frame imported the family, and the family is documented
 // to import the frame: an upward edge that either closes a cycle the moment the
-// workspace body lands, or forces a view family to stop using its own lower layers.
+// session screen body lands, or forces a view family to stop using its own lower layers.
 // The layering gate stayed green on it because its ladders stopped at `frame/` and
 // no rule named the view families at all. Both halves are fixed together — this
 // family is the hoist, and `.dependency-cruiser.mjs` now forbids any layer family,
@@ -21,7 +21,7 @@
 // The position is read off the imports rather than chosen: the seats import `core/`,
 // `tokens/`, `routing/`, `store/`, `persistence/`, `bridge/`, and `src/shared/`, and
 // nothing higher, so the lowest home above all of them is the slot immediately above
-// `bridge/`. The surface registry was read the same way and answered the same slot,
+// `bridge/`. The screen registry was read the same way and answered the same slot,
 // which is why it moved here from `frame/` and took the console's last named layering
 // exemption with it. Lower is also the more permissive choice for the two families that sit
 // between here and the view families — the palette may open a pane, and the frame may
@@ -39,9 +39,9 @@
 // The view families are SIBLINGS, and siblings have no edge at all — which is what
 // keeps six concurrent branches from serializing behind each other.
 //
-// But siblings still hand each other things: the deck mounts panes six families
-// build, the workspace mounts a composer the composer family fills, one sidebar
-// carries sections four families own, and the ledger renders cards the repos
+// But siblings still hand each other things: the pane layout mounts panes six families
+// build, the session screen mounts a composer the composer family fills, one sidebar
+// carries sections four families own, and the transcript renders cards the repos
 // family authors. Every one of those is a CONTRACT rather than an import — a type
 // plus a registry, minted once here so no branch invents its own.
 //
@@ -49,9 +49,9 @@
 // A family reaching past it into another family's subtree is reaching for a body,
 // and a body is exactly what a seat exists to keep it from holding.
 //
-// ONE THING HERE RENDERS, AND IT IS THE FRAME RATHER THAN A BODY. `ConsolePaneChrome`
+// ONE THING HERE RENDERS, AND IT IS THE FRAME RATHER THAN A BODY. `PaneFrame`
 // is the chrome every pane wears — kind glyph, breadcrumb, control strip, focus
-// treatments — and it is here for the same reason every other seat is: the deck that
+// treatments — and it is here for the same reason every other seat is: the pane layout that
 // provides its host control is a VIEW family, six sibling families each draw a
 // pane inside it, and a sibling may not import a sibling. Six frames drawn
 // independently is six spacings and six answers to where the focus ring goes, which is
@@ -82,24 +82,24 @@
 // `@consumedBy` claims: the frame and the composition root read these today.
 //
 // Four names are deliberately absent, each because no PRODUCTION module reaches it
-// through this door and the barrel census fails a line like that. `ConsoleSurfaceSlot`
-// is reached through the descriptor a family fills in. `CONSOLE_SURFACE_SLOTS`'s only
+// through this door and the barrel census fails a line like that. `ScreenName`
+// is reached through the descriptor a family fills in. `SCREEN_NAMES`'s only
 // reader is `families.test.ts`. `registerConsoleSurface` — the module-scope door a
 // plan-owned subtree mounting into the console would call — has no caller outside this
 // family yet; the family that lands the first one adds the line in its own diff. And
-// `ConsoleSurfaceDescriptor` joined them when the last pre-console slot claim was
+// `ScreenDescriptor` joined them when the last pre-console slot claim was
 // retired: every surviving registrar hands `register` an object literal or a
-// `ConsoleSurfaceRegistration` row and names the descriptor type nowhere, so the line
+// `ScreenRegistration` row and names the descriptor type nowhere, so the line
 // had only a test harness left reading it, and that harness takes the declaring module.
 export {
-  ConsoleSurfaceRegistry,
-  consoleSurfaceRegistry,
-  surfaceSlotFor,
+  ScreenRegistry,
+  screenRegistry,
+  findScreenNameForRoute,
   // What a family hands `register`, published for the same reason
-  // `ConsolePaneRegistration` is: a family claiming more than one slot keeps its
+  // `PaneRegistration` is: a family claiming more than one slot keeps its
   // claims in a table, and a table needs the type its rows are. The workflows family
   // is the first with two — the rail's destination and the phase deep link.
-  type ConsoleSurfaceRegistration,
+  type ScreenRegistration,
 } from "@renderer/registries/screens/screen-registry.js";
 
 // The two contexts come off their own modules rather than off the boards that hand them
@@ -107,14 +107,14 @@ export {
 // mounts while a loader-backed body is in flight, and that frame names the context — and
 // re-exporting them from the boards here would put this door's readers back on a
 // specifier the declaration no longer lives at.
-export type { ConsolePaneContext } from "@renderer/registries/panes/pane-context.js";
-export type { ConsoleSurfaceContext } from "@renderer/registries/screens/screen-context.js";
+export type { PaneContext } from "@renderer/registries/panes/pane-context.js";
+export type { ScreenContext } from "@renderer/registries/screens/screen-context.js";
 
 // `PANE_KINDS` and `EPHEMERAL_PANE_KINDS` are deliberately absent: every reader of
 // either SET is inside this family or is a suite that drives the kinds directly, and
 // both take `seats/pane-kinds.js` by its own specifier. A door line no production
 // module reads is one the barrel census fails, so the sets leave rather than being
-// tagged. Their two predicates stay, because the deck asks both of them.
+// tagged. Their two predicates stay, because the pane layout asks both of them.
 export {
   isEphemeralPaneKind,
   isPaneKind,
@@ -124,23 +124,23 @@ export {
 export {
   /** @consumedBy a view family that has not landed yet */
   paneEntityScopeFor,
-  type ConsolePaneAddress,
+  type PaneAddress,
   /** @consumedBy a view family that has not landed yet */
-  type ConsolePaneLink,
-  type ConsolePaneOpener,
+  type PaneLink,
+  type PaneOpener,
   /** @consumedBy a view family that has not landed yet */
   type PaneEntityScopeDeclaration,
 } from "@renderer/routing/panes/pane-address.js";
 
-export { parseConsolePaneAddress } from "@renderer/routing/panes/parse-pane-address.js";
+export { parsePaneAddress } from "@renderer/routing/panes/parse-pane-address.js";
 
 export {
-  ConsolePaneRegistry,
-  consolePaneRegistry,
+  PaneRegistry,
+  paneRegistry,
   /** @consumedBy a view family that has not landed yet */
   registeredPaneKinds,
-  type ConsolePaneDescriptor,
-  type ConsolePaneRegistration,
+  type PaneDescriptor,
+  type PaneRegistration,
 } from "@renderer/registries/panes/pane-registry.js";
 
 // The idle warm and its scheduler. Published because the composition that owns a
@@ -154,24 +154,24 @@ export {
 
 // THE LOADER MECHANISM, PUBLISHED FOR THE ONE BOARD THAT IS NOT IN THIS DIRECTORY.
 //
-// It was absent from this door while the deck's pane registry and the frame's surface
-// registry were the only boards that normalised a loader into a descriptor, and both sit
+// It was absent from this door while the pane layout's pane registry and the frame's surface
+// registry were the only boards that normalized a loader into a descriptor, and both sit
 // here. The settings family's page registry is a third: its rail mounts one page per
 // section, a page's body is a chunk like any other, and a settings page reachable from a
 // family door that another family imports EAGERLY is on every launch's initial graph
 // whether or not settings is ever opened — which is the defect
 // `settings/settings-page-registry.ts` records measuring. Building a second normaliser
-// beside `LoadedLazyBody` would have been two settle semantics to keep in step, so the
+// beside `LoaderBackedBody` would have been two settle semantics to keep in step, so the
 // board that lives outside this directory reads the one that already exists.
 //
-// `PENDING_PANE_BODY_ATTRIBUTE` joins it, and the reason the marker had no door line
+// `PENDING_BODY_ATTRIBUTE` joins it, and the reason the marker had no door line
 // expires with the same change: it had exactly one reader outside this directory and that
 // reader was a test — the screenshot tier's capture helper, which refuses to photograph a
 // half-loaded body — so a door line would have been a specifier no shipped module reads,
 // which the module-shape rule in `apps/desktop/AGENTS.md` rejects rather than tolerates.
 // A settings page waiting on its chunk is the same hazard the marker exists for, so the
 // attribute now has a production reader and a door line is what it is owed.
-// `pendingPaneKindsIn` and `pendingPaneBodiesIn` still have none and still take the
+// `listPendingBodyNames` and `findPendingBodies` still have none and still take the
 // leaf directly, for the reason above: their only consumer outside this directory is
 // that helper.
 //
@@ -184,19 +184,19 @@ export {
 // walk in this directory — and a family declaring a loader beside its registration writes
 // `body: () => import("./x-body.js")` inline, which names no type at all.
 export {
-  PENDING_PANE_BODY_ATTRIBUTE,
+  PENDING_BODY_ATTRIBUTE,
   reservedBodyRegion,
 } from "@renderer/components/LazyBody/pending-body-marker.js";
-export { LoadedLazyBody, type LazyBodyLoader } from "@renderer/components/LazyBody/lazy-body.js";
+export { LoaderBackedBody, type LazyBodyLoader } from "@renderer/components/LazyBody/lazy-body.js";
 
 export {
-  composerSeatRenderer,
-  registerComposerSeat,
+  findComposerRenderer,
+  registerComposer,
   /** @consumedBy a view family that has not landed yet */
-  unregisterComposerSeat,
-  type ComposerSeatProps,
+  unregisterComposer,
+  type ComposerProps,
   /** @consumedBy a view family that has not landed yet */
-  type ComposerSeatRenderer,
+  type ComposerRenderer,
 } from "@renderer/registries/composer/composer-registry.js";
 // The other direction: a surface that told a person to type something asking the
 // mounted composer for the caret. Through the door because the asker and the answerer
@@ -208,12 +208,12 @@ export {
 
 export {
   /** @consumedBy a view family that has not landed yet */
-  TIMELINE_ROW_DENSITIES,
-  registerTimelineRowRenderer,
-  timelineRowRenderer,
-  type TimelineRowDensity,
-  type TimelineRowRenderer,
-  type TimelineRowSlotProps,
+  TRANSCRIPT_ROW_DENSITIES,
+  registerTranscriptRowRenderer,
+  findTranscriptRowRenderer,
+  type TranscriptRowDensity,
+  type TranscriptRowRenderer,
+  type TranscriptRowProps,
 } from "@renderer/features/transcript/transcript-row-renderer.js";
 
 // `InlineCardBodyDescriptor` is deliberately absent: a registrar hands `register` an
@@ -222,9 +222,9 @@ export {
 export {
   /** @consumedBy a view family that has not landed yet */
   INLINE_CARD_KINDS,
-  InlineCardSeatRegistry,
+  InlineCardRegistry,
   inlineCardBody,
-  inlineCardSeatRegistry,
+  inlineCardRegistry,
   type ArtifactInlineCardProps,
   type AttachmentInlineCardProps,
   type DiffInlineCardProps,
@@ -234,19 +234,19 @@ export {
   type InlineCardKind,
   /** @consumedBy a view family that has not landed yet */
   type InlineCardPropsByKind,
-  type InlineCardSeatProps,
+  type InlineCardProps,
 } from "@renderer/registries/inline-cards/inline-card-registry.js";
 
 // The pane chrome and the seam its host control travels on. No marker on any of
 // these lines, and every half of the reason has now happened: shipped pane bodies
-// import the chrome and narrow through `paneBodyForKind`; the deck — the one host that
+// import the chrome and narrow through `paneBodyForKind`; the pane layout — the one host that
 // provides the close control — ships and mounts every pane inside `PaneControlsContext`
 // and names `PaneControls` on the value it builds, so the close control is drawn
-// through the seam a deck provides it through rather than asserted by a test; and two
+// through the seam a pane layout provides it through rather than asserted by a test; and two
 // shipped families name the owner slot's contract on the slots they declare — the
-// ledger's message card and timeline pane, and the workflows family's own slot table.
+// transcript's message card and transcript pane, and the workflows family's own slot table.
 // A surviving marker would fail the run under `--treat-tag-hints-as-errors`.
-export { ConsolePaneChrome } from "@renderer/components/PaneFrame/PaneFrame.js";
+export { PaneFrame } from "@renderer/components/PaneFrame/PaneFrame.js";
 export {
   paneBodyForKind,
   type PaneContextOf,
@@ -265,7 +265,7 @@ export {
 // not to bind at all. Both gates were green on that for reasons neither intends — the
 // module's own test keeps it reachable, and it imports two families so it is no
 // orphan — which is why the census below is the thing that says who owes the rebind.
-// The hook's claim is retired: the ledger's pane holds its chapter disclosure and
+// The hook's claim is retired: the transcript's pane holds its run group disclosure and
 // both of its row-retention tables through this line.
 export { isCurrentSessionSubject } from "@renderer/store/subject-scoped/session-subject.js";
 export { useSessionScopedState } from "@renderer/store/subject-scoped/useSessionScopedState.js";
@@ -291,13 +291,9 @@ export type {
   SessionDirectoryState,
 } from "@renderer/store/session-directory/session-directory.js";
 
-// The composed new-session draft's seat: the props the control takes.
-//
-// Two view families meet on it. The workspace family declares the control against these
-// props and the sessions family mounts a component that satisfies them, and neither may
-// import the other, so a second spelling in either would be a contract with two homes
-// and one reader. The module beside this line carries no runtime value at all: what a
-// settled start DOES is the sessions family's act, and this seat carries only the id.
+// The composed new-session draft's props, declared in `features/sessions/new-session/`.
+// The module carries no runtime value at all: what a settled start DOES is
+// `features/sessions/start/session-start.ts`'s act, and this seat carries only the id.
 export type {
   FirstTurnQueueCall,
   NewSessionControlProps,
@@ -323,13 +319,13 @@ export { usePushDrivenRead } from "@renderer/store/reads/hooks/usePushDrivenRead
 // subscription, scheduler, or teardown behind it — and a MUTATION needs the same
 // translation with no read to route through, which is why they are free functions
 // and why they left that module when it was split.
-export { consoleRefusalFrom } from "@renderer/lib/coerce-to-refusal.js";
-export { servedValueOrRaise } from "@renderer/services/daemon/unwrap-daemon-reply.js";
+export { coerceToRefusal } from "@renderer/lib/coerce-to-refusal.js";
+export { unwrapDaemonReply } from "@renderer/services/daemon/unwrap-daemon-reply.js";
 
 // The console's single copy of the daemon-EVENT cast. The brand
-// `DesktopBridge.daemon.subscribe` takes is `never`-shaped until the daemon method
+// `PlatformBridge.daemon.subscribe` takes is `never`-shaped until the daemon method
 // union narrows it, and every caller casts; one module casts, and the day it narrows one
-// file changes. Its call-side twin is gone — `bridge/daemon/daemon-reply.ts` names the
+// file changes. Its call-side twin is gone — `services/daemon/daemon-reply.ts` names the
 // methods and parses both directions, so no seat casts a call any more.
 export {
   /** @consumedBy a surface that listens for one daemon event */
@@ -356,7 +352,7 @@ export {
 // owns where that act goes and what the daemon said back. The seat is the form; the body
 // is the phase.
 //
-// THE READING BESIDE THEM IS THE ATTACHMENT CARRIER'S — which of an answer's values are
+// THE READING BESIDE THEM IS THE STAGED ATTACHMENTS' — which of an answer's values are
 // artifacts, answered against the schema's own declared members rather than against what
 // the mapper drew, because one member outside the render set sends the whole form to the
 // raw editor and the artifact members beside it are still declared. One answer, for the
@@ -373,7 +369,7 @@ export {
 // publishes is the mounts and the chunk's loader; `schema-form-body.ts` is the chunk
 // root they reach.
 export {
-  schemaFormAnswerMount,
+  schemaFormAnswerBody,
   schemaFormChunk,
-  schemaFormPreviewMount,
+  schemaFormPreviewBody,
 } from "@renderer/features/workflows/schema-form/schema-form-mounts.js";

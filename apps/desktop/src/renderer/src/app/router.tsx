@@ -1,9 +1,9 @@
-// Route in, surface out — and two ways of having nothing to show.
+// Route in, screen out — and two ways of having nothing to show.
 //
 // Resolution happens DURING RENDER, deliberately: the registry is composed at module
 // scope by the console's entry point, so a descriptor is there to be looked up on the
 // first pass. Resolving in an effect instead would mean the first paint has already
-// said the surface does not exist.
+// said the screen does not exist.
 //
 // The absences are kept apart because a person's next move differs for each of them:
 //
@@ -11,15 +11,15 @@
 //   • **A session still opening** — the route named a session and its store is not
 //     open yet, which is a read in flight and renders as one.
 //
-// A route whose slot has no registered surface is a composition defect, not an absence
+// A route whose slot has no registered screen is a composition defect, not an absence
 // a person can act on, so it throws. One slot is the exception: only a fixture launch's
 // composition registers the pane harness, so in any other window its address names
 // nothing and renders as not-found.
 //
-// AND THE SURFACE THAT DOES MOUNT IS KEYED ON THE ADDRESS IT WAS MOUNTED AT. Two
-// routes can resolve to ONE slot — a second session's workspace, a second pane kind
+// AND THE SCREEN THAT DOES MOUNT IS KEYED ON THE ADDRESS IT WAS MOUNTED AT. Two
+// routes can resolve to ONE slot — a second session's screen, a second pane kind
 // in the fixture harness — and React reconciles the same component in the same
-// position, so whatever state that surface holds survives a move to a subject it was
+// position, so whatever state that screen holds survives a move to a subject it was
 // never about. The fixture pane harness is where that was first observed: a hash
 // change from one `#/pane-harness/…` address to another left its open-pane count
 // standing, so the replacement route mounted the previous route's number of panes
@@ -28,25 +28,25 @@
 // output rather than a second reading of the route, so there is one grammar deciding
 // what "a different address" means.
 //
-// Both reach the screen through the `SurfaceAbsence` primitive, which is the
-// console's one centering wrapper; the ledger and the pending surface body draw
+// Both reach the screen through the `ScreenNotice` primitive, which is the
+// console's one centering wrapper; the transcript and the pending screen body draw
 // through the same component, which is why it is a module and not a block in here.
 
 import { Fragment } from "react";
 
-import { Nothing, SurfaceAbsence } from "@renderer/console/primitives/index.js";
+import { Nothing, ScreenNotice } from "@renderer/console/primitives/index.js";
 import { formatRoute } from "@renderer/routing/routes.js";
 import {
-  consoleSurfaceRegistry,
-  surfaceSlotFor,
-  type ConsoleSurfaceContext,
+  screenRegistry,
+  findScreenNameForRoute,
+  type ScreenContext,
 } from "@renderer/console/seats/index.js";
 
 export interface AppRouterProps {
-  readonly context: ConsoleSurfaceContext;
+  readonly context: ScreenContext;
 }
 
-/** Resolve a route to a surface. */
+/** Resolve a route to a screen. */
 export function AppRouter(props: AppRouterProps): React.JSX.Element {
   const { context } = props;
   const { route } = context;
@@ -61,19 +61,19 @@ export function AppRouter(props: AppRouterProps): React.JSX.Element {
   // rendering of that frame is a read in flight.
   if (context.frameStore.activeSessionId !== undefined && context.sessionStore === undefined) {
     return (
-      <SurfaceAbsence>
+      <ScreenNotice>
         <Nothing kind="not-loaded" title="This session is opening." />
-      </SurfaceAbsence>
+      </ScreenNotice>
     );
   }
 
-  const slot = surfaceSlotFor(route);
-  const descriptor = slot === undefined ? undefined : consoleSurfaceRegistry.descriptorFor(slot);
+  const slot = findScreenNameForRoute(route);
+  const descriptor = slot === undefined ? undefined : screenRegistry.descriptorFor(slot);
   if (descriptor === undefined) {
     if (route.kind === "pane-harness") {
       return <AddressNamesNothing attempted={formatRoute(route)} />;
     }
-    throw new Error(`no surface is registered for the ${route.kind} route`);
+    throw new Error(`no screen is registered for the ${route.kind} route`);
   }
   // Keyed, not bare: the fragment IS the mount, so a different address is a
   // different element in this position and React unmounts what the previous one
@@ -83,12 +83,12 @@ export function AppRouter(props: AppRouterProps): React.JSX.Element {
 
 function AddressNamesNothing(props: { readonly attempted: string }): React.JSX.Element {
   return (
-    <SurfaceAbsence>
+    <ScreenNotice>
       <Nothing
         kind="error"
         title="That address does not name anything in the console."
         detail={`Nothing is registered for ${props.attempted}. The Sessions list is the way back.`}
       />
-    </SurfaceAbsence>
+    </ScreenNotice>
   );
 }

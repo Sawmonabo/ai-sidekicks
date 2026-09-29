@@ -3,7 +3,7 @@
 // The token sheet is GENERATED at mount from `generateMeridianCss()` rather than
 // committed as a `.css` file, and that is a decision rather than a shortcut. A
 // committed sheet would be a second copy of `palette.ts` — the two would drift, and
-// the only defence would be a byte-diff test whose failure mode is "someone forgot
+// the only defense would be a byte-diff test whose failure mode is "someone forgot
 // to run the generator". Generating at mount deletes the second copy: there is one
 // source of truth for every color, and the sheet cannot disagree with it.
 //
@@ -63,7 +63,7 @@ export function installMeridianTokens(targetDocument: Document): boolean {
  * and keeps deciding — a resolved value written once would freeze the window at
  * whatever the OS was doing at mount and stop following a later change.
  */
-export function applyConsoleScheme(targetDocument: Document, scheme: SchemePreference): void {
+export function applyColorScheme(targetDocument: Document, scheme: SchemePreference): void {
   const root = targetDocument.documentElement;
   if (scheme === "system") {
     root.removeAttribute(SCHEME_ATTRIBUTE);

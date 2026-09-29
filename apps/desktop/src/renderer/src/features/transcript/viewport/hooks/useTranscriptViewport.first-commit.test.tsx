@@ -1,4 +1,4 @@
-// What a freshly mounted ledger viewport has on screen when its mount settles.
+// What a freshly mounted transcript viewport has on screen when its mount settles.
 //
 // THE PROPERTY, AND WHY IT NEEDS A CASE OF ITS OWN. The virtualizer computes NO range
 // at all while its rect reports zero height — measured, `@tanstack/virtual-core`'s
@@ -44,16 +44,16 @@ function syntheticRows(count: number): readonly ViewportRow[] {
 }
 
 /** The row a mounted window draws, reduced to the one fact this file counts. */
-const MOUNTED_ROW_SELECTOR = ".ledger-first-commit-row";
+const MOUNTED_ROW_SELECTOR = ".transcript-first-commit-row";
 
-function MountedLedgerSurface(props: {
+function MountedTranscriptViewport(props: {
   readonly binding: TranscriptViewportBinding;
 }): React.JSX.Element {
   return (
     <div ref={props.binding.attachSurface}>
       <div ref={props.binding.attachSizer}>
         {props.binding.virtualItems.map((virtualItem) => (
-          <div className="ledger-first-commit-row" key={virtualItem.key} />
+          <div className="transcript-first-commit-row" key={virtualItem.key} />
         ))}
       </div>
     </div>
@@ -67,7 +67,7 @@ function MountedLedgerSurface(props: {
  * is minted once; a fresh one per render re-mints the controller the hook keys on and
  * the mount never settles.
  */
-function LedgerUnderTest(props: { readonly rows: readonly ViewportRow[] }): React.JSX.Element {
+function TranscriptUnderTest(props: { readonly rows: readonly ViewportRow[] }): React.JSX.Element {
   const [clock] = useState(() => new ManualClock());
   const binding = useTranscriptViewport({
     clock,
@@ -75,14 +75,14 @@ function LedgerUnderTest(props: { readonly rows: readonly ViewportRow[] }): Reac
     hasActiveTurn: false,
     isRevealDraining: false,
   });
-  return <MountedLedgerSurface binding={binding} />;
+  return <MountedTranscriptViewport binding={binding} />;
 }
 
 afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("the ledger viewport's first commit", () => {
+describe("the transcript viewport's first commit", () => {
   it("mounts rows on a box the layout has measured", () => {
     // `happy-dom` answers zero for every box, so the height is the one thing this
     // environment has to be told. Every module between it and the row count — the
@@ -91,12 +91,12 @@ describe("the ledger viewport's first commit", () => {
     vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(VIEWPORT_HEIGHT_PX);
     vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockReturnValue(CONTENT_HEIGHT_PX);
 
-    const view = render(<LedgerUnderTest rows={syntheticRows(LOG_ROW_COUNT)} />);
+    const view = render(<TranscriptUnderTest rows={syntheticRows(LOG_ROW_COUNT)} />);
 
     const mountedRowCount = view.container.querySelectorAll(MOUNTED_ROW_SELECTOR).length;
     expect(
       mountedRowCount,
-      "the mount settled with no row on screen, so a session opened on a log this long draws an empty ledger",
+      "the mount settled with no row on screen, so a session opened on a log this long draws an empty transcript",
     ).toBeGreaterThan(0);
     // AND IT IS STILL A WINDOW. Without this the case passes over a viewport that
     // gave up and mounted the whole log, which is the other way a first commit can
@@ -109,7 +109,7 @@ describe("the ledger viewport's first commit", () => {
     // Without it that case proves only that this harness renders divs — and the
     // state being ruled out is the one the endurance tier saw: rows in the window,
     // none of them on screen.
-    const view = render(<LedgerUnderTest rows={syntheticRows(LOG_ROW_COUNT)} />);
+    const view = render(<TranscriptUnderTest rows={syntheticRows(LOG_ROW_COUNT)} />);
 
     expect(view.container.querySelectorAll(MOUNTED_ROW_SELECTOR)).toHaveLength(0);
   });

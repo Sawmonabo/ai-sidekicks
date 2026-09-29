@@ -1,13 +1,13 @@
 // Does this display quantize a programmatic scroll offset to whole pixels?
 //
-// A question about the DISPLAY, not about the ledger — which is why it is its own
+// A question about the DISPLAY, not about the transcript — which is why it is its own
 // object. A fractional-device-pixel-ratio monitor rounds a written `scrollTop` and
 // an integral one keeps it, and nothing in the platform reports which. The only way
 // to find out is to write and read back.
 //
 // WHY IT MATTERS. `scroll-chokepoint.ts` lets the scroll
 // controller skip a write that would change nothing — an entirely ordinary
-// optimisation on a display that rounds, and a BUG on one that does not, because
+// optimization on a display that rounds, and a BUG on one that does not, because
 // there the two offsets differ by a fraction of a pixel that the reader can see
 // accumulate. So skipping is gated on a confirmed answer, never on a guess.
 //

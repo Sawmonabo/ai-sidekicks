@@ -5,7 +5,7 @@
  * the two hues are spent only on their one meaning each: amber where a person is
  * needed, red where something failed.
  *
- * `.meridian-browser-tabs*` and `.meridian-browser-tab*` are drawn by `PageTabStrip.tsx`,
+ * `.meridian-preview-tabs*` and `.meridian-preview-tab*` are drawn by `PageTabStrip.tsx`,
  * which imports this sheet, and `../tab-reorder.ts`.
  */
 
@@ -15,7 +15,7 @@
    because a chrome that grows a second row moves the address field down every time a
    page opens and the page area jumps under the reader's eyes. */
 
-.meridian-browser-tabs {
+.meridian-preview-tabs {
   display: flex;
   align-items: center;
   gap: var(--meridian-space-2);
@@ -24,7 +24,7 @@
   overflow-x: auto;
 }
 
-.meridian-browser-tabs__list {
+.meridian-preview-tabs__list {
   display: flex;
   align-items: stretch;
   gap: var(--meridian-space-1);
@@ -33,7 +33,7 @@
   list-style: none;
 }
 
-.meridian-browser-tab {
+.meridian-preview-tab {
   display: flex;
   align-items: center;
   gap: var(--meridian-space-1);
@@ -44,24 +44,24 @@
   background: var(--meridian-surface-sunken);
 }
 
-.meridian-browser-tab--selected {
+.meridian-preview-tab--selected {
   border-color: var(--meridian-edge-strong);
   background: var(--meridian-surface-raised);
 }
 
 /* The drop marker is a border rather than an inserted element, so hovering a slot
    never reflows the strip and the tab under the cursor does not move away from it. */
-.meridian-browser-tab--drop-before {
+.meridian-preview-tab--drop-before {
   border-inline-start-color: var(--meridian-accent);
 }
 
-.meridian-browser-tabs__tail {
+.meridian-preview-tabs__tail {
   flex: 0 0 auto;
   inline-size: var(--meridian-space-3);
   border-inline-start: 1px solid transparent;
 }
 
-.meridian-browser-tab__face {
+.meridian-preview-tab__face {
   display: flex;
   align-items: center;
   gap: var(--meridian-space-1);
@@ -75,22 +75,22 @@
   cursor: pointer;
 }
 
-.meridian-browser-tab__face:focus-visible {
+.meridian-preview-tab__face:focus-visible {
   outline: 2px solid var(--meridian-focus-ring);
   outline-offset: 1px;
 }
 
-.meridian-browser-tab__label {
+.meridian-preview-tab__label {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.meridian-browser-tab__spinner {
+.meridian-preview-tab__spinner {
   color: var(--meridian-accent-text);
 }
 
-.meridian-browser-tab__close {
+.meridian-preview-tab__close {
   display: inline-flex;
   align-items: center;
   padding: var(--meridian-space-1);
@@ -101,11 +101,11 @@
   cursor: pointer;
 }
 
-.meridian-browser-tab__close:hover {
+.meridian-preview-tab__close:hover {
   color: var(--meridian-text);
 }
 
-.meridian-browser-tab__close:focus-visible {
+.meridian-preview-tab__close:focus-visible {
   outline: 2px solid var(--meridian-focus-ring);
   outline-offset: 1px;
 }

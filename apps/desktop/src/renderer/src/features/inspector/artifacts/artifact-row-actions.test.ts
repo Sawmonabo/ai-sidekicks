@@ -13,7 +13,7 @@ import type { ArtifactReadResponse } from "@ai-sidekicks/contracts";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { ManualClock } from "@renderer/lib/clock.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
-import { ArtifactPaneReader } from "./artifact-list-reader.js";
+import { ArtifactListReader } from "./artifact-list-reader.js";
 import {
   LISTED_ONE_ROW,
   OTHER_ARTIFACT_ID,
@@ -30,7 +30,7 @@ import {
  * could not deliver the older answer last.
  */
 function readerWithHeldManifestReads(clock: ManualClock): {
-  readonly reader: ArtifactPaneReader;
+  readonly reader: ArtifactListReader;
   readonly artifactRead: Mock<() => Promise<ArtifactReadResponse>>;
   readonly releaseNthRead: (index: number, answer: ArtifactReadResponse) => void;
 } {
@@ -41,7 +41,7 @@ function readerWithHeldManifestReads(clock: ManualClock): {
         parked.push(resolve);
       }),
   );
-  const reader = new ArtifactPaneReader({
+  const reader = new ArtifactListReader({
     listArtifacts: async () => LISTED_ONE_ROW,
     readArtifact: artifactRead,
     sessionStore: new SessionStore({ sessionId: SESSION_ID }),
@@ -62,7 +62,7 @@ function servedManifest(digest: string): ArtifactReadResponse {
 }
 
 /** What the row on the reading currently says its digest is. */
-function listedDigest(reader: ArtifactPaneReader): string | undefined {
+function listedDigest(reader: ArtifactListReader): string | undefined {
   const state = reader.snapshot.artifacts;
   return state.kind === "listed" ? state.rows[0]?.digest : undefined;
 }
@@ -150,7 +150,7 @@ describe("artifact pane actions — one manifest re-read per row, each with its 
 
   it("propagates a rejected read and gives the row's control back", async () => {
     const clock = new ManualClock();
-    const reader = new ArtifactPaneReader({
+    const reader = new ArtifactListReader({
       listArtifacts: async () => LISTED_ONE_ROW,
       readArtifact: async () => {
         throw new Error("the read failed");

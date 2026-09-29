@@ -3,8 +3,8 @@
 // THREE OUTCOMES, BECAUSE TWO OF THEM DECIDE DIFFERENT THINGS. `UiStateStore.read`
 // resolves `undefined` for a record that was never written AND for a read the adapter
 // could not perform, and a caller handed the second reads it as the first: a store
-// that does not know has told it nothing was ever saved. The deck's layout restore is
-// the case that made it matter — it read `undefined`, opened its fallback ledger pane,
+// that does not know has told it nothing was ever saved. The pane layout's restore is
+// the case that made it matter — it read `undefined`, opened its fallback transcript pane,
 // counted zero restored panes, and wrote that fallback, so one transient read failure
 // replaced a saved arrangement the adapter was still holding.
 //
@@ -27,7 +27,7 @@ export type PersistenceReadOutcome =
  * The two answers that carry nothing, minted once each.
  *
  * A fresh object per read would be a new identity for a value with no fields, which
- * is a re-render for callers that memoise on the outcome and tells nobody anything.
+ * is a re-render for callers that memoize on the outcome and tells nobody anything.
  */
 export const PERSISTENCE_READ_ABSENT: PersistenceReadOutcome = Object.freeze({ outcome: "absent" });
 

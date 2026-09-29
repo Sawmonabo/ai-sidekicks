@@ -77,7 +77,7 @@ export interface CodeToken {
   readonly content: string;
   /**
    * The family's custom-property reference, or `undefined` for a token the theme left
-   * plain. Never a colour — see `code-theme.ts`.
+   * plain. Never a color — see `code-theme.ts`.
    */
   readonly colorReference: string | undefined;
 }
@@ -97,12 +97,12 @@ class RealmHighlighter {
   readonly #loadedLanguages = new Set<HighlightableLanguage>();
 
   /**
-   * Tokenise one block.
+   * Tokenize one block.
    *
    * Returns `undefined` — rather than throwing — when the grammar or the core cannot be
    * loaded. A highlight that could not run is a block rendered plain, which is a
    * degrade a reader can live with; an exception here would take the whole message's
-   * card down through its row-group boundary for a colour.
+   * card down through its row-group boundary for a color.
    */
   public async tokenize(
     source: string,
@@ -121,7 +121,7 @@ class RealmHighlighter {
   async #resolveHighlighter(): Promise<HighlighterCore> {
     // Assigned before the await completes, so two concurrent first calls share one
     // creation rather than racing to build two cores — which is what "one instance per
-    // renderer process" means in a world where nothing serialises the callers.
+    // renderer process" means in a world where nothing serializes the callers.
     this.#highlighter ??= createCore();
     return this.#highlighter;
   }
@@ -159,7 +159,7 @@ function reduceToken(token: ThemedToken): CodeToken {
 /** This realm's highlighter. One per realm, and a worker is its own realm. */
 const realmHighlighter: RealmHighlighter = new RealmHighlighter();
 
-/** Tokenise one block in the calling thread. */
+/** Tokenize one block in the calling thread. */
 export function tokenizeCode(
   source: string,
   language: HighlightableLanguage,

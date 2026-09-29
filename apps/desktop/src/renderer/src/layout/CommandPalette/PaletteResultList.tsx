@@ -11,7 +11,7 @@ import { Combobox } from "@base-ui/react/combobox";
 import type { ReactNode } from "react";
 import { ChordHint, type ChordPlatform } from "@renderer/console/primitives/index.js";
 import type { CommandSearchResult } from "@renderer/registries/commands/command-ranking.js";
-import type { KeyBindingTable } from "@renderer/registries/keybindings/keybinding-table.js";
+import type { KeybindingTable } from "@renderer/registries/keybindings/keybinding-table.js";
 import type { PaletteRowPressOutcome } from "./palette-latch.js";
 import type { CommandResultGroup } from "./group-results.js";
 import type { WhenClauseContext } from "@renderer/registries/commands/when-clause/when-clause.js";
@@ -28,7 +28,7 @@ export interface PaletteResultListProps {
    * `exactOptionalPropertyTypes` makes those two different types and the overlay
    * forwards a value that may genuinely be undefined.
    */
-  readonly bindings: KeyBindingTable | undefined;
+  readonly bindings: KeybindingTable | undefined;
   /**
    * Run the row's command, and say whether it ran.
    *
