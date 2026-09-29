@@ -22,9 +22,10 @@ import {
   addressFieldValue,
   editingAddressField,
   FOLLOWING_ADDRESS_FIELD,
+  isFilesystemDestination,
 } from "../address-field-model.js";
 import { describeChordEvent, isCloseTabChord } from "../handback/chord-claim.js";
-import { isFilesystemDestination, type NavigationReading } from "../types.js";
+import { type NavigationReading } from "../types.js";
 import { activePageOf, type PageListReading } from "../page-list-reading.js";
 import { TabStrip } from "./PageTabStrip.js";
 import { HOST_CHORD_PLATFORM, Nothing, RefusalBanner } from "@renderer/console/primitives/index.js";

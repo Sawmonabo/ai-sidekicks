@@ -1,6 +1,6 @@
 // This pane's rectangle, published to the host that draws its page.
 //
-// Split from `BrowserPaneChrome.tsx`, which is the surface: this is the binding underneath
+// Split from `PreviewPaneContent.tsx`, which is the surface: this is the binding underneath
 // it — one publisher, the host it writes to, and the subject both were resolved under
 // — and the three rules that keep it honest across a subject swap. None of them is a
 // rendering decision, and all three are the kind of thing a reader who came for the
@@ -21,22 +21,7 @@ import {
 import { airspaceRegistryFor } from "@renderer/lib/airspace-registries.js";
 import { type AirspaceRegistry } from "@renderer/lib/airspace-registry.js";
 import { consoleClockFor, type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
-
-/**
- * The pair a pane-scoped resource belongs to.
- *
- * Both members, because both decide where an act goes: every pane-keyed call is made
- * on ONE bridge with ONE `paneId`, so a publisher produced under either of the other
- * combinations is not a publisher for this one. The holder also keys on the view host
- * the publisher writes to. It is the argument {@link createGeometryBinding} takes rather
- * than a stamp anything compares — the console's subject-scoped holder addresses a
- * resource by its subject during the render that first sees a new one, so there is
- * nothing left here to compare.
- */
-export interface PaneSubject {
-  readonly bridge: ConsoleBridge;
-  readonly paneId: string;
-}
+import type { PaneSubject } from "../types.js";
 
 /**
  * One publisher over the given host, for the pane it is for, and the subject both were
@@ -51,7 +36,7 @@ export interface PaneSubject {
  *
  * Pure: it arms nothing at all.
  */
-export function createGeometryBinding(
+function createGeometryBinding(
   subject: PaneSubject,
   host: AttachedPaneViewHost,
 ): BoundGeometryPublisher {
