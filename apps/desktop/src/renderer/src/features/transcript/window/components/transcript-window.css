@@ -10,10 +10,11 @@
  *
  * A column of row-shaped bars rather than a spinner: the shape on screen is the shape
  * the rows will take, so the first read replaces a skeleton with its own content
- * instead of swapping one kind of view for another.
+ * instead of swapping one kind of view for another. For the same reason it sits in the
+ * feed's window track, over the empty window, where those rows will land.
  */
-
 .meridian-transcript-window-skeleton {
+  grid-area: 2 / 1;
   display: flex;
   flex-direction: column;
   gap: var(--meridian-space-2);

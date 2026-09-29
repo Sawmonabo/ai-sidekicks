@@ -73,8 +73,15 @@
  * `minmax(0, 1fr)` rather than `1fr`, which is what lets the viewport — and not this
  * row — be the element that scrolls: a `1fr` track floors at its content's min-content
  * height, so the log would grow the row instead of overflowing inside it.
+ *
+ * PLACED, not auto-placed. With the find strip closed nothing renders in the first
+ * track, so an auto-placed body lands there and is sized by its rows, and the skeleton,
+ * the catching-up mark or a notice after it takes this track instead. Before the first
+ * read that left the window, and the scroll container a person Tabs into, zero pixels
+ * tall under the skeleton.
  */
 .meridian-transcript-feed__body {
+  grid-area: 2 / 1;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   min-width: 0;
