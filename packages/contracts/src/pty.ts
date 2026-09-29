@@ -1,12 +1,26 @@
-// A session's shells as a client addresses them: the terminal id, and the
-// requests that stream a shell's output, write to it and resize it.
+// A session's shells as a client addresses them: the terminal id, the live list
+// of a session's shells, opening, closing and ordering them, the stream of one
+// shell's output, writing to it and resizing it, flow control, and the per-shell
+// control lease that decides who may type into it.
 //
 // Every request names the session and the terminal. A terminal belongs to one
 // session, and a request whose terminal is not that session's is refused, so a
 // terminal id alone never reaches another session's shell.
+//
+// The lease is one per shell. It is held by one of the user's devices, or by an
+// agent's run on this machine; a run's hold carries the machine's own device id
+// and the run's id, so a screen can tell "this device holds it", "another device
+// holds it" and "a run holds it" apart. There is no release: a hold ends when
+// another device takes the shell, when the holding connection ends, or when the
+// holding run leaves its running state.
 import { z } from "zod";
 
-import { SessionIdSchema, type SessionId } from "./session.js";
+import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "./jsonrpc-streaming.js";
+import type { MethodDescriptor, SubscriptionMethodDescriptor } from "./method-descriptor.js";
+import { defineMethodDescriptors } from "./method-descriptor.js";
+import { DEVICE_ID_MAX_LEN } from "./presence.js";
+import { RunIdSchema, type RunId } from "./provider-driver.js";
+import { SessionIdSchema, wireFreeFormString, type SessionId } from "./session.js";
 
 /** The longest terminal id the daemon accepts. */
 export const TERMINAL_ID_MAX_LEN = 256;
@@ -20,6 +34,157 @@ export const TerminalIdSchema: z.ZodType<TerminalId, TerminalId> = z
   .max(TERMINAL_ID_MAX_LEN)
   .brand<"TerminalId">() as unknown as z.ZodType<TerminalId, TerminalId>;
 
+const holderDeviceIdSchema = wireFreeFormString(DEVICE_ID_MAX_LEN, "holderDeviceId");
+
+/**
+ * Who holds one shell's control lease. `holderDeviceId` is the holding device;
+ * while an agent's run holds the shell it is this machine's own device and
+ * `holderRunId` names the run, whose agent the screen reads from the run.
+ */
+export interface TerminalControlHolder {
+  holderDeviceId: string;
+  holderRunId?: RunId | undefined;
+}
+/** Parses a {@link TerminalControlHolder}. */
+export const TerminalControlHolderSchema: z.ZodType<TerminalControlHolder> = z
+  .object({ holderDeviceId: holderDeviceIdSchema, holderRunId: RunIdSchema.optional() })
+  .strict();
+
+// --------------------------------------------------------------------------
+// pty.list — the session's shells, live
+// --------------------------------------------------------------------------
+
+/** The session whose shells a `pty.list` subscription follows. */
+export interface PtyListRequest {
+  sessionId: SessionId;
+}
+/** Parses a {@link PtyListRequest}. */
+export const PtyListRequestSchema: z.ZodType<PtyListRequest, PtyListRequest> = z
+  .object({ sessionId: SessionIdSchema })
+  .strict();
+
+/**
+ * Where one shell's process stands. A shell that ends keeps its entry with its
+ * exit code until it is closed; a shell that could not start keeps its entry with
+ * the daemon's own words for why, and takes no input.
+ */
+export type PtyShellStatus =
+  | { state: "running" }
+  | { state: "exited"; exitCode: number }
+  | { state: "did_not_start"; cause: string };
+const PtyShellStatusSchema: z.ZodType<PtyShellStatus> = z.discriminatedUnion("state", [
+  z.object({ state: z.literal("running") }).strict(),
+  z.object({ state: z.literal("exited"), exitCode: z.number().int() }).strict(),
+  z.object({ state: z.literal("did_not_start"), cause: z.string().min(1) }).strict(),
+]);
+
+/**
+ * One shell as the tab strip draws it. `title` is the title the shell set for
+ * itself, or its program's base name until it sets one; no person types it.
+ * `holder` is `null` while nobody holds the shell.
+ */
+export interface PtyListEntry {
+  terminalId: TerminalId;
+  title: string;
+  status: PtyShellStatus;
+  holder: TerminalControlHolder | null;
+}
+const PtyListEntrySchema: z.ZodType<PtyListEntry> = z
+  .object({
+    terminalId: TerminalIdSchema,
+    title: z.string().min(1),
+    status: PtyShellStatusSchema,
+    holder: TerminalControlHolderSchema.nullable(),
+  })
+  .strict();
+
+/**
+ * The session's whole set of shells, sent on every change, in tab order. The
+ * order is the daemon's, so every device draws the same strip. A shell that had
+ * gone before the list was first read is not in it.
+ */
+export interface PtyListUpdate {
+  sessionId: SessionId;
+  terminals: PtyListEntry[];
+}
+/** Parses a {@link PtyListUpdate}; a terminal appears at most once. */
+export const PtyListUpdateSchema: z.ZodType<PtyListUpdate> = z
+  .object({ sessionId: SessionIdSchema, terminals: z.array(PtyListEntrySchema) })
+  .strict()
+  .refine(
+    (update) =>
+      new Set(update.terminals.map((entry) => entry.terminalId)).size === update.terminals.length,
+    { message: "a terminal appears at most once in the list", path: ["terminals"] },
+  );
+
+// --------------------------------------------------------------------------
+// pty.open, pty.close, pty.reorder
+// --------------------------------------------------------------------------
+
+/**
+ * Open another shell for the session: the person's own login shell in the
+ * session's tree, so the request carries no program, arguments or folder. The
+ * caller mints the key, and a retry with the same key never opens a second shell.
+ */
+export interface PtyOpenRequest {
+  sessionId: SessionId;
+  clientIdempotencyKey: string;
+}
+/** Parses a {@link PtyOpenRequest}. */
+export const PtyOpenRequestSchema: z.ZodType<PtyOpenRequest, PtyOpenRequest> = z
+  .object({ sessionId: SessionIdSchema, clientIdempotencyKey: z.uuid() })
+  .strict();
+
+/**
+ * The new shell's id. A shell that fails to start still has one: its tab stays
+ * and its list entry reads `did_not_start` with the cause.
+ */
+export interface PtyOpenResponse {
+  terminalId: TerminalId;
+}
+/** Parses a {@link PtyOpenResponse}. */
+export const PtyOpenResponseSchema: z.ZodType<PtyOpenResponse> = z
+  .object({ terminalId: TerminalIdSchema })
+  .strict();
+
+/**
+ * Close one shell and end its process; `Close others` and `Close to the right`
+ * send this once per shell. The daemon refuses it while a run holds the shell,
+ * and while another device holds it unless `force` is true, which the screen
+ * sends only after the person confirmed.
+ */
+export interface PtyCloseRequest {
+  sessionId: SessionId;
+  terminalId: TerminalId;
+  force?: boolean | undefined;
+}
+/** Parses a {@link PtyCloseRequest}. */
+export const PtyCloseRequestSchema: z.ZodType<PtyCloseRequest, PtyCloseRequest> = z
+  .object({
+    sessionId: SessionIdSchema,
+    terminalId: TerminalIdSchema,
+    force: z.boolean().optional(),
+  })
+  .strict();
+
+/** The session's shells in their new tab order, every one of them once. */
+export interface PtyReorderRequest {
+  sessionId: SessionId;
+  terminalIds: TerminalId[];
+}
+/** Parses a {@link PtyReorderRequest}; the order names each shell at most once. */
+export const PtyReorderRequestSchema: z.ZodType<PtyReorderRequest, PtyReorderRequest> = z
+  .object({ sessionId: SessionIdSchema, terminalIds: z.array(TerminalIdSchema).min(1) })
+  .strict()
+  .refine((request) => new Set(request.terminalIds).size === request.terminalIds.length, {
+    message: "a terminal appears at most once in the order",
+    path: ["terminalIds"],
+  });
+
+// --------------------------------------------------------------------------
+// pty.outputSubscribe — one shell's output
+// --------------------------------------------------------------------------
+
 /** The shell whose output a `pty.outputSubscribe` subscription streams. */
 export interface PtyOutputSubscribeRequest {
   sessionId: SessionId;
@@ -31,25 +196,87 @@ export const PtyOutputSubscribeRequestSchema: z.ZodType<
   PtyOutputSubscribeRequest
 > = z.object({ sessionId: SessionIdSchema, terminalId: TerminalIdSchema }).strict();
 
-/** One piece of a shell's output, in the order the shell wrote it. */
-export interface PtyOutputChunk {
-  sessionId: SessionId;
-  terminalId: TerminalId;
-  data: string;
-}
+/**
+ * One frame of a shell's output stream. The first is always `replay`: the shell's
+ * replay window starting at its first whole line, the rows and columns it was last
+ * drawn at, so a running program's boxes come back unwrapped, and who holds it.
+ * Then `output` in the order the shell wrote it, and `exited` once its program ends.
+ */
+export type PtyOutputFrame =
+  | {
+      kind: "replay";
+      sessionId: SessionId;
+      terminalId: TerminalId;
+      data: string;
+      columns: number;
+      rows: number;
+      holder: TerminalControlHolder | null;
+    }
+  | { kind: "output"; sessionId: SessionId; terminalId: TerminalId; data: string }
+  | { kind: "exited"; sessionId: SessionId; terminalId: TerminalId; exitCode: number };
+/** Parses a {@link PtyOutputFrame}. */
+export const PtyOutputFrameSchema: z.ZodType<PtyOutputFrame> = z.discriminatedUnion("kind", [
+  z
+    .object({
+      kind: z.literal("replay"),
+      sessionId: SessionIdSchema,
+      terminalId: TerminalIdSchema,
+      data: z.string(),
+      columns: z.number().int().positive(),
+      rows: z.number().int().positive(),
+      holder: TerminalControlHolderSchema.nullable(),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("output"),
+      sessionId: SessionIdSchema,
+      terminalId: TerminalIdSchema,
+      data: z.string(),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("exited"),
+      sessionId: SessionIdSchema,
+      terminalId: TerminalIdSchema,
+      exitCode: z.number().int(),
+    })
+    .strict(),
+]);
 
-/** Input for one shell, written as it arrives. */
+// --------------------------------------------------------------------------
+// pty.write, pty.resize
+// --------------------------------------------------------------------------
+
+/**
+ * How written text reached the screen. A `paste` is wrapped as pasted text when
+ * the program running in the shell asked for that, so several lines sit at the
+ * prompt instead of running themselves.
+ */
+export type PtyWriteKind = "keys" | "paste";
+
+/** Input for one shell, written as it arrives; the writer must hold the shell. */
 export interface PtyWriteRequest {
   sessionId: SessionId;
   terminalId: TerminalId;
   data: string;
+  kind: PtyWriteKind;
 }
 /** Parses a {@link PtyWriteRequest}. */
 export const PtyWriteRequestSchema: z.ZodType<PtyWriteRequest, PtyWriteRequest> = z
-  .object({ sessionId: SessionIdSchema, terminalId: TerminalIdSchema, data: z.string() })
+  .object({
+    sessionId: SessionIdSchema,
+    terminalId: TerminalIdSchema,
+    data: z.string(),
+    kind: z.enum(["keys", "paste"]),
+  })
   .strict();
 
-/** A shell's new size, in character cells. */
+/**
+ * A shell's new size, in character cells. Only the device holding the shell sets
+ * it; watchers draw at the shell's size.
+ */
 export interface PtyResizeRequest {
   sessionId: SessionId;
   terminalId: TerminalId;
@@ -65,3 +292,266 @@ export const PtyResizeRequestSchema: z.ZodType<PtyResizeRequest, PtyResizeReques
     rows: z.number().int().positive(),
   })
   .strict();
+
+/** The answer to a shell act that reads nothing back. */
+export type PtyActResponse = null;
+const PtyActResponseSchema: z.ZodType<PtyActResponse> = z.null();
+
+// --------------------------------------------------------------------------
+// session.setTerminalFlowControl — one connection's behind state for one shell
+// --------------------------------------------------------------------------
+
+/**
+ * The state this connection declares for one shell: `paused` while it is behind,
+ * false once it has caught up. The daemon stops reading the shell only while every
+ * live watcher is behind, and a connection's state clears when it disconnects. Not
+ * gated by the lease: it moves no bytes toward the shell.
+ */
+export interface SessionSetTerminalFlowControlRequest {
+  sessionId: SessionId;
+  terminalId: TerminalId;
+  paused: boolean;
+}
+/** Parses a {@link SessionSetTerminalFlowControlRequest}. */
+export const SessionSetTerminalFlowControlRequestSchema: z.ZodType<
+  SessionSetTerminalFlowControlRequest,
+  SessionSetTerminalFlowControlRequest
+> = z
+  .object({ sessionId: SessionIdSchema, terminalId: TerminalIdSchema, paused: z.boolean() })
+  .strict();
+
+/** The declared state was taken; nothing is read back. */
+export interface SessionSetTerminalFlowControlResponse {
+  accepted: true;
+}
+/** Parses a {@link SessionSetTerminalFlowControlResponse}. */
+export const SessionSetTerminalFlowControlResponseSchema: z.ZodType<SessionSetTerminalFlowControlResponse> =
+  z.object({ accepted: z.literal(true) }).strict();
+
+// --------------------------------------------------------------------------
+// session.takeControl and pty.control_changed — the per-shell lease
+// --------------------------------------------------------------------------
+
+/**
+ * Take one shell's lease for the calling device. `force` moves it off another of
+ * the user's devices; a take never moves it off a run. There is no release verb.
+ */
+export interface SessionTakeControlRequest {
+  sessionId: SessionId;
+  terminalId: TerminalId;
+  force?: boolean | undefined;
+}
+/** Parses a {@link SessionTakeControlRequest}. */
+export const SessionTakeControlRequestSchema: z.ZodType<
+  SessionTakeControlRequest,
+  SessionTakeControlRequest
+> = z
+  .object({
+    sessionId: SessionIdSchema,
+    terminalId: TerminalIdSchema,
+    force: z.boolean().optional(),
+  })
+  .strict();
+
+/** The shell and the calling device, which now holds it. */
+export interface SessionTakeControlResponse {
+  terminalId: TerminalId;
+  holderDeviceId: string;
+}
+/** Parses a {@link SessionTakeControlResponse}. */
+export const SessionTakeControlResponseSchema: z.ZodType<SessionTakeControlResponse> = z
+  .object({ terminalId: TerminalIdSchema, holderDeviceId: holderDeviceIdSchema })
+  .strict();
+
+/** The event every change of one shell's holder is broadcast on. */
+export const PTY_CONTROL_CHANGED_EVENT = "pty.control_changed" as const;
+
+/**
+ * Why a shell's holder changed: it was taken, the holding connection ended, or
+ * the holding run left its running state.
+ */
+export type PtyControlChangedReason =
+  | "taken"
+  | "auto_released_disconnect"
+  | "auto_released_run_idle";
+/** Every {@link PtyControlChangedReason}. */
+export const PTY_CONTROL_CHANGED_REASONS: readonly PtyControlChangedReason[] = Object.freeze([
+  "taken",
+  "auto_released_disconnect",
+  "auto_released_run_idle",
+]);
+
+/**
+ * One change of one shell's holder. The holder members say who holds it AFTER the
+ * change, so a take names a holder and both releases name nobody; the device it
+ * moved off is `previousHolderDeviceId`. The screen folds these and never infers a
+ * holder from a take it made.
+ */
+export interface PtyControlChangedPayload {
+  sessionId: SessionId;
+  terminalId: TerminalId;
+  holderDeviceId: string | null;
+  holderRunId?: RunId | undefined;
+  previousHolderDeviceId: string | null;
+  reason: PtyControlChangedReason;
+}
+/**
+ * Parses a {@link PtyControlChangedPayload}. A `taken` that names no holder, or a
+ * release that names one, contradicts itself and is refused.
+ */
+export const PtyControlChangedPayloadSchema: z.ZodType<PtyControlChangedPayload> = z
+  .object({
+    sessionId: SessionIdSchema,
+    terminalId: TerminalIdSchema,
+    holderDeviceId: holderDeviceIdSchema.nullable(),
+    holderRunId: RunIdSchema.optional(),
+    previousHolderDeviceId: holderDeviceIdSchema.nullable(),
+    reason: z.enum(PTY_CONTROL_CHANGED_REASONS),
+  })
+  .strict()
+  .refine(
+    (payload) =>
+      payload.reason === "taken"
+        ? payload.holderDeviceId !== null
+        : payload.holderDeviceId === null && payload.holderRunId === undefined,
+    {
+      message: "a take names the holder after it, and a release names nobody",
+      path: ["holderDeviceId"],
+    },
+  );
+
+// --------------------------------------------------------------------------
+// Refusals
+// --------------------------------------------------------------------------
+
+/**
+ * A take, a close or a resize refused because someone else holds the shell. The
+ * details name the holder, so the screen can tell a run's hold, which only stopping
+ * the run ends, from another device's, which a forced take or close moves.
+ */
+export const PTY_CONTROL_HELD_BY_OTHER_CODE = "pty.control_held_by_other" as const;
+export type PtyControlHeldByOtherCode = typeof PTY_CONTROL_HELD_BY_OTHER_CODE;
+export interface PtyControlHeldByOtherDetails extends TerminalControlHolder {
+  terminalId: TerminalId;
+}
+/** Parses a {@link PtyControlHeldByOtherDetails}. */
+export const PtyControlHeldByOtherDetailsSchema: z.ZodType<PtyControlHeldByOtherDetails> = z
+  .object({
+    terminalId: TerminalIdSchema,
+    holderDeviceId: holderDeviceIdSchema,
+    holderRunId: RunIdSchema.optional(),
+  })
+  .strict();
+
+/** A write to a shell the writing device does not hold; it takes the shell first. */
+export const PTY_CONTROL_NOT_HELD_CODE = "pty.control_not_held" as const;
+export type PtyControlNotHeldCode = typeof PTY_CONTROL_NOT_HELD_CODE;
+
+// --------------------------------------------------------------------------
+// Method descriptors
+// --------------------------------------------------------------------------
+
+/** The `pty.*` methods, keyed by name. */
+export interface PtyMethodDescriptors {
+  readonly "pty.list": SubscriptionMethodDescriptor<
+    "pty.list",
+    PtyListRequest,
+    SubscribeAckResponse,
+    PtyListUpdate
+  >;
+  readonly "pty.open": MethodDescriptor<"pty.open", PtyOpenRequest, PtyOpenResponse>;
+  readonly "pty.close": MethodDescriptor<"pty.close", PtyCloseRequest, PtyActResponse>;
+  readonly "pty.reorder": MethodDescriptor<"pty.reorder", PtyReorderRequest, PtyActResponse>;
+  readonly "pty.outputSubscribe": SubscriptionMethodDescriptor<
+    "pty.outputSubscribe",
+    PtyOutputSubscribeRequest,
+    SubscribeAckResponse,
+    PtyOutputFrame
+  >;
+  readonly "pty.write": MethodDescriptor<"pty.write", PtyWriteRequest, PtyActResponse>;
+  readonly "pty.resize": MethodDescriptor<"pty.resize", PtyResizeRequest, PtyActResponse>;
+}
+export const PTY_METHOD_DESCRIPTORS: PtyMethodDescriptors = defineMethodDescriptors({
+  "pty.list": {
+    method: "pty.list",
+    procedureType: "subscription",
+    mutating: false,
+    requestSchema: PtyListRequestSchema,
+    responseSchema: SubscribeAckResponseSchema,
+    emissionSchema: PtyListUpdateSchema,
+  },
+  "pty.open": {
+    method: "pty.open",
+    procedureType: "mutation",
+    mutating: true,
+    requestSchema: PtyOpenRequestSchema,
+    responseSchema: PtyOpenResponseSchema,
+  },
+  "pty.close": {
+    method: "pty.close",
+    procedureType: "mutation",
+    mutating: true,
+    requestSchema: PtyCloseRequestSchema,
+    responseSchema: PtyActResponseSchema,
+  },
+  "pty.reorder": {
+    method: "pty.reorder",
+    procedureType: "mutation",
+    mutating: true,
+    requestSchema: PtyReorderRequestSchema,
+    responseSchema: PtyActResponseSchema,
+  },
+  "pty.outputSubscribe": {
+    method: "pty.outputSubscribe",
+    procedureType: "subscription",
+    mutating: false,
+    requestSchema: PtyOutputSubscribeRequestSchema,
+    responseSchema: SubscribeAckResponseSchema,
+    emissionSchema: PtyOutputFrameSchema,
+  },
+  "pty.write": {
+    method: "pty.write",
+    procedureType: "mutation",
+    mutating: true,
+    requestSchema: PtyWriteRequestSchema,
+    responseSchema: PtyActResponseSchema,
+  },
+  "pty.resize": {
+    method: "pty.resize",
+    procedureType: "mutation",
+    mutating: true,
+    requestSchema: PtyResizeRequestSchema,
+    responseSchema: PtyActResponseSchema,
+  },
+});
+
+/** The two `session.*` methods that act on one shell: the lease take and flow control. */
+export interface TerminalControlMethodDescriptors {
+  readonly "session.takeControl": MethodDescriptor<
+    "session.takeControl",
+    SessionTakeControlRequest,
+    SessionTakeControlResponse
+  >;
+  readonly "session.setTerminalFlowControl": MethodDescriptor<
+    "session.setTerminalFlowControl",
+    SessionSetTerminalFlowControlRequest,
+    SessionSetTerminalFlowControlResponse
+  >;
+}
+export const TERMINAL_CONTROL_METHOD_DESCRIPTORS: TerminalControlMethodDescriptors =
+  defineMethodDescriptors({
+    "session.takeControl": {
+      method: "session.takeControl",
+      procedureType: "mutation",
+      mutating: true,
+      requestSchema: SessionTakeControlRequestSchema,
+      responseSchema: SessionTakeControlResponseSchema,
+    },
+    "session.setTerminalFlowControl": {
+      method: "session.setTerminalFlowControl",
+      procedureType: "mutation",
+      mutating: true,
+      requestSchema: SessionSetTerminalFlowControlRequestSchema,
+      responseSchema: SessionSetTerminalFlowControlResponseSchema,
+    },
+  });
