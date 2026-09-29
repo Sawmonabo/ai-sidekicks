@@ -12,12 +12,12 @@
 // schemas below, and an import back would close an eager module cycle.
 import { z } from "zod";
 
-import { ExecutionPostureModeSchema, type ExecutionPostureMode } from "./approval.js";
 import { brandedUuidIdSchema } from "./internal/branded.js";
 import type { MethodDescriptor } from "./method-descriptor.js";
 import { defineMethodDescriptors } from "./method-descriptor.js";
 import { RunIdSchema, type RunId } from "./provider-driver.js";
 import { SessionIdSchema, type SessionId } from "./session.js";
+import { ExecutionPostureModeSchema, type ExecutionPostureMode } from "./session-controls.js";
 
 /** The daemon-minted id of one plan record, stable across a reload and every device. */
 export type PlanId = string & { readonly __brand: "PlanId" };

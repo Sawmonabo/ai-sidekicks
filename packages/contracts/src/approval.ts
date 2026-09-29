@@ -23,6 +23,7 @@ import { defineMethodDescriptors } from "./method-descriptor.js";
 import { NodeIdSchema, type NodeId } from "./node-id.js";
 import { RunIdSchema, type RunId } from "./provider-driver.js";
 import { SessionIdSchema, UserIdSchema, type SessionId, type UserId } from "./session.js";
+import { ExecutionPostureModeSchema, type ExecutionPostureMode } from "./session-controls.js";
 
 // --------------------------------------------------------------------------
 // Ids
@@ -93,16 +94,6 @@ export const APPROVAL_DECISIONS: readonly ApprovalDecision[] = APPROVAL_DECISION
 /** Parses an {@link ApprovalDecision}. */
 export const ApprovalDecisionSchema: z.ZodType<ApprovalDecision, ApprovalDecision> =
   z.enum(APPROVAL_DECISION_VALUES);
-
-/**
- * The five permission levels, most careful first. Only the first three raise an
- * ask; at the other two the daemon answers every ask itself. Plan is not a
- * level: planning is the session's own mode.
- */
-export type ExecutionPostureMode = "readonly" | "ask" | "reviewed" | "sandboxed" | "yolo";
-/** Parses an {@link ExecutionPostureMode}. */
-export const ExecutionPostureModeSchema: z.ZodType<ExecutionPostureMode, ExecutionPostureMode> =
-  z.enum(["readonly", "ask", "reviewed", "sandboxed", "yolo"]);
 
 /**
  * The levels that raise an ask, and so the only levels a rule can be made at. A
