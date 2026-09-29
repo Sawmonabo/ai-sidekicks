@@ -162,7 +162,7 @@ export function PaneFrame(props: PaneFrameProps): React.JSX.Element {
 
   return (
     <section
-      className={`meridian-pane meridian-pane--${props.kind}`}
+      className={`meridian-pane meridian-pane--${props.kind} meridian-focus-inset`}
       aria-labelledby={headingId}
       tabIndex={-1}
       onKeyDownCapture={props.onKeyDownCapture}

@@ -103,7 +103,7 @@ export function TranscriptViewport(props: TranscriptViewportProps): React.JSX.El
        */}
       {props.earlierHistoryControl}
       <div
-        className="meridian-transcript-viewport__scroll-container"
+        className="meridian-transcript-viewport__scroll-container meridian-focus-inset"
         ref={binding.attachScrollContainer}
         // The feed role is claimed only while there is something to be a feed OF,
         // and the articles it owns are `VirtualRow`'s half of the same claim.

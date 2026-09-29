@@ -6,3 +6,4 @@
 import "./visually-hidden.css";
 import "./figure.css";
 import "./action-buttons.css";
+import "./focus-inset.css";

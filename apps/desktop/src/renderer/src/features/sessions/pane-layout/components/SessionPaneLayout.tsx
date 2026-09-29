@@ -292,7 +292,6 @@ export function SessionPaneLayout(props: SessionPaneLayoutProps): React.JSX.Elem
               )}
               <SessionPaneSlot
                 pane={pane}
-                isFocused={pane.paneId === state.focusedPaneId}
                 density={state.density}
                 registry={props.registry}
                 paneContextFor={props.paneContextFor}

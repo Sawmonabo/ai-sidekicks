@@ -45,7 +45,7 @@ export function PaletteResultList(props: PaletteResultListProps): React.JSX.Elem
   const { context, platform, bindings, onRunResult } = props;
 
   return (
-    <Combobox.List className="command-palette__list">
+    <Combobox.List className="command-palette__list meridian-focus-inset">
       {(group: CommandResultGroup) => (
         <Combobox.Group key={group.value} items={group.items}>
           <Combobox.GroupLabel className="command-palette__group-label">

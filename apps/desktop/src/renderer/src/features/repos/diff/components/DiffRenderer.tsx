@@ -140,7 +140,7 @@ export function DiffRenderer(props: DiffRendererProps): React.JSX.Element {
     );
   }
 
-  const className = `meridian-diff meridian-diff--${props.viewMode}`;
+  const className = `meridian-diff meridian-diff--${props.viewMode} meridian-focus-inset`;
 
   return (
     <div

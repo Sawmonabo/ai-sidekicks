@@ -31,7 +31,7 @@ export function DiffFileEntryButton({
   return (
     <button
       type="button"
-      className="meridian-diff-files__entry"
+      className="meridian-diff-files__entry meridian-focus-inset"
       aria-current={isSelected}
       {...targetProps}
       onClick={() => {

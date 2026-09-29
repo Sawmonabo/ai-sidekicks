@@ -1,0 +1,11 @@
+/*
+ * A control that sits flush against the edge of a box that clips it wears
+ * `meridian-focus-inset` beside its own class. The browser's own focus mark, its style
+ * and its color untouched, is then drawn inside the control's edge rather than outside
+ * it, so the clip cannot cut it and nothing moves: a pane frame, a scroll area that
+ * fills its pane, a diff's file entries and body, and the command palette's input and
+ * result list. `space-1` is the smallest step that puts the whole painted mark inside.
+ */
+.meridian-focus-inset {
+  outline-offset: calc(-1 * var(--meridian-space-1));
+}

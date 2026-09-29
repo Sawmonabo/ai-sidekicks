@@ -116,7 +116,7 @@ export function CommandPalette(props: CommandPaletteProps): React.JSX.Element {
 
           <Combobox.Input
             ref={inputRef}
-            className="command-palette__input"
+            className="command-palette__input meridian-focus-inset"
             placeholder="Search commands"
             aria-label="Search commands"
           />

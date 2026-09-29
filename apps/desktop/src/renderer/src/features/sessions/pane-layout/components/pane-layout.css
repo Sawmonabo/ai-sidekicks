@@ -59,16 +59,6 @@
   min-width: 0;
   min-height: 0;
   position: relative;
-  border-inline-start: 1px solid transparent;
-}
-
-/*
- * The focused pane is marked on its own edge rather than by dimming its
- * neighbors: a pane layout where the unfocused panes fade reads as a pane layout where they
- * have stopped working.
- */
-.meridian-pane-layout__pane--focused {
-  border-inline-start-color: var(--meridian-accent);
 }
 
 /*

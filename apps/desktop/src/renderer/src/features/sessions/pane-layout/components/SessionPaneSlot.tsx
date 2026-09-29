@@ -30,7 +30,6 @@ import { type PaneLayoutDragCoordinator, type PaneDropIndicator } from "../pane-
 
 export interface SessionPaneSlotProps {
   readonly pane: SessionPane;
-  readonly isFocused: boolean;
   readonly density: PaneLayoutDensity;
   readonly registry: PaneRegistry;
   /**
@@ -104,7 +103,6 @@ export const SessionPaneSlot: React.NamedExoticComponent<SessionPaneSlotProps> =
 
     const paneClassName = [
       "meridian-pane-layout__pane",
-      props.isFocused ? "meridian-pane-layout__pane--focused" : undefined,
       props.dropIndicator === undefined
         ? undefined
         : `meridian-pane-layout__pane--drop-${props.dropIndicator}`,
