@@ -45,10 +45,10 @@ describe("the pending pane-body marker", () => {
   });
 
   it("names every pending kind, in document order", () => {
-    expect(listPendingBodyNames(treeWithPendingKinds("diff", "artifact", "runs"))).toEqual([
+    expect(listPendingBodyNames(treeWithPendingKinds("diff", "inspector", "terminal"))).toEqual([
       "diff",
-      "artifact",
-      "runs",
+      "inspector",
+      "terminal",
     ]);
   });
 

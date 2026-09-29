@@ -9,7 +9,7 @@
 // source.
 //
 // A named kind cannot survive the board filling up. `pane-kinds.ts` closes the set at
-// eleven members, six view families are landing at once, and once they have all
+// eight members, six view families are landing at once, and once they have all
 // landed every member is owned. A hard-coded kind is claimed twice the moment the
 // family that owns it lands — the registry refuses a second owner rather than letting
 // import order decide, which is correct and which turns the probe into a throw — and

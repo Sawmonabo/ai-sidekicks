@@ -7,8 +7,8 @@
 // unattributed pane takes the neutral ring instead of borrowing a hue, and that a
 // pane-level key claim is heard on the HEAD as well as on the body.
 //
-// The kind set is driven rather than listed: a twelfth kind added to `PANE_KINDS` has to
-// fail here, and a test carrying its own copy of eleven names would pass.
+// The kind set is driven rather than listed: a new kind added to `PANE_KINDS` has to
+// fail here, and a test carrying its own copy of the names would pass.
 //
 // What the HOST hands a pane — the two controls and the drag registration — is
 // `PaneFrame.host-seams.test.tsx`', and the registry-address adapter beside this
@@ -68,26 +68,26 @@ describe("PaneFrame — every declared kind has a frame", () => {
 
 describe("PaneFrame — how the pane names itself", () => {
   it("is named by its whole trail, so two panes of one kind differ", () => {
-    const runsPane = renderPaneFrame(
-      <PaneFrame kind="runs" sessionId="session-1" runId="run-01" focusHue={undefined}>
+    const workflowRunPane = renderPaneFrame(
+      <PaneFrame kind="workflow-run" sessionId="session-1" runId="run-01" focusHue={undefined}>
         <p>body</p>
       </PaneFrame>,
     );
-    expect(accessibleName(runsPane)).toContain("session-1");
-    expect(accessibleName(runsPane)).toContain("run-01");
-    expect(accessibleName(runsPane)).toContain("Runs");
+    expect(accessibleName(workflowRunPane)).toContain("session-1");
+    expect(accessibleName(workflowRunPane)).toContain("run-01");
+    expect(accessibleName(workflowRunPane)).toContain("Workflow run");
   });
 
-  it("negative control: two runs panes at different addresses are named differently", () => {
+  it("negative control: two workflow-run panes at different addresses are named differently", () => {
     // Without this the case above would pass over a chrome named by its title alone,
-    // which is the state a pane layout full of `runs` panes is unnavigable in.
+    // which is the state a pane layout full of `workflow-run` panes is unnavigable in.
     const first = renderPaneFrame(
-      <PaneFrame kind="runs" sessionId="session-1" runId="run-01" focusHue={undefined}>
+      <PaneFrame kind="workflow-run" sessionId="session-1" runId="run-01" focusHue={undefined}>
         <p>body</p>
       </PaneFrame>,
     );
     const second = renderPaneFrame(
-      <PaneFrame kind="runs" sessionId="session-1" runId="run-02" focusHue={undefined}>
+      <PaneFrame kind="workflow-run" sessionId="session-1" runId="run-02" focusHue={undefined}>
         <p>body</p>
       </PaneFrame>,
     );
@@ -123,10 +123,10 @@ describe("PaneFrame — how the pane names itself", () => {
     // point both `aria-labelledby` references at whichever element rendered first.
     const { container } = render(
       <>
-        <PaneFrame kind="runs" sessionId="session-1" focusHue={undefined}>
+        <PaneFrame kind="terminal" sessionId="session-1" focusHue={undefined}>
           <p>one</p>
         </PaneFrame>
-        <PaneFrame kind="runs" sessionId="session-2" focusHue={undefined}>
+        <PaneFrame kind="terminal" sessionId="session-2" focusHue={undefined}>
           <p>two</p>
         </PaneFrame>
       </>,
@@ -163,7 +163,7 @@ describe("PaneFrame — the focus treatments are attributed or neutral, never gu
 
   it("is reachable programmatically without spending a tab stop", () => {
     const pane = renderPaneFrame(
-      <PaneFrame kind="approvals" sessionId="session-1" focusHue={undefined}>
+      <PaneFrame kind="agents" sessionId="session-1" focusHue={undefined}>
         <p>body</p>
       </PaneFrame>,
     );

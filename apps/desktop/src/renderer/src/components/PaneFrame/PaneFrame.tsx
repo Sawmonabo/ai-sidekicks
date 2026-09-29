@@ -44,20 +44,18 @@ import { type PaneKind } from "@renderer/routing/panes/pane-kinds.js";
 /**
  * The glyph each pane kind wears, total over the closed set.
  *
- * `Record<PaneKind, …>` rather than a lookup with a fallback: a twelfth pane kind
+ * `Record<PaneKind, …>` rather than a lookup with a fallback: a new pane kind
  * would be a decision taken outside this package, and it should fail to compile here
- * rather than render as a nameless square in whichever pane layout first opened it. Several
- * kinds share a glyph on purpose — `runs` is a list OF runs and `workflow-run` is a run OF a
- * workflow — and inventing a distinct mark for each would grow the glyph family past
- * what a person can hold, which is the cost `tokens/glyphs.ts` names.
+ * rather than render as a nameless square in whichever pane layout first opened it. Two
+ * kinds share a glyph on purpose — `workflow-run` is a run OF a workflow and
+ * `workflow-builder` is the workflow itself — and inventing a distinct mark for each would
+ * grow the glyph family past what a person can hold, which is the cost `tokens/glyphs.ts`
+ * names.
  */
 export const GLYPH_BY_PANE_KIND: Readonly<Record<PaneKind, GlyphName>> = {
   transcript: "transcript",
   inspector: "inspector",
-  runs: "run",
-  approvals: "approval",
   diff: "diff",
-  artifact: "artifact",
   "workflow-run": "workflow",
   "workflow-builder": "workflow",
   browser: "browser",
@@ -70,7 +68,7 @@ export const GLYPH_BY_PANE_KIND: Readonly<Record<PaneKind, GlyphName>> = {
  *
  * One spelling serves the heading, the trail's current crumb, and the mismatch
  * refusal, which is why the transcript's `title` prop is gone rather than kept as an
- * override: a caller able to pass "Runs" to one pane and "Run list" to the next is a
+ * override: a caller able to pass "Review" to one pane and "Changes" to the next is a
  * pane layout that reads as two products.
  *
  * Total for `GLYPH_BY_PANE_KIND`'s reason, and separate from the kind string because
@@ -80,10 +78,7 @@ export const GLYPH_BY_PANE_KIND: Readonly<Record<PaneKind, GlyphName>> = {
 export const TITLE_BY_PANE_KIND: Readonly<Record<PaneKind, string>> = {
   transcript: "Transcript",
   inspector: "Inspector",
-  runs: "Runs",
-  approvals: "Approvals",
   diff: "Review",
-  artifact: "Artifact",
   "workflow-run": "Workflow run",
   "workflow-builder": "Workflow builder",
   browser: "Preview",
@@ -162,7 +157,8 @@ export interface PaneFrameProps {
  * `aria-label` cannot both name one element: the accessible-name algorithm prefers the
  * reference, so an `aria-label` beside it is text nothing ever reads. The reference
  * points at the crumb list, whose last crumb is this pane's own name — so the name is
- * "session-1 run-01 Runs" rather than "Runs" for every runs pane in the pane layout.
+ * "session-1 run-01 Workflow run" rather than "Workflow run" for every workflow-run pane in
+ * the pane layout.
  */
 export function PaneFrame(props: PaneFrameProps): React.JSX.Element {
   const mintedHeadingId = useId();

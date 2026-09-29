@@ -115,9 +115,9 @@ export function resolveComposerTarget(input: ComposerTargetInput): ComposerTarge
  *
  * The `in` check is the narrowing and not a defensive guard: `PaneAddress` is
  * a union over pane kind, and a session-scoped arm carries no `entity` MEMBER at all
- * rather than one holding `undefined`. So a pane addressed at `runs`, `approvals`,
- * `browser`, or `terminal` names no entity by construction, and this reads that fact
- * off the address rather than dereferencing a member three arms do not have.
+ * rather than one holding `undefined`. So a pane addressed at `transcript`, `browser`,
+ * or `terminal` names no entity by construction, and this reads that fact off the
+ * address rather than dereferencing a member three arms do not have.
  */
 function focusedRefOfKind(
   pane: PaneAddress | undefined,

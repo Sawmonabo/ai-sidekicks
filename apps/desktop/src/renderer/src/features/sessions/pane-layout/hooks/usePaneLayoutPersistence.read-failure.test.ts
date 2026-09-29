@@ -32,7 +32,7 @@ describe("usePaneLayoutPersistence — a read the adapter could not perform", ()
   it("keeps the saved arrangement instead of filing the fallback over it", async () => {
     const adapter = new ReadFailurePersistenceAdapter();
     const store = new UiStateStore({ adapter });
-    await savePaneLayout(store, ["transcript", "runs", "approvals"]);
+    await savePaneLayout(store, ["transcript", "terminal", "agents"]);
     const layout = createPaneLayoutStore();
 
     mountPersistence(layout, store);
@@ -53,20 +53,20 @@ describe("usePaneLayoutPersistence — a read the adapter could not perform", ()
     // above.
     const adapter = new ReadFailurePersistenceAdapter();
     const store = new UiStateStore({ adapter });
-    await savePaneLayout(store, ["transcript", "runs", "approvals"]);
+    await savePaneLayout(store, ["transcript", "terminal", "agents"]);
     const layout = createPaneLayoutStore();
 
     mountPersistence(layout, store);
     await drain();
     act(() => {
-      layout.open({ kind: "runs" });
+      layout.open({ kind: "terminal" });
     });
     await drain();
 
     // Two, not three: the pane layout the person is now looking at replaced the record, which
     // is what saving IS. The restore settles on a failed read for exactly this reason.
     adapter.stopFailingReads();
-    expect(paneKinds(layout)).toStrictEqual(["transcript", "runs"]);
+    expect(paneKinds(layout)).toStrictEqual(["transcript", "terminal"]);
     expect(await savedPaneCount(store)).toBe(2);
   });
 });

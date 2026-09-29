@@ -1,7 +1,7 @@
 // Which pane, over which entity — and which entities each pane kind admits.
 //
-// A pane is a view OF something, and what it is a view of is not free. An
-// artifact pane over a run reference has nothing to render; an inspector with
+// A pane is a view OF something, and what it is a view of is not free. A
+// workflow-run pane over an agent reference has nothing to render; an inspector with
 // nothing to inspect has no row to look up. So the address pairs each pane kind
 // with only the entity kinds it can serve, and the type and the pane registry refuse
 // the rest — otherwise a restored layout row or a card could hand a registered body
@@ -11,7 +11,7 @@
 // ONE DECLARATION, TWO HALVES DERIVED FROM IT
 //
 // `PaneEntityScopeByKind` below is the declaration — the kind-indexed map
-// `seats/slots/inline-card-seats.ts` uses for its own three card kinds, at the eleven pane
+// `seats/slots/inline-card-seats.ts` uses for its own three card kinds, at the eight pane
 // kinds. Both halves come off it: the static `PaneAddress` union that
 // makes a mismatch a compile error at a typed call site, and the runtime table
 // `pane-address-parse.ts` applies at the boundaries where an address arrives
@@ -117,8 +117,8 @@ const CHECKOUT_ENTITY_KINDS: readonly CheckoutEntityKind[] = ENTITY_KINDS.filter
  * Which pane, over which entity — the address a pane is opened at.
  *
  * A discriminated union over `kind`, so narrowing on the kind narrows the entity
- * with it: an `artifact` arm's entity is an artifact reference and nothing else,
- * and a `runs` arm has no `entity` member to read. Both halves matter — the
+ * with it: a `workflow-run` arm's entity is a workflow-run reference and nothing
+ * else, and a `transcript` arm has no `entity` member to read. Both halves matter — the
  * first refuses the wrong entity, the second refuses a caller that forgot to
  * resolve one.
  */
@@ -160,13 +160,8 @@ interface PaneEntityScopeByKind {
   readonly transcript: never;
   /** Keyed by the inspected checkout's own kind; there is nothing to inspect without one. */
   readonly inspector: ScopedEntityRef<CheckoutEntityKind>;
-  /** The session's runs list. */
-  readonly runs: never;
-  /** The session's approvals queue. */
-  readonly approvals: never;
   /** The changes of the checkout the pane was opened from, so the same kinds. */
   readonly diff: ScopedEntityRef<CheckoutEntityKind>;
-  readonly artifact: ScopedEntityRef<"artifact">;
   readonly "workflow-run": ScopedEntityRef<"workflow-run">;
   /** Bare from the workflows destination; over a definition once one is saved. */
   readonly "workflow-builder": ScopedEntityRef<"workflow-definition"> | undefined;
@@ -224,10 +219,7 @@ const PANE_ENTITY_SCOPES: {
 } = {
   transcript: { entityKinds: [], entityRequired: false },
   inspector: { entityKinds: CHECKOUT_ENTITY_KINDS, entityRequired: true },
-  runs: { entityKinds: [], entityRequired: false },
-  approvals: { entityKinds: [], entityRequired: false },
   diff: { entityKinds: CHECKOUT_ENTITY_KINDS, entityRequired: true },
-  artifact: { entityKinds: ["artifact"], entityRequired: true },
   "workflow-run": { entityKinds: ["workflow-run"], entityRequired: true },
   "workflow-builder": { entityKinds: ["workflow-definition"], entityRequired: false },
   browser: { entityKinds: [], entityRequired: false },

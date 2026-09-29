@@ -79,7 +79,7 @@ describe("PaneLayoutStore — what a snapshot carries", () => {
     const layout = twoPaneLayout();
     const restored = emptyLayout();
     restored.restore(layout.toSnapshot());
-    const minted = restored.open({ kind: "approvals" });
+    const minted = restored.open({ kind: "agents" });
     const ids = restored.snapshot().panes.map((pane) => pane.paneId);
     expect(new Set(ids).size).toBe(ids.length);
     expect(ids).toContain(minted);
@@ -210,7 +210,7 @@ describe("PaneLayoutStore — what a restore refuses", () => {
     const snapshot = twoPaneLayout().toSnapshot();
     snapshot["pane-92"] = {
       position: 5,
-      kind: "runs",
+      kind: "terminal",
       sizePermille: 300,
       entityKind: "worktree",
       entityId: "worktree-02",
@@ -227,8 +227,8 @@ describe("PaneLayoutStore — what a restore refuses", () => {
     // stopped admitting anything with an entity on it.
     const layout = emptyLayout();
     layout.open({ kind: "transcript" });
-    layout.open({ kind: "artifact", entity: { kind: "artifact", id: "artifact-01" } });
-    layout.open({ kind: "runs" });
+    layout.open({ kind: "inspector", entity: { kind: "worktree", id: "worktree-01" } });
+    layout.open({ kind: "terminal" });
 
     expect(emptyLayout().restore(layout.toSnapshot()).restoredPaneCount).toBe(3);
   });

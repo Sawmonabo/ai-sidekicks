@@ -1,7 +1,7 @@
 // The transcript pane: the address it hands its chrome, and the seat its rows fill.
 //
 // THE CHROME IS NOT THIS FEATURE'S AND IT IS NOT PASSED IN EITHER. The shared pane chrome
-// draws every pane's frame, so eleven pane kinds share one spacing and one answer to where
+// draws every pane's frame, so every pane kind shares one spacing and one answer to where
 // the focus ring goes. What this pane supplies is what genuinely differs — its kind, the
 // address its trail reads, and the hue it is attributed to.
 //

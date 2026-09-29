@@ -84,18 +84,22 @@ describe("the pane layout's board — a loader-form registration", () => {
   it("reserves the same box the loaded body draws", async () => {
     const registry = new PaneRegistry();
     registry.register({
-      kind: "artifact",
-      owner: "repos-family",
-      body: countingLoader(chromedBody("artifact", "the artifact body")).load,
+      kind: "workflow-builder",
+      owner: "workflows-family",
+      body: countingLoader(chromedBody("workflow-builder", "the builder body")).load,
     });
     const { container } = render(
-      <>{registry.descriptorFor("artifact")?.render(syntheticPaneContextAt("artifact"))}</>,
+      <>
+        {registry
+          .descriptorFor("workflow-builder")
+          ?.render(syntheticPaneContextAt("workflow-builder"))}
+      </>,
     );
 
     const pendingSection = container.querySelector(".meridian-pane");
     const pendingHeadText = container.querySelector(".meridian-pane__head")?.textContent;
     const pendingBodyText = container.querySelector(".meridian-pane__body")?.textContent;
-    expect(pendingSection?.className).toBe("meridian-pane meridian-pane--artifact");
+    expect(pendingSection?.className).toBe("meridian-pane meridian-pane--workflow-builder");
     // The reserved body is EMPTY rather than a spinner or a skeleton: the marker rides a
     // `hidden` element, which contributes no box, so nothing moves when the body lands.
     expect(pendingBodyText).toBe("");
@@ -106,7 +110,7 @@ describe("the pane layout's board — a loader-form registration", () => {
     expect(loadedSection?.className).toBe(pendingSection?.className);
     expect(container.querySelector(".meridian-pane__head")?.textContent).toBe(pendingHeadText);
     expect(container.querySelectorAll(".meridian-pane__body")).toHaveLength(1);
-    expect(container.querySelector(".meridian-pane__body")?.textContent).toBe("the artifact body");
+    expect(container.querySelector(".meridian-pane__body")?.textContent).toBe("the builder body");
   });
 
   it("negative control: a body that never arrives never replaces the reserved region", async () => {

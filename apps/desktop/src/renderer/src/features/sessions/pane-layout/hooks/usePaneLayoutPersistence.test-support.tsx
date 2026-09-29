@@ -48,7 +48,7 @@ export function createPaneLayoutStore(): PaneLayoutStore {
 /** A saved arrangement, written through the grammar that reads it back. */
 export async function savePaneLayout(
   store: UiStateStore,
-  kinds: readonly ("transcript" | "runs" | "approvals")[],
+  kinds: readonly ("transcript" | "terminal" | "agents")[],
   sessionId: string = RESTORE_SESSION_ID,
 ): Promise<void> {
   const layout = createPaneLayoutStore();

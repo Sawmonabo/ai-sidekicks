@@ -1,7 +1,5 @@
-// The pane-kind set is the spec's set, in the spec's order.
-//
-// The console's design fixes both: a closed set of `transcript`, `inspector`, `runs`,
-// `approvals`, `diff`, `artifact`, `workflow-run`, `workflow-builder`, `browser`,
+// The pane-kind set is closed, and its order is the one `registeredPaneKinds()` answers in:
+// `transcript`, `inspector`, `diff`, `workflow-run`, `workflow-builder`, `browser`,
 // `terminal` and `agents`.
 //
 // The transcription below is compared to `PANE_KINDS` by `toStrictEqual`, which
@@ -16,14 +14,11 @@ import { describe, expect, it } from "vitest";
 
 import { PANE_KINDS, isPaneKind, type PaneKind } from "./pane-kinds.js";
 
-/** The eleven kinds of the design, in its own order. */
+/** The eight kinds, in their declared order. */
 const SPEC_PANE_KINDS: readonly string[] = [
   "transcript",
   "inspector",
-  "runs",
-  "approvals",
   "diff",
-  "artifact",
   "workflow-run",
   "workflow-builder",
   "browser",
@@ -78,12 +73,12 @@ describe("pane kinds — the guard layout restore drops against", () => {
     // pass every case above and still leave a layout reader casting. Reading the
     // narrowed value into a `PaneKind` is the assertion, and it is a compile-time
     // one that this line makes runnable.
-    const fromSnapshot: unknown = "artifact";
+    const fromSnapshot: unknown = "terminal";
     expect(isPaneKind(fromSnapshot)).toBe(true);
     if (!isPaneKind(fromSnapshot)) {
       throw new Error("guard admitted a declared kind and then refused to narrow it");
     }
     const narrowed: PaneKind = fromSnapshot;
-    expect(narrowed).toBe("artifact");
+    expect(narrowed).toBe("terminal");
   });
 });

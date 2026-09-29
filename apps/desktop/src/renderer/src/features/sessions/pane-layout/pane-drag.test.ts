@@ -148,8 +148,8 @@ function recordingAnnounce(): { announce: Announce; recorded: RecordedAnnounceme
 function threePaneLayout(): PaneLayoutStore {
   const layout = new PaneLayoutStore({ restoredPaneCap: PANE_LAYOUT_RESTORED_PANE_CAP });
   layout.open({ kind: "transcript" });
-  layout.open({ kind: "runs" });
-  layout.open({ kind: "approvals" });
+  layout.open({ kind: "terminal" });
+  layout.open({ kind: "agents" });
   return layout;
 }
 

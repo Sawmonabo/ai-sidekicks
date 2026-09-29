@@ -59,10 +59,10 @@ describe("pane registry — one owner per kind", () => {
 
   it("names both owners in the refusal, so the conflict is actionable", () => {
     const registry = new PaneRegistry();
-    registry.register(descriptor("runs", "composer-family"));
+    registry.register(descriptor("terminal", "terminal-family"));
     expect(() => {
-      registry.register(descriptor("runs", "workflows-family"));
-    }).toThrow(/composer-family[\s\S]*workflows-family/u);
+      registry.register(descriptor("terminal", "browser-family"));
+    }).toThrow(/terminal-family[\s\S]*browser-family/u);
   });
 });
 
@@ -72,16 +72,16 @@ describe("pane registry — declaration order, not registration order", () => {
     // Registered back to front, so an implementation that reported insertion
     // order rather than declaration order would answer differently.
     registry.register(descriptor("agents", "third"));
-    registry.register(descriptor("approvals", "second"));
+    registry.register(descriptor("diff", "second"));
     registry.register(descriptor("transcript", "first"));
-    expect(registry.registeredPaneKinds()).toStrictEqual(["transcript", "approvals", "agents"]);
+    expect(registry.registeredPaneKinds()).toStrictEqual(["transcript", "diff", "agents"]);
   });
 
   it("reports only kinds that were claimed", () => {
     const registry = new PaneRegistry();
-    registry.register(descriptor("artifact", "repos-family"));
+    registry.register(descriptor("workflow-builder", "workflows-family"));
     for (const kind of PANE_KINDS) {
-      expect(registry.registeredPaneKinds().includes(kind)).toBe(kind === "artifact");
+      expect(registry.registeredPaneKinds().includes(kind)).toBe(kind === "workflow-builder");
     }
   });
 

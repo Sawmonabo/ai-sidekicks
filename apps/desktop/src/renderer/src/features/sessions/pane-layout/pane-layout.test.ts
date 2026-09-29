@@ -121,10 +121,10 @@ describe("paneAddressKey", () => {
   });
 
   it("separates the same entity in two kinds of pane, and two entities in one kind", () => {
-    // A run legitimately appears in an `inspector` and in a `runs` pane, so kind is
+    // A worktree legitimately appears in an `inspector` and in a `diff` pane, so kind is
     // part of the address...
-    expect(paneAddressKey(paneAt("inspector", { kind: "run", id: "run-01" }))).not.toBe(
-      paneAddressKey(paneAt("runs", { kind: "run", id: "run-01" })),
+    expect(paneAddressKey(paneAt("inspector", { kind: "worktree", id: "worktree-01" }))).not.toBe(
+      paneAddressKey(paneAt("diff", { kind: "worktree", id: "worktree-01" })),
     );
     // ...and so is the entity.
     expect(paneAddressKey(paneAt("inspector", { kind: "run", id: "run-01" }))).not.toBe(
@@ -155,7 +155,7 @@ describe("paneAddressKey", () => {
     expect(addressesMatch(pane, { kind: "inspector", entity: { kind: "run", id: "run-02" } })).toBe(
       false,
     );
-    expect(addressesMatch(pane, { kind: "runs", entity: { kind: "run", id: "run-01" } })).toBe(
+    expect(addressesMatch(pane, { kind: "diff", entity: { kind: "run", id: "run-01" } })).toBe(
       false,
     );
   });

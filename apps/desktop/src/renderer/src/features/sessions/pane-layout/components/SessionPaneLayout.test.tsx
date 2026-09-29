@@ -101,11 +101,11 @@ function renderPaneLayout(layout: PaneLayoutStore, registry: PaneRegistry): HTML
 function threePaneLayout(): HTMLElement {
   const layout = emptyLayout();
   layout.open({ kind: "transcript" });
-  layout.open({ kind: "runs" });
-  layout.open({ kind: "approvals" });
+  layout.open({ kind: "terminal" });
+  layout.open({ kind: "agents" });
   return renderPaneLayout(
     layout,
-    registryWith({ kind: "transcript" }, { kind: "runs" }, { kind: "approvals" }),
+    registryWith({ kind: "transcript" }, { kind: "terminal" }, { kind: "agents" }),
   );
 }
 
@@ -139,14 +139,14 @@ describe("the pane layout's panes", () => {
   it("mounts one body per open pane, in the layout's order", () => {
     const layout = emptyLayout();
     layout.open({ kind: "transcript" });
-    layout.open({ kind: "runs" });
+    layout.open({ kind: "terminal" });
     const paneLayoutElement = renderPaneLayout(
       layout,
-      registryWith({ kind: "transcript" }, { kind: "runs" }),
+      registryWith({ kind: "transcript" }, { kind: "terminal" }),
     );
     expect(
       [...paneLayoutElement.querySelectorAll("p")].map((body) => body.textContent),
-    ).toStrictEqual(["transcript body", "runs body"]);
+    ).toStrictEqual(["transcript body", "terminal body"]);
   });
 
   it("focuses the pane that already shows an entity instead of opening a second", () => {
@@ -226,10 +226,10 @@ describe("the pane layout's keyboard paths", () => {
   it("moves focus with Alt+Arrow and moves the PANE with Alt+Shift+Arrow", () => {
     const layout = emptyLayout();
     const first = layout.open({ kind: "transcript" });
-    const second = layout.open({ kind: "runs" });
+    const second = layout.open({ kind: "terminal" });
     const paneLayoutElement = renderPaneLayout(
       layout,
-      registryWith({ kind: "transcript" }, { kind: "runs" }),
+      registryWith({ kind: "transcript" }, { kind: "terminal" }),
     );
 
     focus(layout, first);
@@ -257,10 +257,10 @@ describe("the pane layout's keyboard paths", () => {
     // keystroke the person meant.
     const layout = emptyLayout();
     const first = layout.open({ kind: "transcript" });
-    layout.open({ kind: "runs" });
+    layout.open({ kind: "terminal" });
     const paneLayoutElement = renderPaneLayout(
       layout,
-      registryWith({ kind: "transcript" }, { kind: "runs" }),
+      registryWith({ kind: "transcript" }, { kind: "terminal" }),
     );
     focus(layout, first);
 
@@ -280,10 +280,10 @@ describe("the pane layout's keyboard paths", () => {
     // dead everywhere rather than declining only where a widget owns the keys.
     const layout = emptyLayout();
     const first = layout.open({ kind: "transcript" });
-    const second = layout.open({ kind: "runs" });
+    const second = layout.open({ kind: "terminal" });
     const paneLayoutElement = renderPaneLayout(
       layout,
-      registryWith({ kind: "transcript" }, { kind: "runs" }),
+      registryWith({ kind: "transcript" }, { kind: "terminal" }),
     );
     focus(layout, first);
 
@@ -302,10 +302,10 @@ describe("the pane layout's keyboard paths", () => {
     // arrow key — which would make every text field inside a pane unusable.
     const layout = emptyLayout();
     const first = layout.open({ kind: "transcript" });
-    layout.open({ kind: "runs" });
+    layout.open({ kind: "terminal" });
     const paneLayoutElement = renderPaneLayout(
       layout,
-      registryWith({ kind: "transcript" }, { kind: "runs" }),
+      registryWith({ kind: "transcript" }, { kind: "terminal" }),
     );
     focus(layout, first);
     press(paneLayoutElement, { key: "ArrowRight" });

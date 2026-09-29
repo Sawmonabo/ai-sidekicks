@@ -1,7 +1,7 @@
 // The entity references and the refusal reader both pane-address suites drive.
 //
 // The rows this family declares are read at two doors — the compiler's and the untyped
-// boundary's — and each door has its own file. These four references and this reader are
+// boundary's — and each door has its own file. These five references and this reader are
 // what both of them build a case out of, so they are here rather than written twice: two
 // copies of `refusalFrom` is two answers to "the parse admitted something it should have
 // refused", and the one that is not looked at is the one that stops saying which.
@@ -27,6 +27,10 @@ type EntityRefOf<TKind extends EntityRef["kind"]> = EntityRef & {
 export const AGENT: EntityRefOf<"agent"> = { kind: "agent", id: "agent-1" };
 export const RUN: EntityRefOf<"run"> = { kind: "run", id: "run-1" };
 export const ARTIFACT: EntityRefOf<"artifact"> = { kind: "artifact", id: "artifact-1" };
+export const WORKFLOW_RUN: EntityRefOf<"workflow-run"> = {
+  kind: "workflow-run",
+  id: "workflow-run-1",
+};
 /** Still a registered entity kind, and no longer one any pane kind is a view of. */
 export const BROWSER_PAGE: EntityRefOf<"browser-page"> = { kind: "browser-page", id: "page-1" };
 

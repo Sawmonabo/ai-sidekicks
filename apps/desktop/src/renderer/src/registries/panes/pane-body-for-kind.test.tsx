@@ -33,19 +33,19 @@ describe("paneBodyForKind — a mismatched address is refused, not thrown", () =
   }
 
   it("renders the body when the address is the kind it was written for", () => {
-    const body = paneBodyForKind("runs", () => <p>the runs body</p>);
-    const { container } = render(<>{body(addressedAt("runs"))}</>);
-    expect(container.textContent).toBe("the runs body");
+    const body = paneBodyForKind("terminal", () => <p>the terminal body</p>);
+    const { container } = render(<>{body(addressedAt("terminal"))}</>);
+    expect(container.textContent).toBe("the terminal body");
   });
 
   it("refuses in place when the address is another kind's", () => {
-    const body = paneBodyForKind("runs", () => <p>the runs body</p>);
+    const body = paneBodyForKind("terminal", () => <p>the terminal body</p>);
     const { container } = render(<>{body(addressedAt("diff"))}</>);
     expect(container.querySelector(".meridian-refusal")).not.toBeNull();
     expect(container.textContent).toContain("pane-composition.pane-kind-mismatch");
     // Named in the words the pane is called everywhere else, and naming what it was
     // actually handed — a refusal that said neither is a refusal nobody can act on.
-    expect(container.textContent).toContain("Runs");
+    expect(container.textContent).toContain("Terminal");
     expect(container.textContent).toContain("diff");
   });
 
@@ -53,7 +53,7 @@ describe("paneBodyForKind — a mismatched address is refused, not thrown", () =
     // A throw here would take the whole window down for one bad row in a restored
     // layout, which is the disposition `core/refusal.ts` exists to forbid.
     const body = paneBodyForKind("inspector", () => <p>the inspector body</p>);
-    expect(() => body(addressedAt("artifact"))).not.toThrow();
+    expect(() => body(addressedAt("agents"))).not.toThrow();
   });
 
   it("negative control: the matched arm draws no refusal", () => {
