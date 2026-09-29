@@ -45,7 +45,7 @@ describe("usePaneLayoutPersistence — an arrangement made while the record was 
 
     mountPersistence(layout, store);
     act(() => {
-      layout.open({ kind: "runs", entity: undefined });
+      layout.open({ kind: "runs" });
     });
 
     // The one-pane deck the person is looking at has reached the store through no path,
@@ -61,7 +61,7 @@ describe("usePaneLayoutPersistence — an arrangement made while the record was 
 
     mountPersistence(layout, store);
     act(() => {
-      layout.open({ kind: "runs", entity: undefined });
+      layout.open({ kind: "runs" });
     });
     await drain();
 
@@ -75,7 +75,7 @@ describe("usePaneLayoutPersistence — an arrangement made while the record was 
 
     mountPersistence(layout, store);
     act(() => {
-      layout.open({ kind: "runs", entity: undefined });
+      layout.open({ kind: "runs" });
     });
     await drain();
 
@@ -89,7 +89,7 @@ describe("usePaneLayoutPersistence — an arrangement made while the record was 
 
     mountPersistence(layout, store);
     act(() => {
-      layout.open({ kind: "runs", entity: undefined });
+      layout.open({ kind: "runs" });
     });
     await drain();
 
@@ -107,7 +107,7 @@ describe("usePaneLayoutPersistence — an arrangement made while the record was 
 
     mountPersistence(layout, store);
     act(() => {
-      const paneId = layout.open({ kind: "runs", entity: undefined });
+      const paneId = layout.open({ kind: "runs" });
       layout.close(paneId);
     });
     await drain();
@@ -132,8 +132,8 @@ describe("usePaneLayoutPersistence — an arrangement made while the record was 
 
     mountPersistence(layout, store);
     act(() => {
-      const timelinePaneId = layout.open({ kind: "timeline", entity: undefined });
-      const runsPaneId = layout.open({ kind: "runs", entity: undefined });
+      const timelinePaneId = layout.open({ kind: "timeline" });
+      const runsPaneId = layout.open({ kind: "runs" });
       layout.applyLayout(
         { [timelinePaneId]: 70, [runsPaneId]: 30 },
         UNCLAMPED_WIDTH_FLOOR_PERMILLE,
@@ -156,7 +156,7 @@ describe("usePaneLayoutPersistence — an arrangement made while the record was 
 
     mountPersistence(layout, store);
     act(() => {
-      const runsPaneId = layout.open({ kind: "runs", entity: undefined });
+      const runsPaneId = layout.open({ kind: "runs" });
       layout.close(runsPaneId);
     });
     await drain();
@@ -177,7 +177,7 @@ describe("usePaneLayoutPersistence — an arrangement made while the record was 
 
     mountPersistence(layout, store);
     act(() => {
-      layout.open({ kind: "runs", entity: undefined });
+      layout.open({ kind: "runs" });
     });
     await drain();
 
@@ -197,8 +197,8 @@ describe("usePaneLayoutPersistence — an arrangement made while the record was 
 
     mountPersistence(layout, store);
     act(() => {
-      layout.open({ kind: "timeline", entity: undefined });
-      const runsPaneId = layout.open({ kind: "runs", entity: undefined });
+      layout.open({ kind: "timeline" });
+      const runsPaneId = layout.open({ kind: "runs" });
       layout.movePane(runsPaneId, -1);
     });
     await drain();
@@ -245,7 +245,7 @@ describe("usePaneLayoutPersistence — an arrangement made while the record was 
     mountPersistence(layout, store);
     await drain();
     act(() => {
-      layout.open({ kind: "runs", entity: undefined });
+      layout.open({ kind: "runs" });
     });
     await drain();
 
@@ -267,7 +267,7 @@ describe("usePaneLayoutPersistence — the writer across a double-mount", () => 
     mountPersistence(layout, store, { underStrictMode: true });
     await drain();
     act(() => {
-      layout.open({ kind: "runs", entity: undefined });
+      layout.open({ kind: "runs" });
     });
     await drain();
 
@@ -284,7 +284,7 @@ describe("usePaneLayoutPersistence — the writer across a double-mount", () => 
     mountPersistence(layout, store);
     await drain();
     act(() => {
-      layout.open({ kind: "runs", entity: undefined });
+      layout.open({ kind: "runs" });
     });
     await drain();
 

@@ -32,7 +32,7 @@ function emptyLayout(): PaneLayoutStore {
 /** A layout holding one session-scoped timeline and one worktree-scoped inspector. */
 function twoPaneLayout(): PaneLayoutStore {
   const layout = emptyLayout();
-  layout.open({ kind: "timeline", entity: undefined });
+  layout.open({ kind: "timeline" });
   layout.open({ kind: "inspector", entity: { kind: "worktree", id: "worktree-01" } });
   return layout;
 }
@@ -66,7 +66,7 @@ describe("PaneLayoutStore — what a snapshot carries", () => {
     // layout snapshot, so a restart cannot reopen a page nobody asked for.
     const layout = twoPaneLayout();
     const source = layout.snapshot().panes[0];
-    layout.open({ kind: "browser", entity: undefined, sourcePaneId: source?.paneId ?? "" });
+    layout.open({ kind: "browser" }, { linkedSourcePaneId: source?.paneId ?? "" });
     const written = Object.values(layout.toSnapshot())
       .map((entry) => entry["kind"])
       .filter((kind) => kind !== undefined);
@@ -79,7 +79,7 @@ describe("PaneLayoutStore — what a snapshot carries", () => {
     const layout = twoPaneLayout();
     const restored = emptyLayout();
     restored.restore(layout.toSnapshot());
-    const minted = restored.open({ kind: "approvals", entity: undefined });
+    const minted = restored.open({ kind: "approvals" });
     const ids = restored.snapshot().panes.map((pane) => pane.paneId);
     expect(new Set(ids).size).toBe(ids.length);
     expect(ids).toContain(minted);
@@ -226,9 +226,9 @@ describe("PaneLayoutStore — what a restore refuses", () => {
     // Without this, every case above would pass over an admission that had simply
     // stopped admitting anything with an entity on it.
     const layout = emptyLayout();
-    layout.open({ kind: "timeline", entity: undefined });
+    layout.open({ kind: "timeline" });
     layout.open({ kind: "artifact", entity: { kind: "artifact", id: "artifact-01" } });
-    layout.open({ kind: "runs", entity: undefined });
+    layout.open({ kind: "runs" });
 
     expect(emptyLayout().restore(layout.toSnapshot()).restoredPaneCount).toBe(3);
   });

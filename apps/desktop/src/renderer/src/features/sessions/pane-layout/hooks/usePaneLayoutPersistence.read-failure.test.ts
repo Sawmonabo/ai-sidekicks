@@ -59,7 +59,7 @@ describe("usePaneLayoutPersistence — a read the adapter could not perform", ()
     mountPersistence(layout, store);
     await drain();
     act(() => {
-      layout.open({ kind: "runs", entity: undefined });
+      layout.open({ kind: "runs" });
     });
     await drain();
 

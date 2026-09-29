@@ -53,7 +53,7 @@ export async function savePaneLayout(
 ): Promise<void> {
   const layout = deckLayout();
   for (const kind of kinds) {
-    layout.open({ kind, entity: undefined });
+    layout.open({ kind });
   }
   const result = await store.write(
     sessionId,

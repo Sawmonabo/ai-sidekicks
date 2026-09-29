@@ -122,7 +122,7 @@ const CHECKOUT_ENTITY_KINDS: readonly CheckoutEntityKind[] = ENTITY_KINDS.filter
  * first refuses the wrong entity, the second refuses a caller that forgot to
  * resolve one.
  */
-export type PaneAddress = { [K in PaneKind]: ConsolePaneAddressOf<K> }[PaneKind];
+export type PaneAddress = { [K in PaneKind]: PaneAddressOf<K> }[PaneKind];
 
 /**
  * What each pane kind is a view of. THE declaration.
@@ -183,7 +183,7 @@ interface PaneEntityScopeByKind {
  * that writes the equally honest `entity: undefined` would stop compiling. Both
  * spellings mean the same thing here, and both are admitted.
  */
-type ConsolePaneAddressOf<TKind extends PaneKind> = [PaneEntityScopeByKind[TKind]] extends [never]
+type PaneAddressOf<TKind extends PaneKind> = [PaneEntityScopeByKind[TKind]] extends [never]
   ? { readonly kind: TKind }
   : EntityRequired<TKind> extends true
     ? { readonly kind: TKind; readonly entity: PaneEntityScopeByKind[TKind] }

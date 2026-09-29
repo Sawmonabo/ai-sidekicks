@@ -25,6 +25,7 @@
 
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
 import { isEphemeralPaneKind } from "@renderer/console/seats/index.js";
+import type { PaneAddress, PaneLink } from "@renderer/routing/panes/pane-address.js";
 import { DEFAULT_PANE_LAYOUT_DENSITY, type PaneLayoutDensity } from "./pane-layout-measures.js";
 import {
   PANE_LAYOUT_TOTAL_PERMILLE,
@@ -39,7 +40,6 @@ import {
   sizesAreEqual,
   type PaneLayoutState,
   type SessionPane,
-  type DeckPaneAddress,
   type PaneSizePercentages,
 } from "./pane-layout.js";
 import {
@@ -102,10 +102,10 @@ export class PaneLayoutStore {
    * Returns the pane id either way, so a caller never has to ask which happened to
    * find the pane it asked for.
    *
-   * TWO SEATINGS, AND THE ADDRESS DECIDES WHICH. An address naming no source pane is
+   * TWO SEATINGS, AND THE LINK DECIDES WHICH. An open with no source pane is
    * an open FROM A LIST — the palette, a rail destination — and lands at
    * the end of the deck at an equal share, which is where a person's eye expects a
-   * pane they just opened. An address naming one is the SPLIT act — the deck offers
+   * pane they just opened. An open linked to one is the SPLIT act — the deck offers
    * open, close, focus, resize, reorder and split — so the pane arrives immediately
    * right of its source and takes half of THAT pane's width, and every other pane in
    * the deck keeps the width the person gave it. `carveSplitFrom` holds the arithmetic
@@ -115,8 +115,12 @@ export class PaneLayoutStore {
    * refusing the open: the person asked for a pane and gets one, and the deck
    * re-divides — the only outcome that leaves every pane wide enough to grab.
    */
-  public open(address: DeckPaneAddress): string {
-    const existing = this.#state.panes.find((pane) => addressesMatch(pane, address));
+  public open(address: PaneAddress, link?: PaneLink): string {
+    const entity = "entity" in address ? address.entity : undefined;
+    const sourcePaneId = link?.linkedSourcePaneId;
+    const existing = this.#state.panes.find((pane) =>
+      addressesMatch(pane, { kind: address.kind, entity }),
+    );
     if (existing !== undefined) {
       this.focus(existing.paneId);
       return existing.paneId;
@@ -126,16 +130,16 @@ export class PaneLayoutStore {
     const pane: SessionPane = {
       paneId,
       kind: address.kind,
-      entity: address.entity,
+      entity,
       sizePermille: PANE_LAYOUT_TOTAL_PERMILLE,
       isEphemeral: isEphemeralPaneKind(address.kind),
-      sourcePaneId: address.sourcePaneId,
+      sourcePaneId,
     };
 
     const sourcePosition =
-      address.sourcePaneId === undefined
+      sourcePaneId === undefined
         ? -1
-        : this.#state.panes.findIndex((candidate) => candidate.paneId === address.sourcePaneId);
+        : this.#state.panes.findIndex((candidate) => candidate.paneId === sourcePaneId);
     if (sourcePosition >= 0) {
       const split = carveSplitFrom(this.#state.panes, sourcePosition, pane);
       if (split !== undefined) {

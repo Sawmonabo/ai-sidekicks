@@ -147,9 +147,9 @@ function recordingAnnounce(): { announce: Announce; recorded: RecordedAnnounceme
 /** Three panes in order — `pane-1`, `pane-2`, `pane-3` — so a drop has room to move. */
 function threePaneLayout(): PaneLayoutStore {
   const layout = new PaneLayoutStore({ restoredPaneCap: PANE_LAYOUT_RESTORED_PANE_CAP });
-  layout.open({ kind: "timeline", entity: undefined });
-  layout.open({ kind: "runs", entity: undefined });
-  layout.open({ kind: "approvals", entity: undefined });
+  layout.open({ kind: "timeline" });
+  layout.open({ kind: "runs" });
+  layout.open({ kind: "approvals" });
   return layout;
 }
 

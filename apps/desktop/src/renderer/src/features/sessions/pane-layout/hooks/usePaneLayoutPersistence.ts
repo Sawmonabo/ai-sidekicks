@@ -213,7 +213,7 @@ export function usePaneLayoutPersistence(
       if (layout.snapshot().panes.length === 0) {
         // This surface's own empty state: the workspace shows the ledger alone, full
         // width.
-        layout.open({ kind: "timeline", entity: undefined });
+        layout.open({ kind: "timeline" });
       }
 
       // Opened only now, so nothing above reached the store: every commit this block

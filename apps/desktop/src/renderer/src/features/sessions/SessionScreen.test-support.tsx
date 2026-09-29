@@ -213,7 +213,7 @@ export async function saveLayout(
 ): Promise<void> {
   const layout = new PaneLayoutStore({ restoredPaneCap: PANE_LAYOUT_RESTORED_PANE_CAP });
   for (const kind of kinds) {
-    layout.open({ kind, entity: undefined });
+    layout.open({ kind });
   }
   const result = await store.write(
     partition,

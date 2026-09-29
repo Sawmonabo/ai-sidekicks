@@ -48,14 +48,6 @@ export interface PaneLayoutState {
   readonly revision: number;
 }
 
-/** Which pane, over which entity — the address `open` resolves. */
-export interface DeckPaneAddress {
-  readonly kind: PaneKind;
-  readonly entity: EntityRef | undefined;
-  /** Open beside this pane rather than at the end. The `browser` pane's rule. */
-  readonly sourcePaneId?: string;
-}
-
 /**
  * The separator between an address key's fields.
  *
@@ -83,12 +75,9 @@ const ADDRESS_KEY_SEPARATOR = "\u001f";
  * means.
  *
  * Takes the two members the address is made of rather than either named type, so a
- * `SessionPane` and a `DeckPaneAddress` are keyed by the same call.
+ * `SessionPane` and an opened `PaneAddress` are keyed by the same call.
  */
-export function paneAddressKey(address: {
-  readonly kind: PaneKind;
-  readonly entity: EntityRef | undefined;
-}): string {
+export function paneAddressKey(address: Pick<SessionPane, "kind" | "entity">): string {
   const { entity } = address;
   return entity === undefined
     ? `${address.kind}${ADDRESS_KEY_SEPARATOR}`
@@ -102,7 +91,10 @@ export function paneAddressKey(address: {
  * equality rule drift, and the drift is invisible — the deck would go on focusing
  * the right pane while a restore adopted the same one twice.
  */
-export function addressesMatch(pane: SessionPane, address: DeckPaneAddress): boolean {
+export function addressesMatch(
+  pane: SessionPane,
+  address: Pick<SessionPane, "kind" | "entity">,
+): boolean {
   return paneAddressKey(pane) === paneAddressKey(address);
 }
 

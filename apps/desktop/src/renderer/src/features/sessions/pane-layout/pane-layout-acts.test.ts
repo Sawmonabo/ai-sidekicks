@@ -15,9 +15,9 @@ import { NO_FOCUSED_PANE_SENTENCE, paneLayoutActsOn } from "./pane-layout-acts.j
 /** A layout holding a timeline, a runs list, and an approvals pane, in that order. */
 function threePaneLayout(): PaneLayoutStore {
   const layout = new PaneLayoutStore({ restoredPaneCap: PANE_LAYOUT_RESTORED_PANE_CAP });
-  layout.open({ kind: "timeline", entity: undefined });
-  layout.open({ kind: "runs", entity: undefined });
-  layout.open({ kind: "approvals", entity: undefined });
+  layout.open({ kind: "timeline" });
+  layout.open({ kind: "runs" });
+  layout.open({ kind: "approvals" });
   return layout;
 }
 
@@ -58,7 +58,7 @@ describe("focusing the next and previous pane", () => {
 
   it("says a one-pane deck has nowhere to cycle rather than moving in silence", () => {
     const layout = new PaneLayoutStore({ restoredPaneCap: PANE_LAYOUT_RESTORED_PANE_CAP });
-    layout.open({ kind: "timeline", entity: undefined });
+    layout.open({ kind: "timeline" });
     const announce = announcer();
 
     paneLayoutActsOn(layout, announce).focusNextPane();

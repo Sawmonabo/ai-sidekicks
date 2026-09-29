@@ -100,9 +100,9 @@ function renderDeck(layout: PaneLayoutStore, registry: PaneRegistry): HTMLElemen
 /** Three panes side by side — the arrangement the library's ARIA defect shows on. */
 function threePaneDeck(): HTMLElement {
   const layout = emptyLayout();
-  layout.open({ kind: "timeline", entity: undefined });
-  layout.open({ kind: "runs", entity: undefined });
-  layout.open({ kind: "approvals", entity: undefined });
+  layout.open({ kind: "timeline" });
+  layout.open({ kind: "runs" });
+  layout.open({ kind: "approvals" });
   return renderDeck(
     layout,
     registryWith({ kind: "timeline" }, { kind: "runs" }, { kind: "approvals" }),
@@ -138,8 +138,8 @@ describe("the deck's mount door", () => {
 describe("the deck's panes", () => {
   it("mounts one body per open pane, in the layout's order", () => {
     const layout = emptyLayout();
-    layout.open({ kind: "timeline", entity: undefined });
-    layout.open({ kind: "runs", entity: undefined });
+    layout.open({ kind: "timeline" });
+    layout.open({ kind: "runs" });
     const deck = renderDeck(layout, registryWith({ kind: "timeline" }, { kind: "runs" }));
     expect([...deck.querySelectorAll("p")].map((body) => body.textContent)).toStrictEqual([
       "timeline body",
@@ -223,8 +223,8 @@ describe("the deck's panes", () => {
 describe("the deck's keyboard paths", () => {
   it("moves focus with Alt+Arrow and moves the PANE with Alt+Shift+Arrow", () => {
     const layout = emptyLayout();
-    const first = layout.open({ kind: "timeline", entity: undefined });
-    const second = layout.open({ kind: "runs", entity: undefined });
+    const first = layout.open({ kind: "timeline" });
+    const second = layout.open({ kind: "runs" });
     const deck = renderDeck(layout, registryWith({ kind: "timeline" }, { kind: "runs" }));
 
     focus(layout, first);
@@ -238,7 +238,7 @@ describe("the deck's keyboard paths", () => {
 
   it("closes the focused pane with Alt+Backspace", () => {
     const layout = emptyLayout();
-    const only = layout.open({ kind: "timeline", entity: undefined });
+    const only = layout.open({ kind: "timeline" });
     const deck = renderDeck(layout, registryWith({ kind: "timeline" }));
     focus(layout, only);
     press(deck, { key: "Backspace", altKey: true });
@@ -251,8 +251,8 @@ describe("the deck's keyboard paths", () => {
     // or closed the pane it was typed in — and `preventDefault` swallowed the
     // keystroke the person meant.
     const layout = emptyLayout();
-    const first = layout.open({ kind: "timeline", entity: undefined });
-    layout.open({ kind: "runs", entity: undefined });
+    const first = layout.open({ kind: "timeline" });
+    layout.open({ kind: "runs" });
     const deck = renderDeck(layout, registryWith({ kind: "timeline" }, { kind: "runs" }));
     focus(layout, first);
 
@@ -271,8 +271,8 @@ describe("the deck's keyboard paths", () => {
     // Without this, the case above would pass over a deck whose keyboard paths were
     // dead everywhere rather than declining only where a widget owns the keys.
     const layout = emptyLayout();
-    const first = layout.open({ kind: "timeline", entity: undefined });
-    const second = layout.open({ kind: "runs", entity: undefined });
+    const first = layout.open({ kind: "timeline" });
+    const second = layout.open({ kind: "runs" });
     const deck = renderDeck(layout, registryWith({ kind: "timeline" }, { kind: "runs" }));
     focus(layout, first);
 
@@ -286,8 +286,8 @@ describe("the deck's keyboard paths", () => {
     // Without this, the two cases above would pass over a deck that acted on every
     // arrow key — which would make every text field inside a pane unusable.
     const layout = emptyLayout();
-    const first = layout.open({ kind: "timeline", entity: undefined });
-    layout.open({ kind: "runs", entity: undefined });
+    const first = layout.open({ kind: "timeline" });
+    layout.open({ kind: "runs" });
     const deck = renderDeck(layout, registryWith({ kind: "timeline" }, { kind: "runs" }));
     focus(layout, first);
     press(deck, { key: "ArrowRight" });
@@ -347,7 +347,7 @@ describe("Deck — the clock its rect flush runs on", () => {
 
   function renderDeckOn(bridge: PlatformBridge): void {
     const layout = emptyLayout();
-    layout.open({ kind: "timeline", entity: undefined });
+    layout.open({ kind: "timeline" });
     render(
       <PlatformBridgeProvider bridge={bridge}>
         <LiveAnnouncerProvider>
