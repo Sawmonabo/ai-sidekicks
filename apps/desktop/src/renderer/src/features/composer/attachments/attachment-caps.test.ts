@@ -6,6 +6,7 @@
 // the daemon then refuses, spending a person's bytes to earn a refusal the renderer could
 // have explained first — so each is held to its registered source rather than to itself.
 
+import { ATTACHMENT_INGEST_CHUNK_MAX_BYTES } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -53,5 +54,13 @@ describe("attachment caps — against their wire sources", () => {
     // is still time to act. At or above the ceiling it would fire on a stream the
     // daemon has already terminated, which is a disclosure with nothing to disclose.
     expect(INGEST_STALL_DISCLOSURE_MS).toBeLessThan(INGEST_STREAM_LIFETIME_CEILING_MS);
+  });
+});
+
+describe("the ingest chunk against the payload", () => {
+  it("keeps a chunk no larger than the whole payload a stream may carry", () => {
+    // A chunk cap above the payload cap would describe a chunk no admissible stream
+    // could ever fill, and the bounded slice would stop bounding anything.
+    expect(ATTACHMENT_INGEST_CHUNK_MAX_BYTES).toBeLessThanOrEqual(ATTACHMENT_BYTE_CAP_DEFAULT);
   });
 });

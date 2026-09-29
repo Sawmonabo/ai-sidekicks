@@ -26,13 +26,11 @@
 // bridge family where no surface can read them.
 
 import {
-  ProviderAccountIdSchema,
   QueueItemIdSchema,
   RunIdSchema,
   RunStateSchema,
   SessionIdSchema,
   WorkspaceIdSchema,
-  type ProviderAccountId,
   type QueueItemId,
   type RunId,
   type RunState,
@@ -61,19 +59,6 @@ export function readQueueItemId(value: string): QueueItemId | undefined {
 /** The workspace identifier the wire admits, or `undefined` where it admits none. */
 export function readWorkspaceId(value: string): WorkspaceId | undefined {
   const parsed = WorkspaceIdSchema.safeParse(value);
-  return parsed.success ? parsed.data : undefined;
-}
-
-/**
- * The provider-account identifier the wire admits, or `undefined`.
- *
- * Reached from a REFUSAL rather than from a reply, which is the case the four above
- * do not cover: an account-plane refusal carries the account it was about on its own
- * `data.fields`, and the surface that routes that refusal into the provider step has
- * a raw string and a request that takes the brand.
- */
-export function readProviderAccountId(value: string): ProviderAccountId | undefined {
-  const parsed = ProviderAccountIdSchema.safeParse(value);
   return parsed.success ? parsed.data : undefined;
 }
 

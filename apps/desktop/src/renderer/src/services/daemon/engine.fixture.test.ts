@@ -30,6 +30,8 @@
 
 import { describe, expect, it } from "vitest";
 
+import { APPLY_COALESCE_MS } from "@renderer/lib/reads/refresh-caps.js";
+
 import { SCENARIO_TICK_MS, ScenarioEngine } from "./engine.fixture.js";
 import type { ConsoleScenario } from "../../../../../fixtures/scenario.js";
 import { BASE_STATE_CURSOR } from "@renderer/store/session/session-state.js";
@@ -362,5 +364,14 @@ describe("ScenarioEngine — the computed-reply ordinal", () => {
 describe("ScenarioEngine — the tick", () => {
   it("is a whole number of milliseconds, because scripts are expressed in whole ticks", () => {
     expect(Number.isInteger(SCENARIO_TICK_MS)).toBe(true);
+  });
+});
+
+describe("the fixture tick names one frame", () => {
+  it("is longer than the coalescing window", () => {
+    // A tick inside the coalescing window would fold two scenario ticks into one
+    // notification, and the tick would stop naming one exact frame, which the
+    // screenshot target's byte-stability rests on.
+    expect(SCENARIO_TICK_MS).toBeGreaterThan(APPLY_COALESCE_MS);
   });
 });
