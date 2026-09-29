@@ -10,12 +10,12 @@
  *
  * ITS HOME IS THE PARENT DIRECTORY BECAUSE THE PARENT IS WHAT THEY SHARE. A shape
  * spanning three sibling directories cannot live in one of them without making the
- * other two depend on a neighbor's sheet, and `mounts/` carries no barrel — so this
- * enters at `repos/index.ts` exactly as `mounts.css` does.
+ * other two depend on a neighbor's sheet, so `RepoSection.tsx`, the view in this
+ * directory, imports it.
  *
- * IMPORTED FROM `repos/index.ts` AFTER `mounts.css` AND BEFORE THE THREE SUB-SHEETS,
- * so a per-surface rule that overrides one of these — the excluded mode's `cursor`,
- * say — still comes after it. The shared `display` / `gap` / `margin` / `font-size`
+ * IMPORTED BEFORE THE THREE SUB-SHEETS, as `RepoSection.tsx`'s first import, so a
+ * per-surface rule that overrides one of these — the excluded mode's `cursor` — still
+ * comes after it. The shared `display` / `gap` / `margin` / `font-size`
  * declarations sit in selector lists disjoint from the per-surface ones, and no element
  * carries a class from both, so they never compete in one element's cascade.
  *

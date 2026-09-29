@@ -2,17 +2,17 @@
  * Attaching a repository, and re-attaching one whose identity has drifted.
  *
  * The shape these two surfaces share with the bind and execution-root surfaces is in
- * `mounts/mount-acts.css` beside them, which is imported first; what is here is what only
- * these two wear.
+ * `../mount-controls.css`, which is imported first; what is here is what only these two
+ * wear.
  *
  * THE BLOCK IS `meridian-repo-attach` AND NOT `meridian-attach`, because
- * `console/agents/attach/attach.css` declares that block for the agents family's own
- * attach dialog and both sheets load into one document. Two families sharing a BEM block
- * silently restyle each other, last sheet wins — so the agents block keeps the name and
- * this one carries its family in it.
+ * the agents feature's attach sheet declares that block for its own attach dialog and both
+ * sheets load into one document. Two features sharing a BEM block silently restyle each
+ * other, last sheet wins — so the agents block keeps the name and this one carries its
+ * feature in it.
  *
- * IMPORTED FROM `repos/index.ts`, like every sheet this family ships: this directory
- * carries no barrel, so the family door owns its sheet.
+ * Imported by both surfaces it dresses, `AttachRepositoryDialog.tsx` and
+ * `ReattachControl.tsx`.
  */
 
 .meridian-repo-attach__minted,

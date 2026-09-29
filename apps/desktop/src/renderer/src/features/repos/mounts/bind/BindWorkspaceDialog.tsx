@@ -12,6 +12,8 @@
 // mount renders the withheld sentence rather than this trigger. The daemon would refuse
 // such a bind anyway; the point is that the reason is already on screen.
 
+import "./bind.css";
+
 import { Dialog } from "@base-ui/react/dialog";
 import { useCallback, useEffect, useRef, useState } from "react";
 

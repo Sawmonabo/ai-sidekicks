@@ -1,3 +1,5 @@
+import "./mounts.css";
+
 import { Nothing } from "@renderer/console/primitives/index.js";
 import { MountCard } from "./MountCard.js";
 import { type OpenDiffSubject } from "./OpenDiffControl.js";

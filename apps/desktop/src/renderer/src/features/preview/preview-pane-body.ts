@@ -20,12 +20,9 @@
 // package's module-shape rule rules out for a directory reached from outside itself.
 // The family door imports this module by name instead.
 
-// THE PANE'S SHEETS ENTER HERE, at the place the pane enters the graph at all: the door
-// registers one kind as a loader, so nothing on the initial graph renders the pane and
-// the rules that dress it travel with it. `settings/settings.css` dresses the settings
-// page alone, so it enters at that page's chunk root.
-import "./components/PreviewPaneContent.css";
-import "./components/PageTabStrip.css";
+// The address-line button's sheet enters here, at the place the pane enters the graph:
+// the sheet sits at the feature root, beside this chunk root, and the pane's own
+// components import theirs.
 import "./controls.css";
 
 import { paneBodyForKind, type ConsolePaneContext } from "@renderer/console/seats/index.js";

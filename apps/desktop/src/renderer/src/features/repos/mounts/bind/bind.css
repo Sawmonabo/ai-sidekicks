@@ -3,12 +3,11 @@
  * modes this mount cannot offer.
  *
  * The dialog shape this surface shares with the attach and execution-root surfaces is in
- * `mounts/mount-acts.css`, imported ahead of this sheet; what is here is what only the
+ * `../mount-controls.css`, imported ahead of this sheet; what is here is what only the
  * bind surface wears, including the one rule that overrides a shared one (`--out`'s
  * `cursor`), which is why this sheet loads after that one.
  *
- * IMPORTED FROM `repos/index.ts`: this directory carries no barrel, so the family door
- * owns its sheet.
+ * Imported by `BindWorkspaceDialog.tsx`, which renders `BindModePicker.tsx`.
  */
 
 /*

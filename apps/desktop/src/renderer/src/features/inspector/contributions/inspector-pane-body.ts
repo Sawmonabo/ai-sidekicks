@@ -4,18 +4,12 @@
 // control and from an address, so its readers, its sections, and its stylesheet ride
 // behind the boundary rather than on the initial import graph.
 //
-// THE SHEET ENTERS HERE RATHER THAN AT THE DOOR, for the reason
-// `apps/desktop/AGENTS.md` gives: the directory carrying the chunk owns it, and a sheet
-// on the family door is the pane's rules on every session's first document.
-//
 // Named `Body` because `seats/lazy-body/lazy-body.ts` fixes the export name a loader resolves.
 
 import { createElement } from "react";
 
 import { paneBodyForKind, type ConsolePaneContext } from "@renderer/console/seats/index.js";
 import { InspectorPane } from "../InspectorPane.js";
-
-import "../entity-detail/components/EntityRecord.css";
 
 /**
  * The inspector, at an address the deck resolved.

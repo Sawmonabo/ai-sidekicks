@@ -15,6 +15,8 @@
 // an execution mode nobody asked for, which is why the settlement below names the mount
 // rather than offering a mode.
 
+import "./attach.css";
+
 import { Dialog } from "@base-ui/react/dialog";
 import { useCallback, useEffect, useRef, useState } from "react";
 

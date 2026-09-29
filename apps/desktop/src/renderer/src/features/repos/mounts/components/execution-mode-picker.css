@@ -2,16 +2,15 @@
  * The execution-mode picker: every mode a mount admits, and every mode it does not.
  *
  * It is a SIBLING of `mounts.css` rather than a resident of `bind/`, because ownership
- * follows the components: these rules dress `mounts/ExecutionModePicker.tsx` and
- * `mounts/ModeRowView.tsx`, both of which live in this directory.
+ * follows the components: these rules dress `ExecutionModePicker.tsx` and
+ * `ExecutionModeRow.tsx`, both of which live in this directory.
  * `bind/BindModePicker.tsx` is a different picker wearing `meridian-bind__mode*`, which
  * `bind/bind.css` carries — putting these rules there would make that sheet's own "what
  * only the bind surface wears" sentence false and leave two parent-directory components
  * styled out of a child directory.
  *
- * IMPORTED FROM `repos/index.ts` IMMEDIATELY AFTER `mounts.css` AND BEFORE
- * `mount-acts.css`. Nothing turns on that: no selector here appears in any other sheet in
- * the family, so this block shares no element's cascade with a rule it could win or lose
+ * Imported by `ExecutionModePicker.tsx`. No selector here appears in any other sheet in
+ * the feature, so this block shares no element's cascade with a rule it could win or lose
  * against.
  */
 

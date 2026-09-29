@@ -10,6 +10,8 @@
 // WHAT THIS FILE DECIDES IS WHICH OF TWO BODIES THE PANE DRAWS: the change set it was
 // handed, or the absence copy for the subject the address names.
 
+import "./diff.css";
+
 import { Nothing } from "@renderer/console/primitives/index.js";
 import { ConsolePaneChrome, type PaneContextOf } from "@renderer/console/seats/index.js";
 import { DiffChangeSet } from "./DiffChangeSet.js";

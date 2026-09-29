@@ -11,6 +11,8 @@
 // and the body's absence card is the whole reading. This module is the session-scoped
 // surface; one manifest's face, act and disclosure are `ArtifactRow.tsx`.
 
+import "./artifacts.css";
+
 import { useMemo, useState } from "react";
 
 import { GLYPH_SIZE_CHROME } from "@renderer/styles/glyphs.js";

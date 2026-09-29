@@ -1,3 +1,5 @@
+import "./execution-mode-picker.css";
+
 import type {
   ExecutionMode,
   WorkspaceExecutionModeCapabilitiesReadResponse,

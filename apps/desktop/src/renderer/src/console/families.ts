@@ -47,7 +47,7 @@ import { registerPaneHarnessSurface } from "./frame/pane-harness/PaneHarnessSurf
 import { registerRunLifecycleProjectors } from "./frame/run-projection/run-lifecycle-projector.js";
 import { registerLedger } from "./ledger/index.js";
 import { registerConsolePanes } from "./panes/index.js";
-import { registerRepos } from "./repos/index.js";
+import { registerRepos } from "@renderer/features/repos/contributions/inline-cards.js";
 import { Workspace } from "./workspace/index.js";
 import type { ConsoleEntityProjectorRegistry } from "@renderer/registries/entity-projectors/entity-projector-registry.js";
 import type {

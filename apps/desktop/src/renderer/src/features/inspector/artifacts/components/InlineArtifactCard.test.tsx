@@ -12,7 +12,8 @@ import {
   inlineCardSeatRegistry,
   type ArtifactInlineCardProps,
 } from "@renderer/console/seats/index.js";
-import { InlineArtifactCard, registerInlineArtifactCardBody } from "./InlineArtifactCard.js";
+import { registerInspectorInlineCards } from "../../contributions/inline-cards.js";
+import { InlineArtifactCard } from "./InlineArtifactCard.js";
 
 const CARD: ArtifactInlineCardProps = {
   kind: "artifact",
@@ -35,13 +36,13 @@ describe("inline artifact card — the seat", () => {
   /** A board this case owns; the registrar writes only what it is handed. */
   function fill(): InlineCardSeatRegistry {
     const seats = new InlineCardSeatRegistry();
-    registerInlineArtifactCardBody(seats);
+    registerInspectorInlineCards(seats);
     return seats;
   }
 
   it("fills the ledger's artifact card body", () => {
     const seats = fill();
-    expect(seats.bodyFor("artifact")?.owner).toBe("repos");
+    expect(seats.bodyFor("artifact")?.owner).toBe("inspector");
     expect(seats.registeredCardKinds()).toContain("artifact");
   });
 

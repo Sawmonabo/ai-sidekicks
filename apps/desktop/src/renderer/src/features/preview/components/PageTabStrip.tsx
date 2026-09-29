@@ -13,6 +13,8 @@
 // about what it is looking at rather than a shape it can navigate into and find
 // nothing behind.
 
+import "./PageTabStrip.css";
+
 import { useState } from "react";
 
 import { Glyph } from "@renderer/console/primitives/index.js";

@@ -1,14 +1,15 @@
-// The published-artifact card a ledger row carries, and the seat registration that fills it.
+// The published-artifact card a transcript row carries.
 //
 // Diffs, attachments and published artifacts go in the timeline as cards inside the row
 // that produced them, because they belong to that turn.
 //
-// Two families meet at the seat and neither imports the other: the ledger renders the seat
-// and this family owns the body. The registration is called from the repos family's own
-// door rather than at this module's scope, so a hot reload re-runs one module.
+// Two features meet at the seat and neither imports the other: the transcript renders the
+// seat and the inspector owns the body, registered from `contributions/inline-cards.ts`.
 //
 // The seat hands over a `ConsoleEntityRef` and no manifest or bridge, so this body makes no
 // read: it renders the identity it was given, and the manifest row when its caller has one.
+
+import "./inline-artifact-card.css";
 
 import { useId } from "react";
 
@@ -21,14 +22,8 @@ import {
 } from "@renderer/console/primitives/index.js";
 import { type ArtifactManifestRow } from "../artifact-model.js";
 import { ARTIFACT_STATE_PRESENTATION, artifactProducerLabel } from "../artifact-copy.js";
-import type {
-  InlineCardSeatRegistry,
-  ArtifactInlineCardProps,
-} from "@renderer/console/seats/index.js";
+import type { ArtifactInlineCardProps } from "@renderer/console/seats/index.js";
 import { GLYPH_SIZE_ROW } from "@renderer/styles/glyphs.js";
-
-/** Who owns this body, for the seat registry's owner-scoped duplicate policy. */
-const INLINE_ARTIFACT_CARD_OWNER = "repos";
 
 /** What the inline artifact card is given. */
 export interface InlineArtifactCardProps {
@@ -73,12 +68,4 @@ export function InlineArtifactCard(props: InlineArtifactCardProps): React.JSX.El
       )}
     </section>
   );
-}
-
-/** Fill the ledger's `artifact` card seat on the board the family's own door supplies. */
-export function registerInlineArtifactCardBody(seats: InlineCardSeatRegistry): void {
-  seats.register("artifact", {
-    owner: INLINE_ARTIFACT_CARD_OWNER,
-    render: (cardProps) => <InlineArtifactCard card={cardProps} />,
-  });
 }

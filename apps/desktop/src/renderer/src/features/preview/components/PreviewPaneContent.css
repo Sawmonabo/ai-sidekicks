@@ -5,9 +5,8 @@
  * the two hues are spent only on their one meaning each: amber where a person is
  * needed, red where something failed.
  *
- * This sheet enters at `browser-pane-body.ts`, the pane's chunk root, beside
- * `chrome/chrome.css` and `../controls.css`. It carries the pane box and its bands,
- * the chrome bar and its address field.
+ * Imported by `PreviewPaneContent.tsx`. It carries the pane box and its bands, the
+ * chrome bar and its address field.
  */
 
 /* --------------------------------------------------------------- pane shell */

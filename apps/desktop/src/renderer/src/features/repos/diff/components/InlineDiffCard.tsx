@@ -23,9 +23,9 @@
 //   • NO FADE WITH NOWHERE TO GO. The cap always ships with the controls that
 //     leave it, in the same footer, always rendered.
 //
-// TWO FAMILIES MEET AT THE SEAT AND NEITHER IMPORTS THE OTHER. The ledger renders
-// the seat; this family owns the body. The registration below is the whole contact
-// surface.
+// TWO FEATURES MEET AT THE SEAT AND NEITHER IMPORTS THE OTHER. The transcript renders
+// the seat; this feature owns the body. The registration in `contributions/inline-cards.ts`
+// is the whole contact surface.
 //
 // WHAT THE SEAT HANDS OVER, AND THE TWO DENSITIES IT SELECTS BETWEEN.
 // `DiffInlineCardProps` carries a `runId`, the `diffArtifactId` the registered diff
@@ -49,11 +49,13 @@
 // the question, and withholding that half would be the card reporting less than it
 // holds.
 
+import "./diff.css";
+
 import { useId, useRef, useState } from "react";
 
 import { GLYPH_SIZE_ROW } from "@renderer/styles/glyphs.js";
 import { Glyph, Nothing } from "@renderer/console/primitives/index.js";
-import type { InlineCardSeatRegistry, DiffInlineCardProps } from "@renderer/console/seats/index.js";
+import type { DiffInlineCardProps } from "@renderer/console/seats/index.js";
 import { INLINE_DIFF_CARD_HEIGHT_CAP_PX } from "../../diff-caps.js";
 import { DiffChangeSet } from "./DiffChangeSet.js";
 import { DiffRenderer } from "./DiffRenderer.js";
@@ -66,9 +68,6 @@ import { useDiffModelViewState } from "../hooks/useDiffModelViewState.js";
 // including the ones that open no diff at all. A type import is erased, so the shape
 // the compared states travel in has one home and the graph does not move.
 import type { ComparedStates } from "../patch-parse.js";
-
-/** Who owns this body, for the seat registry's owner-scoped duplicate policy. */
-const INLINE_DIFF_CARD_OWNER = "repos";
 
 export interface InlineDiffCardProps {
   readonly card: DiffInlineCardProps;
@@ -185,22 +184,6 @@ export function InlineDiffCard(props: InlineDiffCardProps): React.JSX.Element {
       )}
     </section>
   );
-}
-
-/**
- * Fill the ledger's `diff` card seat.
- *
- * Called from the repos family's own door rather than at this module's scope: a
- * registration that ran on import would fire from whichever module the bundler
- * reached first, and the family barrel is the one place that knows every body it
- * owns — and now the one place holding the board to write it into, which is why the
- * board arrives as an argument rather than being reached for here.
- */
-export function registerInlineDiffCardBody(seats: InlineCardSeatRegistry): void {
-  seats.register("diff", {
-    owner: INLINE_DIFF_CARD_OWNER,
-    render: (cardProps) => <InlineDiffCard card={cardProps} />,
-  });
 }
 
 /**

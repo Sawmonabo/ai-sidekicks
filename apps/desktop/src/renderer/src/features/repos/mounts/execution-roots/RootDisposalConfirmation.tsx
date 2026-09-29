@@ -15,6 +15,8 @@
 // published; `confirmation/confirmation-lifecycle.ts` holds the two moments a discard
 // belongs to, and this file wires them.
 
+import "./execution-roots.css";
+
 import { AlertDialog } from "@base-ui/react/alert-dialog";
 
 import type { ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";

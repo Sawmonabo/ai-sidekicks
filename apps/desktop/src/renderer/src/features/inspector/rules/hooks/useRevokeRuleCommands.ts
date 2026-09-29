@@ -1,11 +1,5 @@
-// Retiring one standing permission, from the palette — through the same two steps.
-//
-// Every operator action is palette-reachable, and the standing-permission list holds
-// one the approvals pane's own contribution does not carry: revoking a remembered
-// grant. That act is deliberately two-step and irreversible from this surface, so what
-// a palette row may do is ENTER the confirmation — the same thing the list's own Revoke
-// button does — and never reach the wire. A row that mutated on one press would be a
-// second, weaker path to an act the surface made deliberately hard.
+// Retiring one standing permission from the palette: the rows stay contributed for as
+// long as the list is mounted, and each one enters the same two-step confirmation.
 //
 // CONTRIBUTED BY THE LIST AND NOT BY THE PANE, for two reasons that point the same
 // way. The arming state is the list's own — which rule is confirming is not a fact
@@ -17,12 +11,15 @@
 
 import { useMemo } from "react";
 
-import { type RememberedRule } from "@renderer/services/approvals/approval-records.js";
 import { useConsoleCommandSeat, type ConsoleCommand } from "@renderer/console/palette/index.js";
 import { useLatestRef } from "@renderer/console/primitives/index.js";
-
-/** The owner these rows are contributed under. One per surface, one live at a time. */
-export const REVOKE_COMMAND_OWNER = "approvals-grants";
+import {
+  REVOKE_COMMAND_OWNER,
+  askToRevokeFromCommand,
+  revokeCommandRows,
+  type RevokeCommandInput,
+  type RevokeCommandRow,
+} from "../contributions/revoke-rule-commands.js";
 
 /** The palette category these sit under, beside the pane's own approval rows. */
 const REVOKE_COMMAND_GROUP = "Approvals";
@@ -35,28 +32,6 @@ const REVOKE_COMMAND_GROUP = "Approvals";
  * was contributed rather than by a clause the frame recomputes per route.
  */
 const REVOKE_COMMAND_WHEN = "sessionActive";
-
-/** One contributed row: which rule, under what title. */
-export interface RevokeCommandRow {
-  readonly ruleId: string;
-  readonly title: string;
-}
-
-/** What the rows act on, read at invoke time rather than captured. */
-export interface RevokeCommandInput {
-  /** The rules the list renders, exactly as it received them. */
-  readonly rules: readonly RememberedRule[];
-  /** Rules whose revocation is already settling. Their control offers no second press. */
-  readonly revokingRuleIds: ReadonlySet<string>;
-  /**
-   * Arm the confirmation for one rule — the list's own first press.
-   *
-   * It is the ARMING and not the mutation: the confirming press is the only handler
-   * that reaches the wire, and it stays on the control where a person can read what
-   * they are about to do.
-   */
-  readonly onAskToRevoke: (ruleId: string) => void;
-}
 
 /** Contribute a row per revocable rule for as long as the list is mounted. */
 export function useRevokeCommands(input: RevokeCommandInput): void {
@@ -78,54 +53,6 @@ export function useRevokeCommands(input: RevokeCommandInput): void {
   );
 
   useConsoleCommandSeat(REVOKE_COMMAND_OWNER, commands);
-}
-
-/**
- * Whether this rule's revoke act is offered right now — on the row and in the palette.
- *
- * One predicate for both surfaces rather than two expressions that agree today. A
- * revoked rule is history and offers nothing, and a rule already settling offers a
- * status rather than a second press; the palette must withdraw its row on exactly
- * those two conditions or it becomes a way to press a button that is not there.
- */
-export function offersRevoke(rule: RememberedRule, revokingRuleIds: ReadonlySet<string>): boolean {
-  return rule.revokedAt === undefined && !revokingRuleIds.has(rule.ruleId);
-}
-
-/**
- * The rows the list offers right now.
- *
- * The rule is named in the title only where more than one is revocable: with one
- * standing permission "Revoke the standing permission" is unambiguous, and with three
- * the id is the only thing that tells them apart. The category and the grantor ride
- * the keywords in both cases, so a person can find a row by typing what the list says
- * rather than by reading an id.
- */
-export function revokeCommandRows(input: RevokeCommandInput): readonly RevokeCommandRow[] {
-  const revocable = input.rules.filter((rule) => offersRevoke(rule, input.revokingRuleIds));
-  const namesTheRule = revocable.length > 1;
-  return revocable.map((rule) => ({
-    ruleId: rule.ruleId,
-    title: namesTheRule
-      ? `Revoke standing permission ${rule.ruleId}`
-      : "Revoke the standing permission",
-  }));
-}
-
-/**
- * Arm one rule's confirmation, if the list is still offering to.
- *
- * Re-read at invoke time rather than trusted from contribution time: a rule the reply
- * no longer carries, one somebody else revoked, and one whose own revocation started
- * in the gap all leave the list offering nothing, and arming a confirmation for a rule
- * with no control on screen would leave a person confirming into empty space.
- */
-export function askToRevokeFromCommand(row: RevokeCommandRow, input: RevokeCommandInput): void {
-  const live = input.rules.find((candidate) => candidate.ruleId === row.ruleId);
-  if (live === undefined || !offersRevoke(live, input.revokingRuleIds)) {
-    return;
-  }
-  input.onAskToRevoke(live.ruleId);
 }
 
 /** One command, reading everything that moves through the ref at invoke time. */

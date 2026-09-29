@@ -2,19 +2,15 @@
  * One execution-root card: a worktree row.
  *
  * It is a SIBLING of `mounts.css` rather than a resident of `roots/`, because ownership
- * follows the components: these rules dress `mounts/WorktreeCard.tsx`, which lives in this
- * directory. `roots/` holds the two ACT surfaces — preparing a root, and retiring one —
- * and `roots/roots.css` says exactly that; a card is what an act produced, not the act.
+ * follows the components: these rules dress `WorktreeCard.tsx`, which lives in this
+ * directory, and `WorktreeCard.tsx` imports it. `execution-roots/` holds the two ACT
+ * surfaces — preparing a root, and retiring one; a card is what an act produced, not the
+ * act.
  *
- * THE SHAPES THESE CARDS SHARE WITH THE ARTIFACT ROWS STAY IN `repos/repos.css`, which
- * is imported ahead of this sheet: `__pair`, `__detail-summary`, and the focus ring are
- * declared there against both block names at once, because a shape two families wear
- * belongs to the family sheet. What is here is what only a root card wears.
- *
- * IMPORTED FROM `repos/index.ts` IMMEDIATELY AFTER `mounts.css` AND BEFORE
- * `mount-acts.css`. No selector here appears in any other sheet in this directory, so the
- * only sheet whose position relative to this one matters is `repos.css`, which loads
- * before it.
+ * THE SHAPES THESE CARDS SHARE WITH THE ARTIFACT ROWS STAY IN `repos/repos.css`:
+ * `__pair` and `__detail-summary` are declared there against both block names at once.
+ * What is here is what only a root card wears, and no selector here appears in any other
+ * sheet, so the order the two load in decides nothing.
  */
 
 /*

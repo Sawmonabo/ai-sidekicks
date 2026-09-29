@@ -14,6 +14,8 @@
 // One act sequence keeps the refusal banner correct: an older act never overwrites a
 // newer one's answer, so the banner shows what the person last did.
 
+import "./PreviewPaneContent.css";
+
 import { useCallback, useId } from "react";
 
 import type { AttachedPaneViewHost } from "../geometry/view-host.js";

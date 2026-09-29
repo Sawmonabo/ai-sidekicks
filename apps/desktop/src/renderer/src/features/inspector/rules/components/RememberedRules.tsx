@@ -44,7 +44,8 @@ import {
   rememberedScopeKindPhrase,
 } from "@renderer/console/bridge/approvals/approval-vocabulary.js";
 import { RevokeControl } from "./RevokeRuleControl.js";
-import { offersRevoke, useRevokeCommands } from "../hooks/useRevokeRuleCommands.js";
+import { offersRevoke } from "../contributions/revoke-rule-commands.js";
+import { useRevokeCommands } from "../hooks/useRevokeRuleCommands.js";
 
 export interface RememberedGrantsProps {
   readonly rules: readonly RememberedRule[];

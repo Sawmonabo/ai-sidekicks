@@ -5,9 +5,8 @@
  * the two hues are spent only on their one meaning each: amber where a person is
  * needed, red where something failed.
  *
- * Every root here is drawn by a component in this directory: `.meridian-browser-tabs*`
- * and `.meridian-browser-tab*` by `TabStrip.tsx` and `tab-reorder.ts`. It enters at
- * `../browser-pane-body.ts`.
+ * `.meridian-browser-tabs*` and `.meridian-browser-tab*` are drawn by `PageTabStrip.tsx`,
+ * which imports this sheet, and `../tab-reorder.ts`.
  */
 
 /* --------------------------------------------------------------- tab strip */

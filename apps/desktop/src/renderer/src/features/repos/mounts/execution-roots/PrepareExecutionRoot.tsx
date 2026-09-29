@@ -38,6 +38,8 @@
 // sentence says what is holding it, because a control that vanished would report a
 // capability this workspace does not have rather than one that is momentarily closed.
 
+import "./execution-roots.css";
+
 import { useCallback } from "react";
 
 import type { ExecutionMode } from "@ai-sidekicks/contracts";

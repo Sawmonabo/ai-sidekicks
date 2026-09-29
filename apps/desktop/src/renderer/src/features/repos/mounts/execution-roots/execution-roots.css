@@ -2,12 +2,12 @@
  * Preparing an execution root, and retiring one.
  *
  * The trigger, dialog and field shape these two surfaces share with the attach and bind
- * surfaces is in `mounts/mount-acts.css`, imported ahead of this sheet; what is here is
+ * surfaces is in `../mount-controls.css`, imported ahead of this sheet; what is here is
  * what only a root's own surfaces wear — the reuse verdict's two toned readings and the
  * settled line a retirement leaves behind.
  *
- * IMPORTED FROM `repos/index.ts`: this directory carries no barrel, so the family door
- * owns its sheet.
+ * Imported by both surfaces it dresses, `PrepareExecutionRoot.tsx` and
+ * `RootDisposalConfirmation.tsx`.
  */
 
 .meridian-prepare-root {

@@ -29,6 +29,8 @@
 // `confirmation/confirmation-lifecycle.ts` holds the two moments a discard belongs to,
 // and both of this family's alert dialogs wire it rather than each stating the rule.
 
+import "./attach.css";
+
 import { AlertDialog } from "@base-ui/react/alert-dialog";
 import { useCallback, useEffect, useRef } from "react";
 

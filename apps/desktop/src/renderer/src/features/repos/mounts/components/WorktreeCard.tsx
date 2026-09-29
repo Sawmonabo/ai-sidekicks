@@ -32,6 +32,8 @@
 //   • No branch switch. The daemon never checks out, creates, or switches a branch
 //     inside a bound checkout; a mismatch is a typed refusal with no action on it.
 
+import "./execution-root-cards.css";
+
 import { useId } from "react";
 
 import {
