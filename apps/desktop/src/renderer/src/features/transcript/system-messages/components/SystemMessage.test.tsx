@@ -154,6 +154,25 @@ describe("the seam row — the loss clause", () => {
     // newest kind of loss.
     expect(line.textContent).toContain("a_loss_this_build_never_heard_of");
   });
+
+  it("negative control: a switch that declares no loss draws no clause", () => {
+    // An empty list is the switch's claim that nothing was lost; a notice for it would
+    // be a sentence this component invented.
+    const line = renderSeam(
+      seamOf(
+        runRow({
+          id: "si",
+          sequence: 8,
+          type: "agent.provider_switched",
+          runId: "run-a",
+          position: 8,
+          payload: { continuity: "in_place", declaredLosses: [] },
+        }),
+      ),
+    );
+    expect(line.textContent).toContain("in_place");
+    expect(line.querySelector(".meridian-system-message__losses")).toBeNull();
+  });
 });
 
 describe("the seam row — a kind the wire does not register says so", () => {
