@@ -4,7 +4,10 @@
 //   * `create()` returns a session id; `read()` against the same id returns the
 //     same session.
 //   * `subscribe()` yields events in ascending sequence and resumes strictly
-//     after a consumer-held `afterCursor` on reconnect.
+//     after a consumer-held `afterCursor` on reconnect. The daemon sends them
+//     in frames; a frame marking that changes were dropped for this connection
+//     ends the iteration with `SessionStreamDroppedError`, and resubscribing
+//     after its `lastCursor` fills the gap from the daemon's record.
 //   * A reconnect restores from the daemon's authoritative projection:
 //     `subscribe()` issues a fresh wire request on every call and the client
 //     holds no event cache, so it never shadows the server's state.
@@ -20,6 +23,7 @@ import type {
   SessionId,
   SessionReadRequest,
   SessionReadResponse,
+  SessionStreamFrame,
 } from "@ai-sidekicks/contracts";
 import {
   SessionCreateRequestSchema,
@@ -27,6 +31,7 @@ import {
   SessionEventSchema,
   SessionReadRequestSchema,
   SessionReadResponseSchema,
+  SessionStreamFrameSchema,
 } from "@ai-sidekicks/contracts";
 
 import type { JsonRpcClient } from "./transport/json-rpc-client.js";
@@ -39,6 +44,26 @@ export interface SessionEventEnvelope {
   readonly eventId: EventCursor;
   readonly event: SessionEvent;
 }
+
+/**
+ * Ends a session subscription whose connection fell behind: the daemon dropped
+ * changes for it rather than wait. `lastCursor` is the cursor of the last event
+ * this subscription delivered (or the one it started after), so subscribing
+ * again with it as `afterCursor` replays exactly the missing events and on.
+ */
+export class SessionStreamDroppedError extends Error {
+  readonly lastCursor: EventCursor | undefined;
+
+  constructor(lastCursor: EventCursor | undefined) {
+    super(
+      "The daemon dropped session changes for this subscription; resubscribe after lastCursor.",
+    );
+    this.name = "SessionStreamDroppedError";
+    this.lastCursor = lastCursor;
+  }
+}
+
+const SESSION_STREAM_FRAME_SCHEMA = SessionStreamFrameSchema(SessionEventSchema);
 
 /**
  * Subscribe options. Without `afterCursor` the daemon replays from the start of
@@ -97,9 +122,9 @@ export function createDaemonSessionClient(client: JsonRpcClient): SessionClient 
 
 /**
  * Daemon-side subscribe — wraps `JsonRpcClient.subscribe` and adapts its
- * `LocalSubscriptionConsumer<SessionEvent>` consumer handle into an
- * `AsyncIterable<SessionEventEnvelope>`. The async generator owns
- * cursor synthesis from `event.id` and signal-driven cancel (so
+ * `LocalSubscriptionConsumer` of session stream frames into an
+ * `AsyncIterable<SessionEventEnvelope>`. The async generator unpacks each
+ * frame into its changes, ends on a drop mark, and owns signal-driven cancel (so
  * `for await ... break` releases the daemon's `StreamingPrimitive` entry
  * via `LocalSubscriptionConsumer.cancel()`).
  */
@@ -125,10 +150,10 @@ async function* daemonSubscribe(
     ...(options.afterCursor !== undefined ? { afterCursor: options.afterCursor } : {}),
   };
 
-  const subscription = client.subscribe<SessionEvent>(
+  const subscription = client.subscribe<SessionStreamFrame<SessionEvent>>(
     SESSION_METHOD_SUBSCRIBE,
     params,
-    SessionEventSchema,
+    SESSION_STREAM_FRAME_SCHEMA,
   );
 
   // Wire the caller's AbortSignal through to the subscription's cancel.
@@ -162,11 +187,17 @@ async function* daemonSubscribe(
   }
 
   try {
-    for await (const event of subscription) {
-      // Synthesize the cursor from the event's authoritative id. UUIDs
-      // satisfy `EventCursorSchema.min(1).max(256)`; we cast through the
-      // brand because the bare `event.id: string` does not carry it.
-      yield { eventId: event.id as EventCursor, event };
+    let lastCursor = options.afterCursor;
+    for await (const frame of subscription) {
+      // The drop mark rides the first frame after the gap, so it is raised
+      // before that frame's changes: yielding them would hide the hole.
+      if (frame.dropped === true) {
+        throw new SessionStreamDroppedError(lastCursor);
+      }
+      for (const change of frame.changes) {
+        lastCursor = change.cursor;
+        yield { eventId: change.cursor, event: change.event };
+      }
     }
   } finally {
     if (abortListener !== undefined && options.signal !== undefined) {

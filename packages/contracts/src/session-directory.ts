@@ -1,0 +1,434 @@
+// The session directory as a client reads and moves it: the live sessions list and its
+// entries, what a new session starts from (where it works and who leads it), converting a
+// chat to a project (its shapes in `session-convert.ts`), forking a session, moving its working folder, and the `session.*` method
+// table for these verbs and for `session.subscribe`.
+//
+// These shapes name repositories, worktrees, providers, agent definitions and the session
+// event union. Every one of those contracts imports `session.ts` at load, so the shapes that
+// need them live here, above all of them, and `session.ts` keeps only what they build on.
+import { z } from "zod";
+
+import {
+  AgentDefinitionIdSchema,
+  AgentProviderBindingSchema,
+  AgentResolvedConfigurationSchema,
+  type AgentDefinitionId,
+  type AgentProviderBinding,
+  type AgentResolvedConfiguration,
+} from "./agent-definition.js";
+import { SessionEventSchema, type SessionEvent } from "./event.js";
+import { SubscriptionIdSchema, type SubscribeAckResponse } from "./jsonrpc-streaming.js";
+import {
+  defineMethodDescriptors,
+  type MethodDescriptor,
+  type SubscriptionMethodDescriptor,
+} from "./method-descriptor.js";
+import {
+  ExecutionModeSchema,
+  RepoMountIdSchema,
+  type ExecutionMode,
+  type RepoMountId,
+} from "./repo.js";
+import {
+  SessionConvertRequestSchema,
+  SessionConvertResponseSchema,
+  type SessionConvertRequest,
+  type SessionConvertResponse,
+} from "./session-convert.js";
+import {
+  EventCursorSchema,
+  SESSION_NAME_MAX_LEN,
+  SessionIdSchema,
+  SessionShapeSchema,
+  SessionStateSchema,
+  SessionStreamFrameSchema,
+  SessionSubscribeRequestSchema,
+  SessionSubscribeResponseSchema,
+  wireFreeFormString,
+  type EventCursor,
+  type SessionId,
+  type SessionShape,
+  type SessionState,
+  type SessionStreamFrame,
+  type SessionSubscribeRequest,
+  type SessionSubscribeResponse,
+} from "./session.js";
+import { WORKTREE_GIT_REF_MAX_LEN, WorktreeIdSchema, type WorktreeId } from "./worktree.js";
+
+// --------------------------------------------------------------------------
+// The sessions list
+// --------------------------------------------------------------------------
+
+/**
+ * What a session is doing, as the daemon derives it: exactly one of five, and no surface
+ * invents a sixth. `waiting` is waiting on the person; `failed` is a session that died, kept
+ * apart from one that finished (`done`).
+ */
+export type SessionActivity = "running" | "waiting" | "done" | "failed" | "idle";
+export const SessionActivitySchema: z.ZodType<SessionActivity> = z.enum([
+  "running",
+  "waiting",
+  "done",
+  "failed",
+  "idle",
+]);
+
+/**
+ * The line a session's row shows in place of its branch or document count while it trades
+ * messages with another session: the other session and how many messages the two have traded
+ * since the person last wrote in either.
+ */
+export interface SessionExchange {
+  peerSessionId: SessionId;
+  peerName: string;
+  messageCount: number;
+}
+const SessionExchangeSchema: z.ZodType<SessionExchange> = z
+  .object({
+    peerSessionId: SessionIdSchema,
+    peerName: wireFreeFormString(SESSION_NAME_MAX_LEN, "SessionExchange.peerName"),
+    messageCount: z.number().int().positive(),
+  })
+  .strict();
+
+/** What a list entry carries for its shape: a project's key and branch, or a chat's documents. */
+export type SessionListEntryPlace =
+  | { shape: "project"; repoMountId: RepoMountId; branch?: string | undefined }
+  | { shape: "chat"; documentCount: number };
+
+/**
+ * One row of the sessions list, everything the row draws from one feed so the list opens no
+ * stream per session.
+ *
+ * - `name` is absent while the session is untitled; the row then shows `firstMessagePreview`,
+ *   itself absent before the first message.
+ * - A project entry names its project and, once known, the branch the daemon holds for the
+ *   session, so the row costs no git read; a chat entry counts its documents.
+ * - `pinnedAt` is present exactly while the session is pinned; pinned rows sit in the order
+ *   they were pinned.
+ * - `state` puts archived and closed sessions in the `Archived` group; `activity` is the row's
+ *   state word.
+ * - `lastActivityAt` is the age the row shows.
+ */
+export type SessionListEntry = SessionListEntryPlace & {
+  sessionId: SessionId;
+  name?: string | undefined;
+  firstMessagePreview?: string | undefined;
+  state: SessionState;
+  activity: SessionActivity;
+  pinnedAt?: string | undefined;
+  muted: boolean;
+  exchange?: SessionExchange | undefined;
+  lastActivityAt: string;
+};
+const sessionListEntryCommonFields = {
+  sessionId: SessionIdSchema,
+  name: wireFreeFormString(SESSION_NAME_MAX_LEN, "SessionListEntry.name").optional(),
+  firstMessagePreview: wireFreeFormString(
+    SESSION_NAME_MAX_LEN,
+    "SessionListEntry.firstMessagePreview",
+  ).optional(),
+  state: SessionStateSchema,
+  activity: SessionActivitySchema,
+  pinnedAt: z.iso.datetime({ offset: true }).optional(),
+  muted: z.boolean(),
+  exchange: SessionExchangeSchema.optional(),
+  lastActivityAt: z.iso.datetime({ offset: true }),
+};
+export const SessionListEntrySchema: z.ZodType<SessionListEntry> = z.discriminatedUnion("shape", [
+  z
+    .object({
+      ...sessionListEntryCommonFields,
+      shape: z.literal("project"),
+      repoMountId: RepoMountIdSchema,
+      branch: wireFreeFormString(WORKTREE_GIT_REF_MAX_LEN, "SessionListEntry.branch").optional(),
+    })
+    .strict(),
+  z
+    .object({
+      ...sessionListEntryCommonFields,
+      shape: z.literal("chat"),
+      documentCount: z.number().int().nonnegative(),
+    })
+    .strict(),
+]);
+
+/** `session.list` takes no members: the list is every session on this machine. */
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
+export interface SessionListRequest {}
+export const SessionListRequestSchema: z.ZodType<SessionListRequest, SessionListRequest> = z
+  .object({})
+  .strict();
+
+/** `session.list`'s acknowledgment: the subscription and every session as it stands. */
+export interface SessionListAck extends SubscribeAckResponse {
+  readonly sessions: SessionListEntry[];
+}
+export const SessionListAckSchema: z.ZodType<SessionListAck> = z
+  .object({ subscriptionId: SubscriptionIdSchema, sessions: z.array(SessionListEntrySchema) })
+  .strict();
+
+/**
+ * One change to the list after the acknowledgment: an entry as it now stands, or a session
+ * that has left the list, which only a purge does.
+ */
+export type SessionListChange =
+  | { kind: "upsert"; entry: SessionListEntry }
+  | { kind: "remove"; sessionId: SessionId };
+export const SessionListChangeSchema: z.ZodType<SessionListChange> = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("upsert"), entry: SessionListEntrySchema }).strict(),
+  z.object({ kind: z.literal("remove"), sessionId: SessionIdSchema }).strict(),
+]);
+
+// --------------------------------------------------------------------------
+// What a new session starts from
+// --------------------------------------------------------------------------
+
+/**
+ * Where a new session works. A chat works in a managed workspace the daemon makes for it in the
+ * same step. A project session binds to the project's mount in the same step, working in a
+ * worktree of its own (`provisioned-worktree`) or in the project's checkout (`bound-root`).
+ */
+export type SessionBinding =
+  | { kind: "chat" }
+  | { kind: "project"; repoMountId: RepoMountId; executionMode: ExecutionMode };
+export const SessionBindingSchema: z.ZodType<SessionBinding, SessionBinding> = z.discriminatedUnion(
+  "kind",
+  [
+    z.object({ kind: z.literal("chat") }).strict(),
+    z
+      .object({
+        kind: z.literal("project"),
+        repoMountId: RepoMountIdSchema,
+        executionMode: ExecutionModeSchema,
+      })
+      .strict(),
+  ],
+) as unknown as z.ZodType<SessionBinding, SessionBinding>;
+
+/**
+ * What `session.create` takes once its callers move to it, replacing today's untyped
+ * `config` and `metadata`: where the session works and who leads it.
+ *
+ * - `lead` is the lead's provider, model, account and effort, as the app chose them.
+ * - `leadDefinitionId` names a saved definition the lead runs under; with `lead` beside it,
+ *   `lead` is the binding the definition runs on.
+ * - At least one of the two is present: a session is born with its lead.
+ * - `scratch` asks for the definition's scratch session, which the daemon reuses while one is
+ *   open, so it needs `leadDefinitionId` and a chat binding: a scratch session has no repo.
+ */
+export interface SessionStartRequest {
+  clientIdempotencyKey: string;
+  binding: SessionBinding;
+  lead?: AgentProviderBinding | undefined;
+  leadDefinitionId?: AgentDefinitionId | undefined;
+  scratch?: true | undefined;
+}
+export const SessionStartRequestSchema: z.ZodType<SessionStartRequest, SessionStartRequest> = z
+  .object({
+    clientIdempotencyKey: z.uuid(),
+    binding: SessionBindingSchema,
+    lead: AgentProviderBindingSchema.optional(),
+    leadDefinitionId: AgentDefinitionIdSchema.optional(),
+    scratch: z.literal(true).optional(),
+  })
+  .strict()
+  .superRefine((request, context) => {
+    if (request.lead === undefined && request.leadDefinitionId === undefined) {
+      context.addIssue({
+        code: "custom",
+        path: ["lead"],
+        message: "A session starts with its lead: name a binding, a definition, or both.",
+      });
+    }
+    if (request.scratch === true) {
+      if (request.leadDefinitionId === undefined) {
+        context.addIssue({
+          code: "custom",
+          path: ["leadDefinitionId"],
+          message: "A scratch session is led by the definition under test.",
+        });
+      }
+      if (request.binding.kind !== "chat") {
+        context.addIssue({
+          code: "custom",
+          path: ["binding"],
+          message: "A scratch session has no repo.",
+        });
+      }
+    }
+  }) as unknown as z.ZodType<SessionStartRequest, SessionStartRequest>;
+
+/**
+ * What `session.create` answers once its callers move to it. `resolvedConfiguration` is present
+ * exactly when the request named a definition: what the lead was started with, so the caller
+ * shows what it got rather than re-reading the definition.
+ */
+export interface SessionStartResponse {
+  sessionId: SessionId;
+  shape: SessionShape;
+  state: SessionState;
+  resolvedConfiguration?: AgentResolvedConfiguration | undefined;
+}
+export const SessionStartResponseSchema: z.ZodType<SessionStartResponse> = z
+  .object({
+    sessionId: SessionIdSchema,
+    shape: SessionShapeSchema,
+    state: SessionStateSchema,
+    resolvedConfiguration: AgentResolvedConfigurationSchema.optional(),
+  })
+  .strict();
+
+// --------------------------------------------------------------------------
+// session.fork
+// --------------------------------------------------------------------------
+
+/**
+ * Fork a session from a message: a new session of the same shape carrying every row up to and
+ * including `anchorCursor`. Absent `name` leaves the fork untitled.
+ */
+export interface SessionForkRequest {
+  sessionId: SessionId;
+  anchorCursor: EventCursor;
+  name?: string | undefined;
+  clientIdempotencyKey: string;
+}
+export const SessionForkRequestSchema: z.ZodType<SessionForkRequest, SessionForkRequest> = z
+  .object({
+    sessionId: SessionIdSchema,
+    anchorCursor: EventCursorSchema,
+    name: wireFreeFormString(SESSION_NAME_MAX_LEN, "SessionForkRequest.name").optional(),
+    clientIdempotencyKey: z.uuid(),
+  })
+  .strict();
+
+/**
+ * The fork. A project fork lands on a new worktree cut from the parent's current one, named in
+ * `worktreeId`; a chat fork gets its own managed workspace and has no worktree.
+ */
+export type SessionForkResponse =
+  | { sessionId: SessionId; shape: "project"; worktreeId: WorktreeId }
+  | { sessionId: SessionId; shape: "chat" };
+export const SessionForkResponseSchema: z.ZodType<SessionForkResponse> = z.discriminatedUnion(
+  "shape",
+  [
+    z
+      .object({
+        sessionId: SessionIdSchema,
+        shape: z.literal("project"),
+        worktreeId: WorktreeIdSchema,
+      })
+      .strict(),
+    z.object({ sessionId: SessionIdSchema, shape: z.literal("chat") }).strict(),
+  ],
+);
+
+// --------------------------------------------------------------------------
+// session.setWorkingFolder
+// --------------------------------------------------------------------------
+
+/**
+ * Move a project session's working folder to another of its project's worktrees, or with
+ * `null` to the project's checkout. Asking for the folder the session is already in cancels a
+ * pending move, and a later request replaces a pending one.
+ */
+export interface SessionSetWorkingFolderRequest {
+  sessionId: SessionId;
+  worktreeId: WorktreeId | null;
+}
+export const SessionSetWorkingFolderRequestSchema: z.ZodType<
+  SessionSetWorkingFolderRequest,
+  SessionSetWorkingFolderRequest
+> = z.object({ sessionId: SessionIdSchema, worktreeId: WorktreeIdSchema.nullable() }).strict();
+
+/**
+ * `applied` when the session moved now, or the request cleared a pending move; `pending` when a
+ * run was live and the move waits on the session row for the run to end.
+ */
+export interface SessionSetWorkingFolderResponse {
+  sessionId: SessionId;
+  disposition: "applied" | "pending";
+  worktreeId: WorktreeId | null;
+}
+export const SessionSetWorkingFolderResponseSchema: z.ZodType<SessionSetWorkingFolderResponse> = z
+  .object({
+    sessionId: SessionIdSchema,
+    disposition: z.enum(["applied", "pending"]),
+    worktreeId: WorktreeIdSchema.nullable(),
+  })
+  .strict();
+
+// --------------------------------------------------------------------------
+// The session directory's method table
+// --------------------------------------------------------------------------
+
+export interface SessionDirectoryMethodDescriptors {
+  readonly "session.list": SubscriptionMethodDescriptor<
+    "session.list",
+    SessionListRequest,
+    SessionListAck,
+    SessionListChange
+  >;
+  readonly "session.subscribe": SubscriptionMethodDescriptor<
+    "session.subscribe",
+    SessionSubscribeRequest,
+    SessionSubscribeResponse,
+    SessionStreamFrame<SessionEvent>
+  >;
+  readonly "session.convert": MethodDescriptor<
+    "session.convert",
+    SessionConvertRequest,
+    SessionConvertResponse
+  >;
+  readonly "session.fork": MethodDescriptor<
+    "session.fork",
+    SessionForkRequest,
+    SessionForkResponse
+  >;
+  readonly "session.setWorkingFolder": MethodDescriptor<
+    "session.setWorkingFolder",
+    SessionSetWorkingFolderRequest,
+    SessionSetWorkingFolderResponse
+  >;
+}
+
+export const SESSION_DIRECTORY_METHOD_DESCRIPTORS: SessionDirectoryMethodDescriptors =
+  defineMethodDescriptors({
+    "session.list": {
+      method: "session.list",
+      procedureType: "subscription",
+      mutating: false,
+      requestSchema: SessionListRequestSchema,
+      responseSchema: SessionListAckSchema,
+      emissionSchema: SessionListChangeSchema,
+    },
+    "session.subscribe": {
+      method: "session.subscribe",
+      procedureType: "subscription",
+      mutating: false,
+      requestSchema: SessionSubscribeRequestSchema,
+      responseSchema: SessionSubscribeResponseSchema,
+      emissionSchema: SessionStreamFrameSchema(SessionEventSchema),
+    },
+    "session.convert": {
+      method: "session.convert",
+      procedureType: "mutation",
+      mutating: true,
+      requestSchema: SessionConvertRequestSchema,
+      responseSchema: SessionConvertResponseSchema,
+    },
+    "session.fork": {
+      method: "session.fork",
+      procedureType: "mutation",
+      mutating: true,
+      requestSchema: SessionForkRequestSchema,
+      responseSchema: SessionForkResponseSchema,
+    },
+    "session.setWorkingFolder": {
+      method: "session.setWorkingFolder",
+      procedureType: "mutation",
+      mutating: true,
+      requestSchema: SessionSetWorkingFolderRequestSchema,
+      responseSchema: SessionSetWorkingFolderResponseSchema,
+    },
+  });
