@@ -17,13 +17,16 @@
  * mount point keeps its size and its boundary while the chunk is still in flight.
  */
 
+/* The clip keeps the emulator inside its boundary; the margin lets the browser's focus
+   mark on anything inside paint past that edge without moving the layout. */
 .meridian-terminal-mount-point {
   flex: 1 1 auto;
   min-block-size: 0;
   border: 1px solid var(--meridian-edge);
   border-radius: var(--meridian-radius-sm);
   background: var(--meridian-surface-sunken);
-  overflow: hidden;
+  overflow: clip;
+  overflow-clip-margin: var(--meridian-space-1);
 }
 
 /* Typing focus sits in the emulator's input, which the emulator keeps off-screen, so the
