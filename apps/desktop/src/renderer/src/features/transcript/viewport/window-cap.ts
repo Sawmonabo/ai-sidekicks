@@ -36,8 +36,8 @@
 //     about to drop and reads nothing back.
 //
 // The window is a ceiling for a mechanical reason as well as a memory one:
-// `MAX_ELEMENT_HEIGHT_PX` is where a browser stops being able to place a
-// virtual list's total-size spacer, and an uncapped log reaches it.
+// Chromium places no element taller than 33,554,431 px, so an uncapped log's
+// total-size spacer would stop growing and strand the rows below it.
 
 import { RetainedRowStateTable, type RetainedRowState } from "./retained-row-state-table.js";
 

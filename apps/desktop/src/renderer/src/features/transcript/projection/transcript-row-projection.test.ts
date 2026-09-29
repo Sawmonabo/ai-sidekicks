@@ -117,17 +117,16 @@ describe("the fixture shell's row projection", () => {
     expect(boundary?.kind === "rollback_boundary" ? boundary.position : undefined).toBe(0);
   });
 
-  it("drops and counts an event the registered census carries no category for", () => {
+  it("draws nothing for an event the registered census carries no category for", () => {
     const projection = projectFixtureShellRows([
       runEvent(1, RUN_ONE),
       event({ sequence: 2, kind: "run.definitely_not_registered" }),
     ]);
 
     expect(projection.rows).toHaveLength(1);
-    expect(projection.unprojectableEventCount).toBe(1);
   });
 
-  it("drops and counts a rollback whose payload the contract refuses", () => {
+  it("draws nothing for a rollback whose payload the contract refuses", () => {
     const projection = projectFixtureShellRows([
       event({
         sequence: 1,
@@ -138,7 +137,6 @@ describe("the fixture shell's row projection", () => {
     ]);
 
     expect(projection.rows).toStrictEqual([]);
-    expect(projection.unprojectableEventCount).toBe(1);
   });
 
   it("keys rows by the event's own canonical id, wire-verbatim", () => {
@@ -172,8 +170,8 @@ describe("the fixture shell's row projection", () => {
     expect(projection.rows[0]?.summary).toBe(projection.rows[0]?.type);
   });
 
-  it("projects an empty log into no rows and no drops", () => {
-    expect(projectFixtureShellRows([])).toStrictEqual({ rows: [], unprojectableEventCount: 0 });
+  it("projects an empty log into no rows", () => {
+    expect(projectFixtureShellRows([])).toStrictEqual({ rows: [] });
   });
 });
 
@@ -304,7 +302,6 @@ describe("which payload member names a row's run", () => {
       "rollback_boundary",
       "run",
     ]);
-    expect(projection.unprojectableEventCount).toBe(0);
   });
 
   it("attributes a child run to itself and never to the parent it names", () => {

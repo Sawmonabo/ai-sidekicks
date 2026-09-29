@@ -1,16 +1,10 @@
 // The window's own account of what it is not showing.
 //
-// The model beside it (`window-notices.ts`) owns the four kinds and their sentences;
-// this owns nothing but the mount. There is no box, no wrapper and no class of its
-// own: each absence renders as the rule 8 absence its kind names, through the one
-// primitive that draws them, and the absences stack in the order the caller derived
-// them. A wrapper would have been a shape with no behaviour, and a live region on it
-// would have been the second speaker `LiveAnnouncerProvider` forbids — these are
-// settled facts about a window, not a read landing under somebody's eyes.
-//
-// `placement="surface"` on all four: each absence stands in for rows that are not
-// there, which is the block form. The inline badge carries its second line as a
-// tooltip only, and every sentence here has one that matters.
+// The model beside it (`window-notices.ts`) owns the kinds and their words; this owns
+// the mount. Each notice renders as the `Nothing` its kind names, in block form because
+// it stands in for rows that are not there, and they stack in the caller's order. No
+// wrapper and no live region: the console has one announcer, and these are settled
+// facts about a window rather than a read landing under somebody's eyes.
 
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import { windowAbsenceNotices, type WindowAbsence } from "../../window-notices.js";
@@ -43,7 +37,7 @@ export function WindowAbsences(props: WindowAbsencesProps): React.JSX.Element | 
           kind={notice.kind}
           placement="surface"
           title={notice.title}
-          detail={notice.detail}
+          {...(notice.detail === undefined ? {} : { detail: notice.detail })}
         />
       ))}
     </>

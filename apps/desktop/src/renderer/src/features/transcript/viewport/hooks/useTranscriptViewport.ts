@@ -31,8 +31,6 @@ import { type ViewportConditions, type ViewportSnapshot } from "../viewport-snap
 export interface TranscriptViewportBinding {
   readonly snapshot: ViewportSnapshot;
   readonly virtualItems: readonly VirtualItem[];
-  /** Rows this window holds and cannot draw, because it ran out of height. */
-  readonly rowsPastElementCeiling: number;
   readonly attachSurface: (element: HTMLElement | null) => void;
   /** The size container the virtualizer writes the total height onto. */
   readonly attachSizer: (element: HTMLElement | null) => void;
@@ -251,15 +249,10 @@ export function useTranscriptViewport(
   const [leaseRevision, setLeaseRevision] = useState(0);
 
   const virtualItems = virtualizer.getVirtualItems();
-  const rowsPastElementCeiling = controller.measurements.rowsPastElementCeiling(
-    snapshot.keyProjection.virtualKeys,
-    virtualizer.getTotalSize(),
-  );
 
   return {
     snapshot,
     virtualItems,
-    rowsPastElementCeiling,
     attachSurface: useCallback(
       (element: HTMLElement | null) => {
         surfaceElementRef.current = element;

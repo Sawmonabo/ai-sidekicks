@@ -28,12 +28,8 @@
 //     element slot, so the second silently displaces the first. Projecting a
 //     distinct virtual key per row keeps every row in the window and counts the
 //     defect, which is degrading rather than discarding.
-//
-// Chromium caps an element's height at `MAX_ELEMENT_HEIGHT_PX`; past it a
-// virtual list's size container stops growing and every row below is unreachable.
-// The ledger reports that rather than leaving it a mystery in the scrollbar.
 
-import { MAX_ELEMENT_HEIGHT_PX, LEDGER_WINDOW_ROW_CAP } from "../frame/frame-caps.js";
+import { LEDGER_WINDOW_ROW_CAP } from "../frame/frame-caps.js";
 import {
   TRANSCRIPT_GEOMETRY_EPSILON_PX,
   TRANSCRIPT_ROW_HEIGHT_ESTIMATE_PX,
@@ -228,44 +224,6 @@ export class RowMeasurementTable {
     this.#cachedRowKeys = rowKeys;
     this.#cachedProjection = { virtualKeys, duplicateKeyCount };
     return this.#cachedProjection;
-  }
-
-  /**
-   * How many of these rows the window holds and cannot draw, because it ran out of
-   * height.
-   *
-   * A COUNT AND NOT A BOOLEAN, because that is what a person is owed: the shared
-   * absence vocabulary (`window-notices.ts`) says "N are still held and
-   * sit below the height this window can draw down to", and a flag would leave the
-   * figure to be invented at the call site or left out of a sentence built to carry
-   * one.
-   *
-   * A ROW IS PAST THE CEILING WHEN ITS OWN TOP IS, which is a narrower claim than
-   * "the total exceeded it" and the true one: past `LEDGER_MAX_ELEMENT_HEIGHT_PX` a
-   * virtual list's spacer stops growing, so a row placed beyond that offset cannot
-   * be scrolled to at all, while a row STRADDLING it is drawn from its top down and
-   * is still reachable. Counting the straddler would report a loss nobody has; the
-   * arithmetic is the same walk either way, and this is the side that is honest.
-   *
-   * Walked from the ledger's own priors rather than from the virtualizer, which is
-   * the same arithmetic over the same numbers — every measured height in the library
-   * came through `acceptedHeight` and every unmeasured one is this ledger's estimate
-   * — and it costs a pass over at most one window's keys, taken only once the total
-   * says there is something to count.
-   */
-  public rowsPastElementCeiling(rowKeys: readonly string[], totalHeightPx: number): number {
-    if (totalHeightPx <= MAX_ELEMENT_HEIGHT_PX) {
-      return 0;
-    }
-    let offsetPx = 0;
-    for (let index = 0; index < rowKeys.length; index += 1) {
-      if (offsetPx >= MAX_ELEMENT_HEIGHT_PX) {
-        // Offsets only grow, so every row from here down is past the ceiling too.
-        return rowKeys.length - index;
-      }
-      offsetPx += this.heightOf(rowKeys[index] ?? "");
-    }
-    return 0;
   }
 }
 

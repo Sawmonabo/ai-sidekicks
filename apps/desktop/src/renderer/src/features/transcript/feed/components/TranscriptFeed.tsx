@@ -162,7 +162,6 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
       </div>
       <TranscriptReadState sessionStore={props.sessionStore} />
       <TranscriptWindowNotices
-        unprojectableEventCount={ledgerWindow.unprojectableEventCount}
         droppedRowCount={visible.prunedAwayRows.length}
         hasUnreceivedEntries={ledgerWindow.hasUnreceivedEntries}
       />

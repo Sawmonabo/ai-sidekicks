@@ -223,11 +223,9 @@ describe("endurance — the ledger's fold over a long session", () => {
     const ledgerWindow = deriveLedgerWindow(timeline, false);
 
     // Every event the generator scripts is a registered kind the projection places,
-    // so nothing in this log may land in the unprojectable count — which is the
-    // reading that would otherwise let a window "complete" while dropping a whole
-    // event family on the floor.
-    expect(ledgerWindow.unprojectableEventCount).toBe(0);
-    expect(ledgerWindow.rows.length).toBeGreaterThan(0);
+    // so every one becomes a row; a window that dropped an event family would
+    // otherwise still read as complete.
+    expect(ledgerWindow.rows).toHaveLength(ENDURANCE_ROW_COUNT);
     // The virtualizer's identity list and the body lookup are two views of one set:
     // a viewport row with no body renders the not-loaded absence, and a body with no
     // viewport row is never drawn at all.

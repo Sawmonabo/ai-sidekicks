@@ -125,8 +125,6 @@ export interface TranscriptWindowModel {
   readonly handoffEntryByRowId: ReadonlyMap<string, HandoffEntry>;
   /** The rows in log order, for find and the chapter fold. */
   readonly rows: readonly TimelineRow[];
-  /** Events the registered census carries no category for. Rendered, never hidden. */
-  readonly unprojectableEventCount: number;
   /**
    * Whether the store recorded sequences it never received.
    *
@@ -201,7 +199,6 @@ export function deriveLedgerWindow(
     childRunEntryByRowId: childRunIndex.childRunEntryByRowId(),
     handoffEntryByRowId: childRunIndex.handoffEntryByRowId(),
     rows,
-    unprojectableEventCount: projection.unprojectableEventCount,
     hasUnreceivedEntries,
     // A chapter with no terminal is a run the log has not seen end. That is the
     // same question the viewport asks before it prunes, and it is answered from the

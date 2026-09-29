@@ -160,23 +160,11 @@ export function TranscriptViewport(props: TranscriptViewportProps): React.JSX.El
          */}
         {snapshot.rows.length === 0 && props.firstReadSettled ? <EmptyTranscript /> : null}
         {/*
-         * The two ways this window's own DRAWING falls short of the log it holds,
-         * in the console's shared sentences rather than in a pair this family
-         * wrote. Both are residuals of what the virtualization adoption asks of
-         * an own-built window — stable keys, and a ceiling under the height
-         * Chromium will place an element at — and
-         * both are invisible until somebody scrolls to exactly the wrong place.
-         *
-         * Here rather than beside the window model's four absences one directory
-         * up: those are facts about which rows the WINDOW holds, and these are
-         * facts about what this VIEWPORT could draw of them. A counted absence at
-         * zero is dropped by the model, so neither is guarded here.
+         * Rows that share an identifier are a fact about what this viewport can draw
+         * apart, so the notice sits here rather than with the window's own notices.
          */}
         <WindowAbsences
-          absences={[
-            { kind: "duplicate-key", count: snapshot.keyProjection.duplicateKeyCount },
-            { kind: "past-element-ceiling", count: binding.rowsPastElementCeiling },
-          ]}
+          absences={[{ kind: "duplicate-key", count: snapshot.keyProjection.duplicateKeyCount }]}
           subject="entries"
         />
       </div>

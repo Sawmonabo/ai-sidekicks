@@ -95,23 +95,11 @@ import { attributedRunIdOf } from "./run-attribution.js";
 import { deriveChildRunSummaries } from "./child-run-summaries.js";
 
 /**
- * What one projection pass produced, and what it could not.
- *
- * The count travels with the rows rather than being logged and forgotten, on the
- * drops-and-counts precedent the approvals reader set: a surface that quietly
- * showed fewer rows than the session holds is a surface nobody can debug, and rule
- * 8's five kinds of nothing all need to know that something WAS dropped.
+ * What one projection pass produced. An event the registered census carries no
+ * category for draws nothing: the screen's list of rows is closed.
  */
 export interface TranscriptRowProjection {
   readonly rows: readonly TimelineRow[];
-  /**
-   * Events the registered census does not carry a category for.
-   *
-   * Zero in every fixture build — the scenario wire-truth suite holds every beat
-   * to the census — so a non-zero count is the console meeting an event the
-   * contract package has not registered, which is a fact worth rendering.
-   */
-  readonly unprojectableEventCount: number;
 }
 
 /**
@@ -126,7 +114,7 @@ export interface TranscriptRowProjection {
 const CATEGORY_BY_WIRE_TYPE: ReadonlyMap<string, EventCategory> = SESSION_EVENT_CATEGORY_BY_TYPE;
 
 /** Nothing projected. A frozen module constant, so an empty pass allocates none. */
-const EMPTY_PROJECTION: TranscriptRowProjection = { rows: [], unprojectableEventCount: 0 };
+const EMPTY_PROJECTION: TranscriptRowProjection = { rows: [] };
 
 /**
  * Read this window's event log as timeline rows.
@@ -150,12 +138,10 @@ export function projectFixtureShellRows(
   // below asks one map read per event and decides nothing about which row is which.
   const childRunSummaryByEventId = deriveChildRunSummaries(events);
   const rows: TimelineRow[] = [];
-  let unprojectableEventCount = 0;
 
   for (const event of events) {
     const category = CATEGORY_BY_WIRE_TYPE.get(event.kind);
     if (category === undefined) {
-      unprojectableEventCount += 1;
       continue;
     }
 
@@ -178,7 +164,6 @@ export function projectFixtureShellRows(
     if (event.kind === TIMELINE_ROLLBACK_BOUNDARY_TYPE) {
       const boundary = projectRollbackBoundary(event, progression);
       if (boundary === undefined) {
-        unprojectableEventCount += 1;
         continue;
       }
       rows.push(boundary);
@@ -212,7 +197,7 @@ export function projectFixtureShellRows(
     progression.nextPosition += 1;
   }
 
-  return { rows, unprojectableEventCount };
+  return { rows };
 }
 
 /** How far one run has got: its next ordinal, and how many rewinds it has taken. */
