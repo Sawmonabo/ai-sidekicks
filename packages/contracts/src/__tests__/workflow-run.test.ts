@@ -1,34 +1,101 @@
-// A cancel reason is capped by its UTF-8 byte length, not its character count, so the
-// same sentence is refused at the same size in every script.
+// A run's steps cross from the daemon to the run page, the runs table and the live
+// stream. These tests hold the step record's own rules: only a waiting step names its
+// cause and its instants, an inline payload stays under its cap, and a failure's
+// details never travel without its code.
 import { describe, expect, it } from "vitest";
 
+import { WorkflowStepErrorSchema } from "../workflow-definition.js";
 import {
-  WORKFLOW_CANCEL_REASON_BYTE_CAP,
-  WorkflowRunCancelRequestSchema,
+  WORKFLOW_STEP_PAYLOAD_INLINE_BYTE_CAP,
+  WorkflowPayloadRefSchema,
+  WorkflowStepSchema,
 } from "../workflow-run.js";
 
-const RUN_ID = "wfr-1";
+const EMPTY = { kind: "inline", items: [] };
+const STEP = {
+  workflowRunId: "wfr-1",
+  nodeId: "approve",
+  attempt: 1,
+  executionIndex: 3,
+  source: [{ nodeId: "tests", outputIndex: 0, executionIndex: 2 }, null],
+  startedAt: "2026-09-29T14:00:00Z",
+  inputRef: { kind: "inline", items: [{ json: { ok: true } }] },
+  outputRef: EMPTY,
+  logRef: { kind: "expired" },
+};
 
-describe("WorkflowRunCancelRequestSchema reason cap", () => {
-  it("accepts a reason of exactly the cap in bytes", () => {
-    const reason = "a".repeat(WORKFLOW_CANCEL_REASON_BYTE_CAP);
-    expect(
-      WorkflowRunCancelRequestSchema.safeParse({ workflowRunId: RUN_ID, reason }).success,
-    ).toBe(true);
+describe("WorkflowStepSchema", () => {
+  it("accepts a step waiting on an approval with its deadline", () => {
+    const waiting = {
+      ...STEP,
+      status: "waiting",
+      waitCause: "approval",
+      waitDeadlineAt: "2026-09-30T06:00:00-04:00",
+    };
+    expect(WorkflowStepSchema.safeParse(waiting).success).toBe(true);
   });
 
-  it("refuses a reason one byte over the cap", () => {
-    const reason = "a".repeat(WORKFLOW_CANCEL_REASON_BYTE_CAP + 1);
-    expect(
-      WorkflowRunCancelRequestSchema.safeParse({ workflowRunId: RUN_ID, reason }).success,
-    ).toBe(false);
+  it("accepts a step parked on a spent account with the instant it resumes", () => {
+    const parked = {
+      ...STEP,
+      status: "waiting",
+      waitCause: "account",
+      resumeAt: "2026-09-29T19:00:00Z",
+    };
+    expect(WorkflowStepSchema.safeParse(parked).success).toBe(true);
   });
 
-  it("refuses a multibyte reason over the cap in bytes though under it in characters", () => {
-    const reason = "é".repeat(WORKFLOW_CANCEL_REASON_BYTE_CAP / 2 + 1);
-    expect(reason.length).toBeLessThan(WORKFLOW_CANCEL_REASON_BYTE_CAP);
-    expect(
-      WorkflowRunCancelRequestSchema.safeParse({ workflowRunId: RUN_ID, reason }).success,
-    ).toBe(false);
+  it("refuses a waiting step with no cause", () => {
+    expect(WorkflowStepSchema.safeParse({ ...STEP, status: "waiting" }).success).toBe(false);
+  });
+
+  it("refuses a cause on a step that is not waiting", () => {
+    const heldByMemory = { ...STEP, status: "waiting-memory", waitCause: "account" };
+    expect(WorkflowStepSchema.safeParse(heldByMemory).success).toBe(false);
+  });
+
+  it("refuses a resume instant on a step that is not waiting", () => {
+    const canceled = { ...STEP, status: "canceled", resumeAt: "2026-09-29T19:00:00Z" };
+    expect(WorkflowStepSchema.safeParse(canceled).success).toBe(false);
+  });
+
+  it("refuses a step status outside the closed list", () => {
+    expect(WorkflowStepSchema.safeParse({ ...STEP, status: "completed" }).success).toBe(false);
+  });
+});
+
+describe("WorkflowPayloadRefSchema", () => {
+  const itemsOfBytes = (byteCount: number): unknown[] => {
+    // `[{"json":"…"}]` wraps the string in 13 bytes of JSON.
+    return [{ json: "a".repeat(byteCount - 13) }];
+  };
+
+  it("accepts an inline payload of exactly the cap", () => {
+    const payload = { kind: "inline", items: itemsOfBytes(WORKFLOW_STEP_PAYLOAD_INLINE_BYTE_CAP) };
+    expect(WorkflowPayloadRefSchema.safeParse(payload).success).toBe(true);
+  });
+
+  it("refuses an inline payload one byte over the cap", () => {
+    const payload = {
+      kind: "inline",
+      items: itemsOfBytes(WORKFLOW_STEP_PAYLOAD_INLINE_BYTE_CAP + 1),
+    };
+    expect(WorkflowPayloadRefSchema.safeParse(payload).success).toBe(false);
+  });
+});
+
+describe("WorkflowStepErrorSchema", () => {
+  it("accepts a coded failure with its details", () => {
+    const timedOut = {
+      message: "The approval step timed out",
+      code: "workflow.step_timed_out",
+      details: { cause: "step_timeout", limitMs: 3_600_000 },
+    };
+    expect(WorkflowStepErrorSchema.safeParse(timedOut).success).toBe(true);
+  });
+
+  it("refuses details with no code", () => {
+    const uncoded = { message: "failed", details: { cause: "step_timeout" } };
+    expect(WorkflowStepErrorSchema.safeParse(uncoded).success).toBe(false);
   });
 });

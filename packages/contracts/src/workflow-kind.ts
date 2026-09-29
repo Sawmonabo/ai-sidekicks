@@ -98,7 +98,8 @@ export type WorkflowParamSpec =
       fields: WorkflowParamSpec[];
       multiple?: boolean | undefined;
     };
-const WorkflowParamSpecSchema: z.ZodType<WorkflowParamSpec> = z.lazy(() =>
+/** Wire schema for {@link WorkflowParamSpec}. */
+export const WorkflowParamSpecSchema: z.ZodType<WorkflowParamSpec> = z.lazy(() =>
   z.union([
     z
       .object({

@@ -285,16 +285,33 @@ const WorkflowPairedItemSchema: z.ZodType<WorkflowPairedItem, WorkflowPairedItem
 
 /**
  * A failure carried on one item, so one item can fail while the rest of a batch
- * succeeds, and on the step it failed in.
+ * succeeds, and on the step it failed in. `code` is the step failure's own code where
+ * one names it (a timed-out step, a sandbox that did not start, a Code step over its
+ * budget …) with that code's `details`; a failure with no code of its own carries the
+ * message alone.
  */
 export interface WorkflowStepError {
   message: string;
   nodeId?: WorkflowNodeId | undefined;
+  code?: string | undefined;
+  details?: Record<string, unknown> | undefined;
 }
-/** Wire schema for {@link WorkflowStepError}. */
+/** Wire schema for {@link WorkflowStepError}; `details` never appears without `code`. */
 export const WorkflowStepErrorSchema: z.ZodType<WorkflowStepError, WorkflowStepError> = z
-  .object({ message: z.string().min(1), nodeId: WorkflowNodeIdSchema.optional() })
-  .strict();
+  .object({
+    message: z.string().min(1),
+    nodeId: WorkflowNodeIdSchema.optional(),
+    code: z
+      .string()
+      .regex(/^workflow\.[a-z][a-z_]*$/u)
+      .optional(),
+    details: z.record(z.string(), z.unknown()).optional(),
+  })
+  .strict()
+  .refine((error) => error.details === undefined || error.code !== undefined, {
+    path: ["details"],
+    message: "details belong to a coded failure.",
+  });
 
 /**
  * One item: data between nodes is always an array of these. `pairedItem` is the item's
