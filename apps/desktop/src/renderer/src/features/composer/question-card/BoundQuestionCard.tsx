@@ -24,11 +24,11 @@ import { useConsoleClock } from "@renderer/console/bridge/BridgeProvider.js";
 import { parseInstant } from "@renderer/lib/instant.js";
 import { useDeadlineWake } from "@renderer/console/store/subject-scoped/deadline-wake.js";
 import {
-  InputAskCard,
   askSettledBy,
-  useLedgerAskTerminal,
   type DriverAskReading,
-} from "@renderer/console/ledger/cards/bodies/index.js";
+} from "@renderer/console/ledger/cards/bodies/input-ask.js";
+import { useLedgerAskTerminal } from "@renderer/console/ledger/cards/bodies/AskTerminalProvider.js";
+import { InputAskCard } from "./QuestionCard.js";
 import { useDriverAskAnswer } from "./hooks/useQuestionAnswer.js";
 
 export interface FixtureShellAskRowProps {
