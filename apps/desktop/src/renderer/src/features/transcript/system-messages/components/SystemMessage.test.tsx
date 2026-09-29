@@ -3,7 +3,7 @@
 // Every case here reads the RENDERED line rather than the model behind it, because
 // the defect this component answers was exactly that the model was correct and
 // nothing drew it: `SystemMessageClassifier` derived the boundary, the continuity, the
-// losses, the reason and the blocked-on state on every pass, and the only consumer
+// losses and the reason on every pass, and the only consumer
 // was the replay dock's next-seam jump, itself since removed. A case asserting over
 // `classify()` would have passed throughout.
 
@@ -17,7 +17,11 @@ import {
   SystemMessageClassifier,
   type SystemMessageReading,
 } from "../system-message-classifier.js";
-import { type TimelineRow } from "@ai-sidekicks/contracts";
+import {
+  AGENT_PROVIDER_BINDING_CHANGE_FAILED_EVENT,
+  AGENT_PROVIDER_BINDING_CHANGED_EVENT,
+  type TimelineRow,
+} from "@ai-sidekicks/contracts";
 
 function seamOf(row: TimelineRow): SystemMessageReading {
   const seam = new SystemMessageClassifier().classify(row);
@@ -70,37 +74,13 @@ describe("the seam row — one kind at a time, over its registered members", () 
     expect(line.textContent).toContain("7");
   });
 
-  it("draws a paused run, which carries no boundary and is offered none", () => {
-    const line = renderSeam(
-      seamOf(runRow({ id: "p1", sequence: 2, type: "run.paused", runId: "run-a", position: 2 })),
-    );
-    expect(line.textContent).toContain(SYSTEM_MESSAGE_BINDINGS["run-paused"].label);
-    expect(line.textContent).not.toContain("Boundary");
-  });
-
-  it("names the state a blocked run is waiting on, verbatim", () => {
-    const line = renderSeam(
-      seamOf(
-        runRow({
-          id: "b1",
-          sequence: 4,
-          type: "run.waiting_for_approval",
-          runId: "run-a",
-          position: 4,
-        }),
-      ),
-    );
-    expect(line.textContent).toContain(SYSTEM_MESSAGE_BINDINGS["run-blocked"].label);
-    expect(line.textContent).toContain("run.waiting_for_approval");
-  });
-
   it("carries the failed switch's reason verbatim, and marks it the one caution", () => {
     const line = renderSeam(
       seamOf(
         runRow({
           id: "sf",
           sequence: 5,
-          type: "agent.provider_switch_failed",
+          type: AGENT_PROVIDER_BINDING_CHANGE_FAILED_EVENT,
           runId: "run-a",
           position: 5,
           payload: { reason: "output_speed_unavailable" },
@@ -119,7 +99,7 @@ describe("the seam row — one kind at a time, over its registered members", () 
         runRow({
           id: "sw",
           sequence: 6,
-          type: "agent.provider_switched",
+          type: AGENT_PROVIDER_BINDING_CHANGED_EVENT,
           runId: "run-a",
           position: 6,
           payload: { continuity: "in_place" },
@@ -137,7 +117,7 @@ describe("the seam row — the loss clause", () => {
         runRow({
           id: "sm",
           sequence: 7,
-          type: "agent.provider_switched",
+          type: AGENT_PROVIDER_BINDING_CHANGED_EVENT,
           runId: "run-a",
           position: 7,
           payload: {
@@ -163,7 +143,7 @@ describe("the seam row — the loss clause", () => {
         runRow({
           id: "si",
           sequence: 8,
-          type: "agent.provider_switched",
+          type: AGENT_PROVIDER_BINDING_CHANGED_EVENT,
           runId: "run-a",
           position: 8,
           payload: { continuity: "in_place", declaredLosses: [] },
@@ -183,7 +163,7 @@ describe("the seam row — a kind the wire does not register says so", () => {
           runRow({
             id: "sw2",
             sequence: 9,
-            type: "agent.provider_switched",
+            type: AGENT_PROVIDER_BINDING_CHANGED_EVENT,
             runId: "run-a",
             position: 9,
           }),
@@ -191,7 +171,7 @@ describe("the seam row — a kind the wire does not register says so", () => {
       />,
     );
     expect(container.textContent).toContain("does not register that event type");
-    expect(container.textContent).toContain("agent.provider_switched");
+    expect(container.textContent).toContain(AGENT_PROVIDER_BINDING_CHANGED_EVENT);
   });
 
   it("negative control: a registered seam type draws no such absence", () => {
@@ -200,7 +180,14 @@ describe("the seam row — a kind the wire does not register says so", () => {
     const { container } = render(
       <SystemMessage
         seam={seamOf(
-          runRow({ id: "p2", sequence: 10, type: "run.paused", runId: "run-a", position: 10 }),
+          runRow({
+            id: "c2",
+            sequence: 10,
+            type: "usage.context_compacted",
+            category: "usage_telemetry",
+            runId: "run-a",
+            position: 10,
+          }),
         )}
       />,
     );

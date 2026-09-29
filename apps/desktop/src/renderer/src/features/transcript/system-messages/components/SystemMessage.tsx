@@ -5,10 +5,10 @@
 // decomposes it into named parts precisely so that the layout is decided here and
 // the meaning is decided there. Before this component, the classification reached one
 // consumer — the replay dock's next-seam jump, itself since removed — and no renderer
-// at all, so a rollback, a compaction, a provider switch or a blocked run fell through
-// to the generic row renderer and read as an ordinary one-line receipt: the boundary
-// position, the continuity, the declared losses, the failed switch's reason and the
-// blocked-on state were derived on every pass and shown nowhere.
+// at all, so a rollback, a compaction or a provider switch fell through to the generic
+// row renderer and read as an ordinary one-line receipt: the boundary position, the
+// continuity, the declared losses and the failed switch's reason were derived on every
+// pass and shown nowhere.
 //
 // WHERE THE BOUNDARY BETWEEN THIS AND THE ROW SEAT SITS. Seams are the LEDGER's
 // rows, not the seat's. The seat (`transcript-row-renderer.ts`) is filled
@@ -19,9 +19,9 @@
 // the seat to carry it would make every future row owner responsible for a
 // vocabulary that is the ledger's own.
 //
-// THE FIVE PARTS ARE RENDER HELPERS AND NOT FIVE COMPONENTS. Each is a stateless,
-// hook-free fragment of ONE line, rendered from one place, and naming five components
-// for five spans of a sentence would put five fibers and five files where the ledger
+// THE FOUR PARTS ARE RENDER HELPERS AND NOT FOUR COMPONENTS. Each is a stateless,
+// hook-free fragment of ONE line, rendered from one place, and naming four components
+// for four spans of a sentence would put four fibers and four files where the ledger
 // has one row. `apps/desktop/AGENTS.md` puts one component in a `.tsx` module and this
 // module has one; what sits beside it is the shape `MessageContent.tsx`'s `renderBodyText`
 // already uses — a plain function returning markup, called rather than mounted.
@@ -72,7 +72,6 @@ export function SystemMessage(props: SystemMessageProps): React.JSX.Element {
         {seamBoundaryPosition(seam)}
         {seamContinuity(seam)}
         {seamReason(seam)}
-        {seamBlockedOn(seam)}
       </p>
       {seamWireAbsence(seam)}
     </LedgerRow>
@@ -136,18 +135,6 @@ function seamReason(seam: SystemMessageReading): React.JSX.Element | null {
     return null;
   }
   return <span className="meridian-system-message__figure">{seam.reason}</span>;
-}
-
-/** Which state a blocked run is waiting on, verbatim. */
-function seamBlockedOn(seam: SystemMessageReading): React.JSX.Element | null {
-  if (seam.blockedOn === undefined) {
-    return null;
-  }
-  return (
-    <span className="meridian-system-message__blocked-on">
-      Waiting on <span className="meridian-system-message__figure">{seam.blockedOn}</span>
-    </span>
-  );
 }
 
 /**

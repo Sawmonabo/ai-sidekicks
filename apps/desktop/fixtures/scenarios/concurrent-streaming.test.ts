@@ -15,7 +15,6 @@
 
 import { describe, expect, it } from "vitest";
 import { FLAGSHIP_SCENARIO } from "./concurrent-streaming.js";
-import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts";
 
 /** Every kind the concurrent-streaming plays, in script order. */
 const SCRIPTED_KINDS: readonly string[] = FLAGSHIP_SCENARIO.beats.map((beat) => beat.event.kind);
@@ -26,17 +25,6 @@ function payloadsOfKind(kind: string): readonly Readonly<Record<string, unknown>
     .filter((beat) => beat.event.kind === kind)
     .map((beat) => (beat.event.payload ?? {}) as Readonly<Record<string, unknown>>);
 }
-
-/**
- * The census, widened to string keys so an unregistered name can be ASKED about.
- *
- * The map is keyed by `SessionEventType`, so the absence below is a compile error
- * before it is a runtime one — which is the strongest form of the claim and also the
- * reason it cannot be written directly: a name outside the union is not a key the
- * type admits. The widening asks the question at runtime instead, so the case fails
- * loudly on the day the union gains the type rather than silently compiling.
- */
-const CENSUS_BY_NAME: ReadonlyMap<string, unknown> = SESSION_EVENT_CATEGORY_BY_TYPE;
 
 /** The scripted answer to one call, or `undefined`. */
 function replyTo(call: string): unknown {
@@ -112,24 +100,5 @@ describe("the concurrent-streaming frame — its name", () => {
     const read = replyTo("session.read") as { session?: { metadata?: { title?: string } } };
 
     expect(read.session?.metadata?.title).toBeDefined();
-  });
-});
-
-describe("the concurrent-streaming frame — what it deliberately cannot show", () => {
-  it("plays no provider switch, because this workspace registers none", () => {
-    // The one element of the designed composition that is absent, and it is absent
-    // for a reason a reader can check rather than by omission: the census does not
-    // carry the type, so a beat for it would be a frame of a wire that does not
-    // exist. The day the census gains it, this case fails and the script gains a beat.
-    expect(CENSUS_BY_NAME.has("agent.provider_switched")).toBe(false);
-    expect(SCRIPTED_KINDS).not.toContain("agent.provider_switched");
-  });
-
-  it("negative control: the census this reads is one that carries the kinds it plays", () => {
-    // Without this the case above would pass over an empty object, or over a census
-    // read from the wrong module — and every absence in this file would be vacuous.
-    expect(CENSUS_BY_NAME.has("approval.requested")).toBe(true);
-    expect(CENSUS_BY_NAME.has("usage.rate_limit_update")).toBe(true);
-    expect(CENSUS_BY_NAME.has("run.paused")).toBe(true);
   });
 });

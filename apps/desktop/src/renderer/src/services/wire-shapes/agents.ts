@@ -95,7 +95,7 @@ export interface AgentSwitchSettlement {
   readonly status: string;
   readonly switchId?: string | undefined;
   readonly appliesAt?: string | undefined;
-  /** One of {@link SWITCH_CONTINUITIES} on a settled switch. */
+  /** The contract's `AgentBindingContinuity` on a settled switch. */
   readonly continuity?: string | undefined;
   /** An EMPTY array asserts nothing was dropped. Absent asserts nothing at all. */
   readonly declaredLosses?: readonly string[] | undefined;

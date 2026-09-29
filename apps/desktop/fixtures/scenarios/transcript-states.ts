@@ -27,15 +27,11 @@
 // `fixtures/data/script-entries.ts` carries the payload builders so a
 // member cannot drift between two beats of one kind.
 //
-// FIVE THINGS THE DESIGN ASKS FOR THAT THIS SCRIPT DELIBERATELY DOES NOT SAY
+// FOUR THINGS THE DESIGN ASKS FOR THAT THIS SCRIPT DELIBERATELY DOES NOT SAY
 //
-//   • **The provider-switch seam.** `agent.provider_switched` and
-//     `agent.provider_switch_failed` are in no shipped `SessionEventType`, so a
-//     beat playing one would be a frame about a wire that does not exist. The seam
-//     module already renders that absence rather than drawing the seam.
-//   • **A resume and an unblock as their own rows.** `run.resumed` and
-//     `run.unblocked` are likewise unregistered; the registered transition back is
-//     `run.running`, and that is what this script plays.
+//   • **The provider-switch seam.** The event census does not register
+//     `agent.provider_binding_changed` or `agent.provider_binding_change_failed` yet,
+//     so a beat playing one would be a frame about a wire that does not exist.
 //   • **An approval card.** `approval.requested` is a registered type, but the card it
 //     would draw belongs to the surface that renders approvals — so the run reaches
 //     `waiting_for_approval` and returns to `running`, which is the part of that story
@@ -321,10 +317,8 @@ const TRANSCRIPT_STATES_SCRIPT: readonly ScriptEntry[] = [
     contentLength: 244,
   }),
 
-  // The block seam and its return. `run.blocked` is not a type: the design's own
-  // parenthetical says the block indicator distinguishes the two waiting states,
-  // and those two ARE registered, so the run enters one of them and comes back
-  // through `run.running` — which is the transition the daemon actually emits.
+  // A wait for approval and its return: the run enters `waiting_for_approval` and
+  // comes back through `run.running`, which is the transition the daemon emits.
   lane.transition(RUN_IMPLEMENTER, {
     atMs: 1_620,
     runVersion: 4,

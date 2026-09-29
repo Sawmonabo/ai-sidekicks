@@ -1,5 +1,5 @@
-/* The system message (`SystemMessage`): the line that says a run began, ended, was
- * blocked, or was retired by a later epoch.
+/* The system message (`SystemMessage`): the line that marks a provider switch, a
+ * compaction or a rollback across the transcript.
  */
 
 /* --- Structure: the system message row --------------------------------------------- */
@@ -49,7 +49,6 @@
 }
 
 .meridian-system-message__boundary,
-.meridian-system-message__blocked-on,
 .meridian-system-message__continuity {
   display: inline-flex;
   align-items: baseline;

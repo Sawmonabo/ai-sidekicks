@@ -80,7 +80,7 @@ describe("the three lanes", () => {
     expect(laneStates).toStrictEqual(["completed", "paused", "running"]);
   });
 
-  it("reaches the block state a seam renders, and returns through `run.running`", () => {
+  it("waits for approval and returns through `run.running`", () => {
     const kinds = TRANSCRIPT_STATES_SCENARIO.beats.map((beat) => beat.event.kind);
     expect(kinds).toContain("run.waiting_for_approval");
     expect(kinds.lastIndexOf("run.running")).toBeGreaterThan(
@@ -88,7 +88,7 @@ describe("the three lanes", () => {
     );
   });
 
-  it("draws the compaction and rollback seams the log can actually carry", () => {
+  it("plays the compaction and rollback seams and a paused run", () => {
     const kinds = TRANSCRIPT_STATES_SCENARIO.beats.map((beat) => beat.event.kind);
     expect(kinds).toContain("usage.context_compacted");
     expect(kinds).toContain("run.rolled_back");

@@ -39,16 +39,11 @@
 //
 // TWO THINGS THIS SCRIPT DELIBERATELY DOES NOT SAY
 //
-//   • **A provider switch.** `agent.provider_switched` and
-//     `agent.provider_switch_failed` are registered in the taxonomy and are NOT in
-//     this workspace's `SessionEventType` census: the union under
-//     `// SessionEventType — the canonical event-type census` in
-//     `packages/contracts/src/event.ts` says so in its own words, naming the two as a
-//     widening that has not landed. A beat for
-//     one would fail the census leg of the wire-truth predicate, and a screenshot of
-//     it would be a frame of a wire that does not exist. The seam a switch would draw
-//     is therefore absent from this composition by the same rule every other absence
-//     here follows, and it arrives the day that union does.
+//   • **A provider switch.** The event census does not register
+//     `agent.provider_binding_changed` or `agent.provider_binding_change_failed` yet,
+//     so a beat for one would fail the census leg of the wire-truth predicate, and a
+//     screenshot of it would be a frame of a wire that does not exist. The seam a
+//     switch draws arrives here the day the census registers the pair.
 //   • **A machine body.** `assistant.*` and `tool.*` payloads carry their body's
 //     DESCRIPTION and never the body, which is sealed in `content_payload` and
 //     served by no bridge namespace. The cards render the named absence, which is

@@ -6,12 +6,11 @@
 // and the one caution. Splitting the two is what keeps a reader of the table away from
 // the payload reads, and a reader of the payload reads away from the table.
 //
-// THE CENSUS IS ASKED, NEVER HAND-COPIED. The index below reads the registered event
-// census off the contract's own map, so `unregisteredWireTypes()` reports what the
-// daemon cannot produce yet rather than a second list making a claim about the
-// contract that the contract never checks. A row whose type is not in the census still
-// classifies if one ever arrives — `TimelineRow.type` is free-form by contract — so
-// the console is ready for the registration without pretending it has happened.
+// THE CENSUS IS ASKED, NEVER HAND-COPIED. The classifier reads the registered event
+// census off the contract's own map, so a seam's registration is the contract's answer
+// rather than a second list making a claim the contract never checks. A row whose type
+// is not in the census still classifies if one arrives — `TimelineRow.type` is
+// free-form by contract — and the seam says on its line that the type is unregistered.
 //
 // THE OTHER HALF OF THE DESIGN'S RULE — superseded turns stay present but visibly past
 // — is `superseded-bands.ts`. It asks a different question of a different subject
@@ -63,8 +62,6 @@ export interface SystemMessageReading {
   readonly declaredLosses: readonly string[];
   /** The failed switch's closed `reason`, verbatim. */
   readonly reason: string | undefined;
-  /** Which run state the block is waiting on, verbatim, for `run-blocked`. */
-  readonly blockedOn: string | undefined;
 }
 
 /**
@@ -91,39 +88,6 @@ export class SystemMessageClassifier {
     // the registered union, so its keys ARE the registered census — a second list
     // here would be a claim about the contract that the contract never checks.
     this.#registeredWireTypes = new Set<string>(SESSION_EVENT_CATEGORY_BY_TYPE.keys());
-  }
-
-  /** Whether a wire type is in the registered event census. */
-  public isRegisteredWireType(wireType: string): boolean {
-    return this.#registeredWireTypes.has(wireType);
-  }
-
-  /**
-   * The seam wire types the contract does not register yet, in binding order.
-   *
-   * The surface renders this as an absence rather than as a silence: a seam
-   * vocabulary the daemon cannot half produce is a fact about the wire, and rule 8
-   * says an unasked question renders differently from a negative answer.
-   */
-  public unregisteredWireTypes(): readonly string[] {
-    const missing: string[] = [];
-    for (const kind of SYSTEM_MESSAGE_KINDS) {
-      for (const wireType of SYSTEM_MESSAGE_BINDINGS[kind].wireTypes) {
-        if (!this.#registeredWireTypes.has(wireType)) {
-          missing.push(wireType);
-        }
-      }
-    }
-    return missing;
-  }
-
-  /** Seam kinds none of whose wire types the contract registers. */
-  public unregisteredSeamKinds(): readonly SystemMessageKind[] {
-    return SYSTEM_MESSAGE_KINDS.filter((kind) =>
-      SYSTEM_MESSAGE_BINDINGS[kind].wireTypes.every(
-        (wireType) => !this.#registeredWireTypes.has(wireType),
-      ),
-    );
   }
 
   /** One row's seam, or `undefined` when the row is not a seam. */
@@ -159,7 +123,6 @@ export class SystemMessageClassifier {
       continuity: readString(row.payload, "continuity"),
       declaredLosses: readDeclaredLosses(row.payload),
       reason: readString(row.payload, "reason"),
-      blockedOn: kind === "run-blocked" ? row.type : undefined,
     };
   }
 
@@ -220,6 +183,5 @@ function rollbackSeamOf(
     continuity: undefined,
     declaredLosses: [],
     reason: undefined,
-    blockedOn: undefined,
   };
 }

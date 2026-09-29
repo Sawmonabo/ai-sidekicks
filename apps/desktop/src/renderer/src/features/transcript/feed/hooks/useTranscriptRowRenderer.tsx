@@ -75,8 +75,8 @@ export function useTranscriptRowRenderer(
       // The seat fills with whichever renderer owns a session's row BODIES, and a
       // seam has none: it is a change in the run's condition, laid on one line from
       // parts `system-message-classifier.ts` derived. Delegating it would render a rollback, a
-      // compaction, a switch or a block as an ordinary receipt and drop the boundary
-      // position, the continuity, the losses, the reason and the blocked-on state.
+      // compaction or a switch as an ordinary receipt and drop the boundary position,
+      // the continuity, the losses and the reason.
       const seam = ledgerWindow.seamByRowId.get(projected.id);
       if (seam !== undefined) {
         return <SystemMessage seam={seam} actorHue={actorHue} isSuperseded={isSuperseded} />;

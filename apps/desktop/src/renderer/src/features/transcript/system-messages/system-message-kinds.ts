@@ -11,28 +11,20 @@
 // prose: the parts are laid out on one line by the ledger frame, and a producer
 // that composed a sentence here would have decided the layout.
 //
-// WIRE TRUTH, AND WHERE THIS DESIGN OUTRUNS IT
+// WIRE TRUTH. Each binding carries the wire types it reads verbatim. The two switch
+// settlements are the contract's own constants; the event census does not register them
+// yet, so whether a type is registered is asked of the contract by
+// `system-message-classifier.ts` rather than hand-copied here, and a switch row that
+// arrives before the registration says so on its line.
 //
-// Five of the eight seam kinds below name an event type that
-// `@ai-sidekicks/contracts` does not register today. The registered census is
-// `SESSION_EVENT_CATEGORY_BY_TYPE`, and it does not carry
-// `agent.provider_switched`, `agent.provider_switch_failed`, `run.resumed`, or
-// `run.unblocked`; `run.blocked` is not a type at all — the design's own
-// parenthetical says the block indicator distinguishes `waiting_for_approval`
-// from `waiting_for_input`, and those two ARE registered, so that kind binds to
-// them.
-//
-// The response is neither to invent the types nor to drop the kinds. Each binding
-// below carries the wire types it reads verbatim, and membership in the registered
-// census is ASKED of the contract by `system-message-classifier.ts`' index rather than hand-copied here,
-// so a surface can render the absence (rule 8's `not-checked`: nobody asked, which is
-// not the same as "no") instead of drawing a seam vocabulary that half the daemon
-// cannot produce.
-//
-// WHAT THIS MODULE IS NOT. It classifies nothing. `system-message-classifier.ts` holds the epoch rule —
-// which rows are seams, and what one row's seam reads — and takes the table below as
-// its closed input, so the set a gallery iterates and the set the classifier switches
-// over cannot come apart.
+// WHAT THIS MODULE IS NOT. It classifies nothing. `system-message-classifier.ts` holds
+// the epoch rule — which rows are seams, and what one row's seam reads — and takes the
+// table below as its closed input.
+
+import {
+  AGENT_PROVIDER_BINDING_CHANGE_FAILED_EVENT,
+  AGENT_PROVIDER_BINDING_CHANGED_EVENT,
+} from "@ai-sidekicks/contracts";
 
 import { type GlyphName } from "@renderer/styles/glyphs.js";
 
@@ -40,24 +32,17 @@ import { type GlyphName } from "@renderer/styles/glyphs.js";
  * Every seam the ledger draws. Closed; adding one is a deliberate edit here and a
  * reading of the epoch rule above.
  *
- * The tuple is the declaration and `SystemMessageKind` is derived from it, so the set
- * a gallery iterates and the set the classifier switches over cannot come apart.
+ * The tuple is the declaration and `SystemMessageKind` is derived from it, so the
+ * classifier's lookup and the binding table cannot come apart.
  *
- * Eight, in two groups that render the same way: three epoch
- * seams (switch, compaction, rollback) plus the failed switch, and the four
- * remaining run-state subtype rows. They are one set here because a seam is a
- * one-line row marking a change in the run's condition, and a reader scanning the
- * log does not care which paragraph of the design a mark came from.
+ * Four: the three epoch seams (switch, compaction, rollback) and the failed switch.
+ * A pause and a continue land no row, so no run-state kind is here.
  */
 export const SYSTEM_MESSAGE_KINDS = [
   "provider-switch",
   "provider-switch-failed",
   "compaction",
   "rollback",
-  "run-paused",
-  "run-resumed",
-  "run-blocked",
-  "run-unblocked",
 ] as const;
 
 export type SystemMessageKind = (typeof SYSTEM_MESSAGE_KINDS)[number];
@@ -107,21 +92,21 @@ export interface SystemMessageBinding {
 
 /**
  * The binding table. Closed and total over `SystemMessageKind` by construction — a
- * ninth kind fails to compile here before it can reach a classifier that would
+ * fifth kind fails to compile here before it can reach a classifier that would
  * silently never match it.
  */
 export const SYSTEM_MESSAGE_BINDINGS: Readonly<Record<SystemMessageKind, SystemMessageBinding>> = {
   "provider-switch": {
     kind: "provider-switch",
     label: "Provider switched",
-    wireTypes: ["agent.provider_switched"],
+    wireTypes: [AGENT_PROVIDER_BINDING_CHANGED_EVENT],
     glyph: "chevron-right",
     isCaution: false,
   },
   "provider-switch-failed": {
     kind: "provider-switch-failed",
     label: "Provider switch failed",
-    wireTypes: ["agent.provider_switch_failed"],
+    wireTypes: [AGENT_PROVIDER_BINDING_CHANGE_FAILED_EVENT],
     glyph: "alert",
     isCaution: true,
   },
@@ -137,37 +122,6 @@ export const SYSTEM_MESSAGE_BINDINGS: Readonly<Record<SystemMessageKind, SystemM
     label: "Rewound",
     wireTypes: ["run.rolled_back"],
     glyph: "clock",
-    isCaution: false,
-  },
-  "run-paused": {
-    kind: "run-paused",
-    label: "Run paused",
-    wireTypes: ["run.paused"],
-    glyph: "pause",
-    isCaution: false,
-  },
-  "run-resumed": {
-    kind: "run-resumed",
-    label: "Run resumed",
-    wireTypes: ["run.resumed"],
-    glyph: "play",
-    isCaution: false,
-  },
-  "run-blocked": {
-    kind: "run-blocked",
-    label: "Run blocked",
-    // The design's own parenthetical: the block indicator distinguishes
-    // `waiting_for_approval` from `waiting_for_input`, and both are registered.
-    // `run.blocked` itself is not a wire type and is not read for.
-    wireTypes: ["run.waiting_for_approval", "run.waiting_for_input"],
-    glyph: "dot",
-    isCaution: false,
-  },
-  "run-unblocked": {
-    kind: "run-unblocked",
-    label: "Run unblocked",
-    wireTypes: ["run.unblocked"],
-    glyph: "check",
     isCaution: false,
   },
 };

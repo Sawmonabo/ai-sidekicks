@@ -36,10 +36,9 @@ export const DRIVER_LIST_CAPABILITIES_METHOD = "driver.listCapabilities";
  * The registered lifecycle event that changes a roster.
  *
  * Typed as `SessionEventType` so a kind this workspace does not register is a
- * compile error rather than a signal that never fires. The switch terminals
- * (`agent.provider_switched`, `agent.provider_switch_failed`) are deliberately
- * absent: they are not registered, so no store admits them and no signal can
- * carry them.
+ * compile error rather than a signal that never fires. The provider-switch
+ * settlements are absent: the census does not register them yet, so no store admits
+ * them and no signal can carry them.
  */
 export const AGENT_LIFECYCLE_EVENT_KINDS: readonly SessionEventType[] = ["agent.config_updated"];
 
@@ -83,10 +82,3 @@ export const SWITCH_BOUNDARIES = ["turn_boundary", "run_boundary"] as const;
  * @consumedBy the agent switch, which reads where a switch lands and how it settled
  */
 export const SWITCH_STATUSES = ["pending", "applied", "degraded", "failed"] as const;
-
-/**
- * What the new binding can see. `degraded` is exactly `memo`; the status carries it.
- *
- * @consumedBy the agent switch, which reads where a switch lands and how it settled
- */
-export const SWITCH_CONTINUITIES = ["in_place", "replayed", "memo"] as const;

@@ -1,15 +1,19 @@
 // The epoch rule, held to the reads that fail silently.
 //
-// Every case here pins something whose violation still renders: a census answered
-// from a hand-copied list still reports, and a boundary read off the wrong member
-// still draws a seam at some position. None of it throws, so each clean assertion is
+// Every case here pins something whose violation still renders: a registration
+// answered from a hand-copied list still draws, and a boundary read off the wrong
+// member still draws a seam at some position. None of it throws, so each clean assertion is
 // paired with a negative control that fails when the rule is removed.
 //
 // TWO SIBLINGS DRIVE THE REST OF THIS DIRECTORY. `system-message-kinds.test.ts` drives the
 // closed table this classifies into, and `superseded-bands.test.ts` drives the other
 // half of the design's rule — superseded turns stay present but visibly past.
 
-import { SESSION_EVENT_CATEGORY_BY_TYPE, type TimelineRow } from "@ai-sidekicks/contracts";
+import {
+  AGENT_PROVIDER_BINDING_CHANGED_EVENT,
+  SESSION_EVENT_CATEGORY_BY_TYPE,
+  type TimelineRow,
+} from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
 
 import { generalRow, rollbackBoundaryRow, runRow } from "../timeline-rows.test-support.js";
@@ -22,43 +26,6 @@ function classifyOne(row: TimelineRow): SystemMessageReading {
   }
   return seam;
 }
-
-describe("seams — registration is asked of the contract, never hand-copied", () => {
-  const index = new SystemMessageClassifier();
-
-  it("reads the registered census from the contract's own map", () => {
-    // Both halves matter: the census must answer yes for a type it carries and no
-    // for one it does not, or the honesty report below is vacuous.
-    expect(index.isRegisteredWireType("usage.context_compacted")).toBe(true);
-    expect(SESSION_EVENT_CATEGORY_BY_TYPE.has("usage.context_compacted")).toBe(true);
-    expect(index.isRegisteredWireType("agent.provider_switched")).toBe(false);
-  });
-
-  it("negative control: an invented type is not quietly admitted", () => {
-    expect(index.isRegisteredWireType("run.definitely_not_a_wire_type")).toBe(false);
-  });
-
-  it("names exactly the four seam wire types the contract does not register", () => {
-    expect(index.unregisteredWireTypes()).toStrictEqual([
-      "agent.provider_switched",
-      "agent.provider_switch_failed",
-      "run.resumed",
-      "run.unblocked",
-    ]);
-  });
-
-  it("names only the kinds with no registered type at all", () => {
-    // `run-blocked` is deliberately absent: both of its types are registered. A
-    // report that listed it would tell an operator the block indicator is dead
-    // when it is the one part of this vocabulary that works today.
-    expect(index.unregisteredSeamKinds()).toStrictEqual([
-      "provider-switch",
-      "provider-switch-failed",
-      "run-resumed",
-      "run-unblocked",
-    ]);
-  });
-});
 
 describe("seams — one row's classification", () => {
   it("reads the rollback boundary's cutoff through the arm's own typed payload", () => {
@@ -93,6 +60,9 @@ describe("seams — one row's classification", () => {
     );
     expect(seam.kind).toBe("compaction");
     expect(seam.boundaryPosition).toBe(7);
+    // Asked of the contract's census, which carries this type.
+    expect(SESSION_EVENT_CATEGORY_BY_TYPE.has("usage.context_compacted")).toBe(true);
+    expect(seam.wireRegistration).toBe("registered");
   });
 
   it("negative control: a payload member of that name is not what is read", () => {
@@ -119,7 +89,7 @@ describe("seams — one row's classification", () => {
       runRow({
         id: "s1",
         sequence: 5,
-        type: "agent.provider_switched",
+        type: AGENT_PROVIDER_BINDING_CHANGED_EVENT,
         runId: "run-a",
         position: 5,
         payload: {
@@ -136,21 +106,8 @@ describe("seams — one row's classification", () => {
       "turn_content_truncated",
       "a_kind_this_console_has_never_heard_of",
     ]);
+    // The census does not register the switch settlement yet, and the seam says so.
     expect(seam.wireRegistration).toBe("unregistered");
-  });
-
-  it("names which state a block is waiting on", () => {
-    const seam = classifyOne(
-      runRow({
-        id: "b1",
-        sequence: 7,
-        type: "run.waiting_for_input",
-        runId: "run-a",
-        position: 7,
-      }),
-    );
-    expect(seam.kind).toBe("run-blocked");
-    expect(seam.blockedOn).toBe("run.waiting_for_input");
   });
 
   it("negative control: an ordinary row is not a seam", () => {
@@ -175,7 +132,14 @@ describe("seams — one row's classification", () => {
   it("collects a window's seams in log order", () => {
     const seams = new SystemMessageClassifier().seams([
       runRow({ id: "r1", sequence: 1, type: "run.running", runId: "run-a", position: 1 }),
-      runRow({ id: "p1", sequence: 2, type: "run.paused", runId: "run-a", position: 2 }),
+      runRow({
+        id: "c1",
+        sequence: 2,
+        type: "usage.context_compacted",
+        category: "usage_telemetry",
+        runId: "run-a",
+        position: 2,
+      }),
       rollbackBoundaryRow({
         id: "rb",
         sequence: 3,
@@ -184,7 +148,7 @@ describe("seams — one row's classification", () => {
         targetPosition: 1,
       }),
     ]);
-    expect(seams.map((seam) => seam.rowId)).toStrictEqual(["p1", "rb"]);
-    expect(seams.map((seam) => seam.kind)).toStrictEqual(["run-paused", "rollback"]);
+    expect(seams.map((seam) => seam.rowId)).toStrictEqual(["c1", "rb"]);
+    expect(seams.map((seam) => seam.kind)).toStrictEqual(["compaction", "rollback"]);
   });
 });
