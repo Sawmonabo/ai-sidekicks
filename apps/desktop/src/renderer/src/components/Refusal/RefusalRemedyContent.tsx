@@ -26,6 +26,8 @@
 // reading "delete the derivatives named below" with nothing below it is the rendering
 // this composition exists to prevent.
 
+import "./Refusal.css";
+
 import type { RefusalRecoveryCopy } from "./refusal-props.js";
 
 export interface RefusalRecoveryProps {

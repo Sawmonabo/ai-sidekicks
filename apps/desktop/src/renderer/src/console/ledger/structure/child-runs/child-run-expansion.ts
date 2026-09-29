@@ -34,10 +34,8 @@ import { type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
 import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
 import { useSessionScopedState } from "../../../seats/index.js";
 import { ReadScope } from "@renderer/lib/reads/read-scope.js";
-import {
-  useSubjectScopedResource,
-  type SubjectScopedDisposal,
-} from "@renderer/hooks/subject-scoped/useSubjectScopedResource.js";
+import { useSubjectScopedResource } from "@renderer/hooks/subject-scoped/useSubjectScopedResource.js";
+import { type SubjectScopedDisposal } from "@renderer/lib/subject-scoped/subject-scoped-disposal.js";
 
 /**
  * Where one child run's expansion has got to.

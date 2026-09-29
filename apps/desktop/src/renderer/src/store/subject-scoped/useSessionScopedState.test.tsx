@@ -20,7 +20,8 @@ import { describe, expect, it } from "vitest";
 import { createFixture } from "@renderer/console/bridge/fixture/call-plane/bridge.test-support.js";
 import type { ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
 import { SessionStore } from "../session/session-store.js";
-import { isCurrentSessionSubject, useSessionScopedState } from "./session-subject.js";
+import { isCurrentSessionSubject } from "./session-subject.js";
+import { useSessionScopedState } from "./useSessionScopedState.js";
 
 interface DoorProbeProps {
   readonly bridge: ConsoleBridge;

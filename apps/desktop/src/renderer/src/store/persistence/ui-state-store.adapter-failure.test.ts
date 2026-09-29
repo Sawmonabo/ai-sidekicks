@@ -27,7 +27,7 @@ import {
 } from "./memory-persistence-adapter.js";
 import { ReadFailureAdapter } from "@test/helpers/read-failure-persistence-adapter.js";
 import { UiStateStore } from "./ui-state-store.js";
-import { refusePersistence } from "./persisted-value-classes.js";
+import { refusePersistence } from "./persistence-refusals.js";
 
 describe("a store whose trim fails refuses the write rather than rejecting it", () => {
   // The write path touches the adapter four times — the write, the trim under

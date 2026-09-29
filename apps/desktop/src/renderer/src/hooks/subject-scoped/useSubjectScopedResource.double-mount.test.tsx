@@ -22,10 +22,8 @@ import { StrictMode, type ReactElement } from "react";
 import { describe, expect, it } from "vitest";
 
 import type { NamedFixtureSubject } from "@test/helpers/subject-fixtures.js";
-import {
-  useSubjectScopedResource,
-  type SubjectScopedDisposal,
-} from "./useSubjectScopedResource.js";
+import { useSubjectScopedResource } from "./useSubjectScopedResource.js";
+import { type SubjectScopedDisposal } from "@renderer/lib/subject-scoped/subject-scoped-disposal.js";
 import {
   DISCARDED_SUBJECT,
   ResourceLedger,

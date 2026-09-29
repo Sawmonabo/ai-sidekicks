@@ -32,8 +32,6 @@
 
 import type { Unsubscribe } from "@ai-sidekicks/contracts";
 
-export { useSessionDirectory } from "./useSessionDirectory.js";
-
 /** One session the node lists. A session with no title is shown by its identifier. */
 export interface SessionDirectoryEntry {
   readonly sessionId: string;

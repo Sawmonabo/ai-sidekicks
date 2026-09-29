@@ -1,7 +1,5 @@
-import {
-  useSubjectScopedResource,
-  type SubjectScopedTerminalDisposal,
-} from "./subject-scoped/useSubjectScopedResource.js";
+import { useSubjectScopedResource } from "./subject-scoped/useSubjectScopedResource.js";
+import { type SubjectScopedTerminalDisposal } from "@renderer/lib/subject-scoped/subject-scoped-disposal.js";
 import { ReadScope } from "@renderer/lib/reads/read-scope.js";
 import { type SubjectKey } from "@renderer/lib/subject-scoped/subject-scoped-holder.js";
 

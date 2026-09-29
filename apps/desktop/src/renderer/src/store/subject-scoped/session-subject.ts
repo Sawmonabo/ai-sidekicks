@@ -14,8 +14,6 @@
 // state (`agents/run-console/agent-console-model.ts`), it runs outside React, and what
 // it needs is the predicate and not the storage. It states the same rule in the same
 // terms and holds nothing.
-
-export { useSessionScopedState, type SessionScopedKey } from "./useSessionScopedState.js";
 import { type SessionStore } from "../session/session-store.js";
 
 /**

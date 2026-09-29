@@ -23,9 +23,6 @@
 // does not know is NOT asserted into a member: the classifiers at the bottom
 // answer `undefined`, and the surface renders the wire string verbatim under an
 // unrecognized treatment, which is the fail-closed projection rule.
-
-export { STATE_TONE } from "@renderer/features/composer/approval/approval-state-tones.js";
-
 /** The seven canonical approval categories, verbatim. */
 export const APPROVAL_CATEGORIES = [
   "tool_execution",

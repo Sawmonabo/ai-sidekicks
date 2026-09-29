@@ -23,7 +23,6 @@ import { type ConsoleClock } from "@renderer/lib/clock.js";
 import { LiveAnnouncer } from "./live-announcer.js";
 import { LiveAnnouncerContext } from "./live-announcer-context.js";
 import { LiveRegion } from "./LiveRegion.js";
-export { useAnnounce } from "@renderer/hooks/useAnnounce.js";
 
 /** What the provider wraps, and an announcer or clock a test may supply. */
 export interface LiveAnnouncerProviderProps {

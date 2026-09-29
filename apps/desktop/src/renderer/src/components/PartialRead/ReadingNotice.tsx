@@ -19,8 +19,10 @@
 // its own, and a prose arm nests `InlineRefusal`, which carries rule 9's. Where the
 // SENTENCE itself has to be spoken, the surface calls `useReadingAnnouncement`.
 
-import { Nothing } from "@renderer/console/primitives/absence/index.js";
-import { DerivedFigure } from "@renderer/console/primitives/figures/index.js";
+import "./PartialRead.css";
+
+import { Nothing } from "../Nothing/Nothing.js";
+import { DerivedFigure } from "../DerivedFigure/DerivedFigure.js";
 import { InlineRefusal } from "../Refusal/InlineRefusal.js";
 import type { PartialReadNotice } from "@renderer/lib/partial-read.js";
 

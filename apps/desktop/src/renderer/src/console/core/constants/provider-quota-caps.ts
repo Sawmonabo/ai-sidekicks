@@ -4,9 +4,6 @@
 // The full-scale value stood under the shutdown budget's banner in the single-module
 // home, which is a heading it never belonged to — it bounds a quota bar's fill and is
 // read beside the notification buffer above it.
-
-export { PROVIDER_QUOTA_PENDING_NOTIFICATION_CAP } from "@renderer/store/provider-accounts/provider-account-notification-hold.js";
-
 /**
  * The full-scale value a utilization bar is drawn against, and the clamp on its fill.
  *

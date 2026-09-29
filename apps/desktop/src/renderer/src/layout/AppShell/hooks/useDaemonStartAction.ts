@@ -6,7 +6,7 @@
 
 import { useCallback } from "react";
 
-import { useGenerationLatch } from "@renderer/lib/reads/generation-latch.js";
+import { useGenerationLatch } from "@renderer/hooks/useGenerationLatch.js";
 
 /**
  * The key one start is in flight under. A key inside the call's own key space rather

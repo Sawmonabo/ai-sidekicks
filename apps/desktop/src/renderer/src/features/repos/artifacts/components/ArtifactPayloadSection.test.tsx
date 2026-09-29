@@ -12,7 +12,7 @@ import { fireEvent } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ArtifactReadResponse } from "@ai-sidekicks/contracts";
-import { ARTIFACT_PAYLOAD_PREVIEW_CHARACTER_CAP } from "@renderer/console/core/constants/artifact-caps.js";
+import { ARTIFACT_PAYLOAD_PREVIEW_CHARACTER_CAP } from "@renderer/store/artifacts/artifact-payload.js";
 import { handAnsweredCall } from "@test/helpers/held-calls.js";
 import {
   LISTED_ONE_ROW,

@@ -95,10 +95,8 @@ import { performance } from "node:perf_hooks";
 
 import { expect, test } from "vitest";
 
-import {
-  CONSOLE_ENTITY_KINDS,
-  emptyPartitions,
-} from "@renderer/store/session/entities/entities.js";
+import { CONSOLE_ENTITY_KINDS } from "@renderer/lib/entity-kinds.js";
+import { emptyPartitions } from "@renderer/store/session/entities/entities.js";
 import type { ConsoleEntity } from "@renderer/store/session/entities/entities.js";
 import {
   mergeUpsert,

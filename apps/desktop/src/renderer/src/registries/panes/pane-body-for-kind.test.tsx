@@ -16,7 +16,7 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { paneBodyForKind, type PaneContextOf } from "@renderer/components/PaneFrame/PaneFrame.js";
+import { paneBodyForKind, type PaneContextOf } from "./pane-body-for-kind.js";
 import { type ConsolePaneContext } from "./pane-context.js";
 
 describe("paneBodyForKind — a mismatched address is refused, not thrown", () => {

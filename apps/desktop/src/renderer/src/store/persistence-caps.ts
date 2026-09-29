@@ -1,8 +1,5 @@
 // What the persistence layer keeps and how large one record may be, beside the live
 // drafts that never reach it.
-
-export { IDENTIFIER_MAX_LENGTH } from "@renderer/lib/identifier-grammar.js";
-
 /**
  * Sessions whose UI state the persistence layer keeps. Past this the least
  * recently touched partition is trimmed, so a long-lived install does not grow

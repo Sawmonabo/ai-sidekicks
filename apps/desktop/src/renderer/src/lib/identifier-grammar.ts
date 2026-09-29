@@ -16,9 +16,6 @@
 // a value's structure is misread. Two failure modes, and one of them — the charset,
 // the ceiling, the path-separator exclusion — is the half a reviewer has to be able
 // to read on one screen without the seven class shapes around it.
-
-export { validatePersistedAddress } from "@renderer/store/persistence/persisted-value-classes.js";
-
 /**
  * The longest identifier the persistence grammar admits. A UUID is 36 characters
  * and a namespaced command id is well under this; prose is not.

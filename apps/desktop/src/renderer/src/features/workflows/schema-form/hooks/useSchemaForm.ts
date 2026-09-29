@@ -104,7 +104,7 @@ import {
 import { loadSchemaValidatorCompiler } from "../json-schema-validator-loader.js";
 import { type SchemaMemberPath } from "../schema-member-path.js";
 import { type SchemaValidationReport } from "../json-schema-validator.js";
-import { useGenerationLatch } from "@renderer/lib/reads/generation-latch.js";
+import { useGenerationLatch } from "@renderer/hooks/useGenerationLatch.js";
 import type { SchemaFormPlan } from "../plan/schema-fields.js";
 
 /** What the raw editor's text currently is, as a value rather than a parse. */

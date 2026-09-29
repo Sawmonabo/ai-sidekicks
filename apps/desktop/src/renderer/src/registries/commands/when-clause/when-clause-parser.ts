@@ -26,7 +26,7 @@
 // visibility check would fail OPEN in the worst way — by crashing the surface
 // that was deciding what to hide.
 
-import { WHEN_CLAUSE_MAX_DEPTH } from "@renderer/console/core/constants/palette-caps.js";
+import { WHEN_CLAUSE_MAX_DEPTH } from "@renderer/styles/palette.js";
 import type { WhenClauseNode } from "./when-clause.js";
 
 /** Why a clause did not parse. Closed — every arm renders its own copy. */

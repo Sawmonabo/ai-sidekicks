@@ -22,7 +22,7 @@ import { useMemo } from "react";
 
 import { useConsoleClock } from "@renderer/console/bridge/BridgeProvider.js";
 import { parseInstant } from "@renderer/lib/instant.js";
-import { useDeadlineWake } from "@renderer/lib/deadlines.js";
+import { useDeadlineWake } from "@renderer/hooks/useDeadlineWake.js";
 import {
   InputAskCard,
   askSettledBy,

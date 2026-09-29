@@ -26,7 +26,7 @@ import {
 } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
 
-import { ARTIFACT_PAYLOAD_PREVIEW_CHARACTER_CAP } from "./artifact-caps.js";
+import { ARTIFACT_PAYLOAD_PREVIEW_CHARACTER_CAP } from "@renderer/store/artifacts/artifact-payload.js";
 import {
   ATTACHMENT_BYTE_CAP_DEFAULT,
   ATTACHMENTS_PER_CARRIER_CAP_DEFAULT,
@@ -58,7 +58,11 @@ import {
   LIVE_ANNOUNCEMENT_HOLD_MS,
   LIVE_ANNOUNCEMENT_QUEUE_CAP,
 } from "@renderer/components/LiveAnnouncer/live-announcement-caps.js";
-import { PALETTE_RECENTS_CAP, PALETTE_RESULT_CAP, WHEN_CLAUSE_MAX_DEPTH } from "./palette-caps.js";
+import {
+  PALETTE_RECENTS_CAP,
+  PALETTE_RESULT_CAP,
+  WHEN_CLAUSE_MAX_DEPTH,
+} from "@renderer/styles/palette.js";
 import {
   PERSISTENCE_QUOTA_PRESSURE_RATIO,
   PERSISTENCE_RECORD_BYTE_CAP,

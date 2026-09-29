@@ -21,6 +21,8 @@
 // A compiled face forwards every prop it is given, so the class, the size, and
 // the accessibility attributes are set exactly where they were before.
 
+import "./Glyph.css";
+
 import { GLYPH_DEFAULT_SIZE, type GlyphName } from "@renderer/styles/glyphs.js";
 import { GLYPH_FACES } from "./glyph-icons.js";
 

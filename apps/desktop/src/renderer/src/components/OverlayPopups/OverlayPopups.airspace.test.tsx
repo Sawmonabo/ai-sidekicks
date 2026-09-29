@@ -10,31 +10,27 @@
 // it. The registry has no "suppress everything" arm and needs none — a full-viewport
 // rectangle IS that suppression — so what was missing was the registration.
 //
-// WHY IT IS ASSERTED THROUGH A MOUNT. The architecture gate next door reads source
-// and can see that a backdrop carries an airspace ref; only a mount can see that the
-// ref reached the element the library rendered and that the registration went away
-// when the modal closed.
+// WHY IT IS ASSERTED THROUGH A MOUNT. Only a mount can see that the ref reached the
+// element the library rendered and that the registration went away when the modal
+// closed.
 //
-// AND WHY THE NON-MODAL FAMILIES ARE HERE TOO. The fix is worth nothing if it made
+// AND WHY THE NON-MODAL WRAPPER IS HERE TOO. The fix is worth nothing if it made
 // every anchored popup claim the whole window: a menu that suppressed every native
-// view in the window would be a far louder defect than the one it replaced. The three
-// non-modal wrappers mount no backdrop, and the cases below say so by counting.
+// view in the window would be a far louder defect than the one it replaced. The menu
+// wrapper mounts no backdrop, and the cases below say so by counting; the combobox and
+// select popups, which belong to features, say the same in their own tests.
 
 import { render } from "@testing-library/react";
 import { AlertDialog } from "@base-ui/react/alert-dialog";
-import { Combobox } from "@base-ui/react/combobox";
 import { Dialog } from "@base-ui/react/dialog";
 import { Menu } from "@base-ui/react/menu";
-import { Select } from "@base-ui/react/select";
 import { describe, expect, it } from "vitest";
 
 import { airspaceRegistryFor } from "@renderer/lib/airspace-registries.js";
 import { type AirspaceRect } from "@renderer/lib/airspace-registry.js";
 import { OverlayAlertDialogPopup } from "./OverlayAlertDialogPopup.js";
-import { OverlayComboboxPopup } from "@renderer/features/agents/components/OverlayComboboxPopup/OverlayComboboxPopup.js";
 import { OverlayDialogPopup } from "./OverlayDialogPopup.js";
 import { OverlayMenuPopup } from "./OverlayMenuPopup.js";
-import { OverlaySelectPopup } from "@renderer/features/composer/components/OverlaySelectPopup/OverlaySelectPopup.js";
 
 /** The class every case below hangs on the backdrop so it can be found again. */
 const BACKDROP_CLASS = "probe-backdrop";
@@ -90,30 +86,6 @@ const NON_MODAL_CASES: readonly OverlayCase[] = [
       </Menu.Root>
     ),
   },
-  {
-    name: "OverlayComboboxPopup",
-    render: (open) => (
-      <Combobox.Root items={["one"]} open={open}>
-        <OverlayComboboxPopup positionerClassName="positioner" className="popup">
-          <Combobox.List>
-            <Combobox.Item value="one">one</Combobox.Item>
-          </Combobox.List>
-        </OverlayComboboxPopup>
-      </Combobox.Root>
-    ),
-  },
-  {
-    name: "OverlaySelectPopup",
-    render: (open) => (
-      <Select.Root items={[{ label: "one", value: "one" }]} open={open}>
-        <OverlaySelectPopup className="popup">
-          <Select.Item value="one">
-            <Select.ItemText>one</Select.ItemText>
-          </Select.Item>
-        </OverlaySelectPopup>
-      </Select.Root>
-    ),
-  },
 ];
 
 /** The backdrop the open modal drew, with a viewport-sized box planted on it. */
@@ -126,18 +98,14 @@ function plantViewportBackdrop(): void {
 }
 
 describe("a modal overlay's airspace", () => {
-  it("covers every modal wrapper the family publishes", () => {
+  it("covers every shared overlay wrapper", () => {
     // The vacuity floor: a case removed would leave the loop below saying nothing
     // about the wrapper it stopped covering.
     expect(MODAL_CASES.map((modal) => modal.name)).toStrictEqual([
       "OverlayDialogPopup",
       "OverlayAlertDialogPopup",
     ]);
-    expect(NON_MODAL_CASES.map((popup) => popup.name)).toStrictEqual([
-      "OverlayMenuPopup",
-      "OverlayComboboxPopup",
-      "OverlaySelectPopup",
-    ]);
+    expect(NON_MODAL_CASES.map((popup) => popup.name)).toStrictEqual(["OverlayMenuPopup"]);
   });
 
   it.each(MODAL_CASES)("$name registers the backdrop's whole rectangle", ({ render: open }) => {

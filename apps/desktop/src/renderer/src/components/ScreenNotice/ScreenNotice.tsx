@@ -27,6 +27,8 @@
 // family carrying another family's prefix is the drift the per-family sheet rule
 // exists to prevent.
 
+import "./ScreenNotice.css";
+
 import { ChordHint } from "../ChordHint/ChordHint.js";
 import { COMMAND_PALETTE_OPEN_CHORD } from "@renderer/lib/chord-format.js";
 

@@ -15,12 +15,6 @@
 //   • **Projections never persist.** Nothing here is durable. `persistence/` holds
 //     UI state only, and every entity in this module is re-derived from the
 //     daemon on reconnect.
-
-export {
-  CONSOLE_ENTITY_KINDS,
-  type ConsoleEntityKind,
-  type ConsoleEntityRef,
-} from "@renderer/lib/entity-kinds.js";
 import {
   CONSOLE_ENTITY_KINDS,
   type ConsoleEntityKind,

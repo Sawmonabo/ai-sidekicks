@@ -19,7 +19,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { PALETTE_RESULT_CAP } from "@renderer/console/core/constants/palette-caps.js";
+import { PALETTE_RESULT_CAP } from "@renderer/styles/palette.js";
 import {
   COMMAND_PALETTE_OPEN_CHORD,
   formatCount,

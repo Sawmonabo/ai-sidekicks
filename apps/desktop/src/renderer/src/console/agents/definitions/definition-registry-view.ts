@@ -24,9 +24,9 @@ import { refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
 import { GenerationLatch } from "@renderer/lib/reads/generation-latch.js";
 import {
   NO_TRIGGERING_EVENT_KINDS,
-  useWindowReadTriggers,
   type ReadTriggerTarget,
 } from "@renderer/store/reads/read-triggers.js";
+import { useWindowReadTriggers } from "@renderer/store/reads/hooks/useWindowReadTriggers.js";
 import { RefreshScheduler, type RefreshReason } from "@renderer/lib/reads/refresh-scheduler.js";
 import { useSettlementAnnouncement } from "../../primitives/index.js";
 import type { ListAgentDefinitions } from "@renderer/features/agents/agent-reads.js";

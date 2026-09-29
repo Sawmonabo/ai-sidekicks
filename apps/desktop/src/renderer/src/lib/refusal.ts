@@ -30,9 +30,9 @@
 // changes — this module still names no producer, and a caller passing a `string` still
 // gets a plain `ConsoleRefusal` back.
 //
-// The one import is `src/shared/wire-errors.ts`, which is not a producer and not a
-// family: it is the cross-process leaf, it imports nothing itself, and what is taken
-// from it is the total property reader. See {@link isConsoleRefusal}.
+// The one import is `wire-errors.ts`, which is not a producer: it imports nothing
+// itself, and what is taken from it is the total property reader. See
+// {@link isConsoleRefusal}.
 
 import { readGuardedProperty } from "./wire-errors.js";
 

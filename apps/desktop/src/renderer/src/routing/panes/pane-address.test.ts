@@ -21,7 +21,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { ConsoleEntityRef } from "@renderer/store/session/entities/entities.js";
+import type { ConsoleEntityRef } from "@renderer/lib/entity-kinds.js";
 import { type ConsolePaneAddress } from "./pane-address.js";
 import { parseConsolePaneAddress } from "./parse-pane-address.js";
 import { AGENT, ARTIFACT, BROWSER_PAGE, RUN, refusalFrom } from "./pane-address.test-support.js";

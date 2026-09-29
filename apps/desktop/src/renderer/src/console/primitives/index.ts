@@ -64,13 +64,7 @@
 // specificity, by disjoint properties, or by an identical declaration in both, never by
 // which sheet loaded last.
 
-import "@renderer/styles/visually-hidden.css";
 import "@renderer/features/composer/accent-fill.css";
-import "@renderer/components/ChordHint/ChordHint.css";
-import "@renderer/components/ScreenNotice/ScreenNotice.css";
-import "@renderer/components/ErrorBoundary/ErrorBoundary.css";
-import "@renderer/components/Refusal/Refusal.css";
-import "@renderer/components/PartialRead/PartialRead.css";
 import "@renderer/features/composer/components/ExecutionPostureCard/ExecutionPostureCard.css";
 // `restore/restore.css` is NOT here, and its absence is the stylesheet rule rather than
 // an omission: that directory carries a lazily-loaded chunk now, so it has an owner of
@@ -144,10 +138,8 @@ export { SurfaceAbsence } from "@renderer/components/ScreenNotice/ScreenNotice.j
 // because the whole point of the primitive is that there is a single pair of
 // regions per window: a family that reached past the barrel for its own would be
 // the second speaker this module exists to prevent.
-export {
-  LiveAnnouncerProvider,
-  useAnnounce,
-} from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
+export { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
+export { useAnnounce } from "@renderer/hooks/useAnnounce.js";
 // The sink's own type, for a surface that settles an outcome somewhere other than
 // where it read the context — the deck reads `useAnnounce` in its component and
 // hands the result to the drag monitor, which is a hook and cannot read it twice.
@@ -225,11 +217,8 @@ export { PartialRead } from "@renderer/components/PartialRead/PartialRead.js";
 // THE LATCH ITSELF LEAVES TOO, for the caller whose memory is neither arity's: the
 // sidebar's is once per SESSION, and only an ARRAY replaces this latch's memory where
 // the scalar arity's `undefined` leaves it standing — see `sidebar-column-reads.ts`.
-export {
-  /** @consumedBy a view family that has not landed yet */
-  useReadingAnnouncement,
-  useReadSettlementAnnouncement,
-} from "@renderer/hooks/useAnnounceOncePerSentence.js";
+export { useReadingAnnouncement } from "@renderer/hooks/useAnnounceOncePerSentence.js";
+export { useReadSettlementAnnouncement } from "@renderer/hooks/useReadSettlementAnnouncement.js";
 
 // A window's own cap, which is a different fact from a read's completeness — see the
 // module header for why the two vocabularies sit beside each other rather than one

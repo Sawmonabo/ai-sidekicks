@@ -61,7 +61,6 @@ import {
   type AttentionReading,
   type RefusedAttentionSession,
 } from "../attention-summary.js";
-export { useAttentionSettlementAnnouncement } from "@renderer/layout/NotificationsList/hooks/useAttentionSettlementAnnouncement.js";
 
 /**
  * What one fan-out over the session-scoped read produced.

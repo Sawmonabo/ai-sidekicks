@@ -79,8 +79,6 @@
 // re-confirmed, against a row whose state may have moved underneath it. It is not a
 // scheduler either — a burst collapsing into one read is `refresh-scheduler.ts`.
 
-export { useGenerationLatch } from "@renderer/hooks/useGenerationLatch.js";
-
 /**
  * A handle on the round a key is on: whether it is still live, and one settlement.
  *

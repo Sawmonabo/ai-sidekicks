@@ -41,8 +41,6 @@
 // instant is held per clock through `subject-scoped-state.ts` and re-seeded during
 // the render that first sees a replacement rather than one frame later.
 
-export { useDeadlineWake } from "@renderer/hooks/useDeadlineWake.js";
-
 /**
  * The soonest deadline still ahead of `nowMilliseconds`, or `undefined`.
  *

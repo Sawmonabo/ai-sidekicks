@@ -17,10 +17,8 @@ import {
   type PaneGeometryOutcome,
 } from "@renderer/features/preview/geometry/geometry-publisher.js";
 import type { AttachedPaneViewHost } from "@renderer/features/preview/geometry/view-host.js";
-import {
-  useSubjectScopedResource,
-  type SubjectScopedDisposal,
-} from "@renderer/hooks/subject-scoped/useSubjectScopedResource.js";
+import { useSubjectScopedResource } from "@renderer/hooks/subject-scoped/useSubjectScopedResource.js";
+import { type SubjectScopedDisposal } from "@renderer/lib/subject-scoped/subject-scoped-disposal.js";
 import { airspaceRegistryFor } from "@renderer/lib/airspace-registries.js";
 import { type AirspaceRegistry } from "@renderer/lib/airspace-registry.js";
 import { consoleClockFor, type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";

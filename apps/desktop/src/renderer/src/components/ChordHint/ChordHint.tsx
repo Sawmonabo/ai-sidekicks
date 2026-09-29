@@ -24,6 +24,8 @@
 // therefore hidden from assistive technology and the whole hint carries a spoken
 // label composed from the same tokens — one source, two renderings.
 
+import "./ChordHint.css";
+
 import {
   HOST_CHORD_PLATFORM,
   renderChordForPlatform,

@@ -38,7 +38,8 @@
 import { useCallback, useSyncExternalStore } from "react";
 import { useStore } from "zustand";
 
-import type { ConsoleEntity, ConsoleEntityKind, ConsoleEntityRef } from "../entities/entities.js";
+import type { ConsoleEntity } from "../entities/entities.js";
+import type { ConsoleEntityKind, ConsoleEntityRef } from "@renderer/lib/entity-kinds.js";
 import type { SessionStoreRegistry } from "../session-store-registry.js";
 import {
   selectEntity,

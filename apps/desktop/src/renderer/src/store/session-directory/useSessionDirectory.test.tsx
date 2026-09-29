@@ -14,10 +14,10 @@ import { NO_TRANSPORT_RECONNECT } from "@renderer/lib/transport-reconnect.js";
 import {
   offeredSessionIds,
   requestSessionDirectoryRead,
-  useSessionDirectory,
   type SessionDirectoryReadCall,
   type SessionDirectoryState,
 } from "./session-directory.js";
+import { useSessionDirectory } from "./useSessionDirectory.js";
 
 /** A call that counts its reads and answers the one row that names its read. */
 interface CountedDirectoryCall {

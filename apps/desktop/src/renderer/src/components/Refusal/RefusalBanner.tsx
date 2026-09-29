@@ -4,8 +4,12 @@
 // props they share; this module decides only the two things that are the banner's
 // own — whether a person can put it away, and that it does not speak for itself.
 
+import "./Refusal.css";
+
 import { GLYPH_SIZE_CHROME } from "@renderer/styles/glyphs.js";
-import { Glyph, WireFigure, formatWireString } from "@renderer/console/primitives/figures/index.js";
+import { Glyph } from "../Glyph/Glyph.js";
+import { WireFigure } from "../WireFigure/WireFigure.js";
+import { formatWireString } from "@renderer/lib/wire-figures.js";
 import { type RefusalProps } from "./refusal-props.js";
 
 export interface RefusalBannerProps extends Omit<RefusalProps, "detail"> {

@@ -50,7 +50,7 @@
 // suite beside this file asserts it against both a singular and a plural subject.
 
 import type { ConsoleRefusal } from "./refusal.js";
-import { formatCount } from "@renderer/console/primitives/figures/index.js";
+import { formatCount } from "./wire-figures.js";
 
 /**
  * Closed. The tuple is the declaration and `ReadingStateKind` follows from it, so a

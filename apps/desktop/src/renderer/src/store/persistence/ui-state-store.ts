@@ -61,7 +61,7 @@ import {
   type QuotaGauge,
   type StoredRecord,
 } from "./persistence-adapter.js";
-import { validatePersistedAddress } from "@renderer/lib/identifier-grammar.js";
+import { validatePersistedAddress } from "./persisted-value-classes.js";
 import { MemoryPersistenceAdapter } from "./memory-persistence-adapter.js";
 import {
   openConsoleDatabase,

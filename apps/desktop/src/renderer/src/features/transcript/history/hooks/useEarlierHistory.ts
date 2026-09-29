@@ -29,10 +29,8 @@ import { useCallback, useMemo, useState } from "react";
 
 import { useConsoleBridge } from "@renderer/console/bridge/BridgeProvider.js";
 import { useSessionStore } from "@renderer/store/session/hooks/useOpenSessionStore.js";
-import {
-  useSubjectScopedResource,
-  type SubjectScopedDisposal,
-} from "@renderer/hooks/subject-scoped/useSubjectScopedResource.js";
+import { useSubjectScopedResource } from "@renderer/hooks/subject-scoped/useSubjectScopedResource.js";
+import { type SubjectScopedDisposal } from "@renderer/lib/subject-scoped/subject-scoped-disposal.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 import {
   LedgerEarlierWindowReader,

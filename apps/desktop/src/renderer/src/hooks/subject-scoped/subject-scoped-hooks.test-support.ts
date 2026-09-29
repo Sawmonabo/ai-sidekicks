@@ -23,8 +23,6 @@
 import { act, render, type RenderResult } from "@testing-library/react";
 import { startTransition, type ReactElement } from "react";
 
-export { visit } from "@renderer/lib/subject-scoped/subject-scoped-holder.test-support.js";
-
 /**
  * A promise nothing ever settles, so the pass that suspends on it never resumes.
  *

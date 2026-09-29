@@ -44,7 +44,6 @@ import {
   type AttentionSubscribeCall,
 } from "./hooks/useAttentionProjection.js";
 import { SessionAttentionContext } from "./hooks/useAttention.js";
-export { useSessionAttention } from "./hooks/useAttention.js";
 
 /**
  * What this window holds about the sessions it can name, read once.

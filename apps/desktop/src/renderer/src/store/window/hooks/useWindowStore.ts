@@ -2,8 +2,6 @@ import { useStore } from "zustand";
 
 import type { FrameStore, FrameStoreState } from "../window-store.js";
 
-export { useShellState } from "./useMainProcessState.js";
-
 /**
  * Select from the window's store.
  *

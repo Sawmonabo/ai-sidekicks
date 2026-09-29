@@ -28,7 +28,7 @@ import { ChatStartSlot } from "./components/ChatStartMountPoint.js";
 import { WorkflowStateStrip } from "../components/WorkflowStateStrip.js";
 import { refusedWorkflowStrip } from "../strip-state.js";
 import { ConsolePaneChrome, type PaneContextOf } from "@renderer/console/seats/index.js";
-import type { ConsoleEntityRef } from "@renderer/store/session/entities/entities.js";
+import type { ConsoleEntityRef } from "@renderer/lib/entity-kinds.js";
 import { WORKFLOW_RUN_PANE_SUBJECT_KIND, misaddressedRunPane } from "./run-addressing.js";
 
 /** What this pane is for, in the one line that stands under its head. */

@@ -8,7 +8,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { ArtifactReadResponse } from "@ai-sidekicks/contracts";
-import { ARTIFACT_PAYLOAD_PREVIEW_CHARACTER_CAP } from "@renderer/console/core/constants/artifact-caps.js";
+import { ARTIFACT_PAYLOAD_PREVIEW_CHARACTER_CAP } from "./artifact-payload.js";
 import { artifactPayloadReadingFrom } from "./artifact-payload.js";
 
 /** Those bytes as the wire carries them, built rather than transcribed. */

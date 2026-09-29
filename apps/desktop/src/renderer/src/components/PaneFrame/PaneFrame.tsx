@@ -36,16 +36,11 @@ import "./PaneFrame.css";
 import { useId } from "react";
 
 import { Glyph } from "@renderer/console/primitives/index.js";
-import { type ConsoleEntityRef } from "@renderer/store/session/entities/entities.js";
+import { type ConsoleEntityRef } from "@renderer/lib/entity-kinds.js";
 import { GLYPH_DEFAULT_SIZE, GLYPH_SIZE_CHROME, type GlyphName } from "@renderer/styles/glyphs.js";
 import { PaneBreadcrumb } from "./PaneBreadcrumb.js";
-import { usePaneControls } from "./pane-controls.js";
+import { usePaneControls } from "./usePaneControls.js";
 import { type PaneKind } from "@renderer/routing/panes/pane-kinds.js";
-export {
-  paneBodyForKind,
-  type PaneContextOf,
-} from "@renderer/registries/panes/pane-body-for-kind.js";
-
 /**
  * The glyph each pane kind wears, total over the closed set.
  *

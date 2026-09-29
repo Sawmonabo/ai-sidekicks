@@ -35,7 +35,7 @@ import type { WorkflowRunState } from "../runs/run-list-rows.js";
 // record, and the chokepoint rule in `apps/desktop/AGENTS.md` gives that one
 // function: a second one here agreed on ASCII and would have drifted on the first
 // rule either grew.
-import { measureUtf8ByteLength } from "@renderer/store/persistence/persisted-value-classes.js";
+import { measureUtf8ByteLength } from "@renderer/lib/utf8-byte-length.js";
 
 /**
  * The two run controls, and exactly two.

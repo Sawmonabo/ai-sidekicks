@@ -19,7 +19,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { consoleTripwires } from "../tripwires.js";
 import { SUBJECT_ONE, SUBJECT_TWO } from "@test/helpers/subject-fixtures.js";
-import { visit } from "@renderer/hooks/subject-scoped/subject-scoped-hooks.test-support.js";
+import { visit } from "./subject-scoped-holder.test-support.js";
 import { SubjectScopedHolder } from "./subject-scoped-holder.js";
 
 // Tripwires throw in a development build, which would turn the two backstops below

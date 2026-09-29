@@ -23,7 +23,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { BOUNDED_ENUMERATION_MAX_ROWS } from "@renderer/console/core/constants/palette-caps.js";
+import { BOUNDED_ENUMERATION_MAX_ROWS } from "./palette.js";
 import { ENUMERATION_ROW_HEIGHT_REM } from "./palette.js";
 import { BOUNDED_ENUMERATION_HEIGHT_REM } from "./palette.js";
 import { ACTOR_HUES, SCHEME_COLOR_TOKENS, actorHueTokenName, tokenVariableName } from "./tokens.js";

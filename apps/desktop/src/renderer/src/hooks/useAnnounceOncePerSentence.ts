@@ -52,9 +52,7 @@
 
 import { useEffect, useRef } from "react";
 
-import { useAnnounce } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
-export { useReadSettlementAnnouncement } from "./useReadSettlementAnnouncement.js";
-
+import { useAnnounce } from "./useAnnounce.js";
 /**
  * What "once" is counted by, where the sentence itself is the wrong answer.
  *

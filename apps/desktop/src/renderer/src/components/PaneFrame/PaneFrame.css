@@ -1,6 +1,5 @@
-/* The pane frame. One sheet for every pane kind, imported by `seats/pane/ConsolePaneChrome.tsx`
-   — the single edge into it — rather than by the family door six concurrent branches
-   each add a line to.
+/* The pane frame. One sheet for every pane kind, imported by `PaneFrame.tsx`, the single
+   edge into it.
 
    `--meridian-pane-hue` is set per pane by the chrome, from the actor the pane's entity
    is attributed to, and is absent where there is no actor. It is read only by the two

@@ -24,7 +24,7 @@
 import { lossyStringify } from "@renderer/lib/wire-errors.js";
 
 import { KeyedRegistry } from "@renderer/lib/keyed-registry.js";
-import { PALETTE_RECENTS_CAP } from "@renderer/console/core/constants/palette-caps.js";
+import { PALETTE_RECENTS_CAP } from "@renderer/styles/palette.js";
 import type { ConsoleCommand } from "./command-types.js";
 import {
   compareCommandsForDisplay,

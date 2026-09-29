@@ -24,10 +24,6 @@
 // keep a second copy of a four-line flip, the flip moved into this module's own
 // memory — beside the timeline cursor it is minted and discarded with, because they
 // are one memory of one session's history — and the bridge module was deleted.
-
-export { useReadTriggers } from "./hooks/useReadTriggers.js";
-export { useSessionReadTriggers } from "./hooks/useSessionReadTriggers.js";
-export { useWindowReadTriggers } from "./hooks/useWindowReadTriggers.js";
 import type { ConsoleSessionEvent } from "../session/entities/entities.js";
 import type { RefreshReason } from "@renderer/lib/reads/refresh-scheduler.js";
 

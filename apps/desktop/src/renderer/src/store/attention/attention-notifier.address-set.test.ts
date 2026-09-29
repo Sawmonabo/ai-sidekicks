@@ -23,7 +23,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { ATTENTION_NOTIFIED_ITEM_CAP } from "@renderer/console/core/constants/sessions-caps.js";
+import { ATTENTION_NOTIFIED_ITEM_CAP } from "./attention-notifier.js";
 import { refuse } from "@renderer/lib/refusal.js";
 import type { AttentionItem } from "@renderer/console/bridge/wire-shapes/attention-projection.js";
 import { AttentionPlane, type AnsweredAttentionReading } from "./attention-summary.js";

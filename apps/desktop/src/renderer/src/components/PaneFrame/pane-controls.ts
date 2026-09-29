@@ -30,8 +30,6 @@
 import { createContext } from "react";
 
 import { type ConsolePaneOpener } from "@renderer/routing/panes/pane-address.js";
-export { usePaneControls } from "./usePaneControls.js";
-
 // NO GLYPH SIZE IS DECLARED HERE. The head's controls and the breadcrumb's
 // separators are one chrome at one size, and that size is `GLYPH_SIZE_CHROME` in
 // `tokens/glyphs.ts` — a console-wide token rather than a per-family constant,

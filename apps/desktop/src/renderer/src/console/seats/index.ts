@@ -69,7 +69,6 @@
 // module carries the same claim as a `// Consumed by` line. Both go in the PR that
 // imports the symbol — a tag that outlives its consumer fails the run.
 
-import "@renderer/components/PaneFrame/PaneFrame.css";
 // The schema form seat's rules are deliberately NOT here. That directory carries a
 // lazily-loaded chunk now, so it owns its own sheet and admits it at that chunk's root —
 // `apps/desktop/AGENTS.md`'s rule read from the owner's side. It loads with the first
@@ -280,11 +279,11 @@ export {
 // shipped families name the owner slot's contract on the slots they declare — the
 // ledger's message card and timeline pane, and the workflows family's own slot table.
 // A surviving marker would fail the run under `--treat-tag-hints-as-errors`.
+export { ConsolePaneChrome } from "@renderer/components/PaneFrame/PaneFrame.js";
 export {
-  ConsolePaneChrome,
   paneBodyForKind,
   type PaneContextOf,
-} from "@renderer/components/PaneFrame/PaneFrame.js";
+} from "@renderer/registries/panes/pane-body-for-kind.js";
 
 export {
   PaneControlsContext,
@@ -301,10 +300,8 @@ export {
 // orphan — which is why the census below is the thing that says who owes the rebind.
 // The hook's claim is retired: the ledger's pane holds its chapter disclosure and
 // both of its row-retention tables through this line.
-export {
-  isCurrentSessionSubject,
-  useSessionScopedState,
-} from "@renderer/store/subject-scoped/session-subject.js";
+export { isCurrentSessionSubject } from "@renderer/store/subject-scoped/session-subject.js";
+export { useSessionScopedState } from "@renderer/store/subject-scoped/useSessionScopedState.js";
 // `SessionScopedKey` stays off the door with the hook's own claim: every caller passes a
 // session id rather than declaring the key type, so the reservation that held the line
 // named a task that landed and imported it nowhere.
@@ -320,10 +317,8 @@ export type { SessionSubject } from "@renderer/store/subject-scoped/session-subj
 // is addressed at the call, so the family that settles an act and the families that
 // render the answer reach one generation rather than passing a refresh callback down
 // through whichever surfaces happen to sit between them.
-export {
-  requestSessionDirectoryRead,
-  useSessionDirectory,
-} from "@renderer/store/session-directory/session-directory.js";
+export { requestSessionDirectoryRead } from "@renderer/store/session-directory/session-directory.js";
+export { useSessionDirectory } from "@renderer/store/session-directory/useSessionDirectory.js";
 export type {
   SessionDirectoryReadCall,
   SessionDirectoryState,
@@ -352,16 +347,17 @@ export type {
 // than a convenience.
 export {
   PushDrivenRead,
-  usePushDrivenRead,
   type PushDrivenReadState,
 } from "@renderer/store/reads/push-driven-read.js";
+export { usePushDrivenRead } from "@renderer/store/reads/hooks/usePushDrivenRead.js";
 
 // The reply unwrappers, from the module that DECLARES them. They answer a
 // different question from the model above — a reply's own discriminant, with no
 // subscription, scheduler, or teardown behind it — and a MUTATION needs the same
 // translation with no read to route through, which is why they are free functions
 // and why they left that module when it was split.
-export { consoleRefusalFrom, servedValueOrRaise } from "@renderer/lib/coerce-to-refusal.js";
+export { consoleRefusalFrom } from "@renderer/lib/coerce-to-refusal.js";
+export { servedValueOrRaise } from "@renderer/services/daemon/unwrap-daemon-reply.js";
 
 // The console's single copy of the daemon-EVENT cast. The brand
 // `DesktopBridge.daemon.subscribe` takes is `never`-shaped until the daemon method

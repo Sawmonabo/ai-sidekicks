@@ -60,8 +60,6 @@
 // clock, and a read that is simply slow is not abandoned by anyone.
 
 import { GenerationLatch, type CurrentGenerationClaim } from "./generation-latch.js";
-export { useReadScope } from "@renderer/hooks/useReadScope.js";
-
 /**
  * The one key every scope claims under.
  *

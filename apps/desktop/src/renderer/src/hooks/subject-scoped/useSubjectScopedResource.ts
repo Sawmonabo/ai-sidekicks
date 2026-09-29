@@ -82,11 +82,6 @@ import {
   type SubjectScopedPublish,
 } from "@renderer/lib/subject-scoped/subject-scoped-holder.js";
 import { useHeldSubjectValue, type SubjectScopedState } from "./useSubjectScopedState.js";
-export type {
-  SubjectScopedDisposal,
-  SubjectScopedRelease,
-  SubjectScopedTerminalDisposal,
-} from "@renderer/lib/subject-scoped/subject-scoped-disposal.js";
 import type { SubjectScopedDisposal } from "@renderer/lib/subject-scoped/subject-scoped-disposal.js";
 
 /**

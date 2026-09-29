@@ -28,7 +28,7 @@
 // is "never spend a frame on this", and a console that quietly broke that rule on hosts
 // without workers would break it exactly where nobody was measuring.
 
-import { measureUtf8ByteLength } from "@renderer/store/persistence/persisted-value-classes.js";
+import { measureUtf8ByteLength } from "@renderer/lib/utf8-byte-length.js";
 import { ByteBoundedCache } from "../parse/byte-bounded-cache.js";
 import type { CodeTokenLine } from "./code-tokenizer.js";
 import type { HighlightableLanguage } from "./highlight-languages.js";

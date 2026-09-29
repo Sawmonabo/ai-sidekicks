@@ -57,10 +57,7 @@
 // two read identically at a call site, and only the first makes "this pane takes
 // no entity" a fact the compiler holds.
 
-import {
-  CONSOLE_ENTITY_KINDS,
-  type ConsoleEntityRef,
-} from "@renderer/store/session/entities/entities.js";
+import { CONSOLE_ENTITY_KINDS, type ConsoleEntityRef } from "@renderer/lib/entity-kinds.js";
 import { type PaneKind } from "./pane-kinds.js";
 
 /**

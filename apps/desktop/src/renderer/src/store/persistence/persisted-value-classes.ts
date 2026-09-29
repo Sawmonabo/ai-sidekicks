@@ -50,7 +50,6 @@ import {
   isSingleNameIdentifierShaped,
 } from "@renderer/lib/identifier-grammar.js";
 import { measureUtf8ByteLength } from "@renderer/lib/utf8-byte-length.js";
-export { measureUtf8ByteLength } from "@renderer/lib/utf8-byte-length.js";
 import { refusePersistence, type PersistenceRefusal } from "./persistence-refusals.js";
 
 /**

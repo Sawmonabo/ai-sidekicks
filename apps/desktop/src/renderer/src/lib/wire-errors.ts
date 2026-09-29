@@ -1,24 +1,10 @@
-// Wire-rejection helpers shared by every renderer surface.
+// The wire error envelope and the total readers every rejection path shares: a guarded
+// property read, a guarded `instanceof`, the envelope reader, and a stringifier that
+// cannot throw. `wire-rejection.ts` builds the renderer's refusal from these.
 //
-// Counted across the four sibling views in `runtime-node-attach/` before this
-// module existed: THREE normalizers (`normalizeAttachError`,
-// `normalizeRosterReadError`, `normalizeUnrecognizedRejection`), TWO copies of
-// the generic envelope guard, TWO copies of the never-throwing stringifier, and
-// TWO copies of a code-scoped below-floor recognizer — nine bodies for four
-// jobs, four of them under comments that named the duplication ("LOCAL
-// DUPLICATE of the sibling original …") and defended it on file-scope grounds.
-// File scope is a reason to hoist, not a reason to copy: the copies are
-// byte-identical, their rationales are the same rationale written out again,
-// and the one deliberate divergence between them — a TOTAL wrap at a prop
-// boundary versus a bare `String(...)` wrap at a catch boundary — is a
-// PARAMETER, not a reason for three normalizers.
-//
-// This module lives in `src/shared/` rather than under `src/renderer/` because
-// the same shapes cross the preload boundary in both directions and a main-side
-// consumer must not have to reach into renderer source for them. It imports
-// nothing at all: no `electron`, no `node:*`, not even contracts — the readers are
-// structural by design (see `readWireErrorEnvelope`), so binding them to a schema
-// would narrow them below what their callers need.
+// It imports nothing: the readers are structural by design (see
+// `readWireErrorEnvelope`), so binding them to a schema would narrow them below what
+// their callers need.
 //
 // AND NOTHING HERE IS A TYPE PREDICATE OVER A CANDIDATE. Every envelope question is
 // answered by a READER that hands back a snapshot it has already taken, because a
@@ -43,7 +29,7 @@ export interface WireErrorEnvelope {
  *
  * The one piece of vocabulary the readers here share, exported because it is a
  * SEAM rather than an implementation detail: {@link lossyStringify} answers it when
- * a value refuses to stringify, and `console/core/wire-rejection.ts` answers it
+ * a value refuses to stringify, and `wire-rejection.ts` answers it
  * where a rejection carries a code but no sentence — and a renderer that saw two
  * spellings of "this could not be read" would be reading two different facts.
  */
@@ -199,14 +185,9 @@ export function lossyStringify(value: unknown): string {
 /**
  * Renders a rejection as an `Error`, for a surface whose view state holds one.
  *
- * NAMED FOR WHAT IT ANSWERS, not for what it does to its input. It was
- * `normalizeWireRejection`, which is also what `console/core/wire-rejection.ts` is
- * called — and that one answers a `ConsoleRefusal` and keeps the daemon's own code
- * where this one flattens it onto `Error.name`. Two functions, one name, two return
- * types, and an import from the wrong module compiles wherever the result is only
- * rendered. The console's cannot live here (its answer is a renderer-only shape and
- * `src/shared/` may import the contracts package and nothing else), so the collision
- * is closed by naming rather than by a lint rule.
+ * NAMED FOR WHAT IT ANSWERS. `normalizeWireRejection` in `wire-rejection.ts` answers a
+ * `ConsoleRefusal` and keeps the daemon's own code; this one flattens the code onto
+ * `Error.name` for a surface whose view state holds an `Error`.
  *
  *   • A typed wire envelope (or an `Error` carrying a wire `code`) is rebuilt as
  *     a fresh `Error` with the wire `code` as `Error.name`, so the rendered

@@ -9,7 +9,6 @@ import { ConsoleRefusalError, isConsoleRefusal, type ConsoleRefusal } from "./re
 import { normalizeWireRejection } from "./wire-rejection.js";
 import { wireRejectionToError } from "./wire-errors.js";
 import { READ_FAILED } from "./reads/read-failure-codes.js";
-export { servedValueOrRaise } from "@renderer/services/daemon/unwrap-daemon-reply.js";
 
 /**
  * The refusal a rejection is, in the console's one refusal shape.

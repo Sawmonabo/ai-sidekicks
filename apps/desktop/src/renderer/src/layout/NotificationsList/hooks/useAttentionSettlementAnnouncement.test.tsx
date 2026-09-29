@@ -23,7 +23,7 @@ import {
   AttentionPlane,
   type AttentionReading,
 } from "@renderer/store/attention/attention-summary.js";
-import { useAttentionSettlementAnnouncement } from "@renderer/store/attention/hooks/useAttentionProjection.js";
+import { useAttentionSettlementAnnouncement } from "./useAttentionSettlementAnnouncement.js";
 
 const CREATED_AT = "2026-01-01T10:00:00.000Z";
 
