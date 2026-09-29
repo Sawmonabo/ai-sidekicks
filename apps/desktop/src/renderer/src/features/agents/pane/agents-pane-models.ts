@@ -1,11 +1,10 @@
 // Who owns the agent console's reads, and for how long.
 //
 // LIFETIME, NOT REFRESH. Which method answers each read and what makes it ask again
-// is `agent-console-reads.ts`; this module owns how long a read lives, who is
-// holding it, and what disposes it. The two were one file and they change for
-// different reasons — a lease policy moves when a surface changes how it mounts,
-// and a refresh story moves when the wire grows a signal — so a reader chasing one
-// no longer has to read past the other.
+// is `../agent-reads.ts`; this module owns how long a read lives, who is
+// holding it, and what disposes it. The two change for different reasons — a lease
+// policy moves when a surface changes how it mounts, and a refresh story moves when
+// the wire grows a signal.
 //
 // A CACHE OF ONE, TWICE OVER. A console shows one session at a time and one run's
 // links at a time, so both caches hold exactly one entry and switching disposes what
@@ -27,20 +26,18 @@
 // the only clock the renderer reads, so every debounce here advances exactly when a
 // scenario tick says it does.
 
-import { useEffect, useState } from "react";
-
 import type { ConsoleClock } from "@renderer/lib/clock.js";
 import { consoleClockFor } from "@renderer/services/platform/hooks/useClock.js";
 import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
-import { isCurrentSessionSubject, type SessionSubject } from "../../seats/index.js";
+import { type SessionSubject } from "@renderer/console/seats/index.js";
 import type { SessionStore } from "@renderer/store/session/session-store.js";
 import {
-  createAgentRoster,
-  createChildRunLinkage,
+  createAgentList,
+  createChildRunLinks,
   type AgentConsoleCalls,
-  type AgentRosterRead,
-  type ChildRunLinkageRead,
-} from "@renderer/features/agents/agent-reads.js";
+  type AgentListRead,
+  type ChildRunLinksRead,
+} from "../agent-reads.js";
 
 /**
  * One holder's grant of a parent run's child-link read.
@@ -52,8 +49,8 @@ import {
  * `start()` is idempotent, so a second holder joining a live read starts nothing
  * twice.
  */
-export interface ChildRunLinkageLease {
-  readonly read: ChildRunLinkageRead;
+export interface ChildRunLinksLease {
+  readonly read: ChildRunLinksRead;
   /**
    * Give this grant back.
    *
@@ -71,17 +68,17 @@ export interface ChildRunLinkageLease {
  * teardown, and `apps/desktop/AGENTS.md` puts stateful logic in a class with private
  * fields.
  */
-export class AgentConsoleModels {
+export class AgentsPaneModels {
   /**
    * The exact bridge and store this set was built for.
    *
-   * Public because it is what {@link useAgentConsoleModels} compares at render, and
+   * Public because it is what {@link useAgentsPaneModels} compares at render, and
    * the store is held rather than reduced to a `sessionId` for a second reason: a
    * child link and a refused create both arrive as session events, so the linkage
    * read needs the stream itself and not the name of the session it belongs to.
    */
   public readonly subject: SessionSubject;
-  public readonly roster: AgentRosterRead;
+  public readonly roster: AgentListRead;
 
   readonly #clock: ConsoleClock;
   readonly #calls: AgentConsoleCalls;
@@ -92,13 +89,13 @@ export class AgentConsoleModels {
   public constructor(bridge: ConsoleBridge, sessionStore: SessionStore, calls: AgentConsoleCalls) {
     this.subject = { bridge, sessionStore };
     this.#calls = calls;
-    // Through the bridge family's own door rather than resolved here. The rule — a
+    // Through the platform service's clock rather than resolved here. The rule — a
     // fixture bridge running an engine shares that engine's FROZEN clock, and only a
-    // running engine owns one — is `bridge/console-bridge.ts`, and a second copy of it
+    // running engine owns one — is `consoleClockFor`'s, and a second copy of it
     // is how a window ends up with stores on wall time while its scenario beats advance
     // on frozen time, which is the exact drift that seam was minted to end.
     this.#clock = consoleClockFor(bridge);
-    this.roster = createAgentRoster(sessionStore, this.#clock, calls.listAgents);
+    this.roster = createAgentList(sessionStore, this.#clock, calls.listAgents);
     this.roster.start();
   }
 
@@ -131,7 +128,7 @@ export class AgentConsoleModels {
    * starting opens a subscription and arms a scheduler, and the surface that takes
    * the lease does both from a mount effect, where a cleanup exists to undo them.
    */
-  public acquireLinkage(parentRunId: string): ChildRunLinkageLease {
+  public acquireLinkage(parentRunId: string): ChildRunLinksLease {
     const held = this.#linkage;
     if (held !== undefined && held.parentRunId === parentRunId) {
       this.#outstandingLinkageLeaseCount += 1;
@@ -140,7 +137,7 @@ export class AgentConsoleModels {
     this.#releaseLinkage();
     const linkage: HeldChildRunLinkage = {
       parentRunId,
-      read: createChildRunLinkage(
+      read: createChildRunLinks(
         this.subject.sessionStore,
         parentRunId,
         this.#clock,
@@ -170,7 +167,7 @@ export class AgentConsoleModels {
    * read, and a counter decremented by that cleanup would take the NEW run's read
    * down with it.
    */
-  #leaseOn(linkage: HeldChildRunLinkage): ChildRunLinkageLease {
+  #leaseOn(linkage: HeldChildRunLinkage): ChildRunLinksLease {
     let isReleased = false;
     return {
       read: linkage.read,
@@ -196,57 +193,8 @@ export class AgentConsoleModels {
   }
 }
 
-/**
- * Hold one {@link AgentConsoleModels} for as long as this mount shows one session.
- *
- * A hook rather than a render body: the models open subscriptions and a scheduler,
- * and a body that built them would build a new set on every pass React discarded,
- * each leaving a subscription behind it. `undefined` in either argument is a real
- * state — an auxiliary address that named no session — and answers `undefined`, which
- * the surfaces render as the absence it is.
- *
- * A MODEL NEVER BELONGS TO A SUBJECT IT IS NOT FOR. State replaced from an effect
- * lags its own inputs by one committed frame, so a console moving directly from one
- * open session to another renders once with the previous session's models under the
- * new session's store. That frame is not merely a stale roster: the column would
- * read through the session the console has LEFT while naming the agent of the one it
- * arrived at. So the held set is answered only while it matches the subject it was
- * asked about, and the mismatched frame answers `undefined` — the absence every
- * consumer already renders.
- *
- * THE SUBJECT IS THE PAIR AND NOT THE SESSION ID. A replacement bridge or a rebuilt
- * store for the SAME session passes an id comparison, so the first committed render
- * after either replacement would hand back models whose reads are bound to the
- * transport and the projection that were just retired. `seats/session-subject.ts`
- * owns the comparison, so the predicate has one copy.
- *
- * `calls` is held stable by the caller: a new object rebuilds the models.
- */
-export function useAgentConsoleModels(
-  bridge: ConsoleBridge | undefined,
-  sessionStore: SessionStore | undefined,
-  calls: AgentConsoleCalls,
-): AgentConsoleModels | undefined {
-  const [models, setModels] = useState<AgentConsoleModels | undefined>(undefined);
-
-  useEffect(() => {
-    if (bridge === undefined || sessionStore === undefined) {
-      setModels(undefined);
-      return undefined;
-    }
-    const built = new AgentConsoleModels(bridge, sessionStore, calls);
-    setModels(built);
-    return () => {
-      built.dispose();
-      setModels(undefined);
-    };
-  }, [bridge, sessionStore, calls]);
-
-  return isCurrentSessionSubject(models?.subject, bridge, sessionStore) ? models : undefined;
-}
-
 /** The linkage read the models hold, with the run it answers for. */
 interface HeldChildRunLinkage {
   readonly parentRunId: string;
-  readonly read: ChildRunLinkageRead;
+  readonly read: ChildRunLinksRead;
 }

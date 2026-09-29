@@ -12,12 +12,12 @@ import { WireFigure, formatCount } from "@renderer/console/primitives/index.js";
 import type { WorkflowVersionChainReading } from "../hooks/useWorkflowDefinitionDetail.js";
 
 /** The chain reading to draw. An unaddressable chain draws nothing. */
-export interface DefinitionChainProps {
+export interface DefinitionVersionsProps {
   readonly chain: WorkflowVersionChainReading;
 }
 
 /** The chain's versions once served, and nothing where the chain is unaddressable. */
-export function DefinitionChain(props: DefinitionChainProps): React.JSX.Element {
+export function DefinitionVersions(props: DefinitionVersionsProps): React.JSX.Element {
   const { chain } = props;
   if (chain.status === "unaddressable") {
     return <></>;

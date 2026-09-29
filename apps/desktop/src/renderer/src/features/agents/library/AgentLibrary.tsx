@@ -1,11 +1,9 @@
-// The agent definitions page: the agents a person has tuned, so a configuration
-// outlives the session it was typed into.
+// The agent library: the agents a person has tuned, so a configuration outlives the
+// session it was typed into.
 //
-// WHAT IS ON THIS PAGE TODAY: THE REGISTRY, READ
-//
-// The page puts one read in flight on mount and renders whichever of three answers
-// comes back — a read still going, a served empty registry, or the rows. Those stay
-// apart because they are different facts: "nobody has answered yet" and "there are
+// THE REGISTRY, READ. The page puts one read in flight on mount and renders whichever of
+// three answers comes back — a read still going, a served empty registry, or the rows.
+// Those stay apart because they are different facts: "nobody has answered yet" and "there are
 // none" are two separate things, and a page that showed an empty list for the first
 // would assert something nothing on this machine established.
 //
@@ -30,17 +28,16 @@
 //
 // THE STATE IS NOT HERE. Everything this page holds — the read, the delete in
 // flight, the view's refusal per row, and which record the editor is open on — lives in
-// `definition-registry-view.ts`, because a state machine over the registry calls and a
+// `library-view.ts`, because a state machine over the registry calls and a
 // body that renders what it settled on are two jobs. This file makes no call
 // and holds no `useState`: it reads one snapshot and hands presses back to the view.
 
 import type { ReactNode } from "react";
+
 import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
-import {
-  useDefinitionSettlementAnnouncement,
-  useAgentRegistryView,
-  type AgentRegistryCalls,
-} from "@renderer/console/agents/definitions/definition-registry-view.js";
+import { type AgentRegistryCalls } from "./library-view.js";
+import { useAgentLibraryView } from "./hooks/useAgentLibraryView.js";
+import { useDefinitionSettlementAnnouncement } from "./hooks/useDefinitionSettlementAnnouncement.js";
 import { SavedDefinitions } from "./components/SavedDefinitions.js";
 
 /** One standing fact about the registry, in the two halves a description list wants. */
@@ -70,7 +67,7 @@ const AGENT_REGISTRY_RULES: readonly AgentRegistryRule[] = [
 ];
 
 /** What the page needs: the bridge for its clock and triggers, and the registry calls. */
-export interface AgentDefinitionsPageProps {
+export interface AgentLibraryProps {
   readonly bridge: ConsoleBridge;
   /** Held stable by the caller: a new object restarts the read. */
   readonly calls: AgentRegistryCalls;
@@ -112,8 +109,8 @@ export function AgentDefinitionsFrame(props: {
 }
 
 /** The saved-definitions page: the registry read, its rows, and the delete on each. */
-export function AgentDefinitionsPage(props: AgentDefinitionsPageProps): React.JSX.Element {
-  const { view, snapshot } = useAgentRegistryView(props.bridge, props.calls);
+export function AgentLibrary(props: AgentLibraryProps): React.JSX.Element {
+  const { view, snapshot } = useAgentLibraryView(props.bridge, props.calls);
   useDefinitionSettlementAnnouncement(snapshot.reading);
 
   return (

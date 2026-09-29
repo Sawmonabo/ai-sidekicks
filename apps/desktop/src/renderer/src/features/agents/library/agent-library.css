@@ -1,14 +1,8 @@
-/* The agent definitions page's own sheet: its frame, its saved-row ledger, and its controls.
+/* The agent library's own sheet: its frame, its saved-row ledger, and its controls.
  *
- * ONE BEM BLOCK, ONE HOME. `.meridian-agent-definitions` was split across two sheets — the
- * page's frame, its head, its rules grid, and its two columns in the family sheet,
- * and everything the record read added here — so a rule about this page could be in
- * either file and a reader had to know which. The whole block is here now, and the
- * family door has one edge into it instead of two.
- *
- * Beside the module rather than appended to `agents.css`, on the
- * `agents/agent-console/agent-console.css` precedent: a page's styles belong with the
- * page, and a family-wide sheet is where several surfaces' rules end up interleaved.
+ * ONE BEM BLOCK, ONE HOME. All of `.meridian-agent-definitions` — the frame, its head,
+ * its rules grid, its columns and its rows — is here, so a rule about this page is in
+ * one file. The library's chunk root imports it.
  *
  * Meridian tokens throughout. No literal color, no literal length outside the
  * space scale. */

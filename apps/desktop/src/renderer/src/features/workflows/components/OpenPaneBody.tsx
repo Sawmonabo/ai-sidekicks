@@ -1,6 +1,6 @@
 // The registered body for one opened workflows address, and the store it is handed.
 //
-// A SIBLING RATHER THAN A SECOND COMPONENT IN `WorkflowsPaneHost.tsx`, which is the
+// A SIBLING RATHER THAN A SECOND COMPONENT IN `WorkflowsScreen.tsx`, which is the
 // package's one-component-per-`.tsx` rule: a module holding two components is a
 // module whose name answers for one of them, and the second is reached only by
 // reading the file. `primitives/reading/ReadingNotice.tsx` is the precedent — a deep relative

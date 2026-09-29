@@ -1,14 +1,9 @@
 // The canvas, and the whole of what the graph library is allowed to do here.
 //
-// THIS MODULE IS INSIDE THE LAZY CHUNK AND IS NOT ITS DOOR. `index.ts` beside it is
-// what `phase-graph-loader.ts`'s `import()` names, so the library, its runtime
-// sibling, the library's `base.css` and this directory's sheet are emitted together
-// and fetched the first time a run's phases are drawn. BOTH STYLESHEETS ARE IMPORTED
-// FROM THAT DOOR AND NOT FROM HERE: `apps/desktop/AGENTS.md` admits a sheet through
-// the barrel of the family or of the lazily-loaded chunk that owns it and through no
-// component, and `no-restricted-syntax` in `apps/desktop/eslint.config.mjs` holds every
-// module in the console to it. The door's own header carries why the two sheets ride
-// this chunk rather than `workflows.css`, and why their order is load-bearing.
+// THIS MODULE IS INSIDE THE LAZY CHUNK, which `index.ts` beside it enters, so the library,
+// its runtime sibling and the two sheets below are fetched together the first time a run's
+// phases are drawn. THE ORDER OF THE TWO SHEETS IS LOAD-BEARING: `run-graph.css` redefines
+// the library's fallback palette from `base.css` at equal specificity, so it loads second.
 //
 // THE PIN IS 12.11.6, WHICH IS THE BASELINE THE LIBRARY POLICY MEASURED. That policy
 // binds an exact pin with `@xyflow/system` in lockstep and records its bundle and
@@ -45,14 +40,15 @@
 // region owned by a dependency is a second speaker. Focusability is a different prop
 // and stays on.
 
+import "@xyflow/react/dist/base.css";
+import "./run-graph.css";
+
 import { ReactFlow, type FitViewOptions, type NodeTypes } from "@xyflow/react";
 
 import { tokenReference } from "@renderer/styles/tokens.js";
 import { PHASE_GRAPH_MAX_ZOOM, PHASE_GRAPH_MIN_ZOOM } from "../../workflows-caps.js";
-import {
-  PHASE_NODE_TYPE,
-  usePhaseGraphElements,
-} from "@renderer/console/workflows/pane/run/phase-graph/phase-graph-elements.js";
+import { PHASE_NODE_TYPE } from "./run-graph-elements.js";
+import { useRunGraphElements } from "./hooks/useRunGraphElements.js";
 import { PhaseNode } from "./PhaseNode.js";
 import type { DrawnPhaseSequence } from "./phase-sequence-layout.js";
 
@@ -84,7 +80,7 @@ const PHASE_GRAPH_FIT_VIEW_OPTIONS: FitViewOptions = { padding: PHASE_GRAPH_FIT_
  */
 const SEQUENCE_MARKER_COLOR: string = tokenReference("edge-strong");
 
-export interface PhaseGraphCanvasProps {
+export interface RunGraphCanvasProps {
   /** The placed sequence. A malformed one never reaches here — the host refuses first. */
   readonly layout: DrawnPhaseSequence;
   /** The region's accessible name, supplied by the surface that mounted the graph. */
@@ -92,8 +88,8 @@ export interface PhaseGraphCanvasProps {
 }
 
 /** One run's phase sequence, drawn. */
-export function PhaseGraphCanvas(props: PhaseGraphCanvasProps): React.JSX.Element {
-  const { nodes, edges } = usePhaseGraphElements(props.layout);
+export function RunGraphCanvas(props: RunGraphCanvasProps): React.JSX.Element {
+  const { nodes, edges } = useRunGraphElements(props.layout);
 
   return (
     <div className="meridian-phase-graph__canvas">

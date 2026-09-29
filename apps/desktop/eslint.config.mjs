@@ -463,9 +463,6 @@ const STYLESHEET_HELD_FILES = [
   "src/renderer/src/console/primitives/index.ts",
   "src/renderer/src/console/seats/index.ts",
   "src/renderer/src/console/sessions/notifications/index.ts",
-  "src/renderer/src/console/workflows/destination/index.ts",
-  "src/renderer/src/console/workflows/index.ts",
-  "src/renderer/src/console/workflows/pane/run/index.ts",
 ];
 
 /** Suites and their scaffolding, which are not shipped and hold no shared runtime state. */

@@ -33,11 +33,7 @@
 import type { ProviderAccount, ProviderRemedy } from "@ai-sidekicks/contracts";
 
 import { formatDateTime } from "@renderer/console/primitives/index.js";
-import {
-  advisoryChoiceIn,
-  type AttachAccountAxisReading,
-  type AttachAccountChoice,
-} from "./account-axis.js";
+import { advisoryChoiceIn, type AccountAxisReading, type AccountChoice } from "./account-axis.js";
 
 /**
  * What the observation FOUND, given the moment it was taken.
@@ -88,7 +84,7 @@ const OBSERVED_HEALTH_ADVISORIES: Readonly<
 const NEVER_OBSERVED_ADVISORY = "This account has never been observed.";
 
 /** The stored reading as one sentence: what was found, and when it was found. */
-function storedHealthAdvisoryFor(choice: AttachAccountChoice, locale: string | undefined): string {
+function storedHealthAdvisoryFor(choice: AccountChoice, locale: string | undefined): string {
   const { healthObservedAt } = choice;
   if (healthObservedAt === null) {
     return NEVER_OBSERVED_ADVISORY;
@@ -133,10 +129,7 @@ const REMEDY_ADVISORIES: Readonly<Record<ProviderRemedy["kind"], string>> = {
  *   one: the stored reading names an instant, and the caller that has a locale to
  *   render it under is the one composing the field rather than this model.
  */
-export function accountAdvisoriesFor(
-  choice: AttachAccountChoice,
-  locale?: string,
-): readonly string[] {
+export function accountAdvisoriesFor(choice: AccountChoice, locale?: string): readonly string[] {
   const advisories = [storedHealthAdvisoryFor(choice, locale)];
   const { readiness } = choice;
   if (readiness === undefined) {
@@ -167,7 +160,7 @@ export function accountAdvisoriesFor(
  * @param accountId The account this field PINS, or `undefined` where it pins none.
  */
 export function unresolvedDefaultAdvisoryIn(
-  reading: AttachAccountAxisReading,
+  reading: AccountAxisReading,
   accountId: string | undefined,
 ): string | undefined {
   if (accountId !== undefined || advisoryChoiceIn(reading, undefined) !== undefined) {

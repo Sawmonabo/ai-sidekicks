@@ -105,7 +105,7 @@ export function publishOutcome(
  * or not at all. Two spellings of it would drift the first time either was reworded.
  * That shared sentence is also why this lives here rather than on either act.
  */
-export function publishCodecAbsence(
+export function publishCodecUnavailable(
   runtime: AuthoringRuntime,
   act: WorkflowDetailAct,
   rejection: unknown,

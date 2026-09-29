@@ -4,7 +4,7 @@
 // IT IS ONLY THE COMPOSITION. Everything a body could get WRONG is the channel's and reaches
 // this component as `mount.submit`: the submit call, the single-flight guard, the revision
 // this attempt was composed against, the run read's re-arm, and the rendering of whatever
-// the daemon answered are all `HumanFormSubmitChannel.tsx`'s. This file is the shape of a
+// the daemon answered are all `HumanFormSubmitBinding.tsx`'s. This file is the shape of a
 // body — the prompt, the form over the schema, the act — and nothing else, so a supplied body
 // replaces a composition rather than re-implementing a dispatch.
 //
@@ -33,7 +33,7 @@ import type { HumanFormMount } from "./human-form-mount.js";
  * form leaves while its module is arriving, so this composition gains no loading state
  * of its own and the chunk is fetched once however many forms ask.
  */
-export function HumanFormShell(mount: HumanFormMount): React.ReactNode {
+export function DefaultHumanFormBody(mount: HumanFormMount): React.ReactNode {
   return schemaFormAnswerMount.render({
     prompt: mount.prompt,
     inputSchema: mount.inputSchema,

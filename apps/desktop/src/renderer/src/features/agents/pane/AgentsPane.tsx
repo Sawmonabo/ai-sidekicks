@@ -15,7 +15,7 @@
 
 import type { ReactNode } from "react";
 
-import { useAgentConsoleModels } from "@renderer/console/agents/run-console/agent-console-model.js";
+import { useAgentsPaneModels } from "./hooks/useAgentsPaneModels.js";
 import type { AgentConsoleCalls } from "../agent-reads.js";
 import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { Nothing } from "@renderer/console/primitives/index.js";
@@ -23,7 +23,7 @@ import type { SessionStore } from "@renderer/store/session/session-store.js";
 import { AgentBindingColumn } from "./components/AgentBindingColumn.js";
 
 /** What the console body needs to read one session's agents. */
-export interface AgentConsoleBodyProps {
+export interface AgentsPaneProps {
   /**
    * The agent this console is about, wire-verbatim.
    *
@@ -57,8 +57,8 @@ export function AgentConsoleFrame(props: { readonly children?: ReactNode }): Rea
 }
 
 /** The agent console body: the binding column, or the reason there is no session to read. */
-export function AgentConsoleBody(props: AgentConsoleBodyProps): React.JSX.Element {
-  const models = useAgentConsoleModels(props.bridge, props.sessionStore, props.calls);
+export function AgentsPane(props: AgentsPaneProps): React.JSX.Element {
+  const models = useAgentsPaneModels(props.bridge, props.sessionStore, props.calls);
 
   return (
     <AgentConsoleFrame>

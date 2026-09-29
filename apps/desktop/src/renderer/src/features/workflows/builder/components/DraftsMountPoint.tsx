@@ -26,7 +26,7 @@
 // hands over the definition the drafts belong to and the body composes its keys
 // under it; the convention lands with the first family that has two writers.
 
-import { WorkflowSlotMount } from "../../components/EngineMountPoint.js";
+import { EngineMountPoint } from "../../components/EngineMountPoint.js";
 import type { DraftStore } from "@renderer/store/draft-store.js";
 
 /** What the builder pane hands the inspector's draft body. */
@@ -51,13 +51,13 @@ export interface DraftsMount {
 export type DraftsBody = (mount: DraftsMount) => React.ReactNode;
 
 /** The drafts mount plus the body, once there is one. */
-export interface DraftsSlotProps extends DraftsMount {
+export interface DraftsMountPointProps extends DraftsMount {
   /** The body, once there is one. Absent everywhere here, so the shell stands. */
   readonly body?: DraftsBody;
 }
 
 /** The inspector's drafts frame: the engine's body once it is supplied, empty until then. */
-export function DraftsSlot(props: DraftsSlotProps): React.JSX.Element {
+export function DraftsMountPoint(props: DraftsMountPointProps): React.JSX.Element {
   const { body, ...mount } = props;
-  return <WorkflowSlotMount body={body} mount={mount} />;
+  return <EngineMountPoint body={body} mount={mount} />;
 }

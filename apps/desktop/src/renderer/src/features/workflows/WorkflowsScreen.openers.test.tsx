@@ -1,6 +1,6 @@
-// The opener this destination hands down, and whether it holds still.
+// The opener this screen hands its run list, and whether it holds still.
 //
-// Separate from `WorkflowsDestination.test.tsx` because the run list is substituted here and
+// Separate from `WorkflowsScreen.test.tsx` because the run list is substituted here and
 // that file's premise is that it is real. What a prop's identity is across a re-render is not
 // a fact any rendered markup carries, so the only place to read it is where it is handed
 // over. The probe records what it was given and renders nothing else.
@@ -11,14 +11,18 @@
 // pass, the shallow compare fails for every row, and any state change above re-renders the
 // whole list.
 
-import { render } from "@testing-library/react";
+import { act, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import type { ConsolePaneAddress, ConsolePaneOpener } from "@renderer/console/seats/index.js";
 import { RunListProjection, type WorkflowRunListRow } from "./runs/run-list-projection.js";
 import { run } from "./runs/run-list-projection.test-support.js";
 import type { WorkflowRunDirectoryState } from "./runs/hooks/useWorkflowRunDirectory.js";
-import { WorkflowsDestination } from "./WorkflowsScreen.js";
+import {
+  composeWindow,
+  probeRunPane,
+  type ComposedWindow,
+} from "./WorkflowsScreen.test-support.js";
+import { WorkflowsScreen } from "./WorkflowsScreen.js";
 
 /**
  * What the run list was handed, in render order.
@@ -39,37 +43,37 @@ vi.mock("./runs/WorkflowRuns.js", () => ({
 const DIRECTORY: WorkflowRunDirectoryState = { status: "served", runs: [] };
 
 /** The element every case renders. */
-function destination(openPane: ConsolePaneOpener): React.JSX.Element {
-  return <WorkflowsDestination directory={DIRECTORY} openPane={openPane} />;
+function screenElement(composed: ComposedWindow): React.JSX.Element {
+  return <WorkflowsScreen context={composed.context} directory={DIRECTORY} />;
 }
 
 /** What the run list was handed on the most recent render. */
 function latestRunOpener(): (row: WorkflowRunListRow) => void {
   const opener = handedDown.runOpeners.at(-1);
   if (typeof opener !== "function") {
-    throw new Error("the destination handed the run list no opener");
+    throw new Error("the screen handed the run list no opener");
   }
   return opener as (row: WorkflowRunListRow) => void;
 }
 
-describe("the opener the destination hands its run list", () => {
+describe("the opener the screen hands its run list", () => {
   it("hands the list the same opener across a re-render", () => {
-    const openPane = vi.fn();
-    const rendered = render(destination(openPane));
-    rendered.rerender(destination(openPane));
+    const composed = composeWindow();
+    const rendered = render(screenElement(composed));
+    rendered.rerender(screenElement(composed));
 
     // The premise: there really were two renders to compare.
     expect(handedDown.runOpeners.length).toBeGreaterThanOrEqual(2);
     expect(handedDown.runOpeners.at(-1)).toBe(handedDown.runOpeners.at(-2));
   });
 
-  it("negative control: a different destination for opened panes is a different opener", () => {
+  it("negative control: a different composition for opened panes is a different opener", () => {
     // Without this, the case above would pass over an opener memoized on an empty
-    // dependency list — which would go on opening panes into the surface that mounted
-    // the destination first, however the surface above had since been recomposed.
-    const rendered = render(destination(vi.fn()));
+    // dependency list — which would go on opening panes into the board the screen was
+    // mounted over first, however the surface above had since been recomposed.
+    const rendered = render(screenElement(composeWindow()));
     const openersBefore = handedDown.runOpeners.length;
-    rendered.rerender(destination(vi.fn()));
+    rendered.rerender(screenElement(composeWindow()));
 
     expect(handedDown.runOpeners.length).toBeGreaterThan(openersBefore);
     expect(handedDown.runOpeners.at(-1)).not.toBe(handedDown.runOpeners.at(openersBefore - 1));
@@ -79,15 +83,19 @@ describe("the opener the destination hands its run list", () => {
     // Without this, the two cases above would be satisfied by a stable callback that
     // opened nothing — the identity claim says where the address comes from and not
     // that one arrives.
-    const openPane = vi.fn<(address: ConsolePaneAddress) => void>();
-    render(destination(openPane));
+    const composed = composeWindow();
+    const openedContexts = probeRunPane(composed.paneRegistry);
+    render(screenElement(composed));
     const [row] = new RunListProjection([run({ workflowRunId: "run-opener" })]).rows;
     if (row === undefined) {
       throw new Error("the projection produced no row");
     }
-    latestRunOpener()(row);
+    act(() => {
+      latestRunOpener()(row);
+    });
 
-    expect(openPane).toHaveBeenCalledWith({
+    expect(openedContexts).toHaveLength(1);
+    expect(openedContexts[0]).toMatchObject({
       kind: "workflow-run",
       entity: { kind: "workflow-run", id: "run-opener" },
     });

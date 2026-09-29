@@ -5,7 +5,7 @@ import { render } from "@testing-library/react";
 import type { PaneContextOf } from "@renderer/console/seats/index.js";
 import type { ConsoleEntityRef } from "@renderer/lib/entity-kinds.js";
 import { PARKED_RUN, PROBE_SESSION_ID } from "../workflows-probe.test-support.js";
-import { WorkflowRunPane } from "./RunPage.js";
+import { RunPage } from "./RunPage.js";
 
 /** The address the run pane is meant to open. */
 export const ADDRESSED_RUN: ConsoleEntityRef = {
@@ -36,8 +36,8 @@ export function paneContext(entity: ConsoleEntityRef | undefined): PaneContextOf
 }
 
 /** Mount the pane against one context and hand back the pane's own section. */
-export function renderPane(context: PaneContextOf<"workflow-run">): HTMLElement {
-  const { container } = render(<WorkflowRunPane context={context} />);
+export function renderRunPage(context: PaneContextOf<"workflow-run">): HTMLElement {
+  const { container } = render(<RunPage context={context} />);
   const section = container.querySelector("section");
   if (!(section instanceof HTMLElement)) {
     throw new Error("the pane rendered no section");

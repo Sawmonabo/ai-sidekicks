@@ -1,9 +1,6 @@
 /*
- * A definition's row in the definitions list, drawn by `DefinitionListItem.tsx`.
- *
- * Reached from `workflows-surface-body.ts`, the destination chunk's own root: nothing
- * reaches this row without crossing that `import()`, so its rules ride the chunk that
- * draws them. Meridian tokens only.
+ * A definition's row in the definitions list, drawn and imported by `DefinitionListItem.tsx`.
+ * Meridian tokens only.
  */
 
 /* A row is one line at rest: name, scope, version. */

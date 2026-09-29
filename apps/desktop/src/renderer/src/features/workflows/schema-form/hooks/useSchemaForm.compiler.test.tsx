@@ -21,7 +21,7 @@
 // that ends before one lands, a compile that must happen once and not per keystroke — and
 // none of them can be stated against a promise that resolves whenever the module map feels
 // like it. So the loader module is spied and answers a promise the case settles, which
-// is the same substitution `PhaseGraph.chunk-refusal.test.tsx` makes at this console's
+// is the same substitution `RunGraph.chunk-refusal.test.tsx` makes at this console's
 // other loader. The spy keeps every other export real, so the form under test is the
 // real form, and what the substitution replaces is WHEN a verdict arrives and never what a
 // verdict means — the reader's own refusals are pinned beside the reader

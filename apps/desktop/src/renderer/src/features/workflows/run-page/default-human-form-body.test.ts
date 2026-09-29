@@ -5,8 +5,8 @@
 // JSON editor, and the press puts the submit with the revision the form was composed
 // against. Every case drives the slot and not the shell, since the submit and the
 // single-flight guard are the seat's. What happens as the mount moves is in
-// `HumanFormShell.transitions.test.tsx`; what a supplied body is handed is in
-// `HumanFormSubmitChannel.test.tsx`.
+// `default-human-form-body.transitions.test.ts`; what a supplied body is handed is in
+// `HumanFormSubmitBinding.test.tsx`.
 
 import { cleanup, fireEvent, screen } from "@testing-library/react";
 import { act } from "react";
@@ -20,8 +20,8 @@ import {
   fixtureWaitPhase,
   holdingSubmits,
   pressSubmit,
-  renderSlot,
-  renderSwitchableSlot,
+  renderMountPoint,
+  renderSwitchableMountPoint,
   resolveSchemaFormChunks,
   watchingSubmits,
 } from "./default-human-form-body.test-support.js";
@@ -50,7 +50,7 @@ beforeAll(resolveSchemaFormChunks);
 
 describe("a waiting phase is answerable where the pane shows it", () => {
   it("renders the prompt the run read carried and the controls its schema draws", async () => {
-    const container = await renderSlot(fixtureWaitPhase());
+    const container = await renderMountPoint(fixtureWaitPhase());
     expect(container.querySelector(".meridian-schema-answer__prompt")?.textContent).toBe(
       fixtureWaitPhase().prompt,
     );
@@ -62,7 +62,10 @@ describe("a waiting phase is answerable where the pane shows it", () => {
 
   it("opens the JSON editor for a schema outside the drawn set, and never a refusal", async () => {
     // Anything the mapper cannot draw is answered as JSON, not refused.
-    const container = await renderSlot({ ...fixtureWaitPhase(), inputSchema: RAW_ARM_SCHEMA });
+    const container = await renderMountPoint({
+      ...fixtureWaitPhase(),
+      inputSchema: RAW_ARM_SCHEMA,
+    });
     expect(container.querySelector(".meridian-schema-raw")).not.toBeNull();
     expect(container.querySelector(".meridian-refusal")).toBeNull();
     expect(screen.getByRole("button", { name: "Submit answer" })).not.toBeNull();
@@ -70,7 +73,7 @@ describe("a waiting phase is answerable where the pane shows it", () => {
 
   it("refuses a root that asks for a single value, and offers no act to answer it with", async () => {
     // Every value this schema accepts is one the request cannot carry, so no editor.
-    const container = await renderSlot({
+    const container = await renderMountPoint({
       ...fixtureWaitPhase(),
       inputSchema: UNANSWERABLE_ROOT_SCHEMA,
     });
@@ -86,14 +89,14 @@ describe("a waiting phase is answerable where the pane shows it", () => {
     // A daemon below the contract revision reports the wait with no schema, so nothing
     // can be composed and the control is absent rather than disabled.
     const { inputSchema: _unsent, ...withoutTheSchema } = fixtureWaitPhase();
-    const container = await renderSlot(withoutTheSchema);
+    const container = await renderMountPoint(withoutTheSchema);
     expect(container.querySelector(".meridian-schema-form")).toBeNull();
     expect(screen.queryByRole("button", { name: "Submit answer" })).toBeNull();
     expect(container.querySelector(".meridian-nothing--empty")).not.toBeNull();
   });
 
   it("draws only its empty frame where no phase is waiting on a person", async () => {
-    const container = await renderSlot(undefined);
+    const container = await renderMountPoint(undefined);
     expect(container.querySelector(".meridian-schema-answer")).toBeNull();
     expect(container.querySelector(".meridian-workflow__slot")?.textContent).toBe("");
   });
@@ -103,7 +106,7 @@ describe("the press composes the registered submit", () => {
   it("carries the run, the phase and the revision the form was composed against", async () => {
     const probe = watchingSubmits();
     const mount = fixtureWaitPhase();
-    await renderSlot(mount, probe.submitForm);
+    await renderMountPoint(mount, probe.submitForm);
     await act(async () => {
       pressSubmit();
     });
@@ -124,7 +127,7 @@ describe("the press composes the registered submit", () => {
   it("carries a revision of one where that is what the phase reported", async () => {
     // Negative control: a submit that hardcoded the fixture's zero would pass the case above.
     const probe = watchingSubmits();
-    await renderSlot({ ...fixtureWaitPhase(), formRevision: 1 }, probe.submitForm);
+    await renderMountPoint({ ...fixtureWaitPhase(), formRevision: 1 }, probe.submitForm);
     await act(async () => {
       pressSubmit();
     });
@@ -135,7 +138,7 @@ describe("the press composes the registered submit", () => {
 
   it("settles on what the daemon answered", async () => {
     const probe = watchingSubmits();
-    await renderSlot(fixtureWaitPhase(), probe.submitForm);
+    await renderMountPoint(fixtureWaitPhase(), probe.submitForm);
     await act(async () => {
       pressSubmit();
     });
@@ -148,7 +151,7 @@ describe("the press composes the registered submit", () => {
     // Focus stays on the submit control, so a plain paragraph would be silent to a
     // screen reader.
     const probe = watchingSubmits();
-    await renderSlot(fixtureWaitPhase(), probe.submitForm);
+    await renderMountPoint(fixtureWaitPhase(), probe.submitForm);
     await act(async () => {
       pressSubmit();
     });
@@ -163,7 +166,7 @@ describe("the press composes the registered submit", () => {
 describe("an answer that is not a set of named values", () => {
   it("is refused without spending a call", async () => {
     const probe = watchingSubmits();
-    const container = await renderSlot(
+    const container = await renderMountPoint(
       { ...fixtureWaitPhase(), inputSchema: RAW_ARM_SCHEMA },
       probe.submitForm,
     );
@@ -187,7 +190,7 @@ describe("an answer that is not a set of named values", () => {
     // Without this, the case above would pass over a form that never called the submit at
     // all — including one whose submit control did nothing.
     const probe = watchingSubmits();
-    const container = await renderSlot(
+    const container = await renderMountPoint(
       { ...fixtureWaitPhase(), inputSchema: RAW_ARM_SCHEMA },
       probe.submitForm,
     );
@@ -208,7 +211,7 @@ describe("an answer that is not a set of named values", () => {
 describe("an answer that is still with the daemon", () => {
   it("says so beside the control, and settles on the reply when it comes", async () => {
     const held = holdingSubmits();
-    const container = await renderSlot(fixtureWaitPhase(), held.submitForm);
+    const container = await renderMountPoint(fixtureWaitPhase(), held.submitForm);
     await act(async () => {
       pressSubmit();
     });
@@ -229,7 +232,7 @@ describe("an answer that is still with the daemon", () => {
   it("refuses a second press out loud rather than sending the answer twice", async () => {
     // A duplicate let through would fail the daemon's revision check for an answer given once.
     const held = holdingSubmits();
-    const container = await renderSlot(fixtureWaitPhase(), held.submitForm);
+    const container = await renderMountPoint(fixtureWaitPhase(), held.submitForm);
     await act(async () => {
       pressSubmit();
     });
@@ -261,7 +264,7 @@ describe("a submit call that fails", () => {
     "gives the key back when the call %s, so the next press is admitted",
     async (_label, failure) => {
       const probe = failingSubmits(failure);
-      const container = await renderSlot(fixtureWaitPhase(), probe.submitForm);
+      const container = await renderMountPoint(fixtureWaitPhase(), probe.submitForm);
       // The failure is not caught by the form, so the runner reports it as the unhandled
       // rejection it is; the witness reads that report instead of letting it fail the run.
       const escaped = await unhandledRejectionsDuring(async () => {
@@ -288,7 +291,7 @@ describe("a submission moves the run read only when the daemon took it", () => {
   it("records one served act for an answer the daemon recorded", async () => {
     const probe = watchingSubmits();
     const recordServedAct = vi.fn();
-    await renderSwitchableSlot({
+    await renderSwitchableMountPoint({
       phase: fixtureWaitPhase(),
       submitForm: probe.submitForm,
       recordServedAct,
@@ -305,7 +308,7 @@ describe("a submission moves the run read only when the daemon took it", () => {
     // The refused press changed nothing on the run, so it must not ask for another read.
     const held = holdingSubmits();
     const recordServedAct = vi.fn();
-    await renderSwitchableSlot({
+    await renderSwitchableMountPoint({
       phase: fixtureWaitPhase(),
       submitForm: held.submitForm,
       recordServedAct,
@@ -329,7 +332,7 @@ describe("a submission moves the run read only when the daemon took it", () => {
     // every press, whether or not anything reached the daemon.
     const probe = watchingSubmits();
     const recordServedAct = vi.fn();
-    const slot = await renderSwitchableSlot({
+    const slot = await renderSwitchableMountPoint({
       phase: { ...fixtureWaitPhase(), inputSchema: RAW_ARM_SCHEMA },
       submitForm: probe.submitForm,
       recordServedAct,

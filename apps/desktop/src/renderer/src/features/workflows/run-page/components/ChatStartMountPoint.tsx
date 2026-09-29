@@ -13,7 +13,7 @@
 // Nor does this mount carry eligibility. The daemon's verdict is rendered by the body
 // beside the daemon's message when a start is denied.
 
-import { WorkflowSlotMount } from "../../components/EngineMountPoint.js";
+import { EngineMountPoint } from "../../components/EngineMountPoint.js";
 
 /** What the mounting surface hands the conversational-start body. */
 export interface ChatStartMount {
@@ -34,13 +34,13 @@ export interface ChatStartMount {
 export type ChatStartBody = (mount: ChatStartMount) => React.ReactNode;
 
 /** The conversational start's props: the mount the body receives, and the body itself. */
-export interface ChatStartSlotProps extends ChatStartMount {
+export interface ChatStartMountPointProps extends ChatStartMount {
   /** The body, once there is one. While it is absent the empty frame stands. */
   readonly body?: ChatStartBody;
 }
 
 /** The conversational start's frame, holding the body once there is one. */
-export function ChatStartSlot(props: ChatStartSlotProps): React.JSX.Element {
+export function ChatStartMountPoint(props: ChatStartMountPointProps): React.JSX.Element {
   const { body, ...mount } = props;
-  return <WorkflowSlotMount body={body} mount={mount} />;
+  return <EngineMountPoint body={body} mount={mount} />;
 }

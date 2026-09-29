@@ -49,8 +49,8 @@ import {
   misaddressedBuilderPane,
   unaddressedBuilderPane,
 } from "./builder-authoring.js";
-import { DraftsSlot } from "./components/DraftsMountPoint.js";
-import { NodeGraphSlot } from "./components/NodeGraphMountPoint.js";
+import { DraftsMountPoint } from "./components/DraftsMountPoint.js";
+import { NodeGraphMountPoint } from "./components/NodeGraphMountPoint.js";
 
 /** What this pane is for, in the one line that stands under its head. */
 const SUMMARY = "A definition as a graph, refused at the point a refused shape is drawn.";
@@ -105,8 +105,8 @@ export function WorkflowBuilderPane(props: WorkflowBuilderPaneProps): React.JSX.
 
     return (
       <WorkflowStateStrip summary={SUMMARY} state={{ kind: "ready" }}>
-        <NodeGraphSlot workflowDefinitionId={definition.id} uiStateStore={uiStateStore} />
-        <DraftsSlot workflowDefinitionId={definition.id} draftStore={draftStore} />
+        <NodeGraphMountPoint workflowDefinitionId={definition.id} uiStateStore={uiStateStore} />
+        <DraftsMountPoint workflowDefinitionId={definition.id} draftStore={draftStore} />
       </WorkflowStateStrip>
     );
   }

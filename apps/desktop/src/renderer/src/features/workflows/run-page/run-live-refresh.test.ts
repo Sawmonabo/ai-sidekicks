@@ -17,7 +17,7 @@ import { REFRESH_DEBOUNCE_MS, REFRESH_MAX_WAIT_MS } from "@renderer/lib/reads/re
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import { type ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
 import { eventOfKind } from "@test/helpers/session-events.js";
-import { WorkflowRunLiveRounds } from "@renderer/console/workflows/pane/run/run-live-rounds.js";
+import { WorkflowRunLiveRefresh } from "./run-live-refresh.js";
 
 const SESSION_ID = "session-live-rounds";
 /** The run the pane in these cases is showing. */
@@ -31,7 +31,7 @@ function frameForRun(kind: string, sequence: number, workflowRunId: string): Con
 }
 
 /** Every reading a case opens, disposed whatever the case did. */
-const openReadings: WorkflowRunLiveRounds[] = [];
+const openReadings: WorkflowRunLiveRefresh[] = [];
 
 afterEach(() => {
   for (const reading of openReadings.splice(0)) {
@@ -64,8 +64,8 @@ function openReading(
   clock: ManualClock,
   sessionStore: SessionStore | undefined,
   pane: PaneUnderReading = { workflowRunId: RUN_ON_SCREEN },
-): WorkflowRunLiveRounds {
-  const reading = new WorkflowRunLiveRounds({
+): WorkflowRunLiveRefresh {
+  const reading = new WorkflowRunLiveRefresh({
     clock,
     sessionStore,
     workflowRunId: pane.workflowRunId,
@@ -82,7 +82,7 @@ async function settle(clock: ManualClock): Promise<void> {
   await Promise.resolve();
 }
 
-describe("WorkflowRunLiveRounds — what advances the round", () => {
+describe("WorkflowRunLiveRefresh — what advances the round", () => {
   it("advances on a `workflow.*` frame the session's own store admitted", async () => {
     const clock = new ManualClock();
     const sessionStore = initialisedStore();
@@ -168,7 +168,7 @@ describe("WorkflowRunLiveRounds — what advances the round", () => {
   });
 });
 
-describe("WorkflowRunLiveRounds — which run the frame is about", () => {
+describe("WorkflowRunLiveRefresh — which run the frame is about", () => {
   it("advances on a frame whose payload names the run on screen", async () => {
     const clock = new ManualClock();
     const sessionStore = initialisedStore();
@@ -261,7 +261,7 @@ describe("WorkflowRunLiveRounds — which run the frame is about", () => {
   });
 });
 
-describe("WorkflowRunLiveRounds — what does not advance it", () => {
+describe("WorkflowRunLiveRefresh — what does not advance it", () => {
   it("negative control: a frame outside the workflow taxonomy advances nothing", async () => {
     // Without this every case above would pass against a reading that advanced on any
     // transition at all, which is a re-read cadence keyed to session traffic.
@@ -304,7 +304,7 @@ describe("WorkflowRunLiveRounds — what does not advance it", () => {
   });
 });
 
-describe("WorkflowRunLiveRounds — teardown", () => {
+describe("WorkflowRunLiveRefresh — teardown", () => {
   it("advances on no later frame and no later focus once disposed", async () => {
     const clock = new ManualClock();
     const sessionStore = initialisedStore();

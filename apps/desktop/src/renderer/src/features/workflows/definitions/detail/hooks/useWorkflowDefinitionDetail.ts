@@ -30,7 +30,7 @@
 // this wire. So the absence is `unaddressable`, which says the question could not be
 // put rather than that it was put and refused.
 //
-// ONE READ PER MOUNT, AND NO POLLING, for `definitions/definition-directory.ts`'s
+// ONE READ PER MOUNT, AND NO POLLING, for `useWorkflowDefinitionDirectory.ts`'s
 // reason: a definition version is immutable by construction — the store carries no
 // updated-at column and an edit mints a new version — so a re-read on a timer would be
 // a second answer to a question whose answer cannot change. Navigating back to the

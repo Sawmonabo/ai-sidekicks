@@ -15,6 +15,8 @@
 // a real answer and draws the `empty` absence; a caller with no answer does not mount
 // this list, because "nobody asked" and "there are none" are different facts.
 
+import "./RunList.css";
+
 import { DerivedFigure, Nothing, formatCount } from "@renderer/console/primitives/index.js";
 import { RunListItem } from "./RunListItem.js";
 import { RunParkAttention } from "./RunParkAttention.js";

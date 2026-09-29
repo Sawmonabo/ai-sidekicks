@@ -5,10 +5,7 @@
 // workflows destination, and a session that never authors a workflow paid for all of it
 // on every launch.
 //
-// THE FAMILY'S CHROME ENTERS HERE for the reason that module states: every workflows body
-// is behind a loader, so `workflows.css` reaches nobody from the family door and each
-// chunk root names the rules its body stands in rather than one of them relying on
-// another having run.
+// THE FEATURE'S SHARED CHROME ENTERS HERE, on the run page body's reasoning.
 
 import "../components/WorkflowStateStrip.css";
 

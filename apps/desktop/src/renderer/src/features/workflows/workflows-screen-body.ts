@@ -6,27 +6,21 @@
 // states for the loader form. The family's pane kinds are loader-backed registrations of
 // their own, so a session that opens the destination and never a pane pays for neither.
 //
-// `workflows.css` is the chrome every workflows body stands in, and every body is behind a
-// loader, so each chunk root names it. `definitions/definitions-browser.css` travels with
-// this chunk alone. The family door imports `runs/run-list.css` and `parks/park-badge.css`
-// itself, so this chunk does not.
+// THE FEATURE'S SHARED CHROME ENTERS HERE, on the run page body's reasoning.
 //
 // Named `Body` because `seats/lazy-body/lazy-body.ts` fixes the export name a loader resolves.
 
 import "./components/WorkflowStateStrip.css";
-import "./definitions/components/DefinitionListItem.css";
 
 import { createElement } from "react";
 
 import type { ConsoleSurfaceContext } from "@renderer/console/seats/index.js";
-import { WorkflowsPaneHost } from "@renderer/console/workflows/WorkflowsPaneHost.js";
+import { WorkflowsScreen } from "./WorkflowsScreen.js";
 
 /**
- * The workflows destination, at the route the frame committed.
- *
- * The host rather than the destination alone, because the destination opens panes and the
- * slot needs a place to put one. It takes the whole context because a pane body is composed
- * from it: a bridge, both stores, the window store and the pane's own address.
+ * The workflows screen, at the route the frame committed. It takes the whole context
+ * because a pane body is composed from it: a bridge, both stores, the window store and the
+ * pane's own address.
  */
 export const Body: (context: ConsoleSurfaceContext) => React.ReactNode = (context) =>
-  createElement(WorkflowsPaneHost, { context });
+  createElement(WorkflowsScreen, { context });

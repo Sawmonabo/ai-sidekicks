@@ -1,6 +1,6 @@
 // The one arm where the browser answers the chunk request with no.
 //
-// SEPARATE FROM `PhaseGraph.test.tsx` BECAUSE THE LOADER IS SUBSTITUTED HERE, and that
+// SEPARATE FROM `RunGraph.test.tsx` BECAUSE THE LOADER IS SUBSTITUTED HERE, and that
 // file's whole premise is that the loader is the real one. A dynamic import that
 // succeeds cannot be made to fail from the outside, so the failure arm is unreachable
 // without standing something else in the loader's place — and the substitution is
@@ -17,8 +17,8 @@
 import { render, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { PhaseGraph } from "@renderer/console/workflows/pane/run/phase-graph/PhaseGraph.js";
-import type { PhaseGraphNode } from "./phase-topology.js";
+import { RunGraph } from "./RunGraph.js";
+import type { RunGraphNode } from "./phase-topology.js";
 
 /**
  * What the substituted loader rejects with, settable per case.
@@ -31,12 +31,12 @@ import type { PhaseGraphNode } from "./phase-topology.js";
 const chunkRejection = vi.hoisted(() => ({ value: undefined as unknown }));
 
 vi.mock("./run-graph-loader.js", () => ({
-  phaseGraphLoader: {
+  runGraphLoader: {
     load: (): Promise<never> => Promise.reject(chunkRejection.value),
   },
 }));
 
-const TWO_PHASES: readonly PhaseGraphNode[] = [
+const TWO_PHASES: readonly RunGraphNode[] = [
   {
     phaseId: "plan",
     displayName: "Plan",
@@ -56,7 +56,7 @@ const TWO_PHASES: readonly PhaseGraphNode[] = [
 /** Render with the chunk rejecting on `rejection`, and wait for the arm to settle. */
 async function renderRefusedChunk(rejection: unknown): Promise<HTMLElement> {
   chunkRejection.value = rejection;
-  const { container } = render(<PhaseGraph phases={TWO_PHASES} label="Phase sequence" />);
+  const { container } = render(<RunGraph phases={TWO_PHASES} label="Phase sequence" />);
   await waitFor(() => {
     expect(container.querySelector(".meridian-refusal--banner")).not.toBeNull();
   });

@@ -36,9 +36,10 @@ export const DRIVER_LIST_CAPABILITIES_METHOD = "driver.listCapabilities";
  * The registered lifecycle event that changes a roster.
  *
  * Typed as `SessionEventType` so a kind this workspace does not register is a
- * compile error rather than a signal that never fires. The provider-switch
- * settlements are absent: the census does not register them yet, so no store admits
- * them and no signal can carry them.
+ * compile error rather than a signal that never fires. The provider-binding events
+ * (`agent.provider_binding_changed`, `agent.provider_binding_change_failed`) are
+ * absent: `SessionEventType` does not register them, so no store admits them and no
+ * signal can carry them.
  */
 export const AGENT_LIFECYCLE_EVENT_KINDS: readonly SessionEventType[] = ["agent.config_updated"];
 

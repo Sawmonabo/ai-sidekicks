@@ -7,8 +7,8 @@
 // whose answer had been recorded by the daemon went on rendering the parked phase and
 // its form until some other reason put the read again.
 //
-// THE MOUNT CONTRACT IS THE OWNER'S AND CANNOT CARRY THIS. `HumanFormSlot` renders its
-// body as `<Body {...mount} />` and the mount is `slots/human-form-mount.ts`'s — what
+// THE MOUNT CONTRACT IS THE OWNER'S AND CANNOT CARRY THIS. `HumanFormMountPoint` renders its
+// body as `<Body {...mount} />` and the mount is `human-form-mount.ts`'s — what
 // this pane owes the workflow plan's body and nothing else — so a console-local re-arm
 // member added to it would widen a contract this console does not own. A context is the
 // shape the corpus already uses at exactly this seam: `seats/pane/pane-controls.ts` is the
@@ -27,7 +27,7 @@
 // nothing would read identically to a pane that supplied one — the distinction
 // `seats/pane/pane-controls.ts` states at the same seam, for the same reason.
 
-import { createContext, useContext } from "react";
+import { createContext } from "react";
 
 /**
  * Record one act on this run that the daemon served.
@@ -49,8 +49,3 @@ export type RecordServedRunAct = () => void;
 export const ServedRunActContext: React.Context<RecordServedRunAct | undefined> = createContext<
   RecordServedRunAct | undefined
 >(undefined);
-
-/** The re-arm of the run pane this component is rendered inside, or `undefined`. */
-export function useRecordServedRunAct(): RecordServedRunAct | undefined {
-  return useContext(ServedRunActContext);
-}

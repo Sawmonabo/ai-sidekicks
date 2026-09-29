@@ -10,28 +10,28 @@
 
 import { describe, expect, it } from "vitest";
 
-import { PhaseGraphCanvas } from "./RunGraphCanvas.js";
-import { PhaseGraphLoader, phaseGraphLoader } from "./run-graph-loader.js";
+import { RunGraphCanvas } from "./RunGraphCanvas.js";
+import { RunGraphLoader, runGraphLoader } from "./run-graph-loader.js";
 
 describe("the graph loader", () => {
   it("resolves the real canvas component, not a stand-in for it", async () => {
-    const { PhaseGraphCanvas: loaded } = await new PhaseGraphLoader().load();
+    const { RunGraphCanvas: loaded } = await new RunGraphLoader().load();
     // Identity, not shape: a wrapper that merely looked like the component would let
     // a surface draw a graph this directory does not own. The import above names the
     // DECLARING module while the loader goes through the chunk's door, so this also
     // holds the door to re-exporting the declaration rather than wrapping it.
-    expect(loaded).toBe(PhaseGraphCanvas);
+    expect(loaded).toBe(RunGraphCanvas);
   });
 
   it("reports whether the chunk has been asked for", async () => {
-    const loader = new PhaseGraphLoader();
+    const loader = new RunGraphLoader();
     expect(loader.isLoadStarted).toBe(false);
     await loader.load();
     expect(loader.isLoadStarted).toBe(true);
   });
 
   it("memoises: two graphs mounting together share one fetch", () => {
-    const loader = new PhaseGraphLoader();
+    const loader = new RunGraphLoader();
     // Promise identity is the observable. Two distinct promises would mean two
     // entries into the module, which is the race the memo exists to prevent.
     expect(loader.load()).toBe(loader.load());
@@ -40,10 +40,10 @@ describe("the graph loader", () => {
   it("negative control: two loaders do not share one memo", () => {
     // Without this the case above would pass against a module-level promise, which
     // is exactly the shared state the class form exists to avoid.
-    expect(new PhaseGraphLoader().load()).not.toBe(new PhaseGraphLoader().load());
+    expect(new RunGraphLoader().load()).not.toBe(new RunGraphLoader().load());
   });
 
   it("the page's loader is one instance, and it is a loader", () => {
-    expect(phaseGraphLoader).toBeInstanceOf(PhaseGraphLoader);
+    expect(runGraphLoader).toBeInstanceOf(RunGraphLoader);
   });
 });

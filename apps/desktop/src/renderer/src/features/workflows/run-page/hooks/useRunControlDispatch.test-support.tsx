@@ -14,7 +14,7 @@ export const RUN_A = "run-a";
 export const RUN_B = "run-b";
 
 /** A served cancel, in the shape the operation's own signature fixes. */
-export const CANCELLED: WorkflowRunCancelReply = {
+export const CANCELED: WorkflowRunCancelReply = {
   workflowRunId: RUN_A,
   state: "cancelled",
   cancelledEventId: "evt-cancel-01",
@@ -45,7 +45,7 @@ export function heldCancelCalls(): HeldCancel {
       requests.push(request);
       return new Promise((resolve) => {
         serveHeld = () => {
-          resolve(CANCELLED);
+          resolve(CANCELED);
         };
       });
     },

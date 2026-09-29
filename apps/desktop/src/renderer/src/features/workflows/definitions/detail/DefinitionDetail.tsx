@@ -15,7 +15,7 @@
 
 import { Nothing, WireFigure, formatCount } from "@renderer/console/primitives/index.js";
 import { DefinitionAuthoringActs } from "./components/DefinitionAuthoringActs.js";
-import { DefinitionChain } from "./components/DefinitionVersions.js";
+import { DefinitionVersions } from "./components/DefinitionVersions.js";
 import { DefinitionVersionBody } from "./components/DefinitionVersionBody.js";
 import type { WorkflowDefinitionAuthoring } from "./definition-authoring.js";
 import type { WorkflowDefinitionDetailState } from "./hooks/useWorkflowDefinitionDetail.js";
@@ -66,7 +66,7 @@ export function DefinitionDetail(props: DefinitionDetailProps): React.JSX.Elemen
         </dd>
       </dl>
       <DefinitionVersionBody body={version} />
-      <DefinitionChain chain={chain} />
+      <DefinitionVersions chain={chain} />
       <DefinitionAuthoringActs authoring={authoring} />
     </div>
   );

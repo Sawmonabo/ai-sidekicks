@@ -10,7 +10,7 @@
 
 import { WireFigure } from "@renderer/console/primitives/index.js";
 import type { AgentResolvedConfiguration } from "@renderer/services/wire-shapes/agents.js";
-import { type AgentToolGrantPosition } from "../tool-allowlist.js";
+import { type AgentToolAllowlistPosition } from "../tool-allowlist.js";
 import { ToolAllowlist } from "./ToolAllowlist.js";
 import { ProseRow } from "./ProseRow.js";
 
@@ -20,7 +20,7 @@ import { ProseRow } from "./ProseRow.js";
  * The definition row turns on whether one was NAMED, because the configuration is
  * present either way.
  */
-export function ResolvedConfigurationEcho(props: {
+export function ResolvedConfiguration(props: {
   readonly resolved: AgentResolvedConfiguration;
   readonly definitionId: string | undefined;
   /**
@@ -30,7 +30,7 @@ export function ResolvedConfigurationEcho(props: {
    * and a second read of `resolved.toolAllowlist` in this subtree is how they came to
    * state it two different ways.
    */
-  readonly toolGrant: AgentToolGrantPosition;
+  readonly toolGrant: AgentToolAllowlistPosition;
 }): React.JSX.Element {
   const { resolved } = props;
   return (

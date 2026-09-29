@@ -1,7 +1,10 @@
 import { WireFigure, formatCount } from "@renderer/console/primitives/index.js";
 import { TOOL_ALLOWLIST_NAMED_CAP } from "../../agents-caps.js";
-import { NAMELESS_TOOL_GRANT_WORDING, type AgentToolGrantPosition } from "../tool-allowlist.js";
-import { ToolGrantReading } from "./ToolAllowlistReading.js";
+import {
+  NAMELESS_TOOL_ALLOWLIST_WORDING,
+  type AgentToolAllowlistPosition,
+} from "../tool-allowlist.js";
+import { ToolAllowlistReading } from "./ToolAllowlistReading.js";
 
 /**
  * The tool allowlist as applied: the names, or the reading its position carries.
@@ -17,12 +20,12 @@ import { ToolGrantReading } from "./ToolAllowlistReading.js";
  * position in the fewest words that are true.
  */
 export function ToolAllowlist(props: {
-  readonly position: AgentToolGrantPosition;
+  readonly position: AgentToolAllowlistPosition;
 }): React.JSX.Element {
   const { position } = props;
   if (position.kind !== "named") {
-    const wording = NAMELESS_TOOL_GRANT_WORDING[position.kind];
-    return <ToolGrantReading weight={wording.weight}>{wording.reading}</ToolGrantReading>;
+    const wording = NAMELESS_TOOL_ALLOWLIST_WORDING[position.kind];
+    return <ToolAllowlistReading weight={wording.weight}>{wording.reading}</ToolAllowlistReading>;
   }
   const unnamedCount = position.toolNames.length - TOOL_ALLOWLIST_NAMED_CAP;
   return (

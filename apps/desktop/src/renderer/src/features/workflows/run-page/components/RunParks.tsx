@@ -1,6 +1,6 @@
 // Every phase parked at the moment the run snapshot was built, as cards.
 //
-// One component per `.tsx`, for the reason `RunPhaseGraph.tsx` beside it states.
+// One component per `.tsx`, for the reason `RunGraphSection.tsx` beside it states.
 //
 // THE FORM ROUTE TRAVELS WITH THE CARDS. `formRoutePropsFor` has exactly one caller
 // and it is the component below; splitting the two apart would leave the rule that
@@ -22,11 +22,8 @@ import { ParkBadge } from "../../components/ParkBadge.js";
 import type { WorkflowParkFormRoute } from "../../components/ParkFormRoute.js";
 import { projectParkedPhases } from "../../runs/run-list-projection.js";
 import type { WorkflowParkedPhase } from "../../runs/run-list-rows.js";
-import {
-  UNADDRESSABLE_HUMAN_WAIT_DETAIL,
-  humanFormPhaseFor,
-  type HumanFormSelection,
-} from "@renderer/console/workflows/pane/run/human-form-selection.js";
+import { UNADDRESSABLE_HUMAN_WAIT_DETAIL, humanFormPhaseFor } from "../human-form-phase.js";
+import type { HumanFormSelection } from "../hooks/useHumanFormSelection.js";
 
 /**
  * Every phase parked at the moment the snapshot was built, and nothing else.

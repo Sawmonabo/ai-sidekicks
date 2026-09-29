@@ -1,11 +1,9 @@
 /*
  * The phase graph's composition, and the whole of the graph library's paint.
  *
- * IMPORTED FROM THIS DIRECTORY'S `index.ts` AND FROM NOWHERE ELSE. That module is the
- * door `phase-graph-loader.ts`'s `import()` names, so this sheet rides the lazy chunk
- * with `base.css` and the library itself and none of it reaches the document the
- * operator waits for. The door imports the two in order, so this one loads AFTER
- * `base.css`, which is what lets the token block below win at equal specificity.
+ * IMPORTED BY `RunGraphCanvas.tsx`, AFTER THE LIBRARY'S `base.css`, so it rides the lazy
+ * chunk with the library and none of it reaches the document the operator waits for; loading
+ * second is what lets the token block below win at equal specificity.
  *
  * EVERY `--xy-*` CUSTOM PROPERTY THE LIBRARY'S SHEET DEFINES OR READS IS SET HERE
  * FROM MERIDIAN. Derived by direct count against the pinned `base.css`, that is 46

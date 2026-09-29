@@ -9,11 +9,9 @@
 // operator waits for whether or not a run is ever drawn.
 //
 // So the door is reached through `import()` and through nothing else. That makes this
-// module the bundler's split point: everything only `phase-graph/index.js` reaches is
-// emitted as its own chunk and fetched the first time a graph mounts. The door rather
-// than the canvas directly, because the chunk owns two stylesheets and
-// `apps/desktop/AGENTS.md` admits those through a barrel and never through a
-// component — so the module this `import()` names is the module that imports them.
+// module the bundler's split point: everything only `run-graph/index.js` reaches is
+// emitted as its own chunk, with the two sheets `RunGraphCanvas.tsx` imports, and fetched
+// the first time a graph mounts.
 //
 // WHY A CLASS AND NOT A MODULE-LEVEL PROMISE. The promise has to be memoised: two
 // run panes mounting in one frame must not start two fetches, and a remount must not
@@ -30,11 +28,11 @@
  * is erased by the compiler — it opens no runtime edge into the chunk this module
  * exists to keep out of the initial graph.
  */
-export type PhaseGraphModule = Pick<typeof import("./index.js"), "PhaseGraphCanvas">;
+export type RunGraphModule = Pick<typeof import("./index.js"), "RunGraphCanvas">;
 
 /** The graph chunk's loader: one fetch per page, however many graphs ask. */
-export class PhaseGraphLoader {
-  #modulePromise: Promise<PhaseGraphModule> | undefined;
+export class RunGraphLoader {
+  #modulePromise: Promise<RunGraphModule> | undefined;
 
   /** Whether the chunk has been asked for yet. The memo, observable. */
   public get isLoadStarted(): boolean {
@@ -45,15 +43,15 @@ export class PhaseGraphLoader {
    * The graph chunk, fetched once. Every later call gets the same promise, so two
    * graphs mounting together share one fetch rather than racing two.
    */
-  public load(): Promise<PhaseGraphModule> {
+  public load(): Promise<RunGraphModule> {
     this.#modulePromise ??= this.#fetchModule();
     return this.#modulePromise;
   }
 
-  async #fetchModule(): Promise<PhaseGraphModule> {
+  async #fetchModule(): Promise<RunGraphModule> {
     try {
-      const { PhaseGraphCanvas } = await import("./index.js");
-      return { PhaseGraphCanvas };
+      const { RunGraphCanvas } = await import("./index.js");
+      return { RunGraphCanvas };
     } catch (loadError) {
       // A chunk that did not arrive is not a chunk that cannot: the fetch fails
       // transiently. Memoising the rejection would leave every later mount for the
@@ -67,4 +65,4 @@ export class PhaseGraphLoader {
 }
 
 /** The page's loader. A test builds its own; nothing else does. */
-export const phaseGraphLoader: PhaseGraphLoader = new PhaseGraphLoader();
+export const runGraphLoader: RunGraphLoader = new RunGraphLoader();

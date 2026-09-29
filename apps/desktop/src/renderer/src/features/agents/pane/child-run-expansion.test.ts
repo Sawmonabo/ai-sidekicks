@@ -8,19 +8,17 @@ import { act, renderHook } from "@testing-library/react";
 import { createElement } from "react";
 import { describe, expect, it } from "vitest";
 
-import { type RunId } from "@ai-sidekicks/contracts";
+import { type RunId, type SessionId } from "@ai-sidekicks/contracts";
 
 import { bridgeAnswering } from "@test/helpers/fixture-bridge.js";
 import { DesktopBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
-import {
-  ChildRunExpansionState,
-  useChildRunDisclosure,
-  type ChildRunDisclosure,
-} from "@renderer/console/ledger/structure/child-runs/child-run-expansion.js";
-import { FIXTURE_SESSION_ID } from "@renderer/features/transcript/timeline-rows.test-support.js";
+import { ChildRunExpansionState, type ChildRunDisclosure } from "./child-run-expansion.js";
+import { useChildRunDisclosure } from "./hooks/useChildRunDisclosure.js";
 
+/** The session every case expands under; any well-formed id serves. */
+const SESSION_ID = "11111111-2222-4333-8444-555555555555" as SessionId;
 const CHILD_RUN_ID = "019b79ee-0280-740e-8110-d1a4c1150091" as RunId;
 const PARENT_RUN_ID = "019b79ee-0280-740e-8110-d1a4c1150092" as RunId;
 /** A second child of the same parent, for the cases about two lines at once. */
@@ -40,7 +38,7 @@ function expansionReply(
     ...(hasMore ? { nextCursor: "cursor-next" } : {}),
     entries: Array.from({ length: entryCount }, (_unused, index) => ({
       id: `child-${String(index)}`,
-      sessionId: FIXTURE_SESSION_ID,
+      sessionId: SESSION_ID,
       sequence: index,
       category: "run_lifecycle",
       type: "run.started",
@@ -244,7 +242,7 @@ describe("the disclosure a row presses — what is on screen while the read runs
   function mountDisclosure(
     bridge: ConsoleBridge,
   ): ReturnType<typeof renderHook<ChildRunDisclosure, unknown>> {
-    return renderHook(() => useChildRunDisclosure(FIXTURE_SESSION_ID), {
+    return renderHook(() => useChildRunDisclosure(SESSION_ID), {
       wrapper: ({ children }: { readonly children?: React.ReactNode }) =>
         createElement(DesktopBridgeProvider, { bridge, children }),
     });

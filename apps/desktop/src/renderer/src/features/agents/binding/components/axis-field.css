@@ -1,26 +1,11 @@
-/* The axis field: one provider axis, as a control.
+/* The axis field: one provider axis, or the paying account, as a control.
  *
- * Beside `AxisCombobox.tsx` rather than inside `agents.css`, on the
- * `definitions/agent-definitions-page.css` precedent — one surface's rules in one
- * file. Split out of that sheet verbatim and in order; that was a MOVE and not a
- * restyle, and no pinned image may shift because of it. The account field's three
- * selectors below arrived afterwards with the control that draws them, and they are
- * the only rules here the split did not carry across.
- *
- * IT IS A FAMILY-WIDE CONTROL AND STILL NOT FAMILY-SHEET MATERIAL. More than one surface
- * draws it, which is an argument for the family sheet only if the rules were SHARED with
- * something else. They are not: every selector below is `.meridian-axis-field*` and
- * nothing outside this block sets one.
- *
- * TWO COMPONENTS DRAW THE BLOCK, AND THAT IS WHY THE SHEET IS HERE RATHER THAN UNDER
- * `attach/`. `AxisCombobox.tsx` beside this file draws it for the provider axes, and
- * `attach/account-axis/AccountAxisField.tsx` draws it for the paying account. Filing
- * these rules under the attach directory would make that directory the reason the
- * provider axes are styled at all, which is exactly what the stylesheet-owner rule in
- * `apps/desktop/AGENTS.md` forbids — so the account field's own selectors
- * (`__option-label`, `__advisories`, `__clear`) join the block they belong to instead.
- * The clear control carries its own `:focus-visible` because it is a bare text button
- * and wears none of the family's control shape.
+ * Two components in this folder draw the block: `AxisCombobox.tsx` for the provider
+ * axes and `AccountAxisField.tsx` for the account, whose own selectors (`__option-label`,
+ * `__advisories`, `__clear`) join it. Every selector is `.meridian-axis-field*`, so the
+ * rules are this control's alone and not the pane's; the pane's chunk root imports the
+ * sheet. The clear control carries its own `:focus-visible` because it is a bare text
+ * button and wears none of the card's control shape.
  *
  * Meridian tokens throughout. No literal color and no literal length. */
 

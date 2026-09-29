@@ -30,7 +30,7 @@
 // ceiling a reader has to open a disclosure to find is a ceiling nobody reads; the
 // row inside the disclosure names the tools, because that is what the echo is for,
 // and says the SHORT reading where a position names none. The line renders a count
-// and never the names — `ToolGrantLine.test.tsx` holds that.
+// and never the names — `ToolAllowlistLine.test.tsx` holds that.
 //
 // NO VERDICT IS COMPOSED ANYWHERE IN THIS MODULE. A node-wide switch withholds the
 // page tool set from every spawn on the node and an allowlist cannot raise that
@@ -49,7 +49,7 @@ import type { AgentRosterEntry } from "@renderer/services/wire-shapes/agents.js"
  * position — the roster reply that carried no configuration at all — is
  * representable, and so a renderer cannot reach the names on an arm that has none.
  */
-export type AgentToolGrantPosition =
+export type AgentToolAllowlistPosition =
   /** The reply carried no resolved configuration. Nothing was said about tools. */
   | { readonly kind: "not-reported" }
   /** A configuration with no allowlist member: the provider's own default set. */
@@ -60,19 +60,22 @@ export type AgentToolGrantPosition =
   | { readonly kind: "named"; readonly toolNames: readonly string[] };
 
 /** How a reading is weighted: an absence nobody chose, or a restriction somebody did. */
-export type ToolGrantWeight = "absent" | "derived";
+export type ToolAllowlistWeight = "absent" | "derived";
 
 /** What one position says, in the console's own words, wherever it is said. */
-export interface AgentToolGrantWording {
+export interface AgentToolAllowlistWording {
   /** The short reading: the whole of what the echo's Tools row says for this position. */
   readonly reading: string;
   /** The same position at length, which is what the governance line states. */
   readonly lineSentence: string;
-  readonly weight: ToolGrantWeight;
+  readonly weight: ToolAllowlistWeight;
 }
 
 /** The three positions that name no tool, which are the three the table below words. */
-type NamelessToolGrantKind = Exclude<AgentToolGrantPosition, { readonly kind: "named" }>["kind"];
+type NamelessToolGrantKind = Exclude<
+  AgentToolAllowlistPosition,
+  { readonly kind: "named" }
+>["kind"];
 
 /**
  * The words for every position that names no tool.
@@ -80,10 +83,10 @@ type NamelessToolGrantKind = Exclude<AgentToolGrantPosition, { readonly kind: "n
  * Total over {@link NamelessToolGrantKind} by construction, so a fifth nameless
  * position fails to compile here before it can reach a surface that renders it. The
  * populated arm is deliberately absent: its sentence carries a figure and a cap, so
- * it is composed by {@link namedToolGrantSentence} rather than stored.
+ * it is composed by {@link namedToolAllowlistSentence} rather than stored.
  */
-export const NAMELESS_TOOL_GRANT_WORDING: Readonly<
-  Record<NamelessToolGrantKind, AgentToolGrantWording>
+export const NAMELESS_TOOL_ALLOWLIST_WORDING: Readonly<
+  Record<NamelessToolGrantKind, AgentToolAllowlistWording>
 > = {
   // Muted, because nobody asked: this is "no question was put", never "no tools".
   "not-reported": {
@@ -123,7 +126,7 @@ export const NAMELESS_TOOL_GRANT_WORDING: Readonly<
  * saying all fifteen are "named below" would be describing a surface that is not
  * there. The cap is read from its one home rather than spelled here.
  */
-export function namedToolGrantSentence(toolNames: readonly string[]): string {
+export function namedToolAllowlistSentence(toolNames: readonly string[]): string {
   if (toolNames.length === 1) {
     return "Restricted to the one tool, named in the resolved configuration below.";
   }
@@ -141,7 +144,7 @@ export function namedToolGrantSentence(toolNames: readonly string[]): string {
  * `toolAllowlist` absent inside a configuration that IS present is the registry's own
  * "the provider's default set".
  */
-export function agentToolGrantPosition(agent: AgentRosterEntry): AgentToolGrantPosition {
+export function agentToolAllowlistPosition(agent: AgentRosterEntry): AgentToolAllowlistPosition {
   const resolved = agent.resolvedConfiguration;
   if (resolved === undefined) {
     return { kind: "not-reported" };

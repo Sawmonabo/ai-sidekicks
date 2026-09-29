@@ -1,14 +1,8 @@
 /*
  * The run pane's operator controls: cancel, resume, and the repair a resume may carry.
  *
- * Owned by `OperatorControls.tsx`, beside it, and IMPORTED FROM THIS PANE'S OWN DOOR,
- * `pane/run/index.ts`, which is its one edge. `workflows/workflows.css` names this
- * sheet among the ones it deliberately does not pull in, and that is the arrangement
- * rather than an exception to it: `apps/desktop/AGENTS.md` admits a sheet through the
- * barrel of the directory that OWNS it, and this directory carries a door of its own.
- * The family sheet is pulled by all three of this family's chunk roots, so reaching in
- * from there would put the run pane's rules on the destination's chunk and the builder's
- * as well — paid by every session that opens either and never a run.
+ * Owned and imported by `OperatorControls.tsx`, beside it, so the run page's chunk alone
+ * carries these rules.
  *
  * THE BLOCK CARRIES THE FAMILY'S PREFIX, `meridian-workflow-run-controls`, so no other
  * family's sheet decides how THIS pane lays its controls out, whichever loads last, and

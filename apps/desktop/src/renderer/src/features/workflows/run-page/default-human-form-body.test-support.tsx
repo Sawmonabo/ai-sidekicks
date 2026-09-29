@@ -10,13 +10,10 @@ import { fireEvent, render, screen } from "@testing-library/react";
 // straight after `render` would hit a control the form has not armed yet.
 import { resolveSchemaFormChunks } from "../schema-form/hooks/useSchemaForm.test-support.js";
 import { PARKED_RUN, settle } from "../workflows-probe.test-support.js";
-import { humanFormPhaseFor } from "@renderer/console/workflows/pane/run/human-form-selection.js";
-import type { WorkflowHumanFormSubmitCall } from "@renderer/console/workflows/pane/run/human-form-submit.js";
-import {
-  ServedRunActContext,
-  type RecordServedRunAct,
-} from "@renderer/console/workflows/pane/run/served-run-act.js";
-import { HumanFormSlot } from "./components/HumanFormMountPoint.js";
+import { humanFormPhaseFor } from "./human-form-phase.js";
+import type { WorkflowHumanFormSubmitCall } from "./human-form-submit.js";
+import { ServedRunActContext, type RecordServedRunAct } from "./served-run-act.js";
+import { HumanFormMountPoint } from "./components/HumanFormMountPoint.js";
 import type { HumanFormBody, HumanFormPhase } from "./human-form-mount.js";
 
 export { resolveSchemaFormChunks };
@@ -69,14 +66,14 @@ export interface HeldSubmit extends SubmitProbe {
 }
 
 /** What a case that moves the pane from one wait to another holds on to. */
-export interface SwitchableSlot {
+export interface SwitchableMountPoint {
   readonly container: HTMLElement;
   /** Put another wait in the same slot, or clear it, without unmounting anything above. */
   readonly switchTo: (next: HumanFormPhase | undefined) => Promise<void>;
 }
 
 /** What a case mounts the human-form slot with. */
-export interface HumanFormSlotMounting {
+export interface HumanFormMountPointMounting {
   /** The open wait, or `undefined` for the arm where no phase is waiting on anybody. */
   readonly phase: HumanFormPhase | undefined;
   /** The submit call. One that answers at once where a case has none. */
@@ -160,11 +157,11 @@ export function fixtureWaitPhase(): HumanFormPhase {
 }
 
 /** The slot with the shell inside it, over the submit call the case supplies. */
-export async function renderSlot(
+export async function renderMountPoint(
   phase: HumanFormPhase | undefined,
   submitForm?: WorkflowHumanFormSubmitCall,
 ): Promise<HTMLElement> {
-  const mounted = await renderSwitchableSlot({
+  const mounted = await renderSwitchableMountPoint({
     phase,
     ...(submitForm === undefined ? {} : { submitForm }),
   });
@@ -178,9 +175,9 @@ export async function renderSlot(
  * switch: a fresh call would re-address the attempt for a reason that is not the phase.
  * Awaits both schema chunks, because a press before they land hits a closed control.
  */
-export async function renderSwitchableSlot(
-  mounting: HumanFormSlotMounting,
-): Promise<SwitchableSlot> {
+export async function renderSwitchableMountPoint(
+  mounting: HumanFormMountPointMounting,
+): Promise<SwitchableMountPoint> {
   await resolveSchemaFormChunks();
   const submitForm = mounting.submitForm ?? answerSubmit;
   // Spread on the arm that carries one: `exactOptionalPropertyTypes` refuses an explicit
@@ -188,7 +185,7 @@ export async function renderSwitchableSlot(
   const ownerBody = mounting.body === undefined ? {} : { body: mounting.body };
   const slotFor = (phase: HumanFormPhase | undefined): React.JSX.Element => (
     <ServedRunActContext.Provider value={mounting.recordServedAct}>
-      <HumanFormSlot phase={phase} submitForm={submitForm} {...ownerBody} />
+      <HumanFormMountPoint phase={phase} submitForm={submitForm} {...ownerBody} />
     </ServedRunActContext.Provider>
   );
   const { container, rerender } = render(slotFor(mounting.phase));

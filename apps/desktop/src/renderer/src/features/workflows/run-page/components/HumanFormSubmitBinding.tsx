@@ -8,7 +8,7 @@
 //
 // A COMPONENT BETWEEN THE MOUNT AND THE BODY, rather than a hook in the slot above it. The
 // submit is addressed by an attempt that exists only where a phase is open, so a hook in the
-// wrapper would have to run on the render where nothing is waiting. `WorkflowSlotMount`
+// wrapper would have to run on the render where nothing is waiting. `EngineMountPoint`
 // renders only its empty frame on that arm, so the channel is mounted as the seat's body and
 // the supplied body is composed inside it, which puts the hook behind the same absence check
 // the empty frame is behind.
@@ -37,15 +37,13 @@
 // line of it.
 
 import { InlineRefusal, Nothing, WireFigure } from "@renderer/console/primitives/index.js";
-import {
-  useHumanFormSubmit,
-  type WorkflowHumanFormSubmitCall,
-} from "@renderer/console/workflows/pane/run/human-form-submit.js";
-import { HumanFormShell } from "../default-human-form-body.js";
+import type { WorkflowHumanFormSubmitCall } from "../human-form-submit.js";
+import { useHumanFormSubmit } from "../hooks/useHumanFormSubmit.js";
+import { DefaultHumanFormBody } from "../default-human-form-body.js";
 import type { HumanFormBody, HumanFormPhase } from "../human-form-mount.js";
 
 /** What the slot hands this channel: the open phase, the body to mount, and the submit call. */
-export interface HumanFormSubmitChannelProps {
+export interface HumanFormSubmitBindingProps {
   /** The wait this channel is the submit for. Present by construction — see the header. */
   readonly phase: HumanFormPhase;
   /**
@@ -64,10 +62,10 @@ export interface HumanFormSubmitChannelProps {
 }
 
 /** The waiting phase's body, with the pane's submit bound to it and its answer beneath. */
-export function HumanFormSubmitChannel(props: HumanFormSubmitChannelProps): React.JSX.Element {
+export function HumanFormSubmitBinding(props: HumanFormSubmitBindingProps): React.JSX.Element {
   const { phase, body, submitForm } = props;
   const { outcome, submit } = useHumanFormSubmit(submitForm, phase);
-  const MountedBody = body ?? HumanFormShell;
+  const MountedBody = body ?? DefaultHumanFormBody;
   return (
     <>
       <MountedBody key={phase.phaseRunId} {...phase} submit={submit} />

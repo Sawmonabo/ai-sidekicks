@@ -79,7 +79,7 @@ export type ResolvedAxisChain = Partial<Record<DependentAxis, string>>;
  * went missing would be the console excusing a value on the strength of a second
  * absence.
  */
-export function unvouchedAxesOf(
+export function findAxesOutsideCatalog(
   chain: ResolvedAxisChain,
   catalog: DriverCatalogReading | undefined,
 ): readonly DependentAxis[] {

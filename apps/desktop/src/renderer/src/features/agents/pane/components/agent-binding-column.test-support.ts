@@ -2,7 +2,7 @@
 // the bridge, the roster fixtures, and the DOM queries needed by more than one suite,
 // so they live here once rather than being copied into the file written second.
 
-import { AgentConsoleModels } from "@renderer/console/agents/run-console/agent-console-model.js";
+import { AgentsPaneModels } from "../agents-pane-models.js";
 import type { AgentConsoleCalls } from "../../agent-reads.js";
 import { unscriptedScenario, withDaemonCall } from "@test/helpers/fixture-bridge.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
@@ -58,7 +58,7 @@ function callsAnswering(scriptedDaemon: ScriptedDaemon): AgentConsoleCalls {
   };
 }
 
-const openedModels: AgentConsoleModels[] = [];
+const openedModels: AgentsPaneModels[] = [];
 
 /** A daemon that answers the roster read with a fixed roster. */
 export class RosterDaemon {
@@ -93,8 +93,8 @@ export function modelsOver(
   bridge: ConsoleBridge,
   scriptedDaemon: ScriptedDaemon,
   sessionId = "session-9",
-): AgentConsoleModels {
-  const models = new AgentConsoleModels(
+): AgentsPaneModels {
+  const models = new AgentsPaneModels(
     bridge,
     new SessionStore({ sessionId }),
     callsAnswering(scriptedDaemon),

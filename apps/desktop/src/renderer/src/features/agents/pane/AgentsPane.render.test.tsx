@@ -1,11 +1,10 @@
 // The agent console's column, driven as the body it is.
 //
 // The body is mounted by the deck inside the shared pane chrome, so the cases here drive
-// the COMPONENT and nothing about the frame. Which frame it wears, and what it names
-// this surface, is `agent-console-mounts.test.tsx`.
+// the COMPONENT and nothing about the frame.
 //
 // What the body ASKS FOR, and how long a linkage read lives, is
-// `run-console/agent-console-model.test.ts` and `run-console/agent-console-reads.test.ts`.
+// `agents-pane-models.test.ts` and `../agent-reads.test.ts`.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -14,7 +13,7 @@ import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.
 import { unscriptedScenario } from "@test/helpers/fixture-bridge.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import type { AgentConsoleCalls } from "../agent-reads.js";
-import { AgentConsoleBody } from "./AgentsPane.js";
+import { AgentsPane } from "./AgentsPane.js";
 import { settleReads } from "./agents-pane.test-support.js";
 
 /** The session the store is open on, so the roster read is asked rather than skipped. */
@@ -36,7 +35,7 @@ async function renderBody(agentId: string | undefined): Promise<HTMLElement> {
   const sessionStore = new SessionStore({ sessionId: SESSION_ID });
   sessionStore.initialise({ cursor: 0, entities: [] });
   const { container } = render(
-    <AgentConsoleBody
+    <AgentsPane
       agentId={agentId}
       bridge={bridge}
       sessionStore={sessionStore}
@@ -72,7 +71,7 @@ describe("agent console — the body draws no head of its own", () => {
 describe("agent console — a mount with no session", () => {
   it("says nothing was asked when the mount resolved no session store", () => {
     const { container } = render(
-      <AgentConsoleBody agentId="agent-scout" bridge={fixtureBridge()} calls={EMPTY_CALLS} />,
+      <AgentsPane agentId="agent-scout" bridge={fixtureBridge()} calls={EMPTY_CALLS} />,
     );
 
     expect(container.textContent ?? "").toContain("not handed a session");

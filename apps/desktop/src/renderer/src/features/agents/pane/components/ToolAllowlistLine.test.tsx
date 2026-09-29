@@ -12,7 +12,7 @@ import { TOOL_ALLOWLIST_NAMED_CAP } from "../../agents-caps.js";
 import { formatCount } from "@renderer/console/primitives/index.js";
 import type { AgentRosterEntry } from "@renderer/services/wire-shapes/agents.js";
 import { AgentCard } from "./AgentBindingCard.js";
-import { ToolGrantLine } from "./ToolAllowlistLine.js";
+import { ToolAllowlistLine } from "./ToolAllowlistLine.js";
 
 function lineTextOf(container: HTMLElement): string {
   return container.querySelector(".meridian-agent-card__tool-grant")?.textContent ?? "";
@@ -25,7 +25,7 @@ function toolNames(count: number): readonly string[] {
 
 describe("tool grant line — what each position says", () => {
   it("renders an unanswered grant as an absence rather than a set", () => {
-    const { container } = render(<ToolGrantLine position={{ kind: "not-reported" }} />);
+    const { container } = render(<ToolAllowlistLine position={{ kind: "not-reported" }} />);
     expect(container.querySelector(".meridian-nothing--not-checked")).not.toBeNull();
     expect(lineTextOf(container)).toContain("Not reported");
     expect(lineTextOf(container)).not.toContain("default tool set");
@@ -36,7 +36,7 @@ describe("tool grant line — what each position says", () => {
     // renders as a `title` attribute — so the one position whose entire meaning is
     // "no question was put" explained itself to nobody using a keyboard or a screen
     // reader. The sentence is in the line now, and it has one home.
-    const { container } = render(<ToolGrantLine position={{ kind: "not-reported" }} />);
+    const { container } = render(<ToolAllowlistLine position={{ kind: "not-reported" }} />);
     expect(lineTextOf(container)).toContain(
       "carried identity and lifecycle and no resolved configuration",
     );
@@ -46,26 +46,26 @@ describe("tool grant line — what each position says", () => {
     // Without this the case above would pass over a badge that had put the sentence
     // back on `title`, since `textContent` and `getAttribute` are different reads and
     // only one of them is what a person hears.
-    const { container } = render(<ToolGrantLine position={{ kind: "not-reported" }} />);
+    const { container } = render(<ToolAllowlistLine position={{ kind: "not-reported" }} />);
     const badgeLabel = container.querySelector(".meridian-nothing__badge-label");
     expect(badgeLabel?.getAttribute("title")).toBeNull();
   });
 
   it("names the provider's default set as a muted absence, never as a restriction", () => {
-    const { container } = render(<ToolGrantLine position={{ kind: "driver-default" }} />);
+    const { container } = render(<ToolAllowlistLine position={{ kind: "driver-default" }} />);
     expect(container.querySelector(".meridian-agent-card__axis-absent")).not.toBeNull();
     expect(lineTextOf(container)).toContain("default tool set");
   });
 
   it("renders an empty allowlist at full weight, because somebody chose it", () => {
-    const { container } = render(<ToolGrantLine position={{ kind: "no-tools" }} />);
+    const { container } = render(<ToolAllowlistLine position={{ kind: "no-tools" }} />);
     expect(container.querySelector(".meridian-agent-card__axis-derived")).not.toBeNull();
     expect(lineTextOf(container)).toContain("No tools");
   });
 
   it("gives a populated allowlist its count and none of its names", () => {
     const { container } = render(
-      <ToolGrantLine
+      <ToolAllowlistLine
         position={{ kind: "named", toolNames: ["read", "write", "search", "bash"] }}
       />,
     );
@@ -76,7 +76,7 @@ describe("tool grant line — what each position says", () => {
 
   it('names one tool as one tool, never as "1 tools"', () => {
     const { container } = render(
-      <ToolGrantLine position={{ kind: "named", toolNames: ["read"] }} />,
+      <ToolAllowlistLine position={{ kind: "named", toolNames: ["read"] }} />,
     );
     expect(lineTextOf(container)).toContain("the one tool, named in the resolved");
     expect(lineTextOf(container)).not.toContain("1 tools");
@@ -87,7 +87,7 @@ describe("tool grant line — what each position says", () => {
     // a figure, so an agent with fifteen tools was promised all fifteen
     // below a list showing six.
     const { container } = render(
-      <ToolGrantLine position={{ kind: "named", toolNames: toolNames(15) }} />,
+      <ToolAllowlistLine position={{ kind: "named", toolNames: toolNames(15) }} />,
     );
     expect(lineTextOf(container)).toContain("15 tools");
     expect(lineTextOf(container)).toContain(
@@ -99,7 +99,7 @@ describe("tool grant line — what each position says", () => {
     // Without this the case above would pass over a line that had started hedging
     // every populated allowlist, including the ones the echo does name in full.
     const { container } = render(
-      <ToolGrantLine
+      <ToolAllowlistLine
         position={{ kind: "named", toolNames: toolNames(TOOL_ALLOWLIST_NAMED_CAP) }}
       />,
     );
@@ -110,7 +110,7 @@ describe("tool grant line — what each position says", () => {
     // The console derives no eligibility the daemon owns: the line states the
     // per-agent position and never a conjunction with the node-wide ceiling.
     const { container } = render(
-      <ToolGrantLine position={{ kind: "named", toolNames: toolNames(4) }} />,
+      <ToolAllowlistLine position={{ kind: "named", toolNames: toolNames(4) }} />,
     );
     expect(lineTextOf(container)).not.toContain("allowed");
     expect(lineTextOf(container)).not.toContain("blocked");
@@ -120,7 +120,7 @@ describe("tool grant line — what each position says", () => {
     // Under the unanswered position the ceiling note asserted that an allowlist had
     // been applied at spawn — a claim about a reply that named none — and it said so
     // again under every other card in the roster.
-    const { container } = render(<ToolGrantLine position={{ kind: "not-reported" }} />);
+    const { container } = render(<ToolAllowlistLine position={{ kind: "not-reported" }} />);
     expect(container.textContent ?? "").not.toContain("an allowlist cannot turn them back on");
   });
 });

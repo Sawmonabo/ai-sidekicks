@@ -7,10 +7,8 @@
 // edit here and every caller keeps compiling because it only names what it asserts on.
 
 import { act } from "@testing-library/react";
-import { createElement } from "react";
 
 import type { WorkflowRunSnapshot } from "@renderer/services/wire-shapes/workflow-projection.js";
-import type { ConsolePaneOpener } from "@renderer/console/seats/index.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import type { WorkflowDefinitionRow } from "./definitions/definition-rows.js";
 
@@ -206,24 +204,3 @@ export const PROBE_RUNS: readonly WorkflowRunSnapshot[] = [
     ],
   },
 ];
-
-/**
- * The destination module as a host suite substitutes it: one `.probe-open-run` button that
- * opens a run through the opener the host handed down. Returned from a `vi.mock` factory.
- */
-export function stubDestinationModule(): {
-  readonly WorkflowsDestination: (props: {
-    readonly openPane: ConsolePaneOpener;
-  }) => React.JSX.Element;
-} {
-  return {
-    WorkflowsDestination: (props) =>
-      createElement("button", {
-        type: "button",
-        className: "probe-open-run",
-        onClick: () => {
-          props.openPane({ kind: "workflow-run", entity: { kind: "workflow-run", id: "run-1" } });
-        },
-      }),
-  };
-}

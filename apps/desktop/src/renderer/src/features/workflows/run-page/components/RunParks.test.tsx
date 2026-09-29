@@ -33,12 +33,9 @@ import {
   PHASE_PUBLISH,
   PHASE_SIGN_OFF,
 } from "../../workflows-probe.test-support.js";
-import {
-  UNADDRESSABLE_HUMAN_WAIT_DETAIL,
-  humanFormPhaseFor,
-  type HumanFormSelection,
-} from "@renderer/console/workflows/pane/run/human-form-selection.js";
-import { phaseGraphLoader } from "../run-graph/run-graph-loader.js";
+import { UNADDRESSABLE_HUMAN_WAIT_DETAIL, humanFormPhaseFor } from "../human-form-phase.js";
+import type { HumanFormSelection } from "../hooks/useHumanFormSelection.js";
+import { runGraphLoader } from "../run-graph/run-graph-loader.js";
 import { RunParks } from "./RunParks.js";
 import { RunPhaseGraph } from "./RunGraphSection.js";
 import {
@@ -312,7 +309,7 @@ describe("the phase graph and the park cards of one run", () => {
       </>,
     );
     await act(async () => {
-      await phaseGraphLoader.load();
+      await runGraphLoader.load();
     });
     return container;
   }

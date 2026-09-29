@@ -2,7 +2,7 @@
 //
 // One factory per read, and each one is a claim about a REFRESH STORY rather than
 // about a lifetime — which is the seam that separates this module from
-// `agent-console-model.ts`. That module owns how long a read lives, who holds it,
+// `pane/agents-pane-models.ts`. That module owns how long a read lives, who holds it,
 // and what disposes it; this one owns which method answers it and what makes it ask
 // again. The two change for different reasons: a lease policy moves when a surface
 // changes how it mounts, and a refresh story moves when the wire grows a signal.
@@ -46,9 +46,9 @@ import {
 import type { DriverCatalogReading } from "./binding/driver-catalog.js";
 
 /** Named in a refusal, so a failed read says which read failed. */
-export const AGENT_ROSTER_ORIGIN = "agent-roster";
+export const AGENT_LIST_ORIGIN = "agent-roster";
 export const DRIVER_CATALOG_ORIGIN = "driver-catalog";
-export const CHILD_RUN_LINKAGE_ORIGIN = "child-run-linkage";
+export const CHILD_RUN_LINKS_ORIGIN = "child-run-linkage";
 
 /**
  * Lists the agents of one session.
@@ -75,19 +75,19 @@ export interface AgentConsoleCalls {
   readonly readChildRunLinks: ReadChildRunLinks;
 }
 
-export type AgentRosterRead = PushDrivenRead<AgentRosterReading>;
+export type AgentListRead = PushDrivenRead<AgentRosterReading>;
 export type DriverCatalogRead = PushDrivenRead<DriverCatalogReading>;
-export type ChildRunLinkageRead = PushDrivenRead<ChildRunLinkReading>;
+export type ChildRunLinksRead = PushDrivenRead<ChildRunLinkReading>;
 
 /** The roster read, refreshed by the three registered lifecycle events. */
-export function createAgentRoster(
+export function createAgentList(
   sessionStore: SessionStore,
   clock: ConsoleClock,
   listAgents: ListSessionAgents,
-): AgentRosterRead {
+): AgentListRead {
   return new PushDrivenRead<AgentRosterReading>({
     clock,
-    origin: AGENT_ROSTER_ORIGIN,
+    origin: AGENT_LIST_ORIGIN,
     read: async () => await listAgents({ sessionId: sessionStore.sessionId }),
     subscribe: (onChangeSignal) =>
       subscribeToSessionEventKinds(sessionStore, AGENT_LIFECYCLE_EVENT_KINDS, onChangeSignal),
@@ -95,7 +95,10 @@ export function createAgentRoster(
 }
 
 /** Both driver catalogs, read together and never separately. */
-export function createDriverCatalog(bridge: ConsoleBridge, clock: ConsoleClock): DriverCatalogRead {
+export function createDriverCatalogRead(
+  bridge: ConsoleBridge,
+  clock: ConsoleClock,
+): DriverCatalogRead {
   return new PushDrivenRead<DriverCatalogReading>({
     clock,
     origin: DRIVER_CATALOG_ORIGIN,
@@ -126,15 +129,15 @@ export function createDriverCatalog(bridge: ConsoleBridge, clock: ConsoleClock):
  * scheduler's, so a burst of queued children costs one read and no timer beyond the
  * one refresh chokepoint is introduced.
  */
-export function createChildRunLinkage(
+export function createChildRunLinks(
   sessionStore: SessionStore,
   parentRunId: string,
   clock: ConsoleClock,
   readChildRunLinks: ReadChildRunLinks,
-): ChildRunLinkageRead {
+): ChildRunLinksRead {
   return new PushDrivenRead<ChildRunLinkReading>({
     clock,
-    origin: CHILD_RUN_LINKAGE_ORIGIN,
+    origin: CHILD_RUN_LINKS_ORIGIN,
     read: async () => await readChildRunLinks({ parentRunId }),
     subscribe: (onChangeSignal) =>
       subscribeToSessionEventKinds(sessionStore, CHILD_RUN_LINKAGE_EVENT_KINDS, onChangeSignal),

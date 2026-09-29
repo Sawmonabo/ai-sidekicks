@@ -1,4 +1,4 @@
-// What a test of the agent definitions page needs before it can assert anything.
+// What a test of the agent library needs before it can assert anything.
 //
 // Extracted rather than repeated, and extracted rather than left in one file: the
 // page has six properties worth asserting and the scaffolding for them — a registry
@@ -24,8 +24,8 @@ import { LIVE_ANNOUNCEMENT_HOLD_MS } from "@renderer/components/LiveAnnouncer/li
 import { ManualClock } from "@renderer/lib/clock.js";
 import { settle as settleReactWork } from "@test/helpers/settle.js";
 import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
-import { AgentDefinitionsPage } from "./AgentLibrary.js";
-import type { AgentRegistryCalls } from "@renderer/console/agents/definitions/definition-registry-view.js";
+import { AgentLibrary } from "./AgentLibrary.js";
+import type { AgentRegistryCalls } from "./library-view.js";
 
 /**
  * A registry that answers, and counts what it was asked.
@@ -128,14 +128,14 @@ export function definition(overrides: Partial<AgentDefinition> = {}): AgentDefin
  * announcement from two. Advancing past the hold is what makes the difference
  * observable.
  */
-export function renderPage(stub: RegistryStub): {
+export function renderAgentLibrary(stub: RegistryStub): {
   readonly container: HTMLElement;
   readonly clock: ManualClock;
 } {
   const clock = new ManualClock();
   const { container } = render(
     <LiveAnnouncerProvider clock={clock}>
-      <AgentDefinitionsPage bridge={stub.bridge} calls={stub.calls} />
+      <AgentLibrary bridge={stub.bridge} calls={stub.calls} />
     </LiveAnnouncerProvider>,
   );
   return { container, clock };

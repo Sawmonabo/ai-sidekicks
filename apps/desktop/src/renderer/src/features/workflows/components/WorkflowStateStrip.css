@@ -1,36 +1,12 @@
 /*
- * The workflows family's shared chrome.
+ * The workflows feature's shared chrome: the state strip's column, the slot frame, and the
+ * one action treatment the screen's back control and the run graph's retry control wear.
  *
- * EVERY CHUNK ROOT THIS FAMILY HAS IMPORTS THIS FILE, and the family door does not. All
- * three of the family's bodies — the destination surface and both pane kinds — arrive
- * behind a loader and the door builds no element, so nothing statically reachable from
- * `workflows/index.ts` renders against a rule here, and a door import would charge every
- * session for a document none of them paints. Each root names the rules its body needs:
- * two first paints of one family's chrome are two independent paints, and one relying on
- * another having run is a coupling with no name.
- *
- * THIS DOCUMENT PULLS IN NOTHING. What may be pulled in here is a sheet of a directory this
- * one owns, reached from inside the family and by nothing else. A sheet belonging to a
- * directory with an owner of its own — another family, a sub-module door, a lazily-loaded
- * chunk — would put that surface's rules on whichever document reaches this one and make
- * one directory the reason another is styled at all.
- *
- * THE SHEETS OF THIS FAMILY'S DOORED DIRECTORIES ARE DELIBERATELY NOT HERE. The pane
- * sheet `pane/run/run-controls.css` enters on its pane door, and
- * `destination/workflows-destination.css` enters on the destination's door.
- * `pane/run/phase-graph/phase-graph.css` rides the lazy graph chunk: it is imported
- * beside the graph library's own `base.css` from that chunk's door,
- * `pane/run/phase-graph/index.ts`, which is reached through `import()` and nothing else,
- * and it has to load AFTER that sheet to win at equal specificity. Pulled in here it
- * would land in the document the operator waits for and would load BEFORE the sheet it
- * overrides, so the library's fallback palette would paint.
- *
- * WHAT STAYS HERE. What every workflows body stands in: the state strip's column, the slot
- * frame, and the one action treatment the pane host's back control and the phase graph's
- * retry control wear. A rule that belongs to exactly one surface belongs in that surface's
- * file. The absence blocks are the primitives' and are not restyled here. Nothing animates:
- * a chrome that moves while a read settles draws attention to its own arrival rather than to
- * what arrived.
+ * EVERY CHUNK ROOT OF THE FEATURE IMPORTS THIS FILE, and it pulls in nothing. A rule that
+ * belongs to exactly one component belongs in that component's own sheet. The absence
+ * blocks are the shared components' and are not restyled here. Nothing animates: a chrome
+ * that moves while a read settles draws attention to its own arrival rather than to what
+ * arrived.
  */
 
 /* ------------------------------------------------------------- state strip */

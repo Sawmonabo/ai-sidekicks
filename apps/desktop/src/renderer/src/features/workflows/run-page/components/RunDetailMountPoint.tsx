@@ -11,7 +11,7 @@
 // beside this one, and a body here is handed no seam to it.
 
 import type { WorkflowRunSnapshot } from "@renderer/services/wire-shapes/workflow-projection.js";
-import { WorkflowSlotMount } from "../../components/EngineMountPoint.js";
+import { EngineMountPoint } from "../../components/EngineMountPoint.js";
 
 /** What the run pane hands the run-detail body. */
 export interface RunDetailMount {
@@ -36,7 +36,7 @@ export interface RunDetailMount {
 export type RunDetailBody = (mount: RunDetailMount) => React.ReactNode;
 
 /** What the run detail slot is given: the mount a body receives, and the body itself. */
-export interface RunDetailSlotProps extends RunDetailMount {
+export interface RunDetailMountPointProps extends RunDetailMount {
   /**
    * The body, once there is one.
    *
@@ -47,7 +47,7 @@ export interface RunDetailSlotProps extends RunDetailMount {
 }
 
 /** The run detail body over the mount, or an empty frame while the slot has no body. */
-export function RunDetailSlot(props: RunDetailSlotProps): React.JSX.Element {
+export function RunDetailMountPoint(props: RunDetailMountPointProps): React.JSX.Element {
   const { body, ...mount } = props;
-  return <WorkflowSlotMount body={body} mount={mount} />;
+  return <EngineMountPoint body={body} mount={mount} />;
 }

@@ -12,9 +12,9 @@
 // identical on every machine.
 //
 // WHY THIS MODULE SITS IN THE LAZY CHUNK. It imports the library for values —
-// `MarkerType`, `Position` — and so is reachable only from `PhaseGraphCanvas.tsx`,
+// `MarkerType`, `Position` — and so is reachable only from `RunGraphCanvas.tsx`,
 // which is itself reached only through this directory's `index.ts`, the door
-// `phase-graph-loader.ts`'s `import()` names. The layout module beside it imports
+// `run-graph-loader.ts`'s `import()` names. The layout module beside it imports
 // nothing from the library at all, which is what lets the host decide whether a graph
 // can be drawn before any of these bytes are fetched.
 //
@@ -22,20 +22,19 @@
 // members the node paints, in the same words, so a reader listening and a reader
 // looking are told the same thing about the same phase.
 
-import { useMemo } from "react";
 import { MarkerType, Position, type Edge, type Node } from "@xyflow/react";
 
 import {
   PHASE_NODE_HEIGHT_PX,
   PHASE_NODE_WIDTH_PX,
   type DrawnPhaseSequence,
-} from "@renderer/features/workflows/run-page/run-graph/phase-sequence-layout.js";
+} from "./phase-sequence-layout.js";
 import {
   PHASE_PARK_ATTENTION_MARKS,
   phaseDisplayText,
-  type PhaseGraphNode,
+  type RunGraphNode,
   type PhaseSequenceEdge,
-} from "@renderer/features/workflows/run-page/run-graph/phase-topology.js";
+} from "./phase-topology.js";
 
 /**
  * What a node carries into its own renderer.
@@ -44,7 +43,7 @@ import {
  * data to `Record<string, unknown>` and only an alias picks up the implicit index
  * signature that satisfies it.
  */
-export type PhaseNodeData = { readonly phase: PhaseGraphNode };
+export type PhaseNodeData = { readonly phase: RunGraphNode };
 
 /**
  * The one node kind this surface draws. The string is the `nodeTypes` key.
@@ -70,7 +69,7 @@ export type PhaseFlowEdge = Edge;
  * precisely the store re-entry the memo below exists to prevent. Nothing in this
  * directory mutates either array; the canvas passes each straight through.
  */
-export interface PhaseGraphElements {
+export interface RunGraphElements {
   readonly nodes: PhaseFlowNode[];
   readonly edges: PhaseFlowEdge[];
 }
@@ -94,7 +93,7 @@ export interface PhaseGraphElements {
  * told a scheduled park is scheduled — which is the whole of what the neutral
  * treatment says to a reader looking at it.
  */
-export function phaseNodeAccessibleName(phase: PhaseGraphNode): string {
+export function phaseNodeAccessibleName(phase: RunGraphNode): string {
   const parts = [`${phaseDisplayText(phase)}: ${phase.state}`, `gate ${phase.gateState}`];
   if (phase.parkAttention !== undefined) {
     parts.push(PHASE_PARK_ATTENTION_MARKS[phase.parkAttention]);
@@ -114,7 +113,7 @@ export function sequenceEdgeAccessibleName(edge: PhaseSequenceEdge): string {
 }
 
 /** The renderer's arrays for one drawn sequence. Pure; the memo is the hook's job. */
-export function toPhaseGraphElements(layout: DrawnPhaseSequence): PhaseGraphElements {
+export function toRunGraphElements(layout: DrawnPhaseSequence): RunGraphElements {
   const nodes: PhaseFlowNode[] = layout.nodes.map((placed) => ({
     id: placed.phase.phaseId,
     type: PHASE_NODE_TYPE,
@@ -140,17 +139,4 @@ export function toPhaseGraphElements(layout: DrawnPhaseSequence): PhaseGraphElem
   }));
 
   return { nodes, edges };
-}
-
-/**
- * The renderer's arrays, rebuilt only when the layout moves.
- *
- * A hook rather than a call in a render body, per `apps/desktop/AGENTS.md`, and the
- * dependency is exact: the layout object upstream is already reference-stable across
- * renders that describe one run, so this memo recomputes precisely when the picture
- * changes and never otherwise. That matters because the renderer re-enters its own
- * store whenever the node or edge array identity moves.
- */
-export function usePhaseGraphElements(layout: DrawnPhaseSequence): PhaseGraphElements {
-  return useMemo(() => toPhaseGraphElements(layout), [layout]);
 }

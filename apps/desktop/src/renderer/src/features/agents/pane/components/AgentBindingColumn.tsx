@@ -9,14 +9,14 @@
 import { useCallback, useMemo } from "react";
 
 import { AgentCard } from "./AgentBindingCard.js";
-import { ToolGrantCeiling } from "./ToolAllowlistCeiling.js";
-import { type AgentConsoleModels } from "@renderer/console/agents/run-console/agent-console-model.js";
+import { ToolAllowlistCeiling } from "./ToolAllowlistCeiling.js";
+import { type AgentsPaneModels } from "../agents-pane-models.js";
 import { usePushDrivenRead } from "@renderer/console/seats/index.js";
 import { Nothing, RefusalCard } from "@renderer/console/primitives/index.js";
 
 /** What the binding column reads from: the session's models and the agent it is about. */
 export interface AgentBindingColumnProps {
-  readonly models: AgentConsoleModels;
+  readonly models: AgentsPaneModels;
   /** The agent this console is about. `undefined` shows the whole roster. */
   readonly agentId: string | undefined;
 }
@@ -62,7 +62,7 @@ export function AgentBindingColumn(props: AgentBindingColumnProps): React.JSX.El
           is a fact about this NODE, so it is stated where the roster is rather than
           repeated under every agent — and it is stated only where there is at least
           one agent to state it about, since an empty roster has no grant it qualifies. */}
-      {shownAgents.length === 0 ? null : <ToolGrantCeiling />}
+      {shownAgents.length === 0 ? null : <ToolAllowlistCeiling />}
 
       {shownAgents.map((agent) => (
         <AgentCard key={agent.agentId} agent={agent} />

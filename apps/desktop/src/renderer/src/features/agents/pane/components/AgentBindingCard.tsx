@@ -10,14 +10,14 @@
 // rather than inside it. The allowlist is the per-agent control over every tool source
 // the daemon serves this agent — the browser's page tool set included — and a
 // governance ceiling a reader has to open a disclosure to find is a ceiling nobody
-// reads. `ToolGrantLine.tsx` states the split it keeps from the echo beside it, and
+// reads. `ToolAllowlistLine.tsx` states the split it keeps from the echo beside it, and
 // `tool-grant.ts` states why the line carries a count and never the names.
 //
 // AND IT IS READ ONCE. The line and the echo's Tools row state one wire value, so the
 // position is resolved here and handed to both — the card is the only place that has
 // the whole roster row, and a second read inside the disclosure is how the two came to
 // disagree about a configuration that carried no allowlist. The NODE-WIDE half of that
-// governance rule is not on this card at all: `ToolGrantCeiling.tsx` states it once
+// governance rule is not on this card at all: `ToolAllowlistCeiling.tsx` states it once
 // beside the roster, because it is true of every agent.
 //
 // TWO FIELDS ARE DELIBERATELY NOT RENDERED ANYWHERE: the admitting principal and the
@@ -33,22 +33,22 @@
 
 import { WireFigure, formatDateTime } from "@renderer/console/primitives/index.js";
 import { type AgentRosterEntry } from "@renderer/services/wire-shapes/agents.js";
-import { ResolvedConfigurationEcho } from "./ResolvedConfiguration.js";
+import { ResolvedConfiguration } from "./ResolvedConfiguration.js";
 import { BindingAxis } from "./BindingAxis.js";
 import { ObservedOutputSpeed } from "./ObservedOutputSpeed.js";
-import { ToolGrantLine } from "./ToolAllowlistLine.js";
-import { agentToolGrantPosition } from "../tool-allowlist.js";
+import { ToolAllowlistLine } from "./ToolAllowlistLine.js";
+import { agentToolAllowlistPosition } from "../tool-allowlist.js";
 
 /** What one agent card shows. */
-export interface AgentCardProps {
+export interface AgentBindingCardProps {
   readonly agent: AgentRosterEntry;
 }
 
 /** One agent: its identity, the binding it runs under, and the tool grant it holds. */
-export function AgentCard(props: AgentCardProps): React.JSX.Element {
+export function AgentCard(props: AgentBindingCardProps): React.JSX.Element {
   const { agent } = props;
   const label = agent.name ?? agent.agentId;
-  const toolGrant = agentToolGrantPosition(agent);
+  const toolGrant = agentToolAllowlistPosition(agent);
 
   return (
     <article className="meridian-agent-card" aria-label={`Agent ${label}`}>
@@ -84,14 +84,14 @@ export function AgentCard(props: AgentCardProps): React.JSX.Element {
       </p>
 
       <ObservedOutputSpeed agent={agent} />
-      <ToolGrantLine position={toolGrant} />
+      <ToolAllowlistLine position={toolGrant} />
 
       {agent.resolvedConfiguration === undefined ? null : (
         <details className="meridian-agent-card__disclosure">
           <summary className="meridian-agent-card__disclosure-summary">
             Resolved configuration
           </summary>
-          <ResolvedConfigurationEcho
+          <ResolvedConfiguration
             resolved={agent.resolvedConfiguration}
             definitionId={agent.resolvedFromDefinitionId}
             toolGrant={toolGrant}

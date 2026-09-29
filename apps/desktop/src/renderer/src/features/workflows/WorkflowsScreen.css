@@ -1,11 +1,6 @@
 /*
- * The workflows destination's own composition: the column its runs section stands in, and
- * the pane host that replaces it while a pane is open.
- *
- * A sibling FILE rather than a section of `workflows.css`: these rules belong to one
- * surface, and appending them to the family sheet would put a surface's layout in the file
- * every other surface in the family also edits. It enters on this directory's door,
- * `destination/index.ts`.
+ * The workflows screen's own composition: the column its runs section stands in, and the
+ * pane host that replaces it while a pane is open. Imported by `WorkflowsScreen.tsx`.
  *
  * Values come from the generated token sheet: there is no literal colour and no literal
  * length off the space scale, and nothing animates.

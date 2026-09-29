@@ -16,7 +16,7 @@
 // node-wide setting.
 
 /** The ceiling, once, above a roster that has at least one agent to state it about. */
-export function ToolGrantCeiling(): React.JSX.Element {
+export function ToolAllowlistCeiling(): React.JSX.Element {
   return (
     <p className="meridian-agents__grant-note">
       A tool allowlist is applied at spawn and filters the browser page tool set like any other

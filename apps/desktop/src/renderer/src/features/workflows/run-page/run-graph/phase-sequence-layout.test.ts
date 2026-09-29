@@ -17,7 +17,7 @@ import {
   layoutPhaseSequence,
   phaseSequenceSignature,
 } from "./phase-sequence-layout.js";
-import type { PhaseGraphNode, PhaseTopology } from "./phase-topology.js";
+import type { RunGraphNode, PhaseTopology } from "./phase-topology.js";
 
 /** The definition for `THREE_PHASES`, declaring the chain its order implies. */
 const THREE_PHASE_TOPOLOGY: PhaseTopology = [
@@ -27,7 +27,7 @@ const THREE_PHASE_TOPOLOGY: PhaseTopology = [
 ];
 
 /** A phase with everything named, so a case perturbs exactly one member. */
-function phase(overrides: Partial<PhaseGraphNode> & { readonly phaseId: string }): PhaseGraphNode {
+function phase(overrides: Partial<RunGraphNode> & { readonly phaseId: string }): RunGraphNode {
   return {
     displayName: `Phase ${overrides.phaseId}`,
     state: "pending",
@@ -37,13 +37,13 @@ function phase(overrides: Partial<PhaseGraphNode> & { readonly phaseId: string }
   };
 }
 
-const THREE_PHASES: readonly PhaseGraphNode[] = [
+const THREE_PHASES: readonly RunGraphNode[] = [
   phase({ phaseId: "plan", state: "completed", gateState: "open" }),
   phase({ phaseId: "build", state: "running" }),
   phase({ phaseId: "review", parkAttention: "awaiting-person" }),
 ];
 
-function drawn(phases: readonly PhaseGraphNode[], topology?: PhaseTopology) {
+function drawn(phases: readonly RunGraphNode[], topology?: PhaseTopology) {
   const layout = layoutPhaseSequence(phases, topology);
   if (layout.status !== "drawn") {
     throw new Error(`expected a drawn sequence, got ${layout.status}`);
@@ -207,7 +207,7 @@ describe("the layout memo", () => {
 
   it("the signature moves for every member the picture depends on", () => {
     const base = phase({ phaseId: "one" });
-    const perturbations: readonly PhaseGraphNode[] = [
+    const perturbations: readonly RunGraphNode[] = [
       { ...base, phaseId: "two" },
       { ...base, displayName: "Other words" },
       { ...base, state: "running" },

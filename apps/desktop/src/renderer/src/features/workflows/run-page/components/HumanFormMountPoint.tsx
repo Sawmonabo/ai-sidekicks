@@ -1,7 +1,7 @@
 // The human phase's form slot — where the prompt, the schema-derived controls, and the
 // submission that carries the revision they were composed against are mounted.
 //
-// THE FORM STANDING HERE IS THE CONSOLE'S OWN SHELL (`HumanFormShell.tsx`): a real form over
+// THE FORM STANDING HERE IS THE CONSOLE'S OWN SHELL (`default-human-form-body.ts`): a real form over
 // the schema the run read carried. The `body` prop replaces it with a supplied body.
 //
 // THE BODY IS MOUNTED INSIDE THE SUBMIT CHANNEL AND NOT DIRECTLY IN THE SEAT. The mount
@@ -10,7 +10,7 @@
 // the `submit` it holds. That indirection is the whole of the seat's promise: the submit
 // call, the single-flight guard, the captured revision, the re-armed run read and the
 // settlement rendering stay with the pane, and a body arrives with one act already bound.
-// `HumanFormSubmitChannel` is a MODULE-LEVEL reference, because a component composed on
+// `HumanFormSubmitBinding` is a MODULE-LEVEL reference, because a component composed on
 // each render is a new type each time and React remounts it.
 //
 // THE MOUNT CONTRACT IS `human-form-mount.ts`'S. It states what this pane owes a body and
@@ -28,16 +28,16 @@
 // which is legitimately `0`) is the one that reads as falsy. One member, present or
 // absent, and the question is asked once here.
 
-import { HumanFormSubmitChannel } from "./HumanFormSubmitBinding.js";
-import type { WorkflowHumanFormSubmitCall } from "@renderer/console/workflows/pane/run/human-form-submit.js";
+import { HumanFormSubmitBinding } from "./HumanFormSubmitBinding.js";
+import type { WorkflowHumanFormSubmitCall } from "../human-form-submit.js";
 import type { HumanFormBody, HumanFormPhase } from "../human-form-mount.js";
-import { WorkflowSlotMount } from "../../components/EngineMountPoint.js";
+import { EngineMountPoint } from "../../components/EngineMountPoint.js";
 
 /**
  * What the human-form slot is given: the open phase, an optional replacement body, and the
  * call that submits.
  */
-export interface HumanFormSlotProps {
+export interface HumanFormMountPointProps {
   /**
    * The open phase, or `undefined` while none is.
    *
@@ -63,11 +63,11 @@ export interface HumanFormSlotProps {
 }
 
 /** The human phase's form, or an empty frame where no phase is waiting on a person. */
-export function HumanFormSlot(props: HumanFormSlotProps): React.JSX.Element {
+export function HumanFormMountPoint(props: HumanFormMountPointProps): React.JSX.Element {
   const { phase, body, submitForm } = props;
   return (
-    <WorkflowSlotMount
-      body={HumanFormSubmitChannel}
+    <EngineMountPoint
+      body={HumanFormSubmitBinding}
       // No phase means no channel and no body, and never a body rendered against a
       // placeholder: a form composed against a phase nobody resolved would be answerable
       // in appearance and unsubmittable in fact. The mount reads the absence and renders

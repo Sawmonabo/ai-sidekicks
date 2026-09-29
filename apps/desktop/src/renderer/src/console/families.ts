@@ -64,7 +64,7 @@ import type {
   ConsoleSurfaceRegistry,
   InlineCardSeatRegistry,
 } from "./seats/index.js";
-import { registerWorkflowSurfaces } from "./workflows/index.js";
+import { registerWorkflowSurfaces } from "@renderer/features/workflows/index.js";
 
 /**
  * Register every shipped view family against the four boards a composition owns.

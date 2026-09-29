@@ -81,7 +81,7 @@ import {
   type SchemaLeafEntry,
   type SchemaListDescriptor,
 } from "../plan/schema-fields.js";
-import { asAnswerRecord, type SchemaFormAnswer } from "./schema-answer-value.js";
+import { asAnswerRecord, type SchemaFormAnswerValue } from "./schema-answer-value.js";
 import { isSameMemberPath, type SchemaMemberPath } from "../schema-member-path.js";
 
 /** The leaf the plan drew at one path, or nothing where it drew none there. */
@@ -239,7 +239,7 @@ function declaredEntries(declared: unknown): readonly unknown[] | undefined {
  */
 function nearestDeclaredValue(
   leaf: SchemaLeafEntry,
-  groupDefault: SchemaFormAnswer | undefined,
+  groupDefault: SchemaFormAnswerValue | undefined,
 ): unknown {
   const ownValue = leaf.form === "list" ? leaf.list.defaultValue : leaf.field.defaultValue;
   if (ownValue !== undefined || groupDefault === undefined) {
@@ -257,7 +257,7 @@ function openingListEntries(declaredValue: unknown): SchemaListDraft {
 /** One leaf's opening node: its declared value where the schema wrote one, else nothing. */
 function openingLeafDraft(
   leaf: SchemaLeafEntry,
-  groupDefault: SchemaFormAnswer | undefined,
+  groupDefault: SchemaFormAnswerValue | undefined,
 ): SchemaLeafDraft {
   const declaredValue = nearestDeclaredValue(leaf, groupDefault);
   if (leaf.form === "list") {

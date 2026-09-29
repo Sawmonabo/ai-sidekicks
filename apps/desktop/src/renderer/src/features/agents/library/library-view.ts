@@ -1,7 +1,7 @@
-// What the agent definitions page HOLDS: the registry read, the delete in flight, and which
+// What the agent library HOLDS: the registry read, the delete in flight, and which
 // record the editor is open on.
 //
-// It is a module of its own rather than a class at the top of `AgentDefinitionsPage.tsx`
+// It is a module of its own rather than a class at the top of `AgentLibrary.tsx`
 // because the two are different jobs — one owns a state machine over the registry calls,
 // the other renders whatever that machine settled on — which is the seam the
 // module-shape rule in `apps/desktop/AGENTS.md` splits on. The page imports the hook
@@ -16,7 +16,6 @@
 // A REJECTED CALL IS NOT CAUGHT HERE. It reaches whoever pressed or mounted; the delete
 // gives its lock back on the way out so the page does not stay disabled.
 
-import { useEffect, useMemo, useSyncExternalStore } from "react";
 import { consoleClockFor } from "@renderer/services/platform/hooks/useClock.js";
 import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
@@ -26,15 +25,9 @@ import {
   NO_TRIGGERING_EVENT_KINDS,
   type ReadTriggerTarget,
 } from "@renderer/store/reads/read-triggers.js";
-import { useWindowReadTriggers } from "@renderer/store/reads/hooks/useWindowReadTriggers.js";
 import { RefreshScheduler, type RefreshReason } from "@renderer/lib/reads/refresh-scheduler.js";
-import { useSettlementAnnouncement } from "../../primitives/index.js";
-import type { ListAgentDefinitions } from "@renderer/features/agents/agent-reads.js";
-import {
-  describeDefinitionSettlement,
-  readDefinitions,
-  type AgentDefinitionReading,
-} from "@renderer/features/agents/library/definition-rows.js";
+import type { ListAgentDefinitions } from "../agent-reads.js";
+import { readDefinitions, type AgentDefinitionReading } from "./definition-rows.js";
 
 /**
  * Deletes one saved definition. Rejects when the daemon refuses.
@@ -62,7 +55,7 @@ export type AgentDefinitionEditorSubject =
   | { readonly kind: "new" };
 
 /** Everything the page renders from, in one value. */
-export interface AgentRegistrySnapshot {
+export interface AgentLibrarySnapshot {
   readonly reading: AgentDefinitionReading;
   /** The row whose delete has been asked but not confirmed. One at a time. */
   readonly armedDeletionId: string | undefined;
@@ -74,7 +67,7 @@ export interface AgentRegistrySnapshot {
   readonly revision: number;
 }
 
-const NOTHING_READ: AgentRegistrySnapshot = {
+const NOTHING_READ: AgentLibrarySnapshot = {
   reading: { kind: "not-loaded" },
   armedDeletionId: undefined,
   deletingId: undefined,
@@ -84,7 +77,7 @@ const NOTHING_READ: AgentRegistrySnapshot = {
 };
 
 /** The subsystem name the refusals this view raises on its own carry. */
-export const AGENT_REGISTRY_REFUSAL_ORIGIN = "agent-registry-view";
+export const AGENT_LIBRARY_REFUSAL_ORIGIN = "agent-registry-view";
 
 /** The one key a registry read is taken under; a refresh supersedes whoever holds it. */
 const REGISTRY_READ_KEY = "registry-read";
@@ -106,7 +99,7 @@ const REGISTRY_READ_KEY = "registry-read";
  * therefore both the lock and the record of which delete is running — one field, so
  * the guard and the page's own disabled controls cannot disagree.
  */
-export class AgentRegistryView implements ReadTriggerTarget {
+export class AgentLibraryView implements ReadTriggerTarget {
   /**
    * No terminal event refreshes this read, and the empty set states it.
    *
@@ -118,8 +111,8 @@ export class AgentRegistryView implements ReadTriggerTarget {
    */
   public readonly triggeringEventKinds: ReadonlySet<string> = NO_TRIGGERING_EVENT_KINDS;
   readonly #calls: AgentRegistryCalls;
-  readonly #changes = new Emitter<AgentRegistrySnapshot>("agent registry change");
-  #snapshot: AgentRegistrySnapshot = NOTHING_READ;
+  readonly #changes = new Emitter<AgentLibrarySnapshot>("agent registry change");
+  #snapshot: AgentLibrarySnapshot = NOTHING_READ;
   #hasStarted = false;
   #isDisposed = false;
   /**
@@ -142,7 +135,7 @@ export class AgentRegistryView implements ReadTriggerTarget {
     });
   }
 
-  public snapshot(): AgentRegistrySnapshot {
+  public snapshot(): AgentLibrarySnapshot {
     return this.#snapshot;
   }
 
@@ -295,63 +288,10 @@ export class AgentRegistryView implements ReadTriggerTarget {
    * `useSyncExternalStore` compares identity: a getter returning a fresh object on
    * every call renders forever.
    */
-  #publish(changes: Partial<Omit<AgentRegistrySnapshot, "revision">>): void {
+  #publish(changes: Partial<Omit<AgentLibrarySnapshot, "revision">>): void {
     this.#snapshot = { ...this.#snapshot, ...changes, revision: this.#snapshot.revision + 1 };
     this.#changes.emit(this.#snapshot);
   }
-}
-
-/**
- * Build the view and let it read.
- *
- * Constructed in a memo and STARTED in an effect, the split
- * `frame/session/session-lifecycle.ts` states one level up: building it owns nothing — no
- * timer, no subscription, no call in flight — and the read is the side effect that
- * must not happen during render, so a memo React discards costs a discarded object
- * and no request.
- */
-export function useAgentRegistryView(
-  bridge: ConsoleBridge,
-  calls: AgentRegistryCalls,
-): {
-  readonly view: AgentRegistryView;
-  readonly snapshot: AgentRegistrySnapshot;
-} {
-  const view = useMemo(() => new AgentRegistryView(bridge, calls), [bridge, calls]);
-  useEffect(() => {
-    view.start();
-    return () => {
-      view.dispose();
-    };
-  }, [view]);
-  // The window half only: this registry has no session and no triggering event kind,
-  // so the session half would have nothing to listen to.
-  useWindowReadTriggers(view, bridge.transportReconnect);
-  const snapshot = useSyncExternalStore(
-    (onStoreChange: () => void) => view.subscribe(onStoreChange),
-    () => view.snapshot(),
-    () => view.snapshot(),
-  );
-  return { view, snapshot };
-}
-
-/**
- * Say what this read settled on, through the console's one settlement announcer.
- *
- * COMPOSES A SENTENCE AND GUARDS NOTHING. The repetition rule belongs to
- * `primitives/announce/settlement-announcement.ts` and is keyed on the SENTENCE, which is
- * the only key that is correct here: a flag held once for the life of the mount
- * silences everything after the first settlement, so the shorter list a re-read lands
- * on after a delete would never be spoken.
- *
- * `undefined` while the read is in flight, which is that hook's "still reading"
- * arm; `describeDefinitionSettlement` is narrowed to a settled reading and is
- * reached only past that check.
- */
-export function useDefinitionSettlementAnnouncement(reading: AgentDefinitionReading): void {
-  useSettlementAnnouncement(
-    reading.kind === "not-loaded" ? undefined : describeDefinitionSettlement(reading),
-  );
 }
 
 /**
@@ -363,7 +303,7 @@ export function useDefinitionSettlementAnnouncement(reading: AgentDefinitionRead
  */
 function deleteAlreadyRunning(isTheSameRecord: boolean): ConsoleRefusal {
   return refuse(
-    AGENT_REGISTRY_REFUSAL_ORIGIN,
+    AGENT_LIBRARY_REFUSAL_ORIGIN,
     "delete-already-running",
     isTheSameRecord
       ? "This sidekick is already being deleted. It is asked once, and the row changes when the registry answers."

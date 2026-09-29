@@ -1,7 +1,7 @@
-import { type ToolGrantWeight } from "../tool-allowlist.js";
+import { type ToolAllowlistWeight } from "../tool-allowlist.js";
 
 /** Total over the weight set: a third weight fails to compile before it renders. */
-const WEIGHT_CLASS_NAMES: Readonly<Record<ToolGrantWeight, string>> = {
+const WEIGHT_CLASS_NAMES: Readonly<Record<ToolAllowlistWeight, string>> = {
   absent: "meridian-agent-card__axis-absent",
   derived: "meridian-agent-card__axis-derived",
 };
@@ -15,8 +15,8 @@ const WEIGHT_CLASS_NAMES: Readonly<Record<ToolGrantWeight, string>> = {
  * somebody chose or give an absence the weight of a decision, and the card's whole
  * rule is that those two never read alike.
  */
-export function ToolGrantReading(props: {
-  readonly weight: ToolGrantWeight;
+export function ToolAllowlistReading(props: {
+  readonly weight: ToolAllowlistWeight;
   readonly children: React.ReactNode;
 }): React.JSX.Element {
   return <span className={WEIGHT_CLASS_NAMES[props.weight]}>{props.children}</span>;

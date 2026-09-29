@@ -13,7 +13,7 @@
 import { fireEvent, render, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import type { AttachAccountRegistryReading } from "../account-axis.js";
+import type { AccountRegistryReading } from "../account-axis.js";
 import { account, registryAccountId, resolvedTo, served } from "../account-reading.test-support.js";
 import { AccountAxisField, type AccountAxisFieldProps } from "./AccountAxisField.js";
 
@@ -42,7 +42,7 @@ const REGISTRY_ACCOUNTS = [
 ];
 
 /** The same accounts with none marked default, and the entry that says so. */
-const REGISTRY_WITH_NO_DEFAULT: AttachAccountRegistryReading = served(
+const REGISTRY_WITH_NO_DEFAULT: AccountRegistryReading = served(
   REGISTRY_ACCOUNTS.map((row) => ({ ...row, isDefault: false })),
   [
     {
@@ -62,7 +62,7 @@ interface AxisCase extends Pick<
   "value" | "inheritedValue" | "isOverridden"
 > {
   readonly onValueChange?: (accountId: string | undefined) => void;
-  readonly registry?: AttachAccountRegistryReading;
+  readonly registry?: AccountRegistryReading;
 }
 
 /** The field on its own, over the registry a case hands it. */
@@ -162,7 +162,7 @@ describe("the account axis — what its reset control promises", () => {
 // rather than about the flag.
 describe("the account axis — the account an unpinned run resolves to", () => {
   /** The field with nothing pinned, which is how the field opens. */
-  function unpinnedAxis(registry?: AttachAccountRegistryReading): HTMLElement {
+  function unpinnedAxis(registry?: AccountRegistryReading): HTMLElement {
     return renderedAxis({
       value: undefined,
       inheritedValue: undefined,

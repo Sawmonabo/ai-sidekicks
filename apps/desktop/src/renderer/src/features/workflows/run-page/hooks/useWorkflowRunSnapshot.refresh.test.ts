@@ -8,8 +8,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { PARKED_RUN, settle } from "../../workflows-probe.test-support.js";
 import {
-  FIRST_ROUND,
-  observeRounds,
+  FIRST_REFRESH,
+  observeRefreshes,
   runReadingCall,
 } from "./useWorkflowRunSnapshot.test-support.js";
 
@@ -20,13 +20,13 @@ describe("useWorkflowRunSnapshot — the round is the re-arm", () => {
 
   it("puts the read again when the caller advances the round", async () => {
     const readRun = vi.fn(runReadingCall());
-    const probe = observeRounds(readRun);
+    const probe = observeRefreshes(readRun);
 
-    probe.renderAtRound(PARKED_RUN.workflowRunId, FIRST_ROUND);
+    probe.renderAtRound(PARKED_RUN.workflowRunId, FIRST_REFRESH);
     await settle();
     expect(readRun).toHaveBeenCalledTimes(1);
 
-    probe.renderAtRound(PARKED_RUN.workflowRunId, FIRST_ROUND + 1);
+    probe.renderAtRound(PARKED_RUN.workflowRunId, FIRST_REFRESH + 1);
     // A new round is a new question: the frame that brings it reads, it does not present
     // the previous round's snapshot as the answer.
     expect(probe.observed.at(-1)?.status).toBe("reading");
@@ -39,11 +39,11 @@ describe("useWorkflowRunSnapshot — the round is the re-arm", () => {
   it("negative control: re-rendering at the SAME round puts no second read", async () => {
     // Without this the case above passes over a hook that re-read on every render.
     const readRun = vi.fn(runReadingCall());
-    const probe = observeRounds(readRun);
+    const probe = observeRefreshes(readRun);
 
-    probe.renderAtRound(PARKED_RUN.workflowRunId, FIRST_ROUND);
+    probe.renderAtRound(PARKED_RUN.workflowRunId, FIRST_REFRESH);
     await settle();
-    probe.renderAtRound(PARKED_RUN.workflowRunId, FIRST_ROUND);
+    probe.renderAtRound(PARKED_RUN.workflowRunId, FIRST_REFRESH);
     await settle();
 
     expect(readRun).toHaveBeenCalledTimes(1);

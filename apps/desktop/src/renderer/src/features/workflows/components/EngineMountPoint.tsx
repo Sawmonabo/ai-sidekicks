@@ -10,7 +10,7 @@
 // composed inline on each render is a new type each time and React remounts it.
 
 /** What this mount is handed: the body once there is one, and what it is handed to render. */
-export interface WorkflowSlotMountProps<TMount extends object> {
+export interface EngineMountPointProps<TMount extends object> {
   /** The body, or `undefined` while nobody has filled the slot. */
   readonly body: ((mount: TMount) => React.ReactNode) | undefined;
   /**
@@ -25,13 +25,13 @@ export interface WorkflowSlotMountProps<TMount extends object> {
 }
 
 /** Mount a body authored elsewhere, or draw the empty frame where it will stand. */
-export function WorkflowSlotMount<TMount extends object>(
-  props: WorkflowSlotMountProps<TMount>,
+export function EngineMountPoint<TMount extends object>(
+  props: EngineMountPointProps<TMount>,
 ): React.JSX.Element {
-  const { body: SlotBody, mount } = props;
+  const { body: MountPointBody, mount } = props;
   return (
     <div className="meridian-workflow__slot">
-      {SlotBody === undefined || mount === undefined ? null : <SlotBody {...mount} />}
+      {MountPointBody === undefined || mount === undefined ? null : <MountPointBody {...mount} />}
     </div>
   );
 }

@@ -85,14 +85,14 @@
 // No logic lands here. If this file ever needs a condition, a try, or a value of
 // its own, the thing it is deciding belongs in the family that owns the decision.
 
-import { registerAgentConsolePane } from "../agents/index.js";
+import { registerAgentConsolePane } from "@renderer/features/agents/index.js";
 import { registerBrowserPanes } from "@renderer/features/preview/contributions/panes.js";
 import { registerInspectorPane } from "@renderer/features/inspector/contributions/panes.js";
 import { registerLedgerPanes } from "@renderer/features/transcript/contributions/panes.js";
 import { registerReposPanes } from "@renderer/features/repos/contributions/panes.js";
 import type { ConsolePaneRegistry } from "../seats/index.js";
 import { registerTerminalPanes } from "@renderer/features/terminal/contributions/panes.js";
-import { registerWorkflowPanes } from "../workflows/index.js";
+import { registerWorkflowPanes } from "@renderer/features/workflows/index.js";
 
 /**
  * Register every shipped pane body against a registry.

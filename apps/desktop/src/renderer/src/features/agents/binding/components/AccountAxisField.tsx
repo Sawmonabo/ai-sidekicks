@@ -48,18 +48,18 @@ import { WireFigure } from "@renderer/console/primitives/index.js";
 import { accountAdvisoriesFor, unresolvedDefaultAdvisoryIn } from "../account-advisories.js";
 import {
   advisoryChoiceIn,
-  attachAccountAxisReadingFor,
+  accountAxisReadingFor,
   chosenAccountIn,
   registryCarriesAccount,
-  type AttachAccountRegistryReading,
+  type AccountRegistryReading,
 } from "../account-axis.js";
-import { AccountChoiceAbsence } from "./AccountChoiceEmptyState.js";
+import { AccountChoiceEmptyState } from "./AccountChoiceEmptyState.js";
 import { AccountChoiceList } from "./AccountChoiceList.js";
 
 /** What the account field reads from the caller, and what it hands back. */
 export interface AccountAxisFieldProps {
   /** The node's account registry, as the caller last read it. */
-  readonly registry: AttachAccountRegistryReading;
+  readonly registry: AccountRegistryReading;
   /** Asks the caller to read the registry again. Pressed from the absence states. */
   readonly onReopenRegistry: () => void;
   /** The driver the form resolved to, entered or inherited. Decides the provider. */
@@ -86,7 +86,7 @@ export interface AccountAxisFieldProps {
 /** The provider-account axis: a picker over the registry, or why there is none. */
 export function AccountAxisField(props: AccountAxisFieldProps): React.JSX.Element {
   const { registry, value } = props;
-  const reading = attachAccountAxisReadingFor(registry, props.driverName);
+  const reading = accountAxisReadingFor(registry, props.driverName);
   const chosen = chosenAccountIn(reading, value);
   const provenance = accountAxisProvenanceOf(props);
   const isPinned = provenance !== "unpinned";
@@ -126,7 +126,7 @@ export function AccountAxisField(props: AccountAxisFieldProps): React.JSX.Elemen
           overlayContainer={props.overlayContainer}
         />
       ) : (
-        <AccountChoiceAbsence reading={reading} onReopen={props.onReopenRegistry} />
+        <AccountChoiceEmptyState reading={reading} onReopen={props.onReopenRegistry} />
       )}
 
       {/* THE CALLER'S OWN VALUE, WHEREVER THE PICKER CANNOT SHOW IT. A definition can

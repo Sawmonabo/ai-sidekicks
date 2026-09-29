@@ -8,7 +8,7 @@ import "../binding/components/axis-field.css";
 
 import { createElement } from "react";
 
-import { AgentConsoleBody, AgentConsoleFrame } from "./AgentsPane.js";
+import { AgentsPane, AgentConsoleFrame } from "./AgentsPane.js";
 import {
   ConsolePaneChrome,
   paneBodyForKind,
@@ -22,7 +22,7 @@ export function agentConsolePaneBody(
   calls: AgentConsoleCalls,
 ): (context: ConsolePaneContext) => React.ReactNode {
   return paneBodyInChrome((context) =>
-    createElement(AgentConsoleBody, {
+    createElement(AgentsPane, {
       agentId: context.entity?.id,
       bridge: context.bridge,
       sessionStore: context.sessionStore,

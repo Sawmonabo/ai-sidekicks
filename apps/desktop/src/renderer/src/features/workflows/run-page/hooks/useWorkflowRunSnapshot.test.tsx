@@ -14,7 +14,7 @@ import {
   type WorkflowRunSnapshotState,
 } from "./useWorkflowRunSnapshot.js";
 import {
-  FIRST_ROUND,
+  FIRST_REFRESH,
   SnapshotProbe,
   runReadingCall,
 } from "./useWorkflowRunSnapshot.test-support.js";
@@ -29,7 +29,7 @@ function useSnapshotAtFirstRound(
   readRun: WorkflowRunReadCall,
   workflowRunId: string | undefined,
 ): WorkflowRunSnapshotState {
-  return useWorkflowRunSnapshot(readRun, workflowRunId, FIRST_ROUND);
+  return useWorkflowRunSnapshot(readRun, workflowRunId, FIRST_REFRESH);
 }
 
 /**

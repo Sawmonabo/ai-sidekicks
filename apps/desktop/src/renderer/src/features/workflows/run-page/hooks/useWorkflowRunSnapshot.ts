@@ -13,7 +13,7 @@
 //
 // TWO THINGS ADVANCE IT AND THEY ARE THE SAME CLAIM MADE BY DIFFERENT PARTIES. An
 // operator's own act came back served, which the dispatcher counts; or the session's
-// timeline carried a frame saying the run moved, which `run-live-rounds.ts` counts —
+// timeline carried a frame saying the run moved, which `run-live-refresh.ts` counts —
 // the engine advancing a phase, a park arming a resume, a second window's cancel or gate
 // resolution. Neither is a cadence: with nobody pressing anything and nothing happening,
 // no round advances and no read is put.

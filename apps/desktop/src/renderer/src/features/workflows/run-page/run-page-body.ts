@@ -12,11 +12,8 @@
 // controls lay out by moving its sheet in the cascade, and the module-shape rule in
 // `apps/desktop/AGENTS.md` is what keeps a collision from landing unnoticed.
 //
-// THE FAMILY'S CHROME ENTERS HERE, beside the pane's own sheet one directory down. Every
-// workflows body is loader-backed now, so `workflows.css` reaches no session from the
-// family door and each chunk root names it instead: this root and the destination's
-// are two independent first paints of one family's chrome, and one of them relying on
-// the other having run is a coupling with no name.
+// THE FEATURE'S SHARED CHROME ENTERS HERE. `WorkflowStateStrip.css` styles every workflows
+// body, and each chunk root imports it rather than relying on another root having loaded.
 //
 // Named `Body` because `seats/lazy-body/lazy-body.ts` fixes the export name a loader resolves.
 
@@ -24,7 +21,7 @@ import "../components/WorkflowStateStrip.css";
 
 import { createElement } from "react";
 
-import { WorkflowRunPane } from "@renderer/console/workflows/pane/run/index.js";
+import { RunPage } from "./RunPage.js";
 import { paneBodyForKind, type ConsolePaneContext } from "@renderer/console/seats/index.js";
 
 /**
@@ -37,5 +34,5 @@ import { paneBodyForKind, type ConsolePaneContext } from "@renderer/console/seat
  */
 export const Body: (context: ConsolePaneContext) => React.ReactNode = paneBodyForKind(
   "workflow-run",
-  (context) => createElement(WorkflowRunPane, { context }),
+  (context) => createElement(RunPage, { context }),
 );

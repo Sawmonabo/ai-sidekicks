@@ -8,7 +8,7 @@
 import { cleanup } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { ADDRESSED_RUN, paneContext, renderPane } from "./RunPage.test-support.js";
+import { ADDRESSED_RUN, paneContext, renderRunPage } from "./RunPage.test-support.js";
 
 afterEach(() => {
   cleanup();
@@ -16,7 +16,7 @@ afterEach(() => {
 
 describe("workflow run pane — the arms and what each offers", () => {
   it("reports an unaddressed pane as empty and offers the start affordance there", () => {
-    const section = renderPane(paneContext(undefined));
+    const section = renderRunPage(paneContext(undefined));
     expect(section.querySelector(".meridian-nothing--empty")).not.toBeNull();
     // One slot, and it is the conversational start: an empty pane offers the start
     // affordance, which is the empty state as designed rather than a fallback.
@@ -27,7 +27,7 @@ describe("workflow run pane — the arms and what each offers", () => {
     // Negative control for the case above: both would pass over a pane that mounted the
     // same regions on every arm, and a second entry point would compete with the run in
     // front of the operator.
-    const section = renderPane(paneContext(ADDRESSED_RUN));
+    const section = renderRunPage(paneContext(ADDRESSED_RUN));
     expect(section.querySelector(".meridian-workflow__summary")?.textContent ?? "").toContain(
       "One run's state",
     );

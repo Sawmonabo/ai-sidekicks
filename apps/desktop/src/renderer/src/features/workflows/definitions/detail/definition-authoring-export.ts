@@ -40,7 +40,7 @@ import { normalizeWireRejection } from "@renderer/lib/wire-rejection.js";
 import type { GenerationClaim } from "@renderer/lib/reads/generation-latch.js";
 import {
   actKey,
-  publishCodecAbsence,
+  publishCodecUnavailable,
   publishOutcome,
   type AuthoringRuntime,
 } from "./definition-authoring-runtime.js";
@@ -95,7 +95,7 @@ async function serializeFile(
     return await serializeWorkflowDefinitionFile(body);
   } catch (writerRejection: unknown) {
     claim.settle(() => {
-      publishCodecAbsence(runtime, "export", writerRejection);
+      publishCodecUnavailable(runtime, "export", writerRejection);
     });
     return undefined;
   }

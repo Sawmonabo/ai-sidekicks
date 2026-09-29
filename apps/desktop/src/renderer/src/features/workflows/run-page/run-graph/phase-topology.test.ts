@@ -17,12 +17,12 @@ import {
   declaredEdges,
   phaseDisplayText,
   phasesNeverEligible,
-  type PhaseGraphNode,
+  type RunGraphNode,
   type PhaseTopology,
 } from "./phase-topology.js";
 
 /** A phase with everything named, so a case perturbs exactly one member. */
-function phase(phaseId: string): PhaseGraphNode {
+function phase(phaseId: string): RunGraphNode {
   return {
     phaseId,
     displayName: `Phase ${phaseId}`,
@@ -39,7 +39,7 @@ function phase(phaseId: string): PhaseGraphNode {
  * an adjacency-derived layout draws and the definition never declares. It is the
  * discriminator every case in the first block reads.
  */
-const FAN_OUT_PHASES: readonly PhaseGraphNode[] = [
+const FAN_OUT_PHASES: readonly RunGraphNode[] = [
   phase("plan"),
   phase("buildA"),
   phase("buildB"),
@@ -60,7 +60,7 @@ function edgePairs(edges: readonly { sourcePhaseId: string; targetPhaseId: strin
   return edges.map((edge) => `${edge.sourcePhaseId}->${edge.targetPhaseId}`);
 }
 
-function drawnEdgePairs(phases: readonly PhaseGraphNode[], topology: PhaseTopology): string[] {
+function drawnEdgePairs(phases: readonly RunGraphNode[], topology: PhaseTopology): string[] {
   const edges = declaredEdges(phases, topology);
   if (edges === undefined) {
     throw new Error("expected a drawable topology");
@@ -98,7 +98,7 @@ describe("a definition that branches", () => {
 });
 
 describe("a definition that declares no dependencies at all", () => {
-  const CHAIN_PHASES: readonly PhaseGraphNode[] = [phase("plan"), phase("build"), phase("ship")];
+  const CHAIN_PHASES: readonly RunGraphNode[] = [phase("plan"), phase("build"), phase("ship")];
 
   it("reads its own declaration order as the chain", () => {
     // The all-or-none rule's other arm: every phase omitting `dependsOn` means the

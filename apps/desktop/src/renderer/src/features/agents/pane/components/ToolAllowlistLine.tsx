@@ -15,7 +15,7 @@
 // the browser page tool set is a fact about the NODE, true of every agent in the
 // roster and of agents nobody has started yet. Stated under each card it was three
 // lines repeated per agent, and under the unanswered position it asserted that an
-// allowlist had been applied to a reply that named none. `ToolGrantCeiling.tsx` states
+// allowlist had been applied to a reply that named none. `ToolAllowlistCeiling.tsx` states
 // it once, beside the roster, with the mechanism as its subject.
 //
 // WHAT THIS LINE SAYS IS `tool-grant.ts`'s, not this file's. The echo's Tools row
@@ -24,15 +24,15 @@
 
 import { Nothing } from "@renderer/console/primitives/index.js";
 import {
-  NAMELESS_TOOL_GRANT_WORDING,
-  namedToolGrantSentence,
-  type AgentToolGrantPosition,
+  NAMELESS_TOOL_ALLOWLIST_WORDING,
+  namedToolAllowlistSentence,
+  type AgentToolAllowlistPosition,
 } from "../tool-allowlist.js";
-import { ToolGrantReading } from "./ToolAllowlistReading.js";
+import { ToolAllowlistReading } from "./ToolAllowlistReading.js";
 
 /** The tool grant line: what this agent may reach, worded by the grant table. */
-export function ToolGrantLine(props: {
-  readonly position: AgentToolGrantPosition;
+export function ToolAllowlistLine(props: {
+  readonly position: AgentToolAllowlistPosition;
 }): React.JSX.Element {
   return (
     <p className="meridian-agent-card__tool-grant">
@@ -50,22 +50,24 @@ export function ToolGrantLine(props: {
  * no keyboard and no screen-reader user — so the one position whose whole meaning is
  * "no question was put" was the one position that never explained itself.
  */
-function positionSentence(position: AgentToolGrantPosition): React.JSX.Element {
+function positionSentence(position: AgentToolAllowlistPosition): React.JSX.Element {
   if (position.kind === "named") {
     return (
-      <ToolGrantReading weight="derived">
-        {namedToolGrantSentence(position.toolNames)}
-      </ToolGrantReading>
+      <ToolAllowlistReading weight="derived">
+        {namedToolAllowlistSentence(position.toolNames)}
+      </ToolAllowlistReading>
     );
   }
-  const wording = NAMELESS_TOOL_GRANT_WORDING[position.kind];
+  const wording = NAMELESS_TOOL_ALLOWLIST_WORDING[position.kind];
   if (position.kind === "not-reported") {
     return (
       <>
         <Nothing kind="not-checked" placement="inline" title={wording.reading} />{" "}
-        <ToolGrantReading weight={wording.weight}>{wording.lineSentence}</ToolGrantReading>
+        <ToolAllowlistReading weight={wording.weight}>{wording.lineSentence}</ToolAllowlistReading>
       </>
     );
   }
-  return <ToolGrantReading weight={wording.weight}>{wording.lineSentence}</ToolGrantReading>;
+  return (
+    <ToolAllowlistReading weight={wording.weight}>{wording.lineSentence}</ToolAllowlistReading>
+  );
 }
