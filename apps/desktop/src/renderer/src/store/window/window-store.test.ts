@@ -132,7 +132,7 @@ describe("WindowStore — a family-owned modal surface publishes whether it is u
     // it re-runs whenever the window hands it a new one — and the register speaks on
     // every move it makes, which for a card closing while another is still up is the
     // same `true` again. Without the guard each of those would re-render the rail,
-    // the banner stack, and the whole route surface for a fact that did not move.
+    // the banner stack, and the whole screen for a fact that did not move.
     const store = new WindowStore();
     let publishCount = 0;
     const unsubscribe = store.readable.subscribe(() => {
