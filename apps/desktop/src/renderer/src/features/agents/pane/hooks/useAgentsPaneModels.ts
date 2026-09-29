@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 
+import { useBridgeClock } from "@renderer/services/platform/hooks/useClock.js";
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { isCurrentSessionSubject } from "@renderer/console/seats/index.js";
 import type { SessionStore } from "@renderer/store/session/session-store.js";
@@ -37,6 +38,7 @@ export function useAgentsPaneModels(
   sessionStore: SessionStore | undefined,
   calls: AgentsPaneCalls,
 ): AgentsPaneModels | undefined {
+  const clock = useBridgeClock();
   const [models, setModels] = useState<AgentsPaneModels | undefined>(undefined);
 
   useEffect(() => {
@@ -44,13 +46,13 @@ export function useAgentsPaneModels(
       setModels(undefined);
       return undefined;
     }
-    const built = new AgentsPaneModels(bridge, sessionStore, calls);
+    const built = new AgentsPaneModels(bridge, clock, sessionStore, calls);
     setModels(built);
     return () => {
       built.dispose();
       setModels(undefined);
     };
-  }, [bridge, sessionStore, calls]);
+  }, [bridge, clock, sessionStore, calls]);
 
   return isCurrentSessionSubject(models?.subject, bridge, sessionStore) ? models : undefined;
 }

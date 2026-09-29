@@ -13,8 +13,8 @@
 // one also has to `start()` the triggers in an effect, because its question arrives late
 // and the hook takes no first read for it.
 
-import { useCallback, useEffect, useMemo } from "react";
-import { resolveBridgeClock } from "@renderer/services/platform/hooks/useClock.js";
+import { useCallback, useEffect } from "react";
+import { useBridgeClock } from "@renderer/services/platform/hooks/useClock.js";
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { useSessionScopedActController } from "../../../acts/hooks/useActController.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
@@ -59,10 +59,8 @@ export function usePrepareController(
   sessionStore: SessionStore,
   operations: PrepareOperations,
 ): PrepareBinding {
-  // THE CLOCK COMES FROM THE BRIDGE: one window, one time base. Memoized because the real
-  // arm mints a fresh clock per call and a new object every render would re-mint the
-  // controller beneath it.
-  const clock = useMemo(() => resolveBridgeClock(bridge), [bridge]);
+  // The window's clock: one window, one time base.
+  const clock = useBridgeClock();
   const { controller, reading } = useSessionScopedActController(
     bridge,
     `${subject.workspaceId} ${subject.executionMode}`,

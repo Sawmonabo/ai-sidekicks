@@ -90,7 +90,7 @@ export function mountToolbar(
   const { container } = render(
     <ComposerToolbar
       sessionStore={sessionStore}
-      bridge={createFixtureBridge({ scenario: TOOLBAR_SCENARIO })}
+      bridge={createFixtureBridge({ scenario: TOOLBAR_SCENARIO }).bridge}
       draftStore={new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT })}
       frameStore={new WindowStore()}
       route={DEFAULT_ROUTE}

@@ -7,8 +7,8 @@
 
 import { act, fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
+import { FixtureBridgeProvider } from "@test/helpers/app-frame-fixtures.js";
 import { EMPTY_SESSION_SCENARIO } from "../../../../../../../fixtures/scenarios/empty-session.js";
 import { type Refusal } from "@renderer/lib/refusal.js";
 import { publishCommandRefusalSink } from "@renderer/registries/commands/command-refusal.js";
@@ -91,14 +91,14 @@ describe("the transcript feed — the palette acts on the mounted feed", () => {
       raisedWhileMounted.push(refusal);
     });
     const mounted = render(
-      <PlatformBridgeProvider bridge={createFixtureBridge({ scenario: EMPTY_SESSION_SCENARIO })}>
+      <FixtureBridgeProvider fixture={createFixtureBridge({ scenario: EMPTY_SESSION_SCENARIO })}>
         <TranscriptFeed
           sessionStore={openSessionStoreWithFeedLog(SHORT_LOG_EVENT_COUNT)}
           paneId={TRANSCRIPT_FIXTURE_PANE_ID}
           renderTimelineRow={(mount) => <p>{mount.row.summary}</p>}
           feedLabel="Session timeline"
         />
-      </PlatformBridgeProvider>,
+      </FixtureBridgeProvider>,
     );
     dispatchCommand("transcript.find");
     expect(raisedWhileMounted).toStrictEqual([]);

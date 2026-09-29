@@ -18,7 +18,8 @@ import { useSubjectScopedResource } from "@renderer/hooks/subject-scoped/useSubj
 import { type SubjectScopedDisposal } from "@renderer/lib/subject-scoped/subject-scoped-disposal.js";
 import { airspaceRegistryFor } from "@renderer/lib/airspace-registries.js";
 import { type AirspaceRegistry } from "@renderer/lib/airspace-registry.js";
-import { resolveBridgeClock } from "@renderer/services/platform/hooks/useClock.js";
+import { type Clock } from "@renderer/lib/clock.js";
+import { useBridgeClock } from "@renderer/services/platform/hooks/useClock.js";
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import type { PaneSubject } from "../types.js";
 
@@ -26,8 +27,8 @@ import type { PaneSubject } from "../types.js";
  * One publisher over the given host, for the pane it is for, and the subject both were
  * resolved under.
  *
- * The clock comes off the bridge, so a frozen scenario freezes this publisher's frame
- * with every other timer in the pane. The airspace comes off the document, which an
+ * The clock is the window's, so a frozen scenario freezes this publisher's frame with
+ * every other timer in the pane. The airspace comes off the document, which an
  * overlay element and this pane share when they are in one window.
  *
  * The motion observation is the publisher's, not this function's: a self-disposal after a
@@ -38,8 +39,8 @@ import type { PaneSubject } from "../types.js";
 function createGeometryBinding(
   subject: PaneSubject,
   host: AttachedPaneViewHost,
+  clock: Clock,
 ): BoundGeometryPublisher {
-  const clock = resolveBridgeClock(subject.bridge);
   const airspace: AirspaceRegistry = airspaceRegistryFor(document);
   return {
     ...subject,
@@ -121,9 +122,10 @@ export function useGeometryPublisher(
   readonly outcome: PaneGeometryOutcome | undefined;
 } {
   const hostRef = useRef<HTMLDivElement | null>(null);
+  const clock = useBridgeClock();
   const openBinding = useCallback(
-    () => createGeometryBinding({ bridge, paneId }, viewHost),
-    [bridge, paneId, viewHost],
+    () => createGeometryBinding({ bridge, paneId }, viewHost, clock),
+    [bridge, paneId, viewHost, clock],
   );
   // The host is part of the subject: a publisher writes to one host for life, so a
   // new host for the same pane needs a new publisher.

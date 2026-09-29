@@ -21,7 +21,8 @@ import { type PlatformBridge } from "@renderer/services/platform/platform-bridge
 import { unscriptedScenario } from "@test/helpers/fixture-bridge.js";
 import { settleScheduledRead } from "@test/helpers/scheduled-read.js";
 import { LIVE_ANNOUNCEMENT_HOLD_MS } from "@renderer/components/LiveAnnouncer/live-announcement-caps.js";
-import { ManualClock } from "@renderer/lib/clock.js";
+import { ManualClock, type Clock } from "@renderer/lib/clock.js";
+import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import { settle as settleReactWork } from "@test/helpers/settle.js";
 import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
 import { AgentLibrary } from "./AgentLibrary.js";
@@ -37,6 +38,8 @@ import type { AgentRegistryCalls } from "./library-view.js";
  */
 export class RegistryStub {
   public readonly bridge: PlatformBridge;
+  /** The clock the page's window runs on: the scenario's frozen one. */
+  public readonly clock: Clock;
   public readonly calls: AgentRegistryCalls;
   readonly #lists: readonly (readonly AgentDefinition[])[];
   readonly #holdsDeletes: boolean;
@@ -58,7 +61,11 @@ export class RegistryStub {
   }) {
     this.#lists = options.lists;
     this.#holdsDeletes = options.holdsDeletes ?? false;
-    this.bridge = createFixtureBridge({ scenario: unscriptedScenario("agents-definitions-test") });
+    const { bridge, scenarioEngine } = createFixtureBridge({
+      scenario: unscriptedScenario("agents-definitions-test"),
+    });
+    this.bridge = bridge;
+    this.clock = scenarioEngine.clock;
     this.calls = {
       listDefinitions: async () => {
         const index = Math.min(this.#listCallCount, this.#lists.length - 1);
@@ -75,9 +82,9 @@ export class RegistryStub {
         });
       },
     };
-    // Recorded so {@link settle} can reach the frozen clock this bridge's reads are
-    // scheduled against — see that function.
-    bridgeUnderTest = this.bridge;
+    // Recorded so {@link settle} can reach the frozen clock the reads are scheduled
+    // against — see that function.
+    clockUnderTest = this.clock;
   }
 
   /** Let every held delete answer. Safe with none held. */
@@ -134,9 +141,11 @@ export function renderAgentLibrary(stub: RegistryStub): {
 } {
   const clock = new ManualClock();
   const { container } = render(
-    <LiveAnnouncerProvider clock={clock}>
-      <AgentLibrary bridge={stub.bridge} calls={stub.calls} />
-    </LiveAnnouncerProvider>,
+    <PlatformBridgeProvider bridge={stub.bridge} clock={stub.clock}>
+      <LiveAnnouncerProvider clock={clock}>
+        <AgentLibrary bridge={stub.bridge} calls={stub.calls} />
+      </LiveAnnouncerProvider>
+    </PlatformBridgeProvider>,
   );
   return { container, clock };
 }
@@ -150,14 +159,14 @@ export async function releaseAnnouncementHold(clock: ManualClock): Promise<void>
 }
 
 /**
- * The bridge the page or the view under test is reading through.
+ * The window's clock the page or the view under test schedules its reads on.
  *
  * Module state rather than a parameter because {@link settle} is called from forty-odd
- * places across this page's suites, and threading a bridge through every one of them
+ * places across this page's suites, and threading a clock through every one of them
  * would state nothing a reader needs: exactly one page is mounted at a time here, over
- * the bridge the stub just minted.
+ * the clock the stub just minted.
  */
-let bridgeUnderTest: PlatformBridge | undefined;
+let clockUnderTest: Clock | undefined;
 
 /**
  * Let the read, the delete, and the re-read the delete schedules all land.
@@ -173,8 +182,8 @@ let bridgeUnderTest: PlatformBridge | undefined;
  * counting links — see that module.
  */
 export async function settle(): Promise<void> {
-  if (bridgeUnderTest !== undefined) {
-    await settleScheduledRead(bridgeUnderTest);
+  if (clockUnderTest !== undefined) {
+    await settleScheduledRead(clockUnderTest);
   }
   await settleReactWork();
 }

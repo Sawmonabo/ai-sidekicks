@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useSyncExternalStore } from "react";
 
+import { useBridgeClock } from "@renderer/services/platform/hooks/useClock.js";
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { useWindowReadTriggers } from "@renderer/store/reads/hooks/useWindowReadTriggers.js";
 import {
@@ -24,7 +25,8 @@ export function useAgentLibraryView(
   readonly view: AgentLibraryView;
   readonly snapshot: AgentLibrarySnapshot;
 } {
-  const view = useMemo(() => new AgentLibraryView(bridge, calls), [bridge, calls]);
+  const clock = useBridgeClock();
+  const view = useMemo(() => new AgentLibraryView(clock, calls), [clock, calls]);
   useEffect(() => {
     view.start();
     return () => {

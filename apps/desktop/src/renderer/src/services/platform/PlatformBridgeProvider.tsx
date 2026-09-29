@@ -6,13 +6,18 @@
 // over. The context holds a `PlatformBridge` and nothing else; no component reads
 // `window.desktopBridge` or subscribes to a bridge event directly.
 //
+// The resolution carries the clock the window runs on beside the bridge: a composition's
+// own clock, the one a caller hands over with its bridge, or one `RealClock` for a window
+// that reads the preload.
+//
 // The resolution is state, not a memo. A composition may build a `ScenarioEngine`, a mutable
 // resource (subscriptions, an advanced frozen clock, parked replies); React may discard and
 // recompute a memo, which would start a second engine at tick zero mid-scenario. A resource
 // also has an end, so replacement and teardown are explicit, and the provider disposes only
-// an engine it built, never one a caller handed it.
+// what it built, never what a caller handed it.
 
 import { useEffect, useLayoutEffect, useState, type ReactNode } from "react";
+import { RealClock, type Clock } from "@renderer/lib/clock.js";
 import { ForwardingClock } from "@renderer/lib/forwarding-clock.js";
 import type { PlatformBridge } from "./platform-bridge.js";
 import {
@@ -20,8 +25,8 @@ import {
   BridgeContext,
   type BridgeComposition,
   type BridgeResolution,
+  type ComposedBridge,
 } from "./bridge-context.js";
-import { resolveBridgeClock } from "./hooks/useClock.js";
 import { createLiveBridge, readInstalledBridge } from "./live-bridge.js";
 
 /** The bridge provider's props. */
@@ -29,10 +34,12 @@ export interface PlatformBridgeProviderProps {
   readonly children: ReactNode;
   /** A bridge to play as it is. Tests pass a fixture directly; a composition owns none of it. */
   readonly bridge?: PlatformBridge;
+  /** The clock a supplied bridge's window runs on. Absent, it runs on real time. */
+  readonly clock?: Clock;
   /** How to build the bridge when none is handed over. Absent, the window reads the preload. */
   readonly composition?: BridgeComposition;
   /**
-   * A clock identity minted outside the tree, rebound onto the resolved bridge's clock.
+   * A clock identity minted outside the tree, rebound onto the resolution's clock.
    * The composition root arms the tripwire route at module scope, before any bridge exists,
    * so its clock is a `ForwardingClock` passed in rather than reached for.
    */
@@ -43,13 +50,13 @@ export interface PlatformBridgeProviderProps {
  * Resolve the bridge once and hand it down.
  *
  * The resolution is held as STATE, replaced only when the props it was resolved
- * from change or its own engine has been torn down — see the module header for why
+ * from change or what it built has been torn down — see the module header for why
  * neither a memo nor a plain re-creation is correct for a resource with a lifetime.
  */
 export function PlatformBridgeProvider(props: PlatformBridgeProviderProps): React.JSX.Element {
-  const { children, bridge, composition, clockToRebind } = props;
+  const { children, bridge, clock, composition, clockToRebind } = props;
   const [resolved, setResolved] = useState<ResolvedConsoleBridge>(
-    () => new ResolvedConsoleBridge(bridge, composition),
+    () => new ResolvedConsoleBridge(bridge, clock, composition),
   );
 
   // The one clock the window reads, handed to the identity a caller armed before this
@@ -63,7 +70,7 @@ export function PlatformBridgeProvider(props: PlatformBridgeProviderProps): Reac
     if (clockToRebind === undefined || resolution.status !== "ready") {
       return;
     }
-    clockToRebind.holdClock(resolveBridgeClock(resolution.bridge));
+    clockToRebind.holdClock(resolution.clock);
   }, [clockToRebind, resolved]);
 
   // One effect, because replacement and installation are one decision made in one
@@ -73,12 +80,12 @@ export function PlatformBridgeProvider(props: PlatformBridgeProviderProps): Reac
   // because React may discard a render pass, and a handle installed during one would
   // point at an engine no window is reading.
   useEffect(() => {
-    if (resolved.isSupersededBy(bridge, composition)) {
-      setResolved(new ResolvedConsoleBridge(bridge, composition));
+    if (resolved.isSupersededBy(bridge, clock, composition)) {
+      setResolved(new ResolvedConsoleBridge(bridge, clock, composition));
       return undefined;
     }
     return resolved.install();
-  }, [resolved, bridge, composition]);
+  }, [resolved, bridge, clock, composition]);
 
   return (
     <BridgeCompositionContext.Provider value={composition}>
@@ -88,7 +95,7 @@ export function PlatformBridgeProvider(props: PlatformBridgeProviderProps): Reac
 }
 
 /**
- * One resolved bridge, the inputs it was resolved from, and who owns its engine.
+ * One resolved bridge, the inputs it was resolved from, and what this provider built.
  *
  * A class rather than a bare object because the two questions a caller asks of it
  * are rules rather than fields — is this still the right resolution for these
@@ -98,22 +105,25 @@ export function PlatformBridgeProvider(props: PlatformBridgeProviderProps): Reac
  */
 class ResolvedConsoleBridge {
   readonly #suppliedBridge: PlatformBridge | undefined;
+  readonly #suppliedClock: Clock | undefined;
   readonly #composition: BridgeComposition | undefined;
+  /** What a composition built here. `undefined` when the caller supplied the bridge. */
+  readonly #composed: ComposedBridge | undefined;
   readonly #resolution: BridgeResolution;
-  /** The engine this provider BUILT. `undefined` when the caller supplied the bridge. */
-  readonly #ownedEngine: PlatformBridge["scenarioEngine"];
 
   public constructor(
     suppliedBridge: PlatformBridge | undefined,
+    suppliedClock: Clock | undefined,
     composition: BridgeComposition | undefined,
   ) {
     this.#suppliedBridge = suppliedBridge;
+    this.#suppliedClock = suppliedClock;
     this.#composition = composition;
-    this.#resolution = resolveBridge(suppliedBridge, composition);
-    this.#ownedEngine =
-      suppliedBridge === undefined && this.#resolution.status === "ready"
-        ? this.#resolution.bridge.scenarioEngine
+    this.#composed =
+      suppliedBridge === undefined && composition !== undefined
+        ? composition.createBridge()
         : undefined;
+    this.#resolution = resolveBridge(suppliedBridge, suppliedClock, this.#composed);
   }
 
   public get resolution(): BridgeResolution {
@@ -124,7 +134,7 @@ class ResolvedConsoleBridge {
    * Is this resolution no longer the right one to serve?
    *
    * Two arms. The props it was resolved from changed, which is a deliberate
-   * replacement; or its own engine has been disposed, which is the re-mint arm a
+   * replacement; or what it built has been disposed, which is the re-mint arm a
    * double mount takes — React's StrictMode tears an effect down and runs it
    * again, the teardown has already disposed the engine, and a second mount must
    * take a fresh one rather than a corpse.
@@ -140,44 +150,49 @@ class ResolvedConsoleBridge {
    */
   public isSupersededBy(
     suppliedBridge: PlatformBridge | undefined,
+    suppliedClock: Clock | undefined,
     composition: BridgeComposition | undefined,
   ): boolean {
-    if (suppliedBridge !== this.#suppliedBridge || composition !== this.#composition) {
+    if (
+      suppliedBridge !== this.#suppliedBridge ||
+      suppliedClock !== this.#suppliedClock ||
+      composition !== this.#composition
+    ) {
       return true;
     }
-    return this.#ownedEngine?.isDisposed === true;
+    return this.#composed?.disposal.isDisposed === true;
   }
 
   /**
-   * Put the composition's handles for the bridge it built on the page, and return the
-   * teardown for them and for the engine this provider owns.
+   * Put the handles for the bridge the composition built on the page, and return the
+   * teardown for them and for what was built.
    *
    * A supplied bridge installs nothing: its caller owns it, and whatever a driver reads
    * about it is the caller's to put up.
    */
   public install(): () => void {
-    const removeHandles =
-      this.#suppliedBridge === undefined &&
-      this.#composition !== undefined &&
-      this.#resolution.status === "ready"
-        ? this.#composition.installBridgeHandles(this.#resolution.bridge)
-        : undefined;
+    const composed = this.#composed;
+    if (composed === undefined) {
+      return () => undefined;
+    }
+    const removeHandles = composed.installHandles();
     return () => {
-      removeHandles?.();
-      this.#ownedEngine?.dispose();
+      removeHandles();
+      composed.disposal.dispose();
     };
   }
 }
 
 function resolveBridge(
   suppliedBridge: PlatformBridge | undefined,
-  composition: BridgeComposition | undefined,
+  suppliedClock: Clock | undefined,
+  composed: ComposedBridge | undefined,
 ): BridgeResolution {
   if (suppliedBridge !== undefined) {
-    return { status: "ready", bridge: suppliedBridge };
+    return { status: "ready", bridge: suppliedBridge, clock: suppliedClock ?? new RealClock() };
   }
-  if (composition !== undefined) {
-    return { status: "ready", bridge: composition.createBridge() };
+  if (composed !== undefined) {
+    return { status: "ready", bridge: composed.bridge, clock: composed.clock };
   }
   const installed = readInstalledBridge();
   if (installed === undefined) {
@@ -190,5 +205,5 @@ function resolveBridge(
       },
     };
   }
-  return { status: "ready", bridge: createLiveBridge(installed) };
+  return { status: "ready", bridge: createLiveBridge(installed), clock: new RealClock() };
 }

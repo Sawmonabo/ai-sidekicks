@@ -62,7 +62,8 @@ interface ActSubject {
 
 function subject(paneId: string, bridge?: PlatformBridge): ActSubject {
   return {
-    bridge: bridge ?? createFixtureBridge({ scenario: unscriptedScenario("browser-pane-test") }),
+    bridge:
+      bridge ?? createFixtureBridge({ scenario: unscriptedScenario("browser-pane-test") }).bridge,
     paneId,
   };
 }

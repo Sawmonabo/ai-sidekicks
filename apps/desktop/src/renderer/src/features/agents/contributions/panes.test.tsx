@@ -18,9 +18,13 @@
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
+import {
+  createFixtureBridge,
+  type FixtureBridge,
+} from "@renderer/services/platform/platform-bridge.fixture.js";
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { unscriptedScenario } from "@test/helpers/fixture-bridge.js";
+import { FixtureBridgeProvider } from "@test/helpers/app-frame-fixtures.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import { PaneRegistry } from "@renderer/console/seats/index.js";
 import { registerAgentsPane } from "./panes.js";
@@ -43,7 +47,7 @@ type RegisteredPaneContext = Parameters<
   NonNullable<ReturnType<PaneRegistry["descriptorFor"]>>["render"]
 >[0];
 
-function fixtureBridge(): PlatformBridge {
+function fixtureBridge(): FixtureBridge {
   return createFixtureBridge({ scenario: unscriptedScenario("agents-pane-mounts") });
 }
 
@@ -89,12 +93,16 @@ async function renderRegisteredAgentsPane(agentId: string | undefined): Promise<
   if (descriptor === undefined) {
     throw new Error("the Agents pane registered no pane descriptor");
   }
-  const bridge = fixtureBridge();
-  const { container } = render(<>{descriptor.render(registeredPaneContext(agentId, bridge))}</>);
+  const fixture = fixtureBridge();
+  const { container } = render(
+    <FixtureBridgeProvider fixture={fixture}>
+      {descriptor.render(registeredPaneContext(agentId, fixture.bridge))}
+    </FixtureBridgeProvider>,
+  );
   // The column's reads are scheduled through the refresh chokepoint, so they land only
   // once the scenario clock has passed its debounce. Without this they settle after the
   // case has ended, which is a state update outside `act`.
-  await settleReads(bridge);
+  await settleReads(fixture.scenarioEngine);
   return container;
 }
 

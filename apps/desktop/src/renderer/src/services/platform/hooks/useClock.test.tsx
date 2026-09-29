@@ -4,12 +4,12 @@
 // about the RESOLUTION's lifetime — one engine held, replaced, disposed — and this one
 // about what a component that captured a clock before the replacement now reads.
 //
-// THE DEFECT IN TERMS. `useClock` pinned `resolveBridgeClock(bridge)` in
-// `useState`, and the provider replaces its resolution IN PLACE with no remount below
-// it. So a scenario change handed the tree a new engine with a new frozen clock while
-// `AppFrame`'s announcer went on stamping from the retired one — two time bases in one
-// window, which is exactly what "the fixture clock is the only clock the renderer
-// reads in fixture mode" forbids. It was invisible because both clocks answer.
+// THE DEFECT IN TERMS. A clock pinned in `useState` keeps the one it was mounted on,
+// and the provider replaces its resolution IN PLACE with no remount below it. So a
+// scenario change hands the tree a new engine with a new frozen clock while `AppFrame`'s
+// announcer would go on stamping from the retired one — two time bases in one window,
+// which is exactly what "the fixture clock is the only clock the renderer reads in
+// fixture mode" forbids. It is invisible because both clocks answer.
 //
 // The two scenarios are the instrument: their engines start at different ticks, so
 // which clock a reading came from is a number rather than an inference.
@@ -17,12 +17,10 @@
 import { render } from "@testing-library/react";
 import { useState } from "react";
 import { describe, expect, it } from "vitest";
-import { PlatformBridgeProvider } from "../PlatformBridgeProvider.js";
-import type { PlatformBridge } from "../platform-bridge.js";
-import { createFixtureBridge } from "../platform-bridge.fixture.js";
+import { FixtureBridgeProvider } from "@test/helpers/app-frame-fixtures.js";
+import { createFixtureBridge, type FixtureBridge } from "../platform-bridge.fixture.js";
 import { findScenario } from "../../../../../../fixtures/index.js";
-import { usePlatformBridge } from "./usePlatformBridge.js";
-import { resolveBridgeClock, useClock } from "./useClock.js";
+import { useBridgeClock, useClock } from "./useClock.js";
 import type { Clock } from "@renderer/lib/clock.js";
 import { FIRST_RUN_SCENARIO_ID } from "../../../../../../fixtures/scenarios/first-run.js";
 import { CONCURRENT_STREAMING_SCENARIO_ID } from "../../../../../../fixtures/scenarios/concurrent-streaming.js";
@@ -43,7 +41,7 @@ interface ClockProbeProps {
  */
 function ClockProbe(props: ClockProbeProps): null {
   props.onClock(useClock());
-  props.onWindowTime(resolveBridgeClock(usePlatformBridge()).now());
+  props.onWindowTime(useBridgeClock().now());
   return null;
 }
 
@@ -51,8 +49,8 @@ function ClockProbe(props: ClockProbeProps): null {
  * One bridge per scenario, built on first ask and handed back on every later one, so a
  * re-render that names the same scenario keeps the provider's resolution.
  */
-function scenarioBridges(): (scenarioId: string) => PlatformBridge {
-  const bridges = new Map<string, PlatformBridge>();
+function scenarioBridges(): (scenarioId: string) => FixtureBridge {
+  const bridges = new Map<string, FixtureBridge>();
   return (scenarioId) => {
     const existing = bridges.get(scenarioId);
     if (existing !== undefined) {
@@ -78,12 +76,12 @@ describe("useClock — one identity, and the window's current reading", () => {
     const windowTimes: number[] = [];
     const bridgeFor = scenarioBridges();
     const tree = (scenarioId: string): React.JSX.Element => (
-      <PlatformBridgeProvider bridge={bridgeFor(scenarioId)}>
+      <FixtureBridgeProvider fixture={bridgeFor(scenarioId)}>
         <ClockProbe
           onClock={(clock) => clocks.push(clock)}
           onWindowTime={(time) => windowTimes.push(time)}
         />
-      </PlatformBridgeProvider>
+      </FixtureBridgeProvider>
     );
     const { rerender } = render(tree(CONCURRENT_STREAMING_SCENARIO_ID));
     const captured = lastOf(clocks, "a clock");
@@ -109,12 +107,12 @@ describe("useClock — one identity, and the window's current reading", () => {
     const windowTimes: number[] = [];
     const bridgeFor = scenarioBridges();
     const tree = (scenarioId: string): React.JSX.Element => (
-      <PlatformBridgeProvider bridge={bridgeFor(scenarioId)}>
+      <FixtureBridgeProvider fixture={bridgeFor(scenarioId)}>
         <PinnedClockProbe
           onPinnedTime={(time) => pinnedTimes.push(time)}
           onWindowTime={(time) => windowTimes.push(time)}
         />
-      </PlatformBridgeProvider>
+      </FixtureBridgeProvider>
     );
     const { rerender } = render(tree(CONCURRENT_STREAMING_SCENARIO_ID));
     const concurrentStreamingTime = lastOf(windowTimes, "a window time");
@@ -133,9 +131,9 @@ interface PinnedClockProbeProps {
 
 /** The shape `useClock` replaced: resolve once into `useState`, then hold it. */
 function PinnedClockProbe(props: PinnedClockProbeProps): null {
-  const bridge = usePlatformBridge();
-  const [pinned] = useState<Clock>(() => resolveBridgeClock(bridge));
+  const bridgeClock = useBridgeClock();
+  const [pinned] = useState<Clock>(() => bridgeClock);
   props.onPinnedTime(pinned.now());
-  props.onWindowTime(resolveBridgeClock(bridge).now());
+  props.onWindowTime(bridgeClock.now());
   return null;
 }

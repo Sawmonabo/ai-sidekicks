@@ -45,7 +45,7 @@ interface MountedPaneBoxes {
 
 async function mountPaneInFixedSlot(): Promise<MountedPaneBoxes> {
   installMeridianTokens(document);
-  const bridge = createFixtureBridge({ scenario: TERMINAL_LEASE_SCENARIO });
+  const { bridge } = createFixtureBridge({ scenario: TERMINAL_LEASE_SCENARIO });
   const { container } = await renderSettled(
     // `display: grid` rather than a bare block, because that is what makes the slot
     // SIZE the pane: a grid item stretches to its area in both axes, so the chrome's

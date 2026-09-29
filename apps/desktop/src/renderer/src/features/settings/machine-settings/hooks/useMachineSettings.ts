@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useSyncExternalStore } from "react";
 
+import { useBridgeClock } from "@renderer/services/platform/hooks/useClock.js";
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import {
   NO_TRIGGERING_EVENT_KINDS,
@@ -64,16 +65,17 @@ export function useMachineSettings(
   // one acquired rather than on one frame of the opening arm — and because the seed
   // is re-read in the render that first sees a new bridge, a page carried across a
   // scenario switch never reads the retired bridge's store even for a frame.
+  const clock = useBridgeClock();
   const { value: acquiredStore, publish: publishAcquiredStore } = useSubjectScopedState<
     MachineSettingsStore | undefined
   >(bridge, undefined, () => machineSettingsHolder.storeIfCurrent(bridge));
 
   useEffect(() => {
-    const store = machineSettingsHolder.acquire(bridge, settingsFile);
+    const store = machineSettingsHolder.acquire(bridge, clock, settingsFile);
     // Idempotent, so strict mode's second invocation asks nothing twice.
     store.start();
     publishAcquiredStore(store);
-  }, [bridge, settingsFile, publishAcquiredStore]);
+  }, [bridge, clock, settingsFile, publishAcquiredStore]);
 
   const liveStore = machineSettingsHolder.storeIfCurrent(bridge);
   const store = acquiredStore === liveStore ? acquiredStore : undefined;
@@ -100,7 +102,7 @@ export function useMachineSettings(
       // rather than reads: a press must move a store rather than be swallowed by
       // the frame before the effect ran, and the handler settles on the same store
       // that effect acquired because a press cannot outrun a passive effect.
-      void machineSettingsHolder.acquire(bridge, settingsFile).choose(key, enabled);
+      void machineSettingsHolder.acquire(bridge, clock, settingsFile).choose(key, enabled);
     },
   };
 }

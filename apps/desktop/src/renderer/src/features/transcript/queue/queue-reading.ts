@@ -32,8 +32,7 @@ import {
   type QueueCancellationState,
 } from "./queue-cancellation.js";
 import { QueueOrder } from "./queue-order.js";
-import { resolveBridgeClock } from "@renderer/services/platform/hooks/useClock.js";
-import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
+import { type Clock } from "@renderer/lib/clock.js";
 
 /**
  * Reads one session's whole queue at one moment, in the daemon's canonical order.
@@ -109,12 +108,7 @@ export class SessionQueueReading implements ReadTriggerTarget {
   /** The reading as it stands. One object for every watcher, stable between changes. */
   public snapshot = (): QueueFeed => this.#feed;
 
-  public constructor(
-    bridge: PlatformBridge,
-    sessionId: string,
-    calls: QueueCalls,
-    onIdle: () => void,
-  ) {
+  public constructor(clock: Clock, sessionId: string, calls: QueueCalls, onIdle: () => void) {
     this.#sessionId = sessionId;
     this.#calls = calls;
     this.#onIdle = onIdle;
@@ -122,8 +116,7 @@ export class SessionQueueReading implements ReadTriggerTarget {
       this.#publish();
     });
     this.#refresh = new RefreshScheduler({
-      // The bridge's clock, resolved once per reading.
-      clock: resolveBridgeClock(bridge),
+      clock,
       perform: () => this.#readSnapshot(),
     });
     this.#feed = this.#composeFeed();

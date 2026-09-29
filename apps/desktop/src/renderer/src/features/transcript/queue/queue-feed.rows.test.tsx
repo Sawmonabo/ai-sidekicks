@@ -7,6 +7,7 @@
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
+import { bridgeWrapper } from "@test/helpers/app-frame-fixtures.js";
 import { settleScheduledRead } from "@test/helpers/scheduled-read.js";
 import type { QueueFeed } from "./queue-reading.js";
 import {
@@ -22,7 +23,7 @@ import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 
 describe("a queued item is canceled once", () => {
   it("issues one mutation for two synchronous presses on one row", async () => {
-    const { bridge, queueCalls, canceledItemIds } = queueFeedBridge();
+    const { bridge, clock, queueCalls, canceledItemIds } = queueFeedBridge();
     let held: QueueFeed | undefined;
     render(
       <QueueFeedProbe
@@ -31,6 +32,7 @@ describe("a queued item is canceled once", () => {
         queueCalls={queueCalls}
         onFeed={(feed) => (held = feed)}
       />,
+      { wrapper: bridgeWrapper(bridge, clock) },
     );
     await act(async () => {
       await crossMacrotaskBoundary();
@@ -52,7 +54,7 @@ describe("a queued item is canceled once", () => {
     // Without this the case above would pass over a chokepoint that dispatched
     // NOTHING, which is a different defect with the same count. The latch is per id,
     // and this is the case that says so.
-    const { bridge, queueCalls, canceledItemIds } = queueFeedBridge();
+    const { bridge, clock, queueCalls, canceledItemIds } = queueFeedBridge();
     let held: QueueFeed | undefined;
     render(
       <QueueFeedProbe
@@ -61,6 +63,7 @@ describe("a queued item is canceled once", () => {
         queueCalls={queueCalls}
         onFeed={(feed) => (held = feed)}
       />,
+      { wrapper: bridgeWrapper(bridge, clock) },
     );
     await act(async () => {
       await crossMacrotaskBoundary();
@@ -73,7 +76,7 @@ describe("a queued item is canceled once", () => {
   });
 
   it("takes the row's cancel again once the first has settled", async () => {
-    const { bridge, queueCalls, canceledItemIds } = queueFeedBridge();
+    const { bridge, clock, queueCalls, canceledItemIds } = queueFeedBridge();
     let held: QueueFeed | undefined;
     render(
       <QueueFeedProbe
@@ -82,6 +85,7 @@ describe("a queued item is canceled once", () => {
         queueCalls={queueCalls}
         onFeed={(feed) => (held = feed)}
       />,
+      { wrapper: bridgeWrapper(bridge, clock) },
     );
     await act(async () => {
       await crossMacrotaskBoundary();
@@ -98,7 +102,7 @@ describe("a queued item is canceled once", () => {
   });
 
   it("holds one row's cancel without holding another's", async () => {
-    const { bridge, queueCalls } = queueFeedBridge();
+    const { bridge, clock, queueCalls } = queueFeedBridge();
     let held: QueueFeed | undefined;
     render(
       <QueueFeedProbe
@@ -107,6 +111,7 @@ describe("a queued item is canceled once", () => {
         queueCalls={queueCalls}
         onFeed={(feed) => (held = feed)}
       />,
+      { wrapper: bridgeWrapper(bridge, clock) },
     );
     await act(async () => {
       await crossMacrotaskBoundary();
@@ -123,7 +128,7 @@ describe("the ordering rule holds through the hook", () => {
   it("holds the rule through the hook, over a tail delivery that beat the snapshot", async () => {
     // The race the fold exists for: the tail opens with the snapshot still in flight,
     // so a delivery made before the snapshot lands is one that arrived first.
-    const { bridge, queueCalls, deliver } = queueFeedBridge([
+    const { bridge, clock, queueCalls, deliver } = queueFeedBridge([
       queueRow(QUEUE_ITEM_A, "queued", "2026-09-02T09:00:01.000Z"),
       queueRow(QUEUE_ITEM_B, "queued", "2026-09-02T09:00:01.000Z"),
     ]);
@@ -135,11 +140,12 @@ describe("the ordering rule holds through the hook", () => {
         queueCalls={queueCalls}
         onFeed={(feed) => (held = feed)}
       />,
+      { wrapper: bridgeWrapper(bridge, clock) },
     );
     act(() => {
       deliver(queueRow(QUEUE_ITEM_B, "admitted", "2026-09-02T09:00:02.000Z"));
     });
-    await settleScheduledRead(bridge);
+    await settleScheduledRead(clock);
     expect(held?.items.map((item) => item.id)).toStrictEqual([QUEUE_ITEM_A, QUEUE_ITEM_B]);
     expect(held?.items[1]?.state).toBe("admitted");
   });

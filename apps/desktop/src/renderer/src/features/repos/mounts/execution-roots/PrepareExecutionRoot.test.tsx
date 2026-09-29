@@ -19,6 +19,7 @@ import { WORKTREE_GIT_REF_MAX_LEN, type ExecutionMode } from "@ai-sidekicks/cont
 import { advanceScenarioUntil } from "@test/helpers/scenario-manual-clock.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import { bridgeOnClock } from "@test/helpers/fixture-bridge.js";
+import { bridgeWrapper } from "@test/helpers/app-frame-fixtures.js";
 import { scriptedRepoOperations } from "../../repo-operations.test-support.js";
 import {
   readWorkspaceControlAvailability,
@@ -46,7 +47,7 @@ interface FormUnderTest {
 }
 
 function renderForm(): FormUnderTest {
-  const bridge = bridgeOnClock("repos");
+  const { bridge, scenarioEngine, clock } = bridgeOnClock("repos");
   // Held outside the element factory: a fresh bridge, store or call set per re-render
   // would re-mint everything beneath the row, so the mode-switch case would be pinning
   // two first mounts rather than one switch.
@@ -64,11 +65,13 @@ function renderForm(): FormUnderTest {
       onPrepared={() => undefined}
     />
   );
-  const { container, rerender } = render(formAt("provisioned-worktree"));
+  const { container, rerender } = render(formAt("provisioned-worktree"), {
+    wrapper: bridgeWrapper(bridge, clock),
+  });
   return {
     container,
     advanceUntil: async (assert) => {
-      await advanceScenarioUntil(bridge, assert);
+      await advanceScenarioUntil(scenarioEngine, assert);
     },
     setExecutionMode: (mode) => {
       rerender(formAt(mode));

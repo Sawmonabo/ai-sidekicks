@@ -10,9 +10,11 @@ import { expect } from "vitest";
 
 import { PANE_LAYOUT_RESTORED_PANE_CAP } from "./pane-layout/pane-layout-store.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence-caps.js";
-import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
-import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
-import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
+import { FixtureBridgeProvider } from "@test/helpers/app-frame-fixtures.js";
+import {
+  createFixtureBridge,
+  type FixtureBridge,
+} from "@renderer/services/platform/platform-bridge.fixture.js";
 import type { Scenario } from "../../../../../fixtures/scenario.js";
 import type { StoredRecord } from "@renderer/store/persistence/persistence-adapter.js";
 import { DraftStore } from "@renderer/store/draft-store.js";
@@ -176,21 +178,21 @@ export function otherSession(): SessionWithStore {
  * The session screen for one session, in the shape `AppFrame` mounts it in.
  *
  * The provider carries the SAME bridge the surface is handed, because that is what the
- * frame does: one window, one transport, and one clock resolved off it — the pane layout reads
- * that clock for its rect tracker.
+ * frame does: one window, one transport, and the scenario's frozen clock resolved beside it —
+ * the pane layout reads that clock for its rect tracker.
  */
 export function workspaceFor(
   session: SessionWithStore,
   uiStateStore: UiStateStore,
   isKeyed: boolean,
-  bridge: PlatformBridge = createFixtureBridge({ scenario: SCENARIO }),
+  fixture: FixtureBridge = createFixtureBridge({ scenario: SCENARIO }),
 ): React.JSX.Element {
   return (
-    <PlatformBridgeProvider bridge={bridge}>
+    <FixtureBridgeProvider fixture={fixture}>
       <LiveAnnouncerProvider>
         <SessionScreen
           {...(isKeyed ? { key: session.sessionId } : {})}
-          bridge={bridge}
+          bridge={fixture.bridge}
           frameStore={
             new WindowStore({ initialRoute: { kind: "session", sessionId: session.sessionId } })
           }
@@ -201,7 +203,7 @@ export function workspaceFor(
           paneRegistry={testRegistry()}
         />
       </LiveAnnouncerProvider>
-    </PlatformBridgeProvider>
+    </FixtureBridgeProvider>
   );
 }
 

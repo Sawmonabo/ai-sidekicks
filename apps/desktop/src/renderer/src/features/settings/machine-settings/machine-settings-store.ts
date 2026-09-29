@@ -10,8 +10,7 @@ import {
   type ReadTriggerTarget,
 } from "@renderer/store/reads/read-triggers.js";
 import { RefreshScheduler, type RefreshReason } from "@renderer/lib/reads/refresh-scheduler.js";
-import { resolveBridgeClock } from "@renderer/services/platform/hooks/useClock.js";
-import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
+import { type Clock } from "@renderer/lib/clock.js";
 import {
   NOTHING_CHOSEN,
   OPENING_READ_KEY,
@@ -74,10 +73,10 @@ export class MachineSettingsStore implements ReadTriggerTarget {
   readonly #pendingWriteKeys = new Set<MachineSettingKey>();
   readonly #scheduler: RefreshScheduler;
 
-  public constructor(bridge: PlatformBridge, settingsFile: MachineSettingsFile) {
+  public constructor(clock: Clock, settingsFile: MachineSettingsFile) {
     this.#settingsFile = settingsFile;
     this.#scheduler = new RefreshScheduler({
-      clock: resolveBridgeClock(bridge),
+      clock,
       perform: async () => {
         await this.#read();
       },

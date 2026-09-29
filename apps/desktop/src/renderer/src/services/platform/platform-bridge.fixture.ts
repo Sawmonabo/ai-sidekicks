@@ -38,11 +38,21 @@ export interface FixtureBridgeOptions {
   readonly scenario: Scenario;
 }
 
-/** Build the fixture bridge for one scenario. */
-export function createFixtureBridge(options: FixtureBridgeOptions): PlatformBridge {
+/**
+ * The fixture bridge and the engine playing its scenario. The engine is the fixture seam's,
+ * not the bridge's: its frozen clock is the one the window runs on, and it is what a driver
+ * advances.
+ */
+export interface FixtureBridge {
+  readonly bridge: PlatformBridge;
+  readonly scenarioEngine: ScenarioEngine;
+}
+
+/** Build the fixture bridge for one scenario, with the engine that plays it. */
+export function createFixtureBridge(options: FixtureBridgeOptions): FixtureBridge {
   const scenarioEngine = new ScenarioEngine({ scenario: options.scenario });
   const updaterState: UpdateState = options.scenario.updaterState ?? { status: "idle" };
-  return {
+  const bridge: PlatformBridge = {
     daemon: createFixtureDaemon(scenarioEngine),
     controlPlane: {
       call: async <ProcedureName extends CpProcedure>(
@@ -86,6 +96,6 @@ export function createFixtureBridge(options: FixtureBridgeOptions): PlatformBrid
     app: FIXTURE_APP_META,
     transportReconnect: new TransportReconnectSignal(),
     source: "fixture",
-    scenarioEngine,
   };
+  return { bridge, scenarioEngine };
 }

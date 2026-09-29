@@ -127,7 +127,7 @@ export function refusingEnumerationBridge(): PlatformBridge {
         },
       ],
     },
-  });
+  }).bridge;
 }
 
 /** The fixture, with the enumeration held open so the read stays in flight. */
@@ -148,7 +148,7 @@ export function bridgeHoldingTheEnumeration(): PlatformBridge {
  * schema. Asynchronous because a registered reply is reached by calling for it.
  */
 export async function scenarioBindingGroups(): Promise<readonly ProviderCommandBindingGroup[]> {
-  const bridge = createFixtureBridge({ scenario: WAITING_FOR_INPUT_SCENARIO });
+  const { bridge } = createFixtureBridge({ scenario: WAITING_FOR_INPUT_SCENARIO });
   const [agentId] = composerAgentIds();
   if (agentId === undefined) {
     throw new Error("the composer scenario attaches no agent");
@@ -192,7 +192,7 @@ export function bridgeEnumerating(groups: readonly ProviderCommandBindingGroup[]
         { call: ENUMERATION_METHOD, result: { bindings: groups } },
       ],
     },
-  });
+  }).bridge;
 }
 
 /** The scenario's agents, read out of the log rather than restated. */

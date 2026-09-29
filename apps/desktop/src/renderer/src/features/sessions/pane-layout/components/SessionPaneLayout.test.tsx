@@ -9,10 +9,12 @@ import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { PANE_LAYOUT_RESTORED_PANE_CAP } from "../pane-layout-store.js";
-import { ManualClock } from "@renderer/lib/clock.js";
-import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
-import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
-import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
+import { ManualClock, type Clock } from "@renderer/lib/clock.js";
+import {
+  createFixtureBridge,
+  type FixtureBridge,
+} from "@renderer/services/platform/platform-bridge.fixture.js";
+import { FixtureBridgeProvider } from "@test/helpers/app-frame-fixtures.js";
 import { FIRST_RUN_SCENARIO } from "../../../../../../../fixtures/scenarios/first-run.js";
 import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
 import { PaneRegistry, type PaneContext } from "@renderer/console/seats/index.js";
@@ -78,9 +80,9 @@ function registryWith(
  */
 function PaneLayoutWindow(props: { readonly children: React.ReactNode }): React.JSX.Element {
   return (
-    <PlatformBridgeProvider bridge={createFixtureBridge({ scenario: FIRST_RUN_SCENARIO })}>
+    <FixtureBridgeProvider fixture={createFixtureBridge({ scenario: FIRST_RUN_SCENARIO })}>
       <LiveAnnouncerProvider>{props.children}</LiveAnnouncerProvider>
-    </PlatformBridgeProvider>
+    </FixtureBridgeProvider>
   );
 }
 
@@ -355,19 +357,18 @@ function pressFrom(origin: Element | null, init: KeyboardEventInit): KeyboardEve
 
 describe("SessionPaneLayout — the clock its rect flush runs on", () => {
   /** The scenario's frozen clock, or a failure that says the fixture served none. */
-  function frozenClockOf(bridge: PlatformBridge): ManualClock {
-    const clock = bridge.scenarioEngine?.clock;
+  function frozenClockOf(clock: Clock): ManualClock {
     if (!(clock instanceof ManualClock)) {
       throw new Error("the fixture bridge resolved no frozen clock");
     }
     return clock;
   }
 
-  function renderPaneLayoutOn(bridge: PlatformBridge): void {
+  function renderPaneLayoutOn(fixture: FixtureBridge): void {
     const layout = emptyLayout();
     layout.open({ kind: "transcript" });
     render(
-      <PlatformBridgeProvider bridge={bridge}>
+      <FixtureBridgeProvider fixture={fixture}>
         <LiveAnnouncerProvider>
           <SessionPaneLayout
             layout={layout}
@@ -375,7 +376,7 @@ describe("SessionPaneLayout — the clock its rect flush runs on", () => {
             paneContextFor={paneContextFor}
           />
         </LiveAnnouncerProvider>
-      </PlatformBridgeProvider>,
+      </FixtureBridgeProvider>,
     );
   }
 
@@ -385,10 +386,10 @@ describe("SessionPaneLayout — the clock its rect flush runs on", () => {
     // the rect flush then ran on wall time while the transcript and the reveal engine
     // were frozen, and whether it had fired when a screenshot was taken
     // depended on how long the runner took.
-    const bridge = createFixtureBridge({ scenario: FIRST_RUN_SCENARIO });
-    const clock = frozenClockOf(bridge);
+    const fixture = createFixtureBridge({ scenario: FIRST_RUN_SCENARIO });
+    const clock = frozenClockOf(fixture.scenarioEngine.clock);
 
-    renderPaneLayoutOn(bridge);
+    renderPaneLayoutOn(fixture);
 
     // Armed and not yet run — `rect/rect-discipline.ts` rule 1 is reads in the callback and
     // writes on the next frame, and the frame is this window's.
@@ -402,7 +403,7 @@ describe("SessionPaneLayout — the clock its rect flush runs on", () => {
   it("negative control: the frozen clock has nothing armed until a pane layout is mounted", () => {
     // Without this, the case above would pass over a clock that reported a pending
     // frame for anything at all, including work no pane layout ever asked for.
-    const bridge = createFixtureBridge({ scenario: FIRST_RUN_SCENARIO });
-    expect(frozenClockOf(bridge).pendingFrameCount).toBe(0);
+    const { scenarioEngine } = createFixtureBridge({ scenario: FIRST_RUN_SCENARIO });
+    expect(frozenClockOf(scenarioEngine.clock).pendingFrameCount).toBe(0);
   });
 });

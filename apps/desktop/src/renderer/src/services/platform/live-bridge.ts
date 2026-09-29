@@ -55,7 +55,6 @@ export function createLiveBridge(preloadApi: PreloadApi): PlatformBridge {
     // them observed.
     transportReconnect: new TransportReconnectSignal(),
     source: "live",
-    scenarioEngine: undefined,
   };
 }
 

@@ -88,7 +88,7 @@ describe("Preview pane geometry — who watches this window's overlays move", ()
     registerOverlay();
     const built = previewPaneContext();
     await act(async () => {
-      render(chromeFor(built.context, recordingActs(), new RecordingViewHost()));
+      render(chromeFor(built, recordingActs(), new RecordingViewHost()));
     });
 
     expect(armedOverlayObservations()).toBe(1);
@@ -100,7 +100,7 @@ describe("Preview pane geometry — who watches this window's overlays move", ()
     viewHost.rejectNextWith(refuse(PANE_VIEW_HOST_REFUSAL_ORIGIN, "pane-gone", PANE_GONE));
     const built = previewPaneContext();
     await act(async () => {
-      render(chromeFor(built.context, recordingActs(), viewHost));
+      render(chromeFor(built, recordingActs(), viewHost));
     });
     expect(armedOverlayObservations()).toBe(1);
 
@@ -109,7 +109,7 @@ describe("Preview pane geometry — who watches this window's overlays move", ()
     // rectangle for a pane that no longer exists once per frame forever. The
     // observation is disposed with it or it is not disposed at all: the holder's own
     // disposal does not run until the mount ends.
-    await releaseQueuedPaneFrames(built.bridge);
+    await releaseQueuedPaneFrames(built.fixture);
 
     expect(armedOverlayObservations()).toBe(0);
   });
@@ -117,12 +117,12 @@ describe("Preview pane geometry — who watches this window's overlays move", ()
   it("costs one observation per pane, and none once both panes are gone", async () => {
     registerOverlay();
     const first = previewPaneContext(undefined, DEFAULT_TEST_PANE_ID);
-    const second = previewPaneContext(first.bridge, SECOND_TEST_PANE_ID);
+    const second = previewPaneContext(first.fixture, SECOND_TEST_PANE_ID);
     let firstPane: ReturnType<typeof render> | undefined;
     let secondPane: ReturnType<typeof render> | undefined;
     await act(async () => {
-      firstPane = render(chromeFor(first.context, recordingActs(), new RecordingViewHost()));
-      secondPane = render(chromeFor(second.context, recordingActs(), new RecordingViewHost()));
+      firstPane = render(chromeFor(first, recordingActs(), new RecordingViewHost()));
+      secondPane = render(chromeFor(second, recordingActs(), new RecordingViewHost()));
     });
 
     expect(armedOverlayObservations()).toBe(2);

@@ -7,6 +7,8 @@
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
+import { bridgeWrapper } from "@test/helpers/app-frame-fixtures.js";
+import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import { settleScheduledRead } from "@test/helpers/scheduled-read.js";
 import {
   QUEUED_ROW,
@@ -21,7 +23,7 @@ import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 
 describe("one session's queue is read once for every surface", () => {
   it("opens one stream and takes one snapshot for two surfaces on one session", async () => {
-    const { bridge, queueCalls, tailedSessionIds, listedSessionIds } = queueFeedBridge();
+    const { bridge, clock, queueCalls, tailedSessionIds, listedSessionIds } = queueFeedBridge();
     render(
       <TwoQueueReaders
         bridge={bridge}
@@ -29,14 +31,15 @@ describe("one session's queue is read once for every surface", () => {
         firstSessionId={SESSION_ID}
         secondSessionId={SESSION_ID}
       />,
+      { wrapper: bridgeWrapper(bridge, clock) },
     );
-    await settleScheduledRead(bridge);
+    await settleScheduledRead(clock);
     expect(tailedSessionIds).toStrictEqual([SESSION_ID]);
     expect(listedSessionIds).toStrictEqual([SESSION_ID]);
   });
 
   it("negative control: two sessions on one bridge are two readings", async () => {
-    const { bridge, queueCalls, tailedSessionIds, listedSessionIds } = queueFeedBridge();
+    const { bridge, clock, queueCalls, tailedSessionIds, listedSessionIds } = queueFeedBridge();
     render(
       <TwoQueueReaders
         bridge={bridge}
@@ -44,8 +47,9 @@ describe("one session's queue is read once for every surface", () => {
         firstSessionId={SESSION_ID}
         secondSessionId={SECOND_SESSION_ID}
       />,
+      { wrapper: bridgeWrapper(bridge, clock) },
     );
-    await settleScheduledRead(bridge);
+    await settleScheduledRead(clock);
     expect(tailedSessionIds).toStrictEqual([SESSION_ID, SECOND_SESSION_ID]);
     expect(listedSessionIds).toStrictEqual([SESSION_ID, SECOND_SESSION_ID]);
   });
@@ -57,18 +61,22 @@ describe("one session's queue is read once for every surface", () => {
     const second = queueFeedBridge();
     render(
       <>
-        <QueueFeedProbe
-          bridge={first.bridge}
-          sessionId={SESSION_ID}
-          queueCalls={first.queueCalls}
-          onFeed={() => undefined}
-        />
-        <QueueFeedProbe
-          bridge={second.bridge}
-          sessionId={SESSION_ID}
-          queueCalls={second.queueCalls}
-          onFeed={() => undefined}
-        />
+        <PlatformBridgeProvider bridge={first.bridge} clock={first.clock}>
+          <QueueFeedProbe
+            bridge={first.bridge}
+            sessionId={SESSION_ID}
+            queueCalls={first.queueCalls}
+            onFeed={() => undefined}
+          />
+        </PlatformBridgeProvider>
+        <PlatformBridgeProvider bridge={second.bridge} clock={second.clock}>
+          <QueueFeedProbe
+            bridge={second.bridge}
+            sessionId={SESSION_ID}
+            queueCalls={second.queueCalls}
+            onFeed={() => undefined}
+          />
+        </PlatformBridgeProvider>
       </>,
     );
     await act(async () => {
@@ -84,7 +92,7 @@ describe("one session's queue is read once for every surface", () => {
     // subscribed through the reading it captured at render revived that one — live,
     // open, and outside the registry — and the next surface then minted a second,
     // so one session carried two snapshot reads and two tails.
-    const { bridge, queueCalls, tailedSessionIds, listedSessionIds } = queueFeedBridge();
+    const { bridge, clock, queueCalls, tailedSessionIds, listedSessionIds } = queueFeedBridge();
     const view = render(
       <QueueFeedProbe
         key="x"
@@ -93,8 +101,9 @@ describe("one session's queue is read once for every surface", () => {
         queueCalls={queueCalls}
         onFeed={() => undefined}
       />,
+      { wrapper: bridgeWrapper(bridge, clock) },
     );
-    await settleScheduledRead(bridge);
+    await settleScheduledRead(clock);
     view.rerender(
       <QueueFeedProbe
         key="y"
@@ -117,8 +126,9 @@ describe("one session's queue is read once for every surface", () => {
         queueCalls={queueCalls}
         onFeed={() => undefined}
       />,
+      { wrapper: bridgeWrapper(bridge, clock) },
     );
-    await settleScheduledRead(bridge);
+    await settleScheduledRead(clock);
     expect(tailedSessionIds).toStrictEqual([SESSION_ID, SESSION_ID]);
     expect(listedSessionIds).toStrictEqual([SESSION_ID, SESSION_ID]);
   });
@@ -128,7 +138,7 @@ describe("one session's queue is read once for every surface", () => {
     // unconditional `delete(sessionId)` evicted whatever was under that key by the
     // time the last watcher left — a SUCCESSOR with watchers of its own. A retiring
     // reading may only remove itself.
-    const { bridge, queueCalls, tailedSessionIds } = queueFeedBridge();
+    const { bridge, clock, queueCalls, tailedSessionIds } = queueFeedBridge();
     const swapped = render(
       <QueueFeedProbe
         key="x"
@@ -137,6 +147,7 @@ describe("one session's queue is read once for every surface", () => {
         queueCalls={queueCalls}
         onFeed={() => undefined}
       />,
+      { wrapper: bridgeWrapper(bridge, clock) },
     );
     await act(async () => {
       await crossMacrotaskBoundary();
@@ -157,6 +168,7 @@ describe("one session's queue is read once for every surface", () => {
         queueCalls={queueCalls}
         onFeed={() => undefined}
       />,
+      { wrapper: bridgeWrapper(bridge, clock) },
     );
     await act(async () => {
       await crossMacrotaskBoundary();
@@ -171,6 +183,7 @@ describe("one session's queue is read once for every surface", () => {
         queueCalls={queueCalls}
         onFeed={() => undefined}
       />,
+      { wrapper: bridgeWrapper(bridge, clock) },
     );
     await act(async () => {
       await crossMacrotaskBoundary();
@@ -180,7 +193,7 @@ describe("one session's queue is read once for every surface", () => {
   });
 
   it("reads afresh once the last surface has left, rather than serving a stale list", async () => {
-    const { bridge, queueCalls, tailedSessionIds } = queueFeedBridge();
+    const { bridge, clock, queueCalls, tailedSessionIds } = queueFeedBridge();
     const mounted = render(
       <QueueFeedProbe
         bridge={bridge}
@@ -188,6 +201,7 @@ describe("one session's queue is read once for every surface", () => {
         queueCalls={queueCalls}
         onFeed={() => undefined}
       />,
+      { wrapper: bridgeWrapper(bridge, clock) },
     );
     await act(async () => {
       await crossMacrotaskBoundary();
@@ -200,6 +214,7 @@ describe("one session's queue is read once for every surface", () => {
         queueCalls={queueCalls}
         onFeed={() => undefined}
       />,
+      { wrapper: bridgeWrapper(bridge, clock) },
     );
     await act(async () => {
       await crossMacrotaskBoundary();

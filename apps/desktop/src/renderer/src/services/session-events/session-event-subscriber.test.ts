@@ -213,11 +213,9 @@ describe("SessionEventSubscriber — the console's one subscription to the wire"
     // bound session buffered its stream against a store that was never
     // initialized. The control is the count itself: it is zero without the
     // request, and the timeline stays empty however many beats arrive.
-    const bridge = createFixtureBridge({ scenario: CONCURRENT_STREAMING_SCENARIO });
-    const engine = bridge.scenarioEngine;
-    if (engine === undefined) {
-      throw new Error("the fixture bridge built no scenario engine, so there is nothing to drive");
-    }
+    const { bridge, scenarioEngine: engine } = createFixtureBridge({
+      scenario: CONCURRENT_STREAMING_SCENARIO,
+    });
     const reasonsSeen: string[] = [];
     const registry = new SessionStoreRegistry({
       read: (_sessionId, reasons) => {

@@ -2,6 +2,7 @@
 
 import { useSessionReadTriggers } from "@renderer/store/reads/hooks/useSessionReadTriggers.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
+import { useBridgeClock } from "../platform/hooks/useClock.js";
 import { type PlatformBridge } from "../platform/platform-bridge.js";
 import { driverCapabilityReads } from "./driver-capability-read.js";
 
@@ -25,5 +26,6 @@ export function useDriverCapabilityRepairRead(
   // The session half alone, deliberately: the window half is already wired by
   // `useDriverCapabilities`, which every caller of this hook also calls, and wiring
   // it twice would put two focus listeners on one window for one reading.
-  useSessionReadTriggers(driverCapabilityReads.reading(bridge), sessionStore);
+  const clock = useBridgeClock();
+  useSessionReadTriggers(driverCapabilityReads.reading(bridge, clock), sessionStore);
 }

@@ -33,7 +33,6 @@ import type {
   Unsubscribe,
   UpdateState,
 } from "@shared/preload-api.js";
-import type { ScenarioEngine } from "../daemon/engine.fixture.js";
 import type { TransportReconnectSignal } from "@renderer/services/transport/transport-reconnect.js";
 
 /** Which bridge the window is running against. Rendered, never inferred. */
@@ -96,6 +95,4 @@ export interface PlatformBridge {
    */
   readonly transportReconnect: TransportReconnectSignal;
   readonly source: PlatformBridgeSource;
-  /** Present only under the fixture, so a surface can drive playback. */
-  readonly scenarioEngine: ScenarioEngine | undefined;
 }

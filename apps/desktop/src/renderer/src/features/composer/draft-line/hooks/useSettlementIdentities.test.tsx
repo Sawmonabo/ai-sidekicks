@@ -59,7 +59,7 @@ describe("the settlement mirrors move at the commit", () => {
     const readdress: { current: (() => void) | undefined } = { current: undefined };
     render(
       <ComposerHost
-        bridge={createFixtureBridge({ scenario: WAITING_FOR_INPUT_SCENARIO })}
+        bridge={createFixtureBridge({ scenario: WAITING_FOR_INPUT_SCENARIO }).bridge}
         seen={seen}
         readdress={readdress}
       />,
@@ -90,7 +90,7 @@ describe("the settlement mirrors move at the commit", () => {
     const readdress: { current: (() => void) | undefined } = { current: undefined };
     render(
       <ComposerHost
-        bridge={createFixtureBridge({ scenario: WAITING_FOR_INPUT_SCENARIO })}
+        bridge={createFixtureBridge({ scenario: WAITING_FOR_INPUT_SCENARIO }).bridge}
         seen={seen}
         readdress={readdress}
       />,
@@ -115,7 +115,7 @@ describe("the settlement mirrors move at the commit", () => {
     const readdress: { current: (() => void) | undefined } = { current: undefined };
     render(
       <ComposerHost
-        bridge={createFixtureBridge({ scenario: WAITING_FOR_INPUT_SCENARIO })}
+        bridge={createFixtureBridge({ scenario: WAITING_FOR_INPUT_SCENARIO }).bridge}
         seen={seen}
         readdress={readdress}
       />,

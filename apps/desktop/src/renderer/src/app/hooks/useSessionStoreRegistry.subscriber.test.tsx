@@ -29,11 +29,17 @@ function compositionHarness(): {
   readonly slot: DiagnosticsSlot;
   readonly wrapper: (props: { readonly children: ReactNode }) => React.JSX.Element;
 } {
-  const bridge = createFixtureBridge({ scenario: CONCURRENT_STREAMING_SCENARIO });
+  const { bridge, scenarioEngine } = createFixtureBridge({
+    scenario: CONCURRENT_STREAMING_SCENARIO,
+  });
   const slot: DiagnosticsSlot = { installed: undefined };
   const composition: BridgeComposition = {
-    createBridge: () => bridge,
-    installBridgeHandles: () => () => undefined,
+    createBridge: () => ({
+      bridge,
+      clock: scenarioEngine.clock,
+      disposal: scenarioEngine,
+      installHandles: () => () => undefined,
+    }),
     installSessionDiagnostics: (diagnostics) => {
       slot.installed = diagnostics;
       return () => {
@@ -45,7 +51,11 @@ function compositionHarness(): {
     slot,
     wrapper: function CompositionHost(props: { readonly children: ReactNode }) {
       return (
-        <PlatformBridgeProvider bridge={bridge} composition={composition}>
+        <PlatformBridgeProvider
+          bridge={bridge}
+          clock={scenarioEngine.clock}
+          composition={composition}
+        >
           {props.children}
         </PlatformBridgeProvider>
       );
@@ -111,7 +121,7 @@ describe("useSessionStoreRegistry — the window's registry and the binder that 
     const registry = new SessionStoreRegistry({ read: () => Promise.resolve(undefined) });
     const binder = new SessionEventSubscriber({
       registry,
-      bridge: createFixtureBridge({ scenario: CONCURRENT_STREAMING_SCENARIO }),
+      bridge: createFixtureBridge({ scenario: CONCURRENT_STREAMING_SCENARIO }).bridge,
     });
 
     registry.disposeAll();

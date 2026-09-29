@@ -9,7 +9,7 @@ import { act, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import { type AttentionItem } from "@ai-sidekicks/contracts";
-import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
+import { bridgeOnClock } from "@test/helpers/fixture-bridge.js";
 import { useClock } from "@renderer/services/platform/hooks/useClock.js";
 import { ManualClock } from "@renderer/lib/clock.js";
 import { REFRESH_DEBOUNCE_MS } from "@renderer/lib/reads/refresh-caps.js";
@@ -287,11 +287,6 @@ describe("what makes the attention read run again", () => {
   // The read goes through the console's one refresh scheduler, so time is frozen and a
   // case releases a coalesced read by moving the clock past its window.
 
-  /** A bridge whose window runs on this clock. */
-  function bridgeOn(clock: ManualClock): PlatformBridge {
-    return { source: "fixture", scenarioEngine: { clock } } as unknown as PlatformBridge;
-  }
-
   function registryOn(clock: ManualClock): SessionStoreRegistry {
     return new SessionStoreRegistry({ read: () => Promise.resolve(undefined), clock });
   }
@@ -327,12 +322,12 @@ describe("what makes the attention read run again", () => {
   }
 
   function mount(
-    bridge: PlatformBridge,
+    clock: ManualClock,
     read: AttentionProjectionReadCall,
     registry: SessionStoreRegistry,
   ): ReturnType<typeof render> {
     return render(
-      <PlatformBridgeProvider bridge={bridge}>
+      <PlatformBridgeProvider bridge={bridgeOnClock("attention", clock).bridge} clock={clock}>
         <ReadThroughCenter read={read} registry={registry} />
       </PlatformBridgeProvider>,
     );
@@ -363,7 +358,7 @@ describe("what makes the attention read run again", () => {
     const sessionId = openInitializedSession(registry);
     const served = { items: [] as readonly AttentionItem[] };
     const read = callServing(served);
-    const { container } = mount(bridgeOn(clock), read, registry);
+    const { container } = mount(clock, read, registry);
     await releaseCoalescedRead(clock);
     expect(read).toHaveBeenCalledTimes(1);
     expect(container.textContent ?? "").not.toContain("An approval is waiting.");
@@ -382,7 +377,7 @@ describe("what makes the attention read run again", () => {
     const clock = new ManualClock(0);
     const registry = registryOn(clock);
     const read = callServing({ items: [] });
-    const view = mount(bridgeOn(clock), read, registry);
+    const view = mount(clock, read, registry);
     await releaseCoalescedRead(clock);
     expect(registry.listenerCount).toBe(1);
     view.unmount();

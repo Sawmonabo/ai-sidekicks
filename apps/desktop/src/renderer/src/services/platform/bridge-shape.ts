@@ -71,7 +71,6 @@ const BRIDGE_SIGNAL_MEMBERS: Readonly<
 > = {
   transportReconnect: true,
   source: true,
-  scenarioEngine: true,
 };
 
 /**

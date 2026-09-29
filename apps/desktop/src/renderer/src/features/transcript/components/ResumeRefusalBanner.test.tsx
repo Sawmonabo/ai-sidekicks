@@ -16,8 +16,8 @@
 
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
+import { FixtureBridgeProvider } from "@test/helpers/app-frame-fixtures.js";
 import { EMPTY_SESSION_SCENARIO } from "../../../../../../fixtures/scenarios/empty-session.js";
 import { ManualClock } from "@renderer/lib/clock.js";
 import { settle as settleReactWork } from "@test/helpers/settle.js";
@@ -103,7 +103,7 @@ async function renderSessionScreen(input: {
   // reads. The gap fill mounted beside the resume notice renders nothing for a window
   // that is missing nothing, which every case here is.
   render(
-    <PlatformBridgeProvider bridge={createFixtureBridge({ scenario: EMPTY_SESSION_SCENARIO })}>
+    <FixtureBridgeProvider fixture={createFixtureBridge({ scenario: EMPTY_SESSION_SCENARIO })}>
       {descriptor.render({
         route: { kind: "session", sessionId: SESSION_ID },
         bridge: { source: "fixture" },
@@ -114,7 +114,7 @@ async function renderSessionScreen(input: {
         draftStore: {},
         paneRegistry: new PaneRegistry(),
       } as unknown as ScreenContext)}
-    </PlatformBridgeProvider>,
+    </FixtureBridgeProvider>,
   );
   await settleReactWork();
 }

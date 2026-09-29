@@ -23,7 +23,7 @@ function viewOverHeldDeletes(): {
     lists: [[REVIEWER, AUDITOR], [AUDITOR]],
     holdsDeletes: true,
   });
-  return { view: new AgentLibraryView(stub.bridge, stub.calls), stub };
+  return { view: new AgentLibraryView(stub.clock, stub.calls), stub };
 }
 
 describe("the agent registry view — one delete at a time", () => {
@@ -93,7 +93,7 @@ describe("the agent registry view — one delete at a time", () => {
     const stub = new RegistryStub({
       lists: [[REVIEWER, AUDITOR], [AUDITOR], []],
     });
-    const view = new AgentLibraryView(stub.bridge, stub.calls);
+    const view = new AgentLibraryView(stub.clock, stub.calls);
     view.start();
     await settle();
 
@@ -113,7 +113,7 @@ describe("the agent registry view — a delete the daemon rejects", () => {
     // and a caught rejection would show the person nothing went wrong.
     const stub = new RegistryStub({ lists: [[REVIEWER, AUDITOR]] });
     const attempts: string[] = [];
-    const view = new AgentLibraryView(stub.bridge, {
+    const view = new AgentLibraryView(stub.clock, {
       listDefinitions: stub.calls.listDefinitions,
       deleteDefinition: async (request) => {
         attempts.push(request.definitionId);

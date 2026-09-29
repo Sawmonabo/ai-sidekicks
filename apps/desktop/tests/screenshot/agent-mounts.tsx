@@ -33,6 +33,7 @@ import { settleReads } from "@renderer/features/agents/pane/agents-pane.test-sup
 import type { AgentsPaneCalls } from "@renderer/features/agents/agent-reads.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence-caps.js";
 import { unscriptedScenario } from "../helpers/fixture-bridge.js";
+import { FixtureBridgeProvider } from "../helpers/app-frame-fixtures.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { DraftStore } from "@renderer/store/draft-store.js";
@@ -109,10 +110,15 @@ async function renderAgentsPane(): Promise<{
   readonly container: HTMLElement;
   readonly bridge: PlatformBridge;
 }> {
-  const bridge = createFixtureBridge({ scenario: unscriptedScenario("agents-screenshot") });
+  const fixture = createFixtureBridge({ scenario: unscriptedScenario("agents-screenshot") });
+  const { bridge } = fixture;
   const context = paneContext(bridge, agentsSessionStore(), AGENT_ON_CLAUDE.agentId);
-  const { container } = await renderSettled(<AgentsPaneBody context={context} />);
-  await settleReads(bridge);
+  const { container } = await renderSettled(
+    <FixtureBridgeProvider fixture={fixture}>
+      <AgentsPaneBody context={context} />
+    </FixtureBridgeProvider>,
+  );
+  await settleReads(fixture.scenarioEngine);
   // Deliberately NOT inside `act`: the roster read resolves in a promise React knows
   // nothing about, and an `act` scope holds the resulting commit back until it exits,
   // so a wait placed inside one waits for a render its own scope prevents.

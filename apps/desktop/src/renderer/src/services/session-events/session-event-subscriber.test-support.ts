@@ -52,11 +52,7 @@ export interface SubscriberHarness {
 export function createHarness(
   scenario: Scenario = CONCURRENT_STREAMING_SCENARIO,
 ): SubscriberHarness {
-  const bridge = createFixtureBridge({ scenario });
-  const engine = bridge.scenarioEngine;
-  if (engine === undefined) {
-    throw new Error("the fixture bridge built no scenario engine, so there is nothing to drive");
-  }
+  const { bridge, scenarioEngine: engine } = createFixtureBridge({ scenario });
   const registry = new SessionStoreRegistry({
     read: () => Promise.resolve(undefined),
     clock: engine.clock,

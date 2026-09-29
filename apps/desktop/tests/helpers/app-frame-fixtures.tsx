@@ -7,10 +7,14 @@
 // beside it.
 import { createStubBridge } from "@shared/preload-api.js";
 import type { ReactNode } from "react";
+import type { Clock } from "@renderer/lib/clock.js";
 import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { createLiveBridge } from "@renderer/services/platform/live-bridge.js";
-import { FIXTURE_APP_META } from "@renderer/services/platform/platform-bridge.fixture.js";
+import {
+  FIXTURE_APP_META,
+  type FixtureBridge,
+} from "@renderer/services/platform/platform-bridge.fixture.js";
 import type { AppRoute } from "@renderer/routing/routes.js";
 import type { WindowBanner } from "@renderer/store/window/window-store.js";
 import {
@@ -55,17 +59,43 @@ export function frameProps(
  *
  * `AppFrame` mounts the live announcer, and the announcer arms the one timeout the
  * console's idle budget counts — so which clock it runs on is a property of the
- * WINDOW rather than of the primitive, and the frame reads it from the bridge. Both
+ * WINDOW rather than of the primitive, and the frame reads it from the resolution. Both
  * arms are the real thing: `createStubBridge()` is the object the preload exposes
  * to a shipped window, and `createFixtureBridge` builds the real engine over the
- * real concurrent-streaming scenario.
+ * real concurrent-streaming scenario, whose frozen clock a case hands in beside it.
+ * Absent a clock, the window runs on real time.
  */
 export function bridgeWrapper(
   bridge: PlatformBridge,
+  clock?: Clock,
 ): (props: { readonly children: ReactNode }) => React.JSX.Element {
   return function BridgeHost(props: { readonly children: ReactNode }): React.JSX.Element {
-    return <PlatformBridgeProvider bridge={bridge}>{props.children}</PlatformBridgeProvider>;
+    return (
+      <PlatformBridgeProvider bridge={bridge} {...(clock === undefined ? {} : { clock })}>
+        {props.children}
+      </PlatformBridgeProvider>
+    );
   };
+}
+
+/**
+ * The provider over a fixture bridge, on its engine's frozen clock.
+ *
+ * A component rather than a wrapper factory, so a case that re-renders a tree naming a
+ * different fixture keeps one provider and exercises its in-place replacement.
+ */
+export function FixtureBridgeProvider(props: {
+  readonly fixture: FixtureBridge;
+  readonly children: ReactNode;
+}): React.JSX.Element {
+  return (
+    <PlatformBridgeProvider
+      bridge={props.fixture.bridge}
+      clock={props.fixture.scenarioEngine.clock}
+    >
+      {props.children}
+    </PlatformBridgeProvider>
+  );
 }
 
 /** The wall-clock arm: what a shipped window resolves. */

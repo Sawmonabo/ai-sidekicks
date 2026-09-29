@@ -6,12 +6,15 @@
 
 import { DRIVER_CAPABILITY_FLAGS, type DriverCapabilityFlag } from "@ai-sidekicks/contracts";
 import { bridgeAnswering, type RecordedDaemonCall } from "@test/helpers/fixture-bridge.js";
+import type { Clock } from "@renderer/lib/clock.js";
 import type { PlatformBridge } from "../platform/platform-bridge.js";
 import { useDriverCapabilities } from "./useDriverCapabilities.js";
 import { type DriverCapabilityReadout } from "@renderer/store/driver-capabilities/driver-capability-readout.js";
 
 export interface CountingBridge {
   readonly bridge: PlatformBridge;
+  /** The clock the bridge's window runs on: the scenario's frozen one. */
+  readonly clock: Clock;
   readonly calls: readonly RecordedDaemonCall[];
 }
 
@@ -44,7 +47,7 @@ export function reportFor(driverName: string, declared: readonly DriverCapabilit
  */
 export function answeringCapabilityReads(...answers: readonly unknown[]): CountingBridge {
   let answered = 0;
-  return bridgeAnswering(async ({ method }) => {
+  const { bridge, calls, engine } = bridgeAnswering(async ({ method }) => {
     if (method !== "driver.listCapabilities") {
       return undefined;
     }
@@ -52,6 +55,7 @@ export function answeringCapabilityReads(...answers: readonly unknown[]): Counti
     answered += 1;
     return reply;
   });
+  return { bridge, calls, clock: engine.clock };
 }
 
 /** How many times one bridge was asked for the declarations. */

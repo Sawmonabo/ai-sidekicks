@@ -20,6 +20,8 @@ import { act, render } from "@testing-library/react";
 
 import { bridgeAnswering } from "@test/helpers/fixture-bridge.js";
 import { settleScheduledRead } from "@test/helpers/scheduled-read.js";
+import { bridgeWrapper } from "@test/helpers/app-frame-fixtures.js";
+import { PlatformBridgeProvider } from "../platform/PlatformBridgeProvider.js";
 import type { PlatformBridge } from "../platform/platform-bridge.js";
 import {
   CapabilityProbe,
@@ -54,9 +56,10 @@ describe("useDriverCapabilities — one read, every consumer", () => {
           <CapabilityProbe bridge={counted.bridge} onReadout={record("runs")} />
           <CapabilityProbe bridge={counted.bridge} onReadout={record("composer")} />
         </>,
+        { wrapper: bridgeWrapper(counted.bridge, counted.clock) },
       );
     });
-    await settleScheduledRead(counted.bridge);
+    await settleScheduledRead(counted.clock);
 
     expect(capabilityCallCount(counted)).toBe(1);
     // Both consumers see the same settled reading, not one served and one waiting.
@@ -81,13 +84,17 @@ describe("useDriverCapabilities — one read, every consumer", () => {
     await act(async () => {
       render(
         <>
-          <CapabilityProbe bridge={first.bridge} onReadout={record("window-one")} />
-          <CapabilityProbe bridge={second.bridge} onReadout={record("window-two")} />
+          <PlatformBridgeProvider bridge={first.bridge} clock={first.clock}>
+            <CapabilityProbe bridge={first.bridge} onReadout={record("window-one")} />
+          </PlatformBridgeProvider>
+          <PlatformBridgeProvider bridge={second.bridge} clock={second.clock}>
+            <CapabilityProbe bridge={second.bridge} onReadout={record("window-two")} />
+          </PlatformBridgeProvider>
         </>,
       );
     });
-    await settleScheduledRead(first.bridge);
-    await settleScheduledRead(second.bridge);
+    await settleScheduledRead(first.clock);
+    await settleScheduledRead(second.clock);
 
     expect(capabilityCallCount(first)).toBe(1);
     expect(capabilityCallCount(second)).toBe(1);
@@ -108,18 +115,22 @@ describe("useDriverCapabilities — one read, every consumer", () => {
       };
 
     await act(async () => {
-      render(<CapabilityProbe bridge={counted.bridge} onReadout={record("first")} />);
+      render(<CapabilityProbe bridge={counted.bridge} onReadout={record("first")} />, {
+        wrapper: bridgeWrapper(counted.bridge, counted.clock),
+      });
     });
-    await settleScheduledRead(counted.bridge);
+    await settleScheduledRead(counted.clock);
     await act(async () => {
-      render(<CapabilityProbe bridge={counted.bridge} onReadout={record("second")} />);
+      render(<CapabilityProbe bridge={counted.bridge} onReadout={record("second")} />, {
+        wrapper: bridgeWrapper(counted.bridge, counted.clock),
+      });
     });
 
     // The late consumer is served the settled answer straight away rather than an
     // absence, and its own `subscribe` reason is coalesced into one further read
     // rather than one per consumer.
     expect(declaredFlagsForDriver(readoutsByLabel.get("second"), "claude")?.steer).toBe(true);
-    await settleScheduledRead(counted.bridge);
+    await settleScheduledRead(counted.clock);
     expect(capabilityCallCount(counted)).toBe(2);
   });
 });
@@ -136,9 +147,10 @@ describe("useDriverCapabilities — a read that failed says so", () => {
             readout = value;
           }}
         />,
+        { wrapper: bridgeWrapper(counted.bridge, counted.clock) },
       );
     });
-    await settleScheduledRead(counted.bridge);
+    await settleScheduledRead(counted.clock);
 
     // The gating stays fail-closed — no driver declares anything — and the reason is
     // on the reading rather than swallowed, so a surface can say why its controls went.
@@ -149,7 +161,7 @@ describe("useDriverCapabilities — a read that failed says so", () => {
   });
 
   it("carries the daemon's own code when the daemon rejects the read", async () => {
-    const { bridge, calls } = bridgeAnswering(async () => {
+    const { bridge, calls, engine } = bridgeAnswering(async () => {
       throw { code: "driver.unavailable", message: "No driver process is bound." };
     });
 
@@ -162,9 +174,10 @@ describe("useDriverCapabilities — a read that failed says so", () => {
             readout = value;
           }}
         />,
+        { wrapper: bridgeWrapper(bridge, engine.clock) },
       );
     });
-    await settleScheduledRead(bridge);
+    await settleScheduledRead(engine.clock);
 
     expect(declaredFlagsForDriver(readout, "claude")).toBeUndefined();
     expect(settledRefusalOf(readout).code).toBe("driver.unavailable");
@@ -184,9 +197,10 @@ describe("useDriverCapabilities — a read that failed says so", () => {
             readout = value;
           }}
         />,
+        { wrapper: bridgeWrapper(counted.bridge, counted.clock) },
       );
     });
-    await settleScheduledRead(counted.bridge);
+    await settleScheduledRead(counted.clock);
 
     expect(declaredFlagsForDriver(readout, "claude")).toBeUndefined();
     expect(readout?.readRefusal).toBeUndefined();
@@ -230,15 +244,16 @@ describe("useDriverCapabilities — a settlement is never terminal", () => {
             readout = value;
           }}
         />,
+        { wrapper: bridgeWrapper(counted.bridge, counted.clock) },
       );
     });
-    await settleScheduledRead(counted.bridge);
+    await settleScheduledRead(counted.clock);
     expect(settledRefusalOf(readout).code).toBe("reply-unreadable");
 
     await act(async () => {
       window.dispatchEvent(new Event("focus"));
     });
-    await settleScheduledRead(counted.bridge);
+    await settleScheduledRead(counted.clock);
 
     expect(capabilityCallCount(counted)).toBe(2);
     expect(declaredFlagsForDriver(readout, "claude")?.steer).toBe(true);
@@ -261,9 +276,10 @@ describe("useDriverCapabilities — a settlement is never terminal", () => {
             readout = value;
           }}
         />,
+        { wrapper: bridgeWrapper(counted.bridge, counted.clock) },
       );
     });
-    await settleScheduledRead(counted.bridge);
+    await settleScheduledRead(counted.clock);
     expect(declaredFlagsForDriver(readout, "claude")?.rollback).toBe(false);
 
     act(() => {
@@ -271,13 +287,13 @@ describe("useDriverCapabilities — a settlement is never terminal", () => {
     });
     // Losing the stream is not the moment: the read would go to a wire that is not
     // answering. The repair is.
-    await settleScheduledRead(counted.bridge);
+    await settleScheduledRead(counted.clock);
     expect(capabilityCallCount(counted)).toBe(1);
 
     act(() => {
       sessionStore.initialize({ cursor: 4, entities: [] });
     });
-    await settleScheduledRead(counted.bridge);
+    await settleScheduledRead(counted.clock);
 
     expect(capabilityCallCount(counted)).toBe(2);
     // A driver installed while the daemon was away is now declared, which the latch
@@ -299,9 +315,10 @@ describe("useDriverCapabilities — a settlement is never terminal", () => {
             readout = value;
           }}
         />,
+        { wrapper: bridgeWrapper(counted.bridge, counted.clock) },
       );
     });
-    await settleScheduledRead(counted.bridge);
+    await settleScheduledRead(counted.clock);
 
     await act(async () => {
       window.dispatchEvent(new Event("focus"));
@@ -314,13 +331,15 @@ describe("useDriverCapabilities — a settlement is never terminal", () => {
     // above. Time passes, no reason is given, and the wire stays quiet.
     const counted = answeringCapabilityReads({ drivers: [reportFor("claude", ["steer"])] });
     await act(async () => {
-      render(<CapabilityProbe bridge={counted.bridge} onReadout={() => undefined} />);
+      render(<CapabilityProbe bridge={counted.bridge} onReadout={() => undefined} />, {
+        wrapper: bridgeWrapper(counted.bridge, counted.clock),
+      });
     });
-    await settleScheduledRead(counted.bridge);
+    await settleScheduledRead(counted.clock);
     expect(capabilityCallCount(counted)).toBe(1);
 
-    await settleScheduledRead(counted.bridge);
-    await settleScheduledRead(counted.bridge);
+    await settleScheduledRead(counted.clock);
+    await settleScheduledRead(counted.clock);
     expect(capabilityCallCount(counted)).toBe(1);
   });
 });

@@ -29,11 +29,11 @@ import { MountedFoldersBlock } from "./MountedFoldersBlock.js";
  * A settings context on a clock the test owns, and the two calls the inventory reads
  * through, answered from plain stubs.
  *
- * The bridge is the shipped fixture, which is where the page looks for its clock and
- * its reconnect signal; the calls are separate because they are an argument of the
- * list and no longer a method of the bridge. The clock is handed back beside the
- * context, because a case that advanced a clock the page was not reading would be
- * asserting about a timer that never fell due.
+ * The bridge is the shipped fixture, which is where the page looks for its reconnect
+ * signal, and the clock is its scenario's frozen one, which the window runs on; the
+ * calls are separate because they are an argument of the list and not a method of the
+ * bridge. The clock is handed back beside the context, because a case that advanced a
+ * clock the page was not reading would be asserting about a timer that never fell due.
  */
 export function contextReading(options: {
   readonly mountIds: readonly string[];
@@ -58,7 +58,7 @@ export function contextReading(options: {
 } {
   let rejectedCallCount = 0;
   const fixture = createFixtureBridge({ scenario: unscriptedScenario("workspace-mounts-page") });
-  const clock = frozenClockOf(fixture);
+  const clock = frozenClockOf(fixture.scenarioEngine.clock);
   const rejectIfAsked = (): void => {
     if (
       options.rejectWith !== undefined &&
@@ -83,7 +83,7 @@ export function contextReading(options: {
     },
   };
   return {
-    context: settingsPageContextWith(fixture, SESSION_ID, {
+    context: settingsPageContextWith(fixture.bridge, SESSION_ID, {
       retainedSessionStore: options.sessionStore,
     }),
     clock,
@@ -126,10 +126,10 @@ export async function renderSettledBlock(reading: {
   // Under the bridge provider, because the list below this page takes the window's
   // clock from `useClock` — the console's one answer to which clock a window
   // runs on, and the resolution the provider's own error message says every console
-  // surface renders inside. The supplied bridge is the context's, so nothing about
-  // what this case answers moves.
+  // surface renders inside. The supplied bridge is the context's and the clock is the
+  // case's, so nothing about what this case answers moves.
   const { container } = render(
-    <PlatformBridgeProvider bridge={context.bridge}>
+    <PlatformBridgeProvider bridge={context.bridge} clock={clock}>
       <LiveAnnouncerProvider announcer={announcer}>
         <MountedFoldersBlock>
           <MountedFolderList

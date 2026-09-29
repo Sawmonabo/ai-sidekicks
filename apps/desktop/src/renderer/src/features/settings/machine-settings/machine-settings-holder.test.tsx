@@ -16,8 +16,13 @@ import { StrictMode } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import { unscriptedScenario } from "@test/helpers/fixture-bridge.js";
-import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
+import {
+  createFixtureBridge,
+  type FixtureBridge,
+} from "@renderer/services/platform/platform-bridge.fixture.js";
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
+import type { Clock } from "@renderer/lib/clock.js";
+import { bridgeWrapper } from "@test/helpers/app-frame-fixtures.js";
 import { NEVER_SETTLES } from "@test/helpers/abandoned-pass.js";
 import { machineSettingsHolder } from "./machine-settings-holder.js";
 import { useMachineSettings } from "./hooks/useMachineSettings.js";
@@ -37,8 +42,20 @@ const ACCEPTING_SETTINGS_FILE: MachineSettingsFile = {
 };
 
 /** A fresh bridge each call, so one case's holder state is never another's. */
-function freshBridge(): PlatformBridge {
+function freshBridge(): FixtureBridge {
   return createFixtureBridge({ scenario: unscriptedScenario("machine-settings-binding") });
+}
+
+/**
+ * The window a probe is mounted in: that bridge's provider, on the scenario's frozen clock.
+ *
+ * Passed as the render's wrapper so it holds still across a `rerender`: a case that replaces
+ * the probe's bridge replaces only the prop, and every store it mints runs on this clock.
+ */
+function windowOf(fixture: FixtureBridge): {
+  readonly wrapper: ReturnType<typeof bridgeWrapper>;
+} {
+  return { wrapper: bridgeWrapper(fixture.bridge, fixture.scenarioEngine.clock) };
 }
 
 /** The smallest page there is: it binds the preferences and renders the reading. */
@@ -55,12 +72,12 @@ function AbandoningSibling(): React.JSX.Element {
 /**
  * Let the acquiring effect run and the store's scheduled opening read fire.
  *
- * The bridge travels because the read is armed on the clock `resolveBridgeClock`
- * resolves off it — the fixture's frozen one — so a settle that only crossed
- * boundaries would assert against a store that was never given a chance to ask.
+ * The clock travels because the read is armed on the window's clock — the fixture's
+ * frozen one — so a settle that only crossed boundaries would assert against a store
+ * that was never given a chance to ask.
  */
-async function settle(bridge: PlatformBridge): Promise<void> {
-  await settleScheduledRead(bridge);
+async function settle(clock: Clock): Promise<void> {
+  await settleScheduledRead(clock);
   await act(async () => {
     await crossMacrotaskBoundary();
   });
@@ -68,14 +85,16 @@ async function settle(bridge: PlatformBridge): Promise<void> {
 
 describe("machine settings binding — acquisition happens after the commit", () => {
   it("acquires the window's store from an effect and reads what it answers", async () => {
-    const bridge = freshBridge();
+    const fixture = freshBridge();
+    const { bridge } = fixture;
 
     const { getByTestId } = render(
       <StrictMode>
         <PreferenceProbe bridge={bridge} />
       </StrictMode>,
+      windowOf(fixture),
     );
-    await settle(bridge);
+    await settle(fixture.scenarioEngine.clock);
 
     // Strict mode invokes the acquiring effect twice; the second invocation finds
     // the store the first one minted rather than superseding it, which is the
@@ -88,16 +107,18 @@ describe("machine settings binding — acquisition happens after the commit", ()
   });
 
   it("disposes the superseded store exactly once when the bridge is replaced", async () => {
-    const firstBridge = freshBridge();
-    const { rerender } = render(<PreferenceProbe bridge={firstBridge} />);
-    await settle(firstBridge);
+    const firstFixture = freshBridge();
+    const firstBridge = firstFixture.bridge;
+    const windowClock = firstFixture.scenarioEngine.clock;
+    const { rerender } = render(<PreferenceProbe bridge={firstBridge} />, windowOf(firstFixture));
+    await settle(windowClock);
     const firstStore = machineSettingsHolder.storeIfCurrent(firstBridge);
     expect(firstStore).toBeDefined();
     const disposals = vi.spyOn(firstStore as { dispose: () => void }, "dispose");
 
-    const secondBridge = freshBridge();
+    const secondBridge = freshBridge().bridge;
     rerender(<PreferenceProbe bridge={secondBridge} />);
-    await settle(secondBridge);
+    await settle(windowClock);
 
     expect(disposals).toHaveBeenCalledTimes(1);
     expect(machineSettingsHolder.storeIfCurrent(secondBridge)?.isDisposed).toBe(false);
@@ -107,13 +128,14 @@ describe("machine settings binding — acquisition happens after the commit", ()
     // The negative control on the `useMemo` form. Under it the probe's render-time
     // lookup disposed `firstStore` and installed a successor for a pass that never
     // committed, so this case fails on the old code and passes on the new one.
-    const firstBridge = freshBridge();
-    const { rerender } = render(<PreferenceProbe bridge={firstBridge} />);
-    await settle(firstBridge);
+    const firstFixture = freshBridge();
+    const firstBridge = firstFixture.bridge;
+    const { rerender } = render(<PreferenceProbe bridge={firstBridge} />, windowOf(firstFixture));
+    await settle(firstFixture.scenarioEngine.clock);
     const firstStore = machineSettingsHolder.storeIfCurrent(firstBridge);
     expect(firstStore).toBeDefined();
 
-    const abandonedBridge = freshBridge();
+    const abandonedBridge = freshBridge().bridge;
     // The failure is left UNCAUGHT rather than wrapped in a surface boundary: the
     // boundary's record of a render failure is a tripwire, and this tier throws on
     // one, so catching the throw here would replace the case's subject with the
@@ -141,10 +163,18 @@ describe("machine settings — the store belongs to the window, not to a page", 
     // component died with the page, so a choice made on the updates section was
     // gone by the time the notifications section asked for it — while the row said
     // it was held for the window.
-    const bridge = freshBridge();
-    const firstPagesStore = machineSettingsHolder.acquire(bridge, UNANSWERING_SETTINGS_FILE);
+    const { bridge, scenarioEngine } = freshBridge();
+    const firstPagesStore = machineSettingsHolder.acquire(
+      bridge,
+      scenarioEngine.clock,
+      UNANSWERING_SETTINGS_FILE,
+    );
 
-    const secondPagesStore = machineSettingsHolder.acquire(bridge, UNANSWERING_SETTINGS_FILE);
+    const secondPagesStore = machineSettingsHolder.acquire(
+      bridge,
+      scenarioEngine.clock,
+      UNANSWERING_SETTINGS_FILE,
+    );
 
     expect(secondPagesStore).toBe(firstPagesStore);
   });
@@ -154,23 +184,39 @@ describe("machine settings — the store belongs to the window, not to a page", 
     // one would keep answering with the old one's reading, so it is superseded
     // rather than reused — and it is dropped, so asking again mints a live store
     // rather than returning a terminal one whose replies write nothing.
-    const firstBridge = freshBridge();
-    const secondBridge = freshBridge();
-    const firstStore = machineSettingsHolder.acquire(firstBridge, UNANSWERING_SETTINGS_FILE);
+    const first = freshBridge();
+    const second = freshBridge();
+    const firstStore = machineSettingsHolder.acquire(
+      first.bridge,
+      first.scenarioEngine.clock,
+      UNANSWERING_SETTINGS_FILE,
+    );
     // Counted rather than read off the flag: `dispose` is idempotent, so a holder
     // that disposed the same store on every ask would leave `isDisposed` looking
     // exactly as it does here.
     const disposals = vi.spyOn(firstStore, "dispose");
 
-    const secondStore = machineSettingsHolder.acquire(secondBridge, UNANSWERING_SETTINGS_FILE);
-    machineSettingsHolder.acquire(secondBridge, UNANSWERING_SETTINGS_FILE);
+    const secondStore = machineSettingsHolder.acquire(
+      second.bridge,
+      second.scenarioEngine.clock,
+      UNANSWERING_SETTINGS_FILE,
+    );
+    machineSettingsHolder.acquire(
+      second.bridge,
+      second.scenarioEngine.clock,
+      UNANSWERING_SETTINGS_FILE,
+    );
 
     expect(secondStore).not.toBe(firstStore);
     expect(disposals).toHaveBeenCalledTimes(1);
     expect(firstStore.isDisposed).toBe(true);
     expect(secondStore.isDisposed).toBe(false);
 
-    const rebuilt = machineSettingsHolder.acquire(firstBridge, UNANSWERING_SETTINGS_FILE);
+    const rebuilt = machineSettingsHolder.acquire(
+      first.bridge,
+      first.scenarioEngine.clock,
+      UNANSWERING_SETTINGS_FILE,
+    );
     expect(rebuilt).not.toBe(firstStore);
     expect(rebuilt.isDisposed).toBe(false);
   });
@@ -180,8 +226,18 @@ describe("machine settings — a superseded store", () => {
   it("negative control: a superseded store's own reply writes nothing", async () => {
     // Without this, the disposal above would be a flag nobody reads: a reply landing after
     // the swap would publish the old bridge's answer over the new bridge's store.
-    const firstStore = machineSettingsHolder.acquire(freshBridge(), ACCEPTING_SETTINGS_FILE);
-    machineSettingsHolder.acquire(freshBridge(), ACCEPTING_SETTINGS_FILE);
+    const first = freshBridge();
+    const second = freshBridge();
+    const firstStore = machineSettingsHolder.acquire(
+      first.bridge,
+      first.scenarioEngine.clock,
+      ACCEPTING_SETTINGS_FILE,
+    );
+    machineSettingsHolder.acquire(
+      second.bridge,
+      second.scenarioEngine.clock,
+      ACCEPTING_SETTINGS_FILE,
+    );
 
     await firstStore.choose("updates.automatic", false);
 
@@ -194,8 +250,12 @@ describe("machine settings — a superseded store", () => {
 
 describe("machine settings — the lookup a render body performs", () => {
   it("answers the live store for the bridge it is on", () => {
-    const bridge = freshBridge();
-    const acquired = machineSettingsHolder.acquire(bridge, UNANSWERING_SETTINGS_FILE);
+    const { bridge, scenarioEngine } = freshBridge();
+    const acquired = machineSettingsHolder.acquire(
+      bridge,
+      scenarioEngine.clock,
+      UNANSWERING_SETTINGS_FILE,
+    );
 
     expect(machineSettingsHolder.storeIfCurrent(bridge)).toBe(acquired);
   });
@@ -205,9 +265,13 @@ describe("machine settings — the lookup a render body performs", () => {
     // body makes, and a render body may run for a pass React replays or abandons.
     // The acquiring form disposed the committed store and installed a successor
     // right here, so an abandoned render left the mounted pages on a disposed store.
-    const committedBridge = freshBridge();
-    const committed = machineSettingsHolder.acquire(committedBridge, UNANSWERING_SETTINGS_FILE);
-    const replacementBridge = freshBridge();
+    const { bridge: committedBridge, scenarioEngine } = freshBridge();
+    const committed = machineSettingsHolder.acquire(
+      committedBridge,
+      scenarioEngine.clock,
+      UNANSWERING_SETTINGS_FILE,
+    );
+    const replacementBridge = freshBridge().bridge;
 
     expect(machineSettingsHolder.storeIfCurrent(replacementBridge)).toBeUndefined();
     expect(committed.isDisposed).toBe(false);
@@ -217,10 +281,19 @@ describe("machine settings — the lookup a render body performs", () => {
   it("negative control: acquiring the replacement is what disposes, so the two differ", () => {
     // Without this, the case above would pass over a holder that never disposed
     // anything at all — and the lookup would be pure because nothing was.
-    const committedBridge = freshBridge();
-    const committed = machineSettingsHolder.acquire(committedBridge, UNANSWERING_SETTINGS_FILE);
+    const committedFixture = freshBridge();
+    const committed = machineSettingsHolder.acquire(
+      committedFixture.bridge,
+      committedFixture.scenarioEngine.clock,
+      UNANSWERING_SETTINGS_FILE,
+    );
 
-    machineSettingsHolder.acquire(freshBridge(), UNANSWERING_SETTINGS_FILE);
+    const replacement = freshBridge();
+    machineSettingsHolder.acquire(
+      replacement.bridge,
+      replacement.scenarioEngine.clock,
+      UNANSWERING_SETTINGS_FILE,
+    );
 
     expect(committed.isDisposed).toBe(true);
   });

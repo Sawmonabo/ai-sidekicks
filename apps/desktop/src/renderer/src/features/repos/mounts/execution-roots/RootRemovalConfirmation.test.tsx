@@ -39,7 +39,7 @@ function daemonAnsweringTheCall(): RepoOperations {
 function renderConfirmation(operations: RepoOperations): ReturnType<typeof render> {
   return render(
     <RootRemovalConfirmation
-      bridge={bridgeOnClock("repos")}
+      bridge={bridgeOnClock("repos").bridge}
       operations={operations}
       rootId={WORKTREE_ID}
       onSettled={() => undefined}

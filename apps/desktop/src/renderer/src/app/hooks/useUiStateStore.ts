@@ -37,16 +37,15 @@
 //     cleanup and is invisible to the render before it, so the hook asks the store
 //     where its lifetime effect runs — which is what makes the arm correct without a
 //     second flag beside it, and the same arm `app/hooks/useSessionStoreRegistry.ts` passes.
-//   • **On the bridge's clock, like every other subsystem this window owns.** The
+//   • **On the window's clock, like every other subsystem this window owns.** The
 //     store stamps each record's `updatedAt` from a clock and arms the database
 //     open's timeout on the same one, and both defaulted to the wall clock — so
 //     under the fixture a record written between two scenario beats carried a
 //     timestamp from outside the scenario, and the LRU trim that orders entirely
-//     on those stamps ordered on how fast the host was. `resolveBridgeClock` is the
-//     one answer to which clock a window runs on; `app/hooks/useSessionStoreRegistry.ts` asks it
-//     the same question for the session registry.
-import { resolveBridgeClock } from "@renderer/services/platform/hooks/useClock.js";
-import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
+//     on those stamps ordered on how fast the host was. `useBridgeClock` is the one
+//     answer to which clock a window runs on; `app/hooks/useSessionStoreRegistry.ts` asks
+//     it the same question for the session registry.
+import { useBridgeClock } from "@renderer/services/platform/hooks/useClock.js";
 import { usePlatformBridge } from "@renderer/services/platform/hooks/usePlatformBridge.js";
 import { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
 import { useSubjectScopedResource } from "@renderer/hooks/subject-scoped/useSubjectScopedResource.js";
@@ -68,17 +67,14 @@ import { type SubjectScopedDisposal } from "@renderer/lib/subject-scoped/subject
  */
 export function useUiStateStore(): UiStateStore {
   const bridge = usePlatformBridge();
+  const clock = useBridgeClock();
   const { value: uiStateStore } = useSubjectScopedResource<UiStateStore>(
     bridge,
     undefined,
-    () => openUiStateStore(bridge),
+    () => UiStateStore.opening({ clock }),
     UI_STATE_STORE_DISPOSAL,
   );
   return uiStateStore;
-}
-
-function openUiStateStore(bridge: PlatformBridge): UiStateStore {
-  return UiStateStore.opening({ clock: resolveBridgeClock(bridge) });
 }
 
 /**

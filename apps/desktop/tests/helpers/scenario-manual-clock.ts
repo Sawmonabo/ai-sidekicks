@@ -2,8 +2,8 @@
 //
 // WHY A CASE HAS TO MOVE ANYTHING AT ALL. Every read a console surface performs is
 // routed through the console's one `RefreshScheduler`, which arms its debounce on the
-// clock it was handed; the readers take that clock from the bridge, and under the
-// fixture the bridge's clock is the scenario's frozen one. So real time moves none of
+// clock it was handed; the readers take the window's clock, and under the fixture
+// that is the scenario's frozen one. So real time moves none of
 // those surfaces, and a case that polled it — `waitFor` and its five-second budget —
 // would be polling a still picture until the budget ran out.
 //
@@ -21,7 +21,7 @@
 // than with a timeout that says nothing about what was missing.
 
 import { act } from "@testing-library/react";
-import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
+import type { ScenarioEngine } from "@renderer/services/daemon/engine.fixture.js";
 import { REFRESH_DEBOUNCE_MS } from "@renderer/lib/reads/refresh-caps.js";
 import { crossMacrotaskBoundary } from "./macrotask-boundary.js";
 
@@ -38,9 +38,9 @@ import { crossMacrotaskBoundary } from "./macrotask-boundary.js";
 const SCENARIO_SETTLE_PASSES = 24;
 
 /** Move scenario time one debounce interval and flush whatever it released. */
-export async function advanceScenarioOneInterval(bridge: PlatformBridge): Promise<void> {
+export async function advanceScenarioOneInterval(engine: ScenarioEngine): Promise<void> {
   await act(async () => {
-    bridge.scenarioEngine?.advance(REFRESH_DEBOUNCE_MS);
+    engine.advance(REFRESH_DEBOUNCE_MS);
     await crossMacrotaskBoundary();
   });
 }
@@ -54,7 +54,7 @@ export async function advanceScenarioOneInterval(bridge: PlatformBridge): Promis
  * different composition from the one the case is about.
  */
 export async function advanceScenarioUntil(
-  bridge: PlatformBridge,
+  engine: ScenarioEngine,
   assert: () => void,
 ): Promise<void> {
   for (let pass = 0; pass < SCENARIO_SETTLE_PASSES; pass += 1) {
@@ -62,7 +62,7 @@ export async function advanceScenarioUntil(
       assert();
       return;
     } catch {
-      await advanceScenarioOneInterval(bridge);
+      await advanceScenarioOneInterval(engine);
     }
   }
   assert();

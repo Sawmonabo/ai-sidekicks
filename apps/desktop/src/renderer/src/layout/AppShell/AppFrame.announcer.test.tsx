@@ -18,7 +18,6 @@
 import { act, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
-import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { CONCURRENT_STREAMING_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
 import { LIVE_ANNOUNCEMENT_HOLD_MS } from "@renderer/components/LiveAnnouncer/live-announcement-caps.js";
 import type { WindowBanner } from "@renderer/store/window/window-store.js";
@@ -40,15 +39,6 @@ const REFUSAL_BANNER: WindowBanner = {
   detail: "That session could not be found, so no run can start here.",
   dismissible: false,
 };
-
-/** The running engine, or a failure that names what was missing rather than `undefined`. */
-function scenarioEngineOf(bridge: PlatformBridge): NonNullable<PlatformBridge["scenarioEngine"]> {
-  const engine = bridge.scenarioEngine;
-  if (engine === undefined) {
-    throw new Error("the fixture bridge exposed no scenario engine");
-  }
-  return engine;
-}
 
 describe("AppFrame — the window has one live announcer, and the banner reaches it", () => {
   it("mounts exactly one region pair, empty, before anything is announced", () => {
@@ -157,12 +147,14 @@ describe("AppFrame — the announcer runs on the window's clock", () => {
     // test.
     vi.useFakeTimers();
     try {
-      const bridge = createFixtureBridge({ scenario: CONCURRENT_STREAMING_SCENARIO });
+      const { bridge, scenarioEngine } = createFixtureBridge({
+        scenario: CONCURRENT_STREAMING_SCENARIO,
+      });
       const { container } = render(
         <AppFrame {...frameProps(SESSIONS_ROUTE, [REFUSAL_BANNER])}>
           <CalmScreen />
         </AppFrame>,
-        { wrapper: bridgeWrapper(bridge) },
+        { wrapper: bridgeWrapper(bridge, scenarioEngine.clock) },
       );
       expect(liveRegionText(container, "assertive")).toBe(REFUSAL_BANNER.detail);
 
@@ -175,7 +167,7 @@ describe("AppFrame — the announcer runs on the window's clock", () => {
 
       // The scenario's own clock is what the hold was measured against.
       act(() => {
-        scenarioEngineOf(bridge).advance(LIVE_ANNOUNCEMENT_HOLD_MS + 1);
+        scenarioEngine.advance(LIVE_ANNOUNCEMENT_HOLD_MS + 1);
       });
       expect(liveRegionText(container, "assertive")).toBe("");
     } finally {

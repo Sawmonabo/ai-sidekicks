@@ -117,7 +117,7 @@ describe("the Agents pane's models — what re-reads one run's child links", () 
     // an instrument that counted something other than a re-read.
     const sessionStore = initializedStore("session-no-signal");
     const clock = new ManualClock();
-    const catalog = createDriverCatalogRead(unscriptedBridge("agent-catalog-signal"), clock);
+    const catalog = createDriverCatalogRead(unscriptedBridge("agent-catalog-signal").bridge, clock);
     catalog.start();
     await settleReads(clock);
     const afterFirstRead = catalog.readCount;

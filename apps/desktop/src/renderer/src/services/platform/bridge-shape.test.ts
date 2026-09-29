@@ -50,7 +50,7 @@ function resolveLiveBridgeFrom(installed: unknown): PlatformBridge | undefined {
 }
 
 function fixtureBridge(): PlatformBridge {
-  return createFixtureBridge({ scenario: findScenario(FIRST_RUN_SCENARIO_ID) });
+  return createFixtureBridge({ scenario: findScenario(FIRST_RUN_SCENARIO_ID) }).bridge;
 }
 
 function shapesOf(left: PlatformBridge, right: PlatformBridge): readonly string[] {

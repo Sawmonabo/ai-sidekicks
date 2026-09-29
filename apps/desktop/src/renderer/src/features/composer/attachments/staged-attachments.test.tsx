@@ -11,15 +11,15 @@
 import { ATTACHMENT_INGEST_CHUNK_MAX_BYTES } from "@ai-sidekicks/contracts";
 
 import { act, render } from "@testing-library/react";
-import { StrictMode } from "react";
+import { StrictMode, type ReactElement } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import { INGEST_STALL_DISCLOSURE_MS } from "./attachment-caps.js";
 import { ManualClock } from "@renderer/lib/clock.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { repeatedDisposalCount } from "@test/helpers/repeated-disposal.js";
-import { resolveBridgeClock } from "@renderer/services/platform/hooks/useClock.js";
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
+import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import { AttachmentCard } from "./components/AttachmentCard.js";
 import { StagedAttachments } from "./staged-attachments.js";
 import {
@@ -27,7 +27,7 @@ import {
   type StagedAttachmentsBinding,
 } from "./hooks/useStagedAttachments.js";
 import type { AttachmentIngestPort } from "./services/attachment-ingest-answer.js";
-import { bridgeOnClock } from "@test/helpers/fixture-bridge.js";
+import { bridgeOnClock, type BridgeOnClock } from "@test/helpers/fixture-bridge.js";
 import {
   INGEST_SESSION_ID,
   ScriptedIngestPort,
@@ -205,48 +205,64 @@ describe("staged attachments — the stall disclosure wakes once at its threshol
 });
 
 describe("useStagedAttachments — the stamp is the window's clock, never the host's", () => {
-  it("publishes the instant `resolveBridgeClock` answers for the bridge it was handed", () => {
+  it("publishes the instant the window's clock answers", () => {
     // Under the fixture the entries are stamped from the window's own clock: a staged list
     // with a `RealClock` of its own would stamp `Date.now()`, two clocks inside one
     // window with the wall one always winning.
     const port = new ScriptedIngestPort();
     const clock = new ManualClock(START_MILLISECONDS);
-    const bridge = bridgeOnClock("composer", clock);
+    const fixture = bridgeOnClock("composer", clock);
     let binding: StagedAttachmentsBinding | undefined;
     render(
-      <StagedAttachmentsProbe
-        bridge={bridge}
-        port={port.asPort()}
-        onBinding={(taken) => {
-          binding = taken;
-        }}
-      />,
+      underWindow(
+        fixture,
+        <StagedAttachmentsProbe
+          bridge={fixture.bridge}
+          port={port.asPort()}
+          onBinding={(taken) => {
+            binding = taken;
+          }}
+        />,
+      ),
     );
 
-    expect(resolveBridgeClock(bridge).now()).toBe(START_MILLISECONDS);
+    expect(clock.now()).toBe(START_MILLISECONDS);
     expect(binding?.snapshot.publishedAtMilliseconds).toBe(START_MILLISECONDS);
   });
 
   it("negative control: the stamp follows the clock it was given, not one fixed instant", () => {
     // Without this, a stamp hard-coded to the first case's start would pass it. Two
-    // bridges on two clocks stamp two different instants.
+    // windows on two clocks stamp two different instants.
     const laterStart = START_MILLISECONDS + INGEST_STALL_DISCLOSURE_MS;
     const port = new ScriptedIngestPort();
+    const fixture = bridgeOnClock("composer", new ManualClock(laterStart));
     let binding: StagedAttachmentsBinding | undefined;
     render(
-      <StagedAttachmentsProbe
-        bridge={bridgeOnClock("composer", new ManualClock(laterStart))}
-        port={port.asPort()}
-        onBinding={(taken) => {
-          binding = taken;
-        }}
-      />,
+      underWindow(
+        fixture,
+        <StagedAttachmentsProbe
+          bridge={fixture.bridge}
+          port={port.asPort()}
+          onBinding={(taken) => {
+            binding = taken;
+          }}
+        />,
+      ),
     );
 
     expect(binding?.snapshot.publishedAtMilliseconds).toBe(laterStart);
     expect(binding?.snapshot.publishedAtMilliseconds).not.toBe(START_MILLISECONDS);
   });
 });
+
+/** An element under a provider carrying this window's bridge and clock. */
+function underWindow(fixture: BridgeOnClock, element: ReactElement): React.JSX.Element {
+  return (
+    <PlatformBridgeProvider bridge={fixture.bridge} clock={fixture.clock}>
+      {element}
+    </PlatformBridgeProvider>
+  );
+}
 
 /** A surface that holds the binding and hands its one control back to the case. */
 function StagedAttachmentsProbe(props: {
@@ -266,16 +282,20 @@ describe("useStagedAttachments — a disposed staged list is re-minted on the re
     // terminally disposed the ingest client, so every file chosen afterwards reached a
     // client whose `attach` returns at once — the surface inert, and silently.
     const port = new ScriptedIngestPort();
+    const fixture = bridgeOnClock("composer");
     let binding: StagedAttachmentsBinding | undefined;
     render(
       <StrictMode>
-        <StagedAttachmentsProbe
-          bridge={bridgeOnClock("composer")}
-          port={port.asPort()}
-          onBinding={(taken) => {
-            binding = taken;
-          }}
-        />
+        {underWindow(
+          fixture,
+          <StagedAttachmentsProbe
+            bridge={fixture.bridge}
+            port={port.asPort()}
+            onBinding={(taken) => {
+              binding = taken;
+            }}
+          />,
+        )}
       </StrictMode>,
     );
 
@@ -296,25 +316,32 @@ describe("useStagedAttachments — a disposed staged list is re-minted on the re
     // opening a stream per pass, which is the leak the memo existed to prevent dressed
     // as a fix for the one it caused.
     const port = new ScriptedIngestPort();
+    const first = bridgeOnClock("composer");
     let binding: StagedAttachmentsBinding | undefined;
     const { rerender } = render(
-      <StagedAttachmentsProbe
-        bridge={bridgeOnClock("composer")}
-        port={port.asPort()}
-        onBinding={(taken) => {
-          binding = taken;
-        }}
-      />,
+      underWindow(
+        first,
+        <StagedAttachmentsProbe
+          bridge={first.bridge}
+          port={port.asPort()}
+          onBinding={(taken) => {
+            binding = taken;
+          }}
+        />,
+      ),
     );
-    const bridge = bridgeOnClock("composer");
+    const second = bridgeOnClock("composer");
     rerender(
-      <StagedAttachmentsProbe
-        bridge={bridge}
-        port={port.asPort()}
-        onBinding={(taken) => {
-          binding = taken;
-        }}
-      />,
+      underWindow(
+        second,
+        <StagedAttachmentsProbe
+          bridge={second.bridge}
+          port={port.asPort()}
+          onBinding={(taken) => {
+            binding = taken;
+          }}
+        />,
+      ),
     );
 
     await act(async () => {
@@ -336,13 +363,17 @@ describe("useStagedAttachments — a disposed staged list is re-minted on the re
     const disposals = vi.spyOn(StagedAttachments.prototype, "dispose");
     try {
       const port = new ScriptedIngestPort();
+      const fixture = bridgeOnClock("composer");
       const { unmount } = render(
         <StrictMode>
-          <StagedAttachmentsProbe
-            bridge={bridgeOnClock("composer")}
-            port={port.asPort()}
-            onBinding={() => {}}
-          />
+          {underWindow(
+            fixture,
+            <StagedAttachmentsProbe
+              bridge={fixture.bridge}
+              port={port.asPort()}
+              onBinding={() => {}}
+            />,
+          )}
         </StrictMode>,
       );
       await act(async () => {

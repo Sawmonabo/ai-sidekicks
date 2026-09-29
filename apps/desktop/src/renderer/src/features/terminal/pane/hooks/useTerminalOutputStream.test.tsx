@@ -13,7 +13,7 @@ import { type PlatformBridge } from "@renderer/services/platform/platform-bridge
 import { useTerminalOutputStream, type TerminalOutputStream } from "./useTerminalOutputStream.js";
 
 function freshBridge(): PlatformBridge {
-  return createFixtureBridge({ scenario: unscriptedScenario("terminal-output-stream") });
+  return createFixtureBridge({ scenario: unscriptedScenario("terminal-output-stream") }).bridge;
 }
 
 /** A subscription the case serves by hand, so the case chooses when it lands. */

@@ -42,7 +42,7 @@ function openDialog(): void {
   const { container } = render(
     <LiveAnnouncerProvider>
       <AttachRepositoryDialog
-        bridge={bridgeOnClock("repos")}
+        bridge={bridgeOnClock("repos").bridge}
         operations={scriptedRepoOperations()}
         sessionId={SESSION_ID}
         onAttached={() => undefined}

@@ -28,6 +28,8 @@ import { pressKeys, renderSettled } from "../helpers/app-harness.js";
 import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
 import { advanceScenarioUntil } from "../helpers/scenario-manual-clock.js";
 import { bridgeOnClock } from "@test/helpers/fixture-bridge.js";
+import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
+import type { ScenarioEngine } from "@renderer/services/daemon/engine.fixture.js";
 import { scriptedRepoOperations } from "@renderer/features/repos/repo-operations.test-support.js";
 import { BindWorkspaceDialog } from "@renderer/features/repos/mounts/bind/BindWorkspaceDialog.js";
 import { SESSION_ID } from "@renderer/features/repos/mounts/repo-mounts.test-support.js";
@@ -58,23 +60,25 @@ const BOUND_ROOT_ONLY_MODES: WorkspaceExecutionModeCapabilitiesReadResponse = {
 /** Mount one bind dialog over a scripted mode read, and open it the way a person does. */
 async function openBindDialog(): Promise<{
   readonly container: HTMLElement;
-  readonly bridge: ReturnType<typeof bridgeOnClock>;
+  readonly scenarioEngine: ScenarioEngine;
 }> {
-  const bridge = bridgeOnClock("repos");
+  const { bridge, scenarioEngine, clock } = bridgeOnClock("repos");
   const operations = scriptedRepoOperations({
     readMountExecutionModes: () => Promise.resolve(BOUND_ROOT_ONLY_MODES),
   });
   const { container } = await renderSettled(
-    <LiveAnnouncerProvider>
-      <BindWorkspaceDialog
-        bridge={bridge}
-        operations={operations}
-        repoMountId={MOUNT_ID}
-        canonicalRoot={MOUNT_ROOT}
-        sessionStore={new SessionStore({ sessionId: SESSION_ID })}
-        onBound={() => undefined}
-      />
-    </LiveAnnouncerProvider>,
+    <PlatformBridgeProvider bridge={bridge} clock={clock}>
+      <LiveAnnouncerProvider>
+        <BindWorkspaceDialog
+          bridge={bridge}
+          operations={operations}
+          repoMountId={MOUNT_ID}
+          canonicalRoot={MOUNT_ROOT}
+          sessionStore={new SessionStore({ sessionId: SESSION_ID })}
+          onBound={() => undefined}
+        />
+      </LiveAnnouncerProvider>
+    </PlatformBridgeProvider>,
   );
   const trigger = container.querySelector<HTMLButtonElement>(".meridian-bind__trigger");
   expect(trigger).not.toBeNull();
@@ -82,7 +86,7 @@ async function openBindDialog(): Promise<{
   // keyboard is the same act a person performs, and it needs no helper of its own.
   trigger?.focus();
   await pressKeys("{Enter}");
-  return { container, bridge };
+  return { container, scenarioEngine };
 }
 
 describe("browser — the bind dialog's popup leaves the card it was opened from", () => {
@@ -106,9 +110,9 @@ describe("browser — the bind dialog's popup leaves the card it was opened from
 
 describe("browser — an excluded execution mode cannot be reached", () => {
   it("renders the excluded mode with its reason and refuses the focus", async () => {
-    const { bridge } = await openBindDialog();
+    const { scenarioEngine } = await openBindDialog();
     let excluded: HTMLInputElement | null = null;
-    await advanceScenarioUntil(bridge, () => {
+    await advanceScenarioUntil(scenarioEngine, () => {
       excluded = document.querySelector<HTMLInputElement>(
         `.meridian-bind__modes input[value="${EXCLUDED_MODE}"]`,
       );
@@ -129,9 +133,9 @@ describe("browser — an excluded execution mode cannot be reached", () => {
   });
 
   it("negative control: an admitted mode on the same picker does take the focus", async () => {
-    const { bridge } = await openBindDialog();
+    const { scenarioEngine } = await openBindDialog();
     let admitted: HTMLInputElement | null = null;
-    await advanceScenarioUntil(bridge, () => {
+    await advanceScenarioUntil(scenarioEngine, () => {
       admitted = document.querySelector<HTMLInputElement>(
         `.meridian-bind__modes input[value="${ADMITTED_MODE}"]`,
       );

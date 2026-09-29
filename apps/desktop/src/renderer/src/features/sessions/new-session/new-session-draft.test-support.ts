@@ -59,7 +59,7 @@ export interface CountedDraft {
 
 export function draftFor(options: ScriptedLegs): NewSessionDraft {
   return new NewSessionDraft({
-    bridge: createFixtureBridge({ scenario: scenario(options) }),
+    bridge: createFixtureBridge({ scenario: scenario(options) }).bridge,
     queueFirstTurn: firstTurnCall(options, []),
   });
 }
@@ -83,7 +83,7 @@ export function sentMethod(call: RecordedDaemonCall): string {
  */
 export function countedDraftFor(options: ScriptedLegs): CountedDraft {
   const under = withDaemonCall(
-    createFixtureBridge({ scenario: scenario(options) }),
+    createFixtureBridge({ scenario: scenario(options) }).bridge,
     async (call) => {
       if (!options.scriptsCreate) {
         throw new Error(`no reply is scripted for ${call.method}`);
@@ -149,7 +149,7 @@ const UNREADABLE_CREATE_REPLY = { sessionId: CREATED_SESSION_ID } as const;
  */
 export function countedDraftOverUnreadableCreate(): CountedDraft {
   const under = withDaemonCall(
-    createFixtureBridge({ scenario: scenario({ scriptsCreate: true }) }),
+    createFixtureBridge({ scenario: scenario({ scriptsCreate: true }) }).bridge,
     async () => UNREADABLE_CREATE_REPLY,
   );
   const firstTurns: QueuedFirstTurn[] = [];

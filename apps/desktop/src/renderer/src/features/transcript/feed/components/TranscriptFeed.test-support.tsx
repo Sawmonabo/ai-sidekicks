@@ -19,8 +19,8 @@ import { act, render } from "@testing-library/react";
 import { vi } from "vitest";
 
 import { TRANSCRIPT_WINDOW_ROW_CAP } from "../../frame/frame-caps.js";
-import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
+import { FixtureBridgeProvider } from "@test/helpers/app-frame-fixtures.js";
 import { useRetainedRowState } from "../../viewport/hooks/useRetainedRowState.js";
 import { EMPTY_SESSION_SCENARIO } from "../../../../../../../fixtures/scenarios/empty-session.js";
 import { commandContributionRegistry } from "@renderer/registries/commands/command-contributions.js";
@@ -70,7 +70,7 @@ export function renderFeed(
   renderRowBody?: (mount: TranscriptRowProps) => React.JSX.Element,
 ): HTMLElement {
   const { container } = render(
-    <PlatformBridgeProvider bridge={createFixtureBridge({ scenario: EMPTY_SESSION_SCENARIO })}>
+    <FixtureBridgeProvider fixture={createFixtureBridge({ scenario: EMPTY_SESSION_SCENARIO })}>
       <TranscriptFeed
         sessionStore={sessionStore}
         paneId={TRANSCRIPT_FIXTURE_PANE_ID}
@@ -80,7 +80,7 @@ export function renderFeed(
         }}
         feedLabel="Session timeline"
       />
-    </PlatformBridgeProvider>,
+    </FixtureBridgeProvider>,
   );
   const feed = container.querySelector(".meridian-transcript-feed");
   if (!(feed instanceof HTMLElement)) {

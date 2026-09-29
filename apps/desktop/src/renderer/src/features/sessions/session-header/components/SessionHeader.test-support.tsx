@@ -6,8 +6,8 @@
 // a header the others never build.
 
 import { render } from "@testing-library/react";
-import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
+import { FixtureBridgeProvider } from "@test/helpers/app-frame-fixtures.js";
 import { USER_YOU } from "../../../../../../../fixtures/scenarios/concurrent-streaming.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import { type StoredEntity } from "@renderer/store/session/entities/entities.js";
@@ -91,9 +91,9 @@ export function renderSessionHeader(
 ): HTMLElement {
   const scenario = options.scenario ?? SESSION_HEADER_SILENT_SCENARIO;
   const { container } = render(
-    <PlatformBridgeProvider bridge={createFixtureBridge({ scenario })}>
+    <FixtureBridgeProvider fixture={createFixtureBridge({ scenario })}>
       {element}
-    </PlatformBridgeProvider>,
+    </FixtureBridgeProvider>,
   );
   const bar = container.querySelector(".meridian-session-header");
   if (!(bar instanceof HTMLElement)) {

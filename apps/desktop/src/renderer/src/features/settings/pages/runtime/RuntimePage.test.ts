@@ -180,7 +180,7 @@ describe("DaemonPage — the two controls", () => {
       },
       restart: () => Promise.resolve(),
     };
-    const bridge = createFixtureBridge({ scenario: unscriptedScenario("daemon-page") });
+    const { bridge } = createFixtureBridge({ scenario: unscriptedScenario("daemon-page") });
     const { result } = renderHook(() => useDaemonControl(bridge, operations, vi.fn()));
 
     await act(async () => {

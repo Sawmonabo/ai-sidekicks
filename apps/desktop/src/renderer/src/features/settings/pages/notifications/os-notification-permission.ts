@@ -18,8 +18,7 @@ import { useWindowReadTriggers } from "@renderer/store/reads/hooks/useWindowRead
 import { RefreshScheduler, type RefreshReason } from "@renderer/lib/reads/refresh-scheduler.js";
 import { useSubjectScopedResource } from "@renderer/hooks/subject-scoped/useSubjectScopedResource.js";
 import { type SubjectScopedDisposal } from "@renderer/lib/subject-scoped/subject-scoped-disposal.js";
-import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
-import { resolveBridgeClock } from "@renderer/services/platform/hooks/useClock.js";
+import { useBridgeClock } from "@renderer/services/platform/hooks/useClock.js";
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 
 /** What the machine can answer: the bridge's own permission states. */
@@ -121,8 +120,6 @@ const OS_PERMISSION_READ_DISPOSAL: SubjectScopedDisposal<OsNotificationPermissio
  * Watch this machine's permission, re-read whenever it can have changed.
  *
  * Keyed on the bridge because the subject is the machine, not a session or a user.
- * The clock comes from the bridge, not the provider, because a settings page is handed
- * a bridge directly.
  *
  * @consumedBy the Notifications page's permission notice
  */
@@ -130,9 +127,7 @@ export function useOsNotificationPermission(
   bridge: PlatformBridge,
   probe: OsNotificationPermissionProbe,
 ): OsNotificationPermissionReading {
-  const { value: clock } = useSubjectScopedState(bridge, undefined, () =>
-    resolveBridgeClock(bridge),
-  );
+  const clock = useBridgeClock();
   const { value: read } = useSubjectScopedResource(
     bridge,
     undefined,

@@ -12,6 +12,7 @@
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
+import { bridgeWrapper } from "@test/helpers/app-frame-fixtures.js";
 import { settleScheduledRead } from "@test/helpers/scheduled-read.js";
 
 import { SessionStore } from "@renderer/store/session/session-store.js";
@@ -39,12 +40,14 @@ function QueueProbe(props: {
 
 describe("the queue reading re-reads on a repair", () => {
   it("takes a fresh snapshot when the session's degraded flag clears", async () => {
-    const { bridge, queueCalls, listedSessionIds } = queueFeedBridge();
+    const { bridge, clock, queueCalls, listedSessionIds } = queueFeedBridge();
     const sessionStore = initializedStore();
     await act(async () => {
-      render(<QueueProbe bridge={bridge} queueCalls={queueCalls} sessionStore={sessionStore} />);
+      render(<QueueProbe bridge={bridge} queueCalls={queueCalls} sessionStore={sessionStore} />, {
+        wrapper: bridgeWrapper(bridge, clock),
+      });
     });
-    await settleScheduledRead(bridge);
+    await settleScheduledRead(clock);
     expect(listedSessionIds).toHaveLength(1);
 
     act(() => {
@@ -52,34 +55,36 @@ describe("the queue reading re-reads on a repair", () => {
     });
     // Losing the stream is not the moment: the read would go to a wire that is not
     // answering. The repair is.
-    await settleScheduledRead(bridge);
+    await settleScheduledRead(clock);
     expect(listedSessionIds).toHaveLength(1);
 
     act(() => {
       sessionStore.initialize({ cursor: 4, entities: [] });
     });
-    await settleScheduledRead(bridge);
+    await settleScheduledRead(clock);
     expect(listedSessionIds).toHaveLength(2);
   });
 
   it("negative control: nothing re-reads without a reason", async () => {
-    const { bridge, queueCalls, listedSessionIds } = queueFeedBridge();
+    const { bridge, clock, queueCalls, listedSessionIds } = queueFeedBridge();
     const sessionStore = initializedStore();
     await act(async () => {
-      render(<QueueProbe bridge={bridge} queueCalls={queueCalls} sessionStore={sessionStore} />);
+      render(<QueueProbe bridge={bridge} queueCalls={queueCalls} sessionStore={sessionStore} />, {
+        wrapper: bridgeWrapper(bridge, clock),
+      });
     });
-    await settleScheduledRead(bridge);
+    await settleScheduledRead(clock);
     expect(listedSessionIds).toHaveLength(1);
 
-    await settleScheduledRead(bridge);
-    await settleScheduledRead(bridge);
+    await settleScheduledRead(clock);
+    await settleScheduledRead(clock);
     expect(listedSessionIds).toHaveLength(1);
   });
 
   it("waits out a reply that is parked on a timer", async () => {
     // Every other case here answers synchronously, so this is the one that says the
     // settling helper waits for a reply that is not merely a microtask away.
-    const { bridge, queueCalls } = queueFeedBridge();
+    const { bridge, clock, queueCalls } = queueFeedBridge();
     const parked: QueueCalls = {
       ...queueCalls,
       list: () =>
@@ -97,28 +102,30 @@ describe("the queue reading re-reads on a repair", () => {
       return null;
     }
     await act(async () => {
-      render(<ParkedProbe />);
+      render(<ParkedProbe />, { wrapper: bridgeWrapper(bridge, clock) });
     });
 
-    await settleScheduledRead(bridge);
+    await settleScheduledRead(clock);
     expect(phase).toBe("read");
   });
 
   it("re-reads when the window regains focus", async () => {
     // The window half, wired by `useQueueFeed` itself, so a surface holding only the
     // session id still stops showing a list read before the person was away.
-    const { bridge, queueCalls, listedSessionIds } = queueFeedBridge();
+    const { bridge, clock, queueCalls, listedSessionIds } = queueFeedBridge();
     const sessionStore = initializedStore();
     await act(async () => {
-      render(<QueueProbe bridge={bridge} queueCalls={queueCalls} sessionStore={sessionStore} />);
+      render(<QueueProbe bridge={bridge} queueCalls={queueCalls} sessionStore={sessionStore} />, {
+        wrapper: bridgeWrapper(bridge, clock),
+      });
     });
-    await settleScheduledRead(bridge);
+    await settleScheduledRead(clock);
     expect(listedSessionIds).toHaveLength(1);
 
     await act(async () => {
       window.dispatchEvent(new Event("focus"));
     });
-    await settleScheduledRead(bridge);
+    await settleScheduledRead(clock);
     expect(listedSessionIds).toHaveLength(2);
   });
 });

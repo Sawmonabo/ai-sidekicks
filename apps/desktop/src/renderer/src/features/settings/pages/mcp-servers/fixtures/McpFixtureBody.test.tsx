@@ -6,16 +6,19 @@
 
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import { usePlatformBridge } from "@renderer/services/platform/hooks/usePlatformBridge.js";
-import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
+import {
+  createFixtureBridge,
+  type FixtureBridge,
+} from "@renderer/services/platform/platform-bridge.fixture.js";
 import type {
   McpMutationResult,
   McpServerInventoryEntry,
   SessionId,
 } from "@ai-sidekicks/contracts";
-import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
+import type { Clock } from "@renderer/lib/clock.js";
 import { unscriptedScenario } from "@test/helpers/fixture-bridge.js";
+import { FixtureBridgeProvider } from "@test/helpers/app-frame-fixtures.js";
 import { settleScheduledRead } from "@test/helpers/scheduled-read.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
@@ -107,7 +110,7 @@ function operationsServing(
   };
 }
 
-function fixtureBridge(): PlatformBridge {
+function fixtureBridge(): FixtureBridge {
   return createFixtureBridge({ scenario: unscriptedScenario("mcp-shell") });
 }
 
@@ -132,12 +135,12 @@ function MountedMcpPage(props: {
  * at a different bridge the way `PlatformBridgeProvider` does on a reconnect.
  */
 function mcpPageTree(
-  bridge: PlatformBridge,
+  fixture: FixtureBridge,
   operations: McpServerOperations,
   mintKey?: () => string,
 ): React.JSX.Element {
   return (
-    <PlatformBridgeProvider bridge={bridge}>
+    <FixtureBridgeProvider fixture={fixture}>
       <LiveAnnouncerProvider>
         {mintKey === undefined ? (
           <MountedMcpPage operations={operations} />
@@ -145,7 +148,7 @@ function mcpPageTree(
           <MountedMcpPage operations={operations} mintKey={mintKey} />
         )}
       </LiveAnnouncerProvider>
-    </PlatformBridgeProvider>
+    </FixtureBridgeProvider>
   );
 }
 
@@ -168,11 +171,12 @@ function firstEnableButton(container: HTMLElement): HTMLButtonElement {
 async function renderSettledMcpPage(
   operations: McpServerOperations,
   mintKey?: () => string,
-): Promise<{ readonly container: HTMLElement; readonly bridge: PlatformBridge }> {
-  const bridge = fixtureBridge();
-  const { container } = render(mcpPageTree(bridge, operations, mintKey));
-  await settleScheduledRead(bridge);
-  return { container, bridge };
+): Promise<{ readonly container: HTMLElement; readonly clock: Clock }> {
+  const fixture = fixtureBridge();
+  const { clock } = fixture.scenarioEngine;
+  const { container } = render(mcpPageTree(fixture, operations, mintKey));
+  await settleScheduledRead(clock);
+  return { container, clock };
 }
 
 function rowNamed(container: HTMLElement, serverName: string): Element | undefined {
@@ -244,21 +248,21 @@ describe("McpShell", () => {
   });
 
   it("renders a partial application: one leg applied, one failed", async () => {
-    const { container, bridge } = await renderSettledMcpPage(operationsServing([FILESYSTEM]));
+    const { container, clock } = await renderSettledMcpPage(operationsServing([FILESYSTEM]));
     fireEvent.click(firstEnableButton(container));
-    await settleScheduledRead(bridge);
+    await settleScheduledRead(clock);
     expect(container.textContent).toContain("live_reconcile");
     expect(container.textContent).toContain("mcp.config_write_conflict");
   });
 
   it("sends the key the caller minted for that press", async () => {
     const sendEnabled = vi.fn(async () => await Promise.resolve(PARTIAL_APPLICATION));
-    const { container, bridge } = await renderSettledMcpPage(
+    const { container, clock } = await renderSettledMcpPage(
       operationsServing([FILESYSTEM], { sendEnabled }),
       () => "one-press",
     );
     fireEvent.click(firstEnableButton(container));
-    await settleScheduledRead(bridge);
+    await settleScheduledRead(clock);
     expect(sendEnabled).toHaveBeenCalledTimes(1);
     expect(sendEnabled).toHaveBeenCalledWith(
       expect.objectContaining({ serverName: "filesystem", clientIdempotencyKey: "one-press" }),
@@ -309,13 +313,13 @@ describe("McpShell — a bridge replaced under a mounted shell", () => {
     const superseded = operationsHoldingTheirMutation();
     const supersededBridge = fixtureBridge();
     const { container, rerender } = render(mcpPageTree(supersededBridge, superseded.operations));
-    await settleScheduledRead(supersededBridge);
+    await settleScheduledRead(supersededBridge.scenarioEngine.clock);
     fireEvent.click(firstEnableButton(container));
     expect(container.textContent).toContain("Asking the background service to apply this.");
 
     const replacementBridge = fixtureBridge();
     rerender(mcpPageTree(replacementBridge, operationsServing([FILESYSTEM, ISSUE_TRACKER])));
-    await settleScheduledRead(replacementBridge);
+    await settleScheduledRead(replacementBridge.scenarioEngine.clock);
     // The replacement answered its own inventory, and the superseded bridge's press
     // is not still reported as in flight against it.
     expect(container.querySelectorAll(".meridian-mcp__row")).toHaveLength(2);
@@ -333,9 +337,9 @@ describe("McpShell — a bridge replaced under a mounted shell", () => {
   // than about this shell never rendering one.
   it("negative control: the same settlement renders while its own bridge still holds", async () => {
     const held = operationsHoldingTheirMutation();
-    const { container, bridge } = await renderSettledMcpPage(held.operations);
+    const { container, clock } = await renderSettledMcpPage(held.operations);
     fireEvent.click(firstEnableButton(container));
-    await settleScheduledRead(bridge);
+    await settleScheduledRead(clock);
 
     await act(async () => {
       held.answerHeldMutation();

@@ -29,8 +29,8 @@
 
 import { act, fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
+import { FixtureBridgeProvider } from "@test/helpers/app-frame-fixtures.js";
 import { EMPTY_SESSION_SCENARIO } from "../../../../../../../fixtures/scenarios/empty-session.js";
 import { type TranscriptRowProps } from "@renderer/console/seats/index.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
@@ -69,14 +69,14 @@ interface FeedParentProps {
 function FeedParent(props: FeedParentProps): React.JSX.Element {
   void props.renderNudge;
   return (
-    <PlatformBridgeProvider bridge={FIXTURE_BRIDGE}>
+    <FixtureBridgeProvider fixture={FIXTURE}>
       <TranscriptFeed
         sessionStore={props.sessionStore}
         paneId={TRANSCRIPT_FIXTURE_PANE_ID}
         renderTimelineRow={props.renderTimelineRow}
         feedLabel="Session timeline"
       />
-    </PlatformBridgeProvider>
+    </FixtureBridgeProvider>
   );
 }
 
@@ -87,7 +87,7 @@ function FeedParent(props: FeedParentProps): React.JSX.Element {
  * re-renders the whole subtree and would make every count below move for a reason
  * that is this file's own doing.
  */
-const FIXTURE_BRIDGE = createFixtureBridge({ scenario: EMPTY_SESSION_SCENARIO });
+const FIXTURE = createFixtureBridge({ scenario: EMPTY_SESSION_SCENARIO });
 
 describe("the transcript feed — what a parent's render costs the rows", () => {
   it("draws no row body again when the parent re-renders with the same values", () => {

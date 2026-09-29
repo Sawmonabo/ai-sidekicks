@@ -45,6 +45,9 @@ export function composeFixtureLaunch(): BridgeComposition | undefined {
 /**
  * A composition playing one scenario from the catalog.
  *
+ * Each bridge it builds runs on its scenario engine's frozen clock, and the engine is what
+ * the provider disposes and what the scenario control on the page drives.
+ *
  * Each install writes one page property and returns a removal that deletes it only while it
  * still holds what this install wrote: several consoles mount into one document in the
  * browser tiers, and a later window's install supersedes an earlier one's, so an
@@ -54,17 +57,24 @@ export function createFixtureComposition(scenarioId: string): BridgeComposition 
   const scenario = findScenario(scenarioId);
   const page = globalThis as unknown as Record<string, unknown>;
   return {
-    createBridge: () => createFixtureBridge({ scenario }),
-    installBridgeHandles: (bridge) => {
-      const removeTripwires = hangOnPage(page, TRIPWIRE_FIXTURE_GLOBAL, windowTripwires);
-      const engine = bridge.scenarioEngine;
-      const removeScenarioControl =
-        engine === undefined
-          ? undefined
-          : hangOnPage(page, SCENARIO_FIXTURE_GLOBAL, new ScenarioFixtureControl(engine));
-      return () => {
-        removeScenarioControl?.();
-        removeTripwires();
+    createBridge: () => {
+      const { bridge, scenarioEngine } = createFixtureBridge({ scenario });
+      return {
+        bridge,
+        clock: scenarioEngine.clock,
+        disposal: scenarioEngine,
+        installHandles: () => {
+          const removeTripwires = hangOnPage(page, TRIPWIRE_FIXTURE_GLOBAL, windowTripwires);
+          const removeScenarioControl = hangOnPage(
+            page,
+            SCENARIO_FIXTURE_GLOBAL,
+            new ScenarioFixtureControl(scenarioEngine),
+          );
+          return () => {
+            removeScenarioControl();
+            removeTripwires();
+          };
+        },
       };
     },
     installSessionDiagnostics: (diagnostics) =>

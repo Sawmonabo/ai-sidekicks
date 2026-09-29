@@ -1,7 +1,7 @@
 // Advancing the one frozen clock a console reading schedules against.
 //
 // Every read this console performs goes through a `RefreshScheduler`, and every
-// scheduler is armed on the clock `resolveBridgeClock` resolves — the fixture's frozen
+// scheduler is armed on the clock the bridge resolution carries — the fixture's frozen
 // one wherever a scenario is playing. So a suite that mounts a reading and asserts
 // what it asked the daemon has to MOVE that clock, and moving it is three things at
 // once: reaching the right clock, advancing it far enough that the absolute deadline
@@ -25,19 +25,18 @@ import { act } from "@testing-library/react";
 import { ManualClock } from "@renderer/lib/clock.js";
 import { REFRESH_MAX_WAIT_MS } from "@renderer/lib/reads/refresh-caps.js";
 import { crossMacrotaskBoundary } from "./macrotask-boundary.js";
-import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
+import type { Clock } from "@renderer/lib/clock.js";
 
 /**
- * The frozen clock this bridge's readings schedule against.
+ * The window's clock as the frozen clock its readings schedule against.
  *
- * Throws rather than falling back to a real clock: a suite whose bridge carried no
- * frozen clock would advance nothing, wait out no window, and report the absence of a
- * read it never gave the scheduler a chance to perform.
+ * Throws rather than falling back to a real clock: a suite whose window ran on no frozen
+ * clock would advance nothing, wait out no window, and report the absence of a read it
+ * never gave the scheduler a chance to perform.
  */
-export function frozenClockOf(bridge: PlatformBridge): ManualClock {
-  const { clock } = bridge.scenarioEngine ?? {};
+export function frozenClockOf(clock: Clock): ManualClock {
   if (!(clock instanceof ManualClock)) {
-    throw new Error("this bridge carries no frozen clock, so no scheduled read can be settled");
+    throw new Error("this window runs on no frozen clock, so no scheduled read can be settled");
   }
   return clock;
 }
@@ -50,9 +49,9 @@ export function frozenClockOf(bridge: PlatformBridge): ManualClock {
  * debounce out, and the deadline measured from the first request is what stops that
  * from postponing the read forever.
  */
-export async function settleScheduledRead(bridge: PlatformBridge): Promise<void> {
+export async function settleScheduledRead(clock: Clock): Promise<void> {
   await act(async () => {
-    frozenClockOf(bridge).advance(REFRESH_MAX_WAIT_MS);
+    frozenClockOf(clock).advance(REFRESH_MAX_WAIT_MS);
     await crossMacrotaskBoundary();
   });
 }

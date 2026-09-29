@@ -19,6 +19,8 @@ import { useWindowReadTriggers } from "@renderer/store/reads/hooks/useWindowRead
 import { type ReadTriggerTarget } from "@renderer/store/reads/read-triggers.js";
 import { type RefreshReason } from "@renderer/lib/reads/refresh-scheduler.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
+import { type Clock } from "@renderer/lib/clock.js";
+import { useBridgeClock } from "@renderer/services/platform/hooks/useClock.js";
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { SessionQueueReading, type QueueCalls, type QueueFeed } from "./queue-reading.js";
 
@@ -42,6 +44,7 @@ class SessionQueueReadings {
    */
   public reading(
     bridge: PlatformBridge,
+    clock: Clock,
     sessionId: string,
     calls: QueueCalls,
   ): SessionQueueReading {
@@ -55,7 +58,7 @@ class SessionQueueReadings {
       return held;
     }
     const forThisBridge = forBridge;
-    const created = new SessionQueueReading(bridge, sessionId, calls, () => {
+    const created = new SessionQueueReading(clock, sessionId, calls, () => {
       // Identity-checked, not `delete(sessionId)`: the entry under that key may already
       // be a successor reading with watchers of its own. A retiring reading may only
       // remove itself.
@@ -70,11 +73,12 @@ class SessionQueueReadings {
   /** Watch this pair's reading, resolved at subscribe time rather than at render. */
   public watch(
     bridge: PlatformBridge,
+    clock: Clock,
     sessionId: string,
     calls: QueueCalls,
     listener: () => void,
   ): () => void {
-    return this.reading(bridge, sessionId, calls).watch(listener);
+    return this.reading(bridge, clock, sessionId, calls).watch(listener);
   }
 }
 
@@ -94,31 +98,33 @@ export function useQueueFeed(
   sessionId: string,
   calls: QueueCalls,
 ): QueueFeed {
+  const clock = useBridgeClock();
   const forwardedCalls = useForwardedCalls(calls);
   // Both callbacks go through the registry rather than closing over the reading this
   // render resolved: that reading can be retired before React runs the subscription's
   // setup, and watching a retired one would revive it outside the registry.
   const subscribe = useCallback(
     (onFeedChanged: () => void) =>
-      sessionQueueReadings.watch(bridge, sessionId, forwardedCalls, onFeedChanged),
-    [bridge, sessionId, forwardedCalls],
+      sessionQueueReadings.watch(bridge, clock, sessionId, forwardedCalls, onFeedChanged),
+    [bridge, clock, sessionId, forwardedCalls],
   );
   const readFeed = useCallback(
-    () => sessionQueueReadings.reading(bridge, sessionId, forwardedCalls).snapshot(),
-    [bridge, sessionId, forwardedCalls],
+    () => sessionQueueReadings.reading(bridge, clock, sessionId, forwardedCalls).snapshot(),
+    [bridge, clock, sessionId, forwardedCalls],
   );
   // Resolved at trigger time for the same reason, so the mount trigger fires once per
   // pair rather than once per render.
   const readTrigger = useMemo<ReadTriggerTarget>(
     () => ({
       get triggeringEventKinds(): ReadonlySet<string> {
-        return sessionQueueReadings.reading(bridge, sessionId, forwardedCalls).triggeringEventKinds;
+        return sessionQueueReadings.reading(bridge, clock, sessionId, forwardedCalls)
+          .triggeringEventKinds;
       },
       requestRead: (reason: RefreshReason): void => {
-        sessionQueueReadings.reading(bridge, sessionId, forwardedCalls).requestRead(reason);
+        sessionQueueReadings.reading(bridge, clock, sessionId, forwardedCalls).requestRead(reason);
       },
     }),
-    [bridge, sessionId, forwardedCalls],
+    [bridge, clock, sessionId, forwardedCalls],
   );
   const feed = useSyncExternalStore(subscribe, readFeed, readFeed);
   // Wired after the subscription, and the order is load-bearing: the subscription is
@@ -142,17 +148,19 @@ export function useQueueRepairRead(
   calls: QueueCalls,
 ): void {
   const { sessionId } = sessionStore;
+  const clock = useBridgeClock();
   const forwardedCalls = useForwardedCalls(calls);
   const readTrigger = useMemo<ReadTriggerTarget>(
     () => ({
       get triggeringEventKinds(): ReadonlySet<string> {
-        return sessionQueueReadings.reading(bridge, sessionId, forwardedCalls).triggeringEventKinds;
+        return sessionQueueReadings.reading(bridge, clock, sessionId, forwardedCalls)
+          .triggeringEventKinds;
       },
       requestRead: (reason: RefreshReason): void => {
-        sessionQueueReadings.reading(bridge, sessionId, forwardedCalls).requestRead(reason);
+        sessionQueueReadings.reading(bridge, clock, sessionId, forwardedCalls).requestRead(reason);
       },
     }),
-    [bridge, sessionId, forwardedCalls],
+    [bridge, clock, sessionId, forwardedCalls],
   );
   useSessionReadTriggers(readTrigger, sessionStore);
 }
