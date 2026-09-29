@@ -6,10 +6,10 @@
 // actually renders. A second copy of the list would pass while the two drifted,
 // which is the failure the check exists to prevent.
 //
-// The second half is the one that earns a test. Every transition renders as a ledger
-// line naming its reason, with the three AUTOMATIC reasons kept distinct — a surface
-// that collapsed them into "the lease was released" would look right against a fixture
-// that only ever scripted two of the five. So the fixture is held to reaching the take
+// The second half is the one that earns a test. The reader accepts only the wire's
+// closed reason set and reads everything else as an unread transition, so a fixture
+// that scripted a reason outside the set, or only two of the five, would drive the
+// fold down arms the daemon never takes. So the fixture is held to reaching the take
 // and all three automatic releases, asserted against the wire's own closed set rather
 // than against whatever the scenario happens to contain. A person's own release is the
 // one reason it does not script.

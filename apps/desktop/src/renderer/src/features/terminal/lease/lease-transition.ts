@@ -3,11 +3,10 @@
 //
 // The two questions were one module, and they are not one job. This half is a
 // READER: it holds the wire vocabulary the daemon sends, the shape each reason
-// obliges the payload to have, the two ways an event is read off that payload, and
-// the sentence one transition renders as. It knows nothing about a device, a holding
-// node, a ledger cap, or which of five holdings the surface settles into — all of
-// which are `lease-model.ts`'s, because all of them are properties of the SEQUENCE
-// rather than of the event.
+// obliges the payload to have, and the two ways an event is read off that payload. It
+// knows nothing about a device or which of five holdings the surface settles into —
+// both are `lease-model.ts`'s, because both are properties of the SEQUENCE rather than
+// of the event.
 //
 // The split is along that seam and not along a line count. A reader can be driven
 // with one event and no session; the fold cannot be driven at all without a log. So
@@ -17,13 +16,6 @@
 // Both halves obey one hard rule — **the holder is a wire field and is never derived
 // from the last observed take** — and this is where it is enforced, because this is
 // where a payload becomes a reading at all.
-//
-// THREE AUTOMATIC REASONS, KEPT DISTINCT. Every transition renders as a ledger line
-// naming its reason, and the three automatic ones — the holder disconnected, the holder
-// lost authorization, the acquiring agent run left its running state — stay
-// distinguishable. The sentence table below is total over the closed set, so a sixth
-// reason is a compile error rather than a line that silently reads like one of the
-// five.
 
 import { readWireString } from "@renderer/lib/wire-strings.js";
 import type { ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
@@ -36,7 +28,7 @@ export const TERMINAL_LEASE_EVENT_KIND = "pty.control_changed";
  *
  * Declared once as a tuple with the union derived from it. No contract package exports
  * this vocabulary, so this is the console's single declaration of it, and every
- * consumer (the sentence table, the guard, the family's own scenario test) derives from
+ * consumer (the holder-shape table, the guard, the family's own scenario test) derives from
  * this array rather than restating it.
  */
 export const TERMINAL_LEASE_TRANSITION_REASONS = [
@@ -86,17 +78,11 @@ const TRANSITION_HOLDER_SHAPES: Readonly<
   auto_released_run_idle: "names-nobody",
 };
 
-/** One transition, as the ledger renders it. */
+/** One transition, as the fold reads it. */
 export interface TerminalLeaseTransition {
-  /** The event's position in the session log. Stable across a replay. */
-  readonly sequence: number;
-  readonly occurredAtIso: string;
   readonly reason: TerminalLeaseTransitionReason;
   /** Who holds it after this transition; `null` is the free lease, explicitly. */
   readonly holderUserId: string | null;
-  readonly previousHolderUserId: string | null;
-  /** Who the log attributes the event to, when it names anyone. */
-  readonly actorId: string | undefined;
 }
 
 /**
@@ -151,14 +137,7 @@ export function readTerminalLeaseTransition(
   if (namesAHolder !== (TRANSITION_HOLDER_SHAPES[reason] === "names-the-holder")) {
     return undefined;
   }
-  return {
-    sequence: event.sequence,
-    occurredAtIso: event.occurredAt,
-    reason,
-    holderUserId,
-    previousHolderUserId: readUserId(payload["previousHolderUserId"]),
-    actorId: event.actorId,
-  };
+  return { reason, holderUserId };
 }
 
 /**
@@ -179,33 +158,6 @@ export function readTerminalLeaseUnreadTransition(
     occurredAtIso: event.occurredAt,
     reason: readWireString(reason),
   };
-}
-
-/**
- * The sentence one transition renders as.
- *
- * Total over the closed reason set by construction, so the three automatic reasons
- * cannot collapse into one line.
- *
- * NOBODY IS NAMED IN ANY OF THEM. The shell belongs to the one person using this
- * machine, so what a transition records is where the keyboard went and not who took it;
- * the wire's holder members are still read above, because they are what settles the
- * holding, and a sentence repeating an identifier back would answer a question nobody
- * asked.
- */
-export function terminalLeaseTransitionSentence(transition: TerminalLeaseTransition): string {
-  switch (transition.reason) {
-    case "taken":
-      return "The shell was taken.";
-    case "released":
-      return "The shell was released.";
-    case "auto_released_disconnect":
-      return "The holding device disconnected, so the shell was released.";
-    case "auto_released_authorization_lost":
-      return "The hold lost its authorization, so the shell was released.";
-    case "auto_released_run_idle":
-      return "The holding run left its running state, so the shell was released.";
-  }
 }
 
 /**

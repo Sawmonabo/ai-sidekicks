@@ -1,7 +1,7 @@
 // The terminal family's bounds.
 
-// Spent by three different modules in the terminal feature, and two of them are
-// also read by a test tier that must not construct an emulator to learn a number.
+// Spent by two modules in the terminal feature, and two of the numbers are also
+// read by a test tier that must not construct an emulator to learn one.
 // One of them is spent by that tier ALONE — the width a terminal is measured at —
 // and it lives here rather than beside the harness because the budget row's meaning
 // depends on it exactly as it depends on the scrollback depth below, and the two
@@ -37,14 +37,3 @@ export const TERMINAL_BUDGET_MEASUREMENT_COLUMNS = 120;
  * since 8.8 gives a session exactly one shared shell.
  */
 export const TERMINAL_WEBGL_POOL_CAP = 12;
-
-/**
- * How many lease transitions the ledger keeps.
- *
- * The lease changes hands a handful of times in a working session, and the
- * disclosure that renders them is read to answer "who had it, and why did it
- * move" — a question the recent past answers. Bounded rather than unbounded
- * because this list is rebuilt on every fold, and an unbounded one would grow
- * with the session's whole log for a panel that shows the last few lines.
- */
-export const TERMINAL_LEASE_HISTORY_CAP = 32;

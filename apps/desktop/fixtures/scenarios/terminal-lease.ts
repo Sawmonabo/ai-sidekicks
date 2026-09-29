@@ -13,8 +13,7 @@
 // shell: a device hands it back only by another device taking it, or by the hold ending
 // on its own. The automatic endings are the holder's connection ending, the holder
 // losing authorization, and the acquiring agent run leaving its running state. All
-// three appear below, in the order a session reaches them, so a surface that folded
-// them into one sentence would not look right against this script.
+// three appear below, in the order a session reaches them.
 //
 // AND EACH ONE IS REACHED THE WAY THE DAEMON REACHES IT. A reason scripted onto a
 // sequence no daemon produces is a fixture that looks exercised and is not, so the

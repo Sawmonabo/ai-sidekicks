@@ -86,7 +86,6 @@ describe("an unread transition — ignorance about a write lease is not the old 
     // is that transition's — an unread transition is not a latch.
     expect(state.unreadTransition).toBeUndefined();
     expect(state.holding).toBe("held-by-this-device");
-    expect(state.transitionCount).toBe(2);
   });
 
   it("stays unread when the readable transition came FIRST", () => {
@@ -124,10 +123,7 @@ describe("a holder shape that contradicts its reason is unread, not normalized",
     );
     expect(state.holding).toBe("unrecognized-transition");
     expect(state.holderUserId).toBeNull();
-    // The lease itself did not move: the readable take is still the only counted
-    // transition, and the unread one is reported in its own right.
-    expect(state.transitionCount).toBe(1);
-    expect(state.transitions).toHaveLength(1);
+    // The unread one is reported in its own right.
     expect(state.unreadTransition?.sequence).toBe(2);
     expect(state.unreadTransition?.reason).toBe("taken");
   });
@@ -171,7 +167,6 @@ describe("a holder shape that contradicts its reason is unread, not normalized",
       { thisDeviceId: THIS_DEVICE_ID },
     );
     expect(releasedByOther.holding).toBe("unheld");
-    expect(releasedByOther.transitionCount).toBe(2);
   });
 
   it("negative control: a holder member of the wrong TYPE is unread on a take", () => {
