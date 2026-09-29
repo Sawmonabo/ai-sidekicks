@@ -9,3 +9,35 @@
 .meridian-focus-inset {
   outline-offset: calc(-1 * var(--meridian-space-1));
 }
+
+/*
+ * Inside the edge, the control's own positioned content would paint over the mark: a
+ * diff's sticky file header and tinted rows, a filled transcript row at the top of the
+ * scrolled log. So the mark moves onto a box laid over the control. The box is fixed and anchored to
+ * the control, so it stays put while the control scrolls; it stacks above the content,
+ * takes no pointer and names nothing. It takes the control's border and corners, so the
+ * browser places the mark exactly where it would on the control. An input cannot hold
+ * that box and keeps its own mark.
+ */
+.meridian-focus-inset:focus-visible {
+  anchor-name: --meridian-focus-inset;
+}
+
+.meridian-focus-inset:focus-visible:not(input) {
+  outline-style: none;
+}
+
+.meridian-focus-inset:focus-visible::after {
+  content: "";
+  position: fixed;
+  position-anchor: --meridian-focus-inset;
+  inset: anchor(top) anchor(right) anchor(bottom) anchor(left);
+  z-index: 1;
+  border-style: inherit;
+  border-width: inherit;
+  border-color: transparent;
+  border-radius: inherit;
+  outline: auto 1px -webkit-focus-ring-color;
+  outline-offset: calc(-1 * var(--meridian-space-1));
+  pointer-events: none;
+}
