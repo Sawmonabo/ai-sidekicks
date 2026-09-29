@@ -9,9 +9,9 @@
 // tiers come to disagree about what a cold mount looks like.
 //
 // THE CONTEXTS ARE CASTS, DELIBERATELY AND OUT LOUD. What a loader-form case reads of a
-// context is what the reserved region reads of it — the pane's `kind`, `focusHue` and
+// context is what the reserved region reads of it — the pane's `kind` and
 // `sessionStore`, and the route kind a pending screen names — and building a bridge, a
-// frame store and three persistence stores to reach those four members would be a
+// frame store and three persistence stores to reach those three members would be a
 // fixture proving the fixture. The cast says so where a reader meets it rather than
 // hiding behind a builder that looks complete and is not.
 
@@ -21,7 +21,7 @@ import { type ScreenContext } from "@renderer/registries/screens/screen-context.
 
 /** A pane context carrying only what a loader-form case and its fallback reach. */
 export function syntheticPaneContextAt(kind: PaneContext["kind"]): PaneContext {
-  return { kind, sessionStore: undefined, focusHue: undefined } as unknown as PaneContext;
+  return { kind, sessionStore: undefined } as unknown as PaneContext;
 }
 
 /**

@@ -100,7 +100,6 @@ export function paneBinding(
     uiStateStore: UiStateStore.opening(),
     draftStore: new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT }),
     linkedSourcePaneId: undefined,
-    focusHue: undefined,
     ...overrides,
   };
 }

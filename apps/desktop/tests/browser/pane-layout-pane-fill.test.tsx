@@ -31,8 +31,6 @@ import { describe, expect, it } from "vitest";
 
 import { renderSettled } from "../helpers/app-harness.js";
 
-import { contentBlockSize } from "./content-block-size.js";
-
 import { installMeridianTokens } from "@renderer/app/token-installation.js";
 import { TerminalPane } from "@renderer/features/terminal/pane/components/TerminalPane.js";
 import { terminalPaneContext } from "@renderer/features/terminal/pane/components/TerminalPane.test-support.js";
@@ -103,17 +101,12 @@ async function mountPaneInGridCell(): Promise<MountedPane> {
 describe("browser — a pane fills the cell the pane layout gives it", () => {
   it("takes the whole cell height in the pane layout's column-flex arrangement", async () => {
     const { layoutCell, pane } = await mountPaneInPaneLayout();
-    const group = layoutCell.parentElement;
-    if (group === null) {
-      throw new Error("the pane layout cell has no group");
-    }
 
-    expect(group.getBoundingClientRect().height).toBe(PANE_LAYOUT_HEIGHT_PX);
-    expect(layoutCell.getBoundingClientRect().height).toBe(contentBlockSize(group));
+    expect(layoutCell.getBoundingClientRect().height).toBe(PANE_LAYOUT_HEIGHT_PX);
     expect(
       pane.getBoundingClientRect().height,
       "the pane is sized by its content rather than by its cell, so every box below it — the transcript's scroll container included — is measuring against a height the pane layout never gave it",
-    ).toBe(contentBlockSize(layoutCell));
+    ).toBe(PANE_LAYOUT_HEIGHT_PX);
   });
 
   it("still fills a grid cell, which is the arrangement that already worked", async () => {

@@ -63,7 +63,7 @@ export interface WorkflowBuilderPaneProps {
 
 /** The builder pane's body. The canvas and the inspector inside it are the engine's. */
 export function WorkflowBuilderPane(props: WorkflowBuilderPaneProps): React.JSX.Element {
-  const { uiStateStore, draftStore, sessionStore, focusHue } = props.context;
+  const { uiStateStore, draftStore, sessionStore } = props.context;
   // WIDENED ON PURPOSE, and the annotation is the whole of it. This arm's `entity` is
   // declared as a definition reference, but `paneBodyForKind` narrows a context on its
   // `kind` ALONE — the entity underneath is unverified — and a pane address is also
@@ -120,7 +120,6 @@ export function WorkflowBuilderPane(props: WorkflowBuilderPaneProps): React.JSX.
       // Straight through, including the absent arm: an unattributed pane sets no hue
       // and the sheet's own neutral fallback applies, which is one answer rather than
       // a default written here and a fallback written there.
-      focusHue={focusHue}
     >
       {renderBody()}
     </PaneFrame>

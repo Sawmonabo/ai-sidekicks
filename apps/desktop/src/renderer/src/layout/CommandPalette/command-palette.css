@@ -41,10 +41,6 @@
   flex-direction: column;
   width: min(40rem, calc(100vw - var(--meridian-space-8)));
   max-height: min(30rem, 70vh);
-  /* Room for the browser's focus mark on the input and the list, which the clip would
-     otherwise cut, counted inside the popup's width and height ceilings. */
-  box-sizing: border-box;
-  padding: var(--meridian-space-1);
   overflow: hidden;
   background: var(--meridian-surface-raised);
   color: var(--meridian-text);
@@ -105,10 +101,6 @@
 
 .command-palette__input::placeholder {
   color: var(--meridian-text-faint);
-}
-
-.command-palette__input:focus {
-  border-bottom-color: var(--meridian-edge-strong);
 }
 
 .command-palette__list {

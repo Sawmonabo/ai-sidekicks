@@ -117,7 +117,6 @@ export function paneContext<TKind extends PaneKind>(
     uiStateStore:
       bindings.uiStateStore ?? new UiStateStore({ adapter: new Promise(() => undefined) }),
     draftStore: new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT }),
-    focusHue: undefined,
   };
 }
 

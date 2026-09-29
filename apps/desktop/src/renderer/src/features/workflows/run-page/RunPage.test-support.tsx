@@ -31,7 +31,6 @@ export function paneContext(entity: EntityRef | undefined): PaneContextOf<"workf
     kind: "workflow-run",
     entity,
     sessionStore: { sessionId: PROBE_SESSION_ID },
-    focusHue: undefined,
   } as unknown as PaneContextOf<"workflow-run">;
 }
 

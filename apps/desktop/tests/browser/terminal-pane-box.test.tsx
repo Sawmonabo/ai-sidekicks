@@ -20,8 +20,6 @@ import { describe, expect, it } from "vitest";
 
 import { renderSettled } from "../helpers/app-harness.js";
 
-import { contentBlockSize } from "./content-block-size.js";
-
 import { installMeridianTokens } from "@renderer/app/token-installation.js";
 import { TerminalPane } from "@renderer/features/terminal/pane/components/TerminalPane.js";
 // The context builder beside the pane, for the reason it is exported: the `terminal`
@@ -78,9 +76,7 @@ describe("browser — the terminal pane's padding is inside its height", () => {
 
     expect(layoutCell.getBoundingClientRect().height).toBe(LAYOUT_CELL_HEIGHT_PX);
     expect(frame.getBoundingClientRect().height).toBe(LAYOUT_CELL_HEIGHT_PX);
-    // The region's own padding is room for the browser's focus mark, so the pane's box
-    // fills the region's content box rather than its outer edge.
-    expect(body.getBoundingClientRect().height).toBe(contentBlockSize(bodyRegion));
+    expect(body.getBoundingClientRect().height).toBe(bodyRegion.getBoundingClientRect().height);
   });
 
   it("still spends the padding, so the fit is not bought by dropping it", async () => {

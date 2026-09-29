@@ -89,7 +89,6 @@ function paneContext(
     draftStore: new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT }),
     // Nothing opened this pane from another: every tier mounts one body directly.
     linkedSourcePaneId: undefined,
-    focusHue: undefined,
     bridge,
     sessionStore,
   };

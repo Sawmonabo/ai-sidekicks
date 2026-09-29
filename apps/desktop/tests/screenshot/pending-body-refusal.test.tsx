@@ -42,7 +42,7 @@ const PLANTED_OWNER = "pending-body-refusal-control";
  * A pane context carrying only what the reserved region reads.
  *
  * The same shape and the same reasoning as `syntheticPaneContextAt` in
- * `tests/helpers/lazy-body-contexts.ts`: the fallback reads `kind`, `focusHue`,
+ * `tests/helpers/lazy-body-contexts.ts`: the fallback reads `kind`,
  * `sessionStore`, and whether an `entity` is present, and standing up a bridge and three
  * stores to prove a refusal would be a fixture testing the fixture. The cast says so rather than hiding behind a builder.
  */
@@ -50,7 +50,6 @@ function plantedPaneContext(): PaneContext {
   return {
     kind: PLANTED_KIND,
     sessionStore: undefined,
-    focusHue: undefined,
   } as unknown as PaneContext;
 }
 

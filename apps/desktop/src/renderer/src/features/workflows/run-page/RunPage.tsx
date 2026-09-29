@@ -42,7 +42,7 @@ export interface RunPageProps {
 
 /** The body of a run pane, drawn inside the pane chrome's frame. */
 export function RunPage(props: RunPageProps): React.JSX.Element {
-  const { sessionStore, focusHue } = props.context;
+  const { sessionStore } = props.context;
   // Widened on purpose: this arm's `entity` is declared as a required run reference, but
   // `paneBodyForKind` narrows a context on its `kind` alone and a pane address is also
   // parsed from a persisted layout and a route. The annotation keeps the compiler from
@@ -86,7 +86,6 @@ export function RunPage(props: RunPageProps): React.JSX.Element {
       runId={addressedRunId}
       // Passed through when absent: an unattributed pane sets no hue and the sheet's
       // neutral fallback applies.
-      focusHue={focusHue}
     >
       {renderBody()}
     </PaneFrame>

@@ -1,6 +1,6 @@
 // The agent hue wheel: which of the twelve steps each agent is drawn in.
 //
-// Hue answers "who", everywhere: leading edges, a focused pane's edge, diff-gutter marks. It
+// Hue answers "who", everywhere: leading edges, diff-gutter marks. It
 // never answers "how urgent"; that is the two-hue rule's job.
 //
 // AN AGENT TAKES THE NEXT UNUSED STEP, in the order the session log admitted it, so the

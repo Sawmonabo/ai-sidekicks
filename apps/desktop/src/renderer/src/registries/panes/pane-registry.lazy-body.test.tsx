@@ -33,11 +33,10 @@ function chromedBody(
   kind: PaneContext["kind"],
   text: string,
 ): (context: PaneContext) => React.ReactNode {
-  return (context: PaneContext): React.ReactNode =>
+  return (): React.ReactNode =>
     createElement(PaneFrame, {
       kind,
       sessionId: undefined,
-      focusHue: context.focusHue,
       children: createElement("p", null, text),
     });
 }

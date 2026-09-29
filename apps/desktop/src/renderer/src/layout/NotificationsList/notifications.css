@@ -58,7 +58,7 @@
 
 /* One row, in both of its forms. The button form resets the platform's chrome so a
    pressable row and a plain one are the same shape — the press is an affordance the
-   hover and focus treatments announce, not a different object. */
+   hover treatment and the browser's focus mark announce, not a different object. */
 .meridian-attention__row {
   display: flex;
   flex-direction: column;

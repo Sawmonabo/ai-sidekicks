@@ -1,9 +1,9 @@
 // The transcript pane: the address it hands its chrome, and the renderer its rows are drawn with.
 //
 // THE CHROME IS NOT THIS FEATURE'S AND IT IS NOT PASSED IN EITHER. The shared pane chrome
-// draws every pane's frame, so every pane kind shares one spacing and one answer to where
-// the focused edge goes. What this pane supplies is what genuinely differs — its kind, the
-// address its trail reads, and the hue it is attributed to.
+// draws every pane's frame, so every pane kind shares one spacing and one control strip.
+// What this pane supplies is what genuinely differs — its kind and the address its trail
+// reads.
 //
 // THE ROWS ARRIVE THROUGH THE ROW RENDERER. Whatever `registerTranscriptRowRenderer` registered
 // draws each row's body, so the body here reads that renderer rather than being a
@@ -55,7 +55,6 @@ export function TranscriptPane(props: TranscriptPaneProps): React.JSX.Element {
       // Straight through, including the absent arm: an unattributed pane sets no hue
       // and the sheet's own neutral fallback applies, which is one answer rather than
       // a default written here and a fallback written there.
-      focusHue={context.focusHue}
       {...(props.onClose === undefined ? {} : { onClose: props.onClose })}
     >
       <TranscriptPaneBody

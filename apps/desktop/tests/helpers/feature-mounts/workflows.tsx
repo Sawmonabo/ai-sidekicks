@@ -127,7 +127,6 @@ function paneContext(
     draftStore: new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT }),
     // Nothing opened these panes from another: each tier mounts one body directly.
     linkedSourcePaneId: undefined,
-    focusHue: undefined,
     bridge,
     // Opened with the fold a window composes rather than with none: a store built
     // without projectors folds every event into no entity, so a partition a pane

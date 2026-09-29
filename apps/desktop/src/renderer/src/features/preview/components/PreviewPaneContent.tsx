@@ -73,7 +73,7 @@ export interface PreviewPaneContentProps extends PaneContextOf<"browser"> {
 
 /** The pane body: tab strip, address line, and the viewport a native view is placed over. */
 export function PreviewPaneContent(props: PreviewPaneContentProps): React.JSX.Element {
-  const { bridge, paneId, focusHue, sessionStore, navigation, pages, acts, pageHost } = props;
+  const { bridge, paneId, sessionStore, navigation, pages, acts, pageHost } = props;
   const sessionId = sessionStore?.sessionId;
   const geometry = useGeometryPublisher(bridge, paneId, pageHost);
   const { addressField, setAddressField } = usePaneAddressField(bridge, paneId);
@@ -151,12 +151,7 @@ export function PreviewPaneContent(props: PreviewPaneContentProps): React.JSX.El
   return (
     // The chord claim rides the frame's own section, so it covers the head the frame
     // draws above the body as well as everything inside it.
-    <PaneFrame
-      kind="browser"
-      sessionId={sessionId}
-      focusHue={focusHue}
-      onKeyDownCapture={onCloseTabChord}
-    >
+    <PaneFrame kind="browser" sessionId={sessionId} onKeyDownCapture={onCloseTabChord}>
       <div className="meridian-preview-pane" tabIndex={-1}>
         <PageTabStrip
           reading={pages}

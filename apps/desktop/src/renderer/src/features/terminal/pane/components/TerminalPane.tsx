@@ -26,9 +26,9 @@ import { type PaneContextOf } from "@renderer/registries/panes/pane-body-for-kin
 /** The registered terminal body: the bound pane, or a sentence that no session was addressed. */
 export function TerminalPane(context: PaneContextOf<"terminal">): React.JSX.Element {
   // The shell this pane shows is keyed by the SESSION, so the pane's own id is not read.
-  const { sessionStore, focusHue } = context;
+  const { sessionStore } = context;
   return (
-    <PaneFrame kind="terminal" sessionId={sessionStore?.sessionId} focusHue={focusHue}>
+    <PaneFrame kind="terminal" sessionId={sessionStore?.sessionId}>
       <div className="meridian-terminal-pane">
         {sessionStore === undefined ? (
           <Nothing

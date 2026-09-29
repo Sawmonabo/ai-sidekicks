@@ -1,11 +1,11 @@
 // The chrome every pane in the pane layout wears, and the two tables that make it legible.
 //
-// One entity lives in one pane behind a single mount point, and three of the head's
-// contents are fixed — panes are each headed by an entity breadcrumb and a kind glyph,
-// with the actor's hue on the pane's edge while it holds focus. What no committed document
-// says is that each of the six features should draw its own frame, and six frames drawn
-// independently is six spacings, six breadcrumb separators, six control strips, and six
-// answers to where that edge goes. So the frame is drawn once, here, and a pane body is what a feature writes.
+// One entity lives in one pane behind a single mount point, and two of the head's
+// contents are fixed — panes are each headed by an entity breadcrumb and a kind glyph.
+// What no committed document says is that each of the six features should draw its own
+// frame, and six frames drawn independently is six spacings, six breadcrumb separators
+// and six control strips. So the frame is drawn once, here, and a pane body is what a
+// feature writes.
 //
 // THE CONTROL STRIP IS THIS MODULE'S, because no committed document enumerates it: the
 // kind's own actions and close. The close arrives either explicitly, from a caller that
@@ -112,12 +112,6 @@ export interface PaneFrameProps {
   readonly sessionId: string | undefined;
   readonly runId?: string | undefined;
   readonly entity?: EntityRef | undefined;
-  /**
-   * The focus treatments' color as a `var()` reference, or `undefined` where the pane layout
-   * has no actor to attribute the pane to. Undefined takes the neutral edge, which is
-   * the fail-closed answer: an unattributed pane never borrows someone's hue.
-   */
-  readonly focusHue: string | undefined;
   /** The kind's own actions, rendered before the close control. */
   readonly actions?: React.ReactNode;
   /** Overrides the host's close, where the caller owns this pane's lifetime. */
@@ -144,7 +138,7 @@ export interface PaneFrameProps {
 }
 
 /**
- * One pane's frame: kind glyph, breadcrumb, control strip, focus treatments, body.
+ * One pane's frame: kind glyph, breadcrumb, control strip, body.
  *
  * The section is focusable at `tabIndex={-1}` rather than `0`. A pane layout holds several
  * panes and every one of them would otherwise sit in the tab order ahead of the
@@ -165,15 +159,12 @@ export function PaneFrame(props: PaneFrameProps): React.JSX.Element {
   const onClose = props.onClose ?? hostControls?.onClose;
   const registerDragHandle = hostControls?.registerDragHandle;
   const title = TITLE_BY_PANE_KIND[props.kind];
-  const focusHueStyle: PaneFocusHueStyle | undefined =
-    props.focusHue === undefined ? undefined : { "--meridian-pane-hue": props.focusHue };
 
   return (
     <section
       className={`meridian-pane meridian-pane--${props.kind}`}
       aria-labelledby={headingId}
       tabIndex={-1}
-      style={focusHueStyle}
       onKeyDownCapture={props.onKeyDownCapture}
     >
       <header className="meridian-pane__head" ref={registerDragHandle}>
@@ -204,9 +195,4 @@ export function PaneFrame(props: PaneFrameProps): React.JSX.Element {
       <div className="meridian-pane__body">{props.children}</div>
     </section>
   );
-}
-
-/** Carries the pane's attributed hue into its focused edge, as `TranscriptRowLayout` does. */
-interface PaneFocusHueStyle extends React.CSSProperties {
-  readonly "--meridian-pane-hue": string;
 }

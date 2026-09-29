@@ -74,7 +74,6 @@ export function paneContextFor(
     uiStateStore: context.uiStateStore,
     draftStore: context.draftStore,
     linkedSourcePaneId: undefined,
-    focusHue: undefined,
   };
 }
 

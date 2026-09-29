@@ -53,7 +53,6 @@ function paneBodyInChrome(
       kind: "agents",
       sessionId: context.sessionStore?.sessionId,
       entity: context.entity,
-      focusHue: context.focusHue,
       children: renderBody(context),
     }),
   );

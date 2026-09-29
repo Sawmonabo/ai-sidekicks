@@ -27,12 +27,7 @@ import { InspectorPaneBody } from "./components/InspectorPaneBody.js";
 
 export function InspectorPane(context: PaneContextOf<"inspector">): React.JSX.Element {
   return (
-    <PaneFrame
-      kind="inspector"
-      sessionId={context.sessionStore?.sessionId}
-      entity={context.entity}
-      focusHue={context.focusHue}
-    >
+    <PaneFrame kind="inspector" sessionId={context.sessionStore?.sessionId} entity={context.entity}>
       <InspectorPaneBody context={context} />
     </PaneFrame>
   );

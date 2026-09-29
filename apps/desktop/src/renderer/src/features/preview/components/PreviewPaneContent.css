@@ -16,9 +16,8 @@
  * viewport that takes whatever is left.
  *
  * It carries no frame of its own. `components/PaneFrame/PaneFrame.css` draws the section, its
- * boundary, its background, and the actor's hue on the two focus treatments, and this
- * box grows inside the body region that sheet leaves — so a second always-on hue edge
- * here would be a second answer to "who" one element inside the first.
+ * boundary and its background, and this box grows inside the body region that sheet
+ * leaves.
  */
 .meridian-preview-pane {
   display: flex;

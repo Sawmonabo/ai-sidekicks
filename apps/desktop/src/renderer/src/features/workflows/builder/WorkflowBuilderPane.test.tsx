@@ -45,7 +45,6 @@ function paneContext(entity: AddressedEntity): PaneContextOf<"workflow-builder">
     uiStateStore: {},
     draftStore: {},
     // No actor attributes this pane in a suite, which is the chrome's neutral arm.
-    focusHue: undefined,
   } as unknown as PaneContextOf<"workflow-builder">;
 }
 

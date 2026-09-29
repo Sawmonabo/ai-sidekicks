@@ -1,10 +1,5 @@
 /* The pane frame. One sheet for every pane kind, imported by `PaneFrame.tsx`, the single
-   edge into it.
-
-   `--meridian-pane-hue` is set per pane by the chrome, from the actor the pane's entity
-   is attributed to, and is absent where there is no actor. It is read only by the two
-   focus rules below, each with its own neutral fallback: the hue answers "who", and a
-   pane that is not about anybody answers nothing rather than borrowing a color. */
+   edge into it. */
 
 /* `flex: 1 1 auto` because a pane is a flex CHILD as often as it is a grid one, and the
    initial `0 1 auto` is only harmless under the grid. The pane layout is a column flex chain
@@ -25,16 +20,6 @@
   background: var(--meridian-surface);
   border: 1px solid var(--meridian-edge);
   border-radius: var(--meridian-radius-lg);
-}
-
-/*
- * While the keyboard is anywhere inside, the pane's edge takes its actor's hue, or the
- * strong neutral edge for an unattributed pane: this marks the pane a person is typing
- * in, beside the browser's own mark on the control that holds focus.
- */
-.meridian-pane:focus-within {
-  border-color: var(--meridian-pane-hue, var(--meridian-edge-strong));
-  box-shadow: inset 0 0 0 1px var(--meridian-pane-hue, var(--meridian-edge-strong));
 }
 
 /* Quiet chrome: the head is a boundary, not a title bar. It reads at the small size
@@ -152,18 +137,16 @@
 }
 
 /*
- * The body's only padding is room for the browser's focus mark on what it holds, which
- * its scroll clip would otherwise cut; any further padding is the body's feature to
- * decide in its own sheet, since a feed pane wants none and a form pane wants some. It
- * scrolls so a body that provides no scroll container of its own is reachable rather
- * than clipped by the frame's `overflow: hidden`; a body that provides one holds all
- * its content there and this box never overflows.
+ * The body carries no padding of its own: a feed pane wants none and a form pane wants
+ * some, and that is the body's feature to decide in its own sheet. It scrolls so a body
+ * that provides no scroll container of its own is reachable rather than clipped by the
+ * frame's `overflow: hidden`; a body that provides one holds all its content there and
+ * this box never overflows.
  */
 .meridian-pane__body {
   display: flex;
   flex: 1 1 auto;
   flex-direction: column;
   min-height: 0;
-  padding: var(--meridian-space-1);
   overflow: auto;
 }

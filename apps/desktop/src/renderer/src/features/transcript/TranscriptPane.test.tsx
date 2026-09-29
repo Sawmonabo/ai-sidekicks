@@ -23,7 +23,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { SessionStore } from "@renderer/store/session/session-store.js";
-import { formatHueWheelTokenName, tokenReference } from "@renderer/styles/tokens.js";
 import {
   registerTranscriptRowRenderer,
   unregisterTranscriptRowRenderer,
@@ -82,22 +81,6 @@ describe("TranscriptPane — what it hands the chrome", () => {
     // honest absence rather than a placeholder it invented.
     const pane = renderPane({ context: paneContext({}, null) });
     expect(addressCrumbs(pane)).toStrictEqual([]);
-  });
-
-  it("hands over the hue the pane layout attributed the pane to, untouched", () => {
-    const actorHue = tokenReference(formatHueWheelTokenName(3));
-    const pane = renderPane({ context: paneContext({ focusHue: actorHue }) });
-    expect(pane.style.getPropertyValue("--meridian-pane-hue")).toBe(actorHue);
-  });
-
-  it("negative control: an unattributed pane has no hue written on it", () => {
-    // Fail-closed, because a pane with no actor must not borrow somebody's hue, and the
-    // half this pane owns: it passes `undefined` through rather than defaulting to a
-    // token of its own. The neutral boundary the ring then takes is `PaneFrame.css`'
-    // fallback, which is one answer
-    // rather than a default written here and a fallback written there.
-    const pane = renderPane({ context: paneContext() });
-    expect(pane.style.getPropertyValue("--meridian-pane-hue")).toBe("");
   });
 });
 

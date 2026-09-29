@@ -78,7 +78,6 @@ function registeredPaneContext(
     bridge,
     sessionStore: playedSessionStore(),
     linkedSourcePaneId: undefined,
-    focusHue: undefined,
   } as unknown as RegisteredPaneContext;
 }
 

@@ -85,7 +85,6 @@ function transcriptPaneContext(
     paneId: "transcript-pane",
     frameStore: new WindowStore({ initialRoute: { kind: "session", sessionId } }),
     sessionStore,
-    focusHue: undefined,
   } as unknown as TranscriptPaneContext;
 }
 

@@ -47,7 +47,6 @@ export function OpenPaneBody(props: {
     linkedSourcePaneId: undefined,
     // No actor to attribute this pane to on a bare route, which is the fail-closed
     // answer: an unattributed pane takes the neutral boundary and not someone's hue.
-    focusHue: undefined,
   };
   return <>{descriptor.render(paneContext)}</>;
 }

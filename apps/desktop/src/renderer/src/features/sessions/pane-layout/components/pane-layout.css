@@ -34,17 +34,11 @@
  * `flex-direction`, `flex-wrap`, and `overflow` on this element and documents that
  * they cannot be overridden, so nothing here tries: the group is the row, and the
  * pane layout's own frame above carries anything that would have fought it.
- *
- * The block padding is room for the browser's focus mark on a separator, which runs
- * the group's full height and would otherwise lose that mark at the clipped edges;
- * the library sizes the group at full height inline, so the padding counts inside it.
  */
 .meridian-pane-layout__group {
   flex: 1 1 auto;
   min-width: 0;
   min-height: 0;
-  box-sizing: border-box;
-  padding-block: var(--meridian-space-1);
 }
 
 .meridian-pane-layout__refusals {
@@ -58,9 +52,6 @@
  * One pane's frame. The panel owns the width — `flex-grow` is the library's, and
  * the density floor rides its `minSize` — so what is left here is the pane's own
  * chrome and the marks a person reads off it.
- *
- * The panel clips what it holds, so the padding is room for the browser's focus mark
- * on the pane frame inside it, counted inside the library's inline height ceiling.
  */
 .meridian-pane-layout__pane {
   display: flex;
@@ -68,8 +59,6 @@
   min-width: 0;
   min-height: 0;
   position: relative;
-  box-sizing: border-box;
-  padding: var(--meridian-space-1);
   border-inline-start: 1px solid transparent;
 }
 
@@ -125,8 +114,7 @@
   cursor: col-resize;
 }
 
-.meridian-pane-layout__separator:hover,
-.meridian-pane-layout__separator:focus-visible {
+.meridian-pane-layout__separator:hover {
   background: linear-gradient(
     to right,
     transparent 30%,

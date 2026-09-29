@@ -54,7 +54,6 @@ export function PendingPaneBody(props: PendingPaneBodyProps): React.JSX.Element 
       kind={context.kind}
       sessionId={context.sessionStore?.sessionId}
       entity={"entity" in context ? context.entity : undefined}
-      focusHue={context.focusHue}
     >
       <span hidden {...{ [PENDING_BODY_ATTRIBUTE]: context.kind }} />
     </PaneFrame>

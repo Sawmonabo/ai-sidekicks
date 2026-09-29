@@ -58,10 +58,6 @@
   color: var(--meridian-text-muted);
 }
 
-.meridian-settings__search:focus-within {
-  border-color: var(--meridian-accent);
-}
-
 .meridian-settings__search-input {
   flex: 1 1 auto;
   min-width: 0;
