@@ -35,10 +35,7 @@
 // {@link OutstandingAskLedger.isWindowHeadUnread} is that fact, and a surface that
 // printed an all-clear line over it would be reporting something it never read.
 
-import type {
-  ConsoleEntity,
-  ConsoleSessionEvent,
-} from "@renderer/console/store/entities/entities.js";
+import type { ConsoleEntity, ConsoleSessionEvent } from "../entities/entities.js";
 import {
   ATTENTION_RUN_STATE_KINDS,
   RUN_STATE_KINDS,

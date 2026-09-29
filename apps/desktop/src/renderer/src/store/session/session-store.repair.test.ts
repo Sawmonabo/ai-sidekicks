@@ -14,7 +14,7 @@
 import { describe, expect, it } from "vitest";
 
 import { PRE_INITIALISATION_BUFFER_CAP } from "./session-store-caps.js";
-import type { ConsoleSessionEvent } from "@renderer/console/store/entities/entities.js";
+import type { ConsoleSessionEvent } from "./entities/entities.js";
 import { eventAt } from "./session-store.test-support.js";
 import { SessionStore } from "./session-store.js";
 

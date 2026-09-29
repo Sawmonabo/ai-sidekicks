@@ -69,14 +69,13 @@ import type { SessionEventType } from "@ai-sidekicks/contracts";
 import { z } from "zod";
 
 import { payloadNamesSession } from "@renderer/lib/wire-session-attribution.js";
-import type { ConsoleEntityProjectorRegistry } from "@renderer/registries/entity-projectors/entity-projector-registry.js";
 import type {
   ConsoleSessionEvent,
   EntityMutation,
   EntityProjector,
   EntityProjectorRegistry,
-} from "@renderer/console/store/entities/entities.js";
-import { type ApprovalState } from "@renderer/console/bridge/approvals/approval-vocabulary.js";
+} from "../session/entities/entities.js";
+import { type ApprovalState } from "@renderer/lib/approval-vocabulary.js";
 
 /**
  * The category's events that are not an approval request's, named rather than quietly
@@ -282,20 +281,11 @@ export const projectApprovalFlowEvent: EntityProjector = (
  */
 export const APPROVAL_FLOW_PROJECTORS: EntityProjectorRegistry = buildApprovalFlowProjectors();
 
-/** The name this family claims its event kinds under, so a conflict names it. */
-const APPROVAL_FLOW_PROJECTOR_OWNER = "composer";
-
 /**
- * The composer family's claim on the approval-flow kinds.
- *
- * Registration rather than a table handed downstream, for the reason the seam exists:
- * the fold a store is opened with decides which family can own which partition, and
- * a family that cannot project its own category reads the wire twice and keeps the
- * result beside the store rather than in it.
+ * The owner the approval-flow kinds are registered under, so a conflicting claim names
+ * it. The composition registers {@link APPROVAL_FLOW_PROJECTORS} under it.
  */
-export function registerApprovalFlowProjectors(registry: ConsoleEntityProjectorRegistry): void {
-  registry.registerAll(APPROVAL_FLOW_PROJECTORS, APPROVAL_FLOW_PROJECTOR_OWNER);
-}
+export const APPROVAL_FLOW_PROJECTOR_OWNER = "composer";
 
 function buildApprovalFlowProjectors(): EntityProjectorRegistry {
   const projectors: Record<string, EntityProjector> = {};

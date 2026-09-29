@@ -23,12 +23,12 @@ import {
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { COMPOSER_SCENARIO } from "@renderer/console/bridge/scenario/composer/composer.js";
 import { consoleCommands } from "@renderer/console/palette/index.js";
-import { RUN_LIFECYCLE_PROJECTORS } from "@renderer/console/frame/run-projection/run-lifecycle-projector.js";
-import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/console/core/constants/persistence-caps.js";
+import { RUN_LIFECYCLE_PROJECTORS } from "@renderer/store/session-events/run-lifecycle-projector.js";
+import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence-caps.js";
 import { DraftStore } from "@renderer/store/draft-store.js";
 import { FrameStore } from "@renderer/store/window/window-store.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
-import { type ConsoleSessionEvent } from "@renderer/console/store/entities/entities.js";
+import { type ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
 import type { ConsolePaneAddress } from "@renderer/console/seats/index.js";
 import { MessageComposer } from "../Composer.js";
 import { composerDraftKey } from "../draft-line/draft-key.js";

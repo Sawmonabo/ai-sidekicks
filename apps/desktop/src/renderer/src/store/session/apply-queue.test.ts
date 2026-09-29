@@ -17,7 +17,7 @@ import { describe, expect, it } from "vitest";
 
 import { APPLY_COALESCE_MS } from "@renderer/lib/reads/refresh-caps.js";
 import { ManualClock } from "@renderer/lib/clock.js";
-import type { ConsoleSessionEvent } from "@renderer/console/store/entities/entities.js";
+import type { ConsoleSessionEvent } from "./entities/entities.js";
 import { eventOfKind } from "@test/helpers/session-events.js";
 import { ApplyQueue } from "./apply-queue.js";
 

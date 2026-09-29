@@ -19,7 +19,7 @@ import {
   readWireErrorEnvelope,
   readWireErrorEnvelopeWithCode,
   wireRejectionToError,
-} from "@shared/wire-errors.js";
+} from "./wire-errors.js";
 import {
   everyTrapThrows,
   nullPrototypeValue,

@@ -18,7 +18,7 @@ import type { RunState } from "@ai-sidekicks/contracts";
 
 import { driverAskIdentitySegments } from "./driver-ask-identity.js";
 import { structuralKey } from "@renderer/lib/structural-key.js";
-import type { ConsoleSessionEvent } from "@renderer/console/store/entities/entities.js";
+import type { ConsoleSessionEvent } from "../entities/entities.js";
 
 /** How the run-lifecycle taxonomy denormalizes a state onto its event type. */
 export const RUN_STATE_EVENT_PREFIX = "run.";

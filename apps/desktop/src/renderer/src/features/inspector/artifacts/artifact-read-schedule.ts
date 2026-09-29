@@ -24,10 +24,10 @@ import type { ConsoleClock } from "@renderer/lib/clock.js";
 import {
   GenerationLatch,
   type CurrentGenerationClaim,
-} from "@renderer/console/store/read/generation-latch.js";
+} from "@renderer/lib/reads/generation-latch.js";
 import { RefreshScheduler, type RefreshReason } from "@renderer/lib/reads/refresh-scheduler.js";
 import { SessionRefreshTriggers } from "@renderer/store/reads/session-refresh-triggers.js";
-import { type ReadTriggerTarget } from "@renderer/console/store/read/read-triggers.js";
+import { type ReadTriggerTarget } from "@renderer/store/reads/read-triggers.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 import { ARTIFACT_TERMINAL_EVENT_KINDS } from "@renderer/console/repos/repo-lifecycle-events.js";
 import { settledReadReading, type ArtifactPaneReading } from "./artifact-list-reading.js";

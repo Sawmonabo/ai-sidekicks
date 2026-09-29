@@ -22,7 +22,7 @@
 // surfaces as a typed refusal on the write rather than as a failed construction.
 
 import { openDB, type DBSchema, type IDBPDatabase } from "idb";
-import { PERSISTENCE_QUOTA_PRESSURE_RATIO } from "@renderer/console/core/constants/persistence-caps.js";
+import { PERSISTENCE_QUOTA_PRESSURE_RATIO } from "../persistence-caps.js";
 import { RealClock, type ConsoleClock, type ScheduledHandle } from "@renderer/lib/clock.js";
 import {
   PERSISTENCE_GLOBAL_PARTITION,

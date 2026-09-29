@@ -26,7 +26,7 @@
 
 import { useEffect, useId, useState } from "react";
 
-import { type DriverAskDelivery } from "@renderer/console/ledger/cards/bodies/input-ask.js";
+import { type DriverAskDelivery } from "@renderer/store/session-events/question-reading.js";
 
 export interface AskFreeTextArmProps {
   /** Where the answer this card last dispatched has got to. */

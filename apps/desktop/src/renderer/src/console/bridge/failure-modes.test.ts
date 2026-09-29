@@ -16,7 +16,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import { SCENARIO_TICK_MS } from "@renderer/console/core/constants/fixture-caps.js";
 import { consoleTripwires } from "@renderer/lib/tripwires.js";
-import type { ConsoleSessionEvent } from "@renderer/console/store/entities/entities.js";
+import type { ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
 import { ScenarioEngine } from "./scenario/runtime/engine.js";
 import { FIRST_RUN_SCENARIO } from "../../../../../fixtures/scenarios/first-run.js";
 

@@ -11,7 +11,7 @@ import { describe, expect, it } from "vitest";
 import { ParkedDaemonCalls } from "./parked-daemon-calls.test-support.js";
 import type { ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
 import type { ComposerSendCalls } from "../send-dispatch.js";
-import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/console/core/constants/persistence-caps.js";
+import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence-caps.js";
 import { DraftStore } from "@renderer/store/draft-store.js";
 import type { ComposerRunTarget } from "@renderer/shell/composer/chips/chip-models.js";
 import type { SendController } from "../send-controller-contract.js";

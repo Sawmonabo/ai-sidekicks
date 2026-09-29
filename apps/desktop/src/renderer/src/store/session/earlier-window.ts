@@ -34,7 +34,7 @@
 // projection of the present does not move.
 
 import { ActorHueAllocator } from "@renderer/styles/agent-hue.js";
-import type { ConsoleSessionEvent } from "@renderer/console/store/entities/entities.js";
+import type { ConsoleSessionEvent } from "./entities/entities.js";
 import { OutstandingAskJournal } from "./waiting-on-person/waiting-on-person-register.js";
 import { isReconcilableSequence, orderBatchBySequence } from "./sequence-reconciler.js";
 import { capTimeline, type SessionStoreState, type TimelineRetainedEnd } from "./session-state.js";

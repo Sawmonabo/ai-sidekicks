@@ -25,7 +25,7 @@ import type { NamedFixtureSubject } from "@test/helpers/subject-fixtures.js";
 import {
   useSubjectScopedResource,
   type SubjectScopedDisposal,
-} from "@renderer/console/store/subject-scoped/subject-scoped-resource.js";
+} from "./useSubjectScopedResource.js";
 import {
   DISCARDED_SUBJECT,
   ResourceLedger,

@@ -22,7 +22,7 @@ import { render } from "@testing-library/react";
 import { type ReactElement } from "react";
 import { describe, expect, it } from "vitest";
 
-import { useReadScope, type ReadRound } from "@renderer/console/store/read/read-cancellation.js";
+import { useReadScope, type ReadRound } from "@renderer/lib/reads/read-scope.js";
 import {
   SUBJECT_ONE,
   SUBJECT_TWO,

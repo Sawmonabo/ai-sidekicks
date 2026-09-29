@@ -12,7 +12,7 @@
 // the reason it is not durable, so a surface that renders only the gauge still
 // discloses the degradation instead of showing three empty numbers.
 
-import { PERSISTENCE_QUOTA_PRESSURE_RATIO } from "@renderer/console/core/constants/persistence-caps.js";
+import { PERSISTENCE_QUOTA_PRESSURE_RATIO } from "../persistence-caps.js";
 import {
   PERSISTENCE_GLOBAL_PARTITION,
   PERSISTENCE_UNAVAILABLE_DESCRIPTIONS,

@@ -21,7 +21,7 @@ import { useEffect, useState, type ReactElement } from "react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { consoleTripwires } from "@renderer/lib/tripwires.js";
-import { useSubjectScopedResource } from "@renderer/console/store/subject-scoped/subject-scoped-resource.js";
+import { useSubjectScopedResource } from "./useSubjectScopedResource.js";
 import type { NamedFixtureSubject } from "@test/helpers/subject-fixtures.js";
 import {
   DISCARDED_SUBJECT,

@@ -33,7 +33,7 @@ import {
 } from "react";
 import { describe, expect, it } from "vitest";
 
-import { driveAbandonedPass } from "@renderer/console/store/subject-scoped/subject-scoped-drivers.test-support.js";
+import { driveAbandonedPass } from "./subject-scoped-hooks.test-support.js";
 import {
   SUBJECT_ONE,
   SUBJECT_TWO,

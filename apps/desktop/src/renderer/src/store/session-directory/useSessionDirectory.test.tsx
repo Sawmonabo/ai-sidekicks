@@ -17,7 +17,7 @@ import {
   useSessionDirectory,
   type SessionDirectoryReadCall,
   type SessionDirectoryState,
-} from "@renderer/console/seats/session-directory.js";
+} from "./session-directory.js";
 
 /** A call that counts its reads and answers the one row that names its read. */
 interface CountedDirectoryCall {

@@ -21,7 +21,7 @@
 import type {
   ConsoleSessionEvent,
   EntityProjectorRegistry,
-} from "@renderer/console/store/entities/entities.js";
+} from "@renderer/store/session/entities/entities.js";
 import type { SessionSnapshotReader } from "@renderer/store/session/open-session-entry.js";
 import { eventOfKind } from "./session-events.js";
 import { SessionStore, type SessionSnapshot } from "@renderer/store/session/session-store.js";

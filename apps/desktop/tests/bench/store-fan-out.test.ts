@@ -98,8 +98,8 @@ import { expect, test } from "vitest";
 import {
   CONSOLE_ENTITY_KINDS,
   emptyPartitions,
-} from "@renderer/console/store/entities/entities.js";
-import type { ConsoleEntity } from "@renderer/console/store/entities/entities.js";
+} from "@renderer/store/session/entities/entities.js";
+import type { ConsoleEntity } from "@renderer/store/session/entities/entities.js";
 import {
   mergeUpsert,
   type SessionPartitions,

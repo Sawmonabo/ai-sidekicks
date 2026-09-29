@@ -10,7 +10,7 @@ import {
   emptyPartitions,
   type ConsoleEntity,
   type ConsoleSessionEvent,
-} from "@renderer/console/store/entities/entities.js";
+} from "./entities/entities.js";
 import { mergeUpsert, type SessionPartitions } from "./entities/entity-partitions.js";
 import type { SequenceGap } from "./sequence-reconciler.js";
 

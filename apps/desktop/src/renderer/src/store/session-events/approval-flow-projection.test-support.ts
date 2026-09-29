@@ -11,7 +11,7 @@ import { SessionStore } from "../session/session-store.js";
 import {
   type ConsoleSessionEvent,
   type EntityProjectorRegistry,
-} from "@renderer/console/store/entities/entities.js";
+} from "../session/entities/entities.js";
 
 export const SESSION_ID: string = APPROVALS_SCENARIO.sessionId;
 

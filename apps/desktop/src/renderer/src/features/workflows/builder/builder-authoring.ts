@@ -2,7 +2,7 @@
 // when it is opened with no subject or with the wrong kind.
 
 import type { ConsoleRefusal } from "@renderer/lib/refusal.js";
-import type { ConsoleEntityRef } from "@renderer/console/store/entities/entities.js";
+import type { ConsoleEntityRef } from "@renderer/store/session/entities/entities.js";
 import type { WorkflowStripState } from "../strip-state.js";
 import { misaddressedPane } from "../pane-addressing.js";
 

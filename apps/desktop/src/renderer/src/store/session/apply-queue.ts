@@ -26,7 +26,7 @@
 
 import { APPLY_COALESCE_MS } from "@renderer/lib/reads/refresh-caps.js";
 import { type ConsoleClock, type ScheduledHandle } from "@renderer/lib/clock.js";
-import type { ConsoleSessionEvent } from "@renderer/console/store/entities/entities.js";
+import type { ConsoleSessionEvent } from "./entities/entities.js";
 
 /** The drain the queue performs. Exactly one call per coalescing window. */
 export type ApplyDrain = (events: readonly ConsoleSessionEvent[]) => void;

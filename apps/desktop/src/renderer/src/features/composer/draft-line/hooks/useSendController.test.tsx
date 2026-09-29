@@ -11,7 +11,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { bridgeAnswering } from "@renderer/console/bridge/fixture/call-plane/bridge.test-support.js";
 import { refuse } from "@renderer/lib/refusal.js";
-import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/console/core/constants/persistence-caps.js";
+import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence-caps.js";
 import { consoleCommands } from "@renderer/console/palette/index.js";
 import { DEFAULT_ROUTE } from "@renderer/routing/routes.js";
 import { DraftStore } from "@renderer/store/draft-store.js";

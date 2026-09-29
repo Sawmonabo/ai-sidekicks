@@ -23,7 +23,7 @@
 // only where its own caller owns the pane's lifetime.
 
 import { routeSessionId } from "@renderer/routing/route-readers.js";
-import { useFrameStore } from "@renderer/console/store/shell/frame-hooks.js";
+import { useFrameStore } from "@renderer/store/window/hooks/useWindowStore.js";
 import {
   ConsolePaneChrome,
   timelineRowRenderer,

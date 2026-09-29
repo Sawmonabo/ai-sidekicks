@@ -14,7 +14,7 @@ import { describe, expect, it } from "vitest";
 import type {
   ConsoleSessionEvent,
   EntityMutation,
-} from "@renderer/console/store/entities/entities.js";
+} from "@renderer/store/session/entities/entities.js";
 import { ConsoleEntityProjectorRegistry } from "./entity-projector-registry.js";
 
 /** A probe kind no taxonomy registers, so nothing else can be claiming it. */

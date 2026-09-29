@@ -26,7 +26,7 @@
 // and the two justified themselves
 // against each other in their own doc comments — which is what a drift reads like
 // before the two answers separate on the first body neither was tested with.
-import { measureUtf8ByteLength } from "@renderer/console/persistence/value-classes.js";
+import { measureUtf8ByteLength } from "@renderer/store/persistence/persisted-value-classes.js";
 
 /** What one cache reports about itself, so a budget test can read it. */
 export interface ByteBoundedCacheStats {

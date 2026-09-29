@@ -16,7 +16,7 @@
 
 import { ConsoleRefusalError } from "@renderer/lib/refusal.js";
 import type { PersistenceRefusal } from "./persistence-refusals.js";
-import type { PersistedValueClass } from "@renderer/console/persistence/value-classes.js";
+import type { PersistedValueClass } from "./persisted-value-classes.js";
 
 /** Which adapter is serving the store. Rendered; never inferred from behaviour. */
 export type PersistenceAdapterKind = "indexeddb" | "memory";

@@ -8,7 +8,7 @@
 import { describe, expect, it } from "vitest";
 import type { RunState } from "@ai-sidekicks/contracts";
 
-import type { ConsoleEntity } from "@renderer/console/store/entities/entities.js";
+import type { ConsoleEntity } from "@renderer/store/session/entities/entities.js";
 import { RUN_STATE_ADMITS_STEER, resolveAddressedRun, stateAdmitsSteer } from "./addressed-run.js";
 
 const AGENT_ID = "agent-implementer";

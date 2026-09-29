@@ -24,7 +24,7 @@ import { describe, expect, it } from "vitest";
 
 import { RunStateChangeEventSchema, RunRolledBackEventSchema } from "@ai-sidekicks/contracts";
 
-import type { ConsoleSessionEvent } from "@renderer/console/store/entities/entities.js";
+import type { ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
 import {
   PROBE_RUN_ID,
   runTransitionBeat,

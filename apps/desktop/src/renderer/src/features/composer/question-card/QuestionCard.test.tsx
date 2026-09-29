@@ -15,7 +15,7 @@ import {
   ASK_ANSWER_UNSENT,
   type DriverAskDelivery,
   type DriverAskReading,
-} from "@renderer/console/ledger/cards/bodies/input-ask.js";
+} from "@renderer/store/session-events/question-reading.js";
 import { InputAskCard } from "./QuestionCard.js";
 
 /**

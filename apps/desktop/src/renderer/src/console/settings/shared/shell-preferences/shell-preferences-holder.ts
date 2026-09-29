@@ -13,7 +13,7 @@ import {
   NO_TRIGGERING_EVENT_KINDS,
   useWindowReadTriggers,
   type ReadTriggerTarget,
-} from "@renderer/console/store/read/read-triggers.js";
+} from "@renderer/store/reads/read-triggers.js";
 import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
 import {
   ShellPreferenceStore,

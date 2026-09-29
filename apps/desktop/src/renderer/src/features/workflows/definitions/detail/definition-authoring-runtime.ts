@@ -18,7 +18,7 @@ import type {
   WorkflowVersionBody,
 } from "@renderer/services/wire-shapes/workflow-definition-body.js";
 import { normalizeWireRejection } from "@renderer/lib/wire-rejection.js";
-import type { GenerationLatch } from "@renderer/console/store/read/generation-latch.js";
+import type { GenerationLatch } from "@renderer/lib/reads/generation-latch.js";
 import type { SubjectScopedPublish } from "@renderer/lib/subject-scoped/subject-scoped-holder.js";
 import {
   WORKFLOW_DETAIL_ORIGIN,

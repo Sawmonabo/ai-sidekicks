@@ -16,7 +16,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import type { ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
-import { useGenerationLatch } from "@renderer/console/store/read/generation-latch.js";
+import { useGenerationLatch } from "@renderer/lib/reads/generation-latch.js";
 import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
 import { type ShellConnection } from "@renderer/store/window/main-process-state.js";
 

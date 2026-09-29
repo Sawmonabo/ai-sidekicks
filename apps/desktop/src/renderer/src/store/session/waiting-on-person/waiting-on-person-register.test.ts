@@ -20,7 +20,7 @@ import {
 } from "./waiting-on-person-states.js";
 import { eventOfKind } from "@test/helpers/session-events.js";
 import { SessionStore } from "../session-store.js";
-import type { ConsoleSessionEvent } from "@renderer/console/store/entities/entities.js";
+import type { ConsoleSessionEvent } from "../entities/entities.js";
 
 const SESSION_ID = "session-journal";
 const REGISTERED_EVENT_TYPES: ReadonlySet<string> = new Set<string>(

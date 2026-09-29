@@ -80,7 +80,7 @@ import { useOpenSessionStore } from "@renderer/store/session/hooks/useOpenSessio
 import {
   useSubjectScopedResource,
   type SubjectScopedDisposal,
-} from "@renderer/console/store/subject-scoped/subject-scoped-resource.js";
+} from "@renderer/hooks/subject-scoped/useSubjectScopedResource.js";
 import { type ConsoleEntityProjectorRegistry } from "@renderer/registries/entity-projectors/entity-projector-registry.js";
 import { type SessionSnapshotReader } from "@renderer/store/session/open-session-entry.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";

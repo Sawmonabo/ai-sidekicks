@@ -20,7 +20,7 @@ import { describe, expect, it } from "vitest";
 
 import { settle } from "@test/helpers/settle.js";
 import { DuplicateRegistrationError } from "@renderer/lib/keyed-registry.js";
-import { ConsolePaneChrome } from "@renderer/console/seats/pane/ConsolePaneChrome.js";
+import { ConsolePaneChrome } from "@renderer/components/PaneFrame/PaneFrame.js";
 import { type LazyBodyModule } from "@renderer/components/LazyBody/lazy-body.js";
 import { countingLoader, syntheticPaneContextAt } from "@test/helpers/lazy-body-contexts.js";
 import { type ConsolePaneContext } from "./pane-context.js";

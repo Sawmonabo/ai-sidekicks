@@ -18,7 +18,7 @@ import {
   useSessionReadTriggers,
   useWindowReadTriggers,
   type ReadTriggerTarget,
-} from "@renderer/console/store/read/read-triggers.js";
+} from "@renderer/store/reads/read-triggers.js";
 import { type RefreshReason } from "@renderer/lib/reads/refresh-scheduler.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 

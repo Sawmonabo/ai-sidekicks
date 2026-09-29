@@ -15,7 +15,7 @@ import { LIVE_ANNOUNCEMENT_HOLD_MS } from "@renderer/components/LiveAnnouncer/li
 import { ManualClock } from "@renderer/lib/clock.js";
 import { LiveAnnouncer } from "@renderer/components/LiveAnnouncer/live-announcer.js";
 import { liveRegionText, politeText } from "@test/helpers/live-region.js";
-import { LiveAnnouncerProvider } from "@renderer/console/primitives/announce/LiveAnnouncerProvider.js";
+import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { useSettlementAnnouncement } from "./useSettlementAnnouncement.js";
 
 afterEach(() => {

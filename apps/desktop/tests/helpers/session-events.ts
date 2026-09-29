@@ -26,7 +26,7 @@
 // two are different events to a projector that reads `event.payload?.[member]` and
 // this helper must not decide for its callers which one they meant.
 
-import type { ConsoleSessionEvent } from "@renderer/console/store/entities/entities.js";
+import type { ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
 
 /**
  * One admitted event of the given kind, numbered so a store's cursor moves.

@@ -14,7 +14,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { GenerationLatch } from "@renderer/console/store/read/generation-latch.js";
+import { GenerationLatch } from "./generation-latch.js";
 import { SUBJECT_ONE } from "@test/helpers/subject-fixtures.js";
 
 describe("GenerationLatch — currentClaim, for the reader that joins the round", () => {

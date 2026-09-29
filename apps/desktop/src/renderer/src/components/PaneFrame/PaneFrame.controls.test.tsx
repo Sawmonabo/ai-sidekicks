@@ -12,9 +12,9 @@
 
 import { describe, expect, it } from "vitest";
 
-import { ConsolePaneChrome } from "@renderer/console/seats/pane/ConsolePaneChrome.js";
+import { ConsolePaneChrome } from "./PaneFrame.js";
 import { renderChrome } from "./PaneFrame.test-support.js";
-import { PaneControlsContext } from "@renderer/console/seats/pane/pane-controls.js";
+import { PaneControlsContext } from "./pane-controls.js";
 
 function controlLabels(pane: HTMLElement): readonly (string | null)[] {
   return [...pane.querySelectorAll(".meridian-pane__control")].map((control) =>

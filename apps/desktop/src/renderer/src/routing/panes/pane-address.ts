@@ -60,7 +60,7 @@
 import {
   CONSOLE_ENTITY_KINDS,
   type ConsoleEntityRef,
-} from "@renderer/console/store/entities/entities.js";
+} from "@renderer/store/session/entities/entities.js";
 import { type PaneKind } from "./pane-kinds.js";
 
 /**
@@ -102,6 +102,7 @@ const CHECKOUT_ADMITS_ENTITY_KIND = {
   worktree: true,
   artifact: false,
   approval: false,
+  question: false,
   "workflow-definition": false,
   "workflow-run": false,
   "browser-page": false,

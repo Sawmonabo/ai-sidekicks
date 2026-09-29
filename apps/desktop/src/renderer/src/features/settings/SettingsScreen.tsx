@@ -21,7 +21,7 @@
 // already said the page is missing.
 
 import { useCallback, useMemo, useState } from "react";
-import { useFrameStore, useShellState } from "@renderer/console/store/shell/frame-hooks.js";
+import { useFrameStore, useShellState } from "@renderer/store/window/hooks/useWindowStore.js";
 import { useOpenSessionStore } from "@renderer/store/session/hooks/useOpenSessionStore.js";
 import { settingsSelection } from "@renderer/routing/route-readers.js";
 import type { ConsoleSurfaceContext } from "@renderer/console/seats/index.js";

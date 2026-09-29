@@ -19,7 +19,7 @@ import type { NewSessionControlProps } from "@renderer/console/seats/index.js";
 import {
   useSubjectScopedResource,
   type SubjectScopedDisposal,
-} from "@renderer/console/store/subject-scoped/subject-scoped-resource.js";
+} from "@renderer/hooks/subject-scoped/useSubjectScopedResource.js";
 import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
 import { NewSessionDraft, type NewSessionDraftState } from "../new-session-draft.js";
 import { refuseSendThatRejected, type NewSessionSendResult } from "../new-session-settlement.js";

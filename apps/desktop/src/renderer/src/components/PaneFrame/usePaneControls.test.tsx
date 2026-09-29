@@ -9,11 +9,7 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import {
-  PaneControlsContext,
-  usePaneControls,
-  type PaneControls,
-} from "@renderer/console/seats/pane/pane-controls.js";
+import { PaneControlsContext, usePaneControls, type PaneControls } from "./pane-controls.js";
 
 /** Reads the seam once and hands the reading back, without rendering anything of it. */
 function readSeam(wrap: (probe: React.JSX.Element) => React.JSX.Element): {

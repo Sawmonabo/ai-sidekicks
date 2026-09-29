@@ -9,7 +9,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { measureUtf8ByteLength } from "@renderer/console/persistence/value-classes.js";
+import { measureUtf8ByteLength } from "@renderer/store/persistence/persisted-value-classes.js";
 import { ByteBoundedCache } from "./byte-bounded-cache.js";
 
 describe("the byte-bounded cache", () => {

@@ -13,7 +13,7 @@
 import { render } from "@testing-library/react";
 
 import { ManualClock, type ConsoleClock, type ScheduledHandle } from "@renderer/lib/clock.js";
-import { useDeadlineWake } from "@renderer/console/store/subject-scoped/deadline-wake.js";
+import { useDeadlineWake } from "@renderer/lib/deadlines.js";
 
 /**
  * The real clock, instrumented — not a stand-in for it.

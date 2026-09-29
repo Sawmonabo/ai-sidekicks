@@ -33,11 +33,11 @@ import { callDaemon, type DaemonReply } from "@renderer/services/daemon/daemon-r
 import { type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
 import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
 import { useSessionScopedState } from "../../../seats/index.js";
-import { ReadScope } from "@renderer/console/store/read/read-cancellation.js";
+import { ReadScope } from "@renderer/lib/reads/read-scope.js";
 import {
   useSubjectScopedResource,
   type SubjectScopedDisposal,
-} from "@renderer/console/store/subject-scoped/subject-scoped-resource.js";
+} from "@renderer/hooks/subject-scoped/useSubjectScopedResource.js";
 
 /**
  * Where one child run's expansion has got to.

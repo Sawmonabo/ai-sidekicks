@@ -50,7 +50,7 @@
 // state the whole contract with three literals.
 
 import { readWireString } from "@renderer/lib/wire-strings.js";
-import type { ConsoleSessionEvent } from "@renderer/console/store/entities/entities.js";
+import type { ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
 
 /** The registered event type the context meter reads. Verbatim, never composed. */
 export const CONTEXT_WINDOW_EVENT_KIND = "usage.context_window_update";

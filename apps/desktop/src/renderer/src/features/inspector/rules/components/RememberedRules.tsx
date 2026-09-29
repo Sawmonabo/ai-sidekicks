@@ -42,7 +42,7 @@ import { type RememberedRule } from "@renderer/services/approvals/approval-recor
 import {
   asRememberedScopeKind,
   rememberedScopeKindPhrase,
-} from "@renderer/console/bridge/approvals/approval-vocabulary.js";
+} from "@renderer/lib/approval-vocabulary.js";
 import { RevokeControl } from "./RevokeRuleControl.js";
 import {
   offersRevoke,

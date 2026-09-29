@@ -40,7 +40,7 @@ import { refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
 import {
   useSubjectScopedResource,
   type SubjectScopedDisposal,
-} from "@renderer/console/store/subject-scoped/subject-scoped-resource.js";
+} from "@renderer/hooks/subject-scoped/useSubjectScopedResource.js";
 import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
 import type { BrowserPaneRefusalCode } from "../pane-refusals.js";
 

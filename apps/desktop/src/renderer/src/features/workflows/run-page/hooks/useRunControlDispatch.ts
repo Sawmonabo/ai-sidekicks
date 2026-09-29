@@ -40,10 +40,7 @@
 // is a context. One counter reached from two surfaces, and not a second number the pane
 // would have to sum.
 
-import {
-  useGenerationLatch,
-  type GenerationLatch,
-} from "@renderer/console/store/read/generation-latch.js";
+import { useGenerationLatch, type GenerationLatch } from "@renderer/lib/reads/generation-latch.js";
 import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
 import { type SubjectScopedPublish } from "@renderer/lib/subject-scoped/subject-scoped-holder.js";
 import {

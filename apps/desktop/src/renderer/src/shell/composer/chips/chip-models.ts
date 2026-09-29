@@ -11,7 +11,7 @@
 // nobody established.
 
 import { readWireNumber, readWireString } from "@renderer/lib/wire-strings.js";
-import type { ConsoleEntity, ConsoleEntityRef } from "@renderer/console/store/entities/entities.js";
+import type { ConsoleEntity, ConsoleEntityRef } from "@renderer/store/session/entities/entities.js";
 import type { ConsolePaneAddress } from "../../../console/seats/index.js";
 import { resolveAddressedRun } from "@renderer/features/composer/addressed-run.js";
 

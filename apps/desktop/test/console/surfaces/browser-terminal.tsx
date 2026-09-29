@@ -32,12 +32,12 @@ import { fixtureSessionSnapshot } from "@renderer/services/daemon/session-snapsh
 import { unscriptedScenario } from "../../../src/renderer/src/console/bridge/fixture/call-plane/bridge.test-support.js";
 import { createFixtureBridge } from "@renderer/console/bridge/fixture/call-plane/bridge.js";
 import { type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
-import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/console/core/constants/persistence-caps.js";
+import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence-caps.js";
 import { DraftStore } from "@renderer/store/draft-store.js";
 import { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
 import { FrameStore } from "@renderer/store/window/window-store.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
-import { type ConsoleSessionEvent } from "@renderer/console/store/entities/entities.js";
+import { type ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
 import { registerTerminalPanes } from "../../../src/renderer/src/console/terminal/index.js";
 import {
   type ConsolePaneContext,

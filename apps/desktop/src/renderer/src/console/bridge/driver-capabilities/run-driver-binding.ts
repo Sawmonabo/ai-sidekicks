@@ -39,7 +39,7 @@ import {
 import {
   type ConsoleEntity,
   type ConsoleSessionEvent,
-} from "@renderer/console/store/entities/entities.js";
+} from "@renderer/store/session/entities/entities.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 import { type SessionStoreState } from "@renderer/store/session/session-state.js";
 

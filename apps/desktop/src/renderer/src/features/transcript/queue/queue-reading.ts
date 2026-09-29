@@ -23,8 +23,8 @@ import type { QueueItemSummary } from "@ai-sidekicks/contracts";
 import {
   NO_TRIGGERING_EVENT_KINDS,
   type ReadTriggerTarget,
-} from "@renderer/console/store/read/read-triggers.js";
-import { ReadScope } from "@renderer/console/store/read/read-cancellation.js";
+} from "@renderer/store/reads/read-triggers.js";
+import { ReadScope } from "@renderer/lib/reads/read-scope.js";
 import { RefreshScheduler, type RefreshReason } from "@renderer/lib/reads/refresh-scheduler.js";
 import {
   QueueCancellations,

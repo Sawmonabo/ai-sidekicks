@@ -29,7 +29,7 @@ import { type SessionStore } from "@renderer/store/session/session-store.js";
 import {
   useSubjectScopedResource,
   type SubjectScopedDisposal,
-} from "../subject-scoped/subject-scoped-resource.js";
+} from "@renderer/hooks/subject-scoped/useSubjectScopedResource.js";
 import { type SubjectKey } from "@renderer/lib/subject-scoped/subject-scoped-holder.js";
 
 /**

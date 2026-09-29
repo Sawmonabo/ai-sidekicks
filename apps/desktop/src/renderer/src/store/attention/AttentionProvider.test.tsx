@@ -17,10 +17,7 @@ import { NO_TRANSPORT_RECONNECT } from "@renderer/lib/transport-reconnect.js";
 import type { FrameBindingContext } from "@renderer/console/seats/index.js";
 import type { SessionStore } from "../session/session-store.js";
 import type { SessionStoreRegistry } from "../session/session-store-registry.js";
-import {
-  SessionAttentionBinding,
-  useSessionAttention,
-} from "@renderer/console/sessions/SessionAttentionBinding.js";
+import { SessionAttentionBinding, useSessionAttention } from "./AttentionProvider.js";
 import { callsAnswering, settle } from "@renderer/features/sessions/SessionsFlyout.test-support.js";
 
 /** A registry holding no store, which is all these reads ask of it. */

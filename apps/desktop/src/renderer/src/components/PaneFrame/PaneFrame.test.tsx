@@ -17,11 +17,7 @@
 import { fireEvent, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import {
-  ConsolePaneChrome,
-  GLYPH_BY_PANE_KIND,
-  TITLE_BY_PANE_KIND,
-} from "@renderer/console/seats/pane/ConsolePaneChrome.js";
+import { ConsolePaneChrome, GLYPH_BY_PANE_KIND, TITLE_BY_PANE_KIND } from "./PaneFrame.js";
 import { renderChrome } from "./PaneFrame.test-support.js";
 import { PANE_KINDS } from "@renderer/routing/panes/pane-kinds.js";
 

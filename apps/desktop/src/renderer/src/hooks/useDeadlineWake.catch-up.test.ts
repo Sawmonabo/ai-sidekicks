@@ -9,10 +9,7 @@
 import { act } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import {
-  earliestFutureDeadline,
-  latestPassedDeadline,
-} from "@renderer/console/store/subject-scoped/deadline-wake.js";
+import { earliestFutureDeadline, latestPassedDeadline } from "@renderer/lib/deadlines.js";
 import { CountingManualClock, MOUNTED_AT, renderWake } from "./useDeadlineWake.test-support.js";
 
 describe("latestPassedDeadline — what a late wake-up settles", () => {

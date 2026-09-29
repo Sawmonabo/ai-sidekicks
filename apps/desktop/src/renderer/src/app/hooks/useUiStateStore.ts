@@ -52,7 +52,7 @@ import { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
 import {
   useSubjectScopedResource,
   type SubjectScopedDisposal,
-} from "@renderer/console/store/subject-scoped/subject-scoped-resource.js";
+} from "@renderer/hooks/subject-scoped/useSubjectScopedResource.js";
 
 /**
  * This window's UI-state store, rebuilt on a new bridge and closed when the console

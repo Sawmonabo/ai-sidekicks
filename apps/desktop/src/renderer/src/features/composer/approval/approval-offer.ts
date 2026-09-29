@@ -22,7 +22,7 @@
 
 import { refusalRemedyFor } from "@renderer/lib/refusal-remedies.js";
 import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
-import { asApprovalState } from "@renderer/console/bridge/approvals/approval-vocabulary.js";
+import { asApprovalState } from "@renderer/lib/approval-vocabulary.js";
 import { type ApprovalRecord } from "@renderer/services/approvals/approval-records.js";
 
 /**

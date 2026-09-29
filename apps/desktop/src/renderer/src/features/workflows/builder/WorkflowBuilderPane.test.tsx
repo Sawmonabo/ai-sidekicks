@@ -10,7 +10,7 @@ import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import type { PaneContextOf } from "@renderer/console/seats/index.js";
-import type { ConsoleEntityRef } from "@renderer/console/store/entities/entities.js";
+import type { ConsoleEntityRef } from "@renderer/store/session/entities/entities.js";
 import { DEFINITION_ID } from "../definitions/detail/hooks/useWorkflowDefinitionAuthoring.test-support.js";
 import { PROBE_SESSION_ID } from "../workflows-probe.test-support.js";
 import { WorkflowBuilderPane } from "./WorkflowBuilderPane.js";

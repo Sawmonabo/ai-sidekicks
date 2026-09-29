@@ -12,11 +12,7 @@
 // shapes is the family that may hold them. A store hook that wants one takes it as an
 // injected reader.
 
-import type {
-  ConsoleEntity,
-  ConsoleEntityKind,
-  ConsoleEntityRef,
-} from "@renderer/console/store/entities/entities.js";
+import type { ConsoleEntity, ConsoleEntityKind, ConsoleEntityRef } from "./entities/entities.js";
 import type { SessionStoreState } from "./session-state.js";
 
 /** Every entity of one kind. A narrow pick, never a whole-pane object. */

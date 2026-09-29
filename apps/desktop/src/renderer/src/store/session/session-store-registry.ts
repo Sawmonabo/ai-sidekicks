@@ -22,7 +22,7 @@
 
 import { ConsoleRefusalError, refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
-import type { ConsoleSessionEvent } from "@renderer/console/store/entities/entities.js";
+import type { ConsoleSessionEvent } from "./entities/entities.js";
 import { OpenSessionEntry, type OpenSessionEntryOptions } from "./open-session-entry.js";
 // Deep rather than through `read/index.js`, for `open-session-entry.ts`'s reason:
 // that door reaches the trigger surface, which reads the session door, which

@@ -43,7 +43,7 @@ import {
   STATE_TONE,
   asApprovalCategory,
   asApprovalState,
-} from "@renderer/console/bridge/approvals/approval-vocabulary.js";
+} from "@renderer/lib/approval-vocabulary.js";
 import {
   type ApprovalRecord,
   type ApprovalResolveRequest,

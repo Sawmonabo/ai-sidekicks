@@ -103,7 +103,7 @@ export { clippingAncestorsOf } from "@renderer/lib/clipping-ancestors.js";
 // is in this family rather than in the frame's because its only input is `core`'s
 // tripwire report, and because a view family wrapping its own rows cannot import the
 // frame's door without closing a cycle.
-export { SurfaceErrorBoundary } from "./ErrorBoundary.js";
+export { SurfaceErrorBoundary } from "@renderer/components/ErrorBoundary/ErrorBoundary.js";
 
 // The "whose keystroke is it" pair, through the same door and for the same reason
 // `chord-format.js` is here: the keybinding table and the deck both ask it, both sit
@@ -144,7 +144,10 @@ export { SurfaceAbsence } from "@renderer/components/ScreenNotice/ScreenNotice.j
 // because the whole point of the primitive is that there is a single pair of
 // regions per window: a family that reached past the barrel for its own would be
 // the second speaker this module exists to prevent.
-export { LiveAnnouncerProvider, useAnnounce } from "./announce/LiveAnnouncerProvider.js";
+export {
+  LiveAnnouncerProvider,
+  useAnnounce,
+} from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 // The sink's own type, for a surface that settles an outcome somewhere other than
 // where it read the context — the deck reads `useAnnounce` in its component and
 // hands the result to the drag monitor, which is a hook and cannot read it twice.
@@ -226,7 +229,7 @@ export {
   /** @consumedBy a view family that has not landed yet */
   useReadingAnnouncement,
   useReadSettlementAnnouncement,
-} from "./announce/reading-announcement.js";
+} from "@renderer/hooks/useAnnounceOncePerSentence.js";
 
 // A window's own cap, which is a different fact from a read's completeness — see the
 // module header for why the two vocabularies sit beside each other rather than one

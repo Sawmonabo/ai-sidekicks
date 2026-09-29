@@ -28,9 +28,9 @@
 // needs the parts left out.
 
 import type { ConsoleRefusal } from "@renderer/lib/refusal.js";
-import { type PushDrivenReadState } from "@renderer/console/seats/read/push-driven-read.js";
+import { type PushDrivenReadState } from "./push-driven-read.js";
 import { SUBSCRIBE_FAILED } from "@renderer/lib/reads/read-failure-codes.js";
-import { consoleRefusalFrom } from "@renderer/console/seats/read/served-value.js";
+import { consoleRefusalFrom } from "@renderer/lib/coerce-to-refusal.js";
 
 /** What the control is built over: the two seam arms the old open touched. */
 export interface LatchedOpenOptions {

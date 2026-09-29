@@ -33,13 +33,13 @@ export { UserBody } from "@renderer/features/transcript/rows/bodies/UserBody.js"
 // line with no reader outside the directory is a dead export the barrel census fails,
 // so this door is never widened for symmetry.
 export { InputAskCard } from "@renderer/features/composer/question-card/QuestionCard.js";
-export { useLedgerAskTerminal } from "./AskTerminalProvider.js";
+export { useLedgerAskTerminal } from "@renderer/store/session-events/hooks/useQuestionSettlement.js";
 export {
   ASK_ANSWER_UNSENT,
   askSettledBy,
   type DriverAskDelivery,
   type DriverAskReading,
-} from "./input-ask.js";
+} from "@renderer/store/session-events/question-reading.js";
 export { ReasoningSurface } from "@renderer/features/transcript/rows/thinking/ThinkingRow.js";
 export {
   reasoningRunIdOf,

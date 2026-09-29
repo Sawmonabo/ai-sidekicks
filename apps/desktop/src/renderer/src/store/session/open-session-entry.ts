@@ -65,7 +65,7 @@
 // root, which is what keeps this family below `bridge/` in the console's DAG.
 
 import { RealClock, type ConsoleClock } from "@renderer/lib/clock.js";
-import type { EntityProjectorRegistry } from "@renderer/console/store/entities/entities.js";
+import type { EntityProjectorRegistry } from "./entities/entities.js";
 // Deep rather than through `read/index.js`, and `store/read/read-triggers.ts`'s own reach
 // back into `session/` is why: that door is an edge to the trigger surface, which reads
 // the session door, which publishes the hooks that reach this directory's registry — so a

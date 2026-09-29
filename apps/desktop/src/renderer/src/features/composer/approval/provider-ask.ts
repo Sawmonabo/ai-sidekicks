@@ -13,7 +13,7 @@
 // would drift the first time one of them grew a fallback.
 
 import { readWireString } from "@renderer/lib/wire-strings.js";
-import { type ConsoleEntity } from "@renderer/console/store/entities/entities.js";
+import { type ConsoleEntity } from "@renderer/store/session/entities/entities.js";
 
 /** One approval's provider-ask origin. */
 export interface ProviderAsk {

@@ -63,7 +63,7 @@ import {
   PERSISTENCE_QUOTA_PRESSURE_RATIO,
   PERSISTENCE_RECORD_BYTE_CAP,
   PERSISTENCE_SESSION_PARTITION_CAP,
-} from "./persistence-caps.js";
+} from "@renderer/store/persistence-caps.js";
 import {
   APPLY_COALESCE_MS,
   REFRESH_DEBOUNCE_MS,

@@ -13,7 +13,7 @@
 import { describe, expect, it } from "vitest";
 
 import { ManualClock } from "../clock.js";
-import type { ReadRound } from "@renderer/console/store/read/read-cancellation.js";
+import type { ReadRound } from "./read-scope.js";
 import { RefreshScheduler } from "./refresh-scheduler.js";
 import { settleMicrotasks } from "@test/helpers/session-store-fixtures.js";
 

@@ -32,7 +32,7 @@ import { useSessionStore } from "@renderer/store/session/hooks/useOpenSessionSto
 import {
   useSubjectScopedResource,
   type SubjectScopedDisposal,
-} from "@renderer/console/store/subject-scoped/subject-scoped-resource.js";
+} from "@renderer/hooks/subject-scoped/useSubjectScopedResource.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 import {
   LedgerEarlierWindowReader,

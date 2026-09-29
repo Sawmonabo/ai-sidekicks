@@ -39,7 +39,7 @@ import {
 } from "react";
 import { describe, expect, it } from "vitest";
 
-import { driveDroppedPass } from "@renderer/console/store/subject-scoped/subject-scoped-drivers.test-support.js";
+import { driveDroppedPass } from "./subject-scoped-hooks.test-support.js";
 import {
   SUBJECT_ONE,
   SUBJECT_TWO,

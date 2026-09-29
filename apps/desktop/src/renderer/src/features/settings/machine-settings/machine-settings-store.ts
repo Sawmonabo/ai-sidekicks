@@ -4,14 +4,11 @@
 // how long, and how React acquires one, is `shell-preferences-holder.ts`.
 
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
-import {
-  GenerationLatch,
-  type GenerationClaim,
-} from "@renderer/console/store/read/generation-latch.js";
+import { GenerationLatch, type GenerationClaim } from "@renderer/lib/reads/generation-latch.js";
 import {
   NO_TRIGGERING_EVENT_KINDS,
   type ReadTriggerTarget,
-} from "@renderer/console/store/read/read-triggers.js";
+} from "@renderer/store/reads/read-triggers.js";
 import { RefreshScheduler, type RefreshReason } from "@renderer/lib/reads/refresh-scheduler.js";
 import { consoleClockFor, type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
 import {

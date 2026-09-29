@@ -4,7 +4,7 @@
 // owns the manifest re-read and `artifact-payload-fetch.ts` owns the payload fetch. Declared
 // in either, the other would import a contract from a peer and close a cycle.
 
-import type { CurrentGenerationClaim } from "@renderer/console/store/read/generation-latch.js";
+import type { CurrentGenerationClaim } from "@renderer/lib/reads/generation-latch.js";
 import type { ArtifactPaneReading } from "./artifact-list-reading.js";
 
 /**

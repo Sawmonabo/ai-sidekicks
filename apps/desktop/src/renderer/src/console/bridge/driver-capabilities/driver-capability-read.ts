@@ -76,9 +76,9 @@ import {
   useSessionReadTriggers,
   useWindowReadTriggers,
   type ReadTriggerTarget,
-} from "@renderer/console/store/read/read-triggers.js";
+} from "@renderer/store/reads/read-triggers.js";
 import { RefreshScheduler, type RefreshReason } from "@renderer/lib/reads/refresh-scheduler.js";
-import { type ReadRound } from "@renderer/console/store/read/read-cancellation.js";
+import { type ReadRound } from "@renderer/lib/reads/read-scope.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 import { callDaemon } from "@renderer/services/daemon/daemon-reply.js";
 import { consoleClockFor, type ConsoleBridge } from "../console-bridge.js";

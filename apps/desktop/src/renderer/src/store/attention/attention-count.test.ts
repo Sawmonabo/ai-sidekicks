@@ -9,7 +9,7 @@ import { describe, expect, it } from "vitest";
 
 import type { AttentionItem } from "@renderer/console/bridge/wire-shapes/attention-projection.js";
 import { AttentionPlane } from "./attention-summary.js";
-import { railAttentionCountOf } from "@renderer/console/sessions/notifications/rail-attention.js";
+import { railAttentionCountOf } from "./attention-count.js";
 
 function attentionItem(overrides: Partial<AttentionItem> & { readonly id: string }): AttentionItem {
   return {

@@ -38,7 +38,7 @@
 // engine is gone.
 
 import { Emitter, type EmitterSink, type Unsubscribe } from "@renderer/lib/emitter.js";
-import type { ConsoleSessionEvent } from "@renderer/console/store/entities/entities.js";
+import type { ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
 import { ScenarioSessionLog, type UnpositionedSessionEvent } from "./session-log.fixture.js";
 
 /**

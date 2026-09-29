@@ -12,10 +12,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ManualClock } from "@renderer/lib/clock.js";
 import { LiveAnnouncer } from "./live-announcer.js";
-import {
-  LiveAnnouncerProvider,
-  useAnnounce,
-} from "@renderer/console/primitives/announce/LiveAnnouncerProvider.js";
+import { LiveAnnouncerProvider, useAnnounce } from "./LiveAnnouncerProvider.js";
 import { regionsOf } from "@test/helpers/live-region.js";
 
 afterEach(() => {

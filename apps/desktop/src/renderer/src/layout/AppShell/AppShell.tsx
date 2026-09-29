@@ -52,7 +52,7 @@
 import { useLayoutEffect, useMemo, useRef } from "react";
 
 import { type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
-import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/console/core/constants/persistence-caps.js";
+import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence-caps.js";
 import {
   CONSOLE_CHORD_PLATFORM,
   PaletteOverlay,
@@ -70,7 +70,7 @@ import {
 } from "@renderer/console/seats/index.js";
 import { FrameStore } from "@renderer/store/window/window-store.js";
 import { consoleEntityProjectorRegistry } from "@renderer/registries/entity-projectors/entity-projector-registry.js";
-import { useFrameStore } from "@renderer/console/store/shell/frame-hooks.js";
+import { useFrameStore } from "@renderer/store/window/hooks/useWindowStore.js";
 import { useLocationHash } from "@renderer/routing/hooks/useLocationHash.js";
 import { type SessionSnapshotReader } from "@renderer/store/session/open-session-entry.js";
 import { AppFrame } from "./AppFrame.js";

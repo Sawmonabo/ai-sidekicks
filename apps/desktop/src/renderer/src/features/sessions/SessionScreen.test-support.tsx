@@ -9,7 +9,7 @@ import { render } from "@testing-library/react";
 import { expect } from "vitest";
 
 import { DECK_RESTORED_PANE_CAP } from "@renderer/console/core/constants/workspace-caps.js";
-import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/console/core/constants/persistence-caps.js";
+import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence-caps.js";
 import { DesktopBridgeProvider } from "@renderer/console/bridge/BridgeProvider.js";
 import { createFixtureBridge } from "@renderer/console/bridge/fixture/call-plane/bridge.js";
 import { type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";

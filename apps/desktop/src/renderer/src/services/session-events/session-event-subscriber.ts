@@ -81,7 +81,7 @@
 import type { LedgerWindowReading } from "@renderer/lib/transcript-window-diagnostics.js";
 import type { Unsubscribe } from "@renderer/lib/emitter.js";
 import { consoleLedgerWindows } from "@renderer/lib/transcript-window-diagnostics.js";
-import { lossyStringify } from "@shared/wire-errors.js";
+import { lossyStringify } from "@renderer/lib/wire-errors.js";
 import { reportTripwire } from "@renderer/lib/tripwires.js";
 import { SESSION_EVENT_STREAM } from "@renderer/console/bridge/daemon/session-event-streams.js";
 import { openObservedSubscription } from "../transport/observed-subscription.js";

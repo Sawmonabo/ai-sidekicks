@@ -31,7 +31,7 @@ import { useEffect } from "react";
 
 import { refuse, type ConsoleRefusal, type NarrowedRefusal } from "@renderer/lib/refusal.js";
 import { type UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
-import { useSubjectScopedResource } from "@renderer/console/store/subject-scoped/subject-scoped-resource.js";
+import { useSubjectScopedResource } from "@renderer/hooks/subject-scoped/useSubjectScopedResource.js";
 import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
 import { type DeckLayout } from "../deck/model/deck-layout.js";
 import { paneAddressKey } from "@renderer/features/sessions/pane-layout/pane-layout.js";

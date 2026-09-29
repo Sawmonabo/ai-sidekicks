@@ -14,7 +14,7 @@ import {
   useSessionInitialised,
 } from "@renderer/store/session/hooks/useSessionInitialized.js";
 import { useSessionPartition } from "@renderer/store/session/hooks/useOpenSessionStore.js";
-import { type ConsoleEntityRef } from "@renderer/console/store/entities/entities.js";
+import { type ConsoleEntityRef } from "@renderer/store/session/entities/entities.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 import { ENTITY_DETAIL_BY_KIND, type EntityDetailKind } from "../entity-detail-by-kind.js";
 

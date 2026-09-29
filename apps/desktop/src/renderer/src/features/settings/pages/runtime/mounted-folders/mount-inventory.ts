@@ -29,7 +29,7 @@ import { type Unsubscribe } from "@renderer/lib/emitter.js";
 import { abandonedReadRefusal } from "@renderer/services/daemon/daemon-reply.js";
 import { heldIdAsWireId } from "@renderer/services/daemon/wire-ids.js";
 import { PushDrivenRead } from "@renderer/console/seats/index.js";
-import { isReadAbandoned } from "@renderer/console/store/read/read-cancellation.js";
+import { isReadAbandoned } from "@renderer/lib/reads/read-scope.js";
 import { subscribeToSessionEventKinds } from "@renderer/store/session/session-event-signal.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 

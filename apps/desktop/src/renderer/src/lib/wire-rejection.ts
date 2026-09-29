@@ -56,7 +56,7 @@ import {
   lossyStringify,
   readGuardedProperty,
   UNREPRESENTABLE_VALUE_TEXT,
-} from "@shared/wire-errors.js";
+} from "./wire-errors.js";
 
 // The envelope shape itself, re-published rather than re-declared. `src/shared/` sits
 // on no rung of the console's family DAG, so a view family reaching it directly is the
@@ -75,7 +75,7 @@ import {
 // tests would be the census failure this note exists to avoid. A reader is not a
 // second declaration of the shape, so that edge drifts nothing — the rule governs
 // where the console's one reading of the envelope lives, and it lives here.
-export type { WireErrorEnvelope } from "@shared/wire-errors.js";
+export type { WireErrorEnvelope } from "./wire-errors.js";
 
 import {
   readRefusalExtensions,

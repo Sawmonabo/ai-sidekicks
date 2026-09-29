@@ -20,7 +20,7 @@ import {
   isReadAbandoned,
   settleUnlessAbandoned,
   useReadScope,
-} from "@renderer/console/store/read/read-cancellation.js";
+} from "@renderer/lib/reads/read-scope.js";
 
 /** How a caller turns one read into the states a surface renders. */
 export interface SubjectReadProjection<TValue, TState> {

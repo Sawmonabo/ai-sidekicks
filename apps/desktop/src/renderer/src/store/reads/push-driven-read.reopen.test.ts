@@ -15,7 +15,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { ManualClock } from "@renderer/lib/clock.js";
 import { LatchedOnceOpen } from "./push-driven-read.latched-open.test-support.js";
-import { PushDrivenRead } from "@renderer/console/seats/read/push-driven-read.js";
+import { PushDrivenRead } from "./push-driven-read.js";
 
 /** Let the scheduler's in-flight promise settle without advancing the clock. */
 async function settle(): Promise<void> {

@@ -28,7 +28,7 @@ import {
   useSessionDirectory,
   type SessionDirectoryReadCall,
   type SessionDirectoryState,
-} from "@renderer/console/seats/session-directory.js";
+} from "./session-directory.js";
 import { NO_TRANSPORT_RECONNECT } from "@renderer/lib/transport-reconnect.js";
 
 /**

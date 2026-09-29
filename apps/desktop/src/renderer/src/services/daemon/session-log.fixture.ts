@@ -30,7 +30,7 @@
 // stays the authored record that `scenario/wire-truth/wire-truth.ts` checks and that a reader
 // reasons about — the shift is a property of one playback, not of the scenario.
 
-import type { ConsoleSessionEvent } from "@renderer/console/store/entities/entities.js";
+import type { ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
 
 /** An event to append, before the log has told it where it lands. */
 export type UnpositionedSessionEvent = Omit<ConsoleSessionEvent, "sequence">;

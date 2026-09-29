@@ -11,7 +11,7 @@ import { DesktopBridgeProvider } from "@renderer/console/bridge/BridgeProvider.j
 import { createFixtureBridge } from "@renderer/console/bridge/fixture/call-plane/bridge.js";
 import { USER_YOU } from "@renderer/console/bridge/scenario/flagship/flagship-cast.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
-import { type ConsoleEntity } from "@renderer/console/store/entities/entities.js";
+import { type ConsoleEntity } from "@renderer/store/session/entities/entities.js";
 import type { ConsoleScenario } from "@renderer/console/bridge/scenario/runtime/index.js";
 
 export const SESSION_ID = "session-cast";

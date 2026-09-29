@@ -11,7 +11,7 @@ import { WORKFLOW_CANCEL_REASON_BYTE_CAP } from "@ai-sidekicks/contracts";
 
 import { describe, expect, it } from "vitest";
 
-import { measureUtf8ByteLength } from "@renderer/console/persistence/value-classes.js";
+import { measureUtf8ByteLength } from "@renderer/store/persistence/persisted-value-classes.js";
 import {
   WORKFLOW_RUN_CONTROL_ACTIONS,
   WORKFLOW_RUN_CONTROL_ORIGIN,

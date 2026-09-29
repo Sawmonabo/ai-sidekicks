@@ -67,14 +67,11 @@ import { foldAppliedBatch } from "./applied-batch-fold.js";
 import { worstDegradedCause, type SessionDegradedCause } from "../session-degradation.js";
 import { foldEarlierWindowPage, type EarlierWindowMerge } from "./earlier-window.js";
 import { EntityProjectionRunner } from "./entities/entity-projection-runner.js";
-import {
-  type ConsoleSessionEvent,
-  type EntityProjectorRegistry,
-} from "@renderer/console/store/entities/entities.js";
+import { type ConsoleSessionEvent, type EntityProjectorRegistry } from "./entities/entities.js";
 import {
   GenerationLatch,
   type CurrentGenerationClaim,
-} from "@renderer/console/store/read/generation-latch.js";
+} from "@renderer/lib/reads/generation-latch.js";
 import {
   OutstandingAskJournal,
   type OutstandingAskLedger,

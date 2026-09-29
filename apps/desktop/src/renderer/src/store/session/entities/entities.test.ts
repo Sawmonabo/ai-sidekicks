@@ -15,10 +15,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import {
-  CONSOLE_ENTITY_KINDS,
-  emptyPartitions,
-} from "@renderer/console/store/entities/entities.js";
+import { CONSOLE_ENTITY_KINDS, emptyPartitions } from "./entities.js";
 
 describe("the console entity vocabulary", () => {
   it("separates a workflow definition from a workflow run", () => {

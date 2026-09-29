@@ -43,4 +43,4 @@ export {
   /** @consumedBy the notifications list the rail's bell opens */
   useAttentionSettlementAnnouncement,
   type AttentionProjectionReadCall,
-} from "./attention-read.js";
+} from "@renderer/store/attention/hooks/useAttentionProjection.js";

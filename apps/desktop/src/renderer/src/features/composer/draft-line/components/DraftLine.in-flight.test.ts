@@ -6,7 +6,7 @@
 
 import { act, fireEvent } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/console/core/constants/persistence-caps.js";
+import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence-caps.js";
 import { DraftStore } from "@renderer/store/draft-store.js";
 import { sendCallsAnswering } from "../send-router.test-support.js";
 import { mountBar, openSessionStore, pressSend, sendButton } from "./draft-line.test-support.js";

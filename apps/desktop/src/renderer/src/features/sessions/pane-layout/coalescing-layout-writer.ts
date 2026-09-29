@@ -43,7 +43,7 @@
 // retirement is dropped rather than filed: the surface on screen holds the writer
 // bound to the live store, and that is where its arrangement belongs.
 
-import { type SubjectScopedDisposal } from "@renderer/console/store/subject-scoped/subject-scoped-resource.js";
+import { type SubjectScopedDisposal } from "@renderer/hooks/subject-scoped/useSubjectScopedResource.js";
 
 /**
  * The shape the persistence chokepoint's `layout` value class admits: an object of

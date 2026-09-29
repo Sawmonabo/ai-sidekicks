@@ -58,7 +58,7 @@ import { useCallback, useMemo, useRef } from "react";
 
 import { type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
 import { useLatestRef } from "../../../primitives/index.js";
-import { useGenerationLatch } from "@renderer/console/store/read/generation-latch.js";
+import { useGenerationLatch } from "@renderer/lib/reads/generation-latch.js";
 import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
 import { INTERVENTION_OUTCOME_CAP } from "@renderer/console/core/constants/runs-caps.js";
 import {

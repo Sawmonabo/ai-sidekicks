@@ -34,7 +34,7 @@
 
 import type { TimelineReadResponse, TimelineRow } from "@ai-sidekicks/contracts";
 
-import type { ConsoleSessionEvent } from "@renderer/console/store/entities/entities.js";
+import type { ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
 
 /** One backward window, in the shape the store's log speaks. */
 export interface EarlierTimelinePage {

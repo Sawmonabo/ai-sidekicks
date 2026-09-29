@@ -45,7 +45,7 @@
 // guarantees that the writes precede the work that would invalidate the sample.
 
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
-import { lossyStringify } from "@shared/wire-errors.js";
+import { lossyStringify } from "@renderer/lib/wire-errors.js";
 import {
   perfMeterNow,
   recordFrameTime,

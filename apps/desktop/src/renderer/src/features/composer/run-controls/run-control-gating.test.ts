@@ -18,7 +18,7 @@ import { foldRunDriverBindings } from "@renderer/console/bridge/driver-capabilit
 import type {
   ConsoleEntity,
   ConsoleSessionEvent,
-} from "@renderer/console/store/entities/entities.js";
+} from "@renderer/store/session/entities/entities.js";
 import {
   capabilityReadout as readout,
   declaredFlags,

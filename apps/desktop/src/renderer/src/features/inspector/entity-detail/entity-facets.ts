@@ -24,7 +24,7 @@
 // narrow its input renders the `not-checked` absence naming the member — never a
 // blank cell, never a zero, and never a dash standing in for both.
 
-import type { ConsoleEntity } from "@renderer/console/store/entities/entities.js";
+import type { ConsoleEntity } from "@renderer/store/session/entities/entities.js";
 import type { SessionDegradedCause } from "@renderer/store/session-degradation.js";
 import type { SessionStore } from "@renderer/store/session/session-store.js";
 import {

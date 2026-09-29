@@ -16,7 +16,7 @@
 
 import { ActorHueAllocator } from "@renderer/styles/agent-hue.js";
 import { worstDegradedCause } from "../session-degradation.js";
-import type { ConsoleSessionEvent } from "@renderer/console/store/entities/entities.js";
+import type { ConsoleSessionEvent } from "./entities/entities.js";
 import { EntityProjectionRunner } from "./entities/entity-projection-runner.js";
 import { OutstandingAskJournal } from "./waiting-on-person/waiting-on-person-register.js";
 import { PreInitialisationBuffer } from "./pre-initialization-buffer.js";

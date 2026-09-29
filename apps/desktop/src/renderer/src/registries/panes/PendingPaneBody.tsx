@@ -23,7 +23,7 @@
 // The one thing it adds beyond the chrome is the marker `pending-pane-body.ts` owns, so
 // the screenshot tier can refuse to photograph this frame.
 
-import { ConsolePaneChrome } from "@renderer/console/seats/pane/ConsolePaneChrome.js";
+import { ConsolePaneChrome } from "@renderer/components/PaneFrame/PaneFrame.js";
 import type { ConsolePaneContext } from "./pane-context.js";
 import { PENDING_PANE_BODY_ATTRIBUTE } from "@renderer/components/LazyBody/pending-body-marker.js";
 

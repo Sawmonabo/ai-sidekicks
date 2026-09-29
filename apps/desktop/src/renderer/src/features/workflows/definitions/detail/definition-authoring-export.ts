@@ -37,7 +37,7 @@
 import { serializeWorkflowDefinitionFile } from "../definition-file/workflow-definition-file-codec.js";
 import { type WorkflowVersionBody } from "@renderer/services/wire-shapes/workflow-definition-body.js";
 import { normalizeWireRejection } from "@renderer/lib/wire-rejection.js";
-import type { GenerationClaim } from "@renderer/console/store/read/generation-latch.js";
+import type { GenerationClaim } from "@renderer/lib/reads/generation-latch.js";
 import {
   actKey,
   publishCodecAbsence,

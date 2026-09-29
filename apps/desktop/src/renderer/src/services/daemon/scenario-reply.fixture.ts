@@ -14,7 +14,7 @@
 // a scenario; and a family adding a `readonly ScenarioReply[]` table in its own
 // subdirectory of `scenario/` takes this module and not the shape beside it.
 
-import type { WireErrorEnvelope } from "@shared/wire-errors.js";
+import type { WireErrorEnvelope } from "@renderer/lib/wire-errors.js";
 
 /** A canned reply that answers with a value. */
 export interface ScenarioResolvingReply extends ScenarioReplyBase {

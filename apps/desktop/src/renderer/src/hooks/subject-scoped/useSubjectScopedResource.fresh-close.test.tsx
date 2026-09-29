@@ -16,7 +16,7 @@ import { useEffect, type ReactElement } from "react";
 import { describe, expect, it } from "vitest";
 
 import type { NamedFixtureSubject } from "@test/helpers/subject-fixtures.js";
-import { useSubjectScopedResource } from "@renderer/console/store/subject-scoped/subject-scoped-resource.js";
+import { useSubjectScopedResource } from "./useSubjectScopedResource.js";
 import {
   DISCARDED_SUBJECT,
   ResourceLedger,

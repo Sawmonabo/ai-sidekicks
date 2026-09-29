@@ -17,7 +17,7 @@ import { describe, expect, it } from "vitest";
 import {
   ASK_ANSWER_UNSENT,
   type DriverAskReading,
-} from "@renderer/console/ledger/cards/bodies/input-ask.js";
+} from "@renderer/store/session-events/question-reading.js";
 import { InputAskCard } from "./QuestionCard.js";
 import type { RunId } from "@ai-sidekicks/contracts";
 

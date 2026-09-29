@@ -44,7 +44,7 @@ import {
   InlineCardSeatRegistry,
 } from "@renderer/console/seats/index.js";
 import { ConsoleEntityProjectorRegistry } from "@renderer/registries/entity-projectors/entity-projector-registry.js";
-import { type EntityProjectorRegistry } from "@renderer/console/store/entities/entities.js";
+import { type EntityProjectorRegistry } from "@renderer/store/session/entities/entities.js";
 
 /**
  * The event-kind fold the console's own composition claims, frozen.

@@ -35,7 +35,7 @@ import type { ProviderAccountId, ProviderAccountLoginResponse } from "@ai-sideki
 
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
 import { refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
-import { GenerationLatch } from "@renderer/console/store/read/generation-latch.js";
+import { GenerationLatch } from "@renderer/lib/reads/generation-latch.js";
 import {
   IDLE_SIGN_IN_FLOW,
   SIGN_IN_ENDED_BY_REGISTRY,

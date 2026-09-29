@@ -43,7 +43,7 @@
 import { WorkflowStateStrip } from "../components/WorkflowStateStrip.js";
 import { refusedWorkflowStrip } from "../strip-state.js";
 import { ConsolePaneChrome, type PaneContextOf } from "@renderer/console/seats/index.js";
-import type { ConsoleEntityRef } from "@renderer/console/store/entities/entities.js";
+import type { ConsoleEntityRef } from "@renderer/store/session/entities/entities.js";
 import {
   WORKFLOW_BUILDER_SUBJECT_KIND,
   misaddressedBuilderPane,

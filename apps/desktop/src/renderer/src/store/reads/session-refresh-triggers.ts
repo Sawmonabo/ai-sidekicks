@@ -44,10 +44,7 @@
 // behind every session open for no new information, so the scan runs only over
 // transitions of an already-initialised store.
 
-import {
-  eventTriggersRead,
-  type ReadTriggerTarget,
-} from "@renderer/console/store/read/read-triggers.js";
+import { eventTriggersRead, type ReadTriggerTarget } from "./read-triggers.js";
 import type { SessionStore } from "../session/session-store.js";
 
 export interface SessionRefreshTriggerOptions {

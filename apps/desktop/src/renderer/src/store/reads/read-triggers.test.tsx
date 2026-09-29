@@ -17,12 +17,12 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import type { ConsoleSessionEvent } from "@renderer/console/store/entities/entities.js";
+import type { ConsoleSessionEvent } from "../session/entities/entities.js";
 import {
   eventTriggersRead,
   useSessionReadTriggers,
   type ReadTriggerTarget,
-} from "@renderer/console/store/read/read-triggers.js";
+} from "./read-triggers.js";
 import type { RefreshReason } from "@renderer/lib/reads/refresh-scheduler.js";
 import { eventOfKind } from "@test/helpers/session-events.js";
 import { SessionStore } from "../session/session-store.js";

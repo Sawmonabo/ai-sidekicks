@@ -52,7 +52,7 @@
 import {
   PERSISTENCE_RECORD_BYTE_CAP,
   PERSISTENCE_SESSION_PARTITION_CAP,
-} from "@renderer/console/core/constants/persistence-caps.js";
+} from "../persistence-caps.js";
 import { RealClock, type ConsoleClock } from "@renderer/lib/clock.js";
 import {
   PERSISTENCE_GLOBAL_PARTITION,
@@ -61,7 +61,7 @@ import {
   type QuotaGauge,
   type StoredRecord,
 } from "./persistence-adapter.js";
-import { validatePersistedAddress } from "@renderer/console/persistence/identifier-grammar.js";
+import { validatePersistedAddress } from "@renderer/lib/identifier-grammar.js";
 import { MemoryPersistenceAdapter } from "./memory-persistence-adapter.js";
 import {
   openConsoleDatabase,
@@ -84,7 +84,7 @@ import {
   validatePersistedValue,
   type PersistableValue,
   type PersistedValueClass,
-} from "@renderer/console/persistence/value-classes.js";
+} from "./persisted-value-classes.js";
 
 /** The outcome of a write. A refusal is a value, not an exception. */
 export type PersistenceWriteResult =

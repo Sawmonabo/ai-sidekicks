@@ -284,9 +284,12 @@ export {
   ConsolePaneChrome,
   paneBodyForKind,
   type PaneContextOf,
-} from "./pane/ConsolePaneChrome.js";
+} from "@renderer/components/PaneFrame/PaneFrame.js";
 
-export { PaneControlsContext, type PaneControls } from "./pane/pane-controls.js";
+export {
+  PaneControlsContext,
+  type PaneControls,
+} from "@renderer/components/PaneFrame/pane-controls.js";
 
 // The session vocabulary, straight from the module that DECLARES it rather than
 // through `store/index.js`, which would be a barrel chain. Without these four lines
@@ -298,11 +301,14 @@ export { PaneControlsContext, type PaneControls } from "./pane/pane-controls.js"
 // orphan — which is why the census below is the thing that says who owes the rebind.
 // The hook's claim is retired: the ledger's pane holds its chapter disclosure and
 // both of its row-retention tables through this line.
-export { isCurrentSessionSubject, useSessionScopedState } from "./session-subject.js";
+export {
+  isCurrentSessionSubject,
+  useSessionScopedState,
+} from "@renderer/store/subject-scoped/session-subject.js";
 // `SessionScopedKey` stays off the door with the hook's own claim: every caller passes a
 // session id rather than declaring the key type, so the reservation that held the line
 // named a task that landed and imported it nowhere.
-export type { SessionSubject } from "./session-subject.js";
+export type { SessionSubject } from "@renderer/store/subject-scoped/session-subject.js";
 
 // The node's session directory — the read, the offer a picker draws from it, and the
 // one way a settled act says the node's list has moved.
@@ -314,8 +320,14 @@ export type { SessionSubject } from "./session-subject.js";
 // is addressed at the call, so the family that settles an act and the families that
 // render the answer reach one generation rather than passing a refresh callback down
 // through whichever surfaces happen to sit between them.
-export { requestSessionDirectoryRead, useSessionDirectory } from "./session-directory.js";
-export type { SessionDirectoryReadCall, SessionDirectoryState } from "./session-directory.js";
+export {
+  requestSessionDirectoryRead,
+  useSessionDirectory,
+} from "@renderer/store/session-directory/session-directory.js";
+export type {
+  SessionDirectoryReadCall,
+  SessionDirectoryState,
+} from "@renderer/store/session-directory/session-directory.js";
 
 // The composed new-session draft's seat: the props the control takes.
 //
@@ -342,14 +354,14 @@ export {
   PushDrivenRead,
   usePushDrivenRead,
   type PushDrivenReadState,
-} from "./read/push-driven-read.js";
+} from "@renderer/store/reads/push-driven-read.js";
 
 // The reply unwrappers, from the module that DECLARES them. They answer a
 // different question from the model above — a reply's own discriminant, with no
 // subscription, scheduler, or teardown behind it — and a MUTATION needs the same
 // translation with no read to route through, which is why they are free functions
 // and why they left that module when it was split.
-export { consoleRefusalFrom, servedValueOrRaise } from "./read/served-value.js";
+export { consoleRefusalFrom, servedValueOrRaise } from "@renderer/lib/coerce-to-refusal.js";
 
 // The console's single copy of the daemon-EVENT cast. The brand
 // `DesktopBridge.daemon.subscribe` takes is `never`-shaped until the daemon method

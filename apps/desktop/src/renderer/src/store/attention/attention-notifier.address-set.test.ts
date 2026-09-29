@@ -27,7 +27,7 @@ import { ATTENTION_NOTIFIED_ITEM_CAP } from "@renderer/console/core/constants/se
 import { refuse } from "@renderer/lib/refusal.js";
 import type { AttentionItem } from "@renderer/console/bridge/wire-shapes/attention-projection.js";
 import { AttentionPlane, type AnsweredAttentionReading } from "./attention-summary.js";
-import { AttentionNotifier } from "@renderer/console/sessions/notifications/attention-notifier.js";
+import { AttentionNotifier } from "./attention-notifier.js";
 
 /** The session a window was opened directly on. Known before the directory answers. */
 const OPENED_SESSION_ID = "session-opened-directly";

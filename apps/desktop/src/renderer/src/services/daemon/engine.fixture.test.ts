@@ -34,7 +34,7 @@ import { ScenarioEngine } from "@renderer/console/bridge/scenario/runtime/engine
 import type { ConsoleScenario } from "@renderer/console/bridge/scenario/runtime/vocabulary.js";
 import { BASE_STATE_CURSOR } from "@renderer/store/session/session-state.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
-import type { ConsoleSessionEvent } from "@renderer/console/store/entities/entities.js";
+import type { ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
 
 const SESSION_ID = "019b79ee-0280-75e5-8510-ada11a5a99a9";
 
