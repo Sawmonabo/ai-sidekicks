@@ -32,7 +32,8 @@
 //
 // This config spreads the repo-root `eslint.config.mjs` first, so this package
 // inherits its `@eslint/js` recommended baseline, `typescript-eslint`
-// recommended, the repo-wide `ignores`, and the shared `languageOptions`. It
+// recommended, the repo-wide `ignores`, the shared `languageOptions`, and the enum
+// ban, which every block below that sets `no-restricted-syntax` restates. It
 // inherits NO `no-restricted-imports`: the root's two blocks are path-scoped to
 // files under `packages/control-plane/src/sessions/` and `packages/contracts/src/`,
 // so neither selector matches a file in this app (verified against the resolved
