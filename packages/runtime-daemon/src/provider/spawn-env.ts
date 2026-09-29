@@ -37,6 +37,8 @@
  * would apply a deny list under semantics its author never assumed.
  */
 
+import { CLAUDE_UPDATE_SWITCH_NAMES } from "@ai-sidekicks/contracts";
+
 import type { FlooredDriverName } from "./capability-refresh.js";
 
 /** One child-environment entry, in the pair shape the PTY spawn surface takes. */
@@ -102,7 +104,7 @@ export const PROVIDER_AUTO_UPDATE_OPT_OUT_ENV: Readonly<
 > = Object.freeze({
   // Presence-style gates on the pinned build
   // (the pinned Claude Code wire census).
-  claude: Object.freeze({ DISABLE_AUTOUPDATER: "1", DISABLE_UPDATES: "1" }),
+  claude: Object.freeze(Object.fromEntries(CLAUDE_UPDATE_SWITCH_NAMES.map((name) => [name, "1"]))),
   codex: Object.freeze({}),
 });
 

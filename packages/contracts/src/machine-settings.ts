@@ -72,14 +72,22 @@ export const CREDENTIAL_NAME_SUFFIXES: readonly string[] = Object.freeze([
   "_PASSWORD",
 ]);
 
+/** Claude Code's two update switches, set to `1` on every Claude process so the pinned build stays pinned. */
+export const CLAUDE_UPDATE_SWITCH_NAMES: readonly string[] = Object.freeze([
+  "DISABLE_AUTOUPDATER",
+  "DISABLE_UPDATES",
+]);
+
+/** Carries the Codex binary path into the Codex launch prelude, which never interpolates it. */
+export const CODEX_APP_SERVER_BIN_ENVIRONMENT_NAME: string = "CODEX_APP_SERVER_BIN";
+
 /**
  * The names the app sets itself on the processes it starts. A row with one of
  * these names would be overwritten without a word, so it is refused at save.
  */
 export const APP_SET_ENVIRONMENT_NAMES: readonly string[] = Object.freeze([
-  "DISABLE_AUTOUPDATER",
-  "DISABLE_UPDATES",
-  "CODEX_APP_SERVER_BIN",
+  ...CLAUDE_UPDATE_SWITCH_NAMES,
+  CODEX_APP_SERVER_BIN_ENVIRONMENT_NAME,
   "CLAUDE_AX_SCREEN_READER",
 ]);
 

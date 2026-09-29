@@ -124,6 +124,7 @@
 // 0.150.1`).
 
 import {
+  CODEX_APP_SERVER_BIN_ENVIRONMENT_NAME,
   DRIVER_AUTH_DETAIL_MAX_LEN,
   DRIVER_FAILURE_DETAIL_MAX_LEN,
   DRIVER_PROVIDER_COMMAND_DESCRIPTION_MAX_LEN,
@@ -253,9 +254,6 @@ import { mintUuidV7 } from "../../../ids/uuid-v7.js";
 // Transport constants
 // --------------------------------------------------------------------------
 
-/** Env var carrying the provider binary path into the prelude (never interpolated). */
-export const CODEX_APP_SERVER_BIN_ENV_VAR: string = "CODEX_APP_SERVER_BIN";
-
 /** Line the prelude emits once the tty is configured and before `exec`. */
 export const CODEX_APP_SERVER_READY_SENTINEL: string = "__codex_app_server_ready__";
 
@@ -276,7 +274,7 @@ export const CODEX_APP_SERVER_READY_SENTINEL: string = "__codex_app_server_ready
 export const CODEX_APP_SERVER_SHELL_PRELUDE: string =
   `stty -icanon -echo` +
   ` && printf '%s\\n' ${CODEX_APP_SERVER_READY_SENTINEL}` +
-  ` && exec "$${CODEX_APP_SERVER_BIN_ENV_VAR}" "$@"`;
+  ` && exec "$${CODEX_APP_SERVER_BIN_ENVIRONMENT_NAME}" "$@"`;
 
 /**
  * The `$0` the prelude script is given. Never read by the script; it exists
@@ -3687,7 +3685,7 @@ export class CodexAppServerConnection {
         baseEnv: config.env,
         hostEnvNameMatch: hostEnvNameMatchForPlatform(process.platform),
         credentialEnvPolicy: config.credentialEnvPolicy,
-        additionalMandatedPairs: [[CODEX_APP_SERVER_BIN_ENV_VAR, this.#executablePath]],
+        additionalMandatedPairs: [[CODEX_APP_SERVER_BIN_ENVIRONMENT_NAME, this.#executablePath]],
       }).map((pair) => [pair[0], pair[1]] as [string, string]),
       cwd: config.cwd,
       rows: this.#rows,
