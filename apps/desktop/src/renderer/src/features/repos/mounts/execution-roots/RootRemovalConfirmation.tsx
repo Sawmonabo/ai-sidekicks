@@ -20,7 +20,6 @@ import { Nothing, OverlayAlertDialogPopup } from "@renderer/console/primitives/i
 import { useConfirmationLifecycle } from "../hooks/useConfirmationLifecycle.js";
 import { type RootRemovalOperations, type RootRemovalReading } from "./root-removal-controller.js";
 import { useRootRemoval } from "./hooks/useRootRemoval.js";
-import { rootRemovalSubjectFor } from "./root-removal-subject.js";
 
 /** What the control says. */
 const REMOVAL_LABEL = "Remove";
@@ -41,8 +40,7 @@ export interface RootRemovalConfirmationProps {
 
 /** The alert dialog that removes one worktree after stating what the removal costs. */
 export function RootRemovalConfirmation(props: RootRemovalConfirmationProps): React.JSX.Element {
-  const subject = rootRemovalSubjectFor(props.rootId);
-  const { reading, send, clear } = useRootRemoval(props.bridge, subject, props.operations);
+  const { reading, send, clear } = useRootRemoval(props.bridge, props.rootId, props.operations);
   const { onSettled } = props;
   // The settlement belonged to the press that produced it, so a reconsideration of the
   // question discards it and a walk away discards it — and the confirm press, which
