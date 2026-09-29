@@ -24,15 +24,12 @@ import {
   FOLLOWING_ADDRESS_FIELD,
 } from "../address-field-model.js";
 import { describeChordEvent, isCloseTabChord } from "../handback/chord-claim.js";
-import {
-  isFilesystemDestination,
-  type NavigationReading,
-} from "@renderer/console/browser/pane/navigation-state.js";
+import { isFilesystemDestination, type NavigationReading } from "../types.js";
 import { activePageOf, type PageListReading } from "../page-list-reading.js";
 import { TabStrip } from "./PageTabStrip.js";
 import { HOST_CHORD_PLATFORM, Nothing, RefusalBanner } from "@renderer/console/primitives/index.js";
 import { useBrowserPaneActs } from "../hooks/usePreviewPaneActs.js";
-import { useGeometryPublisher } from "@renderer/console/browser/pane/geometry-binding.js";
+import { useGeometryPublisher } from "../hooks/useGeometryPublisher.js";
 import { usePaneAddressField } from "../hooks/usePaneAddressField.js";
 import { ChromeControl } from "./AddressLineButton.js";
 import { ConsolePaneChrome, type PaneContextOf } from "@renderer/console/seats/index.js";

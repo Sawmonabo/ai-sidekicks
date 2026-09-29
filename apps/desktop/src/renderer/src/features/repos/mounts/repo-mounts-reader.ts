@@ -51,7 +51,7 @@ import {
 } from "./execution-mode-selection.js";
 import { NOTHING_READ_YET, type RepoMountsReading } from "./repo-mounts-model.js";
 import type { RepoOperations } from "../repo-operations.js";
-import { REPO_LIFECYCLE_EVENT_KINDS } from "@renderer/console/repos/repo-lifecycle-events.js";
+import { REPO_LIFECYCLE_EVENT_KINDS } from "../repo-lifecycle-events.js";
 
 /** What one section reader collaborates with. */
 export interface RepoMountsReaderOptions {

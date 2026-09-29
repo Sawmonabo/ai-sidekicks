@@ -57,7 +57,7 @@ import {
   reuseConsentRequired,
   REUSE_VERDICT_COPY,
   type PrepareFormState,
-} from "@renderer/console/repos/mounts/roots/root-act-model.js";
+} from "./prepare-form.js";
 
 /** What the prepare form is bound to: the workspace, its mode, and the calls it makes. */
 export interface PrepareExecutionRootProps {

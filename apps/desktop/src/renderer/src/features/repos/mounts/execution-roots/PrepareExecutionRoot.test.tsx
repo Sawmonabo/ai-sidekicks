@@ -22,7 +22,7 @@ import { bridgeOnClock, scriptedRepoOperations } from "../../repo-operations.tes
 import { workspaceControlPosture, type WorkspaceControlPosture } from "../mount-health.js";
 import { DIRTY_BRANCH, preparingDaemon } from "../repo-mounts.test-support.js";
 import { PrepareExecutionRoot } from "./PrepareExecutionRoot.js";
-import { REUSE_UNANSWERED_COPY } from "@renderer/console/repos/mounts/roots/root-act-model.js";
+import { REUSE_UNANSWERED_COPY } from "./prepare-form.js";
 
 /** A branch with no candidate at all, which prepares without a consent. */
 const UNHELD_BRANCH = "feat/fresh-root";

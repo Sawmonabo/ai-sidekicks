@@ -38,7 +38,7 @@
 
 import { WORKTREE_GIT_REF_MAX_LEN, type WorktreeReuseCheckResponse } from "@ai-sidekicks/contracts";
 
-import type { ActPrerequisiteReading } from "@renderer/features/repos/acts/act-reading.js";
+import type { ActPrerequisiteReading } from "../../acts/act-reading.js";
 
 /** What the reuse check found, split by what a person can do about it. */
 export type ReuseVerdict =

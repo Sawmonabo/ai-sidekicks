@@ -20,10 +20,7 @@ import {
   DIFF_FIXTURE_VIEWPORT_HEIGHT_PX,
   DiffLayoutFixture,
 } from "@test/helpers/diff-layout-fixture.js";
-import {
-  InlineDiffCard,
-  registerInlineDiffCardBody,
-} from "@renderer/console/repos/diff-pane/InlineDiffCard.js";
+import { InlineDiffCard, registerInlineDiffCardBody } from "./InlineDiffCard.js";
 
 const CARD: DiffInlineCardProps = {
   kind: "diff",

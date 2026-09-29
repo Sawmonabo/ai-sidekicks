@@ -18,8 +18,8 @@
 import { useMemo } from "react";
 
 import { type RememberedRule } from "@renderer/services/approvals/approval-records.js";
-import { useConsoleCommandSeat, type ConsoleCommand } from "../../../palette/index.js";
-import { useLatestRef } from "../../../primitives/index.js";
+import { useConsoleCommandSeat, type ConsoleCommand } from "@renderer/console/palette/index.js";
+import { useLatestRef } from "@renderer/console/primitives/index.js";
 
 /** The owner these rows are contributed under. One per surface, one live at a time. */
 export const REVOKE_COMMAND_OWNER = "approvals-grants";

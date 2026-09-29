@@ -7,7 +7,7 @@
 
 import type { PreviewPage } from "@ai-sidekicks/contracts";
 
-import type { ReadingState } from "../../primitives/index.js";
+import type { ReadingState } from "@renderer/console/primitives/index.js";
 
 /**
  * What the pane knows about the page right now.

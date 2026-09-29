@@ -11,7 +11,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { isFilesystemDestination } from "./navigation-state.js";
+import { isFilesystemDestination } from "@renderer/features/preview/types.js";
 
 /**
  * Every local-path spelling, named by its FORM and paired with the verdict the

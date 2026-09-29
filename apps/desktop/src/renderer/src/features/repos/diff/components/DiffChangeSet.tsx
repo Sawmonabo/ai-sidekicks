@@ -10,7 +10,7 @@
 
 import { DiffFileList } from "./DiffFileList.js";
 import { DiffRenderer } from "./DiffRenderer.js";
-import { DiffToolbar, useDiffViewControls } from "@renderer/console/repos/diff-pane/DiffToolbar.js";
+import { DiffToolbar, useDiffViewControls } from "./DiffToolbar.js";
 import { type ConsoleDiffModel } from "../diff-model.js";
 import { useDiffModelViewState } from "../hooks/useDiffModelViewState.js";
 

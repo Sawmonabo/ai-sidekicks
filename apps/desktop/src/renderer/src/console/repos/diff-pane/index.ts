@@ -26,4 +26,4 @@ import "@renderer/features/repos/diff/components/diff.css";
 // the component, because the seat is filled by a call and a family barrel that
 // exported the component would invite a sibling to mount it directly — which is
 // the import across view families the seats exist to prevent.
-export { registerInlineDiffCardBody } from "./InlineDiffCard.js";
+export { registerInlineDiffCardBody } from "@renderer/features/repos/diff/components/InlineDiffCard.js";

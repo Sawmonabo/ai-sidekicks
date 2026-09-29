@@ -33,7 +33,7 @@ import { advanceScenarioUntil } from "../scenario-manual-clock.js";
 import { ManualClock } from "@renderer/lib/clock.js";
 import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
 import { DiffPane } from "@renderer/features/repos/diff/components/DiffPane.js";
-import { paneContext } from "@renderer/console/repos/pane-contexts.test-support.js";
+import { paneContext } from "@renderer/features/repos/pane-context.test-support.js";
 import {
   HEALTHY_WORKSPACE_ID,
   MOUNTS,

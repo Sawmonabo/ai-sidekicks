@@ -18,13 +18,13 @@ import {
   Glyph,
   WireFigure,
   formatByteQuantity,
-} from "../../primitives/index.js";
-import { type ArtifactManifestRow } from "@renderer/features/inspector/artifacts/artifact-model.js";
-import {
-  ARTIFACT_STATE_PRESENTATION,
-  artifactProducerLabel,
-} from "@renderer/features/inspector/artifacts/artifact-copy.js";
-import type { InlineCardSeatRegistry, ArtifactInlineCardProps } from "../../seats/index.js";
+} from "@renderer/console/primitives/index.js";
+import { type ArtifactManifestRow } from "../artifact-model.js";
+import { ARTIFACT_STATE_PRESENTATION, artifactProducerLabel } from "../artifact-copy.js";
+import type {
+  InlineCardSeatRegistry,
+  ArtifactInlineCardProps,
+} from "@renderer/console/seats/index.js";
 import { GLYPH_SIZE_ROW } from "@renderer/styles/glyphs.js";
 
 /** Who owns this body, for the seat registry's owner-scoped duplicate policy. */

@@ -52,20 +52,20 @@
 import { useId, useRef, useState } from "react";
 
 import { GLYPH_SIZE_ROW } from "@renderer/styles/glyphs.js";
-import { Glyph, Nothing } from "../../primitives/index.js";
-import type { InlineCardSeatRegistry, DiffInlineCardProps } from "../../seats/index.js";
-import { INLINE_DIFF_CARD_HEIGHT_CAP_PX } from "@renderer/features/repos/diff-caps.js";
-import { DiffChangeSet } from "@renderer/features/repos/diff/components/DiffChangeSet.js";
-import { DiffRenderer } from "@renderer/features/repos/diff/components/DiffRenderer.js";
+import { Glyph, Nothing } from "@renderer/console/primitives/index.js";
+import type { InlineCardSeatRegistry, DiffInlineCardProps } from "@renderer/console/seats/index.js";
+import { INLINE_DIFF_CARD_HEIGHT_CAP_PX } from "../../diff-caps.js";
+import { DiffChangeSet } from "./DiffChangeSet.js";
+import { DiffRenderer } from "./DiffRenderer.js";
 import { useDiffViewControls } from "./DiffToolbar.js";
-import { type ConsoleDiffModel } from "@renderer/features/repos/diff/diff-model.js";
-import { useDiffModelViewState } from "@renderer/features/repos/diff/hooks/useDiffModelViewState.js";
+import { type ConsoleDiffModel } from "../diff-model.js";
+import { useDiffModelViewState } from "../hooks/useDiffModelViewState.js";
 // TYPE-ONLY, AND THAT IS LOAD-BEARING RATHER THAN TIDY. `patch-parse.ts` is where the
 // adopted diff library is called, and this card is registered eagerly — a value import
 // of that module would put the parser on the initial import graph for every session,
 // including the ones that open no diff at all. A type import is erased, so the shape
 // the compared states travel in has one home and the graph does not move.
-import type { ComparedStates } from "@renderer/features/repos/diff/patch-parse.js";
+import type { ComparedStates } from "../patch-parse.js";
 
 /** Who owns this body, for the seat registry's owner-scoped duplicate policy. */
 const INLINE_DIFF_CARD_OWNER = "repos";

@@ -12,10 +12,7 @@ import {
   inlineCardSeatRegistry,
   type ArtifactInlineCardProps,
 } from "@renderer/console/seats/index.js";
-import {
-  InlineArtifactCard,
-  registerInlineArtifactCardBody,
-} from "@renderer/console/repos/artifact-pane/InlineArtifactCard.js";
+import { InlineArtifactCard, registerInlineArtifactCardBody } from "./InlineArtifactCard.js";
 
 const CARD: ArtifactInlineCardProps = {
   kind: "artifact",

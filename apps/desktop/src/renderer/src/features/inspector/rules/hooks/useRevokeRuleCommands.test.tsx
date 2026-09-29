@@ -16,7 +16,7 @@ import { describe, expect, it, vi } from "vitest";
 import { type RememberedRule } from "@renderer/services/approvals/approval-records.js";
 import { consoleCommands } from "@renderer/console/palette/index.js";
 import { RememberedGrants } from "../components/RememberedRules.js";
-import { offersRevoke } from "@renderer/console/approvals/pane/grants/revoke-commands.js";
+import { offersRevoke } from "./useRevokeRuleCommands.js";
 
 const FIRST_RULE = "rule-01";
 const SECOND_RULE = "rule-02";

@@ -10,7 +10,7 @@ import { REFRESH_DEBOUNCE_MS } from "@renderer/lib/reads/refresh-caps.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import { scriptedRepoOperations } from "../../repo-operations.test-support.js";
 import { DIRTY_BRANCH, INCOMPATIBLE_BRANCH, preparingDaemon } from "../repo-mounts.test-support.js";
-import { REPO_LIFECYCLE_EVENT_KINDS } from "@renderer/console/repos/repo-lifecycle-events.js";
+import { REPO_LIFECYCLE_EVENT_KINDS } from "../../repo-lifecycle-events.js";
 import { ExecutionRootPrepareController } from "./prepare-controller.js";
 
 const controllers: ExecutionRootPrepareController[] = [];

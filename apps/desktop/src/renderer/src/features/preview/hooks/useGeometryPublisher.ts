@@ -12,11 +12,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 
-import {
-  PaneGeometryPublisher,
-  type PaneGeometryOutcome,
-} from "@renderer/features/preview/geometry/geometry-publisher.js";
-import type { AttachedPaneViewHost } from "@renderer/features/preview/geometry/view-host.js";
+import { PaneGeometryPublisher, type PaneGeometryOutcome } from "../geometry/geometry-publisher.js";
+import type { AttachedPaneViewHost } from "../geometry/view-host.js";
 import {
   useSubjectScopedResource,
   type SubjectScopedDisposal,

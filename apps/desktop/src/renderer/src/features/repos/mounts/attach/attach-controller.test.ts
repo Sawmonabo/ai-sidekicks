@@ -7,8 +7,8 @@ import { afterEach, describe, expect, it, vi, type Mock } from "vitest";
 
 import type { RepoAttachResponse } from "@ai-sidekicks/contracts";
 
-import { scriptedRepoOperations } from "@renderer/features/repos/repo-operations.test-support.js";
-import type { RepoOperations } from "@renderer/features/repos/repo-operations.js";
+import { scriptedRepoOperations } from "../../repo-operations.test-support.js";
+import type { RepoOperations } from "../../repo-operations.js";
 import { AttachController } from "./attach-controller.js";
 
 /** What the daemon answers an attach with. */

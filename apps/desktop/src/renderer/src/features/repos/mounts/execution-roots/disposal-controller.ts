@@ -21,8 +21,8 @@ import type { WorktreeId } from "@ai-sidekicks/contracts";
 import type { ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
 import { CONTROLLER_DISPOSAL } from "@renderer/console/store/act/use-act-controller.js";
 import { useSubjectScopedResource } from "@renderer/console/store/subject-scoped/subject-scoped-resource.js";
-import type { RepoOperations } from "@renderer/features/repos/repo-operations.js";
-import type { DisposalSubject } from "./root-act-model.js";
+import type { RepoOperations } from "../../repo-operations.js";
+import type { DisposalSubject } from "./prepare-form.js";
 
 /** The one call this controller makes. */
 export type DisposalOperations = Pick<RepoOperations, "retireWorktree">;

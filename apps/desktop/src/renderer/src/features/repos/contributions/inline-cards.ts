@@ -13,9 +13,9 @@
 import {
   registerInlineArtifactCardBody,
   registerInlineAttachmentCardBody,
-} from "./artifact-pane/index.js";
-import { registerInlineDiffCardBody } from "./diff-pane/index.js";
-import { type InlineCardSeatRegistry } from "../seats/index.js";
+} from "@renderer/console/repos/artifact-pane/index.js";
+import { registerInlineDiffCardBody } from "@renderer/console/repos/diff-pane/index.js";
+import { type InlineCardSeatRegistry } from "@renderer/console/seats/index.js";
 
 /**
  * Who owns every body this family registers.

@@ -24,8 +24,8 @@ import {
   useRootDisposal,
   type DisposalOperations,
   type DisposalReading,
-} from "@renderer/console/repos/mounts/roots/disposal-controller.js";
-import { disposalSubjectFor } from "@renderer/console/repos/mounts/roots/root-act-model.js";
+} from "./disposal-controller.js";
+import { disposalSubjectFor } from "./prepare-form.js";
 
 /** What the control says. The verb is the daemon's, not a softened one. */
 const DISPOSAL_VERB = "Retire this root";

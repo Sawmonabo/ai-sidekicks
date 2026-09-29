@@ -40,10 +40,7 @@ import {
 } from "@renderer/console/primitives/index.js";
 import type { RepoOperations } from "../../repo-operations.js";
 import { useConfirmationLifecycle } from "../hooks/useConfirmationLifecycle.js";
-import {
-  useAttachController,
-  type AttachActReading,
-} from "@renderer/console/repos/mounts/attach/attach-controller.js";
+import { useAttachController, type AttachActReading } from "./attach-controller.js";
 
 export interface ReattachControlProps {
   readonly bridge: ConsoleBridge;

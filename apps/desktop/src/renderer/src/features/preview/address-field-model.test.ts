@@ -13,7 +13,7 @@ import {
   addressFieldValue,
   editingAddressField,
   FOLLOWING_ADDRESS_FIELD,
-} from "@renderer/features/preview/address-field-model.js";
+} from "./address-field-model.js";
 
 const REPORTED = "https://example.invalid/page";
 const REDIRECTED = "https://example.invalid/after-redirect";

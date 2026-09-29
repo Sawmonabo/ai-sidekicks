@@ -51,7 +51,10 @@ import "@renderer/features/inspector/artifacts/components/artifacts.css";
 import "@renderer/features/composer/attachments/components/attachments.css";
 
 import type { ConsolePaneRegistry } from "../seats/index.js";
-import { REPOS_FAMILY_OWNER, registerRepos } from "./family-bodies.js";
+import {
+  REPOS_FAMILY_OWNER,
+  registerRepos,
+} from "@renderer/features/repos/contributions/inline-cards.js";
 
 // The sidebar and card seats, from the module that fills them. `console/families.ts`
 // calls this at the family's own reserved line; `family-bodies.ts` says why the calls

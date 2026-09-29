@@ -13,5 +13,5 @@
 
 import "./artifact.css";
 
-export { registerInlineArtifactCardBody } from "./InlineArtifactCard.js";
+export { registerInlineArtifactCardBody } from "@renderer/features/inspector/artifacts/components/InlineArtifactCard.js";
 export { registerInlineAttachmentCardBody } from "./InlineAttachmentCard.js";

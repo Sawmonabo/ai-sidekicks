@@ -29,7 +29,7 @@ import { RefreshScheduler, type RefreshReason } from "@renderer/lib/reads/refres
 import { SessionRefreshTriggers } from "@renderer/store/reads/session-refresh-triggers.js";
 import { type ReadTriggerTarget } from "@renderer/console/store/read/read-triggers.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
-import { ARTIFACT_TERMINAL_EVENT_KINDS } from "@renderer/console/repos/repo-lifecycle-events.js";
+import { ARTIFACT_TERMINAL_EVENT_KINDS } from "@renderer/features/repos/repo-lifecycle-events.js";
 import { settledReadReading, type ArtifactPaneReading } from "./artifact-list-reading.js";
 import { readArtifactList, type ListArtifacts } from "./services/artifact-reads.js";
 

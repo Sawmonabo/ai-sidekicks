@@ -1,6 +1,6 @@
 import { useCallback, useState } from "react";
-import { type DiffViewMode } from "@renderer/features/repos/diff/diff-model.js";
-import { DiffToggle } from "@renderer/features/repos/diff/components/DiffToggle.js";
+import { type DiffViewMode } from "../diff-model.js";
+import { DiffToggle } from "./DiffToggle.js";
 
 /** What the view control holds, and the setter that moves it. */
 export interface DiffViewControls {

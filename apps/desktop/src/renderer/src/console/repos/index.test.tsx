@@ -16,7 +16,7 @@ import {
   inlineCardSeatRegistry,
   type ConsolePaneContext,
 } from "../seats/index.js";
-import { paneContext } from "./pane-contexts.test-support.js";
+import { paneContext } from "@renderer/features/repos/pane-context.test-support.js";
 import * as reposDoorModule from "./index.js";
 import { registerRepos, registerReposPanes } from "./index.js";
 
