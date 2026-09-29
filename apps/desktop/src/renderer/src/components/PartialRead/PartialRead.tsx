@@ -28,7 +28,7 @@
 // have been a second region announcing the same sentence, nested inside the refusal's,
 // and mounting with its content already in it — the shape screen readers do not
 // reliably announce at all. Where the SENTENCE itself has to be spoken, the surface
-// calls `useReadingAnnouncement`, which routes it through the announcer's persistent,
+// calls `useAnnounceOncePerSentence`, which routes it through the announcer's persistent,
 // `aria-atomic` pair rather than through a region invented at the moment it spoke.
 
 import { ReadingNotice } from "./ReadingNotice.js";

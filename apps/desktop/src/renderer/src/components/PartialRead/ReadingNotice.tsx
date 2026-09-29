@@ -17,7 +17,7 @@
 // standing absolute — one announcer per window — and the two regions a notice can
 // touch already have owners: the `reading` arm delegates to `Nothing`, which carries
 // its own, and a prose arm nests `InlineRefusal`, which carries rule 9's. Where the
-// SENTENCE itself has to be spoken, the surface calls `useReadingAnnouncement`.
+// SENTENCE itself has to be spoken, the surface calls `useAnnounceOncePerSentence`.
 
 import "./PartialRead.css";
 

@@ -31,7 +31,7 @@ import {
   type OpenResource,
 } from "./useSubjectScopedResource.test-support.js";
 
-interface RemintProbeProps {
+interface DoubleMountProbeProps {
   readonly subject: NamedFixtureSubject;
   readonly ledger: ResourceOpenCloseLog;
   /** Whether this caller's `close` is terminal, which is the whole difference. */
@@ -47,7 +47,7 @@ interface RemintProbeProps {
  * what a control has to hold constant here is the render tree, the subject, and the
  * ledger, and vary only whether the hook is told the disposal ends the resource.
  */
-function RemintProbe(props: RemintProbeProps): ReactElement {
+function DoubleMountProbe(props: DoubleMountProbeProps): ReactElement {
   const { ledger } = props;
   const { value } = useSubjectScopedResource<OpenResource>(
     props.subject,
@@ -78,7 +78,7 @@ describe("useSubjectScopedResource — a resource its own close ended is re-mint
     const seen: OpenResource[] = [];
     render(
       <StrictMode>
-        <RemintProbe
+        <DoubleMountProbe
           subject={SETTLED_SUBJECT}
           ledger={ledger}
           declaresTerminalClose
@@ -103,7 +103,7 @@ describe("useSubjectScopedResource — a resource its own close ended is re-mint
     const seen: OpenResource[] = [];
     render(
       <StrictMode>
-        <RemintProbe
+        <DoubleMountProbe
           subject={SETTLED_SUBJECT}
           ledger={ledger}
           declaresTerminalClose={false}
@@ -126,7 +126,7 @@ describe("useSubjectScopedResource — a resource its own close ended is re-mint
     const ledger = new ResourceOpenCloseLog();
     const seen: OpenResource[] = [];
     const { rerender } = render(
-      <RemintProbe
+      <DoubleMountProbe
         subject={SETTLED_SUBJECT}
         ledger={ledger}
         declaresTerminalClose
@@ -137,7 +137,7 @@ describe("useSubjectScopedResource — a resource its own close ended is re-mint
     ledger.close(committed);
 
     rerender(
-      <RemintProbe
+      <DoubleMountProbe
         subject={SETTLED_SUBJECT}
         ledger={ledger}
         declaresTerminalClose
@@ -156,7 +156,7 @@ describe("useSubjectScopedResource — a resource its own close ended is re-mint
     const ledger = new ResourceOpenCloseLog();
     const seen: OpenResource[] = [];
     const { rerender } = render(
-      <RemintProbe
+      <DoubleMountProbe
         subject={SETTLED_SUBJECT}
         ledger={ledger}
         declaresTerminalClose
@@ -164,7 +164,7 @@ describe("useSubjectScopedResource — a resource its own close ended is re-mint
       />,
     );
     rerender(
-      <RemintProbe
+      <DoubleMountProbe
         subject={DISCARDED_SUBJECT}
         ledger={ledger}
         declaresTerminalClose
