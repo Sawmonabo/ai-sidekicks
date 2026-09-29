@@ -63,7 +63,7 @@ async function mountStrip(): Promise<DraggedStrip> {
     />,
   );
   return {
-    tabs: [...container.querySelectorAll<HTMLElement>(".meridian-browser-tab")],
+    tabs: [...container.querySelectorAll<HTMLElement>(".meridian-preview-tab")],
     reordered,
   };
 }
@@ -133,12 +133,12 @@ describe("dragging a tab, against the browser's own drag store", () => {
     const atRest = borderStartColorOf(target);
 
     await dispatchDrag(target, "dragover", transfer);
-    expect(target.className).toContain("meridian-browser-tab--drop-before");
+    expect(target.className).toContain("meridian-preview-tab--drop-before");
     const marked = borderStartColorOf(target);
     expect(marked).not.toBe(atRest);
 
     await dispatchDrag(target, "drop", transfer);
-    expect(target.className).not.toContain("meridian-browser-tab--drop-before");
+    expect(target.className).not.toContain("meridian-preview-tab--drop-before");
     expect(borderStartColorOf(target)).toBe(atRest);
   });
 

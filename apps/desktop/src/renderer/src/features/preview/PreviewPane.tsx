@@ -14,7 +14,7 @@ export function PreviewPane(context: PaneContextOf<"browser">): React.JSX.Elemen
       sessionId={context.sessionStore?.sessionId}
       focusHue={context.focusHue}
     >
-      <div className="meridian-browser-pane" />
+      <div className="meridian-preview-pane" />
     </PaneFrame>
   );
 }

@@ -154,7 +154,7 @@ export function PreviewPaneContent(props: PreviewPaneContentProps): React.JSX.El
       focusHue={focusHue}
       onKeyDownCapture={onCloseTabChord}
     >
-      <div className="meridian-browser-pane" tabIndex={-1}>
+      <div className="meridian-preview-pane" tabIndex={-1}>
         <PageTabStrip
           reading={pages}
           onSelect={acts.selectPage}
@@ -162,7 +162,7 @@ export function PreviewPaneContent(props: PreviewPaneContentProps): React.JSX.El
           onReorder={acts.reorderPage}
         />
 
-        <form onSubmit={submitDestination} className="meridian-browser-chrome">
+        <form onSubmit={submitDestination} className="meridian-preview-chrome">
           <AddressLineButton
             label="Back"
             disabled={(reported?.backDepth ?? 0) === 0}
@@ -193,7 +193,7 @@ export function PreviewPaneContent(props: PreviewPaneContentProps): React.JSX.El
               setAddressField(editingAddressField(event.target.value));
             }}
             onKeyDown={onAddressKeyDown}
-            className="meridian-browser-chrome__address"
+            className="meridian-preview-chrome__address"
           />
           {/* Always available: it is what the pane falls back to when nothing else acts. */}
           <AddressLineButton
@@ -210,7 +210,7 @@ export function PreviewPaneContent(props: PreviewPaneContentProps): React.JSX.El
         <div
           ref={geometry.hostRef}
           data-pane-viewport={paneId}
-          className="meridian-browser-pane__viewport"
+          className="meridian-preview-pane__viewport"
         >
           {geometry.outcome?.status === "suppressed" ? (
             <Nothing

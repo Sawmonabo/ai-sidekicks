@@ -57,7 +57,7 @@ function dragTransfer(pageId: string | undefined): DataTransfer {
 }
 
 function tabAt(index: number): HTMLElement {
-  const tabs = document.querySelectorAll(".meridian-browser-tab");
+  const tabs = document.querySelectorAll(".meridian-preview-tab");
   const tab = tabs[index];
   if (!(tab instanceof HTMLElement)) {
     throw new Error(`no tab drawn at slot ${String(index)}`);
@@ -67,7 +67,7 @@ function tabAt(index: number): HTMLElement {
 
 /** The face of the tab at a slot — the control that selects it. */
 function tabFace(index: number): HTMLElement {
-  const face = tabAt(index).querySelector(".meridian-browser-tab__face");
+  const face = tabAt(index).querySelector(".meridian-preview-tab__face");
   if (!(face instanceof HTMLElement)) {
     throw new Error(`the tab at slot ${String(index)} drew no face`);
   }
@@ -75,7 +75,7 @@ function tabFace(index: number): HTMLElement {
 }
 
 function trailingSlot(): HTMLElement {
-  const tail = document.querySelector(".meridian-browser-tabs__tail");
+  const tail = document.querySelector(".meridian-preview-tabs__tail");
   if (!(tail instanceof HTMLElement)) {
     throw new Error("the strip drew no trailing slot");
   }
@@ -104,8 +104,8 @@ describe("the tab strip's frame", () => {
     // tab is drawn like every other one. No unit tier can see that, because no cascade
     // runs here; what this case holds is the hook the browser tier then resolves.
     renderStrip(THREE_PAGES);
-    expect(tabAt(0).className).toContain("meridian-browser-tab--selected");
-    expect(tabAt(1).className).not.toContain("meridian-browser-tab--selected");
+    expect(tabAt(0).className).toContain("meridian-preview-tab--selected");
+    expect(tabAt(1).className).not.toContain("meridian-preview-tab--selected");
   });
 });
 
@@ -119,13 +119,13 @@ describe("the tab strip's presence", () => {
         onReorder={vi.fn()}
       />,
     );
-    expect(one.container.querySelector(".meridian-browser-tabs")).toBeNull();
+    expect(one.container.querySelector(".meridian-preview-tabs")).toBeNull();
     one.unmount();
     renderStrip({
       kind: "served",
       frame: { pages: [page({ pageId: "a" }), page({ pageId: "b" })], activeIndex: 0 },
     });
-    expect(document.querySelectorAll(".meridian-browser-tab")).toHaveLength(2);
+    expect(document.querySelectorAll(".meridian-preview-tab")).toHaveLength(2);
   });
 });
 

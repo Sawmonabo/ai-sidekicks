@@ -34,7 +34,7 @@
  * window, so there is nothing to register it with, and the prefix is what stops it
  * colliding with a type some other surface invents.
  */
-export const PAGE_TAB_DRAG_MEDIA_TYPE = "application/x-meridian-browser-tab";
+export const PAGE_TAB_DRAG_MEDIA_TYPE = "application/x-meridian-preview-tab";
 
 /**
  * What a drag over the strip may do, read off the drag itself.

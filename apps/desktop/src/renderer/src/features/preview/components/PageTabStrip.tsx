@@ -73,8 +73,8 @@ export function PageTabStrip(props: PageTabStripProps): React.JSX.Element | null
   }
 
   return (
-    <div className="meridian-browser-tabs">
-      <ul className="meridian-browser-tabs__list">
+    <div className="meridian-preview-tabs">
+      <ul className="meridian-preview-tabs__list">
         {pages.map((page, index) => (
           <li
             key={page.pageId}
@@ -103,7 +103,7 @@ export function PageTabStrip(props: PageTabStripProps): React.JSX.Element | null
           >
             <button
               type="button"
-              className="meridian-browser-tab__face"
+              className="meridian-preview-tab__face"
               aria-current={page.pageId === activePageId ? "page" : undefined}
               onClick={() => {
                 onSelect(page.pageId);
@@ -111,15 +111,15 @@ export function PageTabStrip(props: PageTabStripProps): React.JSX.Element | null
             >
               {page.isLoading ? (
                 <>
-                  <span className="meridian-browser-tab__spinner" aria-hidden="true" />
+                  <span className="meridian-preview-tab__spinner" aria-hidden="true" />
                   <span className="meridian-visually-hidden">Loading</span>
                 </>
               ) : null}
-              <span className="meridian-browser-tab__label">{tabLabel(page)}</span>
+              <span className="meridian-preview-tab__label">{tabLabel(page)}</span>
             </button>
             <button
               type="button"
-              className="meridian-browser-tab__close"
+              className="meridian-preview-tab__close"
               aria-label={`Close ${tabLabel(page)}`}
               onClick={() => {
                 onClose(page.pageId);
@@ -134,8 +134,8 @@ export function PageTabStrip(props: PageTabStripProps): React.JSX.Element | null
         <li
           className={
             hoveredSlot === pages.length
-              ? "meridian-browser-tabs__tail meridian-browser-tab--drop-before"
-              : "meridian-browser-tabs__tail"
+              ? "meridian-preview-tabs__tail meridian-preview-tab--drop-before"
+              : "meridian-preview-tabs__tail"
           }
           onDragOver={(event) => {
             if (!isTabDrag(event.dataTransfer)) {
@@ -167,9 +167,9 @@ export function PageTabStrip(props: PageTabStripProps): React.JSX.Element | null
  */
 function tabClassName(isSelected: boolean, isDropTarget: boolean): string {
   return [
-    "meridian-browser-tab",
-    isSelected ? "meridian-browser-tab--selected" : undefined,
-    isDropTarget ? "meridian-browser-tab--drop-before" : undefined,
+    "meridian-preview-tab",
+    isSelected ? "meridian-preview-tab--selected" : undefined,
+    isDropTarget ? "meridian-preview-tab--drop-before" : undefined,
   ]
     .filter((token) => token !== undefined)
     .join(" ");

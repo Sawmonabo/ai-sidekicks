@@ -45,7 +45,7 @@
 //      (`ledger/cards/cards.css` — `.meridian-ansi--italic` under a
 //      `.meridian-ansi__body` that sets the mono token) and one browser-chrome
 //      context (`browser/pane/chrome/chrome.css`, the `--unnamed` rule, which
-//      inherits mono from `.meridian-browser-tabs__context` above it). Everything
+//      inherits mono from `.meridian-preview-tabs__context` above it). Everything
 //      else is SANS: all three diff italics set the sans family explicitly and say
 //      so, and the markdown, session-header, pane-chrome, and remaining chrome rules
 //      resolve to the body's sans stack. A family that declared only its upright

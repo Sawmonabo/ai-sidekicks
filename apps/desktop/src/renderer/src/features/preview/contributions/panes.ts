@@ -19,7 +19,7 @@
 // A sheet may only travel behind a chunk boundary when no other feature declares any
 // class it declares: two features declaring one class at equal specificity are resolved
 // by load order, so deferring such a sheet silently restyles the other feature's surface.
-// Every class in this feature's three sheets carries the `meridian-browser-` prefix, and
+// Every class in this feature's three sheets carries the `meridian-preview-` prefix, and
 // no other feature's sheet declares one of them.
 
 import type { PaneRegistry } from "@renderer/console/seats/index.js";
