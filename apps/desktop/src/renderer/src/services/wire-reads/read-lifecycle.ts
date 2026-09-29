@@ -9,7 +9,7 @@
 // THE COUPLING IS THE WHOLE SUBJECT, so it lives in one class with one meaning:
 // `readRefusal` says the NEWEST read failed, never that a read has failed at some
 // point. A served read clears it in the same act that moves the phase, and
-// {@link readRefusalOf} derives what a surface renders from the phase rather than
+// {@link findReadRefusal} derives what a surface renders from the phase rather than
 // trusting the clear — two independent statements of one rule, so a later arm that
 // forgets the clear still renders honestly.
 //
@@ -155,7 +155,7 @@ export class WireReadLifecycle {
  * here, and a reading whose newest read served answers `undefined` even if some later
  * arm forgets {@link WireReadLifecycle.settleRead}'s clear.
  */
-export function readRefusalOf(state: WireReadState): Refusal | undefined {
+export function findReadRefusal(state: WireReadState): Refusal | undefined {
   return state.phase === "refused" ? state.readRefusal : undefined;
 }
 

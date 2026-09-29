@@ -56,7 +56,7 @@ import { useMemo, useRef } from "react";
 
 import { Nothing } from "@renderer/console/primitives/index.js";
 import { DIFF_ROW_HEIGHT_PX } from "../diff-measures.js";
-import type { ConsoleDiffModel, DiffViewMode } from "../diff-model.js";
+import type { DiffModel, DiffViewMode } from "../diff-model.js";
 import { DiffRowView } from "./DiffRowView.js";
 import type { DiffGapExpansion } from "../diff-row-model.js";
 import { DiffRowIndex } from "../diff-row-index.js";
@@ -64,7 +64,7 @@ import { IntralineSegmentCache } from "../intraline-segment-cache.js";
 import { useRowWindow } from "../hooks/useRowWindow.js";
 
 export interface DiffRendererProps {
-  readonly model: ConsoleDiffModel;
+  readonly model: DiffModel;
   readonly viewMode: DiffViewMode;
   readonly expansion: DiffGapExpansion;
   /**

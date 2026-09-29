@@ -33,7 +33,7 @@ import {
   type RunId,
   type SessionId,
 } from "@ai-sidekicks/contracts";
-import type { ConsoleScenario } from "../scenario.js";
+import type { Scenario } from "../scenario.js";
 
 // UUID v7 values whose leading bytes are this scenario's own start instant, so a
 // reader scanning a rendered id can still tell one fixture apart from another.
@@ -62,7 +62,7 @@ const APPROVAL_PENDING_ASK = "019b7a33-3300-7f01-8140-d1a4c1150524";
  */
 const DRIVER_ASK_ID = "ask-permission-force-push";
 
-export const APPROVALS_SCENARIO: ConsoleScenario = {
+export const APPROVAL_REQUEST_SCENARIO: Scenario = {
   id: "approval-request",
   label: "A decision waiting",
   purpose:

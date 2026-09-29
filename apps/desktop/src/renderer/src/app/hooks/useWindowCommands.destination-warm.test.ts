@@ -30,7 +30,7 @@ import { describe, expect, it } from "vitest";
 import { KeybindingTable } from "@renderer/registries/keybindings/keybinding-table.js";
 import { commandRegistry } from "@renderer/registries/commands/window-command-registry.js";
 import { screenRegistry } from "@renderer/console/seats/index.js";
-import { mountConsole } from "@test/helpers/mount-app.js";
+import { mountApp } from "@test/helpers/mount-app.js";
 
 /** A key no console chord binds, and one that needs no modifier to press. */
 const PRESSED_CODE = "F9";
@@ -55,7 +55,7 @@ function pressRebound(commandId: string): void {
 
 describe("a rail destination reached by chord", () => {
   it("warms the destination's surface on the run path, not only the palette's", async () => {
-    await mountConsole();
+    await mountApp();
 
     // The control, in line and not in a case of its own: the board is cold here, so the
     // reading after the press is about the press. A window whose idle walk had already
@@ -73,7 +73,7 @@ describe("a rail destination reached by chord", () => {
     // Without this, a table that ran something on every press would satisfy the case
     // above. Asserted on the ROUTE rather than on the board, because the board is
     // process-wide and this file has already warmed it by now.
-    const mounted = await mountConsole();
+    const mounted = await mountApp();
 
     pressRebound("frame.thisCommandIsNotRegistered");
 

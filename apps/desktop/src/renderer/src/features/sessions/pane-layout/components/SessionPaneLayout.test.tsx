@@ -10,7 +10,7 @@ import { describe, expect, it } from "vitest";
 
 import { PANE_LAYOUT_RESTORED_PANE_CAP } from "../pane-layout-store.js";
 import { ManualClock } from "@renderer/lib/clock.js";
-import { DesktopBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
+import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { FIRST_RUN_SCENARIO } from "../../../../../../../fixtures/scenarios/first-run.js";
@@ -69,7 +69,7 @@ function registryWith(
  * The deck under the two providers the frame mounts above every surface.
  *
  * Not decoration: the deck reads `useAnnounce` to say what a drop settled on and
- * `useConsoleClock` to hand its rect tracker the window's own time base, and both
+ * `useClock` to hand its rect tracker the window's own time base, and both
  * throw outside their provider by design. `AppFrame` mounts both above every
  * surface, so a bare `render(<Deck/>)` here would be a mount shape production never
  * has — and the throw is the primitive refusing to let a surface speak through a
@@ -78,9 +78,9 @@ function registryWith(
  */
 function DeckWindow(props: { readonly children: React.ReactNode }): React.JSX.Element {
   return (
-    <DesktopBridgeProvider bridge={createFixtureBridge({ scenario: FIRST_RUN_SCENARIO })}>
+    <PlatformBridgeProvider bridge={createFixtureBridge({ scenario: FIRST_RUN_SCENARIO })}>
       <LiveAnnouncerProvider>{props.children}</LiveAnnouncerProvider>
-    </DesktopBridgeProvider>
+    </PlatformBridgeProvider>
   );
 }
 
@@ -349,7 +349,7 @@ describe("Deck — the clock its rect flush runs on", () => {
     const layout = emptyLayout();
     layout.open({ kind: "timeline", entity: undefined });
     render(
-      <DesktopBridgeProvider bridge={bridge}>
+      <PlatformBridgeProvider bridge={bridge}>
         <LiveAnnouncerProvider>
           <SessionPaneLayout
             layout={layout}
@@ -357,7 +357,7 @@ describe("Deck — the clock its rect flush runs on", () => {
             paneContextFor={paneContextFor}
           />
         </LiveAnnouncerProvider>
-      </DesktopBridgeProvider>,
+      </PlatformBridgeProvider>,
     );
   }
 

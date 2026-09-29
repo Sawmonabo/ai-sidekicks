@@ -31,13 +31,13 @@ export const PLAIN_PATCH: string = [
 ].join("\n");
 
 /** One parse, under the compared states every case here holds fixed. */
-export function parsePlain(patchText: string): ReturnType<typeof parseUnifiedPatch> {
+export function parsePlainPatch(patchText: string): ReturnType<typeof parseUnifiedPatch> {
   return parseUnifiedPatch(patchText, COMPARED_STATES);
 }
 
 /** The lines of the first hunk of the first file, or a failure that says which. */
 export function linesOfFirstHunk(patchText: string): readonly DiffLine[] {
-  const hunk = parsePlain(patchText).files[0]?.hunks[0];
+  const hunk = parsePlainPatch(patchText).files[0]?.hunks[0];
   if (hunk === undefined) {
     throw new Error("the patch parsed to no first hunk");
   }

@@ -16,7 +16,7 @@
 // synchronous latch: this handler reads the status from the render that produced it.
 
 import { useMemo } from "react";
-import { RemediedRefusal } from "@renderer/console/primitives/index.js";
+import { RefusalWithRemedy } from "@renderer/console/primitives/index.js";
 import type { ComposerProps } from "@renderer/console/seats/index.js";
 import { useRefusalBannerEscalation } from "../../hooks/useRefusalBannerEscalation.js";
 import { useComposerAddress } from "../../hooks/useComposerAddress.js";
@@ -97,7 +97,7 @@ export function SendButton(props: SendButtonProps): React.JSX.Element {
         // send router reaches `intervention.idempotency_conflict`,
         // `run.version_conflict`, and `session.not_found`, and each of those has a
         // next move the daemon's own sentence does not carry.
-        <RemediedRefusal refusal={controller.refusal} />
+        <RefusalWithRemedy refusal={controller.refusal} />
       )}
     </>
   );

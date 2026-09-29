@@ -11,7 +11,7 @@ import { describe, expect, it } from "vitest";
 import { type RunId, type SessionId } from "@ai-sidekicks/contracts";
 
 import { bridgeAnswering } from "@test/helpers/fixture-bridge.js";
-import { DesktopBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
+import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { ChildRunExpansionState, type ChildRunDisclosure } from "./child-run-expansion.js";
@@ -244,7 +244,7 @@ describe("the disclosure a row presses — what is on screen while the read runs
   ): ReturnType<typeof renderHook<ChildRunDisclosure, unknown>> {
     return renderHook(() => useChildRunDisclosure(SESSION_ID), {
       wrapper: ({ children }: { readonly children?: React.ReactNode }) =>
-        createElement(DesktopBridgeProvider, { bridge, children }),
+        createElement(PlatformBridgeProvider, { bridge, children }),
     });
   }
 

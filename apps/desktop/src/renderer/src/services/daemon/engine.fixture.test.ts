@@ -33,7 +33,7 @@ import { describe, expect, it } from "vitest";
 import { APPLY_COALESCE_MS } from "@renderer/lib/reads/refresh-caps.js";
 
 import { SCENARIO_TICK_MS, ScenarioEngine } from "./engine.fixture.js";
-import type { ConsoleScenario } from "../../../../../fixtures/scenario.js";
+import type { Scenario } from "../../../../../fixtures/scenario.js";
 import { BASE_STATE_CURSOR } from "@renderer/store/session/session-state.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import type { ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
@@ -41,7 +41,7 @@ import type { ProjectedSessionEvent } from "@renderer/store/session/entities/ent
 const SESSION_ID = "019b79ee-0280-75e5-8510-ada11a5a99a9";
 
 /** A scenario whose only content is the beat script under test. */
-function scenarioWithBeatsDueAt(dueMilliseconds: readonly number[]): ConsoleScenario {
+function scenarioWithBeatsDueAt(dueMilliseconds: readonly number[]): Scenario {
   return {
     id: "engine-beat-order-probe",
     label: "Beat order",
@@ -143,7 +143,7 @@ describe("ScenarioEngine — the due prefix", () => {
 
 describe("ScenarioEngine — a whole-session subscription that attaches late", () => {
   /** The eight-beat script both late-attach cases are driven against. */
-  function eightBeatScenario(): ConsoleScenario {
+  function eightBeatScenario(): Scenario {
     return scenarioWithBeatsDueAt([0, 10, 20, 30, 40, 50, 60, 70]);
   }
 
@@ -167,7 +167,7 @@ describe("ScenarioEngine — a whole-session subscription that attaches late", (
    * about the store's own gap rule: a test that counted sequences itself would be
    * asserting its own arithmetic rather than the rule a degraded banner comes from.
    */
-  function storeAtBaseState(scenario: ConsoleScenario): SessionStore {
+  function storeAtBaseState(scenario: Scenario): SessionStore {
     const store = new SessionStore({ sessionId: scenario.sessionId });
     store.initialize({ cursor: BASE_STATE_CURSOR, entities: [] });
     return store;

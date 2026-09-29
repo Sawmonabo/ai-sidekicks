@@ -27,7 +27,7 @@ import {
   createFixtureAttentionSubscribe,
   createFixtureDaemon,
 } from "@renderer/services/daemon/daemon.fixture.js";
-import type { ConsoleScenario } from "../../../../../fixtures/scenario.js";
+import type { Scenario } from "../../../../../fixtures/scenario.js";
 
 /** Fixed `app` meta, so a screenshot does not move with the machine. */
 export const FIXTURE_APP_META: DesktopBridge["app"] = {
@@ -38,7 +38,7 @@ export const FIXTURE_APP_META: DesktopBridge["app"] = {
 };
 
 export interface FixtureBridgeOptions {
-  readonly scenario: ConsoleScenario;
+  readonly scenario: Scenario;
 }
 
 /** Build the fixture bridge for one scenario. */

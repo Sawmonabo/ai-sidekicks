@@ -75,7 +75,7 @@ import {
   type ScriptEntry,
   createRunEntryBuilders,
 } from "../data/script-entries.js";
-import type { ConsoleScenario } from "../scenario.js";
+import type { Scenario } from "../scenario.js";
 import { type ScenarioAgent, composeOpeningEntries } from "../data/opening-entries.js";
 
 // The cast and its clock: every identifier in one place.
@@ -592,7 +592,7 @@ export const CONCURRENT_STREAMING_SCENARIO_ID = "concurrent-streaming";
  */
 export const CONCURRENT_STREAMING_LANE_COUNT: number = CONCURRENT_STREAMING_AGENTS.length;
 
-export const FLAGSHIP_SCENARIO: ConsoleScenario = {
+export const CONCURRENT_STREAMING_SCENARIO: Scenario = {
   id: CONCURRENT_STREAMING_SCENARIO_ID,
   label: "Four lanes",
   purpose:

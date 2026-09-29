@@ -129,7 +129,7 @@ export interface DiffFile {
 }
 
 /** A whole diff, as the pane and the inline card render it. */
-export interface ConsoleDiffModel {
+export interface DiffModel {
   /** Wire-verbatim compared states. */
   readonly baseRef: string;
   readonly headRef: string;

@@ -16,7 +16,7 @@ import type {
   McpServerBindingRef,
   WorkflowPhaseDefinition,
 } from "@renderer/services/wire-shapes/workflow-definition-body.js";
-import { schemaFormPreviewMount } from "@renderer/console/seats/index.js";
+import { schemaFormPreviewBody } from "@renderer/console/seats/index.js";
 import { DefinitionPhaseRow } from "./DefinitionPhaseRow.js";
 
 afterEach(cleanup);
@@ -64,7 +64,7 @@ function figureCount(row: HTMLElement): number {
 // case below renders the loaded preview rather than the reserved region its mount would
 // otherwise suspend on.
 beforeAll(async () => {
-  await schemaFormPreviewMount.load();
+  await schemaFormPreviewBody.load();
 });
 
 describe("a phase's tool bindings — the scope and what it refers to", () => {

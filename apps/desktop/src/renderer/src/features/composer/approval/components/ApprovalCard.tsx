@@ -30,7 +30,7 @@ import { Collapsible } from "@base-ui/react/collapsible";
 import {
   ACCENT_FILL_CLASS,
   Chip,
-  RemediedRefusal,
+  RefusalWithRemedy,
   WireFigure,
   formatClockTime,
 } from "@renderer/console/primitives/index.js";
@@ -258,7 +258,7 @@ export function ApprovalCard(props: ApprovalCardProps): React.JSX.Element {
         </>
       ) : null}
 
-      {props.refusal === undefined ? null : <RemediedRefusal refusal={props.refusal} />}
+      {props.refusal === undefined ? null : <RefusalWithRemedy refusal={props.refusal} />}
     </article>
   );
 }

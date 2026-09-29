@@ -55,7 +55,7 @@ function AbandoningSibling(): React.JSX.Element {
 /**
  * Let the acquiring effect run and the store's scheduled opening read fire.
  *
- * The bridge travels because the read is armed on the clock `consoleClockFor`
+ * The bridge travels because the read is armed on the clock `resolveBridgeClock`
  * resolves off it — the fixture's frozen one — so a settle that only crossed
  * boundaries would assert against a store that was never given a chance to ask.
  */

@@ -35,7 +35,7 @@ import { act, render } from "@testing-library/react";
 import { answeredScalar, UNANSWERED_SCALAR } from "../answer/schema-draft.js";
 import { settle } from "@test/helpers/settle.js";
 import { useSchemaForm, type SchemaFormState } from "./useSchemaForm.js";
-import { schemaFormAnswerMount } from "../schema-form-mounts.js";
+import { schemaFormAnswerBody } from "../schema-form-mounts.js";
 import { loadSchemaValidatorCompiler } from "../json-schema-validator-loader.js";
 import { type SchemaMemberPath } from "../schema-member-path.js";
 
@@ -118,7 +118,7 @@ export async function resolveSchemaValidatorCompiler(): Promise<void> {
  */
 export async function resolveSchemaFormChunks(): Promise<void> {
   await resolveSchemaValidatorCompiler();
-  await schemaFormAnswerMount.load();
+  await schemaFormAnswerBody.load();
 }
 
 /** Mount the hook, let its compiler land, and hand back a live handle on its state. */

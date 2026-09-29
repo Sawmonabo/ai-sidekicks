@@ -37,7 +37,7 @@ import type {
   DriverCapabilityReadout,
 } from "@renderer/store/driver-capabilities/driver-capability-readout.js";
 import { callDaemon } from "../daemon/daemon-reply.js";
-import { consoleClockFor } from "../platform/hooks/useClock.js";
+import { resolveBridgeClock } from "../platform/hooks/useClock.js";
 import { type ConsoleBridge } from "../platform/platform-bridge.js";
 
 /** No run has a named binding yet. Frozen so no caller writes one in place. */
@@ -79,7 +79,7 @@ class BridgeCapabilityRead implements ReadTriggerTarget {
       // The fixture's frozen clock wherever a scenario is playing and the real one
       // otherwise, resolved once per bridge — the frozen clock is the only clock the
       // renderer reads in fixture mode.
-      clock: consoleClockFor(bridge),
+      clock: resolveBridgeClock(bridge),
       perform: async (_reasons, round) => {
         await this.#read(round);
       },

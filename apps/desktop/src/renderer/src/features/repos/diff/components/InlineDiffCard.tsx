@@ -60,7 +60,7 @@ import { INLINE_DIFF_CARD_HEIGHT_CAP_PX } from "../../diff-caps.js";
 import { DiffChangeSet } from "./DiffChangeSet.js";
 import { DiffRenderer } from "./DiffRenderer.js";
 import { useDiffViewControls } from "../hooks/useDiffViewControls.js";
-import { type ConsoleDiffModel } from "../diff-model.js";
+import { type DiffModel } from "../diff-model.js";
 import { useDiffModelViewState } from "../hooks/useDiffModelViewState.js";
 // TYPE-ONLY, AND THAT IS LOAD-BEARING RATHER THAN TIDY. `patch-parse.ts` is where the
 // adopted diff library is called, and this card is registered eagerly — a value import
@@ -72,7 +72,7 @@ import type { ComparedStates } from "../patch-parse.js";
 export interface InlineDiffCardProps {
   readonly card: DiffInlineCardProps;
   /** The diff to render. Absent until a wire produces one — see the header. */
-  readonly diff?: ConsoleDiffModel;
+  readonly diff?: DiffModel;
 }
 
 export function InlineDiffCard(props: InlineDiffCardProps): React.JSX.Element {

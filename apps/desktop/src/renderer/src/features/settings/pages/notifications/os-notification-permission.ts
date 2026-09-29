@@ -19,7 +19,7 @@ import { RefreshScheduler, type RefreshReason } from "@renderer/lib/reads/refres
 import { useSubjectScopedResource } from "@renderer/hooks/subject-scoped/useSubjectScopedResource.js";
 import { type SubjectScopedDisposal } from "@renderer/lib/subject-scoped/subject-scoped-disposal.js";
 import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
-import { consoleClockFor } from "@renderer/services/platform/hooks/useClock.js";
+import { resolveBridgeClock } from "@renderer/services/platform/hooks/useClock.js";
 import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 
 /** What the machine can answer: the bridge's own permission states. */
@@ -130,7 +130,9 @@ export function useOsNotificationPermission(
   bridge: ConsoleBridge,
   probe: OsNotificationPermissionProbe,
 ): OsNotificationPermissionReading {
-  const { value: clock } = useSubjectScopedState(bridge, undefined, () => consoleClockFor(bridge));
+  const { value: clock } = useSubjectScopedState(bridge, undefined, () =>
+    resolveBridgeClock(bridge),
+  );
   const { value: read } = useSubjectScopedResource(
     bridge,
     undefined,

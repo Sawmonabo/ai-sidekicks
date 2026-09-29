@@ -2,7 +2,7 @@ import { useCallback, useMemo } from "react";
 
 import { type RunId } from "@ai-sidekicks/contracts";
 
-import { useConsoleBridge } from "@renderer/services/platform/hooks/usePlatformBridge.js";
+import { usePlatformBridge } from "@renderer/services/platform/hooks/usePlatformBridge.js";
 import { useSessionScopedState } from "@renderer/console/seats/index.js";
 import { useSubjectScopedResource } from "@renderer/hooks/subject-scoped/useSubjectScopedResource.js";
 import { type SubjectScopedDisposal } from "@renderer/lib/subject-scoped/subject-scoped-disposal.js";
@@ -41,7 +41,7 @@ const CHILD_RUN_EXPANSION_DISPOSAL: SubjectScopedDisposal<ChildRunExpansionState
  * decoding expansions for rows nothing is rendering.
  */
 export function useChildRunDisclosure(sessionId: string): ChildRunDisclosure {
-  const bridge = useConsoleBridge();
+  const bridge = usePlatformBridge();
   const held = useSubjectScopedResource(
     bridge,
     sessionId,

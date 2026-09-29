@@ -9,7 +9,7 @@ import type { PaneRegistry } from "@renderer/console/seats/index.js";
  * deck's single mount door makes a second claim on this kind an error rather than a
  * swap.
  */
-export function registerTerminalPanes(registry: PaneRegistry): void {
+export function registerTerminalPane(registry: PaneRegistry): void {
   registry.register({
     kind: "terminal",
     owner: "terminal",

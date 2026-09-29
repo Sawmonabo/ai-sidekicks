@@ -19,7 +19,7 @@
 // mounted, so it holds for a supplied body as well as for this one — see the channel's
 // header for why `phaseRunId` and not the phase or the revision.
 
-import { schemaFormAnswerMount } from "@renderer/console/seats/index.js";
+import { schemaFormAnswerBody } from "@renderer/console/seats/index.js";
 import type { HumanFormMount } from "./human-form-mount.js";
 
 /**
@@ -34,7 +34,7 @@ import type { HumanFormMount } from "./human-form-mount.js";
  * of its own and the chunk is fetched once however many forms ask.
  */
 export function DefaultHumanFormBody(mount: HumanFormMount): React.ReactNode {
-  return schemaFormAnswerMount.render({
+  return schemaFormAnswerBody.render({
     prompt: mount.prompt,
     inputSchema: mount.inputSchema,
     // Straight through: the answer this form composed is the whole of what a body

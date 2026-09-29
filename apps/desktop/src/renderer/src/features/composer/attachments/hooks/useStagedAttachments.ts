@@ -3,7 +3,7 @@
 import type { SessionId } from "@ai-sidekicks/contracts";
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 
-import { consoleClockFor } from "@renderer/services/platform/hooks/useClock.js";
+import { resolveBridgeClock } from "@renderer/services/platform/hooks/useClock.js";
 import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { CONTROLLER_DISPOSAL } from "@renderer/lib/subject-scoped/subject-scoped-disposal.js";
 import { useSubjectScopedResource } from "@renderer/hooks/subject-scoped/useSubjectScopedResource.js";
@@ -11,7 +11,7 @@ import type { AttachmentIngestPort } from "../services/attachment-ingest-answer.
 import { StagedAttachments, type StagedAttachmentsSnapshot } from "../staged-attachments.js";
 
 /** What a surface holding a carrier renders and acts through. */
-export interface AttachmentCarrierBinding {
+export interface StagedAttachmentsBinding {
   readonly snapshot: StagedAttachmentsSnapshot;
   readonly attachFiles: (files: readonly File[]) => void;
   readonly retry: (localId: string) => void;
@@ -37,16 +37,16 @@ export interface AttachmentCarrierBinding {
  * surface inert, with nothing on screen to say so. The seam's `isClosed`, supplied
  * beside `close`, replaces it, so this effect starts a carrier and does nothing else.
  */
-export function useAttachmentCarrier(
+export function useStagedAttachments(
   bridge: ConsoleBridge,
   sessionId: SessionId,
   port: AttachmentIngestPort,
-): AttachmentCarrierBinding {
+): StagedAttachmentsBinding {
   // The window's own clock, resolved once per bridge — `clone-expiry-wake-up.ts`'s
-  // shape, for its reason: `consoleClockFor` mints a fresh `RealClock` per call on a
+  // shape, for its reason: `resolveBridgeClock` mints a fresh `RealClock` per call on a
   // live bridge, so reading it in a render body would hand a re-minted carrier a
   // different instance from the one the first carrier was opened on.
-  const clock = useMemo(() => consoleClockFor(bridge), [bridge]);
+  const clock = useMemo(() => resolveBridgeClock(bridge), [bridge]);
   const { value: carrier } = useSubjectScopedResource(
     bridge,
     sessionId,

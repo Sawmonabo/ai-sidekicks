@@ -23,10 +23,10 @@ import {
   lastScriptedBeatMs,
   type FixtureUnderTest,
 } from "@test/helpers/fixture-bridge.js";
-import { FLAGSHIP_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
+import { CONCURRENT_STREAMING_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
 
 /** Past the concurrent-streaming script's last beat, read off the script so it cannot go stale. */
-const PAST_EVERY_BEAT_MS = lastScriptedBeatMs(FLAGSHIP_SCENARIO) + 100;
+const PAST_EVERY_BEAT_MS = lastScriptedBeatMs(CONCURRENT_STREAMING_SCENARIO) + 100;
 
 /** A session the branded id type accepts that no scenario on the seat board plays. */
 const STRANGER_SESSION_ID = "019b79ee-0280-75e5-8510-ada11a5a7777";
@@ -67,11 +67,11 @@ describe("fixture bridge — a relay subscription delivers only its own session"
     // Without this, an implementation that delivered to nobody would satisfy the
     // case above — and the relay is a real delivery path, not one to silence.
     const fixture = createFixture();
-    const played = subscribeToRelay(fixture, FLAGSHIP_SCENARIO.sessionId);
+    const played = subscribeToRelay(fixture, CONCURRENT_STREAMING_SCENARIO.sessionId);
 
     fixture.engine.advance(PAST_EVERY_BEAT_MS);
 
-    expect(played).toHaveLength(FLAGSHIP_SCENARIO.beats.length);
+    expect(played).toHaveLength(CONCURRENT_STREAMING_SCENARIO.beats.length);
     expect(new Set(typesOf(played)).size).toBeGreaterThan(1);
   });
 
@@ -80,12 +80,12 @@ describe("fixture bridge — a relay subscription delivers only its own session"
     // A's envelopes reached B's handler, and every assertion B made was about a log
     // it is not entitled to.
     const fixture = createFixture();
-    const played = subscribeToRelay(fixture, FLAGSHIP_SCENARIO.sessionId);
+    const played = subscribeToRelay(fixture, CONCURRENT_STREAMING_SCENARIO.sessionId);
     const stranger = subscribeToRelay(fixture, STRANGER_SESSION_ID);
 
     fixture.engine.advance(PAST_EVERY_BEAT_MS);
 
-    expect(played).toHaveLength(FLAGSHIP_SCENARIO.beats.length);
+    expect(played).toHaveLength(CONCURRENT_STREAMING_SCENARIO.beats.length);
     expect(stranger).toStrictEqual([]);
   });
 
@@ -117,7 +117,7 @@ describe("fixture bridge — a relay subscription delivers only its own session"
     expect(fixture.engine.sinkCount).toBe(0);
 
     fixture.bridge.desktopBridge.controlPlane.subscribeRelay(
-      FLAGSHIP_SCENARIO.sessionId as SessionId,
+      CONCURRENT_STREAMING_SCENARIO.sessionId as SessionId,
       () => undefined,
     );
     expect(fixture.engine.sinkCount).toBe(1);

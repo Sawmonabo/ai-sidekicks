@@ -39,7 +39,7 @@
 import type { ReactElement } from "react";
 
 import { renderSettled } from "../app-harness.js";
-import { COMPOSER_SCENARIO } from "../../../fixtures/scenarios/waiting-for-input.js";
+import { WAITING_FOR_INPUT_SCENARIO } from "../../../fixtures/scenarios/waiting-for-input.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { settleScheduledRead } from "../scheduled-read.js";
@@ -62,7 +62,9 @@ import { type MountedView } from "./mount-queries.js";
  * a baseline of the wrong composition under the provider-bound name.
  */
 function composerAgentId(): string {
-  const attached = COMPOSER_SCENARIO.beats.find((beat) => beat.event.kind === "agent.attached");
+  const attached = WAITING_FOR_INPUT_SCENARIO.beats.find(
+    (beat) => beat.event.kind === "agent.attached",
+  );
   const agentId = attached?.event.payload?.["agentId"];
   if (typeof agentId !== "string") {
     throw new Error("the composer scenario attaches no agent, so no provider-bound address exists");
@@ -79,18 +81,18 @@ function composerAgentId(): string {
  */
 function composerSessionStore(throughKind: string): SessionStore {
   const store = new SessionStore({
-    sessionId: COMPOSER_SCENARIO.sessionId,
+    sessionId: WAITING_FOR_INPUT_SCENARIO.sessionId,
     projectors: COMPOSED_ENTITY_PROJECTORS,
   });
   store.initialize({ cursor: 0, entities: [] });
-  const lastIndex = COMPOSER_SCENARIO.beats.findLastIndex(
+  const lastIndex = WAITING_FOR_INPUT_SCENARIO.beats.findLastIndex(
     (beat) => beat.event.kind === throughKind,
   );
   if (lastIndex < 0) {
     throw new Error(`the composer scenario plays no \`${throughKind}\` beat`);
   }
   store.applyBatch(
-    COMPOSER_SCENARIO.beats
+    WAITING_FOR_INPUT_SCENARIO.beats
       .slice(0, lastIndex + 1)
       .map((beat) => beat.event as ProjectedSessionEvent),
   );
@@ -148,7 +150,7 @@ async function mountComposerAt(options: {
   readonly throughKind: string;
   readonly focusedPane: PaneAddress | undefined;
 }): Promise<MountedView> {
-  const bridge = createFixtureBridge({ scenario: COMPOSER_SCENARIO });
+  const bridge = createFixtureBridge({ scenario: WAITING_FOR_INPUT_SCENARIO });
   const container = await mountSurfaceSettled(
     bridge,
     <MessageComposer
@@ -156,7 +158,7 @@ async function mountComposerAt(options: {
       bridge={bridge}
       draftStore={new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT })}
       frameStore={new WindowStore()}
-      route={{ kind: "workspace", sessionId: COMPOSER_SCENARIO.sessionId }}
+      route={{ kind: "workspace", sessionId: WAITING_FOR_INPUT_SCENARIO.sessionId }}
       focusedPane={options.focusedPane}
     />,
   );

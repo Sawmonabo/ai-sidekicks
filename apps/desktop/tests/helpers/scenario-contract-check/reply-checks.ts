@@ -18,7 +18,7 @@
 
 import { REGISTERED_DAEMON_METHODS } from "@renderer/services/daemon/daemon-reply-registry.js";
 import type { ScenarioContractDefect } from "./scenario-contract-defect.js";
-import type { ConsoleScenario } from "../../../fixtures/scenario.js";
+import type { Scenario } from "../../../fixtures/scenario.js";
 
 // Wire names the CORPUS registers that this console binds no DAEMON shape for.
 //
@@ -54,7 +54,7 @@ export const CORPUS_DAEMON_METHODS_NOT_YET_BOUND: readonly string[] = [];
  * is never reached at all and its `afterMs` is a property of a reply that cannot be
  * served. One defect per entry, naming the thing that has to change.
  */
-export function findReplyDefects(scenario: ConsoleScenario): readonly ScenarioContractDefect[] {
+export function findReplyDefects(scenario: Scenario): readonly ScenarioContractDefect[] {
   const seenCalls = new Set<string>();
   const defects: ScenarioContractDefect[] = [];
   for (const reply of scenario.replies) {

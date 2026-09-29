@@ -19,7 +19,7 @@ import { ManualClock } from "@renderer/lib/clock.js";
 import type { RefreshReason } from "@renderer/lib/reads/refresh-scheduler.js";
 import {
   emptySnapshot,
-  eventAt,
+  runEventAt,
   projectors,
   settleMicrotasks,
 } from "@test/helpers/session-store-fixtures.js";
@@ -48,7 +48,7 @@ describe("SessionStoreRegistry — a lossy delivery arms exactly one repair", ()
     const store = registry.open("session-1");
     store.initialize(emptySnapshot(0));
 
-    registry.enqueue("session-1", [eventAt(1, "run-1"), eventAt(5, "run-5")]);
+    registry.enqueue("session-1", [runEventAt(1, "run-1"), runEventAt(5, "run-5")]);
     clock.runFrame();
 
     // The store knows it is short 2..4, and the drain has armed the one read that
@@ -86,7 +86,11 @@ describe("SessionStoreRegistry — a lossy delivery arms exactly one repair", ()
     const store = registry.open("session-1");
     store.initialize(emptySnapshot(0));
 
-    registry.enqueue("session-1", [eventAt(1, "run-1"), eventAt(2, "run-2"), eventAt(3, "run-3")]);
+    registry.enqueue("session-1", [
+      runEventAt(1, "run-1"),
+      runEventAt(2, "run-2"),
+      runEventAt(3, "run-3"),
+    ]);
     clock.runFrame();
 
     expect(store.snapshot().degradedCause).toBeUndefined();
@@ -119,11 +123,11 @@ describe("SessionStoreRegistry — a lossy delivery arms exactly one repair", ()
     const store = registry.open("session-1");
     store.initialize(emptySnapshot(0));
 
-    registry.enqueue("session-1", [eventAt(1, "run-1"), eventAt(5, "run-5")]);
+    registry.enqueue("session-1", [runEventAt(1, "run-1"), runEventAt(5, "run-5")]);
     clock.runFrame();
     // Still inside the 20 ms window when the second lossy batch lands.
     clock.advance(10);
-    registry.enqueue("session-1", [eventAt(9, "run-9")]);
+    registry.enqueue("session-1", [runEventAt(9, "run-9")]);
     clock.runFrame();
 
     expect(store.snapshot().gaps).toStrictEqual([

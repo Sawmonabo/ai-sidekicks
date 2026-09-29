@@ -19,7 +19,7 @@
 // writer is what keeps "when is this read live" a question with one answer.
 //
 // THE KEY INCLUDES THE BRIDGE, BECAUSE THE BRIDGE IS PART OF WHICH BINDING THIS IS.
-// `DesktopBridgeProvider` can replace its bridge under a composer that stays addressed
+// `PlatformBridgeProvider` can replace its bridge under a composer that stays addressed
 // to the same session and agent, and a key of session and agent alone reads that as
 // "nothing moved" — so the surface would be served the OLD bridge's catalog, which
 // breaks the routing rule this holder exists to keep. The key is therefore compared by

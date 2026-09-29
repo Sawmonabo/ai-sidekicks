@@ -37,7 +37,7 @@ import {
   toolActivityEntry,
   type ScriptEntry,
 } from "../../fixtures/data/script-entries.js";
-import type { ConsoleScenario } from "../../fixtures/scenario.js";
+import type { Scenario } from "../../fixtures/scenario.js";
 
 /** The UUID v7 time prefix every generated identifier shares. */
 const ENDURANCE_ID_PREFIX = "019b7892-1c00";
@@ -127,7 +127,7 @@ const DEFAULT_ENDURANCE_RUN_COUNT = 24;
  */
 export function createTranscriptEnduranceFixture(
   options: TranscriptEnduranceFixtureOptions,
-): ConsoleScenario {
+): Scenario {
   const runCount = options.runCount ?? DEFAULT_ENDURANCE_RUN_COUNT;
   if (!Number.isInteger(runCount) || runCount < 1) {
     throw new RangeError(

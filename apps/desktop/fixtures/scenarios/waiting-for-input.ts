@@ -48,7 +48,7 @@ import {
   DRIVER_CAPABILITY_FLAGS,
   type DriverCapabilityFlag,
 } from "@ai-sidekicks/contracts";
-import type { ConsoleScenario } from "../scenario.js";
+import type { Scenario } from "../scenario.js";
 import type { ScenarioReply } from "@renderer/services/daemon/scenario-reply.fixture.js";
 
 // The identifiers the beats and the scripted replies both name.
@@ -310,7 +310,7 @@ const COMPOSER_REPLIES: readonly ScenarioReply[] = [
   },
 ];
 
-export const COMPOSER_SCENARIO: ConsoleScenario = {
+export const WAITING_FOR_INPUT_SCENARIO: Scenario = {
   id: "waiting-for-input",
   label: "Awaiting a reply",
   purpose:

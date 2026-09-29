@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 
-import { useConsoleBridge } from "@renderer/services/platform/hooks/usePlatformBridge.js";
+import { usePlatformBridge } from "@renderer/services/platform/hooks/usePlatformBridge.js";
 import { useSessionScopedState } from "@renderer/console/seats/index.js";
 import { type ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 import { useSessionStore } from "@renderer/store/session/hooks/useOpenSessionStore.js";
@@ -30,7 +30,7 @@ export function useTranscriptProjection(sessionStore: SessionStore): TranscriptW
   // render for the subject-scoped holder's reason: the pass that first sees a new
   // session already reads that session's own table, which a ref written in the body
   // could not promise and an effect would deliver one commit late.
-  const bridge = useConsoleBridge();
+  const bridge = usePlatformBridge();
   const retention = useSessionScopedState(
     bridge,
     sessionStore.sessionId,

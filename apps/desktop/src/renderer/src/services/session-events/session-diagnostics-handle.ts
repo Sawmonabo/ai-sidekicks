@@ -14,7 +14,7 @@ import { type TranscriptWindowReading } from "@renderer/lib/transcript-window-di
  * session's ledger is showing of it — and cannot open a session, close one, or apply
  * an event.
  */
-export interface ConsoleSessionDiagnostics {
+export interface SessionDiagnostics {
   /** Sessions the registry currently holds a store for, in open order. */
   openSessionIds: () => readonly string[];
   /**

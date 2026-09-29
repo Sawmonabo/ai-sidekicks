@@ -19,10 +19,10 @@ import { act, render } from "@testing-library/react";
 import { vi } from "vitest";
 
 import { TRANSCRIPT_WINDOW_ROW_CAP } from "../../frame/frame-caps.js";
-import { DesktopBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
+import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { useRetainedRowState } from "../../viewport/hooks/useRetainedRowState.js";
-import { LEDGER_QUIET_SCENARIO } from "../../../../../../../fixtures/scenarios/empty-session.js";
+import { EMPTY_SESSION_SCENARIO } from "../../../../../../../fixtures/scenarios/empty-session.js";
 import { commandContributionRegistry } from "@renderer/registries/commands/command-contributions.js";
 import { commandRegistry } from "@renderer/registries/commands/window-command-registry.js";
 import {
@@ -70,7 +70,7 @@ export function renderFeed(
   renderRowBody?: (mount: TranscriptRowProps) => React.JSX.Element,
 ): HTMLElement {
   const { container } = render(
-    <DesktopBridgeProvider bridge={createFixtureBridge({ scenario: LEDGER_QUIET_SCENARIO })}>
+    <PlatformBridgeProvider bridge={createFixtureBridge({ scenario: EMPTY_SESSION_SCENARIO })}>
       <TranscriptFeed
         sessionStore={sessionStore}
         paneId={TRANSCRIPT_FIXTURE_PANE_ID}
@@ -80,7 +80,7 @@ export function renderFeed(
         }}
         feedLabel="Session timeline"
       />
-    </DesktopBridgeProvider>,
+    </PlatformBridgeProvider>,
   );
   const feed = container.querySelector(".meridian-ledger");
   if (!(feed instanceof HTMLElement)) {

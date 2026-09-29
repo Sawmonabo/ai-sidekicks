@@ -24,7 +24,7 @@
 import {
   diffFileChangeCounts,
   diffFileChangeNotes,
-  type ConsoleDiffModel,
+  type DiffModel,
   type DiffFileChangeCounts,
 } from "./diff-model.js";
 
@@ -80,10 +80,7 @@ export type SelectedEntryRow =
   | { readonly kind: "hidden-by-filter" };
 
 /** Read the rows a change set and a filter produce, in the order they are drawn. */
-export function diffFileListReading(
-  diff: ConsoleDiffModel,
-  filterText: string,
-): DiffFileListReading {
+export function diffFileListReading(diff: DiffModel, filterText: string): DiffFileListReading {
   const needle = filterText.trim().toLowerCase();
   const matching = diff.files.filter(
     (file) => needle === "" || file.path.toLowerCase().includes(needle),

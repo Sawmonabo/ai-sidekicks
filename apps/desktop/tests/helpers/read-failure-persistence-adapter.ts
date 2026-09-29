@@ -21,7 +21,7 @@ import {
 import { MemoryPersistenceAdapter } from "@renderer/store/persistence/memory-persistence-adapter.js";
 import { refusePersistence } from "@renderer/store/persistence/persistence-refusals.js";
 
-export class ReadFailureAdapter extends MemoryPersistenceAdapter {
+export class ReadFailurePersistenceAdapter extends MemoryPersistenceAdapter {
   #isFailingReads = true;
 
   public override read(partition: string, key: string): Promise<StoredRecord | undefined> {

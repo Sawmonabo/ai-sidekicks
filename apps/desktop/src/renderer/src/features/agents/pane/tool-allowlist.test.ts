@@ -9,14 +9,14 @@ import { describe, expect, it } from "vitest";
 
 import { TOOL_ALLOWLIST_NAMED_CAP } from "../agents-caps.js";
 import { formatCount } from "@renderer/console/primitives/index.js";
-import type { AgentRosterEntry } from "@renderer/services/wire-shapes/agents.js";
+import type { AgentListEntry } from "@renderer/services/wire-shapes/agents.js";
 import {
   NAMELESS_TOOL_ALLOWLIST_WORDING,
   agentToolAllowlistPosition,
   namedToolAllowlistSentence,
 } from "./tool-allowlist.js";
 
-const IDENTITY_ONLY: AgentRosterEntry = { agentId: "agent-scout" };
+const IDENTITY_ONLY: AgentListEntry = { agentId: "agent-scout" };
 
 /** A list of exactly `count` distinct tool names, which is all these cases need. */
 function toolNames(count: number): readonly string[] {

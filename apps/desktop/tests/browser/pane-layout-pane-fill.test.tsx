@@ -40,7 +40,7 @@ import { terminalPaneContext } from "@renderer/features/terminal/pane/components
 import "@renderer/features/terminal/pane/terminal-pane-body.js";
 import "@renderer/features/sessions/pane-layout/components/SessionPaneLayout.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
-import { TERMINAL_SCENARIO } from "../../fixtures/scenarios/terminal-lease.js";
+import { TERMINAL_LEASE_SCENARIO } from "../../fixtures/scenarios/terminal-lease.js";
 
 /** The deck's own height. Every assertion below is against this one number. */
 const DECK_HEIGHT_PX = 600;
@@ -63,7 +63,7 @@ interface MountedDeckPane {
 
 async function mountPaneInDeckSlot(): Promise<MountedDeckPane> {
   installMeridianTokens(document);
-  const bridge = createFixtureBridge({ scenario: TERMINAL_SCENARIO });
+  const bridge = createFixtureBridge({ scenario: TERMINAL_LEASE_SCENARIO });
   const { container } = await renderSettled(
     <div className="meridian-deck" style={{ height: `${String(DECK_HEIGHT_PX)}px` }}>
       <div className="meridian-deck__group" style={RESIZABLE_GROUP_LAYOUT}>
@@ -84,7 +84,7 @@ async function mountPaneInDeckSlot(): Promise<MountedDeckPane> {
 /** The same pane under the arrangement that always worked, for the control below. */
 async function mountPaneInGridSlot(): Promise<MountedDeckPane> {
   installMeridianTokens(document);
-  const bridge = createFixtureBridge({ scenario: TERMINAL_SCENARIO });
+  const bridge = createFixtureBridge({ scenario: TERMINAL_LEASE_SCENARIO });
   const { container } = await renderSettled(
     <div style={{ display: "grid", height: `${String(DECK_HEIGHT_PX)}px` }}>
       <TerminalPane {...terminalPaneContext(undefined, bridge)} />
@@ -128,7 +128,7 @@ describe("browser — a pane fills the slot the deck gives it", () => {
     // content. This is also the shape the defect wore — the deck's slot did have a
     // height, and the pane was reading it as though it did not.
     installMeridianTokens(document);
-    const bridge = createFixtureBridge({ scenario: TERMINAL_SCENARIO });
+    const bridge = createFixtureBridge({ scenario: TERMINAL_LEASE_SCENARIO });
     const { container } = await renderSettled(
       <div style={{ display: "flex", flexDirection: "column" }}>
         <TerminalPane {...terminalPaneContext(undefined, bridge)} />

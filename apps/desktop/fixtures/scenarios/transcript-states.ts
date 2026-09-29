@@ -55,7 +55,7 @@ import {
   createRunEntryBuilders,
   type ScriptEntry,
 } from "../data/script-entries.js";
-import type { ConsoleScenario } from "../scenario.js";
+import type { Scenario } from "../scenario.js";
 import {
   type ScenarioAgent,
   composeAttachedInstant,
@@ -509,10 +509,10 @@ const TRANSCRIPT_STATES_SCRIPT: readonly ScriptEntry[] = [
   },
 ];
 
-export const LEDGER_SCENARIO_ID = "transcript-states";
+export const TRANSCRIPT_STATES_SCENARIO_ID = "transcript-states";
 
-export const TRANSCRIPT_STATES_SCENARIO: ConsoleScenario = {
-  id: LEDGER_SCENARIO_ID,
+export const TRANSCRIPT_STATES_SCENARIO: Scenario = {
+  id: TRANSCRIPT_STATES_SCENARIO_ID,
   label: "Three lanes",
   purpose:
     "A session whose three runs end in three different conditions at once — one finished behind a rewind boundary, one parked, one still streaming — so the chapters and the seams all have something to render.",

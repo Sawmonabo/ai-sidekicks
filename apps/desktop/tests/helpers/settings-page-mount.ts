@@ -47,7 +47,7 @@ export interface SettingsPageContextOverrides {
  * reached. A case driving the deep link names its own subject.
  *
  * `uiStateStore` defaults to a fresh memory-backed store — see
- * {@link consoleTestUiStateStore} for why the real one and not a double, and why one
+ * {@link testUiStateStore} for why the real one and not a double, and why one
  * per call.
  */
 export function settingsPageContextWith(
@@ -57,12 +57,12 @@ export function settingsPageContextWith(
 ): SettingsPageContext {
   return {
     bridge,
-    openSection: () => undefined,
+    openPage: () => undefined,
     selection: overrides.selection,
     retainedSessionId,
     retainedSessionStore: overrides.retainedSessionStore,
     shellState: overrides.shellState ?? UNREPORTED_MAIN_PROCESS_STATE,
-    uiStateStore: overrides.uiStateStore ?? consoleTestUiStateStore(),
+    uiStateStore: overrides.uiStateStore ?? testUiStateStore(),
     chooseScheme: () => undefined,
   } satisfies SettingsPageContext;
 }
@@ -80,7 +80,7 @@ export function settingsPageContextWith(
  * A fresh one per call, because the health ledger's counts are cumulative for the
  * store's lifetime: two cases sharing one store would read each other's refusals.
  */
-export function consoleTestUiStateStore(
+export function testUiStateStore(
   adapter: MemoryPersistenceAdapter = new MemoryPersistenceAdapter(),
 ): UiStateStore {
   return new UiStateStore({ adapter });

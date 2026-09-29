@@ -18,7 +18,7 @@
 import { cleanup } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useBridgeResolution } from "@renderer/services/platform/hooks/useBridgeResolution.js";
-import { SESSIONS_HASH, mountConsole } from "@test/helpers/mount-app.js";
+import { SESSIONS_HASH, mountApp } from "@test/helpers/mount-app.js";
 import { MERIDIAN_STYLE_ELEMENT_ID } from "./token-installation.js";
 
 // Spied, never replaced: every export of the bridge provider keeps its real
@@ -64,7 +64,7 @@ describe("AppProviders — every state it can render sits on the Meridian tokens
     // below was written by this render and not by an earlier file.
     expect(document.getElementById(MERIDIAN_STYLE_ELEMENT_ID)).toBeNull();
 
-    const mounted = await mountConsole();
+    const mounted = await mountApp();
 
     expect(mounted.container.textContent).toContain("This window cannot reach the app.");
     // The frame really did not mount: no rail, so nothing below the gate ran.
@@ -83,7 +83,7 @@ describe("AppProviders — every state it can render sits on the Meridian tokens
     // cascade for every window that works.
     expect(document.getElementById(MERIDIAN_STYLE_ELEMENT_ID)).toBeNull();
 
-    const mounted = await mountConsole();
+    const mounted = await mountApp();
 
     expect(mounted.container.querySelector(".meridian-rail")).not.toBeNull();
     expect(document.querySelectorAll(`#${MERIDIAN_STYLE_ELEMENT_ID}`)).toHaveLength(1);

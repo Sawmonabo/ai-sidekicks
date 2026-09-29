@@ -19,10 +19,10 @@
 
 import { describe, expect, it } from "vitest";
 
-import { CONSOLE_SCENARIOS } from "../../../../../fixtures/index.js";
-import { FLAGSHIP_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
+import { SCENARIOS } from "../../../../../fixtures/index.js";
+import { CONCURRENT_STREAMING_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
 import { SYNTHETIC_SESSION_ID } from "./run-lifecycle-projector.test-support.js";
-import type { ConsoleScenario } from "../../../../../fixtures/scenario.js";
+import type { Scenario } from "../../../../../fixtures/scenario.js";
 import { SessionStore } from "../session/session-store.js";
 import { type ProjectedSessionEvent } from "../session/entities/entities.js";
 import { type SessionSnapshot } from "../session/session-state.js";
@@ -40,7 +40,7 @@ import {
  * starting at sequence 1 would degrade every store here for a hole the scenario
  * never had.
  */
-function baseStateFor(scenario: ConsoleScenario): SessionSnapshot {
+function baseStateFor(scenario: Scenario): SessionSnapshot {
   const sequences = scenario.beats.map((beat) => beat.event.sequence);
   return {
     cursor: Math.min(...sequences) - 1,
@@ -49,7 +49,7 @@ function baseStateFor(scenario: ConsoleScenario): SessionSnapshot {
 }
 
 /** One store per scenario, projecting exactly what the composition root registers. */
-function storeDrivenBy(scenario: ConsoleScenario): SessionStore {
+function storeDrivenBy(scenario: Scenario): SessionStore {
   const store = new SessionStore({
     sessionId: scenario.sessionId,
     projectors: RUN_LIFECYCLE_PROJECTORS,
@@ -60,7 +60,7 @@ function storeDrivenBy(scenario: ConsoleScenario): SessionStore {
 }
 
 /** The run ids the scenario's own beats name, in beat order and without repeats. */
-function runIdsNamedBy(scenario: ConsoleScenario): readonly string[] {
+function runIdsNamedBy(scenario: Scenario): readonly string[] {
   const runIds: string[] = [];
   for (const beat of scenario.beats) {
     if (!RUN_LIFECYCLE_EVENT_KINDS.includes(beat.event.kind)) {
@@ -75,7 +75,7 @@ function runIdsNamedBy(scenario: ConsoleScenario): readonly string[] {
 }
 
 /** The first beat of one kind, or a failure naming what the scenario was missing. */
-function firstBeatOfKind(scenario: ConsoleScenario, kind: string): ProjectedSessionEvent {
+function firstBeatOfKind(scenario: Scenario, kind: string): ProjectedSessionEvent {
   const beat = scenario.beats.find((candidate) => candidate.event.kind === kind);
   if (beat === undefined) {
     throw new Error(`scenario "${scenario.id}" scripts no ${kind} beat`);
@@ -119,7 +119,7 @@ describe("the run-lifecycle projector's claimed kinds", () => {
 });
 
 describe("the run partition under every shipped scenario", () => {
-  it.each(CONSOLE_SCENARIOS.map((scenario) => [scenario.id, scenario] as const))(
+  it.each(SCENARIOS.map((scenario) => [scenario.id, scenario] as const))(
     "%s: every run its beats name reaches the run partition, and nothing else does",
     (_scenarioId, scenario) => {
       const store = storeDrivenBy(scenario);
@@ -135,7 +135,7 @@ describe("the run partition under every shipped scenario", () => {
     },
   );
 
-  it.each(CONSOLE_SCENARIOS.map((scenario) => [scenario.id, scenario] as const))(
+  it.each(SCENARIOS.map((scenario) => [scenario.id, scenario] as const))(
     "%s: every projected run carries a wire-verbatim touch time",
     (_scenarioId, scenario) => {
       const store = storeDrivenBy(scenario);
@@ -150,7 +150,7 @@ describe("the run partition under every shipped scenario", () => {
 });
 
 describe("the concurrent-streaming scenario's run, folded", () => {
-  const concurrentStreaming = FLAGSHIP_SCENARIO;
+  const concurrentStreaming = CONCURRENT_STREAMING_SCENARIO;
 
   it("stamps the run into the store from its creation beat, with no state it came from", () => {
     // The creation beat is not a transition, so it names the state the run is IN and

@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 
-import { useConsoleBridge } from "@renderer/services/platform/hooks/usePlatformBridge.js";
+import { usePlatformBridge } from "@renderer/services/platform/hooks/usePlatformBridge.js";
 import { useSessionScopedState } from "@renderer/console/seats/index.js";
 import { TranscriptRowRetention } from "../../window/row-retention.js";
 import {
@@ -26,7 +26,7 @@ export function useFoldedRunGroups(
   // the subject because this pane follows a navigation that changes which log it is
   // of without unmounting, and a table carried across that holds the rows of a
   // session nobody is reading.
-  const bridge = useConsoleBridge();
+  const bridge = usePlatformBridge();
   const retention = useSessionScopedState(bridge, sessionId, () => new TranscriptRowRetention());
   const heldRetention = retention.value;
   return useMemo(

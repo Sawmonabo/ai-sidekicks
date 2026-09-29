@@ -1,6 +1,6 @@
 // The workspace: what it composes.
 //
-// The arrangement it saves and restores is `Workspace.persistence.test.tsx`. Both mount
+// The arrangement it saves and restores is `SessionScreen.persistence.test.tsx`. Both mount
 // through the same shape, which lives once in `Workspace.test-support.tsx`.
 
 import { waitFor } from "@testing-library/react";

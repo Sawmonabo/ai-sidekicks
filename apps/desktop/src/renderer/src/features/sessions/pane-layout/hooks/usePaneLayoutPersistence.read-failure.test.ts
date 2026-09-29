@@ -18,7 +18,7 @@ import { act } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
-import { ReadFailureAdapter } from "@test/helpers/read-failure-persistence-adapter.js";
+import { ReadFailurePersistenceAdapter } from "@test/helpers/read-failure-persistence-adapter.js";
 import {
   deckLayout,
   drain,
@@ -30,7 +30,7 @@ import {
 
 describe("usePaneLayoutPersistence — a read the adapter could not perform", () => {
   it("keeps the saved arrangement instead of filing the fallback over it", async () => {
-    const adapter = new ReadFailureAdapter();
+    const adapter = new ReadFailurePersistenceAdapter();
     const store = new UiStateStore({ adapter });
     await savePaneLayout(store, ["timeline", "runs", "approvals"]);
     const layout = deckLayout();
@@ -51,7 +51,7 @@ describe("usePaneLayoutPersistence — a read the adapter could not perform", ()
     // person rearranging their deck all session with nothing kept and no refusal
     // raised — a worse failure than the one being fixed, and invisible in the case
     // above.
-    const adapter = new ReadFailureAdapter();
+    const adapter = new ReadFailurePersistenceAdapter();
     const store = new UiStateStore({ adapter });
     await savePaneLayout(store, ["timeline", "runs", "approvals"]);
     const layout = deckLayout();

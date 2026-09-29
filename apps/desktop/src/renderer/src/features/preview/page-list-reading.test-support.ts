@@ -35,7 +35,7 @@ export function previewPage(
  * would be one object two components hold, and a case that reached into it would
  * change what the next case renders.
  */
-export function threeBrowserPages(): PageListReading {
+export function threePreviewPages(): PageListReading {
   return {
     kind: "served",
     frame: {

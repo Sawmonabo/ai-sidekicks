@@ -74,7 +74,7 @@ export function SettingsScreen(props: SettingsScreenProps): React.JSX.Element {
     (state) => state.lastOpenedSessionId,
   );
 
-  const openSection = useCallback(
+  const openPage = useCallback(
     (section: SettingsPageId): void => {
       context.frameStore.navigate({ kind: "settings", page: section });
     },
@@ -88,10 +88,10 @@ export function SettingsScreen(props: SettingsScreenProps): React.JSX.Element {
    */
   const openSearchHit = useCallback(
     (section: SettingsPageId): void => {
-      openSection(section);
+      openPage(section);
       setSettleOrdinal((held) => held + 1);
     },
-    [openSection],
+    [openPage],
   );
 
   // The RETAINED session, never the route's projection. Every settings address is
@@ -111,7 +111,7 @@ export function SettingsScreen(props: SettingsScreenProps): React.JSX.Element {
 
   const pageContext: SettingsPageContext = {
     bridge: context.bridge,
-    openSection,
+    openPage,
     selection,
     retainedSessionId,
     retainedSessionStore,
@@ -147,7 +147,7 @@ export function SettingsScreen(props: SettingsScreenProps): React.JSX.Element {
             onOpenSection={openSearchHit}
           />
         ) : (
-          <SettingsPageList selectedSection={selectedSection} onOpenSection={openSection} />
+          <SettingsPageList selectedSection={selectedSection} onOpenSection={openPage} />
         )}
       </div>
       <div className="meridian-settings__pane">

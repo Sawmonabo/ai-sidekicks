@@ -208,7 +208,7 @@ describe("a working day of opening and closing the pane", () => {
       // reading, which does not fall on a teardown and which
       // `renderer-pool.test.ts` owns — this environment has no WebGL2 to spend,
       // so it could only be asserted vacuously here.
-      expect(pool.heldSlotCount).toBe(0);
+      expect(pool.heldContextCount).toBe(0);
     },
     ENDURANCE_CASE_TIMEOUT_MS,
   );
@@ -255,10 +255,10 @@ describe("a working day of opening and closing the pane", () => {
     const pool = new TerminalRendererPool();
     const lease = pool.acquire("proof-of-life");
     expect(lease).toBeDefined();
-    expect(pool.heldSlotCount).toBe(1);
+    expect(pool.heldContextCount).toBe(1);
     if (lease !== undefined) {
       pool.release(lease);
     }
-    expect(pool.heldSlotCount).toBe(0);
+    expect(pool.heldContextCount).toBe(0);
   });
 });

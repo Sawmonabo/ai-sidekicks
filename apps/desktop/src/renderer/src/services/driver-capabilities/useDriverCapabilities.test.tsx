@@ -208,7 +208,7 @@ describe("useDriverCapabilities — a settlement is never terminal", () => {
     return <CapabilityProbe bridge={props.bridge} onReadout={props.onReadout} />;
   }
 
-  function initialisedStore(): SessionStore {
+  function initializedStore(): SessionStore {
     const store = new SessionStore({ sessionId: "019b7a33-3300-75e5-8510-ada11a5a55a5" });
     store.initialize({ cursor: 0, entities: [] });
     return store;
@@ -250,7 +250,7 @@ describe("useDriverCapabilities — a settlement is never terminal", () => {
       { drivers: [reportFor("claude", [])] },
       { drivers: [reportFor("claude", ["rollback"])] },
     );
-    const sessionStore = initialisedStore();
+    const sessionStore = initializedStore();
     let readout: DriverCapabilityReadout | undefined = neverRead();
     await act(async () => {
       render(

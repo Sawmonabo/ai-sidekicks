@@ -35,7 +35,7 @@ export interface ArtifactPaneReaderOptions extends ArtifactReadScheduleOptions {
 }
 
 /** One pane's reading of a session's artifacts, and the acts a surface can put to the port. */
-export class ArtifactPaneReader extends ArtifactReadSchedule {
+export class ArtifactListReader extends ArtifactReadSchedule {
   readonly #clock: Clock;
   readonly #actions: ArtifactRowActions;
   readonly #changes = new Emitter<ArtifactListReading>("artifact pane reading");

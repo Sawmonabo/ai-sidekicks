@@ -18,13 +18,13 @@ import { INGEST_STALL_DISCLOSURE_MS } from "./attachment-caps.js";
 import { ManualClock } from "@renderer/lib/clock.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { repeatedDisposalCount } from "@test/helpers/repeated-disposal.js";
-import { consoleClockFor } from "@renderer/services/platform/hooks/useClock.js";
+import { resolveBridgeClock } from "@renderer/services/platform/hooks/useClock.js";
 import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { AttachmentCard } from "./components/AttachmentCard.js";
 import { StagedAttachments } from "./staged-attachments.js";
 import {
-  useAttachmentCarrier,
-  type AttachmentCarrierBinding,
+  useStagedAttachments,
+  type StagedAttachmentsBinding,
 } from "./hooks/useStagedAttachments.js";
 import type { AttachmentIngestPort } from "./services/attachment-ingest-answer.js";
 import { bridgeOnClock } from "@test/helpers/fixture-bridge.js";
@@ -204,15 +204,15 @@ describe("attachment carrier — the stall disclosure wakes once at its threshol
   });
 });
 
-describe("useAttachmentCarrier — the stamp is the window's clock, never the host's", () => {
-  it("publishes the instant `consoleClockFor` answers for the bridge it was handed", () => {
+describe("useStagedAttachments — the stamp is the window's clock, never the host's", () => {
+  it("publishes the instant `resolveBridgeClock` answers for the bridge it was handed", () => {
     // Under the fixture the entries are stamped from the window's own clock: a carrier
     // with a `RealClock` of its own would stamp `Date.now()`, two clocks inside one
     // window with the wall one always winning.
     const port = new ScriptedIngestPort();
     const clock = new ManualClock(START_MILLISECONDS);
     const bridge = bridgeOnClock("composer", clock);
-    let binding: AttachmentCarrierBinding | undefined;
+    let binding: StagedAttachmentsBinding | undefined;
     render(
       <CarrierProbe
         bridge={bridge}
@@ -223,7 +223,7 @@ describe("useAttachmentCarrier — the stamp is the window's clock, never the ho
       />,
     );
 
-    expect(consoleClockFor(bridge).now()).toBe(START_MILLISECONDS);
+    expect(resolveBridgeClock(bridge).now()).toBe(START_MILLISECONDS);
     expect(binding?.snapshot.publishedAtMilliseconds).toBe(START_MILLISECONDS);
   });
 
@@ -232,7 +232,7 @@ describe("useAttachmentCarrier — the stamp is the window's clock, never the ho
     // bridges on two clocks stamp two different instants.
     const laterStart = START_MILLISECONDS + INGEST_STALL_DISCLOSURE_MS;
     const port = new ScriptedIngestPort();
-    let binding: AttachmentCarrierBinding | undefined;
+    let binding: StagedAttachmentsBinding | undefined;
     render(
       <CarrierProbe
         bridge={bridgeOnClock("composer", new ManualClock(laterStart))}
@@ -252,21 +252,21 @@ describe("useAttachmentCarrier — the stamp is the window's clock, never the ho
 function CarrierProbe(props: {
   readonly bridge: ConsoleBridge;
   readonly port: AttachmentIngestPort;
-  readonly onBinding: (binding: AttachmentCarrierBinding) => void;
+  readonly onBinding: (binding: StagedAttachmentsBinding) => void;
 }): React.JSX.Element {
-  const binding = useAttachmentCarrier(props.bridge, INGEST_SESSION_ID, props.port);
+  const binding = useStagedAttachments(props.bridge, INGEST_SESSION_ID, props.port);
   props.onBinding(binding);
   return <span>{String(binding.snapshot.entries.length)}</span>;
 }
 
-describe("useAttachmentCarrier — a disposed carrier is re-minted on the replayed setup", () => {
+describe("useStagedAttachments — a disposed carrier is re-minted on the replayed setup", () => {
   it("reaches a live client after StrictMode has torn one down and mounted again", async () => {
     // The bug, exercised: StrictMode runs the cleanup and then the setup again on the
     // same component instance, and a memoised carrier survives that. The cleanup
     // terminally disposed the ingest client, so every file chosen afterwards reached a
     // client whose `attach` returns at once — the surface inert, and silently.
     const port = new ScriptedIngestPort();
-    let binding: AttachmentCarrierBinding | undefined;
+    let binding: StagedAttachmentsBinding | undefined;
     render(
       <StrictMode>
         <CarrierProbe
@@ -296,7 +296,7 @@ describe("useAttachmentCarrier — a disposed carrier is re-minted on the replay
     // opening a stream per pass, which is the leak the memo existed to prevent dressed
     // as a fix for the one it caused.
     const port = new ScriptedIngestPort();
-    let binding: AttachmentCarrierBinding | undefined;
+    let binding: StagedAttachmentsBinding | undefined;
     const { rerender } = render(
       <CarrierProbe
         bridge={bridgeOnClock("composer")}

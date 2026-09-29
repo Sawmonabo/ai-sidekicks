@@ -16,7 +16,7 @@
 // session, and instant look like.
 
 import type { ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
-import { TERMINAL_SCENARIO_CAST } from "../../../../../../fixtures/scenarios/terminal-lease.js";
+import { TERMINAL_SCENARIO_ROLES } from "../../../../../../fixtures/scenarios/terminal-lease.js";
 import { eventOfKind } from "@test/helpers/session-events.js";
 import { TERMINAL_LEASE_EVENT_KIND } from "./lease-transition.js";
 
@@ -29,8 +29,8 @@ import { TERMINAL_LEASE_EVENT_KIND } from "./lease-transition.js";
  * wire-declared UUIDs. Reading them off the join log keeps the family's fixtures saying
  * one thing about what a user id is.
  */
-export const THIS_DEVICE_ID: string = TERMINAL_SCENARIO_CAST.owner;
-export const OTHER_DEVICE_ID: string = TERMINAL_SCENARIO_CAST.otherDevice;
+export const THIS_DEVICE_ID: string = TERMINAL_SCENARIO_ROLES.owner;
+export const OTHER_DEVICE_ID: string = TERMINAL_SCENARIO_ROLES.otherDevice;
 
 /**
  * A `pty.control_changed` carrying exactly the payload a case hands it.

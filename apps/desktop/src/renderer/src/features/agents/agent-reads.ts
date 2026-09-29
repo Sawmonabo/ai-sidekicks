@@ -29,7 +29,7 @@
 import type { Clock } from "@renderer/lib/clock.js";
 import { callDaemon } from "@renderer/services/daemon/daemon-reply.js";
 import {
-  type AgentRosterReading,
+  type AgentListReading,
   type ChildRunLinkReading,
 } from "@renderer/services/wire-shapes/agents.js";
 import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
@@ -39,7 +39,7 @@ import { subscribeToSessionEventKinds } from "@renderer/store/session/session-ev
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 import {
   AGENT_LIFECYCLE_EVENT_KINDS,
-  CHILD_RUN_LINKAGE_EVENT_KINDS,
+  CHILD_RUN_LINK_EVENT_KINDS,
   DRIVER_LIST_CAPABILITIES_METHOD,
   DRIVER_LIST_MODELS_METHOD,
 } from "@renderer/services/wire-shapes/agent-vocabularies.js";
@@ -55,7 +55,7 @@ export const CHILD_RUN_LINKS_ORIGIN = "child-run-linkage";
  */
 export type ListSessionAgents = (request: {
   readonly sessionId: string;
-}) => Promise<AgentRosterReading>;
+}) => Promise<AgentListReading>;
 
 /**
  * Reads one parent run's child-run links and refused creates.
@@ -75,7 +75,7 @@ export interface AgentConsoleCalls {
   readonly readChildRunLinks: ReadChildRunLinks;
 }
 
-export type AgentListRead = PushDrivenRead<AgentRosterReading>;
+export type AgentListRead = PushDrivenRead<AgentListReading>;
 export type DriverCatalogRead = PushDrivenRead<DriverCatalogReading>;
 export type ChildRunLinksRead = PushDrivenRead<ChildRunLinkReading>;
 
@@ -85,7 +85,7 @@ export function createAgentList(
   clock: Clock,
   listAgents: ListSessionAgents,
 ): AgentListRead {
-  return new PushDrivenRead<AgentRosterReading>({
+  return new PushDrivenRead<AgentListReading>({
     clock,
     origin: AGENT_LIST_ORIGIN,
     read: async () => await listAgents({ sessionId: sessionStore.sessionId }),
@@ -137,6 +137,6 @@ export function createChildRunLinks(
     origin: CHILD_RUN_LINKS_ORIGIN,
     read: async () => await readChildRunLinks({ parentRunId }),
     subscribe: (onChangeSignal) =>
-      subscribeToSessionEventKinds(sessionStore, CHILD_RUN_LINKAGE_EVENT_KINDS, onChangeSignal),
+      subscribeToSessionEventKinds(sessionStore, CHILD_RUN_LINK_EVENT_KINDS, onChangeSignal),
   });
 }

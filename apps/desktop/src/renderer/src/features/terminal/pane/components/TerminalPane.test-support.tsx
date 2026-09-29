@@ -6,7 +6,7 @@ import { render } from "@testing-library/react";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { fixtureSessionSnapshot } from "@renderer/services/daemon/session-snapshot.fixture.js";
-import { TERMINAL_SCENARIO } from "../../../../../../../fixtures/scenarios/terminal-lease.js";
+import { TERMINAL_LEASE_SCENARIO } from "../../../../../../../fixtures/scenarios/terminal-lease.js";
 import type { PaneContextOf } from "@renderer/console/seats/index.js";
 import { paneContext } from "@renderer/registries/panes/pane-context.test-support.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
@@ -14,18 +14,18 @@ import { type ProjectedSessionEvent } from "@renderer/store/session/entities/ent
 import { TerminalPane } from "./TerminalPane.js";
 
 /** The terminal scenario's session id. */
-export const SESSION_ID: string = TERMINAL_SCENARIO.sessionId;
+export const SESSION_ID: string = TERMINAL_LEASE_SCENARIO.sessionId;
 
 /** The fixture bridge every suite starts from. */
 export function paneBridge(): ConsoleBridge {
-  return createFixtureBridge({ scenario: TERMINAL_SCENARIO });
+  return createFixtureBridge({ scenario: TERMINAL_LEASE_SCENARIO });
 }
 
 const LEASE_EVENT_KIND = "pty.control_changed";
 
 /** Every lease transition the scenario scripts, in the order it scripts them. */
-export const leaseBeats: readonly (typeof TERMINAL_SCENARIO.beats)[number][] =
-  TERMINAL_SCENARIO.beats.filter((beat) => beat.event.kind === LEASE_EVENT_KIND);
+export const leaseBeats: readonly (typeof TERMINAL_LEASE_SCENARIO.beats)[number][] =
+  TERMINAL_LEASE_SCENARIO.beats.filter((beat) => beat.event.kind === LEASE_EVENT_KIND);
 
 /**
  * A store holding the scenario's events through its `transitionOrdinal`-th lease
@@ -49,8 +49,8 @@ export function storeThrough(transitionOrdinal: number): SessionStore {
     );
   }
   const store = new SessionStore({ sessionId: SESSION_ID });
-  store.initialize(fixtureSessionSnapshot(TERMINAL_SCENARIO, SESSION_ID));
-  const events = TERMINAL_SCENARIO.beats
+  store.initialize(fixtureSessionSnapshot(TERMINAL_LEASE_SCENARIO, SESSION_ID));
+  const events = TERMINAL_LEASE_SCENARIO.beats
     .map((beat) => beat.event as ProjectedSessionEvent)
     .filter((event) => event.sequence <= lastLeaseBeat.event.sequence);
   store.applyBatch(events);

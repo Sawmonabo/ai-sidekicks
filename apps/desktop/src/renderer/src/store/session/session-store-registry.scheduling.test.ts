@@ -15,7 +15,7 @@ import { ManualClock } from "@renderer/lib/clock.js";
 import type { RefreshReason } from "@renderer/lib/reads/refresh-scheduler.js";
 import {
   emptySnapshot,
-  eventAt,
+  runEventAt,
   projectors,
   readsNothing,
   settleMicrotasks,
@@ -35,8 +35,8 @@ describe("SessionStoreRegistry — applies go through the queue, reads through t
     store.initialize(emptySnapshot(0));
     const revisionBefore = store.snapshot().revision;
 
-    registry.enqueue("session-1", [eventAt(1, "run-1"), eventAt(2, "run-2")]);
-    registry.enqueue("session-1", [eventAt(3, "run-3")]);
+    registry.enqueue("session-1", [runEventAt(1, "run-1"), runEventAt(2, "run-2")]);
+    registry.enqueue("session-1", [runEventAt(3, "run-3")]);
 
     // Nothing has reached the store yet: the queue holds the frame.
     expect(store.snapshot().revision).toBe(revisionBefore);
@@ -70,9 +70,9 @@ describe("SessionStoreRegistry — applies go through the queue, reads through t
     store.initialize(emptySnapshot(0));
     const revisionBefore = store.snapshot().revision;
 
-    registry.enqueue("session-1", [eventAt(1, "run-1")]);
+    registry.enqueue("session-1", [runEventAt(1, "run-1")]);
     clock.runFrame();
-    registry.enqueue("session-1", [eventAt(2, "run-2")]);
+    registry.enqueue("session-1", [runEventAt(2, "run-2")]);
     clock.runFrame();
 
     expect(store.snapshot().revision).toBe(revisionBefore + 2);
@@ -142,7 +142,7 @@ describe("SessionStoreRegistry — applies go through the queue, reads through t
       applyCoalesceMs: 0,
     });
     registry.open("session-1");
-    registry.enqueue("session-1", [eventAt(1, "run-1")]);
+    registry.enqueue("session-1", [runEventAt(1, "run-1")]);
     registry.requestRefresh("session-1", "subscribe");
 
     // Two arms live: one frame for the queue, one timeout for the scheduler.

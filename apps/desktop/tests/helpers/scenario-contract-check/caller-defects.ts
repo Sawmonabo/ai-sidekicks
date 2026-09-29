@@ -4,7 +4,7 @@
 // anything wrong — which is why a predicate has to hold every scenario to it.
 
 import type { ScenarioContractDefect } from "./scenario-contract-defect.js";
-import type { ConsoleScenario } from "../../../fixtures/scenario.js";
+import type { Scenario } from "../../../fixtures/scenario.js";
 
 /**
  * A stated caller who is not in the session, or `undefined` when the scenario is sound.
@@ -19,9 +19,7 @@ import type { ConsoleScenario } from "../../../fixtures/scenario.js";
  * Scoped to scenarios that STATE one: an absent caller is the deliberate state the
  * fixture refuses the caller-identity read from, not a defect.
  */
-export function describeCallerDefect(
-  scenario: ConsoleScenario,
-): ScenarioContractDefect | undefined {
+export function describeCallerDefect(scenario: Scenario): ScenarioContractDefect | undefined {
   const { callerUserId } = scenario;
   if (callerUserId === undefined) {
     return undefined;

@@ -1,6 +1,6 @@
 // The window's plumbing belongs to the bridge it was built from.
 //
-// `DesktopBridgeProvider` replaces its resolution when the `bridge` prop changes —
+// `PlatformBridgeProvider` replaces its resolution when the `bridge` prop changes —
 // a reconnect, or the fixture's scenario switch — and every window under it renders
 // against the new one from the next commit on. What this file drives is the half
 // below that: the registry and binder were built FROM a bridge, and a hook that did
@@ -25,8 +25,8 @@ import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { createFixture } from "@test/helpers/fixture-bridge.js";
-import { DesktopBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
-import { useConsoleBridge } from "@renderer/services/platform/hooks/usePlatformBridge.js";
+import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
+import { usePlatformBridge } from "@renderer/services/platform/hooks/usePlatformBridge.js";
 import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { EntityProjectorRegistry } from "@renderer/registries/entity-projectors/entity-projector-registry.js";
 import { type SessionSnapshotReader } from "@renderer/store/session/open-session-entry.js";
@@ -48,7 +48,7 @@ interface RegistryProbeProps {
 
 /** A component that owns a window's plumbing and reports what it was handed. */
 function RegistryProbe(props: RegistryProbeProps): null {
-  const bridge = useConsoleBridge();
+  const bridge = usePlatformBridge();
   const registry = useSessionStoreRegistry(props.projectorRegistry, readNothing);
   props.onObserve({ bridge, registry });
   return null;
@@ -60,9 +60,9 @@ interface SwapHostProps extends RegistryProbeProps {
 
 function SwapHost(props: SwapHostProps): React.JSX.Element {
   return (
-    <DesktopBridgeProvider bridge={props.bridge}>
+    <PlatformBridgeProvider bridge={props.bridge}>
       <RegistryProbe projectorRegistry={props.projectorRegistry} onObserve={props.onObserve} />
-    </DesktopBridgeProvider>
+    </PlatformBridgeProvider>
   );
 }
 

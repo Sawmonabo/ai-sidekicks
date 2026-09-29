@@ -1,6 +1,6 @@
 // The configuration an agent runs under, drawn as the card reads it.
 //
-// Split out of `AgentCard.tsx` because it answers a different question: the card
+// Split out of `AgentBindingCard.tsx` because it answers a different question: the card
 // draws an agent's LIVE state — its binding, its run, the axes it is switching — and
 // this draws the resolved configuration the roster reported, fixed for the agent's
 // life. The two change for different reasons.

@@ -24,17 +24,17 @@ import { StrictMode, useState, type ReactNode } from "react";
 import { describe, expect, it } from "vitest";
 
 import { type Clock } from "@renderer/lib/clock.js";
-import { DesktopBridgeProvider } from "./PlatformBridgeProvider.js";
+import { PlatformBridgeProvider } from "./PlatformBridgeProvider.js";
 import { useBridgeResolution } from "./hooks/useBridgeResolution.js";
-import { useConsoleBridge } from "./hooks/usePlatformBridge.js";
-import { consoleClockFor, useConsoleClock } from "./hooks/useClock.js";
+import { usePlatformBridge } from "./hooks/usePlatformBridge.js";
+import { resolveBridgeClock, useClock } from "./hooks/useClock.js";
 import { type BridgeComposition } from "./bridge-context.js";
 import { type ConsoleBridge } from "./platform-bridge.js";
 import { createFixtureBridge } from "./platform-bridge.fixture.js";
 import { findScenario } from "../../../../../fixtures/index.js";
 import { FIRST_RUN_SCENARIO_ID } from "../../../../../fixtures/scenarios/first-run.js";
 import {
-  FLAGSHIP_SCENARIO,
+  CONCURRENT_STREAMING_SCENARIO,
   CONCURRENT_STREAMING_SCENARIO_ID,
 } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
 
@@ -88,21 +88,21 @@ function recordingComposition(scenarioId: string): RecordingComposition {
   };
 }
 
-describe("DesktopBridgeProvider — the resolved bridge's lifetime", () => {
+describe("PlatformBridgeProvider — the resolved bridge's lifetime", () => {
   it("holds one engine across re-renders that change nothing it resolves on", () => {
     const composition = recordingComposition(CONCURRENT_STREAMING_SCENARIO_ID);
     const observed: ConsoleBridge[] = [];
     const { rerender } = render(
-      <DesktopBridgeProvider composition={composition}>
+      <PlatformBridgeProvider composition={composition}>
         <BridgeProbe onObserve={(bridge) => observed.push(bridge)} />
-      </DesktopBridgeProvider>,
+      </PlatformBridgeProvider>,
     );
     const first = lastBridge(observed);
 
     rerender(
-      <DesktopBridgeProvider composition={composition}>
+      <PlatformBridgeProvider composition={composition}>
         <BridgeProbe onObserve={(bridge) => observed.push(bridge)} />
-      </DesktopBridgeProvider>,
+      </PlatformBridgeProvider>,
     );
 
     expect(observed.length).toBeGreaterThan(1);
@@ -115,16 +115,16 @@ describe("DesktopBridgeProvider — the resolved bridge's lifetime", () => {
     const firstRunComposition = recordingComposition(FIRST_RUN_SCENARIO_ID);
     const observed: ConsoleBridge[] = [];
     const { rerender } = render(
-      <DesktopBridgeProvider composition={concurrentStreamingComposition}>
+      <PlatformBridgeProvider composition={concurrentStreamingComposition}>
         <BridgeProbe onObserve={(bridge) => observed.push(bridge)} />
-      </DesktopBridgeProvider>,
+      </PlatformBridgeProvider>,
     );
     const concurrentStreaming = engineOf(lastBridge(observed));
 
     rerender(
-      <DesktopBridgeProvider composition={firstRunComposition}>
+      <PlatformBridgeProvider composition={firstRunComposition}>
         <BridgeProbe onObserve={(bridge) => observed.push(bridge)} />
-      </DesktopBridgeProvider>,
+      </PlatformBridgeProvider>,
     );
     const firstRun = engineOf(lastBridge(observed));
 
@@ -145,9 +145,9 @@ describe("DesktopBridgeProvider — the resolved bridge's lifetime", () => {
     const composition = recordingComposition(CONCURRENT_STREAMING_SCENARIO_ID);
     const observed: ConsoleBridge[] = [];
     const { unmount } = render(
-      <DesktopBridgeProvider composition={composition}>
+      <PlatformBridgeProvider composition={composition}>
         <BridgeProbe onObserve={(bridge) => observed.push(bridge)} />
-      </DesktopBridgeProvider>,
+      </PlatformBridgeProvider>,
     );
     const engine = engineOf(lastBridge(observed));
     expect(engine.isDisposed).toBe(false);
@@ -162,12 +162,12 @@ describe("DesktopBridgeProvider — the resolved bridge's lifetime", () => {
     // Tests and stories build a fixture once and render it through several
     // providers. Disposing one on unmount would tear down a resource this
     // component never owned, and the second render would be driving a corpse.
-    const bridge = createFixtureBridge({ scenario: FLAGSHIP_SCENARIO });
+    const bridge = createFixtureBridge({ scenario: CONCURRENT_STREAMING_SCENARIO });
     const observed: ConsoleBridge[] = [];
     const { unmount } = render(
-      <DesktopBridgeProvider bridge={bridge}>
+      <PlatformBridgeProvider bridge={bridge}>
         <BridgeProbe onObserve={(seen) => observed.push(seen)} />
-      </DesktopBridgeProvider>,
+      </PlatformBridgeProvider>,
     );
 
     expect(lastBridge(observed)).toBe(bridge);
@@ -185,9 +185,9 @@ describe("DesktopBridgeProvider — the resolved bridge's lifetime", () => {
     const observed: ConsoleBridge[] = [];
     const tree: ReactNode = (
       <StrictMode>
-        <DesktopBridgeProvider composition={composition}>
+        <PlatformBridgeProvider composition={composition}>
           <BridgeProbe onObserve={(bridge) => observed.push(bridge)} />
-        </DesktopBridgeProvider>
+        </PlatformBridgeProvider>
       </StrictMode>
     );
 
@@ -201,7 +201,7 @@ describe("DesktopBridgeProvider — the resolved bridge's lifetime", () => {
 
 /** A component that does what a console surface does with time: read the clock. */
 function ClockProbe(props: { readonly onObserve: (clock: Clock) => void }): null {
-  props.onObserve(useConsoleClock());
+  props.onObserve(useClock());
   return null;
 }
 
@@ -209,13 +209,13 @@ function ClockProbe(props: { readonly onObserve: (clock: Clock) => void }): null
  * The superseded form, kept as a control rather than as an alternative.
  *
  * `useState`'s lazy initializer runs once for the life of the MOUNT, which is the
- * shape `useConsoleClock` had and the shape the case below fails on. It is written
+ * shape `useClock` had and the shape the case below fails on. It is written
  * here so the replacement's claim is measured against the thing it replaced instead
  * of being asserted.
  */
 function MountPinnedClockProbe(props: { readonly onObserve: (clock: Clock) => void }): null {
-  const bridge = useConsoleBridge();
-  const [clock] = useState<Clock>(() => consoleClockFor(bridge));
+  const bridge = usePlatformBridge();
+  const [clock] = useState<Clock>(() => resolveBridgeClock(bridge));
   props.onObserve(clock);
   return null;
 }
@@ -228,9 +228,9 @@ function lastClock(observed: readonly Clock[]): Clock {
   return clock;
 }
 
-describe("useConsoleClock — the clock is a fact about the bridge", () => {
+describe("useClock — the clock is a fact about the bridge", () => {
   const concurrentStreamingBridge = (): ConsoleBridge =>
-    createFixtureBridge({ scenario: FLAGSHIP_SCENARIO });
+    createFixtureBridge({ scenario: CONCURRENT_STREAMING_SCENARIO });
   const firstRunBridge = (): ConsoleBridge =>
     createFixtureBridge({ scenario: findScenario(FIRST_RUN_SCENARIO_ID) });
 
@@ -244,17 +244,17 @@ describe("useConsoleClock — the clock is a fact about the bridge", () => {
     const bridgeB = firstRunBridge();
     const observed: Clock[] = [];
     const { rerender } = render(
-      <DesktopBridgeProvider bridge={bridgeA}>
+      <PlatformBridgeProvider bridge={bridgeA}>
         <ClockProbe onObserve={(clock) => observed.push(clock)} />
-      </DesktopBridgeProvider>,
+      </PlatformBridgeProvider>,
     );
     expect(lastClock(observed).now()).toBe(engineOf(bridgeA).clock.now());
 
     engineOf(bridgeB).tick();
     rerender(
-      <DesktopBridgeProvider bridge={bridgeB}>
+      <PlatformBridgeProvider bridge={bridgeB}>
         <ClockProbe onObserve={(clock) => observed.push(clock)} />
-      </DesktopBridgeProvider>,
+      </PlatformBridgeProvider>,
     );
 
     expect(lastClock(observed).now()).toBe(engineOf(bridgeB).clock.now());
@@ -271,14 +271,14 @@ describe("useConsoleClock — the clock is a fact about the bridge", () => {
     const bridgeB = firstRunBridge();
     const observed: Clock[] = [];
     const { rerender } = render(
-      <DesktopBridgeProvider bridge={bridgeA}>
+      <PlatformBridgeProvider bridge={bridgeA}>
         <MountPinnedClockProbe onObserve={(clock) => observed.push(clock)} />
-      </DesktopBridgeProvider>,
+      </PlatformBridgeProvider>,
     );
     rerender(
-      <DesktopBridgeProvider bridge={bridgeB}>
+      <PlatformBridgeProvider bridge={bridgeB}>
         <MountPinnedClockProbe onObserve={(clock) => observed.push(clock)} />
-      </DesktopBridgeProvider>,
+      </PlatformBridgeProvider>,
     );
 
     expect(lastClock(observed)).toBe(engineOf(bridgeA).clock);
@@ -295,14 +295,14 @@ describe("useConsoleClock — the clock is a fact about the bridge", () => {
 
     const observed: Clock[] = [];
     const { rerender } = render(
-      <DesktopBridgeProvider bridge={bridgeA}>
+      <PlatformBridgeProvider bridge={bridgeA}>
         <ClockProbe onObserve={(clock) => observed.push(clock)} />
-      </DesktopBridgeProvider>,
+      </PlatformBridgeProvider>,
     );
     rerender(
-      <DesktopBridgeProvider bridge={bridgeA}>
+      <PlatformBridgeProvider bridge={bridgeA}>
         <ClockProbe onObserve={(clock) => observed.push(clock)} />
-      </DesktopBridgeProvider>,
+      </PlatformBridgeProvider>,
     );
     expect(observed.length).toBeGreaterThan(1);
     expect(new Set(observed).size).toBe(1);

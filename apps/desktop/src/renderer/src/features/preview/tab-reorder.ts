@@ -6,7 +6,7 @@
 // moved tab, so a tab dragged rightward targets `slot - 1`. The translation is stated
 // once, at the one call site, never rediscovered per handler.
 //
-// So it is stated here, in one function, and `TabStrip.tsx` is the only module that
+// So it is stated here, in one function, and `PageTabStrip.tsx` is the only module that
 // calls it. The two facts that make the subtraction necessary
 // are worth writing down, because a reader who has only one of them will delete it:
 //
@@ -34,7 +34,7 @@
  * window, so there is nothing to register it with, and the prefix is what stops it
  * colliding with a type some other surface invents.
  */
-export const BROWSER_TAB_DRAG_MEDIA_TYPE = "application/x-meridian-browser-tab";
+export const PAGE_TAB_DRAG_MEDIA_TYPE = "application/x-meridian-browser-tab";
 
 /**
  * What a drag over the strip may do, read off the drag itself.
@@ -44,12 +44,12 @@ export const BROWSER_TAB_DRAG_MEDIA_TYPE = "application/x-meridian-browser-tab";
  * prevents whatever else in the window would.
  */
 export function isTabDrag(transfer: DataTransfer): boolean {
-  return Array.from(transfer.types).includes(BROWSER_TAB_DRAG_MEDIA_TYPE);
+  return Array.from(transfer.types).includes(PAGE_TAB_DRAG_MEDIA_TYPE);
 }
 
 /** Put a page's identity on a drag that is starting. */
 export function writeTabDragPayload(transfer: DataTransfer, pageId: string): void {
-  transfer.setData(BROWSER_TAB_DRAG_MEDIA_TYPE, pageId);
+  transfer.setData(PAGE_TAB_DRAG_MEDIA_TYPE, pageId);
   // `move` and not `copy`: a tab has one place and dropping it makes a new one, which
   // is what the cursor should say while the drag is in the air.
   transfer.effectAllowed = "move";
@@ -66,7 +66,7 @@ export function readTabDragPayload(transfer: DataTransfer): string | undefined {
   if (!isTabDrag(transfer)) {
     return undefined;
   }
-  const pageId = transfer.getData(BROWSER_TAB_DRAG_MEDIA_TYPE);
+  const pageId = transfer.getData(PAGE_TAB_DRAG_MEDIA_TYPE);
   return pageId.length > 0 ? pageId : undefined;
 }
 

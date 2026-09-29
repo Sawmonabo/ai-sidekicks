@@ -2,7 +2,7 @@
 //
 // `SessionStoreRegistry` owns a session store's life — its apply queue, its refresh
 // scheduler, and the rule that two opens of one session are one store.
-// `SessionEventBinder` owns the wire subscription in front of that apply queue.
+// `SessionEventSubscriber` owns the wire subscription in front of that apply queue.
 // This module owns BOTH their lives, which is the composition root's question and
 // nobody else's: one registry and one binder per window, sessions kept open for as
 // long as the window is up, everything disposed when it goes away.
@@ -57,16 +57,16 @@
 // plumbing that has already disposed itself.
 
 import { useEffect } from "react";
-import { consoleClockFor } from "@renderer/services/platform/hooks/useClock.js";
+import { resolveBridgeClock } from "@renderer/services/platform/hooks/useClock.js";
 import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
-import { useConsoleBridge } from "@renderer/services/platform/hooks/usePlatformBridge.js";
+import { usePlatformBridge } from "@renderer/services/platform/hooks/usePlatformBridge.js";
 import { useBridgeComposition } from "@renderer/services/platform/hooks/useBridgeComposition.js";
 import { SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
 import { useSubjectScopedResource } from "@renderer/hooks/subject-scoped/useSubjectScopedResource.js";
 import { type SubjectScopedDisposal } from "@renderer/lib/subject-scoped/subject-scoped-disposal.js";
 import { type EntityProjectorRegistry } from "@renderer/registries/entity-projectors/entity-projector-registry.js";
 import { type SessionSnapshotReader } from "@renderer/store/session/open-session-entry.js";
-import { SessionEventBinder } from "@renderer/services/session-events/session-event-subscriber.js";
+import { SessionEventSubscriber } from "@renderer/services/session-events/session-event-subscriber.js";
 
 /**
  * This window's session-store registry, rebuilt on a new bridge and disposed with
@@ -102,7 +102,7 @@ export function useSessionStoreRegistry(
   // hook gets the same bridge the rest of the frame renders against and no surface
   // has to thread one through. The bridge is provided, never reached for, which is the
   // same rule one layer down.
-  const bridge = useConsoleBridge();
+  const bridge = usePlatformBridge();
   // The bridge alone is the subject, and the projector registry and the read call
   // deliberately are not: the plumbing takes a SNAPSHOT of that table at construction,
   // exactly so a later registration cannot make one open store fold two events of one
@@ -139,7 +139,7 @@ export function useSessionStoreRegistry(
 /** This window's session plumbing: the stores, and the one thing that feeds them. */
 interface WindowSessionPlumbing {
   readonly registry: SessionStoreRegistry;
-  readonly binder: SessionEventBinder;
+  readonly binder: SessionEventSubscriber;
 }
 
 /**
@@ -160,7 +160,7 @@ function createWindowSessionPlumbing(
 ): WindowSessionPlumbing {
   const registry = new SessionStoreRegistry({
     read: readSession,
-    clock: consoleClockFor(bridge),
+    clock: resolveBridgeClock(bridge),
     // THE PROJECTORS ARE PART OF THE PLUMBING, not an optional extra. The registry
     // has taken them since it was written and this root registered none, so every
     // store it opened admitted its events into the timeline and projected them
@@ -181,7 +181,7 @@ function createWindowSessionPlumbing(
     // underneath it would fold two events of one kind two ways.
     projectors: projectorRegistry.snapshot(),
   });
-  return { registry, binder: new SessionEventBinder({ registry, bridge }) };
+  return { registry, binder: new SessionEventSubscriber({ registry, bridge }) };
 }
 
 /**

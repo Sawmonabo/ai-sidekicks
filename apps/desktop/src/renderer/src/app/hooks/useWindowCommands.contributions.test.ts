@@ -19,7 +19,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { commandContributionRegistry } from "@renderer/registries/commands/command-contributions.js";
 import { type CommandDefinition } from "@renderer/registries/commands/command-types.js";
-import { mountConsole } from "@test/helpers/mount-app.js";
+import { mountApp } from "@test/helpers/mount-app.js";
 
 /** The family this file composes as, so its rows are withdrawn by owner. */
 const CONTRIBUTING_OWNER = "frame-commands-contributions-test";
@@ -61,7 +61,7 @@ describe("frame command surface — chords contributed after the table was insta
         runCount += 1;
       },
     };
-    const mounted = await mountConsole();
+    const mounted = await mountApp();
 
     // The press BEFORE the contribution is the negative control, and it is in the
     // same case on purpose: it shows the chord was not already bound by something
@@ -93,7 +93,7 @@ describe("frame command surface — chords contributed after the table was insta
     // — and a leaked subscription would keep answering presses in a window that no
     // longer exists, which is the shape a stray listener always takes.
     let runCount = 0;
-    const mounted = await mountConsole();
+    const mounted = await mountApp();
     act(() => {
       mounted.unmount();
     });

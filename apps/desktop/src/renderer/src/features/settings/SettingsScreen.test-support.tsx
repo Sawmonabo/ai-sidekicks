@@ -15,7 +15,7 @@ import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
 import { WindowStore } from "@renderer/store/window/window-store.js";
 import { SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
 import { SettingsScreen } from "./SettingsScreen.js";
-import { registerSettingsSurface } from "./contributions/screens.js";
+import { registerSettingsScreen } from "./contributions/screens.js";
 import { type SettingsPageRegistry } from "./settings-pages.js";
 import { ScreenRegistry, type ScreenContext } from "@renderer/console/seats/index.js";
 // The descriptor type by its own specifier: no production module names it, so the
@@ -26,7 +26,7 @@ import type { ScreenDescriptor } from "@renderer/registries/screens/screen-regis
 /**
  * The render a window mounts, taken from the shipped registrar itself.
  *
- * Driven THROUGH `registerSettingsSurface` rather than around it. The page set that
+ * Driven THROUGH `registerSettingsScreen` rather than around it. The page set that
  * function composes is closed over and is not a value a suite may reach for, and
  * composing a second one here would be a copy that agrees with the shipped list until
  * someone adds a page to one of them — so claiming the slot and calling back the render
@@ -36,7 +36,7 @@ import type { ScreenDescriptor } from "@renderer/registries/screens/screen-regis
  */
 async function loadShippedSurfaceRender(): Promise<ScreenDescriptor["render"]> {
   const surfaces = new ScreenRegistry();
-  registerSettingsSurface(surfaces);
+  registerSettingsScreen(surfaces);
   // The chunk, before the mount — which is what a window does too: the idle warm walks
   // this board after the first frame, and the rail's press warms the destination before
   // the route commits. Awaiting the same `preload` here is what makes the cases that

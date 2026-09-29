@@ -2,7 +2,7 @@
 //
 // SPLIT FROM `diff-fixture.test-support.ts` ON THE SEAM BETWEEN A SHAPE AND ITS BYTES. That module
 // declares the shapes, holds the named fixtures, and turns a parsed patch into a
-// `ConsoleDiffModel` — the two things a patch cannot carry included. This one writes
+// `DiffModel` — the two things a patch cannot carry included. This one writes
 // the patch: hunk headers with the line numbers the format produces, the extended
 // headers a rename and a mode change carry, and the `\ No newline at end of file`
 // marker. Two subjects, and the file that held both was doing two jobs, which

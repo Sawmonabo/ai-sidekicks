@@ -18,7 +18,7 @@
 // from `apps/desktop/test/...`.
 import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { bridgeAnswering } from "@test/helpers/fixture-bridge.js";
-import { COMPOSER_SCENARIO } from "../../../../../../../fixtures/scenarios/waiting-for-input.js";
+import { WAITING_FOR_INPUT_SCENARIO } from "../../../../../../../fixtures/scenarios/waiting-for-input.js";
 import type { ComposerSendCalls } from "../send-dispatch.js";
 import { interventionResponse, sendCallsAnswering } from "../send-router.test-support.js";
 
@@ -29,7 +29,7 @@ export class ParkedDaemonCalls {
 
   public constructor() {
     // The composer's own scenario, because these cases are the composer's.
-    this.bridge = bridgeAnswering(async () => undefined, COMPOSER_SCENARIO).bridge;
+    this.bridge = bridgeAnswering(async () => undefined, WAITING_FOR_INPUT_SCENARIO).bridge;
     this.calls = sendCallsAnswering(
       async () =>
         new Promise((resolve) => {

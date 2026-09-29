@@ -38,7 +38,7 @@ export interface PageTabStripProps {
 }
 
 /** One tab per open page, with drag reordering; draws nothing below two pages. */
-export function TabStrip(props: PageTabStripProps): React.JSX.Element | null {
+export function PageTabStrip(props: PageTabStripProps): React.JSX.Element | null {
   const { reading, onSelect, onClose, onReorder } = props;
   // The slot a drag is currently over, held only while a drag is in the air. It is
   // renderer-local by nature — nothing outside this window knows a pointer is down —

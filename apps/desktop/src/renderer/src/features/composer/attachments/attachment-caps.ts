@@ -25,7 +25,7 @@ export const ATTACHMENT_BYTE_CAP_DEFAULT: number = 100 * 1024 * 1024;
  * budget. Operator-tunable over a 1 – 50 range. Bound on the CARRIER and never on
  * an ingest stream, which carries exactly one payload and has no count to cap.
  */
-export const ATTACHMENTS_PER_CARRIER_CAP_DEFAULT = 10;
+export const ATTACHMENTS_PER_MESSAGE_CAP_DEFAULT = 10;
 
 /**
  * Wall-clock ceiling on one ingest stream, measured from its first call.

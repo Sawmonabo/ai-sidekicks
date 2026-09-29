@@ -112,7 +112,7 @@ import {
 } from "./endurance-workload.js";
 import { readTranscriptWindow } from "./transcript-window-read.js";
 import { expectPreciseHeapInstrument, RendererHeapProbe } from "./heap-instrument.js";
-import { FLAGSHIP_SCENARIO } from "../../fixtures/scenarios/concurrent-streaming.js";
+import { CONCURRENT_STREAMING_SCENARIO } from "../../fixtures/scenarios/concurrent-streaming.js";
 // The real overscan the viewport is constructed with, so the bound below is the
 // window's own declaration and not a figure this file keeps in step by hand.
 import { TRANSCRIPT_OVERSCAN_ROWS } from "@renderer/features/transcript/viewport/viewport-constants.js";
@@ -210,7 +210,7 @@ const SNAPSHOT_CHURN_CYCLE_COUNT = Math.ceil(CHURN_CYCLE_COUNT / 4);
  */
 const SCENARIO_ADVANCE_MS_PER_CYCLE = Math.max(
   1,
-  Math.ceil((FLAGSHIP_SCENARIO.beats.at(-1)?.atMs ?? 0) / CHURN_CYCLE_COUNT),
+  Math.ceil((CONCURRENT_STREAMING_SCENARIO.beats.at(-1)?.atMs ?? 0) / CHURN_CYCLE_COUNT),
 );
 
 describe.skipIf(!bundleIsBuilt)("endurance — the console held open", () => {
@@ -268,7 +268,7 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console held open", () => {
         expect(
           await readPlayingScenarioId(consoleApplication),
           `${SCENARIO_FIXTURE_GLOBAL} is not exposed by this build, or the launch did not select a scenario`,
-        ).toBe(FLAGSHIP_SCENARIO.id);
+        ).toBe(CONCURRENT_STREAMING_SCENARIO.id);
 
         // One warm-up cycle before the baseline. Without it the baseline is taken
         // before the palette, its portal, and the settings route have ever been
@@ -337,7 +337,7 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console held open", () => {
             `final ${String(Math.round(finalHeapBytes / 1024))} kB, ` +
             `growth ${String(growthKilobytes)} kB over ${String(CHURN_CYCLE_COUNT)} cycles ` +
             `(${String(perCycleBytes)} B/cycle); beats ${String(beatsAfterWarmUp)} → ` +
-            `${String(beatsDelivered)} of ${String(FLAGSHIP_SCENARIO.beats.length)} at ` +
+            `${String(beatsDelivered)} of ${String(CONCURRENT_STREAMING_SCENARIO.beats.length)} at ` +
             `${String(SCENARIO_ADVANCE_MS_PER_CYCLE)} ms/cycle; events applied ` +
             `${String(appliedEventsAfterWarmUp)} → ${String(appliedEventsAtMidRun)} → ` +
             `${String(appliedEventCount)}; ledger rows mounted on ` +
@@ -480,7 +480,7 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console held open", () => {
           expect(
             await readPlayingScenarioId(consoleApplication),
             `${SCENARIO_FIXTURE_GLOBAL} is not exposed by this build, or the launch did not select a scenario`,
-          ).toBe(FLAGSHIP_SCENARIO.id);
+          ).toBe(CONCURRENT_STREAMING_SCENARIO.id);
 
           for (let cycle = 0; cycle < SNAPSHOT_CHURN_CYCLE_COUNT; cycle += 1) {
             await churnOnce(consoleApplication, SCENARIO_ADVANCE_MS_PER_CYCLE);

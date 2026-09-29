@@ -14,7 +14,7 @@ import { describe, expect, it } from "vitest";
 import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { bridgeAnswering } from "@test/helpers/fixture-bridge.js";
 import type { ScenarioEngine } from "@renderer/services/daemon/engine.fixture.js";
-import { FLAGSHIP_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
+import { CONCURRENT_STREAMING_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
 import { APPLY_COALESCE_MS } from "@renderer/lib/reads/refresh-caps.js";
 import { RefusalError } from "@renderer/lib/refusal.js";
 import { ManualClock } from "@renderer/lib/clock.js";
@@ -76,7 +76,7 @@ describe("useSessionStoreRegistry — the clock the window's stores run on", () 
     // screenshot or an endurance step taken straight after `advance()` saw either
     // side of the drain depending on how fast the runner was.
     const { bridge, wrapper } = fixtureBridgeHarness();
-    const sessionId = FLAGSHIP_SCENARIO.sessionId;
+    const sessionId = CONCURRENT_STREAMING_SCENARIO.sessionId;
     const observed: Observation[] = [];
     render(
       <SessionProbe
@@ -270,7 +270,7 @@ describe("sessionReadThroughDaemon — the base state a store opens on", () => {
     const { bridge } = bridgeAnswering((_call, passThrough) => passThrough());
 
     const snapshot = await sessionReadThroughDaemon(bridge)(
-      FLAGSHIP_SCENARIO.sessionId,
+      CONCURRENT_STREAMING_SCENARIO.sessionId,
       [],
       undefined,
     );
@@ -288,7 +288,7 @@ describe("sessionReadThroughDaemon — the base state a store opens on", () => {
     );
 
     await expect(
-      sessionReadThroughDaemon(bridge)(FLAGSHIP_SCENARIO.sessionId, [], undefined),
+      sessionReadThroughDaemon(bridge)(CONCURRENT_STREAMING_SCENARIO.sessionId, [], undefined),
     ).rejects.toBeInstanceOf(RefusalError);
   });
 });

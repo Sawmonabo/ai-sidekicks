@@ -23,7 +23,7 @@ import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.
 import { unscriptedScenario } from "@test/helpers/fixture-bridge.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import { PaneRegistry } from "@renderer/console/seats/index.js";
-import { registerAgentConsolePane } from "./panes.js";
+import { registerAgentsPane } from "./panes.js";
 import { settleReads } from "../pane/agents-pane.test-support.js";
 
 const PLAYED_SESSION_ID = "session-agent-console-mounts";
@@ -77,7 +77,7 @@ function deckPaneContext(agentId: string | undefined, bridge: ConsoleBridge): De
 /** Mount the deck's pane and let its reads settle. */
 async function renderDeckPane(agentId: string | undefined): Promise<HTMLElement> {
   const registry = new PaneRegistry();
-  registerAgentConsolePane(registry);
+  registerAgentsPane(registry);
   // The body is loader-backed, so it is fetched before the mount rather than during it —
   // which is what a window does too, through the idle warm after its first frame. Without
   // it every case below would be waiting on a dynamic import inside a bounded wait.

@@ -1,7 +1,7 @@
 // Advancing the one frozen clock a console reading schedules against.
 //
 // Every read this console performs goes through a `RefreshScheduler`, and every
-// scheduler is armed on the clock `consoleClockFor` resolves — the fixture's frozen
+// scheduler is armed on the clock `resolveBridgeClock` resolves — the fixture's frozen
 // one wherever a scenario is playing. So a suite that mounts a reading and asserts
 // what it asked the daemon has to MOVE that clock, and moving it is three things at
 // once: reaching the right clock, advancing it far enough that the absolute deadline

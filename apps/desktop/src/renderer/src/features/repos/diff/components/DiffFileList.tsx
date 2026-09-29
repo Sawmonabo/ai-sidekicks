@@ -13,12 +13,12 @@ import {
   diffFileListReading,
   selectedEntryRow,
 } from "../diff-file-entries.js";
-import type { ConsoleDiffModel } from "../diff-model.js";
+import type { DiffModel } from "../diff-model.js";
 import { useRowWindow } from "../hooks/useRowWindow.js";
 import { DiffFileEntryButton } from "./DiffFileEntryButton.js";
 
 export interface DiffFileListProps {
-  readonly diff: ConsoleDiffModel;
+  readonly diff: DiffModel;
   /** The path whose rows are shown, or `undefined` for the whole change set. */
   readonly selectedFilePath: string | undefined;
   readonly onSelectFilePath: (path: string | undefined) => void;

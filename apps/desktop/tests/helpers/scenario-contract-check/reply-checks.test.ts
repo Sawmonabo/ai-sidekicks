@@ -12,31 +12,31 @@
 import { describe, expect, it } from "vitest";
 
 import { REGISTERED_DAEMON_METHODS } from "@renderer/services/daemon/daemon-reply-registry.js";
-import { FLAGSHIP_SCENARIO } from "../../../fixtures/scenarios/concurrent-streaming.js";
+import { CONCURRENT_STREAMING_SCENARIO } from "../../../fixtures/scenarios/concurrent-streaming.js";
 import { findScenarioContractDefects } from "./contract-check.js";
 import { CORPUS_DAEMON_METHODS_NOT_YET_BOUND } from "./reply-checks.js";
 import type { ScenarioReply } from "@renderer/services/daemon/scenario-reply.fixture.js";
-import type { ConsoleScenario } from "../../../fixtures/scenario.js";
+import type { Scenario } from "../../../fixtures/scenario.js";
 
 /** A call the concurrent-streaming scripts no answer for, so a case adds one rather than shadowing one. */
 const PROBE_CALL = "presence.read";
 
 /** The concurrent-streaming scenario, with one extra reply carrying the latency under test. */
-function scenarioWithProbeReply(scenarioId: string, afterMs: number): ConsoleScenario {
+function scenarioWithProbeReply(scenarioId: string, afterMs: number): Scenario {
   const probeReply: ScenarioReply = { call: PROBE_CALL, afterMs, result: {} };
   return {
-    ...FLAGSHIP_SCENARIO,
+    ...CONCURRENT_STREAMING_SCENARIO,
     id: scenarioId,
-    replies: [...FLAGSHIP_SCENARIO.replies, probeReply],
+    replies: [...CONCURRENT_STREAMING_SCENARIO.replies, probeReply],
   };
 }
 
 describe("scenario wire truth — a call the corpus registers nowhere", () => {
   /** The concurrent-streaming scenario, with one extra reply answering `call`. */
-  const scenarioAnswering = (call: string): ConsoleScenario => ({
-    ...FLAGSHIP_SCENARIO,
+  const scenarioAnswering = (call: string): Scenario => ({
+    ...CONCURRENT_STREAMING_SCENARIO,
     id: "answers-a-call",
-    replies: [...FLAGSHIP_SCENARIO.replies, { call, result: {} }],
+    replies: [...CONCURRENT_STREAMING_SCENARIO.replies, { call, result: {} }],
   });
 
   it("reports a scripted reply to a method nothing registers", () => {
@@ -58,7 +58,7 @@ describe("scenario wire truth — a call the corpus registers nowhere", () => {
     // The real tree, which is where a family's invented name would land. Every call it
     // scripts is admitted by a derived registry rather than by a transcription: the
     // daemon binding table.
-    expect(findScenarioContractDefects([FLAGSHIP_SCENARIO])).toStrictEqual([]);
+    expect(findScenarioContractDefects([CONCURRENT_STREAMING_SCENARIO])).toStrictEqual([]);
   });
 
   it("negative control: a bound method is clean through the table, not the transient list", () => {
@@ -123,7 +123,7 @@ describe("scenario wire truth — a scripted latency the frozen clock cannot spe
   });
 
   it("negative control: the shipped seat board's own replies stay clean", () => {
-    expect(findScenarioContractDefects([FLAGSHIP_SCENARIO])).toStrictEqual([]);
+    expect(findScenarioContractDefects([CONCURRENT_STREAMING_SCENARIO])).toStrictEqual([]);
   });
 });
 
@@ -131,10 +131,10 @@ describe("scenario wire truth — one scripted answer per call", () => {
   it("reports a second entry for a call the first already claims", () => {
     // The leg the latency walk joined rather than replaced: `replyFor` answers with
     // the first match, so the second entry can never be served.
-    const shadowed: ConsoleScenario = {
-      ...FLAGSHIP_SCENARIO,
+    const shadowed: Scenario = {
+      ...CONCURRENT_STREAMING_SCENARIO,
       id: "claims-one-call-twice",
-      replies: [...FLAGSHIP_SCENARIO.replies, { call: "session.read", result: {} }],
+      replies: [...CONCURRENT_STREAMING_SCENARIO.replies, { call: "session.read", result: {} }],
     };
 
     const defects = findScenarioContractDefects([shadowed]);
@@ -148,11 +148,11 @@ describe("scenario wire truth — one scripted answer per call", () => {
     // A shadowed entry is never reached, so its `afterMs` is a property of a reply
     // the fixture cannot serve. Reporting both would name two things to change where
     // deleting the entry settles it.
-    const shadowedWithBadLatency: ConsoleScenario = {
-      ...FLAGSHIP_SCENARIO,
+    const shadowedWithBadLatency: Scenario = {
+      ...CONCURRENT_STREAMING_SCENARIO,
       id: "shadowed-and-unspendable",
       replies: [
-        ...FLAGSHIP_SCENARIO.replies,
+        ...CONCURRENT_STREAMING_SCENARIO.replies,
         { call: "session.read", afterMs: Number.NaN, result: {} },
       ],
     };

@@ -37,7 +37,7 @@ import { UNADDRESSABLE_HUMAN_WAIT_DETAIL, humanFormPhaseFor } from "../human-for
 import type { HumanFormSelection } from "../hooks/useHumanFormSelection.js";
 import { runGraphLoader } from "../run-graph/run-graph-loader.js";
 import { RunParks } from "./RunParks.js";
-import { RunPhaseGraph } from "./RunGraphSection.js";
+import { RunGraphSection } from "./RunGraphSection.js";
 import {
   SECOND_WAIT_PHASE_ID,
   SECOND_WAIT_PHASE_RUN_ID,
@@ -304,7 +304,7 @@ describe("the phase graph and the park cards of one run", () => {
   async function renderGraphAndParks(run: WorkflowRunSnapshot): Promise<HTMLElement> {
     const { container } = render(
       <>
-        <RunPhaseGraph phases={run.phaseStates} />
+        <RunGraphSection phases={run.phaseStates} />
         <RunParks run={run} humanForms={NO_FORM_OPEN} />
       </>,
     );

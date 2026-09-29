@@ -1,4 +1,4 @@
-// The producer half of the diff family: unified patch text in, `ConsoleDiffModel`
+// The producer half of the diff family: unified patch text in, `DiffModel`
 // out, plus the intraline word diff one changed line pair is segmented by.
 //
 // The diff viewer splits in two and this file is the ADOPTED half: `diff` 9.0.0
@@ -80,7 +80,7 @@ import { parsePatch } from "diff/lib/patch/parse.js";
 import type { StructuredPatch } from "diff/lib/types.js";
 
 import { hunkLines } from "./hunk-lines.js";
-import type { ConsoleDiffModel, DiffFile, DiffIntralineSegment } from "./diff-model.js";
+import type { DiffModel, DiffFile, DiffIntralineSegment } from "./diff-model.js";
 import { wholeLineSegments } from "./diff-model.js";
 
 /** The compared states the caller names, carried onto the parsed model verbatim. */
@@ -108,10 +108,7 @@ const GIT_PATH_PREFIXES = ["a/", "b/"] as const;
  * a line's two numbers advance on DIFFERENT sides, and a renderer handed a base
  * number on an inserted line would display a line that does not exist in the base.
  */
-export function parseUnifiedPatch(
-  patchText: string,
-  comparedStates: ComparedStates,
-): ConsoleDiffModel {
+export function parseUnifiedPatch(patchText: string, comparedStates: ComparedStates): DiffModel {
   const files: DiffFile[] = [];
   // Read once for the whole patch, and consumed in the order `parsePatch` hands the
   // hunks back — both walks read the same text top to bottom, so the nth declared

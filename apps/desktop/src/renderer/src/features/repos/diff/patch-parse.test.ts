@@ -6,7 +6,7 @@ import {
   COMPARED_STATES,
   PLAIN_PATCH,
   linesOfFirstHunk,
-  parsePlain,
+  parsePlainPatch,
 } from "@test/helpers/patch-parsing.js";
 
 /**
@@ -29,13 +29,13 @@ describe("parseUnifiedPatch — the hunk header is the patch's own", () => {
     // The whole navigational value of a git hunk header: which function the change
     // is inside. `diff`'s `StructuredPatchHunk` drops it, so it is read off the raw
     // line rather than composed from the four numbers that survive.
-    expect(parsePlain(SECTION_CONTEXT_PATCH).files[0]?.hunks[0]?.header).toBe(
+    expect(parsePlainPatch(SECTION_CONTEXT_PATCH).files[0]?.hunks[0]?.header).toBe(
       "@@ -10 +10 @@ function createApplicationWindow(): BrowserWindow {",
     );
   });
 
   it("keeps a one-line range spelled the way the patch spelled it", () => {
-    const header = parsePlain(SECTION_CONTEXT_PATCH).files[0]?.hunks[0]?.header ?? "";
+    const header = parsePlainPatch(SECTION_CONTEXT_PATCH).files[0]?.hunks[0]?.header ?? "";
     expect(header.startsWith("@@ -10 +10 @@")).toBe(true);
   });
 
@@ -43,13 +43,13 @@ describe("parseUnifiedPatch — the hunk header is the patch's own", () => {
     // Exactly what composing `@@ -${oldStart},${oldLines} +${newStart},${newLines} @@`
     // produces for this hunk. It renders as a plausible header and is not the one the
     // patch declared, which is why the reconstruction was invisible until read.
-    expect(parsePlain(SECTION_CONTEXT_PATCH).files[0]?.hunks[0]?.header).not.toBe(
+    expect(parsePlainPatch(SECTION_CONTEXT_PATCH).files[0]?.hunks[0]?.header).not.toBe(
       "@@ -10,1 +10,1 @@",
     );
   });
 
   it("hands each file's hunks their own declared headers, in order", () => {
-    const model = parsePlain(PLAIN_PATCH);
+    const model = parsePlainPatch(PLAIN_PATCH);
     expect(model.files[0]?.hunks[0]?.header).toBe("@@ -10,2 +10,2 @@");
     expect(model.files[1]?.hunks[0]?.header).toBe("@@ -1,1 +1,2 @@");
   });
@@ -85,20 +85,20 @@ describe("parseUnifiedPatch", () => {
   it("carries the caller's compared states rather than reading them", () => {
     // They are not in the patch text, so a parser that produced them from the body
     // would be inventing them.
-    const model = parsePlain(PLAIN_PATCH);
+    const model = parsePlainPatch(PLAIN_PATCH);
     expect(model.baseRef).toBe("main");
     expect(model.headRef).toBe("feat/thing");
   });
 
   it("reads every file in a multi-file patch, under the path the patch names", () => {
-    expect(parsePlain(PLAIN_PATCH).files.map((file) => file.path)).toStrictEqual([
+    expect(parsePlainPatch(PLAIN_PATCH).files.map((file) => file.path)).toStrictEqual([
       "packages/contracts/src/event.ts",
       "apps/desktop/src/main.ts",
     ]);
   });
 
   it("carries the hunk header the patch declared, verbatim", () => {
-    expect(parsePlain(PLAIN_PATCH).files[0]?.hunks[0]?.header).toBe("@@ -10,2 +10,2 @@");
+    expect(parsePlainPatch(PLAIN_PATCH).files[0]?.hunks[0]?.header).toBe("@@ -10,2 +10,2 @@");
   });
 
   it("numbers the two sides independently", () => {
@@ -116,7 +116,7 @@ describe("parseUnifiedPatch", () => {
   });
 
   it("gives a parsed hunk no preceding context, because a patch carries none", () => {
-    for (const file of parsePlain(PLAIN_PATCH).files) {
+    for (const file of parsePlainPatch(PLAIN_PATCH).files) {
       for (const hunk of file.hunks) {
         expect(hunk.precedingContext).toStrictEqual([]);
       }
@@ -149,7 +149,7 @@ describe("parseUnifiedPatch", () => {
   });
 
   it("strips the git prefixes only on a patch that declared itself git-style", () => {
-    const model = parsePlain(
+    const model = parsePlainPatch(
       [
         "diff --git a/apps/desktop/src/main.ts b/apps/desktop/src/main.ts",
         "index 1111111..2222222 100644",
@@ -167,14 +167,14 @@ describe("parseUnifiedPatch", () => {
   it("negative control: a plain patch keeps a path that genuinely begins with `b/`", () => {
     // The strip is conditional for exactly this case. A parser that stripped
     // unconditionally would re-root this file, which `diff-model.ts` forbids.
-    const model = parsePlain(
+    const model = parsePlainPatch(
       ["--- b/tool.ts", "+++ b/tool.ts", "@@ -1,1 +1,1 @@", "-a", "+b", ""].join("\n"),
     );
     expect(model.files[0]?.path).toBe("b/tool.ts");
   });
 
   it("names a deleted file by its old side, because the new side is absent", () => {
-    const model = parsePlain(
+    const model = parsePlainPatch(
       ["--- gone.ts", "+++ /dev/null", "@@ -1,1 +0,0 @@", "-const gone = true;", ""].join("\n"),
     );
     expect(model.files[0]?.path).toBe("gone.ts");
@@ -300,7 +300,7 @@ describe("parseUnifiedPatch — a body line this parser cannot place", () => {
     // start passing such a line through, the drop would be visible rather than a hunk
     // rendering short with every later line number low and nothing saying why.
     expect(() =>
-      parsePlain(
+      parsePlainPatch(
         [
           "--- packages/contracts/src/event.ts",
           "+++ packages/contracts/src/event.ts",
@@ -350,7 +350,7 @@ describe("parseUnifiedPatch — the header scan splits the way the parser splits
       "",
     ].join("\n");
 
-    const hunks = parsePlain(patch).files.flatMap((file) => file.hunks);
+    const hunks = parsePlainPatch(patch).files.flatMap((file) => file.hunks);
     expect(hunks.map((hunk) => hunk.header)).toStrictEqual(["@@ -1,2 +1,2 @@"]);
     expect(hunks[0]?.lines.map((line) => line.kind)).toStrictEqual(["context", "delete", "insert"]);
   });
@@ -382,7 +382,7 @@ describe("parseUnifiedPatch — the declared headers and the parsed hunks are on
     // rather than to this module — both walks now split identically, so no patch
     // `parsePatch` accepts reaches it. What this holds is the other direction: the
     // guard refuses nothing it should not, and the headers are the patch's own.
-    const model = parsePlain(PLAIN_PATCH);
+    const model = parsePlainPatch(PLAIN_PATCH);
     expect(model.files.flatMap((file) => file.hunks.map((hunk) => hunk.header))).toStrictEqual([
       "@@ -10,2 +10,2 @@",
       "@@ -1,1 +1,2 @@",

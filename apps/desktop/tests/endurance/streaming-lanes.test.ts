@@ -9,7 +9,7 @@
 import { describe, expect, it } from "vitest";
 import {
   CONCURRENT_STREAMING_LANE_COUNT,
-  FLAGSHIP_SCENARIO,
+  CONCURRENT_STREAMING_SCENARIO,
 } from "../../fixtures/scenarios/concurrent-streaming.js";
 import { peakConcurrentStreamingRuns } from "./streaming-lanes.js";
 import type { ScenarioBeat } from "../../fixtures/scenario.js";
@@ -141,7 +141,11 @@ describe("peakConcurrentStreamingRuns", () => {
 describe("the concurrent-streaming script", () => {
   it("has one streaming lane per attached agent, all at once", () => {
     expect(
-      peakConcurrentStreamingRuns(FLAGSHIP_SCENARIO.beats, 0, FLAGSHIP_SCENARIO.beats.length),
+      peakConcurrentStreamingRuns(
+        CONCURRENT_STREAMING_SCENARIO.beats,
+        0,
+        CONCURRENT_STREAMING_SCENARIO.beats.length,
+      ),
     ).toBe(CONCURRENT_STREAMING_LANE_COUNT);
   });
 
@@ -150,16 +154,16 @@ describe("the concurrent-streaming script", () => {
     // script whose only four-lane moment sat in the first few beats would be
     // measured entirely outside it. The peak is asserted over the tail rather
     // than over the whole script for that reason.
-    const openingBeatCount = FLAGSHIP_SCENARIO.beats.findIndex(
+    const openingBeatCount = CONCURRENT_STREAMING_SCENARIO.beats.findIndex(
       (beat) => beat.event.kind === "assistant.thinking_update",
     );
 
     expect(openingBeatCount).toBeGreaterThan(0);
     expect(
       peakConcurrentStreamingRuns(
-        FLAGSHIP_SCENARIO.beats,
+        CONCURRENT_STREAMING_SCENARIO.beats,
         openingBeatCount,
-        FLAGSHIP_SCENARIO.beats.length,
+        CONCURRENT_STREAMING_SCENARIO.beats.length,
       ),
     ).toBe(CONCURRENT_STREAMING_LANE_COUNT);
   });
@@ -169,7 +173,7 @@ describe("the concurrent-streaming script", () => {
     // concurrent-streaming script carried eight beats and no assistant or tool row at all. Every
     // run transition is kept, so what is shown is that the lanes alone do not
     // satisfy the claim.
-    const withoutOutput = FLAGSHIP_SCENARIO.beats.filter(
+    const withoutOutput = CONCURRENT_STREAMING_SCENARIO.beats.filter(
       (beat) => !beat.event.kind.startsWith("assistant.") && !beat.event.kind.startsWith("tool."),
     );
 
@@ -182,14 +186,14 @@ describe("the concurrent-streaming script", () => {
     // finishes before the next begins — which is the script a reviewer would
     // accept as "four lanes" if concurrency were not measured.
     const runIdsInOrder: string[] = [];
-    for (const beat of FLAGSHIP_SCENARIO.beats) {
+    for (const beat of CONCURRENT_STREAMING_SCENARIO.beats) {
       const runId = beat.event.payload?.["runId"];
       if (typeof runId === "string" && !runIdsInOrder.includes(runId)) {
         runIdsInOrder.push(runId);
       }
     }
     const sequential = runIdsInOrder.flatMap((runId) =>
-      FLAGSHIP_SCENARIO.beats.filter((beat) => beat.event.payload?.["runId"] === runId),
+      CONCURRENT_STREAMING_SCENARIO.beats.filter((beat) => beat.event.payload?.["runId"] === runId),
     );
 
     expect(peakConcurrentStreamingRuns(sequential, 0, sequential.length)).toBe(1);

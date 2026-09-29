@@ -10,7 +10,7 @@
 // is a stand-in for the registry: it is the surrounding cast, and a second copy of the
 // projector would let two suites disagree about what an applied event looks like.
 //
-// AND IT IS THE HOME FOR THE STORE ITSELF, which is what `initialisedStore` is doing
+// AND IT IS THE HOME FOR THE STORE ITSELF, which is what `initializedStore` is doing
 // at the bottom of this file. Three families had written that builder — the run
 // console, the workspace mounts page, and this directory's own event-signal suite —
 // byte for byte, in three trees whose authors do not read each other's diffs. They
@@ -45,7 +45,7 @@ export const projectors: EntityProjectorTable = {
 };
 
 /** One event at `sequence`, carrying the run id the projector reads. */
-export function eventAt(sequence: number, runId: string): ProjectedSessionEvent {
+export function runEventAt(sequence: number, runId: string): ProjectedSessionEvent {
   return eventOfKind("session-1", "run.starting", sequence, { runId });
 }
 
@@ -67,7 +67,7 @@ export async function settleMicrotasks(): Promise<void> {
  * Built from {@link emptySnapshot} rather than from a second base-state literal, so
  * the shape a store is opened with is written once in this file too.
  */
-export function initialisedStore(sessionId: string): SessionStore {
+export function initializedStore(sessionId: string): SessionStore {
   const sessionStore = new SessionStore({ sessionId });
   sessionStore.initialize(emptySnapshot(0));
   return sessionStore;

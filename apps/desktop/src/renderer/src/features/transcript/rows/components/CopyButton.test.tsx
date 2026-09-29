@@ -9,7 +9,7 @@ import { TRANSIENT_STATUS_DURATION_MS } from "@renderer/lib/transient-status.js"
 import { createLiveBridge } from "@renderer/services/platform/live-bridge.js";
 import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { FIXTURE_APP_META } from "@renderer/services/platform/platform-bridge.fixture.js";
-import { DesktopBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
+import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import { CopyButton } from "./CopyButton.js";
 
 const MESSAGE_TEXT = "Rename `readFrozenRecord` and keep its callers.\n\nTwo files.";
@@ -27,9 +27,9 @@ function bridgeCopyingWith(copyToClipboard: (text: string) => Promise<void>): Co
 
 async function pressCopy(bridge: ConsoleBridge): Promise<void> {
   render(
-    <DesktopBridgeProvider bridge={bridge}>
+    <PlatformBridgeProvider bridge={bridge}>
       <CopyButton text={MESSAGE_TEXT} />
-    </DesktopBridgeProvider>,
+    </PlatformBridgeProvider>,
   );
   await act(async () => {
     fireEvent.click(screen.getByRole("button", { name: "Copy" }));

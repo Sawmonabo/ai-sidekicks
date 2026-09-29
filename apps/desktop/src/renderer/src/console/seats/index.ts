@@ -373,7 +373,7 @@ export {
 // publishes is the mounts and the chunk's loader; `schema-form-body.ts` is the chunk
 // root they reach.
 export {
-  schemaFormAnswerMount,
+  schemaFormAnswerBody,
   schemaFormChunk,
-  schemaFormPreviewMount,
+  schemaFormPreviewBody,
 } from "@renderer/features/workflows/schema-form/schema-form-mounts.js";

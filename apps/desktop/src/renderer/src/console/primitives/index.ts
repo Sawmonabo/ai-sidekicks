@@ -257,9 +257,9 @@ export { RefusalCard } from "@renderer/components/Refusal/RefusalCard.js";
 // because the composer, the runs pane, and the approvals pane all render daemon
 // refusals whose codes the remedy table answers for, and three surfaces looking a
 // code up themselves is three chances to answer one code differently.
-export { RemediedRefusal } from "@renderer/features/composer/components/RefusalWithRemedy/RefusalWithRemedy.js";
+export { RefusalWithRemedy } from "@renderer/features/composer/components/RefusalWithRemedy/RefusalWithRemedy.js";
 // The shell every family's own recovery table renders through, and the shape those
-// tables produce. On this door for the same reason `RemediedRefusal` is: more than one
+// tables produce. On this door for the same reason `RefusalWithRemedy` is: more than one
 // family answers a code with a next move, and a shell written per family is a rendering
 // one of them can change without the other noticing — which is what happened, under two
 // class names whose declarations were identical property for property.

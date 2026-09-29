@@ -8,7 +8,7 @@
 // script slightly different replies for one wire.
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { withDaemonCall, type RecordedDaemonCall } from "@test/helpers/fixture-bridge.js";
-import type { ConsoleScenario } from "../../../../../../fixtures/scenario.js";
+import type { Scenario } from "../../../../../../fixtures/scenario.js";
 import type { FirstTurnQueueCall } from "@renderer/console/seats/index.js";
 import { NewSessionDraft } from "./new-session-draft.js";
 // The method the SEND names, taken from the module that sends it rather than
@@ -117,7 +117,7 @@ function firstTurnCall(options: ScriptedLegs, recorded: QueuedFirstTurn[]): Firs
   };
 }
 
-function scenario(options: ScriptedLegs): ConsoleScenario {
+function scenario(options: ScriptedLegs): Scenario {
   return {
     id: "draft-send",
     label: "Draft send",

@@ -10,11 +10,11 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi, type Mock } from "vitest";
 
 import type { PageListReading } from "../page-list-reading.js";
-import { previewPage as page, threeBrowserPages } from "../page-list-reading.test-support.js";
-import { TabStrip, type PageTabStripProps } from "./PageTabStrip.js";
-import { BROWSER_TAB_DRAG_MEDIA_TYPE } from "../tab-reorder.js";
+import { previewPage as page, threePreviewPages } from "../page-list-reading.test-support.js";
+import { PageTabStrip, type PageTabStripProps } from "./PageTabStrip.js";
+import { PAGE_TAB_DRAG_MEDIA_TYPE } from "../tab-reorder.js";
 
-const THREE_PAGES: PageListReading = threeBrowserPages();
+const THREE_PAGES: PageListReading = threePreviewPages();
 
 /**
  * The three handlers, typed by the props they satisfy.
@@ -36,7 +36,7 @@ function renderStrip(reading: PageListReading): StripHandlers {
     onClose: vi.fn<PageTabStripProps["onClose"]>(),
     onReorder: vi.fn<PageTabStripProps["onReorder"]>(),
   };
-  render(<TabStrip reading={reading} {...handlers} />);
+  render(<PageTabStrip reading={reading} {...handlers} />);
   return handlers;
 }
 
@@ -44,7 +44,7 @@ function renderStrip(reading: PageListReading): StripHandlers {
 function dragTransfer(pageId: string | undefined): DataTransfer {
   const held = new Map<string, string>();
   if (pageId !== undefined) {
-    held.set(BROWSER_TAB_DRAG_MEDIA_TYPE, pageId);
+    held.set(PAGE_TAB_DRAG_MEDIA_TYPE, pageId);
   }
   return {
     types: [...held.keys()],
@@ -112,7 +112,7 @@ describe("the tab strip's frame", () => {
 describe("the tab strip's presence", () => {
   it("draws nothing for one page, and a strip for two", () => {
     const one = render(
-      <TabStrip
+      <PageTabStrip
         reading={{ kind: "served", frame: { pages: [page({ pageId: "a" })], activeIndex: 0 } }}
         onSelect={vi.fn()}
         onClose={vi.fn()}

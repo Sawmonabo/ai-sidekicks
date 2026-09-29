@@ -13,16 +13,16 @@
 
 import { beforeEach, describe, expect, it } from "vitest";
 
-import type { ConsoleScenario } from "../../../../../fixtures/scenario.js";
-import { FLAGSHIP_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
+import type { Scenario } from "../../../../../fixtures/scenario.js";
+import { CONCURRENT_STREAMING_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
 import { windowTripwires } from "@renderer/lib/tripwires.js";
 import type { ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 import { SESSION_ID, createHarness } from "./session-event-subscriber.test-support.js";
 
 /** A scenario whose single beat delivers exactly the given payload at time zero. */
-function scenarioDelivering(id: string, event: unknown): ConsoleScenario {
+function scenarioDelivering(id: string, event: unknown): Scenario {
   return {
-    ...FLAGSHIP_SCENARIO,
+    ...CONCURRENT_STREAMING_SCENARIO,
     id,
     beats: [{ atMs: 0, event: event as ProjectedSessionEvent }],
   };
@@ -36,7 +36,7 @@ beforeEach(() => {
   windowTripwires.reset();
 });
 
-describe("SessionEventBinder — the payload boundary", () => {
+describe("SessionEventSubscriber — the payload boundary", () => {
   it("refuses a delivered payload that is not a session event, and counts it", () => {
     const { registry, binder, engine } = createHarness(
       scenarioDelivering("concurrent-streaming-malformed-payload-probe", { sequence: 1 }),

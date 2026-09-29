@@ -6,7 +6,7 @@
 
 import { render } from "@testing-library/react";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
-import type { ConsoleScenario } from "../../../../../../fixtures/scenario.js";
+import type { Scenario } from "../../../../../../fixtures/scenario.js";
 import { DEFAULT_ROUTE } from "@renderer/routing/routes.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence-caps.js";
 import { DraftStore } from "@renderer/store/draft-store.js";
@@ -23,7 +23,7 @@ import { CONTEXT_WINDOW_EVENT_KIND } from "../context-ring/context-window-readin
 /** The rail's session, as a registered `SessionId`: a UUID, not a readable name. */
 export const SESSION_ID = "6f1d2c3b-4a59-4e6f-8a7b-9c0d1e2f3a4b";
 
-const TOOLBAR_SCENARIO: ConsoleScenario = {
+const TOOLBAR_SCENARIO: Scenario = {
   id: "rail-unit",
   label: "Rail unit",
   purpose: "A bridge for the rail's mount; the rail's own reads come from the store.",

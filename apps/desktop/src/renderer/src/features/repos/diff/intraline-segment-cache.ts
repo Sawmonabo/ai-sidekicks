@@ -58,7 +58,7 @@ import {
 import {
   diffLineText,
   wholeLineSegments,
-  type ConsoleDiffModel,
+  type DiffModel,
   type DiffIntralineSegment,
   type DiffLine,
 } from "./diff-model.js";
@@ -104,7 +104,7 @@ const EMPTY_LINE: DiffLine = { kind: "context", segments: [{ text: "", changed: 
  * invalidates a segmentation.
  */
 export class IntralineSegmentCache {
-  readonly #model: ConsoleDiffModel;
+  readonly #model: DiffModel;
   /**
    * The computed readings, least recently read first.
    *
@@ -115,7 +115,7 @@ export class IntralineSegmentCache {
   readonly #readingByPair = new Map<string, IntralinePairReading>();
   #computeCount = 0;
 
-  public constructor(model: ConsoleDiffModel) {
+  public constructor(model: DiffModel) {
     this.#model = model;
   }
 

@@ -21,7 +21,7 @@ import { describe, expect, it } from "vitest";
 
 import { buildDiffFixture } from "@test/helpers/diff-fixture.js";
 import { SMALL_DIFF_SHAPE } from "@test/helpers/diff-fixture-shapes.js";
-import type { ConsoleDiffModel } from "../diff-model.js";
+import type { DiffModel } from "../diff-model.js";
 import { diffGapKey, type DiffGapExpansion } from "../diff-row-model.js";
 import { useDiffModelViewState, type DiffModelViewState } from "./useDiffModelViewState.js";
 
@@ -44,7 +44,7 @@ const FIRST_GAP = { fileIndex: 0, hunkIndex: 0 } as const;
 const WHOLE_FIRST_GAP = SMALL_DIFF_SHAPE.precedingContextPerHunk;
 
 /** A change set whose files share no path with the fixture's. */
-function otherDiff(): ConsoleDiffModel {
+function otherDiff(): DiffModel {
   const whole = buildDiffFixture(SMALL_DIFF_SHAPE);
   return { ...whole, files: whole.files.map((file) => ({ ...file, path: `other/${file.path}` })) };
 }
@@ -58,7 +58,7 @@ function renderExpansion(expansion: DiffGapExpansion): string {
 }
 
 interface ViewStateProbeProps {
-  readonly diff: ConsoleDiffModel | undefined;
+  readonly diff: DiffModel | undefined;
   /** Handed this render's state, so a case may hold one and use it after the move. */
   readonly onRender: (state: DiffModelViewState) => void;
 }
@@ -89,11 +89,11 @@ class ViewStateProbeDriver {
     this.#states.push(state);
   };
 
-  public constructor(diff: ConsoleDiffModel | undefined) {
+  public constructor(diff: DiffModel | undefined) {
     this.#view = render(<ViewStateProbe diff={diff} onRender={this.#record} />);
   }
 
-  public showDiff(diff: ConsoleDiffModel | undefined): void {
+  public showDiff(diff: DiffModel | undefined): void {
     this.#view.rerender(<ViewStateProbe diff={diff} onRender={this.#record} />);
   }
 

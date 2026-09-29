@@ -30,7 +30,7 @@ export function syntheticPaneContextAt(kind: PaneContext["kind"]): PaneContext {
  * The route is real because the surface's reserved region names the destination it is
  * waiting for, exactly as the pane's names its kind.
  */
-export function syntheticSurfaceContext(): ScreenContext {
+export function createSyntheticScreenContext(): ScreenContext {
   return { route: { kind: "settings", page: undefined } } as unknown as ScreenContext;
 }
 

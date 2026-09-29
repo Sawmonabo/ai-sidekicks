@@ -145,7 +145,7 @@ describe("the mount point — one adapter per mount", () => {
     // The adapter tore its own DOM down; nothing of the emulator is left behind in
     // a box React is about to drop.
     expect(surface.childElementCount).toBe(0);
-    expect(pool.heldSlotCount).toBe(0);
+    expect(pool.heldContextCount).toBe(0);
     expect(terminalRendererPool.holds("host-1")).toBe(false);
   });
 });
@@ -277,7 +277,7 @@ describe("a renderer-mode consumer that throws during the first delivery", () =>
     await expect(settleEmulatorLoad()).rejects.toThrow(consumerFailure);
 
     expect(dispose).toHaveBeenCalledTimes(1);
-    expect(terminalRendererPool.heldSlotCount).toBe(0);
+    expect(terminalRendererPool.heldContextCount).toBe(0);
     dispose.mockRestore();
   });
 

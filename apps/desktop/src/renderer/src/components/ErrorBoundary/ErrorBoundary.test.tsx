@@ -21,12 +21,12 @@ import { ErrorBoundary } from "./ErrorBoundary.js";
 
 const RENDER_FAILURE_MESSAGE = "the timeline could not render this row";
 
-/** A surface that fails the way a real one does: during its own render. */
-function ExplodingSurface(): React.JSX.Element {
+/** A region that fails the way a real one does: during its own render. */
+function ExplodingRegion(): React.JSX.Element {
   throw new Error(RENDER_FAILURE_MESSAGE);
 }
 
-function CalmSurface(): React.JSX.Element {
+function CalmRegion(): React.JSX.Element {
   return <p>the timeline rendered</p>;
 }
 
@@ -57,7 +57,7 @@ describe("ErrorBoundary — a render crash is recorded as a render crash", () =>
 
     render(
       <ErrorBoundary regionName="The timeline">
-        <ExplodingSurface />
+        <ExplodingRegion />
       </ErrorBoundary>,
     );
 
@@ -68,7 +68,7 @@ describe("ErrorBoundary — a render crash is recorded as a render crash", () =>
   it("names the surface and carries the thrown message, so the record is actionable", () => {
     render(
       <ErrorBoundary regionName="The approvals pane">
-        <ExplodingSurface />
+        <ExplodingRegion />
       </ErrorBoundary>,
     );
 
@@ -83,7 +83,7 @@ describe("ErrorBoundary — a render crash is recorded as a render crash", () =>
     // cases above and still be wrong.
     render(
       <ErrorBoundary regionName="The timeline">
-        <CalmSurface />
+        <CalmRegion />
       </ErrorBoundary>,
     );
 

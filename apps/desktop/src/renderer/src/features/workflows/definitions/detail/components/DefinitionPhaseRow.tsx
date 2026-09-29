@@ -35,7 +35,7 @@ import type {
   McpServerBindingRef,
   WorkflowPhaseDefinition,
 } from "@renderer/services/wire-shapes/workflow-definition-body.js";
-import { schemaFormPreviewMount } from "@renderer/console/seats/index.js";
+import { schemaFormPreviewBody } from "@renderer/console/seats/index.js";
 
 export interface DefinitionPhaseRowProps {
   readonly phase: WorkflowPhaseDefinition;
@@ -93,7 +93,7 @@ export function DefinitionPhaseRow(props: DefinitionPhaseRowProps): React.JSX.El
        * form kit is its own chunk: the seat holds the single in-flight load and the
        * reserved region the preview leaves while its module is arriving.
        */}
-      {schemaFormPreviewMount.render({ phase })}
+      {schemaFormPreviewBody.render({ phase })}
     </li>
   );
 }

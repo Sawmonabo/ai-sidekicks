@@ -7,13 +7,13 @@
 import { waitFor } from "@testing-library/react";
 import type { FunctionComponent } from "react";
 
-import { registerTerminalPanes } from "@renderer/features/terminal/contributions/panes.js";
+import { registerTerminalPane } from "@renderer/features/terminal/contributions/panes.js";
 import { type PaneContext } from "@renderer/console/seats/index.js";
 import { type ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import { fixtureSessionSnapshot } from "@renderer/services/daemon/session-snapshot.fixture.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
-import { TERMINAL_SCENARIO } from "../../../fixtures/scenarios/terminal-lease.js";
+import { TERMINAL_LEASE_SCENARIO } from "../../../fixtures/scenarios/terminal-lease.js";
 import { renderSettled } from "../app-harness.js";
 import { type MountedView, paneTrailName, requireLabelledRegion } from "./mount-queries.js";
 import { paneBinding, resolvedPaneBody } from "./pane-body-resolution.js";
@@ -35,11 +35,15 @@ const EMULATOR_CHUNK_TIMEOUT_MS = 20_000;
  */
 function terminalSessionStore(): SessionStore {
   const store = new SessionStore({
-    sessionId: TERMINAL_SCENARIO.sessionId,
+    sessionId: TERMINAL_LEASE_SCENARIO.sessionId,
     projectors: COMPOSED_ENTITY_PROJECTORS,
   });
-  store.initialize(fixtureSessionSnapshot(TERMINAL_SCENARIO, TERMINAL_SCENARIO.sessionId));
-  store.applyBatch(TERMINAL_SCENARIO.beats.map((beat) => beat.event as ProjectedSessionEvent));
+  store.initialize(
+    fixtureSessionSnapshot(TERMINAL_LEASE_SCENARIO, TERMINAL_LEASE_SCENARIO.sessionId),
+  );
+  store.applyBatch(
+    TERMINAL_LEASE_SCENARIO.beats.map((beat) => beat.event as ProjectedSessionEvent),
+  );
   return store;
 }
 
@@ -50,10 +54,10 @@ function terminalSessionStore(): SessionStore {
  * after the mount would be looking at the not-loaded absence rather than at the grid.
  */
 export async function mountTerminalPane(): Promise<MountedView> {
-  const bridge = createFixtureBridge({ scenario: TERMINAL_SCENARIO });
+  const bridge = createFixtureBridge({ scenario: TERMINAL_LEASE_SCENARIO });
   const TerminalPaneBody: FunctionComponent<PaneContext> = await resolvedPaneBody(
     "terminal",
-    registerTerminalPanes,
+    registerTerminalPane,
   );
   const { container } = await renderSettled(
     <TerminalPaneBody
@@ -67,7 +71,7 @@ export async function mountTerminalPane(): Promise<MountedView> {
   );
   const region = requireLabelledRegion(
     container,
-    paneTrailName(TERMINAL_SCENARIO.sessionId, "Terminal"),
+    paneTrailName(TERMINAL_LEASE_SCENARIO.sessionId, "Terminal"),
   );
   // Not inside `act`: the chunk resolves in a promise React knows nothing about, and an
   // `act` scope holds the resulting commit back until it exits.

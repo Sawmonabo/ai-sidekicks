@@ -7,7 +7,7 @@
 import type { ProviderCommandListResult } from "@ai-sidekicks/contracts";
 import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { bridgeAnswering, type RecordedDaemonCall } from "@test/helpers/fixture-bridge.js";
-import { COMPOSER_SCENARIO } from "../../../../../../fixtures/scenarios/waiting-for-input.js";
+import { WAITING_FOR_INPUT_SCENARIO } from "../../../../../../fixtures/scenarios/waiting-for-input.js";
 import type { ComposerTarget } from "../composer-target.js";
 import { addressedProviderBinding, type AddressedProviderBinding } from "./command-list-entries.js";
 
@@ -36,7 +36,7 @@ export function recordingBridge(
       });
     }
     return forward();
-  }, COMPOSER_SCENARIO).bridge;
+  }, WAITING_FOR_INPUT_SCENARIO).bridge;
 }
 
 /**
@@ -74,7 +74,7 @@ export const SECOND_AGENT = "019b7a11-1100-7a6e-8110-ada11a5a3302";
 export function targetForAgent(agentId: string): ComposerTarget {
   return {
     path: "provider-bound",
-    sessionId: COMPOSER_SCENARIO.sessionId,
+    sessionId: WAITING_FOR_INPUT_SCENARIO.sessionId,
     agentId,
     driverName: "claude",
     targetRunId: "019b7a11-1100-740e-8110-d1a4c1150311",

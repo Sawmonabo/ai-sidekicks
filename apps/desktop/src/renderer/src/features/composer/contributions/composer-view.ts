@@ -17,6 +17,6 @@ import { MessageComposer } from "../Composer.js";
  * The owner string is what a duplicate-claim refusal names, so it reads as the
  * feature rather than as a task id: a person who meets it meets it in an error message.
  */
-export function registerComposerFamily(): void {
+export function registerComposerView(): void {
   registerComposer("composer", (props) => createElement(MessageComposer, props));
 }

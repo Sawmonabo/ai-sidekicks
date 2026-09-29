@@ -20,7 +20,7 @@ import { eventOfKind } from "@test/helpers/session-events.js";
 import { handAnsweredCall } from "@test/helpers/held-calls.js";
 import type { ArtifactListReading } from "./artifact-list-reading.js";
 import { ARTIFACT_TERMINAL_EVENT_KINDS } from "./artifact-read-schedule.js";
-import { ArtifactPaneReader } from "./artifact-list-reader.js";
+import { ArtifactListReader } from "./artifact-list-reader.js";
 import {
   LISTED_ONE_ROW,
   SERVED_SUMMARY,
@@ -31,7 +31,7 @@ import {
 
 describe("artifact pane reader — before the first read answers", () => {
   it("starts on the read that has not answered", () => {
-    const reader = new ArtifactPaneReader({
+    const reader = new ArtifactListReader({
       ...artifactOperations(),
       sessionStore: new SessionStore({ sessionId: SESSION_ID }),
       clock: new ManualClock(),
@@ -41,8 +41,8 @@ describe("artifact pane reader — before the first read answers", () => {
 });
 
 /** A reader over a store a case drives. */
-function readerOver(sessionStore: SessionStore, clock: ManualClock): ArtifactPaneReader {
-  return new ArtifactPaneReader({
+function readerOver(sessionStore: SessionStore, clock: ManualClock): ArtifactListReader {
+  return new ArtifactListReader({
     ...artifactOperations(),
     sessionStore,
     clock,
@@ -142,7 +142,7 @@ describe("artifact pane reader — the four reasons to read, and no fifth", () =
 describe("artifact pane reader — a pane that has gone", () => {
   it("negative control: a disposed reader publishes nothing further", async () => {
     const clock = new ManualClock();
-    const reader = new ArtifactPaneReader({
+    const reader = new ArtifactListReader({
       ...artifactOperations(),
       sessionStore: new SessionStore({ sessionId: SESSION_ID }),
       clock,
@@ -160,7 +160,7 @@ describe("artifact pane reader — reading again is coalesced, not raced", () =>
     // reader that called the daemon on every press issues two list calls here.
     const clock = new ManualClock();
     const listArtifacts = vi.fn(async () => LISTED_ONE_ROW);
-    const reader = new ArtifactPaneReader({
+    const reader = new ArtifactListReader({
       ...artifactOperations({ listArtifacts }),
       sessionStore: new SessionStore({ sessionId: SESSION_ID }),
       clock,
@@ -181,7 +181,7 @@ describe("artifact pane reader — reading again is coalesced, not raced", () =>
     // Dropping the rows back to `loading` on every press would blank a surface that has an
     // answer on it.
     const clock = new ManualClock();
-    const reader = new ArtifactPaneReader({
+    const reader = new ArtifactListReader({
       ...artifactOperations({ listArtifacts: async () => [SERVED_SUMMARY] }),
       sessionStore: new SessionStore({ sessionId: SESSION_ID }),
       clock,
@@ -203,7 +203,7 @@ describe("artifact pane reader — reading again is coalesced, not raced", () =>
     // and its answer arrives afterwards with a stamp that is no longer current.
     const clock = new ManualClock();
     const listCall = handAnsweredCall<readonly ArtifactManifest[]>();
-    const reader = new ArtifactPaneReader({
+    const reader = new ArtifactListReader({
       ...artifactOperations({ listArtifacts: listCall.invoke }),
       sessionStore: new SessionStore({ sessionId: SESSION_ID }),
       clock,

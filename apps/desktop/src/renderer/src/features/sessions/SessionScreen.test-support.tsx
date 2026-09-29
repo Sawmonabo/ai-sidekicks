@@ -10,10 +10,10 @@ import { expect } from "vitest";
 
 import { PANE_LAYOUT_RESTORED_PANE_CAP } from "./pane-layout/pane-layout-store.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence-caps.js";
-import { DesktopBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
+import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
-import type { ConsoleScenario } from "../../../../../fixtures/scenario.js";
+import type { Scenario } from "../../../../../fixtures/scenario.js";
 import type { StoredRecord } from "@renderer/store/persistence/persistence-adapter.js";
 import { DraftStore } from "@renderer/store/draft-store.js";
 import { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
@@ -24,11 +24,11 @@ import { SessionStore } from "@renderer/store/session/session-store.js";
 import { PaneRegistry } from "@renderer/console/seats/index.js";
 import { PaneLayoutStore } from "./pane-layout/pane-layout-store.js";
 import { PANE_LAYOUT_RECORD_KEY } from "./pane-layout/layout-persistence.js";
-import { Workspace } from "./SessionScreen.js";
+import { SessionScreen } from "./SessionScreen.js";
 
 export const SESSION_ID = "session-workspace";
 
-export const SCENARIO: ConsoleScenario = {
+export const SCENARIO: Scenario = {
   id: "workspace",
   label: "Workspace",
   purpose: "Drives the workspace surface's composition.",
@@ -186,9 +186,9 @@ export function workspaceFor(
   bridge: ConsoleBridge = createFixtureBridge({ scenario: SCENARIO }),
 ): React.JSX.Element {
   return (
-    <DesktopBridgeProvider bridge={bridge}>
+    <PlatformBridgeProvider bridge={bridge}>
       <LiveAnnouncerProvider>
-        <Workspace
+        <SessionScreen
           {...(isKeyed ? { key: session.sessionId } : {})}
           bridge={bridge}
           frameStore={
@@ -201,7 +201,7 @@ export function workspaceFor(
           paneRegistry={testRegistry()}
         />
       </LiveAnnouncerProvider>
-    </DesktopBridgeProvider>
+    </PlatformBridgeProvider>
   );
 }
 

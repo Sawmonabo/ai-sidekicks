@@ -14,21 +14,23 @@
 // the session tells the whole story is this one's.
 
 import { describe, expect, it } from "vitest";
-import { FLAGSHIP_SCENARIO } from "./concurrent-streaming.js";
+import { CONCURRENT_STREAMING_SCENARIO } from "./concurrent-streaming.js";
 
 /** Every kind the concurrent-streaming plays, in script order. */
-const SCRIPTED_KINDS: readonly string[] = FLAGSHIP_SCENARIO.beats.map((beat) => beat.event.kind);
+const SCRIPTED_KINDS: readonly string[] = CONCURRENT_STREAMING_SCENARIO.beats.map(
+  (beat) => beat.event.kind,
+);
 
 /** The payloads of every beat of one kind. */
 function payloadsOfKind(kind: string): readonly Readonly<Record<string, unknown>>[] {
-  return FLAGSHIP_SCENARIO.beats
+  return CONCURRENT_STREAMING_SCENARIO.beats
     .filter((beat) => beat.event.kind === kind)
     .map((beat) => (beat.event.payload ?? {}) as Readonly<Record<string, unknown>>);
 }
 
 /** The scripted answer to one call, or `undefined`. */
 function replyTo(call: string): unknown {
-  return FLAGSHIP_SCENARIO.replies.find((reply) => reply.call === call)?.result;
+  return CONCURRENT_STREAMING_SCENARIO.replies.find((reply) => reply.call === call)?.result;
 }
 
 describe("the concurrent-streaming frame — the approval it asks and grants", () => {

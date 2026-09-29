@@ -87,7 +87,7 @@ import { SESSION_EVENT_STREAM } from "../daemon/session-event-streams.js";
 import { openObservedSubscription } from "../transport/observed-subscription.js";
 import { readProjectedSessionEvent } from "../daemon/session-event-payload.js";
 import { type ConsoleBridge } from "../platform/platform-bridge.js";
-import { type ConsoleSessionDiagnostics } from "./session-diagnostics-handle.js";
+import { type SessionDiagnostics } from "./session-diagnostics-handle.js";
 import { FailedSubscriptionRetry } from "./failed-subscription-retry.js";
 import type { SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
 
@@ -99,14 +99,14 @@ export interface SessionEventSubscriberOptions {
   readonly bridge: ConsoleBridge;
 }
 
-export class SessionEventBinder {
+export class SessionEventSubscriber {
   readonly #registry: SessionStoreRegistry;
   readonly #bridge: ConsoleBridge;
   readonly #unsubscribeBySessionId = new Map<string, Unsubscribe>();
   readonly #appliedEventCountBySessionId = new Map<string, number>();
   /** Which failed opens are remembered, and what one returning edge is worth. */
   readonly #retry: FailedSubscriptionRetry;
-  readonly #diagnostics: ConsoleSessionDiagnostics;
+  readonly #diagnostics: SessionDiagnostics;
   #unsubscribeFromRegistry: Unsubscribe | undefined;
   #unsubscribeFromTransportReconnect: Unsubscribe | undefined;
   #unreadableDeliveryCount = 0;
@@ -172,7 +172,7 @@ export class SessionEventBinder {
   }
 
   /** What the endurance tier reads about this binder, frozen and read-only. */
-  public get diagnostics(): ConsoleSessionDiagnostics {
+  public get diagnostics(): SessionDiagnostics {
     return this.#diagnostics;
   }
 
@@ -230,7 +230,7 @@ export class SessionEventBinder {
    * Release every subscription this binder holds. Final, and idempotent.
    *
    * The applied-event counts survive on purpose — see
-   * `ConsoleSessionDiagnostics.appliedEventCountFor` — and stay readable through
+   * `SessionDiagnostics.appliedEventCountFor` — and stay readable through
    * `diagnostics` for whoever still holds it.
    */
   public dispose(): void {
@@ -359,7 +359,7 @@ export class SessionEventBinder {
     this.#appliedEventCountBySessionId.set(sessionId, this.appliedEventCountFor(sessionId) + 1);
   }
 
-  #buildDiagnostics(): ConsoleSessionDiagnostics {
+  #buildDiagnostics(): SessionDiagnostics {
     return Object.freeze({
       openSessionIds: (): readonly string[] => this.#registry.openSessionIds,
       appliedEventCountFor: (sessionId: string): number => this.appliedEventCountFor(sessionId),

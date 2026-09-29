@@ -51,7 +51,7 @@ import {
   SESSION_SCREEN_SELECTOR,
   concurrentStreamingDeliverySchedule,
 } from "./endurance-workload.js";
-import { FLAGSHIP_SCENARIO } from "../../fixtures/scenarios/concurrent-streaming.js";
+import { CONCURRENT_STREAMING_SCENARIO } from "../../fixtures/scenarios/concurrent-streaming.js";
 import { BudgetRegistry } from "../../scripts/budget/budget-registry.mjs";
 import { evaluateBudget } from "../../scripts/budget/budget-evaluation.mjs";
 
@@ -367,7 +367,7 @@ describe.skipIf(!bundleIsBuilt)("endurance — the first ledger row after launch
 
       // The run delivered a session rather than timing an empty one. Both halves
       // are load-bearing: the whole script is in, and it reached the screen.
-      expect(reading.deliveredBeatCount).toBe(FLAGSHIP_SCENARIO.beats.length);
+      expect(reading.deliveredBeatCount).toBe(CONCURRENT_STREAMING_SCENARIO.beats.length);
       expect(reading.rowCount).toBeGreaterThan(0);
       // The interval is a real one rather than two readings of the same instant.
       expect(reading.firstRowPaintedAtMs).toBeGreaterThan(reading.windowShownAtMs);

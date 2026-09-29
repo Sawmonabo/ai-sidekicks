@@ -53,7 +53,7 @@ export const AGENT_LIFECYCLE_EVENT_KINDS: readonly SessionEventType[] = ["agent.
  * workspace does not register is a compile error rather than a signal that never
  * fires.
  */
-export const CHILD_RUN_LINKAGE_EVENT_KINDS: readonly SessionEventType[] = [
+export const CHILD_RUN_LINK_EVENT_KINDS: readonly SessionEventType[] = [
   "run.queued",
   "orchestration.rejected",
 ];

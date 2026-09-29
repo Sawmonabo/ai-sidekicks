@@ -30,7 +30,7 @@ import { terminalPaneContext } from "@renderer/features/terminal/pane/components
 // terminal's rules, and this tier is about what those rules compute to.
 import "@renderer/features/terminal/pane/terminal-pane-body.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
-import { TERMINAL_SCENARIO } from "../../fixtures/scenarios/terminal-lease.js";
+import { TERMINAL_LEASE_SCENARIO } from "../../fixtures/scenarios/terminal-lease.js";
 
 /** A deck slot of a fixed height, which is the only case the rule is about. */
 const SLOT_HEIGHT_PX = 400;
@@ -45,7 +45,7 @@ interface MountedPaneBoxes {
 
 async function mountPaneInFixedSlot(): Promise<MountedPaneBoxes> {
   installMeridianTokens(document);
-  const bridge = createFixtureBridge({ scenario: TERMINAL_SCENARIO });
+  const bridge = createFixtureBridge({ scenario: TERMINAL_LEASE_SCENARIO });
   const { container } = await renderSettled(
     // `display: grid` rather than a bare block, because that is what makes the slot
     // SIZE the pane: a grid item stretches to its area in both axes, so the chrome's

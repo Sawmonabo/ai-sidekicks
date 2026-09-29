@@ -22,13 +22,13 @@ import {
   withDaemonCall,
   type BridgeUnderTest,
 } from "./fixture-bridge.js";
-import type { ConsoleScenario } from "../../fixtures/scenario.js";
-import { FLAGSHIP_SCENARIO } from "../../fixtures/scenarios/concurrent-streaming.js";
+import type { Scenario } from "../../fixtures/scenario.js";
+import { CONCURRENT_STREAMING_SCENARIO } from "../../fixtures/scenarios/concurrent-streaming.js";
 
 /** The concurrent-streaming scenario script with its one read answered immediately, so no clock is spent. */
-function scenarioAnsweringImmediately(): ConsoleScenario {
+function scenarioAnsweringImmediately(): Scenario {
   return {
-    ...FLAGSHIP_SCENARIO,
+    ...CONCURRENT_STREAMING_SCENARIO,
     id: "concurrent-streaming-pass-through-probe",
     replies: [{ call: DELAYED_CALL, result: DELAYED_RESULT }],
   };
@@ -50,9 +50,11 @@ describe("withDaemonCall — one decided method, the rest left to the scenario",
   it("answers the decided call with what the suite decided", async () => {
     const { bridge } = bridgeDecidingOneCall();
 
-    expect(await callBridge(bridge, DECIDED_CALL, { sessionId: FLAGSHIP_SCENARIO.sessionId })).toBe(
-      DECIDED_RESULT,
-    );
+    expect(
+      await callBridge(bridge, DECIDED_CALL, {
+        sessionId: CONCURRENT_STREAMING_SCENARIO.sessionId,
+      }),
+    ).toBe(DECIDED_RESULT);
   });
 
   it("hands a passed-through call the wrapped bridge's own scripted reply", async () => {

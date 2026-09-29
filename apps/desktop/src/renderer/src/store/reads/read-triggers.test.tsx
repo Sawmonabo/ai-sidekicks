@@ -99,7 +99,7 @@ describe("eventTriggersRead — the kind, and then the frame", () => {
 
 describe("useSessionReadTriggers — the React wiring consults the same predicate", () => {
   /** A store the wiring reads transitions off — initialised, as the trigger set requires. */
-  function initialisedStore(): SessionStore {
+  function initializedStore(): SessionStore {
     const sessionStore = new SessionStore({ sessionId: SESSION_ID });
     sessionStore.initialize({ cursor: 0, entities: [] });
     return sessionStore;
@@ -110,7 +110,7 @@ describe("useSessionReadTriggers — the React wiring consults the same predicat
     target: ReadTriggerTarget,
     frames: readonly ProjectedSessionEvent[],
   ): SessionStore {
-    const sessionStore = initialisedStore();
+    const sessionStore = initializedStore();
     function Wiring(): null {
       useSessionReadTriggers(target, sessionStore);
       return null;

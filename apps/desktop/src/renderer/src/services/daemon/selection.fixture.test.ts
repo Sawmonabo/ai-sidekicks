@@ -9,20 +9,22 @@ import { describe, expect, it } from "vitest";
 import { ScenarioFixtureControl } from "./selection.fixture.js";
 import { ScenarioEngine } from "./engine.fixture.js";
 import {
-  FLAGSHIP_SCENARIO,
+  CONCURRENT_STREAMING_SCENARIO,
   CONCURRENT_STREAMING_SCENARIO_ID,
 } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
 
 describe("ScenarioFixtureControl — the handle a driver holds", () => {
   it("names the scenario its engine is playing", () => {
-    const control = new ScenarioFixtureControl(new ScenarioEngine({ scenario: FLAGSHIP_SCENARIO }));
+    const control = new ScenarioFixtureControl(
+      new ScenarioEngine({ scenario: CONCURRENT_STREAMING_SCENARIO }),
+    );
     expect(control.scenarioId).toBe(CONCURRENT_STREAMING_SCENARIO_ID);
   });
 
   it("delivers beats as it advances, and counts them", () => {
-    const engine = new ScenarioEngine({ scenario: FLAGSHIP_SCENARIO });
+    const engine = new ScenarioEngine({ scenario: CONCURRENT_STREAMING_SCENARIO });
     const control = new ScenarioFixtureControl(engine);
-    const lastBeatMs = FLAGSHIP_SCENARIO.beats.at(-1)?.atMs ?? 0;
+    const lastBeatMs = CONCURRENT_STREAMING_SCENARIO.beats.at(-1)?.atMs ?? 0;
 
     // Negative control for the counter: a handle answering a constant would
     // satisfy the growth assertions below without ever moving the engine.
@@ -34,6 +36,6 @@ describe("ScenarioFixtureControl — the handle a driver holds", () => {
 
     control.advance(lastBeatMs);
     expect(control.deliveredBeatCount()).toBeGreaterThan(afterFirstAdvance);
-    expect(control.deliveredBeatCount()).toBe(FLAGSHIP_SCENARIO.beats.length);
+    expect(control.deliveredBeatCount()).toBe(CONCURRENT_STREAMING_SCENARIO.beats.length);
   });
 });

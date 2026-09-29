@@ -18,7 +18,7 @@ import { readRunId } from "@renderer/services/daemon/wire-identifiers.js";
 import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { bridgeAnswering, type RecordedDaemonCall } from "@test/helpers/fixture-bridge.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
-import { COMPOSER_SCENARIO } from "../../../../../../fixtures/scenarios/waiting-for-input.js";
+import { WAITING_FOR_INPUT_SCENARIO } from "../../../../../../fixtures/scenarios/waiting-for-input.js";
 import { commandRegistry } from "@renderer/registries/commands/window-command-registry.js";
 import { RUN_LIFECYCLE_PROJECTORS } from "@renderer/store/session-events/run-lifecycle-projector.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence-caps.js";
@@ -107,17 +107,17 @@ export interface MountedComposer {
 export function composerBridgeAnswering(
   answer: (call: RecordedDaemonCall, forward: () => Promise<unknown>) => Promise<unknown>,
 ): ConsoleBridge {
-  return bridgeAnswering(answer, COMPOSER_SCENARIO).bridge;
+  return bridgeAnswering(answer, WAITING_FOR_INPUT_SCENARIO).bridge;
 }
 
 /** The fixture scenario, with the enumeration refused by the daemon's own code. */
 export function refusingEnumerationBridge(): ConsoleBridge {
   return createFixtureBridge({
     scenario: {
-      ...COMPOSER_SCENARIO,
+      ...WAITING_FOR_INPUT_SCENARIO,
       id: "composer-discovery-refusing",
       replies: [
-        ...COMPOSER_SCENARIO.replies.filter((reply) => reply.call !== ENUMERATION_METHOD),
+        ...WAITING_FOR_INPUT_SCENARIO.replies.filter((reply) => reply.call !== ENUMERATION_METHOD),
         {
           call: ENUMERATION_METHOD,
           refusal: {
@@ -148,7 +148,7 @@ export function bridgeHoldingTheEnumeration(): ConsoleBridge {
  * schema. Asynchronous because a registered reply is reached by calling for it.
  */
 export async function scenarioBindingGroups(): Promise<readonly ProviderCommandBindingGroup[]> {
-  const bridge = createFixtureBridge({ scenario: COMPOSER_SCENARIO });
+  const bridge = createFixtureBridge({ scenario: WAITING_FOR_INPUT_SCENARIO });
   const [agentId] = composerAgentIds();
   if (agentId === undefined) {
     throw new Error("the composer scenario attaches no agent");
@@ -160,7 +160,7 @@ export async function scenarioBindingGroups(): Promise<readonly ProviderCommandB
   const liveLine = new AbortController();
   const state = await settleEnumeration(
     bridge,
-    COMPOSER_SCENARIO.sessionId,
+    WAITING_FOR_INPUT_SCENARIO.sessionId,
     agentId,
     liveLine.signal,
   );
@@ -185,10 +185,10 @@ export async function addressedRunIdOfFirstAgent(): Promise<
 export function bridgeEnumerating(groups: readonly ProviderCommandBindingGroup[]): ConsoleBridge {
   return createFixtureBridge({
     scenario: {
-      ...COMPOSER_SCENARIO,
+      ...WAITING_FOR_INPUT_SCENARIO,
       id: "composer-discovery-bindings",
       replies: [
-        ...COMPOSER_SCENARIO.replies.filter((reply) => reply.call !== ENUMERATION_METHOD),
+        ...WAITING_FOR_INPUT_SCENARIO.replies.filter((reply) => reply.call !== ENUMERATION_METHOD),
         { call: ENUMERATION_METHOD, result: { bindings: groups } },
       ],
     },
@@ -197,7 +197,7 @@ export function bridgeEnumerating(groups: readonly ProviderCommandBindingGroup[]
 
 /** The scenario's agents, read out of the log rather than restated. */
 export function composerAgentIds(): readonly string[] {
-  return COMPOSER_SCENARIO.beats
+  return WAITING_FOR_INPUT_SCENARIO.beats
     .filter((beat) => beat.event.kind === "agent.attached")
     .map((beat) => beat.event.payload?.["agentId"])
     .filter((agentId): agentId is string => typeof agentId === "string");
@@ -205,11 +205,13 @@ export function composerAgentIds(): readonly string[] {
 
 export function composerSessionStore(): SessionStore {
   const store = new SessionStore({
-    sessionId: COMPOSER_SCENARIO.sessionId,
+    sessionId: WAITING_FOR_INPUT_SCENARIO.sessionId,
     projectors: RUN_LIFECYCLE_PROJECTORS,
   });
   store.initialize({ cursor: 0, entities: [] });
-  store.applyBatch(COMPOSER_SCENARIO.beats.map((beat) => beat.event as ProjectedSessionEvent));
+  store.applyBatch(
+    WAITING_FOR_INPUT_SCENARIO.beats.map((beat) => beat.event as ProjectedSessionEvent),
+  );
   return store;
 }
 
@@ -224,7 +226,7 @@ export async function mountComposer(options: {
   const sessionStore = composerSessionStore();
   const draftStore = new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT });
   const frameStore = new WindowStore();
-  const route = { kind: "workspace", sessionId: COMPOSER_SCENARIO.sessionId } as const;
+  const route = { kind: "workspace", sessionId: WAITING_FOR_INPUT_SCENARIO.sessionId } as const;
   let rendered: ReturnType<typeof render> | undefined;
   await act(async () => {
     rendered = render(

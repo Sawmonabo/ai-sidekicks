@@ -14,7 +14,7 @@ import { REPOS_FEATURE_OWNER } from "./owner.js";
  * running window's. Registered from here rather than at the card module's scope, so a
  * hot reload re-runs one module.
  */
-export function registerRepos(inlineCardSeats: InlineCardRegistry): void {
+export function registerReposInlineCards(inlineCardSeats: InlineCardRegistry): void {
   inlineCardSeats.register("diff", {
     owner: REPOS_FEATURE_OWNER,
     render: (cardProps) => createElement(InlineDiffCard, { card: cardProps }),

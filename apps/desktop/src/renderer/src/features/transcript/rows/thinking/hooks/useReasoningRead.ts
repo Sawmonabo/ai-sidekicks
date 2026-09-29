@@ -31,7 +31,7 @@ import { useCallback, useState } from "react";
 
 import { callDaemon } from "@renderer/services/daemon/daemon-reply.js";
 import { useReadScope } from "@renderer/hooks/useReadScope.js";
-import { useConsoleBridge } from "@renderer/services/platform/hooks/usePlatformBridge.js";
+import { usePlatformBridge } from "@renderer/services/platform/hooks/usePlatformBridge.js";
 import type { RunId } from "@ai-sidekicks/contracts";
 import { type ReasoningReading } from "../reasoning-reading.js";
 
@@ -70,7 +70,7 @@ export interface ReasoningRead {
  * should be offered a retry for.
  */
 export function useReasoningRead(runId: RunId | undefined): ReasoningRead {
-  const bridge = useConsoleBridge();
+  const bridge = usePlatformBridge();
   const [reading, setReading] = useState<ReasoningReading>({ status: "not-asked" });
   const readScope = useReadScope(bridge, runId);
 

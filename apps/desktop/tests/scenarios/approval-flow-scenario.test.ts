@@ -5,7 +5,7 @@
 
 import { describe, expect, it } from "vitest";
 import { APPROVAL_FLOW_EVENT_KINDS } from "@renderer/store/session-events/approval-flow-projection.js";
-import { APPROVALS_SCENARIO } from "../../fixtures/scenarios/approval-request.js";
+import { APPROVAL_REQUEST_SCENARIO } from "../../fixtures/scenarios/approval-request.js";
 import {
   storeDrivenByScenario,
   storeOver,
@@ -14,7 +14,7 @@ import {
 describe("the scenario's approval beats, folded through the shipped store", () => {
   it("puts every request the beats name into the approval partition", () => {
     const partition = storeDrivenByScenario().snapshot().partitions.approval;
-    const requestIds = APPROVALS_SCENARIO.beats
+    const requestIds = APPROVAL_REQUEST_SCENARIO.beats
       .filter((beat) => APPROVAL_FLOW_EVENT_KINDS.includes(beat.event.kind))
       .map((beat) => beat.event.payload?.["approvalRequestId"])
       .filter((value): value is string => typeof value === "string");

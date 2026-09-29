@@ -16,7 +16,7 @@
 
 import { fireEvent, render } from "@testing-library/react";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
-import { FLAGSHIP_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
+import { CONCURRENT_STREAMING_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
 import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
 import type { ConsoleRoute } from "@renderer/routing/routes.js";
 import { WindowStore } from "@renderer/store/window/window-store.js";
@@ -60,7 +60,7 @@ export function composeWindow(): ComposedWindow {
     paneRegistry,
     context: {
       route: committedRoute,
-      bridge: createFixtureBridge({ scenario: FLAGSHIP_SCENARIO }),
+      bridge: createFixtureBridge({ scenario: CONCURRENT_STREAMING_SCENARIO }),
       frameStore,
       sessionStore: undefined,
       paneRegistry,
@@ -79,7 +79,7 @@ export function withReplacedBridge(composed: ComposedWindow): ComposedWindow {
     paneRegistry: composed.paneRegistry,
     context: {
       ...composed.context,
-      bridge: createFixtureBridge({ scenario: FLAGSHIP_SCENARIO }),
+      bridge: createFixtureBridge({ scenario: CONCURRENT_STREAMING_SCENARIO }),
     } as unknown as ScreenContext,
   };
 }

@@ -36,8 +36,8 @@ import {
   runTransitionBeat,
   subscribeThroughBridge,
 } from "@test/helpers/fixture-bridge.js";
-import type { ConsoleScenario } from "../../../../../fixtures/scenario.js";
-import { FLAGSHIP_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
+import type { Scenario } from "../../../../../fixtures/scenario.js";
+import { CONCURRENT_STREAMING_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
 import { findScenarioContractDefects } from "@test/helpers/scenario-contract-check/contract-check.js";
 import {
   RUN_QUEUE_EVENT_STREAM,
@@ -46,10 +46,10 @@ import {
 } from "./session-event-streams.js";
 
 /** Past the concurrent-streaming script's last beat, read off the script so it cannot go stale. */
-const PAST_EVERY_BEAT_MS = lastScriptedBeatMs(FLAGSHIP_SCENARIO) + 100;
+const PAST_EVERY_BEAT_MS = lastScriptedBeatMs(CONCURRENT_STREAMING_SCENARIO) + 100;
 
 /** The tick the probe's rollback beat falls due at. */
-const ROLLBACK_BEAT_MS = lastScriptedBeatMs(FLAGSHIP_SCENARIO) + 60;
+const ROLLBACK_BEAT_MS = lastScriptedBeatMs(CONCURRENT_STREAMING_SCENARIO) + 60;
 
 /**
  * The concurrent-streaming scenario script plus one rollback row.
@@ -59,8 +59,9 @@ const ROLLBACK_BEAT_MS = lastScriptedBeatMs(FLAGSHIP_SCENARIO) + 60;
  * members its registered PROJECTION names, so the probe is a script the daemon could
  * have produced.
  */
-function scenarioWithRollbackBeat(): ConsoleScenario {
-  const lastConcurrentStreamingBeat = FLAGSHIP_SCENARIO.beats[FLAGSHIP_SCENARIO.beats.length - 1];
+function scenarioWithRollbackBeat(): Scenario {
+  const lastConcurrentStreamingBeat =
+    CONCURRENT_STREAMING_SCENARIO.beats[CONCURRENT_STREAMING_SCENARIO.beats.length - 1];
   if (lastConcurrentStreamingBeat === undefined) {
     throw new Error(
       "the concurrent-streaming scenario plays no beats, so there is nothing to extend",
@@ -69,10 +70,10 @@ function scenarioWithRollbackBeat(): ConsoleScenario {
   const { sessionId } = lastConcurrentStreamingBeat.event;
   const nextSequence = lastConcurrentStreamingBeat.event.sequence + 1;
   return {
-    ...FLAGSHIP_SCENARIO,
+    ...CONCURRENT_STREAMING_SCENARIO,
     id: "concurrent-streaming-stream-routing-probe",
     beats: [
-      ...FLAGSHIP_SCENARIO.beats,
+      ...CONCURRENT_STREAMING_SCENARIO.beats,
       {
         atMs: ROLLBACK_BEAT_MS,
         event: {
@@ -110,7 +111,9 @@ describe("run streams — the registered payload reaches the subscriber", () => 
     // however many runs the script carries, none of their creations reaches this
     // stream. Asserted as an absence rather than as a count, because a count would
     // have to re-derive the kind-to-state table this projection owns.
-    expect(FLAGSHIP_SCENARIO.beats.some((beat) => beat.event.kind === "run.queued")).toBe(true);
+    expect(
+      CONCURRENT_STREAMING_SCENARIO.beats.some((beat) => beat.event.kind === "run.queued"),
+    ).toBe(true);
     expect(parsed.map((event) => event.currentState)).not.toContain("queued");
     // The first transition the script plays, member by member.
     expect(parsed[0]?.currentState).toBe("starting");
@@ -118,10 +121,12 @@ describe("run streams — the registered payload reaches the subscriber", () => 
     // Sourced from the beat's own envelope, which is the only place the instant
     // lives — and not from the scenario's start, which is what a projection
     // stamping the clock it was handed would have delivered.
-    const firstTransitionBeat = FLAGSHIP_SCENARIO.beats.find(
+    const firstTransitionBeat = CONCURRENT_STREAMING_SCENARIO.beats.find(
       (beat) => beat.event.kind === "run.starting",
     );
-    expect(firstTransitionBeat?.event.occurredAt).not.toBe(FLAGSHIP_SCENARIO.startedAtIso);
+    expect(firstTransitionBeat?.event.occurredAt).not.toBe(
+      CONCURRENT_STREAMING_SCENARIO.startedAtIso,
+    );
     expect(parsed[0]?.timestamp).toBe(firstTransitionBeat?.event.occurredAt);
   });
 
@@ -160,7 +165,7 @@ describe("run streams — the registered payload reaches the subscriber", () => 
     const parsed = RunRolledBackEventSchema.parse(rollback);
     expect(parsed.targetPosition).toBe(1);
     expect(parsed.runVersion).toBe(3);
-    expect(parsed.sessionId).toBe(FLAGSHIP_SCENARIO.sessionId);
+    expect(parsed.sessionId).toBe(CONCURRENT_STREAMING_SCENARIO.sessionId);
     expect(RunStateChangeEventSchema.safeParse(rollback).success).toBe(false);
   });
 
@@ -190,7 +195,7 @@ describe("run streams — the registered payload reaches the subscriber", () => 
 
     fixture.engine.advance(PAST_EVERY_BEAT_MS);
 
-    const startingBeatCount = FLAGSHIP_SCENARIO.beats.filter(
+    const startingBeatCount = CONCURRENT_STREAMING_SCENARIO.beats.filter(
       (beat) => beat.event.kind === "run.starting",
     ).length;
     expect(startingBeatCount).toBeGreaterThan(0);
@@ -207,7 +212,7 @@ const PROBE_QUEUE_ITEM_ID = "019b79ee-0280-7c11-8110-d1a4c1150092";
 
 /** The one contract-valid queue payload the probes below vary from. */
 const PROBE_QUEUE_PAYLOAD: Readonly<Record<string, unknown>> = {
-  sessionId: FLAGSHIP_SCENARIO.sessionId,
+  sessionId: CONCURRENT_STREAMING_SCENARIO.sessionId,
   queueItemId: PROBE_QUEUE_ITEM_ID,
   state: "admitted",
 };
@@ -216,16 +221,16 @@ const PROBE_QUEUE_PAYLOAD: Readonly<Record<string, unknown>> = {
 function queueScenario(
   scenarioId: string,
   payload: Readonly<Record<string, unknown>> = PROBE_QUEUE_PAYLOAD,
-): ConsoleScenario {
+): Scenario {
   return {
-    ...FLAGSHIP_SCENARIO,
+    ...CONCURRENT_STREAMING_SCENARIO,
     id: scenarioId,
     beats: [
       {
         atMs: 0,
         event: {
           id: "019b79ee-0280-7ea1-8110-e5e0d1150078",
-          sessionId: FLAGSHIP_SCENARIO.sessionId,
+          sessionId: CONCURRENT_STREAMING_SCENARIO.sessionId,
           sequence: 1,
           kind: "queue_item.admitted",
           occurredAt: QUEUE_REFUSAL_PROBE_OCCURRED_AT,
@@ -241,12 +246,12 @@ describe("run streams — a beat that cannot be projected refuses, loudly", () =
     // The member with no substitute: the registered vocabulary has no pre-birth
     // state, so a beat that omits it cannot be projected and must not be delivered
     // without it. Delivered half-built, it renders as blank and reviews as working.
-    const missingPreviousState: ConsoleScenario = {
-      ...FLAGSHIP_SCENARIO,
+    const missingPreviousState: Scenario = {
+      ...CONCURRENT_STREAMING_SCENARIO,
       id: "run-state-missing-previous-state-probe",
       beats: [
         runTransitionBeat({
-          sessionId: FLAGSHIP_SCENARIO.sessionId,
+          sessionId: CONCURRENT_STREAMING_SCENARIO.sessionId,
           runId: PROBE_RUN_ID,
           runVersion: 4,
           newState: "running",
@@ -269,7 +274,7 @@ describe("run streams — a beat that cannot be projected refuses, loudly", () =
     // delivered a valid-looking `QueueItemSummary` assembled from half a payload.
     const fixture = createFixture(
       queueScenario("queue-beat-stateless-probe", {
-        sessionId: FLAGSHIP_SCENARIO.sessionId,
+        sessionId: CONCURRENT_STREAMING_SCENARIO.sessionId,
         queueItemId: PROBE_QUEUE_ITEM_ID,
       }),
     );
@@ -301,12 +306,12 @@ describe("run streams — a beat that cannot be projected refuses, loudly", () =
     // One beat cannot report two current states. Without this the projection would
     // take the payload's word and deliver a `run.running` frame saying `paused`,
     // which routes by one key and renders by the other.
-    const disagreeing: ConsoleScenario = {
-      ...FLAGSHIP_SCENARIO,
+    const disagreeing: Scenario = {
+      ...CONCURRENT_STREAMING_SCENARIO,
       id: "run-state-disagreement-probe",
       beats: [
         runTransitionBeat({
-          sessionId: FLAGSHIP_SCENARIO.sessionId,
+          sessionId: CONCURRENT_STREAMING_SCENARIO.sessionId,
           runId: PROBE_RUN_ID,
           runVersion: 4,
           previousState: "starting",

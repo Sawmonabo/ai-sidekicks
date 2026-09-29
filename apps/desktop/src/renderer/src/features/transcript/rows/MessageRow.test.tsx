@@ -5,7 +5,7 @@ import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { inlineCardRegistry, type InlineCardProps } from "@renderer/console/seats/index.js";
-import { DesktopBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
+import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { MessageRow } from "./MessageRow.js";
 import { classifyTranscriptRow } from "./row-kind.js";
@@ -35,7 +35,7 @@ function renderMessageCard(
     throw new Error(`${row.type} is not a message kind`);
   }
   const { container } = render(
-    <DesktopBridgeProvider bridge={createFixtureBridge({ scenario: FIRST_RUN_SCENARIO })}>
+    <PlatformBridgeProvider bridge={createFixtureBridge({ scenario: FIRST_RUN_SCENARIO })}>
       <MessageRow
         row={row}
         rowKind={rowKind}
@@ -49,7 +49,7 @@ function renderMessageCard(
         {...(overrides.inlineCards === undefined ? {} : { inlineCards: overrides.inlineCards })}
         editControl={overrides.editAffordance}
       />
-    </DesktopBridgeProvider>,
+    </PlatformBridgeProvider>,
   );
   return container;
 }

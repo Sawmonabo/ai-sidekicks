@@ -53,7 +53,7 @@
 // about the LOG rather than over the cap's fact about the window.
 
 import { useCallback, useMemo } from "react";
-import { useConsoleClock } from "@renderer/services/platform/hooks/useClock.js";
+import { useClock } from "@renderer/services/platform/hooks/useClock.js";
 import { RetainedRowStateProvider } from "../../viewport/components/RetainedRowStateProvider.js";
 import { RowRevealProvider } from "../../reveal/components/RowRevealProvider.js";
 import { TranscriptViewport } from "../../viewport/components/TranscriptViewport.js";
@@ -89,7 +89,7 @@ export interface TranscriptFeedProps {
 
 /** The session's log: the find field, the rows, and what the window does not hold. */
 export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
-  const clock = useConsoleClock();
+  const clock = useClock();
   const windows = useTranscriptFeedWindows({ sessionStore: props.sessionStore, clock });
   const { chapterDisclosure, ledgerWindow, viewport, visible } = windows;
   const jumpToRow = viewport.jumpToRow;

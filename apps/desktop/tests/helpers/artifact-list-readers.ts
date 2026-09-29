@@ -29,7 +29,7 @@ import type {
   ArtifactOperations,
   ReadArtifact,
 } from "@renderer/features/inspector/artifacts/services/artifact-reads.js";
-import { ArtifactPaneReader } from "@renderer/features/inspector/artifacts/artifact-list-reader.js";
+import { ArtifactListReader } from "@renderer/features/inspector/artifacts/artifact-list-reader.js";
 
 /** The one session every case here reads, named once so a store and a row agree. */
 export const SESSION_ID = "019b7b30-0280-7c11-8420-b1a5c0de2200";
@@ -113,7 +113,7 @@ export function artifactOperations(script: Partial<ArtifactOperations> = {}): Ar
  *
  * One wait for two clocks. A reader a case constructs is handed a `ManualClock`, so the
  * window is advanced on that; a reader the pane composes runs on whatever
- * `consoleClockFor` answers for its bridge, which for a hand-built bridge is the host's
+ * `resolveBridgeClock` answers for its bridge, which for a hand-built bridge is the host's
  * clock the mounted suites fake.
  *
  * `crossMacrotaskBoundary` never resolves while the host timers are faked, and `act`
@@ -141,13 +141,13 @@ export async function settleAct(): Promise<void> {
 
 /** A reader whose payload fetch is held open until a case releases it. */
 export function readerWithHeldPayloadFetch(clock: ManualClock): {
-  readonly reader: ArtifactPaneReader;
+  readonly reader: ArtifactListReader;
   readonly artifactRead: Mock<ReadArtifact>;
   readonly releaseRead: (answer: ArtifactReadResponse) => void;
 } {
   const readCall = handAnsweredCall<ArtifactReadResponse>();
   const artifactRead = vi.fn<ReadArtifact>(readCall.invoke);
-  const reader = new ArtifactPaneReader({
+  const reader = new ArtifactListReader({
     listArtifacts: async () => LISTED_ONE_ROW,
     readArtifact: artifactRead,
     sessionStore: new SessionStore({ sessionId: SESSION_ID }),

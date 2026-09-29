@@ -19,14 +19,14 @@
 // the identifiers are the UUIDs the branded id types declare, and `session.created`
 // carries `{sessionId, config, metadata}` — the registered payload — rather than a
 // title, which its `.strict()` schema rejects.
-import type { ConsoleScenario } from "../scenario.js";
+import type { Scenario } from "../scenario.js";
 
 export const FIRST_RUN_SCENARIO_ID = "first-run";
 
 const SESSION_ID = "019b78c9-0a80-75e5-8510-ada11a5a22a5";
 const USER_YOU = "019b78c9-0a80-79a4-8110-cca0117a0220";
 
-export const FIRST_RUN_SCENARIO: ConsoleScenario = {
+export const FIRST_RUN_SCENARIO: Scenario = {
   id: FIRST_RUN_SCENARIO_ID,
   label: "First run",
   purpose:

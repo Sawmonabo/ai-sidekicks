@@ -20,7 +20,7 @@ import {
   SINGLE_LARGE_HUNK_DIFF_SHAPE,
   SMALL_DIFF_SHAPE,
 } from "@test/helpers/diff-fixture-shapes.js";
-import { DIFF_VIEW_MODES, type ConsoleDiffModel } from "./diff-model.js";
+import { DIFF_VIEW_MODES, type DiffModel } from "./diff-model.js";
 import { expandGap, type DiffRow } from "./diff-row-model.js";
 import { DiffRowIndex } from "./diff-row-index.js";
 
@@ -143,7 +143,7 @@ describe("hunk virtualization — narrowing to one file", () => {
 
 describe("hunk virtualization — pairing a modified line in split view", () => {
   /** A one-file, one-hunk diff whose body is exactly the kinds a case names. */
-  function diffWithHunkBody(kinds: readonly ("context" | "insert" | "delete")[]): ConsoleDiffModel {
+  function diffWithHunkBody(kinds: readonly ("context" | "insert" | "delete")[]): DiffModel {
     return {
       ...SMALL_DIFF,
       files: [

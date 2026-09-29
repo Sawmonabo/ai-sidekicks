@@ -93,7 +93,7 @@ import {
 import { RUNNER_CLASS_DESCRIPTION, isPinnedRunnerClass } from "./pinned-runner-class.js";
 import {
   CONCURRENT_STREAMING_LANE_COUNT,
-  FLAGSHIP_SCENARIO,
+  CONCURRENT_STREAMING_SCENARIO,
 } from "../../fixtures/scenarios/concurrent-streaming.js";
 import { peakConcurrentStreamingRuns } from "./streaming-lanes.js";
 import { BudgetRegistry } from "../../scripts/budget/budget-registry.mjs";
@@ -191,7 +191,7 @@ async function sampleFrameTimings(
   consoleApplication: AppUnderTest,
   plantedStallMilliseconds: number,
 ): Promise<FrameTimingRun | null> {
-  const scriptSpanMs = FLAGSHIP_SCENARIO.beats.at(-1)?.atMs ?? 0;
+  const scriptSpanMs = CONCURRENT_STREAMING_SCENARIO.beats.at(-1)?.atMs ?? 0;
   const advanceMillisecondsPerFrame = Math.max(1, Math.ceil(scriptSpanMs / SAMPLED_FRAME_COUNT));
   return consoleApplication.window.evaluate(
     async ([
@@ -293,7 +293,7 @@ function expectFourLaneWorkloadInsideWindow(run: FrameTimingRun): void {
     run.beatsAtWindowEnd,
     "the concurrent-streaming script had not finished delivering by the end of the sampled window, so the " +
       "reading describes a console the session never fully reached",
-  ).toBe(FLAGSHIP_SCENARIO.beats.length);
+  ).toBe(CONCURRENT_STREAMING_SCENARIO.beats.length);
   expect(
     run.beatsAtWindowEnd,
     "every beat had already been delivered before sampling started, so these frames measured a " +
@@ -301,7 +301,7 @@ function expectFourLaneWorkloadInsideWindow(run: FrameTimingRun): void {
   ).toBeGreaterThan(run.beatsAtWindowStart);
   expect(
     peakConcurrentStreamingRuns(
-      FLAGSHIP_SCENARIO.beats,
+      CONCURRENT_STREAMING_SCENARIO.beats,
       run.beatsAtWindowStart,
       run.beatsAtWindowEnd,
     ),

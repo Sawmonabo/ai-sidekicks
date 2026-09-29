@@ -6,8 +6,8 @@
 
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { DesktopBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
-import { useConsoleBridge } from "@renderer/services/platform/hooks/usePlatformBridge.js";
+import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
+import { usePlatformBridge } from "@renderer/services/platform/hooks/usePlatformBridge.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import type {
   McpMutationResult,
@@ -119,7 +119,7 @@ function MountedMcpShell(props: {
   readonly operations: McpShellOperations;
   readonly mintKey?: () => string;
 }): React.JSX.Element {
-  const bridge = useConsoleBridge();
+  const bridge = usePlatformBridge();
   return props.mintKey === undefined ? (
     <McpFixtureBody bridge={bridge} operations={props.operations} />
   ) : (
@@ -129,7 +129,7 @@ function MountedMcpShell(props: {
 
 /**
  * The tree, as an element rather than a render, so a case can re-render the SAME mount
- * at a different bridge the way `DesktopBridgeProvider` does on a reconnect.
+ * at a different bridge the way `PlatformBridgeProvider` does on a reconnect.
  */
 function shellTree(
   bridge: ConsoleBridge,
@@ -137,7 +137,7 @@ function shellTree(
   mintKey?: () => string,
 ): React.JSX.Element {
   return (
-    <DesktopBridgeProvider bridge={bridge}>
+    <PlatformBridgeProvider bridge={bridge}>
       <LiveAnnouncerProvider>
         {mintKey === undefined ? (
           <MountedMcpShell operations={operations} />
@@ -145,7 +145,7 @@ function shellTree(
           <MountedMcpShell operations={operations} mintKey={mintKey} />
         )}
       </LiveAnnouncerProvider>
-    </DesktopBridgeProvider>
+    </PlatformBridgeProvider>
   );
 }
 

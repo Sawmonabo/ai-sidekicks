@@ -5,12 +5,12 @@
 // driven against the real fixture bridge, whose `update.requestCheck` genuinely
 // rejects and whose `native.copyToClipboard` genuinely resolves, so neither arm is
 // a stub answering the way the test wants. The WIRING — that the commands reach the
-// bridge through `useConsoleBridge` and through nothing else — needs a React tree,
+// bridge through `usePlatformBridge` and through nothing else — needs a React tree,
 // and is proved by rendering one.
 
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { DesktopBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
+import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import type { Refusal } from "@renderer/lib/refusal.js";
@@ -132,9 +132,9 @@ describe("palette bridge commands — the hook reaches the bridge through the pr
 
     await act(async () => {
       render(
-        <DesktopBridgeProvider bridge={fixtureBridge()}>
+        <PlatformBridgeProvider bridge={fixtureBridge()}>
           <CommandProbe />
-        </DesktopBridgeProvider>,
+        </PlatformBridgeProvider>,
       );
     });
 
@@ -145,7 +145,7 @@ describe("palette bridge commands — the hook reaches the bridge through the pr
   });
 
   it("negative control: refuses to build outside the provider", async () => {
-    // `useConsoleBridge` throws rather than returning `undefined`, so a surface
+    // `usePlatformBridge` throws rather than returning `undefined`, so a surface
     // mounted outside the provider is a wiring bug that surfaces at once instead of
     // rendering an empty palette that looks like "no commands apply here".
     function OrphanProbe(): React.JSX.Element {
@@ -157,6 +157,6 @@ describe("palette bridge commands — the hook reaches the bridge through the pr
       act(async () => {
         render(<OrphanProbe />);
       }),
-    ).rejects.toThrow(/DesktopBridgeProvider/);
+    ).rejects.toThrow(/PlatformBridgeProvider/);
   });
 });

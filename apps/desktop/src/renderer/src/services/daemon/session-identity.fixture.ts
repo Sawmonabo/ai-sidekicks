@@ -19,7 +19,7 @@
 import { RefusalError, refuse } from "@renderer/lib/refusal.js";
 import { scriptedSessionReadMember } from "./scripted-session-read.fixture.js";
 import type { SessionSummary } from "./session-reads.js";
-import type { ConsoleScenario } from "../../../../../fixtures/scenario.js";
+import type { Scenario } from "../../../../../fixtures/scenario.js";
 
 /** The subsystem an identity-derivation refusal names as its author. */
 const IDENTITY_ORIGIN = "fixture-session-identity";
@@ -35,7 +35,7 @@ const IDENTITY_ORIGIN = "fixture-session-identity";
  * @consumedBy the fixture's answer to the session read the header's title takes
  */
 export function scenarioSessionIdentity(
-  scenario: ConsoleScenario,
+  scenario: Scenario,
   sessionId: string,
 ): SessionSummary | undefined {
   if (sessionId !== scenario.sessionId) {

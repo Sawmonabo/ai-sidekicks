@@ -99,7 +99,7 @@ import {
   TEARDOWN_RESIDUE_FACTOR,
   type TerminalInstanceSeries,
 } from "./terminal-instance-series.js";
-import { TERMINAL_SCENARIO } from "../../fixtures/scenarios/terminal-lease.js";
+import { TERMINAL_LEASE_SCENARIO } from "../../fixtures/scenarios/terminal-lease.js";
 import {
   TERMINAL_BUDGET_MEASUREMENT_COLUMNS,
   TERMINAL_DEFAULT_SCROLLBACK_LINES,
@@ -193,7 +193,7 @@ describe.skipIf(!bundleIsBuilt)("endurance — one populated terminal pane, held
     }
 
     await withLaunchedApp(
-      enduranceLaunchOptions(TERMINAL_SCENARIO.id),
+      enduranceLaunchOptions(TERMINAL_LEASE_SCENARIO.id),
       async (consoleApplication) => {
         const heapProbe = await RendererHeapProbe.attachTo(consoleApplication);
         try {

@@ -12,14 +12,14 @@ import { describe, expect, it } from "vitest";
 import { ScenarioEngine } from "./engine.fixture.js";
 import { fixtureSessionAnswers } from "./session-answers.fixture.js";
 import { fixtureSessionSnapshot } from "./session-snapshot.fixture.js";
-import { FLAGSHIP_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
+import { CONCURRENT_STREAMING_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
 import type { SessionSnapshot } from "@renderer/store/session/session-store.js";
 
 /** The base state the fixture's session read serves for the concurrent-streaming scenario's own session. */
 async function servedConcurrentStreamingSnapshot(): Promise<SessionSnapshot> {
-  const engine = new ScenarioEngine({ scenario: FLAGSHIP_SCENARIO });
+  const engine = new ScenarioEngine({ scenario: CONCURRENT_STREAMING_SCENARIO });
   return await fixtureSessionAnswers(engine).sessionRead({
-    sessionId: FLAGSHIP_SCENARIO.sessionId,
+    sessionId: CONCURRENT_STREAMING_SCENARIO.sessionId,
   });
 }
 
@@ -28,7 +28,10 @@ describe("the fixture's base state — what a store opens with", () => {
     // Zero rather than a position derived from the beats: a base state ahead of the
     // stream would have the store discard every beat below it, and the subscription
     // is replay-then-tail.
-    expect(fixtureSessionSnapshot(FLAGSHIP_SCENARIO, FLAGSHIP_SCENARIO.sessionId).cursor).toBe(0);
+    expect(
+      fixtureSessionSnapshot(CONCURRENT_STREAMING_SCENARIO, CONCURRENT_STREAMING_SCENARIO.sessionId)
+        .cursor,
+    ).toBe(0);
   });
 
   it("files no entity of its own, every partition being the log's to project", async () => {
@@ -38,7 +41,7 @@ describe("the fixture's base state — what a store opens with", () => {
   });
 
   it("lends nothing to a session this scenario is not playing", () => {
-    const snapshot = fixtureSessionSnapshot(FLAGSHIP_SCENARIO, "session-somebody-else");
+    const snapshot = fixtureSessionSnapshot(CONCURRENT_STREAMING_SCENARIO, "session-somebody-else");
 
     expect(snapshot.entities).toStrictEqual([]);
   });

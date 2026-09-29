@@ -27,7 +27,7 @@ import { RunStateChangeEventSchema, RunRolledBackEventSchema } from "@ai-sidekic
 import type { ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 import { PROBE_RUN_ID, runTransitionBeat } from "@test/helpers/fixture-bridge.js";
 import { projectRunStreamDelivery } from "./run-stream-projection.fixture.js";
-import { FLAGSHIP_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
+import { CONCURRENT_STREAMING_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
 import {
   RUN_QUEUE_EVENT_STREAM,
   RUN_STATE_EVENT_STREAM,
@@ -42,7 +42,7 @@ function transitionPayload(
   overrides: Readonly<Record<string, unknown>> = {},
 ): Readonly<Record<string, unknown>> {
   return {
-    sessionId: FLAGSHIP_SCENARIO.sessionId,
+    sessionId: CONCURRENT_STREAMING_SCENARIO.sessionId,
     runId: PROBE_RUN_ID,
     runVersion: 4,
     previousState: "starting",
@@ -61,7 +61,7 @@ function rollbackBeatEvent(
   overrides: Readonly<Record<string, unknown>> = {},
 ): ProjectedSessionEvent {
   const beat = runTransitionBeat({
-    sessionId: FLAGSHIP_SCENARIO.sessionId,
+    sessionId: CONCURRENT_STREAMING_SCENARIO.sessionId,
     runId: PROBE_RUN_ID,
     runVersion: 5,
     targetPosition: 2,
@@ -231,7 +231,7 @@ describe("run-stream projection — the rollback arm's session, which the payloa
     }
     // Both values, so a scenario author reads which two sessions were in hand rather
     // than that something about a session was wrong.
-    expect(projection.detail).toContain(FLAGSHIP_SCENARIO.sessionId);
+    expect(projection.detail).toContain(CONCURRENT_STREAMING_SCENARIO.sessionId);
     expect(projection.detail).toContain(OTHER_SESSION_ID);
   });
 
@@ -249,7 +249,7 @@ describe("run-stream projection — the rollback arm's session, which the payloa
       return;
     }
     expect(projection.delivery).toStrictEqual({
-      sessionId: FLAGSHIP_SCENARIO.sessionId,
+      sessionId: CONCURRENT_STREAMING_SCENARIO.sessionId,
       runId: PROBE_RUN_ID,
       runVersion: 5,
       targetPosition: 2,
@@ -269,7 +269,7 @@ const PROBE_QUEUE_ROW: Readonly<Record<string, unknown>> = {
 /** One `queue_item.created` beat, whose kind announces the `queued` state. */
 function queueBeatEvent(overrides: Readonly<Record<string, unknown>> = {}): ProjectedSessionEvent {
   const beat = runTransitionBeat({
-    sessionId: FLAGSHIP_SCENARIO.sessionId,
+    sessionId: CONCURRENT_STREAMING_SCENARIO.sessionId,
     queueItemId: PROBE_QUEUE_ITEM_ID,
     state: "queued",
     ...overrides,
@@ -317,7 +317,7 @@ describe("run-stream projection — the session every arm's payload names", () =
       if (projection?.status !== "unprojectable") {
         return;
       }
-      expect(projection.detail).toContain(FLAGSHIP_SCENARIO.sessionId);
+      expect(projection.detail).toContain(CONCURRENT_STREAMING_SCENARIO.sessionId);
       expect(projection.detail).toContain(OTHER_SESSION_ID);
     });
 

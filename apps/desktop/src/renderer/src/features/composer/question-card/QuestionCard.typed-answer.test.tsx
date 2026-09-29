@@ -18,7 +18,7 @@ import {
   UNSENT_ANSWER_DELIVERY,
   type QuestionReading,
 } from "@renderer/store/session-events/question-reading.js";
-import { InputAskCard } from "./QuestionCard.js";
+import { QuestionCard } from "./QuestionCard.js";
 import type { RunId } from "@ai-sidekicks/contracts";
 
 /** The provider-minted id both runs legitimately raise. */
@@ -46,7 +46,7 @@ function renderBothAsks(): HTMLElement {
   const { container } = render(
     <>
       {[FIRST_RUN_ID, SECOND_RUN_ID].map((runId) => (
-        <InputAskCard
+        <QuestionCard
           key={runId}
           body={undefined}
           ask={askOn(runId)}

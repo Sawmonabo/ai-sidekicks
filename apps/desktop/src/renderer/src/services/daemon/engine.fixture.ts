@@ -77,7 +77,7 @@ import {
 } from "./event-delivery.fixture.js";
 import type { UnpositionedSessionEvent } from "./session-log.fixture.js";
 import type { ScenarioReply } from "./scenario-reply.fixture.js";
-import type { ConsoleScenario } from "../../../../../fixtures/scenario.js";
+import type { Scenario } from "../../../../../fixtures/scenario.js";
 
 /**
  * The fixture scenario clock's tick, in milliseconds of scenario time. Every scenario's
@@ -104,7 +104,7 @@ export interface ScenarioProgress {
 }
 
 export interface ScenarioEngineOptions {
-  readonly scenario: ConsoleScenario;
+  readonly scenario: Scenario;
   /** Defaults to a `ManualClock`, which is what makes the fixture deterministic. */
   readonly clock?: Clock & { advance?: (deltaMs: number) => void };
   /** How far each `tick()` moves the frozen clock. */
@@ -112,7 +112,7 @@ export interface ScenarioEngineOptions {
 }
 
 export class ScenarioEngine {
-  readonly #scenario: ConsoleScenario;
+  readonly #scenario: Scenario;
   readonly #clock: Clock & { advance?: (deltaMs: number) => void };
   readonly #tickMs: number;
   // Who is listening, and the record of what has landed. Every delivery this class
@@ -139,7 +139,7 @@ export class ScenarioEngine {
     this.#tickMs = options.tickMs ?? SCENARIO_TICK_MS;
   }
 
-  public get scenario(): ConsoleScenario {
+  public get scenario(): Scenario {
     return this.#scenario;
   }
 

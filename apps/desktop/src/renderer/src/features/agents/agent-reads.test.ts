@@ -17,7 +17,7 @@ import { ManualClock } from "@renderer/lib/clock.js";
 import { REFRESH_MAX_WAIT_MS } from "@renderer/lib/reads/refresh-caps.js";
 import type { SessionStore } from "@renderer/store/session/session-store.js";
 import { createChildRunLinks, createDriverCatalogRead } from "./agent-reads.js";
-import { initialisedStore } from "@test/helpers/session-store-fixtures.js";
+import { initializedStore } from "@test/helpers/session-store-fixtures.js";
 import { eventOfKind } from "@test/helpers/session-events.js";
 import {
   REJECTING_AGENT_CONSOLE_CALLS,
@@ -53,7 +53,7 @@ async function settleReads(clock: ManualClock): Promise<void> {
 
 describe("the agent console's models — what re-reads one run's child links", () => {
   it("re-reads once when a run is queued, and once when a create is refused", async () => {
-    const sessionStore = initialisedStore("session-signal");
+    const sessionStore = initializedStore("session-signal");
     const clock = new ManualClock();
     const read = startedLinkage(sessionStore, clock);
     await settleReads(clock);
@@ -69,7 +69,7 @@ describe("the agent console's models — what re-reads one run's child links", (
   });
 
   it("coalesces a burst of queued runs into one read", async () => {
-    const sessionStore = initialisedStore("session-burst");
+    const sessionStore = initializedStore("session-burst");
     const clock = new ManualClock();
     const read = startedLinkage(sessionStore, clock);
     await settleReads(clock);
@@ -84,7 +84,7 @@ describe("the agent console's models — what re-reads one run's child links", (
   });
 
   it("re-reads nothing for a kind the linkage does not watch", async () => {
-    const sessionStore = initialisedStore("session-unwatched");
+    const sessionStore = initializedStore("session-unwatched");
     const clock = new ManualClock();
     const read = startedLinkage(sessionStore, clock);
     await settleReads(clock);
@@ -97,7 +97,7 @@ describe("the agent console's models — what re-reads one run's child links", (
   });
 
   it("re-reads nothing once the read has been disposed", async () => {
-    const sessionStore = initialisedStore("session-disposed");
+    const sessionStore = initializedStore("session-disposed");
     const clock = new ManualClock();
     const read = startedLinkage(sessionStore, clock);
     await settleReads(clock);
@@ -115,7 +115,7 @@ describe("the agent console's models — what re-reads one run's child links", (
     // The driver catalog is the shape the linkage had — no signal at all — and it
     // sits beside it in this module. Without this the cases above would pass over
     // an instrument that counted something other than a re-read.
-    const sessionStore = initialisedStore("session-no-signal");
+    const sessionStore = initializedStore("session-no-signal");
     const clock = new ManualClock();
     const catalog = createDriverCatalogRead(unscriptedBridge("agent-catalog-signal"), clock);
     catalog.start();

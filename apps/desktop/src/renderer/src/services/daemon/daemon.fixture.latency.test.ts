@@ -28,24 +28,24 @@ import {
   subscribeThroughBridge,
 } from "@test/helpers/fixture-bridge.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
-import type { ConsoleScenario } from "../../../../../fixtures/scenario.js";
-import { FLAGSHIP_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
+import type { Scenario } from "../../../../../fixtures/scenario.js";
+import { CONCURRENT_STREAMING_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
 import { SESSION_EVENT_STREAM } from "./session-event-streams.js";
 import { SCENARIO_PENDING_REPLY_CAP } from "./engine.fixture.js";
 
 /** The concurrent-streaming scenario script, re-scripted so its one read carries a latency. */
-function scenarioWithDelayedReply(afterMs: number): ConsoleScenario {
+function scenarioWithDelayedReply(afterMs: number): Scenario {
   return {
-    ...FLAGSHIP_SCENARIO,
+    ...CONCURRENT_STREAMING_SCENARIO,
     id: "concurrent-streaming-delayed-reply-probe",
     replies: [{ call: DELAYED_CALL, result: DELAYED_RESULT, afterMs }],
   };
 }
 
 /** The same script with the same reply and no latency at all. The control. */
-function scenarioWithImmediateReply(): ConsoleScenario {
+function scenarioWithImmediateReply(): Scenario {
   return {
-    ...FLAGSHIP_SCENARIO,
+    ...CONCURRENT_STREAMING_SCENARIO,
     id: "concurrent-streaming-immediate-reply-probe",
     replies: [{ call: DELAYED_CALL, result: DELAYED_RESULT }],
   };
@@ -130,7 +130,7 @@ describe("fixture bridge — a scripted latency is spent on the fixture clock", 
 
   it("releases pending replies in due order, so a longer latency lands later", async () => {
     const fixture = createFixture({
-      ...FLAGSHIP_SCENARIO,
+      ...CONCURRENT_STREAMING_SCENARIO,
       id: "concurrent-streaming-two-latencies-probe",
       replies: [
         { call: "agent.list", result: { agents: [] }, afterMs: SCRIPTED_LATENCY_MS * 2 },

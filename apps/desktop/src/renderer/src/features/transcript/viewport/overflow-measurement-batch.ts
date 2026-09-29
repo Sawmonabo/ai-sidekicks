@@ -42,7 +42,7 @@ export interface OverflowMeasurementBatchOptions {
    * excludes frames deliberately — `runFrame` is a separate control, so that a
    * frozen clock never reports a paint its holder did not release — and a fixture
    * build hands the console exactly that clock (`bridge/console-bridge.ts`'s
-   * `consoleClockFor`). So in every fixture tier an armed frame waits for a call
+   * `resolveBridgeClock`). So in every fixture tier an armed frame waits for a call
    * the workload has no reason to make: measured on the endurance run, the ledger
    * published geometry ONCE, from `attach`, and spent two hundred churn cycles
    * ranging a 149 px viewport against the 32 px box it had at mount.

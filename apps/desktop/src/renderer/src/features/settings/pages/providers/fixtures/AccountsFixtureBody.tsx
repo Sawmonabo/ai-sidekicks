@@ -12,7 +12,7 @@ import "./accounts-fixture-body.css";
 
 import type { ProviderAccount } from "@ai-sidekicks/contracts";
 import { useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
-import { useConsoleClock } from "@renderer/services/platform/hooks/useClock.js";
+import { useClock } from "@renderer/services/platform/hooks/useClock.js";
 import { type ProviderAccountReadout } from "../provider-account-readout.js";
 import { Nothing } from "@renderer/console/primitives/index.js";
 import { AccountDetail } from "./components/AccountDetail.js";
@@ -66,7 +66,7 @@ export function AccountsFixtureBody(props: {
   const { registry, requestRegistryRead, operations } = props;
   // The scenario's frozen clock under the fixture, the real one otherwise, so an
   // observation's age is measured on the clock the scenario is driving.
-  const clock = useConsoleClock();
+  const clock = useClock();
   const [selectedAccountId, setSelectedAccountId] = useState<string | undefined>(undefined);
   // Built in a memo and disposed in an effect, so a memo React discards costs an object
   // rather than a call in flight.

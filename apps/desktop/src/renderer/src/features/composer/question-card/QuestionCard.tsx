@@ -93,7 +93,7 @@ export interface QuestionCardProps {
 }
 
 /** The ask card: the built-in one, or the supplied `body` when the mount passes one. */
-export function InputAskCard(props: QuestionCardProps): React.JSX.Element {
+export function QuestionCard(props: QuestionCardProps): React.JSX.Element {
   if (props.body !== undefined) {
     return (
       <div className="meridian-input-ask">

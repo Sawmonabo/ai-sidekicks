@@ -32,7 +32,7 @@ import {
   type QueueCancellationState,
 } from "./queue-cancellation.js";
 import { QueueOrder } from "./queue-order.js";
-import { consoleClockFor } from "@renderer/services/platform/hooks/useClock.js";
+import { resolveBridgeClock } from "@renderer/services/platform/hooks/useClock.js";
 import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 
 /**
@@ -123,7 +123,7 @@ export class SessionQueueReading implements ReadTriggerTarget {
     });
     this.#refresh = new RefreshScheduler({
       // The bridge's clock, resolved once per reading.
-      clock: consoleClockFor(bridge),
+      clock: resolveBridgeClock(bridge),
       perform: () => this.#readSnapshot(),
     });
     this.#feed = this.#composeFeed();

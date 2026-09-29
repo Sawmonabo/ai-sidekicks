@@ -8,7 +8,7 @@
 // every step, so a host that slept moves the wake-up nowhere.
 
 import { useMemo } from "react";
-import { useConsoleClock } from "@renderer/services/platform/hooks/useClock.js";
+import { useClock } from "@renderer/services/platform/hooks/useClock.js";
 import { parseInstant } from "@renderer/lib/instant.js";
 import { useDeadlineWake } from "@renderer/hooks/useDeadlineWake.js";
 import {
@@ -18,7 +18,7 @@ import {
 import { useQuestionSettlement } from "@renderer/store/session-events/hooks/useQuestionSettlement.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 import { useQuestionAnswer } from "./hooks/useQuestionAnswer.js";
-import { InputAskCard } from "./QuestionCard.js";
+import { QuestionCard } from "./QuestionCard.js";
 
 export interface BoundQuestionCardProps {
   /**
@@ -38,9 +38,9 @@ export interface BoundQuestionCardProps {
  *
  * @consumedBy the composer's question card
  */
-export function FixtureShellAskRow(props: BoundQuestionCardProps): React.JSX.Element {
+export function BoundQuestionCard(props: BoundQuestionCardProps): React.JSX.Element {
   const askAnswer = useQuestionAnswer(props.ask.runId, props.ask.askId);
-  const clock = useConsoleClock();
+  const clock = useClock();
   // THE WINDOW'S ANSWER TO "IS THIS ASK STILL OPEN", not this row's and not this
   // mount's. The row says only what its own event type says, and the delivery state
   // beside it is local to a mount and resets with one — so a request answered from
@@ -60,7 +60,7 @@ export function FixtureShellAskRow(props: BoundQuestionCardProps): React.JSX.Ele
   );
   const nowEpochMilliseconds = useDeadlineWake(clock, deadlines);
   return (
-    <InputAskCard
+    <QuestionCard
       body={undefined}
       ask={ask}
       nowEpochMilliseconds={nowEpochMilliseconds}

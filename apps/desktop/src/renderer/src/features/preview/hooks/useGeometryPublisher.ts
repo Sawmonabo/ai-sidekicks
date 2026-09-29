@@ -18,7 +18,7 @@ import { useSubjectScopedResource } from "@renderer/hooks/subject-scoped/useSubj
 import { type SubjectScopedDisposal } from "@renderer/lib/subject-scoped/subject-scoped-disposal.js";
 import { airspaceRegistryFor } from "@renderer/lib/airspace-registries.js";
 import { type AirspaceRegistry } from "@renderer/lib/airspace-registry.js";
-import { consoleClockFor } from "@renderer/services/platform/hooks/useClock.js";
+import { resolveBridgeClock } from "@renderer/services/platform/hooks/useClock.js";
 import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import type { PaneSubject } from "../types.js";
 
@@ -39,7 +39,7 @@ function createGeometryBinding(
   subject: PaneSubject,
   host: AttachedPaneViewHost,
 ): BoundGeometryPublisher {
-  const clock = consoleClockFor(subject.bridge);
+  const clock = resolveBridgeClock(subject.bridge);
   const airspace: AirspaceRegistry = airspaceRegistryFor(document);
   return {
     ...subject,

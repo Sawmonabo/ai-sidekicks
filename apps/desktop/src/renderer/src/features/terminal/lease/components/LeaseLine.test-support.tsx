@@ -8,8 +8,8 @@
 import { render, type RenderResult } from "@testing-library/react";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
-import { FLAGSHIP_SCENARIO } from "../../../../../../../fixtures/scenarios/concurrent-streaming.js";
-import { TERMINAL_SCENARIO } from "../../../../../../../fixtures/scenarios/terminal-lease.js";
+import { CONCURRENT_STREAMING_SCENARIO } from "../../../../../../../fixtures/scenarios/concurrent-streaming.js";
+import { TERMINAL_LEASE_SCENARIO } from "../../../../../../../fixtures/scenarios/terminal-lease.js";
 import { THIS_DEVICE_ID } from "../lease-model.test-support.js";
 import type {
   TerminalLeaseCall,
@@ -28,7 +28,7 @@ import { UNREAD_TERMINAL_LEASE, type TerminalLeaseState } from "../lease-model.j
  * wire-declared UUID, so the request the cases below assert on is the one a daemon
  * would actually be handed.
  */
-export const SESSION_ID: string = TERMINAL_SCENARIO.sessionId;
+export const SESSION_ID: string = TERMINAL_LEASE_SCENARIO.sessionId;
 
 /**
  * The other session this pane can be rebound to, read off another scenario.
@@ -37,7 +37,7 @@ export const SESSION_ID: string = TERMINAL_SCENARIO.sessionId;
  * first one is read off a scenario: the claim's whole subject is the session it was
  * made under, so the id it is compared against has to be one a daemon could emit.
  */
-export const OTHER_SESSION_ID: string = FLAGSHIP_SCENARIO.sessionId;
+export const OTHER_SESSION_ID: string = CONCURRENT_STREAMING_SCENARIO.sessionId;
 
 /**
  * The take call, held until a case settles it by name.
@@ -49,7 +49,9 @@ export const OTHER_SESSION_ID: string = FLAGSHIP_SCENARIO.sessionId;
 export class HeldLeaseCalls {
   readonly #heldSessionIds: string[] = [];
   readonly #heldResolvers: (() => void)[] = [];
-  public readonly bridge: ConsoleBridge = createFixtureBridge({ scenario: TERMINAL_SCENARIO });
+  public readonly bridge: ConsoleBridge = createFixtureBridge({
+    scenario: TERMINAL_LEASE_SCENARIO,
+  });
   public readonly calls: TerminalLeaseCalls;
 
   public constructor() {

@@ -17,7 +17,7 @@ import type { SchemePreference } from "@renderer/styles/tokens.js";
 export interface SettingsPageContext {
   readonly bridge: ConsoleBridge;
   /** Renderer-local rail navigation — the deep-link grammar's other half. */
-  readonly openSection: (section: SettingsPageId) => void;
+  readonly openPage: (section: SettingsPageId) => void;
   /**
    * What the address asked this page to be opened FOR, where it asked for anything.
    *

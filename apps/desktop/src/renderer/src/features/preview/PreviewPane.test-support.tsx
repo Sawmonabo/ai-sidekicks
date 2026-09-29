@@ -9,7 +9,7 @@ import { act, render, screen, waitFor, type RenderResult } from "@testing-librar
 import { expect } from "vitest";
 
 import { unscriptedScenario } from "@test/helpers/fixture-bridge.js";
-import { consoleClockFor } from "@renderer/services/platform/hooks/useClock.js";
+import { resolveBridgeClock } from "@renderer/services/platform/hooks/useClock.js";
 import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { ManualClock } from "@renderer/lib/clock.js";
@@ -227,7 +227,7 @@ export async function renderPreviewPane(
  * here to do.
  */
 export async function releaseQueuedPaneFrames(bridge: ConsoleBridge): Promise<void> {
-  const clock = consoleClockFor(bridge);
+  const clock = resolveBridgeClock(bridge);
   if (!(clock instanceof ManualClock)) {
     return;
   }

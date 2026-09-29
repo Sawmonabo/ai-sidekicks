@@ -126,7 +126,7 @@ async function dismiss(row: HTMLElement): Promise<void> {
   await crossMacrotaskBoundary();
 }
 
-describe("Workspace — the banner column", () => {
+describe("SessionScreen — the banner column", () => {
   it("counts a refusal raised three times rather than stacking three of it", async () => {
     // Every commit refuses with the same three fields, so three rows would say one
     // thing three times — three chances to dismiss the wrong one and no more
@@ -187,7 +187,7 @@ describe("Workspace — the banner column", () => {
   });
 });
 
-describe("Workspace — the banner column belongs to the session that raised it", () => {
+describe("SessionScreen — the banner column belongs to the session that raised it", () => {
   it("stops showing one session's banners once the workspace routes to another", async () => {
     // The defect: a mount-lifetime list. The workspace is not remounted between two
     // open sessions, so a refusal raised while the first was on screen went on standing

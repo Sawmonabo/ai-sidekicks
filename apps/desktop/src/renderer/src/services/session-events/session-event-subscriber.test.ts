@@ -13,20 +13,20 @@
 
 import { beforeEach, describe, expect, it } from "vitest";
 import { createFixtureBridge } from "../platform/platform-bridge.fixture.js";
-import { FLAGSHIP_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
+import { CONCURRENT_STREAMING_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
 import { APPLY_COALESCE_MS } from "@renderer/lib/reads/refresh-caps.js";
 import { ManualClock } from "@renderer/lib/clock.js";
 import { windowTripwires } from "@renderer/lib/tripwires.js";
 import { SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
-import { SessionEventBinder } from "./session-event-subscriber.js";
+import { SessionEventSubscriber } from "./session-event-subscriber.js";
 import {
   PAST_EVERY_BEAT_MS,
   SESSION_ID,
   createHarness,
 } from "./session-event-subscriber.test-support.js";
 
-const THROUGH_THIRD_BEAT_MS = FLAGSHIP_SCENARIO.beats[2]?.atMs ?? 0;
-const BEATS_THROUGH_THIRD_BEAT = FLAGSHIP_SCENARIO.beats.filter(
+const THROUGH_THIRD_BEAT_MS = CONCURRENT_STREAMING_SCENARIO.beats[2]?.atMs ?? 0;
+const BEATS_THROUGH_THIRD_BEAT = CONCURRENT_STREAMING_SCENARIO.beats.filter(
   (beat) => beat.atMs <= THROUGH_THIRD_BEAT_MS,
 ).length;
 
@@ -38,7 +38,7 @@ beforeEach(() => {
   windowTripwires.reset();
 });
 
-describe("SessionEventBinder — the console's one subscription to the wire", () => {
+describe("SessionEventSubscriber — the console's one subscription to the wire", () => {
   it("admits every beat of an open session to the apply chokepoint", () => {
     const { registry, binder, engine } = createHarness();
     binder.attach();
@@ -46,7 +46,9 @@ describe("SessionEventBinder — the console's one subscription to the wire", ()
 
     engine.advance(PAST_EVERY_BEAT_MS);
 
-    expect(binder.appliedEventCountFor(SESSION_ID)).toBe(FLAGSHIP_SCENARIO.beats.length);
+    expect(binder.appliedEventCountFor(SESSION_ID)).toBe(
+      CONCURRENT_STREAMING_SCENARIO.beats.length,
+    );
     expect(binder.boundSessionIds).toEqual([SESSION_ID]);
     expect(binder.droppedAfterCloseCount).toBe(0);
     expect(binder.unreadableDeliveryCount).toBe(0);
@@ -84,7 +86,9 @@ describe("SessionEventBinder — the console's one subscription to the wire", ()
     engine.advance(PAST_EVERY_BEAT_MS);
 
     expect(binder.boundSessionIds).toEqual([SESSION_ID]);
-    expect(binder.appliedEventCountFor(SESSION_ID)).toBe(FLAGSHIP_SCENARIO.beats.length);
+    expect(binder.appliedEventCountFor(SESSION_ID)).toBe(
+      CONCURRENT_STREAMING_SCENARIO.beats.length,
+    );
 
     binder.dispose();
   });
@@ -191,12 +195,16 @@ describe("SessionEventBinder — the console's one subscription to the wire", ()
 
     expect(diagnostics.openSessionIds()).toEqual([SESSION_ID]);
     expect(diagnostics.boundSessionIds()).toEqual([SESSION_ID]);
-    expect(diagnostics.appliedEventCountFor(SESSION_ID)).toBe(FLAGSHIP_SCENARIO.beats.length);
+    expect(diagnostics.appliedEventCountFor(SESSION_ID)).toBe(
+      CONCURRENT_STREAMING_SCENARIO.beats.length,
+    );
     expect(diagnostics.appliedEventCountFor("session-nobody-opened")).toBe(0);
 
     binder.dispose();
     expect(diagnostics.boundSessionIds()).toEqual([]);
-    expect(diagnostics.appliedEventCountFor(SESSION_ID)).toBe(FLAGSHIP_SCENARIO.beats.length);
+    expect(diagnostics.appliedEventCountFor(SESSION_ID)).toBe(
+      CONCURRENT_STREAMING_SCENARIO.beats.length,
+    );
   });
 
   it("asks for the base-state read in the same act as taking the subscription", async () => {
@@ -205,7 +213,7 @@ describe("SessionEventBinder — the console's one subscription to the wire", ()
     // bound session buffered its stream against a store that was never
     // initialised. The control is the count itself: it is zero without the
     // request, and the timeline stays empty however many beats arrive.
-    const bridge = createFixtureBridge({ scenario: FLAGSHIP_SCENARIO });
+    const bridge = createFixtureBridge({ scenario: CONCURRENT_STREAMING_SCENARIO });
     const engine = bridge.scenarioEngine;
     if (engine === undefined) {
       throw new Error("the fixture bridge built no scenario engine, so there is nothing to drive");
@@ -219,7 +227,7 @@ describe("SessionEventBinder — the console's one subscription to the wire", ()
       clock: engine.clock,
       refreshDebounceMs: 0,
     });
-    const binder = new SessionEventBinder({ registry, bridge });
+    const binder = new SessionEventSubscriber({ registry, bridge });
     binder.attach();
     registry.open(SESSION_ID);
 
@@ -235,7 +243,7 @@ describe("SessionEventBinder — the console's one subscription to the wire", ()
     engine.advance(PAST_EVERY_BEAT_MS);
     engine.advance(APPLY_COALESCE_MS + 1);
     expect(registry.peek(SESSION_ID)?.snapshot().timeline).toHaveLength(
-      FLAGSHIP_SCENARIO.beats.length,
+      CONCURRENT_STREAMING_SCENARIO.beats.length,
     );
 
     binder.dispose();

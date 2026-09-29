@@ -24,7 +24,7 @@
 // base state that filed rows of its own would be a second source of truth for them.
 
 import { scriptedSessionReadMember } from "./scripted-session-read.fixture.js";
-import type { ConsoleScenario } from "../../../../../fixtures/scenario.js";
+import type { Scenario } from "../../../../../fixtures/scenario.js";
 import { BASE_STATE_CURSOR, type SessionSnapshot } from "@renderer/store/session/session-state.js";
 
 /**
@@ -34,10 +34,7 @@ import { BASE_STATE_CURSOR, type SessionSnapshot } from "@renderer/store/session
  * rather than as a refusal — the read IS answered, and what it found for that session
  * is nothing.
  */
-export function fixtureSessionSnapshot(
-  scenario: ConsoleScenario,
-  sessionId: string,
-): SessionSnapshot {
+export function fixtureSessionSnapshot(scenario: Scenario, sessionId: string): SessionSnapshot {
   if (sessionId !== scenario.sessionId) {
     return { cursor: BASE_STATE_CURSOR, entities: [] };
   }

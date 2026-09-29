@@ -4,7 +4,7 @@
 // about the RESOLUTION's lifetime — one engine held, replaced, disposed — and this one
 // about what a component that captured a clock before the replacement now reads.
 //
-// THE DEFECT IN TERMS. `useConsoleClock` pinned `consoleClockFor(bridge)` in
+// THE DEFECT IN TERMS. `useClock` pinned `resolveBridgeClock(bridge)` in
 // `useState`, and the provider replaces its resolution IN PLACE with no remount below
 // it. So a scenario change handed the tree a new engine with a new frozen clock while
 // `AppFrame`'s announcer went on stamping from the retired one — two time bases in one
@@ -17,12 +17,12 @@
 import { render } from "@testing-library/react";
 import { useState } from "react";
 import { describe, expect, it } from "vitest";
-import { DesktopBridgeProvider } from "../PlatformBridgeProvider.js";
+import { PlatformBridgeProvider } from "../PlatformBridgeProvider.js";
 import type { ConsoleBridge } from "../platform-bridge.js";
 import { createFixtureBridge } from "../platform-bridge.fixture.js";
 import { findScenario } from "../../../../../../fixtures/index.js";
-import { useConsoleBridge } from "./usePlatformBridge.js";
-import { consoleClockFor, useConsoleClock } from "./useClock.js";
+import { usePlatformBridge } from "./usePlatformBridge.js";
+import { resolveBridgeClock, useClock } from "./useClock.js";
 import type { Clock } from "@renderer/lib/clock.js";
 import { FIRST_RUN_SCENARIO_ID } from "../../../../../../fixtures/scenarios/first-run.js";
 import { CONCURRENT_STREAMING_SCENARIO_ID } from "../../../../../../fixtures/scenarios/concurrent-streaming.js";
@@ -42,8 +42,8 @@ interface ClockProbeProps {
  * from as something to reason about rather than something the probe fixes.
  */
 function ClockProbe(props: ClockProbeProps): null {
-  props.onClock(useConsoleClock());
-  props.onWindowTime(consoleClockFor(useConsoleBridge()).now());
+  props.onClock(useClock());
+  props.onWindowTime(resolveBridgeClock(usePlatformBridge()).now());
   return null;
 }
 
@@ -72,18 +72,18 @@ function lastOf<TSeen>(seen: readonly TSeen[], what: string): TSeen {
   return value;
 }
 
-describe("useConsoleClock — one identity, and the window's current reading", () => {
+describe("useClock — one identity, and the window's current reading", () => {
   it("reads the replacement's clock through the identity it handed out first", () => {
     const clocks: Clock[] = [];
     const windowTimes: number[] = [];
     const bridgeFor = scenarioBridges();
     const tree = (scenarioId: string): React.JSX.Element => (
-      <DesktopBridgeProvider bridge={bridgeFor(scenarioId)}>
+      <PlatformBridgeProvider bridge={bridgeFor(scenarioId)}>
         <ClockProbe
           onClock={(clock) => clocks.push(clock)}
           onWindowTime={(time) => windowTimes.push(time)}
         />
-      </DesktopBridgeProvider>
+      </PlatformBridgeProvider>
     );
     const { rerender } = render(tree(CONCURRENT_STREAMING_SCENARIO_ID));
     const captured = lastOf(clocks, "a clock");
@@ -109,12 +109,12 @@ describe("useConsoleClock — one identity, and the window's current reading", (
     const windowTimes: number[] = [];
     const bridgeFor = scenarioBridges();
     const tree = (scenarioId: string): React.JSX.Element => (
-      <DesktopBridgeProvider bridge={bridgeFor(scenarioId)}>
+      <PlatformBridgeProvider bridge={bridgeFor(scenarioId)}>
         <PinnedClockProbe
           onPinnedTime={(time) => pinnedTimes.push(time)}
           onWindowTime={(time) => windowTimes.push(time)}
         />
-      </DesktopBridgeProvider>
+      </PlatformBridgeProvider>
     );
     const { rerender } = render(tree(CONCURRENT_STREAMING_SCENARIO_ID));
     const concurrentStreamingTime = lastOf(windowTimes, "a window time");
@@ -131,11 +131,11 @@ interface PinnedClockProbeProps {
   readonly onWindowTime: (time: number) => void;
 }
 
-/** The shape `useConsoleClock` replaced: resolve once into `useState`, then hold it. */
+/** The shape `useClock` replaced: resolve once into `useState`, then hold it. */
 function PinnedClockProbe(props: PinnedClockProbeProps): null {
-  const bridge = useConsoleBridge();
-  const [pinned] = useState<Clock>(() => consoleClockFor(bridge));
+  const bridge = usePlatformBridge();
+  const [pinned] = useState<Clock>(() => resolveBridgeClock(bridge));
   props.onPinnedTime(pinned.now());
-  props.onWindowTime(consoleClockFor(bridge).now());
+  props.onWindowTime(resolveBridgeClock(bridge).now());
   return null;
 }

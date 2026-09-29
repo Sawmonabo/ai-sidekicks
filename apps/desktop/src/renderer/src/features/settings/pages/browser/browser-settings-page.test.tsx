@@ -17,7 +17,7 @@ import { createFixture } from "@test/helpers/fixture-bridge.js";
 import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
 import { WindowStore } from "@renderer/store/window/window-store.js";
 import { SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
-import { registerSettingsSurface } from "../../contributions/screens.js";
+import { registerSettingsScreen } from "../../contributions/screens.js";
 import { SETTINGS_PAGES, SettingsPageRegistry } from "../../settings-pages.js";
 import { ScreenRegistry, type ScreenContext } from "@renderer/console/seats/index.js";
 // The pending marker's reader by its own leaf specifier: the seats door publishes the
@@ -32,14 +32,14 @@ afterEach(() => {
 /**
  * The settings surface a window mounts, parked on the browser address.
  *
- * Driven through `registerSettingsSurface` rather than around it, so the slot claim is
+ * Driven through `registerSettingsScreen` rather than around it, so the slot claim is
  * itself a covered fact. What this answers is whether the shipped board claims the
  * section — the page's own contents are the next helper's subject, because this mount
  * holds the page registry the surface composed and no suite may reach for it.
  */
 async function renderShippedSettingsAtBrowser(): Promise<HTMLElement> {
   const surfaces = new ScreenRegistry();
-  registerSettingsSurface(surfaces);
+  registerSettingsScreen(surfaces);
   await surfaces.preload("settings");
   const descriptor = surfaces.descriptorFor("settings");
   if (descriptor === undefined) {

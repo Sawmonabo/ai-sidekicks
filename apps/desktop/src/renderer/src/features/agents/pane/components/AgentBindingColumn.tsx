@@ -8,7 +8,7 @@
 
 import { useCallback, useMemo } from "react";
 
-import { AgentCard } from "./AgentBindingCard.js";
+import { AgentBindingCard } from "./AgentBindingCard.js";
 import { ToolAllowlistCeiling } from "./ToolAllowlistCeiling.js";
 import { type AgentsPaneModels } from "../agents-pane-models.js";
 import { usePushDrivenRead } from "@renderer/console/seats/index.js";
@@ -65,7 +65,7 @@ export function AgentBindingColumn(props: AgentBindingColumnProps): React.JSX.El
       {shownAgents.length === 0 ? null : <ToolAllowlistCeiling />}
 
       {shownAgents.map((agent) => (
-        <AgentCard key={agent.agentId} agent={agent} />
+        <AgentBindingCard key={agent.agentId} agent={agent} />
       ))}
     </>
   );

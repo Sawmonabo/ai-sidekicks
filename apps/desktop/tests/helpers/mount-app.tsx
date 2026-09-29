@@ -10,7 +10,7 @@ import { act, render, type RenderResult } from "@testing-library/react";
 
 import { createFixtureComposition } from "@renderer/app/fixture-composition.js";
 import { AppProviders } from "@renderer/app/providers.js";
-import { LEDGER_SCENARIO_ID } from "../../fixtures/scenarios/transcript-states.js";
+import { TRANSCRIPT_STATES_SCENARIO_ID } from "../../fixtures/scenarios/transcript-states.js";
 import { screenRegistry } from "@renderer/console/seats/index.js";
 import { crossMacrotaskBoundary } from "./macrotask-boundary.js";
 
@@ -29,10 +29,12 @@ export const SESSIONS_HASH = "#/sessions";
  * flushes rather than one: the open resolves a promise whose continuation schedules
  * another.
  */
-export async function mountConsole(): Promise<RenderResult> {
+export async function mountApp(): Promise<RenderResult> {
   let mounted: RenderResult | undefined;
   await act(async () => {
-    mounted = render(<AppProviders composition={createFixtureComposition(LEDGER_SCENARIO_ID)} />);
+    mounted = render(
+      <AppProviders composition={createFixtureComposition(TRANSCRIPT_STATES_SCENARIO_ID)} />,
+    );
     await crossMacrotaskBoundary();
   });
   if (mounted === undefined) {
@@ -71,7 +73,7 @@ export async function mountConsole(): Promise<RenderResult> {
  * for a body in flight, so walking the registered slots is idempotent and is the wait.
  *
  * CALLED WHERE A CASE REACHES A LOADER-BACKED DESTINATION, and deliberately not from
- * {@link mountConsole} itself. A window opens on the sessions route, whose surface is
+ * {@link mountApp} itself. A window opens on the sessions route, whose surface is
  * registered in component form, so a blanket walk at every mount would compile and
  * evaluate every other family's chunk to settle a body no case is about to read — cost
  * paid fifteen times over for the one navigation that needs it. The call belongs at the

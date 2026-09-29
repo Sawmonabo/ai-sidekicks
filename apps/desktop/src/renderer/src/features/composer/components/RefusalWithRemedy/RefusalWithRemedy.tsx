@@ -35,7 +35,7 @@ export interface RefusalWithRemedyProps {
 }
 
 /** The daemon's words, with the console's next move in the action slot. */
-export function RemediedRefusal(props: RefusalWithRemedyProps): React.JSX.Element {
+export function RefusalWithRemedy(props: RefusalWithRemedyProps): React.JSX.Element {
   const { refusal, detailAction } = props;
   const remedy = refusalRemedyFor(refusal.code);
   const action =

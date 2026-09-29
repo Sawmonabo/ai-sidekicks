@@ -40,7 +40,7 @@
 
 import { TOOL_ALLOWLIST_NAMED_CAP } from "../agents-caps.js";
 import { formatCount } from "@renderer/console/primitives/index.js";
-import type { AgentRosterEntry } from "@renderer/services/wire-shapes/agents.js";
+import type { AgentListEntry } from "@renderer/services/wire-shapes/agents.js";
 
 /**
  * What the resolved configuration says this agent may reach.
@@ -144,7 +144,7 @@ export function namedToolAllowlistSentence(toolNames: readonly string[]): string
  * `toolAllowlist` absent inside a configuration that IS present is the registry's own
  * "the provider's default set".
  */
-export function agentToolAllowlistPosition(agent: AgentRosterEntry): AgentToolAllowlistPosition {
+export function agentToolAllowlistPosition(agent: AgentListEntry): AgentToolAllowlistPosition {
   const resolved = agent.resolvedConfiguration;
   if (resolved === undefined) {
     return { kind: "not-reported" };

@@ -10,8 +10,8 @@ import { describe, expect, it } from "vitest";
 
 import { TOOL_ALLOWLIST_NAMED_CAP } from "../../agents-caps.js";
 import { formatCount } from "@renderer/console/primitives/index.js";
-import type { AgentRosterEntry } from "@renderer/services/wire-shapes/agents.js";
-import { AgentCard } from "./AgentBindingCard.js";
+import type { AgentListEntry } from "@renderer/services/wire-shapes/agents.js";
+import { AgentBindingCard } from "./AgentBindingCard.js";
 import { ToolAllowlistLine } from "./ToolAllowlistLine.js";
 
 function lineTextOf(container: HTMLElement): string {
@@ -126,7 +126,7 @@ describe("tool grant line — what each position says", () => {
 });
 
 describe("tool grant line — it is on the card", () => {
-  const ATTACHED_WITH_TOOLS: AgentRosterEntry = {
+  const ATTACHED_WITH_TOOLS: AgentListEntry = {
     agentId: "agent-scout",
     name: "Scout",
     driverName: "claude",
@@ -134,14 +134,14 @@ describe("tool grant line — it is on the card", () => {
   };
 
   it("renders the grant for the agent the card was handed", () => {
-    const { container } = render(<AgentCard agent={ATTACHED_WITH_TOOLS} />);
+    const { container } = render(<AgentBindingCard agent={ATTACHED_WITH_TOOLS} />);
     expect(lineTextOf(container)).toContain("2 tools");
   });
 
   it("negative control: an agent with no configuration draws the unanswered arm", () => {
     // Without this the case above would pass over a card that printed one position
     // unconditionally, which is the failure a governance line can least afford.
-    const { container } = render(<AgentCard agent={{ agentId: "agent-scout" }} />);
+    const { container } = render(<AgentBindingCard agent={{ agentId: "agent-scout" }} />);
     expect(lineTextOf(container)).toContain("Not reported");
     expect(lineTextOf(container)).not.toContain("tools");
   });

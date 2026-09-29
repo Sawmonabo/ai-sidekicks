@@ -7,7 +7,7 @@
 import { describe, expect, it } from "vitest";
 
 import { FIRST_RUN_SCENARIO } from "../../fixtures/scenarios/first-run.js";
-import { FLAGSHIP_SCENARIO } from "../../fixtures/scenarios/concurrent-streaming.js";
+import { CONCURRENT_STREAMING_SCENARIO } from "../../fixtures/scenarios/concurrent-streaming.js";
 import { checkFixtureLaunchAgainstCatalog, parseFixtureLaunch } from "./fixture-launch.js";
 
 /** What Electron and a test driver put on a command line besides the app's own arguments. */
@@ -50,8 +50,8 @@ describe("checkFixtureLaunchAgainstCatalog", () => {
     ).resolves.toBeUndefined();
     await expect(
       checkFixtureLaunchAgainstCatalog({
-        scenarioId: FLAGSHIP_SCENARIO.id,
-        sessionId: FLAGSHIP_SCENARIO.sessionId,
+        scenarioId: CONCURRENT_STREAMING_SCENARIO.id,
+        sessionId: CONCURRENT_STREAMING_SCENARIO.sessionId,
       }),
     ).resolves.toBeUndefined();
   });
@@ -66,8 +66,8 @@ describe("checkFixtureLaunchAgainstCatalog", () => {
     await expect(
       checkFixtureLaunchAgainstCatalog({
         scenarioId: FIRST_RUN_SCENARIO.id,
-        sessionId: FLAGSHIP_SCENARIO.sessionId,
+        sessionId: CONCURRENT_STREAMING_SCENARIO.sessionId,
       }),
-    ).rejects.toThrow(`not "${FLAGSHIP_SCENARIO.sessionId}"`);
+    ).rejects.toThrow(`not "${CONCURRENT_STREAMING_SCENARIO.sessionId}"`);
   });
 });

@@ -12,10 +12,10 @@
  * anything. The ceiling's name carries a bound's own segment and belongs here on
  * that ground alone; the floor follows it so the decision keeps one home.
  */
-export const PHASE_GRAPH_MIN_ZOOM = 0.35;
+export const RUN_GRAPH_MIN_ZOOM = 0.35;
 
 /**
  * How far in. 1.5 is a reading zoom for a long label, not a design tool's zoom:
  * there is nothing on this surface to inspect at pixel scale.
  */
-export const PHASE_GRAPH_MAX_ZOOM = 1.5;
+export const RUN_GRAPH_MAX_ZOOM = 1.5;

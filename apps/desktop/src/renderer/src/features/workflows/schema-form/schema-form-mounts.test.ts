@@ -14,9 +14,9 @@ import { SchemaFormAnswer } from "./components/SchemaFormAnswer.js";
 import { SchemaFormPreview } from "./components/SchemaFormPreview.js";
 import {
   SchemaFormChunk,
-  schemaFormAnswerMount,
+  schemaFormAnswerBody,
   schemaFormChunk,
-  schemaFormPreviewMount,
+  schemaFormPreviewBody,
   type SchemaFormModule,
 } from "./schema-form-mounts.js";
 
@@ -61,8 +61,8 @@ describe("the mounts the seats door publishes", () => {
     // One fetch behind both, which is the whole reason the mounts take a loader rather
     // than naming the specifier twice: a definition row and a waiting phase opening in
     // one frame must not start two entries into the kit.
-    const answer = await schemaFormAnswerMount.load();
-    const preview = await schemaFormPreviewMount.load();
+    const answer = await schemaFormAnswerBody.load();
+    const preview = await schemaFormPreviewBody.load();
 
     expect(answer.Body).toBe(SchemaFormAnswer);
     expect(preview.Body).toBe(SchemaFormPreview);

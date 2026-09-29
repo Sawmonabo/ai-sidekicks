@@ -1,7 +1,7 @@
 // The reasoning row's surface, and the read that fills it, in the one component that
 // draws one.
 //
-// ITS OWN COMPONENT FOR `FixtureShellAskRow.tsx`' REASON, applied to the other read
+// ITS OWN COMPONENT FOR `BoundQuestionCard.tsx`' REASON, applied to the other read
 // the shell used to arm on every row. `useReasoningRead` holds a reading and a
 // press handler; a row that is not a reasoning row has nothing to read and no control
 // to press, and until this existed it built both anyway — the rules of hooks bind a

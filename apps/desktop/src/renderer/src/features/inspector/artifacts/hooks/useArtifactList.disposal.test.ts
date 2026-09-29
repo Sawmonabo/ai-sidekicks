@@ -15,7 +15,7 @@ import {
   readThrough,
   settleAct,
 } from "@test/helpers/artifact-list-readers.js";
-import { ArtifactPaneReader } from "../artifact-list-reader.js";
+import { ArtifactListReader } from "../artifact-list-reader.js";
 import {
   OTHER_HOSTED_ARTIFACT_ID,
   hostSubject,
@@ -172,7 +172,7 @@ describe("artifact reading — the reader is held by the subject-scoped seam", (
     // corpse is then the seam's. Re-derived in the hook's own effect, the corpse StrictMode's
     // replay produced would be disposed a second time. `dispose` is re-entrant, so the call
     // is the observable.
-    const disposals = vi.spyOn(ArtifactPaneReader.prototype, "dispose");
+    const disposals = vi.spyOn(ArtifactListReader.prototype, "dispose");
     try {
       const subject = hostSubject(
         artifactOperations({ listArtifacts: async () => LISTED_ONE_ROW }),

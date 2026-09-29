@@ -54,7 +54,7 @@ export interface StagedAttachmentsOptions {
   /**
    * The clock every stamp this carrier publishes is taken from.
    *
-   * REQUIRED, AND THE HOOK READS IT OFF THE BRIDGE. `consoleClockFor` is the
+   * REQUIRED, AND THE HOOK READS IT OFF THE BRIDGE. `resolveBridgeClock` is the
    * one answer to which clock a window runs on: a carrier with a wall clock of its own
    * would stamp its entries from wall time while the rest of the window ran on the
    * fixture's frozen time, and a surface showing an age would disagree with the ledger

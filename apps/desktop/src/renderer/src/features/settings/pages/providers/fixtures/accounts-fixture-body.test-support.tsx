@@ -15,7 +15,7 @@ import type {
   ProviderAccountUsageWindow,
   ProviderReadiness,
 } from "@ai-sidekicks/contracts";
-import { DesktopBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
+import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { unscriptedScenario } from "@test/helpers/fixture-bridge.js";
 import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
@@ -180,7 +180,7 @@ export function mountShell(options: {
   };
   const requestRegistryRead = vi.fn<() => void>();
   const tree = (registry: AccountRegistryReading): React.JSX.Element => (
-    <DesktopBridgeProvider bridge={bridge}>
+    <PlatformBridgeProvider bridge={bridge}>
       <LiveAnnouncerProvider>
         <AccountsFixtureBody
           registry={registry}
@@ -188,7 +188,7 @@ export function mountShell(options: {
           operations={operations}
         />
       </LiveAnnouncerProvider>
-    </DesktopBridgeProvider>
+    </PlatformBridgeProvider>
   );
   const { container, rerender } = render(tree(options.registry));
   return {

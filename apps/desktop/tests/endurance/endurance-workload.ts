@@ -49,10 +49,10 @@ import {
   SCENARIO_FIXTURE_GLOBAL,
   SESSION_DIAGNOSTICS_FIXTURE_GLOBAL,
 } from "@renderer/app/fixture-global-names.js";
-import type { ConsoleSessionDiagnostics } from "@renderer/services/session-events/session-diagnostics-handle.js";
+import type { SessionDiagnostics } from "@renderer/services/session-events/session-diagnostics-handle.js";
 import { type ScenarioFixtureHandle } from "@renderer/services/daemon/selection.fixture.js";
 import { TRANSCRIPT_ROW_BOX_SELECTOR } from "./transcript-window-read.js";
-import { FLAGSHIP_SCENARIO } from "../../fixtures/scenarios/concurrent-streaming.js";
+import { CONCURRENT_STREAMING_SCENARIO } from "../../fixtures/scenarios/concurrent-streaming.js";
 
 /**
  * How every launch in this tier is asked for: the concurrent-streaming script, and the
@@ -78,10 +78,10 @@ export function enduranceLaunchOptions(scenarioId: string): LaunchAppOptions {
 }
 
 export const ENDURANCE_LAUNCH_OPTIONS: LaunchAppOptions = enduranceLaunchOptions(
-  FLAGSHIP_SCENARIO.id,
+  CONCURRENT_STREAMING_SCENARIO.id,
 );
 
-export const CONCURRENT_STREAMING_SESSION_ID: string = FLAGSHIP_SCENARIO.sessionId;
+export const CONCURRENT_STREAMING_SESSION_ID: string = CONCURRENT_STREAMING_SCENARIO.sessionId;
 
 export const CONCURRENT_STREAMING_SESSION_ROUTE: string = `#/session/${encodeURIComponent(CONCURRENT_STREAMING_SESSION_ID)}`;
 
@@ -217,9 +217,9 @@ export async function readAppliedEventCount(
 ): Promise<number | null> {
   return consoleApplication.window.evaluate(
     ([globalName, targetSessionId]: [string, string]) => {
-      const sessions = (
-        globalThis as unknown as Record<string, ConsoleSessionDiagnostics | undefined>
-      )[globalName];
+      const sessions = (globalThis as unknown as Record<string, SessionDiagnostics | undefined>)[
+        globalName
+      ];
       return sessions === undefined ? null : sessions.appliedEventCountFor(targetSessionId);
     },
     [SESSION_DIAGNOSTICS_FIXTURE_GLOBAL, sessionId] as [string, string],
@@ -231,9 +231,9 @@ export async function readBoundSessionIds(
   consoleApplication: AppUnderTest,
 ): Promise<readonly string[] | null> {
   return consoleApplication.window.evaluate((globalName: string) => {
-    const sessions = (
-      globalThis as unknown as Record<string, ConsoleSessionDiagnostics | undefined>
-    )[globalName];
+    const sessions = (globalThis as unknown as Record<string, SessionDiagnostics | undefined>)[
+      globalName
+    ];
     return sessions === undefined ? null : [...sessions.boundSessionIds()];
   }, SESSION_DIAGNOSTICS_FIXTURE_GLOBAL);
 }
@@ -337,7 +337,7 @@ export interface ScenarioDeliverySchedule {
  * in the loop ever released, and the failure would be a quiet one.
  */
 export function concurrentStreamingDeliverySchedule(): ScenarioDeliverySchedule {
-  const scriptSpanMs = FLAGSHIP_SCENARIO.beats.at(-1)?.atMs ?? 0;
+  const scriptSpanMs = CONCURRENT_STREAMING_SCENARIO.beats.at(-1)?.atMs ?? 0;
   return {
     stepMilliseconds: Math.max(
       APPLY_COALESCE_MS + 1,

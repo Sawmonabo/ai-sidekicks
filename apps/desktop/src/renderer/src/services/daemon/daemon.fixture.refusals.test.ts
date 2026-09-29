@@ -31,8 +31,8 @@ import {
 } from "@test/helpers/fixture-bridge.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { readWireErrorEnvelope, type WireErrorEnvelope } from "@renderer/lib/wire-errors.js";
-import type { ConsoleScenario } from "../../../../../fixtures/scenario.js";
-import { FLAGSHIP_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
+import type { Scenario } from "../../../../../fixtures/scenario.js";
+import { CONCURRENT_STREAMING_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
 
 import { normalizeWireRejection } from "@renderer/lib/wire-rejection.js";
 
@@ -54,9 +54,9 @@ const SCRIPTED_REFUSAL: WireErrorEnvelope = {
 
 describe("fixture bridge — a scenario can script a call that refuses", () => {
   /** The concurrent-streaming scenario script, re-scripted so one call refuses and one still answers. */
-  function scenarioWithRefusal(afterMs?: number): ConsoleScenario {
+  function scenarioWithRefusal(afterMs?: number): Scenario {
     return {
-      ...FLAGSHIP_SCENARIO,
+      ...CONCURRENT_STREAMING_SCENARIO,
       id: "concurrent-streaming-refusal-probe",
       replies: [
         {

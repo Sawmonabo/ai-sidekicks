@@ -14,7 +14,7 @@ import { createElement } from "react";
 import { describe, expect, it } from "vitest";
 
 import { settle } from "@test/helpers/settle.js";
-import { countingLoader, syntheticSurfaceContext } from "@test/helpers/lazy-body-contexts.js";
+import { countingLoader, createSyntheticScreenContext } from "@test/helpers/lazy-body-contexts.js";
 import { listPendingBodyNames } from "@renderer/components/LazyBody/pending-body-marker.js";
 import { type ScreenContext } from "./screen-context.js";
 import { ScreenRegistry } from "./screen-registry.js";
@@ -31,7 +31,7 @@ describe("the frame's board — the same mechanism, keyed by slot", () => {
     expect(registry.registeredSlots()).toStrictEqual(["settings"]);
 
     const { container } = render(
-      <>{registry.descriptorFor("settings")?.render(syntheticSurfaceContext())}</>,
+      <>{registry.descriptorFor("settings")?.render(createSyntheticScreenContext())}</>,
     );
     expect(container.textContent).not.toContain("the settings surface");
     await settle();
@@ -55,7 +55,7 @@ describe("the frame's board — the same mechanism, keyed by slot", () => {
     await registry.preload("workflows");
 
     const { container } = render(
-      <>{registry.descriptorFor("workflows")?.render(syntheticSurfaceContext())}</>,
+      <>{registry.descriptorFor("workflows")?.render(createSyntheticScreenContext())}</>,
     );
 
     // Read at the FIRST commit, with no settle in between: that is the frame a person

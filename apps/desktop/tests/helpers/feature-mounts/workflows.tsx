@@ -50,7 +50,7 @@ import type { FunctionComponent } from "react";
 
 import { renderSettled } from "../app-harness.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
-import { DesktopBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
+import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { unscriptedScenario } from "../fixture-bridge.js";
 import {
@@ -58,7 +58,7 @@ import {
   PROBE_SESSION_ID,
   definition,
 } from "@renderer/features/workflows/workflows-probe.test-support.js";
-import { RunPhaseGraph } from "@renderer/features/workflows/run-page/components/RunGraphSection.js";
+import { RunGraphSection } from "@renderer/features/workflows/run-page/components/RunGraphSection.js";
 // The context comes off its own module: it was hoisted out of the board to break the
 // cycle a loader-backed surface's reserved frame would otherwise close.
 import { type ScreenContext } from "@renderer/registries/screens/screen-context.js";
@@ -71,7 +71,7 @@ import { SessionStore } from "@renderer/store/session/session-store.js";
 import { SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
 import {
   registerWorkflowPanes,
-  registerWorkflowSurfaces,
+  registerWorkflowScreens,
 } from "@renderer/features/workflows/index.js";
 import {
   PaneRegistry,
@@ -176,7 +176,7 @@ function requirePaneNamed(container: HTMLElement, paneTitle: string): HTMLElemen
  * empty box against a baseline.
  */
 async function surfaceBodyComponent(): Promise<FunctionComponent<{ context: ScreenContext }>> {
-  const render = await resolvedScreenBody("workflows", registerWorkflowSurfaces);
+  const render = await resolvedScreenBody("workflows", registerWorkflowScreens);
   return ({ context }) => render(context);
 }
 
@@ -233,11 +233,11 @@ export async function mountWorkflowsDestination(): Promise<MountedView> {
   const bridge = createFixtureBridge({ scenario: unscriptedScenario("workflows-destination") });
   const WorkflowsDestinationBody = await surfaceBodyComponent();
   const { container } = await renderSettled(
-    <DesktopBridgeProvider bridge={bridge}>
+    <PlatformBridgeProvider bridge={bridge}>
       <LiveAnnouncerProvider>
         <WorkflowsDestinationBody context={surfaceContext(bridge)} />
       </LiveAnnouncerProvider>
-    </DesktopBridgeProvider>,
+    </PlatformBridgeProvider>,
   );
   const element = container.querySelector<HTMLElement>(".meridian-workflows-destination");
   if (element === null) {
@@ -251,7 +251,7 @@ export async function mountWorkflowRunPane(): Promise<MountedView> {
   const bridge = createFixtureBridge({ scenario: unscriptedScenario("workflow-run-pane") });
   const WorkflowRunPaneBody = await paneBodyComponent("workflow-run");
   const { container } = await renderSettled(
-    <DesktopBridgeProvider bridge={bridge}>
+    <PlatformBridgeProvider bridge={bridge}>
       <WorkflowRunPaneBody
         context={paneContext(
           {
@@ -262,7 +262,7 @@ export async function mountWorkflowRunPane(): Promise<MountedView> {
           bridge,
         )}
       />
-    </DesktopBridgeProvider>,
+    </PlatformBridgeProvider>,
   );
   return { element: requirePaneNamed(container, "Workflow run"), bridge };
 }
@@ -276,7 +276,7 @@ export async function mountWorkflowRunPane(): Promise<MountedView> {
  * `phase-graph-settled.ts` before it reads the picture.
  */
 export async function mountWorkflowRunPhaseGraph(): Promise<HTMLElement> {
-  const { container } = await renderSettled(<RunPhaseGraph phases={PARKED_RUN.phaseStates} />);
+  const { container } = await renderSettled(<RunGraphSection phases={PARKED_RUN.phaseStates} />);
   return container;
 }
 
@@ -292,7 +292,7 @@ export async function mountWorkflowBuilderPane(): Promise<MountedView> {
   const bridge = createFixtureBridge({ scenario: unscriptedScenario("workflow-builder-pane") });
   const WorkflowBuilderPaneBody = await paneBodyComponent("workflow-builder");
   const { container } = await renderSettled(
-    <DesktopBridgeProvider bridge={bridge}>
+    <PlatformBridgeProvider bridge={bridge}>
       <WorkflowBuilderPaneBody
         context={paneContext(
           {
@@ -303,7 +303,7 @@ export async function mountWorkflowBuilderPane(): Promise<MountedView> {
           bridge,
         )}
       />
-    </DesktopBridgeProvider>,
+    </PlatformBridgeProvider>,
   );
   return { element: requirePaneNamed(container, "Workflow builder"), bridge };
 }

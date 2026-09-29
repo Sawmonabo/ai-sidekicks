@@ -12,7 +12,7 @@ import type { SessionId } from "@ai-sidekicks/contracts";
 
 import type { Refusal } from "@renderer/lib/refusal.js";
 import type { DaemonReply } from "@renderer/services/daemon/daemon-reply.js";
-import { FLAGSHIP_SCENARIO } from "../../fixtures/scenarios/concurrent-streaming.js";
+import { CONCURRENT_STREAMING_SCENARIO } from "../../fixtures/scenarios/concurrent-streaming.js";
 
 /**
  * A session id the branded schema accepts, taken from a shipped scenario.
@@ -25,7 +25,7 @@ import { FLAGSHIP_SCENARIO } from "../../fixtures/scenarios/concurrent-streaming
  * request parse — so a cast to a malformed id fails the assertion rather than
  * slipping past it.
  */
-export const SESSION_ID: SessionId = FLAGSHIP_SCENARIO.sessionId as SessionId;
+export const SESSION_ID: SessionId = CONCURRENT_STREAMING_SCENARIO.sessionId as SessionId;
 
 /** The refusal a reply carries, or a failure naming what it carried instead. */
 export function refusalOf(reply: DaemonReply<unknown>): Refusal {

@@ -41,14 +41,14 @@ import { installMeridianTokens } from "@renderer/app/token-installation.js";
 import { formatRoute } from "@renderer/routing/routes.js";
 import { COLOR_SCHEMES } from "@renderer/styles/tokens.js";
 import {
-  LEDGER_QUIET_SCENARIO,
+  EMPTY_SESSION_SCENARIO,
   EMPTY_SESSION_SCENARIO_ID,
 } from "../../fixtures/scenarios/empty-session.js";
 import {
-  FLAGSHIP_SCENARIO,
+  CONCURRENT_STREAMING_SCENARIO,
   CONCURRENT_STREAMING_SCENARIO_ID,
 } from "../../fixtures/scenarios/concurrent-streaming.js";
-import { LEDGER_SCENARIO_ID } from "../../fixtures/scenarios/transcript-states.js";
+import { TRANSCRIPT_STATES_SCENARIO_ID } from "../../fixtures/scenarios/transcript-states.js";
 import { captureSettled } from "./settled-capture.js";
 
 /** What one opened fixture session hands back: the mount, and what to capture. */
@@ -119,17 +119,17 @@ describe("screenshot — the app under the concurrent-streaming scenario", () =>
       await emulateSystemScheme(scheme);
       const { container, frame } = await openLedgerSession(
         CONCURRENT_STREAMING_SCENARIO_ID,
-        FLAGSHIP_SCENARIO.sessionId,
+        CONCURRENT_STREAMING_SCENARIO.sessionId,
       );
 
       const deliveredBeatCount = await walkScenarioToFrozenTick(
-        FLAGSHIP_SCENARIO.beats.at(-1)?.atMs ?? 0,
+        CONCURRENT_STREAMING_SCENARIO.beats.at(-1)?.atMs ?? 0,
       );
       expect(
         deliveredBeatCount,
         "the whole script has to be in before the tick is frozen: a capture taken mid-script pins " +
           "a session that is still arriving, and the capture it writes moves with the loop above",
-      ).toBe(FLAGSHIP_SCENARIO.beats.length);
+      ).toBe(CONCURRENT_STREAMING_SCENARIO.beats.length);
 
       // Rows on screen, not merely events in a store. The projection, the window
       // fold, and the viewport's reconcile all sit between the two, and a capture
@@ -153,7 +153,7 @@ describe("screenshot — the ledger's empty state", () => {
     await emulateSystemScheme("light");
     const { ledgerBody } = await openLedgerSession(
       EMPTY_SESSION_SCENARIO_ID,
-      LEDGER_QUIET_SCENARIO.sessionId,
+      EMPTY_SESSION_SCENARIO.sessionId,
     );
 
     // The same walk the pair above takes, over a script that plays nothing. What it
@@ -163,7 +163,7 @@ describe("screenshot — the ledger's empty state", () => {
     // a different picture and a different claim from the one this capture is named
     // for.
     const deliveredBeatCount = await walkScenarioToFrozenTick(
-      LEDGER_QUIET_SCENARIO.beats.at(-1)?.atMs ?? 0,
+      EMPTY_SESSION_SCENARIO.beats.at(-1)?.atMs ?? 0,
     );
     expect(
       deliveredBeatCount,
@@ -208,7 +208,7 @@ describe("the ledger mount wait", () => {
   it("refuses a route that mounts no ledger body, on the deadline rather than on a turn count", async () => {
     document.location.hash = formatRoute({ kind: "sessions" });
     const { container } = await renderSettled(
-      <AppProviders composition={createFixtureComposition(LEDGER_SCENARIO_ID)} />,
+      <AppProviders composition={createFixtureComposition(TRANSCRIPT_STATES_SCENARIO_ID)} />,
     );
     expect(
       container.querySelector(SESSION_ROUTE_BODY_SELECTOR),

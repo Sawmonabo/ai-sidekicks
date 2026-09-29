@@ -26,7 +26,7 @@
 // renderer asks; every test of it runs without a DOM, which is what lets the
 // endurance tier measure a five-thousand-line change set at all.
 
-import type { ConsoleDiffModel, DiffLine, DiffViewMode } from "./diff-model.js";
+import type { DiffModel, DiffLine, DiffViewMode } from "./diff-model.js";
 import {
   diffGapKey,
   type DiffGapExpansion,
@@ -56,14 +56,14 @@ import {
  * it is and the flattening skips the others.
  */
 export class DiffRowIndex {
-  readonly #model: ConsoleDiffModel;
+  readonly #model: DiffModel;
   readonly #expansion: DiffGapExpansion;
   readonly #fileSpans: readonly FileRowSpan[];
   readonly #rowCount: number;
   #bodyLayoutBuildCount = 0;
 
   public constructor(
-    model: ConsoleDiffModel,
+    model: DiffModel,
     expansion: DiffGapExpansion = new Map(),
     /** Show only the file at this wire-verbatim path. Absent shows every file. */
     shownFilePath?: string,
@@ -131,7 +131,7 @@ export class DiffRowIndex {
   }
 
   /** The diff these rows address. */
-  public get model(): ConsoleDiffModel {
+  public get model(): DiffModel {
     return this.#model;
   }
 

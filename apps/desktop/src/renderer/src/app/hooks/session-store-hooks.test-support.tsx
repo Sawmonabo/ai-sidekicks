@@ -7,10 +7,10 @@
 // reader and stay beside it.
 
 import { useRef, type ReactNode } from "react";
-import { DesktopBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
+import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
-import { FLAGSHIP_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
+import { CONCURRENT_STREAMING_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
 import { EntityProjectorRegistry } from "@renderer/registries/entity-projectors/entity-projector-registry.js";
 import { type SessionSnapshotReader } from "@renderer/store/session/open-session-entry.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
@@ -52,7 +52,7 @@ export interface FixtureBridgeHarness {
 
 /** The flagship scenario's base state for a session, standing in for the window's read. */
 const readFlagshipSession: SessionSnapshotReader = (sessionId) =>
-  Promise.resolve(fixtureSessionSnapshot(FLAGSHIP_SCENARIO, sessionId));
+  Promise.resolve(fixtureSessionSnapshot(CONCURRENT_STREAMING_SCENARIO, sessionId));
 
 /** A component that does exactly what the frame does, and reports what it saw. */
 export function SessionProbe(props: SessionProbeProps): null {
@@ -71,13 +71,13 @@ export function SessionProbe(props: SessionProbeProps): null {
  * scenario engine mid-pass and reset the frozen clock underneath it.
  */
 export function fixtureBridgeHarness(): FixtureBridgeHarness {
-  const bridge: ConsoleBridge = createFixtureBridge({ scenario: FLAGSHIP_SCENARIO });
+  const bridge: ConsoleBridge = createFixtureBridge({ scenario: CONCURRENT_STREAMING_SCENARIO });
   return {
     bridge,
     wrapper: function FixtureBridgeHost(props: {
       readonly children: ReactNode;
     }): React.JSX.Element {
-      return <DesktopBridgeProvider bridge={bridge}>{props.children}</DesktopBridgeProvider>;
+      return <PlatformBridgeProvider bridge={bridge}>{props.children}</PlatformBridgeProvider>;
     },
   };
 }

@@ -12,7 +12,7 @@ import { describe, expect, it } from "vitest";
 
 import { PAST_REFRESH_DEBOUNCE_MS } from "@test/helpers/settle.js";
 import { eventOfKind } from "@test/helpers/session-events.js";
-import { initialisedStore } from "@test/helpers/session-store-fixtures.js";
+import { initializedStore } from "@test/helpers/session-store-fixtures.js";
 import { MOUNT_A, SESSION_ID } from "./mounted-folders.test-support.js";
 import { contextReading, renderSettledBlock } from "./mounted-folders-block.test-support.js";
 
@@ -22,7 +22,7 @@ describe("the page's refresh signals", () => {
     // session's store, the page hands it to the read, and the read binds it. A page
     // that dropped the member on its way through would still render, and the list
     // would go quietly stale.
-    const sessionStore = initialisedStore(SESSION_ID);
+    const sessionStore = initializedStore(SESSION_ID);
     const listMethods: string[] = [];
     const context = contextReading({
       mountIds: [MOUNT_A],
@@ -96,7 +96,7 @@ describe("the page's refresh signals", () => {
   it("negative control: the same event moves nothing when the window holds no store", async () => {
     // Without this the case above would pass over a page that re-read on any
     // render, and would prove nothing about which signal reached the read.
-    const sessionStore = initialisedStore(SESSION_ID);
+    const sessionStore = initializedStore(SESSION_ID);
     const listMethods: string[] = [];
     const context = contextReading({
       mountIds: [MOUNT_A],

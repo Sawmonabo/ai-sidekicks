@@ -7,12 +7,12 @@
 import { describe, expect, it } from "vitest";
 
 import { InlineCardRegistry, inlineCardRegistry } from "@renderer/console/seats/index.js";
-import { registerRepos } from "./inline-cards.js";
+import { registerReposInlineCards } from "./inline-cards.js";
 
 describe("repos — the inline cards", () => {
   it("writes the card board it is given and never the process-wide one", () => {
     const cards = new InlineCardRegistry();
-    registerRepos(cards);
+    registerReposInlineCards(cards);
     expect(cards.registeredCardKinds()).toStrictEqual(["diff"]);
     expect(inlineCardRegistry.registeredCardKinds()).toStrictEqual([]);
   });
@@ -23,8 +23,8 @@ describe("repos — the inline cards", () => {
     // owner is what the policy is about.
     const cards = new InlineCardRegistry();
     expect(() => {
-      registerRepos(cards);
-      registerRepos(cards);
+      registerReposInlineCards(cards);
+      registerReposInlineCards(cards);
     }).not.toThrow();
   });
 
@@ -34,7 +34,7 @@ describe("repos — the inline cards", () => {
     // subset without the main window seeing it.
     const first = new InlineCardRegistry();
     const second = new InlineCardRegistry();
-    registerRepos(first);
+    registerReposInlineCards(first);
     expect(first.registeredCardKinds()).toHaveLength(1);
     expect(second.registeredCardKinds()).toStrictEqual([]);
   });

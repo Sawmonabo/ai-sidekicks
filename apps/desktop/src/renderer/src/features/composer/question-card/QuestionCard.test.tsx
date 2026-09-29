@@ -16,7 +16,7 @@ import {
   type AnswerDelivery,
   type QuestionReading,
 } from "@renderer/store/session-events/question-reading.js";
-import { InputAskCard } from "./QuestionCard.js";
+import { QuestionCard } from "./QuestionCard.js";
 
 /**
  * Ten o'clock, as the mount would read it, and five past, as the daemon stamps it.
@@ -65,7 +65,7 @@ function renderCard(
   } = {},
 ): HTMLElement {
   const { container } = render(
-    <InputAskCard
+    <QuestionCard
       body={overrides.body}
       ask={ask}
       nowEpochMilliseconds={overrides.nowEpochMilliseconds ?? NOW_MILLISECONDS}
@@ -210,7 +210,7 @@ function MountedWithDelivery(props: {
 }): React.JSX.Element {
   const [delivery, setDelivery] = useState<AnswerDelivery>(UNSENT_ANSWER_DELIVERY);
   return (
-    <InputAskCard
+    <QuestionCard
       body={undefined}
       ask={props.ask}
       nowEpochMilliseconds={NOW_MILLISECONDS}

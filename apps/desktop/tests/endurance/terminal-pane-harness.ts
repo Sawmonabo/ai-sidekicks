@@ -12,7 +12,7 @@
 //
 // WHAT THE HARNESS IS, AND WHY IT IS NOT A DECK
 //
-// The harness mounts a registered pane body without a deck: `registerTerminalPanes` claims
+// The harness mounts a registered pane body without a deck: `registerTerminalPane` claims
 // the `terminal` kind, and `app/pane-harness/` is the smallest honest door — a fixture
 // surface the fixture launch registers, reached at
 // `#/pane-harness/<paneKind>/<sessionId>`, that resolves the body through
@@ -26,13 +26,13 @@ import { expect } from "vitest";
 
 import type { AppUnderTest } from "../helpers/electron-harness.js";
 import { advanceScenario, readAppliedEventCount } from "./endurance-workload.js";
-import { TERMINAL_SCENARIO } from "../../fixtures/scenarios/terminal-lease.js";
+import { TERMINAL_LEASE_SCENARIO } from "../../fixtures/scenarios/terminal-lease.js";
 
 /** The pane kind the address names. The harness is per kind; this row is this one. */
 const MEASURED_PANE_KIND = "terminal";
 
 /** Where the harness opens, with the pane kind and the session it binds to. */
-const HARNESS_ROUTE = `#/pane-harness/${MEASURED_PANE_KIND}/${encodeURIComponent(TERMINAL_SCENARIO.sessionId)}`;
+const HARNESS_ROUTE = `#/pane-harness/${MEASURED_PANE_KIND}/${encodeURIComponent(TERMINAL_LEASE_SCENARIO.sessionId)}`;
 
 /** The harness surface's accessible name, and the controls it offers. */
 const HARNESS_SURFACE_SELECTOR = '[aria-label="Pane harness"]';
@@ -165,7 +165,7 @@ export async function openHarnessOnDeliveredSession(
     timeout: consoleApplication.bodyAllowance.boundedMs(ROUTE_TRANSITION_TIMEOUT_MS),
   });
 
-  const scriptSpanMs = TERMINAL_SCENARIO.beats.at(-1)?.atMs ?? 0;
+  const scriptSpanMs = TERMINAL_LEASE_SCENARIO.beats.at(-1)?.atMs ?? 0;
   const stepMs = Math.max(1, Math.ceil(scriptSpanMs / SCENARIO_DELIVERY_STEP_COUNT));
   let deliveredBeatCount: number | null = null;
   for (let step = 0; step < SCENARIO_DELIVERY_STEP_COUNT + SCENARIO_DRAIN_STEP_COUNT; step += 1) {
@@ -175,11 +175,11 @@ export async function openHarnessOnDeliveredSession(
     deliveredBeatCount,
     "the scenario handle is not exposed by this build, so nothing drove content into the session the panes bind to",
   ).not.toBeNull();
-  expect(Number(deliveredBeatCount)).toBe(TERMINAL_SCENARIO.beats.length);
+  expect(Number(deliveredBeatCount)).toBe(TERMINAL_LEASE_SCENARIO.beats.length);
 
   const appliedEventCount = await readAppliedEventCount(
     consoleApplication,
-    TERMINAL_SCENARIO.sessionId,
+    TERMINAL_LEASE_SCENARIO.sessionId,
   );
   expect(
     Number(appliedEventCount),

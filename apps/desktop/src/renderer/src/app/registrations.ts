@@ -28,10 +28,10 @@ import {
   RUN_LIFECYCLE_PROJECTOR_OWNER,
   RUN_LIFECYCLE_PROJECTORS,
 } from "@renderer/store/session-events/run-lifecycle-projector.js";
-import { registerAgentConsolePane } from "@renderer/features/agents/index.js";
+import { registerAgentsPane } from "@renderer/features/agents/index.js";
 import {
   registerComposerCommands,
-  registerComposerFamily,
+  registerComposerView,
   registerComposerInlineCards,
   registerComposerKeybindings,
 } from "@renderer/features/composer/index.js";
@@ -39,15 +39,15 @@ import {
   registerInspectorInlineCards,
   registerInspectorPane,
 } from "@renderer/features/inspector/index.js";
-import { registerBrowserPanes } from "@renderer/features/preview/index.js";
-import { registerRepos, registerReposPanes } from "@renderer/features/repos/index.js";
+import { registerPreviewPanes } from "@renderer/features/preview/index.js";
+import { registerReposInlineCards, registerReposPanes } from "@renderer/features/repos/index.js";
 import {
   registerPaneLayoutCommands,
-  registerSessionsSurface,
-  Workspace,
+  registerSessionsFlyout,
+  SessionScreen,
 } from "@renderer/features/sessions/index.js";
-import { registerSettingsSurface } from "@renderer/features/settings/index.js";
-import { registerTerminalPanes } from "@renderer/features/terminal/index.js";
+import { registerSettingsScreen } from "@renderer/features/settings/index.js";
+import { registerTerminalPane } from "@renderer/features/terminal/index.js";
 import {
   registerTranscriptScreens,
   registerTranscriptPanes,
@@ -55,7 +55,7 @@ import {
 } from "@renderer/features/transcript/index.js";
 import {
   registerWorkflowPanes,
-  registerWorkflowSurfaces,
+  registerWorkflowScreens,
 } from "@renderer/features/workflows/index.js";
 
 /** The registries a composition writes into. */
@@ -88,21 +88,21 @@ export function registerFeatureContributions(registries: ContributionRegistries)
   projectors.registerAll(APPROVAL_FLOW_PROJECTORS, APPROVAL_FLOW_PROJECTOR_OWNER);
   projectors.registerAll(QUESTION_SETTLEMENT_PROJECTORS, QUESTION_SETTLEMENT_PROJECTOR_OWNER);
 
-  registerTranscriptScreens(surfaces, { workspace: Workspace });
-  registerSessionsSurface(surfaces);
-  registerSettingsSurface(surfaces);
-  registerWorkflowSurfaces(surfaces);
+  registerTranscriptScreens(surfaces, { workspace: SessionScreen });
+  registerSessionsFlyout(surfaces);
+  registerSettingsScreen(surfaces);
+  registerWorkflowScreens(surfaces);
 
   registerTranscriptPanes(panes);
   registerInspectorPane(panes);
-  registerAgentConsolePane(panes);
+  registerAgentsPane(panes);
   registerReposPanes(panes);
   registerWorkflowPanes(panes);
-  registerBrowserPanes(panes);
-  registerTerminalPanes(panes);
+  registerPreviewPanes(panes);
+  registerTerminalPane(panes);
 
-  registerComposerFamily();
+  registerComposerView();
   registerComposerInlineCards(inlineCards);
-  registerRepos(inlineCards);
+  registerReposInlineCards(inlineCards);
   registerInspectorInlineCards(inlineCards);
 }

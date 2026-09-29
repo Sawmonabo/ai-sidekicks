@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from "react";
 
-import { useConsoleBridge } from "@renderer/services/platform/hooks/usePlatformBridge.js";
+import { usePlatformBridge } from "@renderer/services/platform/hooks/usePlatformBridge.js";
 import { useSessionScopedState } from "@renderer/console/seats/index.js";
 import { RunGroupFoldState } from "../../run-groups/run-group-fold-state.js";
 import { type RunGroup } from "../../run-groups/run-groups.js";
@@ -22,7 +22,7 @@ import { type RunGroupDisclosure } from "../run-group-fold.js";
  * published mirror are one fact.
  */
 export function useRunGroupDisclosure(sessionId: string): RunGroupDisclosure {
-  const bridge = useConsoleBridge();
+  const bridge = usePlatformBridge();
   const collapse = useSessionScopedState(bridge, sessionId, () => new RunGroupFoldState());
   const opened = useSessionScopedState<ReadonlySet<string>>(
     bridge,

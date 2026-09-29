@@ -29,7 +29,7 @@ import {
 import { describeChordEvent, isCloseTabChord } from "../handback/chord-claim.js";
 import { type NavigationReading } from "../types.js";
 import { activePageOf, type PageListReading } from "../page-list-reading.js";
-import { TabStrip } from "./PageTabStrip.js";
+import { PageTabStrip } from "./PageTabStrip.js";
 import { HOST_CHORD_PLATFORM, Nothing, RefusalBanner } from "@renderer/console/primitives/index.js";
 import { usePreviewPaneActs } from "../hooks/usePreviewPaneActs.js";
 import { useGeometryPublisher } from "../hooks/useGeometryPublisher.js";
@@ -155,7 +155,7 @@ export function PreviewPaneContent(props: PreviewPaneContentProps): React.JSX.El
       onKeyDownCapture={onCloseTabChord}
     >
       <div className="meridian-browser-pane" tabIndex={-1}>
-        <TabStrip
+        <PageTabStrip
           reading={pages}
           onSelect={acts.selectPage}
           onClose={acts.closePage}

@@ -4,9 +4,9 @@
 // own cases.
 
 import { render } from "@testing-library/react";
-import { DesktopBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
+import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
-import { LEDGER_QUIET_SCENARIO } from "../../../../../fixtures/scenarios/empty-session.js";
+import { EMPTY_SESSION_SCENARIO } from "../../../../../fixtures/scenarios/empty-session.js";
 import { WindowStore } from "@renderer/store/window/window-store.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import {
@@ -62,9 +62,9 @@ export function paneContext(
  */
 export function renderTranscriptPane(props: TranscriptPaneProps): HTMLElement {
   const { container } = render(
-    <DesktopBridgeProvider bridge={createFixtureBridge({ scenario: LEDGER_QUIET_SCENARIO })}>
+    <PlatformBridgeProvider bridge={createFixtureBridge({ scenario: EMPTY_SESSION_SCENARIO })}>
       <TranscriptPane {...props} />
-    </DesktopBridgeProvider>,
+    </PlatformBridgeProvider>,
   );
   const pane = container.querySelector(".meridian-pane");
   if (!(pane instanceof HTMLElement)) {

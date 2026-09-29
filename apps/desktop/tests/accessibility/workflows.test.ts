@@ -4,7 +4,7 @@
 // it, and it runs each surface scoped to itself rather than scanning the document,
 // so a violation names the surface that owns it.
 //
-// EVERY REGISTERED SURFACE, WHICH IS THE WHOLE CLAIM. `registerWorkflowSurfaces`
+// EVERY REGISTERED SURFACE, WHICH IS THE WHOLE CLAIM. `registerWorkflowScreens`
 // claims one rail destination and `registerWorkflowPanes` claims TWO pane kinds, so
 // the table below carries a row for each: a family-wide tier that skipped one could not
 // fail on a regression unique to it.

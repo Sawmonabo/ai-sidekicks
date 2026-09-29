@@ -10,12 +10,12 @@ import { afterEach, describe, expect, it } from "vitest";
 import { windowTripwires } from "@renderer/lib/tripwires.js";
 import { formatRoute } from "@renderer/routing/routes.js";
 import type { ScenarioFixtureHandle } from "@renderer/services/daemon/selection.fixture.js";
-import type { ConsoleSessionDiagnostics } from "@renderer/services/session-events/session-diagnostics-handle.js";
+import type { SessionDiagnostics } from "@renderer/services/session-events/session-diagnostics-handle.js";
 import { FIXTURE_LAUNCH_GLOBAL } from "@shared/fixture-launch.js";
 import { FIRST_RUN_SCENARIO_ID } from "../../../../fixtures/scenarios/first-run.js";
 import {
   CONCURRENT_STREAMING_SCENARIO_ID,
-  FLAGSHIP_SCENARIO,
+  CONCURRENT_STREAMING_SCENARIO,
 } from "../../../../fixtures/scenarios/concurrent-streaming.js";
 import { composeFixtureLaunch, createFixtureComposition } from "./fixture-composition.js";
 import {
@@ -30,7 +30,7 @@ function scenarioControlOnPage(): ScenarioFixtureHandle | undefined {
   return page[SCENARIO_FIXTURE_GLOBAL] as ScenarioFixtureHandle | undefined;
 }
 
-const NO_DIAGNOSTICS: ConsoleSessionDiagnostics = {
+const NO_DIAGNOSTICS: SessionDiagnostics = {
   openSessionIds: () => [],
   appliedEventCountFor: () => 0,
   boundSessionIds: () => [],
@@ -50,7 +50,7 @@ describe("composeFixtureLaunch — the launch the preload exposed", () => {
   it("plays the named scenario and opens the named session before the first render", () => {
     page[FIXTURE_LAUNCH_GLOBAL] = {
       scenarioId: CONCURRENT_STREAMING_SCENARIO_ID,
-      sessionId: FLAGSHIP_SCENARIO.sessionId,
+      sessionId: CONCURRENT_STREAMING_SCENARIO.sessionId,
     };
 
     const composition = composeFixtureLaunch();
@@ -59,7 +59,7 @@ describe("composeFixtureLaunch — the launch the preload exposed", () => {
       CONCURRENT_STREAMING_SCENARIO_ID,
     );
     expect(window.location.hash).toBe(
-      formatRoute({ kind: "workspace", sessionId: FLAGSHIP_SCENARIO.sessionId }),
+      formatRoute({ kind: "workspace", sessionId: CONCURRENT_STREAMING_SCENARIO.sessionId }),
     );
   });
 
@@ -100,7 +100,7 @@ describe("createFixtureComposition — the handles a driver reads", () => {
     const removeFirst = first.installBridgeHandles(first.createBridge());
     const removeSecond = second.installBridgeHandles(second.createBridge());
     const removeFirstDiagnostics = first.installSessionDiagnostics(NO_DIAGNOSTICS);
-    const liveDiagnostics: ConsoleSessionDiagnostics = { ...NO_DIAGNOSTICS };
+    const liveDiagnostics: SessionDiagnostics = { ...NO_DIAGNOSTICS };
     const removeSecondDiagnostics = second.installSessionDiagnostics(liveDiagnostics);
 
     removeFirst();

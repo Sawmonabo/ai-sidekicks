@@ -14,9 +14,9 @@ import type { Unsubscribe } from "@shared/preload-api.js";
 import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import type { Clock } from "@renderer/lib/clock.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
-import type { ConsoleScenario, ScenarioBeat } from "../../fixtures/scenario.js";
+import type { Scenario, ScenarioBeat } from "../../fixtures/scenario.js";
 import type { ScenarioEngine } from "@renderer/services/daemon/engine.fixture.js";
-import { FLAGSHIP_SCENARIO } from "../../fixtures/scenarios/concurrent-streaming.js";
+import { CONCURRENT_STREAMING_SCENARIO } from "../../fixtures/scenarios/concurrent-streaming.js";
 
 /** The scripted latency both settling suites spend. Longer than one tick. */
 export const SCRIPTED_LATENCY_MS = 120;
@@ -60,7 +60,7 @@ export function runTransitionBeat(payload: Readonly<Record<string, unknown>>): S
     atMs: 0,
     event: {
       id: "019b79ee-0280-7ea1-8110-e5e0d1150077",
-      sessionId: FLAGSHIP_SCENARIO.sessionId,
+      sessionId: CONCURRENT_STREAMING_SCENARIO.sessionId,
       sequence: 1,
       kind: "run.running",
       occurredAt: "2026-01-01T14:20:00.500Z",
@@ -77,12 +77,14 @@ export function runTransitionBeat(payload: Readonly<Record<string, unknown>>): S
  * the day a family scripts a beat past it, and a case that was asserting over the
  * whole script starts asserting over a prefix of it and still passes.
  */
-export function lastScriptedBeatMs(scenario: ConsoleScenario): number {
+export function lastScriptedBeatMs(scenario: Scenario): number {
   return scenario.beats.reduce((latest, beat) => Math.max(latest, beat.atMs), 0);
 }
 
 /** The real fixture bridge over a real scenario, and the real engine driving it. */
-export function createFixture(scenario: ConsoleScenario = FLAGSHIP_SCENARIO): FixtureUnderTest {
+export function createFixture(
+  scenario: Scenario = CONCURRENT_STREAMING_SCENARIO,
+): FixtureUnderTest {
   const bridge = createFixtureBridge({ scenario });
   const engine = bridge.scenarioEngine;
   if (engine === undefined) {
@@ -234,7 +236,7 @@ export function withDaemonSubscribe(
  */
 export function bridgeAnswering(
   answer: (call: RecordedDaemonCall, passThrough: () => Promise<unknown>) => Promise<unknown>,
-  scenario?: ConsoleScenario,
+  scenario?: Scenario,
 ): BridgeUnderTest {
   return withDaemonCall(createFixture(scenario).bridge, answer);
 }
@@ -250,7 +252,7 @@ export function bridgeAnswering(
  * The id is the caller's because the fixture names it in the refusal it raises: a
  * shared id would put one test's scenario name in another test's rendered failure.
  */
-export function unscriptedScenario(id: string): ConsoleScenario {
+export function unscriptedScenario(id: string): Scenario {
   return {
     id,
     label: "Nothing scripted",
@@ -266,7 +268,7 @@ export function unscriptedScenario(id: string): ConsoleScenario {
 /**
  * A bridge over a scenario that scripts nothing, whose window runs on this clock.
  *
- * `consoleClockFor` reads the scenario engine's clock, and `FixtureBridgeOptions` takes no
+ * `resolveBridgeClock` reads the scenario engine's clock, and `FixtureBridgeOptions` takes no
  * clock, so the engine member is replaced by hand. The scenario id is the caller's for the
  * reason `unscriptedScenario` gives.
  */

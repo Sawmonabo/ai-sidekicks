@@ -15,7 +15,7 @@ import "./diff.css";
 import { Nothing } from "@renderer/console/primitives/index.js";
 import { PaneFrame, type PaneContextOf } from "@renderer/console/seats/index.js";
 import { DiffChangeSet } from "./DiffChangeSet.js";
-import { type ConsoleDiffModel } from "../diff-model.js";
+import { type DiffModel } from "../diff-model.js";
 
 /**
  * This body's own address arm, narrowed off the union the deck hands every pane.
@@ -65,7 +65,7 @@ export interface DiffPaneProps {
    * A change set to render. A caller that already holds a model — a layout composed
    * around one, a tier measuring the renderer — hands it over and the pane draws it.
    */
-  readonly diff?: ConsoleDiffModel;
+  readonly diff?: DiffModel;
 }
 
 export function DiffPane(props: DiffPaneProps): React.JSX.Element {

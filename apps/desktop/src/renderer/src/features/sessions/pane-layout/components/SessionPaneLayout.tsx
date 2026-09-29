@@ -52,7 +52,7 @@ import { Fragment, useCallback, useMemo, useRef } from "react";
 import { Group, Separator } from "react-resizable-panels";
 
 import { type Refusal } from "@renderer/lib/refusal.js";
-import { useConsoleClock } from "@renderer/services/platform/hooks/useClock.js";
+import { useClock } from "@renderer/services/platform/hooks/useClock.js";
 import {
   InlineRefusal,
   Nothing,
@@ -105,7 +105,7 @@ export function SessionPaneLayout(props: SessionPaneLayoutProps): React.JSX.Elem
   // time while the ledger and the reveal engine were frozen, so
   // whether a flush had happened when a screenshot was taken depended on how long
   // the runner took, and no advance of the fixture clock could settle it.
-  const clock = useConsoleClock();
+  const clock = useClock();
   const tracker = usePaneRectTracker({
     clock,
     ...(props.onPaneRects === undefined ? {} : { onRects: props.onPaneRects }),

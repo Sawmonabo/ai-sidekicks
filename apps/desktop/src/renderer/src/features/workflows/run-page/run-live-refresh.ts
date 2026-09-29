@@ -166,7 +166,7 @@ export class WorkflowRunLiveRefresh implements ReadTriggerTarget {
   /**
    * Whether this reading watches `sessionStore`.
    *
-   * `ArtifactPaneReader.isReadingFor`'s name and its reason: the seam keys on the
+   * `ArtifactListReader.isReadingFor`'s name and its reason: the seam keys on the
    * session id, and a projection rebuilt for the same session across a reconnect keeps
    * that key while being a different object — the one axis a key cannot carry. Without
    * the check this reading would go on listening to a store nothing else reads and its

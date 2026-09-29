@@ -20,7 +20,7 @@ import {
   DIFF_FIXTURE_VIEWPORT_HEIGHT_PX,
   DiffLayoutFixture,
 } from "@test/helpers/diff-layout-fixture.js";
-import { registerRepos } from "../../contributions/inline-cards.js";
+import { registerReposInlineCards } from "../../contributions/inline-cards.js";
 import { InlineDiffCard } from "./InlineDiffCard.js";
 
 const CARD: DiffInlineCardProps = {
@@ -69,7 +69,7 @@ describe("inline diff card — the seat", () => {
    */
   function fill(): InlineCardRegistry {
     const seats = new InlineCardRegistry();
-    registerRepos(seats);
+    registerReposInlineCards(seats);
     return seats;
   }
 

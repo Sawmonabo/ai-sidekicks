@@ -13,8 +13,8 @@
 // strip holds that a message can reference.
 
 import { DerivedFigure, formatCount } from "@renderer/console/primitives/index.js";
-import { attachmentCarrierFill } from "./attachment-bounds.js";
-import type { AttachmentCarrierBinding } from "./hooks/useStagedAttachments.js";
+import { stagedAttachmentsFill } from "./attachment-bounds.js";
+import type { StagedAttachmentsBinding } from "./hooks/useStagedAttachments.js";
 import { AttachmentChip } from "./AttachmentChip.js";
 import { composerAttachmentChip } from "./composer-attachment-chip.js";
 import { composeSendAttachmentReference } from "./send-attachment-reference.js";
@@ -23,7 +23,7 @@ import "./AttachmentStrip.css";
 
 /** What the strip reads: the session's attachment carrier, and whether a file is being dragged. */
 export interface AttachmentStripProps {
-  readonly stagedAttachments: AttachmentCarrierBinding;
+  readonly stagedAttachments: StagedAttachmentsBinding;
   /** True while a file drag is over the composer, so the strip can say it will land. */
   readonly isDraggingFiles: boolean;
 }
@@ -35,7 +35,7 @@ export function AttachmentStrip(props: AttachmentStripProps): React.JSX.Element 
   if (entries.length === 0 && !props.isDraggingFiles) {
     return null;
   }
-  const fill = attachmentCarrierFill(entries.length);
+  const fill = stagedAttachmentsFill(entries.length);
   const reference = composeSendAttachmentReference(entries);
   return (
     // A `section` and not a `div`: `aria-label` on a generic element names nothing. A

@@ -22,7 +22,7 @@
 import { useCallback, useState } from "react";
 
 import { callDaemon } from "@renderer/services/daemon/daemon-reply.js";
-import { useConsoleBridge } from "@renderer/services/platform/hooks/usePlatformBridge.js";
+import { usePlatformBridge } from "@renderer/services/platform/hooks/usePlatformBridge.js";
 import type { RunId } from "@ai-sidekicks/contracts";
 import {
   UNSENT_ANSWER_DELIVERY,
@@ -59,7 +59,7 @@ export interface QuestionAnswerHandle {
  * dispatches again.
  */
 export function useQuestionAnswer(runId: RunId | undefined, askId: string): QuestionAnswerHandle {
-  const bridge = useConsoleBridge();
+  const bridge = usePlatformBridge();
   const [delivery, setDelivery] = useState<AnswerDelivery>(UNSENT_ANSWER_DELIVERY);
   const answer = useCallback(
     (response: string) => {

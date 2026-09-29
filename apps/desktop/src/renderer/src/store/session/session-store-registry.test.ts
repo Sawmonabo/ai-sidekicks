@@ -15,7 +15,7 @@ import { RefusalError, isRefusal } from "@renderer/lib/refusal.js";
 import { ManualClock } from "@renderer/lib/clock.js";
 import {
   emptySnapshot,
-  eventAt,
+  runEventAt,
   readsNothing,
   settleMicrotasks,
 } from "@test/helpers/session-store-fixtures.js";
@@ -83,7 +83,7 @@ describe("SessionStoreRegistry — one store per open session", () => {
   it("refuses — rather than throws — for a session that is not open", () => {
     const registry = new SessionStoreRegistry({ read: readsNothing, clock: new ManualClock(0) });
 
-    const refusal = registry.enqueue("session-gone", [eventAt(1, "run-1")]);
+    const refusal = registry.enqueue("session-gone", [runEventAt(1, "run-1")]);
 
     expect(refusal).toBeDefined();
     expect(isRefusal(refusal)).toBe(true);
@@ -99,7 +99,7 @@ describe("SessionStoreRegistry — one store per open session", () => {
     // refusal, so the assertions above are about openness and not about the
     // methods always refusing.
     registry.open("session-1");
-    expect(registry.enqueue("session-1", [eventAt(1, "run-1")])).toBeUndefined();
+    expect(registry.enqueue("session-1", [runEventAt(1, "run-1")])).toBeUndefined();
     expect(registry.requestRefresh("session-1", "reconnect")).toBeUndefined();
     expect(registry.flush("session-1")).toBeUndefined();
     expect(registry.markDegraded("session-1", "subscription-closed")).toBeUndefined();

@@ -8,7 +8,7 @@ import { createFixtureBridge } from "@renderer/services/platform/platform-bridge
 import { GeneralPage } from "./GeneralPage.js";
 import { composeSettingsPages } from "../../settings-pages.js";
 import type { SettingsPageContext } from "../../types.js";
-import { consoleTestUiStateStore } from "@test/helpers/settings-page-mount.js";
+import { testUiStateStore } from "@test/helpers/settings-page-mount.js";
 import { UNREPORTED_MAIN_PROCESS_STATE } from "@renderer/store/window/main-process-state.js";
 
 const SCENARIO = unscriptedScenario("application-page-test");
@@ -31,12 +31,12 @@ function contextFor(): SettingsPageContext {
         app: { version: "1.4.0", platform: "darwin", arch: "arm64", locale: "en-GB" },
       },
     },
-    openSection: () => undefined,
+    openPage: () => undefined,
     retainedSessionId: undefined,
     retainedSessionStore: undefined,
     shellState: UNREPORTED_MAIN_PROCESS_STATE,
     selection: undefined,
-    uiStateStore: consoleTestUiStateStore(),
+    uiStateStore: testUiStateStore(),
     chooseScheme: () => undefined,
   };
 }

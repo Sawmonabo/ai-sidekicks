@@ -69,7 +69,7 @@ export interface RepoMountsReaderOptions {
   /**
    * The clock this section's reading is stamped with. Supplied, never defaulted.
    *
-   * REQUIRED, BECAUSE A DEFAULT WOULD BE THE WALL CLOCK. `consoleClockFor` is the one
+   * REQUIRED, BECAUSE A DEFAULT WOULD BE THE WALL CLOCK. `resolveBridgeClock` is the one
    * answer to which clock a window runs on, and under the fixture that is the
    * scenario's frozen clock — so a reader that fell back to a `RealClock` of its own
    * stamped `readAtMilliseconds` on wall time while the deadline wake-up beside it ran

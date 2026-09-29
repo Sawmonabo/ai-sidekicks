@@ -35,10 +35,10 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { emulateSystemScheme, renderSettled } from "../helpers/app-harness.js";
 import { describeViolations, runTierAxe } from "./axe-run.js";
-import { DesktopBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
+import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
-import type { ConsoleScenario } from "../../fixtures/scenario.js";
-import { LEDGER_QUIET_SCENARIO } from "../../fixtures/scenarios/empty-session.js";
+import type { Scenario } from "../../fixtures/scenario.js";
+import { EMPTY_SESSION_SCENARIO } from "../../fixtures/scenarios/empty-session.js";
 import { TRANSCRIPT_STATES_SCENARIO } from "../../fixtures/scenarios/transcript-states.js";
 import { installMeridianTokens } from "@renderer/app/token-installation.js";
 // Deeply, and not through `ledger/index.ts`: this tier is the shell claim's only
@@ -95,7 +95,7 @@ function ledgerPaneContext(sessionId: string, sessionStore: SessionStore): Trans
  * document. The quiet scenario scripts no beats at all, which is exactly how the
  * empty case reaches a state a scripted stream can never produce.
  */
-function openStoreOnScenario(scenario: ConsoleScenario): SessionStore {
+function openStoreOnScenario(scenario: Scenario): SessionStore {
   const sessionStore = new SessionStore({ sessionId: scenario.sessionId });
   sessionStore.initialize({
     cursor: SCENARIO_BASE_CURSOR,
@@ -114,14 +114,14 @@ function openStoreOnScenario(scenario: ConsoleScenario): SessionStore {
  * what carries the full-height grid down to the scroll container. A bare test wrapper
  * would have been a second layout nobody ships, measured instead of the one that is.
  */
-async function mountLedger(scenario: ConsoleScenario): Promise<HTMLElement> {
+async function mountLedger(scenario: Scenario): Promise<HTMLElement> {
   const sessionStore = openStoreOnScenario(scenario);
   const { container } = await renderSettled(
-    <DesktopBridgeProvider bridge={createFixtureBridge({ scenario })}>
+    <PlatformBridgeProvider bridge={createFixtureBridge({ scenario })}>
       <TranscriptSurface>
         <TranscriptPane context={ledgerPaneContext(scenario.sessionId, sessionStore)} />
       </TranscriptSurface>
-    </DesktopBridgeProvider>,
+    </PlatformBridgeProvider>,
   );
   return container;
 }
@@ -163,7 +163,7 @@ describe("accessibility — the ledger", () => {
 
     it(`has no axe violation over the ledger's empty state in the ${scheme} scheme`, async () => {
       await emulateSystemScheme(scheme);
-      const container = await mountLedger(LEDGER_QUIET_SCENARIO);
+      const container = await mountLedger(EMPTY_SESSION_SCENARIO);
 
       // The same control from the other side: this case is only about the empty
       // state if the surface actually reached it, and a scenario that had grown a

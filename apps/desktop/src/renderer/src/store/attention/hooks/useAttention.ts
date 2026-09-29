@@ -33,7 +33,7 @@ const SESSION_ATTENTION_ORIGIN = "attention-provider";
  * mounted is a wiring defect, and the honest answers a fallback could give are both
  * wrong: an empty reading would render "nothing needs you" over a projection nobody
  * read, and a second read here would be the second answer this binding exists to
- * prevent. It is the rule `useConsoleBridge` already follows one layer down.
+ * prevent. It is the rule `usePlatformBridge` already follows one layer down.
  */
 export function useAttention(): WindowAttention {
   const held = useContext(WindowAttentionContext);

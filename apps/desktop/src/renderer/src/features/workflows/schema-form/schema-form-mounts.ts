@@ -97,14 +97,13 @@ export const schemaFormChunk: SchemaFormChunk = new SchemaFormChunk();
  * loader, and renders the settled body directly once the chunk has landed — so a form
  * opened after any earlier one never suspends at all.
  */
-export const schemaFormAnswerMount: LoaderBackedBody<SchemaFormAnswerProps> = new LoaderBackedBody(
+export const schemaFormAnswerBody: LoaderBackedBody<SchemaFormAnswerProps> = new LoaderBackedBody(
   async () => ({ Body: (await schemaFormChunk.load()).SchemaFormAnswer }),
   () => reservedBodyRegion(SCHEMA_FORM_PENDING_BODY),
 );
 
 /** The form a phase WILL ask, mounted from the same chunk and the same memo. */
-export const schemaFormPreviewMount: LoaderBackedBody<SchemaFormPreviewProps> =
-  new LoaderBackedBody(
-    async () => ({ Body: (await schemaFormChunk.load()).SchemaFormPreview }),
-    () => reservedBodyRegion(SCHEMA_FORM_PENDING_BODY),
-  );
+export const schemaFormPreviewBody: LoaderBackedBody<SchemaFormPreviewProps> = new LoaderBackedBody(
+  async () => ({ Body: (await schemaFormChunk.load()).SchemaFormPreview }),
+  () => reservedBodyRegion(SCHEMA_FORM_PENDING_BODY),
+);

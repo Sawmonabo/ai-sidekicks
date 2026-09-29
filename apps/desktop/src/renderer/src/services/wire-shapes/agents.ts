@@ -66,7 +66,7 @@ export interface AgentResolvedConfiguration {
 }
 
 /** One row of the roster read. */
-export interface AgentRosterEntry {
+export interface AgentListEntry {
   readonly agentId: string;
   readonly name?: string | undefined;
   readonly createdAt?: string | undefined;
@@ -85,8 +85,8 @@ export interface AgentRosterEntry {
   readonly resolvedConfiguration?: AgentResolvedConfiguration | undefined;
 }
 
-export interface AgentRosterReading {
-  readonly agents: readonly AgentRosterEntry[];
+export interface AgentListReading {
+  readonly agents: readonly AgentListEntry[];
 }
 
 /** The `switch` member on a config-update reply. Absent on a pure rename or rebind. */

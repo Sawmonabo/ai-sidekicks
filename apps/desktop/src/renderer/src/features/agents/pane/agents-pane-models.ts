@@ -27,7 +27,7 @@
 // scenario tick says it does.
 
 import type { Clock } from "@renderer/lib/clock.js";
-import { consoleClockFor } from "@renderer/services/platform/hooks/useClock.js";
+import { resolveBridgeClock } from "@renderer/services/platform/hooks/useClock.js";
 import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { type SessionSubject } from "@renderer/console/seats/index.js";
 import type { SessionStore } from "@renderer/store/session/session-store.js";
@@ -91,10 +91,10 @@ export class AgentsPaneModels {
     this.#calls = calls;
     // Through the platform service's clock rather than resolved here. The rule — a
     // fixture bridge running an engine shares that engine's FROZEN clock, and only a
-    // running engine owns one — is `consoleClockFor`'s, and a second copy of it
+    // running engine owns one — is `resolveBridgeClock`'s, and a second copy of it
     // is how a window ends up with stores on wall time while its scenario beats advance
     // on frozen time, which is the exact drift that seam was minted to end.
-    this.#clock = consoleClockFor(bridge);
+    this.#clock = resolveBridgeClock(bridge);
     this.roster = createAgentList(sessionStore, this.#clock, calls.listAgents);
     this.roster.start();
   }

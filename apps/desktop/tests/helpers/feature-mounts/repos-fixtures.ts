@@ -11,7 +11,7 @@
 import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { buildDiffFixture } from "../diff-fixture.js";
 import { EXTENDED_HEADER_DIFF_SHAPE } from "../diff-fixture-shapes.js";
-import type { ConsoleDiffModel } from "@renderer/features/repos/diff/diff-model.js";
+import type { DiffModel } from "@renderer/features/repos/diff/diff-model.js";
 import { bridgeOnClock } from "@test/helpers/fixture-bridge.js";
 import { SESSION_ID } from "@renderer/features/repos/mounts/repo-mounts.test-support.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
@@ -47,6 +47,6 @@ export function scenarioBridgeAndStore(): { bridge: ConsoleBridge; sessionStore:
  * Built per call rather than shared, because a model two tiers hold one copy of would
  * make the second tier's mount depend on whether the first had run.
  */
-export function extendedHeaderChangeSet(): ConsoleDiffModel {
+export function extendedHeaderChangeSet(): DiffModel {
   return buildDiffFixture(EXTENDED_HEADER_DIFF_SHAPE);
 }

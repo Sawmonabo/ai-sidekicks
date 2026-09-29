@@ -16,18 +16,18 @@
 
 import { describe, expect, it } from "vitest";
 import {
-  TERMINAL_SCENARIO,
-  TERMINAL_SCENARIO_ID,
+  TERMINAL_LEASE_SCENARIO,
+  TERMINAL_LEASE_SCENARIO_ID,
 } from "../../../../../../fixtures/scenarios/terminal-lease.js";
 import { PaneRegistry } from "@renderer/console/seats/index.js";
 import {
   TERMINAL_LEASE_EVENT_KIND as LEASE_TRANSITION_KIND,
   TERMINAL_LEASE_TRANSITION_REASONS as LEASE_TRANSITION_REASONS,
 } from "../lease/lease-transition.js";
-import { registerTerminalPanes } from "./panes.js";
+import { registerTerminalPane } from "./panes.js";
 
 function leaseTransitionReasons(): readonly unknown[] {
-  return TERMINAL_SCENARIO.beats
+  return TERMINAL_LEASE_SCENARIO.beats
     .filter((beat) => beat.event.kind === LEASE_TRANSITION_KIND)
     .map((beat) => beat.event.payload?.["reason"]);
 }
@@ -35,7 +35,7 @@ function leaseTransitionReasons(): readonly unknown[] {
 describe("terminal family — claiming the deck's terminal pane", () => {
   it("claims the terminal kind on terms the deck can hold it by", () => {
     const registry = new PaneRegistry();
-    registerTerminalPanes(registry);
+    registerTerminalPane(registry);
     const descriptor = registry.descriptorFor("terminal");
     expect(descriptor?.kind).toBe("terminal");
     expect(descriptor?.owner).toBe("terminal");
@@ -45,13 +45,13 @@ describe("terminal family — claiming the deck's terminal pane", () => {
 
   it("claims exactly one kind — V1 has one terminal per session", () => {
     const registry = new PaneRegistry();
-    registerTerminalPanes(registry);
+    registerTerminalPane(registry);
     expect(registry.registeredPaneKinds()).toStrictEqual(["terminal"]);
   });
 
   it("negative control: a second owner claiming the kind is refused, not swapped", () => {
     const registry = new PaneRegistry();
-    registerTerminalPanes(registry);
+    registerTerminalPane(registry);
     expect(() => {
       registry.register({
         kind: "terminal",
@@ -64,7 +64,7 @@ describe("terminal family — claiming the deck's terminal pane", () => {
 
 describe("terminal scenario — the take and the three automatic releases, kept distinct", () => {
   it("is the scenario the seat board names", () => {
-    expect(TERMINAL_SCENARIO.id).toBe(TERMINAL_SCENARIO_ID);
+    expect(TERMINAL_LEASE_SCENARIO.id).toBe(TERMINAL_LEASE_SCENARIO_ID);
     expect(leaseTransitionReasons().length).toBeGreaterThan(0);
   });
 
@@ -75,7 +75,7 @@ describe("terminal scenario — the take and the three automatic releases, kept 
   });
 
   it("names a holder on a take and nulls it on every release", () => {
-    for (const beat of TERMINAL_SCENARIO.beats) {
+    for (const beat of TERMINAL_LEASE_SCENARIO.beats) {
       if (beat.event.kind !== LEASE_TRANSITION_KIND) {
         continue;
       }

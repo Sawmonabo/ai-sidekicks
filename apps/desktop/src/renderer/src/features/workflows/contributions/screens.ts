@@ -22,7 +22,7 @@ const WORKFLOW_SURFACES: readonly ScreenRegistration[] = [
  * it owns, and an auxiliary window composes a different subset without a second code
  * path.
  */
-export function registerWorkflowSurfaces(registry: ScreenRegistry): void {
+export function registerWorkflowScreens(registry: ScreenRegistry): void {
   for (const descriptor of WORKFLOW_SURFACES) {
     registry.register(descriptor);
   }

@@ -16,7 +16,7 @@ import type { DaemonMethod } from "@ai-sidekicks/contracts";
 import { FixtureBridgeError } from "./refusal.fixture.js";
 import { createFixture } from "@test/helpers/fixture-bridge.js";
 import type { ScenarioReply } from "./scenario-reply.fixture.js";
-import type { ConsoleScenario } from "../../../../../fixtures/scenario.js";
+import type { Scenario } from "../../../../../fixtures/scenario.js";
 import { FIXTURE_SCENARIO_SESSION_ID, scenarioNamed } from "./vocabulary.test-support.js";
 
 /**
@@ -26,7 +26,7 @@ import { FIXTURE_SCENARIO_SESSION_ID, scenarioNamed } from "./vocabulary.test-su
  * above it, and what these cases need from a scenario is that it scripts NO reply — which
  * is the shape a stand-in states outright and a corpus entry only happens to have.
  */
-const SEAM_BASE_SCENARIO: ConsoleScenario = scenarioNamed("scripted-reply-seam");
+const SEAM_BASE_SCENARIO: Scenario = scenarioNamed("scripted-reply-seam");
 
 /** A scripted read whose reply these cases vary. */
 const BRANCH_CONTEXT_CALL = "gitflow.branchContextRead";
@@ -84,7 +84,7 @@ function mountReadResponse(repoMountId: string, status: "healthy" | "unreachable
 }
 
 /** A scenario whose one reply is COMPUTED from the request rather than constant. */
-function scenarioComputingMountRead(): ConsoleScenario {
+function scenarioComputingMountRead(): Scenario {
   return {
     ...SEAM_BASE_SCENARIO,
     id: "computed-mount-read",
@@ -107,7 +107,7 @@ function scenarioComputingMountRead(): ConsoleScenario {
 }
 
 /** A scenario answering the same call with one CONSTANT reply. The negative control. */
-function scenarioConstantMountRead(): ConsoleScenario {
+function scenarioConstantMountRead(): Scenario {
   return {
     ...SEAM_BASE_SCENARIO,
     id: "constant-mount-read",
@@ -121,7 +121,7 @@ function scenarioConstantMountRead(): ConsoleScenario {
  * Built from the base above so the beats, the join order and the start instant are the
  * same for every case in this file — the only thing it varies is the reply.
  */
-function scenarioScriptingBranchContext(afterMs?: number): ConsoleScenario {
+function scenarioScriptingBranchContext(afterMs?: number): Scenario {
   // The latency member is added only when there is one. `exactOptionalPropertyTypes`
   // is on, and a present-but-`undefined` `afterMs` is a different value from an absent
   // one — which is exactly the distinction the seam branches on.

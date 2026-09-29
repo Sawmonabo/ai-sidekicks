@@ -46,7 +46,7 @@ import "./run-graph.css";
 import { ReactFlow, type FitViewOptions, type NodeTypes } from "@xyflow/react";
 
 import { tokenReference } from "@renderer/styles/tokens.js";
-import { PHASE_GRAPH_MAX_ZOOM, PHASE_GRAPH_MIN_ZOOM } from "../../workflows-caps.js";
+import { RUN_GRAPH_MAX_ZOOM, RUN_GRAPH_MIN_ZOOM } from "../../workflows-caps.js";
 import { PHASE_NODE_TYPE } from "./run-graph-elements.js";
 import { useRunGraphElements } from "./hooks/useRunGraphElements.js";
 import { PhaseNode } from "./PhaseNode.js";
@@ -112,8 +112,8 @@ export function RunGraphCanvas(props: RunGraphCanvasProps): React.JSX.Element {
         edgesFocusable={false}
         fitView
         fitViewOptions={PHASE_GRAPH_FIT_VIEW_OPTIONS}
-        minZoom={PHASE_GRAPH_MIN_ZOOM}
-        maxZoom={PHASE_GRAPH_MAX_ZOOM}
+        minZoom={RUN_GRAPH_MIN_ZOOM}
+        maxZoom={RUN_GRAPH_MAX_ZOOM}
         defaultMarkerColor={SEQUENCE_MARKER_COLOR}
         // Names which of the library's two built-in palettes is the inert one. The
         // console's scheme is Meridian's and is carried by the tokens the sheet sets,

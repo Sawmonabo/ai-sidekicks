@@ -14,7 +14,7 @@
 import { act, cleanup, fireEvent, type RenderResult } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { SESSIONS_HASH, mountConsole, settleRegisteredBodies } from "@test/helpers/mount-app.js";
+import { SESSIONS_HASH, mountApp, settleRegisteredBodies } from "@test/helpers/mount-app.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 
 /** A window opened straight into a session, the way a saved link does. */
@@ -55,7 +55,7 @@ describe("AppProviders — the rail's three destinations, and where the window i
     // The defect: the rail shipped a Workspace destination where the surface set names
     // Workflows, so the destination that opens the workflow builder could not be reached at
     // all and one that has no address of its own carried an icon.
-    const mounted = await mountConsole();
+    const mounted = await mountApp();
 
     const labels = [...mounted.container.querySelectorAll(".meridian-rail__button")].map((button) =>
       button.getAttribute("aria-label"),
@@ -68,13 +68,13 @@ describe("AppProviders — the rail's three destinations, and where the window i
     // which is where a person got there from. Highlighting nothing — the answer a
     // rail gives when the route names a destination it does not draw — reads as
     // the console losing track of where it is.
-    const mounted = await mountConsole();
+    const mounted = await mountApp();
 
     expect(currentRailDestination(mounted)).toBe("Sessions");
   });
 
   it("navigates to the workflows destination and highlights it", async () => {
-    const mounted = await mountConsole();
+    const mounted = await mountApp();
 
     await clickRailDestination(mounted, "Workflows");
 

@@ -25,7 +25,7 @@ import {
   MemoryPersistenceAdapter,
   type MemoryPersistenceAdapterOptions,
 } from "./memory-persistence-adapter.js";
-import { ReadFailureAdapter } from "@test/helpers/read-failure-persistence-adapter.js";
+import { ReadFailurePersistenceAdapter } from "@test/helpers/read-failure-persistence-adapter.js";
 import { UiStateStore } from "./ui-state-store.js";
 import { refusePersistence } from "./persistence-refusals.js";
 
@@ -163,7 +163,7 @@ class BookkeepingFailureAdapter extends MemoryPersistenceAdapter {
 
 describe("a read that failed is not a record that was never written", () => {
   it("answers `failed` where the record is unreachable and `absent` where it is not there", async () => {
-    const adapter = new ReadFailureAdapter();
+    const adapter = new ReadFailurePersistenceAdapter();
     const store = new UiStateStore({ adapter, clock: new ManualClock(1_000) });
     expect((await store.write("session-1", "expansion", "expansion", ["run-01"])).outcome).toBe(
       "written",
@@ -179,7 +179,7 @@ describe("a read that failed is not a record that was never written", () => {
 
   it("counts the failure on the store's health and still never throws", async () => {
     const store = new UiStateStore({
-      adapter: new ReadFailureAdapter(),
+      adapter: new ReadFailurePersistenceAdapter(),
       clock: new ManualClock(1_000),
     });
 
@@ -192,7 +192,7 @@ describe("a read that failed is not a record that was never written", () => {
     // `read` and `readGlobal` are documented as the lossy form and a number of
     // callers take them deliberately. Without this the union could have been added
     // beside a `read` that had quietly started throwing or reporting a record.
-    const adapter = new ReadFailureAdapter();
+    const adapter = new ReadFailurePersistenceAdapter();
     const store = new UiStateStore({ adapter, clock: new ManualClock(1_000) });
     await store.write("session-1", "expansion", "expansion", ["run-01"]);
 

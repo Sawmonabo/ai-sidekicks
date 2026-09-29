@@ -30,7 +30,7 @@ export interface ScenarioBeat {
   readonly event: ProjectedSessionEvent;
 }
 
-export interface ConsoleScenario {
+export interface Scenario {
   readonly id: string;
   /** Shown in the fixture picker. Short; a name, not a sentence. */
   readonly label: string;

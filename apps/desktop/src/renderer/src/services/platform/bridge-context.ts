@@ -2,7 +2,7 @@
 
 import { createContext, type Context } from "react";
 
-import type { ConsoleSessionDiagnostics } from "../session-events/session-diagnostics-handle.js";
+import type { SessionDiagnostics } from "../session-events/session-diagnostics-handle.js";
 import type { ConsoleBridge } from "./platform-bridge.js";
 
 /** Why the window has no bridge at all. Rendered as the "error" kind of nothing. */
@@ -31,7 +31,7 @@ export interface BridgeComposition {
   /** Put what a driver reads about this bridge on the page. */
   installBridgeHandles(bridge: ConsoleBridge): () => void;
   /** Put what a driver reads about this window's session subscriptions on the page. */
-  installSessionDiagnostics(diagnostics: ConsoleSessionDiagnostics): () => void;
+  installSessionDiagnostics(diagnostics: SessionDiagnostics): () => void;
 }
 
 /** The composition the provider was given; `undefined` for a window that reads the preload. */

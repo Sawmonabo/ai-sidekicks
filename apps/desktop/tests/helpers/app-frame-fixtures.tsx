@@ -7,7 +7,7 @@
 // beside it.
 import { createStubBridge } from "@shared/preload-api.js";
 import type { ReactNode } from "react";
-import { DesktopBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
+import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { createLiveBridge } from "@renderer/services/platform/live-bridge.js";
 import { FIXTURE_APP_META } from "@renderer/services/platform/platform-bridge.fixture.js";
@@ -24,7 +24,7 @@ const RAIL_ENTRIES: readonly RailEntry[] = [
 
 export const SESSIONS_ROUTE: ConsoleRoute = { kind: "sessions" };
 
-export function CalmSurface(): React.JSX.Element {
+export function CalmScreen(): React.JSX.Element {
   return <p>the settings surface rendered</p>;
 }
 
@@ -64,7 +64,7 @@ export function bridgeWrapper(
   bridge: ConsoleBridge,
 ): (props: { readonly children: ReactNode }) => React.JSX.Element {
   return function BridgeHost(props: { readonly children: ReactNode }): React.JSX.Element {
-    return <DesktopBridgeProvider bridge={bridge}>{props.children}</DesktopBridgeProvider>;
+    return <PlatformBridgeProvider bridge={bridge}>{props.children}</PlatformBridgeProvider>;
   };
 }
 

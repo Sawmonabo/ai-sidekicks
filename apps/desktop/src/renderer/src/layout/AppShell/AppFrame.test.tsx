@@ -29,7 +29,7 @@ import { CommandPalette } from "../CommandPalette/CommandPalette.js";
 import type { ConsoleRoute } from "@renderer/routing/routes.js";
 import { AppFrame } from "./AppFrame.js";
 import {
-  CalmSurface,
+  CalmScreen,
   SESSIONS_ROUTE,
   backgroundOf,
   frameProps,
@@ -40,7 +40,7 @@ const RENDER_FAILURE_MESSAGE = "the sessions list could not render this row";
 
 const SETTINGS_ROUTE: ConsoleRoute = { kind: "settings", page: undefined };
 
-function ExplodingSurface(): React.JSX.Element {
+function ExplodingScreen(): React.JSX.Element {
   throw new Error(RENDER_FAILURE_MESSAGE);
 }
 
@@ -76,7 +76,7 @@ describe("AppFrame — a modal overlay inerts the background and nothing else", 
 
     const { container, rerender } = render(
       <AppFrame {...frameProps(SESSIONS_ROUTE)} overlays={palette(false)}>
-        <CalmSurface />
+        <CalmScreen />
       </AppFrame>,
       { wrapper: liveBridgeWrapper() },
     );
@@ -85,7 +85,7 @@ describe("AppFrame — a modal overlay inerts the background and nothing else", 
 
     rerender(
       <AppFrame {...frameProps(SESSIONS_ROUTE)} modalOverlayOpen overlays={palette(true)}>
-        <CalmSurface />
+        <CalmScreen />
       </AppFrame>,
     );
     expect(background.hasAttribute("inert")).toBe(true);
@@ -102,7 +102,7 @@ describe("AppFrame — a modal overlay inerts the background and nothing else", 
 
     rerender(
       <AppFrame {...frameProps(SESSIONS_ROUTE)} overlays={palette(false)}>
-        <CalmSurface />
+        <CalmScreen />
       </AppFrame>,
     );
     expect(background.hasAttribute("inert")).toBe(false);
@@ -129,7 +129,7 @@ describe("AppFrame — a failed surface does not survive a route change", () => 
   it("renders the newly selected surface instead of the previous route's failure card", () => {
     const { container, rerender } = render(
       <AppFrame {...frameProps(SESSIONS_ROUTE)}>
-        <ExplodingSurface />
+        <ExplodingScreen />
       </AppFrame>,
       { wrapper: liveBridgeWrapper() },
     );
@@ -137,7 +137,7 @@ describe("AppFrame — a failed surface does not survive a route change", () => 
 
     rerender(
       <AppFrame {...frameProps(SETTINGS_ROUTE)}>
-        <CalmSurface />
+        <CalmScreen />
       </AppFrame>,
     );
 
@@ -151,7 +151,7 @@ describe("AppFrame — a failed surface does not survive a route change", () => 
     // with it.
     const { container, rerender } = render(
       <AppFrame {...frameProps(SESSIONS_ROUTE)}>
-        <ExplodingSurface />
+        <ExplodingScreen />
       </AppFrame>,
       { wrapper: liveBridgeWrapper() },
     );
@@ -159,7 +159,7 @@ describe("AppFrame — a failed surface does not survive a route change", () => 
 
     rerender(
       <AppFrame {...frameProps(SESSIONS_ROUTE)}>
-        <CalmSurface />
+        <CalmScreen />
       </AppFrame>,
     );
 

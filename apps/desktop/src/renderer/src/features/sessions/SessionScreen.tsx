@@ -88,7 +88,7 @@ export interface SessionScreenProps {
 }
 
 /** The session workspace: header, deck of panes, composer seat, and the banner column. */
-export function Workspace(props: SessionScreenProps): React.JSX.Element {
+export function SessionScreen(props: SessionScreenProps): React.JSX.Element {
   const sessionId = routeSessionId(props.route);
   const registry = props.paneRegistry;
   const layout = usePaneLayoutStore({ restoredPaneCap: PANE_LAYOUT_RESTORED_PANE_CAP });

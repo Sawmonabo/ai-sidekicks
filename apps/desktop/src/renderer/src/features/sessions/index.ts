@@ -2,5 +2,5 @@
 // screen `app/` hands the transcript as the component its workspace slot mounts.
 
 export { registerPaneLayoutCommands } from "./contributions/commands.js";
-export { registerSessionsSurface } from "./contributions/screens.js";
-export { Workspace } from "./SessionScreen.js";
+export { registerSessionsFlyout } from "./contributions/screens.js";
+export { SessionScreen } from "./SessionScreen.js";

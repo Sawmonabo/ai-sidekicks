@@ -3,14 +3,14 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import type { AttachmentCarrierBinding } from "./hooks/useStagedAttachments.js";
+import type { StagedAttachmentsBinding } from "./hooks/useStagedAttachments.js";
 import { AttachmentStrip } from "./AttachmentStrip.js";
 import { sendingEntry } from "./ingest-entry.test-support.js";
 
 /** A binding holding `entries`, whose acts do nothing: the strip only draws it. */
 function bindingHolding(
-  entries: AttachmentCarrierBinding["snapshot"]["entries"],
-): AttachmentCarrierBinding {
+  entries: StagedAttachmentsBinding["snapshot"]["entries"],
+): StagedAttachmentsBinding {
   const ignore = (): void => undefined;
   return {
     snapshot: { entries, publishedAtMilliseconds: 0 },

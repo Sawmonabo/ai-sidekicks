@@ -30,7 +30,7 @@ const AGENT_CONSOLE_OWNER = "agent-console";
  * context that arrived at the wrong door renders a named refusal instead of throwing
  * inside the deck.
  */
-export function registerAgentConsolePane(registry: PaneRegistry): void {
+export function registerAgentsPane(registry: PaneRegistry): void {
   registry.register({
     kind: "agent-console",
     owner: AGENT_CONSOLE_OWNER,

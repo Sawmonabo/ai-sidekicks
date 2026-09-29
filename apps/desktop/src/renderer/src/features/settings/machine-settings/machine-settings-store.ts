@@ -10,7 +10,7 @@ import {
   type ReadTriggerTarget,
 } from "@renderer/store/reads/read-triggers.js";
 import { RefreshScheduler, type RefreshReason } from "@renderer/lib/reads/refresh-scheduler.js";
-import { consoleClockFor } from "@renderer/services/platform/hooks/useClock.js";
+import { resolveBridgeClock } from "@renderer/services/platform/hooks/useClock.js";
 import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import {
   NOTHING_CHOSEN,
@@ -77,7 +77,7 @@ export class MachineSettingsStore implements ReadTriggerTarget {
   public constructor(bridge: ConsoleBridge, carrier: ShellPreferenceCarrier) {
     this.#carrier = carrier;
     this.#scheduler = new RefreshScheduler({
-      clock: consoleClockFor(bridge),
+      clock: resolveBridgeClock(bridge),
       perform: async () => {
         await this.#read();
       },

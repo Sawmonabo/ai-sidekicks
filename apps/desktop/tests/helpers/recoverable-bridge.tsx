@@ -9,7 +9,7 @@
 // This family's own home rather than `core/`: both readers are in `cards/shell/`, and
 // nothing outside it drives these hooks. It dies with the shell, exactly as the two
 // modules it serves do.
-import { DesktopBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
+import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import { bridgeAnswering, type BridgeUnderTest } from "./fixture-bridge.js";
 
 /** A bridge whose one scripted method fails until the case clears the flag. */
@@ -56,6 +56,6 @@ export function callsTo(held: BridgeUnderTest, method: string): number {
 /** A wrapper mounting a hook under one bridge, which is what both hooks resolve. */
 export function inBridge(held: BridgeUnderTest) {
   return function BridgeWrapper(props: { readonly children: React.ReactNode }): React.JSX.Element {
-    return <DesktopBridgeProvider bridge={held.bridge}>{props.children}</DesktopBridgeProvider>;
+    return <PlatformBridgeProvider bridge={held.bridge}>{props.children}</PlatformBridgeProvider>;
   };
 }

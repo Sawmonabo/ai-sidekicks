@@ -5,7 +5,7 @@
 
 import type { FunctionComponent } from "react";
 
-import { registerBrowserPanes } from "@renderer/features/preview/contributions/panes.js";
+import { registerPreviewPanes } from "@renderer/features/preview/contributions/panes.js";
 import { type PaneContext } from "@renderer/console/seats/index.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { unscriptedScenario } from "../fixture-bridge.js";
@@ -18,7 +18,7 @@ export async function mountPreviewPane(): Promise<MountedView> {
   const bridge = createFixtureBridge({ scenario: unscriptedScenario("preview-surface") });
   const PreviewPaneBody: FunctionComponent<PaneContext> = await resolvedPaneBody(
     "browser",
-    registerBrowserPanes,
+    registerPreviewPanes,
   );
   const { container } = await renderSettled(
     <PreviewPaneBody

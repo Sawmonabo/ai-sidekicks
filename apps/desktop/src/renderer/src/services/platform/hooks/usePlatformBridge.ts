@@ -6,7 +6,7 @@ import { useBridgeResolution } from "./useBridgeResolution.js";
  * wiring bug, and an `undefined` return would let it render an empty state that looks like
  * "no data".
  */
-export function useConsoleBridge(): ConsoleBridge {
+export function usePlatformBridge(): ConsoleBridge {
   const resolution = useBridgeResolution();
   if (resolution.status === "unavailable") {
     throw new Error(`console bridge unavailable: ${resolution.unavailable.detail}`);

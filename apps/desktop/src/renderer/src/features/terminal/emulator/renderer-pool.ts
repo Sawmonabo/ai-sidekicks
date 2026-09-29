@@ -91,7 +91,7 @@ export class TerminalRendererPool {
   }
 
   /** How many contexts are being drawn on right now. */
-  public get heldSlotCount(): number {
+  public get heldContextCount(): number {
     return this.#heldLeases.size;
   }
 

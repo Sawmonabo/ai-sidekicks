@@ -10,7 +10,7 @@
 import type { AppUnderTest } from "../helpers/electron-harness.js";
 import { IN_WINDOW_STEP_TIMEOUT_MS } from "../helpers/launch-body.js";
 import { SESSION_DIAGNOSTICS_FIXTURE_GLOBAL } from "@renderer/app/fixture-global-names.js";
-import type { ConsoleSessionDiagnostics } from "@renderer/services/session-events/session-diagnostics-handle.js";
+import type { SessionDiagnostics } from "@renderer/services/session-events/session-diagnostics-handle.js";
 import { type TranscriptWindowReading } from "@renderer/lib/transcript-window-diagnostics.js";
 
 /**
@@ -65,9 +65,9 @@ export async function readTranscriptWindow(
   }
   return consoleApplication.window.evaluate(
     ([globalName, targetSessionId]: [string, string]) => {
-      const sessions = (
-        globalThis as unknown as Record<string, ConsoleSessionDiagnostics | undefined>
-      )[globalName];
+      const sessions = (globalThis as unknown as Record<string, SessionDiagnostics | undefined>)[
+        globalName
+      ];
       return sessions === undefined ? null : sessions.ledgerWindowFor(targetSessionId);
     },
     [SESSION_DIAGNOSTICS_FIXTURE_GLOBAL, sessionId] as [string, string],

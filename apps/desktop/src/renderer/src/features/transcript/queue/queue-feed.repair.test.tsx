@@ -21,7 +21,7 @@ import type { QueueCalls, QueueFeed } from "./queue-reading.js";
 import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 
 /** A session whose snapshot has landed, which is what makes a repair observable. */
-function initialisedStore(): SessionStore {
+function initializedStore(): SessionStore {
   const store = new SessionStore({ sessionId: "019b7a33-3300-75e5-8510-ada11a5a55a5" });
   store.initialize({ cursor: 0, entities: [] });
   return store;
@@ -40,7 +40,7 @@ function QueueProbe(props: {
 describe("the queue reading re-reads on a repair", () => {
   it("takes a fresh snapshot when the session's degraded flag clears", async () => {
     const { bridge, queueCalls, listedSessionIds } = queueFeedBridge();
-    const sessionStore = initialisedStore();
+    const sessionStore = initializedStore();
     await act(async () => {
       render(<QueueProbe bridge={bridge} queueCalls={queueCalls} sessionStore={sessionStore} />);
     });
@@ -64,7 +64,7 @@ describe("the queue reading re-reads on a repair", () => {
 
   it("negative control: nothing re-reads without a reason", async () => {
     const { bridge, queueCalls, listedSessionIds } = queueFeedBridge();
-    const sessionStore = initialisedStore();
+    const sessionStore = initializedStore();
     await act(async () => {
       render(<QueueProbe bridge={bridge} queueCalls={queueCalls} sessionStore={sessionStore} />);
     });
@@ -89,7 +89,7 @@ describe("the queue reading re-reads on a repair", () => {
           }, 0);
         }),
     };
-    const sessionStore = initialisedStore();
+    const sessionStore = initializedStore();
     let phase: QueueFeed["phase"] | undefined;
     function ParkedProbe(): null {
       phase = useQueueFeed(bridge, sessionStore.sessionId, parked).phase;
@@ -108,7 +108,7 @@ describe("the queue reading re-reads on a repair", () => {
     // The window half, wired by `useQueueFeed` itself, so a surface holding only the
     // session id still stops showing a list read before the person was away.
     const { bridge, queueCalls, listedSessionIds } = queueFeedBridge();
-    const sessionStore = initialisedStore();
+    const sessionStore = initializedStore();
     await act(async () => {
       render(<QueueProbe bridge={bridge} queueCalls={queueCalls} sessionStore={sessionStore} />);
     });

@@ -7,7 +7,7 @@ import type { AgentConsoleCalls } from "../../agent-reads.js";
 import { unscriptedScenario, withDaemonCall } from "@test/helpers/fixture-bridge.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import {
-  type AgentRosterReading,
+  type AgentListReading,
   type ChildRunLinkReading,
 } from "@renderer/services/wire-shapes/agents.js";
 import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
@@ -49,7 +49,7 @@ export function bridgeCalling(scriptedDaemon: ScriptedDaemon): ConsoleBridge {
 function callsAnswering(scriptedDaemon: ScriptedDaemon): AgentConsoleCalls {
   return {
     listAgents: async (request) =>
-      (await scriptedDaemon.answer("agent.list", request)) as AgentRosterReading,
+      (await scriptedDaemon.answer("agent.list", request)) as AgentListReading,
     readChildRunLinks: async (request) =>
       (await scriptedDaemon.answer(
         "orchestration.childRunLinkRead",

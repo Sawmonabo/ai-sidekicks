@@ -4,7 +4,7 @@
 // bound is `core/constants/attachment-caps.ts`'s `ATTACHMENT_BYTE_CAP_DEFAULT`. No read of
 // the deployment's own bound is made anywhere, so every surface reads the shipped default.
 
-import { ATTACHMENTS_PER_CARRIER_CAP_DEFAULT } from "./attachment-caps.js";
+import { ATTACHMENTS_PER_MESSAGE_CAP_DEFAULT } from "./attachment-caps.js";
 
 /**
  * How full a carrier is against the count bound, as a figure and never as a gate.
@@ -23,8 +23,8 @@ export interface StagedAttachmentsFill {
 }
 
 /** Where this carrier stands against the count bound. Total over any count. */
-export function attachmentCarrierFill(attachedCount: number): StagedAttachmentsFill {
-  return { attached: attachedCount, allowance: ATTACHMENTS_PER_CARRIER_CAP_DEFAULT };
+export function stagedAttachmentsFill(attachedCount: number): StagedAttachmentsFill {
+  return { attached: attachedCount, allowance: ATTACHMENTS_PER_MESSAGE_CAP_DEFAULT };
 }
 
 /**

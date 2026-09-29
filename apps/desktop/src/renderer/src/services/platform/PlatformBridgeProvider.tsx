@@ -21,7 +21,7 @@ import {
   type BridgeComposition,
   type BridgeResolution,
 } from "./bridge-context.js";
-import { consoleClockFor } from "./hooks/useClock.js";
+import { resolveBridgeClock } from "./hooks/useClock.js";
 import { createLiveBridge, readInstalledBridge } from "./live-bridge.js";
 
 /** The bridge provider's props. */
@@ -46,14 +46,14 @@ export interface PlatformBridgeProviderProps {
  * from change or its own engine has been torn down — see the module header for why
  * neither a memo nor a plain re-creation is correct for a resource with a lifetime.
  */
-export function DesktopBridgeProvider(props: PlatformBridgeProviderProps): React.JSX.Element {
+export function PlatformBridgeProvider(props: PlatformBridgeProviderProps): React.JSX.Element {
   const { children, bridge, composition, clockToRebind } = props;
   const [resolved, setResolved] = useState<ResolvedConsoleBridge>(
     () => new ResolvedConsoleBridge(bridge, composition),
   );
 
   // The one clock the window reads, handed to the identity a caller armed before this
-  // tree existed. From the LAYOUT phase for `useConsoleClock`'s own reason: every
+  // tree existed. From the LAYOUT phase for `useClock`'s own reason: every
   // layout effect for a commit runs before any passive effect for it, so a consumer
   // reading time from an effect reads the clock this commit resolved. An unavailable
   // resolution has no clock to hand over and leaves the identity on whatever it was
@@ -63,7 +63,7 @@ export function DesktopBridgeProvider(props: PlatformBridgeProviderProps): React
     if (clockToRebind === undefined || resolution.status !== "ready") {
       return;
     }
-    clockToRebind.holdClock(consoleClockFor(resolution.bridge));
+    clockToRebind.holdClock(resolveBridgeClock(resolution.bridge));
   }, [clockToRebind, resolved]);
 
   // One effect, because replacement and installation are one decision made in one
