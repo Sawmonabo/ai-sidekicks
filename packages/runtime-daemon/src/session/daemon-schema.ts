@@ -131,6 +131,15 @@ CREATE TABLE session_snapshots (
 
 CREATE INDEX idx_session_snapshots_session ON session_snapshots(session_id, as_of_sequence);
 
+-- The composer's unsent draft, one row per session, so a half-typed message
+-- survives a restart and reaches the person's other devices. An empty draft
+-- is no row: Send clears the draft by deleting it.
+CREATE TABLE session_drafts (
+  session_id  TEXT PRIMARY KEY,
+  text        TEXT NOT NULL,
+  updated_at  TEXT NOT NULL                     -- RFC 3339 UTC, ms precision
+) STRICT;
+
 -- ---------------------------------------------------------------------------
 -- Key custody.
 -- ---------------------------------------------------------------------------
