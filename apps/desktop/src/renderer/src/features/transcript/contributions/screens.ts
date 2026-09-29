@@ -45,7 +45,7 @@ export function registerTranscriptScreens(
 /**
  * The owner string every transcript claim carries.
  *
- * One binding rather than a literal per descriptor: the surface registry's
+ * One binding rather than a literal per descriptor: the screen registry's
  * duplicate policy is owner-scoped, so re-registering under the same owner replaces
  * and a different owner is refused by name. Two spellings of this feature's own name
  * would make a hot reload a collision.
@@ -57,7 +57,7 @@ export const TRANSCRIPT_OWNER = "transcript";
  *
  * Derived from the surface context rather than restated, so a member added there is
  * carried here without a second declaration to keep in step. `sessionStoreRegistry` is
- * subtracted because the session screen renders ONE session — a surface that has to offer
+ * subtracted because the session screen renders ONE session — a screen that has to offer
  * sessions reads the registry, and this one is handed the session it is a view of — and
  * `chooseScheme` because nothing in a session chooses the color scheme.
  */
@@ -66,7 +66,7 @@ type SessionScreenMountProps = Omit<ScreenContext, "sessionStoreRegistry" | "cho
 /**
  * Mount the session screen: the session header, the pane layout, and the composer's seat.
  *
- * The wrapper keeps the surface's full-height grid, which is what lets the pane layout
+ * The wrapper keeps the screen's full-height grid, which is what lets the pane layout
  * inside it be the thing that scrolls rather than the window.
  *
  * WHY THE KEY, AND WHY A KEY IS THE RIGHT INSTRUMENT. The session screen holds per-session

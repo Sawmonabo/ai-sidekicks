@@ -1,7 +1,7 @@
-// What a route renders while its surface's module is still arriving.
+// What a route renders while its screen's module is still arriving.
 //
-// THE SURFACE'S OWN ABSENCE FRAME, EMPTY. `primitives/ScreenNotice` is the console's
-// one answer to "the whole surface has nothing in it": a centred measure at the scale of
+// THE SCREEN'S OWN ABSENCE FRAME, EMPTY. `primitives/ScreenNotice` is the console's
+// one answer to "the whole screen has nothing in it": a centred measure at the scale of
 // the window, which is what keeps a quiet line from reading as a page that failed to
 // finish painting. A route waiting on a chunk is exactly that scale of nothing, so it
 // takes the same frame rather than a second one, and takes it EMPTY.
@@ -21,14 +21,14 @@ import type { ScreenContext } from "./screen-context.js";
 import { PENDING_BODY_ATTRIBUTE } from "@renderer/components/LazyBody/pending-body-marker.js";
 
 export interface PendingScreenBodyProps {
-  /** The route and bindings this surface was mounted at. */
+  /** The route and bindings this screen was mounted at. */
   readonly context: ScreenContext;
 }
 
 /**
- * The route's frame, before its surface.
+ * The route's frame, before its screen.
  *
- * The marker's VALUE is the route kind rather than a surface slot, so a refusal to
+ * The marker's VALUE is the route kind rather than a screen slot, so a refusal to
  * capture names the address a person would recognize. It is the same attribute a pending
  * pane stamps, because the question a capture asks is one question — is anything on this
  * page still loading — and two attributes would be two sweeps that agree until one is

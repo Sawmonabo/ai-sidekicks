@@ -1,4 +1,4 @@
-// How a case drives the settings surface: the window it is parked in, the mount, and a
+// How a case drives the settings screen: the window it is parked in, the mount, and a
 // keystroke into its search field.
 //
 // HOISTED ON THE SECOND SUITE, which is the package's rule. `SettingsSurface.test.tsx`
@@ -45,7 +45,7 @@ async function loadShippedSurfaceRender(): Promise<ScreenDescriptor["render"]> {
   await surfaces.preload("settings");
   const descriptor = surfaces.descriptorFor("settings");
   if (descriptor === undefined) {
-    throw new Error("the settings registrar claimed no surface slot");
+    throw new Error("the settings registrar claimed no screen slot");
   }
   return descriptor.render;
 }

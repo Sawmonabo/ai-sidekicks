@@ -1,13 +1,13 @@
 // The rail's workflows screen: the runs a mounting surface supplies, and whichever pane a
 // person opened from them.
 //
-// `#/workflows` is a bare route, so the surface context carries no session and the run
+// `#/workflows` is a bare route, so the screen context carries no session and the run
 // enumeration arrives as a read state the mounting surface supplies. Without one, the screen
 // draws its frame and no runs section.
 //
 // An opened pane replaces the runs, one at a time. That is not the session's pane layout:
 // `#/workflows` names no session, so there is no layout on it. The pane body is resolved
-// through the pane board on the surface context, the one the composition registered into,
+// through the pane board on the screen context, the one the composition registered into,
 // so this screen renders the same body a session's layout would. A kind with no registered
 // body draws only the back control.
 //
@@ -26,10 +26,10 @@ import type { WorkflowRunDirectoryState } from "./runs/hooks/useWorkflowRunDirec
 import type { WorkflowRunListRow } from "./runs/run-list-projection.js";
 import { WorkflowRuns } from "./runs/WorkflowRuns.js";
 
-/** What the surface seat hands the workflows screen. */
+/** What the screen seat hands the workflows screen. */
 export interface WorkflowsScreenProps {
   /**
-   * The whole surface context, because a pane context is composed from it.
+   * The whole screen context, because a pane context is composed from it.
    *
    * A pane body is handed a bridge, both stores, the window store and its own address, and
    * composing that from a few inputs would mean the seat passing six.
@@ -45,7 +45,7 @@ export interface WorkflowsScreenProps {
 /** The workflows screen: the runs it is handed, or the pane a person opened from them. */
 export function WorkflowsScreen(props: WorkflowsScreenProps): React.JSX.Element {
   const { context, directory } = props;
-  // The board THIS composition registered its bodies into, off the surface context rather
+  // The board THIS composition registered its bodies into, off the screen context rather
   // than the process-wide singleton, which would warm production's board from a window
   // that had been handed its own.
   const { paneRegistry } = context;

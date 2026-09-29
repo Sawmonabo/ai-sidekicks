@@ -1,8 +1,8 @@
-// What a surface is handed, below every module that hands it one.
+// What a screen is handed, below every module that hands it one.
 //
 // HOISTED OUT OF `screen-registry.ts` for `seats/pane/pane-context.ts`'s reason and no other: the
-// frame's board mounts a reserved frame while a loader-backed surface is in flight, so
-// the registry reaches `PendingScreenBody.tsx`, which names the context a surface is
+// frame's board mounts a reserved frame while a loader-backed screen is in flight, so
+// the registry reaches `PendingScreenBody.tsx`, which names the context a screen is
 // mounted with. Declaring that context in the registry made the pair a cycle, and the
 // layering gate counts type edges so an `import type` cannot hide one.
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
@@ -15,7 +15,7 @@ import { type SessionStoreRegistry } from "@renderer/store/session/session-store
 import type { SchemePreference } from "@renderer/styles/tokens.js";
 import type { PaneRegistry } from "../panes/pane-registry.js";
 
-/** Everything a surface is handed. Nothing here is global; all of it is per window. */
+/** Everything a screen is handed. Nothing here is global; all of it is per window. */
 export interface ScreenContext {
   readonly route: AppRoute;
   readonly bridge: PlatformBridge;
@@ -24,18 +24,18 @@ export interface ScreenContext {
   readonly sessionStore: SessionStore | undefined;
   /**
    * Every session this window has open — the only session set the renderer can
-   * name, since no bridge member lists a node's sessions. A surface that has to
-   * OFFER sessions reads it; a surface that renders one reads `sessionStore`.
+   * name, since no bridge member lists a node's sessions. A screen that has to
+   * OFFER sessions reads it; a screen that renders one reads `sessionStore`.
    */
   readonly sessionStoreRegistry: SessionStoreRegistry;
   /**
    * The pane board THIS composition registered its bodies into.
    *
-   * On the context rather than reached for, and here rather than as one surface's
-   * prop, because it is the same fact for every family: a surface that opens a pane
+   * On the context rather than reached for, and here rather than as one screen's
+   * prop, because it is the same fact for every family: a screen that opens a pane
    * has to resolve it from the board the composition around it filled.
    * `registerFeatureContributions` already takes the registry as a parameter so a test and an
-   * auxiliary window can compose their own — and a surface that then read the
+   * auxiliary window can compose their own — and a screen that then read the
    * process-wide singleton would hand that composition a production body, or the
    * reserved absence where production has none, however carefully it had asked.
    *

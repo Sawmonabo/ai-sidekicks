@@ -66,7 +66,7 @@ export async function resolvedPaneBody(
 }
 
 /**
- * The body the frame holds for a surface slot, with its module already loaded.
+ * The body the frame holds for a screen slot, with its module already loaded.
  *
  * The pane helper's shape on the other board, and it earns its own function rather than
  * a generic over both: the two boards key on different unions, and a signature abstract

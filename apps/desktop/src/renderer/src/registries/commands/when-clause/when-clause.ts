@@ -1,6 +1,6 @@
 // The `when` clause — the console's visibility language, and what one MEANS.
 //
-// The console names it once, in the settings surface: a Keyboard page offers
+// The console names it once, in the settings screen: a Keyboard page offers
 // rebinding with conflict detection over the console's when-scoped chord
 // grammar. This module is that scope language's TYPE and SEMANTICS — a parsed
 // clause, what it evaluates to, which keys it reads, and how it prints. The

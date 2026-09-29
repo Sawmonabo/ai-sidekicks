@@ -13,7 +13,7 @@ export const PANE_LAYOUT_SAVE_REFUSAL_CODES = ["layout-save-failed"] as const;
 export type PaneLayoutSaveRefusalCode = (typeof PANE_LAYOUT_SAVE_REFUSAL_CODES)[number];
 
 /**
- * How far one surface's restore has got, for one arrangement and one session.
+ * How far one screen's restore has got, for one arrangement and one session.
  *
  * TWO ANSWERS AND NEITHER IS RENDER STATE. "Has this restore been dispatched" gates
  * an effect, and a flag that re-rendered would re-run the very effect it gates;
@@ -74,7 +74,7 @@ export class RestoreProgress {
  * Raise one, from the closed vocabulary above.
  *
  * `refuse` takes its code as a `string`, so a call site that spelled one wrong
- * would compile and render a code no reader could look up. Everything this surface
+ * would compile and render a code no reader could look up. Everything this screen
  * refuses goes through here instead, where the union is what binds.
  */
 export function refusePaneLayoutSave(

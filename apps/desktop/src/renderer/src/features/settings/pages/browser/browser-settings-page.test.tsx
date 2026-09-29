@@ -30,7 +30,7 @@ afterEach(() => {
 });
 
 /**
- * The settings surface a window mounts, parked on the browser address.
+ * The settings screen a window mounts, parked on the browser address.
  *
  * Driven through `registerSettingsScreen` rather than around it, so the slot claim is
  * itself a covered fact. What this answers is whether the shipped board claims the
@@ -43,7 +43,7 @@ async function renderShippedSettingsAtBrowser(): Promise<HTMLElement> {
   await surfaces.preload("settings");
   const descriptor = surfaces.descriptorFor("settings");
   if (descriptor === undefined) {
-    throw new Error("the settings registrar claimed no surface slot");
+    throw new Error("the settings registrar claimed no screen slot");
   }
   const frameStore = new WindowStore();
   frameStore.navigate({ kind: "settings", page: "browser" });

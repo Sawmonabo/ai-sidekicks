@@ -10,7 +10,7 @@
 //
 // THE CONTEXTS ARE CASTS, DELIBERATELY AND OUT LOUD. What a loader-form case reads of a
 // context is what the reserved region reads of it — the pane's `kind`, `focusHue` and
-// `sessionStore`, and the route kind a pending surface names — and building a bridge, a
+// `sessionStore`, and the route kind a pending screen names — and building a bridge, a
 // frame store and three persistence stores to reach those four members would be a
 // fixture proving the fixture. The cast says so where a reader meets it rather than
 // hiding behind a builder that looks complete and is not.

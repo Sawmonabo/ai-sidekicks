@@ -168,7 +168,7 @@ function requirePaneNamed(container: HTMLElement, paneTitle: string): HTMLElemen
 }
 
 /**
- * The surface body the rail holds for a slot, as a component, or a throw.
+ * The screen body the rail holds for a slot, as a component, or a throw.
  *
  * The pane helper's shape, applied to the other registry: a throw rather than an
  * optional return, so a family that stopped claiming its slot fails here — where the
@@ -181,7 +181,7 @@ async function surfaceBodyComponent(): Promise<FunctionComponent<{ context: Scre
 }
 
 /**
- * The surface context the rail mounts a destination with.
+ * The screen context the rail mounts a destination with.
  *
  * The frame store is put in the state a person arrives in by NAVIGATING — into a
  * session, then to the workflows destination — because retaining the last opened
@@ -218,7 +218,7 @@ function surfaceContext(bridge: PlatformBridge): ScreenContext {
 }
 
 /**
- * The workflows destination, mounted through the rail's own surface seat.
+ * The workflows destination, mounted through the rail's own screen seat.
  *
  * Every workflows mount here renders under the bridge provider, as the shell mounts
  * every body: a pane body reads its bridge off its context, but a slot body standing

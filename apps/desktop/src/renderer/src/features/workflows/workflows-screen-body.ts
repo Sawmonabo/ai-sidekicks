@@ -1,4 +1,4 @@
-// The workflows destination's body, as the surface registry loads it, and the root of
+// The workflows destination's body, as the screen registry loads it, and the root of
 // its chunk.
 //
 // A loader-backed surface. `#/workflows` is a rail destination: nothing paints it until a

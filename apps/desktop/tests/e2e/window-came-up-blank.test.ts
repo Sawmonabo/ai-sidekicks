@@ -88,7 +88,7 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — console came up blank", () => {
       // IT IS THE HARNESS'S ADMISSION REFUSAL, AND NO LONGER ITS RESERVED ARM. Every
       // previous revision of this probe pointed at a destination nobody owned — off
       // `#/workflows` when the workflows family took it, off `#/window/timeline/…` once the
-      // transcript claimed the last unowned SURFACE slot, and then one layer down at a pane
+      // transcript claimed the last unowned SCREEN slot, and then one layer down at a pane
       // kind the pane layout declared and no family rendered. That last address is gone too:
       // `registeredPaneKinds()` now answers with all eleven of `PANE_KINDS`, so no address
       // anywhere in a built console reaches a reserved arm, and each earlier revision's

@@ -1,4 +1,4 @@
-// The two doors into the surface registry, and the closed set behind both.
+// The two doors into the screen registry, and the closed set behind both.
 //
 // `registerScreen` is the door a plan-owned subtree uses: those subtrees
 // mount into the console and the console imports none of them, so the layering
@@ -30,7 +30,7 @@ function descriptor(slot: ScreenDescriptor["slot"], owner: string): ScreenDescri
   return { slot, owner, render: () => null };
 }
 
-describe("surface registry — the module-scope door", () => {
+describe("screen registry — the module-scope door", () => {
   it("claims a slot on the process-wide registry", () => {
     // `pane-harness` deliberately: only the fixture composition claims it, and this
     // case is about the door rather than about who got there first.
@@ -52,11 +52,11 @@ describe("surface registry — the module-scope door", () => {
   });
 });
 
-describe("surface registry — one owner per slot", () => {
+describe("screen registry — one owner per slot", () => {
   it("replaces when the same owner re-claims", () => {
     // A hot reload re-runs a family's module. Refusing that would make the
     // console unreloadable; silently keeping the FIRST would leave the window
-    // rendering the pre-edit surface, which reads as an edit that did nothing.
+    // rendering the pre-edit screen, which reads as an edit that did nothing.
     const registry = new ScreenRegistry();
     registry.register(descriptor("settings", "settings-family"));
     registry.register(descriptor("settings", "settings-family"));
@@ -72,7 +72,7 @@ describe("surface registry — one owner per slot", () => {
   });
 });
 
-describe("surface registry — the slot set is one declaration", () => {
+describe("screen registry — the slot set is one declaration", () => {
   it("reports slots in the declared order, and only registered ones", () => {
     const registry = new ScreenRegistry();
     // Registered back to front, so an implementation that reported insertion

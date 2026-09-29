@@ -12,7 +12,7 @@ import type { SchemePreference } from "@renderer/styles/tokens.js";
  *
  * Deliberately narrower than `ScreenContext`: a page reads its own wire and
  * navigates the rail, and handing it the session stores would invite a page to hold
- * session state the settings surface has no session for.
+ * session state the settings screen has no session for.
  */
 export interface SettingsPageContext {
   readonly bridge: PlatformBridge;
@@ -53,7 +53,7 @@ export interface SettingsPageContext {
    * `undefined` stays a real answer: a window that has opened no session hands the
    * pages nothing, and a page that ASKED and was told nothing renders an honest
    * absence. It is deliberately NOT the session STORE: a settings page that could
-   * reach the projection could hold session state, and the settings surface has no
+   * reach the projection could hold session state, and the settings screen has no
    * session to hold it for.
    */
   readonly retainedSessionId: string | undefined;

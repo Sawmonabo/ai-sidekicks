@@ -22,7 +22,7 @@
 //
 // AND A READ THAT FAILED IS NOT A FIRST RUN. The store's `readOutcome` answers
 // `present`, `absent`, or `failed` for exactly this: the fallback transcript pane is
-// opened on both kinds of nothing — a window with no panes is not a state this surface
+// opened on both kinds of nothing — a window with no panes is not a state this screen
 // has — and is FILED only on `absent`. Filing it on `failed` was a saved arrangement
 // destroyed by a read the adapter could not perform and then a write the adapter
 // happily accepted, with nothing on screen to say so.
@@ -97,7 +97,7 @@ export function usePaneLayoutPersistence(
   //
   // AND THE WRITER ITSELF IS HELD PER STORE. The partition axis above is the session;
   // this is the other one. The store handed down is replaced on a reconnect without
-  // remounting this surface, and a writer that closed over the first one goes on
+  // remounting this screen, and a writer that closed over the first one goes on
   // writing into it — so the holder retires that writer, flushing what it had queued,
   // and the render that first sees the new store builds the writer bound to it.
   const { value: writer } = useSubjectScopedResource<CoalescingLayoutWriter<PersistedLayoutRecord>>(
@@ -211,7 +211,7 @@ export function usePaneLayoutPersistence(
       // route installs nothing rather than reporting into the session it arrived in.
       publishRestoreRefusals(report?.refusals ?? NO_RESTORE_REFUSALS);
       if (layout.snapshot().panes.length === 0) {
-        // This surface's own empty state: the session screen shows the transcript alone, full
+        // This screen's own empty state: the session screen shows the transcript alone, full
         // width.
         layout.open({ kind: "transcript" });
       }
@@ -230,7 +230,7 @@ export function usePaneLayoutPersistence(
       }
       if (actedDuringRead || (report?.restoredPaneCount ?? 0) === 0) {
         // ONCE, and only where the pane layout on screen is not what the record held: the
-        // person's arrangement, or the fallback transcript this surface just opened.
+        // person's arrangement, or the fallback transcript this screen just opened.
         writer.request(sessionId, layout.toSnapshot());
       }
     })();

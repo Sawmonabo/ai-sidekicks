@@ -151,7 +151,7 @@ export function MountedFolderList(props: {
         <p className="meridian-settings-page__aside">
           {formatCount(state.value.unreadMountCount)} further mounts in this session were not read.
           The inventory opens a bounded number of mounts per visit, and the rest are named by the
-          workspace surface rather than dropped here without saying so.
+          session screen rather than dropped here without saying so.
         </p>
       ) : null}
     </>

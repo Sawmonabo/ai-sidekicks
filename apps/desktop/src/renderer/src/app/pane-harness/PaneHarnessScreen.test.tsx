@@ -281,7 +281,7 @@ describe("the fixture pane harness", () => {
 
 // The harness is keyed to the route it was addressed at.
 //
-// Two `#/pane-harness/…` addresses resolve to ONE surface slot, so without a key
+// Two `#/pane-harness/…` addresses resolve to ONE screen slot, so without a key
 // React reconciled the same component in the same position across a hash change: the
 // open-pane count survived, the replacement route mounted the previous route's number
 // of panes with no Open action, and on a same-kind session change the pane keys were

@@ -90,7 +90,7 @@ export const SETTINGS_ROUTE: string = "#/settings";
 /**
  * What the settings route renders and the session screen does not.
  *
- * Anchored under the frame's surface slot, so an element of the same class mounted
+ * Anchored under the frame's screen slot, so an element of the same class mounted
  * in the rail, a banner, or an overlay cannot satisfy the wait for a surface that
  * never mounted.
  *

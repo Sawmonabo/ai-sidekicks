@@ -1,4 +1,4 @@
-// The browser settings page names itself for a reader walking the settings surface.
+// The browser settings page names itself for a reader walking the settings screen.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -28,7 +28,7 @@ function renderPage(): HTMLElement {
 }
 
 describe("browser settings page — naming", () => {
-  it("names itself for a reader walking the settings surface", () => {
+  it("names itself for a reader walking the settings screen", () => {
     const page = renderPage();
     const titleId = page.getAttribute("aria-labelledby");
     expect(page.querySelector(`#${String(titleId)}`)?.textContent).toBe("Browser");

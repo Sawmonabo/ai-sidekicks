@@ -61,9 +61,9 @@ function renderedElement(node: ReactNode): {
 }
 
 /**
- * The session screen body, picked out of the surface's children.
+ * The session screen body, picked out of the screen's children.
  *
- * The surface mounts TWO things — the resume absence above the room and the session screen
+ * The screen mounts TWO things — the resume absence above the room and the session screen
  * itself — so `children` is a list and the body is the last of it. Read by position
  * from the end rather than by index from the start, because the absence renders `null`
  * on every arm but the refused one and a fixed index would read that `null` as the

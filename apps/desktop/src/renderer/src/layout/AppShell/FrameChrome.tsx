@@ -2,7 +2,7 @@
 // route names.
 //
 // The frame owns chrome and nothing else. It does not know what a session screen
-// is, and the six 1C surface families do not know the frame exists — they register a
+// is, and the six 1C screen families do not know the frame exists — they register a
 // renderer for a route and the frame mounts it. That separation is what lets the
 // families ship in parallel, and it is why `surfaces` is a prop rather than an
 // import: an import would make the frame depend on all six.
@@ -12,7 +12,7 @@
 // runs under `modal="trap-focus"`, which traps focus and deliberately does not lock the
 // document's scroll — and leaves inerting the app root to the shell, because the dialog
 // cannot know what "the rest of the app" is. Focus containment alone leaves the rail
-// and the whole surface in the accessibility tree, reachable by every reader that
+// and the whole screen in the accessibility tree, reachable by every reader that
 // navigates by structure rather than by focus. The wrapper carries `display: contents`,
 // so it is a place to hang the attribute and not a box: the frame's grid still places
 // the rail and the column itself, which is what keeps this a one-attribute change
@@ -40,9 +40,9 @@ export interface FrameChromeProps {
   readonly onSelectDestination: (destination: RailDestination) => void;
   readonly banners: readonly WindowBanner[];
   readonly onDismissBanner: (bannerId: string) => void;
-  /** The surface the route resolves to. Mounted inside its own error boundary. */
+  /** The screen the route resolves to. Mounted inside its own error boundary. */
   readonly children: React.ReactNode;
-  /** Rendered above the surface: the palette, dialogs, anything window-scoped. */
+  /** Rendered above the screen: the palette, dialogs, anything window-scoped. */
   readonly overlays?: React.ReactNode;
   /**
    * True while a modal overlay owns focus.
@@ -90,8 +90,8 @@ export function FrameChrome(props: FrameChromeProps): React.JSX.Element {
             {/*
               KEYED BY THE ROUTE, so navigating away from a crash is the retry.
               The boundary's caught error is its own state and its identity used to
-              be constant across every route, so one surface's render throw hid the
-              NEXT surface behind the previous route's failure card until someone
+              be constant across every route, so one screen's render throw hid the
+              NEXT screen behind the previous route's failure card until someone
               clicked "Try again" — a control that offered to re-render a route they
               had already left. `formatRoute` rather than a second identity
               function: it is the routing family's existing total, round-tripping
@@ -123,7 +123,7 @@ function surfaceNameFor(route: AppRoute): string {
     case "pane-harness":
       // Fixture-only, and named the way a person driving it would: the boundary's
       // copy reads "The pane harness could not be rendered", which is the truth
-      // about the surface rather than about the pane inside it.
+      // about the screen rather than about the pane inside it.
       return "The pane harness";
     case "not-found":
       return "This window";

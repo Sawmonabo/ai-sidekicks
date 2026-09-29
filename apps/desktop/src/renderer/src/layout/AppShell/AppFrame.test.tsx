@@ -56,7 +56,7 @@ function ExplodingScreen(): React.JSX.Element {
 function surfaceAlert(container: HTMLElement): HTMLElement | null {
   const surface = container.querySelector<HTMLElement>(".meridian-frame__surface");
   if (surface === null) {
-    throw new Error("the frame rendered no surface slot");
+    throw new Error("the frame rendered no screen slot");
   }
   return within(surface).queryByRole("alert");
 }

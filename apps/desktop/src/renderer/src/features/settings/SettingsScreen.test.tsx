@@ -1,4 +1,4 @@
-// The four rules the settings surface is the enforcement of.
+// The four rules the settings screen is the enforcement of.
 //
 // Two of them are invisible to the type system and would go wrong quietly: a rail
 // that shrinks when a wire is unavailable teaches a person the setting does not

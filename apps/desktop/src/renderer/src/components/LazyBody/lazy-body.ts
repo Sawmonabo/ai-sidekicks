@@ -4,7 +4,7 @@
 // WHY THE BOUNDARY IS AT THE REGISTRY AND NOT IN THE FAMILIES
 //
 // Every view family registers what it draws through one of the console's boards — the
-// pane layout's pane registry and the frame's surface registry — by static import, so every
+// pane layout's pane registry and the frame's screen registry — by static import, so every
 // family's body code sits in the entry chunk whether or not that pane or that route is
 // ever reached. Measured on the `renderer-initial-bundle` budget (≤ 450 kB gzip): four
 // landed families spend it to about 79 %, and two more families each carry it past the

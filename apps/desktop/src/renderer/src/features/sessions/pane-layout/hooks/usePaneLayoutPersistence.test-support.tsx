@@ -27,10 +27,10 @@ import { usePaneLayoutPersistence } from "./usePaneLayoutPersistence.js";
 /** The one session every case here arranges, saves, and restores. */
 export const RESTORE_SESSION_ID = "session-restore";
 
-/** What a mounted surface offers a case that routes it, and what it reads back. */
+/** What a mounted screen offers a case that routes it, and what it reads back. */
 export interface MountedPaneLayoutPersistence {
   /**
-   * Route the mounted surface to another session, as the session screen does.
+   * Route the mounted screen to another session, as the session screen does.
    *
    * A re-render and not a remount, which is the whole shape the session-scope suite is
    * about: the session screen stays mounted across a navigation between two open sessions,

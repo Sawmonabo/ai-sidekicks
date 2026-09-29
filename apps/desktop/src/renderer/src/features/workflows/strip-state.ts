@@ -24,7 +24,7 @@ import type { Refusal } from "@renderer/lib/refusal.js";
  * mounted.
  *
  * The tuple is the declaration and the union's discriminant is derived from it, for
- * `seats/surface/surface-registry.ts`'s reason: a union written beside a hand-repeated array
+ * `registries/screens/screen-registry.ts`'s reason: a union written beside a hand-repeated array
  * is two closed sets that agree until someone widens one, and the compiler sees
  * neither drift.
  */

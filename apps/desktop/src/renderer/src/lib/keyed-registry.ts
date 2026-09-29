@@ -1,6 +1,6 @@
 // One keyed registry, and the three answers a registry can give to a duplicate.
 //
-// The console had five of these: the surface registry (throw unless the same owner
+// The console had five of these: the screen registry (throw unless the same owner
 // re-claims), the command registry (throw on any repeat), the main process's route
 // registry (silently idempotent), and two array-plus-linear-find tables that are
 // byte-for-byte the same idea. Five implementations is not five requirements — it
@@ -15,7 +15,7 @@
 //   • `"idempotent"` — a repeat is expected and a no-op. Registration that runs
 //     once per window but may run twice under a double-mount.
 //   • `"owner-scoped"` — a repeat by the SAME owner replaces; by a different owner
-//     it throws. The surface registry's rule, and the reason `ownerOf` exists.
+//     it throws. The screen registry's rule, and the reason `ownerOf` exists.
 //
 // Insertion order is preserved (`Map` semantics) and several callers depend on it,
 // so nothing here sorts.
@@ -42,7 +42,7 @@ export interface KeyedRegistryOptions<Value> {
   readonly duplicatePolicy: DuplicatePolicy;
   /**
    * What the registry holds, in the words a failure message should use — "command",
-   * "surface slot", "scenario". Appears in every error this class raises.
+   * "screen slot", "scenario". Appears in every error this class raises.
    */
   readonly describeWhat: string;
   /**
@@ -66,7 +66,7 @@ export interface KeyedRegistryOptions<Value> {
  *
  * A `RefusalError` rather than a bare `Error` carrying its own message
  * vocabulary: a registration conflict surfaces at a seam that already renders
- * refusals — the surface registry mounting a family, the palette registering a
+ * refusals — the screen registry mounting a family, the palette registering a
  * command — and `code` / `detail` / `origin` is what those three renderings consume.
  * A second shape here would mean translating one at the catch site.
  *

@@ -2,7 +2,7 @@
 //
 // The family holds the session screen's shared vocabulary: the seats through
 // which the view families hand each other panes, a composer, sidebar sections,
-// transcript rows, and inline cards, and the surface registry through which a family
+// transcript rows, and inline cards, and the screen registry through which a family
 // hands the frame a whole route's body. It sits directly above `bridge/` and below
 // `palette/` and `frame/` in the console's DAG.
 //
@@ -21,7 +21,7 @@
 // The position is read off the imports rather than chosen: the seats import `core/`,
 // `tokens/`, `routing/`, `store/`, `persistence/`, `bridge/`, and `src/shared/`, and
 // nothing higher, so the lowest home above all of them is the slot immediately above
-// `bridge/`. The surface registry was read the same way and answered the same slot,
+// `bridge/`. The screen registry was read the same way and answered the same slot,
 // which is why it moved here from `frame/` and took the console's last named layering
 // exemption with it. Lower is also the more permissive choice for the two families that sit
 // between here and the view families — the palette may open a pane, and the frame may

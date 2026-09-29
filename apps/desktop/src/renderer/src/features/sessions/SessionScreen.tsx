@@ -5,7 +5,7 @@
 // panes (six families', through one mount door), and the composer (the composer
 // family's, through its seat) — and owns exactly one thing itself: the arrangement.
 //
-// THE DECISIONS THIS SURFACE MAKES:
+// THE DECISIONS THIS SCREEN MAKES:
 //
 //   • **The layout is restored once, at mount, and saved through the persistence
 //     chokepoint.** Layout, scroll position, selection, pins, and expansion sets
@@ -18,13 +18,13 @@
 //     whole budget on a gesture. `layout-writer.ts` holds one write in
 //     flight and one pending snapshot, so a drag costs what the database can absorb
 //     and every record it writes is the newest arrangement rather than a stale one.
-//   • **An empty pane layout opens the transcript.** This surface's own empty state, because no
+//   • **An empty pane layout opens the transcript.** This screen's own empty state, because no
 //     committed document states one: the session screen shows the transcript alone at full
 //     width, which is a `transcript` pane rather than a special case in the renderer.
 //   • **Refusals are rendered where they happened.** What a restore dropped belongs
 //     to the pane layout and renders inside it; what a save refused changes what the whole
-//     surface can do and takes the session screen banner.
-//   • **A banner belongs to the session it was raised in.** This surface is NOT
+//     screen can do and takes the session screen banner.
+//   • **A banner belongs to the session it was raised in.** This screen is NOT
 //     remounted between two open sessions, so a column held for the life of the mount
 //     went on saying what a save refused in the session somebody left, over the pane layout
 //     of the one they are looking at. The column rides `seats/session-subject.ts` on
@@ -137,7 +137,7 @@ export function SessionScreen(props: SessionScreenProps): React.JSX.Element {
     (pane: SessionPane): PaneContext | Refusal => {
       // The kind and the entity arrived as a loose pair — off a restored snapshot, or
       // off a route somebody typed — so they become an ADDRESS here or they become a
-      // refusal here. The seat owns that rule and this surface applies it; deciding it
+      // refusal here. The seat owns that rule and this screen applies it; deciding it
       // again would be a second answer to which entities a pane kind is a view of.
       const address = parsePaneAddress(pane.kind, pane.entity);
       if ("code" in address) {

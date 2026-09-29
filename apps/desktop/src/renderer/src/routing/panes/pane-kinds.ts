@@ -15,7 +15,7 @@
 // would have nothing to drop against.
 //
 // The tuple is the declaration and the union is derived from it, for the reason
-// `seats/surface/surface-registry.ts` gives about its own slots: a union written beside a
+// `registries/screens/screen-registry.ts` gives about its own slots: a union written beside a
 // hand-repeated array is two closed sets that agree until someone widens one.
 
 /**

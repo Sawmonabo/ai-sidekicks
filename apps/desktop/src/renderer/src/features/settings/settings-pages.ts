@@ -89,7 +89,7 @@ export interface SettingsPageMatch {
  * A second claim on a section by a different owner throws rather than replacing it.
  */
 export class SettingsPageRegistry {
-  // `"owner-scoped"`, for `seats/surface/surface-registry.ts`'s reason: a hot reload re-runs
+  // `"owner-scoped"`, for `registries/screens/screen-registry.ts`'s reason: a hot reload re-runs
   // the owner's module and must replace, while two owners on one section is a
   // conflict rather than a swap decided by module import order.
   readonly #descriptorsBySection = new KeyedRegistry<SettingsPageId, SettingsPageDescriptor>({

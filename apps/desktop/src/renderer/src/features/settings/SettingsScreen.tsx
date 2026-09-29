@@ -1,4 +1,4 @@
-// The settings surface: a rail of sections, a pane holding one, and a search that
+// The settings screen: a rail of sections, a pane holding one, and a search that
 // reaches both.
 //
 // THREE RULES THIS FILE IS THE ENFORCEMENT OF

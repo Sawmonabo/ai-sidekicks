@@ -87,7 +87,7 @@ export function warmDestination(
 }
 
 /**
- * Start loading the surface a ROUTE would mount, and settle when it has landed.
+ * Start loading the screen a ROUTE would mount, and settle when it has landed.
  *
  * NEVER REJECTS, so a caller may await it without a `catch` of its own and a caller that
  * does not may drop it. What a chunk that will not load means is a damaged install, and

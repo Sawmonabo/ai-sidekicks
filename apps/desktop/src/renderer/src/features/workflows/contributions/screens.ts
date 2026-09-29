@@ -3,7 +3,7 @@
 import { type ScreenRegistration, type ScreenRegistry } from "@renderer/console/seats/index.js";
 import { WORKFLOWS_OWNER } from "./panes.js";
 
-/** The surface slot this family claims: the rail's workflows destination. */
+/** The screen slot this family claims: the rail's workflows destination. */
 const WORKFLOW_SURFACES: readonly ScreenRegistration[] = [
   {
     slot: "workflows",
@@ -15,7 +15,7 @@ const WORKFLOW_SURFACES: readonly ScreenRegistration[] = [
 ];
 
 /**
- * Claim this family's surface slots against a registry.
+ * Claim this family's screen slots against a registry.
  *
  * Takes the registry rather than the module-scope singleton, for
  * `registerWorkflowPanes`' reason: a test composes the same surfaces into a registry

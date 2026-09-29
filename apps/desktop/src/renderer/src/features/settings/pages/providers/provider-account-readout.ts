@@ -45,7 +45,7 @@ export interface ProviderAccountReadout extends UnreadableDeliveryReading, WireR
   /**
    * Every account the registry carries, whole, in the order the daemon sent them.
    *
-   * THE REGISTRY HAS ONE READER IN THIS WINDOW AND THIS IS IT. A settings surface
+   * THE REGISTRY HAS ONE READER IN THIS WINDOW AND THIS IS IT. A settings screen
    * listing the accounts asks the same question of the same wire as the chips do —
    * `providerAccount.list` answers with the accounts, the readiness projection, and
    * the durable quota rows in one snapshot — so a page that took its own read would be

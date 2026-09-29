@@ -1,14 +1,14 @@
-// The surface registry: how the six 1C families reach the screen.
+// The screen registry: how the six 1C families reach the screen.
 //
 // The frame mounts whatever the route names, and it learns what that is from this
 // registry rather than from an import. The reason is parallel delivery: six families
-// build six surfaces at once, and a frame that imported all six would serialize them
+// build six screens at once, and a frame that imported all six would serialize them
 // behind one file and make every merge a conflict in that file.
 //
 // A family calls `registerScreen` at module scope with the slot it owns and
 // a renderer. The frame resolves the current route to a slot, looks the renderer up,
 // and mounts it inside an error boundary. A slot with no renderer is the
-// "reserved, not stubbed" rule in action: the frame says the surface has not been
+// "reserved, not stubbed" rule in action: the frame says the screen has not been
 // built rather than rendering a placeholder that looks like a broken feature.
 //
 // IT LIVES IN `seats/` AND NOT IN `frame/`, WHERE IT WAS WRITTEN. This is a contract
@@ -28,7 +28,7 @@ import type { AppRoute } from "@renderer/routing/routes.js";
 import { type ScreenContext } from "./screen-context.js";
 
 /**
- * Every place a surface can be mounted. Closed; one per navigable destination.
+ * Every place a screen can be mounted. Closed; one per navigable destination.
  *
  * The tuple is the declaration and the union is derived from it. Written the other
  * way round — a union beside a hand-repeated array — the two are two closed sets
@@ -63,11 +63,11 @@ export interface ScreenDescriptor {
  * What a family hands `register`, in one of exactly two forms.
  *
  * The pane board's own union, applied to routes, and decided by the same product fact:
- * a surface that is painted before a person acts belongs in the entry graph, and a
- * surface reached by pressing a rail destination or opening an auxiliary window does
+ * a screen that is painted before a person acts belongs in the entry graph, and a
+ * screen reached by pressing a rail destination or opening an auxiliary window does
  * not. `apps/desktop/AGENTS.md` states the rule beside the seat-board one.
  *
- * The rail's OWN destination is the case that decides itself: whichever surface the
+ * The rail's OWN destination is the case that decides itself: whichever screen the
  * console opens on is the flagship first paint and keeps `render`.
  */
 export type ScreenRegistration =
@@ -83,20 +83,20 @@ export type ScreenRegistration =
 export class ScreenRegistry {
   // `"owner-scoped"`: re-registering under the same owner replaces (a hot reload
   // re-runs a family's module), and a different owner claiming a taken slot is a
-  // conflict rather than a swap, because which surface mounts would otherwise
+  // conflict rather than a swap, because which screen mounts would otherwise
   // depend on module import order.
   readonly #descriptorsBySlot = new KeyedRegistry<ScreenName, ScreenDescriptor>({
     duplicatePolicy: "owner-scoped",
-    describeWhat: "surface slot",
+    describeWhat: "screen slot",
     ownerOf: (descriptor) => descriptor.owner,
   });
 
   /**
-   * The loader-backed surfaces, so `preload` has something to resolve.
+   * The loader-backed screens, so `preload` has something to resolve.
    *
    * A second table rather than a member on the descriptor, for the pane board's reason:
    * the descriptor is what every MOUNT site reads and none of them has business knowing
-   * whether the surface it is about to render arrived as a chunk.
+   * whether the screen it is about to render arrived as a chunk.
    */
   readonly #loadedBodiesBySlot = new Map<ScreenName, LoaderBackedBody<ScreenContext>>();
 
@@ -122,7 +122,7 @@ export class ScreenRegistry {
     );
     // Registered BEFORE the loader table is written, so a `register` the keyed registry
     // refuses — a different owner claiming a taken slot — cannot leave a loader behind
-    // for a surface that is not the one mounting. The refusal throws past this line.
+    // for a screen that is not the one mounting. The refusal throws past this line.
     this.#descriptorsBySlot.register(registration.slot, {
       slot: registration.slot,
       owner: registration.owner,
@@ -137,7 +137,7 @@ export class ScreenRegistry {
   }
 
   /**
-   * Start this slot's surface loading, without navigating to it.
+   * Start this slot's screen loading, without navigating to it.
    *
    * The pane board's own `preload`, with its reasoning unchanged: idempotent by
    * construction, and a component-form or unregistered slot settles immediately with
@@ -148,7 +148,7 @@ export class ScreenRegistry {
     await this.#loadedBodiesBySlot.get(slot)?.load();
   }
 
-  /** Which registered slots have a surface still to load, in declaration order. */
+  /** Which registered slots have a screen still to load, in declaration order. */
   public unloadedKeys(): readonly ScreenName[] {
     return SCREEN_NAMES.filter((slot) => this.#loadedBodiesBySlot.get(slot)?.isResolved === false);
   }
@@ -171,12 +171,12 @@ interface ConsoleSurfaceRegistrationBase {
 /** The process-wide registry the families call at module scope. */
 export const screenRegistry: ScreenRegistry = new ScreenRegistry();
 
-/** The call a 1C surface family makes to claim its slot, in either registration form. */
+/** The call a 1C screen family makes to claim its slot, in either registration form. */
 export function registerScreen(registration: ScreenRegistration): void {
   screenRegistry.register(registration);
 }
 
-/** Which slot a route mounts. `undefined` for routes that mount no surface. */
+/** Which slot a route mounts. `undefined` for routes that mount no screen. */
 export function findScreenNameForRoute(route: AppRoute): ScreenName | undefined {
   switch (route.kind) {
     case "sessions":

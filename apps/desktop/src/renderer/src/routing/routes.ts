@@ -27,7 +27,7 @@ export type AppRoute =
   // THE PHASE DEEP LINK IS A SESSION SCREEN ADDRESS RATHER THAN A DESTINATION OF ITS OWN.
   // `#/session/<sid>/workflow/<rid>/phase/<pid>` opens the session it names, focused
   // on one phase of one run — so the rail highlights `sessions` exactly as a bare
-  // session screen does, the surface the route mounts is the session screen, and the palette's
+  // session screen does, the screen the route mounts is the session screen, and the palette's
   // scope row names the session. A seventh route kind would have had to answer all
   // three of those questions again and would have answered them the same way.
   //

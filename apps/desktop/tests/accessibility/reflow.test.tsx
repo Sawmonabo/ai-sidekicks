@@ -48,7 +48,7 @@ import { formatRoute } from "@renderer/routing/routes.js";
 // stylesheet computes to when the row is given a column narrower than its text.
 import "@renderer/features/sessions/contributions/screens.js";
 import { SessionRow } from "@renderer/features/sessions/components/SessionRow.js";
-// The chunk root the settings surface's loader fetches, imported for its side effect:
+// The chunk root the settings screen's loader fetches, imported for its side effect:
 // `apps/desktop/AGENTS.md` puts a lazily-loaded directory's stylesheets behind that
 // root, and the case below is about what the keyboard sheet computes to when the meta
 // line is given a column narrower than the id on it.

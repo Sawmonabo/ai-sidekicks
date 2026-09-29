@@ -44,7 +44,7 @@ export async function mountApp(): Promise<RenderResult> {
 }
 
 /**
- * Let every registered SURFACE body finish arriving.
+ * Let every registered SCREEN body finish arriving.
  *
  * THE ONE ANSWER TO "HAS THE DESTINATION LANDED", for every suite that drives the
  * composed window. A family's destination is a dynamic import behind the surface board,

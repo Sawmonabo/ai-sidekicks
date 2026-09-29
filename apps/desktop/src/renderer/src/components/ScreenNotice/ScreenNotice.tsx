@@ -10,7 +10,7 @@
 //
 // ITS OWN MODULE because it has more than one producer:
 // `frame/composition/RouteSurface.tsx` raises two of these — the unknown address and
-// the session still opening — and the transcript and `seats/surface/PendingSurfaceBody.tsx`
+// the session still opening — and the transcript and `registries/screens/PendingScreenBody.tsx`
 // draw through it too. A second centering wrapper in any of them would be two
 // renderings of one idea, drifting apart the first time either measure changed, and
 // only the screenshot tier would ever see it.

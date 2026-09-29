@@ -49,7 +49,7 @@ function idempotentCommandRegistry(): KeyedRegistry<string, OwnedCommand> {
 function ownerScopedSlotRegistry(): KeyedRegistry<string, OwnedCommand> {
   return new KeyedRegistry<string, OwnedCommand>({
     duplicatePolicy: "owner-scoped",
-    describeWhat: "surface slot",
+    describeWhat: "screen slot",
     ownerOf: (command) => command.owner,
   });
 }
@@ -229,7 +229,7 @@ describe("KeyedRegistry — the owner-scoped policy", () => {
     const constructWithoutOwnerReader = (): KeyedRegistry<string, OwnedCommand> =>
       new KeyedRegistry<string, OwnedCommand>({
         duplicatePolicy: "owner-scoped",
-        describeWhat: "surface slot",
+        describeWhat: "screen slot",
       });
 
     let raised: unknown;

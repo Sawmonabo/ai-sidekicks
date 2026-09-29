@@ -1,4 +1,4 @@
-/* The settings surface's own styles: the rail, the search field, and the pane.
+/* The settings screen's own styles: the rail, the search field, and the pane.
  *
  * A page body's chrome is `shared/settings-page.css` and a page's own controls are
  * that page's sibling sheet, so this file holds only what `SettingsSurface` itself

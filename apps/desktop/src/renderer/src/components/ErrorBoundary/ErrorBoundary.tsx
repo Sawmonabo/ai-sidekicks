@@ -60,7 +60,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, SurfaceErrorBou
       // `display: contents`, not a plain div. The element exists only to carry the
       // `key` that remounts the subtree on retry, and a box in the tree is a box a
       // surface's layout has to survive: an unstyled `height: auto` div between the
-      // frame's surface slot and its child breaks every percentage-height chain
+      // frame's screen slot and its child breaks every percentage-height chain
       // through it, which is exactly how the first full-height surface came out
       // pinned to the top of the window. `display: contents` keeps the remount and
       // removes the box. Safe on a bare div, which has no implicit ARIA role to

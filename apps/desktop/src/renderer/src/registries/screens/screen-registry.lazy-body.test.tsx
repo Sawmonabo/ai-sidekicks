@@ -20,7 +20,7 @@ import { type ScreenContext } from "./screen-context.js";
 import { ScreenRegistry } from "./screen-registry.js";
 
 describe("the frame's board — the same mechanism, keyed by slot", () => {
-  it("registers, mounts an absence frame, then the surface", async () => {
+  it("registers, mounts an absence frame, then the screen", async () => {
     const registry = new ScreenRegistry();
     registry.register({
       slot: "settings",
@@ -38,7 +38,7 @@ describe("the frame's board — the same mechanism, keyed by slot", () => {
     expect(container.textContent).toContain("the settings surface");
   });
 
-  it("mounts a preloaded surface without ever committing its reserved frame", async () => {
+  it("mounts a preloaded screen without ever committing its reserved frame", async () => {
     // The other half of what a preload is FOR. Warming a destination before the route
     // commits only helps if the mount that follows is synchronous, and it was not:
     // `lazy` calls its initializer on the first render and learns the value a microtask
