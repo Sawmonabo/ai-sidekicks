@@ -1,14 +1,14 @@
-// The workspace: what it composes.
+// The session screen: what it composes.
 //
 // The arrangement it saves and restores is `SessionScreen.persistence.test.tsx`. Both mount
-// through the same shape, which lives once in `Workspace.test-support.tsx`.
+// through the same shape, which lives once in `SessionScreen.test-support.tsx`.
 
 import { waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { SESSION_ID, memoryStore, renderSessionScreen } from "./SessionScreen.test-support.js";
 
-describe("Workspace — what it composes", () => {
+describe("SessionScreen — what it composes", () => {
   it("renders the session header above the pane layout", async () => {
     const { container } = renderSessionScreen(memoryStore());
     await waitFor(() => {

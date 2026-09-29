@@ -1,8 +1,8 @@
-// One raised refusal as the workspace renders it: the banner, and the count of the
+// One raised refusal as the session screen renders it: the banner, and the count of the
 // raises it stands for.
 //
-// Its own module rather than a second component inside `Workspace.tsx`, which is the
-// console's standing rule — one component per module — and which the workspace's own
+// Its own module rather than a second component inside `SessionScreen.tsx`, which is the
+// console's standing rule — one component per module — and which the session screen's own
 // surface would otherwise be the exception to.
 //
 // THE COUNT SITS BESIDE THE BANNER rather than inside it. `RefusalBanner` renders the

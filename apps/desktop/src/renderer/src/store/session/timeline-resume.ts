@@ -21,7 +21,7 @@
 // forbids. THE CONSOLE READS THE SHIPPED SCHEMA. This module used to read the doc
 // instead and refused the whole resume cycle whenever `earliest` was absent — which
 // is every read, from every responder, forever: a permanent version-skew band above
-// every workspace, reporting a skew nothing was skewed by. That refusal is deleted
+// every session screen, reporting a skew nothing was skewed by. That refusal is deleted
 // rather than relaxed, and the two facts the shipped reply does carry are what is
 // decided from.
 //

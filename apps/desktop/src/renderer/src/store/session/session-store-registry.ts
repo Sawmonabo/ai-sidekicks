@@ -256,7 +256,7 @@ export class SessionStoreRegistry {
    *
    * Not keyed by session, and that is the cheaper shape rather than the lazier one. A
    * subscription taken per session would have to survive that session opening AFTER
-   * the subscriber mounted, which is the ordinary order the workspace mounts in — so
+   * the subscriber mounted, which is the ordinary order the session screen mounts in — so
    * it would need its own registration bookkeeping for a fact the reader answers by
    * asking {@link timelineResumeFor} anyway. A reading woken for another session
    * re-reads its own decision, gets the identical object back, and React's own

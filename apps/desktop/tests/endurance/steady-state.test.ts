@@ -238,14 +238,14 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console held open", () => {
       expect(await consoleWindow.locator(SETTINGS_SCREEN_SELECTOR).count()).toBeGreaterThan(0);
       expect(
         await consoleWindow.locator(SESSION_SCREEN_SELECTOR).count(),
-        "the workspace wait is satisfied on the settings route, so a churn cycle never observes the transition into the workspace",
+        "the session screen wait is satisfied on the settings route, so a churn cycle never observes the transition into the session screen",
       ).toBe(0);
 
       await openConcurrentStreamingSessionRoute(consoleApplication);
       expect(await consoleWindow.locator(SESSION_SCREEN_SELECTOR).count()).toBeGreaterThan(0);
       expect(
         await consoleWindow.locator(SETTINGS_SCREEN_SELECTOR).count(),
-        "the settings wait is satisfied on the workspace route, so a churn cycle never observes the transition into settings",
+        "the settings wait is satisfied on the session route, so a churn cycle never observes the transition into settings",
       ).toBe(0);
     });
   });
@@ -289,7 +289,7 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console held open", () => {
 
         let beatsDelivered = beatsAfterWarmUp;
         let appliedEventsAtMidRun: number | null = null;
-        // THE LOOP'S OWN PROOF THAT IT CHURNED A TRANSCRIPT. The workspace wait names the
+        // THE LOOP'S OWN PROOF THAT IT CHURNED A TRANSCRIPT. The session screen wait names the
         // transcript pane, whose chrome mounts on the route whether or not the transcript
         // inside it ever draws — so nothing else in this body observes the surface the
         // heap reading is about until the very end of the run. These two are counted

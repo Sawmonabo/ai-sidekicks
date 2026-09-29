@@ -8,7 +8,7 @@
 // at a line count.
 //
 // Nothing here leaves the family: both symbols are reached only from `SessionPaneLayout.tsx`,
-// so the workspace door carries neither.
+// so the session screen door carries neither.
 
 import { memo, useCallback, useMemo, useState } from "react";
 import { Panel } from "react-resizable-panels";

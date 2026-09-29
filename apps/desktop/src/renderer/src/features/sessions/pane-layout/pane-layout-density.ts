@@ -12,7 +12,7 @@
 // floor is the property the layout math actually consults, so it is the property the
 // preset names.
 //
-// The presets, their widths, and the default live in `workspace/workspace-bounds.ts`,
+// The presets, their widths, and the default live in `pane-layout-measures.ts`,
 // which is this family's one home for a bound. What is here is the three readings of
 // them: whether a persisted string names a preset, what one preset's floor is, and how
 // many panes of it fit. This module is deliberately DOM-free and React-free — it is

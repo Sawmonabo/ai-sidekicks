@@ -69,7 +69,7 @@ describe("failure matrix — the router is handed a malformed percent-escape", (
 describe("failure matrix — the router is handed an empty path segment", () => {
   it("refuses a doubled slash rather than selecting a different session", () => {
     // The consequence that makes this a defect rather than an untidiness: dropping
-    // the empty segment resolves this hash to the workspace for session `foo`.
+    // the empty segment resolves this hash to the session screen for session `foo`.
     expect(parseRoute("#/session//foo")).toStrictEqual({
       kind: "not-found",
       attempted: "#/session//foo",

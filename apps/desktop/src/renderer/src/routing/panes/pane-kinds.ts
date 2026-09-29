@@ -61,7 +61,7 @@ export function isPaneKind(value: unknown): value is PaneKind {
  * The pane kinds a layout snapshot never carries.
  *
  * The browser pane is EPHEMERAL: it is opened for a task and it is not part of the
- * workspace a person comes back to. The consequence is mechanical rather than aesthetic
+ * session screen a person comes back to. The consequence is mechanical rather than aesthetic
  * — restoring one would ask the main process to attach a view host, load a page, and
  * spend a paying account's memory for a session nobody has opened yet, on every cold
  * start, forever.

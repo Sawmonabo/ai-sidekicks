@@ -32,7 +32,7 @@ export const TRANSCRIPT_ROW_BOX_SELECTOR: string =
  * Wait for the transcript to have reconciled a row, then report its window.
  *
  * THE WAIT IS WHY THE READING MEANS ANYTHING: a route change is observed on the
- * transcript's BODY, which the workspace mounts whether or not the session has rows, so a
+ * transcript's BODY, which the session screen mounts whether or not the session has rows, so a
  * reading taken straight after one describes whatever had reconciled when the driver
  * asked.
  *

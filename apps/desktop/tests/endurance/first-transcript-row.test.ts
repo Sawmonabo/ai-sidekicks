@@ -315,11 +315,11 @@ const UNMEASURED_LAUNCH_SENTENCES: Readonly<Record<UnmeasuredLaunchCause, string
     "the launched console exposed no scenario handle, so the concurrent-streaming script was never delivered: " +
     "nothing was timed, and reporting a figure would be reporting the harness",
   "pane-never-painted":
-    `the console never painted the workspace pane inside ${String(SURFACE_WAIT_BUDGET_MS)} ms. ` +
+    `the console never painted the session screen's pane inside ${String(SURFACE_WAIT_BUDGET_MS)} ms. ` +
     "The instrument was ready and the console did not mount — this is a console failure, not a " +
     "harness that was not there yet, and re-running it will not change the answer",
   "row-never-painted":
-    `the console painted its workspace pane but no transcript row inside ${String(SURFACE_WAIT_BUDGET_MS)} ms. ` +
+    `the console painted the session screen's pane but no transcript row inside ${String(SURFACE_WAIT_BUDGET_MS)} ms. ` +
     "A console that mounts no transcript row at all is the regression this budget row exists to catch — " +
     "this is a console failure, not a harness that was not there yet",
 };

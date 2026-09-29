@@ -1,4 +1,4 @@
-// When a pane's refusal becomes the whole workspace's, and when it stays the pane's.
+// When a pane's refusal becomes the whole session screen's, and when it stays the pane's.
 //
 // Three claims, and the second is the one a re-render would break silently: a pane
 // whose read refuses on every retry re-renders under an unchanged refusal, and a hook
@@ -41,7 +41,7 @@ describe("which refusals reach the frame", () => {
   });
 
   it("leaves a pane's own refusal in the pane", () => {
-    // Escalating everything would put one pane's read failure across a workspace
+    // Escalating everything would put one pane's read failure across a session screen
     // where every other pane is fine.
     const frameStore = new WindowStore();
 

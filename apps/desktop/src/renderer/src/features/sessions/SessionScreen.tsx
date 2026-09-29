@@ -19,11 +19,11 @@
 //     flight and one pending snapshot, so a drag costs what the database can absorb
 //     and every record it writes is the newest arrangement rather than a stale one.
 //   • **An empty pane layout opens the transcript.** This surface's own empty state, because no
-//     committed document states one: the workspace shows the transcript alone at full
+//     committed document states one: the session screen shows the transcript alone at full
 //     width, which is a `transcript` pane rather than a special case in the renderer.
 //   • **Refusals are rendered where they happened.** What a restore dropped belongs
 //     to the pane layout and renders inside it; what a save refused changes what the whole
-//     surface can do and takes the workspace banner.
+//     surface can do and takes the session screen banner.
 //   • **A banner belongs to the session it was raised in.** This surface is NOT
 //     remounted between two open sessions, so a column held for the life of the mount
 //     went on saying what a save refused in the session somebody left, over the pane layout
@@ -69,7 +69,7 @@ import {
   type SessionBanner,
 } from "./session-banners.js";
 
-/** What the workspace is handed: the stores it reads and the pane board it mounts. */
+/** What the session screen is handed: the stores it reads and the pane board it mounts. */
 export interface SessionScreenProps {
   readonly bridge: PlatformBridge;
   readonly frameStore: WindowStore;

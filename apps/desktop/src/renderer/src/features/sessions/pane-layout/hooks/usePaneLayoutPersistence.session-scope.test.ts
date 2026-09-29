@@ -1,6 +1,6 @@
 // What a route from one session to another leaves on the pane layout.
 //
-// The workspace stays MOUNTED across a navigation between two open sessions — the shell
+// The session screen stays MOUNTED across a navigation between two open sessions — the shell
 // opens session stores and never closes them — so anything this hook holds for the life
 // of the mount is held across sessions too. The restore refusals were exactly that: a
 // session whose saved arrangement could not be read set them, and a session that

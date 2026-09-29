@@ -58,7 +58,7 @@
 // it holds the per-address histories.
 //
 // THE UNSENT BODY LIVES IN THE SUPPLIED `DraftStore` AND NOWHERE ELSE. The
-// workspace hands the composer seat a window-lifetime store, keyed per address; a
+// session screen hands the composer seat a window-lifetime store, keyed per address; a
 // `useState` string here would be a second home for the same text, and the two
 // differ exactly where it matters — a remount loses the local copy, and a prop-only
 // address change keeps it, so the person's words reappear under a target they did

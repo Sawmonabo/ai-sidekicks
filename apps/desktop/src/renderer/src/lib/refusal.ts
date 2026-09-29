@@ -1,7 +1,7 @@
 // One refusal shape for the whole console.
 //
 // A refusal has three RENDERINGS — inline on the control, a card in the surface, a banner
-// across the workspace — and `RefusalBanner` / `InlineRefusal` / `RefusalCard` all
+// across the session screen — and `RefusalBanner` / `InlineRefusal` / `RefusalCard` all
 // consume the same two fields. What the console lacked was one refusal VALUE for them to
 // consume: the daemon client, the fixture bridge, the when-clause parser, the key-binding
 // table, and the palette each minted their own vocabulary, so a surface that wanted to

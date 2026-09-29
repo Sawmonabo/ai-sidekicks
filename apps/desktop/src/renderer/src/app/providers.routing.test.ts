@@ -3,7 +3,7 @@
 // The rail names the three destinations and highlights where the window is. The
 // destination set is the routing family's and the highlight is the rail's; only a
 // driven window shows them agreeing, and only a driven window shows a session
-// workspace sitting under the sessions destination rather than under an icon that is
+// session screen sitting under the sessions destination rather than under an icon that is
 // not drawn.
 //
 // Every case drives the real `AppProviders` against the fixture bridge the

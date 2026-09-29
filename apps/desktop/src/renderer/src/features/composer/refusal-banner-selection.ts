@@ -1,7 +1,7 @@
 // Which of several refusals a surface hands to the frame as its banner.
 //
 // `lib/refusal-remedies.ts` records which of three shapes a named code calls for, and
-// one of the three is the workspace banner — a refusal that changed what the whole room
+// one of the three is the session screen banner — a refusal that changed what the whole room
 // can do. A surface holding several candidates picks one here and hands it over through
 // `hooks/useRefusalBannerEscalation.ts`.
 

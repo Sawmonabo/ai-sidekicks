@@ -1,4 +1,4 @@
-// The session's workspace screen: the session header, the pane layout, and the
+// The session screen: the session header, the pane layout, and the
 // composer's seat, which the composition root hands in.
 
 import { createElement, type ComponentType, type ReactNode } from "react";
@@ -24,7 +24,7 @@ export interface TranscriptComposition {
 }
 
 /**
- * Claim the workspace screen.
+ * Claim the session screen.
  *
  * Takes the registry rather than reaching for the module-scope singleton, so a test
  * composes into a registry it owns. The transcript's commands are registered by their
@@ -53,11 +53,11 @@ export function registerTranscriptScreens(
 export const TRANSCRIPT_OWNER = "transcript";
 
 /**
- * What the workspace slot hands its body.
+ * What the session screen slot hands its body.
  *
  * Derived from the surface context rather than restated, so a member added there is
  * carried here without a second declaration to keep in step. `sessionStoreRegistry` is
- * subtracted because the workspace renders ONE session — a surface that has to offer
+ * subtracted because the session screen renders ONE session — a surface that has to offer
  * sessions reads the registry, and this one is handed the session it is a view of — and
  * `chooseScheme` because nothing in a session chooses the color scheme.
  */
@@ -69,7 +69,7 @@ type SessionScreenMountProps = Omit<ScreenContext, "sessionStoreRegistry" | "cho
  * The wrapper keeps the surface's full-height grid, which is what lets the pane layout
  * inside it be the thing that scrolls rather than the window.
  *
- * WHY THE KEY, AND WHY A KEY IS THE RIGHT INSTRUMENT. The workspace holds per-session
+ * WHY THE KEY, AND WHY A KEY IS THE RIGHT INSTRUMENT. The session screen holds per-session
  * state that nothing else resets: the pane layout's arrangement, and the record of which
  * panes are showing in windows of their own. The shell deliberately OPENS session
  * stores and never closes them on navigation, so moving from one already-open session
@@ -87,7 +87,7 @@ function mountSessionScreen(
   return createElement(
     TranscriptSurface,
     null,
-    // ABOVE the workspace body and never in place of it. The refused arm says the
+    // ABOVE the session screen body and never in place of it. The refused arm says the
     // position this session was last read up to could not be resolved and the log was
     // re-read from the beginning of its window, which the surface below is unaffected
     // by: the store projects, the subscription tails, and what was lost is a remembered

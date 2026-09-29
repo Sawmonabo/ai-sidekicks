@@ -23,7 +23,7 @@ afterEach(() => {
 });
 
 describe("composer seat — one composer per session view", () => {
-  it("hands the workspace the body itself, not a wrapper", () => {
+  it("hands the session screen the body itself, not a wrapper", () => {
     registerComposer("composer-family", composerBody);
     expect(findComposerRenderer()).toBe(composerBody);
   });
@@ -58,7 +58,7 @@ describe("composer seat — the empty answer", () => {
   it("negative control: an unfilled seat has no body", () => {
     // Every case above reads `findComposerRenderer`, and all of them would pass
     // over a seat that answered with a body nobody registered. This is also the
-    // state the workspace mounts against until the composer family lands: it
+    // state the session screen mounts against until the composer family lands: it
     // renders nothing rather than a placeholder that looks like a broken feature.
     expect(findComposerRenderer()).toBeUndefined();
   });

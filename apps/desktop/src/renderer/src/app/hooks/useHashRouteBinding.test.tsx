@@ -106,7 +106,7 @@ describe("useHashRouteBinding", () => {
       await crossMacrotaskBoundary();
     });
 
-    // Leave the workspace. The binding writes `#/settings`; the browser has not
+    // Leave the session screen. The binding writes `#/settings`; the browser has not
     // delivered that `hashchange` back yet.
     await act(async () => {
       frameStore.navigate({ kind: "settings", page: undefined });
@@ -114,7 +114,7 @@ describe("useHashRouteBinding", () => {
     expect(window.location.hash).toBe(SETTINGS_HASH);
 
     // Navigate again while the echo is still in flight. The echo names Settings and
-    // the person is asking for the workspace; the echo is not news and must not win.
+    // the person is asking for the session screen; the echo is not news and must not win.
     await act(async () => {
       frameStore.navigate({ kind: "session", sessionId: "session-alpha" });
     });
@@ -146,7 +146,7 @@ describe("useHashRouteBinding", () => {
 
     // The hash and the route agree, and the binding got there in ONE address change
     // — the one the test made. A writer publishing the route its render closed over
-    // would have put the workspace in the address, heard the adopt had already moved
+    // would have put the session screen in the address, heard the adopt had already moved
     // the store, and put Settings back: two more entries for the back button to walk
     // through, and an address that briefly named somewhere the window is not going.
     expect(window.location.hash).toBe(formatRoute(frameStore.getState().route));

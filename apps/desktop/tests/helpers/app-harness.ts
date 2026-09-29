@@ -188,11 +188,11 @@ async function settleOneTurn(): Promise<void> {
 }
 
 /**
- * The scroll container the workspace mounts on every session route.
+ * The scroll container the session screen mounts on every session route.
  *
  * The frame is the window's permanent shell and is on the page from the first commit,
  * so a wait on it returns immediately and hands back a console whose session route has
- * not resolved yet. The workspace mounts this body on every session route whether or
+ * not resolved yet. The session screen mounts this body on every session route whether or
  * not that session has rows, so a wait on it observes the MOUNT rather than the
  * arrival of content.
  */

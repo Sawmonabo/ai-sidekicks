@@ -32,7 +32,7 @@ import { SYSTEM_SCHEME_PREFERENCE, type SchemePreference } from "@renderer/style
 
 /**
  * One frame-level banner — the third of the three refusal RENDERINGS: a refusal that
- * changes what the whole room can do goes across the workspace rather than inline on a
+ * changes what the whole room can do goes across the session screen rather than inline on a
  * control.
  *
  * The two rendered fields are taken from `Refusal` rather than re-declared
@@ -298,7 +298,7 @@ export class WindowStore {
    * Both directions of the route — the rail's `navigate` and the hash's
    * `adoptHash` — pass through here so the retained session cannot be left behind
    * by one of them. A route that names no session leaves it alone, which is the
-   * whole behavior: leaving a workspace does not make it unreachable.
+   * whole behavior: leaving a session screen does not make it unreachable.
    */
   #setRoute(route: AppRoute): void {
     const sessionId = routeSessionId(route);

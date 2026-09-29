@@ -6,12 +6,12 @@
 // and the surface that closed that gap then rendered the WRONG arm: it reported a
 // version skew on every read from every responder, because the rule it consulted
 // required a cursor member the shipped schema forbids. So this suite drives the
-// REGISTERED workspace surface, and the arm it asserts on is a refusal the daemon
+// REGISTERED session screen surface, and the arm it asserts on is a refusal the daemon
 // actually raised about a position this console actually sent.
 //
 // EVERYTHING BELOW THE SURFACE IS REAL: a real `SessionStoreRegistry` opening a real
 // entry, whose real scheduler performs real reads, the second of which carries the
-// position the first acknowledged. The only stand-in is the workspace BODY, which is
+// position the first acknowledged. The only stand-in is the session screen BODY, which is
 // the composition root's parameter and is another family's component entirely.
 
 import { cleanup, render, screen } from "@testing-library/react";
@@ -52,7 +52,7 @@ function snapshotAt(cursor: number, acknowledged?: string): SessionSnapshot {
 }
 
 /**
- * Render the registered `workspace` surface over a registry whose reads follow a
+ * Render the registered `session` screen over a registry whose reads follow a
  * script, and refresh it `refreshes` times.
  *
  * The surface is resolved from a registry composed HERE rather than the process-wide
@@ -96,7 +96,7 @@ async function renderSessionScreen(input: {
     await settleReactWork();
   }
 
-  // Under the provider, because this mounts the WHOLE workspace surface and the
+  // Under the provider, because this mounts the WHOLE session screen surface and the
   // surfaces composed into it read the bridge the way every console surface does. The
   // scenario is the quiet one: this suite's subject is the resume decision, which the
   // registry above settles, so a scenario with a script would be beats nothing here
@@ -127,7 +127,7 @@ const REFUSES_THE_POSITION = {
   },
 };
 
-describe("the workspace surface renders the refused resume position", () => {
+describe("the session screen surface renders the refused resume position", () => {
   it("says the remembered position could not be resumed", async () => {
     await renderSessionScreen({
       reads: [snapshotAt(7, ACKNOWLEDGED), REFUSES_THE_POSITION, snapshotAt(0)],
@@ -165,15 +165,15 @@ describe("the workspace surface renders the refused resume position", () => {
   it("negative control: a first read that acknowledges nothing renders no notice", async () => {
     // The arm the retired rule refused on: nothing acknowledged is the ordinary first
     // read, not a failure, and it is what every scripted scenario answers with. A
-    // surface that treated it as a refusal put a band above every workspace.
+    // surface that treated it as a refusal put a band above every session screen.
     await renderSessionScreen({ reads: [snapshotAt(0)], refreshes: 1 });
 
     expect(screen.queryByText(REFUSAL_CODE)).toBeNull();
   });
 
-  it("negative control: the workspace body mounts on both arms", async () => {
+  it("negative control: the session screen body mounts on both arms", async () => {
     // The notice renders ABOVE the room and never in place of it. Without this, a
-    // surface that replaced the workspace with the refusal would satisfy the first
+    // surface that replaced the session screen with the refusal would satisfy the first
     // case while reporting an outage the daemon is not having.
     await renderSessionScreen({
       reads: [snapshotAt(7, ACKNOWLEDGED), REFUSES_THE_POSITION, snapshotAt(0)],

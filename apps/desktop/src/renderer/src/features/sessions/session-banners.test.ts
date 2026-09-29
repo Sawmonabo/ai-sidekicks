@@ -35,7 +35,7 @@ function raiseAll(...refusals: readonly Refusal[]): readonly SessionBanner[] {
   );
 }
 
-describe("the workspace banner stack", () => {
+describe("the session screen banner stack", () => {
   it("counts an identical refusal rather than stacking it", () => {
     // A failing store raises this on every pane the person moves, so a drag used to
     // produce a column of identical banners saying one thing.

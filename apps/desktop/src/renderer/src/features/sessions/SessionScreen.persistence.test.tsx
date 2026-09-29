@@ -1,4 +1,4 @@
-// The arrangement the workspace restores, the one it saves, and the session each is
+// The arrangement the session screen restores, the one it saves, and the session each is
 // filed under.
 //
 // The persistence pair is the risky half and it fails quietly in both directions — a
@@ -36,7 +36,7 @@ function panesInRecord(value: unknown): number {
   return Object.keys(value as Record<string, unknown>).length - 1;
 }
 
-describe("Workspace — the saved arrangement", () => {
+describe("SessionScreen — the saved arrangement", () => {
   it("opens the transcript alone when nothing was saved", async () => {
     const { container } = renderSessionScreen(memoryStore());
     await waitFor(() => {
@@ -46,7 +46,7 @@ describe("Workspace — the saved arrangement", () => {
   });
 
   it("negative control: a saved arrangement is restored instead", async () => {
-    // Without this, the case above would pass over a workspace that ignored the
+    // Without this, the case above would pass over a session screen that ignored the
     // record entirely and always opened one transcript.
     const store = memoryStore();
     await saveLayout(store, SESSION_ID, ["transcript", "runs"]);

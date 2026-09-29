@@ -30,7 +30,7 @@ export const RAIL_DESTINATIONS = ["sessions", "workflows", "settings"] as const;
 export type RailDestination = (typeof RAIL_DESTINATIONS)[number];
 
 /**
- * One phase of one run, as a workspace address names it.
+ * One phase of one run, as a session screen address names it.
  *
  * DERIVED FROM THE ARM RATHER THAN RESTATED BESIDE IT, which is the console's rule for
  * a closed shape with more than one reader: a second declaration here would be a shape
@@ -44,9 +44,9 @@ export type WorkflowPhaseFocus = NonNullable<
 /**
  * Which rail destination is current, or `undefined` where the route lights none.
  *
- * The map is NOT one-to-one, and `workspace` is the arm that makes it so: a
+ * The map is NOT one-to-one, and `session` is the arm that makes it so: a
  * session is reached FROM the sessions destination, so a window sitting in a
- * workspace is still under that destination and the rail highlights it there.
+ * session screen is still under that destination and the rail highlights it there.
  * Answering with a destination of its own would name an icon the rail does not
  * render, and the current-destination highlight would simply go out.
  */
@@ -119,7 +119,7 @@ export function routeSessionId(route: AppRoute): string | undefined {
  * PUBLISHED, WHERE THE COMPARISON BELOW USED TO BE THE ONLY READER. The address
  * `#/session/<sid>/workflow/<rid>/phase/<pid>` parsed into a route nothing outside this
  * family consumed, so following the link changed the hash and the route identity and
- * left the window on an unfocused workspace — the phase was addressable and still
+ * left the window on an unfocused session screen — the phase was addressable and still
  * unreachable. The surface that mounts it asks this question, and asking it through one
  * accessor is what keeps the arm's optionality answered in one place rather than at
  * each consumer.
@@ -165,10 +165,10 @@ export function routesAreEqual(left: AppRoute, right: AppRoute): boolean {
 }
 
 /**
- * The workspace arm's focus, compared field by field.
+ * The session screen arm's focus, compared field by field.
  *
  * Both-absent is EQUAL and one-absent is not, which is the whole content of the
- * comparison: a bare workspace address and one focused on a phase of it are two
+ * comparison: a bare session screen address and one focused on a phase of it are two
  * different places, and treating them as one would make navigating from a run row to
  * its phase cost no transition and render nothing new.
  */

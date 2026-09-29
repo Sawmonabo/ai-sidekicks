@@ -21,7 +21,7 @@
 // Everything else is the real composition: the real `SessionStore`, the real
 // projection, the real `@tanstack/react-virtual` instance, the real card family
 // through the seat the console actually registers, and the same `TranscriptSurface`
-// wrapper the workspace screen mounts the panes inside — which is also what gives the scroll container a definite height, since a virtualizer
+// wrapper the session screen mounts the panes inside — which is also what gives the scroll container a definite height, since a virtualizer
 // over a zero-height box reports no rows and would leave this file asserting that an
 // empty feed is accessible.
 //
@@ -110,7 +110,7 @@ function openStoreOnScenario(scenario: Scenario): SessionStore {
 /**
  * Mount one scenario's transcript the way a window mounts it.
  *
- * `TranscriptSurface` is the production wrapper around the workspace screen, and it is
+ * `TranscriptSurface` is the production wrapper around the session screen, and it is
  * what carries the full-height grid down to the scroll container. A bare test wrapper
  * would have been a second layout nobody ships, measured instead of the one that is.
  */

@@ -29,17 +29,17 @@ describe("railDestinationFor — which rail icon is current", () => {
   });
 
   it("keeps a session screen under the sessions destination", () => {
-    // The workspace is reached FROM the sessions destination, so the rail
+    // The session screen is reached FROM the sessions destination, so the rail
     // highlights that one while a person is inside a session. The alternative —
-    // a `workspace` destination of its own — names an icon the rail does not
+    // a `session` destination of its own — names an icon the rail does not
     // render, which reads as the highlight going out on the busiest surface in
     // the console.
     expect(railDestinationFor({ kind: "session", sessionId: "session-1" })).toBe("sessions");
   });
 
-  it("negative control: the workspace is not itself a rail destination", () => {
+  it("negative control: the session screen is not itself a rail destination", () => {
     // Without this, the case above would pass over a `RAIL_DESTINATIONS` that
-    // still carried `workspace` beside the mapping, which is the exact state this
+    // still carried `session` beside the mapping, which is the exact state this
     // pair was in: three destinations declared, and the spec's second one absent.
     expect([...RAIL_DESTINATIONS]).not.toContain("session");
     expect([...RAIL_DESTINATIONS]).toStrictEqual(["sessions", "workflows", "settings"]);
@@ -81,7 +81,7 @@ describe("routesAreEqual — an unchanged hash costs no transition", () => {
         { kind: "settings", page: "providers" },
       ),
     ).toBe(false);
-    // The workspace arm's optional focus, in both directions: a bare address and a
+    // The session screen arm's optional focus, in both directions: a bare address and a
     // focused one are two places, and two focuses on different phases are two more.
     expect(
       routesAreEqual(
@@ -182,7 +182,7 @@ describe("routeWorkflowPhase — the phase a deep link named", () => {
     ).toStrictEqual({ workflowRunId: "run-1", phaseId: "phase-1" });
   });
 
-  it("names nothing for a bare workspace address, which carries no focus", () => {
+  it("names nothing for a bare session screen address, which carries no focus", () => {
     expect(routeWorkflowPhase({ kind: "session", sessionId: "session-1" })).toBeUndefined();
   });
 

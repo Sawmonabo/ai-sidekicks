@@ -3,7 +3,7 @@
 //
 // The failure this file exists for is silent in both directions and looks like
 // nothing at all: the composition root re-mints the `UiStateStore` on a reconnect and
-// hands the new one down, the workspace subtree is keyed on the session and does not
+// hands the new one down, the session screen subtree is keyed on the session and does not
 // remount, and a writer minted in a `useState` initializer goes on writing into the
 // store that was retired. Every later arrangement is filed where nothing will read it
 // again, and the pane layout on screen is the only place it still exists.
@@ -44,7 +44,7 @@ function storeOver(adapter: GatedPersistenceAdapter): UiStateStore {
   return new UiStateStore({ adapter });
 }
 
-describe("Workspace — the arrangement follows the store on screen", () => {
+describe("SessionScreen — the arrangement follows the store on screen", () => {
   it("asks the store it was handed last, and never the one it was handed first", async () => {
     const retiredAdapter = new GatedPersistenceAdapter();
     const liveAdapter = new GatedPersistenceAdapter();
@@ -112,7 +112,7 @@ describe("Workspace — the arrangement follows the store on screen", () => {
   });
 });
 
-describe("Workspace — the restore runs once for the session on screen", () => {
+describe("SessionScreen — the restore runs once for the session on screen", () => {
   it("does not read the record again when the store is replaced under it", async () => {
     // `PaneLayoutStore.restore` replaces wholesale, which is right at a mount against an
     // empty pane layout and wrong against one somebody has been arranging: the two records

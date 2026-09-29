@@ -1,8 +1,8 @@
-// The composer seat: what the workspace hands the message input.
+// The composer seat: what the session screen hands the message input.
 //
 // The composer is the shell chrome every session view already contains. Two
-// families meet on it: the workspace mounts it under the pane layout, and the composer
-// family fills it. Neither imports the other — the workspace reads
+// families meet on it: the session screen mounts it under the pane layout, and the composer
+// family fills it. Neither imports the other — the session screen reads
 // `findComposerRenderer()` and renders whatever is there, and an empty seat renders
 // nothing rather than a placeholder that looks broken.
 //
@@ -21,13 +21,13 @@ import { type AppRoute } from "@renderer/routing/routes.js";
 import { type PaneAddress } from "@renderer/routing/panes/pane-address.js";
 import { SingleEntryRegistry } from "@renderer/lib/single-entry-registry.js";
 
-/** What the workspace hands the composer on every render. */
+/** What the session screen hands the composer on every render. */
 export interface ComposerProps {
   /** The session the composer is addressed within. */
   readonly sessionStore: SessionStore;
   readonly bridge: PlatformBridge;
   /**
-   * The window store the composer hands a whole-workspace refusal to.
+   * The window store the composer hands a refusal for the whole session screen to.
    *
    * The composer is window chrome and its Send reaches a wire, so it is one of the
    * surfaces that can learn the session is gone — and rule 9 puts that code across
@@ -78,7 +78,7 @@ export function registerComposer(owner: string, render: ComposerRenderer): void 
  *
  * Test scaffolding, and named as such: the seat is module-scope, so a case that
  * fills it would leak into the next one. Nothing in the shipped tree unfills a
- * seat — a family that registered and then withdrew would leave the workspace
+ * seat — a family that registered and then withdrew would leave the session screen
  * rendering nothing with no owner to name.
  */
 export function unregisterComposer(): void {

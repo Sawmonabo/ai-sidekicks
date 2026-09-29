@@ -13,10 +13,10 @@
 // twice — which is the nested-status-region defect that pane's own header names. The
 // ask settles in one turn of the call, so what a person sees is the answer.
 //
-// WHY IT MOUNTS AT THE FAMILY'S WORKSPACE ROOT. It needs two things that are in hand
+// WHY IT MOUNTS AT THE FAMILY'S SESSION SCREEN ROOT. It needs two things that are in hand
 // in exactly one place: the store, for the hole, and the registry, for the position a
 // read acknowledged. `ResumeRefusalBanner` next door is mounted there for the same
-// reason and says so — the workspace body is handed everything BUT the registry.
+// reason and says so — the session screen body is handed everything BUT the registry.
 
 import { Nothing } from "@renderer/console/primitives/index.js";
 import { useSessionStore } from "@renderer/store/session/hooks/useOpenSessionStore.js";

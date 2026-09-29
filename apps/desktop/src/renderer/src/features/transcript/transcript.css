@@ -1,11 +1,11 @@
-/* The transcript's cross-directory styles: the workspace screen's shell, the loaded
+/* The transcript's cross-directory styles: the session screen's shell, the loaded
  * feed's grid, and the few rules worn by rows in more than one of the feature's folders.
  *
  * Loaded with the composition root rather than with the lazy pane chunk, because the
- * eagerly registered workspace screen draws `.meridian-transcript-surface` before any pane
+ * eagerly registered session screen draws `.meridian-transcript-surface` before any pane
  * body has loaded.
  *
- *   • `.meridian-transcript-surface`, the workspace screen's wrapper (`TranscriptSurface.tsx`,
+ *   • `.meridian-transcript-surface`, the session screen's wrapper (`TranscriptSurface.tsx`,
  *     which imports this sheet).
  *   • `.meridian-transcript-feed` and `.meridian-transcript-feed__body`, the feed's grid
  *     (`feed/components/TranscriptFeed.tsx`).

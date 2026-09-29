@@ -2,7 +2,7 @@
 //
 // A CHIP AND NOT A CARD, which is the composer's density rather than a lesser version
 // of the artifact pane's row: name, type, and size in one line with progress inline, so
-// a staged list of several does not push the message input off the bottom of the workspace.
+// a staged list of several does not push the message input off the bottom of the session screen.
 // The pane's card is where an upload is READ; this is where it is watched while a
 // person keeps typing.
 //

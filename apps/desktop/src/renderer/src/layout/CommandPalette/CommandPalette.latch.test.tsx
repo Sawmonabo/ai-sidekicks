@@ -137,7 +137,7 @@ function pressRow(title: string): void {
 }
 
 /**
- * The palette open over the workspace, with a way to move the route under it.
+ * The palette open over the session screen, with a way to move the route under it.
  *
  * `open` stays `true` across the re-render on purpose: the frame is what closes this,
  * and holding it open is what lets a case assert that the palette did NOT ask to close.

@@ -52,7 +52,7 @@ export interface AppRefusalRemedy {
    *
    * A surface that has only one rendering ignores it; a surface that can raise a
    * banner reads it and raises one, which is how `session.not_found` reaches the
-   * workspace from a control that was pressed in one pane.
+   * session screen from a control that was pressed in one pane.
    */
   readonly rendering: RefusalRendering;
   /** The operator's next move, in the console's own words. Never a paraphrase. */

@@ -7,7 +7,7 @@
 // time and carries its state after the `#`.
 //
 // The routes are one per icon-rail destination plus the session screen. The
-// workspace is a route and NOT a rail destination: a session is reached from the
+// session screen is a route and NOT a rail destination: a session is reached from the
 // sessions destination, which is why `railDestinationFor` answers `sessions` for it.
 //
 // A route arriving MALFORMED (an unknown route name, too many segments, an empty
@@ -20,14 +20,14 @@ export type AppRoute =
   // ONE ARM CARRYING AN OPTIONAL FOCUS, unlike the settings split below, and the
   // difference is what the two grammars can express. `#/settings` has nowhere to put
   // a page-scoped selection, so the pair `{page: undefined, selection}` is a value the
-  // formatter cannot write down and the split makes it unrepresentable. A workspace
+  // formatter cannot write down and the split makes it unrepresentable. A session screen
   // address always carries its session, so `{sessionId, workflowPhase}` is writable in
   // full and reads back byte-for-byte — there is no half-supplied context to forbid.
   //
-  // THE PHASE DEEP LINK IS A WORKSPACE ADDRESS RATHER THAN A DESTINATION OF ITS OWN.
+  // THE PHASE DEEP LINK IS A SESSION SCREEN ADDRESS RATHER THAN A DESTINATION OF ITS OWN.
   // `#/session/<sid>/workflow/<rid>/phase/<pid>` opens the session it names, focused
   // on one phase of one run — so the rail highlights `sessions` exactly as a bare
-  // workspace does, the surface the route mounts is the workspace, and the palette's
+  // session screen does, the surface the route mounts is the session screen, and the palette's
   // scope row names the session. A seventh route kind would have had to answer all
   // three of those questions again and would have answered them the same way.
   //
@@ -188,7 +188,7 @@ export function formatRoute(route: AppRoute): string {
       const sessionAddress = `#/session/${encodeURIComponent(route.sessionId)}`;
       // The keywords are written literally on both sides of one grammar, three lines
       // from the parse that reads them, so the pair cannot drift into a link that
-      // opens the workspace with its focus quietly dropped.
+      // opens the session screen with its focus quietly dropped.
       const { workflowPhase } = route;
       return workflowPhase === undefined
         ? sessionAddress
@@ -234,7 +234,7 @@ function decodeSegment(segment: string): string | undefined {
 }
 
 /**
- * The two workspace addresses, read from the segments after `session`.
+ * The two session screen addresses, read from the segments after `session`.
  *
  * A HELPER RATHER THAN A THIRD BRANCH INSIDE {@link parseRoute}, because this arm is
  * the only one whose grammar has interior KEYWORDS — `workflow` and `phase` sit
@@ -244,7 +244,7 @@ function decodeSegment(segment: string): string | undefined {
  * function whose other arms are two lines each.
  *
  * The keyword positions are checked BEFORE the ids are decoded, so
- * `#/session/s/anything/r/phase/p` is not-found rather than a workspace address
+ * `#/session/s/anything/r/phase/p` is not-found rather than a session screen address
  * silently missing its focus. Every id still goes through {@link decodeSegment}, which
  * is what keeps {@link parseRoute} total over a malformed percent-escape.
  */

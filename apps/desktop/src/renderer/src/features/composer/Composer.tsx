@@ -1,6 +1,6 @@
 // The composer: the shell chrome every session view contains, and the seat's body.
 //
-// The workspace mounts whatever fills the composer seat; this file is what fills it.
+// The session screen mounts whatever fills the composer seat; this file is what fills it.
 //
 // WHAT THIS FILE IS, AND WHAT IT IS NOT
 //

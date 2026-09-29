@@ -1,4 +1,4 @@
-// The workspace's named figures that are not ceilings: the density presets and their pane
+// The session screen's named figures that are not ceilings: the density presets and their pane
 // widths, and the visibility threshold a native view hides at.
 //
 // THE CEILING IS NOT HERE. The restored-pane cap is a bound, and bounds are declared in

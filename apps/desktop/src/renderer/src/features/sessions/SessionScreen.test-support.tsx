@@ -1,4 +1,4 @@
-// What every workspace suite needs to mount one: the session, the registry, and the shape
+// What every session screen suite needs to mount one: the session, the registry, and the shape
 // `AppFrame` mounts the surface in.
 //
 // ONE HOME RATHER THAN A COPY PER SUITE. The suites split by subject — what the surface
@@ -144,7 +144,7 @@ export class GatedPersistenceAdapter extends MemoryPersistenceAdapter {
 }
 
 /**
- * The workspace under the window's providers, which is where `AppFrame` mounts it.
+ * The session screen under the window's providers, which is where `AppFrame` mounts it.
  *
  * The pane layout inside reads `useAnnounce` to say what a pane drop settled on, and that
  * hook throws outside the provider by design — so this wrapper is the production
@@ -173,7 +173,7 @@ export function otherSession(): SessionWithStore {
 }
 
 /**
- * The workspace for one session, in the shape `AppFrame` mounts it in.
+ * The session screen for one session, in the shape `AppFrame` mounts it in.
  *
  * The provider carries the SAME bridge the surface is handed, because that is what the
  * frame does: one window, one transport, and one clock resolved off it — the pane layout reads

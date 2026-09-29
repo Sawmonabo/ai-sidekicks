@@ -70,7 +70,7 @@ export function SendButton(props: SendButtonProps): React.JSX.Element {
   });
   // A SEND THAT LEARNED THE SESSION IS GONE IS NOT THIS BUTTON'S NEWS ALONE. The refusal
   // still renders below, beside the control that produced it — that is where a person
-  // pressing Send looks — but the remedy table calls `session.not_found` a workspace
+  // pressing Send looks — but the remedy table calls `session.not_found` a session screen
   // banner, so the frame is told too: every pane is drawing a session that has left the
   // node. The hook decides which codes qualify and raises each condition once, so
   // nothing here reads the table and a dismissed banner stays dismissed.

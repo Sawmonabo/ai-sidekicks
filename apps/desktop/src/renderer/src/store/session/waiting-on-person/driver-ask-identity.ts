@@ -10,7 +10,7 @@
 // two surfaces cannot disagree about what "the same ask" is.
 //
 // AT THE FLOOR because its readers are two VIEW families — the transcript's ask card and
-// the workspace's session header — and view families are siblings, so neither may reach the
+// the session screen's session header — and view families are siblings, so neither may reach the
 // other and no family between them owns the question. That is `core/structural-key.ts`'
 // own stated reason applied to a second subject, and this module needs nothing to be
 // here: no store type, no contracts schema, no React.

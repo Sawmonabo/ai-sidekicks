@@ -1,7 +1,7 @@
-// The workspace's banner stack: what it coalesces, and what it deliberately keeps.
+// The session screen's banner stack: what it coalesces, and what it deliberately keeps.
 //
 // A refusal that changes what the whole room can do takes the banner shape, and the
-// workspace is where those land. Two properties are this stack's own, because neither
+// session screen is where those land. Two properties are this stack's own, because neither
 // is a property of one refusal:
 //
 //   • **A REPEATED REFUSAL IS ONE BANNER WITH A COUNT.** A failing store raises

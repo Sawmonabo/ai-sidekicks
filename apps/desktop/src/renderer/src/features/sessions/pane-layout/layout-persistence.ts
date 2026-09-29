@@ -6,10 +6,10 @@ import { PANE_LAYOUT_REFUSAL_ORIGIN } from "./pane-layout-snapshot.js";
 /** The durable record the pane layout's arrangement is saved under, per session. */
 export const PANE_LAYOUT_RECORD_KEY = "pane-layout";
 
-/** Why the workspace itself refused. Closed, so a second cause is a decision. */
+/** Why a pane layout save refused. Closed, so a second cause is a decision. */
 export const PANE_LAYOUT_SAVE_REFUSAL_CODES = ["layout-save-failed"] as const;
 
-/** One workspace refusal code. Derived, so the vocabulary is declared once. */
+/** One pane layout save refusal code. Derived, so the vocabulary is declared once. */
 export type PaneLayoutSaveRefusalCode = (typeof PANE_LAYOUT_SAVE_REFUSAL_CODES)[number];
 
 /**

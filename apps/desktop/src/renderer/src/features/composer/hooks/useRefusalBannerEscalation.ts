@@ -1,7 +1,7 @@
 // When a surface's refusal stops being that surface's business.
 //
 // `lib/refusal-remedies.ts` records which of three shapes a named code calls for, and
-// one of the three is the workspace banner — a refusal that changed what the whole room
+// one of the three is the session screen banner — a refusal that changed what the whole room
 // can do. A surface cannot draw one: the banner spans the frame and is held by the
 // window's store, so what a surface does is HAND it over. That handover is this hook.
 //
@@ -24,7 +24,7 @@
 //
 // AND ONLY FOR THE CODES THE TABLE NAMES AS BANNERS. A pane's ordinary refusal is
 // the pane's own business and renders where it happened; escalating everything would
-// put a read failure in one pane across the whole workspace.
+// put a read failure in one pane across the whole session screen.
 
 import { useEffect, useRef } from "react";
 
@@ -32,7 +32,7 @@ import { type Refusal } from "@renderer/lib/refusal.js";
 import { type WindowStore } from "@renderer/store/window/window-store.js";
 import { isBannerClass } from "../refusal-banner-selection.js";
 
-/** Hand a whole-workspace refusal to the frame, and leave every other one alone. */
+/** Hand a refusal for the whole session screen to the frame, and leave every other one alone. */
 export function useRefusalBannerEscalation(
   frameStore: WindowStore,
   refusal: Refusal | undefined,

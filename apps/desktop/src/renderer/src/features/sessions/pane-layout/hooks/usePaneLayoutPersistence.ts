@@ -13,7 +13,7 @@
 // neither can happen.
 //
 // AND EVERYTHING THE RESTORE PRODUCES IS ADDRESSED BY THE SESSION IT IS ABOUT. The
-// workspace stays mounted across a route between two open sessions, so a value held for
+// session screen stays mounted across a route between two open sessions, so a value held for
 // the life of the MOUNT describes whichever session happened to produce it first: the
 // restore refusals were exactly that, and a session whose saved layout could not be read
 // left its errors standing over the next session's pane layout. Both the gate and the refusals
@@ -76,7 +76,7 @@ export function usePaneLayoutPersistence(
   const { layout, uiStateStore, sessionId, onSaveRefused } = options;
   // WHAT A RESTORE REFUSED, ADDRESSED BY THE RESTORE THAT REFUSED IT. Held on the same
   // `(arrangement, session)` pair as the gate below, through the same holder, because
-  // the workspace stays mounted across a route between two open sessions: mount state
+  // the session screen stays mounted across a route between two open sessions: mount state
   // here went on showing one session's restore errors over the next session's pane layout, with
   // nothing on screen tying them to the session they belong to. The seed is what a
   // session whose restore has not landed shows, which is nothing — an unsettled restore
@@ -89,7 +89,7 @@ export function usePaneLayoutPersistence(
   const publishRestoreRefusals = restoreRefusals.publish;
 
   // The partition rides the REQUEST rather than being read here. A writer coalesces,
-  // so a queued arrangement settles after the act that queued it — and the workspace
+  // so a queued arrangement settles after the act that queued it — and the session screen
   // survives a navigation between two already-open sessions, because the shell opens
   // session stores and never closes them. Reading a mutable current-session holder at
   // write time filed the older session's arrangement under the newer one's partition
@@ -211,7 +211,7 @@ export function usePaneLayoutPersistence(
       // route installs nothing rather than reporting into the session it arrived in.
       publishRestoreRefusals(report?.refusals ?? NO_RESTORE_REFUSALS);
       if (layout.snapshot().panes.length === 0) {
-        // This surface's own empty state: the workspace shows the transcript alone, full
+        // This surface's own empty state: the session screen shows the transcript alone, full
         // width.
         layout.open({ kind: "transcript" });
       }

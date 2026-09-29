@@ -112,7 +112,7 @@ export const GLYPH_SIZE_CHROME = 14;
  */
 export const GLYPH_NAMES = [
   // --- The top-level destinations (the design language's surface set) and the session
-  // workspace reached from the first of them.
+  // screen reached from the first of them.
   "sessions",
   "workspace",
   "settings",

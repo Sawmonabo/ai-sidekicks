@@ -1,4 +1,4 @@
-// The banners the workspace raises, when the same thing goes wrong twice.
+// The banners the session screen raises, when the same thing goes wrong twice.
 //
 // Every case drives the real surface rather than the fold: what a person sees is a
 // column of banners, and the defects this file exists for are things that column did —
@@ -32,7 +32,7 @@ import {
 /**
  * How the store answers a write.
  *
- * `reject` is a write that fails outright, which the workspace words itself; `refuse`
+ * `reject` is a write that fails outright, which the session screen words itself; `refuse`
  * is one the store turns into its own refusal, whose words are the store's. Two modes
  * because a column of two different banners needs two different sentences.
  */
@@ -84,9 +84,9 @@ async function commitArrangement(container: HTMLElement): Promise<void> {
 }
 
 /**
- * One workspace and one store, with the route between two sessions inside that mount.
+ * One session screen and one store, with the route between two sessions inside that mount.
  *
- * UNKEYED, which is the whole shape the second describe is about: the workspace stays
+ * UNKEYED, which is the whole shape the second describe is about: the session screen stays
  * mounted across a navigation between two open sessions, so a value held for the life
  * of the MOUNT survives the route. ONE bridge across both renders, because the fixture
  * mints a new one per call and a replaced transport is a second reason to drop what this
@@ -188,8 +188,8 @@ describe("SessionScreen — the banner column", () => {
 });
 
 describe("SessionScreen — the banner column belongs to the session that raised it", () => {
-  it("stops showing one session's banners once the workspace routes to another", async () => {
-    // The defect: a mount-lifetime list. The workspace is not remounted between two
+  it("stops showing one session's banners once the session screen routes to another", async () => {
+    // The defect: a mount-lifetime list. The session screen is not remounted between two
     // open sessions, so a refusal raised while the first was on screen went on standing
     // over the second's pane layout — a sentence about an act nobody performed in the session
     // they are looking at, with nothing on screen tying it to the one they left.

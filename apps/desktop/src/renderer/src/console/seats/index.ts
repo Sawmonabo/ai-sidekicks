@@ -12,7 +12,7 @@
 // sits at the TOP of the DAG, above the frame. But the frame composes the pane
 // registry singleton, so the frame imported the family, and the family is documented
 // to import the frame: an upward edge that either closes a cycle the moment the
-// workspace body lands, or forces a view family to stop using its own lower layers.
+// session screen body lands, or forces a view family to stop using its own lower layers.
 // The layering gate stayed green on it because its ladders stopped at `frame/` and
 // no rule named the view families at all. Both halves are fixed together — this
 // family is the hoist, and `.dependency-cruiser.mjs` now forbids any layer family,
@@ -40,7 +40,7 @@
 // keeps six concurrent branches from serializing behind each other.
 //
 // But siblings still hand each other things: the pane layout mounts panes six families
-// build, the workspace mounts a composer the composer family fills, one sidebar
+// build, the session screen mounts a composer the composer family fills, one sidebar
 // carries sections four families own, and the transcript renders cards the repos
 // family authors. Every one of those is a CONTRACT rather than an import — a type
 // plus a registry, minted once here so no branch invents its own.

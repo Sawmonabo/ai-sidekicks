@@ -17,7 +17,7 @@
 // nothing and renders as not-found.
 //
 // AND THE SURFACE THAT DOES MOUNT IS KEYED ON THE ADDRESS IT WAS MOUNTED AT. Two
-// routes can resolve to ONE slot — a second session's workspace, a second pane kind
+// routes can resolve to ONE slot — a second session's screen, a second pane kind
 // in the fixture harness — and React reconciles the same component in the same
 // position, so whatever state that surface holds survives a move to a subject it was
 // never about. The fixture pane harness is where that was first observed: a hash

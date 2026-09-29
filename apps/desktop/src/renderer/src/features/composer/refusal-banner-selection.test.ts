@@ -41,7 +41,7 @@ describe("which refusal a collection hands over", () => {
 
   it("negative control: an ordinary refusal stays the surface's own business", () => {
     // Without this the selector would pass while escalating everything, which would
-    // put one pane's read failure across the whole workspace.
+    // put one pane's read failure across the whole session screen.
     expect(preferredBannerClassRefusalAmong([PANE_REFUSAL, undefined])).toBeUndefined();
     expect(preferredBannerClassRefusalAmong([undefined, undefined, undefined])).toBeUndefined();
   });

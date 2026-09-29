@@ -15,7 +15,7 @@ export const MAIN_WINDOW_ROUTES: readonly AppRoute[] = [
   { kind: "sessions" },
   { kind: "session", sessionId: "session-1" },
   // The same arm carrying its optional focus — the phase deep link a park banner
-  // hands out. Listed beside the bare workspace so both suites are asked about the
+  // hands out. Listed beside the bare session screen so both suites are asked about the
   // pair rather than about whichever one somebody remembered.
   {
     kind: "session",
