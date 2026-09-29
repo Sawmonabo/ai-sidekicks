@@ -38,7 +38,7 @@
 // scenario actually playing is readable from the handle below — which is what the
 // endurance tier asserts, so a typo fails a tier rather than passing quietly.
 
-import { SCENARIO_FIXTURE_GLOBAL } from "@renderer/console/core/fixture-globals.js";
+import { SCENARIO_FIXTURE_GLOBAL } from "@renderer/app/fixture-global-names.js";
 import { refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
 import { CONSOLE_SCENARIOS } from "../../../../../../fixtures/index.js";
 import type { ScenarioEngine } from "./runtime/engine.js";

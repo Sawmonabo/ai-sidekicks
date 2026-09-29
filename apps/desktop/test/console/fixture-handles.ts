@@ -31,10 +31,8 @@ export { TRIPWIRE_FIXTURE_GLOBAL } from "@renderer/lib/tripwires.js";
  * explicitly, and says why — a family barrel already puts the console's React
  * modules in this program. The reason is the graph, not the JSX.
  */
-export {
-  SCENARIO_FIXTURE_GLOBAL,
-  type ScenarioFixtureHandle,
-} from "../../src/renderer/src/console/bridge/scenario/selection.js";
+export { SCENARIO_FIXTURE_GLOBAL } from "../../src/renderer/src/app/fixture-global-names.js";
+export { type ScenarioFixtureHandle } from "../../src/renderer/src/console/bridge/scenario/selection.js";
 
 /**
  * The session-store diagnostics, and their shape.

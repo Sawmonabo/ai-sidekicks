@@ -6,7 +6,8 @@
 
 import { describe, expect, it } from "vitest";
 
-import { SCENARIO_FIXTURE_GLOBAL, ScenarioFixtureControl } from "./selection.js";
+import { SCENARIO_FIXTURE_GLOBAL } from "@renderer/app/fixture-global-names.js";
+import { ScenarioFixtureControl } from "./selection.js";
 import { ScenarioEngine } from "./runtime/engine.js";
 import { FLAGSHIP_SCENARIO, FLAGSHIP_SCENARIO_ID } from "./flagship/flagship.js";
 

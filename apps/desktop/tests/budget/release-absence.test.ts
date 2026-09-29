@@ -44,7 +44,7 @@
 import { describe, expect, it } from "vitest";
 
 import { isFixtureOnlyModule } from "../../electron.vite.config.js";
-import { FIXTURE_GLOBAL_NAMES } from "@renderer/console/core/fixture-globals.js";
+import { FIXTURE_GLOBAL_NAMES } from "@renderer/app/fixture-global-names.js";
 import {
   PERF_METER_KINDS,
   type PerfMeterKind,

@@ -31,7 +31,7 @@ import {
 import { consoleClockFor, type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
 import { createFixtureBridge } from "@renderer/console/bridge/fixture/call-plane/bridge.js";
 import { consoleScenario } from "@renderer/console/bridge/scenario/manifest.js";
-import { SCENARIO_FIXTURE_GLOBAL } from "@renderer/console/bridge/scenario/selection.js";
+import { SCENARIO_FIXTURE_GLOBAL } from "@renderer/app/fixture-global-names.js";
 import { FIRST_RUN_SCENARIO_ID } from "../../../../../fixtures/scenarios/first-run.js";
 import {
   FLAGSHIP_SCENARIO,
