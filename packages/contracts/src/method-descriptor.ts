@@ -17,18 +17,27 @@ import type { ZodType, output } from "zod";
 export type MethodProcedureType = "query" | "mutation" | "subscription";
 
 /**
- * A `query` or `mutation` method's contract.
+ * What every method's contract states, whatever its procedure type.
  *
  * `mutating` is what the daemon's version gate reads: while a client's protocol
  * version is incompatible, a mutating method is refused and a read passes.
  */
-export interface MethodDescriptor<MethodName extends string, RequestType, ResponseType> {
+interface MethodContract<MethodName extends string, RequestType, ResponseType> {
   readonly method: MethodName;
   readonly procedureType: MethodProcedureType;
   readonly mutating: boolean;
   readonly requestSchema: ZodType<RequestType>;
   /** What the handler's resolved value is validated against. */
   readonly responseSchema: ZodType<ResponseType>;
+}
+
+/** A `query` or `mutation` method's contract: it answers with one result. */
+export interface MethodDescriptor<
+  MethodName extends string,
+  RequestType,
+  ResponseType,
+> extends MethodContract<MethodName, RequestType, ResponseType> {
+  readonly procedureType: "query" | "mutation";
 }
 
 /**
@@ -41,7 +50,7 @@ export interface SubscriptionMethodDescriptor<
   RequestType,
   ResponseType,
   EmissionType,
-> extends MethodDescriptor<MethodName, RequestType, ResponseType> {
+> extends MethodContract<MethodName, RequestType, ResponseType> {
   readonly procedureType: "subscription";
   readonly emissionSchema: ZodType<EmissionType>;
 }

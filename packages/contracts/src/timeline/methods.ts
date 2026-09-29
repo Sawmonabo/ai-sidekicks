@@ -134,7 +134,7 @@ export interface TimelineMethodBinding<
   RequestType,
   ResponseType,
 > extends MethodDescriptor<MethodName, RequestType, ResponseType> {
-  readonly procedureType: "query" | "subscription";
+  readonly procedureType: "query";
   readonly mutating: false;
 }
 
