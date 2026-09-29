@@ -407,13 +407,6 @@ export interface SessionResendUnapplied {
 /** What an undo, or an edit and resend, reports. */
 export type SessionRestoreResult = SessionRestoreFinished | SessionResendUnapplied;
 
-/**
- * Why the daemon refuses an edit and resend before anything goes back: the
- * message is not one the person sent. A closed set, so a new guard fails to
- * compile at every reader that must give it words.
- */
-export type SessionResendRejectionGuard = "user-authored-target";
-
 // --------------------------------------------------------------------------
 // --------------------------------------------------------------------------
 //
