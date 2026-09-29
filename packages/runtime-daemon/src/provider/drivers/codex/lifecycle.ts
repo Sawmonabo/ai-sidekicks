@@ -227,7 +227,7 @@ import {
 import {
   OutboundFrameTripwire,
   OutboundTextFrameWriter,
-  ProviderBindingQuarantine,
+  RuntimeBindingQuarantine,
   UNRECOGNIZED_TURN_EVIDENCE,
   observedTurnEvidence,
   composeSupersededDeliveryRunFailure,
@@ -5532,7 +5532,7 @@ export class CodexLifecycleManager {
   // a trip disposed.
   readonly #outboundTextFrameWriter: OutboundTextFrameWriter;
   readonly #outboundFrameTripwire: OutboundFrameTripwire;
-  readonly #providerBindingQuarantine = new ProviderBindingQuarantine();
+  readonly #runtimeBindingQuarantine = new RuntimeBindingQuarantine();
   readonly #sessions = new Map<SessionId, CodexSessionRecord>();
   /**
    * Replay targets this manager has burned.
@@ -5660,7 +5660,7 @@ export class CodexLifecycleManager {
     this.#outboundFrameTripwire = new OutboundFrameTripwire({
       isScopeRetired: (scopeKey: string): boolean =>
         !this.#sessions.has(scopeKey as SessionId) ||
-        this.#providerBindingQuarantine.isSessionDisposed(scopeKey),
+        this.#runtimeBindingQuarantine.isSessionDisposed(scopeKey),
     });
   }
 
@@ -5781,7 +5781,7 @@ export class CodexLifecycleManager {
       // The quarantine names a BINDING, not an identifier: a fresh process now
       // answers for this session id, so the refusal a prior trip installed is
       // released here rather than outliving the process it condemned.
-      this.#providerBindingQuarantine.releaseSession(params.sessionId);
+      this.#runtimeBindingQuarantine.releaseSession(params.sessionId);
       // A daemon-created thread bases at ZERO and meters its first reading in
       // full: the provider's counter starts at zero, replay seeding spends
       // nothing, and the first turn's large input is real billed spend.
@@ -6160,7 +6160,7 @@ export class CodexLifecycleManager {
       this.#discardProviderCommandEnumeration(params.sessionId);
       // Released for the same reason the create path releases it: a resume is a
       // fresh spawn, so the condemned binding is gone.
-      this.#providerBindingQuarantine.releaseSession(params.sessionId);
+      this.#runtimeBindingQuarantine.releaseSession(params.sessionId);
       // A provider-native resume bases at the daemon's OWN prior-emitted
       // cumulative sum, never at the first post-resume reading: the provider's
       // counter is unaffected by the resume, so a zero base would re-meter the
@@ -6326,8 +6326,8 @@ export class CodexLifecycleManager {
         // neutralization path uses it: SESSION first, so a caller reacting
         // synchronously to this failure cannot reach the condemned binding by
         // resolving the session, then RUN.
-        this.#providerBindingQuarantine.disposeSession(record.sessionId);
-        this.#providerBindingQuarantine.disposeRun(params.runId, record.sessionId);
+        this.#runtimeBindingQuarantine.disposeSession(record.sessionId);
+        this.#runtimeBindingQuarantine.disposeRun(params.runId, record.sessionId);
         await this.#disposeAmbiguousSession(record);
         throw new PermanentStructuralRefusalError({
           providerSessionId: record.threadId,
@@ -6440,8 +6440,8 @@ export class CodexLifecycleManager {
     if (!decision.tripped) {
       return;
     }
-    this.#providerBindingQuarantine.disposeSession(record.sessionId);
-    this.#providerBindingQuarantine.disposeRun(params.runId, record.sessionId);
+    this.#runtimeBindingQuarantine.disposeSession(record.sessionId);
+    this.#runtimeBindingQuarantine.disposeRun(params.runId, record.sessionId);
     this.#reportTextNeutralizationFailure(
       record.sessionId,
       params.runId,
@@ -8275,7 +8275,7 @@ export class CodexLifecycleManager {
     // The same disposal the settlement path performs, in the same order: the
     // session arm first, so a consumer reacting synchronously to the run failure
     // cannot attach to the condemned process in between.
-    this.#providerBindingQuarantine.disposeSession(record.sessionId);
+    this.#runtimeBindingQuarantine.disposeSession(record.sessionId);
     this.#ruleTurnTerminalAgainstRun(record.sessionId, runId, decision);
     this.#disposeQuarantinedSession(record);
   }
@@ -8303,7 +8303,7 @@ export class CodexLifecycleManager {
     if (!decision.tripped) {
       return;
     }
-    this.#providerBindingQuarantine.disposeSession(record.sessionId);
+    this.#runtimeBindingQuarantine.disposeSession(record.sessionId);
     this.#ruleTurnTerminalAgainstRun(record.sessionId, runId, decision);
     this.#disposeQuarantinedSession(record);
   }
@@ -9069,7 +9069,7 @@ export class CodexLifecycleManager {
       // the text. BOTH axes, because a run-keyed refusal alone leaves the
       // session record live and a later `startRun` resolves that record by
       // session id without ever consulting the run key.
-      this.#providerBindingQuarantine.disposeSession(sessionId);
+      this.#runtimeBindingQuarantine.disposeSession(sessionId);
     }
 
     let matchedRoute = false;
@@ -9133,7 +9133,7 @@ export class CodexLifecycleManager {
     if (!decision.tripped) {
       return;
     }
-    this.#providerBindingQuarantine.disposeRun(runId, sessionId);
+    this.#runtimeBindingQuarantine.disposeRun(runId, sessionId);
     this.#reportTextNeutralizationFailure(
       sessionId,
       runId,
@@ -9213,7 +9213,7 @@ export class CodexLifecycleManager {
     record: CodexSessionRecord,
     diagnostic: CodexTransportDiagnostic,
   ): void {
-    if (this.#providerBindingQuarantine.isSessionDisposed(record.sessionId)) {
+    if (this.#runtimeBindingQuarantine.isSessionDisposed(record.sessionId)) {
       // Already condemned, so the refusal is made and nothing here is a second
       // decision. Guarded because the drain that overflowed the memory keeps
       // running after this: every remaining frame in the chunk would otherwise
@@ -9222,7 +9222,7 @@ export class CodexLifecycleManager {
       return;
     }
     reportDiagnosticFromDetachedFrame(this.#options.reportDiagnostic, diagnostic);
-    this.#providerBindingQuarantine.disposeSession(record.sessionId);
+    this.#runtimeBindingQuarantine.disposeSession(record.sessionId);
     this.#disposeQuarantinedSession(record);
   }
 
@@ -9263,7 +9263,7 @@ export class CodexLifecycleManager {
         continue;
       }
       const runId = this.#runIdForAbandonedFrame(record, ruling.joinKey);
-      if (runId === undefined || this.#providerBindingQuarantine.isRunDisposed(runId)) {
+      if (runId === undefined || this.#runtimeBindingQuarantine.isRunDisposed(runId)) {
         continue;
       }
       reportedRunIds.add(runId);
@@ -9529,7 +9529,7 @@ export class CodexLifecycleManager {
     // dispatch into the process that swallowed the user's words. Released
     // at establishment, so the promised recovery — a fresh spawn — is the thing
     // that lifts it.
-    this.#providerBindingQuarantine.assertSessionAttachable(sessionId);
+    this.#runtimeBindingQuarantine.assertSessionAttachable(sessionId);
     // The entrance requires a SETTLED live slot, not merely a non-closing one.
     // Both transition states have to refuse, and for the same reason: a record
     // stays installed across its whole transition — that is what holds the slot —
@@ -9580,7 +9580,7 @@ export class CodexLifecycleManager {
    * to guard.
    */
   #requireActiveTurn(runId: RunId): { record: CodexSessionRecord; turnId: string } {
-    this.#providerBindingQuarantine.assertRunAttachable(runId);
+    this.#runtimeBindingQuarantine.assertRunAttachable(runId);
     const sessionId = this.#sessionIdByRunId.get(runId);
     const record = sessionId === undefined ? undefined : this.#sessions.get(sessionId);
     const turnId = record === undefined ? undefined : newestActiveTurnForRun(record, runId);

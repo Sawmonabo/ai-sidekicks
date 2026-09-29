@@ -96,7 +96,7 @@ export interface MountRefusalContext {
 const NO_DISTINCTIONS: readonly string[] = [];
 
 /** What an attach of a folder with no git repository in it reads as. */
-const NOT_A_GIT_REPOSITORY_RECOVERY: CasedRefusalRemedy = {
+const NOT_A_GIT_REPOSITORY_REMEDY: CasedRefusalRemedy = {
   nextMove: "Could not attach: not a git repository",
   distinctions: NO_DISTINCTIONS,
 };
@@ -105,7 +105,7 @@ const NOT_A_GIT_REPOSITORY_RECOVERY: CasedRefusalRemedy = {
  * The table. Total over the codes above, so a code added to the tuple and not here
  * fails to compile rather than surfacing with no move.
  */
-const MOUNT_REFUSAL_RECOVERIES: Readonly<Record<MountRefusalCode, CasedRefusalRemedy>> = {
+const MOUNT_REFUSAL_REMEDIES: Readonly<Record<MountRefusalCode, CasedRefusalRemedy>> = {
   "repo.not_found": {
     nextMove:
       "This mount is gone from the session. The list re-reads itself; if the row is still here after that, the read and the background service disagree.",
@@ -247,9 +247,9 @@ export function mountRefusalRemedy(
     code === "repo.root_resolution_failed" &&
     context?.resolutionReason === "not_a_git_repository"
   ) {
-    return NOT_A_GIT_REPOSITORY_RECOVERY;
+    return NOT_A_GIT_REPOSITORY_REMEDY;
   }
-  return readFrozenRecord(MOUNT_REFUSAL_RECOVERIES, code);
+  return readFrozenRecord(MOUNT_REFUSAL_REMEDIES, code);
 }
 
 /**

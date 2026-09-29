@@ -19,7 +19,7 @@
 import type { ProviderOutputSpeedState } from "@ai-sidekicks/contracts";
 
 /** The effective provider axis: what the agent runs under now, never the pending one. */
-export interface AgentEffectiveBinding {
+export interface AgentProviderBinding {
   /** Absent means the provider's registered default, never "unset". */
   readonly providerAccountId?: string | undefined;
   /** Absent means the driver's default for that model. */
@@ -72,7 +72,7 @@ export interface AgentListEntry {
   readonly createdAt?: string | undefined;
   readonly driverName?: string | undefined;
   readonly modelId?: string | undefined;
-  readonly config?: AgentEffectiveBinding | undefined;
+  readonly config?: AgentProviderBinding | undefined;
   /**
    * The mode the provider DECLARED, beside the one that was requested.
    *

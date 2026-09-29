@@ -73,7 +73,7 @@ import {
   OUTBOUND_FRAME_PENDING_SCOPE_CAPACITY,
   OUTBOUND_FRAME_PENDING_TOTAL_CAPACITY,
   OUTBOUND_TEXT_NEUTRALIZATION_SENTINEL,
-  ProviderBindingQuarantine,
+  RuntimeBindingQuarantine,
   TextNeutralizationRefusedError,
   TEXT_NEUTRALIZATION_REFUSAL_CODE,
   UNRECOGNIZED_TURN_EVIDENCE,
@@ -1207,9 +1207,9 @@ describe("outbound frame tripwire", () => {
 // Provider-binding disposal
 // --------------------------------------------------------------------------
 
-describe("provider binding quarantine", () => {
+describe("runtime binding quarantine", () => {
   it("refuses an attach to a disposed binding with the code the trip carried", () => {
-    const quarantine = new ProviderBindingQuarantine();
+    const quarantine = new RuntimeBindingQuarantine();
     quarantine.disposeRun("run-1", "session-1");
 
     expect(quarantine.isRunDisposed("run-1")).toBe(true);
@@ -1223,7 +1223,7 @@ describe("provider binding quarantine", () => {
   });
 
   it("leaves an unaffected binding attachable", () => {
-    const quarantine = new ProviderBindingQuarantine();
+    const quarantine = new RuntimeBindingQuarantine();
     quarantine.disposeRun("run-1", "session-1");
 
     expect(() => quarantine.assertRunAttachable("run-2")).not.toThrow();
@@ -1233,7 +1233,7 @@ describe("provider binding quarantine", () => {
     // The axis a run-keyed quarantine cannot reach: a later run resolves a
     // SESSION, so a refusal keyed only by run id would let it dispatch into the
     // process that swallowed the text.
-    const quarantine = new ProviderBindingQuarantine();
+    const quarantine = new RuntimeBindingQuarantine();
     quarantine.disposeSession("session-1");
 
     expect(quarantine.isSessionDisposed("session-1")).toBe(true);
@@ -1251,7 +1251,7 @@ describe("provider binding quarantine", () => {
     // reinstating it is the reachable case — would otherwise stay refused for
     // the daemon's lifetime, having lost its interrupt and intervention controls
     // to a quarantine on a process that no longer exists.
-    const quarantine = new ProviderBindingQuarantine();
+    const quarantine = new RuntimeBindingQuarantine();
     quarantine.disposeSession("session-1");
     quarantine.disposeRun("run-1", "session-1");
     quarantine.releaseSession("session-1");
@@ -1266,7 +1266,7 @@ describe("provider binding quarantine", () => {
     // not by "release everything". A run quarantined on a different session is
     // still on a process nothing has replaced, and reaching it must still
     // refuse.
-    const quarantine = new ProviderBindingQuarantine();
+    const quarantine = new RuntimeBindingQuarantine();
     quarantine.disposeRun("run-1", "session-1");
     quarantine.disposeRun("run-2", "session-2");
     quarantine.releaseSession("session-1");
@@ -1278,7 +1278,7 @@ describe("provider binding quarantine", () => {
   it("keeps a run refused when a DIFFERENT session is respawned", () => {
     // The other half of the same control, from the release side: releasing a
     // binding that condemned nothing releases nothing.
-    const quarantine = new ProviderBindingQuarantine();
+    const quarantine = new RuntimeBindingQuarantine();
     quarantine.disposeRun("run-1", "session-1");
     quarantine.releaseSession("session-9");
 
@@ -1289,7 +1289,7 @@ describe("provider binding quarantine", () => {
     // Release is not absolution. The run is attachable again after the respawn,
     // and a second trip on the new binding condemns it again — under the new
     // binding, so the next release is the one that clears it.
-    const quarantine = new ProviderBindingQuarantine();
+    const quarantine = new RuntimeBindingQuarantine();
     quarantine.disposeRun("run-1", "session-1");
     quarantine.releaseSession("session-1");
     quarantine.disposeRun("run-1", "session-2");
@@ -1302,7 +1302,7 @@ describe("provider binding quarantine", () => {
   });
 
   it("names its subject in the refusal so one cause reads as one cause", () => {
-    const quarantine = new ProviderBindingQuarantine();
+    const quarantine = new RuntimeBindingQuarantine();
     quarantine.disposeRun("run-1", "session-1");
     quarantine.disposeSession("session-1");
 
@@ -1316,7 +1316,7 @@ describe("provider binding quarantine", () => {
     // disposal cannot revive the run it belonged to — that run is already
     // terminal — so what expires is only the fail-fast refusal an immediate
     // re-attach would have hit.
-    const quarantine = new ProviderBindingQuarantine();
+    const quarantine = new RuntimeBindingQuarantine();
     const disposedRunCount = 200;
     for (let index = 0; index < disposedRunCount; index += 1) {
       quarantine.disposeRun(`run-${String(index)}`, "session-1");
@@ -1329,7 +1329,7 @@ describe("provider binding quarantine", () => {
   it("caps the session axis independently of the run axis", () => {
     // Separate collections, so a busy run axis cannot age a session refusal out
     // from under the session it condemned.
-    const quarantine = new ProviderBindingQuarantine();
+    const quarantine = new RuntimeBindingQuarantine();
     quarantine.disposeSession("session-1");
     for (let index = 0; index < 200; index += 1) {
       quarantine.disposeRun(`run-${String(index)}`, "session-2");
@@ -1339,7 +1339,7 @@ describe("provider binding quarantine", () => {
   });
 
   it("keeps a re-disposed binding at the newest position", () => {
-    const quarantine = new ProviderBindingQuarantine();
+    const quarantine = new RuntimeBindingQuarantine();
     quarantine.disposeRun("run-old", "session-1");
     for (let index = 0; index < 100; index += 1) {
       quarantine.disposeRun(`run-${String(index)}`, "session-1");

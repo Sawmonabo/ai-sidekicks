@@ -1484,7 +1484,7 @@ export class TextNeutralizationRefusedError extends Error {
  * ordering the assert exists to invert. Recording the binding and looking up by
  * run keeps both properties.
  */
-export class ProviderBindingQuarantine {
+export class RuntimeBindingQuarantine {
   // Run id → the session whose binding condemned it. The VALUE is what makes the
   // release possible; the KEY is what the assert sites can supply.
   readonly #condemningSessionIdByRunId = new Map<string, string>();
