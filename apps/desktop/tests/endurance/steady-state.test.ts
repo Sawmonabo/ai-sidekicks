@@ -302,11 +302,11 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console held open", () => {
           beatsDelivered = cycleReading.deliveredBeatCount;
           if (ledgerRowsHaveMounted) {
             expect(
-              cycleReading.ledgerRowCount,
+              cycleReading.transcriptRowCount,
               `cycle ${String(cycle)} left the ledger holding no row after an earlier cycle had mounted one, so every cycle after it churned a route whose surface is gone`,
             ).toBeGreaterThan(0);
           }
-          if (cycleReading.ledgerRowCount > 0) {
+          if (cycleReading.transcriptRowCount > 0) {
             ledgerRowsHaveMounted = true;
             cyclesWithLedgerRows += 1;
           }

@@ -252,7 +252,7 @@ export interface ChurnCycleReading {
   /** Beats the engine has delivered, or `null` where the handle is not on the page. */
   readonly deliveredBeatCount: number | null;
   /** Row boxes the virtualizer had placed when the cycle closed. */
-  readonly ledgerRowCount: number;
+  readonly transcriptRowCount: number;
 }
 
 /**
@@ -299,8 +299,8 @@ export async function churnOnce(
   // no row — the concurrent-streaming script is walked over the whole run — so a wait here would
   // spend the body's allowance on a state the run is expecting. What the caller does
   // with the sequence of counts is the claim; this only reports them.
-  const ledgerRowCount = await consoleWindow.locator(TRANSCRIPT_ROW_BOX_SELECTOR).count();
-  return { deliveredBeatCount, ledgerRowCount };
+  const transcriptRowCount = await consoleWindow.locator(TRANSCRIPT_ROW_BOX_SELECTOR).count();
+  return { deliveredBeatCount, transcriptRowCount };
 }
 
 /**
