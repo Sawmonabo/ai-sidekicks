@@ -18,13 +18,23 @@
 // `mcp.reconnect` IS THE ONE OPERATION THAT CARRIES NO KEY. It is unreceipted at the
 // daemon, so a key on it would describe a replay that does not exist; its absence
 // is not an oversight to be fixed by symmetry.
+//
+// The file also holds each `mcp.*` method's request and reply. The method table
+// that pairs them, the governance event payloads and the refusal codes are in
+// `mcp-governance.ts`.
 import { z } from "zod";
 
 import { ProviderNameSchema, type ProviderName } from "./provider-account.js";
-import { DRIVER_MCP_SERVER_NAME_MAX_LEN, type McpServerStatus } from "./provider-driver.js";
-import { wireFreeFormString, type SessionId } from "./session.js";
+import {
+  DRIVER_BINDING_ID_MAX_LEN,
+  DRIVER_MCP_SERVER_NAME_MAX_LEN,
+  DRIVER_TOOL_NAME_MAX_LEN,
+  type McpServerStatus,
+} from "./provider-driver.js";
+import { SessionIdSchema, wireFreeFormString, type SessionId } from "./session.js";
 
-const mcpServerNameSchema = wireFreeFormString(
+/** A server's name as a binding and an event carry it. */
+export const McpServerNameSchema: z.ZodString = wireFreeFormString(
   DRIVER_MCP_SERVER_NAME_MAX_LEN,
   "McpServerBindingRef.serverName",
 );
@@ -67,37 +77,53 @@ const MCP_APPROVAL_MODE_VALUES = ["auto", "prompt", "writes", "approve"] as cons
 export type McpApprovalMode = (typeof MCP_APPROVAL_MODE_VALUES)[number];
 /** Every {@link McpApprovalMode}. */
 export const MCP_APPROVAL_MODES: readonly McpApprovalMode[] = MCP_APPROVAL_MODE_VALUES;
+/** Parses an {@link McpApprovalMode}. */
+export const McpApprovalModeSchema: z.ZodType<McpApprovalMode, McpApprovalMode> =
+  z.enum(MCP_APPROVAL_MODE_VALUES);
+
+const MCP_CONFIG_SCOPE_VALUES = ["user", "project", "local"] as const;
+
+/**
+ * Where a server binding applies: `user` on this machine in every project,
+ * `project` in one project and saved with its repository, `local` in one project
+ * on this machine only. Every scope exists on both providers; Codex has no private
+ * per-project layer, so the daemon emulates `local` there with a user entry that
+ * is off by default and switched on in that project's sessions.
+ */
+export type McpConfigScope = (typeof MCP_CONFIG_SCOPE_VALUES)[number];
+/** Every {@link McpConfigScope}, in the order above. */
+export const MCP_CONFIG_SCOPES: readonly McpConfigScope[] = MCP_CONFIG_SCOPE_VALUES;
 
 /**
  * The scope-qualified identity of one server binding: provider, scope, scope
  * reference and server name.
  *
  * A DISCRIMINATED UNION on `scope`, not four optional members: `user` carries no
- * `scopeRef`, `project` and `local` require one, and `(codex, local)` does not exist.
+ * `scopeRef`, and `project` and `local` require one, the project's root folder.
  * A flat record would let a caller compose an identity the daemon rejects, and would
  * collapse two same-named servers in two scopes into one row.
  */
 export type McpServerBindingRef =
   | { provider: ProviderName; scope: "user"; serverName: string }
   | { provider: ProviderName; scope: "project"; scopeRef: string; serverName: string }
-  | { provider: "claude"; scope: "local"; scopeRef: string; serverName: string };
+  | { provider: ProviderName; scope: "local"; scopeRef: string; serverName: string };
 
 const userBindingShape = {
   provider: ProviderNameSchema,
   scope: z.literal("user"),
-  serverName: mcpServerNameSchema,
+  serverName: McpServerNameSchema,
 };
 const projectBindingShape = {
   provider: ProviderNameSchema,
   scope: z.literal("project"),
   scopeRef: z.string().min(1),
-  serverName: mcpServerNameSchema,
+  serverName: McpServerNameSchema,
 };
 const localBindingShape = {
-  provider: z.literal("claude"),
+  provider: ProviderNameSchema,
   scope: z.literal("local"),
   scopeRef: z.string().min(1),
-  serverName: mcpServerNameSchema,
+  serverName: McpServerNameSchema,
 };
 
 /**
@@ -185,6 +211,11 @@ export interface McpServerLegStatus {
   observedAt?: string | undefined;
 }
 
+const MCP_SERVER_FAILED_REASON_VALUES = ["commandNotRunnable"] as const;
+
+/** Why a server reads `failed`, where the daemon knows. See {@link McpServerInventoryEntry}. */
+export type McpServerFailedReason = (typeof MCP_SERVER_FAILED_REASON_VALUES)[number];
+
 /**
  * One tool's override, by facet.
  *
@@ -203,8 +234,9 @@ export interface McpToolOverride {
 
 /**
  * What an inventory entry carries whether or not the trust store answered.
- * `effectiveInRuns` says whether the binding reaches provider runs; `status` is the
- * daemon's aggregate over `legs`.
+ * `effectiveInRuns` says whether the binding reaches provider runs, which every
+ * scope does except a server that came with a repository and is not yet trusted;
+ * `status` is the daemon's aggregate over `legs`.
  */
 interface McpServerInventoryFacts {
   effectiveInRuns: boolean;
@@ -215,6 +247,13 @@ interface McpServerInventoryFacts {
   requiredServer?: boolean | undefined;
   /** The keyed digest of `scopeRef`, served on project and local bindings in both arms. */
   scopeRefDigest?: string | undefined;
+  /**
+   * Why a `failed` server failed, where the daemon knows a reason the person can
+   * act on. `commandNotRunnable`: after the service moved between Windows and a WSL
+   * distribution, the command or its arguments name a program on the side it
+   * left. Carried only on a `failed` entry; the five status words stay five.
+   */
+  failedReason?: McpServerFailedReason | undefined;
 }
 
 /**
@@ -272,3 +311,552 @@ export interface McpMutationResult {
   applied: McpApplicationGrade;
   liveResults?: McpLiveApplicationResult[] | undefined;
 }
+
+/** One tool's override result, per facet it touched. See {@link McpToolOverride}. */
+export interface McpToolOverrideApplication {
+  enabled?: McpApplicationGrade | undefined;
+  approvalMode?: McpApplicationGrade | undefined;
+  /** An interrupted-call class is always enforced at the daemon, at once. */
+  idempotencyClass?: "daemon_enforced" | undefined;
+}
+
+/**
+ * What setting or clearing a tool override answers with. A Codex `enabled` or
+ * `approvalMode` facet is written into the provider's own config, so each facet
+ * carries its own grade.
+ */
+export interface McpToolOverrideMutationResult {
+  server: McpServerInventoryEntry;
+  applied: McpToolOverrideApplication;
+}
+
+/** What removing a binding answers with. There is no row left to return. */
+export interface McpRemoveServerResult {
+  applied: McpApplicationGrade;
+  liveResults?: McpLiveApplicationResult[] | undefined;
+}
+
+// ---------------------------------------------------------------------------
+// The configuration a person submits
+// ---------------------------------------------------------------------------
+
+/**
+ * The longest command, argument, name, value, address or search text an `mcp.*`
+ * request carries.
+ */
+export const MCP_REQUEST_TEXT_MAX_LEN = 8192;
+
+const mcpRequestText = (fieldLabel: string): z.ZodString =>
+  wireFreeFormString(MCP_REQUEST_TEXT_MAX_LEN, fieldLabel);
+
+/**
+ * An `http:` or `https:` address with no user name or password in it. Zod runs
+ * the refinement even after the address check fails, so it parses defensively.
+ */
+const mcpServerAddressSchema = z
+  .url({ protocol: /^https?$/ })
+  .max(MCP_REQUEST_TEXT_MAX_LEN)
+  .refine(
+    (address) => {
+      const parsed = URL.parse(address);
+      return parsed !== null && parsed.username === "" && parsed.password === "";
+    },
+    { message: "A server address carries no user name or password." },
+  );
+
+const mcpTimeoutSecondsSchema = z.number().positive();
+
+/**
+ * A server's declaration as the person submits it, by transport.
+ *
+ * Environment and header VALUES are write-only: the daemon hands them to the
+ * provider's own write path and never serves them back. Members the person did
+ * not set are left as the provider's declaration has them.
+ */
+export type McpServerConfigInput =
+  | {
+      transport: "stdio";
+      command: string;
+      args?: string[] | undefined;
+      env?: Record<string, string> | undefined;
+      enabled?: boolean | undefined;
+      required?: boolean | undefined;
+      startupTimeoutSec?: number | undefined;
+      toolTimeoutSec?: number | undefined;
+    }
+  | {
+      transport: "http" | "sse";
+      url: string;
+      headers?: Record<string, string> | undefined;
+      bearerTokenEnvVar?: string | undefined;
+      /** A header name mapped to the name of the environment variable holding its value. */
+      envHttpHeaders?: Record<string, string> | undefined;
+      oauthScopes?: string[] | undefined;
+      oauthResource?: string | undefined;
+      enabled?: boolean | undefined;
+      required?: boolean | undefined;
+      startupTimeoutSec?: number | undefined;
+      toolTimeoutSec?: number | undefined;
+    };
+
+const configCommonShape = {
+  enabled: z.boolean().optional(),
+  required: z.boolean().optional(),
+  startupTimeoutSec: mcpTimeoutSecondsSchema.optional(),
+  toolTimeoutSec: mcpTimeoutSecondsSchema.optional(),
+};
+
+const mcpTextMap = (fieldLabel: string) =>
+  z.record(mcpRequestText(`${fieldLabel} name`), z.string().max(MCP_REQUEST_TEXT_MAX_LEN));
+
+const McpServerConfigInputSchema: z.ZodType<McpServerConfigInput, McpServerConfigInput> =
+  z.discriminatedUnion("transport", [
+    z
+      .object({
+        transport: z.literal("stdio"),
+        command: mcpRequestText("McpServerConfigInput.command"),
+        args: z.array(z.string().max(MCP_REQUEST_TEXT_MAX_LEN)).optional(),
+        env: mcpTextMap("McpServerConfigInput.env").optional(),
+        ...configCommonShape,
+      })
+      .strict(),
+    z
+      .object({
+        transport: z.enum(["http", "sse"]),
+        url: mcpServerAddressSchema,
+        headers: mcpTextMap("McpServerConfigInput.headers").optional(),
+        bearerTokenEnvVar: mcpRequestText("McpServerConfigInput.bearerTokenEnvVar").optional(),
+        envHttpHeaders: mcpTextMap("McpServerConfigInput.envHttpHeaders").optional(),
+        oauthScopes: z.array(mcpRequestText("McpServerConfigInput.oauthScopes")).optional(),
+        oauthResource: mcpRequestText("McpServerConfigInput.oauthResource").optional(),
+        ...configCommonShape,
+      })
+      .strict(),
+  ]);
+
+/** Whether a submitted declaration holds an environment or header value. */
+function carriesSecretValues(config: McpServerConfigInput): boolean {
+  const values = config.transport === "stdio" ? config.env : config.headers;
+  return values !== undefined && Object.keys(values).length > 0;
+}
+
+// ---------------------------------------------------------------------------
+// Requests
+// ---------------------------------------------------------------------------
+
+/** Reads the whole inventory; `refresh` asks the daemon to probe before answering. */
+export interface McpListRequest {
+  refresh?: boolean | undefined;
+}
+/** Parses an {@link McpListRequest}. */
+export const McpListRequestSchema: z.ZodType<McpListRequest, McpListRequest> = z
+  .object({ refresh: z.boolean().optional() })
+  .strict();
+
+/** Opens the stream of governance events. Opened before the list is read. */
+export type McpSubscribeRequest = Record<string, never>;
+/** Parses an {@link McpSubscribeRequest}: an empty object. */
+export const McpSubscribeRequestSchema: z.ZodType<McpSubscribeRequest, McpSubscribeRequest> = z
+  .object({})
+  .strict();
+
+/**
+ * Adds a binding or changes its declaration, at any scope on either provider.
+ *
+ * A `project` binding is saved in a file that travels with the repository, so it
+ * takes environment-variable and header names only: a request carrying a value
+ * there is refused before anything is written.
+ */
+export type McpUpsertServerRequest = McpServerBindingRef & {
+  clientIdempotencyKey: string;
+  config: McpServerConfigInput;
+};
+/** Parses an {@link McpUpsertServerRequest}. */
+export const McpUpsertServerRequestSchema: z.ZodType<
+  McpUpsertServerRequest,
+  McpUpsertServerRequest
+> = bindingAddressed({
+  clientIdempotencyKey: z.uuid(),
+  config: McpServerConfigInputSchema,
+}).refine((request) => request.scope !== "project" || !carriesSecretValues(request.config), {
+  message:
+    "A project binding is saved with the repository, so it takes names, never environment or header values.",
+  path: ["config"],
+});
+
+/**
+ * A keyed command on one binding with nothing else to say: removing it, or
+ * starting the daemon's sign-in for it.
+ */
+export type McpKeyedBindingRequest = McpServerBindingRef & { clientIdempotencyKey: string };
+/** Parses an {@link McpKeyedBindingRequest}. */
+export const McpKeyedBindingRequestSchema: z.ZodType<
+  McpKeyedBindingRequest,
+  McpKeyedBindingRequest
+> = bindingAddressed({ clientIdempotencyKey: z.uuid() });
+
+/** A tool's name as an override and an event carry it. */
+export const McpToolNameSchema: z.ZodString = wireFreeFormString(
+  DRIVER_TOOL_NAME_MAX_LEN,
+  "McpToolOverride.toolName",
+);
+
+/** Parses an {@link McpToolOverride}; an override that sets no facet is refused. */
+export const McpToolOverrideSchema: z.ZodType<McpToolOverride, McpToolOverride> = z
+  .object({
+    toolName: McpToolNameSchema,
+    enabled: z.boolean().optional(),
+    approvalMode: McpApprovalModeSchema.optional(),
+    idempotencyClass: z.enum(["idempotent", "compensable"]).optional(),
+  })
+  .strict()
+  .refine(
+    (override) =>
+      override.enabled !== undefined ||
+      override.approvalMode !== undefined ||
+      override.idempotencyClass !== undefined,
+    { message: "A tool override sets at least one of enabled, approvalMode or idempotencyClass." },
+  );
+
+/** Sets one tool's override on a binding. */
+export type McpSetToolOverrideRequest = McpServerBindingRef & {
+  clientIdempotencyKey: string;
+  override: McpToolOverride;
+};
+/** Parses an {@link McpSetToolOverrideRequest}. */
+export const McpSetToolOverrideRequestSchema: z.ZodType<
+  McpSetToolOverrideRequest,
+  McpSetToolOverrideRequest
+> = bindingAddressed({ clientIdempotencyKey: z.uuid(), override: McpToolOverrideSchema });
+
+/** Clears one tool's override, returning every facet to the server's own value. */
+export type McpClearToolOverrideRequest = McpServerBindingRef & {
+  clientIdempotencyKey: string;
+  toolName: string;
+};
+/** Parses an {@link McpClearToolOverrideRequest}. */
+export const McpClearToolOverrideRequestSchema: z.ZodType<
+  McpClearToolOverrideRequest,
+  McpClearToolOverrideRequest
+> = bindingAddressed({ clientIdempotencyKey: z.uuid(), toolName: McpToolNameSchema });
+
+/**
+ * Signs out of one server: the daemon's single sign-in for it, which both
+ * providers and every binding naming it share. `serverId` is the server's
+ * address, not a scope-qualified binding.
+ */
+export interface McpOauthLogoutRequest {
+  serverId: string;
+}
+/** Parses an {@link McpOauthLogoutRequest}. */
+export const McpOauthLogoutRequestSchema: z.ZodType<McpOauthLogoutRequest, McpOauthLogoutRequest> =
+  z.object({ serverId: mcpServerAddressSchema }).strict();
+
+/**
+ * Asks the provider to open a binding's connection again. It carries no key: it
+ * writes nothing, so there is no receipt to replay. `bindingId` names one live leg;
+ * `sessionId` alone names every leg of that session; neither names every live leg.
+ */
+export type McpReconnectRequest = McpServerBindingRef & {
+  sessionId?: SessionId | undefined;
+  bindingId?: string | undefined;
+};
+/** Parses an {@link McpReconnectRequest}. */
+export const McpReconnectRequestSchema: z.ZodType<McpReconnectRequest, McpReconnectRequest> =
+  bindingAddressed({
+    sessionId: SessionIdSchema.optional(),
+    bindingId: wireFreeFormString(
+      DRIVER_BINDING_ID_MAX_LEN,
+      "McpReconnectRequest.bindingId",
+    ).optional(),
+  });
+
+/**
+ * Searches the public MCP Registry for servers to add. The daemon makes the call,
+ * only when the person types, and keeps nothing past the page it answers.
+ */
+export interface McpRegistrySearchRequest {
+  query: string;
+  cursor?: string | undefined;
+}
+/** Parses an {@link McpRegistrySearchRequest}. */
+export const McpRegistrySearchRequestSchema: z.ZodType<
+  McpRegistrySearchRequest,
+  McpRegistrySearchRequest
+> = z
+  .object({
+    query: mcpRequestText("McpRegistrySearchRequest.query"),
+    cursor: mcpRequestText("McpRegistrySearchRequest.cursor").optional(),
+  })
+  .strict();
+
+// ---------------------------------------------------------------------------
+// Replies
+// ---------------------------------------------------------------------------
+
+/** Parses one of the five server statuses. */
+export const McpServerStatusSchema: z.ZodType<McpServerStatus> = z.enum([
+  "failed",
+  "needs-auth",
+  "unknown",
+  "starting",
+  "connected",
+]);
+
+/** A keyed BLAKE3 digest the daemon serves in place of a folder or a configuration. */
+export const McpKeyedDigestSchema: z.ZodString = z.string().startsWith("b3:").min(4);
+
+const viewCommonShape = {
+  enabled: z.boolean().optional(),
+  required: z.boolean().optional(),
+  startupTimeoutSec: mcpTimeoutSecondsSchema.optional(),
+  toolTimeoutSec: mcpTimeoutSecondsSchema.optional(),
+};
+
+const McpServerConfigViewSchema: z.ZodType<McpServerConfigView> = z.discriminatedUnion(
+  "transport",
+  [
+    z
+      .object({
+        transport: z.literal("stdio"),
+        command: z.string(),
+        args: z.array(z.string()).optional(),
+        envVarNames: z.array(z.string()).optional(),
+        ...viewCommonShape,
+      })
+      .strict(),
+    z
+      .object({
+        transport: z.enum(["http", "sse"]),
+        url: z.string(),
+        urlQueryParamNames: z.array(z.string()).optional(),
+        headerNames: z.array(z.string()).optional(),
+        bearerTokenEnvVar: z.string().optional(),
+        envHttpHeaders: z.record(z.string(), z.string()).optional(),
+        oauthScopes: z.array(z.string()).optional(),
+        oauthResource: z.string().optional(),
+        ...viewCommonShape,
+      })
+      .strict(),
+  ],
+);
+
+const McpServerLegStatusSchema: z.ZodType<McpServerLegStatus> = z
+  .object({
+    sessionId: SessionIdSchema,
+    bindingId: z.string().min(1),
+    status: McpServerStatusSchema,
+    observedAt: z.iso.datetime({ offset: true }).optional(),
+  })
+  .strict();
+
+const inventoryFactsShape = {
+  effectiveInRuns: z.boolean(),
+  config: McpServerConfigViewSchema,
+  status: McpServerStatusSchema,
+  legs: z.array(McpServerLegStatusSchema).optional(),
+  observedAt: z.iso.datetime({ offset: true }).optional(),
+  requiredServer: z.boolean().optional(),
+  scopeRefDigest: McpKeyedDigestSchema.optional(),
+  failedReason: z.enum(MCP_SERVER_FAILED_REASON_VALUES).optional(),
+};
+const trustedEntryShape = {
+  enabled: z.boolean(),
+  trusted: z.boolean(),
+  configHash: McpKeyedDigestSchema,
+  toolOverrides: z.array(McpToolOverrideSchema),
+};
+const trustUnavailableEntryShape = {
+  trustUnavailable: z.literal(true),
+  enabled: z.boolean().optional(),
+};
+
+/** One binding arm's two inventory arms: the trust store answered, or it did not. */
+const inventoryEntryArms = <Binding extends z.ZodRawShape>(binding: Binding) =>
+  [
+    z.object({ ...binding, ...inventoryFactsShape, ...trustedEntryShape }).strict(),
+    z.object({ ...binding, ...inventoryFactsShape, ...trustUnavailableEntryShape }).strict(),
+  ] as const;
+
+/** Parses an {@link McpServerInventoryEntry}; a failure reason on a server not `failed` is refused. */
+const McpServerInventoryEntrySchema: z.ZodType<McpServerInventoryEntry> = z
+  .union([
+    ...inventoryEntryArms(userBindingShape),
+    ...inventoryEntryArms(projectBindingShape),
+    ...inventoryEntryArms(localBindingShape),
+  ])
+  .refine((entry) => entry.failedReason === undefined || entry.status === "failed", {
+    message: "failedReason is carried only on a failed server.",
+    path: ["failedReason"],
+  });
+
+/** Parses an {@link McpApplicationGrade}. */
+export const McpApplicationGradeSchema: z.ZodType<McpApplicationGrade> = z.enum(
+  MCP_APPLICATION_GRADE_VALUES,
+);
+
+const McpLiveApplicationResultSchema: z.ZodType<McpLiveApplicationResult> = z
+  .object({
+    sessionId: SessionIdSchema,
+    bindingId: z.string().min(1),
+    outcome: z.enum(["applied", "failed"]),
+    errorCode: z.string().optional(),
+    detail: z.string().optional(),
+  })
+  .strict();
+
+/** What `mcp.list` answers with. */
+export interface McpListResponse {
+  servers: McpServerInventoryEntry[];
+}
+/** Parses an {@link McpListResponse}. */
+export const McpListResponseSchema: z.ZodType<McpListResponse> = z
+  .object({ servers: z.array(McpServerInventoryEntrySchema) })
+  .strict();
+
+/** What `mcp.get` answers with. */
+export interface McpGetResponse {
+  server: McpServerInventoryEntry;
+}
+/** Parses an {@link McpGetResponse}. */
+export const McpGetResponseSchema: z.ZodType<McpGetResponse> = z
+  .object({ server: McpServerInventoryEntrySchema })
+  .strict();
+
+/** Parses an {@link McpMutationResult}. */
+export const McpMutationResultSchema: z.ZodType<McpMutationResult> = z
+  .object({
+    server: McpServerInventoryEntrySchema,
+    applied: McpApplicationGradeSchema,
+    liveResults: z.array(McpLiveApplicationResultSchema).optional(),
+  })
+  .strict();
+
+/** Parses an {@link McpRemoveServerResult}. */
+export const McpRemoveServerResultSchema: z.ZodType<McpRemoveServerResult> = z
+  .object({
+    applied: McpApplicationGradeSchema,
+    liveResults: z.array(McpLiveApplicationResultSchema).optional(),
+  })
+  .strict();
+
+/** Parses an {@link McpToolOverrideMutationResult}. */
+export const McpToolOverrideMutationResultSchema: z.ZodType<McpToolOverrideMutationResult> = z
+  .object({
+    server: McpServerInventoryEntrySchema,
+    applied: z
+      .object({
+        enabled: McpApplicationGradeSchema.optional(),
+        approvalMode: McpApplicationGradeSchema.optional(),
+        idempotencyClass: z.literal("daemon_enforced").optional(),
+      })
+      .strict(),
+  })
+  .strict();
+
+/**
+ * What starting a sign-in answers with: the sign-in page's address for the client
+ * to open. A replayed retry answers without it, because the address is used once
+ * and never stored; that caller starts a new sign-in under a new key.
+ */
+export interface McpOauthLoginResponse {
+  authorizationUrl?: string | undefined;
+}
+/** Parses an {@link McpOauthLoginResponse}. */
+export const McpOauthLoginResponseSchema: z.ZodType<McpOauthLoginResponse> = z
+  .object({ authorizationUrl: z.url().optional() })
+  .strict();
+
+/** What signing out answers with; each binding's new status arrives on the stream. */
+export type McpOauthLogoutResponse = Record<string, never>;
+/** Parses an {@link McpOauthLogoutResponse}: an empty object. */
+export const McpOauthLogoutResponseSchema: z.ZodType<McpOauthLogoutResponse> = z
+  .object({})
+  .strict();
+
+/** What reconnecting answers with: each leg's status after the attempt. */
+export interface McpReconnectResponse {
+  legs: McpServerLegStatus[];
+}
+/** Parses an {@link McpReconnectResponse}. */
+export const McpReconnectResponseSchema: z.ZodType<McpReconnectResponse> = z
+  .object({ legs: z.array(McpServerLegStatusSchema) })
+  .strict();
+
+/** A registry server that runs as a package the person's machine installs. */
+export interface McpRegistryPackage {
+  registryType: string;
+  identifier: string;
+  runtimeHint?: string | undefined;
+  runtimeArguments: string[];
+}
+
+/** A registry server reached at an address. */
+export interface McpRegistryRemote {
+  type: string;
+  url: string;
+}
+
+/** An environment variable a registry server reads: its name, never a value. */
+export interface McpRegistryEnvironmentVariable {
+  name: string;
+  description?: string | undefined;
+  isRequired: boolean;
+}
+
+/**
+ * One registry search result. Untrusted data from a public registry anyone can
+ * publish to: it fills the add form and nothing else, and it never holds an
+ * environment variable's value.
+ */
+export interface McpRegistryServer {
+  name: string;
+  title?: string | undefined;
+  description: string;
+  version: string;
+  packages: McpRegistryPackage[];
+  remotes: McpRegistryRemote[];
+  environmentVariables: McpRegistryEnvironmentVariable[];
+}
+
+/** One page of registry search results. */
+export interface McpRegistrySearchResponse {
+  servers: McpRegistryServer[];
+  nextCursor?: string | undefined;
+}
+/** Parses an {@link McpRegistrySearchResponse}. */
+export const McpRegistrySearchResponseSchema: z.ZodType<McpRegistrySearchResponse> = z
+  .object({
+    servers: z.array(
+      z
+        .object({
+          name: z.string().min(1),
+          title: z.string().optional(),
+          description: z.string(),
+          version: z.string(),
+          packages: z.array(
+            z
+              .object({
+                registryType: z.string(),
+                identifier: z.string().min(1),
+                runtimeHint: z.string().optional(),
+                runtimeArguments: z.array(z.string()),
+              })
+              .strict(),
+          ),
+          remotes: z.array(z.object({ type: z.string(), url: z.url() }).strict()),
+          environmentVariables: z.array(
+            z
+              .object({
+                name: z.string().min(1),
+                description: z.string().optional(),
+                isRequired: z.boolean(),
+              })
+              .strict(),
+          ),
+        })
+        .strict(),
+    ),
+    nextCursor: z.string().min(1).optional(),
+  })
+  .strict();

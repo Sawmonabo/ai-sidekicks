@@ -23,6 +23,7 @@ export * from "./jsonrpc-negotiation.js";
 export * from "./jsonrpc-registry.js";
 export * from "./jsonrpc-streaming.js";
 export * from "./jsonrpc.js";
+export * from "./mcp-governance.js";
 export * from "./mcp.js";
 export * from "./method-descriptor.js";
 export * from "./node-id.js";
