@@ -8,14 +8,14 @@ Recover replay and audit projections when session history appears incomplete, st
 
 - Timeline is missing known events
 - Audit history stops before the current session state
-- Replay health shows lag or rebuild failure
-- Scope and blast radius: one session projection, one node-local event store, or one shared audit projection
+- The daemon is in its degraded read-only mode after a projection rebuild failed, or `sidekicks daemon status` prints a line for a session its integrity check halted
+- Scope and blast radius: one session projection, or the machine's local event store
 
 ## Detection
 
 - Compare `ReplayReadAfterCursor` results with the latest canonical event sequence for the affected session.
 - Read `RecoveryStatusRead` plus projection lag signals for the affected node or session.
-- Verify whether missing history is expected payload compaction, stale projection state, or true canonical-event loss.
+- Verify whether missing history is an expected purge (a session removed by `Delete old data` keeps only its audit stubs), stale projection state, or true canonical-event loss.
 
 ## Preconditions
 
@@ -26,32 +26,29 @@ Recover replay and audit projections when session history appears incomplete, st
 ## Recovery Steps
 
 1. Confirm whether canonical events exist for the missing history before attempting rebuild.
-2. If projection lag or failure is present, pause new mutable work on the affected node or session until replay health is understood.
-3. Rebuild the affected projection from canonical events using `ProjectionRebuild` or the equivalent idempotent replay path.
+2. If projection lag or failure is present, start no new mutable work in the affected session until the history is understood.
+3. Restart the daemon (`Restart` on Settings › Runtime, or `sidekicks daemon restart`). Startup runs `ProjectionRebuild`, which rebuilds every session projection from canonical events, idempotently, before any new mutable work is accepted.
 4. If canonical local storage is damaged or unreadable, stop and follow [Local Persistence Repair And Restore](./local-persistence-repair-and-restore.md) before rebuilding again.
 5. Validate command receipts and artifact manifests for any side-effecting ranges that were replayed.
-6. Re-open mutable work only after session timeline and audit views match canonical event ranges again.
+6. Re-open mutable work only after the session timeline matches canonical event ranges again.
 
 ## Validation
 
-- Replay status returns to healthy
+- `sidekicks daemon status` reads the service as running with its store open, and prints no halted-session line for the affected session
 - Timeline and audit projections match canonical event ranges for the affected session
 - No duplicate side effects appear after replay rebuild
 - `ReplayReadAfterCursor` from the prior failure point returns the expected missing range without divergence
 
 ## Escalation
 
-- Escalate when canonical events are missing, replay tooling is not idempotent, or audit surfaces diverge again immediately after rebuild
+- When canonical events are missing, the rebuild is not idempotent, or the timeline diverges again immediately after a rebuild, report it to the project as a bug with the daemon's logs attached
 
 ## CLI Commands
 
 ```bash
-sidekicks replay status --session <id>
-sidekicks replay rebuild --session <id> --force
-sidekicks events list --session <id> --after <cursor>
-sidekicks events export --session <id> --format json
-sidekicks replay lag --session <id>
-sidekicks events count --session <id>
+sidekicks daemon status          # the store, and one line per halted session
+sidekicks daemon restart         # startup rebuilds every projection
+sidekicks export-data <folder>   # every session's events, decrypted, one per line
 ```
 
 ## SLOs and Thresholds
@@ -60,15 +57,12 @@ sidekicks events count --session <id>
 | ----------------------- | ----------------------------- |
 | Replay projection lag   | < 30s behind canonical events |
 | Projection rebuild      | < 60s per 10k events          |
-| Audit query p99 latency | < 500ms                       |
 | Event export throughput | > 1k events/s                 |
 
 ## On-Call Routing
 
-- **Severity 1** (service down): Page on-call engineer immediately. Escalate to team lead after 15min.
-- **Severity 2** (degraded): Alert on-call via Slack. Investigate within 30min.
-- **Severity 3** (warning): Log alert. Review during business hours.
-- **Domain routing**: Replay and audit issues route to **backend on-call**.
+- The machine belongs to one person, who runs this procedure on it; there is no paging, no chat alert and no on-call rotation.
+- History that stays missing or diverges again after these steps is reported to the project as a bug, with the daemon's logs attached.
 
 ## Related Architecture Docs
 

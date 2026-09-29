@@ -30,11 +30,11 @@ The locked console design draws different controls on the two kinds of session, 
 A session has one of two shapes, **chat** or **project**, and the shape is decided by what the session is bound to, never by a mode flag.
 
 - A **project** session is bound to a repository the person attached. "Project" is defined against the mount's origin being one the person attached, never against a folder merely existing.
-- A **chat** session is bound to a managed workspace the daemon owns: a real, git-initialized folder, one per session, at `<home>/.ai-sidekicks/workspaces/<session-id>`, registered as a mount with a managed origin.
+- A **chat** session is bound to a managed workspace the daemon owns: a real, git-initialized folder, one per session, at `<home>/.ai-sidekicks/workspaces/<session-id>`, registered as a mount with a managed origin. The daemon's managed-workspace service makes it (`ManagedWorkspaceService.create`) as one step of `session.create` for a chat, and of `session.fork` when the session forked is a chat; no call of its own creates one.
 - The discriminator is a real column on the record. It is never guessed from a path prefix.
-- Attaching a repository to a chat promotes that same session in place. The managed workspace and the session's history are kept, the working folder moves to the attached repository, and the files the chat wrote are copied into that repository, where they show as new uncommitted changes. Nothing is committed and nothing is merged automatically.
+- Attaching a repository to a chat promotes that same session in place. The managed workspace and the session's history are kept, the working folder moves to the attached repository, and the files the chat wrote are copied into that repository, where they show as new uncommitted changes. A file whose path the repository already holds is skipped, never overwritten: the repository's file stays as it is and the chat's copy stays in the managed workspace. One system message in the transcript counts what was copied and what was not, and the daemon sends the session's agent one short message naming the skipped files, so the agent can tell the person and offer to merge them. The promotion is the daemon's `session.convert {sessionId, path}`, the path being the text the person typed, carried as data and checked before anything is copied, and it is recorded as `session.converted`. Nothing is committed and nothing is merged automatically.
 - Attaching a folder that is already a project switches to that project, and the daemon refuses to create a second project record for the same origin.
-- A managed workspace is deleted whole at purge, retained on archive and skipped by the archive sweep. Provable destruction is never claimed for it.
+- A managed workspace is deleted whole at purge, retained on archive and skipped by the archive sweep. The purge is the daemon's one purge path, `daemon.retentionPurge`, recorded as `session.purged`, and it deletes the workspace through `ManagedWorkspaceService.delete`; the sweep knows it by the mount's managed origin. Provable destruction is never claimed for it.
 
 ### Thesis — Why This Option
 
@@ -81,7 +81,7 @@ An empty git-initialized folder costs a few kilobytes and no process. Creating i
 | --- | --- | --- | --- |
 | 1 | Both providers run correctly in an empty git-initialized folder | **Unvalidated.** Proved by starting each provider in an empty git-initialized folder on the first build of the chat shape | A chat could not start; the workspace would need seeding |
 | 2 | A mount's origin can always tell a managed workspace from an attached repository | The mount's origin is marked managed when the daemon creates it ([Spec-001](../specs/001-session-core.md)); the mount itself is [Spec-007](../specs/007-repo-attachment-and-workspace-binding.md)'s | The shape could not be derived, and a flag would return |
-| 3 | Copying the chat's files into the repository as uncommitted changes is what a person expects | The copied files open in Review as new changes, so the person sees and decides on each one | A copy could land on a path the repository already uses; such a file is left uncopied, named on the conversion's own act row and named to the session's agent ([Spec-001](../specs/001-session-core.md)) |
+| 3 | Copying the chat's files into the repository as uncommitted changes is what a person expects | The copied files open in Review as new changes, so the person sees and decides on each one | A copy could land on a path the repository already uses; such a file is left uncopied, named in the conversion's own system message and named to the session's agent ([Spec-001](../specs/001-session-core.md)) |
 
 ---
 
@@ -91,7 +91,7 @@ An empty git-initialized folder costs a few kilobytes and no process. Creating i
 | --- | --- | --- | --- | --- |
 | Managed workspaces accumulate on disk | Med | Low | The folder under the app's home grows | Purge deletes them whole; archive keeps them by design |
 | A path-prefix shortcut creeps into a reader | Low | Med | A chat under a moved home folder shows project controls | The rule is the column; code review rejects prefix checks |
-| A person does not expect the copied files in their repository | Low | Low | They ask where the changes came from | The conversion says what it will do before it runs, and one row in the transcript records that it happened |
+| A person does not expect the copied files in their repository | Low | Low | They ask where the changes came from | The conversion says what it will do before it runs, and one system message in the transcript records that it happened and counts what was copied |
 
 ## Reversibility Assessment
 

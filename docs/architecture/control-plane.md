@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Define the hosted or self-hosted Control Plane and its internal responsibilities.
+Define the Control Plane, the person's own control plane and relay on their Cloudflare account or their own Compose server, and its internal responsibilities.
 
 ## Scope
 
@@ -14,25 +14,25 @@ The Control Plane exists so a user's devices can reach the machine a session run
 
 ## Responsibilities
 
-- authenticate the user and the device acting for them
-- keep the device registry: link, rename, revoke
-- track device and runtime-node liveness
-- broker relay connectivity between a user's devices and that user's runtime nodes
-- deliver notifications and session metadata
-- provide a durable directory for sessions and coordination state
+- authenticate the user and the machine or device acting for them
+- keep the account's statement chain and the device and machine registry
+- register each machine under its own id and its owning user
+- relay one encrypted channel between each of the user's devices and each of their machines, and say whether each machine's relay connection is up
+- carry push notices each machine has already sealed, adding only the person's own push credentials
+- serve the web client
+- keep each machine's session signing keys and the event-log anchors it uploads, keyed by the machine; the control plane keeps no session record
 
 ## Component Boundaries
 
 | Component | Responsibility |
 | --- | --- |
-| `Identity Service` | Authenticates the user and the device acting for them, and issues the identity claims every other service reads. |
-| `Session Directory` | Stores session metadata needed for discovery, device reconnect, and coordination. |
-| `Device Registry` | Holds one durable row per linked device — name, kind, public identity key, link time, revocation — and answers "which devices can act as this user". |
-| `Device Liveness Service` | Tracks device and runtime-node heartbeats and disconnect grace windows. Liveness is about the user's own endpoints; it is never a roster of other people. |
-| `Relay Broker` | Helps a user's devices and runtime nodes establish connectivity without taking over execution. |
-| `Artifact Relay Blob Store` | Holds eagerly pinned, digest-addressed E2EE artifact ciphertext chunks and per-`(user, node)` wrapped CEKs (durable artifact keys) with refcount/TTL GC and quota accounting; never holds decryption-capable key material ([Spec-012 §Cross-Node Artifact Relay (V1)](../specs/012-artifacts-files-and-attachments.md#cross-node-artifact-relay-v1); lands with Plan-012 Tasks 7–10). |
-| `Notification Service` | Delivers attention and session-level notifications to the user's connected devices, and queues them when no device is connected. |
-| `Shared Metadata Store` | Persists the session directory, device registry, and liveness state that a user's devices and nodes read. |
+| `Identity Service` | Authenticates the user and the machine or device acting for them, and issues the identity claims every other service reads. |
+| `Device Registry` | Holds the account's statement chain (`device.linked`, `device.renamed`, `device.revoked`, `passkey.added`, `passkey.removed`, `runtimenode.added`, `runtimenode.renamed`, `runtimenode.removed` and `runtimenode.key_rotated`) and one row per linked device and registered machine: name, platform, public identity key, link time, revocation. Every machine verifies the chain itself; the registry's own view of who may use the relay is for spam and cost only. |
+| `Device Liveness Service` | Reads reachability from the relay connections, with no heartbeat table: a machine is `Reachable` while its connection is up and `Not reachable · last seen <when>` after 45 seconds without a frame, and a device is `Connected now` while it holds a connection, its `last seen` written at most once a minute. Liveness is about the user's own endpoints; it is never a roster of other people. |
+| `Relay Broker` | Relays one Noise channel between each of the user's devices and each of their machines without taking over execution. It holds at most one live connection per key and enforces the per-device quota, and it sees ids, the channel profile, frame sizes and times, never a method, a name or a byte of a session. |
+| `Notification Service` | Carries push notices each machine has already sealed to a device's push key, adding only the person's own APNs, FCM or VAPID credentials. It holds nothing that opens a notice and queues nothing. |
+| `Web Client Host` | Serves the web client: the same front end the desktop runs, which a browser opens or a phone adds to its Home Screen. |
+| `Shared Metadata Store` | Persists the account, the statement chain, the device registry, each machine's registration and session signing keys, and the event-log anchors each machine uploads. It keeps no session record: a device reaches a session only through its machine over the relay, and the machine's daemon is the session's one store. |
 
 ## Implementation Home
 
@@ -42,24 +42,24 @@ The Control Plane exists so a user's devices can reach the machine a session run
 
 ## Data Flow
 
-1. A device authenticates with the identity service using its own registered identity key.
-2. A new device is linked: it registers its public identity key and takes a row in the device registry.
-3. The device reads the session directory to find the user's sessions and the runtime node each is bound to.
-4. The liveness service receives heartbeats from that user's devices and runtime nodes.
-5. The relay broker negotiates a session-scoped, short-lived connection so the device and the runtime node can exchange end-to-end-encrypted frames; notification delivery rides the same session metadata.
-6. Local Runtime Daemons continue to execute work and push the coordination data the control plane needs — plus, at `artifact.publish` of a shared artifact, encrypted ciphertext for relay pinning ([Spec-012 §Cross-Node Artifact Relay (V1)](../specs/012-artifacts-files-and-attachments.md#cross-node-artifact-relay-v1)); the control plane never receives plaintext payloads or decryption-capable keys.
+1. The person's first machine signs in and opens the account's statement chain with a `runtimenode.added` statement it signs itself. Its registration carries its id, public key, name, platform and service version.
+2. A new device is linked from a device or machine already in use: both screens show the same six digits, and the linking side signs a `device.linked` statement for the new device's public identity key. Every later machine joins the same way, the linking side signing a `runtimenode.added` for the new machine's key instead of a `device.linked`.
+3. Each machine keeps one outbound connection to the relay while its service runs, and each device connects while its app is open.
+4. The device opens one Noise channel to each machine it can reach, through the relay, and opens a session by asking each machine whether it holds it.
+5. When a session starts waiting on the person, finishes or fails, the machine seals a push notice to each device's push key and hands it to the relay, which adds the person's own push credentials.
+6. Local Runtime Daemons continue to execute work; the control plane never receives plaintext payloads or decryption-capable keys.
 
 ## Trust Boundaries
 
-- The control plane is trusted for identity, device registration, liveness, and relay coordination.
+- The control plane is trusted to keep the statement chain available, to route connections and to relay frames. It is not trusted to decide which keys are trusted: every machine verifies the chain itself, and a revoke the control plane withholds from one machine is caught at the next connection of any honest device.
 - The control plane is not trusted as the local filesystem or tool-execution authority for the user's runtime nodes.
 - The control plane carries relay ciphertext and cannot read it: relay pathways must minimize trust and exposure because they cross remote infrastructure.
 
 ## Failure Modes
 
 - Device linking or revocation fails while local session execution continues.
-- Device or node liveness becomes stale because a client disconnects without clean shutdown.
-- Relay negotiation succeeds for the device but fails to establish live runtime-node connectivity, so the device must report the machine as unreachable rather than appear to work.
+- A device or machine drops its connection without a clean close, and shows as reachable until 45 seconds pass without a frame.
+- The device reaches the relay but the machine's connection is down, so the device reports the machine as `Not reachable · last seen <when>` rather than appear to work.
 - A revoked device's connection is not closed promptly, leaving a window in which a retired device still reaches the relay.
 
 ## Related Domain Docs

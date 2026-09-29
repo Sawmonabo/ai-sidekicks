@@ -127,7 +127,7 @@ Client-side queueing fails the durability and shared-observation requirements ou
 
 - [Queue And Intervention Model](../domain/queue-and-intervention-model.md)
 - [Run State Machine](../domain/run-state-machine.md)
-- [Agent Channel And Run Model](../domain/agent-channel-and-run-model.md)
+- [Agent And Run Model](../domain/agent-and-run-model.md)
 
 ### Related Architecture Docs
 

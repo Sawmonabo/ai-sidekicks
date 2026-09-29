@@ -6,68 +6,61 @@ Diagnose runs that appear active but are no longer making observable progress.
 
 ## Symptoms
 
-- Run stays in `running` or `starting` without new progress events beyond the stuck threshold
-- UI shows activity spinner without new timeline rows
-- Scope and blast radius: one run, sometimes one driver or one RuntimeNode
+- The working line's clock keeps counting while its action words and the tokens received (`↓ 8.4k`) stop changing, and no new transcript row lands
+- The action words read `Retrying…` for minutes
+- Scope and blast radius: one run, sometimes every run on one provider account on the machine
 
 ## Detection
 
-- Read `StuckRunInspect` and check the `stuck-suspected` flag against the last known progress point, last event time, and any blocking reason.
-- Compare current run state with last canonical event time and last driver heartbeat
-- Check whether the run is actually blocked on approval or input instead of truly stuck
-- Check queue depth for the session via `sidekicks run queue` to identify backlog contributing to stalled runs.
-- Inspect cross-component traces for the run if tracing is enabled.
+- Read the working line left to right. The action words say what the agent is doing (`Waiting for approval`, `Compacting…`, `Retrying…`, `Running pnpm test`), and the state word after the clock says `Paused`, `Interrupted` or `switching to account <name>`. Each of these is a valid wait, not a stuck run.
+- Check whether the session waits on the person: the bell counts it, the session reads `Waiting on you`, and an approval, a question or a plan card is open in the composer.
+- While any command runs, press the action words to open the running-commands list and read each command's live tail. A long command, such as a four-minute test run, is progress.
+- Claude Code retries a rate limit or an overload silently for up to about three minutes while the line reads `Retrying…`, then lands one row, `<Provider> did not answer · Try again`. Codex fails the turn at once with one row, `Limit reached · resets at <time> · Try again`.
+- On the machine, run `sidekicks daemon status`, and read the daemon's diagnostic logs and its loopback `/metrics` for the run's provider. With tracing on (Settings › Runtime), the traces for the run are there too.
 
 ## Preconditions
 
-- Access to the affected session and RuntimeNode
-- Ability to inspect run state, queue state, and provider health
-- Authority to interrupt or retry the run if needed
+- The session open on any of the person's linked devices, or on the machine itself
+- The `sidekicks` command line on the machine that runs the session, for the daemon's status and logs
 
 ## Recovery Steps
 
-1. Confirm the run is not in a legitimate blocking state such as approval or input wait.
-2. Inspect last progress event, driver health, and workspace health for the run.
-3. If the driver is healthy but the run is stalled, issue a safe interrupt and record the outcome.
-4. If interrupt succeeds, decide whether to queue a retry or create a replacement run.
-5. If interrupt cannot be delivered, treat the situation as provider or daemon recovery failure and follow the relevant runbooks.
+1. Confirm the run is not in a valid wait: an open card, `Paused`, `Retrying…`, `Compacting…`, or a running command whose live tail is still moving.
+2. To end one command only, press `Stop` on that command's row; it ends that command and nothing else.
+3. To end the turn, press `Interrupt` at the end of the working line, or Escape. The agent in view stops its turn, the command it was running is ended, the agents it dispatched keep going, and it waits for a steer. To stop everything the session started, press `Interrupt everything`, or Ctrl+C with nothing selected and focus outside a terminal.
+4. Continue by sending a steer or a new message, or use `Try again` on a failed row.
+5. If the session shows that its provider ended, with `Restart`, press `Restart`. When a Codex service dies, the daemon restarts it at once and resumes its conversations; after three deaths within five minutes it leaves the service down, and each of its sessions shows that the provider ended, with `Restart`.
+6. If nothing answers an interrupt, treat it as a provider or daemon failure and follow the [Provider Failure Runbook](./provider-failure-runbook.md) or the [Local Daemon Runbook](./local-daemon-runbook.md).
 
 ## Validation
 
-- The run reaches a terminal or valid blocking state
-- No orphaned queue or intervention state remains attached to the run
-- Replacement work, if created, starts with clear provenance
+- The run reaches a terminal state, or a valid wait the working line names
+- The working line shows no queued message and no pending interrupt for the run
+- A turn started with a steer, a new message or `Try again` shows in the same session's transcript
 
 ## Escalation
 
-- Escalate when repeated stuck runs cluster by driver, node, or specific workspace and cannot be cleared through safe interrupt
+- When runs on one provider or in one workspace stall again and again and an interrupt does not clear them, report it to the project as a bug with the daemon's logs attached
 
 ## CLI Commands
 
 ```bash
-sidekicks run inspect <run-id>
-sidekicks run list --state running --session <id>
-sidekicks run interrupt <run-id> --reason "stuck"
-sidekicks run history <run-id>
-sidekicks run queue --session <id>
-sidekicks run retry <run-id>
+sidekicks daemon status
 ```
+
+A run is read and interrupted from its session; the command line has no `run` command.
 
 ## SLOs and Thresholds
 
-| Metric                       | Target                               |
-| ---------------------------- | ------------------------------------ |
-| Stuck detection threshold    | No progress for 60s                  |
-| Auto-escalation              | After 5min stuck, emit health signal |
-| Interrupt delivery latency   | < 5s                                 |
-| Stuck-to-terminal resolution | < 10min                              |
+| Threshold | Value |
+| --- | --- |
+| Claude Code silent retry | Up to about three minutes, while the working line reads `Retrying…` |
+| Codex service restart | At once; after three deaths within five minutes it stays down until `Restart` |
 
 ## On-Call Routing
 
-- **Severity 1** (service down): Page on-call engineer immediately. Escalate to team lead after 15min.
-- **Severity 2** (degraded): Alert on-call via Slack. Investigate within 30min.
-- **Severity 3** (warning): Log alert. Review during business hours.
-- **Domain routing**: Stuck run issues route to **platform on-call**.
+- The machine belongs to one person, who runs this procedure on it; there is no paging, no chat alert and no on-call rotation.
+- A stall that an interrupt does not clear, and that comes back, is reported to the project as a bug with the daemon's logs attached.
 
 ## Related Architecture Docs
 

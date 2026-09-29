@@ -25,9 +25,9 @@ Supported topologies:
 | Topology | Boundary Summary |
 | --- | --- |
 | `Single-Device Local` | Desktop or CLI plus one local daemon on the same machine, operating in `local-only` continuity. No control-plane dependency. |
-| `Hosted Control Plane` | A user's devices and machines connect to one hosted control plane for the device registry, liveness, relay, and session metadata. Project-operated hosted offering per [ADR-020](../decisions/020-v1-deployment-model-and-oss-license.md). |
-| `Self-Hosted Control Plane` | Same architecture as hosted, but the control plane is self-managed by the deploying user or organization. The free OSS deployment path per [ADR-020](../decisions/020-v1-deployment-model-and-oss-license.md); ships the same 21-feature V1 surface as hosted. Secure-defaults posture for this topology is normative per [Spec-024: Self-Host Secure Defaults](../specs/024-self-host-secure-defaults.md) with operator-facing companion at [Operations › Self-Host Secure Defaults](../operations/self-host-secure-defaults.md) (Spec-024 Acceptance Criterion). |
-| `Relay-Assisted Remote Access` | A device or node reaches the session through relay coordination without moving execution into the control plane. |
+| `Workers Relay` | The person's own control plane and relay on Cloudflare Workers and Durable Objects, deployed in their own Cloudflare account, holding the device and machine registry and the account's statement chain and relaying their channels. It serves that one person and no one else, per [ADR-020](../decisions/020-v1-deployment-model-and-oss-license.md). |
+| `Compose Relay` | The same control plane and relay on the person's own server: Node, Caddy and Postgres from one `docker-compose.yml`, per [ADR-020](../decisions/020-v1-deployment-model-and-oss-license.md). It serves the same features as the Workers relay, and it alone gives shared ports in the web client an address. Secure-defaults posture for this topology is normative per [Spec-024: Self-Host Secure Defaults](../specs/024-self-host-secure-defaults.md) with operator-facing companion at [Operations › Self-Host Secure Defaults](../operations/self-host-secure-defaults.md) (Spec-024 Acceptance Criterion). |
+| `Relay-Assisted Remote Access` | A device reaches the person's machines through their relay, one channel per device and machine, without moving execution into the control plane. |
 
 ## Data Flow
 
@@ -48,15 +48,15 @@ Rate limiting uses a deployment-aware abstraction with identical limits across a
 
 | Deployment | Edge Layer | Application Layer |
 | --- | --- | --- |
-| `Hosted Control Plane` (Cloudflare) | CF Workers native `rate_limit` binding (sliding-window counters, zero added latency) | Per-identity `RateLimitEscalationDO` Durable Object — escalation-block authority + authoritative window state, consulted on every check (eager-DO, [Plan-019 D-019-3](../plans/019-rate-limiting-policy.md)) |
-| `Self-Hosted Control Plane` | `rate-limiter-flexible` with Postgres backend | `rate-limiter-flexible` with Postgres backend + `rate_limit_escalations` table |
+| `Workers Relay` (Cloudflare) | CF Workers native `rate_limit` binding (sliding-window counters, zero added latency) | Per-identity `RateLimitIdentityDO` Durable Object — authoritative window state, consulted on every check (eager-DO, [Plan-019 D-019-3](../plans/019-rate-limiting-policy.md)) |
+| `Compose Relay` | `rate-limiter-flexible` with Postgres backend | `rate-limiter-flexible` with Postgres backend |
 | `Single-Device Local` | No rate limiting (trusted by socket reachability) | No rate limiting |
 
-The rate limiting interface is identical regardless of deployment. Implementation swaps via configuration (`AIS_RATELIMIT_BACKEND`). Self-hosted deployments use `rate-limiter-flexible` (Postgres backend in V1) to achieve the same semantics as the Cloudflare native binding; both compose the same admission pipeline (admin ban → escalation block → sliding-window counter, Plan-019 I-019-1).
+The rate limiting interface is identical regardless of deployment. Implementation swaps via configuration (`AIS_RATELIMIT_BACKEND`). The Compose relay uses `rate-limiter-flexible` (Postgres backend) to achieve the same semantics as the Cloudflare native binding; both run the same one-stage admission, the sliding-window counter (Plan-019 I-019-1): a trip is refused with the window's `Retry-After`, and a device over its frame quota gets one refusal frame and a 60-second pause. Nothing is banned and nothing escalates.
 
 ## Relay Scaling Strategy
 
-The relay uses Cloudflare Durable Objects, one object per session.
+The relay serves one person: their machines and the devices they link. Each machine and each device holds one connection to it, with at most one live connection per key, and every channel joins one device to one machine ([Spec-028 §The encryption envelope](../specs/028-remote-control.md#the-encryption-envelope)). The relay forwards sealed frames and reads none of them.
 
 **Cloudflare Durable Object platform limits (verified 2026-04-19):**
 
@@ -65,27 +65,24 @@ The relay uses Cloudflare Durable Objects, one object per session.
 - Each DO is single-threaded; horizontal scale is achieved by spawning more objects ([DO limits][do-limits]).
 - CF's own guidance pegs practical throughput at ~500–1,000 rps for simple operations and ~200–500 rps for complex operations that involve transformation plus storage writes ([Rules of Durable Objects][do-rules]).
 
-**Design choice: one DO per session, no sharding.** A session's connections are one user's own endpoints — the runtime node the session is bound to, plus whichever of that user's linked devices currently have it open. That population is single-digit by construction, so the connection count per session is an order of magnitude below anything a shard factor would need to relieve, and the control-DO / data-DO split a larger-N model would require is not built at all. The budget to respect is throughput, not connection count:
+**Workers relay: one Durable Object for the account.** It terminates every connection, each machine's and each device's, and forwards each frame from its sender to the other end of that frame's channel. A person's machines and devices are a handful of connections, so connection count is never the budget; throughput is:
 
 | Input | Value | Source |
 | --- | --- | --- |
-| Events/sec/connection (p95, streaming agent output + MLS control frames) | ~100 | AI Sidekicks load-model assumption — **unverified in CF docs**; must be validated in pre-launch load test |
-| MLS encrypt + storage write cost per event | ~1 DO request | Spec-005 relay data-path |
-| Safety headroom vs. 1,000 rps soft cap | 2.5× | Intentional — CF guidance places complex ops in the 200–500 rps band ([Rules of DO][do-rules]) |
+| Device-sent frames | At most 6,000 a minute (100 a second) per device, held by the relay's per-device quota | [Plan-028](../plans/028-remote-control.md) Phase 3 |
+| Machine-sent frames | Bounded by each channel's backpressure; no quota | [Plan-028](../plans/028-remote-control.md) Phase 3 |
+| Sustained budget for the object | 400 requests a second, 2.5× under the 1,000 rps soft cap | Intentional: CF guidance places complex operations in the 200–500 rps band ([Rules of DO][do-rules]) |
 
-Envelope (batching is a design baseline, not a future enhancement), budgeted against a deliberately generous **10 concurrent connections per session** — well above the runtime node plus two or three devices a real session carries: **10 conns × 100 events/sec of raw traffic ÷ ~6 events per batched DO request ≈ 170 rps/DO**. That operating point sits below CF's 200–500 rps "complex op" band and leaves ~6× headroom vs the 1,000 rps overloaded-error threshold. Without batching the same raw envelope would yield ~1,000 rps/DO, which sits exactly at the soft cap — so **batched WebSocket messages are assumed at design time**, enabled by the 2025-10-31 raise of WebSocket message size from 1 MiB to 32 MiB ([DO changelog][do-changelog]). The 100 events/sec/connection figure and the ~6:1 batching ratio are internal load-model assumptions — CF does not publish a per-connection event-rate model or a batching-ratio model.
+Machine-sent traffic, meaning agent output and Preview's live picture, is the term no quota fixes, so it is measured rather than assumed.
 
-**Routing:** one DO per session terminates every connection for that session — the runtime node's and each connected device's — and fans encrypted frames out across them. There is no routing tier, because there is nothing to route between.
+**Compose relay.** One Node process holds every connection under the same quota and backpressure.
 
-**Decision triggers for reintroducing a sharding tier.** Re-evaluate when any of the following is true:
+**Decision triggers for changing the layout.** Re-evaluate when either is true:
 
-1. Measured p95 events/sec/connection exceeds ~200 (the headroom above is being burned by per-connection volume rather than by connection count).
-2. Sessions routinely carry more than ~10 concurrent connections — many linked devices open at once, or a later feature that attaches more than one runtime node to a live session.
-3. Cloudflare raises or lowers the per-DO rps soft cap ([monitor DO changelog][do-changelog]).
-4. Batching is lost or the ~6:1 batching ratio drops materially. The un-batched envelope lands at the 1,000 rps soft cap with no margin, so a batching regression is a launch blocker pending root-cause fix.
-5. MLS encrypt cost per event materially changes (e.g., Spec-005 revision, new ciphersuite).
+1. The measured sustained rate on the account's object exceeds 400 requests a second.
+2. Cloudflare raises or lowers the per-DO rps soft cap ([monitor DO changelog][do-changelog]).
 
-**Pre-launch requirement:** a load-test spike of 1,000 concurrent sessions — each one runtime node plus three connected devices, running 10 concurrent runs of streaming events — must pass, and must measure actual events/sec/connection to validate the 100 events/sec assumption, before V1 production launch.
+**Pre-launch requirement:** before the first release that carries Remote Control, a load test on the Workers relay must pass. The test is one account with two machines and three devices; each machine streams agent output and Preview's live picture to a device, and each device sends at its full frame quota. It measures the object's sustained requests a second and each channel's machine-sent frames a second, and it passes when the object stays under 400 requests a second.
 
 [do-limits]: https://developers.cloudflare.com/durable-objects/platform/limits/
 [do-ws]: https://developers.cloudflare.com/durable-objects/best-practices/websockets/
@@ -100,42 +97,35 @@ Envelope (batching is a design baseline, not a future enhancement), budgeted aga
 
 ## Horizontal Scaling Strategy
 
-**Control plane:** stateless Node.js processes behind a load balancer. Session affinity is not required because all state lives in Postgres or the artifact-relay blob store (digest-addressed object storage per [Spec-012 §Cross-Node Artifact Relay (V1)](../specs/012-artifacts-files-and-attachments.md#cross-node-artifact-relay-v1)) — neither is process-local. Scale horizontally by adding processes.
+**Control plane and relay:** one person's relay needs no horizontal scale. The Compose relay is one Node process beside Caddy and Postgres, and its durable state lives in Postgres; the relay holds only live connections. The Workers relay scales on Cloudflare as §Relay Scaling Strategy lays out.
 
-**Relay:** stateless WebSocket proxies for the message path — E2EE frames (pairwise X25519 + XChaCha20-Poly1305 in V1 per [ADR-010](../decisions/010-paseto-webauthn-mls-auth.md)) mean the relay processes hold no session state. The artifact relay's pinned ciphertext is durable state, but it lives in the shared blob store (object storage), not in proxy processes — blob reachability follows the shared store, not instance affinity. Scale by adding relay instances with DNS-based routing.
-
-**Local daemon:** runs on each of the user's machines. No scaling needed — it is per-machine by design.
+**Local daemon:** runs on each of the user's machines, any number of them. No scaling needed — it is per-machine by design. Each session has exactly one owning machine and is never silently migrated; a new session starts on the machine in view, and a device finds a session by asking each machine it can reach ([Spec-028 §One user, many devices, any number of machines](../specs/028-remote-control.md#one-user-many-devices-any-number-of-machines)).
 
 ## Postgres Strategy
 
 **V1:** single Postgres instance with connection pooling (PgBouncer or built-in pool).
 
-**V1.1:** read replicas for query-heavy operations (event queries, session directory lookups).
+**Connection pool sizing:** 10 connections, one pool for the Compose relay's one process.
 
-**Connection pool sizing:** 10 connections per control-plane process, max 100 total.
-
-**Backup:** automated daily snapshots + WAL archiving for point-in-time recovery — with one carve-out for `artifact_relay_recipients` wrapped-CEK rows: because PITR/WAL archiving is database-wide (rows cannot be excluded), either the backup/PITR retention window is bounded at or below the erasure SLA (≤ the 30 d relay-TTL ceiling), or the wrapped-CEK envelopes are stored under a separately-destroyable KEK so restored backups yield unusable ciphertext (the [Spec-020 §Daemon Master Key](../specs/020-data-retention-and-gdpr.md#daemon-master-key) custody precedent) — so a GDPR erasure cannot be resurrected from backup ([Spec-012 §State And Data Implications](../specs/012-artifacts-files-and-attachments.md#state-and-data-implications); the matching exclusion note sits on the table in [shared-postgres-schema.md §Artifact Relay Blob Store](./schemas/shared-postgres-schema.md#artifact-relay-blob-store-plan-012)).
+**Backup:** automated daily snapshots + WAL archiving for point-in-time recovery.
 
 ## Capacity Targets
 
 | Metric | V1 Target |
 | --- | --- |
-| Concurrent sessions | 1,000 |
-| Connected devices per session | 5 (configurable) |
-| Total users | 5,000 |
-| Events per second (write) | 500 |
-| Events per second (read) | 2,000 |
-| Relay connections | 2,000 concurrent |
-| Session event log size | 100,000 events/session lifetime (50,000 active before compaction per Spec-005) |
-| Artifact relay storage | 10 GB per node default (`node_relay_storage_max`, operator-tunable); retention tiers ≤ 30 d per [Spec-012](../specs/012-artifacts-files-and-attachments.md#size-quota-retention-normative-defaults-operator-tunable) |
+| Accounts per relay | 1, the person's own |
+| Relay connections | One per machine and one per linked device, at most one live connection per key |
+| Device-sent frames | 6,000 a minute per device |
+| Session event log size | 100,000 events/session lifetime |
 
 ## Infrastructure Requirements
 
-| Component | CPU | Memory | Disk |
-| --- | --- | --- | --- |
-| Control plane (per process) | 1 vCPU | 512 MB | — |
-| Postgres | 4 vCPU | 8 GB | 100 GB SSD |
-| Relay (per process) | 1 vCPU | 256 MB | — (artifact blob store: object storage sized by `node_relay_storage_max`, default 10 GB/node, per Spec-012) |
+The workload is one person, their machines and their devices, on one relay. The Postgres and relay rows below are the budget for it: the relay's build measures against them and records the baseline.
+
+| Component                  | CPU      | Memory | Disk                      |
+| -------------------------- | -------- | ------ | ------------------------- |
+| Postgres                   | 1 vCPU   | 1 GB   | 10 GB SSD                 |
+| Relay (per process)        | 1 vCPU   | 256 MB | —                         |
 | Local daemon (per machine) | 0.5 vCPU | 256 MB | 1 GB (SQLite + artifacts) |
 
 ### Local Daemon Memory Instrumentation And Budget Triggers
@@ -146,15 +136,28 @@ The 256 MB local daemon budget above is an operating target derived from one use
 
 **Decision trigger.** If real workloads consistently breach the 256 MB budget, **raise the budget to 384–512 MB before considering a runtime change.** Rationale: a budget raise is reversible and low-blast-radius (documentation + alert-threshold update); changing the runtime (e.g., replacing Node.js with a different language) carries much larger implementation cost and is reserved for breaches that persist after a budget raise. "Consistently breach" is defined as ≥ 20% of operating daemons observed over a rolling 7-day window exceeding 256 MB; these thresholds are internal and will be revisited once real deployment telemetry is available.
 
+### Budgets On A Windows Computer
+
+Workload: the service idle for 10 minutes, one app window open, no session.
+
+- **The daemon:** the 256 MB operating target above, the same inside a WSL 2 distribution.
+- **The service's Windows half:** 15 MB private working set or less at idle, the same on native Windows where it runs as the daemon's child. Proposed; the baseline is measured on a Windows machine before the WSL phase lands.
+- **The channel's buffers:** bounded by the channel's settings, a 128 MB session-memory ceiling on each end, which is never a resident figure at idle.
+- **The attached `wsl.exe`, and the channel's latency and throughput against a native pipe:** measured on a Windows machine before the WSL phase lands.
+- **The WSL virtual machine:** kept running for the service's whole life. Its memory cap defaults to half of RAM, with `autoMemoryReclaim` at `dropCache`, and the person's `.wslconfig` is never edited. Its idle cost with only the service running is measured on a Windows machine and stated here; it is not part of the Runtime figure, which counts the service's own processes (the daemon's process tree inside the distribution, plus the Windows half and its `wsl.exe` on Windows), because the VM's working set holds other distributions and the person's own WSL work.
+- **A folder on the other side's disk** (`/mnt/c` from Linux, `\\wsl.localhost` from Windows) is slower, because every file operation crosses 9P; its cost is measured before the WSL phase lands.
+
 ## Container and Packaging
 
 **Control plane:** Docker container, multi-stage build, Alpine-based.
 
 **Relay:** Docker container, same base image.
 
-**Local daemon:** native binary (pkg or standalone Node.js bundle). Distributed via: npm package, Homebrew formula, direct download.
+**Local daemon:** the standalone Node.js bundle — the Node runtime, the JavaScript, the SQLite and `node-pty` native modules, and the CLI, with the native modules beside the runtime as plain files. `vercel/pkg` was considered and is not used: it is archived, and it packs files into the executable where the native modules must stay plain files. The Linux runtime ships for glibc and for musl, so an Alpine machine or distribution runs it; the musl builds use the Node.js project's unofficial-builds binaries, because the bundle cannot carry Alpine's own system `nodejs` package. Each Windows installer carries the Linux runtime archives for its architecture, glibc and musl, with their SHA-256, so a WSL 2 distribution runs the bytes a Linux user downloads and its first start works offline. Distributed via: npm package, Homebrew formula, direct download.
 
-**Desktop shell:** Electron app bundling the daemon. The daemon starts as a child process of the desktop shell.
+**Desktop app:** Electron app bundling the daemon. The daemon is the person's own background service on every platform, spawned detached or run by the operating system's service manager, never a child of the desktop app. A quit flushes and leaves the service, every run and every shell running; only Runtime's `Stop` and `Restart` end work ([Spec-006](../specs/006-local-ipc-and-daemon-control.md)).
+
+**Background service on a Windows computer:** the service runs on the side where Claude Code and Codex are installed, Windows or one WSL 2 distribution, one service per computer. In a distribution it is the daemon plus the service's Windows half, a small native Windows program started at logon by a per-user task; the Windows half keeps one attached `wsl.exe` running the daemon for the service's whole life, inside a Job that lets Windows programs started through interop outlive it. Windows clients reach the daemon through one per-user named pipe, the same on both kinds of Windows computer, carried to a daemon in a distribution as streams of one HTTP/2 channel over that `wsl.exe`'s standard input and output. Key custody stays on Windows for both sides. On native Windows the same Windows half runs as the daemon's child, so every Windows-only job has one implementation ([ADR-041](../decisions/041-the-service-on-wsl-2.md), [Spec-006 §The service on a Windows computer](../specs/006-local-ipc-and-daemon-control.md#the-service-on-a-windows-computer)).
 
 **CLI:** npm-distributed package that connects to the local daemon.
 
@@ -166,7 +169,7 @@ The 256 MB local daemon budget above is an operating target derived from one use
 
 **CD:** control plane and relay deployed via container registry push + rolling update.
 
-**Local artifacts:** daemon, CLI, and desktop shell built on release tag and published to npm / GitHub Releases.
+**Local artifacts:** daemon, CLI, and desktop app built on release tag and published to npm / GitHub Releases.
 
 **Versioning:** semver for packages; control-plane API versioned via tRPC router namespacing.
 
@@ -178,7 +181,8 @@ The 256 MB local daemon budget above is an operating target derived from one use
 
 ## Related Specs
 
-- [Runtime Node Attach](../specs/002-runtime-node-attach.md)
+- [Machine Registration](../specs/002-runtime-node-attach.md)
+- [Local IPC And Daemon Control](../specs/006-local-ipc-and-daemon-control.md)
 - [Remote Control](../specs/028-remote-control.md)
 
 ## Related ADRs
@@ -186,3 +190,5 @@ The 256 MB local daemon budget above is an operating target derived from one use
 - [Local Execution Shared Control Plane](../decisions/002-local-execution-shared-control-plane.md)
 - [Default Transports And Relay Boundaries](../decisions/008-default-transports-and-relay-boundaries.md)
 - [V1 Deployment Model and OSS License](../decisions/020-v1-deployment-model-and-oss-license.md)
+- [Machine Identity Key Custody](../decisions/021-cli-identity-key-storage-custody.md)
+- [The Service On WSL 2](../decisions/041-the-service-on-wsl-2.md)

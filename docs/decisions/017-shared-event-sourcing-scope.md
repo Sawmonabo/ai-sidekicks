@@ -11,20 +11,20 @@
 
 ## Context
 
-AI Sidekicks is an agentic coding runtime for one user and their agents. Per [ADR-015](./015-v1-feature-scope-definition.md), V1 ships 21 features across two deployment options (OSS self-host plus hosted SaaS) on a single codebase. Session activity is modeled as events for replay, auditability, and determinism; [vision.md §5. Session Engine](../vision.md) names the product an "event-sourced engine where everything important is an event."
+AI Sidekicks is an agentic coding runtime for one user and their agents. Per [ADR-015](./015-v1-feature-scope-definition.md), V1 ships its features on a single codebase, and the relay is the person's own, in either deployment [ADR-020](./020-v1-deployment-model-and-oss-license.md) describes. Session activity is modeled as events for replay, auditability, and determinism; [vision.md §5. Session Engine](../vision.md) names the product an "event-sourced engine where everything important is an event."
 
 The system already has a two-store split per [ADR-004: SQLite Local State and Postgres Control Plane](./004-sqlite-local-state-and-postgres-control-plane.md):
 
 - **Local SQLite store** — machine-scoped runtime truth owned by each daemon.
-- **Shared Postgres store** — coordination truth (sessions, the device registry, device-liveness history, runtime node attachments, cross-node coordination records) across all of the user's devices and machines.
+- **Shared Postgres store** — coordination truth (sessions, the device registry, device-liveness history, each machine's registration) across all of the person's devices and machines.
 
-Per [ADR-010](./010-paseto-webauthn-mls-auth.md), V1 relay encryption is pairwise X25519 ECDH with XChaCha20-Poly1305 via audited `@noble/curves` and `@noble/ciphers`. The relay is zero-knowledge — it sees ciphertext only and has no ability to read, append to, or sequence plaintext session content. MLS (RFC 9420) group encryption is the V1.1 upgrade path, gated on the three ADR-010 promotion gates (named external audit, interop tests against ≥ 1 other implementation, ≥ 4 weeks production soak under feature flag).
+Per [ADR-010](./010-tokens-passkeys-and-the-remote-channel.md), each device reaches each machine over one channel of its own: the Noise Protocol Framework's `Noise_KK_25519_ChaChaPoly_SHA256` handshake and transport, with no construction of the project's own and a fresh handshake on every connection and every 10 minutes. With one person, every channel has two ends, one device and one machine, so there is no group to encrypt to. The relay is zero-knowledge: it sees the device and machine ids at connection, the channel version and profile, and frame sizes and times, never a method, a name or a byte of a session, and it has no ability to read, append to, or sequence session content. A machine's identity is its service's Ed25519 key (§Machine Identity And Reachability below).
 
 The current schema is already de facto per-daemon: `session_events` is owned by Plan-001 in the Local SQLite schema, and `shared-postgres-schema.md` contains no `session_events_shared` or equivalent table. What has been missing is a decision document that names this scope, bounds the trade-offs, and aligns vision.md and data-architecture.md with the implementation.
 
 ## Problem Statement
 
-Should V1 ship with a shared server-side event log where all of the user's daemons append session events to a single Postgres table (Option A), or with per-daemon local event logs where each daemon owns its own authoritative log and the relay distributes encrypted event payloads for peers to append to their own logs (Option B)?
+Should V1 ship with a shared server-side event log where the person's daemons append session events to a single Postgres table (Option A), or with per-machine local event logs where each machine's daemon owns the authoritative log of the sessions it runs and other devices read that log over their own channel to the machine (Option B)?
 
 ### Trigger
 
@@ -32,9 +32,9 @@ vision.md §5. Session Engine promises event-sourcing semantics without scoping 
 
 ## Decision
 
-**V1 ships Option B: per-daemon local event logs.** Each daemon owns an authoritative `session_events` table in its Local SQLite store. Events originating on that daemon are appended with a monotonic per-session sequence. Events originating on the user's other daemons are distributed by the relay as pairwise-encrypted payloads; each receiving daemon decrypts the payload, validates it, and appends it to its own local log with its own per-session sequence number. Shared Postgres stores coordination records only (sessions, the device registry, device-liveness history, runtime node attachments, cross-node dispatch records) and does not store session event streams.
+**V1 ships Option B: per-machine local event logs.** Each session runs on exactly one owning machine for its whole life, and that machine's daemon owns the session's authoritative `session_events` table in its Local SQLite store, appending every event with a monotonic per-session sequence. No other daemon holds a copy of a session's log: another device reads the session, live and in its history, over its own sealed channel to the owning machine, and the relay carries those frames without reading them. Shared Postgres stores coordination records only (sessions, the device registry, device-liveness history, each machine's registration) and does not store session event streams.
 
-Option A is rejected for V1 but **retained as a V1.1 candidate** gated on ADR-010's MLS promotion gates.
+Option A is rejected. The relay never holds a byte of a session, so there is no shared log for it or the control plane to keep.
 
 ### The Local Log Is Authoritative
 
@@ -42,33 +42,25 @@ Two consequences follow from a daemon owning its own log.
 
 **On resume, the local log wins.** When a provider's reported session position diverges from the daemon's recorded position, the per-daemon `session_events` table with its monotonic per-session sequence is the source of truth. Divergence halts for a human rather than silently re-emitting or silently discarding events; the reconciliation semantics are in [Spec-013](../specs/013-persistence-recovery-and-replay.md) §Fallback.
 
-**The log never truncates and never rewrites.** Run time-travel (session time-travel, V1 feature 19 per [ADR-015](./015-v1-feature-scope-definition.md)) is modeled as a **forward** `run.rolled_back` event, registered in the `run_lifecycle` family as **non-terminal** by [Spec-005](../specs/005-session-event-taxonomy-and-audit-log.md), and consumed by the `rollback` intervention in [Spec-003](../specs/003-queue-steer-pause-resume.md). Provider-side rollback — the Codex conversation rewind, the Claude fork at a position — is an execution detail beneath the log, and the daemon-side turn-snapshot leg is the durable file-restore path regardless. Rolled-back turns stay queryable history, marked superseded by projection.
+**The log never truncates and never rewrites.** Undo (V1 feature 19 per [ADR-015](./015-v1-feature-scope-definition.md)) is recorded **forward**: every undo appends one `session.restore_finished` event carrying what applied and the cause of what did not, and a conversation cut also appends `run.rolled_back`, registered in the `run_lifecycle` family as **non-terminal** by [Spec-005](../specs/005-session-event-taxonomy-and-audit-log.md). The undo itself is [Spec-003](../specs/003-queue-steer-pause-resume.md)'s. The provider's conversation cut — Claude Code's `rewind_conversation`, Codex's `thread/revert`, and, before Claude Code's last compaction, the provider's own copy of the conversation resumed in place — is an execution detail beneath the log. The files go back through the daemon's own checkpoint store ([Spec-013 §Required Behavior](../specs/013-persistence-recovery-and-replay.md#required-behavior)), never through the git snapshot. Turns after an undo point stay queryable history, marked superseded by projection when the conversation went back.
 
-### Node-Scope Anchor Witnessing (V1 local-only; V1.1 control-plane upload)
+### Node-Scope Anchor Witnessing (Local Only)
 
 Option B's per-daemon logs include **daemon-scope** event chains that belong to no session — security-posture transitions, event-stream maintenance, daemon-startup clock state. These bind to a reserved sentinel `session_id` and form their own hash-chain + Merkle-anchor partition ([Spec-005 §Daemon-Scope Event Binding And Node-Scope Anchoring](../specs/005-session-event-taxonomy-and-audit-log.md#daemon-scope-event-binding-and-node-scope-anchoring)).
 
-**V1 witnesses these chains locally only.** They are signed and Merkle-anchored on the emitting daemon and verified by a local reader; they are **not** uploaded to the control plane's `event_log_anchors` table. The non-null `session_id` FK on that table is therefore correct under V1 scope — only session-scoped anchors are uploaded. This is sound for V1's actual obligation: [Spec-024](../specs/024-self-host-secure-defaults.md)'s secure-defaults requirement is operator-visible _local_ audit-visibility, which the local witness satisfies.
+**These chains are witnessed locally only.** They are signed and Merkle-anchored on the emitting daemon and verified by a local reader; they are **not** uploaded to the control plane's `event_log_anchors` table. Only session-scoped anchors are uploaded, each keyed by the machine and the session id with no reference to a control-plane session row. This is sound for the actual obligation: [Spec-024](../specs/024-self-host-secure-defaults.md)'s secure-defaults requirement is _local_ audit-visibility to the person, which the local witness satisfies.
 
-**V1.1 adds control-plane upload of node-scope anchors,** gated on a non-forgeable **node-identity trust anchor + resolution surface** — a daemon/node identity key registered control-plane-side (owned by Plan-016 Identity / Plan-002 Runtime Node Attach). The gate is load-bearing, not incidental: a sessionless chain has no user roster from which to resolve its anchor-signing key (the V1 control-plane verification path is roster-based), and a self-provisioned node key signing the daemon's own posture history is forgeable by the very local operator that remote witnessing would attest against. Sound external tamper-evidence therefore _requires_ the node-identity primitive, which V1 does not ship.
+**Control-plane witnessing of node-scope chains is out of scope.** Witnessing exists so that other people can trust one person's log against that person; with one user, the log's writer and its only reader are the same person, so nothing would be gained. Node-scope anchors are never uploaded to the control plane, and the local witness stays the whole of it.
 
-**Reversibility.** Additive, like Option A above. When the node-identity surface lands, `event_log_anchors` is extended (a nullable `session_id` discriminator, or a sibling `node_event_log_anchors` table) to admit node-scope rows; no V1 behavior is removed and the local witness is unchanged. The re-evaluation trigger is the node-identity registry shipping in Plan-016 / Plan-002.
+### Machine Identity And Reachability
 
-### Server-Derived Runtime-Node Lifecycle Events
+A machine's identity is its service's Ed25519 key, minted at the service's first start together with the machine's id, and again only at `sidekicks rotate-keys` and when a removed machine is linked again; it is sealed under the master key and never leaves the machine. The machine's registration with the control plane, keyed by the machine and its owning user, carries its id, its public key, its name, its platform and its service version. Every device pins the key and checks it in every handshake. A machine that answers under a known id with a different key is refused outright unless a `runtimenode.key_rotated` statement, signed by the old key and the new one, or a later `runtimenode.added` for that id stands behind the change: `sidekicks rotate-keys` writes the first, and a removed machine that is linked again first mints a new key under its same id and records the second, which moves every device's pin for that id as a rotation does, its store, sessions and id staying as they were.
 
-[Plan-002](../plans/002-runtime-node-attach.md) introduces three **server-derived** runtime-node transitions — heartbeat-staleness `degraded`, heartbeat-loss `offline`, and authority-issued `revoked` — distinct from the **daemon-authored** runtime-node events (`registered`, `online`, explicit-shutdown `offline`, `capability_declared`, `capability_updated`) that a live daemon emits about itself. The server-derived three are recorded in V1 as **coordination records** on the Plan-002-owned `runtime_node_presence.health_state` / `runtime_node_attachments.state` columns (already inside the "runtime node attachments" coordination scope named in the Decision above). **V1 authors no durable `runtime_node.*` session event for them**, because under V1's trust model no party can author one soundly:
+A machine's health is its reachability and its version, and nothing else. A machine keeps one outbound connection to the relay while its service runs: it is reachable while that connection is up, and after 45 seconds without a frame it is not reachable, read from the relay connection itself with no heartbeat table. The version decides whether a device may only read.
 
-- the **control plane** cannot — it has no event log (Decision above), it is not a session-roster user and holds no session keys (the zero-knowledge relay, [ADR-010](./010-paseto-webauthn-mls-auth.md)), and it has **no non-forgeable node-identity key the roster-based verification path can resolve** (the exact gap §Node-Scope Anchor Witnessing defers to V1.1);
-- the **affected node** cannot — an `offline` node's daemon is by definition dead, and a `revoked` node is untrusted (the wire health enum is `online | degraded`, so a node cannot even represent `offline`/`revoked`);
-- a **peer daemon** cannot _soundly_ — heartbeats are observed only by the control plane ([Spec-002 §Default Behavior](../specs/002-runtime-node-attach.md#default-behavior)), so a peer signing `runtime_node.offline` under its own roster key would merely rubber-stamp the control plane's verdict, which is the exact forgeability §Node-Scope Anchor Witnessing names.
+**None of this is a session event.** Nothing about a machine is recorded on a session's log: there are no `runtime_node.*` session events — no `registered`, `online`, `offline`, `degraded` or `revoked`, and no capability declarations. A machine's driver capabilities are current state, held in the daemon's capability tables and rebuilt from them at start, never replayed from events. So no party has to author a machine's lifecycle on a session's log, and none does.
 
-This is the **failure-detector model** the industry uses and [Spec-002 §References](../specs/002-runtime-node-attach.md#references) already cites: Kubernetes' node controller derives `NotReady`/`Unknown` from missed heartbeats and records it as a **status condition in the central datastore (etcd) — not as a node-authored event**; SWIM/Lifeguard treat a node's self-report as a detector _input_, never the verdict; SPIFFE/SPIRE treat revocation as **authority-issued**, never subject-declared.
-
-**Gated to V1.1** (on the same node-identity trust anchor as §Node-Scope Anchor Witnessing — Plan-016 / Plan-002): the durable `runtime_node.degraded` / `runtime_node.revoked` / heartbeat-loss `runtime_node.offline` session events and their per-event payload-shape schemas (Plan-002 §CP-002-1). Once the control plane holds a roster-resolvable node-identity key it becomes a sound authenticated authority and emits these directly. **V2** realizes the same authority model over MLS (the ADR-010 upgrade): the control plane registers as an authorized `external_senders` entity ([RFC 9420 §12.1.8](https://www.rfc-editor.org/rfc/rfc9420)) that _proposes_ the lifecycle change and group members _commit_ it.
-
-The approved-spec [Spec-002](../specs/002-runtime-node-attach.md#state-and-data-implications) obligation that "capability declarations and trust posture changes must be emitted as session events" is satisfied for **capability declarations** in V1 — those are daemon-authored (`capability_declared` / `capability_updated`) by the declaring node, a live roster member — and **criterion-gated for the trust-posture (`revoked`) durable event** to the V1.1 node-identity anchor, with the `runtime_node_attachments.state = revoked` coordination record carrying the operational trust truth in the interim.
-
-**Reversibility.** Additive, identical to §Node-Scope Anchor Witnessing: no V1 behavior is removed; the V1 coordination record stands, and the V1.1 durable events are added when the node-identity primitive ships. Re-evaluation trigger: the node-identity registry shipping in Plan-016 / Plan-002.
+**Where a machine's changes are seen.** Control-plane events carry the changes to the person's machines, devices and passkeys: one for each statement in the account's chain, carrying its kind as its name (`device.linked`, `device.renamed`, `device.revoked`, `passkey.added`, `passkey.removed`, `runtimenode.added`, `runtimenode.renamed`, `runtimenode.removed` and `runtimenode.key_rotated`), beside `device.forgotten` and `runtimenode.registered`. The control plane's `device.list` live read delivers them to every linked device as they happen, with no polling ([Spec-028](../specs/028-remote-control.md)); none of them is written on a session's log.
 
 ### Thesis — Why This Option
 
@@ -87,60 +79,57 @@ Four of four directly analogous systems use per-replica logs. The ecosystem norm
 
 Linear's sync engine is the clean counterexample. A collaborative, offline-capable, real-time system that nevertheless runs a shared server-authoritative log with a single global monotonic `lastSyncId` spanning the workspace. A CTO-endorsed reverse-engineering reference states: "the local database is a subset of the server database (the SSOT)… When a transaction is successfully executed by the server, the global `lastSyncId` increments by 1." Clients hold pending transactions client-side until the server's delta package arrives. ([linear.app/now/scaling-the-linear-sync-engine](https://linear.app/now/scaling-the-linear-sync-engine), [github.com/wzhudev/reverse-linear-sync-engine](https://github.com/wzhudev/reverse-linear-sync-engine))
 
-A hypothetical V1 that chose Option A — with MLS group encryption already shipped plus server-stamped global sequence numbers on ciphertext envelopes — would offer three benefits Option B cannot: (1) cross-daemon audit via one SQL query rather than federated log-collection, (2) canonical event ordering with deterministic interleaving, (3) a single durable point of truth for "what happened in this session" rather than N daemon-specific reconstructions.
+A hypothetical V1 that chose Option A — with group encryption plus server-stamped global sequence numbers on ciphertext envelopes — would offer two benefits Option B cannot: (1) audit across every machine through one SQL query rather than one read per machine, and (2) one canonical ordering of events across machines.
 
 The antithesis's strongest form is: Linear proves shared-log is viable for collaborative + offline + real-time software; AI Sidekicks should adopt the Linear pattern rather than the Zed/Automerge pattern.
 
 ### Synthesis — Why It Still Holds
 
-The antithesis is load-bearing only if one of two premises is true: either (a) Linear-style plaintext on the server is acceptable — it is not, by ADR-010's explicit trust model — or (b) MLS group encryption with audit + interop + 4-week soak promotion gates is already cleared — it is not, per ADR-010 which names these exact gates as V1.1 preconditions and not V1 preconditions.
+The antithesis is load-bearing only if one of two premises is true: either (a) Linear-style plaintext on the server is acceptable — it is not, by ADR-010's trust model — or (b) the relay may keep session content as group-encrypted envelopes — it may not: every channel has two ends, one device and one machine, there is no group to encrypt to, and the relay never holds a byte of a session.
 
-Option A is not available for V1. It becomes available in V1.1 if and when MLS promotion gates clear. Choosing Option B for V1 is not a preference for per-device logs over shared logs in the abstract; it is the only option cryptographically compatible with the zero-knowledge relay V1 ships. The federated-audit accepted trade-off below is the price of shipping pairwise encryption in V1 rather than deferring V1 until MLS ships.
+Option A is not available. Choosing Option B is not a preference for per-machine logs over shared logs in the abstract; it is the only option compatible with a relay that sees no session content. The accepted trade-off below, one read per machine instead of one query across them, is the price of that relay, and it is small for one person, whose sessions each live on one machine.
 
-The Linear pattern is retained as the reference architecture for Option A's V1.1 candidate. ADR-010's MLS promotion gate completion is the re-evaluation trigger.
+The Linear pattern stays on record as the counterexample for a server that may read the data, which this relay may not.
 
 ## Alternatives Considered
 
-### Option B: Per-daemon local event logs (Chosen)
+### Option B: Per-machine local event logs (Chosen)
 
-- **What:** Each daemon owns a `session_events` table in its Local SQLite (already declared in [local-sqlite-schema.md](../architecture/schemas/local-sqlite-schema.md), owned by Plan-001). Events originating on that daemon are appended with `UNIQUE(session_id, sequence)` monotonic per session. Events originating on the user's other daemons are delivered by the relay as pairwise-encrypted payloads per ADR-010; each receiving daemon validates the sender signature, decrypts, and appends the event to its own log with its own per-session sequence number.
+- **What:** Each machine's daemon owns a `session_events` table in its Local SQLite (already declared in [local-sqlite-schema.md](../architecture/schemas/local-sqlite-schema.md), owned by Plan-001), holding the sessions that machine runs. Every event of a session is appended there, with `UNIQUE(session_id, sequence)` monotonic per session. Other devices read a session over their own channel to its owning machine (ADR-010); no other daemon appends a copy.
 - **Steel man:** Cryptographically coherent with the zero-knowledge relay. Matches the ecosystem norm for replicated-log and collaborative-editor systems (Kleppmann, Automerge, Zed, Replicache). Each daemon is authoritative for its own view and can replay offline. No trust is placed in the relay beyond message routing. Schema already de facto implements this.
-- **Weaknesses:** Cross-daemon audit is federated — no single query spans all of the user's machines. Daemons may disagree on the interleaving of events that arrived concurrently from different peers. Audit export is a multi-daemon collection operation.
+- **Weaknesses:** No single query spans all of the person's machines: each machine answers for the sessions it runs, and an audit or export covering several machines reads each one.
 
-### Option A: Shared Postgres event log (Rejected for V1; retained as V1.1 candidate)
+### Option A: Shared Postgres event log (Rejected)
 
-- **What:** One `session_events_shared` append-only table in Postgres. All of the user's daemons append session events with a server-stamped global monotonic sequence. Under MLS group encryption (V1.1), events are stored as MLS ciphertext envelopes the server cannot read but can sequence and route.
-- **Steel man:** Cross-daemon audit is a single SQL query. Canonical event sequence with deterministic interleaving. No federated-log reconciliation. Linear proves the pattern is viable for collaborative + offline + real-time software with server-held plaintext.
-- **Why rejected for V1:** V1's relay encryption (pairwise X25519 + XChaCha20-Poly1305 per ADR-010) produces per-recipient ciphertexts, not a group-encrypted envelope. Appending per-recipient ciphertexts to a shared table produces a log the server cannot index, query, or audit coherently — which removes the only reason to choose Option A. Appending plaintext to a shared server table violates ADR-010's relay trust model.
-- **Why retained as V1.1 candidate:** Once ADR-010's MLS promotion gates clear (audit + interop + 4-week soak), the relay can participate in group-key distribution and store a single MLS-ciphertext envelope per event. At that point the cross-daemon audit argument becomes evaluable on its merits against the federated model's empirical trade-offs.
+- **What:** One `session_events_shared` append-only table in Postgres. The person's daemons append session events with a server-stamped global monotonic sequence.
+- **Steel man:** Audit across machines is a single SQL query, with one canonical event sequence. Linear proves the pattern is viable for collaborative + offline + real-time software with server-held plaintext.
+- **Why rejected:** The relay carries per-connection channels between one device and one machine and never holds a byte of a session (ADR-010). A shared table would hold either ciphertext the server cannot index, query, or audit — which removes the only reason to choose Option A — or plaintext, which the relay is never given.
 
 ## Reversibility Assessment
 
-- **Reversal cost:** Adding a `session_events_shared` table at V1.1 is a strictly additive migration. Per-daemon logs remain authoritative for local replay; the shared log is populated in parallel for cross-daemon audit. No V1 behavior is removed.
-- **Blast radius:** `shared-postgres-schema.md` (one new table), [Spec-005](../specs/005-session-event-taxonomy-and-audit-log.md) (adds cross-daemon audit semantics), [Spec-013](../specs/013-persistence-recovery-and-replay.md) (optional: shared log as a cross-daemon replay source). No local schema churn.
-- **Migration path:** V1.1 introduces the shared log alongside per-daemon logs. Events continue to be emitted locally. A shared-log projector appends MLS-ciphertext envelopes to Postgres with global sequence numbers. Cross-daemon audit queries the shared log; per-daemon replay continues unchanged.
-- **Point of no return:** None at V1. The Option B → Option A path is additive. The re-evaluation trigger is ADR-010 MLS promotion gate completion.
+- **Reversal cost:** A `session_events_shared` table would be an additive table, but filling it means the relay or the control plane holding session content, which [ADR-010](./010-tokens-passkeys-and-the-remote-channel.md)'s channel rules out; a reversal therefore starts with a change to that channel, not to this schema.
+- **Blast radius:** `shared-postgres-schema.md` (one new table), [Spec-005](../specs/005-session-event-taxonomy-and-audit-log.md) (audit semantics across machines), [Spec-013](../specs/013-persistence-recovery-and-replay.md) (a shared log as a replay source), ADR-010 and [Spec-028](../specs/028-remote-control.md) (what the relay may carry). No local schema churn.
+- **Migration path:** None planned. The local logs stay authoritative whatever is added beside them.
+- **Point of no return:** None. The local logs remain the record under any later addition.
 
 ## Consequences
 
 ### Positive
 
-- V1 ships without waiting for MLS promotion gates.
+- A session's content never leaves its owning machine except over a device's own sealed channel.
 - Cryptographically coherent with the zero-knowledge relay: the relay sees ciphertext and routes it; it does not own any log.
 - Matches replicated-log ecosystem precedent (Kleppmann, Automerge, Zed, Replicache).
 - Each daemon is authoritative for its own view and can replay offline.
-- Reduces the shared-Postgres write path from per-event to per-coordination-record, lowering hosted SaaS operational load.
+- Reduces the shared-Postgres write path from per-event to per-coordination-record, lowering the load on the person's own relay.
 
 ### Negative (accepted trade-offs)
 
-- **Federated audit.** Cross-daemon audit spans multiple daemons. An operator investigating "what happened in session X between 14:02 and 14:05?" collects log exports from every one of the user's daemons and merges them. There is no single-query shortcut. This is the explicit accepted cost of pairwise V1 encryption.
-- **Per-daemon sequence semantics.** Each daemon's `sequence` is monotonic only within its own log. Daemons may disagree on the ordering of events that arrived from different peers at overlapping wall-clock times. Consumers that need cross-daemon ordering must use wall-clock timestamps plus origin-node-id tiebreakers, or Hybrid Logical Clocks — never raw per-daemon sequence numbers.
-- **Cross-daemon replay is reconstruction, not canonical read.** Replay of what the laptop's daemon observed is replay of that daemon's local log; replay of what the desktop's daemon observed is replay of its own. There is no ground-truth session log separate from what each daemon recorded. Divergent views are an expected property, not a defect.
+- **One read per machine.** A question about one session is answered by its owning machine's log alone. A question that spans sessions on two machines — every session touched this week, say — reads each machine and combines the answers; there is no single-query shortcut. This is the accepted cost of a relay that holds no session content.
+- **No ordering across machines.** A session's `sequence` is monotonic within its owning machine's log, and nothing orders events across machines. Nothing needs to, because no session spans two machines; a consumer that lines up two machines' sessions by time uses wall-clock timestamps, never raw sequence numbers.
 
 ### Unknowns
 
-- Whether V1.1 will actually promote Option A or whether the federated-audit model proves sufficient in production and Option A gets deferred further. Depends on demand for single-query cross-daemon audit and on MLS promotion gate status.
-- How Hybrid Logical Clocks would interact with per-daemon sequence numbers. That question is independent of this decision and addresses the ordering problem at the event-taxonomy level.
+- None open: a session's events live only on its owning machine, so no question of ordering or collecting one session's events across machines arises.
 
 ## References
 
@@ -158,8 +147,8 @@ The Linear pattern is retained as the reference architecture for Option A's V1.1
 ### Related ADRs
 
 - [ADR-004 — SQLite Local State And Postgres Control Plane](./004-sqlite-local-state-and-postgres-control-plane.md) — establishes the two-store split this ADR scopes event-sourcing against.
-- [ADR-010 — PASETO + WebAuthn + MLS Auth](./010-paseto-webauthn-mls-auth.md) — the relay trust model and MLS promotion gates that determine Option A's V1.1 availability.
-- [ADR-015 — V1 Feature Scope Definition](./015-v1-feature-scope-definition.md) — the V1 / V1.1 / V2 triage this decision respects.
+- [ADR-010 — Tokens, Passkeys And The Remote Channel](./010-tokens-passkeys-and-the-remote-channel.md) — the per-connection `Noise_KK_25519_ChaChaPoly_SHA256` channel between each device and each machine, and what the relay may see; also PASETO v4 tokens with a device-code sign-in for the control plane, and passkeys only in the web client, the phone apps and the device-code page.
+- [ADR-015 — V1 Feature Scope Definition](./015-v1-feature-scope-definition.md) — the V1 feature scope this decision respects.
 
 ### Related Specs And Docs
 

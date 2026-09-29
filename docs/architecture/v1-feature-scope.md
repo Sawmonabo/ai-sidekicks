@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This document records the V1 / V1.1 / V2 scope triage for the product. It is governed by [ADR-015: V1 Feature Scope Definition](../decisions/015-v1-feature-scope-definition.md). Any change to the triage below requires an ADR update or supersession.
+This document records the V1 feature scope for the product: the features V1 ships and what is out of scope. [ADR-015: V1 Feature Scope Definition](../decisions/015-v1-feature-scope-definition.md) records the reasoning.
 
 ## V1 Features (21)
 
@@ -11,7 +11,7 @@ Every V1 feature has a governing spec; feature #24 (Remote Control) is governed 
 | # | Feature | Governing Spec(s) |
 | --- | --- | --- |
 | 1 | Session creation | [Spec-001](../specs/001-session-core.md) |
-| 4 | Runtime node attach/detach | [Spec-002](../specs/002-runtime-node-attach.md) |
+| 4 | Machine registration | [Spec-002](../specs/002-runtime-node-attach.md) — the machine that runs your sessions, which the backend calls a runtime node, registers once with the control plane, keyed by the machine and its owner, and is reached through the relay; it is reachable while its relay connection is up, and a session never moves to another machine |
 | 5 | Single-agent runs (Codex, Claude) | [Spec-004](../specs/004-provider-driver-contract-and-capabilities.md) |
 | 6 | Queue, steer, pause, resume, interrupt | [Spec-003](../specs/003-queue-steer-pause-resume.md) |
 | 7 | Approval gates | [Spec-010](../specs/010-approvals-permissions-and-trust-boundaries.md) |
@@ -20,42 +20,32 @@ Every V1 feature has a governing spec; feature #24 (Remote Control) is governed 
 | 10 | Session timeline with replay | [Spec-011](../specs/011-live-timeline-visibility-and-reasoning-surfaces.md), [Spec-013](../specs/013-persistence-recovery-and-replay.md) |
 | 11 | Local daemon with CLI | [Spec-006](../specs/006-local-ipc-and-daemon-control.md) |
 | 13 | Event audit log | [Spec-005](../specs/005-session-event-taxonomy-and-audit-log.md) |
-| 14 | Artifact publication (local + cross-node shared) | [Spec-012](../specs/012-artifacts-files-and-attachments.md) — cross-node payload availability is V1 per [ADR-015](../decisions/015-v1-feature-scope-definition.md): eager relay pin of E2EE ciphertext at publish, fetchable while the publishing node is offline. The guarantee holds given an operational relay and against anyone outside the session, **not** against a compromised node of the fetching user, whose forged-ack and attestation-spoof residuals (availability and attribution, not confidentiality) are accepted for V1 and close on the Plan-016 / Plan-002 node-identity primitive. It attaches to a **live** pin — `state = 'pinned'` and `expires_at` still in the future — and ends at the artifact's retention TTL, after which a fetch is a correct `artifact.relay_expired` (410) refusal carrying the re-publish remedy; direct-first fetch stays criterion-gated (C4) |
-| 15 | Desktop GUI | [Spec-021: Desktop Shell and Renderer](../specs/021-desktop-shell-and-renderer.md) |
-| 16 | Multi-Agent Channels | [Spec-014](../specs/014-multi-agent-channels-and-orchestration.md) |
+| 14 | Artifact publication | [Spec-012](../specs/012-artifacts-files-and-attachments.md) — a session's artifacts stay on the machine that runs the session, which lists them on every linked device; a device reads them through Remote Control's method proxy, and the relay keeps no copy |
+| 15 | Desktop GUI | [Spec-021: Desktop App And Renderer](../specs/021-desktop-app-and-renderer.md) |
+| 16 | Multi-agent orchestration | [Spec-014](../specs/014-multi-agent-orchestration.md) |
 | 17 | Workflow authoring and execution (full engine) | [Spec-015](../specs/015-workflow-authoring-and-execution.md) |
 | 18 | MCP server configuration and governance | [Spec-025](../specs/025-mcp-server-configuration-and-governance.md) + [Plan-025](../plans/025-mcp-server-configuration-and-governance.md). Scope: operator-managed trusted-server store, Cedar-gated per-tool overrides |
-| 19 | Session time-travel (run rollback) | [Spec-003](../specs/003-queue-steer-pause-resume.md) (the `rollback` intervention) + the forward `run.rolled_back` event ([Spec-005](../specs/005-session-event-taxonomy-and-audit-log.md)) + the daemon-side turn-snapshot **file-restore** leg ([Spec-008](../specs/008-worktree-lifecycle-and-execution-modes.md) + [Plan-008](../plans/008-worktree-lifecycle-and-execution-modes.md)): the Codex conversation rewind reverts conversation only, so worktree restoration is the daemon's. `thread/rollback` carries its own deprecation in the generated type, and Spec-004 binds the successor `thread/revert {threadId, beforeTurnId}`, which cuts the same thread's own history, so the run keeps its live provider binding and nothing is re-pointed |
-| 20 | Session goals | [Spec-014 §Session Goals](../specs/014-multi-agent-channels-and-orchestration.md#session-goals) (goal set/clear RPC) + the `session.goal_*` events in [Spec-005](../specs/005-session-event-taxonomy-and-audit-log.md) |
+| 19 | Undo to an earlier message | [Spec-003](../specs/003-queue-steer-pause-resume.md) (the undo: the conversation and the files, the conversation alone, or the files alone, one request with one reported result) + the daemon's own file checkpoint store ([Spec-013 §Required Behavior](../specs/013-persistence-recovery-and-replay.md#required-behavior)) + the forward `session.restore_finished` event, with `run.rolled_back` for the conversation cut ([Spec-005](../specs/005-session-event-taxonomy-and-audit-log.md)). The conversation goes back through the provider's own cut, Claude Code's `rewind_conversation` and Codex's `thread/revert {threadId, beforeTurnId}`, neither of which touches a file; the files go back through the daemon's checkpoints, never through the git snapshot. A point before Claude Code's last compaction is reached through the provider's own copy of the conversation, resumed in place, so the session keeps its identity |
+| 20 | Session goals | [Spec-014 §Session Goals](../specs/014-multi-agent-orchestration.md#session-goals) (`/goal` gives one agent a condition to work toward; a session may have no goal, one or several, and is never named or labeled by one) + `session.goal_updated`, carrying the goal's status, and `session.goal_cleared` in [Spec-005](../specs/005-session-event-taxonomy-and-audit-log.md), each drawn only as a transcript system message |
 | 21 | Session callback tools | [Spec-004](../specs/004-provider-driver-contract-and-capabilities.md) (registry shape) + [Spec-010](../specs/010-approvals-permissions-and-trust-boundaries.md) (Cedar governance) |
 | 22 | Execution postures and sandbox profiles | [Spec-010](../specs/010-approvals-permissions-and-trust-boundaries.md) (`executionPosture` authorization semantics) + [Spec-004](../specs/004-provider-driver-contract-and-capabilities.md) (driver legs) |
-| 23 | Realtime voice channels (capability-gated) | [Spec-014 §Resolved Questions and V1 Scope Decisions](../specs/014-multi-agent-channels-and-orchestration.md#resolved-questions-and-v1-scope-decisions) (V1-scope-decision reservation) + [Spec-005](../specs/005-session-event-taxonomy-and-audit-log.md) (reserved `realtime_*` family); gated on upstream Codex realtime-flag stabilization |
+| 23 | Voice (`/voice`) | [Spec-014 §Design Decisions](../specs/014-multi-agent-orchestration.md#design-decisions) (voice ships on both providers, with no reservation and no gate) + [Spec-004](../specs/004-provider-driver-contract-and-capabilities.md) (each provider's voice leg) + [Spec-021](../specs/021-desktop-app-and-renderer.md) (the composer's capture and the voice mode in the machine settings file): dictation into the composer through Anthropic's speech service on a Claude Code session, and Codex's own realtime voice call on a Codex session, talking started on both by holding Space or, after `/voice tap`, tapping it |
 | 24 | Remote Control — linked devices, device liveness, and full parity from any device | [Spec-028](../specs/028-remote-control.md) |
 
-## V1.1 Features (1, Deferred)
+A human step's timeout and every data act (export, erase, purge, key rotation) ship in V1, as ADR-015 states after its V1 table.
 
-Features with a governing spec already written that defer implementation past V1 on well-named gates.
+## Out of Scope
 
-| # | Feature | Deferral Gate | Governing Spec(s) |
-| --- | --- | --- | --- |
-| 1 | MLS relay E2EE | Pending audit of an MLS implementation (OpenMLS, mls-rs, or a post-audit TypeScript implementation); V1 ships pairwise X25519 + XChaCha20-Poly1305 per [ADR-010](../decisions/010-paseto-webauthn-mls-auth.md). | [Spec-028](../specs/028-remote-control.md) |
-
-(Cross-node shared artifacts are V1 feature-14 scope per [ADR-015](../decisions/015-v1-feature-scope-definition.md); the only deferred leg is the C4 direct-first fetch optimization below.)
-
-Additionally, [ADR-015 §V1.1 Criterion-Gated Commitments](../decisions/015-v1-feature-scope-definition.md#v11-criterion-gated-commitments) carries 4 sub-feature commitments with named promotion criteria: BIND multi-phase channel reuse and `human` phase default-timeout behavior (both tied to Spec-015, Feature 17), the automated GDPR erasure endpoint (criteria in [Plan-020 §Non-Goals](../plans/020-data-retention-and-gdpr.md#non-goals), spec-side record [Spec-020 §V1 Erasure Scope Boundary](../specs/020-data-retention-and-gdpr.md#v1-erasure-scope-boundary)), plus direct-first artifact fetch (C4 — tied to Spec-012, Feature 14; gated on a shipped direct daemon-to-daemon transport).
-
-## V2 (Out of Scope for the V1 Horizon)
-
-Any feature inferable from the product vision but not listed above — including but not limited to first-party native runtime, provider marketplace, mobile clients, enterprise OIDC/SAML flows, SOC 2 compliance artifacts, HSM-backed operator signing, and WAF / IDS / SIEM extensions — is V2 and re-evaluated only after V1 ships.
+The product has one user, so what exists only to sell to or govern an organization of other people is out of scope: enterprise sign-on (OIDC and SAML), compliance mappings (SOC 2, ISO 27001, HIPAA, FedRAMP), HSM custody, WAF, IDS and SIEM extensions, Helm charts, SLA support, multi-region sign-up discovery, and server-side telemetry. The app collects no usage analytics. The product builds no agent runtime of its own and no provider marketplace: V1 is Claude Code and Codex, and a later provider is admitted through [Spec-004 §Scope](../specs/004-provider-driver-contract-and-capabilities.md#scope)'s provider-admission contract.
 
 ## Deployment Options (V1)
 
-Per [ADR-020: V1 Deployment Model and OSS License](../decisions/020-v1-deployment-model-and-oss-license.md), V1 ships over two deployment options — the same 21-feature surface runs in either; this is not a feature-count change to the triage above:
+Per [ADR-020: V1 Deployment Model and OSS License](../decisions/020-v1-deployment-model-and-oss-license.md), V1 is one open-source codebase whose relay is the person's own, deployed for themself in one of two ways:
 
-- **Free self-hosted (OSS).** Users obtain the product via `git clone`, `npm install`, Homebrew formula, or release-binary download. The daemon defaults to a project-operated free public relay at a published URL so linking a second device is zero-configuration on first run. Users can override via config (`RELAY_URL=…` or `--relay-url=…`) to point at their own self-hosted relay. Community-supported via GitHub Issues and Security Advisories; no SLA.
-- **Hosted SaaS.** The project operates the same codebase as a managed service at a separate URL. Users sign up, receive a scoped token, and their daemons point at the hosted control plane. Vendor-supported for paying customers.
+- **The Workers relay, in the person's own Cloudflare account.** Cloudflare Workers and Durable Objects: nothing to keep running at home, and no open port. It limits frame traffic with Cloudflare's native `rate_limit` binding and counts the credential routes in its per-identity Durable Object.
+- **The Compose relay, on the person's own server.** Node, Caddy and Postgres from one `docker-compose.yml`: everything on hardware the person holds. It limits traffic with `rate-limiter-flexible` on Postgres.
 
-Both deployment options ship the 21-feature V1 surface identically. The rate-limiter abstraction in `deployment-topology.md` §Rate Limiting By Deployment uses Cloudflare-native `rate_limit` for hosted and project-operated relay, and `rate-limiter-flexible` with Postgres for the self-hostable relay — both ship in V1. First-run UX presents a one-time three-way choice (free public relay / self-host / sign up for hosted) per Spec-023.
+The person picks per setup and can switch a machine between them; the daemon points at its relay through config (`RELAY_URL=…` or `--relay-url=…`). Both relays run one protocol and serve the same features, with one difference the person sees: shared ports in the web client exist only on the Compose relay, and on the Workers relay the web client says so. A machine signs in to its relay from the command line with `sidekicks sign-in`, the device-code flow, and a first run has nothing to answer ([Spec-023](../specs/023-first-run-onboarding.md)). Community-supported via GitHub Issues and Security Advisories; no SLA. A relay serving other people — a project-operated public relay, or a hosted service — is out of scope for one user.
 
 ## Platform Support (V1)
 
@@ -81,26 +71,24 @@ Cross-cutting V1 specs that multiple V1 features depend on. These are required b
 | [Spec-018](../specs/018-observability-and-failure-recovery.md) | Observability and failure recovery |
 | [Spec-019](../specs/019-rate-limiting-policy.md) | Rate limiting policy (both backends ship in V1) |
 | [Spec-020](../specs/020-data-retention-and-gdpr.md) | Data retention and GDPR compliance |
-| [Spec-022](../specs/022-cross-node-dispatch-and-approval.md) | Cross-node dispatch and approval |
-| [Spec-023: First-Run Three-Way-Choice Onboarding](../specs/023-first-run-onboarding.md) | First-run three-way-choice onboarding |
+| [Spec-023: First Run](../specs/023-first-run-onboarding.md) | First run: nothing to answer, and when the daemon pins a relay's TLS key |
 
 ## Spec Coverage Assessment
 
 - **V1 features:** all 21 have a governing spec. Spec-015 (workflow authoring and execution) carries its SA-1…SA-23, SA-25, SA-26, SA-27 and SA-28 items in its own body; SA-24, SA-29, SA-30 and SA-31 live in Plan-015 as implementation detail.
-- **V2 features:** intentionally uncovered. V2 scope decisions are made post-V1 and add specs as needed.
 
 ## Backlog Coverage Assessment
 
-All V1 features and supporting V1 specs have implementation plans: Plans 001–020 for the existing V1 features (Plan-014 for Multi-Agent Channels and Plan-015 for workflow authoring and execution among them), Plan-021 for the desktop shell, Plan-022 for the PTY sidecar, Plan-023 for first-run onboarding, Plan-024 for Spec-022 cross-node dispatch and approval, Plan-025 for Spec-025 MCP governance, and [Plan-028](../plans/028-remote-control.md) for Spec-028 Remote Control.
+All V1 features and supporting V1 specs have implementation plans: Plan-001 and Plans 003–020 for the existing V1 features (Plan-014 for Multi-agent orchestration and Plan-015 for workflow authoring and execution among them), Plan-021 for the desktop app, Plan-022 for the PTY sidecar and a session's shells, Plan-025 for Spec-025 MCP governance, and [Plan-028](../plans/028-remote-control.md) for Spec-028 Remote Control and for the machine's registration and reachability (feature 4, Phase 3). Spec-023's first run is built by the plans that own its pieces: Plans 006, 016, 021, 026 and 028.
 
 ## References
 
-- [ADR-015: V1 Feature Scope Definition](../decisions/015-v1-feature-scope-definition.md) — the governing decision for this triage.
-- [ADR-016: Electron Desktop Shell](../decisions/016-electron-desktop-shell.md) — enables V1 feature 15 (Desktop GUI).
+- [ADR-015: V1 Feature Scope Definition](../decisions/015-v1-feature-scope-definition.md) — the governing decision for this scope.
+- [ADR-016: Electron Desktop App](../decisions/016-electron-desktop-app.md) — enables V1 feature 15 (Desktop GUI).
 - [ADR-019: Windows V1 Tier and PTY Sidecar Strategy](../decisions/019-windows-v1-tier-and-pty-sidecar.md) — Windows V1 tier decision.
-- [ADR-020: V1 Deployment Model and OSS License](../decisions/020-v1-deployment-model-and-oss-license.md) — the two V1 deployment options.
-- [ADR-010: PASETO + WebAuthn + MLS Auth](../decisions/010-paseto-webauthn-mls-auth.md) — relay encryption choice (pairwise-first V1, MLS V1.1).
+- [ADR-020: V1 Deployment Model and OSS License](../decisions/020-v1-deployment-model-and-oss-license.md) — the person's own relay and the ways to deploy it.
+- [ADR-010: Tokens, Passkeys And The Remote Channel](../decisions/010-tokens-passkeys-and-the-remote-channel.md) — PASETO v4 tokens with a device-code sign-in and a DPoP-bound refresh token for the control plane, passkeys only in the web client, the phone apps and the device-code page, and the per-connection `Noise_KK_25519_ChaChaPoly_SHA256` channel between each device and each machine.
 - [Vision](../vision.md) — signature features and build order.
 - [Backlog](../backlog.md) — open work items against V1 scope.
-- [Deployment Topology](./deployment-topology.md) — topologies supporting the two V1 deployment options.
+- [Deployment Topology](./deployment-topology.md) — the topologies behind the person's own relay, on Workers or Compose.
 - [Cross-Plan Dependencies](./cross-plan-dependencies.md) — the forward build order aligned against this scope.

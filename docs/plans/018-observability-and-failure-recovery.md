@@ -15,11 +15,11 @@
 
 ## Goal
 
-Implement the health, failure-detail, stuck-run, and recovery-action surfaces needed for safe diagnosis and operator response.
+Implement the daemon's diagnostic signals: bounded retention on this machine for its diagnostic buckets, and the loopback `/metrics` endpoint with the audit-integrity families that report a halted session. No client reads a `health.*` method; Settings › Runtime reads the service's status from `daemon.status.read`.
 
 ## Scope
 
-This plan covers runtime health projections, failure-category reads, stuck-run inspection, recovery-action requests, and degraded-mode visibility across daemon and control-plane dependencies.
+This plan covers the diagnostic buckets `driver_raw_events`, `command_output` and `tool_traces` (their tables, TTL retention and summary construction; nothing in them leaves the machine) and the daemon's `/metrics` endpoint with its registered families. The retry rules of [Spec-018 §Required Behavior](../specs/018-observability-and-failure-recovery.md#required-behavior) are built where their mechanisms live: the Codex service restart bound with the Codex service's lifecycle, the pane-read retry with the pane reads. The integrity halt's append gate is Plan-005's; its Send refusal is the console composer's; its status line is `daemon.status.read`'s ([Plan-006 §Phase R1 — Namespace Handlers](./006-local-ipc-and-daemon-control.md#phase-r1--namespace-handlers)).
 
 ## Non-Goals
 
@@ -37,29 +37,22 @@ Target paths below assume the canonical implementation topology defined in [Cont
 
 ## Target Areas
 
-- `packages/contracts/src/health/`
-- `packages/runtime-daemon/src/observability/health-status-service.ts`
-- `packages/runtime-daemon/src/observability/failure-detail-service.ts`
-- `packages/runtime-daemon/src/observability/stuck-run-inspector.ts`
-- `packages/runtime-daemon/src/observability/diagnostic-redaction-policy.ts` (PII redaction gate on all 4 diagnostic buckets)
-- `packages/runtime-daemon/src/observability/diagnostic-buckets/` (TTL-bucket implementations for `driver_raw_events`, `command_output`, `tool_traces`, `reasoning_detail`)
-- `packages/runtime-daemon/src/observability/health-method-handlers.ts` — `health.*` JSON-RPC method registration + handler wiring (T2.10; strings per the Health Method-Name Registry)
+- `packages/runtime-daemon/src/observability/diagnostic-redaction-policy.ts` (PII redaction gate on every diagnostic bucket)
+- `packages/runtime-daemon/src/observability/diagnostic-buckets/` (TTL-bucket implementations for `driver_raw_events`, `command_output` and `tool_traces`)
 - `packages/runtime-daemon/src/observability/metrics-exposition.ts` — Prometheus `/metrics` endpoint (Spec-024 row 9 daemon scope)
 - `packages/runtime-daemon/src/observability/metrics-registry.ts` — allow-listed metric families with bounded label sets; PII-free by construction
 - `packages/runtime-daemon/src/observability/metrics-auth.ts` — bearer-token / mTLS gate for non-loopback `METRICS_BIND`
-- `packages/control-plane/src/health/`
-- `packages/client-sdk/src/healthClient.ts`
-- `apps/desktop/src/renderer/src/health-and-recovery/`
+- `packages/runtime-daemon/src/observability/audit-integrity-metrics.ts` — the audit-integrity families driven from the audit log's events (T3.5)
 
 ## PII in Diagnostics
 
-Plan-018 is the implementation surface for [Spec-018 §PII in Diagnostics](../specs/018-observability-and-failure-recovery.md#pii-in-diagnostics) and must honor the [Spec-020 §PII Data Map](../specs/020-data-retention-and-gdpr.md#pii-data-map) classification of diagnostic data. The 4 bounded-retention diagnostic buckets — `driver_raw_events`, `command_output`, `tool_traces`, `reasoning_detail` — are runtime-local stores that may transit raw user content and therefore require TTL-bounded local retention, default-deny outbound telemetry, and opt-in raw-content capture.
+Plan-018 is the implementation surface for [Spec-018 §PII in Diagnostics](../specs/018-observability-and-failure-recovery.md#pii-in-diagnostics) and must honor the [Spec-020 §PII Data Map](../specs/020-data-retention-and-gdpr.md#pii-data-map) classification of diagnostic data. The bounded-retention diagnostic buckets — `driver_raw_events`, `command_output`, `tool_traces` — are runtime-local stores that may transit raw user content and therefore require TTL-bounded local retention and never leave the machine.
 
 - Default TTL: ≤ 7 days per [Spec-018 §PII in Diagnostics](../specs/018-observability-and-failure-recovery.md#pii-in-diagnostics). Operator-configured overrides > 30 days MUST emit the `retention_policy_override` warning metric on every daemon startup and on each policy read.
-- Default-deny outbound: no diagnostic bucket content MAY leave the daemon host by default. Outbound telemetry carries summary-only signals derived by construction from non-PII inputs (counts, categories, latencies). Raw content transmission is opt-in per bucket.
-- Shred fan-out coverage: each bucket's TTL purge path participates in the crypto-shred fan-out per [Spec-020 §Shred Fan-Out](../specs/020-data-retention-and-gdpr.md#shred-fan-out) Path 3 (bounded-retention purge) so a user-purge request triggers purge of any bucket rows authored by the purged user before the TTL would otherwise expire them.
+- Nothing leaves the machine: the daemon runs no telemetry exporter and sends no diagnostic bucket content to any sink. A compacted summary carries only signals derived by construction from non-PII inputs (counts, categories, latencies).
+- Bound and erase: each bucket drops its rows past `Keep diagnostic logs for` ([Spec-020 §Erasure Paths](../specs/020-data-retention-and-gdpr.md#erasure-paths) Path 3), and `Erase all data` deletes them with the data folder. There is no per-person flush.
 
-**Redaction-decision locality (no wire contract).** The redaction and default-deny _decision logic_ — which fields are denied, which placeholder shape replaces them, which sink an opt-in covers — is daemon-local code in `diagnostic-redaction-policy.ts`. It is deliberately **not** published as a typed payload in [API Payload Contracts](../architecture/contracts/api-payload-contracts.md), because no cross-package consumer evaluates redaction: the daemon is the only principal that sees unredacted diagnostic content, and it redacts before egress rather than handing rules to a caller. What does cross a contract boundary is the operator-readable policy _state_ — the `DiagnosticRedactionPolicy` read named in §API And Transport Changes below (current TTL, per-bucket opt-in toggles, `retention_policy_override` warning surface). A future consumer that needs to _evaluate_ redaction rather than _read_ policy state requires a change to this plan publishing the rule set as a typed contract first; until then, changing a redaction rule is a code change with no cross-plan contract ripple.
+**Redaction-decision locality (no wire contract).** The redaction _decision logic_ — which fields a compacted summary keeps and which it drops — is daemon-local code in `diagnostic-redaction-policy.ts`. It is deliberately **not** published as a typed payload in [API Payload Contracts](../architecture/contracts/api-payload-contracts.md), because no cross-package consumer evaluates redaction: the daemon is the only principal that sees diagnostic content, and none of it leaves the machine. The policy _state_ does not cross a contract boundary either. The retention period is the `Keep diagnostic logs for` setting on Settings › Runtime, carried by the daemon's configuration reads and writes ([Plan-006 §Phase R1 — Namespace Handlers](./006-local-ipc-and-daemon-control.md#phase-r1--namespace-handlers)), and a retention override beyond 30 days announces itself on the `retention_policy_override` gauge. A consumer that needs to _evaluate_ redaction or _read_ policy state reads a typed contract published for it; otherwise changing a redaction rule is a code change with no cross-plan contract ripple.
 
 ## Prometheus `/metrics` Exposition (Spec-024 row 9)
 
@@ -76,18 +69,21 @@ Plan-018 owns the daemon-side `/metrics` endpoint required by [Spec-024 row 9](.
 - Credential rotation/reload: `METRICS_AUTH_TOKEN_FILE` and `METRICS_TLS_CLIENT_ALLOWLIST_FILE` are change-detected and re-read on the authorization path, so replacing file contents rotates the credential without a daemon restart; a rotated-away token or de-listed fingerprint is rejected from the next request onward with no accept-both grace window (the behavior T3.3's rotation test pins). `METRICS_TLS_CERT_FILE` / `METRICS_TLS_KEY_FILE` / `METRICS_TLS_CLIENT_CA_FILE` take effect on daemon restart.
 - Disable: `METRICS_BIND=off` disables the endpoint entirely. Disabling MUST emit a banner + `security.default.override=metrics_disabled` log event per [Spec-024 §Fallback Behavior](../specs/024-self-host-secure-defaults.md#fallback-behavior).
 
-**Metric families (daemon scope — the relay mounts the equivalent relay-side set).** The daemon registry exposes exactly six families: the five Spec-024 row 9a families (the set D-019-8 ratified — that count does not move) plus the plan-owned `retention_policy_override` warning gauge mandated by [Spec-018 §PII in Diagnostics](../specs/018-observability-and-failure-recovery.md#pii-in-diagnostics) and required by I-018-3 / T2.7. The gauge is daemon-only — it reports diagnostic-bucket retention state, which has no relay-side equivalent — and sits outside the row-9a security set, so Spec-024's row-9a enumeration is unchanged. Any further daemon metric family requires a change to this plan.
+**Metric families (daemon scope — the relay mounts the equivalent relay-side set).** The daemon registry exposes these families: the Spec-024 row 9a families (D-019-8), the plan-owned `retention_policy_override` warning gauge mandated by [Spec-018 §PII in Diagnostics](../specs/018-observability-and-failure-recovery.md#pii-in-diagnostics) and required by I-018-3 / T2.7, and the plan-owned audit-integrity families that are the consuming surface of CP-018-3. The plan-owned families are daemon-only — they report diagnostic retention and the daemon's own audit log, which have no relay-side equivalent — and sit outside the row-9a security set, so Spec-024's row-9a enumeration is unchanged. The audit counters live in the daemon's memory and reset when it restarts.
 
 | Family | Type | Labels (bounded) | Source |
 | --- | --- | --- | --- |
 | `token_auth_failure_total` | counter | `reason: "expired"\|"invalid"\|"dpop_mismatch"\|"principal_mismatch"\|"scope_denied"` (5 bounded values) | Auth middleware |
-| `cedar_deny_total` | counter | `policy_family: "session"\|"runtime_node"\|"artifact"\|"admin"` (bounded; owned by ADR-012) | Cedar authorization layer |
+| `cedar_deny_total` | counter | `policy_family: "session"\|"workflow"` (bounded; owned by [Plan-010](./010-approvals-permissions-and-trust-boundaries.md), which owns the Cedar layer) | Cedar authorization layer |
 | `relay_connection_churn_total` | counter | `phase: "connect"\|"disconnect"\|"reconnect"\|"rejected"` (4 bounded values) | Relay client (mounted by the relay-side equivalent) |
 | `backup_success_total` | counter | `kind: "event_end"\|"nightly"\|"manual"` (3 bounded values) | Backup job (Plan-001 + the persistence-hardening plan) |
 | `auto_update_check_status` | gauge | none | Update-notify poller (Plan-006 row 7a) — values: `0=ok`, `1=behind`, `2=poll_failed` |
 | `retention_policy_override` | gauge | none | Diagnostic-bucket retention policy (T2.7) — values: `0` = no TTL override beyond 30 days, `1` = an override > 30 days is active; re-asserted on every daemon startup and on every policy read (I-018-3). Plan-owned per [Spec-018 §PII in Diagnostics](../specs/018-observability-and-failure-recovery.md#pii-in-diagnostics); outside the row-9a set |
+| `audit_integrity_failed_total` | counter | `scope: "session"\|"node"` (2 bounded values: a session's verified range, or the node-scope chain) | Audit-log verifier (Plan-005) — incremented on each `audit_integrity_failed` event; outside the row-9a set (T3.5) |
+| `key_reuse_detected_total` | counter | none | Key-reuse observer (Plan-005) — incremented on each `key_reuse_detected` event; outside the row-9a set (T3.5) |
+| `audit_last_full_verification_timestamp_seconds` | gauge | none | Audit-log verifier (Plan-005) — the Unix time the last full verification of the log finished; outside the row-9a set (T3.5) |
 
-**Rate-limit families are control-plane-side, not daemon-side (Plan-019 D-019-8).** The daemon has no rate-limit enforcer — [Spec-019 §Scope](../specs/019-rate-limiting-policy.md#scope) excludes the local IPC path, and its AC-8 asserts the daemon path is never rate-limited — so no daemon-side `rate_limit_trip_total{bucket}` family appears in this table. The canonical rate-limit family set (`rate_limit_trip_total{endpoint,tier}`, `rate_limit_block_total{window_size}`, `rate_limit_backend_error_total{backend}`, `rate_limit_failclosed_total{backend}`, `admin_ban_total{action}`) is owned by [Plan-019](./019-rate-limiting-policy.md#design-decisions), registered + emitted control-plane-side under this section's label invariants (Plan-019 CP-019-4), and exposed on the self-host relay `GET /metrics` by [Plan-028](./028-remote-control.md); hosted exposition is an explicit V1 gap (Plan-019 D-019-15).
+**Rate-limit families are control-plane-side, not daemon-side (Plan-019 D-019-8).** The daemon has no rate-limit enforcer — [Spec-019 §Scope](../specs/019-rate-limiting-policy.md#scope) excludes the local IPC path, and its acceptance criteria assert that local daemon endpoints are not rate-limited — so no daemon-side `rate_limit_trip_total{bucket}` family appears in this table. The canonical rate-limit family set (`rate_limit_trip_total{endpoint,tier}`, `rate_limit_backend_error_total{backend}`, `rate_limit_failclosed_total{backend}`) is owned by [Plan-019](./019-rate-limiting-policy.md#design-decisions), registered + emitted control-plane-side under this section's label invariants (Plan-019 CP-019-4), and exposed on the self-hosted relay's `GET /metrics` by [Plan-028](./028-remote-control.md); the Workers relay writes the same counters as structured log lines, which the person reads in their own Cloudflare dashboard (Plan-019 D-019-15).
 
 **PII-free-by-construction invariants (I-018-2).**
 
@@ -95,34 +91,28 @@ Plan-018 owns the daemon-side `/metrics` endpoint required by [Spec-024 row 9](.
 - Labels MUST be enumerable at compile time — no dynamic label values. Tests assert the full label cardinality per family is bounded by the documented allow-list.
 - Any attempt to emit a label value outside the allow-list MUST throw at emission time, not silently coerce. Emission-time enforcement prevents accidental PII bleed when a new code path adds a metric observation.
 
-**Cardinality ceiling (I-018-1).** Total emitted series across all six registered families MUST stay below 200 per daemon instance (the label-less `retention_policy_override` gauge contributes exactly one series). Series-count assertion runs in integration tests; exceeding the ceiling is a violation of I-018-1 (not a warning), blocking merge until the allow-list tightens.
+**Cardinality ceiling (I-018-1).** Total emitted series across all registered families MUST stay below 200 per daemon instance (the plan-owned families contribute one series each for the label-less families and two for `audit_integrity_failed_total`). Series-count assertion runs in integration tests; exceeding the ceiling is a violation of I-018-1 (not a warning), failing the test until the allow-list tightens.
 
 ## Data And Storage Changes
 
-- Add daemon-owned health projections and failure-detail records derived from canonical events, replay state, and provider diagnostics.
-- Add recovery-action audit records and surfaced health snapshots needed for operators and user-facing projections.
-- Add the 4 diagnostic-bucket tables (`driver_raw_events`, `command_output`, `tool_traces`, `reasoning_detail`) to Local Runtime Daemon SQLite with TTL-purge and user-scoped purge indices per [Local SQLite Schema §Diagnostic Bucket Tables](../architecture/schemas/local-sqlite-schema.md#diagnostic-bucket-tables-plan-018). These are runtime-local; they have no shared-Postgres counterpart per [ADR-017](../decisions/017-shared-event-sourcing-scope.md).
-- Add bounded-retention handling for raw diagnostic payload classes so compaction never removes canonical health or failure truth.
-- See [Shared Postgres Schema](../architecture/schemas/shared-postgres-schema.md) for the shared `health_snapshots` column definitions; diagnostic bucket column definitions live in the Local SQLite schema because raw diagnostics never leave the daemon by default.
+- Add the diagnostic-bucket tables (`driver_raw_events`, `command_output`, `tool_traces`) to Local Runtime Daemon SQLite with TTL-purge indices per [Local SQLite Schema §Diagnostic Bucket Tables](../architecture/schemas/local-sqlite-schema.md#diagnostic-bucket-tables-plan-018). These are runtime-local; they have no shared-Postgres counterpart per [ADR-017](../decisions/017-shared-event-sourcing-scope.md).
+- Add bounded-retention handling for raw diagnostic payload classes so compaction never removes the failure detail a run event carries.
+- Diagnostic bucket column definitions live in the Local SQLite schema because raw diagnostics never leave the machine. This plan adds no shared-Postgres table.
 
 ## API And Transport Changes
 
-- Add `HealthStatusRead`, `FailureDetailRead`, `StuckRunInspect`, and `RecoveryActionRequest` to the typed client SDK and daemon contracts. Each operation — these four plus the `DiagnosticRedactionPolicy` policy-state read below — is callable over exactly one registered wire method: the five `health.*` dotted-camelCase strings recorded in the [Health Method-Name Registry](../architecture/contracts/api-payload-contracts.md#health-method-name-registry) (`health.statusRead`, `health.failureDetailRead`, `health.stuckRunInspect`, `health.recoveryActionRequest`, `health.redactionPolicyRead`), exported as contracts constants by T1.4 and registered against the Plan-006-partial daemon `MethodRegistry` with handler wiring by T2.10. Daemon JSON-RPC transport only — no tRPC sibling; the control-plane dependency-health read is merged daemon-side (T2.3).
-- **`RunFailureCategory` is a closed four-arm union — Plan-018 consumes it, never extends it.** The arms are exactly `"provider failure"`, `"transport failure"`, `"local persistence failure"`, and `"projection failure"`, defined in [API Payload Contracts §Shared Enums](../architecture/contracts/api-payload-contracts.md#shared-enums), described in [Run State Machine](../domain/run-state-machine.md), consumed as a closed set by [Plan-013](./013-persistence-recovery-and-replay.md), which pins the category → recovery-state mapping, and embedded in the Spec-005 `run.*` state-transition payload as `failureCategory?`. `FailureDetailRead.failureCategory` imports that enum under the same `failureCategory` carrier name the Spec-005 payload and `RecoveryStatusReadResponse` already use. Adding a fifth arm is therefore a cross-plan contract change touching the contracts mirror, Spec-005's payload shape, and Plan-013's mapping — never a Plan-018-local edit.
-- **Policy or approval blockage is not a failure category.** [Spec-018 §Required Behavior](../specs/018-observability-and-failure-recovery.md#required-behavior) lists it fifth among the conditions operators must distinguish, but a policy-blocked run has not failed, so it is surfaced as a blocking reason on the stuck-run surface — `StuckRunInspectResponse.blockingReason` in the contracts mirror — rather than as a fifth `RunFailureCategory` arm. Its operational handling belongs to the Spec-010 approval-UX surfaces per [Spec-018 §Implementation Notes](../specs/018-observability-and-failure-recovery.md#implementation-notes), so Plan-018 renders the blockage and links out rather than owning a blockage runbook. The count asymmetry (five distinguishable conditions, four failure categories) is intended and must not be "fixed" by widening the enum.
-- Add `DiagnosticRedactionPolicy` contract: operator-readable current policy, opt-in toggles per bucket, and `retention_policy_override` warning surface. Default state is deny-outbound, ≤ 7-day TTL, no raw-content capture.
-- Expose control-plane dependency health in a form that can be merged with daemon-owned observability projections.
+- No `health.*` read is added for any client, and no `health.*` method string is registered. Settings › Runtime's service status comes from the supervisor through `daemon.status.read` ([Plan-006 §Phase R1 — Namespace Handlers](./006-local-ipc-and-daemon-control.md#phase-r1--namespace-handlers)).
+- The diagnostic redaction policy is daemon-local state, not a contract: the TTL from `Keep diagnostic logs for` and the `retention_policy_override` gauge. The default TTL is ≤ 7 days.
 - Add Prometheus `/metrics` endpoint (Spec-024 row 9) on the daemon with the bind/auth secure-default contract documented in §Prometheus `/metrics` Exposition above. The relay mounts an equivalent `/metrics` endpoint using the same auth gate and metric-family allow-list shape.
 
 ## Invariants
 
 Load-bearing constraints every Plan-018 PR — and every downstream extension — must preserve. Weakening or removing one is a coordinated cross-plan change, not a local edit. Each entry names the governing clause it grounds in, or declares itself plan-owned.
 
-- **I-018-1 — The daemon `/metrics` cardinality ceiling is a merge gate, not a warning.** Total emitted series across the six registered daemon families — the five row-9a families plus the `retention_policy_override` warning gauge — stays below 200 per daemon instance. An integration test asserts the live series count; exceeding the ceiling blocks merge until the label allow-list tightens, rather than emitting a warning and shipping. **Grounds in.** [Spec-024 §Required Behavior](../specs/024-self-host-secure-defaults.md#required-behavior) row 9a states the ceiling ("cardinality ceiling < 200 series per daemon instance"). The merge-blocking enforcement posture layered on top of it is **plan-owned**: the spec states the ceiling but no enforcement mechanism for it. **Why load-bearing.** A metrics endpoint that degrades gracefully past its ceiling degrades silently — series growth is monotonic in practice, so a warning is observed once and then ignored while scrape cost and daemon memory grow unbounded on operator hardware nobody is watching. **Verification.** T3.4.
-- **I-018-2 — Metric labels are PII-free by construction, enforced at emission time.** Label values come from a closed, compile-time-enumerable allow-list per family; no label value derives from user IDs, session IDs, command text, file paths, URLs, tokens, or any free-form content; an out-of-allow-list value throws at emission time rather than being silently coerced or truncated. **Grounds in.** [Spec-024 §Required Behavior](../specs/024-self-host-secure-defaults.md#required-behavior) row 9a ("Labels MUST be bounded and PII-free"), serving the default-deny posture of [Spec-018 §PII in Diagnostics](../specs/018-observability-and-failure-recovery.md#pii-in-diagnostics). The closed allow-list plus emission-time throw is the **plan-owned** enforcement mechanism for that MUST — the spec states the property, not how it is detected. **Why load-bearing.** `/metrics` is scraped by systems outside the daemon's trust boundary; a single dynamic label value leaks PII to every scraper and every retained scrape sample simultaneously, and truncating or masking it does not help because partial PII is still PII per Spec-018. Throwing at emission converts a silent leak into a loud test failure at the moment a new code path adds an observation. **Verification.** T3.1.
-- **I-018-3 — Diagnostic-bucket retention is TTL-bounded at ≤ 7 days by default, and any longer override announces itself.** All four buckets (`driver_raw_events`, `command_output`, `tool_traces`, `reasoning_detail`) default to a ≤ 7-day TTL; an operator override beyond 30 days emits the `retention_policy_override` warning metric on every daemon startup and on every policy read. **Grounds in.** [Spec-018 §PII in Diagnostics](../specs/018-observability-and-failure-recovery.md#pii-in-diagnostics) ("Bounded local retention"), with the storage-and-shred side owned by [Spec-020 §PII Data Map](../specs/020-data-retention-and-gdpr.md#pii-data-map)'s bounded-retention tier. **Why load-bearing.** The buckets capture full prompts, full command arguments, and full tool results by the nature of their purpose; unbounded retention turns diagnostics into an Article-17 escape hatch where erasure obligations are satisfied on canonical stores while the same content persists indefinitely beside them. Repeating the warning on every policy read (not once at startup) is what keeps a long override visible to the operator who inherits the deployment. **Verification.** T2.7.
-- **I-018-4 — Diagnostics are default-deny outbound; raw content leaves only on explicit per-bucket opt-in.** No diagnostic-bucket row content leaves the daemon host unless that bucket's raw-content opt-in is explicitly enabled with a durable authorization record; otherwise outbound telemetry carries summary-only signals (counts, categories, durations) constructed from non-PII inputs rather than truncated from free text. Enabling the opt-in is never retroactive: previously captured data is not released by flipping the toggle. **Grounds in.** [Spec-018 §PII in Diagnostics](../specs/018-observability-and-failure-recovery.md#pii-in-diagnostics) ("Default-deny on outbound telemetry", "Opt-in for raw content", "Summary-only retention"). **Why load-bearing.** Egress is the irreversible step — once a prompt reaches a third-party sink, neither TTL purge nor crypto-shred can reach it, so the default must be deny and the exception must be a recorded operator decision rather than a config default nobody chose. **Verification.** T2.8.
-- **I-018-5 — A Path-3 user-scoped flush reaches all four diagnostic buckets.** A user-purge request triggers immediate purge of that user's rows in every one of the four buckets, ahead of the TTL that would otherwise expire them; no bucket is exempt, and adding a fifth diagnostic bucket without a Path-3 flush path is a violation. **Grounds in.** [Spec-018 §PII in Diagnostics](../specs/018-observability-and-failure-recovery.md#pii-in-diagnostics) ("Shred fan-out coverage") and [Spec-020 §Shred Fan-Out](../specs/020-data-retention-and-gdpr.md#shred-fan-out) Path 3. **Why load-bearing.** Coverage is all-or-nothing: one bucket outside the fan-out's reach makes the erasure guarantee false for every user, and the gap is invisible from the shred side because the fan-out reports success over the buckets it knows about. This invariant is the Plan-018 half of CP-018-2. **Verification.** T2.9.
+- **I-018-1 — The daemon `/metrics` cardinality ceiling is a hard limit, not a warning.** Total emitted series across the registered daemon families — the row-9a families, the `retention_policy_override` warning gauge, and the audit-integrity families — stays below 200 per daemon instance. An integration test asserts the live series count; exceeding the ceiling blocks merge until the label allow-list tightens, rather than emitting a warning and shipping. **Grounds in.** [Spec-024 §Required Behavior](../specs/024-self-host-secure-defaults.md#required-behavior) row 9a states the ceiling ("cardinality ceiling < 200 series per daemon instance"). The merge-blocking enforcement posture layered on top of it is **plan-owned**: the spec states the ceiling but no enforcement mechanism for it. **Why load-bearing.** A metrics endpoint that degrades gracefully past its ceiling degrades silently — series growth is monotonic in practice, so a warning is observed once and then ignored while scrape cost and daemon memory grow unbounded on operator hardware nobody is watching. **Verification.** T3.4.
+- **I-018-2 — Metric labels are PII-free by construction, enforced at emission time.** Label values come from a closed, compile-time-enumerable allow-list per family; no label value derives from user IDs, session IDs, command text, file paths, URLs, tokens, or any free-form content; an out-of-allow-list value throws at emission time rather than being silently coerced or truncated. **Grounds in.** [Spec-024 §Required Behavior](../specs/024-self-host-secure-defaults.md#required-behavior) row 9a ("Labels MUST be bounded and PII-free"), serving [Spec-018 §PII in Diagnostics](../specs/018-observability-and-failure-recovery.md#pii-in-diagnostics). The closed allow-list plus emission-time throw is the **plan-owned** enforcement mechanism for that MUST — the spec states the property, not how it is detected. **Why load-bearing.** `/metrics` is scraped by systems outside the daemon's trust boundary; a single dynamic label value leaks PII to every scraper and every retained scrape sample simultaneously, and truncating or masking it does not help because partial PII is still PII per Spec-018. Throwing at emission converts a silent leak into a loud test failure at the moment a new code path adds an observation. **Verification.** T3.1.
+- **I-018-3 — Diagnostic-bucket retention is TTL-bounded at ≤ 7 days by default, and any longer override announces itself.** All the buckets (`driver_raw_events`, `command_output`, `tool_traces`) default to a ≤ 7-day TTL; an operator override beyond 30 days emits the `retention_policy_override` warning metric on every daemon startup and on every policy read. **Grounds in.** [Spec-018 §PII in Diagnostics](../specs/018-observability-and-failure-recovery.md#pii-in-diagnostics) ("Bounded local retention"), with the storage side owned by [Spec-020 §PII Data Map](../specs/020-data-retention-and-gdpr.md#pii-data-map)'s bounded-retention tier. **Why load-bearing.** The buckets capture full prompts, full command arguments, and full tool results by the nature of their purpose; unbounded retention turns diagnostics into an Article-17 escape hatch where erasure obligations are satisfied on canonical stores while the same content persists indefinitely beside them. Repeating the warning on every policy read (not once at startup) is what keeps a long override visible to the operator who inherits the deployment. **Verification.** T2.7.
+- **I-018-4 — Diagnostics never leave the machine, and a compacted summary carries no free text.** The daemon runs no telemetry exporter and sends no diagnostic-bucket row to any sink. Where high-volume tool traces are compacted, the summary is built from counts, categories and durations, never truncated from free text. **Grounds in.** [Spec-018 §PII in Diagnostics](../specs/018-observability-and-failure-recovery.md#pii-in-diagnostics) ("Nothing leaves the machine", "Summary-only retention"). **Why load-bearing.** A summary cut from a prompt keeps part of the prompt past the TTL that bounds the raw row, and truncated personal data is still personal data. **Verification.** T2.8.
 
 ## Cross-Plan Obligations
 
@@ -134,36 +124,33 @@ Each entry transcribes an obligation already committed in the named counterparty
 
 **Resolution.** Live and reciprocal. Plan-019's side is CP-019-4; the reciprocal recorded there is that Plan-019's canonical family set is the sole registry for those families (D-019-8), as this plan's §Prometheus `/metrics` Exposition already states. Plan-018 owes Plan-019 a stable label-invariant contract, not code; a change to the invariants is a cross-plan change because Plan-019's registrations are validated against them.
 
-### CP-018-2 — The four diagnostic buckets are Path-3 shred targets (⇄ Plan-020 CP-020-7)
+### CP-018-2 — The diagnostic buckets are bounded by `Keep diagnostic logs for` (⇄ Plan-020 CP-020-7)
 
-**Obligation.** Plan-018's four diagnostic buckets accept per-user scoped flush as Path-3 targets of the crypto-shred fan-out. Plan-020 records the reciprocal as **live** (Spec-018 bounded-retention) and verifies it on its own side at code time.
+**Obligation.** Plan-018's diagnostic buckets drop their rows past `Keep diagnostic logs for` on the service's one scheduler ([Plan-006 §Phase R1 — Namespace Handlers](./006-local-ipc-and-daemon-control.md#phase-r1--namespace-handlers)); `Erase all data` deletes them with the data folder. There is no per-person flush. Plan-020 records the reciprocal as **live** (Spec-018 bounded-retention).
 
-**Resolution.** Live and reciprocal. Plan-018's half is I-018-5, implemented by T2.9 — every bucket exposes a user-scoped purge path with the index support added in T2.1. Plan-020 owns the fan-out driver and the Path-3 enumeration; Plan-018 owns each bucket's flush entry point. A new diagnostic bucket added by either side requires both halves to move together.
+**Resolution.** Live and reciprocal. Plan-018's half is I-018-3, implemented by T2.7. Plan-020 places the bound in its retention tiers as Path 3. A new diagnostic bucket added by either side joins the same bound.
 
 ### CP-018-3 — Audit-integrity events feed the audit-health surface (⇄ Plan-005 CP-005-10)
 
-**Obligation.** Plan-005 forward-declared that Plan-018 SHOULD consume three audit-integrity events — `audit_integrity_verified`, `audit_integrity_failed`, `key_reuse_detected` — for an audit-health dashboard, and stated that the obligation is **binding when Plan-018 is authored**. Plan-018 is authored, so the condition has fired and the obligation is binding.
+**Obligation.** Plan-018 consumes Plan-005's audit-integrity events — `audit_integrity_verified`, `audit_integrity_failed`, `key_reuse_detected` — as the signals that report a failed integrity check or a reused key.
 
-**Resolution.** Binding; consumption mechanism **not yet designed**. This entry records the obligation and the three event names only. Plan-018 does not here declare which surface consumes them, whether they map to a metric family (they are not among the five row-9a families, so a new family would require the change §Prometheus `/metrics` Exposition already demands), or what the dashboard shape is — that design is owed by a future change to this plan and must not be inferred from this entry. Plan-005 owns event emission and naming; Plan-018 owes the consuming surface.
+**Resolution.** Live. The consuming surface is three signals, and no dashboard: no screen lists audit events. (1) The daemon's loopback `/metrics` carries `audit_integrity_failed_total{scope}`, `key_reuse_detected_total` and `audit_last_full_verification_timestamp_seconds` (§Prometheus `/metrics` Exposition; T3.5). (2) `sidekicks daemon status` prints one line per halted session, through `daemon.status.read` ([Plan-006 §Phase R1 — Namespace Handlers](./006-local-ipc-and-daemon-control.md#phase-r1--namespace-handlers)). (3) The halted session's Send refuses with `This session's record failed its integrity check, so nothing more can be added to it.`, and one system message lands with the time; that refusal is the console composer's ([Spec-018 §Required Behavior](../specs/018-observability-and-failure-recovery.md#required-behavior)). `audit_integrity_verified` feeds the gauge's time when it covers the whole log. Plan-005 owns event emission, naming and the append gate that halts the session; Plan-018 owns the metric families.
 
 ## Implementation Steps
 
 - Contracts: See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed schemas this plan consumes.
 
-1. Define health-status, failure-category, recovery-condition, stuck-run inspection, and `DiagnosticRedactionPolicy` contracts.
-2. Implement daemon-owned health and failure-detail projections derived from canonical state and provider diagnostics.
-3. Implement safe recovery-action request handling and audit recording.
-4. Implement bounded-retention policy handling for raw diagnostics without weakening canonical diagnosis surfaces. Wire default-deny outbound telemetry for all 4 diagnostic buckets; expose per-bucket opt-in raw-content capture with explicit operator acknowledgement; emit `retention_policy_override` warning metric when TTL override > 30 days.
-5. Implement Prometheus `/metrics` endpoint with the six registered daemon metric families (the five row-9a families plus the `retention_policy_override` warning gauge), bounded label sets, bearer/mTLS auth gate for non-loopback `METRICS_BIND`, and emission-time label enforcement (`metrics-exposition.ts`, `metrics-registry.ts`, `metrics-auth.ts`).
-6. Add desktop recovery and health surfaces that distinguish runtime state, failure categories, and degraded modes without requiring raw logs.
+1. Define the diagnostic redaction policy state, daemon-local.
+2. Implement bounded-retention policy handling for raw diagnostics without weakening canonical diagnosis. Build compacted summaries from counts, categories and durations for every diagnostic bucket, with no exporter and no sink off the machine; emit `retention_policy_override` warning metric when TTL override > 30 days.
+3. Implement Prometheus `/metrics` endpoint with the registered daemon metric families (the row-9a families, the `retention_policy_override` warning gauge, and the audit-integrity families), bounded label sets, bearer/mTLS auth gate for non-loopback `METRICS_BIND`, and emission-time label enforcement (`metrics-exposition.ts`, `metrics-registry.ts`, `metrics-auth.ts`).
 
 ## Implementation Phase Sequence
 
-Four phases decompose the six §Implementation Steps above; nothing here is new design. Phase 1 covers Step 1; Phase 2 covers Steps 2-4; Phase 3 covers Step 5; Phase 4 covers Step 6. Phase 1 has no unsatisfied upstream code dependency; Phases 2-4 serialize behind their predecessors. Migration ordinals are written `0NNN` and resolve to the next free number in the target migration directory at implementation time, per the shared-numbering convention.
+Three phases decompose the three §Implementation Steps above; nothing here is new design. Phase 1 covers Step 1; Phase 2 covers Step 2; Phase 3 covers Step 3. Phase 1 has no unsatisfied upstream code dependency; Phases 2 and 3 serialize behind their predecessors.
 
-### Phase 1 — Health, failure, and recovery contracts
+### Phase 1 — Diagnostic policy state
 
-**Precondition:** none. Implementation Step 1; gates every later phase, which all type against these shapes.
+**Precondition:** none. Implementation Step 1; gates Phase 2, whose retention and summary code read this state.
 
 <!-- prettier-ignore -->
 ```yaml
@@ -172,45 +159,18 @@ preconditions:
 
 #### Tasks
 
-- **T1.1 — `HealthStatusRead` + `FailureDetailRead` contracts.**
-  - **Files:** `packages/contracts/src/health/health.ts` (CREATE), `packages/contracts/src/index.ts` (EXTEND — barrel re-export per the existing convention)
-  - Zod schemas + inferred types for `HealthStatusRead` (daemon / control-plane / provider / replay health over the `healthy` / `degraded` / `blocked` status categories) and `FailureDetailRead` (machine-readable failure category, optional recovery condition, human-readable summary). `FailureDetailRead.failureCategory` **imports** `RunFailureCategory` from the canonical contracts mirror; it never redefines the union, and the four arms are closed per §API And Transport Changes above — a fifth arm is a cross-plan contract change, not a Plan-018 edit. The optional recovery fields likewise **import** — `recoveryCondition` parses with Plan-004's exported `RecoveryConditionSchema` and `recoverySpanClassification` with `RecoverySpanClassificationSchema` (both from `packages/contracts/src/provider-driver.ts`), never redeclared — this plan's own `packages/contracts/src/health/` (§Target Areas) consumes them by import. Policy or approval blockage is deliberately not an arm; it surfaces as `blockingReason` on T1.2's stuck-run shape.
-  - **Tests:** `packages/contracts/src/__tests__/health.test.ts` (CREATE) — parse-accept one fixture per shape; parse-reject a status outside the three categories; parse-reject a `failureCategory` outside the four `RunFailureCategory` arms (the closure regression); parse-reject a `recoveryCondition` outside the two-member union and a `recoverySpanClassification` outside the four-member union (the import-not-redeclare closure regression on the Plan-004 vocabularies); assert the package-root barrel resolves both schemas.
-  - **Acceptance:** canonical `RunState` is representable independently of health status and failure category; no shape lets a caller conflate them.
-  - **Spec coverage:** Spec-018 §Interfaces And Contracts, Spec-018 §Default Behavior
-  - **Verifies invariant:** none (contract-shape task; the metric and retention invariants bind in Phases 2-3)
-  - **Consumes:** `RunFailureCategory` ← [API Payload Contracts §Shared Enums](../architecture/contracts/api-payload-contracts.md#shared-enums) (closed four-arm union; import only); `RecoveryConditionSchema` / `RecoverySpanClassificationSchema` ← Plan-004 `packages/contracts/src/provider-driver.ts` (Plan-004 T4.8; import only)
-
-- **T1.2 — `StuckRunInspect` + `RecoveryActionRequest` contracts.**
-  - **Files:** `packages/contracts/src/health/health.ts` (EXTEND — same file as T1.1)
-  - Zod schemas + inferred types for the stuck-run inspection request/response (last known progress point, last event time, optional `blockingReason`, and whether the run is currently `stuck-suspected`) and for `RecoveryActionRequest` (operator-triggered retry where policy allows). `blockingReason` is the surface a policy- or approval-blocked run renders through; it stays optional so a non-blocked stuck run omits it rather than carrying a sentinel.
-  - **Tests:** `packages/contracts/src/__tests__/health.test.ts` (EXTEND) — parse-accept a stuck-suspected fixture with and without `blockingReason`; parse-reject a response missing the last-progress point; assert `RecoveryActionRequest` cannot be constructed without naming its target run.
-  - **Acceptance:** the 60-second stuck-suspected threshold and its 5-minute health escalation are both representable without a new run state.
-  - **Spec coverage:** Spec-018 §Interfaces And Contracts, Spec-018 §Default Behavior
-  - **Verifies invariant:** none (contract-shape task; recovery-action enforcement binds on T2.6)
-  - **Consumes:** `HealthStatusRead` / `FailureDetailRead` ← T1.1 (same phase)
-
-- **T1.3 — `DiagnosticRedactionPolicy` policy-state read contract.**
-  - **Files:** `packages/contracts/src/health/health.ts` (EXTEND — same file as T1.1)
-  - Operator-readable policy _state_ only: current TTL per bucket, per-bucket opt-in toggle state, and the `retention_policy_override` warning surface. Default state is deny-outbound with a ≤ 7-day TTL and no raw-content capture. The redaction _decision logic_ is deliberately not published as a contract — see §PII in Diagnostics above.
-  - **Tests:** `packages/contracts/src/__tests__/health.test.ts` (EXTEND) — parse-accept the default policy state; assert the default fixture is deny-outbound with TTL ≤ 7 days; parse-reject a policy state naming a bucket outside the four.
-  - **Acceptance:** an operator can read the effective policy without the contract exposing any redaction rule a caller could evaluate or override.
+- **T1.3 — Diagnostic redaction policy state (daemon-local).**
+  - **Files:** `packages/runtime-daemon/src/observability/diagnostic-redaction-policy.ts` (CREATE — the policy-state type and its resolution; T2.8 adds the summary builder to the same file)
+  - The policy _state_ the retention and summary code reads: the TTL per bucket, resolved from the `Keep diagnostic logs for` setting in daemon configuration, and whether an override beyond 30 days is active. The default TTL is ≤ 7 days. Neither the state nor the redaction _decision logic_ is a wire contract — see §PII in Diagnostics above.
+  - **Tests:** `packages/runtime-daemon/src/observability/__tests__/diagnostic-redaction-policy.test.ts` (CREATE) — the default TTL is ≤ 7 days; a configured TTL resolves per bucket; a configuration naming a bucket that does not exist is refused at load.
+  - **Acceptance:** the retention and summary code read one resolved policy state, and no client can read or override it over the wire.
   - **Spec coverage:** Spec-018 §PII in Diagnostics
-  - **Verifies invariant:** none (surfaces policy state; I-018-3 and I-018-4 are enforced by T2.7 and T2.8)
-  - **Consumes:** the four bucket names ← [Spec-020 §PII Data Map](../specs/020-data-retention-and-gdpr.md#pii-data-map) bounded-retention tier (doc contract)
+  - **Verifies invariant:** none (I-018-3 and I-018-4 are enforced by T2.7 and T2.8)
+  - **Consumes:** the bucket names ← [Spec-020 §PII Data Map](../specs/020-data-retention-and-gdpr.md#pii-data-map) bounded-retention tier (doc contract); the `Keep diagnostic logs for` key ← daemon configuration ([Plan-006 §Phase R1 — Namespace Handlers](./006-local-ipc-and-daemon-control.md#phase-r1--namespace-handlers))
 
-- **T1.4 — `health.*` wire method-name registration.**
-  - **Files:** `packages/contracts/src/health/health.ts` (EXTEND — same file as T1.1)
-  - Export the five `health.*` method-name constants — `health.statusRead`, `health.failureDetailRead`, `health.stuckRunInspect`, `health.recoveryActionRequest`, `health.redactionPolicyRead` — matching the [Health Method-Name Registry](../architecture/contracts/api-payload-contracts.md#health-method-name-registry) one-to-one, so every Plan-018 operation resolves a registered wire method string rather than merely a schema name. Daemon JSON-RPC transport only — no tRPC sibling exists; the control-plane dependency-health read is merged daemon-side by T2.3.
-  - **Tests:** `packages/contracts/src/__tests__/health.test.ts` (EXTEND) — each constant matches the `METHOD_NAME_FORMAT` regex imported from `packages/contracts/src/jsonrpc-registry.ts` (never a re-declared copy); the five strings are pairwise distinct and cover the five operations one-to-one.
-  - **Acceptance:** a client can name every health operation by wire method string from the contracts package alone — no daemon import, no string literal at call sites.
-  - **Spec coverage:** Spec-018 §Interfaces And Contracts
-  - **Verifies invariant:** none (naming task; daemon registration and handler wiring land in T2.10)
-  - **Consumes:** `METHOD_NAME_FORMAT` ← `packages/contracts/src/jsonrpc-registry.ts` (single source); the `health` namespace-root admission ← [API Payload Contracts §JSON-RPC Method-Name Registry](../architecture/contracts/api-payload-contracts.md#json-rpc-method-name-registry)
+### Phase 2 — Diagnostic-bucket retention
 
-### Phase 2 — Daemon health projections, recovery actions, and diagnostic-bucket retention
-
-**Precondition:** Phase 1 merged. Implementation Steps 2-4.
+**Precondition:** Phase 1 merged. Implementation Step 2.
 
 <!-- prettier-ignore -->
 ```yaml
@@ -220,99 +180,36 @@ preconditions:
 
 #### Tasks
 
-- **T2.1 — Diagnostic-bucket tables migration.**
-  - **Files:** `packages/runtime-daemon/src/migrations/0NNN-diagnostic-buckets.ts` (CREATE), `docs/architecture/schemas/local-sqlite-schema.md` (EXTEND — doc mirror)
-  - CREATE the four bucket tables `driver_raw_events`, `command_output`, `tool_traces`, `reasoning_detail` with TTL-purge indices and user-scoped purge indices, matching the column definitions the Local SQLite schema already documents. Runtime-local only — no shared-Postgres counterpart, per ADR-017.
-  - **Tests:** `packages/runtime-daemon/src/observability/__tests__/migration-shape.test.ts` (CREATE) — all four tables exist after migration; each carries both a TTL index and a user-scoped index; no bucket table appears in the control-plane migration chain.
-  - **Acceptance:** a user-scoped purge can be indexed rather than table-scanned on every bucket — the storage precondition I-018-5 needs.
+- **T2.1 — Diagnostic-bucket tables.**
+  - **Files:** the daemon's one schema (EXTEND — the bucket tables), `docs/architecture/schemas/local-sqlite-schema.md` (EXTEND — doc mirror)
+  - CREATE the bucket tables `driver_raw_events`, `command_output` and `tool_traces` with TTL-purge indices, matching the column definitions the Local SQLite schema already documents. Runtime-local only — no shared-Postgres counterpart, per ADR-017.
+  - **Tests:** the schema's test (EXTEND) — every bucket table exists in the daemon's one schema; each carries a TTL index; no bucket table appears in the control plane's one schema.
+  - **Acceptance:** the TTL purge is indexed rather than table-scanned on every bucket — the storage precondition I-018-3 needs.
   - **Spec coverage:** Spec-018 §State And Data Implications
-  - **Verifies invariant:** none (schema task; I-018-5 is verified by T2.9)
-  - **Consumes:** the daemon migration runner ← Plan-001 (shipped)
-
-- **T2.2 — `health_snapshots` shared-Postgres columns.**
-  - **Files:** `packages/control-plane/src/migrations/0NNN-health-snapshots.ts` (CREATE), `docs/architecture/schemas/shared-postgres-schema.md` (EXTEND — doc mirror)
-  - Add the shared `health_snapshots` columns the schema doc defines, so surfaced health is queryable when no timeline UI is open. Raw diagnostics stay daemon-local and are not mirrored here.
-  - **Tests:** `packages/control-plane/src/migrations/__tests__/migration-shape.test.ts` (EXTEND) — `health_snapshots` matches the documented column set; no diagnostic-bucket table is created control-plane-side.
-  - **Acceptance:** health remains queryable without opening a timeline; no raw diagnostic payload reaches shared Postgres.
-  - **Spec coverage:** Spec-018 §State And Data Implications
-  - **Verifies invariant:** none (schema task)
-  - **Consumes:** the control-plane migration runner ← Plan-001 (shipped)
-
-- **T2.3 — Health-status projection service.**
-  - **Files:** `packages/runtime-daemon/src/observability/health-status-service.ts` (CREATE), `packages/control-plane/src/health/` (CREATE — control-plane dependency-health read)
-  - Derive `HealthStatusRead` from canonical events, replay state, queue state, and provider diagnostics; expose control-plane dependency health in a form mergeable with the daemon-owned projection. Replay-rebuild state surfaces as `blocked` read-only rather than as a silent partial-mutation window.
-  - **Tests:** `packages/runtime-daemon/src/observability/__tests__/health-status-service.test.ts` (CREATE) — healthy / degraded / blocked fixtures; a failed projection rebuild yields `blocked` read-only and refuses new mutable work; control-plane unavailability degrades without erasing daemon-local health.
-  - **Acceptance:** health is derived from canonical state only — never from a raw diagnostic bucket, which may already have expired.
-  - **Spec coverage:** Spec-018 §Required Behavior, Spec-018 §Fallback Behavior
-  - **Verifies invariant:** none (projection task)
-  - **Consumes:** `HealthStatusRead` ← T1.1; replay + projection state ← [Plan-013](./013-persistence-recovery-and-replay.md)
-
-- **T2.4 — Failure-detail projection service.**
-  - **Files:** `packages/runtime-daemon/src/observability/failure-detail-service.ts` (CREATE)
-  - Derive `FailureDetailRead` from canonical state and provider diagnostics, mapping each failure onto exactly one of the four closed `RunFailureCategory` arms with an optional recovery condition. A failed provider recovery stays visible as canonical `failed` with `provider failure` detail and a `recovery-needed` condition rather than disappearing.
-  - **Tests:** `packages/runtime-daemon/src/observability/__tests__/failure-detail-service.test.ts` (CREATE) — one fixture per category; a provider-recovery failure remains visible with the recovery condition set; no code path emits a category string outside the four arms.
-  - **Acceptance:** every surfaced failure carries a machine-readable category; no failure is flattened into a generic provider error.
-  - **Spec coverage:** Spec-018 §Required Behavior, Spec-018 §Fallback Behavior
-  - **Verifies invariant:** none (projection task)
-  - **Consumes:** `FailureDetailRead` ← T1.1; `RunFailureCategory` ← [API Payload Contracts §Shared Enums](../architecture/contracts/api-payload-contracts.md#shared-enums)
-
-- **T2.5 — Stuck-run inspector.**
-  - **Files:** `packages/runtime-daemon/src/observability/stuck-run-inspector.ts` (CREATE)
-  - Mark a run `stuck-suspected` after 60 seconds without new progress events and escalate to a health signal after 5 minutes. A policy- or approval-blocked run populates `blockingReason` and is exempt from false-positive escalation — it is blocked, not stuck, and its operational handling belongs to the Spec-010 approval surfaces.
-  - **Tests:** `packages/runtime-daemon/src/observability/__tests__/stuck-run-inspector.test.ts` (CREATE) — threshold and escalation timing; a blocked run reports `blockingReason` and does not escalate as stuck; a run emitting progress never trips.
-  - **Acceptance:** stuck suspicion is visible without opening raw logs, and blocked runs are not misreported as stuck.
-  - **Spec coverage:** Spec-018 §Default Behavior, Spec-018 §Required Behavior
-  - **Verifies invariant:** none (projection task)
-  - **Consumes:** the stuck-run inspection shape ← T1.2
-
-- **T2.6 — Recovery-action handling and audit records.**
-  - **Files:** `packages/runtime-daemon/src/observability/recovery-action-service.ts` (CREATE)
-  - Handle `RecoveryActionRequest` for the safe operator-triggered retry path and write a durable audit record for every action and outcome. Retry uses the single product-defined bounded policy — drivers may mark a failure non-retryable but do not define independent retry budgets.
-  - **Tests:** `packages/runtime-daemon/src/observability/__tests__/recovery-action-service.test.ts` (CREATE) — provider, replay, and persistence failure scenarios; a driver-marked non-retryable failure is refused rather than retried; every action and outcome produces an audit record; recovery failures stay visible until resolved.
-  - **Acceptance:** recovery actions are auditable and bounded; a failed recovery never resolves itself silently.
-  - **Spec coverage:** Spec-018 §State And Data Implications, Spec-018 §Fallback Behavior
-  - **Verifies invariant:** none (the retry-policy bound is a Spec-018 resolved-question decision; enforcement is local to this task)
-  - **Consumes:** `RecoveryActionRequest` ← T1.2; failure categories ← T2.4
+  - **Verifies invariant:** none (schema task; I-018-3 is verified by T2.7)
+  - **Consumes:** the daemon's one schema ← Plan-001 (shipped)
 
 - **T2.7 — Diagnostic-bucket TTL retention and `retention_policy_override`.**
   - **Files:** `packages/runtime-daemon/src/observability/diagnostic-buckets/` (CREATE — one TTL-bucket implementation per bucket plus the shared purge driver)
-  - Apply the ≤ 7-day default TTL to all four buckets; support a per-deployment override; emit the `retention_policy_override` warning metric on every daemon startup and on every policy read when the override exceeds 30 days. Compaction of raw diagnostics never removes canonical health or failure truth.
-  - **Tests:** `packages/runtime-daemon/src/observability/__tests__/diagnostic-buckets.test.ts` (CREATE) — each bucket expires rows at or before the configured TTL; an override > 30 days emits the warning on startup and on each policy read (not once); compaction leaves canonical failure detail and recovery visibility intact.
+  - Apply the ≤ 7-day default TTL to every bucket; support a per-deployment override; emit the `retention_policy_override` warning metric on every daemon startup and on every policy read when the override exceeds 30 days. Compaction of raw diagnostics never removes the failure detail a run event carries.
+  - **Tests:** `packages/runtime-daemon/src/observability/__tests__/diagnostic-buckets.test.ts` (CREATE) — each bucket expires rows at or before the configured TTL; an override > 30 days emits the warning on startup and on each policy read (not once); compaction leaves the run event's failure detail intact.
   - **Acceptance:** no bucket retains rows past its TTL, and a long override is impossible to hold quietly.
   - **Spec coverage:** Spec-018 §PII in Diagnostics, Spec-018 §Fallback Behavior
   - **Verifies invariant:** I-018-3
   - **Consumes:** bucket tables ← T2.1; policy-state shape ← T1.3
 
-- **T2.8 — Default-deny outbound gate and per-bucket raw-content opt-in.**
-  - **Files:** `packages/runtime-daemon/src/observability/diagnostic-redaction-policy.ts` (CREATE)
-  - Gate all four buckets on default-deny outbound: bucket row content leaves the host only when that bucket's opt-in is explicitly enabled with a durable authorization record naming sink, field set, and authorizing operator. Otherwise outbound telemetry carries summary-only signals constructed from non-PII inputs. Flipping the toggle is never retroactive. Redaction decision logic stays code-local with no wire contract per §PII in Diagnostics.
-  - **Tests:** `packages/runtime-daemon/src/observability/__tests__/diagnostic-redaction-policy.test.ts` (CREATE) — no bucket row content appears in any outbound payload without the matching opt-in; the opt-in requires operator acknowledgement and is audited; a flipped toggle does not release previously captured data; summary fields are constructed rather than truncated from free text.
-  - **Acceptance:** the deny path is the default in every code path that can egress, not a configuration an operator must remember to set.
+- **T2.8 — Diagnostic summaries; nothing leaves the machine.**
+  - **Files:** `packages/runtime-daemon/src/observability/diagnostic-redaction-policy.ts` (EXTEND — T1.3 creates it)
+  - Where high-volume tool traces are compacted (T2.7), build the summary from counts, categories and durations, never by truncating free text. The daemon registers no telemetry exporter and sends no bucket row to any sink: nothing it records for diagnosis leaves the machine. Redaction decision logic stays code-local with no wire contract per §PII in Diagnostics.
+  - **Tests:** `packages/runtime-daemon/src/observability/__tests__/diagnostic-redaction-policy.test.ts` (EXTEND) — a compacted summary carries counts, categories and durations and none of the free-text fixture's words.
+  - **Acceptance:** a compacted summary keeps no part of a prompt, a command or a tool result.
   - **Spec coverage:** Spec-018 §PII in Diagnostics
   - **Verifies invariant:** I-018-4
   - **Consumes:** policy-state shape ← T1.3; bucket implementations ← T2.7
 
-- **T2.9 — Path-3 user-scoped flush across all four buckets.**
-  - **Files:** `packages/runtime-daemon/src/observability/diagnostic-buckets/` (EXTEND — user-scoped flush entry point per bucket)
-  - Each bucket exposes a user-scoped flush that the crypto-shred fan-out calls as a Path-3 target, purging that user's rows ahead of TTL. This is the Plan-018 half of CP-018-2; Plan-020 owns the fan-out driver.
-  - **Tests:** `packages/runtime-daemon/src/observability/__tests__/diagnostic-buckets.test.ts` (EXTEND) — a user-purge request purges that user's rows in every one of the four buckets ahead of TTL; a bucket without a registered flush entry point fails the coverage assertion rather than being skipped silently.
-  - **Acceptance:** Path-3 coverage is asserted over the bucket set, so adding a fifth bucket without a flush path fails the test rather than shipping a silent erasure gap.
-  - **Spec coverage:** Spec-018 §PII in Diagnostics
-  - **Verifies invariant:** I-018-5
-  - **Consumes:** bucket implementations ← T2.7; the Path-3 fan-out contract ← [Spec-020 §Shred Fan-Out](../specs/020-data-retention-and-gdpr.md#shred-fan-out) (CP-018-2)
-
-- **T2.10 — `health.*` daemon JSON-RPC handlers.**
-  - **Files:** `packages/runtime-daemon/src/observability/health-method-handlers.ts` (CREATE)
-  - Register the five T1.4 method strings against the Plan-006-partial daemon `MethodRegistry` (the `repo.*` / `approval.*` / `timeline.*` registration path) and dispatch each to its Phase-2 service: `health.statusRead` → T2.3, `health.failureDetailRead` → T2.4, `health.stuckRunInspect` → T2.5, `health.recoveryActionRequest` → T2.6, `health.redactionPolicyRead` → the T2.8 policy-state read. Every request and response is validated through the Phase-1 Zod schemas at the handler boundary — no shape crosses the wire unparsed.
-  - **Tests:** `packages/runtime-daemon/src/observability/__tests__/health-method-handlers.test.ts` (CREATE) — each of the five strings resolves through the registry to a handler that round-trips its contract shapes; a malformed request is refused with a typed error, never dispatched; the recovery-action handler writes through T2.6 so the audit record is not bypassable via the wire path.
-  - **Acceptance:** every Plan-018 operation is callable end-to-end over daemon JSON-RPC; no health surface is reachable except through a registered method.
-  - **Spec coverage:** Spec-018 §Interfaces And Contracts
-  - **Verifies invariant:** none (transport wiring; the services it dispatches to carry their own tasks' invariants)
-  - **Consumes:** the five method-name constants ← T1.4; services ← T2.3, T2.4, T2.5, T2.6, T2.8; the `MethodRegistry` substrate ← Plan-006-partial (shipped)
-
 ### Phase 3 — Prometheus `/metrics` exposition
 
-**Precondition:** Phase 2 merged. Implementation Step 5; the endpoint reports on surfaces Phase 2 creates.
+**Precondition:** Phase 2 merged. Implementation Step 3; the endpoint reports on the retention state Phase 2 creates.
 
 <!-- prettier-ignore -->
 ```yaml
@@ -324,8 +221,8 @@ preconditions:
 
 - **T3.1 — `metrics-registry.ts`: allow-listed families with bounded labels.**
   - **Files:** `packages/runtime-daemon/src/observability/metrics-registry.ts` (CREATE)
-  - Register exactly the six families §Prometheus `/metrics` Exposition documents — the five row-9a daemon families (the D-019-8-ratified set, unchanged) plus the plan-owned `retention_policy_override` warning gauge (label-less; the family I-018-3 / T2.7 require) — with their documented bounded label sets. Label values are compile-time enumerable; emitting a value outside the allow-list throws rather than coercing — for the label-less gauge, emitting any label at all throws. No rate-limit family is registered daemon-side — those are control-plane-side per D-019-8.
-  - **Tests:** `packages/runtime-daemon/src/observability/__tests__/metrics-registry.test.ts` (CREATE) — one negative unit test per family asserting an out-of-allow-list label value throws at emission time (for `retention_policy_override`, that any label at all throws); the registry exposes exactly six families — the five row-9a families plus `retention_policy_override`; no label value derives from user ids, session ids, command text, file paths, URLs, or tokens.
+  - Register the families §Prometheus `/metrics` Exposition documents — the row-9a daemon families (D-019-8), the plan-owned `retention_policy_override` warning gauge (label-less; the family I-018-3 / T2.7 require), and the audit-integrity families (T3.5) — with their documented bounded label sets. Label values are compile-time enumerable; emitting a value outside the allow-list throws rather than coercing — for the label-less gauge, emitting any label at all throws. No rate-limit family is registered daemon-side — those are control-plane-side per D-019-8.
+  - **Tests:** `packages/runtime-daemon/src/observability/__tests__/metrics-registry.test.ts` (CREATE) — one negative unit test per family asserting an out-of-allow-list label value throws at emission time (for `retention_policy_override`, that any label at all throws); the registry exposes exactly the row-9a families, `retention_policy_override`, and the audit-integrity families; no label value derives from user ids, session ids, command text, file paths, URLs, or tokens.
   - **Acceptance:** the registry is the only place a family or label can be introduced, so widening the surface is a reviewable diff.
   - **Spec coverage:** Spec-024 §Required Behavior
   - **Verifies invariant:** I-018-2
@@ -351,81 +248,53 @@ preconditions:
 
 - **T3.4 — Cardinality-ceiling integration test and CI wiring.**
   - **Files:** `packages/runtime-daemon/src/observability/__tests__/metrics-cardinality.test.ts` (CREATE)
-  - Assert total emitted series across the six registered families stays below 200 per daemon instance under a fixture exercising every registered label combination, and wire the assertion into CI so a breach blocks merge.
+  - Assert total emitted series across the registered families stays below 200 per daemon instance under a fixture exercising every registered label combination, and wire the assertion into CI so a breach blocks merge.
   - **Tests:** the task is the test — plus a negative control proving the assertion fails when a deliberately unbounded label is registered.
   - **Acceptance:** exceeding the ceiling blocks merge; it never degrades to a warning.
   - **Spec coverage:** Spec-024 §Required Behavior
   - **Verifies invariant:** I-018-1
   - **Consumes:** the registry ← T3.1
 
-### Phase 4 — Client SDK and desktop recovery surfaces
-
-**Precondition:** Phase 3 merged — and per §Parallelization Notes, desktop surfaces wait for stable machine-readable payloads and actionability rules. Implementation Step 6.
-
-<!-- prettier-ignore -->
-```yaml
-preconditions:
-  - { type: plan_phase, plan: 018, phase: 3, status: merged }
-```
-
-#### Tasks
-
-- **T4.1 — `healthClient.ts` typed SDK surface.**
-  - **Files:** `packages/client-sdk/src/healthClient.ts` (CREATE)
-  - Expose health status, failure detail, stuck-run inspection, recovery-action requests, and the `DiagnosticRedactionPolicy` policy-state read over the typed SDK — each SDK operation calling its registered `health.*` wire method (T1.4 strings, T2.10 handlers), never an ad-hoc unregistered string.
-  - **Tests:** `packages/client-sdk/src/__tests__/healthClient.test.ts` (CREATE) — each method round-trips its contract shape; a recovery action refused by policy surfaces as a typed error rather than a silent no-op.
-  - **Acceptance:** the renderer consumes health exclusively through this client — no ad-hoc daemon calls.
-  - **Spec coverage:** Spec-018 §Interfaces And Contracts
-  - **Verifies invariant:** none (transport task)
-  - **Consumes:** contracts + the five `health.*` method strings ← Phase 1 (T1.4); daemon services + the registered method handlers ← Phase 2 (T2.10)
-
-- **T4.2 — Desktop health and recovery surfaces.**
-  - **Files:** `apps/desktop/src/renderer/src/health-and-recovery/` (CREATE)
-  - Render runtime state, failure category, degraded and blocked modes, stuck-run suspicion, and the operator-triggered recovery path, keeping canonical `RunState` visually distinct from derived health signals. A blocked run renders its `blockingReason` and links to the approval surface rather than presenting itself as a failure.
-  - **Tests:** `apps/desktop/src/renderer/src/health-and-recovery/__tests__/health-and-recovery.test.tsx` (CREATE) — healthy, degraded, and blocked render distinctly; a stuck-suspected run is visible without opening raw logs; a failed recovery stays visible until resolved.
-  - **Acceptance:** an operator distinguishes blocked from degraded from healthy, and diagnoses a stuck run, without reading raw logs.
-  - **Spec coverage:** Spec-018 §Required Behavior, Spec-018 §Fallback Behavior
-  - **Verifies invariant:** none (presentation task)
-  - **Consumes:** `healthClient.ts` ← T4.1
+- **T3.5 — Audit-integrity families.**
+  - **Files:** `packages/runtime-daemon/src/observability/audit-integrity-metrics.ts` (CREATE)
+  - Subscribe to Plan-005's `audit_integrity_failed`, `key_reuse_detected` and `audit_integrity_verified` events and drive the families: `audit_integrity_failed_total{scope}` (`session` for a session's verified range, `node` for the node-scope chain), `key_reuse_detected_total`, and `audit_last_full_verification_timestamp_seconds`, set when a verification covering the whole log finishes. Counters live in memory and reset at restart. No screen reads them.
+  - **Tests:** `packages/runtime-daemon/src/observability/__tests__/audit-integrity-metrics.test.ts` (CREATE) — an `audit_integrity_failed` event for a session range increments the `session` series by one; one on the node-scope chain increments `node`; a `key_reuse_detected` event increments its counter; a full verification sets the gauge to its finish time and a partial one leaves it; a restart starts both counters at zero.
+  - **Acceptance:** an integrity failure or a key reuse is visible on `/metrics` the moment it is recorded.
+  - **Spec coverage:** Spec-018 §Required Behavior (the integrity halt), Spec-018 §Interfaces And Contracts
+  - **Verifies invariant:** I-018-2 (the `scope` label's values are the allow-list)
+  - **Consumes:** the `audit_integrity` events ← [Plan-005](./005-session-event-taxonomy-and-audit-log.md) (CP-018-3 ⇄ CP-005-10); the registry ← T3.1
 
 ## Parallelization Notes
 
-- Contract work and daemon projection work can proceed in parallel once recovery vocabulary is fixed.
-- Desktop health surfaces should wait for stable machine-readable payloads and actionability rules.
+- T2.1's tables can proceed in parallel with T1.3; the metrics registry (T3.1) waits on nothing but Phase 2's merge, and T3.5 needs only Plan-005's event names, which are fixed.
 
 ## Test And Verification Plan
 
-- Health-projection tests for healthy, degraded, and blocked runtime conditions
-- Stuck-run detection tests covering thresholds, blocking-state exemptions, and false-positive suppression
-- Recovery-action audit and safety tests for provider, replay, and persistence failure scenarios
+- Audit-integrity metric tests (T3.5): each `audit_integrity_failed` and `key_reuse_detected` event moves its counter by one under the right label, and a full verification sets the gauge
 - Retention tests proving compaction of raw diagnostics does not erase canonical failure detail or recovery visibility
-- Outbound-telemetry-default-deny (I-018-4): no diagnostic-bucket row content appears in any outbound payload unless the corresponding per-bucket opt-in is explicitly enabled
-- Raw-content-opt-in-explicit-only (I-018-4): opt-in toggle requires operator acknowledgement and is audited; a flipped toggle does not retroactively release previously-captured data
-- TTL-bucket-purge-coverage (I-018-3, I-018-5): each of the 4 buckets expires rows at or before the configured TTL; user-purge requests trigger immediate purge of that user's rows ahead of TTL per [Spec-020 §Shred Fan-Out](../specs/020-data-retention-and-gdpr.md#shred-fan-out) Path 3
+- Summary construction (I-018-4): a compacted summary carries counts, categories and durations and none of the free-text fixture's words
+- TTL-bucket-purge-coverage (I-018-3): each bucket expires rows at or before the configured TTL
 - `retention_policy_override` warning emission (I-018-3): any policy read observing TTL > 30 days emits the warning metric on daemon startup and on each policy read
 - **/metrics endpoint secure-default tests (Spec-024 row 9):**
   - Default bind is `127.0.0.1`; a non-loopback `METRICS_BIND` without auth fails at config-parse time with actionable error.
   - `METRICS_AUTH=bearer` on non-loopback bind rejects requests without the bearer token and with a wrong bearer token; rotating the token file invalidates old tokens on the next request; the token is read from `METRICS_AUTH_TOKEN_FILE`, and a missing, unreadable, or empty token file is a config-parse-time error (fail closed).
   - `METRICS_AUTH=mtls` on non-loopback bind rejects requests from clients whose cert is not on the operator-provided allow-list; the listener keypair (`METRICS_TLS_CERT_FILE` / `METRICS_TLS_KEY_FILE`), client CA (`METRICS_TLS_CLIENT_CA_FILE`), and fingerprint allow-list (`METRICS_TLS_CLIENT_ALLOWLIST_FILE`) each fail closed at parse time when missing or invalid.
   - `METRICS_BIND=off` disables the endpoint, emits the loud banner, and emits `security.default.override=metrics_disabled` log event exactly once per startup.
-  - Cardinality ceiling (I-018-1): integration test asserts total emitted series across the six registered families stays below 200 per daemon instance; exceeding ceiling blocks merge.
+  - Cardinality ceiling (I-018-1): integration test asserts total emitted series across the registered families stays below 200 per daemon instance; exceeding the ceiling fails the test.
   - PII-free label enforcement (I-018-2): attempting to emit a label value outside the documented allow-list throws at emission time (unit test per family).
   - Exposition format conforms to Prometheus v0.0.4 (parse-round-trip verified against a reference parser).
 
 ## Rollout Order
 
-1. Ship health and failure-detail projections
-2. Enable stuck-run inspection and degraded-mode UI visibility
-3. Enable operator-triggered recovery actions where policy allows
+1. Ship the diagnostic buckets with their TTL and summary builder
+2. Enable the `/metrics` endpoint with its registered families
 
 ## Rollback Or Fallback
 
-- Disable operator-triggered recovery actions and keep read-only observability surfaces if action handling regresses.
+- Set `METRICS_BIND=off` if the `/metrics` endpoint regresses; the diagnostic buckets' TTL has no off switch, because turning it off would keep personal data past its limit.
 
 ## Risks And Blockers
 
-- Automated retry policy remains unresolved across drivers (deferral tracked in parent [Spec-018](../specs/018-observability-and-failure-recovery.md))
-- Health projections can become misleading if replay and provider diagnostics are not merged from authoritative sources
 - Bounded-retention implementation can become misleading if raw diagnostic expiry is not clearly distinguished from canonical observability truth
 
 ## Done Checklist
@@ -434,6 +303,6 @@ preconditions:
 - [ ] Tests added or updated
 - [ ] Verification completed
 - [ ] Related docs updated
-- [ ] Prometheus `/metrics` endpoint lands with the six registered daemon metric families (the five row-9a families plus the `retention_policy_override` warning gauge), bounded label sets, bearer-token / mTLS auth gate for non-loopback bind, and emission-time label enforcement verified by negative tests (I-018-2)
+- [ ] Prometheus `/metrics` endpoint lands with the registered daemon metric families (the row-9a families, the `retention_policy_override` warning gauge, and the audit-integrity families), bounded label sets, bearer-token / mTLS auth gate for non-loopback bind, and emission-time label enforcement verified by negative tests (I-018-2)
 - [ ] Cardinality ceiling (< 200 series per daemon instance) asserted in integration tests and wired into CI (I-018-1)
-- [ ] Diagnostic-bucket discipline verified across all 4 buckets: ≤ 7-day default TTL with `retention_policy_override` warning on every startup and policy read (I-018-3), default-deny outbound with per-bucket opt-in that never releases previously-captured data (I-018-4), and Path-3 user-scoped flush coverage asserted over the bucket set (I-018-5)
+- [ ] Diagnostic-bucket discipline verified across every bucket: ≤ 7-day default TTL with `retention_policy_override` warning on every startup and policy read (I-018-3), and compacted summaries built from counts, categories and durations only, with nothing leaving the machine (I-018-4)

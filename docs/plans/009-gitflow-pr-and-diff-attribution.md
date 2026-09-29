@@ -9,22 +9,22 @@
 | **Author(s)** | `Codex` |
 | **Spec** | [Spec-009: Gitflow PR And Diff Attribution](../specs/009-gitflow-pr-and-diff-attribution.md) |
 | **Required ADRs** | [ADR-006](../decisions/006-worktree-first-execution-mode.md), [ADR-015](../decisions/015-v1-feature-scope-definition.md) |
-| **Dependencies** | [Plan-008](./008-worktree-lifecycle-and-execution-modes.md) (worktree infrastructure), [Plan-012](./012-artifacts-files-and-attachments.md) (artifact manifests) |
+| **Dependencies** | [Plan-008](./008-worktree-lifecycle-and-execution-modes.md) (branch context, worktrees, the branch list and the tree-staleness signal), [Plan-013](./013-persistence-recovery-and-replay.md) (the file checkpoint store behind each file's turn), [Plan-005](./005-session-event-taxonomy-and-audit-log.md) (`git.settled` in the session event taxonomy) |
 | **Cross-Plan Deps** | Cross-Plan Dependency Graph |
-| **References** | [Spec-009 §Git Hosting Adapter](../specs/009-gitflow-pr-and-diff-attribution.md#git-hosting-adapter) (Agent Trace attribution, GitHostingAdapter) |
+| **References** | [Spec-009 §Git Hosting Adapter](../specs/009-gitflow-pr-and-diff-attribution.md#git-hosting-adapter) (the `GitHostingAdapter` over `gh` and `glab`) |
 
 ## Goal
 
-Implement branch-context tracking, reviewable PR preparation, and diff attribution quality modes.
+Build Review's daemon half and its surface: the ship facts and the diff a session reads, the acts that ship it, Generate, the hosting sites and their reads, the held review notes, and commit attribution through the daemon's own `Agent-Run` trailer, so what an agent and the person change is read, shipped and reviewed from the session with nothing attributed by guess.
 
 ## Scope
 
-This plan covers branch context persistence for writable execution modes, diff artifact generation, PR preparation records, and desktop review surfaces.
+This plan covers the ship-facts read with its per-folder watch and cache, the diff read and the gap read, the ship acts with their preview and progress, Generate, the agent-commit watch and the `Agent-Run` trailer hook, the hosting adapters for GitHub and GitLab with the self-hosted host list, the live pull-request read and the reviewer, label, thread and check-log verbs, the held review notes and review posting, and the Review surface on the desktop.
 
 ## Non-Goals
 
 - Final merge automation
-- Full GitHub or git-host integration breadth
+- Hosting sites beyond GitHub and GitLab
 - Workflow-specific review logic
 
 ## Preconditions
@@ -37,34 +37,38 @@ Target paths below assume the canonical implementation topology defined in [Cont
 
 ## Target Areas
 
-- `packages/contracts/src/gitflow.ts`
-- `packages/runtime-daemon/src/gitflow/branch-context-service.ts`
-- `packages/runtime-daemon/src/artifacts/diff-artifact-service.ts`
-- `packages/runtime-daemon/src/gitflow/pr-preparation-service.ts`
-- `packages/client-sdk/src/gitflowClient.ts`
-- `apps/desktop/src/renderer/src/diff-review/`
+- `packages/contracts/src/gitflow.ts` — every `gitflow.*` contract
+- `packages/runtime-daemon/src/gitflow/` — the ship-facts read with its per-folder watch and cache, the agent-commit watch, the diff read, the act runner that builds each act's commands for both the preview and the run, Generate, the trailer hook, the hosting adapters and the host list
+- `packages/runtime-daemon/src/ipc/handlers/gitflow-methods.ts` — the `gitflow.*` handlers
+- The desktop's repos feature, `features/repos/` — Review, the ship strip and the pull-request tab
 
 ## Data And Storage Changes
 
-- Add local `diff_artifacts` and `pr_preparations` tables (CREATE).
-- Extend `branch_contexts` (owner: Plan-008 — Plan-009 ALTER/USE).
+- The held review notes: one session-scoped table beside the composer draft, each row a note with its comparison, side, line, optional first line of a range, quote, words, state (`held` or `sent`) and times. It is added to the one local schema and its schema test.
+- The registered self-hosted hosts: one table in the same schema, each row a host name and the kind of the tool that answered for it.
+- No table for the ship facts, the diff or the hosting reads: the daemon keeps one in-memory cache per working folder (D-009-2), and the durable record of each act is its `git.settled` event.
+- `branch_contexts` is Plan-008's; this plan reads it and never alters it.
 - See [Local SQLite Schema](../architecture/schemas/local-sqlite-schema.md) for column definitions.
 
 ## API And Transport Changes
 
-- Add branch-context read, diff artifact read, and PR prepare APIs to the client SDK.
-- Emit one settlement event, `git.settled`, for each act that sends a session's work off this machine's working folder: a commit, a push, or an opened pull request. Its cause set is closed at three — `committed`, `pushed`, `pull_request_opened` — and each cause carries exactly the reference the session's flow row names: the commit's identifier, the branch, or the request's number with its address on the hosting service ([Spec-009 §Interfaces And Contracts](../specs/009-gitflow-pr-and-diff-attribution.md#interfaces-and-contracts)). The type and its payload are registered in the session event taxonomy ([Spec-005 §Event Type Enumeration](../specs/005-session-event-taxonomy-and-audit-log.md#event-type-enumeration)).
+- Serve the seventeen `gitflow.*` verbs over the daemon's JSON-RPC transport ([Spec-009 §Interfaces And Contracts](../specs/009-gitflow-pr-and-diff-attribution.md#interfaces-and-contracts)): `gitflow.branchContextRead`, `gitflow.diffRead`, `gitflow.gitActionPreview`, `gitflow.gitActionExecute`, `gitflow.gitActionSubscribe`, `gitflow.commitMessageGenerate`, `gitflow.changeRequestTextGenerate`, `gitflow.changeRequestSubscribe`, `gitflow.reviewerList`, `gitflow.labelList`, `gitflow.reviewSubmit`, `gitflow.threadResolve`, `gitflow.threadReply`, `gitflow.checkLogRead`, `gitflow.hostList`, `gitflow.hostAdd` and `gitflow.hostRemove`; beside them `repo.fileRead` and the held-note verbs `session.reviewNoteAdd`, `session.reviewNoteUpdate`, `session.reviewNoteRemove` and `session.reviewNoteList`. None is built yet.
+- Emit one settlement event, `git.settled`, for each act that sends a session's work off this machine's working folder or brings it in: a commit, a push, a pull, an opened pull request, or a posted review. Its cause is one of `committed`, `pushed`, `pulled` (`{branch, commitId}`), `pull_request_opened` or `review_posted` (`{requestNumber, verdict}`), and each cause carries exactly the reference the session's system message names ([Spec-009 §Interfaces And Contracts](../specs/009-gitflow-pr-and-diff-attribution.md#interfaces-and-contracts)). The type and its payload are registered in the session event taxonomy ([Spec-005 §Event Type Enumeration](../specs/005-session-event-taxonomy-and-audit-log.md#event-type-enumeration)).
 
 ## Invariants
 
-- **I-009-1** — A diff artifact emitted under the workspace-fallback path is labeled as such and is never presented as run-attributed ([Spec-009 §Required Behavior](../specs/009-gitflow-pr-and-diff-attribution.md#required-behavior), [Spec-009 §Fallback Behavior](../specs/009-gitflow-pr-and-diff-attribution.md#fallback-behavior), [Spec-009 §Pitfalls To Avoid](../specs/009-gitflow-pr-and-diff-attribution.md#pitfalls-to-avoid)).
-- **I-009-2** — PR preparation derives base and head exclusively from the recorded branch context, never from transient client/tab state ([Spec-009 §Required Behavior](../specs/009-gitflow-pr-and-diff-attribution.md#required-behavior), [Spec-009 §Pitfalls To Avoid](../specs/009-gitflow-pr-and-diff-attribution.md#pitfalls-to-avoid)).
-- **I-009-3** — No remote git mutation occurs without a prior durable, reviewable preparation record ([Spec-009 §Required Behavior](../specs/009-gitflow-pr-and-diff-attribution.md#required-behavior), [Spec-009 §State And Data Implications](../specs/009-gitflow-pr-and-diff-attribution.md#state-and-data-implications), [Spec-009 §Pitfalls To Avoid](../specs/009-gitflow-pr-and-diff-attribution.md#pitfalls-to-avoid)).
+- **I-009-1** — Attribution is never guessed: a file's turn comes only from the session's file checkpoint store and a commit's agent only from its own `Agent-Run` trailer; where neither exists the file or commit carries nothing ([Spec-009 §Required Behavior](../specs/009-gitflow-pr-and-diff-attribution.md#required-behavior), [Spec-009 §Fallback Behavior](../specs/009-gitflow-pr-and-diff-attribution.md#fallback-behavior), [Spec-009 §Pitfalls To Avoid](../specs/009-gitflow-pr-and-diff-attribution.md#pitfalls-to-avoid)).
+- **I-009-2** — A pull request's base and head derive exclusively from the recorded branch context, never from transient client or tab state ([Spec-009 §Required Behavior](../specs/009-gitflow-pr-and-diff-attribution.md#required-behavior), [Spec-009 §Pitfalls To Avoid](../specs/009-gitflow-pr-and-diff-attribution.md#pitfalls-to-avoid)).
+- **I-009-3** — One daemon function builds an act's commands for both `gitflow.gitActionPreview` and `gitflow.gitActionExecute`, so no act runs a command its preview did not show ([Spec-009 §Required Behavior](../specs/009-gitflow-pr-and-diff-attribution.md#required-behavior), [Spec-009 §Pitfalls To Avoid](../specs/009-gitflow-pr-and-diff-attribution.md#pitfalls-to-avoid)).
+- **I-009-4** — `Agent-Run` is the only trailer the daemon writes; it writes no co-author trailer and no address ([Spec-009 §Required Behavior](../specs/009-gitflow-pr-and-diff-attribution.md#required-behavior)).
+- **I-009-5** — Held notes live only in the daemon's store; a stranded note and a note on uncommitted lines are never posted, and a posted note is never offered again ([Spec-009 §Required Behavior](../specs/009-gitflow-pr-and-diff-attribution.md#required-behavior)).
+- **I-009-6** — With no subscriber, the daemon sends no request to a hosting service ([Spec-009 §Git Hosting Adapter](../specs/009-gitflow-pr-and-diff-attribution.md#git-hosting-adapter)).
 
 ## Cross-Plan Obligations
 
-- **CP-009-1 (consumes)** — Imports `BranchContextId` and reads/extends the `branch_contexts` row owned by Plan-008 (Plan-008 CP-008-6). Plan-009 extends via ALTER + service access, never by editing Plan-008's git/ module.
-- **CP-009-2 (consumes)** — Uses `artifact_manifests` + the OCI envelope and the `artifacts/` module owned by Plan-012 ([Plan-012 §Target Areas](./012-artifacts-files-and-attachments.md#target-areas); [Spec-012 §State And Data Implications](../specs/012-artifacts-files-and-attachments.md#state-and-data-implications)). DiffArtifact rides as artifactType `"diff"` under that envelope.
+- **CP-009-1 (consumes)** — From Plan-008: `BranchContextId` and the `branch_contexts` row (Plan-008 CP-008-6), read and never altered; `repo.branchList`, the one ordered branch list the base picker draws; and the tree-staleness signal (`repo.workingTreeSubscribe`), which re-reads the ship facts. Plan-009 reads them through Plan-008's services and never edits Plan-008's `git/` module. **Tasks:** T11.2, T11.3, T11.10.
+- **CP-009-2 (consumes)** — From Plan-013: the capture folders the file checkpoint store keeps — a session's, for each file's newest turn in the diff, and a workflow run's, for the diff read's `workflowRun` arm, which reads two of the run's snapshot points with the repository's objects as an alternate ([Plan-013 §Implementation Phase Sequence](./013-persistence-recovery-and-replay.md#implementation-phase-sequence)). **Tasks:** T11.3.
+- **CP-009-3 (extends)** — To Plan-005: `git.settled` with its causes, registered in the session event taxonomy; Plan-009 is its only producer. **Tasks:** T11.2, T11.4, T11.9.
 
 ## Implementation Steps
 
@@ -75,117 +79,126 @@ Target paths below assume the canonical implementation topology defined in [Cont
 
 Plan-009 implementation lands as a sequence of small PRs. Each PR exercises one slice of the plan's vertical and carries a `**Precondition:**` line so the merge order is reviewer-checkable. The ordering is the one §Rollout Order and §Parallelization Notes set out.
 
-### Phase 1 — Branch-Context Persistence
+### Phase 1 — Contracts
 
-**Precondition:** none. §Rollout Order step 1's branch-context half — the schema §Parallelization Notes gates both parallel service legs on.
-
-#### Tasks
-
-- **T11.1** — Implement branch-context persistence tied to writable execution modes and runs.
-  - **Spec coverage:** [Spec-009 §Required Behavior](../specs/009-gitflow-pr-and-diff-attribution.md#required-behavior) (every writable run executes against an explicit branch context; base, head and worktree association tracked per writable context), [Spec-009 §Interfaces And Contracts](../specs/009-gitflow-pr-and-diff-attribution.md#interfaces-and-contracts) (`BranchContextRead` exposes base/head/upstream/worktree), [Spec-009 §Acceptance Criteria](../specs/009-gitflow-pr-and-diff-attribution.md#acceptance-criteria) (explicit branch context on every writable run).
-  - **Verifies invariant:** none (no I-009 invariant governs persistence directly).
-  - **Consumes:**
-    - `BranchContextId` ← Plan-008 provider (Plan-008 CP-008-6) — minted by `repo.executionRootPrepare`; SHAPE verified present.
-    - `branch_contexts` row (ALTER/extend) ← Plan-008 provider ([`branch_contexts`](../architecture/schemas/local-sqlite-schema.md#workspace-and-git-tables-plan-007-plan-008-plan-009)) — at-most-one association CHECK + (worktree_id, workspace_id) partial-unique index present.
-    - `WorktreeId`, `WorkspaceId`, `EphemeralCloneId` branded types ← Plan-008 provider (api-payload-contracts BranchContextReadResponse fields) — present.
-
-### Phase 2 — Diff Artifact Generation
-
-**Precondition:** Phase 1 merged (branch-context schema exists — §Parallelization Notes); **Plan-012 Phase 2 merged** — the `artifact_manifests` table + OCI envelope this plan's CP-009-2 consumes (DiffArtifact rides as `artifactType: "diff"`). §Rollout Order step 1's diff-artifact half, parallel to Phase 3 per §Parallelization Notes.
-
-<!-- prettier-ignore -->
-```yaml
-preconditions:
-  - { type: plan_phase, plan: 009, phase: 1, status: merged }
-  - { type: external_plan_phase_merged, plan: 012, phase: 2 }
-```
+**Precondition:** none. §Rollout Order step 1: every contract lands before any handler.
 
 #### Tasks
 
-- **T11.2** — Build diff artifact generation with explicit attribution mode. Use Agent Trace standard and git trailers (`Agent-Run: <run-id>`, `Co-authored-by: <agent-name>`) for commit-level and line-level provenance. DiffArtifact is a specialized artifact (`artifactType: "diff"`) using the OCI manifest envelope defined in Spec-012.
-  - **Attribution-mode value set (D-009-2):** the `diff_artifacts.attribution_mode` value set is `run_attributed` / `workspace_fallback` — the [Spec-009 §Default Behavior](../specs/009-gitflow-pr-and-diff-attribution.md#default-behavior) / [Spec-009 §Fallback Behavior](../specs/009-gitflow-pr-and-diff-attribution.md#fallback-behavior) provenance-quality vocabulary. The enum/CHECK edge is executable: `attributionMode: "run_attributed" | "workspace_fallback"` (api-payload-contracts.md) and `CHECK(attribution_mode IN ('run_attributed', 'workspace_fallback'))` (local-sqlite-schema.md).
-  - **Spec coverage:** [Spec-009 §Required Behavior](../specs/009-gitflow-pr-and-diff-attribution.md#required-behavior) (diff provenance to the producing run, `artifactType: "diff"` in the Spec-012 envelope, labeled workspace-level fallback, Agent Trace + git trailers), [Spec-009 §Default Behavior](../specs/009-gitflow-pr-and-diff-attribution.md#default-behavior) (default attribution mode `run_attributed`), [Spec-009 §Fallback Behavior](../specs/009-gitflow-pr-and-diff-attribution.md#fallback-behavior) (fallback emits `workspace_fallback` with explicit labeling), [Spec-009 §Acceptance Criteria](../specs/009-gitflow-pr-and-diff-attribution.md#acceptance-criteria) (the two attribution modes are distinguished).
-  - **Verifies invariant:** I-009-1 — workspace-fallback never labeled run-attributed.
-  - **Consumes:**
-    - `artifact_manifests` + OCI envelope, `artifactType: "diff"` ← Plan-012 provider ([`artifact_manifests`](../architecture/schemas/local-sqlite-schema.md#artifact-tables-plan-012); [Spec-012 §Interfaces And Contracts](../specs/012-artifacts-files-and-attachments.md#interfaces-and-contracts), return-cite [Spec-012 §State And Data Implications](../specs/012-artifacts-files-and-attachments.md#state-and-data-implications)) — SHAPE verified: `"diff"` admitted by the artifactType discriminator.
-    - `diff_artifacts` table (CREATE, Plan-009-owned) — fully specified ([`diff_artifacts`](../architecture/schemas/local-sqlite-schema.md#workspace-and-git-tables-plan-007-plan-008-plan-009): FK to artifact_manifests, `run_id` (nullable — present for `run_attributed`, null for `workspace_fallback`) + `workspace_id` (nullable mirror, `REFERENCES workspaces(id)` — present for `workspace_fallback`, null for `run_attributed`; the durable workspace-level provenance [Spec-009 §Required Behavior](../specs/009-gitflow-pr-and-diff-attribution.md#required-behavior) mandates, D-009-4), both guarded by the symmetric biconditional `CHECK((attribution_mode = 'run_attributed' AND run_id IS NOT NULL AND workspace_id IS NULL) OR (attribution_mode = 'workspace_fallback' AND run_id IS NULL AND workspace_id IS NOT NULL))` per [Spec-009 §Required Behavior](../specs/009-gitflow-pr-and-diff-attribution.md#required-behavior) / [Spec-009 §Fallback Behavior](../specs/009-gitflow-pr-and-diff-attribution.md#fallback-behavior), attribution_mode, base_ref, head_ref).
-    - `attributionMode` enum ← D-009-2: the Spec vocabulary `run_attributed` / `workspace_fallback` in both contract (api-payload-contracts.md `attributionMode: "run_attributed" | "workspace_fallback"`) and schema (local-sqlite-schema.md `CHECK(attribution_mode IN ('run_attributed', 'workspace_fallback'))`).
+- **T11.1** — Every `gitflow.*` contract in `packages/contracts/src/gitflow.ts`: the request, the result, the refusals and the stream frames of the Review verbs — `gitflow.branchContextRead`, `gitflow.diffRead`, `gitflow.gitActionPreview`, `gitflow.gitActionExecute`, `gitflow.gitActionSubscribe`, `gitflow.commitMessageGenerate`, `gitflow.changeRequestTextGenerate`, `gitflow.changeRequestSubscribe`, `gitflow.reviewerList`, `gitflow.labelList`, `gitflow.reviewSubmit`, `gitflow.threadResolve`, `gitflow.threadReply`, `gitflow.checkLogRead` — and of the host verbs, `gitflow.hostList`, `gitflow.hostAdd {host}` and `gitflow.hostRemove`. `git.settled`'s cause payload lands in the event contract and the `session.reviewNote*` verbs in the session contract, beside the composer draft's. The contracts land ahead of their handlers; no verb is served until its task below builds it. Every refusal those verbs raise is registered: one code per refusal under the `gitflow` root, each with its reason list, by the rules [error-contracts.md §Error Codes](../architecture/contracts/error-contracts.md#error-codes) states; that document's §Gitflow lists them from this contract.
+  - **Spec coverage:** [Spec-009 §Interfaces And Contracts](../specs/009-gitflow-pr-and-diff-attribution.md#interfaces-and-contracts).
+  - **Verifies invariant:** none.
+  - **Consumes:** the `METHOD_NAME_FORMAT` registry and the canonical method table in [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) (D-009-5).
 
-### Phase 3 — PR Preparation And Remote Mutation Handoff
+### Phase 2 — Ship Facts And The Diff Read
 
-**Precondition:** Phase 1 merged (PR preparation derives base and head exclusively from the recorded branch context — I-009-2). Parallel to Phase 2 per §Parallelization Notes ("can progress in parallel once branch-context schema exists"); §Rollout Order step 3 sequences remote-mutation enablement after step 2's read-only review surfaces.
-
-<!-- prettier-ignore -->
-```yaml
-preconditions:
-  - { type: plan_phase, plan: 009, phase: 1, status: merged }
-```
+**Precondition:** Phase 1 merged; Plan-008's branch list and tree-staleness signal (CP-009-1); Plan-013's file checkpoint store for each file's turn (CP-009-2).
 
 #### Tasks
 
-- **T11.3** — Build reviewable PR preparation records and remote mutation handoff. Implement the `GitHostingAdapter` interface with `gh` CLI as the V1 backend; use normalized `createChangeRequest` terminology and auto-detect provider from the git remote URL. Each act that reaches the remote or the local history appends one `git.settled` event as it settles — cause `committed`, `pushed` or `pull_request_opened`, carrying that cause's own reference (the commit's identifier, the branch, or the request's number and its address on the service) and, where an agent performed the act as an ordinary tool call, the run that did it; a person pressing the control leaves that member absent.
-  - **Spec coverage:** [Spec-009 §Required Behavior](../specs/009-gitflow-pr-and-diff-attribution.md#required-behavior) (PR prep uses the recorded base/head rather than the client tab; commit, push and PR are reviewable before execution), [Spec-009 §Default Behavior](../specs/009-gitflow-pr-and-diff-attribution.md#default-behavior) (default PR target is the recorded base), [Spec-009 §Interfaces And Contracts](../specs/009-gitflow-pr-and-diff-attribution.md#interfaces-and-contracts) (`PRPrepare` reviewable proposal before remote mutation; `GitActionExecute` preserves causation), [Spec-009 §Git Hosting Adapter](../specs/009-gitflow-pr-and-diff-attribution.md#git-hosting-adapter) (GitHostingAdapter / `gh` / `createChangeRequest` / remote auto-detect), [Spec-009 §Acceptance Criteria](../specs/009-gitflow-pr-and-diff-attribution.md#acceptance-criteria) (a reviewable proposal tied to base and head).
-  - **Verifies invariant:** I-009-2 + I-009-3 — base/head from recorded context, durable reviewable record before remote mutation.
-  - **Consumes:**
-    - `pr_preparations` table (CREATE, Plan-009-owned) — fully specified ([`pr_preparations`](../architecture/schemas/local-sqlite-schema.md#workspace-and-git-tables-plan-007-plan-008-plan-009): branch_context_id FK, state CHECK, proposal_blob, target_branch).
-    - `RepoMountId`, `RunId`, `UserId` branded types ← upstream providers (GitActionExecute fields) — present.
-    - `GitHostingAdapter` param/result types (`ChangeRequestParams`, `ChangeRequestResult`, `UpdateChangeRequestParams`, `ListChangeRequestsParams`, `ChangeRequestSummary`, `GetChangeRequestStatusParams`, `ChangeRequestStatus`, `AddCommentParams`, `CommentResult`) ← D-009-1: all nine host-agnostic shapes are defined in `docs/architecture/contracts/api-payload-contracts.md §Plan-009 — Gitflow PR And Diff Attribution` (GitHostingAdapter supporting-types block), each using generic ChangeRequest terminology with the `gh`-CLI field mapping noted inline — SHAPE present.
-    - wire method names `gitflow.prPrepare` / `gitflow.gitActionExecute` ← D-009-5: the request/response shapes are defined in api-payload-contracts.md (`PRPrepareRequest`/`PRPrepareResponse`, `GitActionExecuteRequest`/`GitActionExecuteResponse`), and the four `gitflow.*` wire method-name strings are registered in the canonical method table there (`gitflow.branchContextRead` / `gitflow.diffArtifactCreate` / `gitflow.prPrepare` / `gitflow.gitActionExecute`) — `dotted-camelCase` per the `METHOD_NAME_FORMAT` registry, which **rejects** the PascalCase type symbols (`PRPrepare`, `GitActionExecute`) as method strings.
+- **T11.2** — Not built. `gitflow.branchContextRead`, keyed `{sessionId}`: the daemon maps each session to its working folder and answers from that folder's one watch and one cache, shared by every session there (D-009-2). The result carries the ship facts [Spec-009 §Interfaces And Contracts](../specs/009-gitflow-pr-and-diff-attribution.md#interfaces-and-contracts) lists, among them the hosting service's name and request word, whether the branch has never left this machine, a half-finished merge, rebase or bisect with its ending command, and the pull-request form's opening values — its proposed base, title and description, and whether it pushes first. A failed read names which read failed, after one retry inside the daemon. The same watch is the agent-commit watch: a commit's run comes from its `Agent-Run` trailer and settles `git.settled` `committed` with that run; a push is read from the remote-tracking reflog's `update by push` and settles `pushed` with no run; a fetch changes only the ahead and behind figures; a finished `gh pr create` or `glab mr create` tool call re-reads the pull request.
+  - **Spec coverage:** [Spec-009 §Required Behavior](../specs/009-gitflow-pr-and-diff-attribution.md#required-behavior) (the ship strip read off the state, the agent-commit watch, the form's values), [Spec-009 §Fallback Behavior](../specs/009-gitflow-pr-and-diff-attribution.md#fallback-behavior) (a failed read is never an absent fact).
+  - **Verifies invariant:** I-009-1, I-009-2.
+  - **Consumes:** CP-009-1; CP-009-3.
+- **T11.3** — Not built. `gitflow.diffRead` and `repo.fileRead`. The diff read answers one comparison as [Spec-009 §The Diff Read](../specs/009-gitflow-pr-and-diff-attribution.md#the-diff-read) fixes it: one entry per path, each file's kind word (a copy reads `added`), binary, unreadable with its cause, untracked files as additions read from the status without touching the index, a cut read from the machine's resources and named partial, git's blob id for each side (D-009-4), and each file's newest turn from the session's capture folder; the branch comparison adds its commits with the agent read from each commit's trailer. Its `workflowRun` arm diffs two of a workflow run's snapshot points from the run's own capture folder. `repo.fileRead` reads a file not in the diff and the lines inside a gap by `{path, blobId, side}`, answering `stale` when a working-tree side has changed since its blob id was read.
+  - **Spec coverage:** [Spec-009 §The Diff Read](../specs/009-gitflow-pr-and-diff-attribution.md#the-diff-read), [Spec-009 §Interfaces And Contracts](../specs/009-gitflow-pr-and-diff-attribution.md#interfaces-and-contracts).
+  - **Verifies invariant:** I-009-1.
+  - **Consumes:** CP-009-1; CP-009-2.
 
-### Phase 4 — Desktop Review Surfaces
+### Phase 3 — Ship Acts, Generate And The Trailer
 
-**Precondition:** Phases 2 and 3 merged — §Parallelization Notes holds the review UI on the attribution-mode and artifact-payload contracts (T11.2), and the PR-preparation surface renders T11.3's records. Delivers §Rollout Order step 2's read-only review surfaces and step 3's PR-preparation review surface.
-
-<!-- prettier-ignore -->
-```yaml
-preconditions:
-  - { type: plan_phase, plan: 009, phase: 2, status: merged }
-  - { type: plan_phase, plan: 009, phase: 3, status: merged }
-```
+**Precondition:** Phase 1 merged. Parallel to Phase 2.
 
 #### Tasks
 
-- **T11.4** — Add desktop diff and PR preparation review surfaces.
-  - **Spec coverage:** [Spec-009 §Required Behavior](../specs/009-gitflow-pr-and-diff-attribution.md#required-behavior) (reviewable before execution; explicit fallback labeling, never implied run attribution), [Spec-009 §Pitfalls To Avoid](../specs/009-gitflow-pr-and-diff-attribution.md#pitfalls-to-avoid) (attribution quality is a first-class field, not an inferred UI decoration), [Spec-009 §Acceptance Criteria](../specs/009-gitflow-pr-and-diff-attribution.md#acceptance-criteria) (modes distinguished; reviewable proposal).
-  - **Verifies invariant:** I-009-1 — UI surfaces the fallback label honestly.
-  - **Consumes:**
-    - renderer path `apps/desktop/src/renderer/src/diff-review/` ← Plan-009-owned ([§Target Areas](#target-areas)) — present/pinned.
-    - `gitflowClient` SDK ← Plan-009-owned (`packages/client-sdk/src/gitflowClient.ts`, §Target Areas) — to be authored by this plan; depends on the four `gitflow.*` wire methods (`gitflow.branchContextRead` / `gitflow.diffArtifactCreate` / `gitflow.prPrepare` / `gitflow.gitActionExecute`), per D-009-5 — the four method names are registered in the canonical method table in api-payload-contracts.md (`dotted-camelCase` per `METHOD_NAME_FORMAT`).
-    - attribution-mode + artifact-payload contracts ← consumes the same enum/shapes as Step 2 — per D-009-2, whose `run_attributed`/`workspace_fallback` mode labels are what the surface renders.
+- **T11.4** — Not built. `gitflow.gitActionPreview`, `gitflow.gitActionExecute` and `gitflow.gitActionSubscribe`. One daemon function builds an act's commands for the preview and the run (I-009-3). The acts are commit, which sweeps the whole working folder with one add before the commit; push; pull, on the branch this session is on, under the person's own git identity; and open a request with its base, title, description, draft flag, reviewers and labels, carrying its own push only when the branch has never left this machine. There is no amend, no force push and no merge. `retryFromCommand` runs a failed act again from the command that failed; the progress stream replays and then follows each command's state, its output scrubbed of credentials. Each act settles `git.settled` — `committed`, `pushed`, `pulled` or `pull_request_opened` — and asks for a fresh ship-facts read the moment it finishes.
+  - **Spec coverage:** [Spec-009 §Required Behavior](../specs/009-gitflow-pr-and-diff-attribution.md#required-behavior) (commands shown before they run, committing takes the whole folder, pushing and opening a request, every act leaves a record), [Spec-009 §Fallback Behavior](../specs/009-gitflow-pr-and-diff-attribution.md#fallback-behavior) (a failed command keeps its try-again).
+  - **Verifies invariant:** I-009-2, I-009-3.
+  - **Consumes:** CP-009-3; the hosting adapter for opening a request (T11.7).
+- **T11.5** — Not built. `gitflow.commitMessageGenerate` and `gitflow.changeRequestTextGenerate`: a fresh one-turn process on the session's provider and account that carries no conversation, on the model D-009-8 chooses, at the lowest effort with thinking off, read-only, in a folder outside the repository, fed the whole working folder's diff within the diff's cut, the branch name and the recent commit subjects. A failure is refused under the code T11.1 registers for it, in the provider's own words, and never falls back to the other provider.
+  - **Spec coverage:** [Spec-009 §Required Behavior](../specs/009-gitflow-pr-and-diff-attribution.md#required-behavior) (Generate).
+  - **Verifies invariant:** none.
+  - **Consumes:** the price table and the provider's model list for the account.
+- **T11.6** — Not built. The `Agent-Run` trailer hook, installed in every provider process the daemon spawns as D-009-7 sets out, and the per-session run marker in the provider's environment.
+  - **Spec coverage:** [Spec-009 §Required Behavior](../specs/009-gitflow-pr-and-diff-attribution.md#required-behavior) (the trailer, the only trailer the daemon writes).
+  - **Verifies invariant:** I-009-1, I-009-4.
+  - **Consumes:** the provider spawn paths on Claude Code and on Codex.
+
+### Phase 4 — Hosting, Reviews And Notes
+
+**Precondition:** Phase 1 merged. Parallel to Phases 2 and 3.
+
+#### Tasks
+
+- **T11.7** — Not built. The `GitHostingAdapter`, one adapter per site kind — GitHub over `gh`, GitLab over `glab` — each under the person's own sign-in, with the operations [Spec-009 §GitHostingAdapter Interface](../specs/009-gitflow-pr-and-diff-attribution.md#githostingadapter-interface) lists (D-009-1), the site read from the repository's remote. The adapter's interface and its parameter and result shapes are the daemon's own, in `packages/runtime-daemon/src/gitflow/` (D-009-3), never in `packages/contracts` or api-payload-contracts.md. The self-hosted host list: `gitflow.hostList`, `gitflow.hostRemove`, and `gitflow.hostAdd {host}`, which asks each installed tool whether it answers for the host signed in and keeps the kind of the one that does, refusing a malformed name with `That is not a host name.` and an unanswered host with `<host> didn't answer as GitHub or GitLab. Sign in to it with gh or glab, then add it again.`, saving nothing either way.
+  - **Spec coverage:** [Spec-009 §Git Hosting Adapter](../specs/009-gitflow-pr-and-diff-attribution.md#git-hosting-adapter), [Spec-009 §Hosting Sites](../specs/009-gitflow-pr-and-diff-attribution.md#hosting-sites).
+  - **Verifies invariant:** none.
+  - **Consumes:** the installed `gh` and `glab`.
+- **T11.8** — Not built. `gitflow.changeRequestSubscribe {sessionId, depth: summary | full}` on D-009-10's cadence, and `gitflow.reviewerList`, `gitflow.labelList`, `gitflow.threadResolve`, `gitflow.threadReply` and `gitflow.checkLogRead` over the adapter. The subscription's frames carry the widened request facts, when they were read and when a read last failed; nothing asks the host while no one subscribes.
+  - **Spec coverage:** [Spec-009 §Interfaces And Contracts](../specs/009-gitflow-pr-and-diff-attribution.md#interfaces-and-contracts), [Spec-009 §Hosting Sites](../specs/009-gitflow-pr-and-diff-attribution.md#hosting-sites), [Spec-009 §Required Behavior](../specs/009-gitflow-pr-and-diff-attribution.md#required-behavior) (the pull-request tab re-reads itself; threads and checks).
+  - **Verifies invariant:** I-009-6.
+  - **Consumes:** T11.7.
+- **T11.9** — Not built. The held notes and review posting. The note store and its verbs, `session.reviewNoteAdd`, `session.reviewNoteUpdate`, `session.reviewNoteRemove {noteIds}` and `session.reviewNoteList` (D-009-9), with each note's `stranded` mark recomputed against its comparison; and `gitflow.reviewSubmit`, which posts the held notes as a pending review, one thread per note, then submits it under one verdict with its optional summary (D-009-6), marks each posted note `sent`, names each note that failed with its reason, leaves stranded notes and notes on uncommitted lines out, and settles `git.settled` `review_posted`.
+  - **Spec coverage:** [Spec-009 §Required Behavior](../specs/009-gitflow-pr-and-diff-attribution.md#required-behavior) (a review note is a draft the daemon holds; the ways a held note leaves; a post that partly failed), [Spec-009 §Git Hosting Adapter](../specs/009-gitflow-pr-and-diff-attribution.md#git-hosting-adapter).
+  - **Verifies invariant:** I-009-5.
+  - **Consumes:** T11.7; the session's composer-draft store; CP-009-3.
+
+### Phase 5 — The Review Surface
+
+**Precondition:** Phase 1 merged. The surface draws from the fixture layout until each verb's task lands and goes live verb by verb.
+
+#### Tasks
+
+- **T11.10** — Not built. Review in `features/repos/`: the diff pane, the scope row with the comparisons and the notes tab, the base picker over `repo.branchList`, the file list, the ship strip with its state line, next action, alternate, forms, Generate and `Exact commands` fold, the pull-request tab with its reviews, threads and check logs, and the header's request word over the `summary` subscription.
+  - **Spec coverage:** [Spec-009 §Required Behavior](../specs/009-gitflow-pr-and-diff-attribution.md#required-behavior), [Spec-009 §Fallback Behavior](../specs/009-gitflow-pr-and-diff-attribution.md#fallback-behavior), [Spec-009 §The Diff Read](../specs/009-gitflow-pr-and-diff-attribution.md#the-diff-read).
+  - **Verifies invariant:** I-009-1 (the surface draws only the turn and agent the daemon supplies).
+  - **Consumes:** every verb above; CP-009-1.
 
 ## Parallelization Notes
 
-- Diff artifact generation and PR preparation services can progress in parallel once branch-context schema exists.
-- Desktop review UI should wait for attribution mode and artifact payload contracts.
+- Phases 2, 3 and 4 progress in parallel once Phase 1's contracts exist; T11.4's open-a-request act waits for T11.7's adapter.
+- The Review surface builds against the contracts and the fixture layout, and goes live verb by verb as each task lands.
 
 ## Test And Verification Plan
 
-- Attribution-mode tests for run-attributed versus workspace-fallback diffs
-- PR preparation contract tests
-- Manual verification from writable run to diff review to PR prepare
+- The trailer: an agent's commit carries `Agent-Run` and no daemon-written co-author trailer; a commit through the forwarder still runs the repository's own hook; the person's commits and a commit made with `git -c core.hooksPath=…` carry none.
+- One command source: for each act, the commands the preview returns are the commands the run executes.
+- A partial post: a thread that fails names its note, the posted notes are marked sent and a second press posts only what is still held; a stranded note and a note on uncommitted lines are never posted.
+- A gap read on a working-tree side answers `stale` once the file changed after the diff was read.
+- With no subscriber, no request reaches the hosting service.
+- Manual verification on a GitHub repository and on a GitLab host: an agent's commit and push, a person's commit, push, pull and opened request, and a review posted with notes.
 
 ## Rollout Order
 
-1. Ship branch context and diff artifact generation
-2. Enable read-only review surfaces
-3. Enable PR preparation and remote mutation handoff
+1. Land every contract (Phase 1)
+2. Serve the ship facts and the diff read, so Review reads live (Phase 2)
+3. Serve the ship acts, Generate and the trailer hook (Phase 3)
+4. Serve the hosting reads, the notes and review posting (Phase 4)
+5. The Review surface goes live verb by verb as each task lands (Phase 5)
 
 ## Rollback Or Fallback
 
-- Disable remote PR preparation and keep local diff artifact generation if hosting integration regresses.
+- If a hosting site's tool regresses, the pull-request half stays dark for that site while the diff, commit, push and pull keep working.
 
 ## Risks And Blockers
 
-- Attribution quality may degrade unexpectedly after recovery or manual git changes
-- Host integration variability may delay end-to-end PR flows
+- A provider may change its own co-author trailer (Claude Code's default, Codex's account setting); each is checked when the provider's pinned version moves, and the daemon's trailer does not depend on either.
+- A repository whose hook manager sets its own `core.hooksPath` is served by the forwarder on git older than 2.54, which runs the repository's configured hooks first; a commit made with `git -c core.hooksPath=…` carries no trailer and reads as the person's.
+- The GitLab adapter's per-operation mapping onto `glab` — posting notes so a failure names its note, replying, resolving and reading a check's log — is checked against `glab` when T11.7 is built; the requirement is the one GitHub meets.
+- A hosting service's rate limit slows the pull-request reads; the backoff and the conditional request keep the last state on screen.
 
 ## Design Decisions
 
-- **D-009-1 — The nine `GitHostingAdapter` param/result shapes are host-agnostic contract types, defined in `api-payload-contracts.md`.** [Spec-009 §GitHostingAdapter Interface](../specs/009-gitflow-pr-and-diff-attribution.md#githostingadapter-interface) names `ChangeRequestParams`, `ChangeRequestResult`, `UpdateChangeRequestParams`, `ListChangeRequestsParams`, `ChangeRequestSummary`, `GetChangeRequestStatusParams`, `ChangeRequestStatus`, `AddCommentParams`, and `CommentResult`. All nine use generic ChangeRequest terminology — callers never reference GitHub-specific concepts ([Spec-009 §Multi-Host Path (V2)](../specs/009-gitflow-pr-and-diff-attribution.md#multi-host-path-v2)) — and each field is mapped to the V1 `gh` CLI contract inline. `createChangeRequest` runs `gh pr create` and then `gh pr view <created-url> --json number,url`: `gh pr create` has no `--json` flag and prints only the new PR's URL, and a bare `gh pr view` would resolve the current branch's request rather than the one just created on an arbitrary `headBranch`.
-- **D-009-2 — `diff_artifacts.attribution_mode` is `run_attributed` / `workspace_fallback`.** The [Spec-009 §Default Behavior](../specs/009-gitflow-pr-and-diff-attribution.md#default-behavior) / [Spec-009 §Fallback Behavior](../specs/009-gitflow-pr-and-diff-attribution.md#fallback-behavior) provenance-quality vocabulary holds in both the wire contract (`attributionMode: "run_attributed" | "workspace_fallback"`) and the schema CHECK. The value set names the provenance-quality axis — does this diff correlate to a run? — rather than the attribution mechanism, which is the axis the acceptance criterion is stated on.
-- **D-009-3 — Plan-009's daemon services live in `runtime-daemon/src/gitflow/`, not `runtime-daemon/src/git/`.** `src/git/` is Plan-008-owned (worktree services; cross-plan-dependencies.md, Plan-008 CP-008-7) and Plan-009 consumes it through contracts and services, never by editing it. `branch-context-service.ts` and `pr-preparation-service.ts` are Plan-009's own, and they sit beside the `gitflow.ts` contract and the `gitflowClient.ts` SDK in §Target Areas; cross-plan-dependencies.md carries the ownership row.
-- **D-009-4 — `diff_artifacts` persists `workspace_id` for the `workspace_fallback` arm.** [Spec-009 §Required Behavior](../specs/009-gitflow-pr-and-diff-attribution.md#required-behavior)'s "clearly labeled workspace-level diff artifact" has to be durable: a `workspace_fallback` row must record _which_ workspace produced it, and the `artifact_manifest_id` FK reaches only the session while `run_id` is null by construction on that arm. The column is a nullable `workspace_id TEXT REFERENCES workspaces(id)` — an FK because `workspaces` is table-backed, unlike the event-sourced `run_id`/`session_id` columns that carry no FK (the convention `run_execution_contexts` sets in local-sqlite-schema.md) — guarded by the symmetric biconditional `CHECK((run_attributed AND run_id IS NOT NULL AND workspace_id IS NULL) OR (workspace_fallback AND run_id IS NULL AND workspace_id IS NOT NULL))` mirroring the wire union, plus a partial index `idx_diff_artifacts_workspace`. `run_attributed` persists no `workspace_id`; its workspace is reachable through the run's `run_execution_contexts.workspace_id`. Spec-009's §Data Model extension-column enumeration ([Spec-009 §DiffArtifact and General Artifact Relationship](../specs/009-gitflow-pr-and-diff-attribution.md#diffartifact-and-general-artifact-relationship)) lists only `attribution_mode`/`base_ref`/`head_ref`, omitting resolver columns like `run_id`, so `workspace_id` needs no Spec entry either.
-- **D-009-5 — The four Plan-009 wire operations take `gitflow.*` `dotted-camelCase` JSON-RPC method names, registered in the canonical `api-payload-contracts.md` method table.** The `METHOD_NAME_FORMAT` registry (api-payload-contracts.md §Plan-006-Partial — Local IPC Daemon Control) is `dotted-camelCase` and **rejects** PascalCase strings, and every sibling wire surface (`run.*`, `repo.*`, `approval.*`, `user.*`) enumerates its methods in a canonical table there. The four are `gitflow.branchContextRead` (`query`) and `gitflow.diffArtifactCreate` / `gitflow.prPrepare` / `gitflow.gitActionExecute` (`mutation`), mapped to the `BranchContextRead` / `DiffArtifactCreate` / `PRPrepare` / `GitActionExecute` request/response types. The `GitHostingAdapter` and its nine supporting types stay daemon-internal and are not wire methods (D-009-1).
+- **D-009-1 — The hosting adapter is daemon-internal and host-agnostic, one adapter per site kind over the site's own command-line tool.** [Spec-009 §GitHostingAdapter Interface](../specs/009-gitflow-pr-and-diff-attribution.md#githostingadapter-interface) names its operations in generic `ChangeRequest` terms, so callers never name a site ([Spec-009 §Hosting Sites](../specs/009-gitflow-pr-and-diff-attribution.md#hosting-sites)); their parameter and result shapes are the daemon's own, in `packages/runtime-daemon/src/gitflow/`, and only the `gitflow.*` method shapes are in `packages/contracts/src/gitflow.ts`. GitHub is served over `gh` and GitLab over `glab`, each under the person's own sign-in. Calling each site's API with a token the daemon holds was considered and not taken: the tools are maintained by the sites, they already carry the person's sign-in, and the daemon then holds no hosting token and every act leaves under the person's identity. `createChangeRequest` on GitHub runs `gh pr create` and then `gh pr view <created-url> --json number,url`, because `gh pr create` prints only the new request's address and a bare `gh pr view` resolves the current branch's request rather than the one just created on an arbitrary `headBranch`.
+- **D-009-2 — One watch and one cache per working folder.** The ship-facts read is keyed `{sessionId}` on the wire; inside, the daemon maps each session to its folder and keeps one watch and one cache per folder, shared by every session working there, since two sessions may share a folder. The watch covers the tree's own git folder and the shared refs area, found with `git rev-parse --git-path`, as change signals only; the daemon then asks git, never reads ref files (under reftable there are none), and passes `--no-optional-locks` on every background read.
+- **D-009-3 — Plan-009's daemon code lives in `runtime-daemon/src/gitflow/`, not `runtime-daemon/src/git/`.** `src/git/` is Plan-008-owned (worktree services; cross-plan-dependencies.md, Plan-008 CP-008-7) and Plan-009 consumes it through contracts and services, never by editing it. The gitflow module sits beside the `gitflow.ts` contract and the `gitflow-methods.ts` handlers in §Target Areas; cross-plan-dependencies.md carries the ownership row.
+- **D-009-4 — A blob id per side.** The diff read takes each file's two blob ids from `git diff --full-index`, which gives the working file's hash as the right-hand id. A gap read takes `{path, blobId, side}`: a committed side is read with `git cat-file blob`, exact and never stale; a working-tree side is read from disk only while `git hash-object` (without `-w`) still matches, and otherwise answers `stale`, so a gap never opens onto lines the diff did not show; a pull request's head is fetched locally first.
+- **D-009-5 — The Plan-009 wire operations take `gitflow.*` `dotted-camelCase` JSON-RPC method names, registered in the canonical `api-payload-contracts.md` method table.** The `METHOD_NAME_FORMAT` registry (api-payload-contracts.md §Plan-006-Partial — Local IPC Daemon Control) is `dotted-camelCase` and **rejects** PascalCase strings, and every sibling wire surface enumerates its methods in a canonical table there. The `gitflow.*` verbs are the Review verbs and the host verbs [Spec-009 §Interfaces And Contracts](../specs/009-gitflow-pr-and-diff-attribution.md#interfaces-and-contracts) lists; the `…Read` and `…List` verbs are queries, the `…Subscribe` verbs are subscriptions, and the rest are mutations. The held-note verbs sit under the `session.*` root beside the composer draft's. There is no preparation verb and no diff-artifact create. The `GitHostingAdapter` stays daemon-internal and is not a wire method (D-009-1).
+- **D-009-6 — A review posts as a pending review, one thread per note, then a submit.** On GitHub each note is `addPullRequestReviewThread` on a pending review, then `submitPullRequestReview` takes the pending review's id (or the request's), a required `event` (`APPROVE`, `COMMENT` or `REQUEST_CHANGES`) and the optional summary as `body`, and returns the submitted review; a pending review can be deleted before it is submitted. This lets a post that fails part-way name the note that failed. The REST create-review call was measured all or none — with one comment inside the diff and one on a line outside it, GitHub answers 422 `Line could not be resolved` and the request holds no review, no comment and no pending draft — so it is not used ([GitHub GraphQL: pulls](https://docs.github.com/en/graphql/reference/pulls), [GitHub REST: pull request reviews](https://docs.github.com/en/rest/pulls/reviews)).
+- **D-009-7 — The `Agent-Run` trailer comes from the daemon's own git hook.** On git 2.54 or later the hook is set through `GIT_CONFIG_COUNT` in the provider process's environment; on older git it is a `core.hooksPath` folder that forwards every hook name to the repository's own hooks, the repository's `core.hooksPath` first, else `.git/hooks`. The hook adds `Agent-Run: <run-id>` with `git interpret-trailers --if-exists addIfDifferent`, reading the run from a per-session marker set in the provider's environment: at spawn on Claude Code, and through the conversation's `shell_environment_policy.set` on Codex, where `CODEX_THREAD_ID` also names the thread. A trailer written by the provider was not taken, because a provider's commit trailer reaches a commit only if the model follows an instruction, and attribution must not depend on that. The daemon writes no co-author trailer: Claude Code writes its own by default, and Codex's is an instruction to the model sent only when the person's commit-attribution setting in their OpenAI account is on, off by default and always off with an API key; OpenAI's current documentation names no co-author address for Codex.
+- **D-009-8 — Generate runs the cheapest priced model the account lists, with thinking off.** The model is the one with the lowest input rate in the price table, the lowest output rate breaking a tie, among the models the provider lists for the account and does not hide; a model the table does not price is never chosen. On Claude Code the process is `-p --model <model> --no-session-persistence --tools "" --json-schema` with `--settings '{"alwaysThinkingEnabled":false,"cleanupPeriodDays":36500}'` (the retention value every Claude Code process the daemon starts carries) and `--strict-mcp-config`; measured with thinking off at 1.8–1.9 s and under $0.002 a title, against 4.0–6.6 s with it on. On Codex it is an ephemeral thread with a read-only sandbox; Codex's model list carries no size, tier or price, which is why the price table decides.
+- **D-009-9 — A note records its comparison, and removal takes an array.** Each note records `comparison {scope, base, headCommitId | workingTreeBlobId, requestNumber?}` with `side`, `line` and `startLine?`, so pressing it walks to the comparison that holds it and the stranded check knows what to compare against; a note on uncommitted lines is left out of a post. The client mints the note's id, so an add is idempotent. `session.reviewNoteRemove` takes `noteIds`, because the composer chip's discard and a steer each clear every note in one act.
+- **D-009-10 — A request is read only while it is watched.** While a `summary` subscriber holds `gitflow.changeRequestSubscribe` — the header's request word — the daemon sends a conditional request every 60 s, whose unchanged answer costs no rate-limit quota ([GitHub REST: best practices, conditional requests](https://docs.github.com/en/rest/using-the-rest-api/best-practices-for-using-the-rest-api#use-conditional-requests)), and reads again at once after the person's own git and pull-request acts and after each event that changes the request. A `full` subscriber — the pull-request comparison in view — re-reads every 60 s while the request is open and every five minutes once it is merged or closed; a failed read waits one second, then 1.6 times longer each time up to two minutes, with a fifth either way of jitter, longer whenever the service names a time, and at least a minute after a rate limit that names none. With no subscriber nothing asks the host.
 
 ## Done Checklist
 

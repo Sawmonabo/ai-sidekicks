@@ -13,7 +13,7 @@
 
 ## Context
 
-The session screen's centre is the transcript: the person's messages, the agent's replies, tool calls, commands, approvals and the rows that mark an act. The product has one user ([ADR-001](001-session-is-the-primary-domain-object.md) and the product scope), so there is never a second person to tell apart from the first. The console's design language, Meridian, is specified in [Spec-021 §Meridian, the design language](../specs/021-desktop-shell-and-renderer.md#meridian-the-design-language).
+The session screen's center is the transcript: the person's messages, the agent's replies, tool calls, commands, approvals and the system messages that mark an act. The product has one user ([ADR-001](001-session-is-the-primary-domain-object.md) and the product scope), so there is never a second person to tell apart from the first. The console's design language, Meridian, is specified in [Spec-021 §Meridian, the design language](../specs/021-desktop-app-and-renderer.md#meridian-the-design-language).
 
 ## Problem Statement
 
@@ -21,7 +21,7 @@ How does the transcript show who said what, and how much chrome does each turn c
 
 ### Trigger
 
-Spec-021 described timeline rows as flush-left ledger lines with no bubbles. The locked console design keeps the single flow and removes the identity chrome, but gives the person's own words a bubble. The two must say the same thing before the transcript is built.
+The transcript could be drawn as a uniform list, every row flush left with no bubbles, or as a single flow with no identity chrome in which the person's own words sit in a bubble. [Spec-021 §Meridian, the design language](../specs/021-desktop-app-and-renderer.md#meridian-the-design-language) and the transcript's build need one answer before the transcript is built.
 
 ---
 
@@ -34,7 +34,7 @@ The transcript is **one flow**, and role is carried by asymmetry alone.
 - There is **no left-and-right alternation**: the agent's turns never move to a side, and nothing else in the flow is aligned by author.
 - An agent turn carries **no avatar, no name label and no eyebrow** naming the speaker.
 - **The one user carries no identity mark anywhere** on the console: no avatar, no initial, no hue, no "You" label on a reply or a pull-request header, no colour bar for who changed a file. The word "you" appears only where it says who acted, such as a command row that reads `Stopped by you` or a session row that reads `Waiting on you`.
-- A row that marks an act names the act in words, such as `Goal set` or `Committed`, never the actor. The only swatches on the screen belong to agents.
+- A system message names the act in words, such as `Goal set` or `Committed`, never the actor. The only swatches on the screen belong to agents.
 
 ### Thesis — Why This Option
 
@@ -45,7 +45,7 @@ The transcript is **one flow**, and role is carried by asymmetry alone.
 
 ### Antithesis — The Strongest Case Against [T2]
 
-A pure ledger, every row flush left with a coloured edge, is more uniform and is what Spec-021 first specified; a bubble is the one element that breaks the ledger and imports the look of a chat application. When several agents work in one session, a reader does need to know which agent wrote a row, and removing name labels seems to make that harder.
+A pure list, every row flush left with a colored edge, is more uniform; a bubble is the one element that breaks the list and imports the look of a chat application. When several agents work in one session, a reader does need to know which agent wrote a row, and removing name labels seems to make that harder.
 
 ### Synthesis — Why It Still Holds [T2]
 
@@ -96,7 +96,7 @@ The ledger reading holds for everything the agent produces, which is nearly all 
 ## Reversibility Assessment
 
 - **Reversal cost:** Days for the renderer, but every screenshot, test scenario and the design language text change with it.
-- **Blast radius:** The transcript, Review's authorship marks, pull-request headers and the act rows.
+- **Blast radius:** The transcript, Review's authorship marks, pull-request headers and the system messages.
 - **Migration path:** Change the row component and the design-language rule together.
 - **Point of no return:** None technical; the cost is coherence.
 

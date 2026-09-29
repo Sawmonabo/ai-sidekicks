@@ -11,7 +11,7 @@
 
 ## Context
 
-The system needs durable local execution truth, replay, and recovery on the user's machines, while also needing shared coordination storage for the device registry, device liveness, and session directory metadata. A single storage model for both concerns would either over-centralize local execution data or under-serve the coordination queries every device makes.
+The system needs durable local execution truth, replay, and recovery on the user's machines, while also needing shared coordination storage for the account's statement chain, the device and machine registry, and each machine's session signing keys and event-log anchors. A single storage model for both concerns would either over-centralize local execution data or under-serve the coordination queries every device makes.
 
 ## Problem Statement
 
@@ -25,11 +25,9 @@ The data architecture and persistence specs require a concrete storage split bef
 
 We will use SQLite for node-local execution state and Postgres for shared control-plane state.
 
-Shared artifact payloads do not enter either database: the ciphertext lives in the relay object store ([Spec-012 §Cross-Node Artifact Relay](../specs/012-artifacts-files-and-attachments.md#cross-node-artifact-relay-v1)), and Postgres holds only the coordination rows and the per-user wrapped content-encryption keys (`artifact_relay_blobs`, `artifact_relay_recipients`).
-
 ### Thesis — Why This Option
 
-SQLite is a strong fit for Local Runtime Daemon persistence: embedded, transactional, WAL-backed, and simple to ship with desktop and CLI execution nodes. Postgres is a strong fit for shared Control Plane data that needs relational integrity, indexing, and operational visibility across hosted or self-hosted deployments.
+SQLite is a strong fit for Local Runtime Daemon persistence: embedded, transactional, WAL-backed, and simple to ship with desktop and CLI execution nodes. Postgres is a strong fit for shared Control Plane data that needs relational integrity, indexing, and operational visibility on the person's own control plane, whichever of its two deployments they run.
 
 ### Antithesis — The Strongest Case Against
 
@@ -64,7 +62,7 @@ JSON files are too weak for replay-heavy, event-oriented runtime truth. A single
 | # | Assumption | Evidence | What Breaks If Wrong |
 | --- | --- | --- | --- |
 | 1 | Local daemon workloads fit SQLite well. | The persistence spec requires SQLite with WAL for node-local execution truth and restart recovery. | SQLite could become a bottleneck or operational pain. |
-| 2 | Shared coordination data needs relational guarantees. | Device-registry, device-liveness, node-attachment, and session directory rows are read and written by several of the user's devices and machines at once. | A lighter shared store might suffice. |
+| 2 | Shared coordination data needs relational guarantees. | Statement-chain, device-registry, machine-registration, and signing-key rows are read and written by several of the user's devices and machines at once. | A lighter shared store might suffice. |
 | 3 | The system can keep local and shared data boundaries explicit. | Data architecture and security docs already separate them. | Replication or visibility bugs could blur the model. |
 
 ## Failure Mode Analysis
@@ -72,7 +70,7 @@ JSON files are too weak for replay-heavy, event-oriented runtime truth. A single
 | Scenario | Likelihood | Impact | Detection | Mitigation |
 | --- | --- | --- | --- | --- |
 | Local SQLite store is corrupted or unavailable | Low | High | Daemon recovery fails or enters degraded mode | Block mutable work, expose repair path, and support restore |
-| Shared Postgres is unavailable | Med | High | Device-registry, node-attachment, or liveness operations fail | Preserve explicit `local-only` degraded mode |
+| Shared Postgres is unavailable | Med | High | Device linking, machine registration, or statement-chain reads fail | Preserve explicit `local-only` degraded mode |
 | Artifact or metadata is written to the wrong boundary | Med | High | Visibility or audit anomalies appear | Enforce policy-aware manifest classification and tests |
 
 ## Reversibility Assessment
@@ -112,8 +110,8 @@ JSON files are too weak for replay-heavy, event-oriented runtime truth. A single
 
 | Metric | Target | Measurement Method | Check Date |
 | --- | --- | --- | --- |
-| Local restart recovery succeeds from embedded storage | 100% of recovery test fixtures | Recovery integration suite | `2026-04-14` |
-| Shared coordination data remains queryable and durable across the user's devices and machines | 100% of core device-registry and node-attachment paths | Control-plane integration suite | `2026-04-14` |
+| Local restart recovery succeeds from embedded storage | 100% of recovery test fixtures | Recovery integration suite | Each run of the recovery integration suite |
+| Shared coordination data remains queryable and durable across the user's devices and machines | 100% of core device-registry and machine-registration paths | Control-plane integration suite | Each run of the control-plane integration suite |
 
 ## References
 
