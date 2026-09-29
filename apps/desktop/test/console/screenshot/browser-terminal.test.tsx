@@ -29,7 +29,7 @@ import {
 } from "../surfaces/browser-terminal.js";
 import { captureSettled } from "@test/screenshot/settled-capture.js";
 
-import { installMeridianTokens } from "../../../src/renderer/src/console/frame/index.js";
+import { installMeridianTokens } from "@renderer/app/token-installation.js";
 import { CONSOLE_SCHEMES } from "@renderer/styles/tokens.js";
 
 /**

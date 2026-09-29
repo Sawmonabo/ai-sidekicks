@@ -29,6 +29,8 @@ import { useConsoleClock } from "@renderer/console/bridge/BridgeProvider.js";
 import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
 import { FrameChrome, type FrameChromeProps } from "./FrameChrome.js";
 
+import "./app-frame.css";
+
 /**
  * What a caller hands the frame.
  *

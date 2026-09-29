@@ -31,7 +31,7 @@ import {
   runTierAxe,
 } from "@test/accessibility/axe-run.js";
 
-import { installMeridianTokens } from "../../../src/renderer/src/console/frame/index.js";
+import { installMeridianTokens } from "@renderer/app/token-installation.js";
 import { CONSOLE_SCHEMES } from "@renderer/styles/tokens.js";
 
 /** The surfaces this family ships, each named as a reader would name it. */

@@ -33,7 +33,7 @@ import { type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
 import { ConsoleEntityProjectorRegistry } from "@renderer/registries/entity-projectors/entity-projector-registry.js";
 import { type SessionSnapshotReader } from "@renderer/store/session/open-session-entry.js";
 import { type SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
-import { useSessionStoreRegistry } from "@renderer/console/frame/session/session-lifecycle.js";
+import { useSessionStoreRegistry } from "./useSessionStoreRegistry.js";
 
 const readNothing: SessionSnapshotReader = () => Promise.resolve(undefined);
 

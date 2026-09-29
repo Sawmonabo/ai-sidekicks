@@ -1,0 +1,74 @@
+/* The navigation rail's styles.
+ *
+ * The rail's width is the one hard-coded dimension, and deliberately: a fixed 52px
+ * because the glyphs are 16px on a 36px hit target with equal margins, and a rail
+ * that reflowed with the type scale would move under a person's cursor when they
+ * changed the zoom.
+ */
+
+.meridian-rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-block: var(--meridian-space-3);
+  border-right: 1px solid var(--meridian-edge);
+  background: var(--meridian-surface-sunken);
+}
+
+.meridian-rail__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.meridian-rail__item {
+  display: flex;
+}
+
+.meridian-rail__button {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: none;
+  border-radius: var(--meridian-radius-md);
+  background: transparent;
+  color: var(--meridian-text-muted);
+  cursor: default;
+  transition:
+    background-color var(--meridian-motion-quick) var(--meridian-ease-settle),
+    color var(--meridian-motion-quick) var(--meridian-ease-settle);
+}
+
+.meridian-rail__button:hover {
+  background: var(--meridian-surface-raised);
+  color: var(--meridian-text);
+}
+
+.meridian-rail__button:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}
+
+.meridian-rail__button--current {
+  color: var(--meridian-accent-text);
+  background: var(--meridian-surface-raised);
+}
+
+/* The current-destination marker is a bar, not a fill: at 36px a filled square
+ * reads as a pressed button rather than a location, and the bar survives the
+ * two-hue rule because it is the one accent the rail is allowed. */
+.meridian-rail__button--current::before {
+  content: "";
+  position: absolute;
+  inset-block: 6px;
+  inset-inline-start: -8px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--meridian-accent);
+}

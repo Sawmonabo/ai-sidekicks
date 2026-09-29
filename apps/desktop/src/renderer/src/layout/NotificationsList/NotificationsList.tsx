@@ -29,6 +29,9 @@ import type { AttentionItem } from "@renderer/console/bridge/wire-shapes/attenti
 import { type AttentionReading } from "@renderer/store/attention/attention-summary.js";
 import { ProjectionBody } from "./NotificationsListBody.js";
 
+import "./notifications.css";
+
+/** What the notifications list draws: the attention reading and how to open an item. */
 export interface NotificationCenterProps {
   /**
    * The projection read's result. The destination performs the read and hands it
@@ -40,6 +43,11 @@ export interface NotificationCenterProps {
   readonly onOpen?: (item: AttentionItem) => void;
 }
 
+/**
+ * The notifications list: what needs a person, grouped by session.
+ *
+ * @consumedBy the notifications list the rail's bell opens
+ */
 export function NotificationCenter(props: NotificationCenterProps): React.JSX.Element {
   return (
     <section className="meridian-attention" aria-label="Attention">

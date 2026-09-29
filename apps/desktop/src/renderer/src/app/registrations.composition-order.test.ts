@@ -49,7 +49,7 @@ describe("ConsoleRoot — the tripwire route is armed before the boards are comp
       batches.push(jsonLines);
     });
     try {
-      await import("@renderer/console/frame/composition/ConsoleRoot.js");
+      await import("./providers.js");
       consoleDiagnosticCapture.flush();
     } finally {
       detachForwarder();

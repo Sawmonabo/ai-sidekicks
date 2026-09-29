@@ -31,7 +31,7 @@ import { describe, expect, it } from "vitest";
 
 import { renderSettled } from "../../test/console/console-harness.js";
 
-import { installMeridianTokens } from "@renderer/console/frame/index.js";
+import { installMeridianTokens } from "@renderer/app/token-installation.js";
 import { TerminalPane } from "@renderer/features/terminal/pane/components/TerminalPane.js";
 import { terminalPaneContext } from "@renderer/features/terminal/pane/components/TerminalPane.test-support.js";
 // Two family doors, imported for their side effect: `apps/desktop/AGENTS.md` puts a

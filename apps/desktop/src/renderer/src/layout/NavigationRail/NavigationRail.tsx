@@ -19,6 +19,8 @@ import type { GlyphName } from "@renderer/console/primitives/index.js";
 import { Glyph } from "@renderer/console/primitives/index.js";
 import type { RailDestination } from "@renderer/routing/route-readers.js";
 
+import "./navigation-rail.css";
+
 /** What one destination shows. Availability is decided elsewhere. */
 export interface RailEntryTemplate {
   readonly label: string;

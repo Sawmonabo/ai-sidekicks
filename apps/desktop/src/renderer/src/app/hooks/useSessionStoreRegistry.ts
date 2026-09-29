@@ -17,21 +17,6 @@
 // THE READ IS THE CALLER'S. The call that reads a session's base state is taken as an
 // argument, so this module keeps only how the registry and its binder are held.
 //
-// Two of the console's own rules decide the shape here, and both are about the render
-// phase:
-//
-//   • **No component constructs a store.** A component RESOLVES one through
-//     `useOpenSessionStore`, which is a read. Nothing here calls `open` during
-//     render: the open rides an effect keyed on the session the route names, so a
-//     render pass React discards cannot leave a session open that nothing closes.
-//     This replaced a `Map` held in a ref whose misses constructed a store inside
-//     the render body, where a discarded pass took every event applied to it too.
-//   • **`undefined` is an answer, not a cue.** Between the render that first names
-//     a session and the effect that opens it there is one frame with no store. The
-//     honest render of that frame is the `not-loaded` kind of nothing — a read is
-//     in flight — and `RouteSurface` renders exactly that. Opening the session from
-//     inside render to skip the frame is the defect, not the fix.
-//
 // WHY THE PLUMBING IS BUILT DURING RENDER AND NOT IN AN EFFECT.
 // `useOpenSessionStore` takes a registry, and a hook cannot be called conditionally,
 // so a registry that arrived one commit late would mean a first render with nothing
@@ -76,14 +61,12 @@ import { useEffect } from "react";
 import { consoleClockFor, type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
 import { useConsoleBridge } from "@renderer/console/bridge/BridgeProvider.js";
 import { SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
-import { useOpenSessionStore } from "@renderer/store/session/hooks/useOpenSessionStore.js";
 import {
   useSubjectScopedResource,
   type SubjectScopedDisposal,
 } from "@renderer/console/store/subject-scoped/subject-scoped-resource.js";
 import { type ConsoleEntityProjectorRegistry } from "@renderer/registries/entity-projectors/entity-projector-registry.js";
 import { type SessionSnapshotReader } from "@renderer/store/session/open-session-entry.js";
-import { type SessionStore } from "@renderer/store/session/session-store.js";
 import { SessionEventBinder } from "@renderer/services/session-events/session-event-subscriber.js";
 
 /**
@@ -144,30 +127,6 @@ export function useSessionStoreRegistry(
     plumbing.binder.attach();
   }, [plumbing]);
   return plumbing.registry;
-}
-
-/**
- * The store for the session the route names, or `undefined` while it is opening.
- *
- * Opened, never closed on navigation: a person who leaves a session and comes back
- * finds the events it accumulated while they were away, which is what the
- * never-evicting map this replaced also gave them. Everything closes together when
- * the window does.
- */
-export function useActiveSessionStore(
-  registry: SessionStoreRegistry,
-  activeSessionId: string | undefined,
-): SessionStore | undefined {
-  useEffect(() => {
-    // The disposed check is the same remount window the hook above re-mints in:
-    // this effect can run once with the registry that cleanup just disposed, and
-    // `open` is the one registry call that raises rather than returning a refusal.
-    if (activeSessionId === undefined || registry.isDisposed) {
-      return;
-    }
-    registry.open(activeSessionId);
-  }, [registry, activeSessionId]);
-  return useOpenSessionStore(registry, activeSessionId);
 }
 
 /** This window's session plumbing: the stores, and the one thing that feeds them. */

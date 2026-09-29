@@ -42,7 +42,7 @@ import { createFixtureBridge } from "@renderer/console/bridge/fixture/call-plane
 import type { ConsoleScenario } from "@renderer/console/bridge/scenario/runtime/vocabulary.js";
 import { LEDGER_QUIET_SCENARIO } from "../../fixtures/scenarios/empty-session.js";
 import { LEDGER_SCENARIO } from "@renderer/console/bridge/scenario/ledger/ledger.js";
-import { installMeridianTokens } from "@renderer/console/frame/index.js";
+import { installMeridianTokens } from "@renderer/app/token-installation.js";
 // Deeply, and not through `ledger/index.ts`: this tier is the shell claim's only
 // consumer outside the family, and a door line whose one reader is a test is a door
 // widened for testing.

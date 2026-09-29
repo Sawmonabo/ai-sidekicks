@@ -1,0 +1,63 @@
+/* The frame's own styles: the window box, its banners and the screen region.
+ *
+ * Every color is a Meridian custom property, so the whole frame follows the scheme
+ * attribute without a single conditional in JSX. Every space is a step on the scale.
+ */
+
+/* The reflow floor is declared here, on the one box every console window lays out
+   inside, so no surface below it has to hold the criterion on its own. Below the
+   floor the document scrolls horizontally, which is what WCAG 2.2 SC 1.4.10 permits
+   below 320 CSS px; at and above it the frame is fluid and nothing switches. */
+.meridian-frame {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  min-width: var(--meridian-reflow-min-width);
+  height: 100%;
+  min-height: 0;
+  background: var(--meridian-ground);
+  color: var(--meridian-text);
+}
+
+.meridian-frame--bare {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* The shell's `inert` carrier while a modal overlay is open. See `frame/composition/FrameChrome.tsx`.
+   `display: contents` for the same reason the boundary's remount carrier uses it:
+   the element exists to hold an attribute, and a box here would sit between the
+   frame's grid and the two children it places, so the rail would lose its 52px
+   track and the column its `minmax(0, 1fr)` one. Inertness is a property of the
+   node tree rather than of layout, so removing the box costs the attribute
+   nothing. */
+.meridian-frame__background {
+  display: contents;
+}
+
+.meridian-frame__column {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.meridian-frame__banners {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-3) var(--meridian-space-4) 0;
+}
+
+/* --- Banner ------------------------------------------------------------ */
+
+/* One banner, as one element of the column above. */
+.meridian-frame__banner {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+}
+
+.meridian-frame__surface {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}

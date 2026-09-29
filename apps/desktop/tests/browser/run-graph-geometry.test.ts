@@ -24,7 +24,7 @@ import { describe, expect, it } from "vitest";
 import { mountWorkflowRunPhaseGraph } from "../helpers/feature-mounts/workflows.js";
 import { awaitPhaseGraphSettled } from "../helpers/run-graph-settled.js";
 
-import { installMeridianTokens } from "@renderer/console/frame/index.js";
+import { installMeridianTokens } from "@renderer/app/token-installation.js";
 
 /** One element a case measures, or a throw naming what the surface did not render. */
 function requireElement(root: HTMLElement, selector: string): HTMLElement {

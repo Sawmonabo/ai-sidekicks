@@ -51,45 +51,19 @@
 
 import { useState } from "react";
 
-import { Nothing } from "../../primitives/index.js";
-import { PaneHarnessFrame } from "@renderer/app/pane-harness/PaneHarnessFrame.js";
-import { paneHarnessInstances } from "@renderer/app/pane-harness/pane-harness-instances.js";
-import { parseConsolePaneAddress, type ConsolePaneRegistry } from "../../seats/index.js";
-import { type ConsoleSurfaceContext, type ConsoleSurfaceRegistry } from "../../seats/index.js";
+import { Nothing } from "@renderer/console/primitives/index.js";
+import { PaneHarnessFrame } from "./PaneHarnessFrame.js";
+import { paneHarnessInstances } from "./pane-harness-instances.js";
+import {
+  parseConsolePaneAddress,
+  type ConsolePaneRegistry,
+} from "@renderer/console/seats/index.js";
+import { type ConsoleSurfaceContext } from "@renderer/console/seats/index.js";
 
+/** The harness screen's inputs: the route's context and the pane board it resolves from. */
 export interface PaneHarnessSurfaceProps {
   readonly context: ConsoleSurfaceContext;
   readonly paneRegistry: ConsolePaneRegistry;
-}
-
-/**
- * Claim the harness slot, in a fixture build and in no other.
- *
- * The guard is HERE rather than at the composition site: `families.ts` states that
- * no condition lands in it and that a family owns its own decision, and whether
- * this surface exists at all is this module's decision. Under
- * `__SIDEKICKS_CONSOLE_FIXTURES__ === false` Rollup collapses the body, the
- * component below is referenced from nothing, and the whole harness leaves the
- * bundle — the same treatment the fixture bridge and its scenarios get.
- *
- * BOTH registries are parameters, on `registerConsoleFamilies`' rule: the surface
- * is registered into the board the composition owns, and it resolves pane bodies
- * out of the pane board that same composition owns. Reaching for either module
- * singleton would make a window composing its own boards mount bodies from the
- * production one.
- */
-export function registerPaneHarnessSurface(
-  surfaceRegistry: ConsoleSurfaceRegistry,
-  paneRegistry: ConsolePaneRegistry,
-): void {
-  if (!__SIDEKICKS_CONSOLE_FIXTURES__) {
-    return;
-  }
-  surfaceRegistry.register({
-    slot: "pane-harness",
-    owner: "pane-harness",
-    render: (context) => <PaneHarnessSurface context={context} paneRegistry={paneRegistry} />,
-  });
 }
 
 /**

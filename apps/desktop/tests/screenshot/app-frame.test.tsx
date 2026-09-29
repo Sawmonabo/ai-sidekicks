@@ -31,7 +31,8 @@ import {
 import { requireCapturedElement } from "./captured-element.js";
 import { captureSettled } from "./settled-capture.js";
 
-import { ConsoleRoot, installMeridianTokens } from "@renderer/console/frame/index.js";
+import { ConsoleRoot } from "@renderer/app/providers.js";
+import { installMeridianTokens } from "@renderer/app/token-installation.js";
 import { FIRST_RUN_SCENARIO_ID } from "../../fixtures/scenarios/first-run.js";
 import { CONSOLE_SCHEMES } from "@renderer/styles/tokens.js";
 

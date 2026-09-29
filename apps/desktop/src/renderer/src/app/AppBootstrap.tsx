@@ -24,10 +24,11 @@ import { useLayoutEffect } from "react";
 
 import { useBridgeResolution } from "@renderer/console/bridge/BridgeProvider.js";
 import { Nothing } from "@renderer/console/primitives/index.js";
-import { ConsoleFrame } from "@renderer/layout/AppShell/AppShell.js";
+import { AppWindow } from "./AppWindow.js";
 import { installMeridianTokens } from "./token-installation.js";
 import { sessionReadThroughDaemon } from "@renderer/services/daemon/session-read.js";
 
+/** Install the token sheet, then render the window once the bridge resolves. */
 export function ConsoleFrameHost(): React.JSX.Element {
   useMeridianTokenSheet();
   const resolution = useBridgeResolution();
@@ -43,7 +44,7 @@ export function ConsoleFrameHost(): React.JSX.Element {
     );
   }
   return (
-    <ConsoleFrame
+    <AppWindow
       bridge={resolution.bridge}
       readSession={sessionReadThroughDaemon(resolution.bridge)}
     />

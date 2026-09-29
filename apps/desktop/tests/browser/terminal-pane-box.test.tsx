@@ -20,7 +20,7 @@ import { describe, expect, it } from "vitest";
 
 import { renderSettled } from "../../test/console/console-harness.js";
 
-import { installMeridianTokens } from "@renderer/console/frame/index.js";
+import { installMeridianTokens } from "@renderer/app/token-installation.js";
 import { TerminalPane } from "@renderer/features/terminal/pane/components/TerminalPane.js";
 // The context builder beside the pane, for the reason it is exported: the `terminal`
 // arm's members are answered in one place, and a tier that spelled its own copy would

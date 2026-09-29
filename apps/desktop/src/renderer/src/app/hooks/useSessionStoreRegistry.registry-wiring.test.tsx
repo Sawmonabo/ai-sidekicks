@@ -22,7 +22,10 @@ import { ManualClock } from "@renderer/lib/clock.js";
 import { ConsoleEntityProjectorRegistry } from "@renderer/registries/entity-projectors/entity-projector-registry.js";
 import { SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
 import { type ConsoleSessionEvent } from "@renderer/console/store/entities/entities.js";
-import { RUN_LIFECYCLE_PROJECTORS } from "@renderer/console/frame/run-projection/run-lifecycle-projector.js";
+import {
+  RUN_LIFECYCLE_PROJECTOR_OWNER,
+  RUN_LIFECYCLE_PROJECTORS,
+} from "@renderer/console/frame/run-projection/run-lifecycle-projector.js";
 import { sessionReadThroughDaemon } from "@renderer/services/daemon/session-read.js";
 import {
   SessionProbe,
@@ -199,7 +202,7 @@ describe("useSessionStoreRegistry — the board a family projects its own events
     // it. Here the fold is claimed on a board the window is handed, and the store the
     // window opens folds with it.
     const projectorRegistry = new ConsoleEntityProjectorRegistry();
-    projectorRegistry.registerAll(RUN_LIFECYCLE_PROJECTORS, "frame");
+    projectorRegistry.registerAll(RUN_LIFECYCLE_PROJECTORS, RUN_LIFECYCLE_PROJECTOR_OWNER);
     projectorRegistry.register(
       FAMILY_EVENT_KIND,
       (event) => [

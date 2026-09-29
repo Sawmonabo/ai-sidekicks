@@ -27,7 +27,7 @@ import { describe, expect, it } from "vitest";
 
 import { renderSettled } from "../../test/console/console-harness.js";
 
-import { installMeridianTokens } from "@renderer/console/frame/index.js";
+import { installMeridianTokens } from "@renderer/app/token-installation.js";
 // The ledger frame's door, imported for its side effect: the family's stylesheet lives
 // behind its own barrel and this tier is about what that stylesheet computes to.
 import "@renderer/console/ledger/frame/index.js";

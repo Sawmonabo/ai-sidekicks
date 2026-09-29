@@ -8,7 +8,7 @@
 
 import { act, render, type RenderResult } from "@testing-library/react";
 
-import { ConsoleRoot } from "@renderer/console/frame/composition/ConsoleRoot.js";
+import { ConsoleRoot } from "@renderer/app/providers.js";
 import { consoleSurfaceRegistry } from "@renderer/console/seats/index.js";
 import { crossMacrotaskBoundary } from "./macrotask-boundary.js";
 

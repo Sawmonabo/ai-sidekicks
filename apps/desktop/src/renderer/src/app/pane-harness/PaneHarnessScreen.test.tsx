@@ -34,7 +34,7 @@ import {
   type PaneKind,
 } from "@renderer/console/seats/index.js";
 import { FrameStore } from "@renderer/store/window/window-store.js";
-import { PaneHarnessSurface } from "@renderer/console/frame/pane-harness/PaneHarnessSurface.js";
+import { PaneHarnessSurface } from "./PaneHarnessScreen.js";
 import { RouteSurface } from "../router.js";
 import {
   consoleSurfaceRegistry,
