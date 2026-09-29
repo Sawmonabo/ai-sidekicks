@@ -1,6 +1,9 @@
 // Project contracts — a project is its own durable record beside its mount. It
 // exists from the first press of `Clone`, before any mount does, and carries
-// the name the person gives it, its setup steps and its own branch pattern.
+// the name the person gives it, its setup steps, its own environment rows and
+// its own branch pattern. The row shape, the environment-name rule and the
+// branch-pattern rule are the machine settings' own, imported so a project's
+// override is checked exactly as `Every project` is.
 // `repo.projectList` is a live list: the acknowledgement is the shared
 // `SubscribeAckResponse`, and each emission carries the whole list, so a late
 // subscriber needs no replay and a dropped frame costs nothing.
@@ -12,9 +15,13 @@ import { z } from "zod";
 
 import { brandedUuidIdSchema } from "./internal/branded.js";
 import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "./jsonrpc-streaming.js";
+import {
+  BranchNamePatternSchema,
+  EnvironmentRowSchema,
+  type EnvironmentRow,
+} from "./machine-settings.js";
 import { REPO_PATH_MAX_LEN, RepoMountIdSchema, type RepoMountId } from "./repo.js";
 import { SessionIdSchema, wireFreeFormString, type SessionId } from "./session.js";
-import { WORKTREE_GIT_REF_MAX_LEN } from "./worktree.js";
 
 /** A project: the record beside a mount that the person names and configures. */
 export type ProjectId = string & { readonly __brand: "ProjectId" };
@@ -68,31 +75,15 @@ export const ProjectSetupSchema: z.ZodType<ProjectSetup, ProjectSetup> = z
   .strict();
 
 /**
- * A project's branch pattern: the name the app gives a new worktree's branch,
- * with `{title}` exactly once (the tail the new-worktree form edits) and
- * `{session}` at most once (the session's short id). Whether git accepts the
- * whole name, and whether it clashes with a branch in the repository, only the
- * daemon can say, so those checks are its own.
- */
-export const ProjectBranchPatternSchema: z.ZodType<string, string> = z
-  .string()
-  .min(1)
-  .max(WORKTREE_GIT_REF_MAX_LEN)
-  .refine((pattern) => pattern.split("{title}").length === 2, {
-    message: "Put {title} in the name once.",
-  })
-  .refine((pattern) => pattern.split("{session}").length <= 2, {
-    message: "{session} appears at most once.",
-  });
-
-/**
  * One project as the Projects page and the session list's project headers draw
  * it.
  *
  * `repoMountId` is null while the project is still cloning, since the mount is
  * made when the clone attaches. `runningSessionId` names a session with an agent
  * running anywhere in the project, which is what grays `Delete`; the screen reads
- * that session's title from the session list. `branchPattern` is null while the
+ * that session's title from the session list. `environmentRows` are the
+ * project's own rows, each winning over the `Every project` row of the same
+ * name. `branchPattern` is null while the
  * project follows the machine's pattern. `onOtherSideDisk` marks a folder on the
  * other side's disk of a Windows computer with WSL, which the service reads more
  * slowly.
@@ -106,6 +97,7 @@ export interface ProjectListEntry {
   sessionCount: number;
   runningSessionId: SessionId | null;
   setup: ProjectSetup;
+  environmentRows: EnvironmentRow[];
   branchPattern: string | null;
   onOtherSideDisk: boolean;
 }
@@ -120,7 +112,8 @@ export const ProjectListEntrySchema: z.ZodType<ProjectListEntry> = z
     sessionCount: z.number().int().nonnegative(),
     runningSessionId: SessionIdSchema.nullable(),
     setup: ProjectSetupSchema,
-    branchPattern: ProjectBranchPatternSchema.nullable(),
+    environmentRows: z.array(EnvironmentRowSchema),
+    branchPattern: BranchNamePatternSchema.nullable(),
     onOtherSideDisk: z.boolean(),
   })
   .strict();
@@ -199,6 +192,24 @@ export const ProjectSetupUpdateRequestSchema: z.ZodType<
 > = z.object({ projectId: ProjectIdSchema, setup: ProjectSetupSchema }).strict();
 
 /**
+ * `repo.projectEnvironmentUpdate`: the project's whole list of rows, replacing
+ * what it had. A row whose name the environment-name rule refuses is refused
+ * with the machine settings' own `daemon.environment_name_refused` and its
+ * details, naming the row, and nothing is written.
+ */
+export interface ProjectEnvironmentUpdateRequest {
+  projectId: ProjectId;
+  environmentRows: EnvironmentRow[];
+}
+/** Wire schema for {@link ProjectEnvironmentUpdateRequest}. */
+export const ProjectEnvironmentUpdateRequestSchema: z.ZodType<
+  ProjectEnvironmentUpdateRequest,
+  ProjectEnvironmentUpdateRequest
+> = z
+  .object({ projectId: ProjectIdSchema, environmentRows: z.array(EnvironmentRowSchema) })
+  .strict();
+
+/**
  * `repo.projectBranchPatternUpdate`: the project's own branch pattern, or null
  * to return the project to the machine's pattern. A pattern git refuses, or one
  * that clashes with a branch in the repository, is refused and nothing is
@@ -212,6 +223,4 @@ export interface ProjectBranchPatternUpdateRequest {
 export const ProjectBranchPatternUpdateRequestSchema: z.ZodType<
   ProjectBranchPatternUpdateRequest,
   ProjectBranchPatternUpdateRequest
-> = z
-  .object({ projectId: ProjectIdSchema, pattern: ProjectBranchPatternSchema.nullable() })
-  .strict();
+> = z.object({ projectId: ProjectIdSchema, pattern: BranchNamePatternSchema.nullable() }).strict();

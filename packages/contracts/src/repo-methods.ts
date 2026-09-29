@@ -21,6 +21,7 @@ import {
   ProjectListSchema,
   ProjectRenameRequestSchema,
   ProjectSetupUpdateRequestSchema,
+  ProjectEnvironmentUpdateRequestSchema,
   ProjectStateChangeRequestSchema,
   type ProjectBranchPatternUpdateRequest,
   type ProjectEditResponse,
@@ -29,6 +30,7 @@ import {
   type ProjectListResponse,
   type ProjectRenameRequest,
   type ProjectSetupUpdateRequest,
+  type ProjectEnvironmentUpdateRequest,
   type ProjectStateChangeRequest,
 } from "./project.js";
 import {
@@ -219,6 +221,11 @@ export interface RepoMethodDescriptors {
   readonly "repo.projectSetupUpdate": MethodDescriptor<
     "repo.projectSetupUpdate",
     ProjectSetupUpdateRequest,
+    ProjectEditResponse
+  >;
+  readonly "repo.projectEnvironmentUpdate": MethodDescriptor<
+    "repo.projectEnvironmentUpdate",
+    ProjectEnvironmentUpdateRequest,
     ProjectEditResponse
   >;
   readonly "repo.projectBranchPatternUpdate": MethodDescriptor<
@@ -414,6 +421,13 @@ export const REPO_METHOD_DESCRIPTORS: RepoMethodDescriptors = defineMethodDescri
     procedureType: "mutation",
     mutating: true,
     requestSchema: ProjectSetupUpdateRequestSchema,
+    responseSchema: ProjectEditResponseSchema,
+  },
+  "repo.projectEnvironmentUpdate": {
+    method: "repo.projectEnvironmentUpdate",
+    procedureType: "mutation",
+    mutating: true,
+    requestSchema: ProjectEnvironmentUpdateRequestSchema,
     responseSchema: ProjectEditResponseSchema,
   },
   "repo.projectBranchPatternUpdate": {

@@ -1,13 +1,14 @@
 // `project.ts`: the project list and the edits on a project's row.
 import { describe, expect, it } from "vitest";
 
+import { BRANCH_NAME_PATTERN_MAX_LEN } from "../machine-settings.js";
 import {
   ProjectBranchPatternUpdateRequestSchema,
+  ProjectEnvironmentUpdateRequestSchema,
   ProjectListSchema,
   ProjectRenameRequestSchema,
   ProjectSetupUpdateRequestSchema,
 } from "../project.js";
-import { WORKTREE_GIT_REF_MAX_LEN } from "../worktree.js";
 
 const SESSION_ID = "550e8400-e29b-41d4-a716-446655440000";
 const REPO_MOUNT_ID = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f10";
@@ -28,6 +29,7 @@ const buildProject = () => ({
   sessionCount: 3,
   runningSessionId: SESSION_ID,
   setup: buildProjectSetup(),
+  environmentRows: [{ name: "HTTPS_PROXY", value: "http://proxy.local:3128" }],
   branchPattern: null,
   onOtherSideDisk: false,
 });
@@ -72,6 +74,24 @@ describe("repo.projectList and the project edits", () => {
     expect(update("sawmon/fix")).toBe(false);
     expect(update("{title}/{title}")).toBe(false);
     expect(update("{session}/{session}/{title}")).toBe(false);
-    expect(update(`{title}${"x".repeat(WORKTREE_GIT_REF_MAX_LEN)}`)).toBe(false);
+    expect(update(`{title}${"x".repeat(BRANCH_NAME_PATTERN_MAX_LEN)}`)).toBe(false);
+    expect(update("sawmon/{title}\0")).toBe(false);
+  });
+
+  it("lists a project's own environment rows and replaces them whole", () => {
+    const environmentUpdate = (environmentRows: unknown) =>
+      ProjectEnvironmentUpdateRequestSchema.safeParse({ projectId: PROJECT_ID, environmentRows })
+        .success;
+    expect(environmentUpdate([{ name: "HTTPS_PROXY", value: "http://proxy.local:3128" }])).toBe(
+      true,
+    );
+    expect(environmentUpdate([])).toBe(true);
+    expect(ProjectEnvironmentUpdateRequestSchema.safeParse({ projectId: PROJECT_ID }).success).toBe(
+      false,
+    );
+    expect(environmentUpdate([{ name: "HTTPS_PROXY", value: "a\0b" }])).toBe(false);
+    expect(environmentUpdate([{ name: "", value: "x" }])).toBe(false);
+    const { environmentRows: _environmentRows, ...withoutRows } = buildProject();
+    expect(ProjectListSchema.safeParse({ projects: [withoutRows] }).success).toBe(false);
   });
 });

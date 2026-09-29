@@ -139,12 +139,17 @@ export const DaemonEnvironmentNameRefusedDetailsSchema: z.ZodType<DaemonEnvironm
 // The settings
 // --------------------------------------------------------------------------
 
-/** One `name = value` row passed to every process the app starts. */
+/**
+ * One `name = value` row passed to every process the app starts, in
+ * `Every project` or in one project's own list. The name rule is
+ * {@link environmentNameRefusal}, checked by the service when a list is saved.
+ */
 export interface EnvironmentRow {
   name: string;
   value: string;
 }
-const EnvironmentRowSchema: z.ZodType<EnvironmentRow, EnvironmentRow> = z
+/** Parses an {@link EnvironmentRow}. */
+export const EnvironmentRowSchema: z.ZodType<EnvironmentRow, EnvironmentRow> = z
   .object({
     name: z.string().min(1).max(ENVIRONMENT_ROW_MAX_LEN),
     value: z
@@ -278,16 +283,17 @@ function countOccurrences(text: string, part: string): number {
 }
 
 /**
- * The pattern a new worktree's branch is named by: `{title}` exactly once and
- * `{session}` at most once. Whether the whole name is a valid, free branch is
- * git's check, made when a worktree is created.
+ * The pattern a new worktree's branch is named by, for `Every project` and for
+ * one project's own override: `{title}` exactly once and `{session}` at most
+ * once. Whether the whole name is a valid, free branch is git's check, made when
+ * the pattern is saved and when a worktree is created.
  */
-const BranchNamePatternSchema: z.ZodType<string, string> = wireFreeFormString(
+export const BranchNamePatternSchema: z.ZodType<string, string> = wireFreeFormString(
   BRANCH_NAME_PATTERN_MAX_LEN,
   "MachineSettings.branchNamePattern",
 )
   .refine((pattern) => countOccurrences(pattern, BRANCH_NAME_TITLE_PLACEHOLDER) === 1, {
-    message: "A branch-name pattern holds {title} exactly once.",
+    message: "Put {title} in the name once.",
   })
   .refine((pattern) => countOccurrences(pattern, BRANCH_NAME_SESSION_PLACEHOLDER) <= 1, {
     message: "A branch-name pattern holds {session} at most once.",
