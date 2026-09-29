@@ -63,7 +63,7 @@ import {
   isReadAbandoned,
   settleUnlessAbandoned,
 } from "@renderer/console/store/read/read-cancellation.js";
-import type { ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import type { ConsoleBridge } from "../platform/platform-bridge.js";
 import {
   CONSOLE_DAEMON_METHOD_BINDINGS,
   type ConsoleDaemonMethod,

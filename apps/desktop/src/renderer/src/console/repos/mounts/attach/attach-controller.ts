@@ -10,8 +10,7 @@
 import { useCallback } from "react";
 
 import type { RepoAttachResponse } from "@ai-sidekicks/contracts";
-
-import type { ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { ActController } from "@renderer/features/repos/acts/act-controller.js";
 import { useActController } from "@renderer/console/store/act/use-act-controller.js";
 import { type ActSettlementReading } from "@renderer/features/repos/acts/act-reading.js";

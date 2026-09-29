@@ -41,8 +41,7 @@
 import { useCallback } from "react";
 
 import type { ExecutionMode } from "@ai-sidekicks/contracts";
-
-import type { ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { Nothing, WireFigure } from "@renderer/console/primitives/index.js";
 import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";

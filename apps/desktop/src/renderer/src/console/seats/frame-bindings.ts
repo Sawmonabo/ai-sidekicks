@@ -33,7 +33,7 @@
 // rule every other seat here carries.
 
 import { KeyedRegistry } from "@renderer/lib/keyed-registry.js";
-import { type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { type FrameStore } from "@renderer/store/window/window-store.js";
 import { type SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
 import type { ReactNode } from "react";

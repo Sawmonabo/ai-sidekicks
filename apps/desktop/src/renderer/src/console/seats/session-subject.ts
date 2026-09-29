@@ -33,7 +33,7 @@ import {
   type SubjectScopedState,
 } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
-import type { ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 
 /**
  * The session a holder is about, or `undefined` where the surface is about none.

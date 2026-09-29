@@ -5,8 +5,7 @@
 // the registry reaches `PendingSurfaceBody.tsx`, which names the context a surface is
 // mounted with. Declaring that context in the registry made the pair a cycle, and the
 // layering gate counts type edges so an `import type` cannot hide one.
-
-import { type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { type DraftStore } from "@renderer/store/draft-store.js";
 import { type UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
 import type { ConsoleRoute } from "@renderer/routing/routes.js";

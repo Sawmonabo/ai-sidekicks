@@ -25,8 +25,7 @@
 // than with a timeout that says nothing about what was missing.
 
 import { act } from "@testing-library/react";
-
-import type { ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { REFRESH_DEBOUNCE_MS } from "@renderer/lib/reads/refresh-caps.js";
 import { crossMacrotaskBoundary } from "./macrotask-boundary.js";
 

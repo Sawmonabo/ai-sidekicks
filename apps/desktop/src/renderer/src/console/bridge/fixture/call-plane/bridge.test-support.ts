@@ -11,14 +11,9 @@
 // it, so it lives at `core/macrotask-boundary.test-support.ts` — the lowest family all
 // three of its readers may reach.
 
-import type {
-  DaemonEvent,
-  DaemonMethod,
-  EventEnvelope,
-  Unsubscribe,
-} from "@ai-sidekicks/contracts";
-
-import type { ConsoleBridge } from "../../console-bridge.js";
+import type { DaemonEvent, DaemonMethod, EventEnvelope } from "@ai-sidekicks/contracts";
+import type { Unsubscribe } from "@shared/preload-api.js";
+import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { createFixtureBridge } from "./bridge.js";
 import type {
   ConsoleScenario,

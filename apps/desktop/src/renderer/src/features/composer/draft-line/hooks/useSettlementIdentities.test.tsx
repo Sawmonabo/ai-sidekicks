@@ -12,7 +12,7 @@ import { Suspense, startTransition, useState } from "react";
 import { describe, expect, it } from "vitest";
 
 import { createFixtureBridge } from "@renderer/console/bridge/fixture/call-plane/bridge.js";
-import { type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { COMPOSER_SCENARIO } from "@renderer/console/bridge/scenario/composer/composer.js";
 import { useSettlementIdentities, type SettlementIdentities } from "./useSettlementIdentities.js";
 

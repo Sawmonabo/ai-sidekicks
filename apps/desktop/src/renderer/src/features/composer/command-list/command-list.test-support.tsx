@@ -15,7 +15,7 @@ import { act, fireEvent, render } from "@testing-library/react";
 import { afterEach } from "vitest";
 import { createFixtureBridge } from "@renderer/console/bridge/fixture/call-plane/bridge.js";
 import { readRunId } from "@renderer/services/daemon/wire-identifiers.js";
-import { type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import {
   bridgeAnswering,
   type RecordedDaemonCall,

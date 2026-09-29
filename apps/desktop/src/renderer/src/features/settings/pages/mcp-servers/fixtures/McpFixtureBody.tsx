@@ -29,9 +29,8 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import type { McpServerBindingRef } from "@ai-sidekicks/contracts";
-
-import { useConsoleClock } from "@renderer/console/bridge/BridgeProvider.js";
-import { type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import { useConsoleClock } from "@renderer/services/platform/hooks/useClock.js";
+import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { Nothing } from "@renderer/console/primitives/index.js";
 import { usePushDrivenRead } from "@renderer/console/seats/index.js";
 import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";

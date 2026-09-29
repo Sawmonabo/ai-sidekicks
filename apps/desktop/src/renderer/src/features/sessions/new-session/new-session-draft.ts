@@ -61,7 +61,7 @@
 // facts about how the session was opened that no reply here carries.
 
 import type { ExecutionMode, ExecutionPosture } from "@ai-sidekicks/contracts";
-import { type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
 import type { FirstTurnQueueCall } from "@renderer/console/seats/index.js";
 import { sendNewSessionDraft } from "./new-session-send.js";

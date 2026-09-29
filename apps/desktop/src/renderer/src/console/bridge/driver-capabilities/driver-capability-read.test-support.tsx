@@ -12,7 +12,7 @@ import {
   bridgeAnswering,
   type RecordedDaemonCall,
 } from "../fixture/call-plane/bridge.test-support.js";
-import type { ConsoleBridge } from "../console-bridge.js";
+import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { useDriverCapabilities, type DriverCapabilityReadout } from "./driver-capability-read.js";
 
 export interface CountingBridge {

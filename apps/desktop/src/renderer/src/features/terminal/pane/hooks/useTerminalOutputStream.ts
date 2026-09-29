@@ -6,8 +6,7 @@
 // is served, and the subscription for the terminal it left is closed.
 
 import { useEffect } from "react";
-
-import type { ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
 
 /** An output stream the daemon served; closing it releases the subscription. */

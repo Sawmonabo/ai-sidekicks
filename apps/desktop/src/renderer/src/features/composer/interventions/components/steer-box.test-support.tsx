@@ -7,7 +7,7 @@
 import { useState } from "react";
 import { act, render } from "@testing-library/react";
 import type { InterventionRequestResponse, RunState } from "@ai-sidekicks/contracts";
-import type { ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { RunInterventionComposer } from "./SteerBox.js";
 import type { RunControlCommandRun } from "@renderer/console/runs/pane/controls/run-control-commands.js";
 import type { RunControlCalls } from "../../run-controls/services/run-control-dispatch.js";

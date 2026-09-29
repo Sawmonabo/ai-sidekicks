@@ -18,7 +18,7 @@
 // suites play live in `daemon-reply.test-support.ts`.
 
 import { ConsoleRefusalError, refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
-import type { ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import type { ConsoleBridge } from "../platform/platform-bridge.js";
 import { callDaemon } from "./daemon-reply.js";
 import { refusalOf, SESSION_ID } from "@test/helpers/daemon-reply-refusal.js";
 import {

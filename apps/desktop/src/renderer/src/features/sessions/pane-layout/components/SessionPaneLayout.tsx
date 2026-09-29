@@ -50,7 +50,7 @@ import { Fragment, useCallback, useMemo, useRef } from "react";
 import { Group, Separator } from "react-resizable-panels";
 
 import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
-import { useConsoleClock } from "@renderer/console/bridge/BridgeProvider.js";
+import { useConsoleClock } from "@renderer/services/platform/hooks/useClock.js";
 import {
   InlineRefusal,
   Nothing,

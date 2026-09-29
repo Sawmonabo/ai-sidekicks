@@ -36,8 +36,7 @@
 // concurrent feature that lands is what this closes ahead of.
 
 import { useCallback, useLayoutEffect, useRef } from "react";
-
-import type { ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
 import {
   addressedOperationKey,

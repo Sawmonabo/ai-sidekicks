@@ -12,8 +12,7 @@
 
 import { render } from "@testing-library/react";
 import { StrictMode, createElement, type ReactElement } from "react";
-
-import type { ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { ManualClock } from "@renderer/lib/clock.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import { bridgeOnClock } from "../../repo-operations.test-support.js";

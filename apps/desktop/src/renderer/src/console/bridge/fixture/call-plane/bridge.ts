@@ -22,19 +22,20 @@
 //     screenshot baseline does not shift when the developer's machine does.
 
 import type {
-  CpInput,
-  CpOutput,
-  CpProcedure,
   DaemonEvent,
   DaemonEventPayload,
   DaemonMethod,
   DaemonParams,
   DaemonResult,
-  DesktopBridge,
+} from "@ai-sidekicks/contracts";
+import type {
+  CpInput,
+  CpOutput,
+  CpProcedure,
   Unsubscribe,
   UpdateState,
-} from "@ai-sidekicks/contracts";
-import type { ConsoleBridge } from "../../console-bridge.js";
+} from "@shared/preload-api.js";
+import type { ConsoleBridge, DesktopBridge } from "@renderer/services/platform/platform-bridge.js";
 import { resolveScriptedReply, assertScriptedReplyOnContract } from "./call-door.js";
 import { refuseAbsentCapability } from "@renderer/services/daemon/refusal.fixture.js";
 import { TransportReconnectSignal } from "@renderer/services/transport/transport-reconnect.js";

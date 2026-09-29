@@ -1204,8 +1204,7 @@ export const ProviderAccountLoginCancelResponseSchema: z.ZodType<ProviderAccount
 /**
  * The subscribe verb takes no parameters — the subscription is node-scoped and
  * a filter member would be a second place the node's own registry scope is
- * decided. Spelled as an empty interface to match the canonical wire shape, on
- * the `desktop-bridge.ts` in-package precedent for the same rule exemption.
+ * decided. Spelled as an empty interface to match the canonical wire shape.
  */
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
 export interface ProviderAccountSubscribeRequest {}

@@ -20,7 +20,7 @@ import { act, render } from "@testing-library/react";
 
 import { bridgeAnswering } from "@renderer/console/bridge/fixture/call-plane/bridge.test-support.js";
 import { settleScheduledRead } from "@test/helpers/scheduled-read.js";
-import type { ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import type { ConsoleBridge } from "../platform/platform-bridge.js";
 import {
   CapabilityProbe,
   answeringCapabilityReads,

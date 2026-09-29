@@ -10,8 +10,7 @@
 //
 // NOTHING HERE POLLS AND NOTHING HERE READS A WIRE. The signal is a subscription over
 // values the window already holds.
-
-import type { Unsubscribe } from "@ai-sidekicks/contracts";
+import type { Unsubscribe } from "@shared/preload-api.js";
 
 import type { SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
 

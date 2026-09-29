@@ -11,8 +11,7 @@
 
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-
-import type { ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { bridgeAnswering } from "@renderer/console/bridge/fixture/call-plane/bridge.test-support.js";
 import type { ScenarioEngine } from "@renderer/console/bridge/scenario/runtime/engine.js";
 import { FLAGSHIP_SCENARIO } from "@renderer/console/bridge/scenario/flagship/flagship.js";

@@ -24,8 +24,7 @@
 // one-component rule: the banner announcement hook has to run BELOW this provider —
 // context is read by tree position — and a component cannot consume a provider it
 // renders itself.
-
-import { useConsoleClock } from "@renderer/console/bridge/BridgeProvider.js";
+import { useConsoleClock } from "@renderer/services/platform/hooks/useClock.js";
 import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
 import { FrameChrome, type FrameChromeProps } from "./FrameChrome.js";
 

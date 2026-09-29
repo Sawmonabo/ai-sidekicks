@@ -12,8 +12,8 @@
 // rule on the settings board, which is the settings family's own.
 
 import { render } from "@testing-library/react";
-
-import { consoleClockFor, type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import { consoleClockFor } from "@renderer/services/platform/hooks/useClock.js";
+import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { MemoryPersistenceAdapter } from "@renderer/store/persistence/memory-persistence-adapter.js";
 import { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
 import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";

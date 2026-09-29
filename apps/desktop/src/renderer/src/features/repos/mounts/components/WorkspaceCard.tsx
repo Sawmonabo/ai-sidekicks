@@ -29,7 +29,7 @@ import type {
   WorkspaceState,
 } from "@ai-sidekicks/contracts";
 import { GLYPH_SIZE_ROW } from "@renderer/styles/glyphs.js";
-import type { ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import {
   Chip,
   Glyph,

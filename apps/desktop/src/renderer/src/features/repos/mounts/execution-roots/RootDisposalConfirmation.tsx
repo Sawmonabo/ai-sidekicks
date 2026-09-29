@@ -16,8 +16,7 @@
 // belongs to, and this file wires them.
 
 import { AlertDialog } from "@base-ui/react/alert-dialog";
-
-import type { ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { Nothing, OverlayAlertDialogPopup } from "@renderer/console/primitives/index.js";
 import { useConfirmationLifecycle } from "../hooks/useConfirmationLifecycle.js";
 import {

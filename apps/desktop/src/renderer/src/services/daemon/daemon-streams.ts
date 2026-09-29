@@ -29,7 +29,7 @@ import type { RunQueueSubscribeRequest, RunStateSubscribeRequest } from "@ai-sid
 
 import { ConsoleRefusalError, refuse } from "@renderer/lib/refusal.js";
 import { type Unsubscribe } from "@renderer/lib/emitter.js";
-import type { ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import type { ConsoleBridge } from "../platform/platform-bridge.js";
 import { openObservedSubscription } from "../transport/observed-subscription.js";
 
 /** The queue's replay-then-tail stream. Session-scoped; the client fans out per run. */

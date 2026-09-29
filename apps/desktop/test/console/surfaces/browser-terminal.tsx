@@ -31,7 +31,7 @@ import { TERMINAL_SCENARIO } from "../../../src/renderer/src/console/bridge/scen
 import { fixtureSessionSnapshot } from "@renderer/services/daemon/session-snapshot.fixture.js";
 import { unscriptedScenario } from "../../../src/renderer/src/console/bridge/fixture/call-plane/bridge.test-support.js";
 import { createFixtureBridge } from "@renderer/console/bridge/fixture/call-plane/bridge.js";
-import { type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/console/core/constants/persistence-caps.js";
 import { DraftStore } from "@renderer/store/draft-store.js";
 import { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";

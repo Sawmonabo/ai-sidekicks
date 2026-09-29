@@ -50,8 +50,7 @@
 //     reader of it and navigating away no longer ends it.
 
 import { useLayoutEffect, useMemo, useRef } from "react";
-
-import { type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/console/core/constants/persistence-caps.js";
 import {
   CONSOLE_CHORD_PLATFORM,

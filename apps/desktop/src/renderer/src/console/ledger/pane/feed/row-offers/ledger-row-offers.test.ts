@@ -11,8 +11,7 @@
 // that only ever supplied the fact it needs.
 
 import { describe, expect, it } from "vitest";
-
-import type { FilePathRef } from "@ai-sidekicks/contracts";
+import type { FilePathRef } from "@shared/preload-api.js";
 
 // Deeply, and only here: the row samples are the cards' own fixtures and no door
 // publishes them, so this reaches the module that declares them.

@@ -11,8 +11,8 @@ import { describe, expect, it } from "vitest";
 import { type RunId } from "@ai-sidekicks/contracts";
 
 import { bridgeAnswering } from "@renderer/console/bridge/fixture/call-plane/bridge.test-support.js";
-import { DesktopBridgeProvider } from "@renderer/console/bridge/BridgeProvider.js";
-import { type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import { DesktopBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
+import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import {
   ChildRunExpansionState,

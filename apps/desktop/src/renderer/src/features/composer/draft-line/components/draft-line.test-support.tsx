@@ -7,7 +7,7 @@
 // composition the send cases need.
 
 import { fireEvent, render, type RenderResult } from "@testing-library/react";
-import type { ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import {
   bridgeAnswering,
   type RecordedDaemonCall,

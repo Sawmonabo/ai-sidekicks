@@ -10,8 +10,7 @@
 //
 // What stays here is the one thing that has to happen before any window renders,
 // and the provider that has to wrap every one of them.
-
-import { DesktopBridgeProvider } from "@renderer/console/bridge/BridgeProvider.js";
+import { DesktopBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import { ForwardingConsoleClock } from "@renderer/lib/forwarding-clock.js";
 import { RealClock } from "@renderer/lib/clock.js";
 import { routeConsoleTripwiresToDiagnosticCapture } from "@renderer/lib/diagnostic-capture/tripwire-diagnostic-route.js";

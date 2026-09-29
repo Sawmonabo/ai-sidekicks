@@ -9,8 +9,7 @@
 
 import type { RepoMountReadResponse, WorkspaceListResponse } from "@ai-sidekicks/contracts";
 import { act, render } from "@testing-library/react";
-
-import { DesktopBridgeProvider } from "@renderer/console/bridge/BridgeProvider.js";
+import { DesktopBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import { createFixtureBridge } from "@renderer/console/bridge/fixture/call-plane/bridge.js";
 import { unscriptedScenario } from "@renderer/console/bridge/fixture/call-plane/bridge.test-support.js";
 import { ManualClock } from "@renderer/lib/clock.js";

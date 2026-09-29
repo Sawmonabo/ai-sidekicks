@@ -5,7 +5,7 @@
 // would have made the second reader's case about a second reading.
 
 import type { ProviderCommandListResult } from "@ai-sidekicks/contracts";
-import { type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import {
   bridgeAnswering,
   type RecordedDaemonCall,

@@ -9,7 +9,7 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 
 import { createFixtureBridge } from "@renderer/console/bridge/fixture/call-plane/bridge.js";
-import { type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import {
   withDaemonCall,
   type BridgeUnderTest,

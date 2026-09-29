@@ -15,11 +15,10 @@
 // nothing fails rather than looking identical to one that refused.
 
 import { afterEach, describe, expect, it } from "vitest";
-
-import type { FilePathRef } from "@ai-sidekicks/contracts";
+import type { FilePathRef } from "@shared/preload-api.js";
 
 import { createFixtureBridge } from "@renderer/console/bridge/fixture/call-plane/bridge.js";
-import { type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { FIRST_RUN_SCENARIO } from "../../../../../../../../fixtures/scenarios/first-run.js";
 import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
 import { publishConsoleActRefusalSink } from "../../../../palette/index.js";

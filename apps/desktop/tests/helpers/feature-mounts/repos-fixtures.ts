@@ -8,8 +8,7 @@
 // NOTHING HERE RENDERS AND NOTHING HERE WAITS. Every export is inert, so a tier that
 // wants a different composition states a new mount rather than reaching in and mutating
 // one of these.
-
-import type { ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { buildDiffFixture } from "../diff-fixture.js";
 import { EXTENDED_HEADER_DIFF_SHAPE } from "../diff-fixture-shapes.js";
 import type { ConsoleDiffModel } from "@renderer/features/repos/diff/diff-model.js";

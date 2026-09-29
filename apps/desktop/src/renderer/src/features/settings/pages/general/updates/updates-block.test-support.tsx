@@ -7,8 +7,7 @@
 
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { act, render } from "@testing-library/react";
-
-import type { UpdateState, Unsubscribe } from "@ai-sidekicks/contracts";
+import type { UpdateState, Unsubscribe } from "@shared/preload-api.js";
 
 import { ManualClock } from "@renderer/lib/clock.js";
 import { LiveAnnouncer, LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";

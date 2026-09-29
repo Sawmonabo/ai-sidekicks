@@ -19,7 +19,7 @@ import { act, render } from "@testing-library/react";
 import { vi } from "vitest";
 
 import { LEDGER_WINDOW_ROW_CAP } from "../../frame/frame-caps.js";
-import { DesktopBridgeProvider } from "@renderer/console/bridge/BridgeProvider.js";
+import { DesktopBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import { createFixtureBridge } from "@renderer/console/bridge/fixture/call-plane/bridge.js";
 import { useLedgerRowLease } from "@renderer/console/ledger/frame/index.js";
 import { LEDGER_QUIET_SCENARIO } from "../../../../../../../fixtures/scenarios/empty-session.js";

@@ -28,8 +28,7 @@
 // Its own module rather than the bottom of `bridge.ts`: this is the seam with
 // four named defects behind it and three tables between them, and the bridge beside it
 // is a composition. The bridge imports these two functions and neither imports it.
-
-import type { RelayEventHandler, Unsubscribe } from "@ai-sidekicks/contracts";
+import type { RelayEventHandler, Unsubscribe } from "@shared/preload-api.js";
 
 import { FixtureBridgeError } from "./refusal.fixture.js";
 import { isWireRecord } from "@renderer/lib/wire-record.js";

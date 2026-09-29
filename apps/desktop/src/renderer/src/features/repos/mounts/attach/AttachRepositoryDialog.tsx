@@ -17,8 +17,7 @@
 
 import { Dialog } from "@base-ui/react/dialog";
 import { useCallback, useEffect, useRef, useState } from "react";
-
-import type { ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { Nothing, OverlayDialogPopup, WireFigure } from "@renderer/console/primitives/index.js";
 import type { RepoOperations } from "../../repo-operations.js";
 import {

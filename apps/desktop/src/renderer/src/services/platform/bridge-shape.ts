@@ -15,8 +15,7 @@
 // `daemon.call`. The `typeof` is what separates "the member is missing" from "the
 // member is there and is a string where a function belongs", which is the shape a
 // half-installed preload actually arrives in.
-
-import type { DesktopBridge } from "@ai-sidekicks/contracts";
+import type { DesktopBridge } from "./platform-bridge.js";
 
 /** One namespace name. The contract's own `keyof` — never a second spelling. */
 export type DesktopBridgeNamespace = keyof DesktopBridge;

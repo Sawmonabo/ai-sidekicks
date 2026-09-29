@@ -31,8 +31,7 @@
 // since been replaced writes NOWHERE.
 
 import { useCallback, useMemo, useSyncExternalStore } from "react";
-
-import type { Unsubscribe } from "@ai-sidekicks/contracts";
+import type { Unsubscribe } from "@shared/preload-api.js";
 
 import type { TransportReconnectObservable } from "@renderer/lib/transport-reconnect.js";
 import {

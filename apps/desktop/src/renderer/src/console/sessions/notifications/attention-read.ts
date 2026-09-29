@@ -46,13 +46,13 @@
 // no surface narrows on both vocabularies at once.
 
 import { useEffect, useMemo } from "react";
-
-import type { Unsubscribe } from "@ai-sidekicks/contracts";
+import type { Unsubscribe } from "@shared/preload-api.js";
 
 import { ConsoleRefusalError } from "@renderer/lib/refusal.js";
-import { useConsoleBridge, useConsoleClock } from "@renderer/console/bridge/BridgeProvider.js";
+import { useConsoleBridge } from "@renderer/services/platform/hooks/usePlatformBridge.js";
+import { useConsoleClock } from "@renderer/services/platform/hooks/useClock.js";
 import { type AttentionItem } from "@renderer/console/bridge/wire-shapes/attention-projection.js";
-import { type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { useSettlementAnnouncement } from "../../primitives/index.js";
 import { PushDrivenRead, usePushDrivenRead, type PushDrivenReadState } from "../../seats/index.js";
 import { subscribeToOpenSessions } from "@renderer/console/store/session/open-session-signal.js";

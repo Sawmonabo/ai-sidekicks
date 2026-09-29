@@ -15,7 +15,8 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { RelayEventHandler, SessionId } from "@ai-sidekicks/contracts";
+import type { SessionId } from "@ai-sidekicks/contracts";
+import type { RelayEventHandler } from "@shared/preload-api.js";
 
 import {
   createFixture,

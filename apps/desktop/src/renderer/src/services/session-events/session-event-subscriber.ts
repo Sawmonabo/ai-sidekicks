@@ -86,7 +86,7 @@ import { reportTripwire } from "@renderer/lib/tripwires.js";
 import { SESSION_EVENT_STREAM } from "@renderer/console/bridge/daemon/session-event-streams.js";
 import { openObservedSubscription } from "../transport/observed-subscription.js";
 import { readConsoleSessionEvent } from "../daemon/session-event-payload.js";
-import { type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import { type ConsoleBridge } from "../platform/platform-bridge.js";
 import {
   SessionDiagnosticsHandle,
   type ConsoleSessionDiagnostics,

@@ -5,13 +5,12 @@
 // from. It holds nothing a single suite uses — the exploding surface, the failure
 // card's addressing, the banner, and the live regions each have one reader and stay
 // beside it.
-
-import { createStubBridge } from "@ai-sidekicks/contracts";
+import { createStubBridge } from "@shared/preload-api.js";
 import type { ReactNode } from "react";
-
-import { DesktopBridgeProvider } from "@renderer/console/bridge/BridgeProvider.js";
-import { type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import { DesktopBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
+import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { createLiveBridge } from "@renderer/services/platform/live-bridge.js";
+import { FIXTURE_APP_META } from "@renderer/console/bridge/fixture/call-plane/bridge.js";
 import type { ConsoleRoute } from "@renderer/routing/routes.js";
 import type { FrameBanner } from "@renderer/store/window/window-store.js";
 import {
@@ -73,7 +72,7 @@ export function bridgeWrapper(
 export function liveBridgeWrapper(): (props: {
   readonly children: ReactNode;
 }) => React.JSX.Element {
-  return bridgeWrapper(createLiveBridge(createStubBridge()));
+  return bridgeWrapper(createLiveBridge(createStubBridge(FIXTURE_APP_META)));
 }
 
 export function backgroundOf(container: HTMLElement): HTMLElement {

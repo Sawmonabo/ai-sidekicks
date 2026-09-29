@@ -23,7 +23,8 @@ import {
 } from "@renderer/console/store/subject-scoped/subject-scoped-resource.js";
 import { airspaceRegistryFor } from "@renderer/lib/airspace-registries.js";
 import { type AirspaceRegistry } from "@renderer/lib/airspace-registry.js";
-import { consoleClockFor, type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import { consoleClockFor } from "@renderer/services/platform/hooks/useClock.js";
+import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 
 /**
  * The pair a pane-scoped resource belongs to.

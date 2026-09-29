@@ -13,7 +13,8 @@ import {
   type ReadTriggerTarget,
 } from "@renderer/console/store/read/read-triggers.js";
 import { RefreshScheduler, type RefreshReason } from "@renderer/lib/reads/refresh-scheduler.js";
-import { consoleClockFor, type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import { consoleClockFor } from "@renderer/services/platform/hooks/useClock.js";
+import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import {
   NOTHING_CHOSEN,
   OPENING_READ_KEY,

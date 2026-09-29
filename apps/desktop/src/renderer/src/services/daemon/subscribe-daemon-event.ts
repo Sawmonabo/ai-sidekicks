@@ -20,11 +20,10 @@
 // unsubscribe handle; it has no reply to parse, so the registry has nothing to bind
 // it to. Which names are streams is `bridge/daemon/session-event-streams.ts`'s
 // table, and what each carries is `bridge/daemon/session-event-stream-kinds.ts`'s.
-
-import type { Unsubscribe } from "@ai-sidekicks/contracts";
+import type { Unsubscribe } from "@shared/preload-api.js";
 
 import { openObservedSubscription } from "../transport/observed-subscription.js";
-import { type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import { type ConsoleBridge } from "../platform/platform-bridge.js";
 
 /**
  * Subscribe to one daemon event.

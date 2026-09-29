@@ -32,8 +32,7 @@
 // daemon's own code.
 
 import { useCallback, useEffect, useId, useMemo } from "react";
-
-import type { ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { InlineRefusal } from "@renderer/console/primitives/index.js";
 import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
 import { refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";

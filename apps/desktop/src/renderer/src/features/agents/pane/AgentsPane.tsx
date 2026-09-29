@@ -17,7 +17,7 @@ import type { ReactNode } from "react";
 
 import { useAgentConsoleModels } from "@renderer/console/agents/run-console/agent-console-model.js";
 import type { AgentConsoleCalls } from "../agent-reads.js";
-import type { ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { Nothing } from "@renderer/console/primitives/index.js";
 import type { SessionStore } from "@renderer/store/session/session-store.js";
 import { AgentBindingColumn } from "./components/AgentBindingColumn.js";

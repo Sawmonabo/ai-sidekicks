@@ -9,8 +9,7 @@
 // This family's own home rather than `core/`: both readers are in `cards/shell/`, and
 // nothing outside it drives these hooks. It dies with the shell, exactly as the two
 // modules it serves do.
-
-import { DesktopBridgeProvider } from "@renderer/console/bridge/BridgeProvider.js";
+import { DesktopBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import {
   bridgeAnswering,
   type BridgeUnderTest,

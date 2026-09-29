@@ -1,4 +1,4 @@
-import type { ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import type { ConsolePaneAddress, ConsolePaneContext } from "../seats/index.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 

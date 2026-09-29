@@ -46,7 +46,7 @@ import { LEDGER_EARLIER_PAGE_ROWS } from "../frame/frame-caps.js";
 import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
 import { callDaemon } from "@renderer/services/daemon/daemon-reply.js";
 import { readEarlierTimelinePage } from "@renderer/services/daemon/timeline-page.js";
-import { type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { isReadAbandoned, ReadScope } from "@renderer/console/store/read/read-cancellation.js";
 import { type CurrentGenerationClaim } from "@renderer/console/store/read/generation-latch.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";

@@ -62,8 +62,7 @@
 // inside its own `subscribe` and re-enter holding nothing. `dispose()` beats all of it.
 
 import { useCallback, useSyncExternalStore } from "react";
-
-import type { Unsubscribe } from "@ai-sidekicks/contracts";
+import type { Unsubscribe } from "@shared/preload-api.js";
 
 import { Emitter } from "@renderer/lib/emitter.js";
 import { type ConsoleClock } from "@renderer/lib/clock.js";

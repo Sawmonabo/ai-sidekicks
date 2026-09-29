@@ -32,7 +32,7 @@ import {
   type AgentRosterReading,
   type ChildRunLinkReading,
 } from "@renderer/console/bridge/wire-shapes/agent-plane.js";
-import { type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { type AgentDefinition } from "@renderer/services/wire-shapes/agent-definition.js";
 import { PushDrivenRead, servedValueOrRaise } from "@renderer/console/seats/index.js";
 import { subscribeToSessionEventKinds } from "@renderer/store/session/session-event-signal.js";

@@ -1,4 +1,4 @@
-// Conditional-type negative test against the `DesktopBridge` interface.
+// Conditional-type negative test against the `PreloadApi` interface.
 //
 //   "No auth material (daemon session token, PASETO tokens, DPoP key)
 //   appears on the `window.desktopBridge` surface — verified by a negative
@@ -30,14 +30,14 @@
 // (`AssertNever<T extends never>`) is the canonical TS recipe: TS errors
 // with TS2344 when `T` is non-never, which is the failure we want.
 //
-//   • inject `sessionToken: string;` under `DesktopBridge["app"]`
-//   • run `pnpm --filter @ai-sidekicks/contracts typecheck`
+//   • inject `sessionToken: string;` under `PreloadApi["app"]`
+//   • run `pnpm --filter @ai-sidekicks/desktop typecheck`
 //   • expect TS2344 at the `AssertNever<Offenders>` line below
 //   • restore + re-run to confirm typecheck passes
 // This dance is run during the implementing task; subsequent edits to the
 // bridge re-trigger the same check in CI typecheck.
 
-import type { DesktopBridge } from "./desktop-bridge.js";
+import type { PreloadApi } from "./preload-api.js";
 
 /**
  * Flatten every string property name reachable from `T` into a single union.
@@ -53,8 +53,8 @@ type AllKeys<T> = T extends (...args: never[]) => unknown
     ? { [K in keyof T]: K extends string ? K | AllKeys<T[K]> : never }[keyof T]
     : never;
 
-/** Union of every string property name reachable from `DesktopBridge`. */
-type BridgeKeys = AllKeys<DesktopBridge>;
+/** Union of every string property name reachable from `PreloadApi`. */
+type BridgeKeys = AllKeys<PreloadApi>;
 
 /**
  * Match any key whose lowercased form contains a forbidden substring.
@@ -87,7 +87,7 @@ type Offenders = ContainsForbidden<BridgeKeys>;
 /**
  * Type-level constraint failure when `T` is non-never. TS2344 fires at the
  * `AssertNever<Offenders>` instantiation below if `Offenders` is anything
- * other than `never` — i.e., if any key in `DesktopBridge` matches the
+ * other than `never` — i.e., if any key in `PreloadApi` matches the
  * forbidden-substring set.
  *
  * Note: `@typescript-eslint/no-unused-vars` (the rule active in this repo's
@@ -97,10 +97,10 @@ type Offenders = ContainsForbidden<BridgeKeys>;
 type AssertNever<T extends never> = T;
 
 /**
- * Load-bearing assertion. If `DesktopBridge` ever grows a property name
+ * Load-bearing assertion. If `PreloadApi` ever grows a property name
  * matching /token|dpop|secret/i (at any depth), `Offenders` becomes a
  * non-never union and this line fails compilation with TS2344, blocking
- * `pnpm --filter @ai-sidekicks/contracts typecheck`.
+ * `pnpm --filter @ai-sidekicks/desktop typecheck`.
  *
  * The `_` prefix matches the repo lint config's `varsIgnorePattern: "^_"`
  * (eslint.config.mjs), but as a type alias it would not be flagged anyway.

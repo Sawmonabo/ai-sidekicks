@@ -16,8 +16,7 @@
 // It sits in the composer family and not under `test/console/` because the renderer
 // project compiles under `rootDir: apps/desktop/src`, so a renderer file cannot import
 // from `apps/desktop/test/...`.
-
-import type { ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { bridgeAnswering } from "@renderer/console/bridge/fixture/call-plane/bridge.test-support.js";
 import { COMPOSER_SCENARIO } from "@renderer/console/bridge/scenario/composer/composer.js";
 import type { ComposerSendCalls } from "../send-dispatch.js";

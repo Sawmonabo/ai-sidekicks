@@ -27,10 +27,9 @@
 import { useCallback, useMemo } from "react";
 
 import { type ChildRunExpandResponse, type RunId, type TimelineRow } from "@ai-sidekicks/contracts";
-
-import { useConsoleBridge } from "@renderer/console/bridge/BridgeProvider.js";
+import { useConsoleBridge } from "@renderer/services/platform/hooks/usePlatformBridge.js";
 import { callDaemon, type DaemonReply } from "@renderer/services/daemon/daemon-reply.js";
-import { type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
 import { useSessionScopedState } from "../../../seats/index.js";
 import { ReadScope } from "@renderer/console/store/read/read-cancellation.js";

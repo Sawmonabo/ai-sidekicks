@@ -11,8 +11,7 @@
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-
-import { DesktopBridgeProvider } from "@renderer/console/bridge/BridgeProvider.js";
+import { DesktopBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import { NO_TRANSPORT_RECONNECT } from "@renderer/lib/transport-reconnect.js";
 import type { FrameBindingContext } from "@renderer/console/seats/index.js";
 import type { SessionStore } from "../session/session-store.js";

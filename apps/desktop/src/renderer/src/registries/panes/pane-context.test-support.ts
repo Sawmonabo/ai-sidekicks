@@ -26,8 +26,7 @@
 // sibling. `console-view-family-isolation` says where a contract those siblings
 // share belongs, and this is the contract `seats/pane/pane-registry.ts` declares: a
 // builder for `ConsolePaneContext` beside the type it builds.
-
-import { type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/console/core/constants/persistence-caps.js";
 import { DraftStore } from "@renderer/store/draft-store.js";
 import { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";

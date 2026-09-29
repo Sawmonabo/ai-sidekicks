@@ -13,7 +13,7 @@ import {
   type AgentRosterReading,
   type ChildRunLinkReading,
 } from "@renderer/console/bridge/wire-shapes/agent-plane.js";
-import { type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 
 /**

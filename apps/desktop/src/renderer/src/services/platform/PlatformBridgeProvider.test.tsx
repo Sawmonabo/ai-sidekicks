@@ -22,13 +22,11 @@ import { StrictMode, useState, type ReactNode } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { type ConsoleClock } from "@renderer/lib/clock.js";
-import {
-  DesktopBridgeProvider,
-  useBridgeResolution,
-  useConsoleBridge,
-  useConsoleClock,
-} from "@renderer/console/bridge/BridgeProvider.js";
-import { consoleClockFor, type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import { DesktopBridgeProvider } from "./PlatformBridgeProvider.js";
+import { useBridgeResolution } from "./hooks/useBridgeResolution.js";
+import { useConsoleBridge } from "./hooks/usePlatformBridge.js";
+import { consoleClockFor, useConsoleClock } from "./hooks/useClock.js";
+import { type ConsoleBridge } from "./platform-bridge.js";
 import { createFixtureBridge } from "@renderer/console/bridge/fixture/call-plane/bridge.js";
 import { consoleScenario } from "@renderer/console/bridge/scenario/manifest.js";
 import { SCENARIO_FIXTURE_GLOBAL } from "@renderer/console/bridge/scenario/selection.js";

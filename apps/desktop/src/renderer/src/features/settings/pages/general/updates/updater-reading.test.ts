@@ -6,8 +6,7 @@
 // is asserted rather than hoped for.
 
 import { describe, expect, it, vi } from "vitest";
-
-import type { UpdateState, Unsubscribe } from "@ai-sidekicks/contracts";
+import type { UpdateState, Unsubscribe } from "@shared/preload-api.js";
 
 import { UpdaterReadingHolder, type UpdaterCalls } from "./updater-reading.js";
 

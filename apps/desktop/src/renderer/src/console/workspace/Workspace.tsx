@@ -36,7 +36,7 @@ import { useCallback, useMemo } from "react";
 
 import { DECK_RESTORED_PANE_CAP } from "@renderer/console/core/constants/workspace-caps.js";
 import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
-import { type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { consoleCommandSurface } from "../palette/index.js";
 import { routeSessionId } from "@renderer/routing/route-readers.js";
 import { type ConsoleRoute } from "@renderer/routing/routes.js";

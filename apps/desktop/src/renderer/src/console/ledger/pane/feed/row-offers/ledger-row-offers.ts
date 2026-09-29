@@ -33,7 +33,8 @@
 // which is also what makes the pair assertable: a test names the kind it expects
 // rather than matching a label that flipped.
 
-import type { FilePathRef, TimelineRow } from "@ai-sidekicks/contracts";
+import type { TimelineRow } from "@ai-sidekicks/contracts";
+import type { FilePathRef } from "@shared/preload-api.js";
 
 import { type TimelineRowDensity } from "../../../../seats/index.js";
 

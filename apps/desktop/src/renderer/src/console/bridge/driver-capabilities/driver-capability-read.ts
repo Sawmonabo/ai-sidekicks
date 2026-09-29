@@ -81,7 +81,8 @@ import { RefreshScheduler, type RefreshReason } from "@renderer/lib/reads/refres
 import { type ReadRound } from "@renderer/console/store/read/read-cancellation.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 import { callDaemon } from "@renderer/services/daemon/daemon-reply.js";
-import { consoleClockFor, type ConsoleBridge } from "../console-bridge.js";
+import { consoleClockFor } from "@renderer/services/platform/hooks/useClock.js";
+import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 
 /** One driver's declared flags, exactly as its own report carried them. */
 export type DeclaredDriverFlags = Readonly<Record<DriverCapabilityFlag, boolean>>;

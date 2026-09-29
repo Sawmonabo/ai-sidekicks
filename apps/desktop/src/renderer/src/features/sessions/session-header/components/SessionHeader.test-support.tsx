@@ -6,8 +6,7 @@
 // a header the others never build.
 
 import { render } from "@testing-library/react";
-
-import { DesktopBridgeProvider } from "@renderer/console/bridge/BridgeProvider.js";
+import { DesktopBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import { createFixtureBridge } from "@renderer/console/bridge/fixture/call-plane/bridge.js";
 import { USER_YOU } from "@renderer/console/bridge/scenario/flagship/flagship-cast.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";

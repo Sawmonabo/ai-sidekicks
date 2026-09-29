@@ -12,8 +12,8 @@
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 
 import type { ExecutionMode, WorkspaceId } from "@ai-sidekicks/contracts";
-
-import { consoleClockFor, type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import { consoleClockFor } from "@renderer/services/platform/hooks/useClock.js";
+import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { CONTROLLER_DISPOSAL } from "@renderer/console/store/act/use-act-controller.js";
 import { useSubjectScopedResource } from "@renderer/console/store/subject-scoped/subject-scoped-resource.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";

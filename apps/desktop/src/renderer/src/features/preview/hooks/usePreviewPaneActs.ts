@@ -33,8 +33,7 @@
 // outstanding under a retired subject are superseded rather than left to write.
 
 import { useCallback } from "react";
-
-import type { ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { normalizeWireRejection, type RejectionFallback } from "@renderer/lib/wire-rejection.js";
 import { refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
 import {

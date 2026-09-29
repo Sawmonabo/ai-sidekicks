@@ -55,7 +55,8 @@ import {
   WORKFLOW_EVENT_TYPES,
   workflowRunIdOfEventPayload,
 } from "@renderer/services/wire-shapes/workflow-events.js";
-import { consoleClockFor, type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import { consoleClockFor } from "@renderer/services/platform/hooks/useClock.js";
+import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
 import { type ConsoleClock } from "@renderer/lib/clock.js";
 import { CONTROLLER_DISPOSAL } from "@renderer/console/store/act/use-act-controller.js";

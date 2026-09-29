@@ -12,8 +12,7 @@
 //
 // It imports nothing from this family, which is the property that makes it a floor
 // rather than one more node in the graph.
-
-import { type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { type DraftStore } from "@renderer/store/draft-store.js";
 import { type UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
 import { type FrameStore } from "@renderer/store/window/window-store.js";

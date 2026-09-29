@@ -33,8 +33,8 @@
 
 import type { SessionId } from "@ai-sidekicks/contracts";
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
-
-import { consoleClockFor, type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import { consoleClockFor } from "@renderer/services/platform/hooks/useClock.js";
+import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
 import { type ConsoleClock, type ScheduledHandle } from "@renderer/lib/clock.js";
 import { CONTROLLER_DISPOSAL } from "@renderer/console/store/act/use-act-controller.js";

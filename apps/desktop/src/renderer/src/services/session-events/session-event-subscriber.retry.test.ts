@@ -19,7 +19,7 @@ import {
   subscribeNodeDaemon,
 } from "../daemon/daemon-streams.js";
 import { createFixtureBridge } from "@renderer/console/bridge/fixture/call-plane/bridge.js";
-import { type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
+import { type ConsoleBridge } from "../platform/platform-bridge.js";
 import { withDaemonSubscribe } from "@renderer/console/bridge/fixture/call-plane/bridge.test-support.js";
 import type { ScenarioEngine } from "@renderer/console/bridge/scenario/runtime/engine.js";
 import { FLAGSHIP_SCENARIO } from "@renderer/console/bridge/scenario/flagship/flagship.js";

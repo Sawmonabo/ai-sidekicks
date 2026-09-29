@@ -22,8 +22,7 @@
 // refusal shape, and what a computed reply is handed — which is a different question
 // from who this scenario is about and what it plays, and the module that settles one
 // reply and the walk that audits every one of them both stop there.
-
-import type { UpdateState } from "@ai-sidekicks/contracts";
+import type { UpdateState } from "@shared/preload-api.js";
 
 import type { ConsoleSessionEvent } from "@renderer/console/store/entities/entities.js";
 import type { ScenarioReply } from "@renderer/services/daemon/scenario-reply.fixture.js";

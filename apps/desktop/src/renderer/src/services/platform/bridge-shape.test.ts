@@ -19,21 +19,23 @@
 // hand-list also forgot. The comparison enumerates both objects at runtime, and the
 // only listing anywhere is `bridge-shape.ts`'s namespace table, which is keyed by
 // `keyof DesktopBridge` and therefore cannot go stale.
-
-import { createStubBridge, type DesktopBridge } from "@ai-sidekicks/contracts";
 import { afterEach, describe, expect, it } from "vitest";
 
+import { createStubBridge, type PreloadApi } from "@shared/preload-api.js";
 import {
   DESKTOP_BRIDGE_NAMESPACES,
   describeBridgeShape,
   diffBridgeShapes,
   type BridgeShape,
-} from "@renderer/services/platform/bridge-shape.js";
-import type { ConsoleBridge } from "./console-bridge.js";
-import { createFixtureBridge } from "./fixture/call-plane/bridge.js";
-import { createLiveBridge, readInstalledBridge } from "@renderer/services/platform/live-bridge.js";
+} from "./bridge-shape.js";
+import type { ConsoleBridge } from "./platform-bridge.js";
+import {
+  FIXTURE_APP_META,
+  createFixtureBridge,
+} from "@renderer/console/bridge/fixture/call-plane/bridge.js";
+import { createLiveBridge, readInstalledBridge } from "./live-bridge.js";
 import { CONSOLE_SCENARIOS } from "../../../../../fixtures/index.js";
-import { consoleScenario } from "./scenario/manifest.js";
+import { consoleScenario } from "@renderer/console/bridge/scenario/manifest.js";
 import { FIRST_RUN_SCENARIO_ID } from "../../../../../fixtures/scenarios/first-run.js";
 
 /**
@@ -68,7 +70,7 @@ afterEach(() => {
 
 describe("the fixture bridge is shape-identical to the live bridge", () => {
   it("exposes the same namespaces and the same members in each", () => {
-    const live = resolveLiveBridgeFrom(createStubBridge());
+    const live = resolveLiveBridgeFrom(createStubBridge(FIXTURE_APP_META));
     expect(live, "the preload-shaped bridge was refused by the probe").toBeDefined();
     if (live === undefined) {
       return;
@@ -82,7 +84,7 @@ describe("the fixture bridge is shape-identical to the live bridge", () => {
     // enumeration that read nothing at all — would compare equal and pass. The
     // namespace table is keyed by `keyof DesktopBridge`, so this is the point
     // where the runtime reading is tied back to the contract.
-    const live = resolveLiveBridgeFrom(createStubBridge());
+    const live = resolveLiveBridgeFrom(createStubBridge(FIXTURE_APP_META));
     const fixture = fixtureBridge();
     const expected = [...DESKTOP_BRIDGE_NAMESPACES].sort();
 
@@ -108,7 +110,7 @@ describe("the fixture bridge is shape-identical to the live bridge", () => {
     // a fixture that answered every call but one. Perturbed on a constructed
     // bridge and compared through the SAME function the positive test uses, so a
     // comparison that had quietly become a tautology is caught here.
-    const perturbed = createStubBridge();
+    const perturbed = createStubBridge(FIXTURE_APP_META);
     Reflect.deleteProperty(perturbed.native, "revealInFileExplorer");
     const live = resolveLiveBridgeFrom(perturbed);
     expect(live).toBeDefined();
@@ -122,8 +124,8 @@ describe("the fixture bridge is shape-identical to the live bridge", () => {
   });
 
   it("negative control: rejects a bridge carrying an extra namespace", () => {
-    const perturbed: DesktopBridge & { readonly telemetry?: unknown } = {
-      ...createStubBridge(),
+    const perturbed: PreloadApi & { readonly telemetry?: unknown } = {
+      ...createStubBridge(FIXTURE_APP_META),
       telemetry: { report: () => undefined },
     };
     const live = resolveLiveBridgeFrom(perturbed);
@@ -140,7 +142,7 @@ describe("the fixture bridge is shape-identical to the live bridge", () => {
   it("negative control: rejects a member whose type changed under it", () => {
     // A method replaced by a plausible-looking value is the shape a half-installed
     // preload actually arrives in, and a name-only comparison would call it equal.
-    const perturbed = createStubBridge();
+    const perturbed = createStubBridge(FIXTURE_APP_META);
     Reflect.set(perturbed.app, "version", 0);
     const live = resolveLiveBridgeFrom(perturbed);
     expect(live).toBeDefined();
@@ -170,7 +172,7 @@ describe("the fixture bridge is shape-identical to the live bridge", () => {
     // which is true of an array — so a namespace that arrived as one passed, and the
     // console went on to call methods on it. The reading is `core/isWireRecord` now,
     // which rejects an array, and this is what fails if that is written by hand again.
-    const installed = createStubBridge();
+    const installed = createStubBridge(FIXTURE_APP_META);
     const [firstNamespace] = DESKTOP_BRIDGE_NAMESPACES;
     expect(firstNamespace).toBeDefined();
     const arrayValued = { ...installed, [firstNamespace ?? "daemon"]: [] };
