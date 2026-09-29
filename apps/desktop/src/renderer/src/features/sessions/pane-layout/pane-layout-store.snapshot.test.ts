@@ -37,7 +37,7 @@ function twoPaneLayout(): PaneLayoutStore {
   return layout;
 }
 
-describe("DeckLayout — what a snapshot carries", () => {
+describe("PaneLayoutStore — what a snapshot carries", () => {
   it("round-trips panes, order, widths, focus, and density", () => {
     const layout = twoPaneLayout();
     const [, second] = layout.snapshot().panes;
@@ -86,7 +86,7 @@ describe("DeckLayout — what a snapshot carries", () => {
   });
 });
 
-describe("DeckLayout — what a restore refuses", () => {
+describe("PaneLayoutStore — what a restore refuses", () => {
   it("discards a snapshot of an unknown version WHOLE", () => {
     // A grammar this build does not know is a grammar whose members it cannot
     // interpret, and a half-restored deck hides which half went missing.
@@ -340,7 +340,7 @@ describe("DeckLayout — what a restore refuses", () => {
   });
 });
 
-describe("DeckLayout — subscription", () => {
+describe("PaneLayoutStore — subscription", () => {
   it("publishes one state per mutation and nothing on a no-op", () => {
     const layout = twoPaneLayout();
     let notifications = 0;

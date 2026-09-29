@@ -136,7 +136,7 @@ export function registerPaneLayoutCommands(
 /**
  * The act set every contributed command runs through.
  *
- * Written out rather than derived from a name list, so a SIXTH act added to `DeckActs`
+ * Written out rather than derived from a name list, so a SIXTH act added to `PaneLayoutActs`
  * fails to compile here instead of being contributed as a command that reaches the
  * mounted deck through nothing.
  */

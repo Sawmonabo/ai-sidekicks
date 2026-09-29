@@ -3,7 +3,7 @@
 //
 // This module is the pane's BOUNDARY — the registered body the deck mounts, and the
 // one decision it makes: whether a session was addressed at all. Everything that
-// needs a session is `BoundTerminalPane.tsx` beside it, because the store hooks it
+// needs a session is `SessionTerminalPane.tsx` beside it, because the store hooks it
 // calls may only run when there IS a store and a hook behind a condition is the one
 // React rule a surface cannot bend.
 //

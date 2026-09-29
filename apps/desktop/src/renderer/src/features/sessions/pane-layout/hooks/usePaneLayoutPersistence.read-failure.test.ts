@@ -28,7 +28,7 @@ import {
   savedPaneCount,
 } from "./usePaneLayoutPersistence.test-support.js";
 
-describe("useDeckPersistence — a read the adapter could not perform", () => {
+describe("usePaneLayoutPersistence — a read the adapter could not perform", () => {
   it("keeps the saved arrangement instead of filing the fallback over it", async () => {
     const adapter = new ReadFailureAdapter();
     const store = new UiStateStore({ adapter });

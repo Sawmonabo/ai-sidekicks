@@ -6,7 +6,7 @@
 // a first-run window where their arrangement was, and a restore landing after they have
 // arranged the deck takes the arrangement away with no error anywhere.
 //
-// Every case drives the real hook against a real `DeckLayout` and a real store, because
+// Every case drives the real hook against a real `PaneLayoutStore` and a real store, because
 // the failure is in how the two effects interleave and neither half shows it alone.
 // `layout-writer.test.ts` holds the writer's own claims, and
 // `layout-persistence.read-failure.test.tsx` holds what the pair does when the read
@@ -37,7 +37,7 @@ function paneWidths(layout: PaneLayoutStore): readonly number[] {
 /** A width floor loose enough that nothing in these fixtures is clamped by it. */
 const UNCLAMPED_WIDTH_FLOOR_PERMILLE = 100;
 
-describe("useDeckPersistence — an arrangement made while the record was being read", () => {
+describe("usePaneLayoutPersistence — an arrangement made while the record was being read", () => {
   it("writes nothing while the read is still in flight", async () => {
     const store = memoryStore();
     await savePaneLayout(store, ["timeline", "runs"]);
@@ -253,7 +253,7 @@ describe("useDeckPersistence — an arrangement made while the record was being 
   });
 });
 
-describe("useDeckPersistence — the writer across a double-mount", () => {
+describe("usePaneLayoutPersistence — the writer across a double-mount", () => {
   it("keeps saving after the mount that closed its writer re-committed it", async () => {
     // `flushAndClose` is one-way and `request` then drops every arrangement in
     // silence, so a holder that re-committed the retired writer left the person

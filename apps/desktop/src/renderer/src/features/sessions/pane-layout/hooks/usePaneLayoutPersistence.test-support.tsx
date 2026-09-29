@@ -6,7 +6,7 @@
 // `layout-persistence.store-swap.test.tsx` holds what a replaced store does to the
 // writer — with `layout-persistence.session-scope.test.tsx` beside them for what a
 // route from one session to another leaves on screen. All mount the same hook over the
-// same real `DeckLayout` and a real store, so the mount, the drain and the readings
+// same real `PaneLayoutStore` and a real store, so the mount, the drain and the readings
 // live here rather than being written four times and drifting apart.
 
 import { act, render } from "@testing-library/react";

@@ -1,7 +1,7 @@
 // The pane's one decision: bound to a session, or honestly not.
 //
 // WHAT EARNS A TEST HERE. `TerminalPane.tsx` is 50 lines and makes exactly one call —
-// whether there is a session to address — and mounts `BoundTerminalPane` when there
+// whether there is a session to address — and mounts `SessionTerminalPane` when there
 // is. Everything after that binding is the bound half's, and its cases sit beside it.
 // This file owns the arm the bound half never sees: no store, so no terminal, and a
 // sentence saying which of the two absences that is.

@@ -23,7 +23,7 @@ function twoPaneLayout(): PaneLayoutStore {
   return layout;
 }
 
-describe("DeckLayout — one entity, one pane", () => {
+describe("PaneLayoutStore — one entity, one pane", () => {
   it("focuses the pane that already shows an entity rather than opening a second", () => {
     const layout = emptyLayout();
     const first = layout.open({
@@ -51,7 +51,7 @@ describe("DeckLayout — one entity, one pane", () => {
   });
 });
 
-describe("DeckLayout — order, focus, and the ephemeral cascade", () => {
+describe("PaneLayoutStore — order, focus, and the ephemeral cascade", () => {
   it("opens a pane beside its source rather than at the end", () => {
     const layout = twoPaneLayout();
     const [first] = layout.snapshot().panes;
@@ -120,7 +120,7 @@ describe("DeckLayout — order, focus, and the ephemeral cascade", () => {
   });
 });
 
-describe("DeckLayout — adopting what the panel group settled on", () => {
+describe("PaneLayoutStore — adopting what the panel group settled on", () => {
   it("takes the group's percentages as the deck's widths, still summing to the total", () => {
     const layout = twoPaneLayout();
     layout.open({ kind: "runs", entity: undefined });
@@ -173,7 +173,7 @@ describe("DeckLayout — adopting what the panel group settled on", () => {
   });
 });
 
-describe("DeckLayout — the split act", () => {
+describe("PaneLayoutStore — the split act", () => {
   it("splits the source pane and leaves every other pane's width alone", () => {
     // Three panes at a third each, then a browser opened beside the FIRST. The split
     // rule takes the arriving pane's width from that pane and nothing else, so the

@@ -14,7 +14,7 @@ function renderAbsence(directory: SessionDirectoryState): void {
   );
 }
 
-describe("SessionsAbsence — one absence per reason there is none", () => {
+describe("SessionListNothing — one absence per reason there is none", () => {
   afterEach(() => {
     cleanup();
   });

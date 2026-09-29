@@ -68,7 +68,7 @@ export interface TerminalLeaseState {
    * stale, and the surface says which transition lost it.
    */
   readonly unreadTransition: TerminalLeaseUnreadTransition | undefined;
-  /** Newest last, capped at `TERMINAL_LEASE_LEDGER_CAP`. */
+  /** Newest last, capped at `TERMINAL_LEASE_HISTORY_CAP`. */
   readonly transitions: readonly TerminalLeaseTransition[];
   /**
    * Every transition the fold could READ, including the ones the cap dropped. An

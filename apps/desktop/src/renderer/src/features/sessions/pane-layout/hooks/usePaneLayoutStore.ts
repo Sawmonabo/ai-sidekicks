@@ -6,7 +6,7 @@ import { PaneLayoutStore, type PaneLayoutStoreOptions } from "../pane-layout-sto
  * Hold one layout for the lifetime of the component that owns the deck.
  *
  * A hook rather than a construction in a render body: store construction stays out of
- * render, and a `new DeckLayout()` evaluated during a render React discards would
+ * render, and a `new PaneLayoutStore()` evaluated during a render React discards would
  * leave the deck subscribed to a layout nothing will ever mutate again.
  */
 export function usePaneLayoutStore(options: PaneLayoutStoreOptions): PaneLayoutStore {

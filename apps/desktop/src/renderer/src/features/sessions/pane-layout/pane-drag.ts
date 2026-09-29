@@ -9,7 +9,7 @@
 // THREE THINGS THIS DELIBERATELY DOES NOT DO:
 //
 //   • **It does not decide the new order.** Every drop calls
-//     `DeckLayout.reorderPane`, which is the same method the Alt+Shift chord and
+//     `PaneLayoutStore.reorderPane`, which is the same method the Alt+Shift chord and
 //     the pane menu already commit through. A drag that computed its own order
 //     would be a second implementation of the deck's one reorder rule.
 //   • **It does not render a preview.** The library's drag is the browser's own
@@ -203,7 +203,7 @@ export function paneDropAnnouncement(
  *
  * WHETHER THE PANE MOVED IS MEASURED, NOT ASSUMED. `dropPosition` can answer with a
  * position the deck is already in — dropping "before the pane on my right" is the
- * position the dragged pane already holds — and `DeckLayout.reorderPane` clamps and
+ * position the dragged pane already holds — and `PaneLayoutStore.reorderPane` clamps and
  * then no-ops. So the announcement reads the pane's index before and after rather
  * than trusting that a defined drop position means a changed deck.
  */

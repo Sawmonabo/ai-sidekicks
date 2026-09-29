@@ -114,7 +114,7 @@ describe("Workspace — the arrangement follows the store on screen", () => {
 
 describe("Workspace — the restore runs once for the session on screen", () => {
   it("does not read the record again when the store is replaced under it", async () => {
-    // `DeckLayout.restore` replaces wholesale, which is right at a mount against an
+    // `PaneLayoutStore.restore` replaces wholesale, which is right at a mount against an
     // empty deck and wrong against one somebody has been arranging: the two records
     // below deliberately disagree, so a second restore is visible as the deck losing a
     // pane rather than as nothing at all.

@@ -15,7 +15,7 @@ import {
 } from "./pane-layout-measures.js";
 import { isPaneLayoutDensity, minimumPaneWidthPx, panesThatFit } from "./pane-layout-density.js";
 
-describe("DECK_DENSITIES — the axis", () => {
+describe("PANE_LAYOUT_DENSITIES — the axis", () => {
   it("runs loosest to tightest, so the control reads as one axis", () => {
     const widths = PANE_LAYOUT_DENSITIES.map((density) => minimumPaneWidthPx(density));
     const descending = [...widths].sort((left, right) => right - left);

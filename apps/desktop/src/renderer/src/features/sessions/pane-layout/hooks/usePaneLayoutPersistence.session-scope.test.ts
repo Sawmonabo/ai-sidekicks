@@ -7,7 +7,7 @@
 // restored cleanly never replaced them, so the deck went on showing the first session's
 // restore errors under the second session's panes.
 //
-// Every case drives the real hook against a real `DeckLayout` and a real store through
+// Every case drives the real hook against a real `PaneLayoutStore` and a real store through
 // `layout-persistence.test-support.tsx`, which is where the mount and the route live.
 // The ordering claims are `layout-persistence.restore-order.test.tsx`' and the failed
 // read is `layout-persistence.read-failure.test.tsx`'.
@@ -27,7 +27,7 @@ import {
 /** The session a case routes TO. Never the one the record with refusals belongs to. */
 const SECOND_SESSION = "session-restore-second";
 
-describe("useDeckPersistence — restore refusals belong to the session that raised them", () => {
+describe("usePaneLayoutPersistence — restore refusals belong to the session that raised them", () => {
   it("stops showing one session's restore refusals once another session has restored", async () => {
     // The defect: the refusals were mount state. A person who opened a session whose
     // saved layout could not be read, then navigated to a session that restored

@@ -12,7 +12,7 @@
 //
 // FOUR DECISIONS WORTH STATING:
 //
-//   • **Layout lives in `DeckLayout`, never in `useState`.** A component holding
+//   • **Layout lives in `PaneLayoutStore`, never in `useState`.** A component holding
 //     pane order would be a second source of truth for it, and the restore path
 //     would then have two places to write. This component subscribes and dispatches.
 //   • **Every programmatic scroll and every rect read goes through a chokepoint.**
@@ -28,13 +28,13 @@
 //
 //   • `react-resizable-panels` owns the resize gesture, the flex arithmetic that
 //     turns a drag into widths, and the window-splitter ARIA with its arrow-key,
-//     Home/End and Enter bindings. It does NOT own the layout: `DeckLayout` does,
+//     Home/End and Enter bindings. It does NOT own the layout: `PaneLayoutStore` does,
 //     and the group reports back to it. Its one open defect — the crossed
 //     `aria-valuemin` / `aria-valuemax` on every separator after the first — is
 //     wrapped in `separator-aria.ts`. A pane's floor rides the panel's own
 //     `minSize` in PIXELS, which is what the density preset means; upstream issue
 //     #720 reports a pixel floor being rescaled as a percentage across a window
-//     resize, which is why `DeckLayout.applyLayout` clamps again over a freshly
+//     resize, which is why `PaneLayoutStore.applyLayout` clamps again over a freshly
 //     measured deck — and only the store's clamp is written to disk.
 //   • `@atlaskit/pragmatic-drag-and-drop` owns the pointer reorder gesture, as the
 //     browser's own HTML5 drag, so no React render happens per frame. It provides
@@ -97,7 +97,7 @@ export interface SessionPaneLayoutProps {
   readonly onPaneRects?: (rects: readonly TrackedRect[]) => void;
 }
 
-/** The panes a person is looking at, side by side, arranged by a `DeckLayout`. */
+/** The panes a person is looking at, side by side, arranged by a `PaneLayoutStore`. */
 export function SessionPaneLayout(props: SessionPaneLayoutProps): React.JSX.Element {
   const { layout } = props;
   const state = usePaneLayoutState(layout);

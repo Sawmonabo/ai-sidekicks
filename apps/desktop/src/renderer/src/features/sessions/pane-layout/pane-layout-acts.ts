@@ -45,7 +45,7 @@ export const NO_FOCUSED_PANE_SENTENCE = "No pane is focused in the deck.";
 /**
  * Bind the five acts to one deck.
  *
- * A function of the layout and the announcer rather than a method on `DeckLayout`:
+ * A function of the layout and the announcer rather than a method on `PaneLayoutStore`:
  * the store is what the deck IS and holds no opinion about live regions, and an
  * announcer reached from inside it would make every consumer of a layout a consumer
  * of the announcer too. The acts are the layer where a keystroke becomes a sentence.

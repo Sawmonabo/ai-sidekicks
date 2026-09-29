@@ -83,7 +83,7 @@ const ADDRESS_KEY_SEPARATOR = "\u001f";
  * means.
  *
  * Takes the two members the address is made of rather than either named type, so a
- * `DeckPane` and a `DeckPaneAddress` are keyed by the same call.
+ * `SessionPane` and a `DeckPaneAddress` are keyed by the same call.
  */
 export function paneAddressKey(address: {
   readonly kind: PaneKind;
@@ -259,7 +259,7 @@ const MINIMUM_NORMALISED_PERMILLE = 1;
  * {@link distributeEvenly}'s counterpart for the merge path, and the difference is the
  * whole point: equalising a deck that already holds panes destroys the drag the person
  * finished while the record was being read, which is exactly the work
- * `DeckLayout.adoptBeneath` exists to protect.
+ * `PaneLayoutStore.adoptBeneath` exists to protect.
  *
  * HOW THE REMAINDER IS CARVED WHEN THE LIVE PANES ALREADY FILL THE TOTAL, which they
  * always do — every commit leaves the row summing to {@link PANE_LAYOUT_TOTAL_PERMILLE}, so
