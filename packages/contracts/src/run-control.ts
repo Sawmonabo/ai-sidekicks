@@ -381,30 +381,45 @@ export const InterventionRequestPayloadSchema: z.ZodType<
 // --------------------------------------------------------------------------
 // --------------------------------------------------------------------------
 //
-// The result shapes a settled rollback reports. The disposition class is
-// ENCODED in the arm types: `applied` admits exactly `RollbackAppliedResult`
-// and `degraded` exactly `RollbackDegradedResult`.
+// What an undo reports. A person asks to put back the conversation and the
+// files together, the conversation alone, or the files alone, and one undo
+// has one result: what was asked, what went back, and the daemon's reason for
+// each asked-for part that did not. An undo can land in part — the
+// conversation cut can apply while the files cannot go back, or the reverse —
+// and `restored: "nothing"` means the conversation and the files are as they
+// were.
 //
-// `resendDisposition` is a separate axis: it reports the replacement leg's
-// outcome, and each class admits only its own literal (`applied` =>
-// "admitted", `degraded` => "unapplied").
+// Edit and resend is the same undo followed by a send, as one operation. When
+// the undo applied and the send did not, the result says so, with the send's
+// reason, so the conversation is never left cut with nothing sent unremarked.
 
-/** What an applied rollback restored: files and the conversation, or the conversation only. */
-export type RollbackAppliedResult =
-  | { disposition: "files-restored" }
-  | { disposition: "conversation-only" };
+/** What an undo is asked to put back. */
+export type SessionRestoreScope = "conversation-and-files" | "conversation" | "files";
 
-/** Why a rollback degraded: nothing was applied, or the replacement message was not sent. */
-export type RollbackDegradedResult =
-  | { disposition: "nothing-applied" }
-  | { disposition: "resend-unapplied"; resendDisposition: "unapplied" };
+/** One part an undo puts back on its own. */
+export type SessionRestorePart = Exclude<SessionRestoreScope, "conversation-and-files">;
 
-export interface RollbackAppliedResendOutcome {
-  resendDisposition?: "admitted" | undefined;
+/** Why one asked-for part did not go back, in the daemon's words. */
+export interface SessionRestoreFailure {
+  reason: string;
 }
-export interface RollbackDegradedResendOutcome {
-  resendDisposition?: "unapplied" | undefined;
+
+/** A finished undo: what was asked, what went back, and why each other asked-for part did not. */
+export interface SessionRestoreFinished {
+  outcome: "restore-finished";
+  requested: SessionRestoreScope;
+  restored: SessionRestoreScope | "nothing";
+  failures?: { [Part in SessionRestorePart]?: SessionRestoreFailure | undefined } | undefined;
 }
+
+/** An edit and resend whose undo applied and whose send failed, with the send's reason. */
+export interface SessionResendUnapplied {
+  outcome: "resend-unapplied";
+  reason: string;
+}
+
+/** What an undo, or an edit and resend, reports. */
+export type SessionRestoreResult = SessionRestoreFinished | SessionResendUnapplied;
 
 // --------------------------------------------------------------------------
 // --------------------------------------------------------------------------

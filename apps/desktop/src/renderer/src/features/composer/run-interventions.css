@@ -1,51 +1,8 @@
-/* The rollback settlement and the box a steer is written in.
-
-   The classes `SteerBox` and `RollbackDisclosure` draw. The composer's top view,
-   `Composer.tsx`, imports it, because it styles two components in two folders.
+/* The box a steer is written in: the classes `SteerBox` draws. The composer's top view,
+   `Composer.tsx`, imports it.
 
    Every value here is a Meridian token: no color literal, no font stack, and no
    spacing number. */
-
-/* --- The rollback settlement ------------------------------------------------ */
-
-.meridian-rollback {
-  display: flex;
-  flex-direction: column;
-  gap: var(--meridian-space-2);
-  padding: var(--meridian-space-2);
-  border: 1px solid var(--meridian-edge);
-  border-radius: var(--meridian-radius-sm);
-}
-
-.meridian-rollback__head {
-  display: flex;
-  gap: var(--meridian-space-2);
-  align-items: center;
-}
-
-.meridian-rollback__summary,
-.meridian-rollback__resend {
-  margin: 0;
-  font-size: var(--meridian-text-xs);
-}
-
-.meridian-rollback__summary {
-  color: var(--meridian-text);
-}
-
-.meridian-rollback__resend {
-  color: var(--meridian-text-muted);
-}
-
-/* The working-tree half is `FileRestoreDisclosure`'s, and so are its rules: this is
-   the slot it sits in and nothing more. */
-.meridian-rollback__files {
-  display: flex;
-  flex-direction: column;
-  gap: var(--meridian-space-1);
-}
-
-/* --- The steer composer ---------------------------------------------------- */
 
 .meridian-run-composer {
   display: flex;

@@ -1,99 +1,92 @@
-// What a settled rollback says, read exhaustively: one switch per settlement class with a
-// `never` tail, so a new arm fails the build rather than falling through. The class comes
-// from the response's own state; nothing here infers it from a disposition name. A degraded
-// settlement is never reported as a success.
+// What an undo says in the flow: one row for one undo. The row names what went back in the
+// words the undo's own entry points use (`Restored to before <…>`, `Files restored to before
+// <…>`, `Restored to <snapshot name>`), then each asked-for part that did not go back with the
+// daemon's reason, verbatim. When nothing went back the row says the undo failed and why.
 
-import type { RollbackAppliedResult, RollbackDegradedResult } from "@ai-sidekicks/contracts";
-import type { ChipTone } from "@renderer/console/primitives/index.js";
+import type {
+  SessionRestoreFinished,
+  SessionRestorePart,
+  SessionRestoreResult,
+  SessionRestoreScope,
+} from "@ai-sidekicks/contracts";
 
-/** What one settled rollback says, in the console's words. */
-export interface RestoreResultReading {
-  /** The wire literal, rendered verbatim in mono. */
-  readonly disposition: string;
-  /** `applied` or `degraded`, from the response's own state. */
-  readonly settlementClass: "applied" | "degraded";
-  readonly tone: ChipTone;
-  /** One sentence naming what happened to the conversation and to the tree. */
-  readonly summary: string;
-}
+/** Where an undo went back to: before one of your messages, or to a named snapshot. */
+export type RestoreTarget =
+  | { readonly kind: "message"; readonly firstWords: string }
+  | { readonly kind: "snapshot"; readonly name: string };
 
 /**
- * Read a settled `applied` rollback.
- *
- * The class is the daemon's answer, taken from the response's state rather than guessed from
- * the disposition name.
+ * The flow row for a finished undo, or for an edit and resend whose send failed after its
+ * undo applied.
  */
-export function readAppliedRestore(result: RollbackAppliedResult): RestoreResultReading {
-  const shared = {
-    disposition: result.disposition,
-    settlementClass: "applied",
-    tone: "accent",
-  } as const;
-  switch (result.disposition) {
-    case "files-restored":
-      return {
-        ...shared,
-        summary:
-          "The rewind landed and the working tree was restored to the boundary. The run is paused at the confirmed position; nothing resumes on its own.",
-      };
-    case "conversation-only":
-      return {
-        ...shared,
-        summary:
-          "The rewind landed in the conversation. No file was restored, because this run had no working tree to restore. The run is paused at the confirmed position.",
-      };
-    default:
-      return unreachableDisposition(result);
+export function readRestoreResult(result: SessionRestoreResult, target: RestoreTarget): string {
+  if (result.outcome === "resend-unapplied") {
+    return `${restoredWords(target, "conversation-and-files")} · resend failed · ${result.reason}`;
+  }
+  switch (result.restored) {
+    case "nothing":
+      return ["Undo failed", ...distinctReasons(result, partsOf(result.requested))].join(" · ");
+    case "conversation-and-files":
+      return restoredWords(target, result.restored);
+    case "conversation":
+    case "files": {
+      const applied = restoredWords(target, result.restored);
+      if (result.requested === result.restored) {
+        return applied;
+      }
+      const missing: SessionRestorePart =
+        result.restored === "conversation" ? "files" : "conversation";
+      return `${applied} · ${missing} not restored · ${reasonFor(result, missing)}`;
+    }
   }
 }
 
-/** Read a settled `degraded` rollback. */
-export function readPartialRestore(result: RollbackDegradedResult): RestoreResultReading {
-  const shared = {
-    disposition: result.disposition,
-    settlementClass: "degraded",
-    tone: "attention",
-  } as const;
-  switch (result.disposition) {
-    case "nothing-applied":
-      return {
-        ...shared,
-        summary:
-          "Nothing was applied. The run, the conversation, and the working tree are all as they were.",
-      };
-    case "resend-unapplied":
-      return {
-        ...shared,
-        summary:
-          "The rewind landed and the working tree was restored; the replacement message was not admitted. Your text is not lost — it is held on the intervention record.",
-      };
-    default:
-      return unreachableDisposition(result);
+/** The words for what went back: files alone read `Files restored`, anything with the conversation `Restored`. */
+function restoredWords(target: RestoreTarget, restored: SessionRestoreScope): string {
+  const verb = restored === "files" ? "Files restored to" : "Restored to";
+  if (target.kind === "message") {
+    return `${verb} before ${target.firstWords}`;
   }
+  return `${verb} ${nameMidSentence(target.name)}`;
 }
 
 /**
- * What the settlement says about the caller's replacement text.
- *
- * `undefined` for every disposition but `resend-unapplied`, the only one that reports a
- * replacement that did not go through.
+ * A snapshot name as it reads mid-sentence: its first letter lowercased, so a snapshot named
+ * `Before the refactor` reads `Restored to before the refactor`. A name that opens on an
+ * acronym (`API cleanup`) keeps it.
  */
-export function resendSettlementSentence(disposition: string): string | undefined {
-  if (disposition === "resend-unapplied") {
-    return "Your replacement message was not admitted. It stays recoverable on the intervention record.";
+function nameMidSentence(name: string): string {
+  const [first = "", second = ""] = name;
+  if (second !== second.toLocaleLowerCase()) {
+    return name;
   }
-  return undefined;
+  return `${first.toLocaleLowerCase()}${name.slice(first.length)}`;
+}
+
+function partsOf(scope: SessionRestoreScope): readonly SessionRestorePart[] {
+  return scope === "conversation-and-files" ? ["conversation", "files"] : [scope];
+}
+
+/** Each failed part's reason once: two parts refused for one cause name it once. */
+function distinctReasons(
+  result: SessionRestoreFinished,
+  parts: readonly SessionRestorePart[],
+): string[] {
+  return [...new Set(parts.map((part) => reasonFor(result, part)))];
 }
 
 /**
- * The `satisfies never` tail, as a function so both switches share it.
+ * The daemon's reason for one part that did not go back.
  *
- * A new disposition makes the parameter no longer `never`, so the call fails to compile at
- * both call sites rather than rendering a nameless settlement.
+ * The result carries a reason for every asked-for part that did not apply; one without it
+ * would draw a row that hides why, so it throws instead.
  */
-function unreachableDisposition(result: never): never {
-  const unreadable = result satisfies never;
-  throw new Error(
-    `the rollback result carried a disposition this console has no reading for: ${JSON.stringify(unreadable)}`,
-  );
+function reasonFor(result: SessionRestoreFinished, part: SessionRestorePart): string {
+  const failure = result.failures?.[part];
+  if (failure === undefined) {
+    throw new Error(
+      `the undo result reports the ${part} not restored and carries no reason for it: ${JSON.stringify(result)}`,
+    );
+  }
+  return failure.reason;
 }

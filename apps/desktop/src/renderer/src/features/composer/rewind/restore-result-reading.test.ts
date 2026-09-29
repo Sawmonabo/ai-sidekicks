@@ -1,69 +1,146 @@
-// The reading is a pure function over the registered result union, so every arm is
-// drivable here without a bridge and without a rendered tree.
+// Every row an undo can draw, against the design's own words: every part applied, part
+// applied, nothing applied, and a resend that failed after its undo applied, for a message
+// and for a snapshot.
 
 import { describe, expect, it } from "vitest";
-import type { RollbackAppliedResult, RollbackDegradedResult } from "@ai-sidekicks/contracts";
+import type { SessionRestoreResult } from "@ai-sidekicks/contracts";
 
-import {
-  readAppliedRestore,
-  readPartialRestore,
-  resendSettlementSentence,
-} from "./restore-result-reading.js";
+import { readRestoreResult, type RestoreTarget } from "./restore-result-reading.js";
 
-/** Every `applied` arm the contract admits. */
-const APPLIED_ARMS: readonly RollbackAppliedResult[] = [
-  { disposition: "files-restored" },
-  { disposition: "conversation-only" },
-];
+const MESSAGE: RestoreTarget = { kind: "message", firstWords: "Rename the config loader" };
+const SNAPSHOT: RestoreTarget = { kind: "snapshot", name: "Before Rename the config loader" };
 
-/** Every `degraded` arm the contract admits. */
-const DEGRADED_ARMS: readonly RollbackDegradedResult[] = [
-  { disposition: "nothing-applied" },
-  { disposition: "resend-unapplied", resendDisposition: "unapplied" },
-];
-
-describe("the two settlement classes", () => {
-  it("covers every disposition across the two classes", () => {
-    // Vacuity guard: every case below iterates one of these two lists.
-    expect(APPLIED_ARMS).toHaveLength(2);
-    expect(DEGRADED_ARMS).toHaveLength(2);
+describe("an undo where every asked-for part went back", () => {
+  it("reads the conversation and the files going back as `Restored to`", () => {
+    const result: SessionRestoreResult = {
+      outcome: "restore-finished",
+      requested: "conversation-and-files",
+      restored: "conversation-and-files",
+    };
+    expect(readRestoreResult(result, MESSAGE)).toBe("Restored to before Rename the config loader");
+    expect(readRestoreResult(result, SNAPSHOT)).toBe("Restored to before Rename the config loader");
   });
 
-  it("reads every applied arm as applied and every degraded arm as degraded", () => {
-    for (const arm of APPLIED_ARMS) {
-      expect(readAppliedRestore(arm).settlementClass).toBe("applied");
-    }
-    for (const arm of DEGRADED_ARMS) {
-      expect(readPartialRestore(arm).settlementClass).toBe("degraded");
-    }
+  it("reads the conversation alone going back as `Restored to`", () => {
+    const result: SessionRestoreResult = {
+      outcome: "restore-finished",
+      requested: "conversation",
+      restored: "conversation",
+    };
+    expect(readRestoreResult(result, MESSAGE)).toBe("Restored to before Rename the config loader");
   });
 
-  it("renders the disposition verbatim, never a reworded one", () => {
-    for (const arm of APPLIED_ARMS) {
-      expect(readAppliedRestore(arm).disposition).toBe(arm.disposition);
-    }
-    for (const arm of DEGRADED_ARMS) {
-      expect(readPartialRestore(arm).disposition).toBe(arm.disposition);
-    }
+  it("reads the files alone going back as `Files restored to`", () => {
+    const result: SessionRestoreResult = {
+      outcome: "restore-finished",
+      requested: "files",
+      restored: "files",
+    };
+    expect(readRestoreResult(result, MESSAGE)).toBe(
+      "Files restored to before Rename the config loader",
+    );
+    expect(readRestoreResult(result, SNAPSHOT)).toBe(
+      "Files restored to before Rename the config loader",
+    );
   });
 
-  it("negative control: a degraded arm is never reported as a success", () => {
-    for (const arm of DEGRADED_ARMS) {
-      expect(readPartialRestore(arm).settlementClass).not.toBe("applied");
-    }
+  it("keeps a snapshot name that opens on an acronym as it is", () => {
+    const result: SessionRestoreResult = {
+      outcome: "restore-finished",
+      requested: "conversation-and-files",
+      restored: "conversation-and-files",
+    };
+    expect(readRestoreResult(result, { kind: "snapshot", name: "API cleanup" })).toBe(
+      "Restored to API cleanup",
+    );
   });
 });
 
-describe("the replacement leg", () => {
-  it("says an unapplied replacement stays recoverable", () => {
-    expect(resendSettlementSentence("resend-unapplied")).toContain("recoverable");
+describe("an undo where part went back", () => {
+  it("names the conversation going back and the files not, with the daemon's cause", () => {
+    const result: SessionRestoreResult = {
+      outcome: "restore-finished",
+      requested: "conversation-and-files",
+      restored: "conversation",
+      failures: { files: { reason: "The disk is full" } },
+    };
+    expect(readRestoreResult(result, MESSAGE)).toBe(
+      "Restored to before Rename the config loader · files not restored · The disk is full",
+    );
+    expect(readRestoreResult(result, SNAPSHOT)).toBe(
+      "Restored to before Rename the config loader · files not restored · The disk is full",
+    );
   });
 
-  it("negative control: any other disposition carries no replacement sentence", () => {
-    for (const arm of [...APPLIED_ARMS, ...DEGRADED_ARMS]) {
-      if (arm.disposition !== "resend-unapplied") {
-        expect(resendSettlementSentence(arm.disposition)).toBeUndefined();
-      }
-    }
+  it("names the files going back and the conversation not, with the daemon's cause", () => {
+    const result: SessionRestoreResult = {
+      outcome: "restore-finished",
+      requested: "conversation-and-files",
+      restored: "files",
+      failures: { conversation: { reason: "Claude Code did not answer" } },
+    };
+    expect(readRestoreResult(result, MESSAGE)).toBe(
+      "Files restored to before Rename the config loader · conversation not restored · Claude Code did not answer",
+    );
+    expect(readRestoreResult(result, SNAPSHOT)).toBe(
+      "Files restored to before Rename the config loader · conversation not restored · Claude Code did not answer",
+    );
+  });
+
+  it("refuses to draw a part that did not go back without the daemon's reason", () => {
+    const result: SessionRestoreResult = {
+      outcome: "restore-finished",
+      requested: "conversation-and-files",
+      restored: "conversation",
+    };
+    expect(() => readRestoreResult(result, MESSAGE)).toThrow(/files not restored/u);
+  });
+});
+
+describe("an undo where nothing went back", () => {
+  it("says the undo failed, with the daemon's cause", () => {
+    const result: SessionRestoreResult = {
+      outcome: "restore-finished",
+      requested: "files",
+      restored: "nothing",
+      failures: { files: { reason: "Connection lost" } },
+    };
+    expect(readRestoreResult(result, MESSAGE)).toBe("Undo failed · Connection lost");
+    expect(readRestoreResult(result, SNAPSHOT)).toBe("Undo failed · Connection lost");
+  });
+
+  it("names a cause both parts share once, and two different causes each", () => {
+    const shared: SessionRestoreResult = {
+      outcome: "restore-finished",
+      requested: "conversation-and-files",
+      restored: "nothing",
+      failures: {
+        conversation: { reason: "Connection lost" },
+        files: { reason: "Connection lost" },
+      },
+    };
+    expect(readRestoreResult(shared, MESSAGE)).toBe("Undo failed · Connection lost");
+
+    const separate: SessionRestoreResult = {
+      outcome: "restore-finished",
+      requested: "conversation-and-files",
+      restored: "nothing",
+      failures: {
+        conversation: { reason: "Claude Code did not answer" },
+        files: { reason: "The disk is full" },
+      },
+    };
+    expect(readRestoreResult(separate, MESSAGE)).toBe(
+      "Undo failed · Claude Code did not answer · The disk is full",
+    );
+  });
+});
+
+describe("an edit and resend whose send failed after its undo applied", () => {
+  it("says the undo went back and the resend failed, with the cause", () => {
+    const result: SessionRestoreResult = { outcome: "resend-unapplied", reason: "Connection lost" };
+    expect(readRestoreResult(result, MESSAGE)).toBe(
+      "Restored to before Rename the config loader · resend failed · Connection lost",
+    );
   });
 });
