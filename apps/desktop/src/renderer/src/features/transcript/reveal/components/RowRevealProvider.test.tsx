@@ -19,10 +19,8 @@ import { ManualClock } from "@renderer/lib/clock.js";
 import { useLedgerFrameCoordinator } from "../../hooks/useAnimationFrameCoordinator.js";
 import { TWO_FRAME_REVEAL_SOURCE } from "../reveal.test-support.js";
 import { useLedgerReveal, type LedgerRevealBinding } from "../hooks/useReveal.js";
-import {
-  LedgerRowRevealProvider,
-  useLedgerRowReveal,
-} from "@renderer/console/ledger/frame/reveal/RowRevealProvider.js";
+import { useLedgerRowReveal } from "../hooks/useRowReveal.js";
+import { LedgerRowRevealProvider } from "./RowRevealProvider.js";
 
 const FIRST_LANE = "session-1:41";
 const SECOND_LANE = "session-1:42";

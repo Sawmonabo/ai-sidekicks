@@ -23,7 +23,7 @@ import { type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
 import { FIRST_RUN_SCENARIO } from "../../../../../../../../fixtures/scenarios/first-run.js";
 import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
 import { publishConsoleActRefusalSink } from "../../../../palette/index.js";
-import { type LedgerRowLease } from "../../../frame/index.js";
+import { type LedgerRowLease } from "@renderer/features/transcript/viewport/retained-row-state-table.js";
 import { sampleGeneralRow } from "@test/helpers/timeline-row-samples.js";
 import {
   LEDGER_BODY_NOT_COPIED_REFUSAL,

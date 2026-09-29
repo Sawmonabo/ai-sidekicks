@@ -55,7 +55,7 @@ import { type TimelineRow } from "@ai-sidekicks/contracts";
 
 import { useConsoleBridge } from "@renderer/console/bridge/BridgeProvider.js";
 import { projectFixtureShellRows } from "@renderer/features/transcript/projection/transcript-row-projection.js";
-import { type LedgerViewportRow } from "../../frame/index.js";
+import { type LedgerViewportRow } from "@renderer/features/transcript/viewport/viewport-snapshot.js";
 import { LedgerRowRetention } from "@renderer/features/transcript/window/row-retention.js";
 import {
   ChildRunIndex,

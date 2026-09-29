@@ -28,9 +28,9 @@ import { describe, expect, it } from "vitest";
 import { renderSettled } from "../../test/console/console-harness.js";
 
 import { installMeridianTokens } from "@renderer/console/frame/index.js";
-// The ledger frame's door, imported for its side effect: the family's stylesheet lives
-// behind its own barrel and this tier is about what that stylesheet computes to.
-import "@renderer/console/ledger/frame/index.js";
+// The viewport's stylesheet, imported for its side effect: this tier is about what it
+// computes to.
+import "@renderer/features/transcript/viewport/components/transcript-viewport.css";
 
 /** The box the viewport is given. Every assertion below is against this number. */
 const VIEWPORT_BOX_HEIGHT_PX = 600;

@@ -9,7 +9,7 @@
 
 import { type TimelineRow } from "@ai-sidekicks/contracts";
 
-import { type LedgerViewportRow } from "@renderer/console/ledger/frame/index.js";
+import { type LedgerViewportRow } from "../viewport/viewport-snapshot.js";
 
 /**
  * The row objects one derivation publishes, held across its own passes.

@@ -37,7 +37,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { type LedgerFrameCoordinator } from "../../animation-frame-coordinator.js";
 import { RevealEngine } from "../reveal-engine.js";
-import { type LedgerRowRevealChannel } from "@renderer/console/ledger/frame/reveal/RowRevealProvider.js";
+import { type LedgerRowRevealChannel } from "../components/RowRevealProvider.js";
 import { type RevealDelta } from "../reveal-model.js";
 
 /** What a view gets back: the channel its rows read, the drain state, and the acts. */

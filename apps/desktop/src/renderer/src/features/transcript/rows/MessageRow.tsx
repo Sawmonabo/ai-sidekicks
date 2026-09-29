@@ -38,7 +38,7 @@
 import { readWireString } from "@renderer/lib/wire-strings.js";
 import { Glyph, LedgerRow } from "@renderer/console/primitives/index.js";
 import { type InlineCardSeatProps } from "@renderer/console/seats/index.js";
-import { LedgerRowGroup } from "@renderer/console/ledger/frame/index.js";
+import { LedgerRowGroup } from "../viewport/components/TranscriptRowGroup.js";
 import { classifyCardFamily } from "./row-kind.js";
 import type { LedgerCardProps } from "./hydrated-row-props.js";
 import { InlineCards } from "./InlineCards.js";

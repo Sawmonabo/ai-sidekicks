@@ -35,11 +35,9 @@
 
 import { memo, useCallback } from "react";
 
-import {
-  type LedgerRowLease,
-  type LedgerRowRenderer,
-  type LedgerViewportRow,
-} from "../../../frame/index.js";
+import { type LedgerRowLease } from "@renderer/features/transcript/viewport/retained-row-state-table.js";
+import { type LedgerRowRenderer } from "@renderer/features/transcript/viewport/components/VirtualRow.js";
+import { type LedgerViewportRow } from "@renderer/features/transcript/viewport/viewport-snapshot.js";
 import { ChapterHeader, type LedgerChapter } from "../../../structure/index.js";
 // The seam row through its own directory's door rather than the family's: that door
 // owns the seam vocabulary this row draws AND the sheet that dresses it.

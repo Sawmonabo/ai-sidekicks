@@ -41,7 +41,7 @@ import { type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
 import { refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
 import { raiseConsoleActRefusal } from "../../../../palette/index.js";
 import { type TimelineRowDensity } from "../../../../seats/index.js";
-import { type LedgerRowLease } from "../../../frame/index.js";
+import { type LedgerRowLease } from "@renderer/features/transcript/viewport/retained-row-state-table.js";
 import { buildLedgerRowOffers, type LedgerRowOffer } from "./ledger-row-offers.js";
 
 /**

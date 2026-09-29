@@ -1,29 +1,10 @@
-/* `ledger/frame/`'s styles — the virtualized feed, its reading-anchor affordances,
- * and the error slots.
+/* The viewport's styles: the virtualized feed, its reading-anchor affordances, and the
+ * error slots. One sheet for the components under `viewport/components/` and the head
+ * control in `history/`, imported by the transcript's chunk root. The retry control the
+ * failed row wears is `transcript.css`'s, because the ANSI output wears the same one.
  *
- * ONE SHEET PER DIRECTORY, so a rule sits beside the code that renders it, and a rule
- * reachable from TWO directories goes in their nearest shared parent's sheet — which is
- * `ledger.css` for the family, and a parent sheet in `structure/` for that subtree's
- * five if one of its rules is ever shared — none is today.
- * `structure/` is the only subtree split further, and the reason is the module ceiling
- * rather than symmetry: it was one 503-line sheet over five subjects that change for
- * five different reasons. `frame/` and `cards/` keep one sheet each, well inside the
- * ceiling, because their sub-modules draw INSIDE the boxes the parent sheet already
- * sizes — a body inside a card, a row inside the frame — and splitting a box from its
- * contents buys no reading. Every sheet is imported from `ledger/index.ts` and nowhere
- * else, parent before children, so they land once per bundle and cascade after the
- * primitives' and the frame's.
- *
- * The retry control the failed row wears is `ledger.css`'s, because the ANSI card
- * wears the same one.
- */
-
-/* --- The ledger frame ---------------------------------------------------
- *
- * The virtualized feed, its reading-anchor affordances, and the error slots.
- * `ledger/frame/` owns the behaviour; these rules own nothing but the boxes it
- * needs. Every colour is a Meridian custom property and every space a step on the
- * scale, so the frame follows the scheme attribute with no conditional in JSX.
+ * Every color is a Meridian custom property and every space a step on the scale, so the
+ * viewport follows the scheme attribute with no conditional in JSX.
  */
 
 .meridian-ledger-viewport {

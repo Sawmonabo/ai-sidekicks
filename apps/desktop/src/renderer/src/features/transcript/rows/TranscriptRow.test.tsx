@@ -7,10 +7,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import { DesktopBridgeProvider } from "@renderer/console/bridge/BridgeProvider.js";
 import { createFixtureBridge } from "@renderer/console/bridge/fixture/call-plane/bridge.js";
 import { LEDGER_QUIET_SCENARIO } from "../../../../../../fixtures/scenarios/empty-session.js";
-import {
-  LedgerRowLeaseProvider,
-  type LedgerRowLease,
-} from "@renderer/console/ledger/frame/index.js";
+import { LedgerRowLeaseProvider } from "../viewport/components/RetainedRowStateProvider.js";
+import { type LedgerRowLease } from "../viewport/retained-row-state-table.js";
 import {
   registerTimelineRowRenderer,
   timelineRowRenderer,

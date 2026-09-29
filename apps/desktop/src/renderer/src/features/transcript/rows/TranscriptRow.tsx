@@ -28,7 +28,8 @@
 
 import { useCallback, useState } from "react";
 
-import { useLedgerRowLease, useLedgerRowReveal } from "@renderer/console/ledger/frame/index.js";
+import { useLedgerRowLease } from "../viewport/hooks/useRetainedRowState.js";
+import { useLedgerRowReveal } from "../reveal/hooks/useRowReveal.js";
 import {
   type TimelineRowDensity,
   type TimelineRowSlotProps,

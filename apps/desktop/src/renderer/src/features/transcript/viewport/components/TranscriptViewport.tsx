@@ -40,10 +40,8 @@
 
 import { WindowAbsences } from "@renderer/console/primitives/index.js";
 import { EmptyLedgerWindow } from "./EmptyTranscript.js";
-import {
-  LedgerErrorSlot,
-  type LedgerErrorEntry,
-} from "@renderer/console/ledger/frame/ErrorSlot.js";
+import { type LedgerErrorEntry } from "../transcript-errors.js";
+import { LedgerErrorSlot } from "./TranscriptErrors.js";
 import { LedgerRowMount, type LedgerRowRenderer } from "./VirtualRow.js";
 import { LedgerTailAffordance } from "./JumpToLatest.js";
 import { LoadEarlierAffordance } from "../../history/components/LoadEarlier.js";

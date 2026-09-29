@@ -9,11 +9,8 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { refuse } from "@renderer/lib/refusal.js";
-import {
-  LEDGER_ERROR_KINDS,
-  LedgerErrorSlot,
-  LedgerErrorSlots,
-} from "@renderer/console/ledger/frame/ErrorSlot.js";
+import { LEDGER_ERROR_KINDS, LedgerErrorSlots } from "../transcript-errors.js";
+import { LedgerErrorSlot } from "./TranscriptErrors.js";
 
 const PROJECTION_FAILURE = refuse(
   "ledger",

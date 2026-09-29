@@ -46,13 +46,14 @@ import { consoleLedgerWindows } from "@renderer/lib/transcript-window-diagnostic
 import { type ConsoleClock } from "@renderer/lib/clock.js";
 import {
   useLedgerEarlierPaging,
-  useLedgerFrameCoordinator,
-  useLedgerReveal,
-  useLedgerViewport,
   type LedgerEarlierPaging,
-  type LedgerRevealBinding,
+} from "../../history/hooks/useEarlierHistory.js";
+import { useLedgerFrameCoordinator } from "../../hooks/useAnimationFrameCoordinator.js";
+import { useLedgerReveal, type LedgerRevealBinding } from "../../reveal/hooks/useReveal.js";
+import {
+  useLedgerViewport,
   type LedgerViewportBinding,
-} from "@renderer/console/ledger/frame/index.js";
+} from "../../viewport/hooks/useTranscriptViewport.js";
 import {
   deriveDriverAskTerminals,
   type DriverAskReading,

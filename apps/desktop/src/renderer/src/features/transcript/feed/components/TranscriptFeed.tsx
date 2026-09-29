@@ -84,11 +84,9 @@ import { useCallback, useMemo } from "react";
 
 import { useConsoleClock } from "@renderer/console/bridge/BridgeProvider.js";
 import { LedgerAskTerminalProvider } from "@renderer/console/ledger/cards/index.js";
-import {
-  LedgerRowLeaseProvider,
-  LedgerRowRevealProvider,
-  LedgerViewport,
-} from "@renderer/console/ledger/frame/index.js";
+import { LedgerRowLeaseProvider } from "../../viewport/components/RetainedRowStateProvider.js";
+import { LedgerRowRevealProvider } from "../../reveal/components/RowRevealProvider.js";
+import { LedgerViewport } from "../../viewport/components/TranscriptViewport.js";
 import { LedgerFeedHeader } from "./TranscriptFeedHeader.js";
 import {
   LedgerWindowAbsences,

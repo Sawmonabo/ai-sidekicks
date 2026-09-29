@@ -37,7 +37,7 @@ import {
   formatDuration,
   type ChipTone,
 } from "@renderer/console/primitives/index.js";
-import { LedgerRowGroup } from "@renderer/console/ledger/frame/index.js";
+import { LedgerRowGroup } from "../viewport/components/TranscriptRowGroup.js";
 import { cardFamilyDescriptor, toolResultState, type ToolResultState } from "./row-kind.js";
 import type { LedgerCardProps } from "./hydrated-row-props.js";
 import { ToolOutput } from "./bodies/ToolOutput.js";
