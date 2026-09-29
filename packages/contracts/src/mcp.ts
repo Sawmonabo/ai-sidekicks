@@ -122,7 +122,7 @@ export type McpSetEnabledRequest = McpServerBindingRef & {
 };
 /** Parses an {@link McpSetEnabledRequest}; a request without a UUID key is refused. */
 export const McpSetEnabledRequestSchema: z.ZodType<McpSetEnabledRequest, McpSetEnabledRequest> =
-  bindingAddressed({ clientIdempotencyKey: z.string().uuid(), enabled: z.boolean() });
+  bindingAddressed({ clientIdempotencyKey: z.uuid(), enabled: z.boolean() });
 
 /**
  * Grants or withdraws trust in one binding. The grant binds to the binding's
@@ -134,7 +134,7 @@ export type McpSetTrustRequest = McpServerBindingRef & {
 };
 /** Parses an {@link McpSetTrustRequest}; a request without a UUID key is refused. */
 export const McpSetTrustRequestSchema: z.ZodType<McpSetTrustRequest, McpSetTrustRequest> =
-  bindingAddressed({ clientIdempotencyKey: z.string().uuid(), trusted: z.boolean() });
+  bindingAddressed({ clientIdempotencyKey: z.uuid(), trusted: z.boolean() });
 
 /**
  * The redacted read-back of a binding's declaration, by transport.

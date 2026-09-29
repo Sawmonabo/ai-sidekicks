@@ -2648,7 +2648,7 @@ export const InterruptRunParamsSchema: z.ZodType<InterruptRunParams, InterruptRu
 // validates it. `ApplyInterventionParams` states exactly that division: the
 // param shape carries no paired schema because the key "is validated at the
 // client→daemon WIRE seam, a different boundary, before it ever reaches this
-// shape". `z.string().uuid()` is that validation — a non-UUID key would land in
+// shape". `z.uuid()` is that validation — a non-UUID key would land in
 // a durable receipt as an unbounded caller-chosen string and make replay keying
 // depend on client discipline.
 //
@@ -2665,7 +2665,7 @@ export const ApplyInterventionParamsSchema: z.ZodType<
       type: z.literal("steer"),
       targetRunId: RunIdSchema,
       expectedRunVersion: z.number().int().nonnegative(),
-      clientIdempotencyKey: z.string().uuid(),
+      clientIdempotencyKey: z.uuid(),
       payload: z
         .object({
           content: wireFreeFormString(DRIVER_WIRE_STEER_CONTENT_MAX_LEN, "SteerPayload.content"),
@@ -2688,7 +2688,7 @@ export const ApplyInterventionParamsSchema: z.ZodType<
       type: z.literal("interrupt"),
       targetRunId: RunIdSchema,
       expectedRunVersion: z.number().int().nonnegative(),
-      clientIdempotencyKey: z.string().uuid(),
+      clientIdempotencyKey: z.uuid(),
       payload: z
         .object({
           reason: wireFreeFormString(
@@ -2704,7 +2704,7 @@ export const ApplyInterventionParamsSchema: z.ZodType<
       type: z.literal("cancel"),
       targetRunId: RunIdSchema,
       expectedRunVersion: z.number().int().nonnegative(),
-      clientIdempotencyKey: z.string().uuid(),
+      clientIdempotencyKey: z.uuid(),
       payload: z
         .object({
           reason: wireFreeFormString(DRIVER_WIRE_REASON_MAX_LEN, "CancelPayload.reason").optional(),
@@ -2823,7 +2823,7 @@ export const ListProviderCommandsRequestSchema: z.ZodType<
 > = z
   .object({
     sessionId: SessionIdSchema,
-    agentId: z.string().uuid(),
+    agentId: z.uuid(),
   })
   .strict();
 

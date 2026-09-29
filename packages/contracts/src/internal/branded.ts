@@ -12,7 +12,7 @@ import { z } from "zod";
  *   1. The general form — [RFC 9562 section 4](https://www.rfc-editor.org/rfc/rfc9562#section-4)
  *      8-4-4-4-12 hex with `1`-`8` and `10` (nibble `8`, `9`, `a`, or `b`).
  *
- * WHY THIS IS NOT `z.string().uuid()`. Zod 4.3.6's versionless `uuid` regex
+ * WHY THIS IS NOT `z.uuid()`. Zod 4.3.6's versionless `uuid` regex
  * (`node_modules/zod/v4/core/regexes.js`) is, verbatim:
  *
  *   /^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$/
@@ -48,7 +48,7 @@ const RFC_9562_TEXT_FORM =
  * is another plan's unshipped symbol, so declaring the brand here would be the
  * duplicate source of truth this file exists to prevent — `repo.ts`'s
  * `worktreeId` is the shipped instance, since owns `WorktreeId`. Composing
- * this rather than `z.string().uuid()` is what makes that member's standing
+ * this rather than `z.uuid()` is what makes that member's standing
  * claim — the runtime accept set is already identical and only the
  * compile-time brand is absent — true by CONSTRUCTION rather than by
  * coincidence: the owning plan can narrow at its own consumption site with no
@@ -57,7 +57,7 @@ const RFC_9562_TEXT_FORM =
  * NOT for a client-minted opaque key that merely happens to be UUID-shaped
  * (`clientIdempotencyKey`): that is not an id awaiting a brand, nothing will
  * ever compare it against a branded id, and holding it to Zod's stricter
- * `.uuid()` costs nothing.
+ * `z.uuid()` costs nothing.
  *
  * The explicit type annotation is required because the contracts package
  * compiles with `isolatedDeclarations: true`.

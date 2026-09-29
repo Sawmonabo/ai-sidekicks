@@ -135,7 +135,7 @@ describe("JsonRpcClient.call rejects with JsonRpcSchemaError on schema violation
 
     const paramsSchema = z.object({ key: z.string() });
     const resultSchema = z.object({
-      sessionId: z.string().uuid(),
+      sessionId: z.uuid(),
       state: z.literal("provisioning"),
     });
 
@@ -262,7 +262,7 @@ describe("JsonRpcClient.call rejects with JsonRpcSchemaError on schema violation
     const transport = new InMemoryTransport();
     const client = new JsonRpcClient(transport, { protocolVersion: "2026-05-01" });
     const paramsSchema = z.object({ key: z.string() });
-    const resultSchema = z.object({ sessionId: z.string().uuid() });
+    const resultSchema = z.object({ sessionId: z.uuid() });
 
     // Phase A — params failure.
     const malformedParams = { bogus: true } as unknown as { key: string };
