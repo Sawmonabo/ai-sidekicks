@@ -21,8 +21,10 @@
 // A compiled face forwards every prop it is given, so the class, the size, and
 // the accessibility attributes are set exactly where they were before.
 
+import "./Glyph.css";
+
 import { GLYPH_DEFAULT_SIZE, type GlyphName } from "@renderer/styles/glyphs.js";
-import { GLYPH_FACES } from "./glyph-icons.js";
+import { GLYPH_ICONS } from "./glyph-icons.js";
 
 export type { GlyphName };
 
@@ -37,7 +39,7 @@ export interface GlyphProps {
 export function Glyph(props: GlyphProps): React.JSX.Element {
   const size = props.size ?? GLYPH_DEFAULT_SIZE;
   const isLabelled = props.title !== undefined;
-  const Face = GLYPH_FACES[props.name];
+  const Face = GLYPH_ICONS[props.name];
   return (
     <Face
       className="meridian-glyph"

@@ -26,7 +26,7 @@
 // state. A class holding the fold's result beside the store would be a second
 // source of truth for a fact the log already orders.
 
-import type { ConsoleSessionEvent } from "@renderer/console/store/entities/entities.js";
+import type { ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
 import { TERMINAL_LEASE_LEDGER_CAP } from "../terminal-caps.js";
 import {
   TERMINAL_LEASE_EVENT_KIND,

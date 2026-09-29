@@ -52,7 +52,7 @@ import {
   settleEnumeration,
   type ProviderCommandReadState,
 } from "@renderer/features/composer/command-list/provider-command-read.js";
-import { ReadScope } from "@renderer/console/store/read/read-cancellation.js";
+import { ReadScope } from "@renderer/lib/reads/read-scope.js";
 import {
   composeCatalog,
   selectAddressedBindingGroup,

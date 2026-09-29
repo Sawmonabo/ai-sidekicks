@@ -30,7 +30,7 @@ import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
 import {
   GenerationLatch,
   type CurrentGenerationClaim,
-} from "@renderer/console/store/read/generation-latch.js";
+} from "@renderer/lib/reads/generation-latch.js";
 import { ingestRefusalDisposition, type IngestRefusalDisposition } from "./attachment-policy.js";
 import {
   attachmentIngestEntryFrom,

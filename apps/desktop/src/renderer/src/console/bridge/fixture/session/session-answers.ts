@@ -17,7 +17,7 @@
 
 import { EVENT_CURSOR_UNRESOLVABLE_CODE } from "@ai-sidekicks/contracts";
 
-import type { WireErrorEnvelope } from "@shared/wire-errors.js";
+import type { WireErrorEnvelope } from "@renderer/lib/wire-errors.js";
 import type { SessionSnapshot } from "@renderer/store/session/session-state.js";
 import type { ScenarioEngine } from "../../scenario/runtime/index.js";
 import { fixtureSessionSnapshot } from "@renderer/services/daemon/session-snapshot.fixture.js";

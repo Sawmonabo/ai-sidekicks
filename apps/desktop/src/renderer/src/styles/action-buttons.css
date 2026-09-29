@@ -1,0 +1,96 @@
+/*
+ * The action buttons several features share: one treatment, declared once, for the
+ * controls whose selector lists name classes of more than one feature. A copy per
+ * feature would be two copies of one treatment that drift apart.
+ *
+ * A global sheet, imported by `main.tsx`. Every value is a Meridian token.
+ */
+
+/* --- disclosure triggers (the approval card, the callback tools) --------------- */
+
+.meridian-approval-card__disclosure-trigger,
+.meridian-callback-tools__schema-trigger {
+  padding: var(--meridian-space-1) 0;
+  color: var(--meridian-text-muted);
+  font: inherit;
+  font-size: var(--meridian-text-xs);
+  text-align: left;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.meridian-approval-card__disclosure-trigger:hover,
+.meridian-callback-tools__schema-trigger:hover {
+  color: var(--meridian-text);
+}
+
+/* --- the approval card's and the remembered rules' controls -------------------- */
+
+/* Every one of these controls shares its METRICS. The face splits two ways below,
+   because rule 1's one primary action per surface is a difference in face and not
+   in size: the approve action carries `meridian-accent-fill`, and every other
+   control here is quiet chrome. */
+.meridian-approval-card__scope-trigger,
+.meridian-approval-card__action,
+.meridian-grants__revoke,
+.meridian-grants__cancel {
+  padding: var(--meridian-space-1) var(--meridian-space-3);
+  font: inherit;
+  font-size: var(--meridian-text-sm);
+}
+
+/* The quiet controls, named one by one rather than as `__action` with the primary
+   overriding it: an override would restate the accent pairing here, which is the
+   one thing `meridian-accent-fill` exists to keep in a single place. */
+.meridian-approval-card__scope-trigger,
+.meridian-approval-card__action--reject,
+.meridian-grants__revoke,
+.meridian-grants__cancel {
+  color: var(--meridian-text);
+  background: var(--meridian-surface);
+  border: 1px solid var(--meridian-edge-strong);
+  border-radius: var(--meridian-radius-sm);
+  cursor: pointer;
+}
+
+.meridian-approval-card__action:focus-visible,
+.meridian-grants__revoke:focus-visible,
+.meridian-grants__cancel:focus-visible,
+.meridian-approval-card__disclosure-trigger:focus-visible,
+.meridian-approval-card__scope-trigger:focus-visible,
+.meridian-callback-tools__schema-trigger:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 1px;
+}
+
+/* --- the queue's cancel and the steer box's confirm and dismiss ---------------- */
+
+.meridian-queue__cancel,
+.meridian-run-composer__confirm,
+.meridian-run-composer__dismiss {
+  display: inline-flex;
+  gap: var(--meridian-space-1);
+  align-items: center;
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface-raised);
+  color: var(--meridian-text);
+  font: inherit;
+  font-size: var(--meridian-text-xs);
+  cursor: pointer;
+}
+
+.meridian-queue__cancel:hover:enabled,
+.meridian-run-composer__confirm:hover,
+.meridian-run-composer__dismiss:hover {
+  border-color: var(--meridian-edge-strong);
+}
+
+.meridian-queue__cancel:focus-visible,
+.meridian-run-composer__confirm:focus-visible,
+.meridian-run-composer__dismiss:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 1px;
+}

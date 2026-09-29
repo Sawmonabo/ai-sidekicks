@@ -35,13 +35,28 @@
 
 import type { ProviderAccountNotification } from "@ai-sidekicks/contracts";
 
-import { PROVIDER_QUOTA_PENDING_NOTIFICATION_CAP } from "@renderer/console/core/constants/provider-quota-caps.js";
+/**
+ * Account-plane notifications held while that registry's OPENING read is in
+ * flight.
+ *
+ * The tail opens before the read, and the read's reply restates the whole
+ * registry at an instant the tail has already moved past — so a removal or a
+ * credential-generation bump that arrives in that window has to be replayed
+ * AFTER the snapshot seats or the snapshot silently undoes it. The buffer's
+ * lifetime is therefore one round trip, and its size is whatever the tail bursts
+ * inside one: a node's accounts and their limit windows are a handful, so this is
+ * a memory bound rather than a policy. Past it the reading stops buffering,
+ * applies what it holds live, and takes a FRESH read — nothing is dropped,
+ * because the tail emits no second notification for a mutation it already
+ * reported.
+ */
+export const PROVIDER_QUOTA_PENDING_NOTIFICATION_CAP = 64;
 
 /**
  * What holding one notification did. Two outcomes, and `overflowed` is an
  * instruction to the caller rather than a failure — see the header.
  */
-export type QuotaNotificationHoldOutcome = "held" | "overflowed";
+export type NotificationHoldOutcome = "held" | "overflowed";
 
 /**
  * The notifications one reading is holding, and whether it is holding at all.
@@ -76,7 +91,7 @@ export class ProviderQuotaNotificationHold {
   }
 
   /** Hold one frame, or say the caller must apply live and re-read. */
-  public hold(notification: ProviderAccountNotification): QuotaNotificationHoldOutcome {
+  public hold(notification: ProviderAccountNotification): NotificationHoldOutcome {
     if (this.#held.length >= PROVIDER_QUOTA_PENDING_NOTIFICATION_CAP) {
       return "overflowed";
     }

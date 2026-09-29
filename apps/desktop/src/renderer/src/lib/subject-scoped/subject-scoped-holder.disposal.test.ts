@@ -20,7 +20,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { consoleTripwires } from "../tripwires.js";
 import { SUBJECT_ONE, SUBJECT_TWO } from "@test/helpers/subject-fixtures.js";
-import { visit } from "@renderer/console/store/subject-scoped/subject-scoped-drivers.test-support.js";
+import { visit } from "./subject-scoped-holder.test-support.js";
 import { SubjectScopedHolder } from "./subject-scoped-holder.js";
 
 let restoreThrowOnReport = false;

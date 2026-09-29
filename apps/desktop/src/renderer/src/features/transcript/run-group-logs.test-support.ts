@@ -14,7 +14,7 @@
 // stamp exists to prevent.
 
 import { SessionStore } from "@renderer/store/session/session-store.js";
-import { type ConsoleSessionEvent } from "@renderer/console/store/entities/entities.js";
+import { type ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
 import {
   LIVE_RUN_ID,
   SESSION_ID,

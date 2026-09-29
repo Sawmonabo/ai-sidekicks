@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 
 import { DIAGNOSTIC_CAPTURE_BOUNDS } from "./diagnostic-capture-bounds.js";
 import {
-  DIAGNOSTIC_BAND_FORWARD_PROBE,
+  DIAGNOSTIC_FORWARD_PROBE,
   DiagnosticCapture,
   type DiagnosticRecord,
   toJsonLines,
@@ -75,7 +75,7 @@ describe("the I-am-blind marker", () => {
     const capture = new DiagnosticCapture();
     capture.record(recordAt(1));
     capture.flush();
-    expect(capture.isBlind(DIAGNOSTIC_BAND_FORWARD_PROBE)).toBe(true);
+    expect(capture.isBlind(DIAGNOSTIC_FORWARD_PROBE)).toBe(true);
     expect(capture.blindProbes()[0]?.reason).toContain("no diagnostic forwarder");
     // The records are still here: blindness is reported, not paid for by loss.
     expect(capture.pendingRecordCount).toBeGreaterThan(0);
@@ -87,7 +87,7 @@ describe("the I-am-blind marker", () => {
     capture.flush();
     const batches: string[] = [];
     capture.installForwarder((jsonLines) => batches.push(jsonLines));
-    expect(capture.isBlind(DIAGNOSTIC_BAND_FORWARD_PROBE)).toBe(false);
+    expect(capture.isBlind(DIAGNOSTIC_FORWARD_PROBE)).toBe(false);
     expect(capture.pendingRecordCount).toBe(0);
     // Both the sample and the blind marker it produced reach the band.
     expect(batches[0]).toContain("probe-unsupported");
@@ -114,14 +114,14 @@ describe("the I-am-blind marker", () => {
     const refusedProbeCount = 5;
     for (
       let index = 0;
-      index < DIAGNOSTIC_CAPTURE_BOUNDS.blindProbeCount + refusedProbeCount;
+      index < DIAGNOSTIC_CAPTURE_BOUNDS.unreadableProbeCount + refusedProbeCount;
       index += 1
     ) {
       capture.markBlind(`probe-${index}`, "unsupported", AT);
     }
     capture.flush();
 
-    expect(capture.blindProbes()).toHaveLength(DIAGNOSTIC_CAPTURE_BOUNDS.blindProbeCount);
+    expect(capture.blindProbes()).toHaveLength(DIAGNOSTIC_CAPTURE_BOUNDS.unreadableProbeCount);
     expect(capture.refusedBlindProbeCount).toBe(refusedProbeCount);
     // ONE record, on the first refusal. The set being full is one fact about the
     // console, and restating it per refused probe would spend the pending buffer the
@@ -134,7 +134,7 @@ describe("the I-am-blind marker", () => {
     expect(refusalRecords).toHaveLength(1);
     expect(refusalRecords[0]?.severity).toBe("warning");
     expect(refusalRecords[0]?.detail).toContain(
-      `probe-${DIAGNOSTIC_CAPTURE_BOUNDS.blindProbeCount}`,
+      `probe-${DIAGNOSTIC_CAPTURE_BOUNDS.unreadableProbeCount}`,
     );
   });
 
@@ -142,14 +142,14 @@ describe("the I-am-blind marker", () => {
     // NO forwarder, deliberately. The case above installs one so the auto-flush at the
     // batch bound cannot spend a refusal on the capture's own forward seam; this is the
     // case that drives exactly that. `record` flushes at every batch boundary, a flush
-    // with no forwarder marks `DIAGNOSTIC_BAND_FORWARD_PROBE` blind, and once the set is
+    // with no forwarder marks `DIAGNOSTIC_FORWARD_PROBE` blind, and once the set is
     // full that marking is itself refused — so a count that included it would report how
     // often the capture flushed rather than how many probes went blind past the bound.
     const capture = new DiagnosticCapture();
-    for (let index = 0; index < DIAGNOSTIC_CAPTURE_BOUNDS.blindProbeCount; index += 1) {
+    for (let index = 0; index < DIAGNOSTIC_CAPTURE_BOUNDS.unreadableProbeCount; index += 1) {
       capture.markBlind(`probe-${index}`, "unsupported", AT);
     }
-    expect(capture.blindProbes()).toHaveLength(DIAGNOSTIC_CAPTURE_BOUNDS.blindProbeCount);
+    expect(capture.blindProbes()).toHaveLength(DIAGNOSTIC_CAPTURE_BOUNDS.unreadableProbeCount);
     expect(capture.refusedBlindProbeCount).toBe(0);
 
     capture.markBlind("probe-past-the-bound", "unsupported", AT);
@@ -162,7 +162,7 @@ describe("the I-am-blind marker", () => {
     // second half is its own negative control — a fix that simply stopped counting would
     // read zero here, and a fix that counted the seam would read more than two.
     expect(capture.refusedBlindProbeCount).toBe(2);
-    expect(capture.isBlind(DIAGNOSTIC_BAND_FORWARD_PROBE)).toBe(false);
+    expect(capture.isBlind(DIAGNOSTIC_FORWARD_PROBE)).toBe(false);
   });
 
   it("a throwing forwarder loses no record and becomes a blind seam", () => {

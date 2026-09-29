@@ -7,10 +7,10 @@
 
 import { describe, expect, it, vi } from "vitest";
 
-import { lossyStringify } from "@shared/wire-errors.js";
+import { lossyStringify } from "@renderer/lib/wire-errors.js";
 import { ConsoleRefusalError, refuse } from "@renderer/lib/refusal.js";
 import { ManualClock } from "@renderer/lib/clock.js";
-import { PushDrivenRead } from "@renderer/console/seats/read/push-driven-read.js";
+import { PushDrivenRead } from "./push-driven-read.js";
 import { PUSH_DRIVEN_READ_FAILURE_CODES } from "@renderer/lib/reads/read-failure-codes.js";
 
 /** Let the scheduler's in-flight promise settle without advancing the clock. */

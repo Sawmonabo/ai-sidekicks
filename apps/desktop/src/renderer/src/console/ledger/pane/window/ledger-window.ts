@@ -70,7 +70,7 @@ import {
 } from "../../structure/index.js";
 import { useSessionScopedState } from "../../../seats/index.js";
 import { useSessionStore } from "@renderer/store/session/hooks/useOpenSessionStore.js";
-import { type ConsoleSessionEvent } from "@renderer/console/store/entities/entities.js";
+import { type ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 
 /**

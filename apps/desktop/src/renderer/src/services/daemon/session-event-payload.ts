@@ -48,7 +48,7 @@ import {
   type SessionEventType,
 } from "@ai-sidekicks/contracts";
 
-import type { ConsoleSessionEvent } from "@renderer/console/store/entities/entities.js";
+import type { ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
 
 /**
  * Narrow a delivered wire envelope into the console's own event shape, or refuse it.

@@ -20,7 +20,7 @@
 
 import { compareInstants, parseInstant } from "@renderer/lib/instant.js";
 import { readGoalOriginKeys, readGoalPayloadText } from "./wire-shapes/session-goal-payloads.js";
-import { type ConsoleSessionEvent } from "@renderer/console/store/entities/entities.js";
+import { type ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
 
 /** The two projection sources, wire-verbatim. */
 export const SESSION_GOAL_EVENT_KINDS = ["session.goal_updated", "session.goal_cleared"] as const;

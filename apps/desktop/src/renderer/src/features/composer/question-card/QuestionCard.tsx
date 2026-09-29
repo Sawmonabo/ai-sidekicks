@@ -50,7 +50,7 @@ import { AskFreeTextArm } from "./TypedAnswerField.js";
 import type {
   DriverAskDelivery,
   DriverAskReading,
-} from "@renderer/console/ledger/cards/bodies/input-ask.js";
+} from "@renderer/store/session-events/question-reading.js";
 
 /** What the row hands a supplied body. */
 export interface InputAskBodyProps {

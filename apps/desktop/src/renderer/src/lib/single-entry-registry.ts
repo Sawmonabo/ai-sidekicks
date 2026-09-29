@@ -33,7 +33,7 @@ import { KeyedRegistry } from "./keyed-registry.js";
  * its own props — the point of the seat is that those props are the contract, and
  * a shared renderer type would erase exactly the part that matters.
  */
-export interface SingleSlotSeatDescriptor<TRenderer> {
+export interface SingleEntryDescriptor<TRenderer> {
   /** The task or family that owns the body, so an empty seat names someone. */
   readonly owner: string;
   readonly render: TRenderer;
@@ -41,7 +41,7 @@ export interface SingleSlotSeatDescriptor<TRenderer> {
 
 export class SingleSlotSeat<TRenderer> {
   readonly #seatName: string;
-  readonly #descriptorsBySeatName: KeyedRegistry<string, SingleSlotSeatDescriptor<TRenderer>>;
+  readonly #descriptorsBySeatName: KeyedRegistry<string, SingleEntryDescriptor<TRenderer>>;
 
   /**
    * @param seatName - The seat's name, which is also its one key. It appears in
@@ -50,7 +50,7 @@ export class SingleSlotSeat<TRenderer> {
    */
   public constructor(seatName: string, duplicateHint: string) {
     this.#seatName = seatName;
-    this.#descriptorsBySeatName = new KeyedRegistry<string, SingleSlotSeatDescriptor<TRenderer>>({
+    this.#descriptorsBySeatName = new KeyedRegistry<string, SingleEntryDescriptor<TRenderer>>({
       duplicatePolicy: "owner-scoped",
       describeWhat: `${seatName} seat`,
       ownerOf: (descriptor) => descriptor.owner,
@@ -59,7 +59,7 @@ export class SingleSlotSeat<TRenderer> {
   }
 
   /** Claim the seat. A second claim by a different owner is an error, not a swap. */
-  public register(descriptor: SingleSlotSeatDescriptor<TRenderer>): void {
+  public register(descriptor: SingleEntryDescriptor<TRenderer>): void {
     this.#descriptorsBySeatName.register(this.#seatName, descriptor);
   }
 
@@ -67,7 +67,7 @@ export class SingleSlotSeat<TRenderer> {
     this.#descriptorsBySeatName.unregister(this.#seatName);
   }
 
-  public descriptor(): SingleSlotSeatDescriptor<TRenderer> | undefined {
+  public descriptor(): SingleEntryDescriptor<TRenderer> | undefined {
     return this.#descriptorsBySeatName.get(this.#seatName);
   }
 

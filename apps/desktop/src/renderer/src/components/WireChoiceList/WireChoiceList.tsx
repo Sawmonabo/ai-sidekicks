@@ -36,6 +36,8 @@
 // prose paraphrasing a wire figure, which the same rule forbids. A subject with no
 // name renders by its identifier, which is what this row does.
 
+import "./WireChoiceList.css";
+
 import { WireFigure } from "../WireFigure/WireFigure.js";
 
 export interface WireChoiceListProps {

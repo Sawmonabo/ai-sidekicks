@@ -6,10 +6,7 @@
 // entity contribution and nothing else — never the batch, never the process, and
 // never half a partition.
 
-import type {
-  ConsoleSessionEvent,
-  EntityProjectorRegistry,
-} from "@renderer/console/store/entities/entities.js";
+import type { ConsoleSessionEvent, EntityProjectorRegistry } from "./entities.js";
 import { mergeRemoval, mergeUpsert, type SessionPartitions } from "./entity-partitions.js";
 
 /**

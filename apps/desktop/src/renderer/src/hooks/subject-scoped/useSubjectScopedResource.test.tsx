@@ -21,11 +21,11 @@ import { useEffect, useState, type ReactElement } from "react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { consoleTripwires } from "@renderer/lib/tripwires.js";
-import { useSubjectScopedResource } from "@renderer/console/store/subject-scoped/subject-scoped-resource.js";
+import { useSubjectScopedResource } from "./useSubjectScopedResource.js";
 import type { NamedFixtureSubject } from "@test/helpers/subject-fixtures.js";
 import {
   DISCARDED_SUBJECT,
-  ResourceLedger,
+  ResourceOpenCloseLog,
   SETTLED_SUBJECT,
   type OpenResource,
 } from "./useSubjectScopedResource.test-support.js";
@@ -51,7 +51,7 @@ interface DiscardProbeProps {
   readonly firstPassSubject: NamedFixtureSubject;
   /** The subject the pass that actually commits is addressed at. */
   readonly settledSubject: NamedFixtureSubject;
-  readonly ledger: ResourceLedger;
+  readonly ledger: ResourceOpenCloseLog;
 }
 
 /**
@@ -103,7 +103,7 @@ function EffectOnlyDisposalProbe(props: DiscardProbeProps): ReactElement {
 
 interface SwapProbeProps {
   readonly subject: NamedFixtureSubject;
-  readonly ledger: ResourceLedger;
+  readonly ledger: ResourceOpenCloseLog;
   readonly onReady?: (publish: (next: OpenResource) => void) => void;
 }
 
@@ -119,7 +119,7 @@ function SwapProbe(props: SwapProbeProps): ReactElement {
 }
 describe("useSubjectScopedResource — a render React discarded leaves nothing open", () => {
   it("closes the resource the discarded pass opened, and only that one", () => {
-    const ledger = new ResourceLedger();
+    const ledger = new ResourceOpenCloseLog();
     const view = render(
       <DiscardedRenderProbe
         firstPassSubject={DISCARDED_SUBJECT}
@@ -140,7 +140,7 @@ describe("useSubjectScopedResource — a render React discarded leaves nothing o
     // module existed. Its effect never closed over the discarded pass's resource, so
     // nothing ever closes it — which is the defect, and the reason the claim above is
     // about this hook rather than about the script.
-    const ledger = new ResourceLedger();
+    const ledger = new ResourceOpenCloseLog();
     const view = render(
       <EffectOnlyDisposalProbe
         firstPassSubject={DISCARDED_SUBJECT}
@@ -162,7 +162,7 @@ describe("useSubjectScopedResource — a committed resource is closed once, by t
     // The committed arm: this resource IS the one a live effect holds, so closing it
     // during the render that replaces it would tear down what the frame on screen is
     // still reading through — and that render may itself be discarded.
-    const ledger = new ResourceLedger();
+    const ledger = new ResourceOpenCloseLog();
     const view = render(<SwapProbe subject={DISCARDED_SUBJECT} ledger={ledger} />);
     expect(ledger.closed).toStrictEqual([]);
 
@@ -178,7 +178,7 @@ describe("useSubjectScopedResource — a committed resource is closed once, by t
   it("opens and closes nothing on a re-render that changes nothing about the subject", () => {
     // The control on every case above: a hook that opened per render would satisfy
     // them all, and one that closed per render would leave the window with nothing.
-    const ledger = new ResourceLedger();
+    const ledger = new ResourceOpenCloseLog();
     const view = render(<SwapProbe subject={DISCARDED_SUBJECT} ledger={ledger} />);
 
     view.rerender(<SwapProbe subject={DISCARDED_SUBJECT} ledger={ledger} />);
@@ -196,7 +196,7 @@ describe("useSubjectScopedResource — a committed resource is closed once, by t
     // replacement is held and disposed exactly as one the holder seeded — and this
     // is the control on the late-open case below: a hook that closed every published
     // resource would leave both live callers with none.
-    const ledger = new ResourceLedger();
+    const ledger = new ResourceOpenCloseLog();
     let publishInto: (next: OpenResource) => void = () => {};
     const view = render(
       <SwapProbe
@@ -226,7 +226,7 @@ describe("useSubjectScopedResource — two publishes before one commit", () => {
     // replacement is installed and replaced again with no commit in between. No
     // effect ever closed over it and the re-addressing path never sees it — the
     // holder's own write is the last moment anything can reach it.
-    const ledger = new ResourceLedger();
+    const ledger = new ResourceOpenCloseLog();
     let publishInto: (next: OpenResource) => void = () => {};
     const view = render(
       <SwapProbe
@@ -259,7 +259,7 @@ describe("useSubjectScopedResource — two publishes before one commit", () => {
     // Without this, "the replaced resource was closed" would also be satisfied by a
     // hook that closed every published value — which would close the resource the
     // window just opened for the visit it is on.
-    const ledger = new ResourceLedger();
+    const ledger = new ResourceOpenCloseLog();
     let publishInto: (next: OpenResource) => void = () => {};
     render(
       <SwapProbe
@@ -288,7 +288,7 @@ describe("useSubjectScopedResource — an open that settles after the subject ha
     // that is over. Nothing installs it, so no commit and no effect will ever see it
     // — the holder's refusal is the resource's last reachable moment, which is why
     // this hook hands the holder its disposal rather than leaving a refusal a drop.
-    const ledger = new ResourceLedger();
+    const ledger = new ResourceOpenCloseLog();
     let publishInto: (next: OpenResource) => void = () => {};
     const treeAt = (subject: NamedFixtureSubject): ReactElement => (
       <SwapProbe

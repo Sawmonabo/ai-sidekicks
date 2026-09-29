@@ -17,9 +17,9 @@ import { createElement } from "react";
 import { describe, expect, it } from "vitest";
 
 import { settle } from "@test/helpers/settle.js";
-import { ConsolePaneChrome } from "@renderer/console/seats/pane/ConsolePaneChrome.js";
+import { ConsolePaneChrome } from "@renderer/components/PaneFrame/PaneFrame.js";
 import { deferredBodyModule, syntheticPaneContextAt } from "@test/helpers/lazy-body-contexts.js";
-import { PaneControlsContext } from "@renderer/console/seats/pane/pane-controls.js";
+import { PaneControlsContext } from "@renderer/components/PaneFrame/pane-controls.js";
 import { type ConsolePaneContext } from "./pane-context.js";
 import { ConsolePaneRegistry } from "./pane-registry.js";
 

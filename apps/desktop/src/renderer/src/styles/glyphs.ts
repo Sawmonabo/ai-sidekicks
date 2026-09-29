@@ -5,7 +5,7 @@
 // signature glyphs for users, runs, and provenance kinds in the same collection,
 // and the library rules admit the Tabler set through `unplugin-icons` at build time.
 // Both halves of that pairing now ship: a name is drawn either by a Tabler face or by
-// one of our own SVGs, and `primitives/figures/glyph-faces.ts` is where each name's
+// one of our own SVGs, and `components/Glyph/glyph-icons.ts` is where each name's
 // answer is written down, one line each.
 //
 // WHY THE NAMES LIVE HERE AND THE FACES LIVE ONE FAMILY UP. `tokens/` is below
@@ -13,7 +13,7 @@
 // therefore cannot hold the face map. It does not need to: what every family
 // above needs from the glyph set is the closed NAME, and a surface that names a
 // glyph should not be pulling a React component tree in to do it. The split is
-// also what keeps the set closed — `GLYPH_FACES` is a `Record<GlyphName, …>`, so
+// also what keeps the set closed — `GLYPH_ICONS` is a `Record<GlyphName, …>`, so
 // the compiler reports a name added here with no face beside it.
 //
 // Three rules hold the family together, and they are why a face is compiled
@@ -54,7 +54,7 @@ export const GLYPH_VIEWBOX_SIZE = 16;
  * A RATIO rather than a per-collection number: a borrowed face drawn in a larger
  * box carries this same share of that box, so the family reads as one weight at
  * 16 px whichever collection a face came from. `vitest/icon-compilation.ts` does
- * the arithmetic once, and `primitives/figures/glyph-faces.test.ts` reads the ratio back
+ * the arithmetic once, and `components/Glyph/glyph-icons.test.ts` reads the ratio back
  * off every compiled face.
  */
 export const GLYPH_STROKE_WIDTH = 1.5;
@@ -105,7 +105,7 @@ export const GLYPH_SIZE_CHROME = 14;
  * without a second list being edited — and a name added anywhere but its own
  * group reads as a stranger in the gallery.
  *
- * WHAT EACH NAME IS DRAWN BY IS NOT WRITTEN HERE. `primitives/figures/glyph-faces.ts`
+ * WHAT EACH NAME IS DRAWN BY IS NOT WRITTEN HERE. `components/Glyph/glyph-icons.ts`
  * holds that, one line per name with its reason, because this family sits below
  * `primitives/` and cannot see a component. What this array declares is that the
  * set is CLOSED; the face map's totality over it is what the compiler checks.

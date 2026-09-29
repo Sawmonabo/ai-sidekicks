@@ -117,10 +117,10 @@ describe("FrameStore — a family-owned modal surface publishes whether it is up
       published.push(state.isModalSurfaceOpen);
     });
 
-    store.modalSurfaceClaims.hold("the-sign-in-card");
+    store.modalDialogClaims.hold("the-sign-in-card");
     expect(store.readable.getState().isModalSurfaceOpen).toBe(true);
 
-    store.modalSurfaceClaims.release("the-sign-in-card");
+    store.modalDialogClaims.release("the-sign-in-card");
     expect(store.readable.getState().isModalSurfaceOpen).toBe(false);
 
     unsubscribe();
@@ -139,16 +139,16 @@ describe("FrameStore — a family-owned modal surface publishes whether it is up
       publishCount += 1;
     });
 
-    store.modalSurfaceClaims.release("a-card-that-never-opened");
+    store.modalDialogClaims.release("a-card-that-never-opened");
     expect(publishCount).toBe(0);
 
-    store.modalSurfaceClaims.hold("the-sign-in-card");
-    store.modalSurfaceClaims.hold("the-onboarding-walkthrough");
+    store.modalDialogClaims.hold("the-sign-in-card");
+    store.modalDialogClaims.hold("the-onboarding-walkthrough");
     expect(publishCount).toBe(1);
 
     // The register republishes `true` here, and the cell must absorb it: the sign-in
     // card is still up, so nothing the frame renders has moved.
-    store.modalSurfaceClaims.release("the-onboarding-walkthrough");
+    store.modalDialogClaims.release("the-onboarding-walkthrough");
     expect(publishCount).toBe(1);
 
     unsubscribe();

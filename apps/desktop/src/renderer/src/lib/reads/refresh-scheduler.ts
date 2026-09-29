@@ -34,7 +34,7 @@
 
 import { type ConsoleClock, type ScheduledHandle } from "../clock.js";
 import { REFRESH_DEBOUNCE_MS, REFRESH_MAX_WAIT_MS } from "./refresh-caps.js";
-import { ReadScope, type ReadRound } from "@renderer/console/store/read/read-cancellation.js";
+import { ReadScope, type ReadRound } from "./read-scope.js";
 
 /**
  * Why a refresh was requested. Rendered in diagnostics; never inferred.

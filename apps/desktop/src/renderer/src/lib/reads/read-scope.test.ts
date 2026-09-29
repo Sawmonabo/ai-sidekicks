@@ -7,10 +7,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import {
-  ReadScope,
-  settleUnlessAbandoned,
-} from "@renderer/console/store/read/read-cancellation.js";
+import { ReadScope, settleUnlessAbandoned } from "./read-scope.js";
 
 /** A promise that never settles, and the release that lets a case settle it. */
 function heldPromise<TValue>(): {

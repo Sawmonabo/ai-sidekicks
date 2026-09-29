@@ -5,7 +5,7 @@
 // lists differing in which element carries the stop would let one suite pass on a
 // shape the other rejects. The scans that read it live in
 // `windowed-row-index.test-support.ts`; the list with a neighbour to tab to is
-// `ListWithNeighbour.test-support.tsx`.
+// `ListWithNeighbor.test-support.tsx`.
 //
 // THE FIXTURE HANDS THE HOOK THE SHAPE A VIRTUALIZER HANDS BACK: the mounted row
 // array itself, rebuilt every render. A stable derivation of it — a joined string —

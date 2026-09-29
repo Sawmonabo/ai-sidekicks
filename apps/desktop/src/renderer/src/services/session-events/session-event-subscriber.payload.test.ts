@@ -16,7 +16,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type { ConsoleScenario } from "@renderer/console/bridge/scenario/runtime/vocabulary.js";
 import { FLAGSHIP_SCENARIO } from "@renderer/console/bridge/scenario/flagship/flagship.js";
 import { consoleTripwires } from "@renderer/lib/tripwires.js";
-import type { ConsoleSessionEvent } from "@renderer/console/store/entities/entities.js";
+import type { ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
 import { SESSION_ID, createHarness } from "./session-event-subscriber.test-support.js";
 
 /** A scenario whose single beat delivers exactly the given payload at time zero. */

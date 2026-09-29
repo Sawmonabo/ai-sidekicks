@@ -16,7 +16,7 @@ import { describe, expect, it } from "vitest";
 
 import { everyTrapThrows, readableOnce } from "./wire-errors.test-support.js";
 import {
-  CONSOLE_REFUSAL_EXTENSION_MEMBERS,
+  REFUSAL_EXTENSION_MEMBERS,
   readRefusalExtensions,
   wireRetryExtension,
 } from "./refusal-extensions.js";
@@ -39,10 +39,7 @@ describe("refusal extensions — the registry is the set, and it is closed", () 
   it("registers exactly the members the console's producers widen a refusal by", () => {
     // Hand-listed against the table, so a member added or removed is a deliberate edit
     // to a closed set rather than a silent change to what survives a rebuild.
-    expect([...CONSOLE_REFUSAL_EXTENSION_MEMBERS].sort()).toStrictEqual([
-      "failedBindingIds",
-      "retry",
-    ]);
+    expect([...REFUSAL_EXTENSION_MEMBERS].sort()).toStrictEqual(["failedBindingIds", "retry"]);
   });
 
   it("reads every registered member a candidate carries", () => {

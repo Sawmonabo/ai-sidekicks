@@ -9,7 +9,7 @@
 import { useMemo } from "react";
 import type { ComposerSeatProps } from "@renderer/console/seats/index.js";
 import { useSessionStore } from "@renderer/store/session/hooks/useOpenSessionStore.js";
-import { type ConsoleSessionEvent } from "@renderer/console/store/entities/entities.js";
+import { type ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
 import { type SessionStoreState } from "@renderer/store/session/session-state.js";
 import { useComposerAddress } from "../hooks/useComposerAddress.js";
 import { ContextMeter } from "../context-ring/ContextRing.js";

@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { ConsoleEntity } from "@renderer/console/store/entities/entities.js";
+import type { ConsoleEntity } from "@renderer/store/session/entities/entities.js";
 import {
   resolveComposerTarget,
   type ComposerTargetInput,

@@ -1,15 +1,10 @@
 /*
  * The three refusal shapes: inline, card, and banner.
  *
- * Split out of the family sheet it grew inside: that file had reached 720 lines and
- * a dozen unrelated primitives, and a stylesheet nobody can hold in their head is
- * where a second treatment for one thing gets added without anybody noticing.
- * Imported from `primitives/index.ts` and from nowhere else, so a surface still
- * cannot render a primitive whose CSS did not arrive with it, and the bundler still
- * sees one edge per sheet rather than one per component.
+ * Imported by each refusal component beside it, so importing the component brings its styles.
  *
  * Hand-authored, unlike `meridian.css` — that file is generated from
- * `console/tokens/palette.ts` and carries only VALUES; this carries only COMPOSITION
+ * `styles/palette.ts` and carries only VALUES; this carries only COMPOSITION
  * and reads every value back out as a custom property.
  *
  * Design-language rules that govern this sheet: rule 9 (the code in mono, the message
@@ -140,7 +135,7 @@
 }
 
 /*
- * ------------------------------------------------------ the recovery region
+ * ------------------------------------------------------ the remedy region
  *
  * What the `action` slot receives, from whichever family's table answered. Muted and a
  * size down, because it is the console's own sentence beside the daemon's rather than a
@@ -152,7 +147,7 @@
  * their own prefix, property for property identical, so a change to the region's leading
  * landed on one surface and not the other — and neither sheet said the other existed.
  */
-.meridian-refusal-recovery {
+.meridian-refusal-remedy {
   display: flex;
   flex-direction: column;
   gap: var(--meridian-space-1);
@@ -160,7 +155,7 @@
   color: var(--meridian-text-muted);
 }
 
-.meridian-refusal-recovery__move {
+.meridian-refusal-remedy__move {
   margin: 0;
 }
 
@@ -168,7 +163,7 @@
  * The exclusive alternatives one code carries. A list because a person picks between
  * them; run together as prose they read as steps to perform in order.
  */
-.meridian-refusal-recovery__cases {
+.meridian-refusal-remedy__cases {
   margin: 0;
   padding-inline-start: var(--meridian-space-4);
   display: flex;

@@ -18,7 +18,7 @@ import {
   ChapterCollapseState,
   type LedgerChapter,
 } from "@renderer/console/ledger/structure/index.js";
-import { type ConsoleSessionEvent } from "@renderer/console/store/entities/entities.js";
+import { type ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
 import {
   chapterRowIdsWithinCap,
   foldChapterHeaders,

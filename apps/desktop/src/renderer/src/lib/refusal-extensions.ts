@@ -20,7 +20,7 @@
 //
 // THE SET IS CLOSED AND IT IS CLOSED HERE, not at each producer, and the two halves
 // are held together by {@link REFUSAL_EXTENSION_READERS}: its type is a mapped type
-// over {@link ConsoleRefusalExtensions}, so a member added to the interface without a
+// over {@link RefusalExtensions}, so a member added to the interface without a
 // reader fails to compile and a reader for a member the interface does not declare
 // fails the same way. An arbitrary key a producer invented reaches no reader and so
 // reaches no rebuilt refusal — which is the property that makes carrying members
@@ -36,7 +36,7 @@
 // of one, and `wire-rejection.ts` classifies on them — a member in both places would
 // be read twice and could be classified one way and rebuilt another.
 
-import { readGuardedProperty } from "@shared/wire-errors.js";
+import { readGuardedProperty } from "./wire-errors.js";
 
 import { parseInstant } from "./instant.js";
 import type { ConsoleRefusal } from "./refusal.js";
@@ -69,7 +69,7 @@ export interface WireRetryHint {
  * Each is optional because each belongs to one producer, and a refusal from any other
  * producer carries none of them.
  */
-export interface ConsoleRefusalExtensions {
+export interface RefusalExtensions {
   /** Registered by `core/wire-rejection.ts`: when a retry is allowed. */
   readonly retry?: WireRetryHint;
   /**
@@ -86,18 +86,18 @@ export interface ConsoleRefusalExtensions {
 }
 
 /** A refusal plus whatever registered members its producer carried on it. */
-export type ExtendedConsoleRefusal = ConsoleRefusal & ConsoleRefusalExtensions;
+export type ExtendedConsoleRefusal = ConsoleRefusal & RefusalExtensions;
 
 /**
  * The two positions a retry bound is registered at on the WIRE, as an extension.
  *
  * Not an extension READER: it takes the wire's own spelling off an envelope that is
  * not a refusal at all, which is why the registry below does not hold it and the two
- * wire arms call it directly. It answers the same `ConsoleRefusalExtensions` shape
+ * wire arms call it directly. It answers the same `RefusalExtensions` shape
  * they do, so a bound the wire did not send is an ABSENT member rather than a present
  * `undefined` one — the distinction a renderer asking "does it carry a retry" reads.
  */
-export function wireRetryExtension(source: unknown): ConsoleRefusalExtensions {
+export function wireRetryExtension(source: unknown): RefusalExtensions {
   const resetAt = readGuardedProperty(source, "resetAt");
   const reset = typeof resetAt === "string" ? parseInstant(resetAt) : undefined;
   const retry = retryHintOf(
@@ -115,7 +115,7 @@ export function wireRetryExtension(source: unknown): ConsoleRefusalExtensions {
  * on an envelope that is not a refusal, while the reader takes a member off a
  * candidate that already is one.
  */
-export function wireFailedBindingsExtension(source: unknown): ConsoleRefusalExtensions {
+export function wireFailedBindingsExtension(source: unknown): RefusalExtensions {
   const failedBindingIds = identifierListOf(readGuardedProperty(source, "failedBindingIds"));
   return failedBindingIds === undefined ? {} : { failedBindingIds };
 }
@@ -178,15 +178,15 @@ function identifierListOf(source: unknown): readonly string[] | undefined {
 /**
  * One reader per registered member, and the reason the set cannot drift.
  *
- * The mapped type over `Required<ConsoleRefusalExtensions>` is the mechanism: the
+ * The mapped type over `Required<RefusalExtensions>` is the mechanism: the
  * compiler demands an entry for every member the interface declares and refuses one
  * for a member it does not, so the registry and the type it registers are the same
  * set by construction rather than by review.
  */
 const REFUSAL_EXTENSION_READERS: {
-  readonly [Member in keyof Required<ConsoleRefusalExtensions>]: (
+  readonly [Member in keyof Required<RefusalExtensions>]: (
     candidate: unknown,
-  ) => Required<ConsoleRefusalExtensions>[Member] | undefined;
+  ) => Required<RefusalExtensions>[Member] | undefined;
 } = {
   retry: carriedRetryHint,
   failedBindingIds: (candidate: unknown) =>
@@ -194,8 +194,9 @@ const REFUSAL_EXTENSION_READERS: {
 };
 
 /** Every registered extension member, as a set a test can walk. */
-export const CONSOLE_REFUSAL_EXTENSION_MEMBERS: readonly (keyof ConsoleRefusalExtensions)[] =
-  Object.keys(REFUSAL_EXTENSION_READERS) as (keyof ConsoleRefusalExtensions)[];
+export const REFUSAL_EXTENSION_MEMBERS: readonly (keyof RefusalExtensions)[] = Object.keys(
+  REFUSAL_EXTENSION_READERS,
+) as (keyof RefusalExtensions)[];
 
 /**
  * Read every registered extension a candidate carries, and nothing else.
@@ -210,7 +211,7 @@ export const CONSOLE_REFUSAL_EXTENSION_MEMBERS: readonly (keyof ConsoleRefusalEx
  * between a key and its reader's return type, and the table above is where that
  * pairing is actually checked.
  */
-export function readRefusalExtensions(candidate: unknown): ConsoleRefusalExtensions {
+export function readRefusalExtensions(candidate: unknown): RefusalExtensions {
   const extensions: Record<string, unknown> = {};
   for (const [memberName, readMember] of Object.entries(REFUSAL_EXTENSION_READERS)) {
     const value = readMember(candidate);
@@ -218,7 +219,7 @@ export function readRefusalExtensions(candidate: unknown): ConsoleRefusalExtensi
       extensions[memberName] = value;
     }
   }
-  return extensions as ConsoleRefusalExtensions;
+  return extensions as RefusalExtensions;
 }
 
 /**
@@ -231,7 +232,7 @@ export function readRefusalExtensions(candidate: unknown): ConsoleRefusalExtensi
  */
 export function withRefusalExtensions(
   refusal: ConsoleRefusal,
-  extensions: ConsoleRefusalExtensions,
+  extensions: RefusalExtensions,
 ): ExtendedConsoleRefusal {
   return { ...refusal, ...extensions };
 }

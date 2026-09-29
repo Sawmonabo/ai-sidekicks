@@ -9,14 +9,14 @@ import { render } from "@testing-library/react";
 import { createFixtureBridge } from "@renderer/console/bridge/fixture/call-plane/bridge.js";
 import type { ConsoleScenario } from "@renderer/console/bridge/scenario/runtime/vocabulary.js";
 import { DEFAULT_ROUTE } from "@renderer/routing/routes.js";
-import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/console/core/constants/persistence-caps.js";
+import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence-caps.js";
 import { DraftStore } from "@renderer/store/draft-store.js";
 import { FrameStore } from "@renderer/store/window/window-store.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import {
   type ConsoleEntity,
   type ConsoleSessionEvent,
-} from "@renderer/console/store/entities/entities.js";
+} from "@renderer/store/session/entities/entities.js";
 import type { ConsolePaneAddress } from "@renderer/console/seats/index.js";
 import { ComposerAccessoryRail } from "./ComposerToolbar.js";
 import { CONTEXT_WINDOW_EVENT_KIND } from "../context-ring/context-window-reading.js";

@@ -42,8 +42,8 @@ import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
 import { type ConsoleClock } from "@renderer/lib/clock.js";
 import { RefreshScheduler, type RefreshReason } from "@renderer/lib/reads/refresh-scheduler.js";
 import { SessionRefreshTriggers } from "@renderer/store/reads/session-refresh-triggers.js";
-import { type ReadRound } from "@renderer/console/store/read/read-cancellation.js";
-import { type ReadTriggerTarget } from "@renderer/console/store/read/read-triggers.js";
+import { type ReadRound } from "@renderer/lib/reads/read-scope.js";
+import { type ReadTriggerTarget } from "@renderer/store/reads/read-triggers.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 import {
   ExecutionModeSelections,

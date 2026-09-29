@@ -81,7 +81,7 @@ export type ShellConnection =
   | { readonly kind: "stopped" };
 
 /** Which transport reached the daemon. `loopback` is the visibly second-class one. */
-export type ShellTransport = "os-local" | "loopback";
+export type DaemonTransport = "os-local" | "loopback";
 
 /** Whether long-lived auth material can be persisted at all on this host. */
 export type ShellKeystoreState = "available" | "unavailable";
@@ -106,7 +106,7 @@ export interface ShellState {
   readonly negotiation: ShellNegotiation | undefined;
   /** The last heartbeat the supervisor observed, verbatim from the wire. */
   readonly lastHeartbeatAt: string | undefined;
-  readonly transport: ShellTransport | undefined;
+  readonly transport: DaemonTransport | undefined;
   readonly keystore: ShellKeystoreState | undefined;
 }
 
@@ -129,7 +129,7 @@ export const UNREPORTED_SHELL_STATE: ShellState = {
  * Written over the union rather than as a deep equality, so a new arm is a compile error
  * here rather than a silent "always different".
  */
-export function shellReportsAreEqual(left: ShellState, right: ShellState): boolean {
+export function mainProcessReportsAreEqual(left: ShellState, right: ShellState): boolean {
   return (
     left.lastHeartbeatAt === right.lastHeartbeatAt &&
     left.transport === right.transport &&

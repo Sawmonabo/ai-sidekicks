@@ -42,7 +42,7 @@
 
 import { useMemo } from "react";
 
-import { useAnnounceOncePerSentence } from "@renderer/console/primitives/announce/reading-announcement.js";
+import { useAnnounceOncePerSentence } from "./useAnnounceOncePerSentence.js";
 
 /**
  * Announce a read's settlement, once per distinct sentence, in the polite lane.

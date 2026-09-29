@@ -23,13 +23,13 @@ import { CONSOLE_SCENARIOS } from "../../../../../fixtures/index.js";
 import { SYNTHETIC_SESSION_ID } from "./run-lifecycle-projector.test-support.js";
 import type { ConsoleScenario } from "@renderer/console/bridge/scenario/runtime/vocabulary.js";
 import { SessionStore } from "../session/session-store.js";
-import { type ConsoleSessionEvent } from "@renderer/console/store/entities/entities.js";
+import { type ConsoleSessionEvent } from "../session/entities/entities.js";
 import { type SessionSnapshot } from "../session/session-state.js";
 import {
   RUN_LIFECYCLE_EVENT_KINDS,
   RUN_LIFECYCLE_PROJECTORS,
   projectRunLifecycleEvent,
-} from "@renderer/console/frame/run-projection/run-lifecycle-projector.js";
+} from "./run-lifecycle-projector.js";
 
 /**
  * A base state current as of the beat just before the scenario's first.

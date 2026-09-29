@@ -23,7 +23,7 @@ import type { RunState } from "@ai-sidekicks/contracts";
 
 import { readRunState } from "@renderer/services/daemon/wire-identifiers.js";
 import { compareInstants, parseInstant } from "@renderer/lib/instant.js";
-import type { ConsoleEntity } from "@renderer/console/store/entities/entities.js";
+import type { ConsoleEntity } from "@renderer/store/session/entities/entities.js";
 
 /** The rank a first candidate takes: newer than nothing, so it seats. */
 const NEWER_THAN_NOTHING = -1;

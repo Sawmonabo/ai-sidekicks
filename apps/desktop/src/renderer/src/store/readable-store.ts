@@ -15,13 +15,13 @@
 import type { StoreApi } from "zustand/vanilla";
 
 /** `StoreApi` minus `setState`. What components are allowed to hold. */
-export type ConsoleReadableStore<TState> = Pick<
+export type ReadableStore<TState> = Pick<
   StoreApi<TState>,
   "getState" | "getInitialState" | "subscribe"
 >;
 
 /** Build the read-only face from a store, without letting the setter out. */
-export function toReadableStore<TState>(store: StoreApi<TState>): ConsoleReadableStore<TState> {
+export function toReadableStore<TState>(store: StoreApi<TState>): ReadableStore<TState> {
   return {
     getState: store.getState,
     getInitialState: store.getInitialState,

@@ -11,7 +11,7 @@ import { TERMINAL_SCENARIO } from "@renderer/console/bridge/scenario/terminal/te
 import type { PaneContextOf } from "@renderer/console/seats/index.js";
 import { paneContext } from "@renderer/registries/panes/pane-context.test-support.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
-import { type ConsoleSessionEvent } from "@renderer/console/store/entities/entities.js";
+import { type ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
 import { TerminalPane } from "./TerminalPane.js";
 
 /** The terminal scenario's session id. */

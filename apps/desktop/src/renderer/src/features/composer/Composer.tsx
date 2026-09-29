@@ -42,10 +42,8 @@
 import { useId, useRef } from "react";
 
 import { type ComposerSeatProps } from "@renderer/console/seats/index.js";
-import {
-  useSubjectScopedResource,
-  type SubjectScopedDisposal,
-} from "@renderer/console/store/subject-scoped/subject-scoped-resource.js";
+import { useSubjectScopedResource } from "@renderer/hooks/subject-scoped/useSubjectScopedResource.js";
+import { type SubjectScopedDisposal } from "@renderer/lib/subject-scoped/subject-scoped-disposal.js";
 import { ComposerAccessoryRail } from "@renderer/shell/composer/accessories/index.js";
 import { ProviderCommandAutocomplete } from "@renderer/shell/composer/commands/index.js";
 import { ProviderCommandEnumeration } from "@renderer/shell/composer/commands/provider-command-holder.js";

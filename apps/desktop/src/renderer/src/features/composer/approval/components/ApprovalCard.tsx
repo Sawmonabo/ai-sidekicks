@@ -40,10 +40,10 @@ import { ApprovalResource } from "./ApprovalResource.js";
 import {
   CATEGORY_PHRASE,
   STATE_PHRASE,
-  STATE_TONE,
   asApprovalCategory,
   asApprovalState,
-} from "@renderer/console/bridge/approvals/approval-vocabulary.js";
+} from "@renderer/lib/approval-vocabulary.js";
+import { STATE_TONE } from "../approval-state-tones.js";
 import {
   type ApprovalRecord,
   type ApprovalResolveRequest,

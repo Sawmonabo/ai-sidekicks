@@ -4,11 +4,11 @@
 import { use, type ReactElement } from "react";
 
 import type { ResourceProbeProps } from "./subject-scoped-probes.test-support.js";
-import { useSubjectScopedResource } from "@renderer/console/store/subject-scoped/subject-scoped-resource.js";
+import { useSubjectScopedResource } from "./useSubjectScopedResource.js";
 import type { OpenResource } from "./useSubjectScopedResource.test-support.js";
 
 /** The resource hook, driven through its own door. */
-export function ResourceDetourProbe(props: ResourceProbeProps): ReactElement {
+export function DiscardedRenderResourceProbe(props: ResourceProbeProps): ReactElement {
   const { value, publish } = useSubjectScopedResource<OpenResource>(
     props.subject,
     undefined,

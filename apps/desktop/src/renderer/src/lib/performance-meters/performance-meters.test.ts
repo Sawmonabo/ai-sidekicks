@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 import { PERF_METER_BOUNDS } from "./performance-meter-bounds.js";
 import {
   PERF_METER_KINDS,
-  PerfMeterRegistry,
+  PerformanceMeterRegistry,
   devPerfMeters,
   recordApplyLatency,
   recordFrameTime,
@@ -20,7 +20,7 @@ import {
 
 describe("perf meter series", () => {
   it("reports the nearest-rank percentile, which is a sample that was observed", () => {
-    const registry = new PerfMeterRegistry();
+    const registry = new PerformanceMeterRegistry();
     for (const milliseconds of [1, 2, 3, 4, 5, 6, 7, 8, 9, 100]) {
       registry.record("frame-time", "ledger", milliseconds);
     }
@@ -36,7 +36,7 @@ describe("perf meter series", () => {
   });
 
   it("retains at most the bound and keeps counting past it", () => {
-    const registry = new PerfMeterRegistry();
+    const registry = new PerformanceMeterRegistry();
     const overflow = PERF_METER_BOUNDS.seriesSampleCount + 25;
     for (let sample = 0; sample < overflow; sample += 1) {
       registry.record("apply-latency", "session", sample);
@@ -50,7 +50,7 @@ describe("perf meter series", () => {
   });
 
   it("refuses a series past the series bound and counts the refusal", () => {
-    const registry = new PerfMeterRegistry();
+    const registry = new PerformanceMeterRegistry();
     for (let lane = 0; lane < PERF_METER_BOUNDS.seriesCount + 3; lane += 1) {
       registry.record("store-size", `lane-${lane}`, lane);
     }
@@ -62,7 +62,7 @@ describe("perf meter series", () => {
   });
 
   it("retires a series, so a producer that has gone away stops holding the bound", () => {
-    const registry = new PerfMeterRegistry();
+    const registry = new PerformanceMeterRegistry();
     for (let feed = 0; feed < PERF_METER_BOUNDS.seriesCount; feed += 1) {
       registry.record("frame-time", `feed-${String(feed)}`, feed);
     }
@@ -88,7 +88,7 @@ describe("perf meter series", () => {
     // The underflow this guards: a decrement on a miss makes the open count drift
     // below the truth, and the bound then admits series past its own figure — which
     // reads as a working registry until the map is the size the bound exists to cap.
-    const registry = new PerfMeterRegistry();
+    const registry = new PerformanceMeterRegistry();
     registry.record("frame-time", "feed-1", 3);
 
     expect(registry.retire("frame-time", "never-opened")).toBe(false);
@@ -105,7 +105,7 @@ describe("perf meter series", () => {
   it("retires under the same truncation it opened under", () => {
     // A key past the character bound opens a truncated series, so a retirement that
     // did not truncate would close nothing and leave a series no producer can reach.
-    const registry = new PerfMeterRegistry();
+    const registry = new PerformanceMeterRegistry();
     const overlongKey = `${"x".repeat(PERF_METER_BOUNDS.seriesKeyCharacterCount)}-tail`;
     registry.record("reveal-drain", overlongKey, 12);
     expect(registry.seriesCount).toBe(1);
@@ -115,7 +115,7 @@ describe("perf meter series", () => {
   });
 
   it("truncates a series key rather than letting a value become an unbounded one", () => {
-    const registry = new PerfMeterRegistry();
+    const registry = new PerformanceMeterRegistry();
     const overlongKey = "x".repeat(PERF_METER_BOUNDS.seriesKeyCharacterCount + 40);
     registry.record("reveal-drain", overlongKey, 12);
     const reading = registry.reading("reveal-drain", overlongKey);
@@ -124,7 +124,7 @@ describe("perf meter series", () => {
   });
 
   it("drops a non-finite sample rather than poisoning every percentile with it", () => {
-    const registry = new PerfMeterRegistry();
+    const registry = new PerformanceMeterRegistry();
     registry.record("frame-time", "ledger", 8);
     registry.record("frame-time", "ledger", Number.NaN);
     registry.record("frame-time", "ledger", Number.POSITIVE_INFINITY);
@@ -134,7 +134,7 @@ describe("perf meter series", () => {
   });
 
   it("keeps the four kinds apart on one series key", () => {
-    const registry = new PerfMeterRegistry();
+    const registry = new PerformanceMeterRegistry();
     for (const kind of PERF_METER_KINDS) {
       registry.record(kind, "ledger", PERF_METER_KINDS.indexOf(kind));
     }
@@ -143,13 +143,13 @@ describe("perf meter series", () => {
   });
 
   it("reads nothing from a series that recorded nothing", () => {
-    const registry = new PerfMeterRegistry();
+    const registry = new PerformanceMeterRegistry();
     expect(registry.reading("frame-time", "never-used")).toBeNull();
     expect(registry.readings()).toStrictEqual([]);
   });
 
   it("forgets every sample and refusal on reset", () => {
-    const registry = new PerfMeterRegistry();
+    const registry = new PerformanceMeterRegistry();
     registry.record("frame-time", "ledger", 4);
     registry.reset();
     expect(registry.seriesCount).toBe(0);

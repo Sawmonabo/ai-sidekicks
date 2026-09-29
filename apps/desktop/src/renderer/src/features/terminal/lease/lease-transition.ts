@@ -26,7 +26,7 @@
 // five.
 
 import { readWireString } from "@renderer/lib/wire-strings.js";
-import type { ConsoleSessionEvent } from "@renderer/console/store/entities/entities.js";
+import type { ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
 
 /** The event a lease transition arrives on. Wire-verbatim, rendered as received. */
 export const TERMINAL_LEASE_EVENT_KIND = "pty.control_changed";

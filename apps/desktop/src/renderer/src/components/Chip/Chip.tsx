@@ -16,6 +16,8 @@
 // signature as every other figure the daemon sent (rule 4). A chip whose label the
 // console composed leaves it off.
 
+import "./Chip.css";
+
 import { GLYPH_SIZE_ROW, type GlyphName } from "@renderer/styles/glyphs.js";
 import { Glyph } from "../Glyph/Glyph.js";
 import { formatWireString } from "@renderer/lib/wire-figures.js";

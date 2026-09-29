@@ -144,7 +144,7 @@ export function relativeTimeFormatFor(locale?: string): Intl.RelativeTimeFormat 
  * the same policy on the same cap: the two hold disjoint keys, and one figure over
  * both would report a bound neither of them is at.
  */
-export function relativeTimeFormatterCensus(): {
+export function countRelativeTimeFormatters(): {
   readonly namedLocales: number;
   readonly cap: number;
 } {

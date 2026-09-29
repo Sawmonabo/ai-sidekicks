@@ -30,7 +30,7 @@
 import { useEffect, useRef } from "react";
 
 import { formatRoute } from "@renderer/routing/routes.js";
-import { useFrameStore } from "@renderer/console/store/shell/frame-hooks.js";
+import { useFrameStore } from "@renderer/store/window/hooks/useWindowStore.js";
 import { type FrameStore } from "@renderer/store/window/window-store.js";
 
 /**

@@ -33,13 +33,55 @@
 // number measured is the number painted, and a request whose chroma sRGB cannot
 // hold at its lightness is served at the chroma it can (see `color.ts`).
 
-import { BOUNDED_ENUMERATION_MAX_ROWS } from "@renderer/console/core/constants/palette-caps.js";
 import type { OklchColor } from "./color.js";
 // The enumeration row height is a product of both scales — the type scale and the
 // line height from the type system, the spacing scale from here — so this edge
 // exists and points one way. `typography.ts` is a leaf that imports nothing local,
 // so there is no cycle to resolve.
 import { BODY_LINE_HEIGHT, TYPE_SCALE_REM } from "./typography.js";
+
+// The command palette's list bounds and the keybinding when-clause's parse bounds: the
+// palette renders the ranked list a when-clause decides the membership of.
+
+/** Commands the palette remembers. Enough to cover a working session's rhythm. */
+export const PALETTE_RECENTS_CAP = 8;
+
+/**
+ * Ranked results the palette renders at once. The list is keyboard-walked, so
+ * past this a person is scrolling rather than choosing and should refine instead.
+ */
+export const PALETTE_RESULT_CAP = 40;
+
+/**
+ * Rows a bounded enumeration shows before it scrolls.
+ *
+ * Six, and the number is a ceiling rather than a preference. The shortest window
+ * the console ships is 720 px tall (the agent-console auxiliary geometry), which is
+ * 45 rem at the 16 px root; an enumeration allowed to take more than a third of
+ * that would leave the surface holding it with nothing else on screen. Six rows is
+ * 13.875 rem and clears that third; seven is 16.1875 rem and does not. The rem
+ * height itself is the token family's, because it is this count multiplied by a row
+ * height the type and space scales decide.
+ */
+export const BOUNDED_ENUMERATION_MAX_ROWS = 6;
+
+/**
+ * Maximum nesting depth of a keybinding when-clause. Bounded so a malformed or
+ * hostile expression cannot recurse the parser; past the bound the clause is
+ * refused and the binding evaluates false, which is the fail-closed arm.
+ */
+export const WHEN_CLAUSE_MAX_DEPTH = 8;
+
+/**
+ * Distinct context keys a pair of when-clauses may name before
+ * `whenClausesCanOverlap` stops enumerating.
+ *
+ * Twelve keys is 4096 assignments per pair, checked only for bindings that share a
+ * chord — microseconds, once, at install. It is set by what a human writes: a
+ * console clause names two or three keys, and a pair naming thirteen is a design
+ * smell long before it is a performance problem.
+ */
+export const WHEN_CLAUSE_OVERLAP_MAX_CONTEXT_KEYS = 12;
 
 /** A token whose value differs between the light and dark schemes. */
 export interface SchemePair {
@@ -57,7 +99,7 @@ function oklch(lightness: number, chroma: number, hueDegrees: number): OklchColo
  * `ground` is the window's own field, `surface` a pane's, `surfaceRaised` an
  * overlay's, `surfaceSunken` a well (a code block, an input trough).
  */
-export const SURFACE_TOKENS: Readonly<Record<string, SchemePair>> = {
+export const GROUND_TOKENS: Readonly<Record<string, SchemePair>> = {
   ground: { light: oklch(0.965, 0.003, 255), dark: oklch(0.165, 0.011, 255) },
   surface: { light: oklch(0.995, 0.001, 255), dark: oklch(0.203, 0.013, 255) },
   "surface-raised": { light: oklch(1, 0, 255), dark: oklch(0.246, 0.014, 255) },
@@ -233,28 +275,28 @@ export const ACTOR_HUE_STEPS = 12;
  * band, which is why both schemes clear the floor with comparable headroom
  * (~3.43 light, ~3.37 dark) rather than one of them scraping past.
  */
-export const ACTOR_HUE_LIGHTNESS = 0.57;
+export const HUE_WHEEL_LIGHTNESS = 0.57;
 
 /**
  * Requested chroma for every user hue. Green and cyan cannot hold it in
  * sRGB at this lightness, so those steps are chroma-fitted down; the wheel stays
  * perceptually even in lightness, which is what carries the "one family" reading.
  */
-export const ACTOR_HUE_CHROMA = 0.135;
+export const HUE_WHEEL_CHROMA = 0.135;
 
 /**
  * Hue angle of step 0. Offset off 0° so no user lands on the pure red
  * that the failed-state token owns, which would make identity read as failure at
  * a glance.
  */
-export const ACTOR_HUE_ORIGIN_DEGREES = 20;
+export const HUE_WHEEL_ORIGIN_DEGREES = 20;
 
 /** Degrees between adjacent wheel steps. */
-export const ACTOR_HUE_STEP_DEGREES: number = 360 / ACTOR_HUE_STEPS;
+export const HUE_WHEEL_STEP_DEGREES: number = 360 / ACTOR_HUE_STEPS;
 
 /** The hue angle of a wheel step, in degrees. */
-export function actorHueAngle(step: number): number {
-  return (ACTOR_HUE_ORIGIN_DEGREES + step * ACTOR_HUE_STEP_DEGREES + 360) % 360;
+export function computeHueWheelAngle(step: number): number {
+  return (HUE_WHEEL_ORIGIN_DEGREES + step * HUE_WHEEL_STEP_DEGREES + 360) % 360;
 }
 
 /**
@@ -320,9 +362,8 @@ export const ENUMERATION_ROW_HEIGHT_REM: number =
 /**
  * The height a bounded enumeration scrolls past, in rem.
  *
- * The row ceiling is a BOUND and lives in `core/constants/palette-caps.ts` with the console's
- * other bounds; the row height is a consequence of the type and space scales and
- * lives here. This is their product, computed where the two meet, so a stylesheet
+ * The row ceiling is a BOUND, {@link BOUNDED_ENUMERATION_MAX_ROWS}; the row height is a
+ * consequence of the type and space scales and lives here. This is their product, computed where the two meet, so a stylesheet
  * writes `max-height: var(--meridian-enumeration-max-height)` and never multiplies.
  * A list that grows past it scrolls inside its own box instead of pushing the rest
  * of its surface off screen.

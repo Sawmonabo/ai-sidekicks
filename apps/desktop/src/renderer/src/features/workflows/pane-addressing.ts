@@ -25,7 +25,7 @@
 // sentence verbatim — instead of each writing its own words for the same state.
 
 import { refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
-import type { ConsoleEntityRef } from "@renderer/console/store/entities/entities.js";
+import type { ConsoleEntityRef } from "@renderer/lib/entity-kinds.js";
 
 /**
  * The code a pane raises when its address names a kind it does not open.

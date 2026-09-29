@@ -10,7 +10,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { ConsoleSessionEvent } from "@renderer/console/store/entities/entities.js";
+import type { ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
 import {
   CONTEXT_COMPACTED_EVENT_KIND,
   CONTEXT_WINDOW_EVENT_KIND,

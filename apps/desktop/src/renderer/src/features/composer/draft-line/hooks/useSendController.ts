@@ -66,7 +66,7 @@
 
 import { useCallback, useMemo, useRef } from "react";
 
-import { useGenerationLatch } from "@renderer/console/store/read/generation-latch.js";
+import { useGenerationLatch } from "@renderer/hooks/useGenerationLatch.js";
 import { composerDraftKey } from "../draft-key.js";
 import { useComposerActState } from "./useComposerActState.js";
 import { useComposerDraftText } from "../../hooks/useComposerDraftText.js";

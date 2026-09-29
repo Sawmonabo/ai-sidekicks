@@ -19,12 +19,12 @@ import {
   ANSI_TOKENS,
   ATTENTION_TOKENS,
   CODE_TOKENS,
-  ACTOR_HUE_CHROMA,
-  ACTOR_HUE_LIGHTNESS,
+  HUE_WHEEL_CHROMA,
+  HUE_WHEEL_LIGHTNESS,
   ACTOR_HUE_STEPS,
-  SURFACE_TOKENS,
+  GROUND_TOKENS,
   TEXT_TOKENS,
-  actorHueAngle,
+  computeHueWheelAngle,
 } from "./palette.js";
 
 /**
@@ -122,7 +122,7 @@ function resolvePairs(source: Readonly<Record<string, SchemePair>>): Map<string,
  * the one lookup by name is this module's own, below.
  */
 export const SCHEME_COLOR_TOKENS: readonly (readonly [string, SchemePair])[] = [
-  ...resolvePairs(SURFACE_TOKENS),
+  ...resolvePairs(GROUND_TOKENS),
   ...resolvePairs(TEXT_TOKENS),
   ...resolvePairs(ATTENTION_TOKENS),
   ...resolvePairs(CODE_TOKENS),
@@ -145,22 +145,22 @@ export function actorHueTokenName(step: number): string {
 
 /**
  * The twelve user hues, resolved and scheme-independent. Index is the
- * wheel step; `ActorHueAllocator` is the only thing that decides WHICH
+ * wheel step; `AgentHueAllocator` is the only thing that decides WHICH
  * step a user gets.
  */
-export const ACTOR_HUES: readonly OklchColor[] = Array.from(
+export const HUE_WHEEL: readonly OklchColor[] = Array.from(
   { length: ACTOR_HUE_STEPS },
   (_unused, step) =>
     resolve({
-      lightness: ACTOR_HUE_LIGHTNESS,
-      chroma: ACTOR_HUE_CHROMA,
-      hueDegrees: actorHueAngle(step),
+      lightness: HUE_WHEEL_LIGHTNESS,
+      chroma: HUE_WHEEL_CHROMA,
+      hueDegrees: computeHueWheelAngle(step),
     }),
 );
 
 /** The resolved color of a wheel step. Throws on a step outside the wheel. */
-export function actorHue(step: number): OklchColor {
-  const color = ACTOR_HUES[step];
+export function readHueWheelColor(step: number): OklchColor {
+  const color = HUE_WHEEL[step];
   if (color === undefined) {
     throw new RangeError(`user hue step ${step} is outside the ${ACTOR_HUE_STEPS}-step wheel`);
   }

@@ -1,6 +1,6 @@
 // What the two detour probes share: the key both visits are addressed at, and the
-// props each probe takes. The probes themselves are `ValueDetourProbe.test-support.tsx`
-// and `ResourceDetourProbe.test-support.tsx` — one component per module, the
+// props each probe takes. The probes themselves are `DiscardedRenderValueProbe.test-support.tsx`
+// and `DiscardedRenderResourceProbe.test-support.tsx` — one component per module, the
 // `apps/desktop` AGENTS.md rule the one-component gate enforces on support modules too.
 //
 // `subject-scoped-dropped-pass.test.tsx` and `subject-scoped-abandoned-pass.test.tsx`
@@ -14,10 +14,13 @@
 // and the two suites replaced different ones.
 
 import type { NamedFixtureSubject } from "@test/helpers/subject-fixtures.js";
-import type { OpenResource, ResourceLedger } from "./useSubjectScopedResource.test-support.js";
+import type {
+  OpenResource,
+  ResourceOpenCloseLog,
+} from "./useSubjectScopedResource.test-support.js";
 
 /** The key BOTH visits are addressed at, so only the addressing tells them apart. */
-export const DETOUR_KEY = "s1";
+export const DISCARDED_RENDER_KEY = "s1";
 
 export interface ValueProbeProps {
   readonly subject: object;
@@ -31,6 +34,6 @@ export interface ValueProbeProps {
 export interface ResourceProbeProps {
   readonly subject: NamedFixtureSubject;
   readonly suspendOn: Promise<void> | undefined;
-  readonly ledger: ResourceLedger;
+  readonly ledger: ResourceOpenCloseLog;
   readonly onReady: (publish: (next: OpenResource) => void) => void;
 }

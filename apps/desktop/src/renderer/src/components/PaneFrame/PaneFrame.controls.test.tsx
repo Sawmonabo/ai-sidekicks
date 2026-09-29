@@ -12,9 +12,9 @@
 
 import { describe, expect, it } from "vitest";
 
-import { ConsolePaneChrome } from "@renderer/console/seats/pane/ConsolePaneChrome.js";
-import { renderChrome } from "./PaneFrame.test-support.js";
-import { PaneControlsContext } from "@renderer/console/seats/pane/pane-controls.js";
+import { ConsolePaneChrome } from "./PaneFrame.js";
+import { renderPaneFrame } from "./PaneFrame.test-support.js";
+import { PaneControlsContext } from "./pane-controls.js";
 
 function controlLabels(pane: HTMLElement): readonly (string | null)[] {
   return [...pane.querySelectorAll(".meridian-pane__control")].map((control) =>
@@ -24,7 +24,7 @@ function controlLabels(pane: HTMLElement): readonly (string | null)[] {
 
 describe("ConsolePaneChrome — where the controls come from", () => {
   it("draws no control when nobody can close the pane", () => {
-    const pane = renderChrome(
+    const pane = renderPaneFrame(
       <ConsolePaneChrome kind="timeline" sessionId="session-1" focusHue={undefined}>
         <p>body</p>
       </ConsolePaneChrome>,
@@ -33,7 +33,7 @@ describe("ConsolePaneChrome — where the controls come from", () => {
   });
 
   it("takes the close from the deck's context", () => {
-    const pane = renderChrome(
+    const pane = renderPaneFrame(
       <PaneControlsContext.Provider value={{ onClose: () => undefined }}>
         <ConsolePaneChrome kind="timeline" sessionId="session-1" focusHue={undefined}>
           <p>body</p>
@@ -45,7 +45,7 @@ describe("ConsolePaneChrome — where the controls come from", () => {
 
   it("lets an explicit prop win over the context, so a non-deck host keeps its pane", () => {
     const performed: string[] = [];
-    const pane = renderChrome(
+    const pane = renderPaneFrame(
       <PaneControlsContext.Provider
         value={{
           onClose: () => {
@@ -70,7 +70,7 @@ describe("ConsolePaneChrome — where the controls come from", () => {
   });
 
   it("puts the kind's own actions before the close", () => {
-    const pane = renderChrome(
+    const pane = renderPaneFrame(
       <PaneControlsContext.Provider value={{ onClose: () => undefined }}>
         <ConsolePaneChrome
           kind="diff"
@@ -91,7 +91,7 @@ describe("ConsolePaneChrome — where the controls come from", () => {
 describe("ConsolePaneChrome — the drag handle", () => {
   it("hands the host its own head element, which is what the drag adapter binds to", () => {
     const registered: (HTMLElement | null)[] = [];
-    const pane = renderChrome(
+    const pane = renderPaneFrame(
       <PaneControlsContext.Provider
         value={{
           registerDragHandle: (element) => {
@@ -111,7 +111,7 @@ describe("ConsolePaneChrome — the drag handle", () => {
     // Without this the chrome could be registering unconditionally, which would make a
     // pane mounted outside a deck draggable onto a deck it is not part of.
     const registered: (HTMLElement | null)[] = [];
-    renderChrome(
+    renderPaneFrame(
       <PaneControlsContext.Provider value={{ onClose: () => undefined }}>
         <ConsolePaneChrome kind="timeline" sessionId="session-1" focusHue={undefined}>
           <p>body</p>

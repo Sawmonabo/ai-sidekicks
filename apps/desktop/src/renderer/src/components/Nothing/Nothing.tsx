@@ -46,8 +46,10 @@
 // tense for receipts, no exclamation marks, no blame. This component supplies the
 // shape; it never invents a sentence.
 
+import "./Nothing.css";
+
 import { GLYPH_SIZE_ROW, type GlyphName } from "@renderer/styles/glyphs.js";
-import { Glyph } from "@renderer/console/primitives/figures/index.js";
+import { Glyph } from "../Glyph/Glyph.js";
 
 /**
  * Closed. Adding a sixth kind is a deliberate edit here and in rule 8.

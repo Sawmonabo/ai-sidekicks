@@ -27,7 +27,7 @@ import { useCallback, useEffect, useRef } from "react";
 import { refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
 import { SCHEME_PREFERENCE_KEY } from "@renderer/store/persistence/persistence-adapter.js";
 import { type UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
-import { useFrameStore } from "@renderer/console/store/shell/frame-hooks.js";
+import { useFrameStore } from "@renderer/store/window/hooks/useWindowStore.js";
 import { type FrameStore } from "@renderer/store/window/window-store.js";
 import { isSchemePreference, type SchemePreference } from "@renderer/styles/tokens.js";
 

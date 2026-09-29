@@ -64,7 +64,7 @@ import { RunPhaseGraph } from "@renderer/features/workflows/run-page/components/
 // cycle a loader-backed surface's reserved frame would otherwise close.
 import { type ConsoleSurfaceContext } from "@renderer/registries/screens/screen-context.js";
 import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
-import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/console/core/constants/persistence-caps.js";
+import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence-caps.js";
 import { DraftStore } from "@renderer/store/draft-store.js";
 import { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
 import { FrameStore } from "@renderer/store/window/window-store.js";

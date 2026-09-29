@@ -10,10 +10,7 @@
 // reading names the rows whose re-reads are outstanding, which is what holds each row's
 // control.
 
-import {
-  GenerationLatch,
-  type GenerationClaim,
-} from "@renderer/console/store/read/generation-latch.js";
+import { GenerationLatch, type GenerationClaim } from "@renderer/lib/reads/generation-latch.js";
 import { artifactManifestRowFrom } from "./artifact-model.js";
 import type { ArtifactActionHost } from "./artifact-row-action-host.js";
 import { ArtifactPayloadFetches } from "./artifact-payload-fetch.js";

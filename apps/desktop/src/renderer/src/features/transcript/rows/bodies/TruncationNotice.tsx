@@ -17,7 +17,7 @@
 import type { DeclaredLossKind } from "@ai-sidekicks/contracts";
 
 import { Nothing, WireFigure, formatByteQuantity } from "@renderer/console/primitives/index.js";
-import { measureUtf8ByteLength } from "@renderer/console/persistence/value-classes.js";
+import { measureUtf8ByteLength } from "@renderer/lib/utf8-byte-length.js";
 
 /**
  * The loss this console names when a stored body is a prefix.

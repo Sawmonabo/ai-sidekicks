@@ -4,8 +4,12 @@
 // props they share; this module decides only what "nothing changed" looks like —
 // one line beside the control, with the control still there.
 
+import "./Refusal.css";
+
 import { GLYPH_SIZE_CHROME } from "@renderer/styles/glyphs.js";
-import { Glyph, WireFigure, formatWireString } from "@renderer/console/primitives/figures/index.js";
+import { Glyph } from "../Glyph/Glyph.js";
+import { WireFigure } from "../WireFigure/WireFigure.js";
+import { formatWireString } from "@renderer/lib/wire-figures.js";
 import { type RefusalProps } from "./refusal-props.js";
 
 /** Beside the control that was pressed. Nothing changed; the control stays. */

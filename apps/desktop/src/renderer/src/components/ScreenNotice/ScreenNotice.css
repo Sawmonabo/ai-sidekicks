@@ -1,11 +1,4 @@
-/*
- * A whole-surface absence — the wrapper `SurfaceAbsence.tsx` beside this file draws.
- *
- * In this family with its component, which moved here from `frame/` when the door
- * rule made the frame unreachable from a view family and from below. The class stem
- * moved with it: `meridian-frame__absence` named a family that no longer owns the
- * rules.
- */
+/* A whole-screen notice: the wrapper `ScreenNotice.tsx` beside this file draws. */
 
 /*
  * A route that resolves to no surface, composed as a deliberate state.

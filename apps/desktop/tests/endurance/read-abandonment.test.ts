@@ -52,7 +52,7 @@ import { SESSION_ID } from "../helpers/daemon-reply-refusal.js";
 import { ManualClock } from "@renderer/lib/clock.js";
 import { REFRESH_DEBOUNCE_MS } from "@renderer/lib/reads/refresh-caps.js";
 import { crossMacrotaskBoundary } from "../helpers/macrotask-boundary.js";
-import { PushDrivenRead } from "@renderer/console/seats/read/push-driven-read.js";
+import { PushDrivenRead } from "@renderer/store/reads/push-driven-read.js";
 
 /**
  * How many open / read / close cycles one claim is measured over.

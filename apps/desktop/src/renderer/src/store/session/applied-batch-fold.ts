@@ -14,12 +14,12 @@
 // again by whoever committed the state. What it does not touch is the store's own
 // zustand cell — the state is ANSWERED and never set, so the one writer stays one.
 
-import { ActorHueAllocator } from "@renderer/styles/agent-hue.js";
+import { AgentHueAllocator } from "@renderer/styles/agent-hue.js";
 import { worstDegradedCause } from "../session-degradation.js";
-import type { ConsoleSessionEvent } from "@renderer/console/store/entities/entities.js";
+import type { ConsoleSessionEvent } from "./entities/entities.js";
 import { EntityProjectionRunner } from "./entities/entity-projection-runner.js";
-import { OutstandingAskJournal } from "./waiting-on-person/waiting-on-person-register.js";
-import { PreInitialisationBuffer } from "./pre-initialization-buffer.js";
+import { WaitingOnPersonRegister } from "./waiting-on-person/waiting-on-person-register.js";
+import { PreInitializationBuffer } from "./pre-initialization-buffer.js";
 import {
   SequenceReconciler,
   isReconcilableSequence,
@@ -30,14 +30,14 @@ import type { SessionStoreState } from "./session-state.js";
 import type { ApplyOutcome } from "./apply-outcome.js";
 
 /** Everything one fold advances beside the state it answers with. */
-export interface AppliedBatchCollaborators {
+export interface AppliedBatchDependencies {
   readonly sessionId: string;
   readonly reconciler: SequenceReconciler;
   readonly projectionRunner: EntityProjectionRunner;
-  readonly preInitialisationBuffer: PreInitialisationBuffer;
-  readonly hueAllocator: ActorHueAllocator;
+  readonly preInitialisationBuffer: PreInitializationBuffer;
+  readonly hueAllocator: AgentHueAllocator;
   /** The ledger of what is still waiting on a person. Advanced by every admitted row. */
-  readonly outstandingAsks: OutstandingAskJournal;
+  readonly outstandingAsks: WaitingOnPersonRegister;
   readonly timelineCap: number | undefined;
   readonly retainedEnd: TimelineRetainedEnd;
 }
@@ -65,7 +65,7 @@ export interface AppliedBatch {
 export function foldAppliedBatch(
   current: SessionStoreState,
   events: readonly ConsoleSessionEvent[],
-  collaborators: AppliedBatchCollaborators,
+  collaborators: AppliedBatchDependencies,
 ): AppliedBatch {
   let admitted = 0;
   let duplicates = 0;

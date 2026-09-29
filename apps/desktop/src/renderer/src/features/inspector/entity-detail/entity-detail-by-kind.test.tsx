@@ -12,7 +12,7 @@ import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { SessionStore } from "@renderer/store/session/session-store.js";
-import { type ConsoleEntityKind } from "@renderer/console/store/entities/entities.js";
+import { type ConsoleEntityKind } from "@renderer/lib/entity-kinds.js";
 import { ENTITY_DETAIL_BY_KIND, type EntityDetailKind } from "./entity-detail-by-kind.js";
 import { InspectedEntity } from "./components/InspectedEntity.js";
 

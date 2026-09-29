@@ -31,7 +31,7 @@ import {
   type SessionEventType,
 } from "@ai-sidekicks/contracts";
 
-import type { ConsoleSessionEvent } from "@renderer/console/store/entities/entities.js";
+import type { ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
 
 /**
  * The envelope version every composed beat carries.

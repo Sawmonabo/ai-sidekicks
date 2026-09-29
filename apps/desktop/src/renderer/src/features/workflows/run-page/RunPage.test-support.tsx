@@ -3,7 +3,7 @@
 import { render } from "@testing-library/react";
 
 import type { PaneContextOf } from "@renderer/console/seats/index.js";
-import type { ConsoleEntityRef } from "@renderer/console/store/entities/entities.js";
+import type { ConsoleEntityRef } from "@renderer/lib/entity-kinds.js";
 import { PARKED_RUN, PROBE_SESSION_ID } from "../workflows-probe.test-support.js";
 import { WorkflowRunPane } from "./RunPage.js";
 

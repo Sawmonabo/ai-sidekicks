@@ -13,7 +13,7 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { ListWithNeighbour, neighbourOf } from "./ListWithNeighbor.test-support.js";
+import { ListWithNeighbor, neighborOf } from "./ListWithNeighbor.test-support.js";
 import { RovingList } from "./RovingList.test-support.js";
 import { listOf, pressEnd, tabbableIndexes } from "./useWindowedRovingIndex.test-support.js";
 
@@ -84,16 +84,16 @@ describe("useWindowedRovingIndex — a move to the row the keyboard is on arms n
     // unrelated window revision later runs the effect with row 39 mounted and pulls
     // focus back out of what they were typing in.
     const { container, rerender } = render(
-      <ListWithNeighbour rowCount={40} windowStart={0} windowLength={40} />,
+      <ListWithNeighbor rowCount={40} windowStart={0} windowLength={40} />,
     );
     const list = listOf(container);
     await pressEnd(list);
     expect(document.activeElement?.textContent).toBe("row 39");
 
     await pressEnd(list);
-    const neighbour = neighbourOf(container);
+    const neighbour = neighborOf(container);
     neighbour.focus();
-    rerender(<ListWithNeighbour rowCount={40} windowStart={0} windowLength={40} />);
+    rerender(<ListWithNeighbor rowCount={40} windowStart={0} windowLength={40} />);
     expect(document.activeElement).toBe(neighbour);
   });
 
@@ -101,7 +101,7 @@ describe("useWindowedRovingIndex — a move to the row the keyboard is on arms n
     // The other half: the guard is on the INDEX being unchanged, not on the key, so
     // `End` from anywhere but the end still arms, still reveals, and still lands.
     const { container } = render(
-      <ListWithNeighbour rowCount={40} windowStart={0} windowLength={40} />,
+      <ListWithNeighbor rowCount={40} windowStart={0} windowLength={40} />,
     );
     const list = listOf(container);
     await pressEnd(list);
@@ -115,13 +115,13 @@ describe("useWindowedRovingIndex — a move to the row the keyboard is on arms n
     // all. Same shape, same rerender, one difference — the move goes somewhere — and
     // focus is taken off the neighbour, which is the steal the first case denies.
     const { container, rerender } = render(
-      <ListWithNeighbour rowCount={40} windowStart={0} windowLength={4} />,
+      <ListWithNeighbor rowCount={40} windowStart={0} windowLength={4} />,
     );
     const list = listOf(container);
     await pressEnd(list);
-    const neighbour = neighbourOf(container);
+    const neighbour = neighborOf(container);
     neighbour.focus();
-    rerender(<ListWithNeighbour rowCount={40} windowStart={36} windowLength={4} />);
+    rerender(<ListWithNeighbor rowCount={40} windowStart={36} windowLength={4} />);
     expect(document.activeElement).not.toBe(neighbour);
     expect(document.activeElement?.textContent).toBe("row 39");
   });

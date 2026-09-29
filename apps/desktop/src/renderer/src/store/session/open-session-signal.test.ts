@@ -7,7 +7,7 @@
 import { describe, expect, it } from "vitest";
 
 import { SessionStoreRegistry } from "./session-store-registry.js";
-import { subscribeToOpenSessions } from "@renderer/console/store/session/open-session-signal.js";
+import { subscribeToOpenSessions } from "./open-session-signal.js";
 
 function emptyRegistry(): SessionStoreRegistry {
   return new SessionStoreRegistry({ read: () => Promise.resolve(undefined) });

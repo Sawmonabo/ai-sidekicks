@@ -23,7 +23,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { consoleTripwires } from "@renderer/lib/tripwires.js";
-import { classifyOpenFailure, openConsoleDatabase } from "./indexeddb-persistence-adapter.js";
+import { classifyOpenFailure, openUiStateDatabase } from "./indexeddb-persistence-adapter.js";
 import { MemoryPersistenceAdapter } from "./memory-persistence-adapter.js";
 import { UiStateStore } from "./ui-state-store.js";
 
@@ -58,7 +58,7 @@ describe("failure matrix — the durable store cannot be opened", () => {
   it("reports the missing global rather than throwing when the host has no IndexedDB", async () => {
     // The production shape: nothing is injected, and this host genuinely has no
     // factory (happy-dom defines none, own or inherited).
-    const outcome = await openConsoleDatabase({});
+    const outcome = await openUiStateDatabase({});
     expect(outcome).toStrictEqual({ outcome: "unavailable", reason: "no-indexeddb-global" });
   });
 
@@ -72,7 +72,7 @@ describe("failure matrix — the durable store cannot be opened", () => {
     const ambientFactory = new RecordingIndexedDbFactory();
     installAmbientIndexedDb(ambientFactory);
 
-    const outcome = await openConsoleDatabase({ indexedDbFactory: undefined });
+    const outcome = await openUiStateDatabase({ indexedDbFactory: undefined });
 
     expect(outcome).toStrictEqual({ outcome: "unavailable", reason: "no-indexeddb-global" });
     expect(ambientFactory.openCallCount).toBe(0);
@@ -85,7 +85,7 @@ describe("failure matrix — the durable store cannot be opened", () => {
     const ambientFactory = new RecordingIndexedDbFactory();
     installAmbientIndexedDb(ambientFactory);
 
-    const outcome = await openConsoleDatabase({});
+    const outcome = await openUiStateDatabase({});
 
     expect(outcome.outcome).toBe("unavailable");
     expect(ambientFactory.openCallCount).toBe(1);
@@ -100,7 +100,7 @@ describe("failure matrix — the durable store cannot be opened", () => {
     const refusingFactory = new RecordingIndexedDbFactory();
     installAmbientIndexedDb(refusingFactory);
 
-    const outcome = await openConsoleDatabase({
+    const outcome = await openUiStateDatabase({
       indexedDbFactory: refusingFactory.asIndexedDbFactory,
     });
     expect(outcome.outcome).toBe("unavailable");
@@ -236,7 +236,7 @@ class RecordingIndexedDbFactory {
   }
 
   /**
-   * The same object, typed as what `openConsoleDatabase` gates on.
+   * The same object, typed as what `openUiStateDatabase` gates on.
    *
    * A cast rather than a full `IDBFactory`: `open` is the only member either the
    * gate or `idb` reaches, and stubbing `cmp` / `databases` / `deleteDatabase`

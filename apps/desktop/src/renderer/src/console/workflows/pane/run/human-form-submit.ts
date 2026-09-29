@@ -50,10 +50,8 @@
 // answer had been recorded.
 
 import { refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
-import {
-  useGenerationLatch,
-  type GenerationClaim,
-} from "@renderer/console/store/read/generation-latch.js";
+import { useGenerationLatch } from "@renderer/hooks/useGenerationLatch.js";
+import { type GenerationClaim } from "@renderer/lib/reads/generation-latch.js";
 import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
 import { useRecordServedRunAct } from "./served-run-act.js";
 import type { HumanFormPhase } from "@renderer/features/workflows/run-page/human-form-mount.js";

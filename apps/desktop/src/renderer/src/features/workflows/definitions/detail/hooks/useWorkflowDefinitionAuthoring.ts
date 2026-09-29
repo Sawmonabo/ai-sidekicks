@@ -15,7 +15,7 @@
 
 import type { ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
 import type { WorkflowVersionBody } from "@renderer/services/wire-shapes/workflow-definition-body.js";
-import { useGenerationLatch } from "@renderer/console/store/read/generation-latch.js";
+import { useGenerationLatch } from "@renderer/hooks/useGenerationLatch.js";
 import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
 import { exportDefinitionFile } from "../definition-authoring-export.js";
 import { importDefinitionFile } from "../definition-authoring-port-acts.js";

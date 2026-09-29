@@ -9,7 +9,7 @@ import { describe, expect, it } from "vitest";
 
 import type { AttentionItem } from "@renderer/console/bridge/wire-shapes/attention-projection.js";
 import { AttentionPlane } from "./attention-summary.js";
-import { railAttentionCountOf } from "@renderer/console/sessions/notifications/rail-attention.js";
+import { attentionCountOf } from "./attention-count.js";
 
 function attentionItem(overrides: Partial<AttentionItem> & { readonly id: string }): AttentionItem {
   return {
@@ -26,7 +26,7 @@ function attentionItem(overrides: Partial<AttentionItem> & { readonly id: string
 /** The sessions the fan-out asked about. The rail counts the answer, not the ask. */
 const ADDRESSED_SESSION_IDS: readonly string[] = ["session-a", "session-b"];
 
-describe("railAttentionCountOf", () => {
+describe("attentionCountOf", () => {
   it("counts the sessions with actionable attention, not the items", () => {
     const plane = new AttentionPlane([
       attentionItem({ id: "1", sessionId: "session-a" }),
@@ -34,7 +34,7 @@ describe("railAttentionCountOf", () => {
       attentionItem({ id: "3", sessionId: "session-b" }),
     ]);
     expect(
-      railAttentionCountOf({
+      attentionCountOf({
         phase: "read",
         plane,
         droppedCount: 0,
@@ -50,7 +50,7 @@ describe("railAttentionCountOf", () => {
       attentionItem({ id: "2", sessionId: "session-b", severity: "informational" }),
     ]);
     expect(
-      railAttentionCountOf({
+      attentionCountOf({
         phase: "read",
         plane,
         droppedCount: 0,
@@ -65,7 +65,7 @@ describe("railAttentionCountOf", () => {
     // would be permanent furniture reporting the absence of news.
     const plane = new AttentionPlane([]);
     expect(
-      railAttentionCountOf({
+      attentionCountOf({
         phase: "read",
         plane,
         droppedCount: 0,
@@ -78,6 +78,6 @@ describe("railAttentionCountOf", () => {
   it("suppresses the count while the read is in flight", () => {
     // The suppression rule: until the projection answers the rail says nothing rather
     // than the number from before.
-    expect(railAttentionCountOf({ phase: "reading" })).toBeUndefined();
+    expect(attentionCountOf({ phase: "reading" })).toBeUndefined();
   });
 });

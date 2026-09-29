@@ -17,7 +17,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { reportTripwire } from "@renderer/lib/tripwires.js";
 import { consoleTripwires } from "@renderer/lib/tripwires.js";
-import { SurfaceErrorBoundary } from "@renderer/console/primitives/ErrorBoundary.js";
+import { SurfaceErrorBoundary } from "./ErrorBoundary.js";
 
 const RENDER_FAILURE_MESSAGE = "the timeline could not render this row";
 

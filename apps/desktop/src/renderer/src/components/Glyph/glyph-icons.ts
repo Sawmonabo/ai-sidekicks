@@ -4,7 +4,7 @@
 // module owns the answer to "what is this name drawn by". It sits in
 // `primitives/` rather than beside the names because a face is a React component
 // and `tokens/` is below `primitives/` on the console DAG — and because the
-// split is what makes the set's closedness checkable: {@link GLYPH_FACES} is a
+// split is what makes the set's closedness checkable: {@link GLYPH_ICONS} is a
 // `Record<GlyphName, …>`, so a name added to `GLYPH_NAMES` with no row here
 // fails the typecheck rather than rendering nothing at runtime.
 //
@@ -51,11 +51,11 @@ import WorktreeFace from "~icons/signature/worktree";
 // A provenance kind, and a container Tabler rounds at two units (rule 2).
 import RepoFace from "~icons/signature/repo";
 // A picture of the surface it opens; Tabler's `timeline` is a line chart and its `list` has no rail.
-import TimelineFace from "~icons/signature/transcript";
+import TranscriptIcon from "~icons/signature/transcript";
 // A container; Tabler rounds its frame at two units (rule 2).
 import TerminalFace from "~icons/signature/terminal";
 // A container, for the reason `terminal` is one.
-import BrowserFace from "~icons/signature/preview";
+import PreviewIcon from "~icons/signature/preview";
 // Two containers and a connector; Tabler's `sitemap` rounds every node (rule 2).
 import WorkflowFace from "~icons/signature/workflow";
 // A container with a split; Tabler's layout frames round their corners (rule 2).
@@ -104,18 +104,18 @@ import MoreFace from "~icons/signature/more";
 import PlusFace from "~icons/tabler/plus";
 
 /** One compiled face: an `<svg>` that takes whatever props its caller sets. */
-export type GlyphFace = ComponentType<SVGProps<SVGSVGElement>>;
+export type GlyphIcon = ComponentType<SVGProps<SVGSVGElement>>;
 
 /**
  * The face every glyph name is drawn by.
  *
  * TOTAL BY TYPE, which is the whole reason the record is written out rather than
- * derived from a directory listing: `Record<GlyphName, GlyphFace>` makes a name
+ * derived from a directory listing: `Record<GlyphName, GlyphIcon>` makes a name
  * without a face a compile error, and a face without a name an unused import the
  * lint gate reports. A directory scan would answer both questions at runtime, in
  * a bundle, too late for either.
  */
-export const GLYPH_FACES: Readonly<Record<GlyphName, GlyphFace>> = {
+export const GLYPH_ICONS: Readonly<Record<GlyphName, GlyphIcon>> = {
   sessions: SessionsFace,
   workspace: WorkspaceFace,
   settings: SettingsFace,
@@ -125,9 +125,9 @@ export const GLYPH_FACES: Readonly<Record<GlyphName, GlyphFace>> = {
   artifact: ArtifactFace,
   worktree: WorktreeFace,
   repo: RepoFace,
-  timeline: TimelineFace,
+  timeline: TranscriptIcon,
   terminal: TerminalFace,
-  browser: BrowserFace,
+  browser: PreviewIcon,
   workflow: WorkflowFace,
   inspector: InspectorFace,
   diff: DiffFace,

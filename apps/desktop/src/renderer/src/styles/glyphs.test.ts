@@ -3,7 +3,7 @@
 // The three rules are stated in `glyphs.ts` as prose. Since the faces became
 // compiled components, rules 1 and 2 are properties of a rendered `<svg>` rather
 // than of a string in this module, and they are checked next door in
-// `primitives/figures/glyph-faces.test.ts`, which renders every face and reads the
+// `components/Glyph/glyph-icons.test.ts`, which renders every face and reads the
 // geometry back off it. What is left here is rule 3, and it has two halves:
 //
 //   • The set is CLOSED and each name appears once. `GlyphName` is now the
@@ -44,7 +44,7 @@ describe("the glyph vocabulary — one closed set of names", () => {
     expect(misnamed).toStrictEqual([]);
   });
 
-  it("carries a rewind and a fold, the two marks the ledger's turn controls need", () => {
+  it("carries a rewind and a fold, the two marks the transcript's turn controls need", () => {
     // Named rather than left to the sweep above, because the sweep holds over
     // whatever the set happens to contain: it would pass just as cleanly on the
     // day one of these was deleted. These two are what a superseded turn and a

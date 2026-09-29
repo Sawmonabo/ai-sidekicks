@@ -49,10 +49,8 @@
 import { consoleClockFor, type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
 import { useConsoleBridge } from "@renderer/console/bridge/BridgeProvider.js";
 import { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
-import {
-  useSubjectScopedResource,
-  type SubjectScopedDisposal,
-} from "@renderer/console/store/subject-scoped/subject-scoped-resource.js";
+import { useSubjectScopedResource } from "@renderer/hooks/subject-scoped/useSubjectScopedResource.js";
+import { type SubjectScopedDisposal } from "@renderer/lib/subject-scoped/subject-scoped-disposal.js";
 
 /**
  * This window's UI-state store, rebuilt on a new bridge and closed when the console

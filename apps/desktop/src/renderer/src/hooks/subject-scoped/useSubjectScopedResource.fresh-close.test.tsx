@@ -16,10 +16,10 @@ import { useEffect, type ReactElement } from "react";
 import { describe, expect, it } from "vitest";
 
 import type { NamedFixtureSubject } from "@test/helpers/subject-fixtures.js";
-import { useSubjectScopedResource } from "@renderer/console/store/subject-scoped/subject-scoped-resource.js";
+import { useSubjectScopedResource } from "./useSubjectScopedResource.js";
 import {
   DISCARDED_SUBJECT,
-  ResourceLedger,
+  ResourceOpenCloseLog,
   SETTLED_SUBJECT,
   type OpenResource,
 } from "./useSubjectScopedResource.test-support.js";
@@ -27,7 +27,7 @@ import { useSubjectScopedState } from "./useSubjectScopedState.js";
 
 interface FreshCloseProbeProps {
   readonly subject: NamedFixtureSubject;
-  readonly ledger: ResourceLedger;
+  readonly ledger: ResourceOpenCloseLog;
   /** Which pass this tree is, so the disposal each one mints can be told apart. */
   readonly pass: number;
   readonly onResource: (resource: OpenResource) => void;
@@ -84,7 +84,7 @@ function CloseKeyedLifetimeProbe(props: FreshCloseProbeProps): ReactElement {
 describe("useSubjectScopedResource — a disposal minted per render is not a lifetime", () => {
   /** Every pass renders the same tree; only the disposal identity moves. */
   function renderPasses(
-    ledger: ResourceLedger,
+    ledger: ResourceOpenCloseLog,
     Probe: (props: FreshCloseProbeProps) => ReactElement,
     subjects: readonly [NamedFixtureSubject, ...NamedFixtureSubject[]],
   ): { readonly view: RenderResult; readonly resources: readonly OpenResource[] } {
@@ -107,7 +107,7 @@ describe("useSubjectScopedResource — a disposal minted per render is not a lif
     // The defect: `close` sat in the resource lifetime's dependency list, so an
     // unrelated rerender ran that effect's cleanup — closing the still-current
     // resource and then recommitting the closed value.
-    const ledger = new ResourceLedger();
+    const ledger = new ResourceOpenCloseLog();
     const passes = renderPasses(ledger, FreshCloseProbe, [
       DISCARDED_SUBJECT,
       DISCARDED_SUBJECT,
@@ -124,7 +124,7 @@ describe("useSubjectScopedResource — a disposal minted per render is not a lif
   it("closes the retired resource once, through the newest disposal", () => {
     // The move that IS a lifetime, driven over the same script: two passes at one
     // subject and a third at another. One close, and by the pass that retired it.
-    const ledger = new ResourceLedger();
+    const ledger = new ResourceOpenCloseLog();
     const passes = renderPasses(ledger, FreshCloseProbe, [
       DISCARDED_SUBJECT,
       DISCARDED_SUBJECT,
@@ -143,7 +143,7 @@ describe("useSubjectScopedResource — a disposal minted per render is not a lif
     // opened to replace what it closed, so the surface goes on rendering a resource
     // that has been disposed twice — which is the defect, and the reason the claim
     // above is about the dependency list rather than about the script.
-    const ledger = new ResourceLedger();
+    const ledger = new ResourceOpenCloseLog();
     const passes = renderPasses(ledger, CloseKeyedLifetimeProbe, [
       DISCARDED_SUBJECT,
       DISCARDED_SUBJECT,

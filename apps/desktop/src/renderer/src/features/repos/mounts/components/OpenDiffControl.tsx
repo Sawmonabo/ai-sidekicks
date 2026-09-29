@@ -20,7 +20,7 @@
 
 import { Glyph } from "@renderer/console/primitives/index.js";
 import { GLYPH_SIZE_CHROME } from "@renderer/styles/glyphs.js";
-import type { ConsoleEntityRef } from "@renderer/console/store/entities/entities.js";
+import type { ConsoleEntityRef } from "@renderer/lib/entity-kinds.js";
 
 /**
  * What a diff can be opened over from a repo row.

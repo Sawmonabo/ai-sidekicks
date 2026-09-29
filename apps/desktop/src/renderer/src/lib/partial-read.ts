@@ -50,7 +50,7 @@
 // suite beside this file asserts it against both a singular and a plural subject.
 
 import type { ConsoleRefusal } from "./refusal.js";
-import { formatCount } from "@renderer/console/primitives/figures/index.js";
+import { formatCount } from "./wire-figures.js";
 
 /**
  * Closed. The tuple is the declaration and `ReadingStateKind` follows from it, so a
@@ -148,8 +148,7 @@ export type ReadingState =
    * It is not rule 8's `not-checked` absence either: that one is the whole read, and
    * this is a counted part of a read that did answer.
    *
-   * `uncheckedCount` is at least one — zero is complete coverage, which is `served`,
-   * and `uncheckedCoverageReading` is what holds that.
+   * `uncheckedCount` is at least one: zero is complete coverage, which is `served`.
    */
   | {
       readonly kind: "unchecked";
@@ -212,42 +211,6 @@ export function unreadableDeliveryReading(
     return { kind: "served" };
   }
   return { kind: "partial", unreadableCount, newestRefusal };
-}
-
-/**
- * The reading an incomplete fan-out is, from the count of parts that never answered.
- *
- * The third producer shape, and it takes the count a caller already has rather than
- * the sources themselves: what a person acts on is how many went unanswered, and a
- * list of identities is the family's own to render beside the notice. Zero is
- * `served` because a fan-out every part of which answered has full coverage — the
- * same rule `unreadableDeliveryReading` applies to its own count, for the same
- * reason: a notice reading "0 parts could not be checked" is a notice for nothing.
- */
-export function uncheckedCoverageReading(
-  uncheckedCount: number,
-  newestRefusal: ConsoleRefusal | undefined,
-): ReadingState {
-  if (!Number.isInteger(uncheckedCount) || uncheckedCount < 1) {
-    return { kind: "served" };
-  }
-  return { kind: "unchecked", uncheckedCount, newestRefusal };
-}
-
-/**
- * The reading a behind-the-producer flag is, where no count is on the wire.
- *
- * The second producer shape, and it is a different rule rather than a second spelling
- * of the first: this one has a boolean and no figure, so its `false` proves only that
- * nothing reported it behind. Written here so no surface has to decide for itself
- * what a bare flag means, which is how one console came to say "may be stale" and
- * another "may be behind the registry" for the same fact.
- */
-export function behindProducerReading(
-  isBehind: boolean,
-  refusal: ConsoleRefusal | undefined,
-): ReadingState {
-  return isBehind ? { kind: "stale", refusal } : { kind: "served" };
 }
 
 /**

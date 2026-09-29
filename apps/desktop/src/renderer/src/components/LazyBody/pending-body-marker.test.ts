@@ -9,7 +9,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   PENDING_PANE_BODY_ATTRIBUTE,
-  PENDING_PANE_BODY_SELECTOR,
+  PENDING_BODY_SELECTOR,
   pendingPaneBodiesIn,
   pendingPaneKindsIn,
 } from "./pending-body-marker.js";
@@ -30,7 +30,7 @@ function treeWithPendingKinds(...kinds: readonly string[]): HTMLElement {
 
 describe("the pending pane-body marker", () => {
   it("composes its selector from the attribute rather than restating it", () => {
-    expect(PENDING_PANE_BODY_SELECTOR).toBe(`[${PENDING_PANE_BODY_ATTRIBUTE}]`);
+    expect(PENDING_BODY_SELECTOR).toBe(`[${PENDING_PANE_BODY_ATTRIBUTE}]`);
   });
 
   // The negative control the reader's clean results rest on: a tree with no marker

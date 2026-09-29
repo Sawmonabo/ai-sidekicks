@@ -14,8 +14,8 @@ import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 import type { ExecutionMode, WorkspaceId } from "@ai-sidekicks/contracts";
 
 import { consoleClockFor, type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
-import { CONTROLLER_DISPOSAL } from "@renderer/console/store/act/use-act-controller.js";
-import { useSubjectScopedResource } from "@renderer/console/store/subject-scoped/subject-scoped-resource.js";
+import { CONTROLLER_DISPOSAL } from "@renderer/lib/subject-scoped/subject-scoped-disposal.js";
+import { useSubjectScopedResource } from "@renderer/hooks/subject-scoped/useSubjectScopedResource.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 import type { RepoOperations } from "../../repo-operations.js";
 import { RepoMountsReader } from "../repo-mounts-reader.js";

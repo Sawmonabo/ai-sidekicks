@@ -57,7 +57,7 @@ import { describe, expect, it } from "vitest";
 
 import { createLedgerEnduranceScenario } from "./transcript-endurance.test-support.js";
 import { deriveLedgerWindow } from "@renderer/console/ledger/pane/window/ledger-window.js";
-import type { ConsoleSessionEvent } from "@renderer/console/store/entities/entities.js";
+import type { ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
 
 /**
  * The length of log this tier measures the ledger at.

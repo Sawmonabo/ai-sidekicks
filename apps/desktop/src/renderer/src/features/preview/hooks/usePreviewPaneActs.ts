@@ -37,10 +37,8 @@ import { useCallback } from "react";
 import type { ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
 import { normalizeWireRejection, type RejectionFallback } from "@renderer/lib/wire-rejection.js";
 import { refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
-import {
-  useSubjectScopedResource,
-  type SubjectScopedDisposal,
-} from "@renderer/console/store/subject-scoped/subject-scoped-resource.js";
+import { useSubjectScopedResource } from "@renderer/hooks/subject-scoped/useSubjectScopedResource.js";
+import { type SubjectScopedDisposal } from "@renderer/lib/subject-scoped/subject-scoped-disposal.js";
 import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
 import type { BrowserPaneRefusalCode } from "../pane-refusals.js";
 

@@ -13,11 +13,8 @@
 // runner's all-or-nothing boundary is where that defect is caught and named. A
 // guard here would swallow it into a silently missing entity instead.
 
-import type {
-  ConsoleEntity,
-  ConsoleEntityKind,
-  ConsoleEntityRef,
-} from "@renderer/console/store/entities/entities.js";
+import type { ConsoleEntity } from "./entities.js";
+import type { ConsoleEntityKind, ConsoleEntityRef } from "@renderer/lib/entity-kinds.js";
 
 /**
  * The entity maps a store holds, one per kind.

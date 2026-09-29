@@ -5,10 +5,10 @@
 
 import { describe, expect, it } from "vitest";
 
-import { ATTENTION_NOTIFIED_ITEM_CAP } from "@renderer/console/core/constants/sessions-caps.js";
+import { ATTENTION_NOTIFIED_ITEM_CAP } from "./attention-notifier.js";
 import type { AttentionItem } from "@renderer/console/bridge/wire-shapes/attention-projection.js";
 import { AttentionPlane, type AnsweredAttentionReading } from "./attention-summary.js";
-import { AttentionNotifier } from "@renderer/console/sessions/notifications/attention-notifier.js";
+import { AttentionNotifier } from "./attention-notifier.js";
 
 /**
  * One item, whose canonical event follows its id unless a case says otherwise.

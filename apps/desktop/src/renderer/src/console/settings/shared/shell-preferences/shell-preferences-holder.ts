@@ -11,9 +11,9 @@ import { useCallback, useEffect, useSyncExternalStore } from "react";
 import type { ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
 import {
   NO_TRIGGERING_EVENT_KINDS,
-  useWindowReadTriggers,
   type ReadTriggerTarget,
-} from "@renderer/console/store/read/read-triggers.js";
+} from "@renderer/store/reads/read-triggers.js";
+import { useWindowReadTriggers } from "@renderer/store/reads/hooks/useWindowReadTriggers.js";
 import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
 import {
   ShellPreferenceStore,

@@ -19,8 +19,8 @@ import { describe, expect, it } from "vitest";
 
 import type { ExecutionPosture } from "@ai-sidekicks/contracts";
 
-import type { ConsoleSessionEvent } from "@renderer/console/store/entities/entities.js";
-import { projectRunLifecycleEvent } from "@renderer/console/frame/run-projection/run-lifecycle-projector.js";
+import type { ConsoleSessionEvent } from "../session/entities/entities.js";
+import { projectRunLifecycleEvent } from "./run-lifecycle-projector.js";
 import { SYNTHETIC_SESSION_ID } from "./run-lifecycle-projector.test-support.js";
 
 /**

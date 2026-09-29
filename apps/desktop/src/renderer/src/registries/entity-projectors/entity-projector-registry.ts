@@ -34,7 +34,7 @@ import { KeyedRegistry } from "@renderer/lib/keyed-registry.js";
 import type {
   EntityProjector,
   EntityProjectorRegistry,
-} from "@renderer/console/store/entities/entities.js";
+} from "@renderer/store/session/entities/entities.js";
 
 export class ConsoleEntityProjectorRegistry {
   readonly #claimsByEventKind = new KeyedRegistry<string, EntityProjectorClaim>({

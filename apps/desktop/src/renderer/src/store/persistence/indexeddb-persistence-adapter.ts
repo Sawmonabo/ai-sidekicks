@@ -5,7 +5,7 @@
 // not a `get`/`set` façade over them.
 //
 // Opening is the interesting part. Every one of these is reachable in a shipped
-// Electron app and each needs a DIFFERENT answer, which is why `openConsoleDatabase`
+// Electron app and each needs a DIFFERENT answer, which is why `openUiStateDatabase`
 // returns a discriminated reason rather than a boolean:
 //
 //   • no `indexedDB` global — the renderer scheme was not registered `standard`;
@@ -22,7 +22,7 @@
 // surfaces as a typed refusal on the write rather than as a failed construction.
 
 import { openDB, type DBSchema, type IDBPDatabase } from "idb";
-import { PERSISTENCE_QUOTA_PRESSURE_RATIO } from "@renderer/console/core/constants/persistence-caps.js";
+import { PERSISTENCE_QUOTA_PRESSURE_RATIO } from "../persistence-caps.js";
 import { RealClock, type ConsoleClock, type ScheduledHandle } from "@renderer/lib/clock.js";
 import {
   PERSISTENCE_GLOBAL_PARTITION,
@@ -39,14 +39,14 @@ import {
 import { refusePersistence } from "./persistence-refusals.js";
 
 /** The database this build reads and writes. Bumping the version is a migration. */
-export const CONSOLE_DATABASE_NAME = "sidekicks-console-ui-state";
-export const CONSOLE_DATABASE_VERSION = 1;
+export const CONSOLE_DATABASE_NAME = "sidekicks-ui-state";
+export const UI_STATE_DATABASE_VERSION = 1;
 export const UI_STATE_STORE_NAME = "ui-state";
 
 /** How long the console will wait for a database before rendering without one. */
 export const DATABASE_OPEN_TIMEOUT_MS = 3000;
 
-/** What `openConsoleDatabase` returns: a usable adapter, or the reason there is none. */
+/** What `openUiStateDatabase` returns: a usable adapter, or the reason there is none. */
 export type DatabaseOpenOutcome =
   | { readonly outcome: "opened"; readonly adapter: IndexedDbPersistenceAdapter }
   | {
@@ -55,7 +55,7 @@ export type DatabaseOpenOutcome =
       readonly cause?: unknown;
     };
 
-export interface OpenConsoleDatabaseOptions {
+export interface OpenUiStateDatabaseOptions {
   readonly databaseName?: string;
   readonly openTimeoutMs?: number;
   /**
@@ -252,8 +252,8 @@ export class IndexedDbPersistenceAdapter implements PersistenceAdapter {
  * Attempt the durable open. Never throws: the failure modes above are outcomes the
  * caller renders, not exceptions it swallows.
  */
-export async function openConsoleDatabase(
-  options: OpenConsoleDatabaseOptions = {},
+export async function openUiStateDatabase(
+  options: OpenUiStateDatabaseOptions = {},
 ): Promise<DatabaseOpenOutcome> {
   const indexedDbFactory = resolveIndexedDbFactory(options);
   if (indexedDbFactory === undefined) {
@@ -273,7 +273,7 @@ export async function openConsoleDatabase(
   });
 
   try {
-    const opening = openDB<ConsoleDatabaseSchema>(databaseName, CONSOLE_DATABASE_VERSION, {
+    const opening = openDB<ConsoleDatabaseSchema>(databaseName, UI_STATE_DATABASE_VERSION, {
       upgrade(database) {
         const store = database.createObjectStore(UI_STATE_STORE_NAME, {
           keyPath: ["partition", "key"],
@@ -343,10 +343,10 @@ interface ConsoleDatabaseSchema extends DBSchema {
  * The factory this open is gated on, distinguishing an OMITTED option from one
  * explicitly supplied as `undefined`.
  *
- * See `OpenConsoleDatabaseOptions.indexedDbFactory` for why the distinction is the
+ * See `OpenUiStateDatabaseOptions.indexedDbFactory` for why the distinction is the
  * contract rather than a nicety.
  */
-function resolveIndexedDbFactory(options: OpenConsoleDatabaseOptions): IDBFactory | undefined {
+function resolveIndexedDbFactory(options: OpenUiStateDatabaseOptions): IDBFactory | undefined {
   if ("indexedDbFactory" in options) {
     return options.indexedDbFactory;
   }

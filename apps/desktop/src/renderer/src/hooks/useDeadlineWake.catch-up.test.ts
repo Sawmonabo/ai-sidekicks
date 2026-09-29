@@ -9,11 +9,12 @@
 import { act } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
+import { earliestFutureDeadline, latestPassedDeadline } from "@renderer/lib/deadlines.js";
 import {
-  earliestFutureDeadline,
-  latestPassedDeadline,
-} from "@renderer/console/store/subject-scoped/deadline-wake.js";
-import { CountingManualClock, MOUNTED_AT, renderWake } from "./useDeadlineWake.test-support.js";
+  CountingManualClock,
+  MOUNTED_AT,
+  renderDeadlineWake,
+} from "./useDeadlineWake.test-support.js";
 
 describe("latestPassedDeadline — what a late wake-up settles", () => {
   it("takes the last deadline the clock has already passed", () => {
@@ -45,7 +46,7 @@ describe("useDeadlineWake — a wake-up that arrives after several deadlines", (
     // refuses the update entirely, leaving the figure on screen stale for good.
     const clock = new CountingManualClock(MOUNTED_AT);
     const deadlines = Array.from({ length: 80 }, (_unused, step) => 2_000 + step * 1_000);
-    const wake = renderWake(clock, deadlines);
+    const wake = renderDeadlineWake(clock, deadlines);
     expect(wake.instant()).toBe(MOUNTED_AT);
 
     act(() => {
@@ -62,7 +63,7 @@ describe("useDeadlineWake — a wake-up that arrives after several deadlines", (
     // Without this, the case above would hold for a hook that published the clock's
     // reading of now, which is the one instant this module may never put on screen.
     const clock = new CountingManualClock(MOUNTED_AT);
-    const wake = renderWake(clock, [2_000, 9_000]);
+    const wake = renderDeadlineWake(clock, [2_000, 9_000]);
 
     act(() => {
       clock.advance(3_000);

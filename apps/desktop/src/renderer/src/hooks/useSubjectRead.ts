@@ -16,11 +16,8 @@ import type {
   SubjectScopedPublish,
 } from "@renderer/lib/subject-scoped/subject-scoped-holder.js";
 import { useSubjectScopedState } from "./subject-scoped/useSubjectScopedState.js";
-import {
-  isReadAbandoned,
-  settleUnlessAbandoned,
-  useReadScope,
-} from "@renderer/console/store/read/read-cancellation.js";
+import { isReadAbandoned, settleUnlessAbandoned } from "@renderer/lib/reads/read-scope.js";
+import { useReadScope } from "./useReadScope.js";
 
 /** How a caller turns one read into the states a surface renders. */
 export interface SubjectReadProjection<TValue, TState> {

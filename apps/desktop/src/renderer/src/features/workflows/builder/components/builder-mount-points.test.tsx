@@ -15,7 +15,7 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/console/core/constants/persistence-caps.js";
+import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence-caps.js";
 import { DraftStore } from "@renderer/store/draft-store.js";
 import { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
 import { DraftsSlot, type DraftsMount } from "./DraftsMountPoint.js";

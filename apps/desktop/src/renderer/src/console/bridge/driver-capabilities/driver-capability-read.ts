@@ -73,12 +73,12 @@ import type { DriverCapabilityFlag } from "@ai-sidekicks/contracts";
 import type { ConsoleRefusal } from "@renderer/lib/refusal.js";
 import {
   NO_TRIGGERING_EVENT_KINDS,
-  useSessionReadTriggers,
-  useWindowReadTriggers,
   type ReadTriggerTarget,
-} from "@renderer/console/store/read/read-triggers.js";
+} from "@renderer/store/reads/read-triggers.js";
+import { useSessionReadTriggers } from "@renderer/store/reads/hooks/useSessionReadTriggers.js";
+import { useWindowReadTriggers } from "@renderer/store/reads/hooks/useWindowReadTriggers.js";
 import { RefreshScheduler, type RefreshReason } from "@renderer/lib/reads/refresh-scheduler.js";
-import { type ReadRound } from "@renderer/console/store/read/read-cancellation.js";
+import { type ReadRound } from "@renderer/lib/reads/read-scope.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 import { callDaemon } from "@renderer/services/daemon/daemon-reply.js";
 import { consoleClockFor, type ConsoleBridge } from "../console-bridge.js";

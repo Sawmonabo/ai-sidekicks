@@ -51,7 +51,7 @@ import { z } from "zod";
 import {
   REMEMBERED_SCOPE_KINDS,
   type ApprovalDecision,
-} from "@renderer/console/bridge/approvals/approval-vocabulary.js";
+} from "@renderer/lib/approval-vocabulary.js";
 
 /**
  * What one resolve carries.

@@ -62,30 +62,27 @@ import {
   recordStoreSize,
 } from "@renderer/lib/performance-meters/performance-meters.js";
 import { reportTripwire } from "@renderer/lib/tripwires.js";
-import { ActorHueAllocator } from "@renderer/styles/agent-hue.js";
+import { AgentHueAllocator } from "@renderer/styles/agent-hue.js";
 import { foldAppliedBatch } from "./applied-batch-fold.js";
 import { worstDegradedCause, type SessionDegradedCause } from "../session-degradation.js";
 import { foldEarlierWindowPage, type EarlierWindowMerge } from "./earlier-window.js";
 import { EntityProjectionRunner } from "./entities/entity-projection-runner.js";
-import {
-  type ConsoleSessionEvent,
-  type EntityProjectorRegistry,
-} from "@renderer/console/store/entities/entities.js";
+import { type ConsoleSessionEvent, type EntityProjectorRegistry } from "./entities/entities.js";
 import {
   GenerationLatch,
   type CurrentGenerationClaim,
-} from "@renderer/console/store/read/generation-latch.js";
+} from "@renderer/lib/reads/generation-latch.js";
 import {
-  OutstandingAskJournal,
-  type OutstandingAskLedger,
+  WaitingOnPersonRegister,
+  type WaitingOnPersonRecords,
 } from "./waiting-on-person/waiting-on-person-register.js";
-import { PreInitialisationBuffer } from "./pre-initialization-buffer.js";
-import { toReadableStore, type ConsoleReadableStore } from "../readable-store.js";
+import { PreInitializationBuffer } from "./pre-initialization-buffer.js";
+import { toReadableStore, type ReadableStore } from "../readable-store.js";
 import { SequenceReconciler, orderBatchBySequence } from "./sequence-reconciler.js";
 import {
   admitsSnapshotAt,
   establishedState,
-  uninitialisedState,
+  uninitializedState,
   type TimelineRetainedEnd,
 } from "./session-state.js";
 import type { SessionSnapshot, SessionStoreState } from "./session-state.js";
@@ -97,7 +94,6 @@ import { NOTHING_APPLIED, type ApplyOutcome } from "./apply-outcome.js";
 // module outside its owner imports it, so a second name for it would be an export
 // with no reader, which the dead-code gate rejects. It is reached at its owner.
 export type { SessionDegradedCause } from "../session-degradation.js";
-export { BASE_STATE_CURSOR } from "./session-state.js";
 export type { SessionSnapshot, SessionStoreState } from "./session-state.js";
 export { selectEntity, selectPartition } from "./session-selectors.js";
 export type { EarlierWindowMerge } from "./earlier-window.js";
@@ -120,9 +116,9 @@ export class SessionStore {
   readonly #sessionId: string;
   readonly #timelineCap: number | undefined;
   readonly #store: StoreApi<SessionStoreState>;
-  readonly #hueAllocator = new ActorHueAllocator();
+  readonly #hueAllocator = new AgentHueAllocator();
   readonly #reconciler = new SequenceReconciler();
-  readonly #preInitialisationBuffer = new PreInitialisationBuffer();
+  readonly #preInitialisationBuffer = new PreInitializationBuffer();
   readonly #projectionRunner: EntityProjectionRunner;
   /**
    * What is still waiting on a person, held apart from the window it was learned from.
@@ -132,7 +128,7 @@ export class SessionStore {
    * admits and the rows the backward walk recovers, and a caller able to supply a second
    * register could publish a count over a session whose rows it never saw.
    */
-  readonly #outstandingAsks = new OutstandingAskJournal();
+  readonly #outstandingAsks = new WaitingOnPersonRegister();
   readonly #reentrantQueue: ConsoleSessionEvent[] = [];
   #applying = false;
   /**
@@ -164,7 +160,7 @@ export class SessionStore {
     this.#timelineCap = options.timelineCap;
     this.#projectionRunner = new EntityProjectionRunner(options.projectors ?? {});
     this.#store = createStore<SessionStoreState>(() =>
-      uninitialisedState({ sessionId: options.sessionId, revision: 0 }),
+      uninitializedState({ sessionId: options.sessionId, revision: 0 }),
     );
   }
 
@@ -174,7 +170,7 @@ export class SessionStore {
   }
 
   /** The zustand store React subscribes to. Read-only by type: no setter escapes. */
-  public get readable(): ConsoleReadableStore<SessionStoreState> {
+  public get readable(): ReadableStore<SessionStoreState> {
     return toReadableStore(this.#store);
   }
 
@@ -184,7 +180,7 @@ export class SessionStore {
   }
 
   /** The session's hue wheel. Allocation happens only through `applyBatch`. */
-  public get hueAllocator(): ActorHueAllocator {
+  public get hueAllocator(): AgentHueAllocator {
     return this.#hueAllocator;
   }
 
@@ -211,7 +207,7 @@ export class SessionStore {
    * re-asks exactly when it could have changed — and a mirror on the committed state
    * would be a second copy of a value whose whole point is that it is the register's.
    */
-  public get outstandingAskLedger(): OutstandingAskLedger {
+  public get outstandingAskLedger(): WaitingOnPersonRecords {
     return this.#outstandingAsks.ledger;
   }
 

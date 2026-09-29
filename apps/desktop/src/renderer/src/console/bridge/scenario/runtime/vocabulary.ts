@@ -25,7 +25,7 @@
 
 import type { UpdateState } from "@ai-sidekicks/contracts";
 
-import type { ConsoleSessionEvent } from "@renderer/console/store/entities/entities.js";
+import type { ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
 import type { ScenarioReply } from "@renderer/services/daemon/scenario-reply.fixture.js";
 
 /** One scripted event and the tick it is due at, measured from scenario start. */

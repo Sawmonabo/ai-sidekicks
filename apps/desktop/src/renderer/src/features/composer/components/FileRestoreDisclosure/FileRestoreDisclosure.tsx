@@ -1,7 +1,8 @@
 import { useId } from "react";
 import { GLYPH_SIZE_CHROME } from "@renderer/styles/glyphs.js";
-import { Chip, Glyph } from "@renderer/console/primitives/figures/index.js";
-import type { ChipTone } from "@renderer/console/primitives/figures/index.js";
+import { Chip } from "@renderer/components/Chip/Chip.js";
+import { Glyph } from "@renderer/components/Glyph/Glyph.js";
+import type { ChipTone } from "@renderer/components/Chip/Chip.js";
 import type { RollbackAppliedResult, RollbackDegradedResult } from "@ai-sidekicks/contracts";
 
 /** The rollback results this disclosure draws, as the contract's own arms name them. */

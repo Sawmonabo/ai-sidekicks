@@ -10,7 +10,7 @@
 // The dependency runs one way and only one way: `deck-model` → `deck-snapshot` →
 // `deck-layout`. Nothing here imports either of the other two.
 
-import type { ConsoleEntityRef } from "@renderer/console/store/entities/entities.js";
+import type { ConsoleEntityRef } from "@renderer/lib/entity-kinds.js";
 import type { PaneKind } from "@renderer/console/seats/index.js";
 import type { DeckDensity } from "./pane-layout-measures.js";
 

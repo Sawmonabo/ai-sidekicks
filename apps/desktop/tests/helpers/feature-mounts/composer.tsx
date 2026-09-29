@@ -44,11 +44,11 @@ import { COMPOSER_SCENARIO } from "@renderer/console/bridge/scenario/composer/co
 import { createFixtureBridge } from "@renderer/console/bridge/fixture/call-plane/bridge.js";
 import { type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
 import { settleScheduledRead } from "../scheduled-read.js";
-import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/console/core/constants/persistence-caps.js";
+import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence-caps.js";
 import { DraftStore } from "@renderer/store/draft-store.js";
 import { FrameStore } from "@renderer/store/window/window-store.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
-import { type ConsoleSessionEvent } from "@renderer/console/store/entities/entities.js";
+import { type ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
 import { MessageComposer } from "@renderer/features/composer/Composer.js";
 import type { ConsolePaneAddress } from "@renderer/console/seats/index.js";
 import { COMPOSED_CONSOLE_PROJECTORS } from "./projector-composition.js";

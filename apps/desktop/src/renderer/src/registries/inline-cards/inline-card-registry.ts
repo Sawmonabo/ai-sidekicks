@@ -22,7 +22,7 @@
 
 import { ConsoleRefusalError, refuse } from "@renderer/lib/refusal.js";
 import { KeyedRegistry } from "@renderer/lib/keyed-registry.js";
-import { type ConsoleEntityRef } from "@renderer/console/store/entities/entities.js";
+import { type ConsoleEntityRef } from "@renderer/lib/entity-kinds.js";
 
 /** The subsystem an inline-card refusal names as its author. */
 const INLINE_CARD_ORIGIN = "inline-card-seats";

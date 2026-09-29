@@ -15,10 +15,7 @@
 // keeping a serial of its own. The fetch does not read the scheduled read's stamp: a list
 // read carries the payload arm forward untouched and answers nothing about anyone's bytes.
 
-import {
-  GenerationLatch,
-  type GenerationClaim,
-} from "@renderer/console/store/read/generation-latch.js";
+import { GenerationLatch, type GenerationClaim } from "@renderer/lib/reads/generation-latch.js";
 import { artifactManifestRowFrom } from "./artifact-model.js";
 import type { ArtifactActionHost } from "./artifact-row-action-host.js";
 import { withReplacedRow } from "./artifact-list-reading.js";

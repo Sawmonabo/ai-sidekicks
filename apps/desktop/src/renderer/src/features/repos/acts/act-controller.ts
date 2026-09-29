@@ -49,11 +49,11 @@ import {
   type ActSettlementArm,
   type ActSettlementReading,
 } from "./act-reading.js";
-import { GenerationLatch } from "@renderer/console/store/read/generation-latch.js";
+import { GenerationLatch } from "@renderer/lib/reads/generation-latch.js";
 import { RefreshScheduler } from "@renderer/lib/reads/refresh-scheduler.js";
 import { SessionRefreshTriggers } from "@renderer/store/reads/session-refresh-triggers.js";
-import type { ReadRound } from "@renderer/console/store/read/read-cancellation.js";
-import type { ReadTriggerTarget } from "@renderer/console/store/read/read-triggers.js";
+import type { ReadRound } from "@renderer/lib/reads/read-scope.js";
+import type { ReadTriggerTarget } from "@renderer/store/reads/read-triggers.js";
 import type { RefreshReason } from "@renderer/lib/reads/refresh-scheduler.js";
 import type { SessionStore } from "@renderer/store/session/session-store.js";
 

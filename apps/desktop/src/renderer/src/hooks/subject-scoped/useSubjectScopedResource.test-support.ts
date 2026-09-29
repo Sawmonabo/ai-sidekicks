@@ -27,7 +27,7 @@ export interface OpenResource {
 }
 
 /** Every open and every close, in order, so a double close is as visible as a leak. */
-export class ResourceLedger {
+export class ResourceOpenCloseLog {
   readonly #opened: string[] = [];
   readonly #closed: string[] = [];
   readonly #closedResources = new WeakSet<OpenResource>();

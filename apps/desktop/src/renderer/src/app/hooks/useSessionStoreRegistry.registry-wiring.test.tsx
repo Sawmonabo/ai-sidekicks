@@ -21,8 +21,8 @@ import { ConsoleRefusalError } from "@renderer/lib/refusal.js";
 import { ManualClock } from "@renderer/lib/clock.js";
 import { ConsoleEntityProjectorRegistry } from "@renderer/registries/entity-projectors/entity-projector-registry.js";
 import { SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
-import { type ConsoleSessionEvent } from "@renderer/console/store/entities/entities.js";
-import { RUN_LIFECYCLE_PROJECTORS } from "@renderer/console/frame/run-projection/run-lifecycle-projector.js";
+import { type ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
+import { RUN_LIFECYCLE_PROJECTORS } from "@renderer/store/session-events/run-lifecycle-projector.js";
 import { sessionReadThroughDaemon } from "@renderer/services/daemon/session-read.js";
 import {
   SessionProbe,

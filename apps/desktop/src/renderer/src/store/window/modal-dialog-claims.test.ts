@@ -1,13 +1,13 @@
-// Two surfaces up at once, and what the register says when one of them closes.
+// Two dialogs up at once, and what the register says when one of them closes.
 //
-// THE CASE THAT WOULD HAVE CAUGHT THE DEFECT is the first one. While the frame's
+// THE CASE THAT WOULD HAVE CAUGHT THE DEFECT is the first one. While the window's
 // guard was a boolean each publisher wrote, a second dialog closing published `false`
 // under the first, and the background came back structurally reachable behind a
 // dialog still on screen. So the assertion here is not "closing publishes `false`" —
 // that was true of the broken shape too — but "closing publishes what the REST of the
 // register says", which is a different claim and the only one that bites.
 //
-// THE PUBLICATIONS ARE COLLECTED RATHER THAN SAMPLED. What the frame renders is the
+// THE PUBLICATIONS ARE COLLECTED RATHER THAN SAMPLED. What the window renders is the
 // sequence, not the final value: a register that published `false` and then `true`
 // again would settle correctly and still have dropped `inert` for a frame. Every case
 // asserts the whole list.
@@ -16,52 +16,52 @@
 // it MOVED — so a release that leaves another claim standing repeats `true`, which is
 // the register saying the answer it has now rather than a claim that anything changed.
 // Whether an unchanged value reaches a subscriber is the store's own comparison, one
-// layer up, and `frame-store.test.ts` is where that is asserted.
+// layer up, in the window store.
 
 import { describe, expect, it } from "vitest";
 
-import { ModalSurfaceClaims } from "./modal-dialog-claims.js";
+import { ModalDialogClaims } from "./modal-dialog-claims.js";
 
-/** The two window-scoped overlays that can be up at once, named as the console has them. */
-const SIGN_IN_CARD = "the-sign-in-card";
-const ONBOARDING_WALKTHROUGH = "the-onboarding-walkthrough";
+/** Two modal dialogs one window holds at once. */
+const FIRST_DIALOG = "the-first-dialog";
+const SECOND_DIALOG = "the-second-dialog";
 
 /** A register and the flags it published, in order. */
 function registerUnderTest(): {
-  readonly claims: ModalSurfaceClaims;
+  readonly claims: ModalDialogClaims;
   readonly published: boolean[];
 } {
   const published: boolean[] = [];
   return {
-    claims: new ModalSurfaceClaims((isAnyHeld) => {
+    claims: new ModalDialogClaims((isAnyHeld) => {
       published.push(isAnyHeld);
     }),
     published,
   };
 }
 
-describe("the modal-surface register — one claim per surface", () => {
-  it("keeps the guard armed when one of two overlapping surfaces closes", () => {
+describe("the modal dialog register — one claim per dialog", () => {
+  it("keeps the guard armed when one of two overlapping dialogs closes", () => {
     const { claims, published } = registerUnderTest();
 
-    claims.hold(SIGN_IN_CARD);
-    claims.hold(ONBOARDING_WALKTHROUGH);
-    claims.release(ONBOARDING_WALKTHROUGH);
+    claims.hold(FIRST_DIALOG);
+    claims.hold(SECOND_DIALOG);
+    claims.release(SECOND_DIALOG);
 
-    // The sign-in card is still on screen trapping focus. A `false` here is the
-    // defect: the frame drops `inert` and the rail, the route surface, and every
+    // The first dialog is still on screen trapping focus. A `false` here is the
+    // defect: the window drops `inert` and the rail, the screen, and every
     // control underneath become reachable by structural navigation.
     expect(published).toStrictEqual([true, true, true]);
     expect(claims.heldClaimCount).toBe(1);
   });
 
-  it("disarms it only when the last surface closes", () => {
+  it("disarms it only when the last dialog closes", () => {
     const { claims, published } = registerUnderTest();
 
-    claims.hold(SIGN_IN_CARD);
-    claims.hold(ONBOARDING_WALKTHROUGH);
-    claims.release(ONBOARDING_WALKTHROUGH);
-    claims.release(SIGN_IN_CARD);
+    claims.hold(FIRST_DIALOG);
+    claims.hold(SECOND_DIALOG);
+    claims.release(SECOND_DIALOG);
+    claims.release(FIRST_DIALOG);
 
     expect(published).toStrictEqual([true, true, true, false]);
     expect(claims.heldClaimCount).toBe(0);
@@ -74,9 +74,9 @@ describe("the modal-surface register — one claim per surface", () => {
     // safely.
     const { claims, published } = registerUnderTest();
 
-    claims.hold(SIGN_IN_CARD);
-    claims.release(SIGN_IN_CARD);
-    claims.release(SIGN_IN_CARD);
+    claims.hold(FIRST_DIALOG);
+    claims.release(FIRST_DIALOG);
+    claims.release(FIRST_DIALOG);
 
     expect(published).toStrictEqual([true, false]);
   });
@@ -86,18 +86,18 @@ describe("the modal-surface register — one claim per surface", () => {
     // caller that has already given up its claim clearing everybody else's.
     const { claims, published } = registerUnderTest();
 
-    claims.hold(SIGN_IN_CARD);
-    claims.release(ONBOARDING_WALKTHROUGH);
+    claims.hold(FIRST_DIALOG);
+    claims.release(SECOND_DIALOG);
 
     expect(published).toStrictEqual([true]);
     expect(claims.heldClaimCount).toBe(1);
   });
 
-  it("says nothing when the same surface holds twice", () => {
+  it("says nothing when the same dialog holds twice", () => {
     const { claims, published } = registerUnderTest();
 
-    claims.hold(SIGN_IN_CARD);
-    claims.hold(SIGN_IN_CARD);
+    claims.hold(FIRST_DIALOG);
+    claims.hold(FIRST_DIALOG);
 
     expect(published).toStrictEqual([true]);
     expect(claims.heldClaimCount).toBe(1);

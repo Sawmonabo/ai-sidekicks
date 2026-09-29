@@ -40,7 +40,9 @@ export { type AttentionReading } from "@renderer/store/attention/attention-summa
 // destination mounts.
 export {
   useAttentionProjection,
+  type AttentionProjectionReadCall,
+} from "@renderer/store/attention/hooks/useAttentionProjection.js";
+export {
   /** @consumedBy the notifications list the rail's bell opens */
   useAttentionSettlementAnnouncement,
-  type AttentionProjectionReadCall,
-} from "./attention-read.js";
+} from "@renderer/layout/NotificationsList/hooks/useAttentionSettlementAnnouncement.js";

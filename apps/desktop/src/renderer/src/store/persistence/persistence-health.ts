@@ -75,7 +75,7 @@ export interface PersistenceHealth {
 }
 
 /** The store's running account of its own refusals, failures, and trims. */
-export class PersistenceHealthLedger {
+export class PersistenceHealthTracker {
   readonly #refusalCounts = new Map<string, number>();
   #failedReadCount = 0;
   #trimCount = 0;

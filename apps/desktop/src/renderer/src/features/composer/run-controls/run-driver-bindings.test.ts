@@ -12,7 +12,7 @@ import { foldRunDriverBindings } from "@renderer/console/bridge/driver-capabilit
 import type {
   ConsoleEntity,
   ConsoleSessionEvent,
-} from "@renderer/console/store/entities/entities.js";
+} from "@renderer/store/session/entities/entities.js";
 
 const SESSION_ID = "019b7a33-3300-75e5-8510-ada11a5a55a5";
 const OTHER_SESSION_ID = "019b7a33-3300-75e5-8510-ada11a5a55b6";

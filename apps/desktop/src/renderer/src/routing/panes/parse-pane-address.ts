@@ -19,10 +19,10 @@
 // row drops that row and keeps the rest, and a caller that needs the exception shape
 // wraps it in `ConsoleRefusalError` at its own seam.
 
-import { IDENTIFIER_MAX_LENGTH } from "@renderer/console/core/constants/persistence-caps.js";
+import { IDENTIFIER_MAX_LENGTH } from "@renderer/lib/identifier-grammar.js";
 import { refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
-import { isSingleNameIdentifierShaped } from "@renderer/console/persistence/identifier-grammar.js";
-import { type ConsoleEntityRef } from "@renderer/console/store/entities/entities.js";
+import { isSingleNameIdentifierShaped } from "@renderer/lib/identifier-grammar.js";
+import { type ConsoleEntityRef } from "@renderer/lib/entity-kinds.js";
 import {
   isEntityOptionalPaneKind,
   paneEntityScopeFor,

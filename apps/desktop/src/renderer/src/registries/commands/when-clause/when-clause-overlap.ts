@@ -6,7 +6,7 @@
 // `when-clause.ts` defines, run once per chord collision at install time and
 // never on the input path.
 
-import { WHEN_CLAUSE_OVERLAP_MAX_CONTEXT_KEYS } from "@renderer/console/core/constants/palette-caps.js";
+import { WHEN_CLAUSE_OVERLAP_MAX_CONTEXT_KEYS } from "@renderer/styles/palette.js";
 import {
   collectWhenClauseIdentifiers,
   evaluateWhenClause,

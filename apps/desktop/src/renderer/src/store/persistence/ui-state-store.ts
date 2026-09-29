@@ -52,7 +52,7 @@
 import {
   PERSISTENCE_RECORD_BYTE_CAP,
   PERSISTENCE_SESSION_PARTITION_CAP,
-} from "@renderer/console/core/constants/persistence-caps.js";
+} from "../persistence-caps.js";
 import { RealClock, type ConsoleClock } from "@renderer/lib/clock.js";
 import {
   PERSISTENCE_GLOBAL_PARTITION,
@@ -61,11 +61,11 @@ import {
   type QuotaGauge,
   type StoredRecord,
 } from "./persistence-adapter.js";
-import { validatePersistedAddress } from "@renderer/console/persistence/identifier-grammar.js";
+import { validatePersistedAddress } from "./persisted-value-classes.js";
 import { MemoryPersistenceAdapter } from "./memory-persistence-adapter.js";
 import {
-  openConsoleDatabase,
-  type OpenConsoleDatabaseOptions,
+  openUiStateDatabase,
+  type OpenUiStateDatabaseOptions,
 } from "./indexeddb-persistence-adapter.js";
 import {
   PERSISTENCE_READ_ABSENT,
@@ -75,7 +75,7 @@ import {
 } from "./persistence-read-outcome.js";
 import { refusePersistence, type PersistenceRefusal } from "./persistence-refusals.js";
 import {
-  PersistenceHealthLedger,
+  PersistenceHealthTracker,
   REFUSED_ADDRESS_SITE,
   type PersistenceHealth,
 } from "./persistence-health.js";
@@ -84,7 +84,7 @@ import {
   validatePersistedValue,
   type PersistableValue,
   type PersistedValueClass,
-} from "@renderer/console/persistence/value-classes.js";
+} from "./persisted-value-classes.js";
 
 /** The outcome of a write. A refusal is a value, not an exception. */
 export type PersistenceWriteResult =
@@ -121,7 +121,7 @@ export class UiStateStore {
   readonly #sessionPartitionCap: number;
   readonly #recordByteCap: number;
   readonly #clock: ConsoleClock;
-  readonly #health = new PersistenceHealthLedger();
+  readonly #health = new PersistenceHealthTracker();
   #closed = false;
 
   public constructor(options: UiStateStoreOptions) {
@@ -137,12 +137,12 @@ export class UiStateStore {
    *
    * Synchronous by design — it returns the store, not a promise of one, so the
    * composition root can create it during its first render and hand the same
-   * object to every surface. `openConsoleDatabase` is documented never to throw,
+   * object to every surface. `openUiStateDatabase` is documented never to throw,
    * which is what lets the pending adapter be a promise that cannot reject.
    */
-  public static opening(options: OpenConsoleDatabaseOptions = {}): UiStateStore {
+  public static opening(options: OpenUiStateDatabaseOptions = {}): UiStateStore {
     return new UiStateStore({
-      adapter: openConsoleDatabase(options).then((outcome) =>
+      adapter: openUiStateDatabase(options).then((outcome) =>
         outcome.outcome === "opened"
           ? outcome.adapter
           : new MemoryPersistenceAdapter({ unavailableReason: outcome.reason }),

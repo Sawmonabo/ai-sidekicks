@@ -5,23 +5,22 @@
 // Lifetime is what is asserted here, and it is invisible to a case that mounts one
 // tree and leaves it mounted.
 //
-// SO EVERY CASE SWAPS THE SUBTREE. The child under the binding is what a route change
+// SO EVERY CASE SWAPS THE SUBTREE. The child under the provider is what a route change
 // replaces, so re-rendering with a different child is a navigation as far as this seam
 // is concerned, and the assertion is the number of times each call was put.
 
-import { render } from "@testing-library/react";
+import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { DesktopBridgeProvider } from "@renderer/console/bridge/BridgeProvider.js";
+import { PAST_REFRESH_DEBOUNCE_MS, settle as settleReactWork } from "@test/helpers/settle.js";
+import { RealClock } from "@renderer/lib/clock.js";
 import { NO_TRANSPORT_RECONNECT } from "@renderer/lib/transport-reconnect.js";
-import type { FrameBindingContext } from "@renderer/console/seats/index.js";
+import type { SessionDirectoryReadCall } from "../session-directory/session-directory.js";
 import type { SessionStore } from "../session/session-store.js";
 import type { SessionStoreRegistry } from "../session/session-store-registry.js";
-import {
-  SessionAttentionBinding,
-  useSessionAttention,
-} from "@renderer/console/sessions/SessionAttentionBinding.js";
-import { callsAnswering, settle } from "@renderer/features/sessions/SessionsFlyout.test-support.js";
+import { AttentionProvider } from "./AttentionProvider.js";
+import type { AttentionProjectionReadCall } from "./hooks/useAttentionProjection.js";
+import { useAttention } from "./hooks/useAttention.js";
 
 /** A registry holding no store, which is all these reads ask of it. */
 const EMPTY_REGISTRY = {
@@ -30,16 +29,19 @@ const EMPTY_REGISTRY = {
   subscribe: () => () => undefined,
 } as unknown as SessionStoreRegistry;
 
-/** The bridge members the reads reach for, attached and silent. */
-const BRIDGE = {
-  source: "fixture",
-  attentionSubscribe: () => () => undefined,
-  transportReconnect: NO_TRANSPORT_RECONNECT,
-};
+/** Let both reads land, past the refresh debounce the attention read waits out. */
+async function settle(): Promise<void> {
+  await settleReactWork();
+  await act(async () => {
+    await new Promise((resolveAfterDebounce) => {
+      setTimeout(resolveAfterDebounce, PAST_REFRESH_DEBOUNCE_MS);
+    });
+  });
+}
 
-/** What the child under the binding reads from it. */
+/** What the child under the provider reads from it. */
 function ReadingProbe(props: { readonly label: string }): React.JSX.Element {
-  const { reading, directory } = useSessionAttention();
+  const { reading, directory } = useAttention();
   return (
     <div>
       {props.label}:{reading.phase}:{directory.status}
@@ -47,42 +49,42 @@ function ReadingProbe(props: { readonly label: string }): React.JSX.Element {
   );
 }
 
-describe("the window's attention binding — the reading outlives a destination", () => {
+describe("the window's attention provider — the reading outlives a destination", () => {
   it("performs each read once across a replaced subtree", async () => {
     let attentionReads = 0;
     let directoryReads = 0;
-    const answering = callsAnswering({ directorySessionIds: ["session-a"] });
-    const readAttention: typeof answering.readAttention = () => {
+    const readAttention: AttentionProjectionReadCall = () => {
       attentionReads += 1;
-      return answering.readAttention();
+      return Promise.resolve({
+        items: [],
+        droppedCount: 0,
+        refusedSessions: [],
+        addressedSessionIds: ["session-a"],
+      });
     };
-    const readDirectory: typeof answering.readDirectory = (signal) => {
+    const readDirectory: SessionDirectoryReadCall = () => {
       directoryReads += 1;
-      return answering.readDirectory(signal);
+      return Promise.resolve([{ sessionId: "session-a", state: "active" }]);
     };
-    const bindingOver = (label: string): React.JSX.Element => (
-      <DesktopBridgeProvider bridge={BRIDGE as never}>
-        <SessionAttentionBinding
-          context={
-            {
-              bridge: BRIDGE,
-              frameStore: {},
-              sessionStoreRegistry: EMPTY_REGISTRY,
-            } as unknown as FrameBindingContext
-          }
-          readAttention={readAttention}
-          readDirectory={readDirectory}
-        >
-          <ReadingProbe label={label} />
-        </SessionAttentionBinding>
-      </DesktopBridgeProvider>
+    const clock = new RealClock();
+    const providerOver = (label: string): React.JSX.Element => (
+      <AttentionProvider
+        readAttention={readAttention}
+        readDirectory={readDirectory}
+        subscribeToAttention={() => () => undefined}
+        transportReconnect={NO_TRANSPORT_RECONNECT}
+        sessionStoreRegistry={EMPTY_REGISTRY}
+        clock={clock}
+      >
+        <ReadingProbe label={label} />
+      </AttentionProvider>
     );
 
-    const mounted = render(bindingOver("the sessions destination"));
+    const mounted = render(providerOver("the sessions destination"));
     await settle();
     expect(mounted.container.textContent).toBe("the sessions destination:read:served");
 
-    mounted.rerender(bindingOver("the workspace"));
+    mounted.rerender(providerOver("the workspace"));
     await settle();
 
     expect(mounted.container.textContent).toBe("the workspace:read:served");

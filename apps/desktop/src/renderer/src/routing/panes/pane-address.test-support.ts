@@ -7,7 +7,7 @@
 // refused", and the one that is not looked at is the one that stops saying which.
 
 import { isConsoleRefusal } from "@renderer/lib/refusal.js";
-import type { ConsoleEntityRef } from "@renderer/console/store/entities/entities.js";
+import type { ConsoleEntityRef } from "@renderer/lib/entity-kinds.js";
 import { parseConsolePaneAddress } from "./parse-pane-address.js";
 
 /**

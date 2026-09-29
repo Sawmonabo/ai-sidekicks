@@ -15,7 +15,7 @@
 // mis-addressed pane reported as a control that could not be reached.
 
 import type { ConsoleRefusal } from "@renderer/lib/refusal.js";
-import type { ConsoleEntityRef } from "@renderer/console/store/entities/entities.js";
+import type { ConsoleEntityRef } from "@renderer/lib/entity-kinds.js";
 import { misaddressedPane } from "../pane-addressing.js";
 
 /** The subsystem name every refusal raised in this file carries. */

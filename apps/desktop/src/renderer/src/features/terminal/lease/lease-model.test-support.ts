@@ -16,7 +16,7 @@
 // session, and instant look like.
 
 import { TERMINAL_SCENARIO_CAST } from "@renderer/console/bridge/scenario/terminal/terminal.js";
-import type { ConsoleSessionEvent } from "@renderer/console/store/entities/entities.js";
+import type { ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
 import { eventOfKind } from "@test/helpers/session-events.js";
 import { TERMINAL_LEASE_EVENT_KIND } from "./lease-transition.js";
 

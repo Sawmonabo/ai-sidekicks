@@ -46,7 +46,7 @@
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
 import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
 import type { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
-import { GenerationLatch } from "@renderer/console/store/read/generation-latch.js";
+import { GenerationLatch } from "@renderer/lib/reads/generation-latch.js";
 
 /**
  * What one write answered, taken from the chokepoint.

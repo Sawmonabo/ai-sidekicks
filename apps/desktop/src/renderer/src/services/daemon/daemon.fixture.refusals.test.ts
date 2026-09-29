@@ -32,7 +32,7 @@ import {
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import type { ConsoleScenario } from "@renderer/console/bridge/scenario/runtime/vocabulary.js";
 import { FLAGSHIP_SCENARIO } from "@renderer/console/bridge/scenario/flagship/flagship.js";
-import { readWireErrorEnvelope, type WireErrorEnvelope } from "@shared/wire-errors.js";
+import { readWireErrorEnvelope, type WireErrorEnvelope } from "@renderer/lib/wire-errors.js";
 
 import { normalizeWireRejection } from "@renderer/lib/wire-rejection.js";
 

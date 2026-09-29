@@ -24,7 +24,7 @@ import {
 import type {
   ConsoleEntity,
   ConsoleSessionEvent,
-} from "@renderer/console/store/entities/entities.js";
+} from "@renderer/store/session/entities/entities.js";
 import type { ConsolePaneAddress } from "@renderer/console/seats/index.js";
 import { CONTEXT_COMPACTED_EVENT_KIND } from "../context-ring/context-window-reading.js";
 

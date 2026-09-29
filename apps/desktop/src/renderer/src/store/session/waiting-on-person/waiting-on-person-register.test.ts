@@ -10,7 +10,10 @@
 import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
 
-import { OutstandingAskJournal, type OutstandingAskLedger } from "./waiting-on-person-register.js";
+import {
+  WaitingOnPersonRegister,
+  type WaitingOnPersonRecords,
+} from "./waiting-on-person-register.js";
 import {
   ATTENTION_RUN_STATES,
   ATTENTION_RUN_STATE_KINDS,
@@ -20,7 +23,7 @@ import {
 } from "./waiting-on-person-states.js";
 import { eventOfKind } from "@test/helpers/session-events.js";
 import { SessionStore } from "../session-store.js";
-import type { ConsoleSessionEvent } from "@renderer/console/store/entities/entities.js";
+import type { ConsoleSessionEvent } from "../entities/entities.js";
 
 const SESSION_ID = "session-journal";
 const REGISTERED_EVENT_TYPES: ReadonlySet<string> = new Set<string>(
@@ -38,7 +41,7 @@ function rowOf(
 }
 
 /** How many lifecycles the ledger holds open — an opening with no terminal after it. */
-function openCountOf(ledger: OutstandingAskLedger): number {
+function openCountOf(ledger: WaitingOnPersonRecords): number {
   let open = 0;
   for (const request of ledger.requestsByKey.values()) {
     if (request.openedAtSequence !== undefined && request.closedAtSequence === undefined) {
@@ -96,12 +99,12 @@ describe("the vocabulary this register keys on — wire truth", () => {
   });
 });
 
-describe("OutstandingAskJournal — what a base state establishes", () => {
+describe("WaitingOnPersonRegister — what a base state establishes", () => {
   it("seeds a blocked run off the entity the read carried", () => {
     // The one ask class a base state answers authoritatively: a run's `state` is a
     // registered `RunState`, so a run blocked below the window's head says so here
     // whatever the window's own rows hold.
-    const journal = new OutstandingAskJournal();
+    const journal = new WaitingOnPersonRegister();
     journal.seedFrom({
       cursor: 12,
       windowHeadCursor: "cursor-12",
@@ -118,14 +121,14 @@ describe("OutstandingAskJournal — what a base state establishes", () => {
     // Nothing on a base state carries a provider ask, an approval, or an intervention,
     // so a window that starts mid-log cannot answer for them at all — which is a third
     // state and not a zero.
-    const journal = new OutstandingAskJournal();
+    const journal = new WaitingOnPersonRegister();
     journal.seedFrom({ cursor: 12, windowHeadCursor: "cursor-12", entities: [] });
 
     expect(journal.ledger.isWindowHeadUnread).toBe(true);
   });
 
   it("negative control: a read from the beginning of the log reports nothing unread", () => {
-    const journal = new OutstandingAskJournal();
+    const journal = new WaitingOnPersonRegister();
     journal.seedFrom({ cursor: 0, windowHeadCursor: undefined, entities: [] });
 
     expect(journal.ledger.isWindowHeadUnread).toBe(false);
@@ -134,7 +137,7 @@ describe("OutstandingAskJournal — what a base state establishes", () => {
   it("keeps what it already held when a later read re-establishes the window", () => {
     // A read says nothing about a request it did not carry, so a register cleared here
     // would throw away exactly the older asks this class exists to hold.
-    const journal = new OutstandingAskJournal();
+    const journal = new WaitingOnPersonRegister();
     journal.admit([rowOf(3, "approval.requested", { approvalRequestId: "req-1" })]);
     journal.seedFrom({ cursor: 40, windowHeadCursor: "cursor-40", entities: [] });
 
@@ -142,7 +145,7 @@ describe("OutstandingAskJournal — what a base state establishes", () => {
   });
 
   it("lets a newer row supersede the seed, and refuses one at the seed's own position", () => {
-    const journal = new OutstandingAskJournal();
+    const journal = new WaitingOnPersonRegister();
     journal.seedFrom({
       cursor: 12,
       windowHeadCursor: undefined,
@@ -156,12 +159,12 @@ describe("OutstandingAskJournal — what a base state establishes", () => {
   });
 });
 
-describe("OutstandingAskJournal — rows in any order", () => {
+describe("WaitingOnPersonRegister — rows in any order", () => {
   it("does not re-open a request whose terminal arrived first", () => {
     // THE BACKWARD-PAGE CASE. A page read from behind the window's head delivers a
     // request's opening row AFTER its terminal, and a register that deleted a key on a
     // terminal would hold that ask open for the rest of the session.
-    const journal = new OutstandingAskJournal();
+    const journal = new WaitingOnPersonRegister();
     journal.admit([rowOf(9, "approval.approved", { approvalRequestId: "req-1" })]);
     journal.admit([rowOf(4, "approval.requested", { approvalRequestId: "req-1" })]);
 
@@ -169,14 +172,14 @@ describe("OutstandingAskJournal — rows in any order", () => {
   });
 
   it("negative control: the same opener with no terminal anywhere stays open", () => {
-    const journal = new OutstandingAskJournal();
+    const journal = new WaitingOnPersonRegister();
     journal.admit([rowOf(4, "approval.requested", { approvalRequestId: "req-1" })]);
 
     expect(openCountOf(journal.ledger)).toBe(1);
   });
 
   it("keeps the newest run state whichever end of the log it arrived from", () => {
-    const journal = new OutstandingAskJournal();
+    const journal = new WaitingOnPersonRegister();
     journal.admit([rowOf(8, "run.running", { runId: "run-a" })]);
     journal.admit([rowOf(3, "run.waiting_for_approval", { runId: "run-a" })]);
 

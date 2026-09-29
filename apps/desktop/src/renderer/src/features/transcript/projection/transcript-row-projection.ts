@@ -90,7 +90,7 @@ import {
 } from "@ai-sidekicks/contracts";
 
 import { readRollbackBoundaryPayload } from "@renderer/services/daemon/rollback-boundary-payload.js";
-import { type ConsoleSessionEvent } from "@renderer/console/store/entities/entities.js";
+import { type ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
 import { attributedRunIdOf } from "./run-attribution.js";
 import { deriveShellChildRunSummaries } from "./child-run-summaries.js";
 

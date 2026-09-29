@@ -13,7 +13,7 @@
 // edge runs one way: the registry reaches down here, and nothing here reaches
 // back.
 
-import { PALETTE_RESULT_CAP } from "@renderer/console/core/constants/palette-caps.js";
+import { PALETTE_RESULT_CAP } from "@renderer/styles/palette.js";
 import type { ConsoleCommand } from "./command-types.js";
 import { scoreSubsequence, type SubsequenceMatch } from "@ai-sidekicks/search-ranking";
 

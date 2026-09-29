@@ -10,7 +10,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  LedgerWindowDiagnosticsRegistry,
+  TranscriptWindowDiagnosticsRegistry,
   type LedgerWindowReading,
 } from "./transcript-window-diagnostics.js";
 
@@ -32,7 +32,7 @@ function reading(mountedRowCount: number): LedgerWindowReading {
 
 describe("the ledger window diagnostics registry", () => {
   it("answers with the reading the mounted viewport takes when it is asked", () => {
-    const registry = new LedgerWindowDiagnosticsRegistry();
+    const registry = new TranscriptWindowDiagnosticsRegistry();
     let mountedRowCount = 11;
     registry.register(SESSION_ID, () => reading(mountedRowCount));
 
@@ -45,13 +45,13 @@ describe("the ledger window diagnostics registry", () => {
   });
 
   it("negative control: a session with no viewport mounted answers with nothing", () => {
-    const registry = new LedgerWindowDiagnosticsRegistry();
+    const registry = new TranscriptWindowDiagnosticsRegistry();
 
     expect(registry.readingFor(SESSION_ID)).toBeNull();
   });
 
   it("keeps the incoming mount's reader when the outgoing mount's cleanup runs late", () => {
-    const registry = new LedgerWindowDiagnosticsRegistry();
+    const registry = new TranscriptWindowDiagnosticsRegistry();
     const retireOutgoing = registry.register(SESSION_ID, () => reading(1));
     // The remount, before the cleanup — which is the order React uses on a route
     // change and the reason the retire below must not be a blind delete.
@@ -66,7 +66,7 @@ describe("the ledger window diagnostics registry", () => {
     // Without this the identity check above would pass over a registry that never
     // removes anything at all, which would report a viewport for a session whose
     // ledger has been unmounted for hours.
-    const registry = new LedgerWindowDiagnosticsRegistry();
+    const registry = new TranscriptWindowDiagnosticsRegistry();
     const retire = registry.register(SESSION_ID, () => reading(1));
 
     retire();

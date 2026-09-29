@@ -6,7 +6,7 @@
 // kind would be two fixture epochs, and a case comparing a figure derived under one
 // against a figure derived under the other would be measuring the setup.
 
-import { type ConsoleSessionEvent } from "@renderer/console/store/entities/entities.js";
+import { type ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
 import { ledgerFixtureStampAt } from "../transcript-logs.test-support.js";
 
 export const VISIBLE_WINDOW_SESSION_ID = "session-visible-window";

@@ -64,13 +64,7 @@
 // specificity, by disjoint properties, or by an identical declaration in both, never by
 // which sheet loaded last.
 
-import "@renderer/styles/visually-hidden.css";
 import "@renderer/features/composer/accent-fill.css";
-import "@renderer/components/ChordHint/ChordHint.css";
-import "@renderer/components/ScreenNotice/ScreenNotice.css";
-import "@renderer/components/ErrorBoundary/ErrorBoundary.css";
-import "@renderer/components/Refusal/Refusal.css";
-import "@renderer/components/PartialRead/PartialRead.css";
 import "@renderer/features/composer/components/ExecutionPostureCard/ExecutionPostureCard.css";
 // `restore/restore.css` is NOT here, and its absence is the stylesheet rule rather than
 // an omission: that directory carries a lazily-loaded chunk now, so it has an owner of
@@ -103,7 +97,7 @@ export { clippingAncestorsOf } from "@renderer/lib/clipping-ancestors.js";
 // is in this family rather than in the frame's because its only input is `core`'s
 // tripwire report, and because a view family wrapping its own rows cannot import the
 // frame's door without closing a cycle.
-export { SurfaceErrorBoundary } from "./ErrorBoundary.js";
+export { SurfaceErrorBoundary } from "@renderer/components/ErrorBoundary/ErrorBoundary.js";
 
 // The "whose keystroke is it" pair, through the same door and for the same reason
 // `chord-format.js` is here: the keybinding table and the deck both ask it, both sit
@@ -144,7 +138,8 @@ export { SurfaceAbsence } from "@renderer/components/ScreenNotice/ScreenNotice.j
 // because the whole point of the primitive is that there is a single pair of
 // regions per window: a family that reached past the barrel for its own would be
 // the second speaker this module exists to prevent.
-export { LiveAnnouncerProvider, useAnnounce } from "./announce/LiveAnnouncerProvider.js";
+export { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
+export { useAnnounce } from "@renderer/hooks/useAnnounce.js";
 // The sink's own type, for a surface that settles an outcome somewhere other than
 // where it read the context — the deck reads `useAnnounce` in its component and
 // hands the result to the drag monitor, which is a hook and cannot read it twice.
@@ -222,11 +217,8 @@ export { PartialRead } from "@renderer/components/PartialRead/PartialRead.js";
 // THE LATCH ITSELF LEAVES TOO, for the caller whose memory is neither arity's: the
 // sidebar's is once per SESSION, and only an ARRAY replaces this latch's memory where
 // the scalar arity's `undefined` leaves it standing — see `sidebar-column-reads.ts`.
-export {
-  /** @consumedBy a view family that has not landed yet */
-  useReadingAnnouncement,
-  useReadSettlementAnnouncement,
-} from "./announce/reading-announcement.js";
+export { useReadingAnnouncement } from "@renderer/hooks/useAnnounceOncePerSentence.js";
+export { useReadSettlementAnnouncement } from "@renderer/hooks/useReadSettlementAnnouncement.js";
 
 // A window's own cap, which is a different fact from a read's completeness — see the
 // module header for why the two vocabularies sit beside each other rather than one
@@ -276,7 +268,7 @@ export {
   /** @consumedBy a refusal that offers the person a way to recover */
   RefusalRecovery,
 } from "@renderer/components/Refusal/RefusalRemedyContent.js";
-export type { RefusalRecoveryCopy } from "@renderer/components/Refusal/refusal-props.js";
+export type { RefusalRecoveryCopy } from "@renderer/lib/refusal-remedies.js";
 
 // THE `@consumedBy` TAGS in this file are the dead-code gate's one exemption, on the
 // terms `apps/desktop/AGENTS.md` sets: the view families reach these primitives through

@@ -35,7 +35,7 @@
 // moment. There is no interval, no backoff timer, and no automatic re-drive.
 
 import type { SessionId } from "@ai-sidekicks/contracts";
-import { lossyStringify } from "@shared/wire-errors.js";
+import { lossyStringify } from "@renderer/lib/wire-errors.js";
 import { reportTripwire } from "@renderer/lib/tripwires.js";
 import { type ConsoleClock } from "@renderer/lib/clock.js";
 import type { AttachmentSpoolReclaimer } from "./attachment-ingest-abort.js";

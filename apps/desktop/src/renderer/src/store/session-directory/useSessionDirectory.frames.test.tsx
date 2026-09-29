@@ -24,11 +24,8 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { CommittedFrameRecorder } from "@test/helpers/CommittedFrameRecorder.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
-import {
-  useSessionDirectory,
-  type SessionDirectoryReadCall,
-  type SessionDirectoryState,
-} from "@renderer/console/seats/session-directory.js";
+import { useSessionDirectory } from "./useSessionDirectory.js";
+import { type SessionDirectoryReadCall, type SessionDirectoryState } from "./session-directory.js";
 import { NO_TRANSPORT_RECONNECT } from "@renderer/lib/transport-reconnect.js";
 
 /**

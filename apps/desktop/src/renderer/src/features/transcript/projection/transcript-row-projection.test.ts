@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 // scenario's own moved.
 import { EVENT_ID_STEM } from "@renderer/console/bridge/scenario/ledger/ledger-cast.js";
 import { isContractTimelineRow } from "@renderer/services/daemon/timeline-row-contract.test-support.js";
-import { type ConsoleSessionEvent } from "@renderer/console/store/entities/entities.js";
+import { type ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
 // Deeply, and not through `structure/index.ts`: this is the only consumer outside
 // that directory and it is a test, so a door line for it would be a door widened for
 // testing, which this package rejects.

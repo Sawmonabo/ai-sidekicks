@@ -11,7 +11,7 @@ import {
   type ProviderAccountNotification,
 } from "@ai-sidekicks/contracts";
 
-import { PROVIDER_QUOTA_PENDING_NOTIFICATION_CAP } from "@renderer/console/core/constants/provider-quota-caps.js";
+import { PROVIDER_QUOTA_PENDING_NOTIFICATION_CAP } from "./provider-account-notification-hold.js";
 import { ProviderQuotaNotificationHold } from "./provider-account-notification-hold.js";
 
 /** Parsed through the registered union rather than cast, so the frame is a real one. */

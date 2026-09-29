@@ -77,10 +77,8 @@ import { consoleClockFor, type ConsoleBridge } from "@renderer/console/bridge/co
 import { useConsoleBridge } from "@renderer/console/bridge/BridgeProvider.js";
 import { SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
 import { useOpenSessionStore } from "@renderer/store/session/hooks/useOpenSessionStore.js";
-import {
-  useSubjectScopedResource,
-  type SubjectScopedDisposal,
-} from "@renderer/console/store/subject-scoped/subject-scoped-resource.js";
+import { useSubjectScopedResource } from "@renderer/hooks/subject-scoped/useSubjectScopedResource.js";
+import { type SubjectScopedDisposal } from "@renderer/lib/subject-scoped/subject-scoped-disposal.js";
 import { type ConsoleEntityProjectorRegistry } from "@renderer/registries/entity-projectors/entity-projector-registry.js";
 import { type SessionSnapshotReader } from "@renderer/store/session/open-session-entry.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";

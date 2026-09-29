@@ -72,7 +72,7 @@ import {
 import { parseInstant } from "@renderer/lib/instant.js";
 import { reportTripwire } from "@renderer/lib/tripwires.js";
 import { type EmitterSink, type Unsubscribe } from "@renderer/lib/emitter.js";
-import type { ConsoleSessionEvent } from "@renderer/console/store/entities/entities.js";
+import type { ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
 import {
   HeldReplyQueue,
   type ScenarioReplyOutcome,

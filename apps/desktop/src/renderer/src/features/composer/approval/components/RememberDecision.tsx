@@ -37,7 +37,7 @@ import {
   REMEMBERED_SCOPE_KINDS,
   SCOPE_KIND_PHRASE,
   type RememberedScopeKind,
-} from "@renderer/console/bridge/approvals/approval-vocabulary.js";
+} from "@renderer/lib/approval-vocabulary.js";
 import { type ApprovalResolveRequest } from "@renderer/services/approvals/approval-records.js";
 
 /** What the user has said about remembering this answer, so far. */

@@ -22,7 +22,7 @@
 // the pending mode, and the rejection propagates to the caller.
 
 import type { ExecutionMode, WorkspaceId } from "@ai-sidekicks/contracts";
-import { GenerationLatch } from "@renderer/console/store/read/generation-latch.js";
+import { GenerationLatch } from "@renderer/lib/reads/generation-latch.js";
 import type { RepoMountsReading } from "./repo-mounts-model.js";
 import type { RepoOperations } from "../repo-operations.js";
 

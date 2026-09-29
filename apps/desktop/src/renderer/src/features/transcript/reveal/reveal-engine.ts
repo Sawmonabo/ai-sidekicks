@@ -45,7 +45,7 @@ import {
   REVEAL_FRAME_CHARACTER_BUDGET,
   REVEAL_LITERAL_BACKTRACK_CAP,
 } from "../frame/frame-caps.js";
-import { lossyStringify } from "@shared/wire-errors.js";
+import { lossyStringify } from "@renderer/lib/wire-errors.js";
 import { recordRevealDrain } from "@renderer/lib/performance-meters/performance-meters.js";
 import { LedgerFrameCoordinator } from "../animation-frame-coordinator.js";
 import {

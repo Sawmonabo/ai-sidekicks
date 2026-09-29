@@ -13,7 +13,7 @@
 import { render } from "@testing-library/react";
 
 import { ManualClock, type ConsoleClock, type ScheduledHandle } from "@renderer/lib/clock.js";
-import { useDeadlineWake } from "@renderer/console/store/subject-scoped/deadline-wake.js";
+import { useDeadlineWake } from "./useDeadlineWake.js";
 
 /**
  * The real clock, instrumented — not a stand-in for it.
@@ -38,7 +38,7 @@ export interface MountedWake {
   readonly setClock: (next: ConsoleClock) => void;
 }
 
-export function WakingSurface(props: {
+export function DeadlineWakeProbe(props: {
   readonly clock: ConsoleClock;
   readonly deadlines: readonly number[];
 }): React.JSX.Element {
@@ -46,11 +46,11 @@ export function WakingSurface(props: {
   return <output>{String(nowMilliseconds)}</output>;
 }
 
-export function renderWake(clock: ConsoleClock, deadlines: readonly number[]): MountedWake {
-  const { container, rerender } = render(<WakingSurface clock={clock} deadlines={deadlines} />);
+export function renderDeadlineWake(clock: ConsoleClock, deadlines: readonly number[]): MountedWake {
+  const { container, rerender } = render(<DeadlineWakeProbe clock={clock} deadlines={deadlines} />);
   const showing = { clock, deadlines };
   const show = (): void => {
-    rerender(<WakingSurface clock={showing.clock} deadlines={showing.deadlines} />);
+    rerender(<DeadlineWakeProbe clock={showing.clock} deadlines={showing.deadlines} />);
   };
   return {
     instant: () => Number(container.textContent),

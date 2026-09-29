@@ -44,7 +44,7 @@
 import { registerSessionSurfacesFamily } from "./session-surfaces-family.js";
 import { registerComposerFamily } from "../shell/index.js";
 import { registerPaneHarnessSurface } from "./frame/pane-harness/PaneHarnessSurface.js";
-import { registerRunLifecycleProjectors } from "./frame/run-projection/run-lifecycle-projector.js";
+import { registerRunLifecycleProjectors } from "@renderer/store/session-events/run-lifecycle-projector.js";
 import { registerLedger } from "./ledger/index.js";
 import { registerConsolePanes } from "./panes/index.js";
 import { registerRepos } from "./repos/index.js";

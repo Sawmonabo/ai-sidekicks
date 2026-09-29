@@ -13,7 +13,7 @@
 // nothing needs them while the read is still running.
 
 import { type ApprovalRecord } from "@renderer/services/approvals/approval-records.js";
-import { type ConsoleEntity } from "@renderer/console/store/entities/entities.js";
+import { type ConsoleEntity } from "@renderer/store/session/entities/entities.js";
 import { providerAskFor, type ProviderAsk } from "./provider-ask.js";
 
 /**

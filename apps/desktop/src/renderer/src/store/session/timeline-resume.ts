@@ -73,7 +73,7 @@
 
 import { EVENT_CURSOR_UNRESOLVABLE_CODE } from "@ai-sidekicks/contracts";
 
-import { readWireErrorEnvelopeWithCode } from "@shared/wire-errors.js";
+import { readWireErrorEnvelopeWithCode } from "@renderer/lib/wire-errors.js";
 import { refuse, type NarrowedRefusal } from "@renderer/lib/refusal.js";
 
 /** The origin every refusal this module raises names. */

@@ -26,7 +26,7 @@ import {
 import {
   useAttentionProjection,
   type AttentionProjectionReadCall,
-} from "@renderer/console/sessions/notifications/attention-read.js";
+} from "@renderer/store/attention/hooks/useAttentionProjection.js";
 
 function item(overrides: Partial<AttentionItem> = {}): AttentionItem {
   return {

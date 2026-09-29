@@ -26,7 +26,7 @@
 //     ascending delivery, which `orderBatchBySequence` is what supplies.
 
 import { MAX_REPAIRABLE_SEQUENCE_GAP } from "./session-store-caps.js";
-import type { ConsoleSessionEvent } from "@renderer/console/store/entities/entities.js";
+import type { ConsoleSessionEvent } from "./entities/entities.js";
 
 /**
  * A contiguous run of sequences the store never saw, inclusive at both ends.

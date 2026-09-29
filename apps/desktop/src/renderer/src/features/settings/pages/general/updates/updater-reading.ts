@@ -35,10 +35,7 @@
 import type { DesktopBridge, UpdateState } from "@ai-sidekicks/contracts";
 
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
-import {
-  GenerationLatch,
-  type GenerationClaim,
-} from "@renderer/console/store/read/generation-latch.js";
+import { GenerationLatch, type GenerationClaim } from "@renderer/lib/reads/generation-latch.js";
 
 /** The updater's calls: the state read, its subscription, and the two controls. */
 export type UpdaterCalls = DesktopBridge["update"];

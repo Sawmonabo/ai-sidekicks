@@ -3,15 +3,22 @@
 
 import { use, type ReactElement } from "react";
 
-import { DETOUR_KEY, type ValueProbeProps } from "./subject-scoped-probes.test-support.js";
+import {
+  DISCARDED_RENDER_KEY,
+  type ValueProbeProps,
+} from "./subject-scoped-probes.test-support.js";
 import { useSubjectScopedState } from "./useSubjectScopedState.js";
 
 /** The value hook, driven through its own door. */
-export function ValueDetourProbe(props: ValueProbeProps): ReactElement {
-  const { value, publish } = useSubjectScopedState<string>(props.subject, DETOUR_KEY, () => {
-    props.onSeed();
-    return "seed";
-  });
+export function DiscardedRenderValueProbe(props: ValueProbeProps): ReactElement {
+  const { value, publish } = useSubjectScopedState<string>(
+    props.subject,
+    DISCARDED_RENDER_KEY,
+    () => {
+      props.onSeed();
+      return "seed";
+    },
+  );
   props.onReady(publish);
   if (props.suspendOn !== undefined) {
     use(props.suspendOn);

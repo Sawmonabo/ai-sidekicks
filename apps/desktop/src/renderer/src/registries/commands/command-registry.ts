@@ -21,10 +21,10 @@
 //     refused is still offered, and its refusal is rendered when it comes back:
 //     offer, then render the refusal.
 
-import { lossyStringify } from "@shared/wire-errors.js";
+import { lossyStringify } from "@renderer/lib/wire-errors.js";
 
 import { KeyedRegistry } from "@renderer/lib/keyed-registry.js";
-import { PALETTE_RECENTS_CAP } from "@renderer/console/core/constants/palette-caps.js";
+import { PALETTE_RECENTS_CAP } from "@renderer/styles/palette.js";
 import type { ConsoleCommand } from "./command-types.js";
 import {
   compareCommandsForDisplay,

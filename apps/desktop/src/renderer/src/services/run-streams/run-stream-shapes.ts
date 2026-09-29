@@ -22,7 +22,7 @@ import type {
 import type { ZodType } from "zod";
 
 import { readWireString } from "@renderer/lib/wire-strings.js";
-import type { ConsoleSessionEvent } from "@renderer/console/store/entities/entities.js";
+import type { ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
 
 /** One registered payload a narrowed run stream delivers. */
 export type RunStreamDelivery = RunStateChangeEvent | RunRolledBackEvent | QueueItemSummary;

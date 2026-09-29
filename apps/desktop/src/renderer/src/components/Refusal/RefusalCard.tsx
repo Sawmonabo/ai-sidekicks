@@ -5,8 +5,12 @@
 // joined the session's history — a block in the feed rather than a line beside a
 // control, and no live region of its own, because the feed announces its own rows.
 
+import "./Refusal.css";
+
 import { GLYPH_SIZE_CHROME } from "@renderer/styles/glyphs.js";
-import { Glyph, WireFigure, formatWireString } from "@renderer/console/primitives/figures/index.js";
+import { Glyph } from "../Glyph/Glyph.js";
+import { WireFigure } from "../WireFigure/WireFigure.js";
+import { formatWireString } from "@renderer/lib/wire-figures.js";
 import { type RefusalProps } from "./refusal-props.js";
 
 /** In the ledger, when the refusal is now part of what happened. */

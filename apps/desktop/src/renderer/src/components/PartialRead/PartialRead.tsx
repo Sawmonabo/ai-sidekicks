@@ -16,7 +16,7 @@
 //     puts a refusal's code in mono and its message verbatim, so the cause renders
 //     through `InlineRefusal` and this component paraphrases none of it.
 //   • **The count is the console's own arithmetic**, so it wears the derived signature
-//     rather than the wire one (rule 4). It is formatted by `primitives/figures/wire-figures.ts` and by
+//     rather than the wire one (rule 4). It is formatted by `lib/wire-figures.ts` and by
 //     nothing else — the model does the formatting, so a caller cannot reach a second
 //     `toLocaleString` on the way here.
 //
@@ -28,7 +28,7 @@
 // have been a second region announcing the same sentence, nested inside the refusal's,
 // and mounting with its content already in it — the shape screen readers do not
 // reliably announce at all. Where the SENTENCE itself has to be spoken, the surface
-// calls `useReadingAnnouncement`, which routes it through the announcer's persistent,
+// calls `useAnnounceOncePerSentence`, which routes it through the announcer's persistent,
 // `aria-atomic` pair rather than through a region invented at the moment it spoke.
 
 import { ReadingNotice } from "./ReadingNotice.js";

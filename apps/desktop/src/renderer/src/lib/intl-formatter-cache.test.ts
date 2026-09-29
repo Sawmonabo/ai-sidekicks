@@ -16,7 +16,7 @@ import { describe, expect, it } from "vitest";
 import {
   currencyMinorUnitDigits,
   relativeTimeFormatFor,
-  relativeTimeFormatterCensus,
+  countRelativeTimeFormatters,
 } from "./intl-formatter-cache.js";
 import { formatRelativeTime } from "./wire-figures.js";
 
@@ -142,7 +142,7 @@ describe("relative-time formatters — one per resolved locale", () => {
     // and the count afterwards is the cap rather than the number asked for — which
     // is the assertion an unbounded cache cannot satisfy and the one this case
     // exists to fail on.
-    const { cap } = relativeTimeFormatterCensus();
+    const { cap } = countRelativeTimeFormatters();
     const distinctResolvedLocales = new Set(
       MANY_LANGUAGE_TAGS.map((tag) => new Intl.RelativeTimeFormat(tag).resolvedOptions().locale),
     );
@@ -154,7 +154,7 @@ describe("relative-time formatters — one per resolved locale", () => {
       relativeTimeFormatFor(tag);
     }
 
-    expect(relativeTimeFormatterCensus().namedLocales).toBeLessThanOrEqual(cap);
+    expect(countRelativeTimeFormatters().namedLocales).toBeLessThanOrEqual(cap);
     // And the absent locale is still answered by its own slot, which no eviction
     // reaches: the hottest key in the console survives a caller that filled the map.
     expect(relativeTimeFormatFor(undefined)).toBe(relativeTimeFormatFor(undefined));

@@ -14,11 +14,9 @@
 import { useCallback, useMemo, useSyncExternalStore } from "react";
 
 import { useLatestRef } from "@renderer/console/primitives/index.js";
-import {
-  useSessionReadTriggers,
-  useWindowReadTriggers,
-  type ReadTriggerTarget,
-} from "@renderer/console/store/read/read-triggers.js";
+import { useSessionReadTriggers } from "@renderer/store/reads/hooks/useSessionReadTriggers.js";
+import { useWindowReadTriggers } from "@renderer/store/reads/hooks/useWindowReadTriggers.js";
+import { type ReadTriggerTarget } from "@renderer/store/reads/read-triggers.js";
 import { type RefreshReason } from "@renderer/lib/reads/refresh-scheduler.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 

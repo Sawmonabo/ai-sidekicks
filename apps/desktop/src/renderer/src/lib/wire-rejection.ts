@@ -12,13 +12,9 @@
 // session, a lease conflict — rendered as one generic `read-failed`, and another
 // reached for a bare `String(...)` that throws on the very value it exists to show.
 //
-// THE HOME. `src/shared/wire-errors.ts` is not it, and the reason is structural
-// rather than a preference: this function answers with a `ConsoleRefusal`, a
-// renderer-only shape declared in `core/refusal.ts`, and `src/shared/` may import
-// the contracts package and nothing else (`.dependency-cruiser.mjs`,
-// `shared-imports-nothing`) precisely because main and preload compile it too. What
-// genuinely IS cross-process — the total property reader and the total stringifier
-// — already lives there, and this module consumes both rather than restating either.
+// THE READERS ARE `wire-errors.ts`'. The total property reader, the guarded
+// `instanceof` and the total stringifier live there, and this module consumes them
+// rather than restating any.
 //
 // EACH MEMBER IS READ ONCE, and the arms classify the snapshot. The first arm and
 // the flat-envelope arm both want `code`; the JSON-RPC arm and the flat-envelope arm
@@ -29,7 +25,7 @@
 // touches the candidate again.
 //
 // A DETAIL IS A SENTENCE SOMEBODY WROTE, NEVER A SERIALIZATION OF THE REJECTION.
-// `core/refusal.ts` states the rule this module has to keep — `detail` is "never the
+// `refusal.ts` states the rule this module has to keep — `detail` is "never the
 // refused value itself, which may be user content" — and a rejection off the
 // bridge is `unknown`, so its members are request values, repository paths, headers,
 // or a token as easily as they are prose. Every arm here therefore renders one of
@@ -56,33 +52,14 @@ import {
   lossyStringify,
   readGuardedProperty,
   UNREPRESENTABLE_VALUE_TEXT,
-} from "@shared/wire-errors.js";
-
-// The envelope shape itself, re-published rather than re-declared. `src/shared/` sits
-// on no rung of the console's family DAG, so a view family reaching it directly is the
-// edge `console-view-family-shared-through-core` reports; this module is already the
-// console's reading of that envelope, so it is the layer family that owns the shape
-// for everything above it. Re-export and not a second interface: two declarations of
-// one wire shape is exactly the drift the rule exists to stop.
-//
-// AND IT IS ON `core/index.ts`. It is held off no longer for want of a production
-// reader: `bridge/scenario/runtime/vocabulary.ts` and `scripted-reply.ts` both read the
-// shape, so the door line has the readers `barrel-census` asks for, and the reading
-// layer beside them takes the same one name from the same door.
-//
-// THE CLAIM IS ABOUT THE SHAPE, NOT ABOUT THE MODULE THAT DECLARES IT. That leaf also
-// declares the envelope's READERS, and a door line for a function reached only by
-// tests would be the census failure this note exists to avoid. A reader is not a
-// second declaration of the shape, so that edge drifts nothing — the rule governs
-// where the console's one reading of the envelope lives, and it lives here.
-export type { WireErrorEnvelope } from "@shared/wire-errors.js";
+} from "./wire-errors.js";
 
 import {
   readRefusalExtensions,
   wireFailedBindingsExtension,
   wireRetryExtension,
   withRefusalExtensions,
-  type ConsoleRefusalExtensions,
+  type RefusalExtensions,
   type ExtendedConsoleRefusal,
 } from "./refusal-extensions.js";
 import { refuse } from "./refusal.js";
@@ -110,7 +87,7 @@ export interface RejectionFallback {
  * A rejection, as the one shape the console renders.
  *
  * A `ConsoleRefusal` widened by the REGISTERED extension members and by nothing else
- * (`core/refusal-extensions.ts`), so every renderer that already takes a refusal takes
+ * (`refusal-extensions.ts`), so every renderer that already takes a refusal takes
  * this unchanged and only a surface that reads one of those members has to know it
  * exists. `isConsoleRefusal` is structural, so this satisfies it.
  *
@@ -219,7 +196,7 @@ interface RefusalMembers {
   readonly code: unknown;
   readonly detail: unknown;
   readonly origin: unknown;
-  readonly extensions: ConsoleRefusalExtensions;
+  readonly extensions: RefusalExtensions;
 }
 
 /** One read per member. The only place a candidate's refusal members are touched. */

@@ -56,7 +56,7 @@ import { type ChildRunSummary, type RunId, type RunState } from "@ai-sidekicks/c
 
 import { runStateForTransitionKind } from "@renderer/console/bridge/daemon/session-event-streams.js";
 import { readWireString } from "@renderer/lib/wire-strings.js";
-import { type ConsoleSessionEvent } from "@renderer/console/store/entities/entities.js";
+import { type ConsoleSessionEvent } from "@renderer/store/session/entities/entities.js";
 import { attributedRunIdOf } from "./run-attribution.js";
 
 /**
