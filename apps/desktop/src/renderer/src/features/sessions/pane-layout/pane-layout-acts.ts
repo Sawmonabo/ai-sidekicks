@@ -112,7 +112,7 @@ export function paneLayoutActsOn(layout: PaneLayoutStore, announce: Announce): P
         return;
       }
       layout.close(closing.paneId);
-      announce(`Closed the ${closing.kind} pane.`, "polite");
+      announce(`Closed the ${TITLE_BY_PANE_KIND[closing.kind]} pane.`, "polite");
     },
     moveFocusedPaneLeft: () => {
       moveStep(-1);

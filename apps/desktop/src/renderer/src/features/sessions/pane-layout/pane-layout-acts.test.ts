@@ -86,16 +86,18 @@ describe("closing the focused pane", () => {
   it("closes it and names what closed", () => {
     const layout = threePaneLayout();
     const announce = announcer();
-    const second = layout.snapshot().panes[1];
-    layout.focus(second?.paneId ?? "");
+    // The agents pane, whose kind id and on-screen title are different words, so the
+    // sentence can only pass by naming the pane the way the screen does.
+    const third = layout.snapshot().panes[2];
+    layout.focus(third?.paneId ?? "");
 
     paneLayoutActsOn(layout, announce).closeFocusedPane();
 
     expect(layout.snapshot().panes.map((pane) => pane.kind)).toStrictEqual([
       "transcript",
-      "agents",
+      "terminal",
     ]);
-    expect(announce.said).toStrictEqual([["Closed the terminal pane.", "polite"]]);
+    expect(announce.said).toStrictEqual([["Closed the Sidekicks pane.", "polite"]]);
   });
 
   it("says there is no focused pane rather than closing nothing quietly", () => {
