@@ -6,7 +6,7 @@
 // places them, decides whether the sequence can be drawn at all, fetches the
 // renderer's code, and stands an absence in the box until it lands. The drawing
 // itself belongs to `RunGraphCanvas.tsx`, on the far side of the `import()` that
-// names this directory's `index.ts`, so a component that mounts this one never
+// names it, so a component that mounts this one never
 // names the graph library and never pulls a byte of it into the initial bundle.
 //
 // A GRAPH WITH NO EDGES SAYS SO IN WORDS. A run read carries no topology, so a
@@ -54,7 +54,8 @@
 // two graphs on screen never share one and the renderer downstream is handed arrays
 // whose identity holds still while the run does.
 
-import { Nothing, RefusalBanner } from "@renderer/console/primitives/index.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
+import { RefusalBanner } from "@renderer/components/Refusal/RefusalBanner.js";
 import { runGraphLoader } from "./run-graph-loader.js";
 import type { RunGraphNode, PhaseTopology, PhaseTopologyAbsence } from "./phase-topology.js";
 import { usePhaseSequenceLayout } from "./hooks/usePhaseSequenceLayout.js";

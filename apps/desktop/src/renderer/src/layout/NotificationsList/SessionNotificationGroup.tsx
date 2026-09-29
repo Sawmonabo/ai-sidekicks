@@ -1,5 +1,6 @@
 import type { AttentionItem } from "@ai-sidekicks/contracts";
-import { WireFigure, formatCount } from "@renderer/console/primitives/index.js";
+import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
+import { formatCount } from "@renderer/lib/wire-figures.js";
 import { type AttentionSessionGroup } from "@renderer/store/attention/attention-summary.js";
 import { NotificationEntryList } from "./NotificationEntryList.js";
 

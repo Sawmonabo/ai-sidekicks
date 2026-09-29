@@ -39,7 +39,7 @@
 
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 
-import { WireFigure } from "@renderer/console/primitives/index.js";
+import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 import type { PhaseFlowNode } from "./run-graph-elements.js";
 import { PHASE_PARK_ATTENTION_MARKS } from "./phase-topology.js";
 

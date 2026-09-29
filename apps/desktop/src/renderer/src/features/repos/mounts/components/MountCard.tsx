@@ -45,13 +45,11 @@ import type {
   WorkspaceId,
 } from "@ai-sidekicks/contracts";
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import {
-  Chip,
-  Glyph,
-  Nothing,
-  WireFigure,
-  formatClockTime,
-} from "@renderer/console/primitives/index.js";
+import { Chip } from "@renderer/components/Chip/Chip.js";
+import { Glyph } from "@renderer/components/Glyph/Glyph.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
+import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
+import { formatClockTime } from "@renderer/lib/wire-figures.js";
 import type { SessionStore } from "@renderer/store/session/session-store.js";
 import {
   readBindControlAvailability,

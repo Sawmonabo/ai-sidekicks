@@ -1,4 +1,4 @@
-import { WireFigure } from "@renderer/console/primitives/index.js";
+import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 
 import { type ExecutionMode } from "@ai-sidekicks/contracts";
 import { type ExecutionModeRowReading } from "../execution-mode-rows.js";

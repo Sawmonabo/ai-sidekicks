@@ -8,7 +8,8 @@
 // control and the rule that admits it cannot drift apart; the tone table sits with
 // it for the same reason.
 
-import { Chip, WireFigure } from "@renderer/console/primitives/index.js";
+import { Chip } from "@renderer/components/Chip/Chip.js";
+import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 import type { QueueItemSummary } from "@ai-sidekicks/contracts";
 
 /** The one state a queue item can still be taken back from. */

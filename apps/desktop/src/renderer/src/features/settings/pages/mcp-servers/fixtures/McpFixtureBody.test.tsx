@@ -21,7 +21,7 @@ import { unscriptedScenario } from "@test/helpers/fixture-bridge.js";
 import { FixtureBridgeProvider } from "@test/helpers/app-frame-fixtures.js";
 import { settleScheduledRead } from "@test/helpers/scheduled-read.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
-import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
+import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { McpFixtureBody, type McpServerOperations } from "./McpFixtureBody.js";
 
 afterEach(() => {

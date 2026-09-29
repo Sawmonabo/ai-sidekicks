@@ -1,4 +1,4 @@
-import { WindowNotices } from "@renderer/console/primitives/index.js";
+import { WindowNotices } from "../../components/WindowNotices/WindowNotices.js";
 
 /**
  * The two ways this window holds less than the session: rows the cap took, and

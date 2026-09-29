@@ -32,7 +32,9 @@
 
 import { useCallback, useState, type ReactNode } from "react";
 
-import { Chip, Nothing, WireFigure } from "@renderer/console/primitives/index.js";
+import { Chip } from "@renderer/components/Chip/Chip.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
+import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 import {
   UNREPORTED_DAEMON_NOTICE,
   describeDaemonConnection,

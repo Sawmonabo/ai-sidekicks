@@ -50,7 +50,6 @@ import {
   STYLES,
   TEST_HELPERS,
   TEST_SUPPORT_MODULES,
-  UNPLACED,
   upwardEdge,
 } from "./.dependency-cruiser.layers.mjs";
 
@@ -151,7 +150,7 @@ export default {
     upwardEdge("store", STORE, ABOVE_STORE),
     upwardEdge("services", SERVICES, ABOVE_SERVICES),
     upwardEdge("registries", REGISTRIES, ABOVE_REGISTRIES),
-    upwardEdge("features", [FEATURES, UNPLACED], ABOVE_FEATURES),
+    upwardEdge("features", FEATURES, ABOVE_FEATURES),
     upwardEdge("layout", LAYOUT, ABOVE_LAYOUT),
     {
       name: "feature-isolation",

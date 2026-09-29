@@ -11,8 +11,9 @@ import { useCallback, useMemo } from "react";
 import { AgentBindingCard } from "./AgentBindingCard.js";
 import { ToolAllowlistCeiling } from "./ToolAllowlistCeiling.js";
 import { type AgentsPaneModels } from "../agents-pane-models.js";
-import { usePushDrivenRead } from "@renderer/console/seats/index.js";
-import { Nothing, RefusalCard } from "@renderer/console/primitives/index.js";
+import { usePushDrivenRead } from "@renderer/store/reads/hooks/usePushDrivenRead.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
+import { RefusalCard } from "@renderer/components/Refusal/RefusalCard.js";
 
 /** What the binding column reads from: the session's models and the agent it is about. */
 export interface AgentBindingColumnProps {

@@ -9,7 +9,7 @@ import { act, fireEvent, render } from "@testing-library/react";
 import { useEffect, useState } from "react";
 import { describe, expect, it } from "vitest";
 import { commandRegistry } from "@renderer/registries/commands/window-command-registry.js";
-import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
+import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { KeyboardPage } from "./KeyboardPage.js";
 import { composeSettingsPages } from "../../settings-pages.js";
 import { TEST_COMMAND_IDS, renderKeyboardPage, rowOf } from "./keyboard-page.test-support.js";

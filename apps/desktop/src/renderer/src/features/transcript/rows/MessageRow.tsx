@@ -39,8 +39,9 @@
 // agent's reply, and is absent while there is none, so it never copies an empty answer.
 
 import { readWireString } from "@renderer/lib/wire-strings.js";
-import { Glyph, TranscriptRowLayout } from "@renderer/console/primitives/index.js";
-import { type InlineCardProps } from "@renderer/console/seats/index.js";
+import { Glyph } from "@renderer/components/Glyph/Glyph.js";
+import { TranscriptRowLayout } from "../components/TranscriptRowLayout/TranscriptRowLayout.js";
+import { type InlineCardProps } from "@renderer/registries/inline-cards/inline-card-registry.js";
 import { TranscriptRowGroup } from "../viewport/components/TranscriptRowGroup.js";
 import { type RowKindDescriptor } from "./row-kind.js";
 import type { HydratedRowProps } from "./hydrated-row-props.js";

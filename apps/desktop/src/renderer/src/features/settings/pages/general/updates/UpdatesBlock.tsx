@@ -19,7 +19,7 @@
 import type { UpdateState } from "@shared/preload-api.js";
 import type { ReactNode } from "react";
 
-import { useSettlementAnnouncement } from "@renderer/console/primitives/index.js";
+import { useSettlementAnnouncement } from "@renderer/hooks/useSettlementAnnouncement.js";
 import { PreferenceToggleRow } from "../../../components/PreferenceToggleRow.js";
 import type { MachineSettingsBinding } from "../../../machine-settings/hooks/useMachineSettings.js";
 import type { UpdaterCalls, UpdateReading } from "./updater-reading.js";

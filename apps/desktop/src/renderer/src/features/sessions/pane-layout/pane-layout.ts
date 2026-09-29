@@ -11,7 +11,7 @@
 // `pane-layout-store`. Nothing here imports either of the other two.
 
 import type { EntityRef } from "@renderer/lib/entity-kinds.js";
-import type { PaneKind } from "@renderer/console/seats/index.js";
+import type { PaneKind } from "@renderer/routing/panes/pane-kinds.js";
 import type { PaneLayoutDensity } from "./pane-layout-measures.js";
 
 /**

@@ -7,7 +7,8 @@
 // What a nameless session renders is stated in the module that obeys it,
 // `SessionHeaderSessionTitle.tsx`. This module arranges the two and decides nothing.
 
-import { Nothing, WireFigure } from "@renderer/console/primitives/index.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
+import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 import { SessionTitle } from "./SessionTitle.js";
 
 export interface SessionHeaderIdentityProps {

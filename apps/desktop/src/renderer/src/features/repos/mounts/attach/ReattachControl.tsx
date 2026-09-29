@@ -34,11 +34,9 @@ import "./attach.css";
 import { AlertDialog } from "@base-ui/react/alert-dialog";
 import { useCallback, useEffect, useRef } from "react";
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import {
-  Nothing,
-  OverlayAlertDialogPopup,
-  WireFigure,
-} from "@renderer/console/primitives/index.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
+import { OverlayAlertDialogPopup } from "@renderer/components/OverlayPopups/OverlayAlertDialogPopup.js";
+import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 import type { RepoOperations } from "../../repo-operations.js";
 import { useConfirmationLifecycle } from "../hooks/useConfirmationLifecycle.js";
 import { type AttachRequestReading } from "./attach-controller.js";

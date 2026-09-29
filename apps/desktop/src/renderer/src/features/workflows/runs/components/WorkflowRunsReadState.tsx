@@ -13,7 +13,7 @@
 // kind of nothing. Collapsing any two is the conflation the five kinds of nothing exist
 // to prevent.
 
-import { Nothing } from "@renderer/console/primitives/index.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import { RunList } from "./RunList.js";
 import type { RunListProjection, WorkflowRunListRow } from "../run-list-projection.js";
 import type { WorkflowRunDirectoryState } from "../hooks/useWorkflowRunDirectory.js";

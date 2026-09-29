@@ -34,7 +34,7 @@ import "./PaneFrame.css";
 
 import { useId } from "react";
 
-import { Glyph } from "@renderer/console/primitives/index.js";
+import { Glyph } from "../Glyph/Glyph.js";
 import { type EntityRef } from "@renderer/lib/entity-kinds.js";
 import { GLYPH_DEFAULT_SIZE, GLYPH_SIZE_CHROME, type GlyphName } from "@renderer/styles/glyphs.js";
 import { PaneBreadcrumb } from "./PaneBreadcrumb.js";

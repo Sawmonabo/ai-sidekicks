@@ -18,7 +18,8 @@
 // components import theirs.
 import "./controls.css";
 
-import { paneBodyForKind, type PaneContext } from "@renderer/console/seats/index.js";
+import { paneBodyForKind } from "@renderer/registries/panes/pane-body-for-kind.js";
+import { type PaneContext } from "@renderer/registries/panes/pane-context.js";
 import { PreviewPane } from "./PreviewPane.js";
 
 /**

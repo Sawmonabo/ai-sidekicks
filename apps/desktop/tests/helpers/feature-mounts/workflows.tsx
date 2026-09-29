@@ -62,7 +62,7 @@ import { RunGraphSection } from "@renderer/features/workflows/run-page/component
 // The context comes off its own module: it was hoisted out of the board to break the
 // cycle a loader-backed screen's reserved frame would otherwise close.
 import { type ScreenContext } from "@renderer/registries/screens/screen-context.js";
-import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
+import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence-caps.js";
 import { DraftStore } from "@renderer/store/draft-store.js";
 import { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
@@ -73,12 +73,10 @@ import {
   registerWorkflowPanes,
   registerWorkflowScreens,
 } from "@renderer/features/workflows/index.js";
-import {
-  PaneRegistry,
-  type PaneAddress,
-  type PaneContext,
-  type PaneKind,
-} from "@renderer/console/seats/index.js";
+import { PaneRegistry } from "@renderer/registries/panes/pane-registry.js";
+import { type PaneAddress } from "@renderer/routing/panes/pane-address.js";
+import { type PaneContext } from "@renderer/registries/panes/pane-context.js";
+import { type PaneKind } from "@renderer/routing/panes/pane-kinds.js";
 import { resolvedPaneBody, resolvedScreenBody } from "./pane-body-resolution.js";
 import { COMPOSED_ENTITY_PROJECTORS } from "./projector-composition.js";
 import { type MountedView } from "./mount-queries.js";

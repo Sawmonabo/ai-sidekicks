@@ -18,7 +18,10 @@
 
 import type { ReactNode } from "react";
 
-import { ChordHint, Nothing, WireFigure, formatCount } from "@renderer/console/primitives/index.js";
+import { ChordHint } from "@renderer/components/ChordHint/ChordHint.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
+import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
+import { formatCount } from "@renderer/lib/wire-figures.js";
 import { describeShippedChord } from "./KeybindingRowBody.js";
 import type { KeybindingRow } from "../keybinding-map.js";
 

@@ -23,15 +23,11 @@ import { DraftStore } from "@renderer/store/draft-store.js";
 import { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
 import { WindowStore } from "@renderer/store/window/window-store.js";
 
-import {
-  PaneRegistry,
-  ScreenRegistry,
-  type PaneContext,
-  type ScreenContext,
-  type PaneKind,
-} from "@renderer/console/seats/index.js";
-// `ScreenName` from the module that declares it: the barrel above does not export it.
-import { type ScreenName } from "@renderer/registries/screens/screen-registry.js";
+import { PaneRegistry } from "@renderer/registries/panes/pane-registry.js";
+import { ScreenRegistry, type ScreenName } from "@renderer/registries/screens/screen-registry.js";
+import { type PaneContext } from "@renderer/registries/panes/pane-context.js";
+import { type ScreenContext } from "@renderer/registries/screens/screen-context.js";
+import { type PaneKind } from "@renderer/routing/panes/pane-kinds.js";
 
 /**
  * The body the pane layout holds for a kind, with its module already loaded.

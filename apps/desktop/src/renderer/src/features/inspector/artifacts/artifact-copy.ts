@@ -5,7 +5,7 @@
 // way: copy names the model's types and no model function names a sentence. The table is
 // total over the wire's own state set, so a member the wire drops fails the compile here.
 
-import type { ChipTone } from "@renderer/console/primitives/index.js";
+import type { ChipTone } from "@renderer/components/Chip/Chip.js";
 
 import type { ArtifactManifestRow, ArtifactState } from "./artifact-model.js";
 

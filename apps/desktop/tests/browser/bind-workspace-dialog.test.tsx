@@ -25,7 +25,7 @@ import { describe, expect, it } from "vitest";
 
 import { pressKeys, renderSettled } from "../helpers/app-harness.js";
 
-import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
+import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { advanceScenarioUntil } from "../helpers/scenario-manual-clock.js";
 import { bridgeOnClock } from "@test/helpers/fixture-bridge.js";
 import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";

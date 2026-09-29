@@ -31,7 +31,7 @@ import {
   shippedScreenRender,
   windowAt,
 } from "./SettingsScreen.test-support.js";
-import type { ScreenContext } from "@renderer/console/seats/index.js";
+import type { ScreenContext } from "@renderer/registries/screens/screen-context.js";
 
 // The settings chunk, warmed in a hook rather than inside whichever case reached it
 // first — the reason the holder it goes through records.

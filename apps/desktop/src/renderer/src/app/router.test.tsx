@@ -6,7 +6,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import { WindowStore } from "@renderer/store/window/window-store.js";
 import { type AppRoute } from "@renderer/routing/routes.js";
 import { AppRouter } from "./router.js";
-import { screenRegistry, type ScreenContext } from "@renderer/console/seats/index.js";
+import { screenRegistry } from "@renderer/registries/screens/screen-registry.js";
+import { type ScreenContext } from "@renderer/registries/screens/screen-context.js";
 
 /** The rail's middle destination, whose screen this suite claims for one case. */
 const WORKFLOWS_ROUTE: AppRoute = { kind: "workflows" };

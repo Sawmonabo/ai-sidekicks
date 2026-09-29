@@ -33,13 +33,13 @@ import { keybindingOverrides } from "@renderer/registries/keybindings/keybinding
 import { useKeybindingSnapshot } from "@renderer/registries/keybindings/hooks/useKeybindingSnapshot.js";
 import {
   COMMAND_PALETTE_OPEN_CHORD,
-  ChordHint,
   HOST_CHORD_PLATFORM,
-  InlineRefusal,
-  Nothing,
   formatChordForPlatform,
-  useAnnounce,
-} from "@renderer/console/primitives/index.js";
+} from "@renderer/lib/chord-format.js";
+import { ChordHint } from "@renderer/components/ChordHint/ChordHint.js";
+import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
+import { useAnnounce } from "@renderer/hooks/useAnnounce.js";
 import { KeybindingRowBody } from "./components/KeybindingRowBody.js";
 import { ResetAllKeybindings } from "./components/ResetAllKeybindings.js";
 import {

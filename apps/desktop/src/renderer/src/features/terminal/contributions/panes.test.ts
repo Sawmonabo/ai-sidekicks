@@ -18,7 +18,7 @@ import {
   TERMINAL_LEASE_SCENARIO,
   TERMINAL_LEASE_SCENARIO_ID,
 } from "../../../../../../fixtures/scenarios/terminal-lease.js";
-import { PaneRegistry } from "@renderer/console/seats/index.js";
+import { PaneRegistry } from "@renderer/registries/panes/pane-registry.js";
 import {
   TERMINAL_LEASE_EVENT_KIND as LEASE_TRANSITION_KIND,
   TERMINAL_LEASE_TRANSITION_REASONS as LEASE_TRANSITION_REASONS,

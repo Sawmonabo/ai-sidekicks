@@ -3,7 +3,8 @@
 // A row that threw while being drawn is a different failure, caught by the shared error
 // boundary with `TranscriptRowGroup` as its fallback.
 
-import { InlineRefusal, RefusalCard } from "@renderer/console/primitives/index.js";
+import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
+import { RefusalCard } from "@renderer/components/Refusal/RefusalCard.js";
 import { type TranscriptErrorEntry } from "../transcript-errors.js";
 
 /** The recorded entries, and the action for the highest one. */

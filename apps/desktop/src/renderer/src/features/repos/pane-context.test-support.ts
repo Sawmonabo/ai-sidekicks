@@ -1,5 +1,6 @@
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import type { PaneAddress, PaneContext } from "@renderer/console/seats/index.js";
+import type { PaneAddress } from "@renderer/routing/panes/pane-address.js";
+import type { PaneContext } from "@renderer/registries/panes/pane-context.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 
 /**

@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { PaneRegistry } from "@renderer/console/seats/index.js";
+import { PaneRegistry } from "@renderer/registries/panes/pane-registry.js";
 import { registerPreviewPanes } from "./panes.js";
 
 describe("preview — claiming the pane layout's browser pane", () => {

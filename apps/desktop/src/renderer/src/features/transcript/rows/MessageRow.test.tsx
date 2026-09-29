@@ -4,7 +4,10 @@ import type { HydratedSessionEventContent } from "@ai-sidekicks/contracts";
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { inlineCardRegistry, type InlineCardProps } from "@renderer/console/seats/index.js";
+import {
+  inlineCardRegistry,
+  type InlineCardProps,
+} from "@renderer/registries/inline-cards/inline-card-registry.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { FixtureBridgeProvider } from "@test/helpers/app-frame-fixtures.js";
 import { MessageRow } from "./MessageRow.js";

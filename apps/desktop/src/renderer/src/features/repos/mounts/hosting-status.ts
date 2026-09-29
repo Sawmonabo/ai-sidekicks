@@ -13,7 +13,7 @@
 // string this module never picks; the hosting adapter owns which host is talked to,
 // and nothing here branches on which one answered.
 
-import type { ChipTone } from "@renderer/console/primitives/index.js";
+import type { ChipTone } from "@renderer/components/Chip/Chip.js";
 
 /** Where the proposal stands on the host. */
 export const CHANGE_REQUEST_STATES = ["open", "merged", "closed"] as const;

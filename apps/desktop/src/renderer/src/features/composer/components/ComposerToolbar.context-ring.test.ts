@@ -25,7 +25,7 @@ import type {
   StoredEntity,
   ProjectedSessionEvent,
 } from "@renderer/store/session/entities/entities.js";
-import type { PaneAddress } from "@renderer/console/seats/index.js";
+import type { PaneAddress } from "@renderer/routing/panes/pane-address.js";
 import { CONTEXT_COMPACTED_EVENT_KIND } from "../context-ring/context-window-reading.js";
 
 describe("ComposerToolbar — absence before assertion", () => {

@@ -30,12 +30,15 @@ import { describeChordEvent, isCloseTabChord } from "../handback/chord-claim.js"
 import { type NavigationReading } from "../types.js";
 import { activePageOf, type PageListReading } from "../page-list-reading.js";
 import { PageTabStrip } from "./PageTabStrip.js";
-import { HOST_CHORD_PLATFORM, Nothing, RefusalBanner } from "@renderer/console/primitives/index.js";
+import { HOST_CHORD_PLATFORM } from "@renderer/lib/chord-format.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
+import { RefusalBanner } from "@renderer/components/Refusal/RefusalBanner.js";
 import { usePreviewPaneActs } from "../hooks/usePreviewPaneActs.js";
 import { useGeometryPublisher } from "../hooks/useGeometryPublisher.js";
 import { usePaneAddressField } from "../hooks/usePaneAddressField.js";
 import { AddressLineButton } from "./AddressLineButton.js";
-import { PaneFrame, type PaneContextOf } from "@renderer/console/seats/index.js";
+import { PaneFrame } from "@renderer/components/PaneFrame/PaneFrame.js";
+import { type PaneContextOf } from "@renderer/registries/panes/pane-body-for-kind.js";
 import type { PreviewPaneRejectionFallback } from "../pane-refusals.js";
 
 /** What the control that hands the page to the system browser refuses with. */

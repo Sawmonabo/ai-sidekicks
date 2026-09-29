@@ -11,8 +11,8 @@ import { createFixtureBridge } from "@renderer/services/platform/platform-bridge
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { withDaemonCall, type BridgeUnderTest } from "@test/helpers/fixture-bridge.js";
 import type { Scenario } from "../../../../../../../fixtures/scenario.js";
-import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
-import type { FirstTurnQueueCall } from "@renderer/console/seats/index.js";
+import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
+import type { FirstTurnQueueCall } from "../new-session-control-contract.js";
 import { NewSessionControl } from "./NewSessionControl.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 // The created session's id, from the module that DECLARES it. Both new-session

@@ -12,7 +12,8 @@
 // NOTHING IS COMPUTED FROM THE FRAMES. The turn count and the state are the producer's
 // own words; a percentage would be this console inventing a denominator nobody sent.
 
-import { WireFigure, formatCount } from "@renderer/console/primitives/index.js";
+import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
+import { formatCount } from "@renderer/lib/wire-figures.js";
 import type { ImportProgressReading } from "./import-progress.js";
 
 /** What the progress line draws: one import's reading. */

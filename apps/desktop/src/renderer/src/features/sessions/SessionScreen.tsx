@@ -55,13 +55,11 @@ import { usePaneLayoutState } from "./pane-layout/hooks/usePaneLayoutState.js";
 import type { SessionPane } from "./pane-layout/pane-layout.js";
 import { usePaneLayoutPersistence } from "./pane-layout/hooks/usePaneLayoutPersistence.js";
 import { useFocusedPaneAddress } from "./hooks/useFocusedPaneAddress.js";
-import {
-  findComposerRenderer,
-  parsePaneAddress,
-  useSessionScopedState,
-  type PaneContext,
-  type PaneRegistry,
-} from "@renderer/console/seats/index.js";
+import { findComposerRenderer } from "@renderer/registries/composer/composer-registry.js";
+import { parsePaneAddress } from "@renderer/routing/panes/parse-pane-address.js";
+import { useSessionScopedState } from "@renderer/store/subject-scoped/useSessionScopedState.js";
+import { type PaneContext } from "@renderer/registries/panes/pane-context.js";
+import { type PaneRegistry } from "@renderer/registries/panes/pane-registry.js";
 import {
   NO_SESSION_BANNERS,
   dismissSessionBanner,

@@ -30,7 +30,7 @@ import {
   registerTranscriptCommands,
 } from "../../contributions/commands.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
-import { type TranscriptRowProps } from "@renderer/console/seats/index.js";
+import { type TranscriptRowProps } from "../../transcript-row-renderer.js";
 import { TranscriptFeed } from "./TranscriptFeed.js";
 
 export const LAID_OUT_VIEWPORT_HEIGHT_PX = 400;

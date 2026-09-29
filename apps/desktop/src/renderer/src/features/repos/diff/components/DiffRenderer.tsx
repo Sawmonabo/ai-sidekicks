@@ -54,7 +54,7 @@
 
 import { useMemo, useRef } from "react";
 
-import { Nothing } from "@renderer/console/primitives/index.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import { DIFF_ROW_HEIGHT_PX } from "../diff-measures.js";
 import type { DiffModel, DiffViewMode } from "../diff-model.js";
 import { DiffRowView } from "./DiffRowView.js";

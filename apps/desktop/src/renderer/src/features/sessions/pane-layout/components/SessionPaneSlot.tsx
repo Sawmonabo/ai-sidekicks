@@ -16,10 +16,10 @@ import { Panel } from "react-resizable-panels";
 import { type Refusal } from "@renderer/lib/refusal.js";
 import {
   PaneControlsContext,
-  type PaneContext,
-  type PaneRegistry,
   type PaneControls,
-} from "@renderer/console/seats/index.js";
+} from "@renderer/components/PaneFrame/pane-controls.js";
+import { type PaneContext } from "@renderer/registries/panes/pane-context.js";
+import { type PaneRegistry } from "@renderer/registries/panes/pane-registry.js";
 import { PaneBody } from "./PaneBody.js";
 import { PERMILLE_PER_PERCENT, type SessionPane } from "../pane-layout.js";
 import { type PaneLayoutDensity } from "../pane-layout-measures.js";

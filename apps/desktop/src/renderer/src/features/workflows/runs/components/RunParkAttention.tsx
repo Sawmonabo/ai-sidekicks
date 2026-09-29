@@ -21,12 +21,10 @@
 // it does not own. Nor does anything here notify — whether a person is interrupted is
 // the notifications feature's to decide, and this line mints no OS notification.
 
-import {
-  Chip,
-  DerivedFigure,
-  WireFigure,
-  formatCount,
-} from "@renderer/console/primitives/index.js";
+import { Chip } from "@renderer/components/Chip/Chip.js";
+import { DerivedFigure } from "@renderer/components/DerivedFigure/DerivedFigure.js";
+import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
+import { formatCount } from "@renderer/lib/wire-figures.js";
 import { ParkBadge } from "../../components/ParkBadge.js";
 import { PARK_REASON_LABELS, parkAttentionTone } from "../../park-presentation.js";
 import type { WorkflowParkAttentionEntry, WorkflowFoldedParks } from "../park-attention-fold.js";

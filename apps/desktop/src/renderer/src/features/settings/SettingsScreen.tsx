@@ -25,7 +25,7 @@ import { useWindowStore } from "@renderer/store/window/hooks/useWindowStore.js";
 import { useMainProcessState } from "@renderer/store/window/hooks/useMainProcessState.js";
 import { useOpenSessionStore } from "@renderer/store/session/hooks/useOpenSessionStore.js";
 import { settingsSelection } from "@renderer/routing/route-readers.js";
-import type { ScreenContext } from "@renderer/console/seats/index.js";
+import type { ScreenContext } from "@renderer/registries/screens/screen-context.js";
 import { matchSettingsPages, type SettingsPageRegistry } from "./settings-pages.js";
 import type { SettingsPageContext } from "./types.js";
 import { SETTINGS_PAGE_IDS, type SettingsPageId } from "@renderer/routing/settings-page-ids.js";

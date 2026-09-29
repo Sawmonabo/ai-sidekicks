@@ -24,13 +24,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import { formatHueWheelTokenName, tokenReference } from "@renderer/styles/tokens.js";
-import { registerTranscriptRowRenderer } from "@renderer/console/seats/index.js";
+import {
+  registerTranscriptRowRenderer,
+  unregisterTranscriptRowRenderer,
+} from "./transcript-row-renderer.js";
 // The shared stub rather than a second one: `happy-dom` reports zero for both box
 // readings, and a viewport with no box holds no rows — a case that stubbed only the
 // height would be measuring its own setup.
 import { withLaidOutViewport } from "./feed/components/TranscriptFeed.test-support.js";
-// Deeply: the teardown is reached by tests alone, so the shared entry does not export it.
-import { unregisterTranscriptRowRenderer } from "./transcript-row-renderer.js";
 import { type TranscriptPaneContext } from "./TranscriptPane.js";
 import {
   TRANSCRIPT_PANE_SESSION_ID,

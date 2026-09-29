@@ -1,5 +1,5 @@
 import { memo, type MemoExoticComponent } from "react";
-import { WireFigure } from "@renderer/console/primitives/index.js";
+import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 import { isAuditStubSession, type SessionListRow } from "../rows/session-rows.js";
 import { SessionRowFacts } from "./SessionRowFacts.js";
 

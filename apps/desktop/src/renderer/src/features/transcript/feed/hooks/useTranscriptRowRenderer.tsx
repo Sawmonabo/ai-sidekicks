@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 
-import { Nothing } from "@renderer/console/primitives/index.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import { type AgentHueAssignment } from "@renderer/styles/agent-hue.js";
 import { RunGroupHeader } from "../../run-groups/components/RunGroupHeader.js";
 import { type RunGroup } from "../../run-groups/run-groups.js";

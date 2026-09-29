@@ -30,7 +30,8 @@
 // to. `RunGroupBody` is where they live now, mounted under this line while the
 // run group is open.
 
-import { Glyph, Nothing } from "@renderer/console/primitives/index.js";
+import { Glyph } from "@renderer/components/Glyph/Glyph.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import { RunGroupBody } from "./RunGroupBody.js";
 import { HUE_WHEEL_STEPS } from "@renderer/styles/palette.js";
 import { formatHueWheelTokenName, tokenReference } from "@renderer/styles/tokens.js";

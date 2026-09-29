@@ -2,7 +2,7 @@
 
 import { createElement } from "react";
 
-import { type InlineCardRegistry } from "@renderer/console/seats/index.js";
+import { type InlineCardRegistry } from "@renderer/registries/inline-cards/inline-card-registry.js";
 import { InlineArtifactCard } from "../artifacts/components/InlineArtifactCard.js";
 
 /** Who owns this body, for the registry's owner-scoped duplicate policy. */

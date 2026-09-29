@@ -8,7 +8,8 @@
 // not the same claim), so the note table lives here beside the render that uses it
 // rather than in `ContextRing.tsx`, which never reads it.
 
-import { WireFigure, formatCount } from "@renderer/console/primitives/index.js";
+import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
+import { formatCount } from "@renderer/lib/wire-figures.js";
 import type { ContextWindowReading, ContextWindowSource } from "./context-window-reading.js";
 
 /**

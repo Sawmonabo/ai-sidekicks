@@ -30,7 +30,7 @@
 
 import { advanceScenarioUntil } from "../scenario-manual-clock.js";
 import { ManualClock } from "@renderer/lib/clock.js";
-import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
+import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { DiffPane } from "@renderer/features/repos/diff/components/DiffPane.js";
 import { paneContext } from "@renderer/features/repos/pane-context.test-support.js";
 import {

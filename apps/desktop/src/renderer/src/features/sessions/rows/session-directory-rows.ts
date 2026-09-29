@@ -26,7 +26,7 @@
 // conflation the console's five kinds of nothing exist to prevent — so the decision
 // is a function of the directory state and the row count cannot reach it.
 
-import type { SessionDirectoryState } from "@renderer/console/seats/index.js";
+import type { SessionDirectoryState } from "@renderer/store/session-directory/session-directory.js";
 import type { AttentionSeverity } from "@ai-sidekicks/contracts";
 import type { SessionListRow } from "./session-rows.js";
 

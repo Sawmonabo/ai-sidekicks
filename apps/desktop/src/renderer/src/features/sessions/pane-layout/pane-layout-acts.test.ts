@@ -8,7 +8,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { PANE_LAYOUT_RESTORED_PANE_CAP } from "./pane-layout-store.js";
-import type { Announce } from "@renderer/console/primitives/index.js";
+import type { Announce } from "@renderer/components/LiveAnnouncer/live-announcer.js";
 import { PaneLayoutStore } from "./pane-layout-store.js";
 import { NO_FOCUSED_PANE_SENTENCE, paneLayoutActsOn } from "./pane-layout-acts.js";
 

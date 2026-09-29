@@ -30,12 +30,13 @@
 // joined into one string, because a scope that refers to nothing narrower would read as
 // a scope with a blank name.
 
-import { Chip, WireFigure } from "@renderer/console/primitives/index.js";
+import { Chip } from "@renderer/components/Chip/Chip.js";
+import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 import type {
   McpServerBindingRef,
   WorkflowPhaseDefinition,
 } from "@renderer/services/wire-shapes/workflow-definition-body.js";
-import { schemaFormPreviewBody } from "@renderer/console/seats/index.js";
+import { schemaFormPreviewBody } from "../../../schema-form/schema-form-mounts.js";
 
 export interface DefinitionPhaseRowProps {
   readonly phase: WorkflowPhaseDefinition;

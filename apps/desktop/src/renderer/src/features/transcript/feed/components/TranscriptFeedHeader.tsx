@@ -10,7 +10,7 @@
 // already answers, and the two would agree until one of them shipped.
 
 import { FindBox } from "../../find/components/FindBox.js";
-import { PartialRead } from "@renderer/console/primitives/index.js";
+import { PartialRead } from "@renderer/components/PartialRead/PartialRead.js";
 import { matchWalkReading } from "../../find/find-readings.js";
 import { type TranscriptFindAndJump } from "../hooks/useTranscriptFindAndJump.js";
 

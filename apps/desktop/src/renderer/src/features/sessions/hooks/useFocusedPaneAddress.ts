@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 
-import { parsePaneAddress, type PaneAddress } from "@renderer/console/seats/index.js";
+import { parsePaneAddress } from "@renderer/routing/panes/parse-pane-address.js";
+import { type PaneAddress } from "@renderer/routing/panes/pane-address.js";
 import type { SessionPane } from "../pane-layout/pane-layout.js";
 
 /** The focused pane's address, for the composer's send router. */

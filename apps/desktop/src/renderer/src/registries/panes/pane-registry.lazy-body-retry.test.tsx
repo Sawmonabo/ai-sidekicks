@@ -26,7 +26,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { settle } from "@test/helpers/settle.js";
 import { windowTripwires } from "@renderer/lib/tripwires.js";
-import { ErrorBoundary } from "@renderer/console/primitives/index.js";
+import { ErrorBoundary } from "@renderer/components/ErrorBoundary/ErrorBoundary.js";
 import { type LazyBodyModule } from "@renderer/components/LazyBody/lazy-body.js";
 import { syntheticPaneContextAt } from "@test/helpers/lazy-body-contexts.js";
 import { type PaneContext } from "./pane-context.js";

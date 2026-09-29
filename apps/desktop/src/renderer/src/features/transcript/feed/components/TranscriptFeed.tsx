@@ -64,7 +64,7 @@ import { TranscriptWindowNotices } from "../../window/components/TranscriptWindo
 import { TranscriptReadState } from "../../window/components/TranscriptReadState.js";
 import { useTranscriptRowRenderer } from "../hooks/useTranscriptRowRenderer.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
-import { type TranscriptRowRenderer } from "@renderer/console/seats/index.js";
+import { type TranscriptRowRenderer } from "../../transcript-row-renderer.js";
 import { useTranscriptFeedWindows } from "../hooks/useTranscriptFeedWindows.js";
 import { useTranscriptFindAndJump } from "../hooks/useTranscriptFindAndJump.js";
 import { useTranscriptStructureActs } from "../hooks/useTranscriptStructureActs.js";

@@ -13,7 +13,7 @@
 import { fireEvent, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { ACCENT_FILL_CLASS } from "@renderer/console/primitives/index.js";
+import { ACCENT_FILL_CLASS } from "../../accent-fill.js";
 import { pendingRecord, renderCard } from "./approval-card.test-support.js";
 
 /**

@@ -16,12 +16,10 @@
 // control's own title carries that sentence verbatim rather than a softer "canceled",
 // which would promise an instant reclaim nothing performs.
 
-import {
-  Chip,
-  DerivedFigure,
-  InlineRefusal,
-  WireFigure,
-} from "@renderer/console/primitives/index.js";
+import { Chip } from "@renderer/components/Chip/Chip.js";
+import { DerivedFigure } from "@renderer/components/DerivedFigure/DerivedFigure.js";
+import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
+import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 import type { ComposerAttachmentChipModel } from "./composer-attachment-chip.js";
 
 export interface AttachmentChipProps {

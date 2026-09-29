@@ -4,7 +4,8 @@ import type {
   ExecutionMode,
   WorkspaceExecutionModeCapabilitiesReadResponse,
 } from "@ai-sidekicks/contracts";
-import { Nothing, WireFigure } from "@renderer/console/primitives/index.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
+import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 import { ExecutionModeRow } from "./ExecutionModeRow.js";
 import { executionModeRows } from "../execution-mode-rows.js";
 import { selectionInFlightCopy } from "../execution-mode-selection.js";

@@ -11,7 +11,8 @@
 // takes the derived figure's proportional face rather than the wire's mono one, and it
 // is absent entirely at one — a "×1" would read as a figure about the refusal.
 
-import { DerivedFigure, RefusalBanner } from "@renderer/console/primitives/index.js";
+import { DerivedFigure } from "@renderer/components/DerivedFigure/DerivedFigure.js";
+import { RefusalBanner } from "@renderer/components/Refusal/RefusalBanner.js";
 import { sessionBannerKey, type SessionBanner } from "../session-banners.js";
 
 /** One banner row, dismissed by the key the fold counted it under. */

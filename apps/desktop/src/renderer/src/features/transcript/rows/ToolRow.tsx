@@ -30,13 +30,10 @@
 
 import { TOOL_SUMMARY_MAX_CHARACTERS } from "../cards/card-caps.js";
 import { readWireString } from "@renderer/lib/wire-strings.js";
-import {
-  Chip,
-  Glyph,
-  TranscriptRowLayout,
-  formatDuration,
-  type ChipTone,
-} from "@renderer/console/primitives/index.js";
+import { Chip, type ChipTone } from "@renderer/components/Chip/Chip.js";
+import { Glyph } from "@renderer/components/Glyph/Glyph.js";
+import { TranscriptRowLayout } from "../components/TranscriptRowLayout/TranscriptRowLayout.js";
+import { formatDuration } from "@renderer/lib/wire-figures.js";
 import { TranscriptRowGroup } from "../viewport/components/TranscriptRowGroup.js";
 import { describeRowKind, toolResultState, type ToolResultState } from "./row-kind.js";
 import type { HydratedRowProps } from "./hydrated-row-props.js";

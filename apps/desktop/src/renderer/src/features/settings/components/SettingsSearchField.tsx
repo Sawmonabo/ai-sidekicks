@@ -1,4 +1,4 @@
-import { Glyph } from "@renderer/console/primitives/index.js";
+import { Glyph } from "@renderer/components/Glyph/Glyph.js";
 import { GLYPH_SIZE_CHROME } from "@renderer/styles/glyphs.js";
 
 export interface SettingsSearchFieldProps {

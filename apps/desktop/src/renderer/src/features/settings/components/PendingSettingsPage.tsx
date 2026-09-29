@@ -21,7 +21,7 @@
 // The marker rides a `hidden` element for that module's reason: `display: none`
 // contributes no box, so what the reserved region costs the layout is nothing.
 
-import { PENDING_BODY_ATTRIBUTE } from "@renderer/console/seats/index.js";
+import { PENDING_BODY_ATTRIBUTE } from "@renderer/components/LazyBody/pending-body-marker.js";
 import type { SettingsPageId } from "@renderer/routing/settings-page-ids.js";
 
 export interface PendingSettingsPageProps {

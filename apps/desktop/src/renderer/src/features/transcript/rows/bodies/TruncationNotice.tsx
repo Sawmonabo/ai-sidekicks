@@ -16,7 +16,9 @@
 
 import type { DeclaredLossKind } from "@ai-sidekicks/contracts";
 
-import { Nothing, WireFigure, formatByteQuantity } from "@renderer/console/primitives/index.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
+import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
+import { formatByteQuantity } from "@renderer/lib/wire-figures.js";
 import { measureUtf8ByteLength } from "@renderer/lib/utf8-byte-length.js";
 
 /**

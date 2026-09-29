@@ -9,12 +9,12 @@ import "../binding/components/axis-field.css";
 import { createElement } from "react";
 
 import { AgentsPane, AgentsPaneFrame } from "./AgentsPane.js";
+import { PaneFrame } from "@renderer/components/PaneFrame/PaneFrame.js";
 import {
-  PaneFrame,
   paneBodyForKind,
-  type PaneContext,
   type PaneContextOf,
-} from "@renderer/console/seats/index.js";
+} from "@renderer/registries/panes/pane-body-for-kind.js";
+import { type PaneContext } from "@renderer/registries/panes/pane-context.js";
 import type { AgentsPaneCalls } from "../agent-reads.js";
 
 /** The Agents pane body over the given reads. */

@@ -8,7 +8,7 @@
 // that reaches the wire, and a control that is already revoking says so rather than
 // offering a second press that would.
 
-import { Nothing } from "@renderer/console/primitives/index.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 
 /**
  * Idle, confirming, pending — three states on one control.

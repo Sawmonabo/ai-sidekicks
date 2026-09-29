@@ -15,7 +15,7 @@ import { ManualClock } from "@renderer/lib/clock.js";
 import { REFRESH_DEBOUNCE_MS } from "@renderer/lib/reads/refresh-caps.js";
 import { refuse } from "@renderer/lib/refusal.js";
 import { settle } from "@test/helpers/settle.js";
-import { formatClockTime, formatDateTime } from "@renderer/console/primitives/index.js";
+import { formatClockTime, formatDateTime } from "@renderer/lib/wire-figures.js";
 import { SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
 import { NotificationsList } from "./NotificationsList.js";
 import {

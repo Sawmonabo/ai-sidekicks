@@ -10,12 +10,10 @@ import { act, render } from "@testing-library/react";
 import { StrictMode } from "react";
 import { describe, expect, it } from "vitest";
 
-import {
-  PaneRegistry,
-  ScreenRegistry,
-  type PaneContext,
-  type ScreenContext,
-} from "@renderer/console/seats/index.js";
+import { PaneRegistry } from "@renderer/registries/panes/pane-registry.js";
+import { ScreenRegistry } from "@renderer/registries/screens/screen-registry.js";
+import { type PaneContext } from "@renderer/registries/panes/pane-context.js";
+import { type ScreenContext } from "@renderer/registries/screens/screen-context.js";
 // Deeply, as every consumer of a `.test-support` module does: a helper that exists for
 // suites belongs to the module beside it and not on the production index.
 import { ManualIdleWarmScheduler } from "@test/helpers/idle-warm.js";

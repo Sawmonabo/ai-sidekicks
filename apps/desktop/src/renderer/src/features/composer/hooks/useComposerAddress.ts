@@ -15,7 +15,7 @@ import { useMemo } from "react";
 
 import { useSessionPartition } from "@renderer/store/session/hooks/useOpenSessionStore.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
-import type { PaneAddress } from "@renderer/console/seats/index.js";
+import type { PaneAddress } from "@renderer/routing/panes/pane-address.js";
 import { resolveComposerTarget, type ComposerTarget } from "../composer-target.js";
 
 /** Everything the composer's zones read off one address. */

@@ -8,7 +8,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { SessionDirectoryState } from "@renderer/console/seats/index.js";
+import type { SessionDirectoryState } from "@renderer/store/session-directory/session-directory.js";
 import {
   mergeSessionRows,
   sessionListNothingKindFor,

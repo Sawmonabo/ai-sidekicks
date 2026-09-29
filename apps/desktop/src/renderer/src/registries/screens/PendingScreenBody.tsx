@@ -16,7 +16,7 @@
 // reason: `display: none` contributes no box, so what the reserved region costs the
 // layout is nothing.
 
-import { ScreenNotice } from "@renderer/console/primitives/index.js";
+import { ScreenNotice } from "@renderer/components/ScreenNotice/ScreenNotice.js";
 import type { ScreenContext } from "./screen-context.js";
 import { PENDING_BODY_ATTRIBUTE } from "@renderer/components/LazyBody/pending-body-marker.js";
 

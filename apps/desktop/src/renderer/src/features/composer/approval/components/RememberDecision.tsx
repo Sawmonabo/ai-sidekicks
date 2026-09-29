@@ -32,7 +32,7 @@ import { Checkbox } from "@base-ui/react/checkbox";
 import { Collapsible } from "@base-ui/react/collapsible";
 import { Select } from "@base-ui/react/select";
 
-import { OverlaySelectPopup } from "@renderer/console/primitives/index.js";
+import { OverlaySelectPopup } from "../../components/OverlaySelectPopup/OverlaySelectPopup.js";
 import {
   REMEMBERED_SCOPE_KINDS,
   RULE_SCOPE_LABELS,

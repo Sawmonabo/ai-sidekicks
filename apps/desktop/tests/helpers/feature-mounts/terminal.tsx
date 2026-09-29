@@ -8,7 +8,7 @@ import { waitFor } from "@testing-library/react";
 import type { FunctionComponent } from "react";
 
 import { registerTerminalPane } from "@renderer/features/terminal/contributions/panes.js";
-import { type PaneContext } from "@renderer/console/seats/index.js";
+import { type PaneContext } from "@renderer/registries/panes/pane-context.js";
 import { type ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import { fixtureSessionSnapshot } from "@renderer/services/daemon/session-snapshot.fixture.js";

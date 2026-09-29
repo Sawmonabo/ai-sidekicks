@@ -18,7 +18,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { type RetainedRowState } from "../../viewport/retained-row-state-table.js";
 import { type ViewportRow } from "../../viewport/viewport-snapshot.js";
-import { type TranscriptRowProps } from "@renderer/console/seats/index.js";
+import { type TranscriptRowProps } from "../../transcript-row-renderer.js";
 import { foldRunGroupHeaders } from "../run-group-fold.js";
 import {
   useTranscriptRowRenderer,

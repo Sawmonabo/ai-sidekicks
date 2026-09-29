@@ -4,7 +4,8 @@
 // shows a person, which is why it reads better beside the anchor's promise than
 // inside the composition that mounts it.
 
-import { DerivedFigure, formatCount } from "@renderer/console/primitives/index.js";
+import { DerivedFigure } from "@renderer/components/DerivedFigure/DerivedFigure.js";
+import { formatCount } from "@renderer/lib/wire-figures.js";
 import type { ViewportSnapshot } from "../viewport-snapshot.js";
 
 export interface JumpToLatestProps {

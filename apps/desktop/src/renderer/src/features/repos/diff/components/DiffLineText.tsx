@@ -1,4 +1,4 @@
-import { Nothing } from "@renderer/console/primitives/index.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import { type DiffLine, type DiffLineKind } from "../diff-model.js";
 import type { IntralineReading } from "../intraline-segment-cache.js";
 

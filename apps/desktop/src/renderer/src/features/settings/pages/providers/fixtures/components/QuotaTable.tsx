@@ -1,13 +1,9 @@
 import type { ReactNode } from "react";
 
-import {
-  Chip,
-  DerivedFigure,
-  Nothing,
-  formatDateTime,
-  formatDuration,
-  formatPercent,
-} from "@renderer/console/primitives/index.js";
+import { Chip } from "@renderer/components/Chip/Chip.js";
+import { DerivedFigure } from "@renderer/components/DerivedFigure/DerivedFigure.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
+import { formatDateTime, formatDuration, formatPercent } from "@renderer/lib/wire-figures.js";
 import { MILLISECONDS_PER_MINUTE } from "@renderer/lib/instant.js";
 import type { AccountQuotaRow } from "../quota-rows.js";
 

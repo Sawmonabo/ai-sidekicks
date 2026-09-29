@@ -3,7 +3,7 @@
 // A faked screen context that records what the acts call: which routes were
 // navigated to and which sessions the registry was asked to open.
 
-import type { ScreenContext } from "@renderer/console/seats/index.js";
+import type { ScreenContext } from "@renderer/registries/screens/screen-context.js";
 
 /**
  * The fields the acts read, and nothing else.

@@ -1,6 +1,9 @@
 // The workflows feature's pane kinds, `workflow-run` and `workflow-builder`.
 
-import { type PaneRegistration, type PaneRegistry } from "@renderer/console/seats/index.js";
+import {
+  type PaneRegistration,
+  type PaneRegistry,
+} from "@renderer/registries/panes/pane-registry.js";
 
 /**
  * The feature's owner string, as the pane and screen registries' duplicate policy reads it.

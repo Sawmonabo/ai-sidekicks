@@ -11,7 +11,8 @@
 
 import { ARTIFACT_PAYLOAD_PREVIEW_CHARACTER_CAP } from "@renderer/store/artifacts/artifact-payload.js";
 import "./artifact.css";
-import { Nothing, WireFigure } from "@renderer/console/primitives/index.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
+import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 import type { ArtifactPayloadReading } from "@renderer/store/artifacts/artifact-payload.js";
 
 /** What the payload section draws. */

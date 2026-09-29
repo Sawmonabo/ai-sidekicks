@@ -14,7 +14,8 @@ import { createFixtureBridge } from "@renderer/services/platform/platform-bridge
 import { unscriptedScenario } from "@test/helpers/fixture-bridge.js";
 import { ManualClock } from "@renderer/lib/clock.js";
 import { PAST_REFRESH_DEBOUNCE_MS } from "@test/helpers/settle.js";
-import { LiveAnnouncer, LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
+import { LiveAnnouncer } from "@renderer/components/LiveAnnouncer/live-announcer.js";
+import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { politeText } from "@test/helpers/live-region.js";
 import type { SessionStore } from "@renderer/store/session/session-store.js";
 import { frozenClockOf } from "@test/helpers/scheduled-read.js";

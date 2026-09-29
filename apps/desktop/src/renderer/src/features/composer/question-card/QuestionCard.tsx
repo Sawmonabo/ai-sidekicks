@@ -40,12 +40,10 @@
 // choice means. A row carrying both is a different row, not a second copy of that one.
 
 import { parseInstant } from "@renderer/lib/instant.js";
-import {
-  InlineRefusal,
-  Nothing,
-  WireFigure,
-  formatDuration,
-} from "@renderer/console/primitives/index.js";
+import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
+import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
+import { formatDuration } from "@renderer/lib/wire-figures.js";
 import { TypedAnswerField } from "./TypedAnswerField.js";
 import type {
   AnswerDelivery,

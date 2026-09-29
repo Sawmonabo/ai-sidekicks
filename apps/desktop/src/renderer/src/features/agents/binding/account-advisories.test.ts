@@ -12,7 +12,7 @@
 import { PROVIDER_ACCOUNT_HEALTH_STATES, type ProviderAccount } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
 
-import { formatDateTime } from "@renderer/console/primitives/index.js";
+import { formatDateTime } from "@renderer/lib/wire-figures.js";
 
 import { accountAdvisoriesFor, unresolvedDefaultAdvisoryIn } from "./account-advisories.js";
 import { accountAxisReadingFor, chosenAccountIn } from "./account-axis.js";

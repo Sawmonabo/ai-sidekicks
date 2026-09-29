@@ -32,7 +32,7 @@
 
 import type { ProviderAccount, ProviderRemedy } from "@ai-sidekicks/contracts";
 
-import { formatDateTime } from "@renderer/console/primitives/index.js";
+import { formatDateTime } from "@renderer/lib/wire-figures.js";
 import { advisoryChoiceIn, type AccountAxisReading, type AccountChoice } from "./account-axis.js";
 
 /**

@@ -5,14 +5,11 @@
 // the type filter, and which absence the body renders). Everything here is scoped to one
 // manifest. No element can hold a payload.
 
-import {
-  Chip,
-  DerivedFigure,
-  Nothing,
-  WireFigure,
-  formatByteQuantity,
-  formatRelativeTime,
-} from "@renderer/console/primitives/index.js";
+import { Chip } from "@renderer/components/Chip/Chip.js";
+import { DerivedFigure } from "@renderer/components/DerivedFigure/DerivedFigure.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
+import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
+import { formatByteQuantity, formatRelativeTime } from "@renderer/lib/wire-figures.js";
 import { type ArtifactManifestRow } from "../artifact-model.js";
 import { ARTIFACT_STATE_PRESENTATION, artifactProducerLabel } from "../artifact-copy.js";
 

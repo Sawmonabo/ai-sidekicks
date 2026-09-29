@@ -25,8 +25,8 @@ import { describe, expect, it } from "vitest";
 import { renderSettled } from "../helpers/app-harness.js";
 import { captureSettled } from "./settled-capture.js";
 
-import { PaneRegistry } from "@renderer/console/seats/index.js";
-import type { PaneContext } from "@renderer/console/seats/index.js";
+import { PaneRegistry } from "@renderer/registries/panes/pane-registry.js";
+import type { PaneContext } from "@renderer/registries/panes/pane-context.js";
 // The module itself: `LazyBodyModule` is the loader's own return type, and no production
 // code imports it through a barrel. The pane registry's `lazy-body` suites reach it the
 // same way.

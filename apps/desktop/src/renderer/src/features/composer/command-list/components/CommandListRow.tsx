@@ -23,7 +23,8 @@
 // states what was declared and stops. A sentence explaining the cause would be one
 // this console wrote about a decision the provider made.
 
-import { Nothing, WireFigure } from "@renderer/console/primitives/index.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
+import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 import { isDeclaredUnavailable, type CommandListEntry } from "../command-list-entries.js";
 
 export interface CommandListRowProps {

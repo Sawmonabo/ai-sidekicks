@@ -1,4 +1,5 @@
-import { WireFigure, formatCount } from "@renderer/console/primitives/index.js";
+import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
+import { formatCount } from "@renderer/lib/wire-figures.js";
 import { TOOL_ALLOWLIST_NAMED_CAP } from "../../agents-caps.js";
 import {
   NAMELESS_TOOL_ALLOWLIST_WORDING,

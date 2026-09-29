@@ -17,7 +17,7 @@
 //   3. THE WINDOW NAVIGATES. Last, because it is the one step a person sees, and
 //      because it is the step that ends this screen's mount.
 
-import type { ScreenContext } from "@renderer/console/seats/index.js";
+import type { ScreenContext } from "@renderer/registries/screens/screen-context.js";
 
 /** What the destination hands this act, and everything the act touches. */
 export interface SessionStartSettlement {

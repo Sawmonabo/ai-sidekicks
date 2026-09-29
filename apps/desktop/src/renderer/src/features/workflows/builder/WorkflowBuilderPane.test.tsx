@@ -9,7 +9,7 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import type { PaneContextOf } from "@renderer/console/seats/index.js";
+import type { PaneContextOf } from "@renderer/registries/panes/pane-body-for-kind.js";
 import type { EntityRef } from "@renderer/lib/entity-kinds.js";
 import { DEFINITION_ID } from "../definitions/detail/hooks/useWorkflowDefinitionAuthoring.test-support.js";
 import { PROBE_SESSION_ID } from "../workflows-probe.test-support.js";

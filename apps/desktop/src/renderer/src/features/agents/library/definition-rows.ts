@@ -30,7 +30,7 @@
 // wrong rather than merely terse — and a wire string is rendered exactly as it arrived.
 
 import type { AgentDefinition } from "@renderer/services/wire-shapes/agent-definition.js";
-import { formatCount } from "@renderer/console/primitives/index.js";
+import { formatCount } from "@renderer/lib/wire-figures.js";
 
 /**
  * Where an axis's text came from. Declared once; the page derives its rendering.

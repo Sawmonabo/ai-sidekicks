@@ -44,7 +44,7 @@
 
 import { useId } from "react";
 
-import { WireFigure } from "@renderer/console/primitives/index.js";
+import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 import { accountAdvisoriesFor, unresolvedDefaultAdvisoryIn } from "../account-advisories.js";
 import {
   advisoryChoiceIn,

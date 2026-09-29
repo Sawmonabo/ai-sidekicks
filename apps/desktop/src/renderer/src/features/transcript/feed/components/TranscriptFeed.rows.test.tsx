@@ -11,7 +11,7 @@ import { fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { TRANSCRIPT_WINDOW_ROW_CAP } from "../../frame/frame-caps.js";
-import { type TranscriptRowProps } from "@renderer/console/seats/index.js";
+import { type TranscriptRowProps } from "../../transcript-row-renderer.js";
 import {
   LeasingRowBody,
   contributeTranscriptCommands,

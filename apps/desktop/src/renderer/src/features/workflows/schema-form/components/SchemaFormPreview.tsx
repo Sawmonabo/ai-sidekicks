@@ -32,7 +32,7 @@ import { humanPhaseFormConfigOf } from "../human-phase-config.js";
 import { schemaRootRefusal } from "../plan/schema-root-shape.js";
 import { useSchemaForm } from "../hooks/useSchemaForm.js";
 import type { WorkflowPhaseDefinition } from "@renderer/services/wire-shapes/workflow-definition-body.js";
-import { InlineRefusal } from "@renderer/console/primitives/index.js";
+import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
 
 export interface SchemaFormPreviewProps {
   readonly phase: WorkflowPhaseDefinition;

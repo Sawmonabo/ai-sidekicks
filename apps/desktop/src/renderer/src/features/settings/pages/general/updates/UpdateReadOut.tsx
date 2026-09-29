@@ -1,10 +1,8 @@
 import { useId } from "react";
-import {
-  DerivedFigure,
-  Nothing,
-  WireFigure,
-  formatPercent,
-} from "@renderer/console/primitives/index.js";
+import { DerivedFigure } from "@renderer/components/DerivedFigure/DerivedFigure.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
+import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
+import { formatPercent } from "@renderer/lib/wire-figures.js";
 import { LastCheckedLine } from "./LastCheckedLine.js";
 import { type UpdateReading } from "./updater-reading.js";
 

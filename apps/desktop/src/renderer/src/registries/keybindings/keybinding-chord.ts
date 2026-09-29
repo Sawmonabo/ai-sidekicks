@@ -19,7 +19,7 @@
 // whether `k` and `KeyK` are one keystroke is the exact defect it prevents.
 
 import { matchKeybindingPress, parseKeybinding, type KeybindingPress } from "tinykeys";
-import { decodeChordKeyToken } from "@renderer/console/primitives/index.js";
+import { decodeChordKeyToken } from "@renderer/lib/chord-format.js";
 
 /** Why a chord string was refused. */
 export type ChordParseErrorKind = "empty-chord" | "sequence-unsupported" | "no-key";

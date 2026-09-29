@@ -23,11 +23,12 @@
 // a route, and a parsed value is data rather than a proof. The builder pane holds the same
 // guard, and both refuse through `workflows/pane/pane-addressing.ts`.
 
-import { Nothing } from "@renderer/console/primitives/index.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import { ChatStartMountPoint } from "./components/ChatStartMountPoint.js";
 import { WorkflowStateStrip } from "../components/WorkflowStateStrip.js";
 import { refusedWorkflowStrip } from "../strip-state.js";
-import { PaneFrame, type PaneContextOf } from "@renderer/console/seats/index.js";
+import { PaneFrame } from "@renderer/components/PaneFrame/PaneFrame.js";
+import { type PaneContextOf } from "@renderer/registries/panes/pane-body-for-kind.js";
 import type { EntityRef } from "@renderer/lib/entity-kinds.js";
 import { WORKFLOW_RUN_PANE_SUBJECT_KIND, misaddressedRunPane } from "./run-addressing.js";
 

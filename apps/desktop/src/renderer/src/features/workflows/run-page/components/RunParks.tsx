@@ -17,7 +17,7 @@ import type {
   WorkflowPhaseState,
   WorkflowRunSnapshot,
 } from "@renderer/services/wire-shapes/workflow-projection.js";
-import { Nothing } from "@renderer/console/primitives/index.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import { ParkBadge } from "../../components/ParkBadge.js";
 import type { WorkflowParkFormRoute } from "../../components/ParkFormRoute.js";
 import { projectParkedPhases } from "../../runs/run-list-projection.js";

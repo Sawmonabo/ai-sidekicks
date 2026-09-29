@@ -22,7 +22,7 @@
 
 import { useLayoutEffect } from "react";
 import { useBridgeResolution } from "@renderer/services/platform/hooks/useBridgeResolution.js";
-import { Nothing } from "@renderer/console/primitives/index.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import { AppWindow } from "./AppWindow.js";
 import { installMeridianTokens } from "./token-installation.js";
 import { sessionReadThroughDaemon } from "@renderer/services/daemon/session-read.js";

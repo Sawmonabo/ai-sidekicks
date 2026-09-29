@@ -2,7 +2,7 @@ import { useEffect } from "react";
 
 import { monitorForElements } from "@atlaskit/pragmatic-drag-and-drop/adapter/element-adapter";
 
-import { type Announce } from "@renderer/console/primitives/index.js";
+import { type Announce } from "@renderer/components/LiveAnnouncer/live-announcer.js";
 import {
   commitPaneDrop,
   paneIdFromDragData,

@@ -16,8 +16,8 @@
 // synchronous latch: this handler reads the status from the render that produced it.
 
 import { useMemo } from "react";
-import { RefusalWithRemedy } from "@renderer/console/primitives/index.js";
-import type { ComposerProps } from "@renderer/console/seats/index.js";
+import { RefusalWithRemedy } from "../../components/RefusalWithRemedy/RefusalWithRemedy.js";
+import type { ComposerProps } from "@renderer/registries/composer/composer-registry.js";
 import { useRefusalBannerEscalation } from "../../hooks/useRefusalBannerEscalation.js";
 import { useComposerAddress } from "../../hooks/useComposerAddress.js";
 import { useCommandHandling } from "../../command-list/hooks/useCommandHandling.js";

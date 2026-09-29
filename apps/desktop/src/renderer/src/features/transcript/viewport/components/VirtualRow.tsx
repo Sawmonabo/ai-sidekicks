@@ -20,7 +20,7 @@
 
 import { memo, useCallback } from "react";
 
-import { WindowedListRow } from "@renderer/console/primitives/index.js";
+import { WindowedListRow } from "@renderer/components/WindowedListRow/WindowedListRow.js";
 import { TranscriptRowGroup } from "./TranscriptRowGroup.js";
 import { usePreservedRowSelection } from "../hooks/usePreservedRowSelection.js";
 import type { ViewportRow } from "../viewport-snapshot.js";

@@ -14,16 +14,14 @@ import "./inline-artifact-card.css";
 
 import { useId } from "react";
 
-import {
-  Chip,
-  DerivedFigure,
-  Glyph,
-  WireFigure,
-  formatByteQuantity,
-} from "@renderer/console/primitives/index.js";
+import { Chip } from "@renderer/components/Chip/Chip.js";
+import { DerivedFigure } from "@renderer/components/DerivedFigure/DerivedFigure.js";
+import { Glyph } from "@renderer/components/Glyph/Glyph.js";
+import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
+import { formatByteQuantity } from "@renderer/lib/wire-figures.js";
 import { type ArtifactManifestRow } from "../artifact-model.js";
 import { ARTIFACT_STATE_PRESENTATION, artifactProducerLabel } from "../artifact-copy.js";
-import type { ArtifactInlineCardProps } from "@renderer/console/seats/index.js";
+import type { ArtifactInlineCardProps } from "@renderer/registries/inline-cards/inline-card-registry.js";
 import { GLYPH_SIZE_ROW } from "@renderer/styles/glyphs.js";
 
 /** What the inline artifact card is given. */

@@ -47,7 +47,7 @@
 
 import { useEffect, useState } from "react";
 
-import { Nothing } from "@renderer/console/primitives/index.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 
 export interface MathBlockProps {
   /** The TeX source, wire-verbatim. */

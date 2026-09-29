@@ -22,7 +22,7 @@
 // through the value it answers with, and not a cadence this module arms.
 
 import type { WorkflowVersionChainEntry } from "@renderer/services/wire-shapes/workflow-projection.js";
-import { formatCount } from "@renderer/console/primitives/index.js";
+import { formatCount } from "@renderer/lib/wire-figures.js";
 import { useSubjectRead } from "@renderer/hooks/useSubjectRead.js";
 import type { WorkflowVersionChoice } from "../run-controls.js";
 

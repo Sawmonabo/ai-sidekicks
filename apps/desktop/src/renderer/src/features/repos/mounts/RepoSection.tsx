@@ -4,7 +4,7 @@ import "./mount-controls.css";
 
 import { useCallback } from "react";
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { type PaneOpener } from "@renderer/console/seats/index.js";
+import { type PaneOpener } from "@renderer/routing/panes/pane-address.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 
 import { AttachRepositoryDialog } from "./attach/AttachRepositoryDialog.js";

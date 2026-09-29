@@ -27,13 +27,11 @@
 
 import { useCallback, useId, useRef, useState } from "react";
 import { Collapsible } from "@base-ui/react/collapsible";
-import {
-  ACCENT_FILL_CLASS,
-  Chip,
-  RefusalWithRemedy,
-  WireFigure,
-  formatClockTime,
-} from "@renderer/console/primitives/index.js";
+import { ACCENT_FILL_CLASS } from "../../accent-fill.js";
+import { Chip } from "@renderer/components/Chip/Chip.js";
+import { RefusalWithRemedy } from "../../components/RefusalWithRemedy/RefusalWithRemedy.js";
+import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
+import { formatClockTime } from "@renderer/lib/wire-figures.js";
 import { type Refusal } from "@renderer/lib/refusal.js";
 import { isApprovalAnswerable } from "../approval-offer.js";
 import { ApprovalResource } from "./ApprovalResource.js";

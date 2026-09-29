@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 
-import { Chip, WireFigure } from "@renderer/console/primitives/index.js";
+import { Chip } from "@renderer/components/Chip/Chip.js";
+import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 import type { McpServerInventoryEntry } from "@ai-sidekicks/contracts";
 
 /**

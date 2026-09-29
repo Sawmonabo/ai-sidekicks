@@ -30,7 +30,7 @@
 // (`index.ts` says why), and reversing that to carry one reading down would hand a
 // screen that renders one session the set of all of them.
 
-import { RefusalBanner } from "@renderer/console/primitives/index.js";
+import { RefusalBanner } from "@renderer/components/Refusal/RefusalBanner.js";
 import { useTimelineResume } from "@renderer/store/session/hooks/useSessionInitialized.js";
 import { type SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
 

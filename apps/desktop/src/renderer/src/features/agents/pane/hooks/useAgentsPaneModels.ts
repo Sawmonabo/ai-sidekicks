@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 
 import { useBridgeClock } from "@renderer/services/platform/hooks/useClock.js";
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { isCurrentSessionSubject } from "@renderer/console/seats/index.js";
+import { isCurrentSessionSubject } from "@renderer/store/subject-scoped/session-subject.js";
 import type { SessionStore } from "@renderer/store/session/session-store.js";
 import { type AgentsPaneCalls } from "../../agent-reads.js";
 import { AgentsPaneModels } from "../agents-pane-models.js";

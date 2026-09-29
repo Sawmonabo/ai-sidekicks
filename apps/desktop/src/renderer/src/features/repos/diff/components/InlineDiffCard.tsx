@@ -54,8 +54,9 @@ import "./diff.css";
 import { useId, useRef, useState } from "react";
 
 import { GLYPH_SIZE_ROW } from "@renderer/styles/glyphs.js";
-import { Glyph, Nothing } from "@renderer/console/primitives/index.js";
-import type { DiffInlineCardProps } from "@renderer/console/seats/index.js";
+import { Glyph } from "@renderer/components/Glyph/Glyph.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
+import type { DiffInlineCardProps } from "@renderer/registries/inline-cards/inline-card-registry.js";
 import { INLINE_DIFF_CARD_HEIGHT_CAP_PX } from "../../diff-caps.js";
 import { DiffChangeSet } from "./DiffChangeSet.js";
 import { DiffRenderer } from "./DiffRenderer.js";

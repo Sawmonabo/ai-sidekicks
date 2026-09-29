@@ -17,14 +17,12 @@
 import { fireEvent, render } from "@testing-library/react";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { CONCURRENT_STREAMING_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
-import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
+import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import type { AppRoute } from "@renderer/routing/routes.js";
 import { WindowStore } from "@renderer/store/window/window-store.js";
-import {
-  PaneRegistry,
-  type PaneContext,
-  type ScreenContext,
-} from "@renderer/console/seats/index.js";
+import { PaneRegistry } from "@renderer/registries/panes/pane-registry.js";
+import { type PaneContext } from "@renderer/registries/panes/pane-context.js";
+import { type ScreenContext } from "@renderer/registries/screens/screen-context.js";
 import { registerWorkflowPanes } from "./contributions/panes.js";
 import type { WorkflowRunDirectoryState } from "./runs/hooks/useWorkflowRunDirectory.js";
 import { PROBE_RUNS } from "./workflows-probe.test-support.js";

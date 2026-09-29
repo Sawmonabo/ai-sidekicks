@@ -15,8 +15,9 @@
 // view elsewhere in the window can make.
 
 import { useCallback, useEffect, useRef } from "react";
-import { RefusalCard } from "@renderer/console/primitives/index.js";
-import { subscribeToComposerFocus, type ComposerProps } from "@renderer/console/seats/index.js";
+import { RefusalCard } from "@renderer/components/Refusal/RefusalCard.js";
+import { subscribeToComposerFocus } from "../../composer-focus-requests.js";
+import { type ComposerProps } from "@renderer/registries/composer/composer-registry.js";
 import { COMPOSER_DRAFT_MAX_ROWS } from "../../composer-bounds.js";
 import { useComposerAddress } from "../../hooks/useComposerAddress.js";
 import { readTextNeutralization } from "../text-neutralization.js";

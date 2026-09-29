@@ -7,7 +7,8 @@
 // The main process has already checked the launch against the catalog, so a scenario or
 // session named here exists.
 
-import { paneRegistry, screenRegistry } from "@renderer/console/seats/index.js";
+import { paneRegistry } from "@renderer/registries/panes/pane-registry.js";
+import { screenRegistry } from "@renderer/registries/screens/screen-registry.js";
 import { windowTripwires } from "@renderer/lib/tripwires.js";
 import { formatRoute } from "@renderer/routing/routes.js";
 import { ScenarioFixtureControl } from "@renderer/services/daemon/selection.fixture.js";

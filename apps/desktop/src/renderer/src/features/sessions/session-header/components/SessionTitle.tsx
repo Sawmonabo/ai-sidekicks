@@ -11,7 +11,7 @@
 // and saying so on the element is the difference between rendering a fact and
 // asserting a field that does not exist.
 
-import { WireFigure } from "@renderer/console/primitives/index.js";
+import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 
 export interface SessionHeaderSessionTitleProps {
   /** The session's display title, where it has one. */

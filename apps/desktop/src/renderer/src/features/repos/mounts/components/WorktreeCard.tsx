@@ -36,14 +36,12 @@ import "./execution-root-cards.css";
 
 import { useId } from "react";
 
-import {
-  Chip,
-  DerivedFigure,
-  Glyph,
-  Nothing,
-  WireFigure,
-  formatRelativeTime,
-} from "@renderer/console/primitives/index.js";
+import { Chip } from "@renderer/components/Chip/Chip.js";
+import { DerivedFigure } from "@renderer/components/DerivedFigure/DerivedFigure.js";
+import { Glyph } from "@renderer/components/Glyph/Glyph.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
+import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
+import { formatRelativeTime } from "@renderer/lib/wire-figures.js";
 import {
   WORKTREE_DISK_DISPOSITION_COPY,
   WORKTREE_STATE_PRESENTATION,

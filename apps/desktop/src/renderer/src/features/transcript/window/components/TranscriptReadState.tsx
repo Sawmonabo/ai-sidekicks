@@ -34,7 +34,7 @@ import { useSessionStore } from "@renderer/store/session/hooks/useOpenSessionSto
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 import { type SessionStoreState } from "@renderer/store/session/session-state.js";
 import { useTranscriptFirstReadSettled } from "../hooks/useTranscriptFirstReadSettled.js";
-import { Nothing } from "@renderer/console/primitives/index.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 
 /**
  * How many skeleton rows a window that has not been read yet draws.

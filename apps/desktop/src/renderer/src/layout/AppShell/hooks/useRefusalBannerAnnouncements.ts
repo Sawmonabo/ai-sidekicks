@@ -31,7 +31,7 @@
 
 import { useEffect, useRef } from "react";
 
-import { useAnnounce } from "@renderer/console/primitives/index.js";
+import { useAnnounce } from "@renderer/hooks/useAnnounce.js";
 import type { WindowBanner } from "@renderer/store/window/window-store.js";
 
 /**

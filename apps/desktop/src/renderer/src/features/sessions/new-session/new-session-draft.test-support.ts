@@ -9,7 +9,7 @@
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { withDaemonCall, type RecordedDaemonCall } from "@test/helpers/fixture-bridge.js";
 import type { Scenario } from "../../../../../../fixtures/scenario.js";
-import type { FirstTurnQueueCall } from "@renderer/console/seats/index.js";
+import type { FirstTurnQueueCall } from "./new-session-control-contract.js";
 import { NewSessionDraft } from "./new-session-draft.js";
 // The method the SEND names, taken from the module that sends it rather than
 // re-declared here: a script keyed on the suite's own copy of a wire string would go

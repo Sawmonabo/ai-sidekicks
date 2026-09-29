@@ -34,13 +34,14 @@
 
 import { Fragment } from "react";
 
-import { Nothing, ScreenNotice } from "@renderer/console/primitives/index.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
+import { ScreenNotice } from "@renderer/components/ScreenNotice/ScreenNotice.js";
 import { formatRoute } from "@renderer/routing/routes.js";
 import {
   screenRegistry,
   findScreenNameForRoute,
-  type ScreenContext,
-} from "@renderer/console/seats/index.js";
+} from "@renderer/registries/screens/screen-registry.js";
+import { type ScreenContext } from "@renderer/registries/screens/screen-context.js";
 
 export interface AppRouterProps {
   readonly context: ScreenContext;

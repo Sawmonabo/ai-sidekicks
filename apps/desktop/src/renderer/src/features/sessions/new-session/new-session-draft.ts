@@ -63,7 +63,7 @@
 import type { ExecutionMode, ExecutionPosture } from "@ai-sidekicks/contracts";
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
-import type { FirstTurnQueueCall } from "@renderer/console/seats/index.js";
+import type { FirstTurnQueueCall } from "./new-session-control-contract.js";
 import { sendNewSessionDraft } from "./new-session-send.js";
 import {
   refuseAmbiguousCreate,

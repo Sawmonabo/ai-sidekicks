@@ -38,7 +38,7 @@
 // catch-up rate is marked with a class the
 // stylesheet answers in luminance; nothing here animates, and nothing pulses.
 
-import { WindowNotices } from "@renderer/console/primitives/index.js";
+import { WindowNotices } from "../../components/WindowNotices/WindowNotices.js";
 import { EmptyTranscript } from "./EmptyTranscript.js";
 import { type TranscriptErrorEntry } from "../transcript-errors.js";
 import { TranscriptErrors } from "./TranscriptErrors.js";

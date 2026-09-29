@@ -30,7 +30,7 @@ import { CommandRegistry } from "../commands/command-registry.js";
 import { type Keybinding } from "../commands/command-types.js";
 import { type KeybindingConflict } from "./keybinding-conflicts.js";
 import { KeybindingTable } from "./keybinding-table.js";
-import { HOST_CHORD_PLATFORM, type ChordPlatform } from "@renderer/console/primitives/index.js";
+import { HOST_CHORD_PLATFORM, type ChordPlatform } from "@renderer/lib/chord-format.js";
 
 /** One chord the host consumes before this application can see it. */
 interface ReservedChord {

@@ -27,9 +27,12 @@
 // React's knowledge, which is exactly the shape `useSyncExternalStore` exists for.
 
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
-import { type Announce, type AnnouncementPoliteness } from "@renderer/console/primitives/index.js";
+import {
+  type Announce,
+  type AnnouncementPoliteness,
+} from "@renderer/components/LiveAnnouncer/live-announcer.js";
 import { TITLE_BY_PANE_KIND } from "@renderer/components/PaneFrame/PaneFrame.js";
-import { type PaneKind } from "@renderer/console/seats/index.js";
+import { type PaneKind } from "@renderer/routing/panes/pane-kinds.js";
 import type { PaneLayoutStore } from "./pane-layout-store.js";
 
 /**

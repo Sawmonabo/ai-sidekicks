@@ -26,7 +26,8 @@
 // this; the prop contract is declared here, beside the body that reads every member
 // of it, and re-exported there under the name callers type against.
 
-import { RefusalBanner, ErrorBoundary } from "@renderer/console/primitives/index.js";
+import { RefusalBanner } from "@renderer/components/Refusal/RefusalBanner.js";
+import { ErrorBoundary } from "@renderer/components/ErrorBoundary/ErrorBoundary.js";
 import { type WindowBanner } from "@renderer/store/window/window-store.js";
 import { useRefusalBannerAnnouncements } from "./hooks/useRefusalBannerAnnouncements.js";
 import { NavigationRail, type RailEntry } from "../NavigationRail/NavigationRail.js";

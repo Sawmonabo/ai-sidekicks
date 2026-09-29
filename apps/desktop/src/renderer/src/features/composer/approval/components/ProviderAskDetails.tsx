@@ -27,7 +27,7 @@
 
 import "./ProviderAskDetails.css";
 
-import { WireFigure } from "@renderer/console/primitives/index.js";
+import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 import { ApprovalResource } from "./ApprovalResource.js";
 import { type ProviderAsk } from "../provider-ask.js";
 

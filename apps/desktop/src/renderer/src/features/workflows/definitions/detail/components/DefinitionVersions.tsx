@@ -8,7 +8,8 @@
 // version id, so the chain read could not be put at all — the console composes no id from
 // the version NUMBER, because no encoding over that pair exists on this wire.
 
-import { WireFigure, formatCount } from "@renderer/console/primitives/index.js";
+import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
+import { formatCount } from "@renderer/lib/wire-figures.js";
 import type { WorkflowVersionChainReading } from "../hooks/useWorkflowDefinitionDetail.js";
 
 /** The chain reading to draw. An unaddressable chain draws nothing. */

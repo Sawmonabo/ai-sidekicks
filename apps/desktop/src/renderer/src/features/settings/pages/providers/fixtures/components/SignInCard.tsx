@@ -1,11 +1,9 @@
 import type { ReactNode } from "react";
 
-import {
-  DerivedFigure,
-  Nothing,
-  WireFigure,
-  formatDateTime,
-} from "@renderer/console/primitives/index.js";
+import { DerivedFigure } from "@renderer/components/DerivedFigure/DerivedFigure.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
+import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
+import { formatDateTime } from "@renderer/lib/wire-figures.js";
 import type { SignInFlowState } from "../sign-in-flow.js";
 
 /**

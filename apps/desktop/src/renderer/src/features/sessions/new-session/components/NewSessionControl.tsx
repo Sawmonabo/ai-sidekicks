@@ -78,8 +78,8 @@
 
 import "./NewSessionControl.css";
 
-import { InlineRefusal } from "@renderer/console/primitives/index.js";
-import type { NewSessionControlProps } from "@renderer/console/seats/index.js";
+import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
+import type { NewSessionControlProps } from "../new-session-control-contract.js";
 import { useNewSessionComposition } from "../hooks/useNewSessionComposition.js";
 
 /**

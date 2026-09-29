@@ -32,7 +32,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { FixtureBridgeProvider } from "@test/helpers/app-frame-fixtures.js";
 import { EMPTY_SESSION_SCENARIO } from "../../../../../../../fixtures/scenarios/empty-session.js";
-import { type TranscriptRowProps } from "@renderer/console/seats/index.js";
+import { type TranscriptRowProps } from "../../transcript-row-renderer.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 import { TranscriptFeed } from "./TranscriptFeed.js";
 import {

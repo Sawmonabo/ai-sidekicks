@@ -38,7 +38,7 @@ import { createFixtureBridge } from "@renderer/services/platform/platform-bridge
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { DraftStore } from "@renderer/store/draft-store.js";
 import { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
-import { type PaneContext } from "@renderer/console/seats/index.js";
+import { type PaneContext } from "@renderer/registries/panes/pane-context.js";
 import { WindowStore } from "@renderer/store/window/window-store.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import { COMPOSED_ENTITY_PROJECTORS } from "../helpers/feature-mounts/projector-composition.js";

@@ -1,6 +1,6 @@
 // What an empty transcript window draws.
 
-import { Nothing } from "@renderer/console/primitives/index.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import { EMPTY_TRANSCRIPT_WORDS } from "../empty-transcript-words.js";
 
 /** The window with nothing in it, in the console's own shape for an absence. */

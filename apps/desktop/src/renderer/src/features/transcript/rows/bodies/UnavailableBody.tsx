@@ -13,7 +13,8 @@
 
 import type { DeclaredLossKind, HydratedContentUnavailableReason } from "@ai-sidekicks/contracts";
 
-import { Nothing, WireFigure } from "@renderer/console/primitives/index.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
+import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 
 /** The loss this console names when a stored body could not be read. */
 const UNAVAILABLE_LOSS_KIND: DeclaredLossKind = "turn_content_unavailable";

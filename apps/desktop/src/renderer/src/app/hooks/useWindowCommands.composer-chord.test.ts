@@ -21,7 +21,7 @@ import { act } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { HOST_CHORD_PLATFORM, PLATFORM_MODIFIER_TOKEN } from "@renderer/lib/chord-format.js";
-import { subscribeToComposerFocus } from "@renderer/console/seats/index.js";
+import { subscribeToComposerFocus } from "@renderer/features/composer/composer-focus-requests.js";
 import { mountApp } from "@test/helpers/mount-app.js";
 
 const openSubscriptions: (() => void)[] = [];

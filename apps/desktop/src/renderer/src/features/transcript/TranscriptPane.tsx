@@ -16,12 +16,12 @@
 
 import { routeSessionId } from "@renderer/routing/route-readers.js";
 import { useWindowStore } from "@renderer/store/window/hooks/useWindowStore.js";
+import { PaneFrame } from "@renderer/components/PaneFrame/PaneFrame.js";
 import {
-  PaneFrame,
   findTranscriptRowRenderer,
-  type PaneContextOf,
   type TranscriptRowRenderer,
-} from "@renderer/console/seats/index.js";
+} from "./transcript-row-renderer.js";
+import { type PaneContextOf } from "@renderer/registries/panes/pane-body-for-kind.js";
 import { TranscriptPaneBody } from "./feed/components/TranscriptPaneBody.js";
 
 /**

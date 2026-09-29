@@ -68,7 +68,8 @@
 import { SchemaForm } from "./SchemaForm.js";
 import { schemaRootRefusal } from "../plan/schema-root-shape.js";
 import { useSchemaForm } from "../hooks/useSchemaForm.js";
-import { InlineRefusal, Nothing } from "@renderer/console/primitives/index.js";
+import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 
 export interface SchemaFormAnswerProps {
   /** What the phase asks, as its author wrote it. Absent where the wire carried none. */

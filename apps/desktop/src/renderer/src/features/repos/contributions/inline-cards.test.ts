@@ -6,7 +6,10 @@
 
 import { describe, expect, it } from "vitest";
 
-import { InlineCardRegistry, inlineCardRegistry } from "@renderer/console/seats/index.js";
+import {
+  InlineCardRegistry,
+  inlineCardRegistry,
+} from "@renderer/registries/inline-cards/inline-card-registry.js";
 import { registerReposInlineCards } from "./inline-cards.js";
 
 describe("repos — the inline cards", () => {

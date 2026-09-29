@@ -10,7 +10,7 @@ import { describe, expect, it } from "vitest";
 
 import { LIVE_ANNOUNCEMENT_HOLD_MS } from "@renderer/components/LiveAnnouncer/live-announcement-caps.js";
 import { MOUNT_INVENTORY_READ_CAP } from "./mount-inventory-caps.js";
-import { formatClockTime, formatDateTime } from "@renderer/console/primitives/index.js";
+import { formatClockTime, formatDateTime } from "@renderer/lib/wire-figures.js";
 import { MOUNT_A, MOUNT_B, mountIdAt } from "./mounted-folders.test-support.js";
 import { contextReading, renderSettledBlock } from "./mounted-folders-block.test-support.js";
 

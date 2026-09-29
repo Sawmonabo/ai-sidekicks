@@ -22,7 +22,8 @@ import { useMemo } from "react";
 import { type SessionCallbackTool } from "@ai-sidekicks/contracts";
 import { Collapsible } from "@base-ui/react/collapsible";
 
-import { Chip, WireFigure } from "@renderer/console/primitives/index.js";
+import { Chip } from "@renderer/components/Chip/Chip.js";
+import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 import { callbackToolArguments, type CallbackToolArgument } from "../callback-tool-arguments.js";
 
 /**

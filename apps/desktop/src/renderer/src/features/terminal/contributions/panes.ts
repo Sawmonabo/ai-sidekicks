@@ -1,6 +1,6 @@
 // The terminal's pane registration: one kind, loaded as its own chunk.
 
-import type { PaneRegistry } from "@renderer/console/seats/index.js";
+import type { PaneRegistry } from "@renderer/registries/panes/pane-registry.js";
 
 /**
  * Register the terminal feature's pane kinds.

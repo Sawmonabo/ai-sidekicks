@@ -26,7 +26,7 @@ import { DraftStore } from "@renderer/store/draft-store.js";
 import { WindowStore } from "@renderer/store/window/window-store.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import { type ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
-import type { PaneAddress } from "@renderer/console/seats/index.js";
+import type { PaneAddress } from "@renderer/routing/panes/pane-address.js";
 import { MessageComposer } from "../Composer.js";
 import { composerDraftKey } from "../draft-line/draft-key.js";
 import { settleEnumeration } from "./provider-command-read.js";

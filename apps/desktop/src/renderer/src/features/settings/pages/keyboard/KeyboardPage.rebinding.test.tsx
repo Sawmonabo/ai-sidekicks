@@ -8,7 +8,8 @@ import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { act, fireEvent, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { keybindingOverrides } from "@renderer/registries/keybindings/keybinding-override-store.js";
-import { LiveAnnouncerProvider, formatCount } from "@renderer/console/primitives/index.js";
+import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
+import { formatCount } from "@renderer/lib/wire-figures.js";
 import { liveRegionText, politeText } from "@test/helpers/live-region.js";
 import { KeyboardPage } from "./KeyboardPage.js";
 import {

@@ -10,7 +10,7 @@
 // run" correctly and then something wrong the first time a control's verb is not a
 // bare imperative — so both are written down.
 
-import { type GlyphName } from "@renderer/console/primitives/index.js";
+import { type GlyphName } from "@renderer/styles/glyphs.js";
 import { type RunControl } from "./services/run-control-dispatch.js";
 
 /** One control's two phrases and its mark. */

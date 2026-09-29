@@ -25,7 +25,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { renderSettled } from "../helpers/app-harness.js";
 
 import { crossMacrotaskBoundary } from "../helpers/macrotask-boundary.js";
-import { paneRegistry } from "@renderer/console/seats/index.js";
+import { paneRegistry } from "@renderer/registries/panes/pane-registry.js";
 import { deferredBodyModule, syntheticPaneContextAt } from "../helpers/lazy-body-contexts.js";
 import { listPendingBodyNames } from "@renderer/components/LazyBody/pending-body-marker.js";
 import { type PaneContext } from "@renderer/registries/panes/pane-context.js";

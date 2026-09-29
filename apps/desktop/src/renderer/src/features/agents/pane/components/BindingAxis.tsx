@@ -1,4 +1,4 @@
-import { WireFigure } from "@renderer/console/primitives/index.js";
+import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 
 /**
  * One axis of the effective binding.

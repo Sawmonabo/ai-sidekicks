@@ -1,6 +1,8 @@
 import type { ReactNode } from "react";
 
-import { Chip, Nothing, WireFigure } from "@renderer/console/primitives/index.js";
+import { Chip } from "@renderer/components/Chip/Chip.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
+import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 import type { McpLiveApplicationResult } from "@ai-sidekicks/contracts";
 import { mcpLiveLegKeyOf } from "../live-leg-key.js";
 import type { McpMutationOutcome } from "../mcp-mutation.js";

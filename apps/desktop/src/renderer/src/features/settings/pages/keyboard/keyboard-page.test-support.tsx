@@ -14,7 +14,7 @@ import { commandRegistry } from "@renderer/registries/commands/window-command-re
 import { keybindingOverrides } from "@renderer/registries/keybindings/keybinding-override-store.js";
 import { commandContributionRegistry } from "@renderer/registries/commands/command-contributions.js";
 import { registerNavigationKeybindings } from "@renderer/layout/NavigationRail/navigation-commands.js";
-import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
+import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { KeyboardPage } from "./KeyboardPage.js";
 
 /**

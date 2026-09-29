@@ -14,7 +14,8 @@
 // have to be kept honest; joining up to three clauses means each fact is worded once
 // and appears exactly when it is true.
 
-import { formatCount, partialReadNotices } from "@renderer/console/primitives/index.js";
+import { formatCount } from "@renderer/lib/wire-figures.js";
+import { partialReadNotices } from "@renderer/lib/partial-read.js";
 import {
   answeredReadingStates,
   ATTENTION_SUBJECT,

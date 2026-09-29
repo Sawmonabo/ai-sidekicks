@@ -24,7 +24,8 @@ import {
   railDestinationFor,
   type RailDestination,
 } from "@renderer/routing/route-readers.js";
-import { ScreenRegistry, type ScreenContext } from "@renderer/console/seats/index.js";
+import { ScreenRegistry } from "@renderer/registries/screens/screen-registry.js";
+import { type ScreenContext } from "@renderer/registries/screens/screen-context.js";
 import { RAIL_ENTRY_TEMPLATES, type RailEntryTemplate } from "./NavigationRail.js";
 import { RAIL_ENTRIES, routeForDestination, warmDestination } from "./rail-navigation.js";
 

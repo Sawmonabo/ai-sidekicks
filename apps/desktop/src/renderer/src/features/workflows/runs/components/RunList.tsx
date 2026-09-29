@@ -17,7 +17,9 @@
 
 import "./RunList.css";
 
-import { DerivedFigure, Nothing, formatCount } from "@renderer/console/primitives/index.js";
+import { DerivedFigure } from "@renderer/components/DerivedFigure/DerivedFigure.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
+import { formatCount } from "@renderer/lib/wire-figures.js";
 import { RunListItem } from "./RunListItem.js";
 import { RunParkAttention } from "./RunParkAttention.js";
 import type { OpenRun, RunListProjection } from "../run-list-projection.js";

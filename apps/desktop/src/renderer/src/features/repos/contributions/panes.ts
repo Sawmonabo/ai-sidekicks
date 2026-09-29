@@ -1,6 +1,6 @@
 // The pane kind the repos feature claims: the diff pane.
 
-import type { PaneRegistry } from "@renderer/console/seats/index.js";
+import type { PaneRegistry } from "@renderer/registries/panes/pane-registry.js";
 import { REPOS_FEATURE_OWNER } from "./owner.js";
 
 /**

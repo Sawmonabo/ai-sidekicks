@@ -13,8 +13,7 @@
 //
 // WHY THIS MODULE SITS IN THE LAZY CHUNK. It imports the library for values —
 // `MarkerType`, `Position` — and so is reachable only from `RunGraphCanvas.tsx`,
-// which is itself reached only through this directory's `index.ts`, the entry
-// `run-graph-loader.ts`'s `import()` names. The layout module beside it imports
+// the entry `run-graph-loader.ts`'s `import()` names. The layout module beside it imports
 // nothing from the library at all, which is what lets the host decide whether a graph
 // can be drawn before any of these bytes are fetched.
 //

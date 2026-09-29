@@ -9,7 +9,8 @@
 
 import { Combobox } from "@base-ui/react/combobox";
 import type { ReactNode } from "react";
-import { ChordHint, type ChordPlatform } from "@renderer/console/primitives/index.js";
+import { ChordHint } from "@renderer/components/ChordHint/ChordHint.js";
+import { type ChordPlatform } from "@renderer/lib/chord-format.js";
 import type { CommandSearchResult } from "@renderer/registries/commands/command-ranking.js";
 import type { KeybindingTable } from "@renderer/registries/keybindings/keybinding-table.js";
 import type { PaletteRowPressOutcome } from "./palette-latch.js";

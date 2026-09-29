@@ -8,7 +8,7 @@
 
 import { createElement } from "react";
 
-import { registerComposer } from "@renderer/console/seats/index.js";
+import { registerComposer } from "@renderer/registries/composer/composer-registry.js";
 import { MessageComposer } from "../Composer.js";
 
 /**

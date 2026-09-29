@@ -7,7 +7,8 @@
 // it holds, so it renders proportionally through `DerivedFigure` rather than in the mono
 // the daemon's own figures wear.
 
-import { DerivedFigure, Glyph } from "@renderer/console/primitives/index.js";
+import { DerivedFigure } from "@renderer/components/DerivedFigure/DerivedFigure.js";
+import { Glyph } from "@renderer/components/Glyph/Glyph.js";
 import { GLYPH_SIZE_CHROME } from "@renderer/styles/glyphs.js";
 import { type FindStepDirection, type FindResult } from "../find-model.js";
 import { useCaretOnOpen } from "../hooks/useCaretOnOpen.js";

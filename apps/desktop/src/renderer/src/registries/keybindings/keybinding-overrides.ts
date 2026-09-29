@@ -21,7 +21,7 @@
 
 import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 import type { Keybinding } from "../commands/command-types.js";
-import { HOST_CHORD_PLATFORM, type ChordPlatform } from "@renderer/console/primitives/index.js";
+import { HOST_CHORD_PLATFORM, type ChordPlatform } from "@renderer/lib/chord-format.js";
 import { auditKeybindings, reservedChordReason } from "./keybinding-audit.js";
 
 /**

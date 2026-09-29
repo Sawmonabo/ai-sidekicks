@@ -28,7 +28,7 @@
 
 import type { Clock } from "@renderer/lib/clock.js";
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { type SessionSubject } from "@renderer/console/seats/index.js";
+import { type SessionSubject } from "@renderer/store/subject-scoped/session-subject.js";
 import type { SessionStore } from "@renderer/store/session/session-store.js";
 import {
   createAgentList,

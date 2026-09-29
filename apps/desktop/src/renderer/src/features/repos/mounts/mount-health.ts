@@ -33,7 +33,7 @@ import type {
   RepoMountReadResponse,
 } from "@ai-sidekicks/contracts";
 import type { RepoMountState } from "@ai-sidekicks/contracts";
-import type { ChipTone } from "@renderer/console/primitives/index.js";
+import type { ChipTone } from "@renderer/components/Chip/Chip.js";
 import { selectionInFlightCopy } from "./execution-mode-selection.js";
 
 /**

@@ -15,8 +15,8 @@
 
 import { type ReactNode } from "react";
 
-import type { SessionDirectoryState } from "@renderer/console/seats/index.js";
-import { Nothing } from "@renderer/console/primitives/index.js";
+import type { SessionDirectoryState } from "@renderer/store/session-directory/session-directory.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 
 /** What stands in for an empty list: a read still in flight, or a node that answered with none. */
 export function SessionListNothing(props: SessionListNothingProps): React.JSX.Element {

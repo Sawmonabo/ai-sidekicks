@@ -14,7 +14,7 @@
 // hands bytes to the host — so the sentence travels on the arm, exactly as the settled
 // one does, and this component renders whichever it was given.
 
-import { InlineRefusal } from "@renderer/console/primitives/index.js";
+import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
 import type { WorkflowDetailActOutcome } from "../definition-authoring.js";
 
 export interface ActOutcomeRowProps {

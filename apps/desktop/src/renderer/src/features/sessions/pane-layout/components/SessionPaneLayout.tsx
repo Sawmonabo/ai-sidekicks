@@ -53,13 +53,12 @@ import { Group, Separator } from "react-resizable-panels";
 
 import { type Refusal } from "@renderer/lib/refusal.js";
 import { useClock } from "@renderer/services/platform/hooks/useClock.js";
-import {
-  InlineRefusal,
-  Nothing,
-  isEditableTarget,
-  useAnnounce,
-} from "@renderer/console/primitives/index.js";
-import { type PaneContext, type PaneRegistry } from "@renderer/console/seats/index.js";
+import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
+import { isEditableTarget } from "@renderer/lib/editable-target.js";
+import { useAnnounce } from "@renderer/hooks/useAnnounce.js";
+import { type PaneContext } from "@renderer/registries/panes/pane-context.js";
+import { type PaneRegistry } from "@renderer/registries/panes/pane-registry.js";
 import { usePaneLayoutState } from "../hooks/usePaneLayoutState.js";
 import { type PaneLayoutStore } from "../pane-layout-store.js";
 import { paneLayoutActsOn } from "../pane-layout-acts.js";

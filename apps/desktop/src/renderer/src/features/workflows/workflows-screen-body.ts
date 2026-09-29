@@ -14,7 +14,7 @@ import "./components/WorkflowStateStrip.css";
 
 import { createElement } from "react";
 
-import type { ScreenContext } from "@renderer/console/seats/index.js";
+import type { ScreenContext } from "@renderer/registries/screens/screen-context.js";
 import { WorkflowsScreen } from "./WorkflowsScreen.js";
 
 /**

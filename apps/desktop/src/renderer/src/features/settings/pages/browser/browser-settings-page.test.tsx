@@ -14,12 +14,13 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { settle } from "@test/helpers/settle.js";
 import { createFixture } from "@test/helpers/fixture-bridge.js";
-import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
+import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { WindowStore } from "@renderer/store/window/window-store.js";
 import { SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
 import { registerSettingsScreen } from "../../contributions/screens.js";
 import { SETTINGS_PAGES, SettingsPageRegistry } from "../../settings-pages.js";
-import { ScreenRegistry, type ScreenContext } from "@renderer/console/seats/index.js";
+import { ScreenRegistry } from "@renderer/registries/screens/screen-registry.js";
+import { type ScreenContext } from "@renderer/registries/screens/screen-context.js";
 // The pending marker's reader by its own leaf specifier: the registries' shared entry
 // exports the ATTRIBUTE, which a producer needs, and not this reader, whose consumers outside that
 // directory are tests.

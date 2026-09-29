@@ -1,5 +1,5 @@
 import { GLYPH_SIZE_ROW } from "@renderer/styles/glyphs.js";
-import { Glyph } from "@renderer/console/primitives/index.js";
+import { Glyph } from "@renderer/components/Glyph/Glyph.js";
 
 /**
  * One toggle.

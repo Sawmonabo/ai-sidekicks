@@ -3,15 +3,15 @@
 // WHY THIS MODULE EXISTS. The console bounds the renderer's initial bundle excluding
 // lazy chunks — terminal, node graph, math, diagrams, browser tools — so the node
 // graph is a LAZY chunk by the budget it is measured against. The chunk's entry,
-// `run-graph/index.ts`, pulls in `@xyflow/react`, its `@xyflow/system` runtime
+// `RunGraphCanvas.tsx`, pulls in `@xyflow/react`, its `@xyflow/system` runtime
 // sibling, the library's own `base.css` and this directory's sheet; reached by a
 // static import from a pane the console can open at boot, every one of those bytes
 // lands in the document the operator waits for whether or not a run is ever drawn.
 //
 // So that entry is reached through `import()` and through nothing else. That makes this
-// module the bundler's split point: everything only `run-graph/index.js` reaches is
-// emitted as its own chunk, with the two sheets `RunGraphCanvas.tsx` imports, and fetched
-// the first time a graph mounts.
+// module the bundler's split point: everything only `RunGraphCanvas.tsx` reaches is
+// emitted as its own chunk, with the two sheets it imports, and fetched the first time a
+// graph mounts.
 //
 // WHY A CLASS AND NOT A MODULE-LEVEL PROMISE. The promise has to be memoized: two
 // run panes mounting in one frame must not start two fetches, and a remount must not
@@ -23,12 +23,12 @@
 /**
  * What a caller gets: the canvas component, and deliberately nothing else.
  *
- * Narrowed from the entry module's own shape rather than restated, so a rename behind
- * `index.ts` fails here instead of drifting. `typeof import(...)` in a TYPE position
+ * Narrowed from the entry module's own shape rather than restated, so a rename in
+ * `RunGraphCanvas.tsx` fails here instead of drifting. `typeof import(...)` in a TYPE position
  * is erased by the compiler — it opens no runtime edge into the chunk this module
  * exists to keep out of the initial graph.
  */
-export type RunGraphModule = Pick<typeof import("./index.js"), "RunGraphCanvas">;
+export type RunGraphModule = Pick<typeof import("./RunGraphCanvas.js"), "RunGraphCanvas">;
 
 /** The graph chunk's loader: one fetch per page, however many graphs ask. */
 export class RunGraphLoader {
@@ -50,7 +50,7 @@ export class RunGraphLoader {
 
   async #fetchModule(): Promise<RunGraphModule> {
     try {
-      const { RunGraphCanvas } = await import("./index.js");
+      const { RunGraphCanvas } = await import("./RunGraphCanvas.js");
       return { RunGraphCanvas };
     } catch (loadError) {
       // A chunk that did not arrive is not a chunk that cannot: the fetch fails

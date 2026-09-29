@@ -1,6 +1,6 @@
 // Adapts a body written for one pane kind into the render the pane registry stores.
 
-import { InlineRefusal } from "@renderer/console/primitives/index.js";
+import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
 import { TITLE_BY_PANE_KIND } from "@renderer/components/PaneFrame/PaneFrame.js";
 import { type PaneKind } from "@renderer/routing/panes/pane-kinds.js";
 import { type PaneContext } from "./pane-context.js";

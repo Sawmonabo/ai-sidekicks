@@ -1,4 +1,4 @@
-import { PartialRead } from "@renderer/console/primitives/index.js";
+import { PartialRead } from "@renderer/components/PartialRead/PartialRead.js";
 import {
   answeredReadingStates,
   ATTENTION_SUBJECT,

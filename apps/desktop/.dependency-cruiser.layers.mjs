@@ -28,12 +28,6 @@ export const LAYOUT = `${RENDERER}/layout/`;
 export const APP = `${RENDERER}/app/`;
 
 /**
- * The folders the restructure has not emptied yet. Their files are on their way to a
- * feature, so they rank with `features/`: a lower layer that imports one is reaching up.
- */
-export const UNPLACED = `${RENDERER}/(console|shell)/`;
-
-/**
  * The two stores held apart INSIDE `store/`: one per window, one per open session.
  *
  * A flag copied across that line is a second record of one fact, and it is the record
@@ -124,7 +118,6 @@ export const LAYERS = [
   SERVICES,
   REGISTRIES,
   FEATURES,
-  UNPLACED,
   LAYOUT,
   APP,
 ];
@@ -138,7 +131,6 @@ export const ABOVE_LIB_STYLES_ASSETS = [
   SERVICES,
   REGISTRIES,
   FEATURES,
-  UNPLACED,
   LAYOUT,
   APP,
 ];
@@ -149,22 +141,13 @@ export const ABOVE_ROUTING = [
   SERVICES,
   REGISTRIES,
   FEATURES,
-  UNPLACED,
   LAYOUT,
   APP,
 ];
-export const ABOVE_COMPONENTS_HOOKS = [
-  STORE,
-  SERVICES,
-  REGISTRIES,
-  FEATURES,
-  UNPLACED,
-  LAYOUT,
-  APP,
-];
-export const ABOVE_STORE = [SERVICES, REGISTRIES, FEATURES, UNPLACED, LAYOUT, APP];
-export const ABOVE_SERVICES = [REGISTRIES, FEATURES, UNPLACED, LAYOUT, APP];
-export const ABOVE_REGISTRIES = [FEATURES, UNPLACED, LAYOUT, APP];
+export const ABOVE_COMPONENTS_HOOKS = [STORE, SERVICES, REGISTRIES, FEATURES, LAYOUT, APP];
+export const ABOVE_STORE = [SERVICES, REGISTRIES, FEATURES, LAYOUT, APP];
+export const ABOVE_SERVICES = [REGISTRIES, FEATURES, LAYOUT, APP];
+export const ABOVE_REGISTRIES = [FEATURES, LAYOUT, APP];
 export const ABOVE_FEATURES = [LAYOUT, APP];
 export const ABOVE_LAYOUT = [APP];
 

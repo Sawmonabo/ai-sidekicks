@@ -37,7 +37,8 @@
 
 import "./ParkBadge.css";
 
-import { Chip, WireFigure } from "@renderer/console/primitives/index.js";
+import { Chip } from "@renderer/components/Chip/Chip.js";
+import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 import { ParkFormRoute, type WorkflowParkFormRoute } from "./ParkFormRoute.js";
 import { PARK_REASON_LABELS, parkAttentionTone } from "../park-presentation.js";
 import { ParkSchedule } from "./ParkSchedule.js";

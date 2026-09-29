@@ -36,7 +36,8 @@ import "./CallbackTools.css";
 import { type DriverCapabilityFlag } from "@ai-sidekicks/contracts";
 
 import type { DriverCapabilityReading } from "@renderer/store/driver-capabilities/driver-capability-readings.js";
-import { Nothing, WireFigure } from "@renderer/console/primitives/index.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
+import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 import { CallbackToolRows } from "./CallbackToolRows.js";
 import { type CallbackToolRegistryReading } from "../callback-tool-registry.js";
 

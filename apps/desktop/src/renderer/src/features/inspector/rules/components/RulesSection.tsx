@@ -4,7 +4,7 @@
 // its own: folding the two into one state would hide a readable approvals list behind
 // a rules list that is still loading, or the reverse.
 
-import { Nothing } from "@renderer/console/primitives/index.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import { RememberedRules } from "./RememberedRules.js";
 import { type RememberedRule } from "@renderer/services/approvals/approval-records.js";
 import { type ReadPhase } from "@renderer/lib/read-phase.js";

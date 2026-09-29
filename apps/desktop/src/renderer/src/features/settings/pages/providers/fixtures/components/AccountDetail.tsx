@@ -1,13 +1,9 @@
 import type { ProviderAccount } from "@ai-sidekicks/contracts";
 import type { ReactNode } from "react";
 
-import {
-  DerivedFigure,
-  WireFigure,
-  formatCount,
-  formatDateTime,
-  formatDayDuration,
-} from "@renderer/console/primitives/index.js";
+import { DerivedFigure } from "@renderer/components/DerivedFigure/DerivedFigure.js";
+import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
+import { formatCount, formatDateTime, formatDayDuration } from "@renderer/lib/wire-figures.js";
 import { DefinitionGrid, type DefinitionGridEntry } from "../../components/DefinitionGrid.js";
 import { estimatedReloginDaysAfterSignIn } from "../quota-rows.js";
 

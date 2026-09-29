@@ -6,7 +6,9 @@
 // and the record is the thing that gives a facet its label — so this is reached by
 // the record's deep import and by nothing else.
 
-import { DerivedFigure, Nothing, WireFigure } from "@renderer/console/primitives/index.js";
+import { DerivedFigure } from "@renderer/components/DerivedFigure/DerivedFigure.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
+import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 import type { EntityFacet } from "../entity-facets.js";
 
 /** One facet's value, drawn in the provenance its form names. */

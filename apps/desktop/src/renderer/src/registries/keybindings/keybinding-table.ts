@@ -33,7 +33,7 @@
 // press rather than stealing it.
 
 import { RefusalError, refuse } from "@renderer/lib/refusal.js";
-import { isTextEntryTarget } from "@renderer/console/primitives/index.js";
+import { isTextEntryTarget } from "@renderer/lib/editable-target.js";
 import type { CommandInvocationOutcome, CommandRegistry } from "../commands/command-registry.js";
 import type { Keybinding } from "../commands/command-types.js";
 import { chordMatchesEvent } from "./keybinding-chord.js";

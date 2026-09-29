@@ -64,7 +64,7 @@
 // own subject and not the send bar's.
 
 import { useCallback, useMemo } from "react";
-import { type ComposerProps } from "@renderer/console/seats/index.js";
+import { type ComposerProps } from "@renderer/registries/composer/composer-registry.js";
 import { useComposerAddress } from "../../hooks/useComposerAddress.js";
 import { composerDraftKey } from "../../draft-line/draft-key.js";
 import { readComposerCommands } from "../composer-commands.js";

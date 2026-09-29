@@ -9,7 +9,7 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { PartialRead } from "@renderer/console/primitives/index.js";
+import { PartialRead } from "@renderer/components/PartialRead/PartialRead.js";
 import { matchWalkReading } from "./find-readings.js";
 
 function renderWalk(

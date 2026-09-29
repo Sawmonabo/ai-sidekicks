@@ -8,7 +8,7 @@
 // IT IS NEVER RE-READ FROM THE DEFINITION REGISTRY. The registry row may already have
 // moved, and a configuration naming NO definition is never attributed to one.
 
-import { WireFigure } from "@renderer/console/primitives/index.js";
+import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 import type { AgentResolvedConfiguration } from "@renderer/services/wire-shapes/agents.js";
 import { type AgentToolAllowlistPosition } from "../tool-allowlist.js";
 import { ToolAllowlist } from "./ToolAllowlist.js";

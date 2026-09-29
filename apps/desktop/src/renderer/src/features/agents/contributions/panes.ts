@@ -2,7 +2,7 @@
 //
 // The feature's public entry exports the registrar below and `app/registrations.ts` calls it.
 
-import { type PaneRegistry } from "@renderer/console/seats/index.js";
+import { type PaneRegistry } from "@renderer/registries/panes/pane-registry.js";
 
 /** The owner string this body's claim carries, so a hot reload replaces. */
 const AGENTS_PANE_OWNER = "agents";

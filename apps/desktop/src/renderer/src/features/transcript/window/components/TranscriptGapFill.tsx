@@ -18,7 +18,7 @@
 // read acknowledged. `ResumeRefusalBanner` is mounted there for the same
 // reason and says so — the session screen body is handed everything BUT the registry.
 
-import { Nothing } from "@renderer/console/primitives/index.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import { useSessionStore } from "@renderer/store/session/hooks/useOpenSessionStore.js";
 import { useTimelineResume } from "@renderer/store/session/hooks/useSessionInitialized.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";

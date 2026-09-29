@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 
 import { usePlatformBridge } from "@renderer/services/platform/hooks/usePlatformBridge.js";
-import { useSessionScopedState } from "@renderer/console/seats/index.js";
+import { useSessionScopedState } from "@renderer/store/subject-scoped/useSessionScopedState.js";
 import { type ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 import { useSessionStore } from "@renderer/store/session/hooks/useOpenSessionStore.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";

@@ -20,7 +20,7 @@
 // by this file respectively, because only one of them is a fact about the pane layout.
 
 import { TITLE_BY_PANE_KIND } from "@renderer/components/PaneFrame/PaneFrame.js";
-import type { Announce } from "@renderer/console/primitives/index.js";
+import type { Announce } from "@renderer/components/LiveAnnouncer/live-announcer.js";
 import type { PaneLayoutStore } from "./pane-layout-store.js";
 import { paneDropAnnouncement } from "./pane-drag.js";
 

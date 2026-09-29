@@ -18,7 +18,9 @@
 // states, and the two would agree until a definition described a shape the sort did not
 // expect.
 
-import { Chip, WireFigure, formatCount } from "@renderer/console/primitives/index.js";
+import { Chip } from "@renderer/components/Chip/Chip.js";
+import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
+import { formatCount } from "@renderer/lib/wire-figures.js";
 import type { WorkflowVersionBody } from "@renderer/services/wire-shapes/workflow-definition-body.js";
 import { DefinitionPhaseRow } from "./DefinitionPhaseRow.js";
 

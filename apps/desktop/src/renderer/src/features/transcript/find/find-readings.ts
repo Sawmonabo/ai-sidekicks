@@ -18,7 +18,7 @@
 // count that decides the arm is still the hidden one, so a walk that reaches every
 // match says nothing at all.
 
-import { type ReadingState } from "@renderer/console/primitives/index.js";
+import { type ReadingState } from "@renderer/lib/partial-read.js";
 
 /**
  * The reading a find walk is, given what it reached and what it did not.

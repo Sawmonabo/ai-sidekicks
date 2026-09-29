@@ -2,7 +2,7 @@
 
 import { render } from "@testing-library/react";
 
-import type { PaneContextOf } from "@renderer/console/seats/index.js";
+import type { PaneContextOf } from "@renderer/registries/panes/pane-body-for-kind.js";
 import type { EntityRef } from "@renderer/lib/entity-kinds.js";
 import { PARKED_RUN, PROBE_SESSION_ID } from "../workflows-probe.test-support.js";
 import { RunPage } from "./RunPage.js";

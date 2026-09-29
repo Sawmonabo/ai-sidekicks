@@ -1,7 +1,9 @@
 // One saved definition, and the things that can be done to it.
 
 import type { Refusal } from "@renderer/lib/refusal.js";
-import { DerivedFigure, InlineRefusal, WireFigure } from "@renderer/console/primitives/index.js";
+import { DerivedFigure } from "@renderer/components/DerivedFigure/DerivedFigure.js";
+import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
+import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 import { type AgentLibraryView } from "../library-view.js";
 import { describeDeletionQuestion, type AgentDefinitionRow } from "../definition-rows.js";
 

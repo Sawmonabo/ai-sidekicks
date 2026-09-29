@@ -20,7 +20,7 @@
 // geometry publisher asks it too, and two copies would drift. What
 // stays here is what this module does with the answer: intersect.
 
-import { clippingAncestorsOf } from "@renderer/console/primitives/index.js";
+import { clippingAncestorsOf } from "@renderer/lib/clipping-ancestors.js";
 
 /** Why a rect was re-measured. Rendered in diagnostics; never inferred. */
 export const RECT_INVALIDATION_SOURCES = [

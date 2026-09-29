@@ -21,7 +21,8 @@
 
 import { callDaemon, type DaemonReplyRefusalCode } from "@renderer/services/daemon/daemon-reply.js";
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { coerceToRefusal, type FirstTurnQueueCall } from "@renderer/console/seats/index.js";
+import { coerceToRefusal } from "@renderer/lib/coerce-to-refusal.js";
+import { type FirstTurnQueueCall } from "./new-session-control-contract.js";
 import {
   NEW_SESSION_DRAFT_REFUSAL_ORIGIN,
   RUN_QUEUE_CREATE_METHOD,

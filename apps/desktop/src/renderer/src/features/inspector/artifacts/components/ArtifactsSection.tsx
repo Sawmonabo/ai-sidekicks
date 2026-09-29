@@ -16,13 +16,11 @@ import "./artifacts.css";
 import { useMemo, useState } from "react";
 
 import { GLYPH_SIZE_CHROME } from "@renderer/styles/glyphs.js";
-import {
-  DerivedFigure,
-  Glyph,
-  Nothing,
-  WireFigure,
-  formatCount,
-} from "@renderer/console/primitives/index.js";
+import { DerivedFigure } from "@renderer/components/DerivedFigure/DerivedFigure.js";
+import { Glyph } from "@renderer/components/Glyph/Glyph.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
+import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
+import { formatCount } from "@renderer/lib/wire-figures.js";
 import { ArtifactRow } from "./ArtifactRow.js";
 import {
   ARTIFACT_FILTER_TYPES,

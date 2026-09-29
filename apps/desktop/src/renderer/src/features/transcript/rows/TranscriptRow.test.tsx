@@ -12,11 +12,9 @@ import { type RetainedRowState } from "../viewport/retained-row-state-table.js";
 import {
   registerTranscriptRowRenderer,
   findTranscriptRowRenderer,
+  unregisterTranscriptRowRenderer,
   type TranscriptRowProps,
-} from "@renderer/console/seats/index.js";
-// Imported directly: the teardown is reached by tests alone, so the shared entry does not
-// export it.
-import { unregisterTranscriptRowRenderer } from "../transcript-row-renderer.js";
+} from "../transcript-row-renderer.js";
 import {
   registerTranscriptRowFooterRenderer,
   unregisterTranscriptRowFooterRenderer,

@@ -1,4 +1,4 @@
-import { type PaneRegistry } from "@renderer/console/seats/index.js";
+import { type PaneRegistry } from "@renderer/registries/panes/pane-registry.js";
 import { TRANSCRIPT_OWNER } from "./screens.js";
 
 /**
