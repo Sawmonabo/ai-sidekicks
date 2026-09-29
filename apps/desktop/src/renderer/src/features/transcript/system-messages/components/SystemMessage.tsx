@@ -1,4 +1,4 @@
-// The seam, drawn: one line across the ledger, and every part of it wire-sourced.
+// The seam, drawn: one line across the transcript, and every part of it wire-sourced.
 //
 // WHY THIS EXISTS AS ITS OWN ROW RATHER THAN AS A CARD. A seam is not a message and
 // not a receipt — it is a change in the run's condition, and `system-message-classifier.ts` already
@@ -10,18 +10,18 @@
 // continuity, the declared losses and the failed switch's reason were derived on every
 // pass and shown nowhere.
 //
-// WHERE THE BOUNDARY BETWEEN THIS AND THE ROW SEAT SITS. Seams are the LEDGER's
+// WHERE THE BOUNDARY BETWEEN THIS AND THE ROW SEAT SITS. Seams are the TRANSCRIPT's
 // rows, not the seat's. The seat (`transcript-row-renderer.ts`) is filled
 // by whichever renderer owns a session's row BODIES, and a seam has no body: it has
 // a glyph, a label, and a handful of wire members laid on one line. So the feed
 // dispatches a seam row here BEFORE it delegates to the seat, and the seat contract
-// is left exactly as it was — this is a row the ledger draws itself, and widening
+// is left exactly as it was — this is a row the transcript draws itself, and widening
 // the seat to carry it would make every future row owner responsible for a
-// vocabulary that is the ledger's own.
+// vocabulary that is the transcript's own.
 //
 // THE FOUR PARTS ARE RENDER HELPERS AND NOT FOUR COMPONENTS. Each is a stateless,
 // hook-free fragment of ONE line, rendered from one place, and naming four components
-// for four spans of a sentence would put four fibers and four files where the ledger
+// for four spans of a sentence would put four fibers and four files where the transcript
 // has one row. `apps/desktop/AGENTS.md` puts one component in a `.tsx` module and this
 // module has one; what sits beside it is the shape `MessageContent.tsx`'s `renderBodyText`
 // already uses — a plain function returning markup, called rather than mounted.

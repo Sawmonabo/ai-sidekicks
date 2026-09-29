@@ -79,7 +79,7 @@ function sessionScreenBodyIn(shell: { props: Record<string, unknown> }): {
   return renderedElement(mounted[mounted.length - 1] as ReactNode);
 }
 
-describe("the ledger — which slots it holds", () => {
+describe("the transcript — which slots it holds", () => {
   it("claims the workspace screen under its owner", () => {
     const registry = registeredLedger();
     const claims = registry
@@ -102,7 +102,7 @@ describe("the ledger — which slots it holds", () => {
   });
 });
 
-describe("the ledger — what it mounts", () => {
+describe("the transcript — what it mounts", () => {
   it("mounts the session screen — the session header, the pane layout, and the composer's seat", () => {
     const registry = registeredLedger();
     const shell = renderedElement(registry.descriptorFor("session")?.render(surfaceContext()));
@@ -113,7 +113,7 @@ describe("the ledger — what it mounts", () => {
   });
 });
 
-describe("the ledger — what decides the mounted subtree's lifetime", () => {
+describe("the transcript — what decides the mounted subtree's lifetime", () => {
   // The workspace holds per-session state nothing else resets, and the shell deliberately
   // OPENS session stores without closing them on navigation — so moving between two
   // already-open sessions RE-RENDERS this position rather than unmounting it. A key on

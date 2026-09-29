@@ -1,4 +1,4 @@
-// The ledger structure's bounds: the run group's two row caps and the find walk.
+// The transcript structure's bounds: the run group's two row caps and the find walk.
 //
 // Spent inside `ledger/structure/`.
 
@@ -9,7 +9,7 @@
  * bound sits beside the rest of the structure family's. A run group is a nested scroller, so the
  * cap is not about what fits on screen — it is about how many rows one run may
  * mount at once while three sibling runs stream beside it. 120 is four screens of
- * ledger at this density: enough that scrolling inside a run group is reading
+ * transcript at this density: enough that scrolling inside a run group is reading
  * rather than paging, and far short of the point where four live run groups cost a
  * frame.
  */

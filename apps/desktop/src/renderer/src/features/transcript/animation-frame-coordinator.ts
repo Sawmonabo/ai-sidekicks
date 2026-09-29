@@ -1,4 +1,4 @@
-// The ledger's global two-phase frame coordinator — the one scheduler the frame's
+// The transcript's global two-phase frame coordinator — the one scheduler the frame's
 // per-frame work is ordered through.
 //
 // Being light on the machine prices the console at one frame for four streaming lanes,

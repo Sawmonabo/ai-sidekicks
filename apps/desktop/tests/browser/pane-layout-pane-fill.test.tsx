@@ -11,11 +11,11 @@
 // against a slot — builds its harness as a grid and says so in its own comment. Both
 // paths ship; only the grid one was covered.
 //
-// WHAT IT COST, AND WHAT IT DID NOT. A pane sized by its content hands the ledger's
+// WHAT IT COST, AND WHAT IT DID NOT. A pane sized by its content hands the transcript's
 // scroll surface a box a fraction of the pane layout's height, and the virtualizer ranges
 // against that box — measured here at 200 px of a 600 px slot. It is deliberately NOT
 // the endurance tier's 149 px viewport: that reading survives this repair, because the
-// composer takes 463 px of that window and the ledger's share is what is left. Two
+// composer takes 463 px of that window and the transcript's share is what is left. Two
 // defects on one chain, and crediting this one with the other's symptom would have
 // retired the wrong one. At the limit — a first commit with no rows yet — the same
 // chain settles at zero and stays there, which is the fixed point
@@ -25,7 +25,7 @@
 // THE SUBJECT IS A PANE KIND, NOT THIS PANE KIND. `.meridian-pane` is one sheet for
 // every kind, so the rule is about the frame and the terminal pane is only the cheapest
 // body to hang it on — it is the kind that already publishes a context builder beside
-// it. A ledger pane would measure the same section under the same rule.
+// it. A transcript pane would measure the same section under the same rule.
 
 import { describe, expect, it } from "vitest";
 
@@ -105,7 +105,7 @@ describe("browser — a pane fills the slot the pane layout gives it", () => {
     expect(slot.getBoundingClientRect().height).toBe(PANE_LAYOUT_HEIGHT_PX);
     expect(
       pane.getBoundingClientRect().height,
-      "the pane is sized by its content rather than by its slot, so every box below it — the ledger's scroll surface included — is measuring against a height the pane layout never gave it",
+      "the pane is sized by its content rather than by its slot, so every box below it — the transcript's scroll surface included — is measuring against a height the pane layout never gave it",
     ).toBe(PANE_LAYOUT_HEIGHT_PX);
   });
 

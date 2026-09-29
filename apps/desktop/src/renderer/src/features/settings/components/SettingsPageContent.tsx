@@ -5,7 +5,7 @@
 // one brief highlight". Two of the three are this file's; the scroll is the
 // PLATFORM's, reached by moving focus to the page's heading. `scrollIntoView` is a
 // standing tripwire in this console, and the programmatic-scroll chokepoint the
-// ledger family owns does not exist in this tree yet — so a scroll writer minted
+// transcript family owns does not exist in this tree yet — so a scroll writer minted
 // here would be exactly the second one that rule exists to prevent. Focus is not a
 // scroll writer: it is what a keyboard reader needs anyway, and the viewport
 // following it is the browser's own behavior rather than this module's.

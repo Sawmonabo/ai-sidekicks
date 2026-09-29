@@ -1,7 +1,7 @@
 // What the ledger-window registry answers, and the one ordering that decides it.
 //
 // The registry is three lines of behavior and one of them is load-bearing: a route
-// change mounts the next ledger before React runs the outgoing one's cleanup, so the
+// change mounts the next transcript before React runs the outgoing one's cleanup, so the
 // unregister a mount is handed has to remove ITS reader and not whichever one is
 // current. A blind delete there leaves the session reporting no viewport for the rest
 // of the window's life — silently, and only after a remount, which is precisely the
@@ -65,7 +65,7 @@ describe("the transcript window diagnostics registry", () => {
   it("negative control: retiring the current reader does remove it", () => {
     // Without this the identity check above would pass over a registry that never
     // removes anything at all, which would report a viewport for a session whose
-    // ledger has been unmounted for hours.
+    // transcript has been unmounted for hours.
     const registry = new TranscriptWindowDiagnosticsRegistry();
     const retire = registry.register(SESSION_ID, () => reading(1));
 

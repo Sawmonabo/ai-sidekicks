@@ -222,7 +222,7 @@ describe("usePaneLayoutPersistence — an arrangement made while the record was 
     expect(after?.updatedAt).toBe(before?.updatedAt);
   });
 
-  it("negative control: with nothing saved the fallback ledger is opened and written", async () => {
+  it("negative control: with nothing saved the fallback transcript is opened and written", async () => {
     // The gate must not swallow the first run's own record, which is the arrangement
     // the person finds the next time they open the session.
     const store = memoryStore();

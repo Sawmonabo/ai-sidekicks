@@ -67,7 +67,7 @@ interface RowProps {
   readonly tally: RenderTally;
 }
 
-/** One ledger row, subscribed to exactly one entity. The narrowest subscription. */
+/** One transcript row, subscribed to exactly one entity. The narrowest subscription. */
 function RunRow(props: RowProps): React.JSX.Element {
   const entity = useSessionEntity(props.store, { kind: "run", id: props.runId });
   props.tally.record(`row-${props.runId}`);

@@ -1,15 +1,15 @@
-// The ledger frame's bounds: the retained window, the element ceiling the window
+// The transcript frame's bounds: the retained window, the element ceiling the window
 // exists to stay under, the reveal engine's per-frame budget, and the two tails it
 // keeps.
 //
 // Spent inside `ledger/frame/`.
 
 /**
- * Top-level rows the ledger window retains before the oldest are pruned.
+ * Top-level rows the transcript window retains before the oldest are pruned.
  *
  * A ceiling rather than a nicety: Chromium places no element taller than
  * 33,554,431 px, so an uncapped log eventually renders rows the browser cannot place. Four hundred rows is several screens of scrollback at the
- * ledger's density, which is as far back as a person reads before reaching for
+ * transcript's density, which is as far back as a person reads before reaching for
  * find.
  */
 export const TRANSCRIPT_WINDOW_ROW_CAP = 400;
@@ -25,7 +25,7 @@ export const TRANSCRIPT_WINDOW_ROW_CAP = 400;
  * to reach the ones they wanted, and would put three presses over that retention with
  * the prune suppressed underneath them.
  *
- * Fifty is about a screenful and a half at the ledger's density, so one press moves the
+ * Fifty is about a screenful and a half at the transcript's density, so one press moves the
  * head far enough to be worth the round trip and near enough that the rows it brought
  * are reachable without a second scroll.
  */

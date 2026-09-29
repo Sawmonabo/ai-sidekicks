@@ -1,4 +1,4 @@
-// The endurance scenario — a session as long as the ledger claims to survive.
+// The endurance scenario — a session as long as the transcript claims to survive.
 //
 // Not a picker scenario, and deliberately not in `fixtures/index.ts`: nobody wants
 // to open a ten-thousand-row session from a menu, and a manifest entry that heavy
@@ -11,7 +11,7 @@
 // WHY IT IS GENERATED RATHER THAN WRITTEN
 //
 // Ten thousand hand-written beats would be an unreadable file, and worse, an
-// unfaithful one: what the ledger has to survive is a session with MANY RUN GROUPS —
+// unfaithful one: what the transcript has to survive is a session with MANY RUN GROUPS —
 // runs opening, streaming, and folding to receipts — not one run with ten thousand
 // rows under it, and hand-writing that shape at scale guarantees the pattern drifts
 // somewhere in the middle where nobody reads.

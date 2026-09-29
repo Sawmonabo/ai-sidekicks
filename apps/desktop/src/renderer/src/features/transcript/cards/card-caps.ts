@@ -1,4 +1,4 @@
-// The ledger cards' bounds: the two byte-bounded caches, the two highlighting
+// The transcript cards' bounds: the two byte-bounded caches, the two highlighting
 // thresholds, the footnote registry, the tool row's one line, and the ANSI body's
 // first render.
 //
@@ -12,7 +12,7 @@
  * Bounded in bytes rather than in entries because the entries are markdown blocks and
  * their sizes span four orders of magnitude: a thousand one-line paragraphs and one
  * pasted file are the same entry count and not the same memory. Two mebibytes is
- * several long conversations' worth of settled prose at the ledger's density, and it
+ * several long conversations' worth of settled prose at the transcript's density, and it
  * is charged against the source text rather than the node tree because the source is
  * what the cache is keyed by and the only figure it can measure without walking.
  */
@@ -72,7 +72,7 @@ export const FOOTNOTE_DEFINITION_CAP = 2048;
  *
  * Tool rows render as one line until opened. What that one line carries — glyph, tool
  * name, a one-clause summary, elapsed, and the result state — is this console's own
- * composition; the line is the constraint, and at the ledger's measure and mono figure
+ * composition; the line is the constraint, and at the transcript's measure and mono figure
  * column this is what fits beside the name and the elapsed without wrapping.
  */
 export const TOOL_SUMMARY_MAX_CHARACTERS = 96;

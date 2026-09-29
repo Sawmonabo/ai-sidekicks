@@ -194,9 +194,9 @@ export const RunListItem: React.MemoExoticComponent<
       <div className="meridian-run-row__meta">
         <WireFigure value={run.workflowRunId} />
         {/*
-          The start carries its DATE as well as its time. A run list is not a ledger —
+          The start carries its DATE as well as its time. A run list is not a transcript —
           nothing above these rows divides them by day — so two runs started a week
-          apart at the same hour read as one figure under the ledger's date-free
+          apart at the same hour read as one figure under the transcript's date-free
           clock, which is the reading this row used to draw.
 
           The title is the wire's own spelling on both arms, including the refused one:

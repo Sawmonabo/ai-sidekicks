@@ -3,7 +3,7 @@
 // DRIVEN THROUGH THE CARD RATHER THAN THE ARM, because the subject is what a document
 // holding two open asks contains: a provider mints its ask ids per provider session, so
 // two runs blocked at once legitimately raise `ask-01` each, and both cards are on
-// screen in the same ledger. An arm rendered alone can never show that.
+// screen in the same transcript. An arm rendered alone can never show that.
 //
 // AND THE ASSERTION IS THE LABEL ASSOCIATION, not the id string. What a shared id costs
 // is exactly this: activating either label focuses the first matching field, so one
@@ -41,7 +41,7 @@ function askOn(runId: RunId): QuestionReading {
   };
 }
 
-/** Both open asks in one document, exactly as one ledger window holds them. */
+/** Both open asks in one document, exactly as one transcript window holds them. */
 function renderBothAsks(): HTMLElement {
   const { container } = render(
     <>

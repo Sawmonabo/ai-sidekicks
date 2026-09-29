@@ -1,6 +1,6 @@
 // The transcript-states scenario: three lanes ending in three different conditions.
 //
-// The session the ledger frame, the run groups, and the seams are all measured
+// The session the transcript frame, the run groups, and the seams are all measured
 // against. Each lane ends somewhere different, and the three
 // endings are exactly the ones a reader has to be able to tell apart in one frame:
 //
@@ -91,7 +91,7 @@ const RUN_ARCHITECT = "019b793b-7b60-740e-8130-d1a4c1150113";
 /**
  * The child run the architect's turn opens, and the only run here with a parent.
  *
- * A CHILD RUN IS NOT A FOURTH LANE. The ledger summarizes it onto the one row that
+ * A CHILD RUN IS NOT A FOURTH LANE. The transcript summarizes it onto the one row that
  * names both it and its parent rather than drawing a lane of its own, which is why
  * this id is stated beside the three above and is deliberately not one of them: the
  * three are the compositions a reader has to tell apart in one frame, and this is
@@ -167,7 +167,7 @@ const TRANSCRIPT_STATES_AGENTS: readonly ScenarioAgent[] = [
  * The rewind anchor the implementer's run landed at.
  *
  * Named once because two things read it and they must agree: the boundary beat
- * declares it, and the superseded band the ledger draws is every row of that run
+ * declares it, and the superseded band the transcript draws is every row of that run
  * and epoch whose position EXCEEDS it. A second literal would let the band and the
  * boundary disagree about which turns are past.
  */
@@ -291,7 +291,7 @@ const TRANSCRIPT_STATES_SCRIPT: readonly ScriptEntry[] = [
 
   // THE HANDOFF, OBSERVED TWICE. A provider-native subagent opens under the reviewer's
   // tool call and finishes inside it, both beats carrying the SAME identity — which is
-  // why both are here. The ledger anchors a subagent at the first row naming it and
+  // why both are here. The transcript anchors a subagent at the first row naming it and
   // draws one handoff there; the completion joins that anchor and draws nothing of its
   // own, so one beat of the pair could never show the second was suppressed.
   lane.subagent(RUN_REVIEWER, {
@@ -378,7 +378,7 @@ const TRANSCRIPT_STATES_SCRIPT: readonly ScriptEntry[] = [
 
   // THE CHILD RUN, BORN HERE AND NOWHERE ELSE. The architect's turn opens a run of its
   // own, and this beat is the only one in the session naming both it and its parent —
-  // the taxonomy puts the orchestration linkage on the birth beat, and the ledger
+  // the taxonomy puts the orchestration linkage on the birth beat, and the transcript
   // summarizes the child onto exactly the row carrying it. Everything else the summary
   // states is derived from the rows below.
   lane.transition(RUN_ARCHITECT_CHILD, {

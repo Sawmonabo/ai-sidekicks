@@ -46,7 +46,7 @@ describe("the apply chokepoint's perf-meter readings", () => {
 
     const size = developmentPerformanceMeters?.reading("store-size", SESSION_ID) ?? null;
     expect(size, "the apply chokepoint recorded no size after admitting a batch").not.toBeNull();
-    // A GAUGE: the latest reading is the reading, and it is the timeline the ledger
+    // A GAUGE: the latest reading is the reading, and it is the timeline the transcript
     // mounts from rather than a count of what this batch happened to carry.
     expect(size?.latest).toBe(store.snapshot().timeline.length);
   });

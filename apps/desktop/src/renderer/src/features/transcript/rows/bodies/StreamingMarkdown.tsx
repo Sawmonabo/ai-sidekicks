@@ -21,7 +21,7 @@
 // it. A body with no footnotes has an empty preamble and pass two IS pass one.
 //
 // IT DOES NOT SUBSCRIBE TO THE REVEAL ENGINE. `ledger/frame/reveal/reveal-engine.ts` publishes
-// text per lane and the ledger's viewport is what reads it; a card that subscribed would
+// text per lane and the transcript's viewport is what reads it; a card that subscribed would
 // be a second subscriber to one fact and would re-render on frames its own text did not
 // change in. The published text arrives as a prop, which is also what lets a settled
 // message — one with no lane at all — render through the identical path.
@@ -242,7 +242,7 @@ function useBlockSegmentation(
  *
  *   • It runs when the CONTENT changes and not when the component renders. The node
  *     lists it is handed are memoised on the settled prefix and the volatile tail, so
- *     a viewport, layout, or ledger update that does not change a word of this body
+ *     a viewport, layout, or transcript update that does not change a word of this body
  *     leaves every dependency identical and this effect does not run at all.
  *   • When it does run, it walks the blocks that changed. A settled block's nodes are
  *     content-addressed and referentially stable, so a block whose identity is the one

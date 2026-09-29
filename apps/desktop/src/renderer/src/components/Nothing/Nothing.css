@@ -25,7 +25,7 @@
 
 /*
  * `not-loaded`: a skeleton in the row's shape. The neutral inline-start edge is the
- * ledger row's attribution edge with no attribution yet — which is exactly what is
+ * transcript row's attribution edge with no attribution yet — which is exactly what is
  * true while the read is in flight. Both belong to the row, so both are the block's.
  */
 .meridian-nothing--block.meridian-nothing--not-loaded {

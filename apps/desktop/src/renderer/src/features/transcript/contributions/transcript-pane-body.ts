@@ -36,7 +36,7 @@ import "../run-groups/components/run-groups.css";
 registerTranscriptRows();
 
 /**
- * The ledger, at an address the pane layout resolved to this kind.
+ * The transcript, at an address the pane layout resolved to this kind.
  *
  * The narrowing and the mismatch refusal are `paneBodyForKind`'s, for the reason every
  * other pane body gives about them: six families writing that comparison themselves is

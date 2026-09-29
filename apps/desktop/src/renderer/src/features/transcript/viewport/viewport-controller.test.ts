@@ -92,7 +92,7 @@ describe("the viewport controller — holding the reading position", () => {
   });
 
   it("leaves the offset alone when the anchored row has left the window", () => {
-    // Guessing at a replacement is how a ledger teleports.
+    // Guessing at a replacement is how a transcript teleports.
     const { controller } = attachedController();
     controller.anchor.observeGeometry({
       scrollTop: 400,
@@ -162,7 +162,7 @@ describe("the viewport controller — what a scroll does NOT cost", () => {
     expect(controller.snapshot().reading.mode).toBe("following");
   });
 
-  it("does not re-anchor to a position the ledger itself just wrote", () => {
+  it("does not re-anchor to a position the transcript itself just wrote", () => {
     // Anchoring to the result of a glide discards the position the glide was
     // performed to preserve.
     const surface = createCountingScrollContainer();
@@ -189,7 +189,7 @@ describe("the viewport controller — a pane that changed size", () => {
 
   it("keeps a follower following, and re-glides to the tail the resize moved", () => {
     // A shorter viewport raises the distance from the tail on its own. Without the
-    // asymmetry the anchor states, this alone would stop the ledger following.
+    // asymmetry the anchor states, this alone would stop the transcript following.
     const surface = surfaceAtTail();
     const clock = new ManualClock();
     const controller = new ViewportController({ clock });

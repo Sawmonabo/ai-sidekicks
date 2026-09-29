@@ -1,7 +1,7 @@
 // The find walk's reading, and the sentence the shared primitive says for it.
 //
 // Both halves, because either alone passes over the defect this rebind answers: a
-// model asserting `{kind: "cut"}` would pass while the ledger kept its own two
+// model asserting `{kind: "cut"}` would pass while the transcript kept its own two
 // notices beside it, and a render asserting a sentence would pass over a model that
 // reported a cut walk as whole. So the cases below drive `matchWalkReading` into
 // `PartialRead` and read what reaches the screen.

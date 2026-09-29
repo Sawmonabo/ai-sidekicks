@@ -107,8 +107,8 @@ describe("the shapes announce themselves without talking over the message", () =
     expect(banner.getAttribute("aria-live")).toBeNull();
   });
 
-  it("leaves the ledger card out of the live regions", () => {
-    // A card lands in the ledger with everything else that happened; the feed
+  it("leaves the transcript card out of the live regions", () => {
+    // A card lands in the transcript with everything else that happened; the feed
     // already announces its own rows, so a second live region would double-read it.
     const card = renderShape(<RefusalCard {...REFUSAL} />);
     expect(card.getAttribute("role")).toBeNull();

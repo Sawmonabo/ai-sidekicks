@@ -10,7 +10,7 @@
 // incremental block segmenter, a memoised settled-block parse, and a tail that is the
 // only text `remend` is applied to. The design track's decision A8 says that layer
 // "ships only on a measured win over the library path" — and until this file there
-// was no arm that measured it, so the layer would have merged ungated with the ledger
+// was no arm that measured it, so the layer would have merged ungated with the transcript
 // holding only the store fan-out rows.
 //
 // ─────────────────────────────────────────────────────────────────────────────

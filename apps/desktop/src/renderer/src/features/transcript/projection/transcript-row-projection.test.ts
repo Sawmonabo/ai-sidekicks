@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-// The row-id namespace comes from the ledger scenario that declares it, deeply and
+// The row-id namespace comes from the transcript scenario that declares it, deeply and
 // not through a door: a stem restated here would be a second namespace the day the
 // scenario's own moved.
 import { EVENT_ID_STEM } from "../../../../../../fixtures/scenarios/transcript-states.js";
@@ -268,7 +268,7 @@ describe("which payload member names a row's run", () => {
   it("files an intervention under the run it names, beside that run's own rows", () => {
     // The defect: `intervention.*` spells the affected run `targetRunId`, so every
     // one of them projected as a session-level row and sat outside the run group
-    // it belongs to — on a ledger whose whole shape is runs.
+    // it belongs to — on a transcript whose whole shape is runs.
     const projection = projectTranscriptRows([
       runEvent(1, RUN_ONE),
       interventionEvent(2, RUN_ONE),

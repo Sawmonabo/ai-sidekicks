@@ -128,7 +128,7 @@ describe("the reason a run carries", () => {
 
 describe("the start a row reads", () => {
   // A run list has no day divider above it, so the two runs below — started at the
-  // same hour a week apart — are the pair the ledger's date-free reading collapses.
+  // same hour a week apart — are the pair the transcript's date-free reading collapses.
   const startedOnTheFirst = "2026-09-01T10:00:00.000Z";
   const startedOnTheEighth = "2026-09-08T10:00:00.000Z";
 
@@ -143,7 +143,7 @@ describe("the start a row reads", () => {
     expect(startFigureText(startedOnTheEighth)).not.toBe(startFigureText(startedOnTheFirst));
   });
 
-  it("negative control: the ledger's date-free reading renders the two identically", () => {
+  it("negative control: the transcript's date-free reading renders the two identically", () => {
     // The finding. Without it the case above would pass over a row that differed for
     // some other reason and would not name the reading that lost the day.
     expect(formatClockTime(startedOnTheEighth)).toBe(formatClockTime(startedOnTheFirst));

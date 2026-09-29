@@ -137,7 +137,7 @@ export const UNSENT_ANSWER_DELIVERY: AnswerDelivery = Object.freeze({ status: "u
  * `undefined` covers three distinct rejections and deliberately renders as the same
  * "this is not an ask row" for the caller: a row of another type, a permission-kind
  * ask, and an ask row carrying no usable `askId`. None of the three is a surface the
- * ledger's ask card may draw, and a caller that wanted to tell them apart would be
+ * transcript's ask card may draw, and a caller that wanted to tell them apart would be
  * asking this reader to classify rows it does not own.
  */
 export function readQuestion(row: TimelineRow): QuestionReading | undefined {

@@ -89,7 +89,7 @@ function FeedParent(props: FeedParentProps): React.JSX.Element {
  */
 const FIXTURE_BRIDGE = createFixtureBridge({ scenario: EMPTY_SESSION_SCENARIO });
 
-describe("the ledger feed — what a parent's render costs the rows", () => {
+describe("the transcript feed — what a parent's render costs the rows", () => {
   it("draws no row body again when the parent re-renders with the same values", () => {
     withLaidOutViewport();
     let rowBodyRenders = 0;
@@ -173,7 +173,7 @@ function admitOneMoreEntry(sessionStore: SessionStore, sequence: number): void {
   });
 }
 
-describe("the ledger feed — what one admitted event costs the rows", () => {
+describe("the transcript feed — what one admitted event costs the rows", () => {
   it("draws no row body again for a row the event did not change", () => {
     withLaidOutViewport();
     const drawsByRowId = new Map<string, number>();

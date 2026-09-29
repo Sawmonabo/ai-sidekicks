@@ -1,4 +1,4 @@
-// A resize publishes the ledger's box immediately; the row pass behind it still waits.
+// A resize publishes the transcript's box immediately; the row pass behind it still waits.
 //
 // ITS OWN FILE because the subject needs a real DOM element and `scroll-chokepoint.test.ts`
 // deliberately drives a structural stand-in — that file's own header says why, and the two
@@ -12,7 +12,7 @@
 // control so a frozen clock never reports a paint its holder did not release — and
 // `bridge/console-bridge.ts`' `resolveBridgeClock` hands a fixture build exactly that clock,
 // so the deferred publication was not late but indefinite: measured on the endurance tier,
-// the ledger published geometry once, from `attach`, and spent two hundred churn cycles
+// the transcript published geometry once, from `attach`, and spent two hundred churn cycles
 // ranging a 149 px viewport against the 32 px box it had at mount.
 
 import { beforeEach, describe, expect, it, onTestFinished } from "vitest";
@@ -85,7 +85,7 @@ describe("the scroll chokepoint — a resize publishes the box without a frame",
     // THE DEFECT THIS RULES OUT, measured on the endurance tier before the split: the
     // publication rode the batch's coalescing frame, `ManualClock.advance` excludes
     // frames deliberately, and a fixture build hands the console exactly that clock —
-    // so the ledger published geometry once, from `attach`, and then ranged a 149 px
+    // so the transcript published geometry once, from `attach`, and then ranged a 149 px
     // viewport against the 32 px box it had at mount for two hundred churn cycles.
     // `clock.runFrame()` is never called below, and that is the whole assertion.
     const observer = installObserverCapture();

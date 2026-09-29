@@ -76,7 +76,7 @@ describe("readQuestion", () => {
   });
 
   // THE NEGATIVE CONTROL for the routing rule: a permission ask belongs to the
-  // approvals surface, and the ledger card must refuse it rather than draw a second
+  // approvals surface, and the transcript card must refuse it rather than draw a second
   // decision surface for one approval.
   it("refuses a permission-kind ask", () => {
     expect(

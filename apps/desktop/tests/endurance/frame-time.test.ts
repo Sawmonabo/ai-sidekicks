@@ -1,7 +1,7 @@
 // The four-lane frame-time budget, measured.
 //
 // The renderer's 95th-percentile frame duration is bounded at 16.7 ms while four agent lanes stream into the
-// ledger. This file is the row's `measuredBy`, and it compares through the
+// transcript. This file is the row's `measuredBy`, and it compares through the
 // registry's own `evaluateBudget`, so the number this gate uses and the number the
 // spec wrote are one number read from one file.
 //
@@ -51,7 +51,7 @@
 //
 // WHAT THE SAMPLED WINDOW ACTUALLY CONTAINS
 //
-// Four agent lanes streaming into the ledger, which is the row's own subject.
+// Four agent lanes streaming into the transcript, which is the row's own subject.
 // `fixtures/scenarios/concurrent-streaming.ts` scripts four runs mid-turn at the same tick —
 // interleaved thinking, messages, and tool calls across four run groups, with an
 // approval blocking one of them while the other three carry on — and the sampled

@@ -72,7 +72,7 @@ describe("the shell's child-run summaries", () => {
   it("summarizes no run whose creation row names no parent", () => {
     // THE NEGATIVE CONTROL for the whole treatment. A run is a child because the
     // daemon said so on its birth beat; without that member there is a run and no
-    // parent, and the ledger already draws one of those.
+    // parent, and the transcript already draws one of those.
     const summaries = deriveChildRunSummaries([childBirth(1, {}), childTransition(2, "running")]);
 
     expect([...summaries.keys()]).toStrictEqual([]);

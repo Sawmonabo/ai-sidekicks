@@ -62,7 +62,7 @@ describe("the trim arms nothing", () => {
 
   it("does nothing when time passes and nothing else happens", () => {
     // The cost this design accepts, stated as a case rather than only in prose: a
-    // ledger nobody touches again keeps what it was holding until the frame is
+    // transcript nobody touches again keeps what it was holding until the frame is
     // disposed, and a disposed frame drops both tables whole.
     const { clock, measurements, trim } = fixture(["row-a"]);
     measurements.acceptedHeight("dropped-row", 80);
@@ -98,7 +98,7 @@ describe("the trim runs on the first activity after a quiet period", () => {
 
   it("measures the gap against the previous activity and not against the frame's birth", () => {
     // The negative control for where the stamp is taken. A trim that compared against
-    // its own construction would fire once, late, on a ledger that had never paused —
+    // its own construction would fire once, late, on a transcript that had never paused —
     // and then never again.
     const { clock, measurements, trim } = fixture(["row-a"]);
     for (let beat = 0; beat < 10; beat += 1) {

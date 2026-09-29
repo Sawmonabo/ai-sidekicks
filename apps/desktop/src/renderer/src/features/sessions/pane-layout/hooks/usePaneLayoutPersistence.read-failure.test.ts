@@ -5,7 +5,7 @@
 // answered. Here it does not, and the failure is the quietest one this surface has:
 // `UiStateStore.read` resolved `undefined` for a record that was never written AND for
 // a read the adapter could not perform, so a transient failure read as a first run.
-// The hook opened its fallback ledger pane, counted zero restored panes, and filed
+// The hook opened its fallback transcript pane, counted zero restored panes, and filed
 // that one pane over the pane layout the adapter was still holding — and still perfectly
 // willing to accept a write for.
 //

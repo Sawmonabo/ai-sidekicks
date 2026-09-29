@@ -31,7 +31,7 @@
 //
 // AND ONE MORE THAT IS NOT NEGOTIABLE: an unparseable formula renders as its SOURCE, in
 // mono, beside a named absence — never as KaTeX's red error text, which is a stranger's
-// voice in the ledger, and never as nothing, which would read as the author having
+// voice in the transcript, and never as nothing, which would read as the author having
 // written nothing.
 //
 // WHICH IS WHY `throwOnError` IS TRUE HERE AND THE CALL SITS IN A `try`. Under

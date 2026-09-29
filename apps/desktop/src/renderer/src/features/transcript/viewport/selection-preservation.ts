@@ -8,7 +8,7 @@
 // un-highlight because a delta arrived two paragraphs below.
 //
 // THE SENTENCE THIS MODULE ADDS, because no committed document states it: a selection
-// inside a ledger row survives the row's own remounts, and a selection anywhere else
+// inside a transcript row survives the row's own remounts, and a selection anywhere else
 // is never touched.
 //
 // FOUR DECISIONS:

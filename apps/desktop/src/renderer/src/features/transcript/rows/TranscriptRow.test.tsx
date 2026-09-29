@@ -49,7 +49,7 @@ function InBridge(props: { readonly children: React.ReactNode }): React.JSX.Elem
 }
 
 /**
- * The shell inside a list that owns its density, which is what a ledger is.
+ * The shell inside a list that owns its density, which is what a transcript is.
  *
  * Every routing case above renders the row bare, and that is deliberate: routing is
  * a decision the shell makes alone. Density is not — the shell writes a lease and

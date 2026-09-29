@@ -34,7 +34,7 @@ export interface StoreWithOptions {
   readonly readFromCursor?: string;
   /** Entities the read carried, for a case about what the base state authoritatively holds. */
   readonly entities?: readonly StoredEntity[];
-  /** Rows the store retains, so a case can drive the cap the way the ledger does. */
+  /** Rows the store retains, so a case can drive the cap the way the transcript does. */
   readonly timelineCap?: number;
 }
 

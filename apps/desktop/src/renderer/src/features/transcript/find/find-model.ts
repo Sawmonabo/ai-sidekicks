@@ -76,7 +76,7 @@ export function emptyFindResult(searchedRowCount: number): FindResult {
  * is a literal search over text somebody is looking at.
  *
  * An empty or whitespace-only query matches nothing rather than everything —
- * "everything" is what the ledger already shows, and a field that highlighted every
+ * "everything" is what the transcript already shows, and a field that highlighted every
  * row the moment it was focused would be noise.
  */
 export function findInTranscript(rows: readonly TimelineRow[], query: string): FindResult {

@@ -87,7 +87,7 @@ async function renderSessionScreen(input: {
   });
   const descriptor = surfaces.descriptorFor("session");
   if (descriptor === undefined) {
-    throw new Error("the ledger family registered no workspace surface");
+    throw new Error("the transcript family registered no session screen");
   }
 
   for (let turn = 0; turn < input.refreshes; turn += 1) {

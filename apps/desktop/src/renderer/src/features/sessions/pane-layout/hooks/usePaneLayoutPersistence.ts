@@ -21,7 +21,7 @@
 // `(arrangement, session)` pair.
 //
 // AND A READ THAT FAILED IS NOT A FIRST RUN. The store's `readOutcome` answers
-// `present`, `absent`, or `failed` for exactly this: the fallback ledger pane is
+// `present`, `absent`, or `failed` for exactly this: the fallback transcript pane is
 // opened on both kinds of nothing — a window with no panes is not a state this surface
 // has — and is FILED only on `absent`. Filing it on `failed` was a saved arrangement
 // destroyed by a read the adapter could not perform and then a write the adapter
@@ -211,7 +211,7 @@ export function usePaneLayoutPersistence(
       // route installs nothing rather than reporting into the session it arrived in.
       publishRestoreRefusals(report?.refusals ?? NO_RESTORE_REFUSALS);
       if (layout.snapshot().panes.length === 0) {
-        // This surface's own empty state: the workspace shows the ledger alone, full
+        // This surface's own empty state: the workspace shows the transcript alone, full
         // width.
         layout.open({ kind: "transcript" });
       }
@@ -230,7 +230,7 @@ export function usePaneLayoutPersistence(
       }
       if (actedDuringRead || (report?.restoredPaneCount ?? 0) === 0) {
         // ONCE, and only where the pane layout on screen is not what the record held: the
-        // person's arrangement, or the fallback ledger this surface just opened.
+        // person's arrangement, or the fallback transcript this surface just opened.
         writer.request(sessionId, layout.toSnapshot());
       }
     })();

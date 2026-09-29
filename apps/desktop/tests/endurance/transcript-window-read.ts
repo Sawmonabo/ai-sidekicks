@@ -1,4 +1,4 @@
-// What the ledger window is showing, read from the renderer rather than counted off
+// What the transcript window is showing, read from the renderer rather than counted off
 // the page.
 //
 // Its own module because it is a different job from `endurance-workload.ts`: that one
@@ -14,7 +14,7 @@ import type { SessionDiagnostics } from "@renderer/services/session-events/sessi
 import { type TranscriptWindowReading } from "@renderer/lib/transcript-window-diagnostics.js";
 
 /**
- * One ledger row BOX — the element the window mounts, not the card drawn inside it.
+ * One transcript row BOX — the element the window mounts, not the card drawn inside it.
  *
  * A different set from `endurance-workload.ts`' `TRANSCRIPT_ROW_SELECTOR`, and the
  * distinction is load-bearing here. `meridian-transcript-row-layout` is
@@ -29,10 +29,10 @@ export const TRANSCRIPT_ROW_BOX_SELECTOR: string =
   ".meridian-frame__surface .meridian-transcript-viewport__row";
 
 /**
- * Wait for the ledger to have reconciled a row, then report its window.
+ * Wait for the transcript to have reconciled a row, then report its window.
  *
  * THE WAIT IS WHY THE READING MEANS ANYTHING: a route change is observed on the
- * ledger's BODY, which the workspace mounts whether or not the session has rows, so a
+ * transcript's BODY, which the workspace mounts whether or not the session has rows, so a
  * reading taken straight after one describes whatever had reconciled when the driver
  * asked.
  *
@@ -61,7 +61,7 @@ export async function readTranscriptWindow(
     if (!(waitFailure instanceof Error) || waitFailure.name !== "TimeoutError") {
       throw waitFailure;
     }
-    process.stdout.write("[console-endurance] no ledger row attached within the allowance\n");
+    process.stdout.write("[console-endurance] no transcript row attached within the allowance\n");
   }
   return consoleApplication.window.evaluate(
     ([globalName, targetSessionId]: [string, string]) => {

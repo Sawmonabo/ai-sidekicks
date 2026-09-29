@@ -1,14 +1,14 @@
-// The seam vocabulary — which seams the ledger draws, what each one reads, and how it
+// The seam vocabulary — which seams the transcript draws, what each one reads, and how it
 // is marked.
 //
 // Boundary seams for provider switch, compaction, and rollback are part of the
 // console's signature set. HOW THEY RENDER IS THIS MODULE'S: the log's epochs are
 // geography —
-// switches, compactions, and rollbacks draw as labeled seams across the ledger.
+// switches, compactions, and rollbacks draw as labeled seams across the transcript.
 //
 // A seam is ONE LINE. Never a message row, never a block — that is the whole
 // visual claim, and it is why the binding below carries named parts rather than
-// prose: the parts are laid out on one line by the ledger frame, and a producer
+// prose: the parts are laid out on one line by the transcript frame, and a producer
 // that composed a sentence here would have decided the layout.
 //
 // WIRE TRUTH. Each binding carries the wire types it reads verbatim. The two switch
@@ -29,7 +29,7 @@ import {
 import { type GlyphName } from "@renderer/styles/glyphs.js";
 
 /**
- * Every seam the ledger draws. Closed; adding one is a deliberate edit here and a
+ * Every seam the transcript draws. Closed; adding one is a deliberate edit here and a
  * reading of the epoch rule above.
  *
  * The tuple is the declaration and `SystemMessageKind` is derived from it, so the

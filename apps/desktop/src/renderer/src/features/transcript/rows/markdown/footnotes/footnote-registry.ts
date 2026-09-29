@@ -6,7 +6,7 @@
 // never resolves as its own body.
 //
 // THE FAILURE THE KEYING PREVENTS. GFM footnotes are `[^1]` for the reference and
-// `[^1]: …` for the definition, and the identifier is scoped to the DOCUMENT. A ledger
+// `[^1]: …` for the definition, and the identifier is scoped to the DOCUMENT. A transcript
 // is not one document — it is hundreds of messages, each parsed separately, and `[^1]`
 // means a different thing in each. A registry keyed by identifier alone would let
 // message 40's definition answer message 3's reference, and — the case the rule above
@@ -152,7 +152,7 @@ export class FootnoteRegistry {
    * Hear about one source's definitions changing, for as long as its body is mounted.
    *
    * Scoped to the source rather than to the registry, because one registry serves every
-   * row in the ledger: an unscoped signal would re-render every mounted reader
+   * row in the transcript: an unscoped signal would re-render every mounted reader
    * each time any message declared a note, which is the fan-out this class exists to
    * avoid. The filter is here rather than in the caller so the two halves of the
    * scoping — which key a change names and which key a reader waits on — stay in one

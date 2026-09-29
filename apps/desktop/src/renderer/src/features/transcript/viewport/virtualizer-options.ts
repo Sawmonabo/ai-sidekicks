@@ -74,7 +74,7 @@ export class VirtualizerOptions {
     sink: (rect: Rect) => void,
   ): Unsubscribe =>
     this.#scroll.subscribeToGeometry((geometry) => {
-      // The ledger is a vertical list and never sets `horizontal`, so the library
+      // The transcript is a vertical list and never sets `horizontal`, so the library
       // reads `height` and never `width`. Publishing a width the chokepoint does not
       // sample would be inventing a number to fill a field nobody reads.
       sink({ width: 0, height: geometry.viewportHeight });

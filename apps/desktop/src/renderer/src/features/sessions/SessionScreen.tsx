@@ -18,8 +18,8 @@
 //     whole budget on a gesture. `layout-writer.ts` holds one write in
 //     flight and one pending snapshot, so a drag costs what the database can absorb
 //     and every record it writes is the newest arrangement rather than a stale one.
-//   • **An empty pane layout opens the ledger.** This surface's own empty state, because no
-//     committed document states one: the workspace shows the ledger alone at full
+//   • **An empty pane layout opens the transcript.** This surface's own empty state, because no
+//     committed document states one: the workspace shows the transcript alone at full
 //     width, which is a `transcript` pane rather than a special case in the renderer.
 //   • **Refusals are rendered where they happened.** What a restore dropped belongs
 //     to the pane layout and renders inside it; what a save refused changes what the whole

@@ -1,4 +1,4 @@
-// A ledger row says where it sits in the whole log, or says nothing at all.
+// A transcript row says where it sits in the whole log, or says nothing at all.
 //
 // The subject is the position pair and the index attribute, which this module
 // delegates to `primitives/WindowedListRow` rather than writing. What that buys is

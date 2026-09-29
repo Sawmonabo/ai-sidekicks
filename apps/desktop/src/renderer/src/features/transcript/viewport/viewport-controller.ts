@@ -1,4 +1,4 @@
-// What holds the ledger frame's four objects together, and the hook a view reads it
+// What holds the transcript frame's four objects together, and the hook a view reads it
 // through.
 //
 // The scroll chokepoint, the reading anchor, the measurement ledger, and the window cap
@@ -288,7 +288,7 @@ export class ViewportController {
    * Put the reader back where they were, if they had left the tail.
    *
    * While following, the tail is the position, so the frame glides there instead —
-   * which is the one case where the ledger moves the offset on its own, and it does
+   * which is the one case where the transcript moves the offset on its own, and it does
    * it only because the reader asked for it by being at the tail.
    *
    * Called from `reconcile`'s own arm only where no prune compensation ran: its index
@@ -312,7 +312,7 @@ export class ViewportController {
     const index = this.#rowKeys.indexOf(anchorPoint.rowKey);
     if (index < 0) {
       // The anchored row left the window. Rather than guess at a replacement — which
-      // is how a ledger teleports — the offset is left exactly where it is.
+      // is how a transcript teleports — the offset is left exactly where it is.
       return;
     }
     this.scroll.glideTo(

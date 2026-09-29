@@ -4,7 +4,7 @@
 // two families are IBM Plex Sans and IBM Plex Mono, VARIABLE builds, from the foundry's
 // own packages. Until this module existed the two families were named in
 // `tokens/typography.ts` and nowhere loaded, so the console rendered in whichever face
-// the host happened to carry — which makes the type scale, the ledger's fixed gutter,
+// the host happened to carry — which makes the type scale, the transcript's fixed gutter,
 // and every screenshot reference a property of the operator's machine rather than of
 // the design.
 //
@@ -70,7 +70,7 @@
 //   4. **`font-display: block`, not `swap`.** These files are served from the
 //      renderer scheme off local disk, so the block period is measured in
 //      milliseconds and no operator sees it. `swap` would trade that invisible
-//      wait for a visible reflow — every ledger row, gutter, and mono figure laid
+//      wait for a visible reflow — every transcript row, gutter, and mono figure laid
 //      out in a fallback metric and then relaid — which is the one motion the
 //      design language does not sanction, because nobody asked for it.
 //

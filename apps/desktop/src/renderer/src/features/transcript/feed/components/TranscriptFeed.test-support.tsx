@@ -42,7 +42,7 @@ export const SHORT_LOG_EVENT_COUNT = 10;
 export const OVER_CAP_EVENT_COUNT: number = TRANSCRIPT_WINDOW_ROW_CAP + 50;
 
 /**
- * Give the ledger a laid-out, scrollable box for the length of one case.
+ * Give the transcript a laid-out, scrollable box for the length of one case.
  *
  * Both reads are load-bearing and neither is the module under test: the
  * virtualizer treats a zero outer size as "no range at all", and the scroll
@@ -58,7 +58,7 @@ export function withLaidOutViewport(): void {
 }
 
 /**
- * Mount the feed under a bridge, because the ledger reads the console clock.
+ * Mount the feed under a bridge, because the transcript reads the console clock.
  *
  * `onRowMounted` is how a case reads the three decisions the list makes for a row:
  * they reach the seat as arguments and never as markup, so a case that only read
@@ -84,7 +84,7 @@ export function renderFeed(
   );
   const feed = container.querySelector(".meridian-transcript-feed");
   if (!(feed instanceof HTMLElement)) {
-    throw new Error("LedgerFeed rendered no ledger element");
+    throw new Error("TranscriptFeed rendered no transcript element");
   }
   return feed;
 }
@@ -118,7 +118,7 @@ export function LeasingRowBody(props: TranscriptRowProps): React.JSX.Element {
 }
 
 /**
- * Contribute the ledger's palette rows into this window's real command surface.
+ * Contribute the transcript's palette rows into this window's real command surface.
  *
  * The real one rather than a private registry, because the seam under test is
  * exactly that a command contributed at COMPOSITION time reaches a feed mounted

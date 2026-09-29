@@ -1,4 +1,4 @@
-// The ledger's phase-one write queue — the half of the scroll chokepoint that
+// The transcript's phase-one write queue — the half of the scroll chokepoint that
 // belongs to a FRAME rather than to a gesture.
 //
 // `scroll-chokepoint.ts` owns what a write IS: the closed caller union, the clamp,

@@ -3,7 +3,7 @@
 // `anser` is adopted with constraints: `ansiToJson` only, an own span mapper, and never
 // an HTML-string path. This module is the
 // own span mapper, and the constraint is the whole reason it exists — `ansiToHtml`
-// would hand the console a markup string to inject, which is the one thing the ledger
+// would hand the console a markup string to inject, which is the one thing the transcript
 // never does with content a tool produced.
 //
 // THE COLORS ARE NAMES, NOT VALUES. The parse runs with `use_classes: true`, so anser

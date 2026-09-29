@@ -132,7 +132,7 @@ describe("pane opener — a pane that opens another can name itself", () => {
    * A pane-layout-shaped opener: it records what it was asked for, exactly as a pane layout
    * would copy the link onto the new pane's context.
    *
-   * Driven here rather than left to the ledger pane layout to discover, for the reason
+   * Driven here rather than left to the pane layout to discover, for the reason
    * the module-scope door above is driven here: the pane layout ships on another branch,
    * so the seat's second parameter would otherwise be a contract nothing exercises
    * until the first consumer gets it wrong.

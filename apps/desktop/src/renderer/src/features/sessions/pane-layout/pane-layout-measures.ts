@@ -55,7 +55,7 @@ export const PANE_LAYOUT_MINIMUM_PANE_WIDTH_PX: Readonly<Record<PaneLayoutDensit
   // ~44 characters plus chrome. Three panes on a 1440-point display, which is the
   // arrangement the pane layout is designed around.
   standard: 340,
-  // ~32 characters plus chrome — the legibility floor. Below this the ledger's own
+  // ~32 characters plus chrome — the legibility floor. Below this the transcript's own
   // rows start wrapping mid-clause and the density stops buying anything.
   compact: 256,
 };

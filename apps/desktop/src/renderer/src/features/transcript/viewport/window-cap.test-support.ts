@@ -39,10 +39,10 @@ export function syntheticWindowRows(topLevelCount: number): readonly WindowRow[]
 }
 
 /**
- * A log of FOLDED run groups, as the ledger emits one: a header row keyed by the run,
+ * A log of FOLDED run groups, as the transcript emits one: a header row keyed by the run,
  * and the terminal receipt hanging from it.
  *
- * The shape `foldRunGroupHeaders` produces. It is here rather than in the ledger's
+ * The shape `foldRunGroupHeaders` produces. It is here rather than in the transcript's
  * own suite because what it exercises is the CAP's counting rule, and the rule only
  * became reachable when a row started existing for the key every run row names.
  */

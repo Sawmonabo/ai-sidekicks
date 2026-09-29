@@ -40,13 +40,13 @@ describe("inline artifact card — the seat", () => {
     return seats;
   }
 
-  it("fills the ledger's artifact card body", () => {
+  it("fills the transcript's artifact card body", () => {
     const seats = fill();
     expect(seats.bodyFor("artifact")?.owner).toBe("inspector");
     expect(seats.registeredCardKinds()).toContain("artifact");
   });
 
-  it("renders through the registry the ledger reaches it by", () => {
+  it("renders through the registry the transcript reaches it by", () => {
     const seats = fill();
     const { container } = render(<>{seats.render(CARD)}</>);
     expect(container.querySelector(".meridian-artifact-card")).not.toBeNull();

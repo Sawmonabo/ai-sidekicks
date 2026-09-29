@@ -93,7 +93,7 @@ export function WorkflowBuilderPane(props: WorkflowBuilderPaneProps): React.JSX.
       // The strip's own `refused` arm, which renders the refusal and NOT the
       // children — so the two reserved bodies stay unmounted and no read is composed
       // for an id this surface cannot use. A banner across the body rather than a
-      // card in the ledger, because nothing entered the session's history here: what
+      // card in the transcript, because nothing entered the session's history here: what
       // changed is what this whole surface can do, which is nothing.
       return (
         <WorkflowStateStrip

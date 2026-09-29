@@ -163,7 +163,7 @@ export const ATTENTION_TOKENS: Readonly<Record<string, SchemePair>> = {
 /**
  * The five code-token families that carry a color of their own.
  *
- * HERE RATHER THAN IN THE LEDGER'S OWN SHEET, and the reason is measurement. These
+ * HERE RATHER THAN IN THE TRANSCRIPT'S OWN SHEET, and the reason is measurement. These
  * five and the twelve ANSI ones below were hand-written `oklch()` literals in
  * `ledger/ledger.css`, outside every guarantee this module exists to make — and both
  * consequences were invisible: nothing fitted them into the sRGB gamut, so seven of

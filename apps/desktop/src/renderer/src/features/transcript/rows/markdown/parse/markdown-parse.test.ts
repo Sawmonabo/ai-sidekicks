@@ -89,7 +89,7 @@ describe("parsing a block against the whole body's definitions", () => {
 
   it("negative control: a body declaring no footnotes parses and caches exactly as before", () => {
     // The empty preamble has to be byte-identical to no preamble, or every footnote-free
-    // message in the ledger re-keys its cache and re-parses for a feature it never uses.
+    // message in the transcript re-keys its cache and re-parses for a feature it never uses.
     const source = `unchanged by the preamble ${String(Math.random())}\n`;
     expect(parseSettledBlock(source, footnoteDefinitionPreamble(new Set()))).toBe(
       parseSettledBlock(source),

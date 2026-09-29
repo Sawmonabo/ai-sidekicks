@@ -10,7 +10,7 @@
 // feature's contributions would put the viewer back on the entry graph, which is the
 // edge the loader exists to remove.
 //
-// THE INLINE DIFF CARD IS DELIBERATELY NOT BEHIND THIS BOUNDARY. It is a ledger row's
+// THE INLINE DIFF CARD IS DELIBERATELY NOT BEHIND THIS BOUNDARY. It is a transcript row's
 // card rather than a pane, it renders inside the timeline a session opens on, and it
 // keeps its static registration in `inline-cards.ts` — the two share the feature's
 // vocabulary and not their loading terms.

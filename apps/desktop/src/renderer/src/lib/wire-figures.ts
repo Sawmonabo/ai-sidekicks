@@ -257,7 +257,7 @@ export function formatRelativeTime(
 }
 
 /**
- * A wall-clock time for a ledger row. Fixed to hours, minutes, seconds so rows
+ * A wall-clock time for a transcript row. Fixed to hours, minutes, seconds so rows
  * align; the date is shown separately by the day divider, never per row.
  */
 export function formatClockTime(iso: string, locale?: string): string {
@@ -277,7 +277,7 @@ export function formatClockTime(iso: string, locale?: string): string {
  * An instant a person acts on: the calendar day AND the wall-clock time.
  *
  * `formatClockTime` beside it is deliberately date-free, and the reason is stated
- * there — a ledger row aligns under a day divider that carries the date once. A
+ * there — a transcript row aligns under a day divider that carries the date once. A
  * surface with no divider has no such carrier, and rendering a bare clock reading
  * there makes two instants days apart identical on screen. That is the whole
  * distinction between the two: not precision, but whether anything else on the

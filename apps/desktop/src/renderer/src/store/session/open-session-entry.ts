@@ -302,7 +302,7 @@ export class OpenSessionEntry {
     // object is the only one that knows it: a session's stream replays from the
     // submitted cursor, so that cursor is where the window this read establishes
     // BEGINS, and the reply carries no member naming its oldest row. Without it the
-    // ledger has no position to ask the log's earlier rows for and would have to
+    // transcript has no position to ask the log's earlier rows for and would have to
     // invent one out of an opaque cursor's bytes, which `timeline-resume.ts` refuses
     // for the whole console. Omitted rather than passed as `undefined` where none was
     // submitted: the member is optional and this package forbids the explicit-

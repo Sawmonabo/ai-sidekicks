@@ -69,7 +69,7 @@ export const GLYPH_BY_PANE_KIND: Readonly<Record<PaneKind, GlyphName>> = {
  * What a pane kind is called, everywhere it is called anything.
  *
  * One spelling serves the heading, the trail's current crumb, and the mismatch
- * refusal, which is why the ledger's `title` prop is gone rather than kept as an
+ * refusal, which is why the transcript's `title` prop is gone rather than kept as an
  * override: a caller able to pass "Runs" to one pane and "Run list" to the next is a
  * pane layout that reads as two products.
  *

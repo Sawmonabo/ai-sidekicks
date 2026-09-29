@@ -23,7 +23,7 @@
 //   • **The re-pin is the engine's scroll anchoring, declared rather than assumed.**
 //     A run group's body changes height whenever a row above the reading position
 //     settles, and the reading position has to survive that. `overflow-anchor` is the
-//     mechanism the platform gives for exactly this, and the ledger's scroll offsets
+//     mechanism the platform gives for exactly this, and the transcript's scroll offsets
 //     are written in one module (`frame/scroll/scroll-chokepoint.ts`) — so a second
 //     JavaScript writer of a scroll offset is not available to this body and would be
 //     the wrong answer even if it were. What this module owns is the declaration and

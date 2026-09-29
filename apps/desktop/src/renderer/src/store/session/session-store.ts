@@ -103,7 +103,7 @@ export interface SessionStoreOptions {
   readonly sessionId: string;
   /** Event-kind to projector. A kind with no projector contributes no entity. */
   readonly projectors?: EntityProjectorTable;
-  /** Timeline rows retained. Unbounded when omitted; the ledger sets its own cap. */
+  /** Timeline rows retained. Unbounded when omitted; the transcript sets its own cap. */
   readonly timelineCap?: number;
 }
 
@@ -348,7 +348,7 @@ export class SessionStore {
       //
       // The size is taken from the state that was just SET rather than re-read from
       // the store, and it is the timeline rather than the partitions because the
-      // timeline is what the cap bounds and what the ledger mounts from. A batch
+      // timeline is what the cap bounds and what the transcript mounts from. A batch
       // that admitted nothing leaves `nextState` undefined and the gauge holds its
       // last reading, which is correct: nothing changed.
       recordApplyLatency(this.#sessionId, readPerformanceMeterTime() - startedAt);

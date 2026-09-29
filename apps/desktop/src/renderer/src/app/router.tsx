@@ -29,7 +29,7 @@
 // what "a different address" means.
 //
 // Both reach the screen through the `ScreenNotice` primitive, which is the
-// console's one centering wrapper; the ledger and the pending surface body draw
+// console's one centering wrapper; the transcript and the pending surface body draw
 // through the same component, which is why it is a module and not a block in here.
 
 import { Fragment } from "react";

@@ -12,7 +12,7 @@ import { deriveTranscriptWindow, type TranscriptWindowModel } from "../transcrip
  * Subscribe to one session's log and project it, UNFURLED.
  *
  * The subscription is the store's `timeline` and its gap list and nothing else, so a
- * change to an entity partition — a run transition the ledger already saw as a row —
+ * change to an entity partition — a run transition the transcript already saw as a row —
  * does not re-project the log. The store replaces the log's identity only when it
  * admits an event, which is what makes the memo fire exactly then.
  *

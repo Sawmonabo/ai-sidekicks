@@ -57,7 +57,7 @@ interface LedgerMount {
   /** The whole window: the composition the concurrent-streaming pair captures. */
   readonly frame: Element;
   /**
-   * The ledger's own region — what the quiet arm pins.
+   * The transcript's own region — what the quiet arm pins.
    *
    * The SAME element the mount wait above observes, rather than a second selector
    * for the same box: a capture element resolved independently of the wait could
@@ -75,7 +75,7 @@ interface LedgerMount {
  * address on its first pass, which is a navigation this file would then be
  * photographing the tail end of.
  *
- * The wait is the harness's, and it names the LEDGER's scroll container rather than
+ * The wait is the harness's, and it names the TRANSCRIPT's scroll container rather than
  * the frame, which is the whole reason it is a wait at all: the frame is the
  * window's permanent shell and is on the page from the first commit, so a wait on it
  * hands back a console whose session route has not resolved yet. It observes the
@@ -136,7 +136,7 @@ describe("screenshot — the app under the concurrent-streaming scenario", () =>
       // is only worth pinning once every one of them has run.
       expect(
         container.querySelectorAll(".meridian-transcript-row-layout").length,
-        "no ledger row reached the document, so this capture would pin an empty feed",
+        "no transcript row reached the document, so this capture would pin an empty feed",
       ).toBeGreaterThan(0);
 
       await captureSettled(frame, `concurrent-streaming-frame-${scheme}`);
@@ -212,7 +212,7 @@ describe("the transcript mount wait", () => {
     );
     expect(
       container.querySelector(SESSION_ROUTE_BODY_SELECTOR),
-      "the session directory mounted a ledger body, so this control is asserting the refusal of a " +
+      "the session directory mounted a transcript body, so this control is asserting the refusal of a " +
         "route that in fact reaches the surface and would pass whatever the wait did",
     ).toBeNull();
 

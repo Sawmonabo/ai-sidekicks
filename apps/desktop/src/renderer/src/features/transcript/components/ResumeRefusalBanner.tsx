@@ -28,7 +28,7 @@
 // workspace body and never in place of it — a surface that replaced the room would
 // report an outage the daemon is not having.
 //
-// WHY THE LEDGER FAMILY OWNS IT. This family's surface is what mounts a session's
+// WHY THE TRANSCRIPT FAMILY OWNS IT. This family's surface is what mounts a session's
 // workspace, so it is the one place holding the registry and the route's session id
 // together. The workspace body is deliberately handed everything BUT the registry
 // (`index.ts` says why), and reversing that to carry one reading down would hand a

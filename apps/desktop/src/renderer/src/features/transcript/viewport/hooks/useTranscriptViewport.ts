@@ -1,4 +1,4 @@
-// The React binding for the ledger frame: the virtualizer, and what a view reads.
+// The React binding for the transcript frame: the virtualizer, and what a view reads.
 //
 // `viewport-controller.ts` holds the policy; this module holds the React side of it.
 // The split is not cosmetic — the two options this adoption requires, `useFlushSync:
@@ -48,7 +48,7 @@ export interface TranscriptViewportBinding {
    * index.
    *
    * Routed through the virtualizer's own `scrollToIndex`, which the controller
-   * binds to the ledger's scroll chokepoint — so this adds a caller, not a second
+   * binds to the transcript's scroll chokepoint — so this adds a caller, not a second
    * scroll writer.
    */
   readonly jumpToRow: (rowKey: string) => void;
@@ -83,7 +83,7 @@ export interface TranscriptViewportBinding {
    * or a computation over it, and this binding deliberately keeps that off the React
    * snapshot — publishing it there would notify the tree on every scrolled pixel.
    * Nothing in the console renders from it: the endurance tier reads it through the
-   * fixture handle, where the several ways a ledger can show nothing are different
+   * fixture handle, where the several ways a transcript can show nothing are different
    * findings that one row count answers identically. Stable across renders, so a
    * registration keyed on it registers once.
    */

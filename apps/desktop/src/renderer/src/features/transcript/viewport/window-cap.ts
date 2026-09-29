@@ -1,4 +1,4 @@
-// The ledger window — what the log keeps, what it lets go, and when it is allowed
+// The transcript window — what the log keeps, what it lets go, and when it is allowed
 // to let go of it.
 //
 // This module is own-built, and why it exists at all is a platform fact: Chromium caps

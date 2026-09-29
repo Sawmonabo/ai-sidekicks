@@ -17,7 +17,7 @@ export const SESSION_ID = "session-ledger-feed";
 /**
  * The wire instant of the row at one log position — one second apart, from one epoch.
  *
- * ONE EXPRESSION FOR THE WHOLE FAMILY'S FIXTURE CLOCK. Every ledger case reads a log
+ * ONE EXPRESSION FOR THE WHOLE FAMILY'S FIXTURE CLOCK. Every transcript case reads a log
  * whose rows are a second apart, and every one of them used to spell that out for
  * itself: six byte-identical `at` helpers and four inlined copies of the same
  * `Date.UTC` call. Move the epoch — which a case wanting two sessions on different
@@ -40,7 +40,7 @@ export function transcriptFixtureStampAt(index: number): string {
  * here because these logs are generated, and distinct from `SESSION_ID` because the
  * two identify different things.
  *
- * The stem is the ledger scenario's, imported rather than restated: an id namespace
+ * The stem is the transcript scenario's, imported rather than restated: an id namespace
  * written twice is two namespaces the day one of them moves.
  */
 export function transcriptFixtureEventId(sequence: number): string {

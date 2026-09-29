@@ -1,4 +1,4 @@
-// What an empty ledger window draws.
+// What an empty transcript window draws.
 
 import { Nothing } from "@renderer/console/primitives/index.js";
 import { EMPTY_TRANSCRIPT_WORDS } from "../empty-transcript-words.js";

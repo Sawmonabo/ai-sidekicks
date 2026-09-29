@@ -26,7 +26,7 @@ import { usePreservedRowSelection } from "../hooks/usePreservedRowSelection.js";
 import type { ViewportRow } from "../viewport-snapshot.js";
 
 /**
- * What a ledger row is in the accessibility tree.
+ * What a transcript row is in the accessibility tree.
  *
  * Named once rather than spelled at the call below, because it is half of a pairing
  * whose other half lives one module up: `TranscriptViewport` claims the WAI-ARIA feed

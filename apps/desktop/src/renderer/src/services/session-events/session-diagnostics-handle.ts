@@ -11,7 +11,7 @@ import { type TranscriptWindowReading } from "@renderer/lib/transcript-window-di
  *
  * Four reads, no writes and no handles: a tier driving a real window from outside
  * the renderer can ask what is open, what is bound, how much has flowed, and what one
- * session's ledger is showing of it — and cannot open a session, close one, or apply
+ * session's transcript is showing of it — and cannot open a session, close one, or apply
  * an event.
  */
 export interface SessionDiagnostics {
@@ -37,14 +37,14 @@ export interface SessionDiagnostics {
   /** Sessions the binder currently holds a wire subscription for. */
   boundSessionIds: () => readonly string[];
   /**
-   * What one session's ledger viewport is showing, or `null` where none is mounted.
+   * What one session's transcript viewport is showing, or `null` where none is mounted.
    *
    * The reading a windowing claim has to be made against, because a row count taken
    * off the document answers one question with three states collapsed into it: a
    * window that mounted its rows, a window with nothing to mount, and a viewport the
    * browser measured at no height, which computes no range and mounts nothing however
    * long anybody waits. The five figures separate them, and `null` separates all
-   * three from a route with no ledger on it at all.
+   * three from a route with no transcript on it at all.
    *
    * Not the binder's own state and deliberately not composed here: it is read from
    * the mounted viewport that registered it, through the floor's registry.

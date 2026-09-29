@@ -1,4 +1,4 @@
-// Child runs and handoffs, as structure the ledger can draw.
+// Child runs and handoffs, as structure the transcript can draw.
 //
 // WHAT WAS MISSING. A row carries `childRunSummary` and nothing rendered it: the
 // run group header raised an incompleteness marker over a whole run group and the child
@@ -8,7 +8,7 @@
 //
 // TWO ENTRY KINDS, ONE INDEX, because they are asked the same way at the same moment:
 // the feed's row renderer holds one window and asks, per row, "is this row one of the
-// ledger's own treatments". Two indexes would be two passes over one window for two
+// transcript's own treatments". Two indexes would be two passes over one window for two
 // lookups that are always both performed.
 //
 // A HANDOFF IS A PROJECTION ENTRY AND NEVER AN EVENT TYPE. `handoff` is an entry the
@@ -32,7 +32,7 @@ import {
 } from "@ai-sidekicks/contracts";
 
 import { readWireString } from "@renderer/lib/wire-strings.js";
-// The ledger's one open-payload reader, which answers the `rollback_boundary` arm's
+// The transcript's one open-payload reader, which answers the `rollback_boundary` arm's
 // TYPED payload with an empty record rather than widening it into a bag.
 import { projectedPayload } from "@renderer/store/session-events/wire-payload.js";
 import { SubagentAnchorIndex } from "./subagent-anchors.js";
@@ -158,7 +158,7 @@ export class ChildRunIndex {
  * The member is on `TimelineRowBase`, so it reaches all four arms and this reads it
  * without narrowing on `kind`: a child run summarized onto a `general` row is still a
  * child run, and dropping it because the row carries no run attribution would hide
- * background work — which this ledger forbids in terms.
+ * background work — which this transcript forbids in terms.
  */
 export function deriveChildRunEntries(rows: readonly TimelineRow[]): readonly ChildRunEntry[] {
   const entriesByChildRunId = new Map<string, ChildRunEntryUnderConstruction>();

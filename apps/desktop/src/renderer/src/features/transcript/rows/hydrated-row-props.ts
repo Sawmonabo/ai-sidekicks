@@ -1,4 +1,4 @@
-// What every ledger card is handed.
+// What every transcript card is handed.
 //
 // `TranscriptRowProps` is the seat's contract — the row plus the three decisions the
 // LIST makes about it (hue, supersession, density). A card needs those and two more

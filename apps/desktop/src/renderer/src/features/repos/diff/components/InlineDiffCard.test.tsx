@@ -73,13 +73,13 @@ describe("inline diff card — the seat", () => {
     return seats;
   }
 
-  it("fills the ledger's diff card body", () => {
+  it("fills the transcript's diff card body", () => {
     const seats = fill();
     expect(seats.bodyFor("diff")?.owner).toBe("repos");
     expect(seats.registeredCardKinds()).toContain("diff");
   });
 
-  it("renders through the registry the ledger reaches it by", () => {
+  it("renders through the registry the transcript reaches it by", () => {
     const seats = fill();
     const { container } = render(<>{seats.render(CARD)}</>);
     expect(container.querySelector(".meridian-diff-card")).not.toBeNull();

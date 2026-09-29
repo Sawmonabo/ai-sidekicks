@@ -170,7 +170,7 @@ const SHAPE_MODIFIER_BY_PLACEMENT: Readonly<Record<NothingPlacement, string>> = 
 };
 
 /** How wide each skeleton bar is, as a fraction of the measure. Uneven on purpose:
- *  three equal bars read as a table, and the shape being imitated is a ledger row. */
+ *  three equal bars read as a table, and the shape being imitated is a transcript row. */
 const SKELETON_BAR_WIDTHS: readonly string[] = ["38%", "82%", "61%"];
 
 export function Nothing(props: NothingProps): React.JSX.Element {
@@ -186,7 +186,7 @@ export function Nothing(props: NothingProps): React.JSX.Element {
  * The badge: an absence that qualifies the value it sits beside.
  *
  * A skeleton badge is one bar rather than three, because the three exist to imitate
- * a ledger row's proportions and a badge has no row to imitate. It carries no
+ * a transcript row's proportions and a badge has no row to imitate. It carries no
  * action for the same reason the block form does not: a read in flight has no next
  * move, so a control offered beside one is a control offered against nothing.
  */

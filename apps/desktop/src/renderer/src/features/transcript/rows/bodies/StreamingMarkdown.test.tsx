@@ -203,7 +203,7 @@ describe("a streaming body", () => {
   it("registers nothing again when a re-render carries no new text", () => {
     // The defect the settled-block memoisation exists to prevent, reached through the
     // registration effect instead of through rendering: the settled node lists were
-    // rebuilt by a `map` on every render, so an unrelated viewport, layout, or ledger
+    // rebuilt by a `map` on every render, so an unrelated viewport, layout, or transcript
     // update re-walked every settled block of every long completed message.
     const footnotes = new FootnoteRegistry();
     const register = vi.spyOn(footnotes, "register");

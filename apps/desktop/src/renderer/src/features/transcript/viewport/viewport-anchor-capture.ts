@@ -81,7 +81,7 @@ export class ViewportAnchorCapture {
     }
     if (this.#scroll.vetoesPrune()) {
       // This sample was published from INSIDE a programmatic glide, so it reports
-      // where the ledger just put the reader rather than where the reader went. Two
+      // where the transcript just put the reader rather than where the reader went. Two
       // reasons not to anchor to it, and either alone is sufficient: it would discard
       // the very position the glide was performed to preserve, and — because an
       // anchor change notifies the tree, and a render re-runs the virtualizer's

@@ -113,7 +113,7 @@ interface RunTransitionInput {
  *
  * Throws on a script that goes backwards in time rather than sorting it: sorting
  * would silently accept a rewritten ordering, and the ordering is the design of the
- * scenario — two lanes interleaving at particular ticks is what the ledger is being
+ * scenario — two lanes interleaving at particular ticks is what the transcript is being
  * measured against.
  */
 export function composeScriptBeats(options: ScriptOptions): readonly ScenarioBeat[] {

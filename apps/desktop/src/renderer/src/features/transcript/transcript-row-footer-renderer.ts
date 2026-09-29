@@ -5,7 +5,7 @@
 // affordance is not inside it: the pencil belongs in the footer of a user
 // message row, the body it opens is authored by the run-controls plan, and neither
 // of those is the row's renderer. Handing that plan the row slot would make it the
-// owner of every row in the ledger to obtain one control on one kind of row.
+// owner of every row in the transcript to obtain one control on one kind of row.
 //
 // AND WHY NOT THE COMPOSER'S ACCESSORY RAIL, WHICH ALREADY HAS A SLOT. That one is
 // the EDITOR's seat — where the inline editor mounts once it is open. This is the
@@ -28,7 +28,7 @@ import type { TimelineRow } from "@ai-sidekicks/contracts";
 
 import { SingleEntryRegistry } from "@renderer/lib/single-entry-registry.js";
 
-/** What the ledger hands a row footer. */
+/** What the transcript hands a row footer. */
 export interface TranscriptRowFooterRendererProps {
   /** The projected row, wire-verbatim, as `@ai-sidekicks/contracts` defines it. */
   readonly row: TimelineRow;

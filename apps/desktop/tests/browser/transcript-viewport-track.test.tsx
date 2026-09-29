@@ -1,4 +1,4 @@
-// Which grid track the ledger's scroll surface lands in, and whether that depends on
+// Which grid track the transcript's scroll surface lands in, and whether that depends on
 // how many of its siblings happen to be rendering.
 //
 // THE RULE. `ledger/frame/frame.css` gives `.meridian-transcript-viewport` two tracks,

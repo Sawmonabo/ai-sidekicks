@@ -1,7 +1,7 @@
 // Triggers accumulate; one pre-paint frame runs the pass. Nothing here knows what
 // the pass measures.
 //
-// The ledger clamps rows, and a clamped row's real height is knowable only after
+// The transcript clamps rows, and a clamped row's real height is knowable only after
 // layout. Three unrelated things want that re-measured — the surface resized, a
 // webfont swapped, a caller asked outright — and each can fire several times in one
 // frame. Running the pass per trigger reads a layout the browser has not settled
@@ -43,7 +43,7 @@ export interface OverflowMeasurementBatchOptions {
    * frozen clock never reports a paint its holder did not release — and a fixture
    * build hands the console exactly that clock (`bridge/console-bridge.ts`'s
    * `resolveBridgeClock`). So in every fixture tier an armed frame waits for a call
-   * the workload has no reason to make: measured on the endurance run, the ledger
+   * the workload has no reason to make: measured on the endurance run, the transcript
    * published geometry ONCE, from `attach`, and spent two hundred churn cycles
    * ranging a 149 px viewport against the 32 px box it had at mount.
    *

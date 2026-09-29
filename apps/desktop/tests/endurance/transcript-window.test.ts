@@ -1,10 +1,10 @@
-// The ledger under a log as long as it claims to survive.
+// The transcript under a log as long as it claims to survive.
 //
 // WHAT THIS FILE MEASURES, AND WHY IT IS THE ONLY THING IN THIS TIER THAT DOES NOT
 // LAUNCH ELECTRON
 //
 // Its two neighbors hold a real window open and read the renderer's heap. This one
-// measures the ledger's own FOLD — `deriveTranscriptWindow`, which turns a session's
+// measures the transcript's own FOLD — `deriveTranscriptWindow`, which turns a session's
 // event log into rows, run groups, seams and a superseded index — over a
 // generated session of ten thousand rows.
 //
@@ -60,7 +60,7 @@ import { createTranscriptEnduranceFixture } from "./transcript-endurance.test-su
 import { deriveTranscriptWindow } from "@renderer/features/transcript/window/transcript-window.js";
 
 /**
- * The length of log this tier measures the ledger at.
+ * The length of log this tier measures the transcript at.
  *
  * Passed to the generator EXPLICITLY on every call in this file rather than left to
  * its default, on the generator's own reasoning: an endurance reading names the row
@@ -92,7 +92,7 @@ const REPEATED_FOLD_COUNT = 20;
  * What twenty folds of a ten-thousand-row log may add to the heap and still pass.
  *
  * Not zero, because V8 keeps code objects, inline caches and deoptimization data
- * alive across a run and none of that is the ledger's doing. Not a fraction of the
+ * alive across a run and none of that is the transcript's doing. Not a fraction of the
  * baseline either, for `steady-state.test.ts`' reason: what is being bounded is a
  * leak, and a leak's size has nothing to do with how large the process was to begin
  * with.
@@ -124,7 +124,7 @@ function resolveForcedCollection(): () => void {
   const exposed: unknown = runInNewContext("gc");
   if (typeof exposed !== "function") {
     throw new Error(
-      "this runtime exposed no collector under --expose-gc, so no heap figure in this tier would describe what the ledger retains",
+      "this runtime exposed no collector under --expose-gc, so no heap figure in this tier would describe what the transcript retains",
     );
   }
   return exposed as () => void;
@@ -153,7 +153,7 @@ function settledHeapBytes(): number {
 }
 
 /**
- * How long the ledger's fold takes over one log, best of several passes.
+ * How long the transcript's fold takes over one log, best of several passes.
  *
  * The best rather than the mean, because the distribution is one-sided: a sample can
  * be slowed by a collection or by the scheduler and nothing can make one faster than
@@ -260,7 +260,7 @@ describe("endurance — the transcript's fold over a long session", () => {
     // that speaks only when it fails gives a reviewer no way to watch a margin
     // shrink over months until the day it crosses.
     process.stdout.write(
-      `[console-endurance] ledger fold ${shortFoldMilliseconds.toFixed(2)} ms at ` +
+      `[console-endurance] transcript fold ${shortFoldMilliseconds.toFixed(2)} ms at ` +
         `${String(LINEARITY_PROBE_ROW_COUNT)} rows, ${longFoldMilliseconds.toFixed(2)} ms at ` +
         `${String(ENDURANCE_ROW_COUNT)} rows — ${costRatio.toFixed(2)}× over a 4× log ` +
         `(ceiling ${String(SUPERLINEAR_COST_RATIO_CEILING)}×)\n`,
@@ -299,7 +299,7 @@ describe("endurance — the transcript's fold over a long session", () => {
     const retainedBytes = finalHeapBytes - baselineHeapBytes;
 
     process.stdout.write(
-      `[console-endurance] ledger fold retention ${String(Math.round(retainedBytes / 1024))} kB ` +
+      `[console-endurance] transcript fold retention ${String(Math.round(retainedBytes / 1024))} kB ` +
         `over ${String(REPEATED_FOLD_COUNT)} folds of ${String(ENDURANCE_ROW_COUNT)} rows ` +
         `(ceiling ${String(Math.round(REPEATED_FOLD_RETENTION_CEILING_BYTES / 1024))} kB)\n`,
     );
@@ -322,7 +322,7 @@ describe("endurance — the transcript's fold over a long session", () => {
 
     const windowBytes = heldHeapBytes - baselineHeapBytes;
     process.stdout.write(
-      `[console-endurance] one held ledger window ${String(Math.round(windowBytes / 1024))} kB ` +
+      `[console-endurance] one held transcript window ${String(Math.round(windowBytes / 1024))} kB ` +
         `at ${String(ENDURANCE_ROW_COUNT)} rows\n`,
     );
     expect(windowBytes).toBeGreaterThan(REPEATED_FOLD_RETENTION_CEILING_BYTES);
@@ -335,7 +335,7 @@ describe("endurance — the transcript's fold over a long session", () => {
  * A named function rather than an inline statement, because what matters is that no
  * binding outlives the call: a loop that assigned each window to a variable in the
  * enclosing scope would hold the last one alive, and the reading would then be
- * measuring the test rather than the ledger. The length is read so the fold cannot
+ * measuring the test rather than the transcript. The length is read so the fold cannot
  * be eliminated as dead.
  */
 function dropFoldOf(timeline: readonly ProjectedSessionEvent[]): void {

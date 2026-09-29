@@ -52,7 +52,7 @@ function withLaidOutViewport(): void {
  *
  * Separate from the layout stub above because the chokepoint clamps every write to
  * `scrollHeight - clientHeight`: without this a scroll assertion passes over a
- * ledger that could not have moved, and with it every case would pay for a
+ * transcript that could not have moved, and with it every case would pay for a
  * geometry only the two scroll cases read.
  */
 function withScrollableContent(): void {
@@ -121,7 +121,7 @@ interface DetachedBindingProps {
 /**
  * A viewport, and beside it a binding nobody handed to it.
  *
- * This is the shape the ledger used to have: one binding held by the surrounding
+ * This is the shape the transcript used to have: one binding held by the surrounding
  * surface for the find walk, and a second one — the viewport's own — holding the
  * element. The case below acts on the held one and watches the element not move.
  */
@@ -162,7 +162,7 @@ function renderRow(row: ViewportRow): React.ReactNode {
   return <p>{row.key}</p>;
 }
 
-describe("the ledger viewport — the feed", () => {
+describe("the transcript viewport — the feed", () => {
   it("names the feed, and mounts far fewer rows than the log holds", () => {
     withLaidOutViewport();
     const { container } = render(

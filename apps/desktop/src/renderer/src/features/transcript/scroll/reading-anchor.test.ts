@@ -87,7 +87,7 @@ describe("the reading anchor — the three states", () => {
 describe("the reading anchor — what a resize may and may not do", () => {
   it("keeps following when the box shrank rather than the reader moving", () => {
     // A shorter viewport raises the distance from the tail on its own. Folding that
-    // as "the reader left the tail" stops the ledger following because the window
+    // as "the reader left the tail" stops the transcript following because the window
     // got smaller, which is nobody's decision.
     const anchor = new ReadingAnchor();
     anchor.observeGeometry(geometry(4500, true));

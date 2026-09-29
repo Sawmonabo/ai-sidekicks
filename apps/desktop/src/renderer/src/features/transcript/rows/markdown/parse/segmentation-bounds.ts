@@ -1,4 +1,4 @@
-// The ledger cards' named figures that are not ceilings.
+// The transcript cards' named figures that are not ceilings.
 //
 // THE CEILINGS ARE NOT HERE, and the reason is a rule rather than a preference:
 // `core/constants/` is the one DIRECTORY a bound may be DECLARED in — its trailing

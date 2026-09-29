@@ -1,4 +1,4 @@
-// The diff card a ledger row carries, and the seat registration that fills it.
+// The diff card a transcript row carries, and the seat registration that fills it.
 //
 // Diff cards go in the timeline at a height cap and then offer "show all", and THIS
 // CARD'S OWN RULE says exactly how
@@ -79,7 +79,7 @@ export function InlineDiffCard(props: InlineDiffCardProps): React.JSX.Element {
   const headingId = useId();
   const viewControls = useDiffViewControls();
   // The gap expansion is the MODEL's, and this card is reused for whichever diff
-  // its ledger row carries, so it comes from the same hook the pane reads —
+  // its transcript row carries, so it comes from the same hook the pane reads —
   // keyed by the prop reference, dropped when that moves. The card narrows to no
   // file, so it reads only the expansion half.
   const { expansion, expandGapAt } = useDiffModelViewState(props.diff);
@@ -96,7 +96,7 @@ export function InlineDiffCard(props: InlineDiffCardProps): React.JSX.Element {
           Diff
         </h4>
         {/* Wire-verbatim, and the diff rather than the run: the run is the row's own
-            subject and repeating it here would say nothing the ledger has not already
+            subject and repeating it here would say nothing the transcript has not already
             said one line above. The manifest id is not rendered beside it — it is the
             provenance and retention of the same object, which is a reading the
             artifact surfaces do, not a second name for what this card shows. */}
@@ -158,7 +158,7 @@ export function InlineDiffCard(props: InlineDiffCardProps): React.JSX.Element {
                     past this card to the rest of the conversation", and focusing
                     the sentinel below does exactly that — the browser brings a
                     focused element into view, the caret lands where reading
-                    resumes, and no code writes `scrollTop`, which the ledger's
+                    resumes, and no code writes `scrollTop`, which the transcript's
                     own scroll chokepoint owns. A link to a fragment would
                     additionally rewrite the location hash, which this console
                     routes on. */}

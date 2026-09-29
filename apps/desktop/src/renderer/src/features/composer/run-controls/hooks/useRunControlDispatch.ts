@@ -107,7 +107,7 @@ export type RunControlAdmission =
 /** What is held for the run controls: the dispatcher and its own record. */
 export interface RunControlDispatchState {
   readonly dispatcher: RunControlDispatcher;
-  /** Newest last, matching the ledger's reading direction. Bounded. */
+  /** Newest last, matching the transcript's reading direction. Bounded. */
   readonly records: readonly RunControlRecord[];
   /** Controls with a dispatch in flight, keyed `<runId>:<control>`. */
   readonly inFlightKeys: ReadonlySet<string>;

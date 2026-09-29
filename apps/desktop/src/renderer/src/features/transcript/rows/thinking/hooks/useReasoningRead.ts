@@ -59,7 +59,7 @@ export interface ReasoningRead {
  * pressing again issues a second read.
  *
  * AND THE READ IS ON A LINE THE ROW OWNS. A reasoning surface is read because somebody
- * pressed for it, and that somebody can leave the pane or move the ledger to another
+ * pressed for it, and that somebody can leave the pane or move the transcript to another
  * run before the answer lands — at which point the reply is still parsed against its
  * registered schema and folded into a state nothing renders. The line is addressed at
  * `(bridge, runId)`, which is the pairing this reading is ABOUT: a transport

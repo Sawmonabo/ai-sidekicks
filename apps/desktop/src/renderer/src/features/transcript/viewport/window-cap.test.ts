@@ -16,7 +16,7 @@ import {
   TOP_LEVEL_ROW_COUNT,
 } from "./window-cap.test-support.js";
 
-describe("the ledger window — the cap", () => {
+describe("the transcript window — the cap", () => {
   it("caps top-level rows and lets children ride along", () => {
     const window = loadedWindow();
     expect(window.topLevelRowKeys()).toHaveLength(TOP_LEVEL_ROW_COUNT);
@@ -58,7 +58,7 @@ describe("the ledger window — the cap", () => {
   });
 });
 
-describe("the ledger window — when prune may not land", () => {
+describe("the transcript window — when prune may not land", () => {
   it("declares its deferral reasons closed", () => {
     expect([...PRUNE_DEFERRAL_REASONS]).toStrictEqual([
       "under-cap",
@@ -157,7 +157,7 @@ describe("the ledger window — when prune may not land", () => {
   });
 });
 
-describe("the ledger window — the reading floor", () => {
+describe("the transcript window — the reading floor", () => {
   /** The row a reader is parked on, far enough back that the cap wants it gone. */
   const READER_ROW = "run-group-10";
 

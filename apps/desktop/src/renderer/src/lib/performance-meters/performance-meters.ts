@@ -130,7 +130,7 @@ export class PerformanceMeterRegistry {
    * Retire one series, so the bound above counts LIVE producers and not past ones.
    *
    * WITHOUT THIS THE BOUND IS OVER HISTORY, which is the same thing as no bound at
-   * all for any producer whose key names an instance. A ledger feed mints a
+   * all for any producer whose key names an instance. A transcript feed mints a
    * coordinator on mount and disposes it on unmount; 64 mounts later every further
    * series is refused, and the p95 an author reads is the p95 of feeds that closed
    * hours ago while the feed on screen contributes nothing. That failure is silent —

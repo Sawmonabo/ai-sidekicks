@@ -356,7 +356,7 @@ export const TERMINAL_LEASE_SCENARIO: Scenario = {
     }),
     // THE AGENT-PATH TAKE, with no actor on purpose: the node's own agent runs take
     // through the daemon's in-process lease authority, so nobody pressed a control
-    // and the ledger's actor column reads "The daemon". The holder is the
+    // and the transcript's actor column reads "The daemon". The holder is the
     // NODE-OWNER user, which is who an agent-path take holds as: agents are
     // `AgentId`-keyed domain actors and not `users` rows, so no
     // agent-user exists to hold and the holder surfaces stay user

@@ -28,7 +28,7 @@ import {
  * every run-attributed family except interventions, whose registered shape names the run
  * `targetRunId`. The shell read the first member and nothing else, so every
  * `intervention.*` event projected as a session-level `general` row and sat outside
- * the run group it belongs to — on a ledger whose whole shape is runs.
+ * the run group it belongs to — on a transcript whose whole shape is runs.
  *
  * CONSUMED RATHER THAN RE-DERIVED, because the contracts package already declares
  * this set once, with its reasoning, in the package that owns the wire. A second

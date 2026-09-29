@@ -2,7 +2,7 @@
 //
 // THE DISPATCH IS DRIVEN DIRECTLY rather than through a mounted feed, because the
 // question here is which BRANCH a key takes and the eight suites next door already
-// mount the whole ledger. Driven through a feed, a dispatch case would pass or fail
+// mount the whole transcript. Driven through a feed, a dispatch case would pass or fail
 // on the viewport's cap, its reconcile, and whatever the fixture clock had reached.
 //
 // THE MEMO IS THE ONE CLAIM THAT NEEDS A RENDERER, and it is the reason this file

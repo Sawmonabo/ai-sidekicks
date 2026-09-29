@@ -3,7 +3,7 @@
 // WHY IT LIVES HERE AND NOT BESIDE ITS CONSUMER. A contracts schema is a parser, and
 // every parse of a wire value happens at the bridge boundary: a surface that held its
 // own schema would be a second reading of
-// one shape, and the two would drift the moment the contract moved. The ledger's
+// one shape, and the two would drift the moment the contract moved. The transcript's
 // fixture projection consumes what this returns and never a schema of its own.
 //
 // WHY IT IS A READER AND NOT A RE-EXPORT. The door publishes this function, not

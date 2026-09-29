@@ -183,7 +183,7 @@ describe("the generated @font-face block", () => {
     expect(css).not.toContain("local(");
   });
 
-  it("blocks rather than swaps, so no ledger row is laid out twice", () => {
+  it("blocks rather than swaps, so no transcript row is laid out twice", () => {
     expect(css.match(/font-display: block;/g)).toHaveLength(TYPEFACE_FACES.length);
     expect(css).not.toContain("font-display: swap");
   });

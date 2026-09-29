@@ -59,7 +59,7 @@ export const CHILD_RUN_SUMMARIZED: ChildRunExpansion = {
   refusal: undefined,
 };
 
-/** What one mounted ledger offers for a child-run summary row. */
+/** What one mounted transcript offers for a child-run summary row. */
 export interface ChildRunDisclosure {
   readonly expansionFor: (childRunId: RunId) => ChildRunExpansion;
   /** Expand a summarized child run, or fold an expanded one back. */

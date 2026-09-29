@@ -8,7 +8,7 @@
 //
 // WHY THAT POSITION, AND NOT INSIDE A VIEW FAMILY. These contracts used to live at
 // `workspace/seats/` and were published by `workspace/index.ts`. `workspace/` is a
-// VIEW FAMILY — the ledger and the composer author bodies in it — and a view family
+// VIEW FAMILY — the transcript and the composer author bodies in it — and a view family
 // sits at the TOP of the DAG, above the frame. But the frame composes the pane
 // registry singleton, so the frame imported the family, and the family is documented
 // to import the frame: an upward edge that either closes a cycle the moment the
@@ -41,7 +41,7 @@
 //
 // But siblings still hand each other things: the pane layout mounts panes six families
 // build, the workspace mounts a composer the composer family fills, one sidebar
-// carries sections four families own, and the ledger renders cards the repos
+// carries sections four families own, and the transcript renders cards the repos
 // family authors. Every one of those is a CONTRACT rather than an import — a type
 // plus a registry, minted once here so no branch invents its own.
 //
@@ -244,7 +244,7 @@ export {
 // and names `PaneControls` on the value it builds, so the close control is drawn
 // through the seam a pane layout provides it through rather than asserted by a test; and two
 // shipped families name the owner slot's contract on the slots they declare — the
-// ledger's message card and timeline pane, and the workflows family's own slot table.
+// transcript's message card and timeline pane, and the workflows family's own slot table.
 // A surviving marker would fail the run under `--treat-tag-hints-as-errors`.
 export { PaneFrame } from "@renderer/components/PaneFrame/PaneFrame.js";
 export {
@@ -265,7 +265,7 @@ export {
 // not to bind at all. Both gates were green on that for reasons neither intends — the
 // module's own test keeps it reachable, and it imports two families so it is no
 // orphan — which is why the census below is the thing that says who owes the rebind.
-// The hook's claim is retired: the ledger's pane holds its run group disclosure and
+// The hook's claim is retired: the transcript's pane holds its run group disclosure and
 // both of its row-retention tables through this line.
 export { isCurrentSessionSubject } from "@renderer/store/subject-scoped/session-subject.js";
 export { useSessionScopedState } from "@renderer/store/subject-scoped/useSessionScopedState.js";

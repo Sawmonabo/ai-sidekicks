@@ -1,14 +1,14 @@
-// What one session's ledger viewport is showing, and the registry that carries the
+// What one session's transcript viewport is showing, and the registry that carries the
 // reading across the family DAG.
 //
-// WHY THIS SITS AT THE FLOOR. The producer is the ledger — a VIEW family, the top of
+// WHY THIS SITS AT THE FLOOR. The producer is the transcript — a VIEW family, the top of
 // the DAG — and the consumer is `services/session-events/session-event-subscriber.ts`,
 // which composes the session diagnostics a driver process reads and sits BELOW every
 // feature. The consumer therefore cannot import the producer. `lib/` is the only home
 // both can reach, which is `transport-reconnect.ts`' reason with the two ends swapped.
 //
 // WHY A LIVE READER AND NOT A PUBLISHED VALUE. Every figure below is scroll geometry
-// or a virtualizer computation over it, and the ledger deliberately keeps both off
+// or a virtualizer computation over it, and the transcript deliberately keeps both off
 // its React snapshot — publishing them would notify the tree on every scrolled pixel,
 // which is the render the frame's budget exists to avoid. So a mount registers a
 // FUNCTION and the reading is taken at the instant somebody asks for one.
@@ -23,10 +23,10 @@
 import { type Unsubscribe } from "./emitter.js";
 
 /**
- * What a ledger viewport is showing for one session, at one instant.
+ * What a transcript viewport is showing for one session, at one instant.
  *
  * NINE FIGURES, EACH READING EXACTLY ONE THING, and the shape is that wide because
- * the states it has to separate are not orderings of one number. A windowed ledger
+ * the states it has to separate are not orderings of one number. A windowed transcript
  * that shows nothing can be: a viewport the browser measured at no height, a window
  * whose rows the view could not index, a sizer that never received the log's height,
  * or a log that genuinely has nothing in it — and any single count answers all four
@@ -92,11 +92,11 @@ export interface TranscriptWindowReading {
   readonly rangedAgainstClientHeightPx: number;
 }
 
-/** One mounted viewport's live answer. Called by a reader, never by the ledger. */
+/** One mounted viewport's live answer. Called by a reader, never by the transcript. */
 export type TranscriptWindowReader = () => TranscriptWindowReading;
 
 /**
- * Which session's ledger can be read right now.
+ * Which session's transcript can be read right now.
  *
  * A class with a private field rather than a module-level `Map`, per
  * `apps/desktop/AGENTS.md`: what is registered is state, and the identity check the
@@ -121,7 +121,7 @@ export class TranscriptWindowDiagnosticsRegistry {
     };
   }
 
-  /** This session's ledger window, or `null` where no viewport is mounted for it. */
+  /** This session's transcript window, or `null` where no viewport is mounted for it. */
   public readingFor(sessionId: string): TranscriptWindowReading | null {
     return this.#readerBySessionId.get(sessionId)?.() ?? null;
   }

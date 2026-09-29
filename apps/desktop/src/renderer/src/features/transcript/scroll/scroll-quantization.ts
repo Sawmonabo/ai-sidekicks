@@ -1,6 +1,6 @@
 // Does this display quantize a programmatic scroll offset to whole pixels?
 //
-// A question about the DISPLAY, not about the ledger — which is why it is its own
+// A question about the DISPLAY, not about the transcript — which is why it is its own
 // object. A fractional-device-pixel-ratio monitor rounds a written `scrollTop` and
 // an integral one keeps it, and nothing in the platform reports which. The only way
 // to find out is to write and read back.

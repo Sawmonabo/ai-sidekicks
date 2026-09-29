@@ -105,7 +105,7 @@ export function deriveChildRunSummaries(
     if (reading === undefined) {
       // Not a child run, or a row that arrived before its creation row did. Either
       // way there is nothing to summarize: a child whose parent nothing named is a
-      // run, and the ledger already draws one.
+      // run, and the transcript already draws one.
       continue;
     }
     reading.eventCount += 1;

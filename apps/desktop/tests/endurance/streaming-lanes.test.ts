@@ -82,7 +82,7 @@ describe("peakConcurrentStreamingRuns", () => {
 
   it("does not count a run that is running with nothing left to say", () => {
     // The second conjunct, on its own. Both runs are in `running` at every beat
-    // and neither ever speaks, which is a session the ledger draws two idle
+    // and neither ever speaks, which is a session the transcript draws two idle
     // run groups for — and is not two streaming lanes.
     const beats = beatsFor([
       [

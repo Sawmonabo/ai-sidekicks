@@ -2,7 +2,7 @@
 //
 // Provider-bound text neutrality: a send whose first word is command-shaped for the
 // bound provider is neutralized at the driver boundary IN TRANSPORT ONLY — the
-// user's text is never changed in the ledger. When the guard trips, the driver
+// user's text is never changed in the transcript. When the guard trips, the driver
 // fails the run rather than recording the provider's zero-turn success, and the
 // terminal carries the reason.
 //

@@ -9,7 +9,7 @@
 //
 // THE HOLDER IS SESSION-SCOPED, NOT MOUNT-SCOPED, for `useChildRunDisclosure`'s
 // reason: this console holds session stores open across a navigation, so a walk held
-// by the mount would carry one session's position into the next session's ledger. The
+// by the mount would carry one session's position into the next session's transcript. The
 // subject is the bridge as well as the session id, because a bridge replacement — a
 // reconnect, a second window's own instance, the fixture's scenario switch — retires
 // every call in flight through it.

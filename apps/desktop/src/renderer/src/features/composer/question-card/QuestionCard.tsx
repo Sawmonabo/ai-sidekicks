@@ -1,4 +1,4 @@
-// The input-ask card: the provider's question, in the ledger, where it was asked.
+// The input-ask card: the provider's question, in the transcript, where it was asked.
 //
 // A mount may supply `body` to replace the card. `input-ask.ts` carries the reading this
 // card renders.

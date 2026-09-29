@@ -57,7 +57,7 @@ export function RunGroupHeader(props: RunGroupHeaderProps): React.JSX.Element {
         hueStep < 0 || hueStep >= HUE_WHEEL_STEPS
           ? undefined
           : {
-              // The same 2 px attribution edge every ledger row wears, so a run group
+              // The same 2 px attribution edge every transcript row wears, so a run group
               // and the rows inside it are attributed the same way and by the same
               // wheel. Rule 3 keeps the hue off text, so it is an edge and not a tint.
               borderInlineStartColor: tokenReference(formatHueWheelTokenName(hueStep)),

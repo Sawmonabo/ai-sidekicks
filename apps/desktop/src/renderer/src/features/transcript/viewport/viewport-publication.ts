@@ -1,4 +1,4 @@
-// The one place the ledger frame tells React that something changed.
+// The one place the transcript frame tells React that something changed.
 //
 // WHY IT IS ITS OWN OBJECT. `viewport-controller.ts` is the wiring: it owns the four
 // objects and decides when each is asked anything. Deciding whether the tree needs

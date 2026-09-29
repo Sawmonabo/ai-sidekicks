@@ -1,13 +1,13 @@
-// The three inline cards a ledger row can carry, and the seat each body fills.
+// The three inline cards a transcript row can carry, and the seat each body fills.
 //
 // These live in the timeline: a diff card expands to a height cap and then offers
 // "show all". A diff, an attachment, and a published artifact each render as a card
 // INSIDE a row rather than as a pane, because they belong to the turn that produced
 // them.
 //
-// TWO FAMILIES MEET HERE. The workspace family owns the ledger and renders the seat;
-// the repos family owns all three bodies. The ledger imports no body and the bodies
-// import no ledger.
+// TWO FAMILIES MEET HERE. The workspace family owns the transcript and renders the seat;
+// the repos family owns all three bodies. The transcript imports no body and the bodies
+// import no transcript.
 //
 // WHY THE PROPS CARRY IDENTITY AND NOTHING ELSE
 //
@@ -28,7 +28,7 @@ import { type EntityRef } from "@renderer/lib/entity-kinds.js";
 const INLINE_CARD_ORIGIN = "inline-card-seats";
 
 /**
- * Every kind of card a ledger row can carry. Closed.
+ * Every kind of card a transcript row can carry. Closed.
  *
  * The tuple is the declaration and the union is derived from it, for the reason
  * `seats/pane/pane-kinds.ts` gives about its own set.
@@ -171,7 +171,7 @@ export class InlineCardRegistry {
     duplicatePolicy: "owner-scoped",
     describeWhat: "inline card body",
     ownerOf: (descriptor) => descriptor.owner,
-    duplicateHint: "a ledger row renders one body per card kind",
+    duplicateHint: "a transcript row renders one body per card kind",
   });
 
   /**
@@ -222,7 +222,7 @@ export class InlineCardRegistry {
   }
 
   /**
-   * Render one card. The door the ledger row uses.
+   * Render one card. The door the transcript row uses.
    *
    * Keyed on the props' OWN discriminant, so the body reached is by construction
    * the one registered for that arm — the reason the guard in `register` is a

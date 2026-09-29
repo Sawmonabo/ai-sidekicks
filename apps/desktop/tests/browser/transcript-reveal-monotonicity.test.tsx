@@ -10,7 +10,7 @@
 // WHAT IS UNDER TEST IS THE SHIPPED PATH, END TO END: `useReveal` mints the
 // real `RevealEngine`, `RowRevealProvider` publishes its channel, and the row
 // body reads its own lane through `useRowReveal` — the same three modules a
-// ledger row streams through. The only thing this file supplies is the probe body
+// transcript row streams through. The only thing this file supplies is the probe body
 // and the deltas, which is what a producer supplies in production too.
 //
 // AND THE RECORDER IS NOT THIS FILE'S. `visible-text-monotonicity.ts`
@@ -177,7 +177,7 @@ describe("the visible text of a streaming lane", () => {
 
   it("grows the row's painted box monotonically while it reveals", async () => {
     // GEOMETRY, WHICH IS WHY IT IS HERE. `LedgerViewport.test.tsx` records that a
-    // geometry-dependent ledger assertion "would pass vacuously" under happy-dom,
+    // geometry-dependent transcript assertion "would pass vacuously" under happy-dom,
     // because every rect reads zero there. A box that never shrinks while text
     // arrives is the layout half of "no lane teleports", and only a layout engine
     // can answer it.

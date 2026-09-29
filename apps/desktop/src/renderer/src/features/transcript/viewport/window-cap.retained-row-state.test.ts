@@ -19,7 +19,7 @@ import {
   syntheticWindowRows,
 } from "./window-cap.test-support.js";
 
-describe("the ledger window — leases and cursors", () => {
+describe("the transcript window — leases and cursors", () => {
   // The SEAM only. What parking means and the bound it is held to are
   // `retained-row-state-table.test.ts`'s; this case pins that the prune reaches it at all.
   it("re-parks a pruned row's lease under a synthetic key, and hands it back", () => {
@@ -62,7 +62,7 @@ describe("the ledger window — leases and cursors", () => {
   });
 
   it("counts a row whose parent is not in the window, so a run-only log is capped", () => {
-    // The shape the ledger actually produces: every row names its run, and the run
+    // The shape the transcript actually produces: every row names its run, and the run
     // itself is not a row. Read as "has a parent, therefore a child", the window
     // counted nobody and a session that never left one run grew without a ceiling.
     const window = new TranscriptWindow({ topLevelCap: 10 });
@@ -91,7 +91,7 @@ describe("the ledger window — leases and cursors", () => {
   });
 
   it("counts a folded run group as one, so the cap bounds run groups and not rows", () => {
-    // The load-bearing consequence of the ledger emitting a run group header. Before
+    // The load-bearing consequence of the transcript emitting a run group header. Before
     // it, every run row named its run, no row WAS that run, and the cap counted each
     // of them — so ten run groups of a hundred rows read as a thousand against the
     // ceiling. With the header present the same log is ten.
@@ -118,7 +118,7 @@ describe("the ledger window — leases and cursors", () => {
   it("negative control: the same receipts with no header count one apiece", () => {
     // Without this the case above would pass over a cap that had stopped counting
     // anything. Take the headers away and the ten receipts are ten orphans, each its
-    // own top-level row — which is exactly the reading the ledger used to give it.
+    // own top-level row — which is exactly the reading the transcript used to give it.
     const window = new TranscriptWindow({ topLevelCap: 4 });
     window.ingest(foldedRunGroupLog(10).filter((row) => row.parentKey !== undefined));
     expect(window.topLevelRowKeys()).toHaveLength(10);

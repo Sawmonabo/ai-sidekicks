@@ -1,6 +1,6 @@
 // The seat between a chord and a mounted feed.
 //
-// Two questions decide whether a ledger command acts on the right thing: which
+// Two questions decide whether a transcript command acts on the right thing: which
 // mount a press reaches when more than one is up, and what happens when none is.
 // Both are driven here against the seat itself, with no palette and no window —
 // the command side is `contributions/commands.test.ts`'.
@@ -104,7 +104,7 @@ describe("mounted transcript — a component holds the seat for its lifetime", (
 
   it("acts through the latest render's callbacks rather than the first render's", () => {
     // A feed rebuilds its acts every pass, and a seat holding the first pass would
-    // call into a window's state as it was when the ledger opened.
+    // call into a window's state as it was when the transcript opened.
     const firstPass: string[] = [];
     const laterPass: string[] = [];
     const seat = new MountedTranscript();

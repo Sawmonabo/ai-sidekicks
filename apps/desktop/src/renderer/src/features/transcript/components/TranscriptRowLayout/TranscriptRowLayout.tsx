@@ -1,6 +1,6 @@
-// The ledger row — the console's signature shape.
+// The transcript row — the console's signature shape.
 //
-// Design-language rule 1: timeline rows are flush-left ledger lines — a 2 px
+// Design-language rule 1: timeline rows are flush-left transcript lines — a 2 px
 // attribution edge in the author's hue, author and timestamp in a fixed gutter, content
 // in a single measure. No bubbles, no left-and-right alternation, no avatars in the
 // flow. The screen reads as a work log because it is one.
@@ -51,13 +51,13 @@ export function TranscriptRowLayout(props: TranscriptRowLayoutProps): React.JSX.
   // FORMATTED ONCE PER INSTANT, not once per paint.
   //
   // `formatClockTime` builds a fresh `Intl.DateTimeFormat` on every call, and this is
-  // the row every ledger surface in the console is made of — a streaming window
+  // the row every transcript surface in the console is made of — a streaming window
   // re-renders its mounted rows on a lease write, a hover and a reveal tick, and none
   // of those move the instant a row is stamped with.
   //
   // A MEMO RATHER THAN A FORMATTED STRING ON THE ROW MODEL, which is the other way to
   // pay once, because this component is a PRIMITIVE and the instant reaches it as a
-  // prop from callers that share no model: the ledger feed builds its rows by folding
+  // prop from callers that share no model: the transcript feed builds its rows by folding
   // admitted events, and the lease and run ledgers build theirs from a wire
   // read that no fold ever sees. Putting the string on one of those models would leave
   // the others formatting per paint, and putting it on all of them would be three

@@ -118,7 +118,7 @@ export function useTranscriptFeedWindows(
   // WHAT THIS WINDOW IS SHOWING, PUBLISHED FOR A DRIVER PROCESS TO READ. Registered
   // here because this is where the session id and the one binding meet. The reading
   // exists for the endurance tier, which drives a real window from outside the
-  // renderer and can otherwise tell "the ledger mounted nothing" from "the ledger has
+  // renderer and can otherwise tell "the transcript mounted nothing" from "the transcript has
   // nothing to mount" only by guessing; it reaches the page only through the session
   // diagnostics a fixture composition installs. The reader is stable, so this registers
   // once per mount rather than once per render.

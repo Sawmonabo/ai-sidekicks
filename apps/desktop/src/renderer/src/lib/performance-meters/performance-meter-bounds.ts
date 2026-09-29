@@ -34,7 +34,7 @@ export const PERFORMANCE_METER_BOUNDS = {
    * Distinct LIVE series one meter tracks before it stops opening new ones.
    *
    * A series is keyed by store scope, which the console's store registry bounds, or
-   * by a producer instance — a ledger feed's frame coordinator, and a reveal engine
+   * by a producer instance — a transcript feed's frame coordinator, and a reveal engine
    * under one — which nothing bounds on its own, because a feed is mounted and
    * unmounted as a person moves around the console. What bounds those is that the
    * instance RETIRES its series when it is disposed, so what this figure caps is how

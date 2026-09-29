@@ -194,7 +194,7 @@ export function uncorrelatedKey(event: ProjectedSessionEvent): string {
  *
  * AND SCOPED WHERE THE LIFECYCLE SAYS ITS ID IS NOT UNIQUE ON ITS OWN. Which segments a
  * driver ask is identified by, and in which order, is `core/driver-ask-identity.ts`' and
- * is deliberately not spelled here — the ledger's ask card keys its own terminal fold on
+ * is deliberately not spelled here — the transcript's ask card keys its own terminal fold on
  * the same pair, and one surface answering that question differently from the other is
  * how an answer given in one run settles a card in another.
  */

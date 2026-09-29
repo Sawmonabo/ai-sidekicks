@@ -2,7 +2,7 @@
 //
 // `system-message-classifier.ts`' epoch rule ends on the half this module owns: superseded turns stay
 // present but visibly past. Nothing is ever removed. A
-// band is the group of rows one rollback rewound past, and the ledger dims a band
+// band is the group of rows one rollback rewound past, and the transcript dims a band
 // rather than deleting one, so a person can still read what was rewound away.
 //
 // WHY THIS IS NOT IN `system-message-classifier.ts`. A seam answers "is this ONE row a mark on the

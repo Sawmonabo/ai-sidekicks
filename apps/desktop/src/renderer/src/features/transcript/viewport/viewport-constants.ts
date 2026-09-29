@@ -1,4 +1,4 @@
-// The ledger frame's named figures that are not ceilings.
+// The transcript frame's named figures that are not ceilings.
 //
 // THE CEILINGS ARE NOT HERE. `core/constants/` is the one DIRECTORY a bound may be
 // DECLARED in, so the window
@@ -17,7 +17,7 @@
 // A number that appears inline in this subtree and is not a layout literal is a
 // review rejection: the rationale is the point, not the constant.
 //
-// `../cards/card-bounds.ts` is the ledger's only other file of this kind — the two of
+// `../cards/card-bounds.ts` is the transcript's only other file of this kind — the two of
 // them are the whole family — and it sits on the same split: every value here has a
 // spender inside `ledger/frame/`, and every value there has one inside
 // `ledger/cards/`.
@@ -34,7 +34,7 @@ export const TRANSCRIPT_OVERSCAN_ROWS = 6;
 /**
  * The height a row is assumed to have before it has been measured, in pixels.
  *
- * A ledger line with a gutter, a kind label, and two lines of body measures near
+ * A transcript line with a gutter, a kind label, and two lines of body measures near
  * this; the estimate only has to be close enough that the first paint's scrollbar
  * is not visibly wrong, because every mounted row replaces it with a measurement.
  */
@@ -45,7 +45,7 @@ export const TRANSCRIPT_ROW_HEIGHT_ESTIMATE_PX = 96;
  *
  * Sub-pixel scroll positions and a fractional row height mean an exact equality
  * test flickers between following and reading on every frame of a stream. One
- * ledger line's leading is the smallest band that cannot be crossed by rounding.
+ * transcript line's leading is the smallest band that cannot be crossed by rounding.
  */
 export const TRANSCRIPT_TAIL_TOLERANCE_PX = 24;
 
@@ -87,14 +87,14 @@ export const REVEAL_CATCH_UP_MULTIPLIER = 3;
 export const REVEAL_GATE_TAIL_CHARACTERS = 64;
 
 /**
- * How long the ledger must have been still for the next activity to trim first, in
+ * How long the transcript must have been still for the next activity to trim first, in
  * milliseconds.
  *
  * MEASURED, NEVER ARMED. `viewport/cycle/idle-trim.ts` runs its pass on the first activity
  * after a gap this wide rather than on a timer, because no timer is allowed on the
  * console's steady state and `TranscriptViewport.test.tsx` holds this frame to it. So this
  * is a threshold a
- * subtraction is compared against, and a ledger nobody is touching arms nothing.
+ * subtraction is compared against, and a transcript nobody is touching arms nothing.
  *
  * Two minutes because it has to be longer than every pause inside ordinary reading —
  * a person scrolling back, reading a long tool result, switching to another window to

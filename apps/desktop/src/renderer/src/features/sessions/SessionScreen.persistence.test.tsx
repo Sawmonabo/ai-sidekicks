@@ -37,7 +37,7 @@ function panesInRecord(value: unknown): number {
 }
 
 describe("Workspace — the saved arrangement", () => {
-  it("opens the ledger alone when nothing was saved", async () => {
+  it("opens the transcript alone when nothing was saved", async () => {
     const { container } = renderSessionScreen(memoryStore());
     await waitFor(() => {
       expect(container.querySelectorAll(".meridian-pane-layout__pane")).toHaveLength(1);
@@ -47,7 +47,7 @@ describe("Workspace — the saved arrangement", () => {
 
   it("negative control: a saved arrangement is restored instead", async () => {
     // Without this, the case above would pass over a workspace that ignored the
-    // record entirely and always opened one ledger.
+    // record entirely and always opened one transcript.
     const store = memoryStore();
     await saveLayout(store, SESSION_ID, ["transcript", "runs"]);
     const { container } = renderSessionScreen(store);
@@ -59,7 +59,7 @@ describe("Workspace — the saved arrangement", () => {
     ).toStrictEqual(["transcript", "runs"]);
   });
 
-  it("saves the arrangement it opened, so the fallback ledger survives a restart", async () => {
+  it("saves the arrangement it opened, so the fallback transcript survives a restart", async () => {
     const store = memoryStore();
     renderSessionScreen(store);
     await waitFor(async () => {
@@ -97,7 +97,7 @@ describe("Workspace — the saved arrangement", () => {
         container.querySelector('.meridian-pane-layout__refusals[role="status"]')?.textContent,
       ).toContain("written by a different version");
     });
-    // Discarded WHOLE: the pane layout falls back to the ledger rather than adopting the
+    // Discarded WHOLE: the pane layout falls back to the transcript rather than adopting the
     // pane the unknown record happened to name.
     expect(container.querySelectorAll(".meridian-pane-layout__pane")).toHaveLength(1);
   });

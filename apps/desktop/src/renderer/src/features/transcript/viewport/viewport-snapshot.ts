@@ -1,4 +1,4 @@
-// What a render of the ledger frame is HANDED, what it hands back, and the two
+// What a render of the transcript frame is HANDED, what it hands back, and the two
 // pure rules that decide between them.
 //
 // The seam is between the value vocabulary and the wiring. `viewport-controller.ts`

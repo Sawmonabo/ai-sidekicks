@@ -1,4 +1,4 @@
-// The ledger row's three load-bearing decisions, pinned.
+// The transcript row's three load-bearing decisions, pinned.
 //
 // Two of them are about attribution and one is about provenance, and all three fail
 // in ways a screenshot would not catch:
@@ -16,7 +16,7 @@
 //
 // And one cost claim, checked the only way a cost claim can be: by counting calls.
 // `formatClockTime` builds a fresh `Intl.DateTimeFormat` per call, and this row is
-// what every ledger surface in the console is made of, so the gutter reading is
+// what every transcript surface in the console is made of, so the gutter reading is
 // memoized on the instant. The suite spies the real formatter rather than a stand-in
 // — `{ spy: true }` keeps the implementation, so every other case here still reads
 // the true string.

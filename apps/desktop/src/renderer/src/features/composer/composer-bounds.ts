@@ -13,10 +13,10 @@
 /**
  * Sent messages the directive line's history recall walks.
  *
- * A recall list is a convenience, not an archive — the ledger is the archive. Deep
+ * A recall list is a convenience, not an archive — the transcript is the archive. Deep
  * enough to reach the message before last after a correction and a retry, shallow
  * enough that ArrowUp stays a gesture rather than a search. Past this the person is
- * looking for something and the ledger is what they should be looking in.
+ * looking for something and the transcript is what they should be looking in.
  */
 export const COMPOSER_HISTORY_RECALL_CAP = 20;
 
@@ -38,7 +38,7 @@ export const COMPOSER_RETAINED_ADDRESS_CAP = 12;
  * Lines the directive line grows to before it scrolls.
  *
  * The composer is one line that grows to a cap. The cap is what keeps it from eating
- * the ledger it is addressed within: past this the input scrolls inside its own box and
+ * the transcript it is addressed within: past this the input scrolls inside its own box and
  * the session above it keeps its room.
  */
 export const COMPOSER_DRAFT_MAX_ROWS = 8;

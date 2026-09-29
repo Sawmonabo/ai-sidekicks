@@ -79,7 +79,7 @@ export interface ProjectedSessionEvent {
    * `EventEnvelope.id` in `packages/contracts/src/event.ts` — the first of the
    * canonical eleven, and the only member that names THIS event rather than its
    * position. It is carried rather than dropped because the console has a reader
-   * for it: the hydrated-event read is keyed `{sessionId, eventId}`, so a ledger
+   * for it: the hydrated-event read is keyed `{sessionId, eventId}`, so a transcript
    * row that wants the machine-authored body of the turn it is rendering has
    * nothing to ask with unless the projection kept this. A composed
    * `session:sequence` string names the same row to a human and resolves for no

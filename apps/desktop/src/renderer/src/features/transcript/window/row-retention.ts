@@ -1,4 +1,4 @@
-// The row objects one ledger derivation publishes, held across its own passes.
+// The row objects one transcript derivation publishes, held across its own passes.
 //
 // ITS OWN MODULE BECAUSE IT IS ONE JOB — structural sharing, one pass at a time —
 // and because it has two callers: the unfurled projection in `transcript-window.ts` and

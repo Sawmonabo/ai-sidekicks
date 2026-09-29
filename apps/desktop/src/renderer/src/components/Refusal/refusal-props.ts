@@ -1,7 +1,7 @@
 // The refusal grammar — three shapes, one contract.
 //
 // Design-language rule 9: controls are offered; refusals are rendered, in one of three
-// shapes — **inline** on the control that was pressed, as a **card** in the ledger when
+// shapes — **inline** on the control that was pressed, as a **card** in the transcript when
 // the refusal changes history, or as a **banner** across the workspace when it changes
 // what the whole room can do. A refusal never hides the control that produced it and
 // never re-derives the daemon's rule.
@@ -12,7 +12,7 @@
 //   • inline  — nothing changed. The act did not happen; the operator can try
 //               something else. It sits beside the control, and the control stays.
 //   • card    — the session's history now contains this refusal. It belongs in the
-//               ledger with everything else that happened.
+//               transcript with everything else that happened.
 //   • banner  — what the whole room can do has changed. It spans the frame.
 //
 // The three are three modules, one component each, and what they SHARE is here so

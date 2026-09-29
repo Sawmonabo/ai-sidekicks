@@ -99,7 +99,7 @@ describe("TranscriptPane — the row slot", () => {
     const pane = renderPane({ context: paneContext() });
     const body = pane.querySelector(".meridian-pane__body");
     expect(body?.textContent).toContain("The timeline rows have not been built yet.");
-    // The feed itself is the ledger's, and the ledger is not mounted at all while
+    // The feed itself is the transcript's, and the transcript is not mounted at all while
     // there is no row body to mount it for.
     expect(pane.querySelector('[role="feed"]')).toBeNull();
   });
@@ -119,7 +119,7 @@ describe("TranscriptPane — the row slot", () => {
     expect(body?.textContent).not.toContain("The timeline rows have not been built yet.");
   });
 
-  it("mounts the ledger and renders one row per admitted event", () => {
+  it("mounts the transcript and renders one row per admitted event", () => {
     // The positive control for the whole composition: the seat is filled, a store is
     // open, and a log has landed in it, so the projection has to reach the screen.
     // Every earlier case here is an absence, and a pane that rendered NOTHING but

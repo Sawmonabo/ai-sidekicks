@@ -1,4 +1,4 @@
-// The ledger's scroll chokepoint — the one module in the console that writes a
+// The transcript's scroll chokepoint — the one module in the console that writes a
 // scroll offset.
 //
 // Two static tripwires sit here — no `scrollTop` write outside the chokepoint, and no
@@ -125,7 +125,7 @@ export class ScrollController {
    *
    * AND IT ARMS ITS OWN OVERFLOW PASS. That detach canceled the frame the outgoing
    * attachment armed — right, since a pass on a detached controller samples nothing —
-   * but the obligation was the LEDGER's and not the departed node's, and an heir that
+   * but the obligation was the TRANSCRIPT's and not the departed node's, and an heir that
    * inherited none waited on the next resize. Coalesced, so an attachment that is also
    * resized still costs one pass. The BOX is not what this covers: that is published on
    * the line above and again by `publishOnResize`, neither of which waits for a frame.
@@ -191,7 +191,7 @@ export class ScrollController {
   }
 
   /**
-   * Move the ledger. The only `scrollTop` write in the console.
+   * Move the transcript. The only `scrollTop` write in the console.
    *
    * Returns what happened rather than `void` so a caller can tell a skipped no-op
    * from a write that landed somewhere else — which is the difference between "the

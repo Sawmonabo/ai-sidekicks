@@ -2,7 +2,7 @@
 //
 // The controller's own cases drive it directly — `viewport-controller.test.ts` owns
 // the prune, the reading floor, and the refusals. What only THIS file can say is
-// that a mounted ledger ever re-asks: the reconcile effect keys on the row set and
+// that a mounted transcript ever re-asks: the reconcile effect keys on the row set and
 // the two activity flags, so a window the cap refused while somebody was reading
 // above the tail is re-asked only if something in the tree calls for it. Without the
 // second effect every case here passes the first half and fails the second, which is
@@ -112,7 +112,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("the ledger viewport binding — a prune the window refused", () => {
+describe("the transcript viewport binding — a prune the window refused", () => {
   it("is re-asked when the reader returns to the tail, with no new rows", () => {
     withLaidOutViewport();
     const { binding, surface } = mountBinding(syntheticRows(SETTLED_ROW_COUNT));
@@ -155,7 +155,7 @@ describe("the ledger viewport binding — a prune the window refused", () => {
   });
 });
 
-describe("the ledger viewport binding — a prune the write itself refused", () => {
+describe("the transcript viewport binding — a prune the write itself refused", () => {
   it("takes the rows once the write that vetoed them has finished", () => {
     // THE DEPENDENCY THIS CASE SPENDS. The retry effect keys on the reading mode,
     // the pin, and the last prune outcome. Here the reader never leaves the tail and
@@ -217,7 +217,7 @@ describe("the ledger viewport binding — a prune the write itself refused", () 
   });
 });
 
-describe("the ledger viewport binding — a prune a pin held back", () => {
+describe("the transcript viewport binding — a prune a pin held back", () => {
   it("takes the rows when the pin lifts, with the reading mode unmoved", () => {
     // THE SECOND DEPENDENCY, spent the same way. Pinning history suppresses prune
     // and lifting it moves neither the row set, nor either activity flag, nor the

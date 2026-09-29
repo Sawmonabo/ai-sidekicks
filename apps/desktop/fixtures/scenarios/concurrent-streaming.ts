@@ -1,7 +1,7 @@
 // The concurrent-streaming scenario: four lanes streaming at once.
 //
 // The session `budgets.json`'s `frame-time-p95-four-lanes` row names as its subject:
-// "four agent lanes stream concurrently into the ledger". That row is enforced, so
+// "four agent lanes stream concurrently into the transcript". That row is enforced, so
 // this script is what the ceiling is measured against, and the concurrency is the
 // property under measurement rather than a description of it — four runs are
 // mid-turn at the same tick, interleaved beat by beat, and
@@ -273,7 +273,7 @@ const CONCURRENT_STREAMING_SCRIPT: readonly ScriptEntry[] = [
   }),
 
   // The four lanes spin up, staggered the way a real session's do. Each reaches
-  // `running` before the next is queued, so the ledger draws them arriving rather
+  // `running` before the next is queued, so the transcript draws them arriving rather
   // than appearing together.
   lane.transition(RUN_IMPLEMENTER, {
     atMs: 550,

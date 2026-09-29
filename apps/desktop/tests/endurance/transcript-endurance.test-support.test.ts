@@ -17,7 +17,7 @@ import { describe, expect, it } from "vitest";
 import { createTranscriptEnduranceFixture } from "./transcript-endurance.test-support.js";
 import { findScenarioContractDefects } from "../helpers/scenario-contract-check/contract-check.js";
 
-/** The count the endurance tier measures the ledger at. */
+/** The count the endurance tier measures the transcript at. */
 const TEN_THOUSAND_ROWS = 10_000;
 
 /** Small enough to parse every beat through the strict layer in one case. */

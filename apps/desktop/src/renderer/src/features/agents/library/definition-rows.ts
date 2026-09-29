@@ -24,7 +24,7 @@
 // rendering of a body that already has two homes.
 //
 // The timestamps are carried VERBATIM rather than through `formatClockTime`, which
-// fixes to hours, minutes, and seconds because a ledger's day divider carries the
+// fixes to hours, minutes, and seconds because a transcript's day divider carries the
 // date. A saved record has no day divider and its two instants span whatever period
 // the person has been tuning agents over, so the formatted reading would be
 // wrong rather than merely terse — and a wire string is rendered exactly as it arrived.

@@ -209,7 +209,7 @@ export const SESSION_ROUTE_BODY_SELECTOR: string =
  * a promise whose continuation schedules the next — and how many turns those take is a
  * property of the machine, not of the console. Forty of them are about 190 ms, which
  * is enough for a WARM mount and was not enough for a cold one on the pinned
- * `macos-15` runner: the first case in the ledger's file refused there while the
+ * `macos-15` runner: the first case in the transcript's file refused there while the
  * second, on the same route 1.1 s later, passed.
  *
  * A third of the tier's own timeout, read from the resolved configuration rather than

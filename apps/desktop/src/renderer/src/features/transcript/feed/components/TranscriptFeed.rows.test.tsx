@@ -34,7 +34,7 @@ const RUN_GROUP_HEADER = ".meridian-run-group-header";
 const RUN_GROUP_DISCLOSURE = ".meridian-run-group-header__disclosure";
 const SEAT_ROW = ".meridian-transcript-viewport__row";
 
-/** A row seat mount with no ledger around it — the refusal case's input. */
+/** A row seat mount with no transcript around it — the refusal case's input. */
 function outsideTranscriptRowProps(): TranscriptRowProps {
   return {
     row: {
@@ -158,7 +158,7 @@ describe("the transcript feed — a seam is the transcript's own row", () => {
 
   it("negative control: an ordinary row still reaches the seat renderer unchanged", () => {
     // Without this the case above would pass over a feed that had stopped delegating
-    // anything, which would replace every row body in the ledger with a seam line.
+    // anything, which would replace every row body in the transcript with a seam line.
     withLaidOutViewport();
     const seatRowTypes: string[] = [];
     const feed = renderFeed(openSessionStoreWithSystemMessage(), (mount) => {
@@ -193,7 +193,7 @@ describe("the transcript feed — a row's disclosure leaves the row", () => {
 
   it("negative control: a row nobody touched still shows the list's density", () => {
     // Without this the case above would pass over an overlay that collapsed every
-    // row once any lease existed, which would fold the whole ledger on one press.
+    // row once any lease existed, which would fold the whole transcript on one press.
     withLaidOutViewport();
     const densities = new Set<string>();
     renderFeed(openSessionStoreWithToolRows(3), (mount) => {

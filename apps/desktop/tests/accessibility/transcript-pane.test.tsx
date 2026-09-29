@@ -1,6 +1,6 @@
-// The accessibility tier — the ledger.
+// The accessibility tier — the transcript.
 //
-// WCAG 2.2 AA holds over every console surface, and the ledger is the one a person spends the day inside: a virtualized
+// WCAG 2.2 AA holds over every console surface, and the transcript is the one a person spends the day inside: a virtualized
 // feed of cards, a facet bar, and a find field, all of them
 // hue-tinted per user. Almost every rule this tier owns has a way to fail
 // here that it has nowhere else — a card whose muted label sits on a tinted ground,
@@ -10,10 +10,10 @@
 // WHY THE PANE IS MOUNTED DIRECTLY AND NOT THROUGH `AppProviders`
 //
 // The frame's own case next door mounts the root, which is right for the frame. The
-// ledger needs a session with CONTENT in it, and content reaches a store either from
+// transcript needs a session with CONTENT in it, and content reaches a store either from
 // a scripted beat — which a frozen clock delivers only when somebody advances it —
 // or from the log the store is handed. Advancing the fixture clock from here would
-// make the amount of ledger under test a function of how far the test wound the
+// make the amount of transcript under test a function of how far the test wound the
 // clock, which is a quantity nobody reading a failure would think to check. So the
 // store is opened on the scenario's own log directly, and what is measured is the
 // whole of it.
@@ -25,7 +25,7 @@
 // over a zero-height box reports no rows and would leave this file asserting that an
 // empty feed is accessible.
 //
-// TWO SURFACES, NOT ONE. A loaded ledger and an empty one are different documents:
+// TWO SURFACES, NOT ONE. A loaded transcript and an empty one are different documents:
 // the empty one has no feed items at all and renders an absence in their place, so a
 // rule that only bites over rows and a rule that only bites over the absence are two
 // rules, and running one surface would leave the other unmeasured. Both run in both
@@ -74,7 +74,7 @@ const SCENARIO_BASE_CURSOR = 0;
  * — the bridge handle on the context, the durable UI-state store, and the draft
  * store — are cast rather than constructed: one of them opens a database, and
  * building it to satisfy a field nothing reads would make the setup the subject.
- * (The bridge the ledger DOES read is the provider's, one level up, which is real.)
+ * (The bridge the transcript DOES read is the provider's, one level up, which is real.)
  */
 function ledgerPaneContext(sessionId: string, sessionStore: SessionStore): TranscriptPaneContext {
   return {
@@ -108,7 +108,7 @@ function openStoreOnScenario(scenario: Scenario): SessionStore {
 }
 
 /**
- * Mount one scenario's ledger the way a window mounts it.
+ * Mount one scenario's transcript the way a window mounts it.
  *
  * `TranscriptSurface` is the production wrapper around the workspace screen, and it is
  * what carries the full-height grid down to the scroll container. A bare test wrapper
@@ -130,7 +130,7 @@ beforeEach(() => {
   installMeridianTokens(document);
   // The row seat, filled with the same shell the console registers. Without it the
   // pane renders its reserved-not-built absence and this whole file would be
-  // measuring a grey line where the ledger is supposed to be.
+  // measuring a grey line where the transcript is supposed to be.
   registerTranscriptRows();
 });
 
@@ -152,10 +152,10 @@ describe("accessibility — the transcript", () => {
       // The positive control for the whole case, and it is not a formality: axe over
       // a feed that mounted no rows returns the same empty violation list as axe over
       // a feed that mounted them all, so without this the clean result below would
-      // hold over a ledger that drew nothing.
+      // hold over a transcript that drew nothing.
       expect(
         container.querySelectorAll(".meridian-transcript-viewport__row").length,
-        "the ledger mounted no rows, so a clean axe result says nothing about a card",
+        "the transcript mounted no rows, so a clean axe result says nothing about a card",
       ).toBeGreaterThan(0);
 
       expect(describeViolations(await runTierAxe(container))).toStrictEqual([]);

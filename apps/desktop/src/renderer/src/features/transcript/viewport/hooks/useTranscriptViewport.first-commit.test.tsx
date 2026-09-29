@@ -1,4 +1,4 @@
-// What a freshly mounted ledger viewport has on screen when its mount settles.
+// What a freshly mounted transcript viewport has on screen when its mount settles.
 //
 // THE PROPERTY, AND WHY IT NEEDS A CASE OF ITS OWN. The virtualizer computes NO range
 // at all while its rect reports zero height — measured, `@tanstack/virtual-core`'s
@@ -82,7 +82,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("the ledger viewport's first commit", () => {
+describe("the transcript viewport's first commit", () => {
   it("mounts rows on a box the layout has measured", () => {
     // `happy-dom` answers zero for every box, so the height is the one thing this
     // environment has to be told. Every module between it and the row count — the
@@ -96,7 +96,7 @@ describe("the ledger viewport's first commit", () => {
     const mountedRowCount = view.container.querySelectorAll(MOUNTED_ROW_SELECTOR).length;
     expect(
       mountedRowCount,
-      "the mount settled with no row on screen, so a session opened on a log this long draws an empty ledger",
+      "the mount settled with no row on screen, so a session opened on a log this long draws an empty transcript",
     ).toBeGreaterThan(0);
     // AND IT IS STILL A WINDOW. Without this the case passes over a viewport that
     // gave up and mounted the whole log, which is the other way a first commit can

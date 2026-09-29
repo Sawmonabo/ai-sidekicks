@@ -21,7 +21,7 @@
 // hand-rolled tables that agree today.
 //
 // PANES CAN NAME THE PANE THEY WERE OPENED FROM, AND STILL NOT HOLD IT. A pane layout
-// links two panes when one opens the other — an inspector opened from a ledger row
+// links two panes when one opens the other — an inspector opened from a transcript row
 // is a view OF that row's pane — and the link travels as an identifier passed in at
 // mount (`PaneContext.linkedSourcePaneId`), never as a handle held. That is
 // the design's independence rule made structural: a linked pane is still moved

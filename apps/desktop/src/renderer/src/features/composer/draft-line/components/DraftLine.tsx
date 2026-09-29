@@ -71,7 +71,7 @@ export function DraftLine(props: ComposerProps): React.JSX.Element {
         value={text}
         rows={1}
         // The growth cap: the line grows to it and then scrolls inside its own box,
-        // so the ledger above keeps its room.
+        // so the transcript above keeps its room.
         style={{ maxHeight: `calc(${String(COMPOSER_DRAFT_MAX_ROWS)} * 1.5em)` }}
         onChange={onChange}
         onKeyDown={onKeyDown}

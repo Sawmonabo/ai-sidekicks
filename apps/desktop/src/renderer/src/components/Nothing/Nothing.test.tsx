@@ -174,7 +174,7 @@ describe("Nothing — each kind says what its own next move needs", () => {
       "Loading the sessions",
     );
     // The control: the bars are uneven on purpose — three equal bars read as a
-    // table, and the shape being imitated is a ledger row.
+    // table, and the shape being imitated is a transcript row.
     const barWidths = [...notLoaded.querySelectorAll(".meridian-nothing__skeleton-bar")].map(
       (bar) => (bar instanceof HTMLElement ? bar.style.width : ""),
     );

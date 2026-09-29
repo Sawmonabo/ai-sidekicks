@@ -133,7 +133,7 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
     renderTimelineRow,
   });
 
-  // The palette's chords and the session header's chips both act on whichever ledger is
+  // The palette's chords and the session header's chips both act on whichever transcript is
   // mounted when they fire, and neither can import this component. Both seats are
   // claimed here for the mount's lifetime; what each act does is its own module's.
   const collapseAllTerminal = runGroupDisclosure.collapseAllTerminal;

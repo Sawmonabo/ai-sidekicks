@@ -32,7 +32,7 @@ import type { HydratedSessionEventContent, TimelineRow } from "@ai-sidekicks/con
 import type { GlyphName } from "@renderer/styles/glyphs.js";
 
 /**
- * Every card family a ledger row can take. Closed.
+ * Every card family a transcript row can take. Closed.
  *
  * The tuple is the declaration and the union is derived from it, for the reason
  * `primitives/figures/Chip.tsx` gives about its own tone set: a fifth kind added to a

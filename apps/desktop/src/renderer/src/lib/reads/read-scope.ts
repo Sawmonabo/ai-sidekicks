@@ -5,7 +5,7 @@
 // another pane before it lands. Nothing anywhere stopped that read: the promise went
 // on resolving, the reply went on being parsed against its registered schema, the
 // projection went on being built, and the frame that painted it was thrown away —
-// all of it on the same thread the streaming ledger paints on. The answer was
+// all of it on the same thread the streaming transcript paints on. The answer was
 // correct and nobody was waiting for it. What this module removes is that
 // competition.
 //

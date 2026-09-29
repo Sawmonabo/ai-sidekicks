@@ -18,7 +18,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("the ledger feed — what it does not hold", () => {
+describe("the transcript feed — what it does not hold", () => {
   it("names the rows the cap took", () => {
     withLaidOutViewport();
     const feed = renderFeed(openSessionStoreWithGeneralLog(OVER_CAP_EVENT_COUNT));

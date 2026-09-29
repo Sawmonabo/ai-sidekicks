@@ -22,7 +22,7 @@ export interface SessionStoreState {
   /** Entity maps, one per kind. Only touched partitions change identity. */
   readonly partitions: SessionPartitions;
   /**
-   * Ordered event log for the session, the ledger's source.
+   * Ordered event log for the session, the transcript's source.
    *
    * Append-only at the TAIL, which is where the subscription writes. It also grows at
    * the HEAD, and only there and only through `prependEarlierEvents`: a session's

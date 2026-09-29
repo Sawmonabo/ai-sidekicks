@@ -23,7 +23,7 @@ const GEOMETRY_FAILURE = refuse(
   "The viewport was not measurable.",
 );
 
-describe("the ledger's error slots", () => {
+describe("the transcript's error slots", () => {
   it("ranks the durable failure above the transient one", () => {
     const slots = new TranscriptErrorTable();
     slots.record("geometry", GEOMETRY_FAILURE);

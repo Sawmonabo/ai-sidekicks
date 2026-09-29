@@ -218,11 +218,11 @@ describe("the deferred jump", () => {
     expect(deferred.jumps).toStrictEqual([OTHER_ROW.id]);
   });
 
-  it("abandons a request the ledger is no longer being asked about", () => {
+  it("abandons a request the transcript is no longer being asked about", () => {
     // THE DEFECT: the request cleared only on a successful jump or a replacement,
     // and closing the find field resets the query and nothing else — so a request
     // whose act never widened the window outlived the field, and playback reaching
-    // that row minutes later scrolled the ledger away from what somebody was
+    // that row minutes later scrolled the transcript away from what somebody was
     // reading with nothing on screen explaining why.
     const deferred = mountDeferredJump();
     deferred.request(REQUESTED_ROW.id);

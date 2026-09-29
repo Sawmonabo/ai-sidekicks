@@ -21,7 +21,7 @@
 //
 // THE INPUT-KIND ASK IS NOT HERE. The `kind` discriminator on the originating ask
 // selects between this surface and the input-ask card, so exactly one of the two
-// renders any given ask and neither has to guess. The input card is the ledger
+// renders any given ask and neither has to guess. The input card is the transcript
 // family's, and the `driver.respondToRequest` ingress that answers one is reached
 // from nowhere on this surface.
 

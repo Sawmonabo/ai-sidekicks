@@ -10,7 +10,7 @@
 /*
  * One finished run, on one line, with the disclosure that opens it.
  *
- * The 2 px inline-start edge is the same attribution edge a ledger row wears, set
+ * The 2 px inline-start edge is the same attribution edge a transcript row wears, set
  * from the user wheel by the component so a run group and the rows inside it
  * are colored by one allocation. The fallback is the neutral border, which is what
  * an unattributed run group takes — never a user hue nobody was allocated.
@@ -77,7 +77,7 @@
  *
  * `overflow-anchor` is the re-pin, declared rather than left to the default: when a
  * row above the reading position settles to a different height, the engine holds the
- * reading position instead of letting the content slide under it. The ledger writes
+ * reading position instead of letting the content slide under it. The transcript writes
  * scroll offsets in one module, so this body's re-pin is the platform's and not a
  * second writer's.
  */

@@ -27,14 +27,14 @@ interface LedgerJumpActContext {
   readonly requestJump: (rowId: string) => void;
 }
 
-/** How one absence resolves its act, or answers that this ledger offers none. */
+/** How one absence resolves its act, or answers that this transcript offers none. */
 type LedgerJumpAct = (
   row: TimelineRow,
   context: LedgerJumpActContext,
 ) => TranscriptJumpReach | undefined;
 
 /**
- * The act each absence deserves over THIS ledger, or `undefined` where none exists.
+ * The act each absence deserves over THIS transcript, or `undefined` where none exists.
  *
  * A TABLE KEYED BY ABSENCE, total over `ROW_JUMP_ABSENCES` by `satisfies`, so a
  * narrowing added to the pipeline cannot compile and fall through to "Open that
@@ -69,7 +69,7 @@ const JUMP_ACTS = {
 } satisfies Readonly<Record<RowJumpAbsence, LedgerJumpAct>>;
 
 /**
- * The act this ledger offers for one outcome, or `undefined` where it offers none.
+ * The act this transcript offers for one outcome, or `undefined` where it offers none.
  *
  * The two non-absence arms answer before the table is consulted, and each for its
  * own reason rather than for one shared one: a row the viewport is showing needs no

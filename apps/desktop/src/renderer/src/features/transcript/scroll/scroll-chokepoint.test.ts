@@ -337,7 +337,7 @@ describe("the scroll chokepoint — prune veto, batching, and teardown", () => {
   it("re-arms the pass for the surface a re-attach brought, not the one it canceled", () => {
     // THE STARVATION THIS RULES OUT. `attach` detaches first, and detach cancels the
     // armed frame — correctly, since a pass on a detached controller samples nothing.
-    // But the obligation the canceled frame carried belongs to the LEDGER and not to
+    // But the obligation the canceled frame carried belongs to the TRANSCRIPT and not to
     // the surface that has gone: under a frozen fixture clock a remount arrives before
     // the frame it armed ever runs, so every cycle armed one and canceled it, and the
     // box was never re-measured for any of them. A re-attach owes its own pass.

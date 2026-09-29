@@ -31,7 +31,7 @@ import type { ThemeRegistrationRaw } from "shiki/types";
 /**
  * Every family a highlighted token can belong to. Closed.
  *
- * Nine, and the grouping is deliberately coarser than a syntax theme's: the ledger is a
+ * Nine, and the grouping is deliberately coarser than a syntax theme's: the transcript is a
  * work log, and a code block inside it competes with the prose around it for a reader's
  * attention. Nine families are enough to make structure legible — what is a name, what
  * is a literal, what is an aside — and few enough that the block does not become the

@@ -40,7 +40,7 @@ function commandById(commands: readonly CommandDefinition[], commandId: string):
   return command;
 }
 
-describe("ledger commands — the contribution is a value, and building it registers nothing", () => {
+describe("transcript commands — the contribution is a value, and building it registers nothing", () => {
   it("fires no act merely by being built", () => {
     const fired: string[] = [];
     createTranscriptCommands(recordingActs(fired));
@@ -48,7 +48,7 @@ describe("ledger commands — the contribution is a value, and building it regis
   });
 
   it("builds a fresh list per window rather than handing out one shared array", () => {
-    // Every `run` closes over one window's ledger, which is why this is a function
+    // Every `run` closes over one window's transcript, which is why this is a function
     // of the acts and not a module-scope constant.
     const acts = recordingActs([]);
     expect(createTranscriptCommands(acts)).not.toBe(createTranscriptCommands(acts));
@@ -82,7 +82,7 @@ describe("ledger commands — the contribution is a value, and building it regis
   });
 });
 
-describe("ledger commands — the rows themselves", () => {
+describe("transcript commands — the rows themselves", () => {
   const commands = createTranscriptCommands(recordingActs([]));
 
   it("offers five acts under one group, each id unique and namespaced", () => {
@@ -126,7 +126,7 @@ describe("ledger commands — the rows themselves", () => {
   });
 });
 
-describe("ledger commands — the contribution reaches the palette and the keyboard", () => {
+describe("transcript commands — the contribution reaches the palette and the keyboard", () => {
   /** Contributing an empty set is how a window is left with none of this family's rows. */
   function withdrawLedgerContribution(): void {
     commandContributionRegistry.contribute({
@@ -172,7 +172,7 @@ describe("ledger commands — the contribution reaches the palette and the keybo
     }
   });
 
-  it("opens find on the ledger that is mounted when the chord is pressed", () => {
+  it("opens find on the transcript that is mounted when the chord is pressed", () => {
     // The whole seam in one case: contributed at composition, resolved at press.
     const fired: string[] = [];
     const seat = new MountedTranscript();
@@ -193,9 +193,9 @@ describe("ledger commands — the contribution reaches the palette and the keybo
     release();
   });
 
-  it("states a refusal where a person can read it when no ledger is mounted", () => {
+  it("states a refusal where a person can read it when no transcript is mounted", () => {
     // Not a silent press: the act has no surface of its own, so it takes rule 9's
-    // banner — which is exactly what a ledger chord from the settings page needs.
+    // banner — which is exactly what a transcript chord from the settings page needs.
     const raised: Refusal[] = [];
     const withdrawSink = publishCommandRefusalSink((refusal) => raised.push(refusal));
     registerTranscriptCommands(commandContributionRegistry, new MountedTranscript());

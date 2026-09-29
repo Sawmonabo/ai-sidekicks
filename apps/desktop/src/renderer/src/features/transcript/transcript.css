@@ -29,7 +29,7 @@
  * AND `max-height` IS WHAT MAKES THAT TRUE RATHER THAN INTENDED. `min-height: 100%`
  * is a floor and this box has no `height`, so a session whose log outgrew the window
  * grew the surface instead of scrolling inside it: the frame's own scroller took the
- * overflow, the ledger's track resolved to its content, and the viewport mounted a
+ * overflow, the transcript's track resolved to its content, and the viewport mounted a
  * row for every entry in the session — a virtualized list laying out and painting the
  * whole log every frame, with a cost that grew with the session rather than with the
  * screen. Measured on the endurance workload, 51 of 51 rows mounted in a 5 541-pixel
@@ -47,7 +47,7 @@
   max-height: 100%;
 }
 
-/* --- The loaded ledger -------------------------------------------------- */
+/* --- The loaded transcript -------------------------------------------------- */
 
 /*
  * The whole feed for one session: an optional find strip above, and below it the

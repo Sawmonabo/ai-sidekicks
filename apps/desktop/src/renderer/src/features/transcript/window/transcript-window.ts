@@ -53,7 +53,7 @@ import { TranscriptRowRetention } from "./row-retention.js";
  * separated and thrown away.
  *
  * AND `removedRows` IS IDENTITY-STABLE WHERE A STAGE REMOVED NOTHING, which is what
- * makes the common ledger free rather than merely cheaper: a consumer's memo over
+ * makes the common transcript free rather than merely cheaper: a consumer's memo over
  * {@link NO_ROWS_REMOVED} does not re-run at all when the log grows.
  */
 export interface TranscriptPipelineStage {
@@ -71,7 +71,7 @@ export interface TranscriptPipelineStage {
  */
 export const NO_ROWS_REMOVED: readonly TimelineRow[] = [];
 
-/** Everything one render of the ledger needs, derived once per store revision. */
+/** Everything one render of the transcript needs, derived once per store revision. */
 export interface TranscriptWindowModel {
   /** The virtualizer's identity list. Memoized: the viewport keys its reconcile on it. */
   readonly viewportRows: readonly ViewportRow[];

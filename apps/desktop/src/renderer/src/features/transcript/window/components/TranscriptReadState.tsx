@@ -39,7 +39,7 @@ import { Nothing } from "@renderer/console/primitives/index.js";
 /**
  * How many row shells a window that has not been read yet draws.
  *
- * Twelve is a screen of ledger at this density: enough that the shape on screen is
+ * Twelve is a screen of transcript at this density: enough that the shape on screen is
  * the shape the rows will take, and few enough that the first read replacing them is
  * one repaint rather than a page of shells collapsing.
  */
