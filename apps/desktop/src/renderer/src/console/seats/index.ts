@@ -327,7 +327,7 @@ export { coerceToRefusal } from "@renderer/lib/coerce-to-refusal.js";
 export { unwrapDaemonReply } from "@renderer/services/daemon/unwrap-daemon-reply.js";
 
 // The console's single copy of the daemon-EVENT cast. The brand
-// `DesktopBridge.daemon.subscribe` takes is `never`-shaped until the daemon method
+// `PlatformBridge.daemon.subscribe` takes is `never`-shaped until the daemon method
 // union narrows it, and every caller casts; one module casts, and the day it narrows one
 // file changes. Its call-side twin is gone — `bridge/daemon/daemon-reply.ts` names the
 // methods and parses both directions, so no seat casts a call any more.

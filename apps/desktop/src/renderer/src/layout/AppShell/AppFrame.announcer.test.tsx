@@ -18,7 +18,7 @@
 import { act, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { CONCURRENT_STREAMING_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
 import { LIVE_ANNOUNCEMENT_HOLD_MS } from "@renderer/components/LiveAnnouncer/live-announcement-caps.js";
 import type { WindowBanner } from "@renderer/store/window/window-store.js";
@@ -42,7 +42,7 @@ const REFUSAL_BANNER: WindowBanner = {
 };
 
 /** The running engine, or a failure that names what was missing rather than `undefined`. */
-function scenarioEngineOf(bridge: ConsoleBridge): NonNullable<ConsoleBridge["scenarioEngine"]> {
+function scenarioEngineOf(bridge: PlatformBridge): NonNullable<PlatformBridge["scenarioEngine"]> {
   const engine = bridge.scenarioEngine;
   if (engine === undefined) {
     throw new Error("the fixture bridge exposed no scenario engine");

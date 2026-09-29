@@ -27,7 +27,7 @@ import { describe, expect, it } from "vitest";
 import { createFixture } from "@test/helpers/fixture-bridge.js";
 import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import { usePlatformBridge } from "@renderer/services/platform/hooks/usePlatformBridge.js";
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { EntityProjectorRegistry } from "@renderer/registries/entity-projectors/entity-projector-registry.js";
 import { type SessionSnapshotReader } from "@renderer/store/session/open-session-entry.js";
 import { type SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
@@ -37,7 +37,7 @@ const readNothing: SessionSnapshotReader = () => Promise.resolve(undefined);
 
 /** What one committed render was handed, read in the render body rather than after. */
 interface Observation {
-  readonly bridge: ConsoleBridge;
+  readonly bridge: PlatformBridge;
   readonly registry: SessionStoreRegistry;
 }
 
@@ -55,7 +55,7 @@ function RegistryProbe(props: RegistryProbeProps): null {
 }
 
 interface SwapHostProps extends RegistryProbeProps {
-  readonly bridge: ConsoleBridge;
+  readonly bridge: PlatformBridge;
 }
 
 function SwapHost(props: SwapHostProps): React.JSX.Element {
@@ -79,7 +79,7 @@ interface SwapHarness {
    * replacing it must leave a live registry alone.
    */
   readonly renderAgainst: (
-    bridge: ConsoleBridge,
+    bridge: PlatformBridge,
     projectorRegistry?: EntityProjectorRegistry,
   ) => void;
   readonly unmount: () => void;
@@ -96,13 +96,13 @@ interface SwapHarness {
  * which fold a store opens with is `useSessionStoreRegistry.registry-wiring.test.tsx`'s
  * subject, and this one is about which bridge the plumbing was built from.
  */
-function mountAgainst(bridge: ConsoleBridge): SwapHarness {
+function mountAgainst(bridge: PlatformBridge): SwapHarness {
   const observed: Observation[] = [];
   const record = (observation: Observation): void => {
     observed.push(observation);
   };
   const firstBoard = new EntityProjectorRegistry();
-  const hostFor = (against: ConsoleBridge, board: EntityProjectorRegistry): React.JSX.Element => (
+  const hostFor = (against: PlatformBridge, board: EntityProjectorRegistry): React.JSX.Element => (
     <SwapHost bridge={against} projectorRegistry={board} onObserve={record} />
   );
   const mounted = render(hostFor(bridge, firstBoard));
@@ -111,7 +111,7 @@ function mountAgainst(bridge: ConsoleBridge): SwapHarness {
     registries: (): readonly SessionStoreRegistry[] => [
       ...new Set(observed.map((observation) => observation.registry)),
     ],
-    renderAgainst: (next: ConsoleBridge, board: EntityProjectorRegistry = firstBoard): void => {
+    renderAgainst: (next: PlatformBridge, board: EntityProjectorRegistry = firstBoard): void => {
       mounted.rerender(hostFor(next, board));
     },
     unmount: (): void => {
@@ -129,9 +129,9 @@ describe("useSessionStoreRegistry — the plumbing follows the bridge", () => {
 
     harness.renderAgainst(createFixture().bridge);
 
-    const bridgesPerRegistry = new Map<SessionStoreRegistry, Set<ConsoleBridge>>();
+    const bridgesPerRegistry = new Map<SessionStoreRegistry, Set<PlatformBridge>>();
     for (const observation of harness.observed) {
-      const bridges = bridgesPerRegistry.get(observation.registry) ?? new Set<ConsoleBridge>();
+      const bridges = bridgesPerRegistry.get(observation.registry) ?? new Set<PlatformBridge>();
       bridges.add(observation.bridge);
       bridgesPerRegistry.set(observation.registry, bridges);
     }

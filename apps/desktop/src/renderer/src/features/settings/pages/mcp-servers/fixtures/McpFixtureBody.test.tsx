@@ -14,7 +14,7 @@ import type {
   McpServerInventoryEntry,
   SessionId,
 } from "@ai-sidekicks/contracts";
-import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { unscriptedScenario } from "@test/helpers/fixture-bridge.js";
 import { settleScheduledRead } from "@test/helpers/scheduled-read.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
@@ -107,7 +107,7 @@ function operationsServing(
   };
 }
 
-function fixtureBridge(): ConsoleBridge {
+function fixtureBridge(): PlatformBridge {
   return createFixtureBridge({ scenario: unscriptedScenario("mcp-shell") });
 }
 
@@ -132,7 +132,7 @@ function MountedMcpShell(props: {
  * at a different bridge the way `PlatformBridgeProvider` does on a reconnect.
  */
 function shellTree(
-  bridge: ConsoleBridge,
+  bridge: PlatformBridge,
   operations: McpShellOperations,
   mintKey?: () => string,
 ): React.JSX.Element {
@@ -168,7 +168,7 @@ function firstEnableButton(container: HTMLElement): HTMLButtonElement {
 async function renderSettledShell(
   operations: McpShellOperations,
   mintKey?: () => string,
-): Promise<{ readonly container: HTMLElement; readonly bridge: ConsoleBridge }> {
+): Promise<{ readonly container: HTMLElement; readonly bridge: PlatformBridge }> {
   const bridge = fixtureBridge();
   const { container } = render(shellTree(bridge, operations, mintKey));
   await settleScheduledRead(bridge);

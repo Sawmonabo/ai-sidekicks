@@ -21,7 +21,7 @@
 // than with a timeout that says nothing about what was missing.
 
 import { act } from "@testing-library/react";
-import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { REFRESH_DEBOUNCE_MS } from "@renderer/lib/reads/refresh-caps.js";
 import { crossMacrotaskBoundary } from "./macrotask-boundary.js";
 
@@ -38,7 +38,7 @@ import { crossMacrotaskBoundary } from "./macrotask-boundary.js";
 const SCENARIO_SETTLE_PASSES = 24;
 
 /** Move scenario time one debounce interval and flush whatever it released. */
-export async function advanceScenarioOneInterval(bridge: ConsoleBridge): Promise<void> {
+export async function advanceScenarioOneInterval(bridge: PlatformBridge): Promise<void> {
   await act(async () => {
     bridge.scenarioEngine?.advance(REFRESH_DEBOUNCE_MS);
     await crossMacrotaskBoundary();
@@ -54,7 +54,7 @@ export async function advanceScenarioOneInterval(bridge: ConsoleBridge): Promise
  * different composition from the one the case is about.
  */
 export async function advanceScenarioUntil(
-  bridge: ConsoleBridge,
+  bridge: PlatformBridge,
   assert: () => void,
 ): Promise<void> {
   for (let pass = 0; pass < SCENARIO_SETTLE_PASSES; pass += 1) {

@@ -38,7 +38,7 @@ import type {
 } from "@renderer/store/driver-capabilities/driver-capability-readout.js";
 import { callDaemon } from "../daemon/daemon-reply.js";
 import { resolveBridgeClock } from "../platform/hooks/useClock.js";
-import { type ConsoleBridge } from "../platform/platform-bridge.js";
+import { type PlatformBridge } from "../platform/platform-bridge.js";
 
 /** No run has a named binding yet. Frozen so no caller writes one in place. */
 const NO_RUN_BINDINGS: ReadonlyMap<string, string> = new Map<string, string>();
@@ -68,12 +68,12 @@ class BridgeCapabilityRead implements ReadTriggerTarget {
    * connection was repaired, and never because a run ended.
    */
   public readonly triggeringEventKinds: ReadonlySet<string> = NO_TRIGGERING_EVENT_KINDS;
-  readonly #bridge: ConsoleBridge;
+  readonly #bridge: PlatformBridge;
   readonly #scheduler: RefreshScheduler;
   readonly #listeners = new Set<() => void>();
   #readout: DriverCapabilityReadout | undefined;
 
-  public constructor(bridge: ConsoleBridge) {
+  public constructor(bridge: PlatformBridge) {
     this.#bridge = bridge;
     this.#scheduler = new RefreshScheduler({
       // The fixture's frozen clock wherever a scenario is playing and the real one
@@ -183,9 +183,9 @@ function refusedReadout(readRefusal: Refusal): DriverCapabilityReadout {
  * test's fixture bridge cannot serve a later test its reply.
  */
 class DriverCapabilityReadCache {
-  readonly #readingByBridge = new WeakMap<ConsoleBridge, BridgeCapabilityRead>();
+  readonly #readingByBridge = new WeakMap<PlatformBridge, BridgeCapabilityRead>();
 
-  public reading(bridge: ConsoleBridge): BridgeCapabilityRead {
+  public reading(bridge: PlatformBridge): BridgeCapabilityRead {
     const held = this.#readingByBridge.get(bridge);
     if (held !== undefined) {
       return held;

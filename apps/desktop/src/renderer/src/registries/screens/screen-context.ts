@@ -5,7 +5,7 @@
 // the registry reaches `PendingScreenBody.tsx`, which names the context a surface is
 // mounted with. Declaring that context in the registry made the pair a cycle, and the
 // layering gate counts type edges so an `import type` cannot hide one.
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { type DraftStore } from "@renderer/store/draft-store.js";
 import { type UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
 import type { ConsoleRoute } from "@renderer/routing/routes.js";
@@ -18,7 +18,7 @@ import type { PaneRegistry } from "../panes/pane-registry.js";
 /** Everything a surface is handed. Nothing here is global; all of it is per window. */
 export interface ScreenContext {
   readonly route: ConsoleRoute;
-  readonly bridge: ConsoleBridge;
+  readonly bridge: PlatformBridge;
   readonly frameStore: WindowStore;
   /** The session store for the route's session, or `undefined` on a bare route. */
   readonly sessionStore: SessionStore | undefined;

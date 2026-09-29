@@ -18,7 +18,7 @@ import { Dialog } from "@base-ui/react/dialog";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { ExecutionMode } from "@ai-sidekicks/contracts";
-import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { Nothing, OverlayDialogPopup, WireFigure } from "@renderer/console/primitives/index.js";
 import type { SessionStore } from "@renderer/store/session/session-store.js";
 import type { RepoOperations } from "../../repo-operations.js";
@@ -32,7 +32,7 @@ import { EMPTY_BIND_FORM, resolveBindForm, type BindFormState } from "./bind-for
 const MODE_GROUP_NAME = "meridian-bind-mode";
 
 export interface BindWorkspaceDialogProps {
-  readonly bridge: ConsoleBridge;
+  readonly bridge: PlatformBridge;
   /** The pre-bind read and the bind the dialog sends. */
   readonly operations: Pick<RepoOperations, "bindWorkspace" | "readMountExecutionModes">;
   /** The mount a new workspace binds on. */

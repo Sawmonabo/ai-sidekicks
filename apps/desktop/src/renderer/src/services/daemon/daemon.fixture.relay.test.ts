@@ -44,7 +44,7 @@ function subscribeToRelay(fixture: FixtureUnderTest, sessionId: string): readonl
   const handler: RelayEventHandler = (event) => {
     received.push(event);
   };
-  fixture.bridge.desktopBridge.controlPlane.subscribeRelay(sessionId as SessionId, handler);
+  fixture.bridge.controlPlane.subscribeRelay(sessionId as SessionId, handler);
   return received;
 }
 
@@ -93,7 +93,7 @@ describe("fixture bridge — a relay subscription delivers only its own session"
     // `Unsubscribe` is declared idempotent, and a caller cannot tell which arm it
     // got — so the no-op disposer has to be callable twice like every other one.
     const fixture = createFixture();
-    const unsubscribe = fixture.bridge.desktopBridge.controlPlane.subscribeRelay(
+    const unsubscribe = fixture.bridge.controlPlane.subscribeRelay(
       STRANGER_SESSION_ID as SessionId,
       () => undefined,
     );
@@ -110,13 +110,10 @@ describe("fixture bridge — a relay subscription delivers only its own session"
     // a sink that filters everything out, it is a sink the engine never holds.
     const fixture = createFixture();
 
-    fixture.bridge.desktopBridge.controlPlane.subscribeRelay(
-      STRANGER_SESSION_ID as SessionId,
-      () => undefined,
-    );
+    fixture.bridge.controlPlane.subscribeRelay(STRANGER_SESSION_ID as SessionId, () => undefined);
     expect(fixture.engine.sinkCount).toBe(0);
 
-    fixture.bridge.desktopBridge.controlPlane.subscribeRelay(
+    fixture.bridge.controlPlane.subscribeRelay(
       CONCURRENT_STREAMING_SCENARIO.sessionId as SessionId,
       () => undefined,
     );

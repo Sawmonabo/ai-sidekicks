@@ -20,7 +20,7 @@ import { act, render } from "@testing-library/react";
 
 import { bridgeAnswering } from "@test/helpers/fixture-bridge.js";
 import { settleScheduledRead } from "@test/helpers/scheduled-read.js";
-import type { ConsoleBridge } from "../platform/platform-bridge.js";
+import type { PlatformBridge } from "../platform/platform-bridge.js";
 import {
   CapabilityProbe,
   answeringCapabilityReads,
@@ -200,7 +200,7 @@ describe("useDriverCapabilities — a read that failed says so", () => {
 describe("useDriverCapabilities — a settlement is never terminal", () => {
   /** One consumer bound to a session, so the repair reason is wired as a pane wires it. */
   function RepairingProbe(props: {
-    readonly bridge: ConsoleBridge;
+    readonly bridge: PlatformBridge;
     readonly sessionStore: SessionStore;
     readonly onReadout: (readout: DriverCapabilityReadout | undefined) => void;
   }): React.JSX.Element {

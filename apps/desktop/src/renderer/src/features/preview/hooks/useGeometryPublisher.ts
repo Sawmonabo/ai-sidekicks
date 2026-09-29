@@ -19,7 +19,7 @@ import { type SubjectScopedDisposal } from "@renderer/lib/subject-scoped/subject
 import { airspaceRegistryFor } from "@renderer/lib/airspace-registries.js";
 import { type AirspaceRegistry } from "@renderer/lib/airspace-registry.js";
 import { resolveBridgeClock } from "@renderer/services/platform/hooks/useClock.js";
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import type { PaneSubject } from "../types.js";
 
 /**
@@ -113,7 +113,7 @@ export interface BoundGeometryPublisher extends PaneSubject {
  * other way — both idempotent, and both terminal by the publisher's own contract.
  */
 export function useGeometryPublisher(
-  bridge: ConsoleBridge,
+  bridge: PlatformBridge,
   paneId: string,
   viewHost: AttachedPaneViewHost,
 ): {

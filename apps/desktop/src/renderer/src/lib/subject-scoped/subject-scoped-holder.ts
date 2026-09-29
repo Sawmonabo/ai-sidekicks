@@ -45,7 +45,7 @@
 // over — a pass for another subject, or one back at the committed subject.
 //
 // THE SUBJECT IS AN OBJECT AND A KEY WITHIN IT, and the object is deliberately opaque.
-// `store/` sits below `bridge/` in the console's DAG and may not name a `ConsoleBridge`
+// `store/` sits below `bridge/` in the console's DAG and may not name a `PlatformBridge`
 // or a `SessionStore`; each of them is a live object whose replacement retires the
 // calls made through it, which is exactly what identity comparison expresses. So the subject is `object`, compared by reference,
 // and the families name their own subjects at their own doors —

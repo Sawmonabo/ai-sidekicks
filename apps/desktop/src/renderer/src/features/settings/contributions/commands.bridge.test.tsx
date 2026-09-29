@@ -12,14 +12,14 @@ import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import type { Refusal } from "@renderer/lib/refusal.js";
 import type { CommandDefinition } from "@renderer/registries/commands/command-types.js";
 import { buildBridgeCommands } from "./commands.js";
 import { useBridgeCommands } from "../hooks/useBridgeCommands.js";
 import { FIRST_RUN_SCENARIO } from "../../../../../../fixtures/scenarios/first-run.js";
 
-function fixtureBridge(): ConsoleBridge {
+function fixtureBridge(): PlatformBridge {
   return createFixtureBridge({ scenario: FIRST_RUN_SCENARIO });
 }
 
@@ -55,15 +55,12 @@ describe("palette bridge commands — a refused act is rendered, never dropped",
     // `settle` entirely, the sink is never called, and `run` rejects into a dispatch
     // that drops it.
     const bridge = fixtureBridge();
-    const throwing: ConsoleBridge = {
+    const throwing: PlatformBridge = {
       ...bridge,
-      desktopBridge: {
-        ...bridge.desktopBridge,
-        update: {
-          ...bridge.desktopBridge.update,
-          requestCheck: () => {
-            throw new Error("update.requestCheck is not implemented");
-          },
+      update: {
+        ...bridge.update,
+        requestCheck: () => {
+          throw new Error("update.requestCheck is not implemented");
         },
       },
     };
@@ -100,15 +97,12 @@ describe("palette bridge commands — a refused act is rendered, never dropped",
     // read `navigator` would pass every assertion above and still be wrong.
     let copied: string | undefined;
     const bridge = fixtureBridge();
-    const instrumented: ConsoleBridge = {
+    const instrumented: PlatformBridge = {
       ...bridge,
-      desktopBridge: {
-        ...bridge.desktopBridge,
-        native: {
-          ...bridge.desktopBridge.native,
-          copyToClipboard: async (text: string) => {
-            copied = text;
-          },
+      native: {
+        ...bridge.native,
+        copyToClipboard: async (text: string) => {
+          copied = text;
         },
       },
     };
@@ -116,7 +110,7 @@ describe("palette bridge commands — a refused act is rendered, never dropped",
 
     await commandById(commands, "bridge.copyBuildDetails").run();
 
-    const { version, platform, arch, locale } = bridge.desktopBridge.app;
+    const { version, platform, arch, locale } = bridge.app;
     expect(copied).toBe(`AI Sidekicks ${version} — ${platform}/${arch} — ${locale}`);
   });
 });

@@ -30,7 +30,7 @@
 // where it lands rather than written at an address the composer has left.
 
 import { useCallback } from "react";
-import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import type { Refusal } from "@renderer/lib/refusal.js";
 import type { DraftStore } from "@renderer/store/draft-store.js";
 import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
@@ -78,7 +78,7 @@ export interface ComposerActState {
 
 /** Hold one address's act readings, and the two writers a settlement reaches them by. */
 export function useComposerActState(
-  bridge: ConsoleBridge,
+  bridge: PlatformBridge,
   draftKey: string,
   draftStore: DraftStore,
   isCurrent: SettlementIdentities["isCurrent"],

@@ -12,7 +12,7 @@ import { PANE_LAYOUT_RESTORED_PANE_CAP } from "./pane-layout/pane-layout-store.j
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence-caps.js";
 import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import type { Scenario } from "../../../../../fixtures/scenario.js";
 import type { StoredRecord } from "@renderer/store/persistence/persistence-adapter.js";
 import { DraftStore } from "@renderer/store/draft-store.js";
@@ -183,7 +183,7 @@ export function workspaceFor(
   session: WorkspaceSession,
   uiStateStore: UiStateStore,
   isKeyed: boolean,
-  bridge: ConsoleBridge = createFixtureBridge({ scenario: SCENARIO }),
+  bridge: PlatformBridge = createFixtureBridge({ scenario: SCENARIO }),
 ): React.JSX.Element {
   return (
     <PlatformBridgeProvider bridge={bridge}>

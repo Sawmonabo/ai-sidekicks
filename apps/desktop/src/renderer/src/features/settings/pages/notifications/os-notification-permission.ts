@@ -20,7 +20,7 @@ import { useSubjectScopedResource } from "@renderer/hooks/subject-scoped/useSubj
 import { type SubjectScopedDisposal } from "@renderer/lib/subject-scoped/subject-scoped-disposal.js";
 import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
 import { resolveBridgeClock } from "@renderer/services/platform/hooks/useClock.js";
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 
 /** What the machine can answer: the bridge's own permission states. */
 export type OsNotificationPermissionState = NotificationPermission["state"];
@@ -127,7 +127,7 @@ const OS_PERMISSION_READ_DISPOSAL: SubjectScopedDisposal<OsNotificationPermissio
  * @consumedBy the Notifications page's permission notice
  */
 export function useOsNotificationPermission(
-  bridge: ConsoleBridge,
+  bridge: PlatformBridge,
   probe: OsNotificationPermissionProbe,
 ): OsNotificationPermissionReading {
   const { value: clock } = useSubjectScopedState(bridge, undefined, () =>

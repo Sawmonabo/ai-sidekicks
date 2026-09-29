@@ -7,7 +7,7 @@
 // never the caught error's message: that text comes from the main process across IPC, may
 // be a stack, and names a subsystem the person cannot act on.
 
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 import type { CommandDefinition } from "@renderer/registries/commands/command-types.js";
 import { nextSchemePreference, type SchemePreference } from "@renderer/styles/tokens.js";
@@ -34,7 +34,7 @@ export type BridgeCommandRefusalSink = (refusal: Refusal) => void;
  * React tree: the hook is the wiring, this is the behavior.
  */
 export function buildBridgeCommands(
-  bridge: ConsoleBridge,
+  bridge: PlatformBridge,
   onRefusal: BridgeCommandRefusalSink,
 ): readonly CommandDefinition[] {
   return [
@@ -47,9 +47,9 @@ export function buildBridgeCommands(
         // Read from the bridge rather than from `navigator`: `app` meta is what the
         // MAIN process reports, and under the fixture it is pinned, so a screenshot
         // of this command's result does not move with the developer's machine.
-        const { version, platform, arch, locale } = bridge.desktopBridge.app;
+        const { version, platform, arch, locale } = bridge.app;
         await settle(onRefusal, "clipboard-unavailable", CLIPBOARD_REFUSAL_DETAIL, () =>
-          bridge.desktopBridge.native.copyToClipboard(
+          bridge.native.copyToClipboard(
             `AI Sidekicks ${version} — ${platform}/${arch} — ${locale}`,
           ),
         );
@@ -66,7 +66,7 @@ export function buildBridgeCommands(
         // command that awaited an outcome here would be a second reader of a state
         // machine the shell already observes.
         await settle(onRefusal, "update-check-unavailable", UPDATE_REFUSAL_DETAIL, () =>
-          bridge.desktopBridge.update.requestCheck(),
+          bridge.update.requestCheck(),
         );
       },
     },

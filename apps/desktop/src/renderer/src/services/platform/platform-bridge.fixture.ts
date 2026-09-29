@@ -17,7 +17,7 @@ import type {
   Unsubscribe,
   UpdateState,
 } from "@shared/preload-api.js";
-import type { ConsoleBridge, DesktopBridge } from "./platform-bridge.js";
+import type { PlatformBridge } from "./platform-bridge.js";
 import { resolveScriptedReply } from "@renderer/services/daemon/scripted-reply.fixture.js";
 import { refuseAbsentCapability } from "@renderer/services/daemon/refusal.fixture.js";
 import { TransportReconnectSignal } from "@renderer/services/transport/transport-reconnect.js";
@@ -30,7 +30,7 @@ import {
 import type { Scenario } from "../../../../../fixtures/scenario.js";
 
 /** Fixed `app` meta, so a screenshot does not move with the machine. */
-export const FIXTURE_APP_META: DesktopBridge["app"] = {
+export const FIXTURE_APP_META: PlatformBridge["app"] = {
   version: "0.0.0-fixture",
   platform: "darwin",
   arch: "arm64",
@@ -42,10 +42,10 @@ export interface FixtureBridgeOptions {
 }
 
 /** Build the fixture bridge for one scenario. */
-export function createFixtureBridge(options: FixtureBridgeOptions): ConsoleBridge {
+export function createFixtureBridge(options: FixtureBridgeOptions): PlatformBridge {
   const scenarioEngine = new ScenarioEngine({ scenario: options.scenario });
   const updaterState: UpdateState = options.scenario.updaterState ?? { status: "idle" };
-  const desktopBridge: DesktopBridge = {
+  return {
     daemon: createFixtureDaemon(scenarioEngine),
     controlPlane: {
       call: async <ProcedureName extends CpProcedure>(
@@ -87,10 +87,6 @@ export function createFixtureBridge(options: FixtureBridgeOptions): ConsoleBridg
       requestRestart: () => refuseAbsentCapability("update.requestRestart"),
     },
     app: FIXTURE_APP_META,
-  };
-
-  return {
-    desktopBridge,
     attentionSubscribe: createFixtureAttentionSubscribe(scenarioEngine),
     transportReconnect: new TransportReconnectSignal(),
     source: "fixture",

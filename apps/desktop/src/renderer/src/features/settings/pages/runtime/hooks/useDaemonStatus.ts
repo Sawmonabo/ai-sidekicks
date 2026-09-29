@@ -12,7 +12,7 @@
 
 import { useEffect } from "react";
 
-import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
 import { type DaemonConnection } from "@renderer/store/window/main-process-state.js";
 
@@ -61,7 +61,7 @@ const READING_DAEMON_STATUS: DaemonStatusReading = { phase: "reading" };
  * with which answer is current.
  */
 export function useDaemonStatus(
-  bridge: ConsoleBridge,
+  bridge: PlatformBridge,
   freshness: DaemonStatusFreshness,
   operations: DaemonOperations,
 ): DaemonStatusReading {

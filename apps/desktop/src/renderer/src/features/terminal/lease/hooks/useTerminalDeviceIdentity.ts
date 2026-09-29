@@ -7,7 +7,7 @@
 // sees new inputs.
 
 import { useEffect } from "react";
-import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
 
 /** Which device this is, or that the console has not been told yet. */
@@ -25,7 +25,7 @@ export type ReadTerminalViewerUser = (request: {
 
 /** Read which identity this device carries, once per bridge-and-session pair. */
 export function useTerminalDeviceIdentity(
-  bridge: ConsoleBridge,
+  bridge: PlatformBridge,
   sessionId: string,
   readViewerUser: ReadTerminalViewerUser,
 ): TerminalDeviceIdentity {

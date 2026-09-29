@@ -20,7 +20,7 @@
 // reaches only an unhandled rejection a shipped window does not report.
 
 import { callDaemon, type DaemonReplyRefusalCode } from "@renderer/services/daemon/daemon-reply.js";
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { coerceToRefusal, type FirstTurnQueueCall } from "@renderer/console/seats/index.js";
 import {
   NEW_SESSION_DRAFT_REFUSAL_ORIGIN,
@@ -40,7 +40,7 @@ import {
  * turn would send the person's words twice.
  */
 export interface NewSessionSendRequest {
-  readonly bridge: ConsoleBridge;
+  readonly bridge: PlatformBridge;
   /** Queues the first message on the session, once it exists. */
   readonly queueFirstTurn: FirstTurnQueueCall;
   readonly sessionId: string | undefined;

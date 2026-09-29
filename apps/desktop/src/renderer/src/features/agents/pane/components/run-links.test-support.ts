@@ -5,12 +5,12 @@
 // as failed is the honest fixture: a scripted reply would invite a case to assert on a
 // value neither file is about.
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { unscriptedScenario } from "@test/helpers/fixture-bridge.js";
 import type { AgentConsoleCalls } from "../../agent-reads.js";
 
 /** A real fixture bridge that scripts no reply. */
-export function unscriptedBridge(id: string): ConsoleBridge {
+export function unscriptedBridge(id: string): PlatformBridge {
   return createFixtureBridge({ scenario: unscriptedScenario(id) });
 }
 

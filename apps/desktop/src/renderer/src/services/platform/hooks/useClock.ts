@@ -2,7 +2,7 @@ import { useLayoutEffect, useState } from "react";
 
 import { RealClock, type Clock } from "@renderer/lib/clock.js";
 import { ForwardingClock } from "@renderer/lib/forwarding-clock.js";
-import type { ConsoleBridge } from "../platform-bridge.js";
+import type { PlatformBridge } from "../platform-bridge.js";
 import { usePlatformBridge } from "./usePlatformBridge.js";
 
 /**
@@ -16,7 +16,7 @@ import { usePlatformBridge } from "./usePlatformBridge.js";
  * to share. The real arm mints a fresh `RealClock` per caller, which is not a second time
  * base: every instance reads the same wall clock.
  */
-export function resolveBridgeClock(bridge: ConsoleBridge): Clock {
+export function resolveBridgeClock(bridge: PlatformBridge): Clock {
   return bridge.scenarioEngine?.clock ?? new RealClock();
 }
 

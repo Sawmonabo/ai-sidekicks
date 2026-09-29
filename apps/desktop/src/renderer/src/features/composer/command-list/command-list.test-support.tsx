@@ -15,7 +15,7 @@ import { act, fireEvent, render } from "@testing-library/react";
 import { afterEach } from "vitest";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { readRunId } from "@renderer/services/daemon/wire-identifiers.js";
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { bridgeAnswering, type RecordedDaemonCall } from "@test/helpers/fixture-bridge.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { WAITING_FOR_INPUT_SCENARIO } from "../../../../../../fixtures/scenarios/waiting-for-input.js";
@@ -106,12 +106,12 @@ export interface MountedComposer {
  */
 export function composerBridgeAnswering(
   answer: (call: RecordedDaemonCall, forward: () => Promise<unknown>) => Promise<unknown>,
-): ConsoleBridge {
+): PlatformBridge {
   return bridgeAnswering(answer, WAITING_FOR_INPUT_SCENARIO).bridge;
 }
 
 /** The fixture scenario, with the enumeration refused by the daemon's own code. */
-export function refusingEnumerationBridge(): ConsoleBridge {
+export function refusingEnumerationBridge(): PlatformBridge {
   return createFixtureBridge({
     scenario: {
       ...WAITING_FOR_INPUT_SCENARIO,
@@ -131,7 +131,7 @@ export function refusingEnumerationBridge(): ConsoleBridge {
 }
 
 /** The fixture, with the enumeration held open so the read stays in flight. */
-export function bridgeHoldingTheEnumeration(): ConsoleBridge {
+export function bridgeHoldingTheEnumeration(): PlatformBridge {
   return composerBridgeAnswering((call, forward) =>
     call.method === ENUMERATION_METHOD ? new Promise<unknown>(() => undefined) : forward(),
   );
@@ -182,7 +182,7 @@ export async function addressedRunIdOfFirstAgent(): Promise<
 }
 
 /** The fixture scenario, answering the enumeration with exactly these groups. */
-export function bridgeEnumerating(groups: readonly ProviderCommandBindingGroup[]): ConsoleBridge {
+export function bridgeEnumerating(groups: readonly ProviderCommandBindingGroup[]): PlatformBridge {
   return createFixtureBridge({
     scenario: {
       ...WAITING_FOR_INPUT_SCENARIO,
@@ -220,7 +220,7 @@ export function agentPane(agentId: string): PaneAddress {
 }
 
 export async function mountComposer(options: {
-  readonly bridge: ConsoleBridge;
+  readonly bridge: PlatformBridge;
   readonly focusedPane: PaneAddress | undefined;
 }): Promise<MountedComposer> {
   const sessionStore = composerSessionStore();

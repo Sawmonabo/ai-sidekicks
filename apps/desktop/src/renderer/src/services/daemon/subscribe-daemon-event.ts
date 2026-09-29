@@ -1,6 +1,6 @@
 // The one place the console names a daemon EVENT.
 //
-// `DesktopBridge.daemon.subscribe` is declared over the same `never`-shaped brand
+// `PlatformBridge.daemon.subscribe` is declared over the same `never`-shaped brand
 // its `call` sibling is: no string literal is assignable until that brand narrows to
 // the real name union, so every caller in this repository casts. This module is the
 // console's single copy, and it is a seat rather than any one family's module because
@@ -23,7 +23,7 @@
 import type { Unsubscribe } from "@shared/preload-api.js";
 
 import { openObservedSubscription } from "../transport/observed-subscription.js";
-import { type ConsoleBridge } from "../platform/platform-bridge.js";
+import { type PlatformBridge } from "../platform/platform-bridge.js";
 
 /**
  * Subscribe to one daemon event.
@@ -41,11 +41,11 @@ import { type ConsoleBridge } from "../platform/platform-bridge.js";
  * @consumedBy a surface that listens for one daemon event
  */
 export function subscribeDaemonEvent<TPayload>(
-  bridge: ConsoleBridge,
+  bridge: PlatformBridge,
   event: string,
   handler: (payload: TPayload) => void,
 ): Unsubscribe {
-  const subscribe = bridge.desktopBridge.daemon.subscribe as unknown as (
+  const subscribe = bridge.daemon.subscribe as unknown as (
     eventName: string,
     onPayload: (payload: TPayload) => void,
   ) => Unsubscribe;

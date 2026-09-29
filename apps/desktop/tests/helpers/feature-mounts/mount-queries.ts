@@ -4,12 +4,12 @@
 // surfaces and nothing else, and reaches into this module's exports.
 
 import { within } from "@testing-library/react";
-import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 
 /** The element a tier reads, and the bridge it was mounted against. */
 export interface MountedView {
   readonly element: HTMLElement;
-  readonly bridge: ConsoleBridge;
+  readonly bridge: PlatformBridge;
 }
 
 /**

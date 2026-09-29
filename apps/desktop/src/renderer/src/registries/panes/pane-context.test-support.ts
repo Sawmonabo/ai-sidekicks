@@ -28,7 +28,7 @@
 // builder for `PaneContext` beside the type it builds.
 
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence-caps.js";
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { DraftStore } from "@renderer/store/draft-store.js";
 import { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
 import { type PaneAddress } from "@renderer/routing/panes/pane-address.js";
@@ -47,7 +47,7 @@ import { type SessionStore } from "@renderer/store/session/session-store.js";
  * identically as an optional member, and only one of them is a claim.
  */
 export interface PaneBindings {
-  readonly bridge: ConsoleBridge;
+  readonly bridge: PlatformBridge;
   readonly sessionStore: SessionStore | undefined;
   /** The pane this one was opened FROM, where a case is about the link. */
   readonly linkedSourcePaneId?: string;

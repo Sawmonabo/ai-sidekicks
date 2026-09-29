@@ -8,7 +8,7 @@
 //
 // EVERY DEPENDENCY IS ONE OBJECT, so a new one is one edit rather than one at each
 // call site, and the three optional members travel together for a reason each states.
-import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import type { Refusal } from "@renderer/lib/refusal.js";
 import type { DraftStore } from "@renderer/store/draft-store.js";
 import type { ComposerTarget } from "../composer-target.js";
@@ -23,7 +23,7 @@ export type SendControllerStatus = "idle" | "sending";
 /** What the composer is built from. One object, so a new dependency is one edit. */
 export interface SendControllerDependencies {
   /** The transport the composer's held state belongs to. Nothing here calls through it. */
-  readonly bridge: ConsoleBridge;
+  readonly bridge: PlatformBridge;
   /** The two daemon calls a send makes. */
   readonly calls: ComposerSendCalls;
   readonly target: ComposerTarget;

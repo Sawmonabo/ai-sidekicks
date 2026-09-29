@@ -9,7 +9,7 @@ import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { ParkedDaemonCalls } from "./parked-daemon-calls.test-support.js";
-import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import type { ComposerSendCalls } from "../send-dispatch.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence-caps.js";
 import { DraftStore } from "@renderer/store/draft-store.js";
@@ -29,7 +29,7 @@ function sessionTarget(sessionId: string): ComposerRunTarget {
 
 /** Reports the controller out of the tree at whichever address the case supplies. */
 function AddressableProbe(props: {
-  readonly bridge: ConsoleBridge;
+  readonly bridge: PlatformBridge;
   readonly calls: ComposerSendCalls;
   readonly draftStore: DraftStore;
   readonly target: ComposerRunTarget;

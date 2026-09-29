@@ -11,7 +11,7 @@
 
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { bridgeAnswering } from "@test/helpers/fixture-bridge.js";
 import type { ScenarioEngine } from "@renderer/services/daemon/engine.fixture.js";
 import { CONCURRENT_STREAMING_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
@@ -35,7 +35,7 @@ import {
 } from "./session-store-hooks.test-support.js";
 
 /** The running engine, or a failure that names what was missing rather than `undefined`. */
-function scenarioEngineOf(bridge: ConsoleBridge): ScenarioEngine {
+function scenarioEngineOf(bridge: PlatformBridge): ScenarioEngine {
   const engine = bridge.scenarioEngine;
   if (engine === undefined) {
     throw new Error("the fixture bridge exposed no scenario engine");

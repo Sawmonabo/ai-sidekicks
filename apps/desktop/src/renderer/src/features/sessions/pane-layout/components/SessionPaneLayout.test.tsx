@@ -12,7 +12,7 @@ import { PANE_LAYOUT_RESTORED_PANE_CAP } from "../pane-layout-store.js";
 import { ManualClock } from "@renderer/lib/clock.js";
 import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { FIRST_RUN_SCENARIO } from "../../../../../../../fixtures/scenarios/first-run.js";
 import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
 import { PaneRegistry, type PaneContext } from "@renderer/console/seats/index.js";
@@ -337,7 +337,7 @@ function pressFrom(origin: Element | null, init: KeyboardEventInit): KeyboardEve
 
 describe("Deck — the clock its rect flush runs on", () => {
   /** The scenario's frozen clock, or a failure that says the fixture served none. */
-  function frozenClockOf(bridge: ConsoleBridge): ManualClock {
+  function frozenClockOf(bridge: PlatformBridge): ManualClock {
     const clock = bridge.scenarioEngine?.clock;
     if (!(clock instanceof ManualClock)) {
       throw new Error("the fixture bridge resolved no frozen clock");
@@ -345,7 +345,7 @@ describe("Deck — the clock its rect flush runs on", () => {
     return clock;
   }
 
-  function renderDeckOn(bridge: ConsoleBridge): void {
+  function renderDeckOn(bridge: PlatformBridge): void {
     const layout = emptyLayout();
     layout.open({ kind: "timeline", entity: undefined });
     render(

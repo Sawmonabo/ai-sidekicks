@@ -5,7 +5,7 @@
 // scope here, because an auxiliary window is its own renderer process and no channel
 // joins two windows' module graphs.
 
-import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { MachineSettingsStore, type ShellPreferenceCarrier } from "./machine-settings-store.js";
 
 /**
@@ -28,7 +28,7 @@ import { MachineSettingsStore, type ShellPreferenceCarrier } from "./machine-set
  * event handler calls and is the only place a store is minted or disposed.
  */
 class ShellPreferenceStoreHolder {
-  #bridge: ConsoleBridge | undefined;
+  #bridge: PlatformBridge | undefined;
   #store: MachineSettingsStore | undefined;
 
   /**
@@ -38,7 +38,7 @@ class ShellPreferenceStoreHolder {
    * PURE — a field read and a comparison, nothing else — because this is the call a
    * render body makes, and a render body may run for a pass React discards.
    */
-  public storeIfCurrent(bridge: ConsoleBridge): MachineSettingsStore | undefined {
+  public storeIfCurrent(bridge: PlatformBridge): MachineSettingsStore | undefined {
     return this.#bridge === bridge ? this.#store : undefined;
   }
 
@@ -51,7 +51,7 @@ class ShellPreferenceStoreHolder {
    * invoke the acquiring effect twice without the second invocation superseding
    * what the first one minted.
    */
-  public acquire(bridge: ConsoleBridge, carrier: ShellPreferenceCarrier): MachineSettingsStore {
+  public acquire(bridge: PlatformBridge, carrier: ShellPreferenceCarrier): MachineSettingsStore {
     const held = this.storeIfCurrent(bridge);
     if (held !== undefined) {
       return held;

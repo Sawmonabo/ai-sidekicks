@@ -4,7 +4,7 @@
 // to it has to reach every harness that builds one: the builder is here, and a new member is
 // one compile error in one file.
 
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { MemoryPersistenceAdapter } from "@renderer/store/persistence/memory-persistence-adapter.js";
 import { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
@@ -51,7 +51,7 @@ export interface SettingsPageContextOverrides {
  * per call.
  */
 export function settingsPageContextWith(
-  bridge: ConsoleBridge,
+  bridge: PlatformBridge,
   retainedSessionId: string | undefined,
   overrides: SettingsPageContextOverrides = {},
 ): SettingsPageContext {

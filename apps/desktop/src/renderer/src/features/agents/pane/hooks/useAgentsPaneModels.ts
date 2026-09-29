@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { isCurrentSessionSubject } from "@renderer/console/seats/index.js";
 import type { SessionStore } from "@renderer/store/session/session-store.js";
 import { type AgentConsoleCalls } from "../../agent-reads.js";
@@ -33,7 +33,7 @@ import { AgentsPaneModels } from "../agents-pane-models.js";
  * `calls` is held stable by the caller: a new object rebuilds the models.
  */
 export function useAgentsPaneModels(
-  bridge: ConsoleBridge | undefined,
+  bridge: PlatformBridge | undefined,
   sessionStore: SessionStore | undefined,
   calls: AgentConsoleCalls,
 ): AgentsPaneModels | undefined {

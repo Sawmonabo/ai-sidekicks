@@ -14,14 +14,14 @@ import type {
 import type { Unsubscribe } from "@shared/preload-api.js";
 import type {
   AttentionSubscribe,
-  DesktopBridge,
+  PlatformBridge,
 } from "@renderer/services/platform/platform-bridge.js";
 import type { ScenarioEngine } from "./engine.fixture.js";
 import { assertScriptedReplyOnContract, resolveScriptedReply } from "./scripted-reply.fixture.js";
 import { subscribeToScenario } from "./scenario-subscriptions.fixture.js";
 
 /** The daemon namespace answered from one scenario's engine. */
-export function createFixtureDaemon(scenarioEngine: ScenarioEngine): DesktopBridge["daemon"] {
+export function createFixtureDaemon(scenarioEngine: ScenarioEngine): PlatformBridge["daemon"] {
   return {
     // `DaemonResult<M>` is a stub that resolves to `unknown`, so the assertion narrows nothing
     // today; when the daemon lands the real method-to-result mapping, this line is the one

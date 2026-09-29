@@ -7,7 +7,7 @@
 
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { ProviderCommandEnumeration } from "./provider-command-enumeration.js";
 import { useProviderCommandEnumeration } from "./hooks/useProviderCommandEnumeration.js";
 import {
@@ -146,7 +146,7 @@ describe("ProviderCommandEnumeration — the bridge is part of which binding thi
     const secondBridge = recordingBridge(recorded);
     const enumeration = new ProviderCommandEnumeration();
     const { result, rerender } = renderHook(
-      (bridge: ConsoleBridge) =>
+      (bridge: PlatformBridge) =>
         useProviderCommandEnumeration({
           enumeration,
           bridge,
@@ -181,7 +181,7 @@ describe("ProviderCommandEnumeration — the bridge is part of which binding thi
     const secondBridge = recordingBridge(recorded);
     const enumeration = new ProviderCommandEnumeration();
     const { rerender } = renderHook(
-      (bridge: ConsoleBridge) =>
+      (bridge: PlatformBridge) =>
         useProviderCommandEnumeration({
           enumeration,
           bridge,
@@ -219,7 +219,7 @@ describe("ProviderCommandEnumeration — the bridge is part of which binding thi
     const bridge = recordingBridge(recorded);
     const enumeration = new ProviderCommandEnumeration();
     const { rerender } = renderHook(
-      (bridgeForRender: ConsoleBridge) =>
+      (bridgeForRender: PlatformBridge) =>
         useProviderCommandEnumeration({
           enumeration,
           bridge: bridgeForRender,

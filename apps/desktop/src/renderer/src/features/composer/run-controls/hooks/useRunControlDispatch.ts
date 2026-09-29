@@ -55,7 +55,7 @@
 // renders it says so rather than passing a partial record off as the whole one.
 
 import { useCallback, useMemo, useRef } from "react";
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { useGenerationLatch } from "@renderer/hooks/useGenerationLatch.js";
 import { useLatestRef } from "@renderer/console/primitives/index.js";
 import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
@@ -141,7 +141,7 @@ const RUN_CONTROL_SURFACE_SUBJECT = "run-controls";
  * comparand cache.
  */
 export function useRunControlDispatch(
-  bridge: ConsoleBridge,
+  bridge: PlatformBridge,
   calls: RunControlCalls,
   mintIdempotencyKey?: () => string,
 ): RunControlDispatchState {

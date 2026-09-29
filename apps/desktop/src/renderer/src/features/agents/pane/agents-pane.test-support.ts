@@ -6,7 +6,7 @@
 // counting reads would be counting the harness.
 
 import { act } from "@testing-library/react";
-import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { REFRESH_DEBOUNCE_MS } from "@renderer/lib/reads/refresh-caps.js";
 
 /**
@@ -20,7 +20,7 @@ import { REFRESH_DEBOUNCE_MS } from "@renderer/lib/reads/refresh-caps.js";
 const SETTLE_ADVANCE_MS: number = REFRESH_DEBOUNCE_MS * 4;
 
 /** {@link drainScheduledReads} inside `act`, for a suite that has a mounted tree. */
-export async function settleReads(bridge: ConsoleBridge): Promise<void> {
+export async function settleReads(bridge: PlatformBridge): Promise<void> {
   await act(async () => {
     await drainScheduledReads(bridge);
   });
@@ -33,7 +33,7 @@ export async function settleReads(bridge: ConsoleBridge): Promise<void> {
  * the store apply — which is why a single `await Promise.resolve()` is not enough and
  * why the count lives here rather than being rediscovered per suite.
  */
-async function drainScheduledReads(bridge: ConsoleBridge): Promise<void> {
+async function drainScheduledReads(bridge: PlatformBridge): Promise<void> {
   bridge.scenarioEngine?.advance(SETTLE_ADVANCE_MS);
   for (let pass = 0; pass < 4; pass += 1) {
     await Promise.resolve();

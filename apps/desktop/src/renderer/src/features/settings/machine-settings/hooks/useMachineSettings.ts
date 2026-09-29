@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useSyncExternalStore } from "react";
 
-import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import {
   NO_TRIGGERING_EVENT_KINDS,
   type ReadTriggerTarget,
@@ -56,7 +56,7 @@ const NO_STORE_HELD: ReadTriggerTarget = {
  * holds it for this bridge.
  */
 export function useMachineSettings(
-  bridge: ConsoleBridge,
+  bridge: PlatformBridge,
   carrier: ShellPreferenceCarrier,
 ): MachineSettingsBinding {
   // Held against the TRANSPORT, through the console's one holder. The seed reads the

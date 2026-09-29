@@ -32,7 +32,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import type { McpServerBindingRef } from "@ai-sidekicks/contracts";
 import { useClock } from "@renderer/services/platform/hooks/useClock.js";
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { Nothing } from "@renderer/console/primitives/index.js";
 import { usePushDrivenRead } from "@renderer/console/seats/index.js";
 import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
@@ -64,7 +64,7 @@ export interface McpShellOperations {
 
 /** The MCP servers list with its per-row controls, driven by the calls in `operations`. */
 export function McpFixtureBody(props: {
-  readonly bridge: ConsoleBridge;
+  readonly bridge: PlatformBridge;
   /** Held stable by the caller: a new object restarts the inventory read. */
   readonly operations: McpShellOperations;
   /** Injected so a suite can assert that one press reused one key. */

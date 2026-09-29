@@ -18,7 +18,7 @@
 // suites play live in `daemon-reply.test-support.ts`.
 
 import { RefusalError, refuse, type Refusal } from "@renderer/lib/refusal.js";
-import type { ConsoleBridge } from "../platform/platform-bridge.js";
+import type { PlatformBridge } from "../platform/platform-bridge.js";
 import { callDaemon } from "./daemon-reply.js";
 import { refusalOf, SESSION_ID } from "@test/helpers/daemon-reply-refusal.js";
 import { bridgeAnswering, createFixture } from "@test/helpers/fixture-bridge.js";
@@ -197,16 +197,13 @@ describe("callDaemon — a rejection becomes a refusal and never an exception", 
     // itself: the shared arm is `async`, so a throw inside it is already a
     // rejection, which is the one thing this case must not assert.
     const fixture = createFixture().bridge;
-    const bridge: ConsoleBridge = {
+    const bridge: PlatformBridge = {
       ...fixture,
-      desktopBridge: {
-        ...fixture.desktopBridge,
-        daemon: {
-          ...fixture.desktopBridge.daemon,
-          call: (() => {
-            throw new Error("the preload did not install a handler");
-          }) as ConsoleBridge["desktopBridge"]["daemon"]["call"],
-        },
+      daemon: {
+        ...fixture.daemon,
+        call: (() => {
+          throw new Error("the preload did not install a handler");
+        }) as PlatformBridge["daemon"]["call"],
       },
     };
 

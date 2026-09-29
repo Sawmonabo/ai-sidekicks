@@ -25,7 +25,7 @@ import { act } from "@testing-library/react";
 import { ManualClock } from "@renderer/lib/clock.js";
 import { REFRESH_MAX_WAIT_MS } from "@renderer/lib/reads/refresh-caps.js";
 import { crossMacrotaskBoundary } from "./macrotask-boundary.js";
-import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 
 /**
  * The frozen clock this bridge's readings schedule against.
@@ -34,7 +34,7 @@ import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.
  * frozen clock would advance nothing, wait out no window, and report the absence of a
  * read it never gave the scheduler a chance to perform.
  */
-export function frozenClockOf(bridge: ConsoleBridge): ManualClock {
+export function frozenClockOf(bridge: PlatformBridge): ManualClock {
   const { clock } = bridge.scenarioEngine ?? {};
   if (!(clock instanceof ManualClock)) {
     throw new Error("this bridge carries no frozen clock, so no scheduled read can be settled");
@@ -50,7 +50,7 @@ export function frozenClockOf(bridge: ConsoleBridge): ManualClock {
  * debounce out, and the deadline measured from the first request is what stops that
  * from postponing the read forever.
  */
-export async function settleScheduledRead(bridge: ConsoleBridge): Promise<void> {
+export async function settleScheduledRead(bridge: PlatformBridge): Promise<void> {
   await act(async () => {
     frozenClockOf(bridge).advance(REFRESH_MAX_WAIT_MS);
     await crossMacrotaskBoundary();

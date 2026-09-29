@@ -1,4 +1,4 @@
-import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import type { PaneAddress, PaneContext } from "@renderer/console/seats/index.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 
@@ -15,7 +15,7 @@ import { type SessionStore } from "@renderer/store/session/session-store.js";
 export function paneContext<TAddress extends PaneAddress>(reached: {
   readonly address: TAddress;
   readonly paneId: string;
-  readonly bridge?: ConsoleBridge | undefined;
+  readonly bridge?: PlatformBridge | undefined;
   readonly sessionStore?: SessionStore | undefined;
 }): Extract<PaneContext, TAddress> {
   return {

@@ -22,7 +22,7 @@
 // override. It is called only after the first read is scheduled, which is after every
 // subclass field has been initialized.
 //
-// WHAT THIS IS NOT. It is not a reading in its own right: it holds no `ConsoleBridge` and
+// WHAT THIS IS NOT. It is not a reading in its own right: it holds no `PlatformBridge` and
 // knows no method name.
 
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";

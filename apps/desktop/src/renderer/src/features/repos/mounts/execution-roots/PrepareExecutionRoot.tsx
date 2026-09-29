@@ -43,7 +43,7 @@ import "./execution-roots.css";
 import { useCallback } from "react";
 
 import type { ExecutionMode } from "@ai-sidekicks/contracts";
-import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { Nothing, WireFigure } from "@renderer/console/primitives/index.js";
 import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
@@ -62,7 +62,7 @@ import {
 
 /** What the prepare form is bound to: the workspace, its mode, and the calls it makes. */
 export interface PrepareExecutionRootProps {
-  readonly bridge: ConsoleBridge;
+  readonly bridge: PlatformBridge;
   /** The reuse check and the prepare this control sends. */
   readonly operations: PrepareOperations;
   readonly workspaceId: string;

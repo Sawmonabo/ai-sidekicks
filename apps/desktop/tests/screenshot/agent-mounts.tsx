@@ -34,7 +34,7 @@ import type { AgentConsoleCalls } from "@renderer/features/agents/agent-reads.js
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence-caps.js";
 import { unscriptedScenario } from "../helpers/fixture-bridge.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { DraftStore } from "@renderer/store/draft-store.js";
 import { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
 import { type PaneContext } from "@renderer/console/seats/index.js";
@@ -75,7 +75,7 @@ function AgentConsolePaneBody(props: { readonly context: PaneContext }): ReactNo
 
 /** The deck context a pane is mounted with, about one named agent. */
 function paneContext(
-  bridge: ConsoleBridge,
+  bridge: PlatformBridge,
   sessionStore: SessionStore,
   agentId: string,
 ): PaneContext {
@@ -107,7 +107,7 @@ function agentsSessionStore(): SessionStore {
 /** The pane mounted over the fixture roster, addressed at the agent on `claude`. */
 async function renderAgentsPane(): Promise<{
   readonly container: HTMLElement;
-  readonly bridge: ConsoleBridge;
+  readonly bridge: PlatformBridge;
 }> {
   const bridge = createFixtureBridge({ scenario: unscriptedScenario("agents-screenshot") });
   const context = paneContext(bridge, agentsSessionStore(), AGENT_ON_CLAUDE.agentId);

@@ -29,7 +29,7 @@ import type {
   WorkspaceState,
 } from "@ai-sidekicks/contracts";
 import { GLYPH_SIZE_ROW } from "@renderer/styles/glyphs.js";
-import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import {
   Chip,
   Glyph,
@@ -66,7 +66,7 @@ export interface WorkspaceCardProps {
   /** The mode a switch on this workspace is waiting on the daemon for, where one is. */
   readonly pendingMode: ExecutionMode | undefined;
   /** The bridge the prepare act takes its clock from. */
-  readonly bridge: ConsoleBridge;
+  readonly bridge: PlatformBridge;
   /** The calls the prepare act makes. */
   readonly operations: PrepareOperations;
   /** Read the section again, because a prepare put a root on disk the list has not seen. */

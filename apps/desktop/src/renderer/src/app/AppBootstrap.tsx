@@ -11,7 +11,7 @@
 //     the card is laid out against. One installer, one call site; the failure
 //     branch gets no copy of its own.
 //   • **The failure arm is a component boundary rather than an `if` further down.**
-//     Everything below this holds a resolved `ConsoleBridge` by construction, which
+//     Everything below this holds a resolved `PlatformBridge` by construction, which
 //     is what lets the frame's own command surface contribute the palette's
 //     bridge-backed acts: those are built by a hook that throws when the bridge is
 //     unavailable — correctly, since a component reaching for a missing bridge is a

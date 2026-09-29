@@ -135,14 +135,11 @@ function scenarioScriptingBranchContext(afterMs?: number): Scenario {
 describe("the fixture bridge's scripted calls — the same seam, rejecting instead", () => {
   it("rejects with the shared code when the engine is torn down under a call", async () => {
     const { bridge, engine } = createFixture(scenarioScriptingBranchContext(SCRIPTED_LATENCY_MS));
-    const pending = bridge.desktopBridge.daemon.call(
-      BRANCH_CONTEXT_CALL as DaemonMethod,
-      undefined,
-    );
+    const pending = bridge.daemon.call(BRANCH_CONTEXT_CALL as DaemonMethod, undefined);
 
     engine.dispose();
 
-    // Same engine state, same code, different shape: a `DesktopBridge` method may
+    // Same engine state, same code, different shape: a `PlatformBridge` method may
     // only resolve or reject, so the bridge rejects where the port returns an outcome.
     // A code that differed between the two would make the seam two seams.
     await expect(pending).rejects.toBeInstanceOf(FixtureBridgeError);
@@ -155,7 +152,7 @@ describe("the fixture bridge's scripted calls — the same seam, rejecting inste
     const { bridge } = createFixture(scenarioScriptingBranchContext());
 
     await expect(
-      bridge.desktopBridge.daemon.call(BRANCH_CONTEXT_CALL as DaemonMethod, undefined),
+      bridge.daemon.call(BRANCH_CONTEXT_CALL as DaemonMethod, undefined),
     ).resolves.toStrictEqual(SCRIPTED_BRANCH_CONTEXT);
   });
 });
@@ -169,10 +166,10 @@ describe("a computed reply — one call, one answer per entity", () => {
     const { bridge } = createFixture(scenarioComputingMountRead());
 
     await expect(
-      bridge.desktopBridge.daemon.call(MOUNT_READ_CALL, { repoMountId: HEALTHY_MOUNT_ID }),
+      bridge.daemon.call(MOUNT_READ_CALL, { repoMountId: HEALTHY_MOUNT_ID }),
     ).resolves.toStrictEqual(MOUNT_ANSWERS[HEALTHY_MOUNT_ID]);
     await expect(
-      bridge.desktopBridge.daemon.call(MOUNT_READ_CALL, { repoMountId: UNREACHABLE_MOUNT_ID }),
+      bridge.daemon.call(MOUNT_READ_CALL, { repoMountId: UNREACHABLE_MOUNT_ID }),
     ).resolves.toStrictEqual(MOUNT_ANSWERS[UNREACHABLE_MOUNT_ID]);
   });
 
@@ -183,7 +180,7 @@ describe("a computed reply — one call, one answer per entity", () => {
     // own authoring refusal is what says so.
     const { bridge } = createFixture(scenarioComputingMountRead());
 
-    const pending = bridge.desktopBridge.daemon.call(MOUNT_READ_CALL, {
+    const pending = bridge.daemon.call(MOUNT_READ_CALL, {
       repoMountId: UNSCRIPTED_MOUNT_ID,
     });
 
@@ -200,9 +197,9 @@ describe("a computed reply — one call, one answer per entity", () => {
     // entity, which is the whole defect this arm exists to close.
     const { bridge } = createFixture(scenarioComputingMountRead());
 
-    await expect(
-      bridge.desktopBridge.daemon.call(MOUNT_READ_CALL, undefined),
-    ).rejects.toBeInstanceOf(FixtureBridgeError);
+    await expect(bridge.daemon.call(MOUNT_READ_CALL, undefined)).rejects.toBeInstanceOf(
+      FixtureBridgeError,
+    );
   });
 
   it("negative control: the constant form still answers every request the same way", async () => {
@@ -211,10 +208,10 @@ describe("a computed reply — one call, one answer per entity", () => {
     const { bridge } = createFixture(scenarioConstantMountRead());
 
     await expect(
-      bridge.desktopBridge.daemon.call(MOUNT_READ_CALL, { repoMountId: HEALTHY_MOUNT_ID }),
+      bridge.daemon.call(MOUNT_READ_CALL, { repoMountId: HEALTHY_MOUNT_ID }),
     ).resolves.toStrictEqual(MOUNT_ANSWERS[HEALTHY_MOUNT_ID]);
     await expect(
-      bridge.desktopBridge.daemon.call(MOUNT_READ_CALL, { repoMountId: UNSCRIPTED_MOUNT_ID }),
+      bridge.daemon.call(MOUNT_READ_CALL, { repoMountId: UNSCRIPTED_MOUNT_ID }),
     ).resolves.toStrictEqual(MOUNT_ANSWERS[HEALTHY_MOUNT_ID]);
   });
 });

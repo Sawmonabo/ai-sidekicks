@@ -34,7 +34,7 @@
 
 import type { ReactNode } from "react";
 
-import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { type AgentRegistryCalls } from "./library-view.js";
 import { useAgentLibraryView } from "./hooks/useAgentLibraryView.js";
 import { useDefinitionSettlementAnnouncement } from "./hooks/useDefinitionSettlementAnnouncement.js";
@@ -68,7 +68,7 @@ const AGENT_REGISTRY_RULES: readonly AgentRegistryRule[] = [
 
 /** What the page needs: the bridge for its clock and triggers, and the registry calls. */
 export interface AgentLibraryProps {
-  readonly bridge: ConsoleBridge;
+  readonly bridge: PlatformBridge;
   /** Held stable by the caller: a new object restarts the read. */
   readonly calls: AgentRegistryCalls;
 }

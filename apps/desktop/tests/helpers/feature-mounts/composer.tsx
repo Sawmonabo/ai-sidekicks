@@ -41,7 +41,7 @@ import type { ReactElement } from "react";
 import { renderSettled } from "../app-harness.js";
 import { WAITING_FOR_INPUT_SCENARIO } from "../../../fixtures/scenarios/waiting-for-input.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { settleScheduledRead } from "../scheduled-read.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence-caps.js";
 import { DraftStore } from "@renderer/store/draft-store.js";
@@ -112,7 +112,7 @@ function composerSessionStore(throughKind: string): SessionStore {
  * is why the constant it advances by is not imported here any more.
  */
 async function mountSurfaceSettled(
-  bridge: ConsoleBridge,
+  bridge: PlatformBridge,
   element: ReactElement,
 ): Promise<HTMLElement> {
   const { container } = await renderSettled(element);

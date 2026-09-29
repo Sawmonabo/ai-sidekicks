@@ -4,7 +4,7 @@ import type { SessionId } from "@ai-sidekicks/contracts";
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 
 import { resolveBridgeClock } from "@renderer/services/platform/hooks/useClock.js";
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { CONTROLLER_DISPOSAL } from "@renderer/lib/subject-scoped/subject-scoped-disposal.js";
 import { useSubjectScopedResource } from "@renderer/hooks/subject-scoped/useSubjectScopedResource.js";
 import type { AttachmentIngestPort } from "../services/attachment-ingest-answer.js";
@@ -38,7 +38,7 @@ export interface StagedAttachmentsBinding {
  * beside `close`, replaces it, so this effect starts a carrier and does nothing else.
  */
 export function useStagedAttachments(
-  bridge: ConsoleBridge,
+  bridge: PlatformBridge,
   sessionId: SessionId,
   port: AttachmentIngestPort,
 ): StagedAttachmentsBinding {

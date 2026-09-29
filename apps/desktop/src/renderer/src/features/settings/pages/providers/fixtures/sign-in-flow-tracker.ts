@@ -17,7 +17,7 @@
 // layer down from the one this module exists to close.
 //
 // AND IT HOLDS NO WIRE. The two calls are handed in bound: a class that publishes a
-// snapshot AND holds a `ConsoleBridge` is a reading, and the console requires every one
+// snapshot AND holds a `PlatformBridge` is a reading, and the console requires every one
 // of those to be refreshable through a scheduler and the trigger contract. A start and a
 // cancel are acts a person takes, not answers that go stale, so this takes the
 // operations rather than the connection.

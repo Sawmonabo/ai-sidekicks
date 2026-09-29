@@ -6,7 +6,7 @@
 
 import type { PreviewPage } from "@ai-sidekicks/contracts";
 
-import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import type { ReadingState } from "@renderer/console/primitives/index.js";
 
 /**
@@ -38,6 +38,6 @@ export type NavigationReading =
  * nothing left here to compare.
  */
 export interface PaneSubject {
-  readonly bridge: ConsoleBridge;
+  readonly bridge: PlatformBridge;
   readonly paneId: string;
 }

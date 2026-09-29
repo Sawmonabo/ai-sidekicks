@@ -1,8 +1,8 @@
 // The bridge's shape, read at runtime.
 //
-// The fixture bridge has to be shape-identical to `DesktopBridge` namespace for
+// The fixture bridge has to carry the preload's namespaces, shape-identical namespace for
 // namespace. The type system carries most of that
-// claim already — both bridges ARE `DesktopBridge`, so a namespace added to the
+// claim already — both bridges ARE `PlatformBridge`, so a namespace added to the
 // contract breaks the fixture at compile time — but not all of it. The live bridge
 // is an object graph handed across `contextBridge` by a preload this program does
 // not compile with, so on THAT side the interface is a claim about a value nobody
@@ -15,18 +15,19 @@
 // `daemon.call`. The `typeof` is what separates "the member is missing" from "the
 // member is there and is a string where a function belongs", which is the shape a
 // half-installed preload actually arrives in.
-import type { DesktopBridge } from "./platform-bridge.js";
+import type { PreloadApi } from "@shared/preload-api.js";
+import type { PlatformBridge } from "./platform-bridge.js";
 
 /** One namespace name. The contract's own `keyof` — never a second spelling. */
-export type DesktopBridgeNamespace = keyof DesktopBridge;
+export type DesktopBridgeNamespace = keyof PreloadApi;
 
 /**
  * Every namespace the contract declares, as a table rather than an array.
  *
  * The annotation is what makes this exhaustive in BOTH directions on a fresh object
- * literal: a namespace added to `DesktopBridge` is a missing-property error here
+ * literal: a namespace added to `PreloadApi` is a missing-property error here
  * until it is listed, and a name that is not on the contract is an excess-property
- * error. The array this replaced was a plain `readonly (keyof DesktopBridge)[]`,
+ * error. The array this replaced was a plain `readonly (keyof PreloadApi)[]`,
  * which type-checks each entry and counts none — so it would have gone on probing
  * the namespaces it was written against however many the contract grew, and the probe would have kept
  * answering yes to a bridge missing the fifth.
@@ -61,6 +62,20 @@ export interface LabelledBridgeShape {
 }
 
 /**
+ * The bridge's members that are not preload namespaces: the signals every host answers.
+ * Keyed by the type, so a signal added to `PlatformBridge` fails to compile until it is
+ * listed, and the shape stays a reading of the preload's namespaces alone.
+ */
+const BRIDGE_SIGNAL_MEMBERS: Readonly<
+  Record<Exclude<keyof PlatformBridge, DesktopBridgeNamespace>, true>
+> = {
+  attentionSubscribe: true,
+  transportReconnect: true,
+  source: true,
+  scenarioEngine: true,
+};
+
+/**
  * Read a bridge's shape.
  *
  * OWN enumerable keys only, at both levels. `contextBridge` hands the renderer a
@@ -68,13 +83,16 @@ export interface LabelledBridgeShape {
  * own keys are the whole surface, while walking the prototype chain would pick up
  * `Object`'s members and make every namespace look alike.
  *
- * Takes `DesktopBridge` and not `unknown`: the callers hold typed bridges, and a
+ * Takes `PlatformBridge` and not `unknown`: the callers hold typed bridges, and a
  * parameter that accepted anything would invite this to become a validator. It
  * describes; deciding whether a description is acceptable belongs to the caller.
  */
-export function describeBridgeShape(bridge: DesktopBridge): BridgeShape {
+export function describeBridgeShape(bridge: PlatformBridge): BridgeShape {
   const shape = new Map<string, readonly string[]>();
   for (const [namespace, namespaceValue] of Object.entries(bridge)) {
+    if (Object.hasOwn(BRIDGE_SIGNAL_MEMBERS, namespace)) {
+      continue;
+    }
     shape.set(namespace, describeMembers(namespaceValue));
   }
   return shape;

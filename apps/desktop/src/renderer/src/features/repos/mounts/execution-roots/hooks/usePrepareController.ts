@@ -15,7 +15,7 @@
 
 import { useCallback, useEffect, useMemo } from "react";
 import { resolveBridgeClock } from "@renderer/services/platform/hooks/useClock.js";
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { useSessionScopedActController } from "../../../acts/hooks/useActController.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 import {
@@ -54,7 +54,7 @@ export interface PrepareBinding {
  * made under it.
  */
 export function usePrepareController(
-  bridge: ConsoleBridge,
+  bridge: PlatformBridge,
   subject: PrepareSubject,
   sessionStore: SessionStore,
   operations: PrepareOperations,

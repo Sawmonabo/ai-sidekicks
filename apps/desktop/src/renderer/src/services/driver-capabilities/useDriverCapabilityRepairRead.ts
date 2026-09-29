@@ -2,7 +2,7 @@
 
 import { useSessionReadTriggers } from "@renderer/store/reads/hooks/useSessionReadTriggers.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
-import { type ConsoleBridge } from "../platform/platform-bridge.js";
+import { type PlatformBridge } from "../platform/platform-bridge.js";
 import { driverCapabilityReads } from "./driver-capability-read.js";
 
 /**
@@ -19,7 +19,7 @@ import { driverCapabilityReads } from "./driver-capability-read.js";
  * still re-reads on mount and on focus.
  */
 export function useDriverCapabilityRepairRead(
-  bridge: ConsoleBridge,
+  bridge: PlatformBridge,
   sessionStore: SessionStore,
 ): void {
   // The session half alone, deliberately: the window half is already wired by

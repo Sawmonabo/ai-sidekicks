@@ -19,7 +19,7 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { unscriptedScenario } from "@test/helpers/fixture-bridge.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import { PaneRegistry } from "@renderer/console/seats/index.js";
@@ -43,7 +43,7 @@ type DeckPaneContext = Parameters<
   NonNullable<ReturnType<PaneRegistry["descriptorFor"]>>["render"]
 >[0];
 
-function fixtureBridge(): ConsoleBridge {
+function fixtureBridge(): PlatformBridge {
   return createFixtureBridge({ scenario: unscriptedScenario("agent-console-mounts") });
 }
 
@@ -62,7 +62,7 @@ function playedSessionStore(): SessionStore {
 }
 
 /** The address the deck opens this pane at, over one agent or bare. */
-function deckPaneContext(agentId: string | undefined, bridge: ConsoleBridge): DeckPaneContext {
+function deckPaneContext(agentId: string | undefined, bridge: PlatformBridge): DeckPaneContext {
   return {
     kind: "agent-console",
     entity: agentId === undefined ? undefined : { kind: "agent", id: agentId },

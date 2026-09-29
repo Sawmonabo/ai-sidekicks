@@ -29,7 +29,7 @@ import { useBridgeResolution } from "./hooks/useBridgeResolution.js";
 import { usePlatformBridge } from "./hooks/usePlatformBridge.js";
 import { resolveBridgeClock, useClock } from "./hooks/useClock.js";
 import { type BridgeComposition } from "./bridge-context.js";
-import { type ConsoleBridge } from "./platform-bridge.js";
+import { type PlatformBridge } from "./platform-bridge.js";
 import { createFixtureBridge } from "./platform-bridge.fixture.js";
 import { findScenario } from "../../../../../fixtures/index.js";
 import { FIRST_RUN_SCENARIO_ID } from "../../../../../fixtures/scenarios/first-run.js";
@@ -39,7 +39,7 @@ import {
 } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
 
 interface BridgeProbeProps {
-  readonly onObserve: (bridge: ConsoleBridge) => void;
+  readonly onObserve: (bridge: PlatformBridge) => void;
 }
 
 /** A component that does exactly what a console surface does: read the bridge. */
@@ -51,7 +51,7 @@ function BridgeProbe(props: BridgeProbeProps): null {
   return null;
 }
 
-function lastBridge(observed: readonly ConsoleBridge[]): ConsoleBridge {
+function lastBridge(observed: readonly PlatformBridge[]): PlatformBridge {
   const bridge = observed.at(-1);
   if (bridge === undefined) {
     throw new Error("the probe never saw a resolved bridge");
@@ -59,7 +59,7 @@ function lastBridge(observed: readonly ConsoleBridge[]): ConsoleBridge {
   return bridge;
 }
 
-function engineOf(bridge: ConsoleBridge): NonNullable<ConsoleBridge["scenarioEngine"]> {
+function engineOf(bridge: PlatformBridge): NonNullable<PlatformBridge["scenarioEngine"]> {
   const engine = bridge.scenarioEngine;
   if (engine === undefined) {
     throw new Error("the resolved bridge carries no scenario engine, so there is nothing to hold");
@@ -69,12 +69,12 @@ function engineOf(bridge: ConsoleBridge): NonNullable<ConsoleBridge["scenarioEng
 
 /** A composition that plays one scenario and records which of its bridges hold handles. */
 interface RecordingComposition extends BridgeComposition {
-  readonly bridgesWithHandles: ReadonlySet<ConsoleBridge>;
+  readonly bridgesWithHandles: ReadonlySet<PlatformBridge>;
 }
 
 function recordingComposition(scenarioId: string): RecordingComposition {
   const scenario = findScenario(scenarioId);
-  const bridgesWithHandles = new Set<ConsoleBridge>();
+  const bridgesWithHandles = new Set<PlatformBridge>();
   return {
     bridgesWithHandles,
     createBridge: () => createFixtureBridge({ scenario }),
@@ -91,7 +91,7 @@ function recordingComposition(scenarioId: string): RecordingComposition {
 describe("PlatformBridgeProvider — the resolved bridge's lifetime", () => {
   it("holds one engine across re-renders that change nothing it resolves on", () => {
     const composition = recordingComposition(CONCURRENT_STREAMING_SCENARIO_ID);
-    const observed: ConsoleBridge[] = [];
+    const observed: PlatformBridge[] = [];
     const { rerender } = render(
       <PlatformBridgeProvider composition={composition}>
         <BridgeProbe onObserve={(bridge) => observed.push(bridge)} />
@@ -113,7 +113,7 @@ describe("PlatformBridgeProvider — the resolved bridge's lifetime", () => {
   it("replaces the engine when the composition changes, and disposes the one it replaced", () => {
     const concurrentStreamingComposition = recordingComposition(CONCURRENT_STREAMING_SCENARIO_ID);
     const firstRunComposition = recordingComposition(FIRST_RUN_SCENARIO_ID);
-    const observed: ConsoleBridge[] = [];
+    const observed: PlatformBridge[] = [];
     const { rerender } = render(
       <PlatformBridgeProvider composition={concurrentStreamingComposition}>
         <BridgeProbe onObserve={(bridge) => observed.push(bridge)} />
@@ -143,7 +143,7 @@ describe("PlatformBridgeProvider — the resolved bridge's lifetime", () => {
 
   it("disposes the engine it built when the console unmounts", () => {
     const composition = recordingComposition(CONCURRENT_STREAMING_SCENARIO_ID);
-    const observed: ConsoleBridge[] = [];
+    const observed: PlatformBridge[] = [];
     const { unmount } = render(
       <PlatformBridgeProvider composition={composition}>
         <BridgeProbe onObserve={(bridge) => observed.push(bridge)} />
@@ -163,7 +163,7 @@ describe("PlatformBridgeProvider — the resolved bridge's lifetime", () => {
     // providers. Disposing one on unmount would tear down a resource this
     // component never owned, and the second render would be driving a corpse.
     const bridge = createFixtureBridge({ scenario: CONCURRENT_STREAMING_SCENARIO });
-    const observed: ConsoleBridge[] = [];
+    const observed: PlatformBridge[] = [];
     const { unmount } = render(
       <PlatformBridgeProvider bridge={bridge}>
         <BridgeProbe onObserve={(seen) => observed.push(seen)} />
@@ -182,7 +182,7 @@ describe("PlatformBridgeProvider — the resolved bridge's lifetime", () => {
     // build a fresh one — the same re-mint arm `app/hooks/useSessionStoreRegistry.ts`
     // carries for the registry and binder it owns.
     const composition = recordingComposition(CONCURRENT_STREAMING_SCENARIO_ID);
-    const observed: ConsoleBridge[] = [];
+    const observed: PlatformBridge[] = [];
     const tree: ReactNode = (
       <StrictMode>
         <PlatformBridgeProvider composition={composition}>
@@ -229,9 +229,9 @@ function lastClock(observed: readonly Clock[]): Clock {
 }
 
 describe("useClock — the clock is a fact about the bridge", () => {
-  const concurrentStreamingBridge = (): ConsoleBridge =>
+  const concurrentStreamingBridge = (): PlatformBridge =>
     createFixtureBridge({ scenario: CONCURRENT_STREAMING_SCENARIO });
-  const firstRunBridge = (): ConsoleBridge =>
+  const firstRunBridge = (): PlatformBridge =>
     createFixtureBridge({ scenario: findScenario(FIRST_RUN_SCENARIO_ID) });
 
   it("re-resolves on a bridge replacement, on the first committed render", () => {

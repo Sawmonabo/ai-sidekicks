@@ -33,7 +33,7 @@ import {
 } from "./queue-cancellation.js";
 import { QueueOrder } from "./queue-order.js";
 import { resolveBridgeClock } from "@renderer/services/platform/hooks/useClock.js";
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 
 /**
  * Reads one session's whole queue at one moment, in the daemon's canonical order.
@@ -110,7 +110,7 @@ export class SessionQueueReading implements ReadTriggerTarget {
   public snapshot = (): QueueFeed => this.#feed;
 
   public constructor(
-    bridge: ConsoleBridge,
+    bridge: PlatformBridge,
     sessionId: string,
     calls: QueueCalls,
     onIdle: () => void,

@@ -109,7 +109,7 @@ export function PreviewPaneContent(props: PreviewPaneContentProps): React.JSX.El
       return;
     }
     runAct(async () => {
-      await bridge.desktopBridge.native.openExternal(url);
+      await bridge.native.openExternal(url);
       return undefined;
     }, OPEN_EXTERNAL_FALLBACK);
   }, [bridge, refuseLocally, reportedUrl, runAct]);

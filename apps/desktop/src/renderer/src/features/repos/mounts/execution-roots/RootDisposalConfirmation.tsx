@@ -18,7 +18,7 @@
 import "./execution-roots.css";
 
 import { AlertDialog } from "@base-ui/react/alert-dialog";
-import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { Nothing, OverlayAlertDialogPopup } from "@renderer/console/primitives/index.js";
 import { useConfirmationLifecycle } from "../hooks/useConfirmationLifecycle.js";
 import { type DisposalOperations, type DisposalReading } from "./disposal-controller.js";
@@ -33,7 +33,7 @@ const DISPOSAL_QUESTION = "Retire this execution root?";
 
 /** What the retire confirmation is bound to: one worktree, and the call it sends. */
 export interface RootDisposalConfirmationProps {
-  readonly bridge: ConsoleBridge;
+  readonly bridge: PlatformBridge;
   /** The retire this confirmation sends. */
   readonly operations: DisposalOperations;
   /** The worktree's own id. Sent verbatim; nothing about it is re-derived here. */

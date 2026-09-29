@@ -30,7 +30,7 @@ import type { ProviderCommandBindingGroup } from "@ai-sidekicks/contracts";
 import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 import { callDaemon } from "@renderer/services/daemon/daemon-reply.js";
 import { readSessionId } from "@renderer/services/daemon/wire-identifiers.js";
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 
 /** The subsystem name every refusal this read raises carries. */
 export const PROVIDER_COMMAND_READ_ORIGIN = "composer-command-discovery";
@@ -71,7 +71,7 @@ export type ProviderCommandReadState =
  * never publishes because the round it was opened on is no longer the live one.
  */
 export async function settleEnumeration(
-  bridge: ConsoleBridge,
+  bridge: PlatformBridge,
   sessionId: string,
   agentId: string,
   signal: AbortSignal,

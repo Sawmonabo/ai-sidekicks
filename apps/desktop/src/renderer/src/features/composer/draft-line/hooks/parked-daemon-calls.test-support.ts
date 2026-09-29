@@ -16,7 +16,7 @@
 // It sits in the composer family and not under `test/console/` because the renderer
 // project compiles under `rootDir: apps/desktop/src`, so a renderer file cannot import
 // from `apps/desktop/test/...`.
-import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { bridgeAnswering } from "@test/helpers/fixture-bridge.js";
 import { WAITING_FOR_INPUT_SCENARIO } from "../../../../../../../fixtures/scenarios/waiting-for-input.js";
 import type { ComposerSendCalls } from "../send-dispatch.js";
@@ -24,7 +24,7 @@ import { interventionResponse, sendCallsAnswering } from "../send-router.test-su
 
 export class ParkedDaemonCalls {
   readonly #parked: ParkedCall[] = [];
-  public readonly bridge: ConsoleBridge;
+  public readonly bridge: PlatformBridge;
   public readonly calls: ComposerSendCalls;
 
   public constructor() {

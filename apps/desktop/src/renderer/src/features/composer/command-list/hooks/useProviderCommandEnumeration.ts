@@ -2,7 +2,7 @@
 
 import { useEffect, useSyncExternalStore } from "react";
 
-import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import type { ComposerTarget } from "../../composer-target.js";
 import type { ProviderCommandEnumeration } from "../provider-command-enumeration.js";
 import type { ProviderCommandReadState } from "../provider-command-read.js";
@@ -17,7 +17,7 @@ import type { ProviderCommandReadState } from "../provider-command-read.js";
  */
 export function useProviderCommandEnumeration(options: {
   readonly enumeration: ProviderCommandEnumeration;
-  readonly bridge: ConsoleBridge;
+  readonly bridge: PlatformBridge;
   readonly target: ComposerTarget;
   readonly isOpen: boolean;
 }): ProviderCommandReadState {

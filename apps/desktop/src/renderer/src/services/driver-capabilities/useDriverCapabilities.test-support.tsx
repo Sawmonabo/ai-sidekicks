@@ -6,12 +6,12 @@
 
 import { DRIVER_CAPABILITY_FLAGS, type DriverCapabilityFlag } from "@ai-sidekicks/contracts";
 import { bridgeAnswering, type RecordedDaemonCall } from "@test/helpers/fixture-bridge.js";
-import type { ConsoleBridge } from "../platform/platform-bridge.js";
+import type { PlatformBridge } from "../platform/platform-bridge.js";
 import { useDriverCapabilities } from "./useDriverCapabilities.js";
 import { type DriverCapabilityReadout } from "@renderer/store/driver-capabilities/driver-capability-readout.js";
 
 export interface CountingBridge {
-  readonly bridge: ConsoleBridge;
+  readonly bridge: PlatformBridge;
   readonly calls: readonly RecordedDaemonCall[];
 }
 
@@ -37,7 +37,7 @@ export function reportFor(driverName: string, declared: readonly DriverCapabilit
  *
  * Over the family's own `bridgeAnswering` rather than a second one of this file's
  * own. What stood here was a private function of the same name built on an object
- * cast to `ConsoleBridge`, which answered every other seam with whatever it happened
+ * cast to `PlatformBridge`, which answered every other seam with whatever it happened
  * to carry and had to mint a hand-made scenario engine so the scheduler had a clock —
  * a member the fixture already has, and the reason `settleScheduledRead` can now
  * settle these reads with the same call every other console suite makes.
@@ -61,7 +61,7 @@ export function capabilityCallCount(counted: CountingBridge): number {
 
 /** One consumer of the read, standing in for a view family that gates on it. */
 export function CapabilityProbe(props: {
-  readonly bridge: ConsoleBridge;
+  readonly bridge: PlatformBridge;
   readonly onReadout: (readout: DriverCapabilityReadout | undefined) => void;
 }): React.JSX.Element {
   const readout = useDriverCapabilities(props.bridge);

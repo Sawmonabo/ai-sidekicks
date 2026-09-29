@@ -3,7 +3,7 @@
 // A window handed a bridge plays it; one handed a composition plays what the composition
 // builds; one handed neither reads the preload. The provider holds no fixture branch: the
 // fixture launch is a composition built in `app/`, and a release build has none to hand
-// over. The context holds a `ConsoleBridge` and nothing else; no component reads
+// over. The context holds a `PlatformBridge` and nothing else; no component reads
 // `window.desktopBridge` or subscribes to a bridge event directly.
 //
 // The resolution is state, not a memo. A composition may build a `ScenarioEngine`, a mutable
@@ -14,7 +14,7 @@
 
 import { useEffect, useLayoutEffect, useState, type ReactNode } from "react";
 import { ForwardingClock } from "@renderer/lib/forwarding-clock.js";
-import type { ConsoleBridge } from "./platform-bridge.js";
+import type { PlatformBridge } from "./platform-bridge.js";
 import {
   BridgeCompositionContext,
   BridgeContext,
@@ -28,7 +28,7 @@ import { createLiveBridge, readInstalledBridge } from "./live-bridge.js";
 export interface PlatformBridgeProviderProps {
   readonly children: ReactNode;
   /** A bridge to play as it is. Tests pass a fixture directly; a composition owns none of it. */
-  readonly bridge?: ConsoleBridge;
+  readonly bridge?: PlatformBridge;
   /** How to build the bridge when none is handed over. Absent, the window reads the preload. */
   readonly composition?: BridgeComposition;
   /**
@@ -97,14 +97,14 @@ export function PlatformBridgeProvider(props: PlatformBridgeProviderProps): Reac
  * bridge outlives this provider; one built here does not.
  */
 class ResolvedConsoleBridge {
-  readonly #suppliedBridge: ConsoleBridge | undefined;
+  readonly #suppliedBridge: PlatformBridge | undefined;
   readonly #composition: BridgeComposition | undefined;
   readonly #resolution: BridgeResolution;
   /** The engine this provider BUILT. `undefined` when the caller supplied the bridge. */
-  readonly #ownedEngine: ConsoleBridge["scenarioEngine"];
+  readonly #ownedEngine: PlatformBridge["scenarioEngine"];
 
   public constructor(
-    suppliedBridge: ConsoleBridge | undefined,
+    suppliedBridge: PlatformBridge | undefined,
     composition: BridgeComposition | undefined,
   ) {
     this.#suppliedBridge = suppliedBridge;
@@ -139,7 +139,7 @@ class ResolvedConsoleBridge {
    * resolved subject to compare against during render.
    */
   public isSupersededBy(
-    suppliedBridge: ConsoleBridge | undefined,
+    suppliedBridge: PlatformBridge | undefined,
     composition: BridgeComposition | undefined,
   ): boolean {
     if (suppliedBridge !== this.#suppliedBridge || composition !== this.#composition) {
@@ -170,7 +170,7 @@ class ResolvedConsoleBridge {
 }
 
 function resolveBridge(
-  suppliedBridge: ConsoleBridge | undefined,
+  suppliedBridge: PlatformBridge | undefined,
   composition: BridgeComposition | undefined,
 ): BridgeResolution {
   if (suppliedBridge !== undefined) {

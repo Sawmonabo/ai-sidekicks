@@ -10,13 +10,13 @@ import { describe, expect, it } from "vitest";
 
 import { unscriptedScenario } from "@test/helpers/fixture-bridge.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import {
   useTerminalDeviceIdentity,
   type ReadTerminalViewerUser,
 } from "../../lease/hooks/useTerminalDeviceIdentity.js";
 
-function freshBridge(): ConsoleBridge {
+function freshBridge(): PlatformBridge {
   return createFixtureBridge({ scenario: unscriptedScenario("terminal-viewer-identity") });
 }
 

@@ -33,7 +33,7 @@ import "./attach.css";
 
 import { AlertDialog } from "@base-ui/react/alert-dialog";
 import { useCallback, useEffect, useRef } from "react";
-import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import {
   Nothing,
   OverlayAlertDialogPopup,
@@ -45,7 +45,7 @@ import { type AttachRequestReading } from "./attach-controller.js";
 import { useAttachController } from "./hooks/useAttachController.js";
 
 export interface ReattachControlProps {
-  readonly bridge: ConsoleBridge;
+  readonly bridge: PlatformBridge;
   /** The attach the confirmation sends. */
   readonly operations: Pick<RepoOperations, "attachRepository">;
   /** The session whose section this card is drawn in. */

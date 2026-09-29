@@ -12,7 +12,7 @@
 //
 // It imports nothing from this family, which is the property that makes it a floor
 // rather than one more node in the graph.
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { type DraftStore } from "@renderer/store/draft-store.js";
 import { type UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
 import { type WindowStore } from "@renderer/store/window/window-store.js";
@@ -35,7 +35,7 @@ export type PaneContext = PaneAddress & PaneBinding;
 interface PaneBinding {
   /** This pane's identity in the deck, stable across a layout restore. */
   readonly paneId: string;
-  readonly bridge: ConsoleBridge;
+  readonly bridge: PlatformBridge;
   readonly frameStore: WindowStore;
   /** The session store for the pane's session, or `undefined` on a bare route. */
   readonly sessionStore: SessionStore | undefined;

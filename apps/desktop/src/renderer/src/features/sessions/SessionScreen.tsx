@@ -37,7 +37,7 @@ import "./SessionScreen.css";
 import { useCallback } from "react";
 
 import { type Refusal } from "@renderer/lib/refusal.js";
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { routeSessionId } from "@renderer/routing/route-readers.js";
 import { type ConsoleRoute } from "@renderer/routing/routes.js";
 import { type WindowStore } from "@renderer/store/window/window-store.js";
@@ -71,7 +71,7 @@ import {
 
 /** What the workspace is handed: the stores it reads and the pane board it mounts. */
 export interface SessionScreenProps {
-  readonly bridge: ConsoleBridge;
+  readonly bridge: PlatformBridge;
   readonly frameStore: WindowStore;
   /** `undefined` on a route that names no session, or before its store opens. */
   readonly sessionStore: SessionStore | undefined;

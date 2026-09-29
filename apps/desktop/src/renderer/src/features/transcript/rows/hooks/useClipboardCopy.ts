@@ -56,7 +56,7 @@ export function useClipboardCopy(text: string): ClipboardCopy {
 
   const copy = (): void => {
     try {
-      bridge.desktopBridge.native.copyToClipboard(text).then(
+      bridge.native.copyToClipboard(text).then(
         () => {
           settle("copied");
         },

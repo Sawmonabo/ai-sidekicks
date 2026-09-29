@@ -9,7 +9,7 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { unscriptedScenario } from "@test/helpers/fixture-bridge.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import type { AgentConsoleCalls } from "../agent-reads.js";
@@ -25,7 +25,7 @@ const EMPTY_CALLS: AgentConsoleCalls = {
   readChildRunLinks: () => Promise.resolve({ links: [], rejectedCreates: [] }),
 };
 
-function fixtureBridge(): ConsoleBridge {
+function fixtureBridge(): PlatformBridge {
   return createFixtureBridge({ scenario: unscriptedScenario("agent-console-body") });
 }
 

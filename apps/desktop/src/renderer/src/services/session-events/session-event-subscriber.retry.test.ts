@@ -19,7 +19,7 @@ import {
   subscribeNodeDaemon,
 } from "../daemon/daemon-streams.js";
 import { createFixtureBridge } from "../platform/platform-bridge.fixture.js";
-import { type ConsoleBridge } from "../platform/platform-bridge.js";
+import { type PlatformBridge } from "../platform/platform-bridge.js";
 import { withDaemonSubscribe } from "@test/helpers/fixture-bridge.js";
 import type { ScenarioEngine } from "../daemon/engine.fixture.js";
 import { CONCURRENT_STREAMING_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
@@ -66,7 +66,7 @@ interface OutageHarness {
   readonly registry: SessionStoreRegistry;
   readonly binder: SessionEventSubscriber;
   readonly engine: ScenarioEngine;
-  readonly bridge: ConsoleBridge;
+  readonly bridge: PlatformBridge;
   readonly outage: ScriptedStreamOutage;
   /** Every reason the registry's read was actually performed for, in order. */
   readonly reasonsSeen: string[];

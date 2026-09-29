@@ -32,7 +32,7 @@ import {
   type AgentListReading,
   type ChildRunLinkReading,
 } from "@renderer/services/wire-shapes/agents.js";
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { type AgentDefinition } from "@renderer/services/wire-shapes/agent-definition.js";
 import { PushDrivenRead, unwrapDaemonReply } from "@renderer/console/seats/index.js";
 import { subscribeToSessionEventKinds } from "@renderer/store/session/session-event-signal.js";
@@ -95,7 +95,7 @@ export function createAgentList(
 }
 
 /** Both driver catalogs, read together and never separately. */
-export function createDriverCatalogRead(bridge: ConsoleBridge, clock: Clock): DriverCatalogRead {
+export function createDriverCatalogRead(bridge: PlatformBridge, clock: Clock): DriverCatalogRead {
   return new PushDrivenRead<DriverCatalogReading>({
     clock,
     origin: DRIVER_CATALOG_ORIGIN,

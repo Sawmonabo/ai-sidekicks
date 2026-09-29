@@ -17,7 +17,7 @@ import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { act, render } from "@testing-library/react";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { type AgentDefinition } from "@renderer/services/wire-shapes/agent-definition.js";
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { unscriptedScenario } from "@test/helpers/fixture-bridge.js";
 import { settleScheduledRead } from "@test/helpers/scheduled-read.js";
 import { LIVE_ANNOUNCEMENT_HOLD_MS } from "@renderer/components/LiveAnnouncer/live-announcement-caps.js";
@@ -36,7 +36,7 @@ import type { AgentRegistryCalls } from "./library-view.js";
  * asserted at all: "the row is gone" is also true of a page that removed it itself.
  */
 export class RegistryStub {
-  public readonly bridge: ConsoleBridge;
+  public readonly bridge: PlatformBridge;
   public readonly calls: AgentRegistryCalls;
   readonly #lists: readonly (readonly AgentDefinition[])[];
   readonly #holdsDeletes: boolean;
@@ -157,7 +157,7 @@ export async function releaseAnnouncementHold(clock: ManualClock): Promise<void>
  * would state nothing a reader needs: exactly one page is mounted at a time here, over
  * the bridge the stub just minted.
  */
-let bridgeUnderTest: ConsoleBridge | undefined;
+let bridgeUnderTest: PlatformBridge | undefined;
 
 /**
  * Let the read, the delete, and the re-read the delete schedules all land.

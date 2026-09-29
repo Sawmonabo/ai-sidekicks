@@ -9,10 +9,10 @@ import { describe, expect, it, vi } from "vitest";
 
 import { unscriptedScenario } from "@test/helpers/fixture-bridge.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { useTerminalOutputStream, type TerminalOutputStream } from "./useTerminalOutputStream.js";
 
-function freshBridge(): ConsoleBridge {
+function freshBridge(): PlatformBridge {
   return createFixtureBridge({ scenario: unscriptedScenario("terminal-output-stream") });
 }
 
@@ -59,7 +59,7 @@ async function serveAndSettle(
 }
 
 interface StreamProps {
-  readonly bridge: ConsoleBridge;
+  readonly bridge: PlatformBridge;
   readonly terminalId: string;
 }
 

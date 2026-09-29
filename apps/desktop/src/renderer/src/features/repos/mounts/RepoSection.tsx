@@ -3,7 +3,7 @@
 import "./mount-controls.css";
 
 import { useCallback } from "react";
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { type PaneOpener } from "@renderer/console/seats/index.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 
@@ -15,7 +15,7 @@ import { MountList } from "./components/MountList.js";
 import { RepoMountsSummary } from "./components/RepoMountsSummary.js";
 
 export interface RepoSectionProps {
-  readonly bridge: ConsoleBridge;
+  readonly bridge: PlatformBridge;
   readonly sessionStore: SessionStore;
   /** Whether the section is expanded; collapsed, it shows only the summary line. */
   readonly isOpen: boolean;
@@ -35,7 +35,7 @@ export function RepoSection(props: RepoSectionProps): React.JSX.Element {
 
   const copyCanonicalRoot = useCallback(
     (canonicalRoot: string) => {
-      void bridge.desktopBridge.native.copyToClipboard(canonicalRoot);
+      void bridge.native.copyToClipboard(canonicalRoot);
     },
     [bridge],
   );

@@ -13,7 +13,7 @@
 // behind it. Those come from the session store and the route. If the mount and the
 // body agreed on that shape by convention rather than by type, the two branches
 // would agree until one of them shipped.
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { type WindowStore } from "@renderer/store/window/window-store.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 import { type DraftStore } from "@renderer/store/draft-store.js";
@@ -25,7 +25,7 @@ import { SingleEntryRegistry } from "@renderer/lib/single-entry-registry.js";
 export interface ComposerProps {
   /** The session the composer is addressed within. */
   readonly sessionStore: SessionStore;
-  readonly bridge: ConsoleBridge;
+  readonly bridge: PlatformBridge;
   /**
    * The window store the composer hands a whole-workspace refusal to.
    *

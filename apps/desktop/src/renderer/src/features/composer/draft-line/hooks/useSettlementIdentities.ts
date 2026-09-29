@@ -36,7 +36,7 @@
 // concurrent feature that lands is what this closes ahead of.
 
 import { useCallback, useLayoutEffect, useRef } from "react";
-import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
 import {
   addressedOperationKey,
@@ -58,7 +58,7 @@ export interface SettlementIdentities {
 
 /** Mint one composer act's identity, and judge whether a settled one is still it. */
 export function useSettlementIdentities(
-  bridge: ConsoleBridge,
+  bridge: PlatformBridge,
   draftKey: string,
 ): SettlementIdentities {
   // One serial per mount, handed out by the holder's own re-seed: the initializer

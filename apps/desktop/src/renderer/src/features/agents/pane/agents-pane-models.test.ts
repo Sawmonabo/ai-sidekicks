@@ -16,7 +16,7 @@
 import { renderHook } from "@testing-library/react";
 import { useEffect, useState } from "react";
 import { describe, expect, it } from "vitest";
-import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { REFRESH_MAX_WAIT_MS } from "@renderer/lib/reads/refresh-caps.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import { AgentsPaneModels } from "./agents-pane-models.js";
@@ -34,7 +34,7 @@ const OTHER_PARENT_RUN_ID = "run-9";
 
 /** Every value the hook answered, in render order, including uncommitted frames. */
 function recordedModelSessionIds(
-  bridge: ConsoleBridge,
+  bridge: PlatformBridge,
   first: SessionStore,
   second: SessionStore,
 ): readonly (string | undefined)[] {
@@ -60,7 +60,7 @@ function recordedModelSessionIds(
  * answered `undefined` forever.
  */
 function useUnguardedAgentConsoleModels(
-  bridge: ConsoleBridge,
+  bridge: PlatformBridge,
   sessionStore: SessionStore,
 ): AgentsPaneModels | undefined {
   return useHeldAgentConsoleModels(bridge, sessionStore);
@@ -73,7 +73,7 @@ function useUnguardedAgentConsoleModels(
  * committed render after either hands back a set bound to what was just retired.
  */
 function useSessionIdGuardedAgentConsoleModels(
-  bridge: ConsoleBridge,
+  bridge: PlatformBridge,
   sessionStore: SessionStore,
 ): AgentsPaneModels | undefined {
   const models = useHeldAgentConsoleModels(bridge, sessionStore);
@@ -82,7 +82,7 @@ function useSessionIdGuardedAgentConsoleModels(
 
 /** The lifecycle both stand-ins share — a set built and disposed by an effect. */
 function useHeldAgentConsoleModels(
-  bridge: ConsoleBridge,
+  bridge: PlatformBridge,
   sessionStore: SessionStore,
 ): AgentsPaneModels | undefined {
   const [models, setModels] = useState<AgentsPaneModels | undefined>(undefined);
@@ -214,7 +214,7 @@ describe("the agent console's models — the linkage lease", () => {
 
 /** The two inputs a mount is handed, replaced one at a time by the cases below. */
 interface ModelsProbeInputs {
-  readonly bridge: ConsoleBridge;
+  readonly bridge: PlatformBridge;
   readonly sessionStore: SessionStore;
 }
 

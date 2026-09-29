@@ -27,7 +27,7 @@
 import { type ChildRunExpandResponse, type RunId, type TimelineRow } from "@ai-sidekicks/contracts";
 
 import { callDaemon, type DaemonReply } from "@renderer/services/daemon/daemon-reply.js";
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { type Refusal } from "@renderer/lib/refusal.js";
 import { ReadScope } from "@renderer/lib/reads/read-scope.js";
 
@@ -132,7 +132,7 @@ export class ChildRunExpansionState {
    * control that can never be pressed again, so the state this press replaced is
    * restored: the expansion did not happen, and the row says exactly that.
    */
-  public async expand(bridge: ConsoleBridge, childRunId: RunId): Promise<ChildRunExpansion> {
+  public async expand(bridge: PlatformBridge, childRunId: RunId): Promise<ChildRunExpansion> {
     const held = this.expansionFor(childRunId);
     // THE IN-FLIGHT FACT IS THE STATE ITSELF, not a second register beside it: this
     // act raises `expanding` synchronously and every terminal arm below leaves it,
@@ -226,7 +226,7 @@ export class ChildRunExpansionState {
  * family's; nothing is re-authored here.
  */
 async function readChildRunEntries(
-  bridge: ConsoleBridge,
+  bridge: PlatformBridge,
   childRunId: RunId,
   signal: AbortSignal,
 ): Promise<DaemonReply<ChildRunExpandResponse>> {

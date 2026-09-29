@@ -17,7 +17,7 @@ import type { ReactNode } from "react";
 
 import { useAgentsPaneModels } from "./hooks/useAgentsPaneModels.js";
 import type { AgentConsoleCalls } from "../agent-reads.js";
-import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { Nothing } from "@renderer/console/primitives/index.js";
 import type { SessionStore } from "@renderer/store/session/session-store.js";
 import { AgentBindingColumn } from "./components/AgentBindingColumn.js";
@@ -35,7 +35,7 @@ export interface AgentsPaneProps {
    */
   readonly agentId: string | undefined;
   /** Absent where the mount could not resolve one; the column says so. */
-  readonly bridge?: ConsoleBridge | undefined;
+  readonly bridge?: PlatformBridge | undefined;
   /** Absent on a bare route, which both mount contexts admit. */
   readonly sessionStore?: SessionStore | undefined;
   /** The daemon reads the models drive. Held stable by the caller. */

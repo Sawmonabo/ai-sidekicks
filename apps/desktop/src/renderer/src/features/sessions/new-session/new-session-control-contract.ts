@@ -15,7 +15,7 @@
 // one of those four steps names a store or a route the workspace family cannot reach.
 // The draft knows the id and stops there; a control that carried the settlement itself
 // would be a second copy of an act that already has one home.
-import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 
 /**
  * The call that puts the person's first message on the queue of the session a send made.
@@ -36,7 +36,7 @@ export interface NewSessionControlProps {
    * to a transport that has been retired either never lands or lands somewhere this
    * console will not read again.
    */
-  readonly bridge: ConsoleBridge;
+  readonly bridge: PlatformBridge;
   /** The call the send makes once the session exists, to queue the first message. */
   readonly queueFirstTurn: FirstTurnQueueCall;
   /**

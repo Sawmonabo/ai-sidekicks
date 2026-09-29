@@ -28,7 +28,7 @@
 
 import type { Clock } from "@renderer/lib/clock.js";
 import { resolveBridgeClock } from "@renderer/services/platform/hooks/useClock.js";
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { type SessionSubject } from "@renderer/console/seats/index.js";
 import type { SessionStore } from "@renderer/store/session/session-store.js";
 import {
@@ -86,7 +86,7 @@ export class AgentsPaneModels {
   #outstandingLinkageLeaseCount = 0;
   #disposed = false;
 
-  public constructor(bridge: ConsoleBridge, sessionStore: SessionStore, calls: AgentConsoleCalls) {
+  public constructor(bridge: PlatformBridge, sessionStore: SessionStore, calls: AgentConsoleCalls) {
     this.subject = { bridge, sessionStore };
     this.#calls = calls;
     // Through the platform service's clock rather than resolved here. The rule — a

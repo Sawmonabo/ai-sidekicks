@@ -10,7 +10,7 @@ import {
   type AgentListReading,
   type ChildRunLinkReading,
 } from "@renderer/services/wire-shapes/agents.js";
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 
 /**
@@ -32,7 +32,7 @@ export interface ScriptedDaemon {
  * The calls reach the bridge's own call arm through the shared `withDaemonCall`, which is
  * where the reach lives; this file holds no copy of the bridge's namespace shape.
  */
-export function bridgeCalling(scriptedDaemon: ScriptedDaemon): ConsoleBridge {
+export function bridgeCalling(scriptedDaemon: ScriptedDaemon): PlatformBridge {
   const base = createFixtureBridge({ scenario: unscriptedScenario("agent-binding-column") });
   return withDaemonCall(
     base,
@@ -90,7 +90,7 @@ export function disposeOpenedModels(): void {
 
 /** The real models over that bridge and daemon, disposed after the test that opened them. */
 export function modelsOver(
-  bridge: ConsoleBridge,
+  bridge: PlatformBridge,
   scriptedDaemon: ScriptedDaemon,
   sessionId = "session-9",
 ): AgentsPaneModels {

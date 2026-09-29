@@ -4,7 +4,7 @@
 
 import { render } from "@testing-library/react";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { fixtureSessionSnapshot } from "@renderer/services/daemon/session-snapshot.fixture.js";
 import { TERMINAL_LEASE_SCENARIO } from "../../../../../../../fixtures/scenarios/terminal-lease.js";
 import type { PaneContextOf } from "@renderer/console/seats/index.js";
@@ -17,7 +17,7 @@ import { TerminalPane } from "./TerminalPane.js";
 export const SESSION_ID: string = TERMINAL_LEASE_SCENARIO.sessionId;
 
 /** The fixture bridge every suite starts from. */
-export function paneBridge(): ConsoleBridge {
+export function paneBridge(): PlatformBridge {
   return createFixtureBridge({ scenario: TERMINAL_LEASE_SCENARIO });
 }
 
@@ -88,7 +88,7 @@ export function paneRegionOf(container: HTMLElement): HTMLElement {
  */
 export function terminalPaneContext(
   sessionStore: SessionStore | undefined,
-  consoleBridge: ConsoleBridge = paneBridge(),
+  consoleBridge: PlatformBridge = paneBridge(),
 ): PaneContextOf<"terminal"> {
   return paneContext({ kind: "terminal" }, { bridge: consoleBridge, sessionStore });
 }
@@ -96,7 +96,7 @@ export function terminalPaneContext(
 /** Mount the pane over the store and return its region. */
 export function renderPane(
   sessionStore: SessionStore | undefined,
-  consoleBridge: ConsoleBridge = paneBridge(),
+  consoleBridge: PlatformBridge = paneBridge(),
 ): HTMLElement {
   const { container } = render(
     <TerminalPane {...terminalPaneContext(sessionStore, consoleBridge)} />,

@@ -18,7 +18,7 @@
 
 import { useLayoutEffect, useRef } from "react";
 
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence-caps.js";
 import { useWindowStore } from "@renderer/store/window/hooks/useWindowStore.js";
 import { useLocationHash } from "@renderer/routing/hooks/useLocationHash.js";
@@ -44,7 +44,7 @@ import { applyColorScheme } from "./token-installation.js";
 
 /** What the bootstrap hands the window once the bridge has resolved. */
 export interface AppWindowProps {
-  readonly bridge: ConsoleBridge;
+  readonly bridge: PlatformBridge;
   /** The call that reads one session's base state, handed to the session registry. */
   readonly readSession: SessionSnapshotReader;
 }

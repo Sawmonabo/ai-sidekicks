@@ -12,7 +12,7 @@ import { useCallback } from "react";
 
 import { useGenerationLatch } from "@renderer/hooks/useGenerationLatch.js";
 import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
-import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 
 /** Takes the session's one shared shell. */
 export type TerminalLeaseCall = (request: { readonly sessionId: string }) => Promise<unknown>;
@@ -39,7 +39,7 @@ const IDLE_TERMINAL_LEASE_CLAIM = { isInFlight: false };
  * surfaces as an unhandled rejection.
  */
 export function useTakeShell(
-  bridge: ConsoleBridge,
+  bridge: PlatformBridge,
   sessionId: string,
   calls: TerminalLeaseCalls,
 ): UseTakeShellResult {

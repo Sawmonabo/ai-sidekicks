@@ -48,7 +48,7 @@
 
 import { ReadScope } from "@renderer/lib/reads/read-scope.js";
 import { settleEnumeration, type ProviderCommandReadState } from "./provider-command-read.js";
-import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import {
   composeCommandList,
   selectAddressedBindingGroup,
@@ -58,7 +58,7 @@ import {
 
 /** Which binding an enumeration was read under. A change discards before it re-reads. */
 export interface ProviderCommandReadKey {
-  readonly bridge: ConsoleBridge;
+  readonly bridge: PlatformBridge;
   readonly sessionId: string;
   readonly agentId: string;
 }

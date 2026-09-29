@@ -8,7 +8,7 @@
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { createFixture } from "@test/helpers/fixture-bridge.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import { PaneRegistry } from "@renderer/console/seats/index.js";
@@ -28,7 +28,7 @@ const SESSION_ID = "session-inspector";
  * real answer here and change what this file renders, where a cast stand-in answers
  * `undefined.something` and fails somewhere that names neither the read nor the pane.
  */
-const UNUSED_BRIDGE: ConsoleBridge = createFixture().bridge;
+const UNUSED_BRIDGE: PlatformBridge = createFixture().bridge;
 
 /**
  * The entity an inspector is addressed at.

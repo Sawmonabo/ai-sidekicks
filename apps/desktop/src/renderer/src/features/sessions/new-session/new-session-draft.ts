@@ -61,7 +61,7 @@
 // facts about how the session was opened that no reply here carries.
 
 import type { ExecutionMode, ExecutionPosture } from "@ai-sidekicks/contracts";
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
 import type { FirstTurnQueueCall } from "@renderer/console/seats/index.js";
 import { sendNewSessionDraft } from "./new-session-send.js";
@@ -100,7 +100,7 @@ export interface NewSessionDraftState {
 }
 
 export class NewSessionDraft {
-  readonly #bridge: ConsoleBridge;
+  readonly #bridge: PlatformBridge;
   readonly #queueFirstTurn: FirstTurnQueueCall;
   readonly #changes = new Emitter<NewSessionDraftState>("new session draft change");
   /**
@@ -139,7 +139,7 @@ export class NewSessionDraft {
   };
 
   public constructor(options: {
-    readonly bridge: ConsoleBridge;
+    readonly bridge: PlatformBridge;
     readonly queueFirstTurn: FirstTurnQueueCall;
   }) {
     this.#bridge = options.bridge;

@@ -9,7 +9,7 @@ import { act, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import { type AttentionItem } from "@ai-sidekicks/contracts";
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { usePlatformBridge } from "@renderer/services/platform/hooks/usePlatformBridge.js";
 import { useClock } from "@renderer/services/platform/hooks/useClock.js";
 import { ManualClock } from "@renderer/lib/clock.js";
@@ -302,7 +302,7 @@ describe("what makes the attention read run again", () => {
 
   /** A bridge whose attention signal a case can fire, and whose listeners it can count. */
   function bridgeOn(clock: ManualClock): {
-    readonly bridge: ConsoleBridge;
+    readonly bridge: PlatformBridge;
     readonly wake: () => void;
     readonly listenerCount: () => number;
   } {
@@ -316,7 +316,7 @@ describe("what makes the attention read run again", () => {
           listeners.delete(onSignal);
         };
       },
-    } as unknown as ConsoleBridge;
+    } as unknown as PlatformBridge;
     return {
       bridge,
       wake: () => {
@@ -371,7 +371,7 @@ describe("what makes the attention read run again", () => {
   }
 
   function mount(
-    bridge: ConsoleBridge,
+    bridge: PlatformBridge,
     read: AttentionProjectionReadCall,
     registry: SessionStoreRegistry,
   ): ReturnType<typeof render> {

@@ -5,7 +5,7 @@
 // would have made the second reader's case about a second reading.
 
 import type { ProviderCommandListResult } from "@ai-sidekicks/contracts";
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { bridgeAnswering, type RecordedDaemonCall } from "@test/helpers/fixture-bridge.js";
 import { WAITING_FOR_INPUT_SCENARIO } from "../../../../../../fixtures/scenarios/waiting-for-input.js";
 import type { ComposerTarget } from "../composer-target.js";
@@ -27,7 +27,7 @@ export const ENUMERATION_METHOD = "driver.listProviderCommands";
 export function recordingBridge(
   recorded: RecordedDaemonCall[],
   parkedEnumerations?: ((reply: unknown) => void)[],
-): ConsoleBridge {
+): PlatformBridge {
   return bridgeAnswering((call, forward) => {
     recorded.push({ method: call.method, params: call.params });
     if (parkedEnumerations !== undefined && call.method === ENUMERATION_METHOD) {

@@ -8,7 +8,7 @@
 import { createStubBridge } from "@shared/preload-api.js";
 import type { ReactNode } from "react";
 import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { createLiveBridge } from "@renderer/services/platform/live-bridge.js";
 import { FIXTURE_APP_META } from "@renderer/services/platform/platform-bridge.fixture.js";
 import type { ConsoleRoute } from "@renderer/routing/routes.js";
@@ -61,7 +61,7 @@ export function frameProps(
  * real concurrent-streaming scenario.
  */
 export function bridgeWrapper(
-  bridge: ConsoleBridge,
+  bridge: PlatformBridge,
 ): (props: { readonly children: ReactNode }) => React.JSX.Element {
   return function BridgeHost(props: { readonly children: ReactNode }): React.JSX.Element {
     return <PlatformBridgeProvider bridge={bridge}>{props.children}</PlatformBridgeProvider>;

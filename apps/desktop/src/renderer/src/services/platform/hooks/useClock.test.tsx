@@ -18,7 +18,7 @@ import { render } from "@testing-library/react";
 import { useState } from "react";
 import { describe, expect, it } from "vitest";
 import { PlatformBridgeProvider } from "../PlatformBridgeProvider.js";
-import type { ConsoleBridge } from "../platform-bridge.js";
+import type { PlatformBridge } from "../platform-bridge.js";
 import { createFixtureBridge } from "../platform-bridge.fixture.js";
 import { findScenario } from "../../../../../../fixtures/index.js";
 import { usePlatformBridge } from "./usePlatformBridge.js";
@@ -51,8 +51,8 @@ function ClockProbe(props: ClockProbeProps): null {
  * One bridge per scenario, built on first ask and handed back on every later one, so a
  * re-render that names the same scenario keeps the provider's resolution.
  */
-function scenarioBridges(): (scenarioId: string) => ConsoleBridge {
-  const bridges = new Map<string, ConsoleBridge>();
+function scenarioBridges(): (scenarioId: string) => PlatformBridge {
+  const bridges = new Map<string, PlatformBridge>();
   return (scenarioId) => {
     const existing = bridges.get(scenarioId);
     if (existing !== undefined) {

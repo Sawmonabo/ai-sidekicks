@@ -86,7 +86,7 @@ import { reportTripwire } from "@renderer/lib/tripwires.js";
 import { SESSION_EVENT_STREAM } from "../daemon/session-event-streams.js";
 import { openObservedSubscription } from "../transport/observed-subscription.js";
 import { readProjectedSessionEvent } from "../daemon/session-event-payload.js";
-import { type ConsoleBridge } from "../platform/platform-bridge.js";
+import { type PlatformBridge } from "../platform/platform-bridge.js";
 import { type SessionDiagnostics } from "./session-diagnostics-handle.js";
 import { FailedSubscriptionRetry } from "./failed-subscription-retry.js";
 import type { SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
@@ -96,12 +96,12 @@ const SITE = "console/frame/session-event-binder.ts";
 
 export interface SessionEventSubscriberOptions {
   readonly registry: SessionStoreRegistry;
-  readonly bridge: ConsoleBridge;
+  readonly bridge: PlatformBridge;
 }
 
 export class SessionEventSubscriber {
   readonly #registry: SessionStoreRegistry;
-  readonly #bridge: ConsoleBridge;
+  readonly #bridge: PlatformBridge;
   readonly #unsubscribeBySessionId = new Map<string, Unsubscribe>();
   readonly #appliedEventCountBySessionId = new Map<string, number>();
   /** Which failed opens are remembered, and what one returning edge is worth. */
@@ -279,7 +279,7 @@ export class SessionEventSubscriber {
     if (this.#disposed || this.#unsubscribeBySessionId.has(sessionId)) {
       return;
     }
-    const subscribe = this.#bridge.desktopBridge.daemon.subscribe as SessionStreamSubscribe;
+    const subscribe = this.#bridge.daemon.subscribe as SessionStreamSubscribe;
     let release: Unsubscribe;
     try {
       release = openObservedSubscription(this.#bridge.transportReconnect, () =>

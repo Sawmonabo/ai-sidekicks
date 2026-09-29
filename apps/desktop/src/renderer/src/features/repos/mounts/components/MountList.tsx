@@ -4,7 +4,7 @@ import { Nothing } from "@renderer/console/primitives/index.js";
 import { MountCard } from "./MountCard.js";
 import { type OpenDiffSubject } from "./OpenDiffControl.js";
 import { type RepoMountsReading } from "../repo-mounts-model.js";
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 import { type RepoOperations } from "../../repo-operations.js";
 import { type WorkspaceId, type ExecutionMode } from "@ai-sidekicks/contracts";
@@ -13,7 +13,7 @@ import { REPO_MOUNTS_NOT_READ_TITLE } from "../repo-mounts-copy.js";
 export interface MountListProps {
   readonly reading: RepoMountsReading;
   /** Passed down to each card's controls, which take their clock from it. */
-  readonly bridge: ConsoleBridge;
+  readonly bridge: PlatformBridge;
   /** Passed down for the same reason: each control arms its own refresh triggers. */
   readonly sessionStore: SessionStore;
   /** The calls each card's controls make. */

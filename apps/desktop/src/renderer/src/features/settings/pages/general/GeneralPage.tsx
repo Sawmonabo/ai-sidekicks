@@ -16,7 +16,7 @@ import type { SettingsPageContext } from "../../types.js";
 /** The General page: the running version, platform, architecture and locale. */
 export function GeneralPage(props: { readonly context: SettingsPageContext }): ReactNode {
   const { bridge } = props.context;
-  const { app } = bridge.desktopBridge;
+  const { app } = bridge;
   return (
     <div className="meridian-settings-page">
       <dl className="meridian-settings-page__facts">

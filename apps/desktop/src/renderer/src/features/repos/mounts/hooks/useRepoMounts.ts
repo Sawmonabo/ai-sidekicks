@@ -16,7 +16,7 @@ import type { ExecutionMode, WorkspaceId } from "@ai-sidekicks/contracts";
 import { CONTROLLER_DISPOSAL } from "@renderer/lib/subject-scoped/subject-scoped-disposal.js";
 import { useSubjectScopedResource } from "@renderer/hooks/subject-scoped/useSubjectScopedResource.js";
 import { resolveBridgeClock } from "@renderer/services/platform/hooks/useClock.js";
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 import type { RepoOperations } from "../../repo-operations.js";
 import { RepoMountsReader } from "../repo-mounts-reader.js";
@@ -56,7 +56,7 @@ export interface RepoMountsBinding {
  * therefore holds one object for as long as the section should keep its reading.
  */
 export function useRepoMounts(
-  bridge: ConsoleBridge,
+  bridge: PlatformBridge,
   sessionStore: SessionStore,
   operations: RepoOperations,
 ): RepoMountsBinding {

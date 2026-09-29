@@ -26,10 +26,7 @@ function contextFor(): SettingsPageContext {
   return {
     bridge: {
       ...fixture,
-      desktopBridge: {
-        ...fixture.desktopBridge,
-        app: { version: "1.4.0", platform: "darwin", arch: "arm64", locale: "en-GB" },
-      },
+      app: { version: "1.4.0", platform: "darwin", arch: "arm64", locale: "en-GB" },
     },
     openPage: () => undefined,
     retainedSessionId: undefined,

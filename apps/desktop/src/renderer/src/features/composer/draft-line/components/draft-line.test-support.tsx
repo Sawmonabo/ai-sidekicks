@@ -7,7 +7,7 @@
 // composition the send cases need.
 
 import { fireEvent, render, type RenderResult } from "@testing-library/react";
-import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { bridgeAnswering, type RecordedDaemonCall } from "@test/helpers/fixture-bridge.js";
 import { DEFAULT_ROUTE } from "@renderer/routing/routes.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence-caps.js";
@@ -103,7 +103,7 @@ export function mountLine(options: {
 }
 
 /** The transport the bar's held state belongs to; every call goes through `calls` instead. */
-function inertBridge(): ConsoleBridge {
+function inertBridge(): PlatformBridge {
   return bridgeAnswering(async () => undefined).bridge;
 }
 

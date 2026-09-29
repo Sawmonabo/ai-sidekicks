@@ -36,7 +36,7 @@
 // re-throws it.
 //
 // WHAT THIS IS NOT. It is not a store — nothing here is projected from the timeline —
-// and it holds no `ConsoleBridge` and knows no method name. Each call is a closure its
+// and it holds no `PlatformBridge` and knows no method name. Each call is a closure its
 // owner passes in, which is what keeps this module below `bridge/` in the console's DAG.
 
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";

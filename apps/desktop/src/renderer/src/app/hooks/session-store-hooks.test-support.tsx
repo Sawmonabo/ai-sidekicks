@@ -9,7 +9,7 @@
 import { useRef, type ReactNode } from "react";
 import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { CONCURRENT_STREAMING_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
 import { EntityProjectorRegistry } from "@renderer/registries/entity-projectors/entity-projector-registry.js";
 import { type SessionSnapshotReader } from "@renderer/store/session/open-session-entry.js";
@@ -46,7 +46,7 @@ export interface SessionProbeProps {
 
 /** One fixture bridge and the provider that serves it, for a case that drives both. */
 export interface FixtureBridgeHarness {
-  readonly bridge: ConsoleBridge;
+  readonly bridge: PlatformBridge;
   readonly wrapper: (props: { readonly children: ReactNode }) => React.JSX.Element;
 }
 
@@ -71,7 +71,7 @@ export function SessionProbe(props: SessionProbeProps): null {
  * scenario engine mid-pass and reset the frozen clock underneath it.
  */
 export function fixtureBridgeHarness(): FixtureBridgeHarness {
-  const bridge: ConsoleBridge = createFixtureBridge({ scenario: CONCURRENT_STREAMING_SCENARIO });
+  const bridge: PlatformBridge = createFixtureBridge({ scenario: CONCURRENT_STREAMING_SCENARIO });
   return {
     bridge,
     wrapper: function FixtureBridgeHost(props: {

@@ -46,7 +46,7 @@
 //     one answer to which clock a window runs on; `app/hooks/useSessionStoreRegistry.ts` asks it
 //     the same question for the session registry.
 import { resolveBridgeClock } from "@renderer/services/platform/hooks/useClock.js";
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { usePlatformBridge } from "@renderer/services/platform/hooks/usePlatformBridge.js";
 import { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
 import { useSubjectScopedResource } from "@renderer/hooks/subject-scoped/useSubjectScopedResource.js";
@@ -77,7 +77,7 @@ export function useUiStateStore(): UiStateStore {
   return uiStateStore;
 }
 
-function openUiStateStore(bridge: ConsoleBridge): UiStateStore {
+function openUiStateStore(bridge: PlatformBridge): UiStateStore {
   return UiStateStore.opening({ clock: resolveBridgeClock(bridge) });
 }
 

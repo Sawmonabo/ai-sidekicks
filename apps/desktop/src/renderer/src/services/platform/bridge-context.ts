@@ -3,7 +3,7 @@
 import { createContext, type Context } from "react";
 
 import type { SessionDiagnostics } from "../session-events/session-diagnostics-handle.js";
-import type { ConsoleBridge } from "./platform-bridge.js";
+import type { PlatformBridge } from "./platform-bridge.js";
 
 /** Why the window has no bridge at all. Rendered as the "error" kind of nothing. */
 export interface BridgeUnavailable {
@@ -13,7 +13,7 @@ export interface BridgeUnavailable {
 
 /** The resolved bridge, or why there is none. */
 export type BridgeResolution =
-  | { readonly status: "ready"; readonly bridge: ConsoleBridge }
+  | { readonly status: "ready"; readonly bridge: PlatformBridge }
   | { readonly status: "unavailable"; readonly unavailable: BridgeUnavailable };
 
 /**
@@ -27,9 +27,9 @@ export type BridgeResolution =
  */
 export interface BridgeComposition {
   /** Build the bridge. The provider disposes the scenario engine of a bridge built here. */
-  createBridge(): ConsoleBridge;
+  createBridge(): PlatformBridge;
   /** Put what a driver reads about this bridge on the page. */
-  installBridgeHandles(bridge: ConsoleBridge): () => void;
+  installBridgeHandles(bridge: PlatformBridge): () => void;
   /** Put what a driver reads about this window's session subscriptions on the page. */
   installSessionDiagnostics(diagnostics: SessionDiagnostics): () => void;
 }

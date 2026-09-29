@@ -35,7 +35,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import { usePlatformBridge } from "@renderer/services/platform/hooks/usePlatformBridge.js";
 import { resolveBridgeClock } from "@renderer/services/platform/hooks/useClock.js";
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { FIRST_RUN_SCENARIO } from "../../../../../fixtures/scenarios/first-run.js";
 import { CONCURRENT_STREAMING_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
@@ -178,7 +178,7 @@ describe("useUiStateStore — a StrictMode double mount leaves exactly one open 
 
 /** What one committed render was handed, read in the render body rather than after. */
 interface StoreObservation {
-  readonly bridge: ConsoleBridge;
+  readonly bridge: PlatformBridge;
   readonly store: UiStateStore;
 }
 
@@ -196,17 +196,17 @@ function PairProbe(props: { readonly onObserve: (observation: StoreObservation) 
  * changed `bridge` prop does, and a simulated remount on top of it would make every
  * case here ambiguous about which arm re-opened the store.
  */
-function mountSwappable(bridge: ConsoleBridge): {
+function mountSwappable(bridge: PlatformBridge): {
   readonly observed: readonly StoreObservation[];
   readonly stores: () => readonly UiStateStore[];
-  readonly renderAgainst: (next: ConsoleBridge) => Promise<void>;
+  readonly renderAgainst: (next: PlatformBridge) => Promise<void>;
   readonly unmount: () => void;
 } {
   const observed: StoreObservation[] = [];
   const record = (observation: StoreObservation): void => {
     observed.push(observation);
   };
-  const hostFor = (against: ConsoleBridge): React.JSX.Element => (
+  const hostFor = (against: PlatformBridge): React.JSX.Element => (
     <PlatformBridgeProvider bridge={against}>
       <PairProbe onObserve={record} />
     </PlatformBridgeProvider>
@@ -217,7 +217,7 @@ function mountSwappable(bridge: ConsoleBridge): {
     stores: (): readonly UiStateStore[] => [
       ...new Set(observed.map((observation) => observation.store)),
     ],
-    renderAgainst: async (next: ConsoleBridge): Promise<void> => {
+    renderAgainst: async (next: PlatformBridge): Promise<void> => {
       await act(async () => {
         mounted.rerender(hostFor(next));
         await crossMacrotaskBoundary();
@@ -238,9 +238,9 @@ async function stampWrittenThrough(store: UiStateStore): Promise<number | undefi
 
 /** The stores a committed frame rendered under more than one bridge. */
 function storesSharedAcrossBridges(observed: readonly StoreObservation[]): readonly UiStateStore[] {
-  const bridgesPerStore = new Map<UiStateStore, Set<ConsoleBridge>>();
+  const bridgesPerStore = new Map<UiStateStore, Set<PlatformBridge>>();
   for (const observation of observed) {
-    const bridges = bridgesPerStore.get(observation.store) ?? new Set<ConsoleBridge>();
+    const bridges = bridgesPerStore.get(observation.store) ?? new Set<PlatformBridge>();
     bridges.add(observation.bridge);
     bridgesPerStore.set(observation.store, bridges);
   }

@@ -11,7 +11,7 @@ import { act, render, screen } from "@testing-library/react";
 import { Suspense, startTransition, useState } from "react";
 import { describe, expect, it } from "vitest";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { WAITING_FOR_INPUT_SCENARIO } from "../../../../../../../fixtures/scenarios/waiting-for-input.js";
 import { useSettlementIdentities, type SettlementIdentities } from "./useSettlementIdentities.js";
 
@@ -34,7 +34,7 @@ function SuspendsWhenAsked(props: { readonly suspend: boolean }): React.JSX.Elem
  * a transition is a transition.
  */
 function ComposerHost(props: {
-  readonly bridge: ConsoleBridge;
+  readonly bridge: PlatformBridge;
   readonly seen: { current: SettlementIdentities | undefined };
   readonly readdress: { current: (() => void) | undefined };
 }): React.JSX.Element {

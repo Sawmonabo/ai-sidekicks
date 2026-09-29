@@ -19,7 +19,7 @@ import { ManualClock } from "@renderer/lib/clock.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { repeatedDisposalCount } from "@test/helpers/repeated-disposal.js";
 import { resolveBridgeClock } from "@renderer/services/platform/hooks/useClock.js";
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { AttachmentCard } from "./components/AttachmentCard.js";
 import { StagedAttachments } from "./staged-attachments.js";
 import {
@@ -250,7 +250,7 @@ describe("useStagedAttachments — the stamp is the window's clock, never the ho
 
 /** A surface that holds the binding and hands its one control back to the case. */
 function CarrierProbe(props: {
-  readonly bridge: ConsoleBridge;
+  readonly bridge: PlatformBridge;
   readonly port: AttachmentIngestPort;
   readonly onBinding: (binding: StagedAttachmentsBinding) => void;
 }): React.JSX.Element {

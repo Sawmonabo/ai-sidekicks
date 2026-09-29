@@ -17,7 +17,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { unscriptedScenario } from "@test/helpers/fixture-bridge.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { NEVER_SETTLES } from "@test/helpers/abandoned-pass.js";
 import { machineSettingsHolder } from "./machine-settings-holder.js";
 import { useMachineSettings } from "./hooks/useMachineSettings.js";
@@ -37,12 +37,12 @@ const ACCEPTING_CARRIER: ShellPreferenceCarrier = {
 };
 
 /** A fresh bridge each call, so one case's holder state is never another's. */
-function freshBridge(): ConsoleBridge {
+function freshBridge(): PlatformBridge {
   return createFixtureBridge({ scenario: unscriptedScenario("shell-preferences-binding") });
 }
 
 /** The smallest page there is: it binds the preferences and renders the reading. */
-function PreferenceProbe(props: { readonly bridge: ConsoleBridge }): React.JSX.Element {
+function PreferenceProbe(props: { readonly bridge: PlatformBridge }): React.JSX.Element {
   const preferences = useMachineSettings(props.bridge, UNANSWERING_CARRIER);
   return <span data-testid="reading">{preferences.snapshot.reading.kind}</span>;
 }
@@ -59,7 +59,7 @@ function AbandoningSibling(): React.JSX.Element {
  * resolves off it — the fixture's frozen one — so a settle that only crossed
  * boundaries would assert against a store that was never given a chance to ask.
  */
-async function settle(bridge: ConsoleBridge): Promise<void> {
+async function settle(bridge: PlatformBridge): Promise<void> {
   await settleScheduledRead(bridge);
   await act(async () => {
     await crossMacrotaskBoundary();

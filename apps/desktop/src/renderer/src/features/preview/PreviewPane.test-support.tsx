@@ -10,7 +10,7 @@ import { expect } from "vitest";
 
 import { unscriptedScenario } from "@test/helpers/fixture-bridge.js";
 import { resolveBridgeClock } from "@renderer/services/platform/hooks/useClock.js";
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { ManualClock } from "@renderer/lib/clock.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
@@ -49,7 +49,7 @@ export async function findRefusalBanner(): Promise<HTMLElement> {
  * Named rather than inlined at each mount, so suites that mount the same pane share one
  * window.
  */
-export function fixtureBrowserBridge(): ConsoleBridge {
+export function fixtureBrowserBridge(): PlatformBridge {
   return createFixtureBridge({ scenario: unscriptedScenario("browser-pane-test") });
 }
 
@@ -68,11 +68,11 @@ export function fixtureBrowserBridge(): ConsoleBridge {
  * union's arm has none and the seat refuses one at this call site.
  */
 export function previewPaneContext(
-  bridge: ConsoleBridge = fixtureBrowserBridge(),
+  bridge: PlatformBridge = fixtureBrowserBridge(),
   paneId: string = DEFAULT_TEST_PANE_ID,
 ): {
   readonly context: PaneContextOf<"browser">;
-  readonly bridge: ConsoleBridge;
+  readonly bridge: PlatformBridge;
 } {
   return {
     bridge,
@@ -135,7 +135,7 @@ export interface PreviewPaneSubjectMount {
  * a fresh tree could not reach that case at all.
  */
 export async function mountPreviewPaneForSubject(
-  bridge: ConsoleBridge,
+  bridge: PlatformBridge,
   paneId: string,
   ProbeComponent?: React.ComponentType,
   acts: BrowserChromeActs = recordingActs(),
@@ -196,11 +196,11 @@ export function previewPaneRegion(): HTMLElement {
  * Mount the pane's chrome and let its first effects settle.
  */
 export async function renderPreviewPane(
-  bridge?: ConsoleBridge,
+  bridge?: PlatformBridge,
   acts: BrowserChromeActs = recordingActs(),
 ): Promise<{
   readonly region: HTMLElement;
-  readonly bridge: ConsoleBridge;
+  readonly bridge: PlatformBridge;
 }> {
   const built = previewPaneContext(bridge);
   await act(async () => {
@@ -226,7 +226,7 @@ export async function renderPreviewPane(
  * narrowing is the whole condition rather than a guard around one: there is nothing
  * here to do.
  */
-export async function releaseQueuedPaneFrames(bridge: ConsoleBridge): Promise<void> {
+export async function releaseQueuedPaneFrames(bridge: PlatformBridge): Promise<void> {
   const clock = resolveBridgeClock(bridge);
   if (!(clock instanceof ManualClock)) {
     return;

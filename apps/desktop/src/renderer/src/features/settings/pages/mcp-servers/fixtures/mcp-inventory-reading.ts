@@ -10,7 +10,7 @@
 //
 //   • **Live status** — the subscription handed in as an argument.
 //   • **Focus** — installed beside the read by the component that owns its lifetime.
-//   • **Reconnect** — the console's one transport signal, off `ConsoleBridge`.
+//   • **Reconnect** — the console's one transport signal, off `PlatformBridge`.
 //
 // There is deliberately no timer: the live-status subscription is the update channel,
 // so nothing above the daemon polls.

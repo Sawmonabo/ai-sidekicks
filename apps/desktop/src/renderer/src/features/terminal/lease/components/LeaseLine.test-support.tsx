@@ -7,7 +7,7 @@
 
 import { render, type RenderResult } from "@testing-library/react";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { CONCURRENT_STREAMING_SCENARIO } from "../../../../../../../fixtures/scenarios/concurrent-streaming.js";
 import { TERMINAL_LEASE_SCENARIO } from "../../../../../../../fixtures/scenarios/terminal-lease.js";
 import { THIS_DEVICE_ID } from "../lease-model.test-support.js";
@@ -49,7 +49,7 @@ export const OTHER_SESSION_ID: string = CONCURRENT_STREAMING_SCENARIO.sessionId;
 export class HeldLeaseCalls {
   readonly #heldSessionIds: string[] = [];
   readonly #heldResolvers: (() => void)[] = [];
-  public readonly bridge: ConsoleBridge = createFixtureBridge({
+  public readonly bridge: PlatformBridge = createFixtureBridge({
     scenario: TERMINAL_LEASE_SCENARIO,
   });
   public readonly calls: TerminalLeaseCalls;

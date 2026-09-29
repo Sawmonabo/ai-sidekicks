@@ -31,14 +31,14 @@
 // a subscription and touches neither control, so taking the bridge would be taking
 // a surface it has no business reaching — and would make its own test build a bridge
 // to exercise a race that has nothing to do with one.
-import type { DesktopBridge } from "@renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import type { UpdateState } from "@shared/preload-api.js";
 
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
 import { GenerationLatch, type GenerationClaim } from "@renderer/lib/reads/generation-latch.js";
 
 /** The updater's calls: the state read, its subscription, and the two controls. */
-export type UpdaterCalls = DesktopBridge["update"];
+export type UpdaterCalls = PlatformBridge["update"];
 
 /** What the block knows about the updater: nothing read yet, or the state it reported. */
 export type UpdateReading =

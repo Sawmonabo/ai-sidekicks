@@ -11,7 +11,7 @@ import { describe, expect, it } from "vitest";
 
 import { unscriptedScenario } from "@test/helpers/fixture-bridge.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 import { settle as settleReactWork } from "@test/helpers/settle.js";
 import { usePreviewPaneActs, type PreviewPaneActs } from "./usePreviewPaneActs.js";
@@ -56,11 +56,11 @@ const PORT_REFUSAL = refuse("browser-pane", "open-external-failed", "The page di
 
 /** The subject an act belongs to: which bridge it went out on, and for which pane. */
 interface ActSubject {
-  readonly bridge: ConsoleBridge;
+  readonly bridge: PlatformBridge;
   readonly paneId: string;
 }
 
-function subject(paneId: string, bridge?: ConsoleBridge): ActSubject {
+function subject(paneId: string, bridge?: PlatformBridge): ActSubject {
   return {
     bridge: bridge ?? createFixtureBridge({ scenario: unscriptedScenario("browser-pane-test") }),
     paneId,

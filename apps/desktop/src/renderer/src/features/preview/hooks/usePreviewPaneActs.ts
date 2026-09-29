@@ -33,7 +33,7 @@
 // outstanding under a retired subject are superseded rather than left to write.
 
 import { useCallback } from "react";
-import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { normalizeWireRejection, type RejectionFallback } from "@renderer/lib/wire-rejection.js";
 import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 import { useSubjectScopedResource } from "@renderer/hooks/subject-scoped/useSubjectScopedResource.js";
@@ -130,7 +130,7 @@ export interface PreviewPaneActs {
  * writing a refusal the holder then has to hide; the same disposal covers unmount,
  * where there is no later render to compare.
  */
-export function usePreviewPaneActs(bridge: ConsoleBridge, paneId: string): PreviewPaneActs {
+export function usePreviewPaneActs(bridge: PlatformBridge, paneId: string): PreviewPaneActs {
   // The subject is changing, or the pane is going: whatever is in flight was
   // dispatched for a pane this hook no longer serves, so the disposal supersedes it.
   const { value: sequence } = useSubjectScopedResource(

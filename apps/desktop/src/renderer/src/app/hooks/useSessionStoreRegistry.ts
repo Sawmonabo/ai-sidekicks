@@ -58,7 +58,7 @@
 
 import { useEffect } from "react";
 import { resolveBridgeClock } from "@renderer/services/platform/hooks/useClock.js";
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { usePlatformBridge } from "@renderer/services/platform/hooks/usePlatformBridge.js";
 import { useBridgeComposition } from "@renderer/services/platform/hooks/useBridgeComposition.js";
 import { SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
@@ -154,7 +154,7 @@ interface WindowSessionPlumbing {
  * which is the one property a frozen clock exists to remove.
  */
 function createWindowSessionPlumbing(
-  bridge: ConsoleBridge,
+  bridge: PlatformBridge,
   projectorRegistry: EntityProjectorRegistry,
   readSession: SessionSnapshotReader,
 ): WindowSessionPlumbing {

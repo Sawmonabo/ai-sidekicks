@@ -3,7 +3,7 @@ import { useCallback, useMemo } from "react";
 import type { ExecutionMode } from "@ai-sidekicks/contracts";
 
 import { resolveBridgeClock } from "@renderer/services/platform/hooks/useClock.js";
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 import { useSessionScopedActController } from "../../../acts/hooks/useActController.js";
 import {
@@ -26,7 +26,7 @@ export interface BindBinding {
  * KEYED ON THE MOUNT, which is the whole of what the read and the act are scoped to.
  */
 export function useBindController(
-  bridge: ConsoleBridge,
+  bridge: PlatformBridge,
   repoMountId: string,
   sessionStore: SessionStore,
   operations: BindControllerOptions["operations"],

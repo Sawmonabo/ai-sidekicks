@@ -4,7 +4,7 @@ import { useCallback, useSyncExternalStore } from "react";
 
 import { useWindowReadTriggers } from "@renderer/store/reads/hooks/useWindowReadTriggers.js";
 import type { DriverCapabilityReadout } from "@renderer/store/driver-capabilities/driver-capability-readout.js";
-import { type ConsoleBridge } from "../platform/platform-bridge.js";
+import { type PlatformBridge } from "../platform/platform-bridge.js";
 import { driverCapabilityReads } from "./driver-capability-read.js";
 
 /**
@@ -19,7 +19,7 @@ import { driverCapabilityReads } from "./driver-capability-read.js";
  * the window regaining focus is `window-focus`. The session-scoped one is
  * `useDriverCapabilityRepairRead`.
  */
-export function useDriverCapabilities(bridge: ConsoleBridge): DriverCapabilityReadout | undefined {
+export function useDriverCapabilities(bridge: PlatformBridge): DriverCapabilityReadout | undefined {
   const reading = driverCapabilityReads.reading(bridge);
   const subscribe = useCallback(
     (onReadoutChanged: () => void) => reading.watch(onReadoutChanged),

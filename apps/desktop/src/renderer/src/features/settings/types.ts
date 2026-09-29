@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import type { SettingsPageId } from "@renderer/routing/settings-page-ids.js";
 import type { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
 import type { SessionStore } from "@renderer/store/session/session-store.js";
@@ -15,7 +15,7 @@ import type { SchemePreference } from "@renderer/styles/tokens.js";
  * session state the settings surface has no session for.
  */
 export interface SettingsPageContext {
-  readonly bridge: ConsoleBridge;
+  readonly bridge: PlatformBridge;
   /** Renderer-local rail navigation — the deep-link grammar's other half. */
   readonly openPage: (section: SettingsPageId) => void;
   /**

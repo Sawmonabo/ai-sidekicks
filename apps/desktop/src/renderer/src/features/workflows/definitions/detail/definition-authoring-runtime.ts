@@ -11,7 +11,7 @@
 // the two acts share it, so an arm composed from a closure's copy would drop the
 // other — an export settling while an import refusal was on screen would erase the
 // refusal.
-import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import type {
   WorkflowDefinitionCreateBody,
   WorkflowVersionBody,
@@ -49,7 +49,7 @@ export type WorkflowDefinitionCreateCall = (request: WorkflowDefinitionCreateBod
 export interface AuthoringRuntime {
   readonly latch: GenerationLatch;
   readonly createDefinition: WorkflowDefinitionCreateCall;
-  readonly bridge: ConsoleBridge;
+  readonly bridge: PlatformBridge;
   readonly sessionId: string | undefined;
   readonly body: WorkflowVersionBody;
   /** The definition this render is addressed at, in the latch's key. Never a name. */

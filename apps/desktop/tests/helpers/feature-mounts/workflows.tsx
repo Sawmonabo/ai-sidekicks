@@ -51,7 +51,7 @@ import type { FunctionComponent } from "react";
 import { renderSettled } from "../app-harness.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
-import { type ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { unscriptedScenario } from "../fixture-bridge.js";
 import {
   PARKED_RUN,
@@ -120,7 +120,7 @@ async function paneBodyComponent(
  */
 function paneContext(
   address: PaneAddress & { readonly paneId: string },
-  bridge: ConsoleBridge,
+  bridge: PlatformBridge,
 ): PaneContext {
   return {
     ...address,
@@ -190,7 +190,7 @@ async function surfaceBodyComponent(): Promise<FunctionComponent<{ context: Scre
  * empty: this window has opened nothing, which is the ordinary case for a person who
  * reached the rail from a session the route has since left.
  */
-function surfaceContext(bridge: ConsoleBridge): ScreenContext {
+function surfaceContext(bridge: PlatformBridge): ScreenContext {
   const frameStore = new WindowStore({
     initialRoute: { kind: "workspace", sessionId: PROBE_SESSION_ID },
   });

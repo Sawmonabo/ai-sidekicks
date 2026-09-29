@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import type { ConsoleBridge } from "@renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { CONTROLLER_DISPOSAL } from "@renderer/lib/subject-scoped/subject-scoped-disposal.js";
 import { useSubjectScopedResource } from "@renderer/hooks/subject-scoped/useSubjectScopedResource.js";
 import {
@@ -23,7 +23,7 @@ export interface DisposalBinding {
 
 /** Bind one root's disposal controller to a confirmation, keyed on the root's id. */
 export function useRootDisposal(
-  bridge: ConsoleBridge,
+  bridge: PlatformBridge,
   subject: DisposalSubject,
   operations: DisposalOperations,
 ): DisposalBinding {

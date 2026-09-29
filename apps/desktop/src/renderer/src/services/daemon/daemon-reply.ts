@@ -60,7 +60,7 @@
 import { normalizeWireRejection } from "@renderer/lib/wire-rejection.js";
 import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 import { isReadAbandoned, settleUnlessAbandoned } from "@renderer/lib/reads/read-scope.js";
-import type { ConsoleBridge } from "../platform/platform-bridge.js";
+import type { PlatformBridge } from "../platform/platform-bridge.js";
 import {
   DAEMON_METHOD_BINDINGS,
   type RegisteredDaemonMethod,
@@ -184,7 +184,7 @@ export function abandonedReadRefusal(method: string): Refusal {
  * nothing is sent to say so.
  */
 export async function callDaemon<MethodName extends RegisteredDaemonMethod>(
-  bridge: ConsoleBridge,
+  bridge: PlatformBridge,
   method: MethodName,
   request: DaemonRequestOf<MethodName>,
   options: DaemonCallOptions = {},
@@ -214,10 +214,7 @@ export async function callDaemon<MethodName extends RegisteredDaemonMethod>(
     // brand `DaemonMethod` stands in for the daemon's method union and resolves to
     // `never`-shaped `string`, so every caller has to widen it once; widened here,
     // it is widened once for the console rather than once per surface.
-    const call = bridge.desktopBridge.daemon.call as (
-      methodName: string,
-      params: unknown,
-    ) => Promise<unknown>;
+    const call = bridge.daemon.call as (methodName: string, params: unknown) => Promise<unknown>;
     const settlement = await settleUnlessAbandoned(call(method, sendable.data), signal);
     if (settlement.status === "abandoned") {
       return abandonedRead(method);

@@ -75,7 +75,7 @@ export function useOpenSessionStore(
 /**
  * The sessions this window has open, in open order.
  *
- * The console has no session-DIRECTORY read — no `DesktopBridge` member lists the
+ * The console has no session-DIRECTORY read — no `PlatformBridge` member lists the
  * sessions on a node — so this registry is the only session set the renderer can name,
  * and a surface that needs one reads it here rather than inventing a source.
  *
