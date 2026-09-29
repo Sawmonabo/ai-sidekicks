@@ -8,7 +8,7 @@
 // pending pane body and the surface the window cannot hold.
 //
 // WHY NO IMAGE IS VERSIONED. A reference image is a gate only while the next run
-// renders under the same conditions, and font rasterisation moves with the operating
+// renders under the same conditions, and font rasterization moves with the operating
 // system: the same three comparisons this tier used to make disagreed by six pixels
 // of one keycap glyph on one developer Mac and by four figures on others. A gate that
 // is red for a reason the reader must know to discount is a gate the reader stops

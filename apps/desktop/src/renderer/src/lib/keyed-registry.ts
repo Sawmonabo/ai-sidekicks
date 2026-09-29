@@ -93,7 +93,7 @@ export class KeyedRegistry<Key, Value> {
   public constructor(options: KeyedRegistryOptions<Value>) {
     if (options.duplicatePolicy === "owner-scoped" && options.ownerOf === undefined) {
       // Thrown at construction rather than at the first duplicate, because a
-      // registry that discovers it cannot honour its own policy only when a
+      // registry that discovers it cannot honor its own policy only when a
       // conflict arrives has already admitted the conflicting registration.
       throw new RefusalError(
         refuse(

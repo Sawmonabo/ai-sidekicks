@@ -52,7 +52,7 @@ export interface CommandDefinition {
    *
    * IT MUST BE IDEMPOTENT AND MUST NOT NAVIGATE. Highlight moves with every arrow key,
    * so this runs far more often than `run` does and on rows nobody chooses. Both boards'
-   * `preload` satisfy that by construction: the loader's promise is memoised, so a
+   * `preload` satisfy that by construction: the loader's promise is memoized, so a
    * second call joins the first, and a body already loaded settles immediately.
    *
    * It returns nothing rather than a promise, on the same rule `run` follows: the

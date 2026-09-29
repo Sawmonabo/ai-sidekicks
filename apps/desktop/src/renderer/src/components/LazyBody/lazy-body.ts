@@ -11,7 +11,7 @@
 // ceiling on their own. The budget is fixed, so what has to change is the registration.
 //
 // It changes ONCE, here, rather than per family and rather than per board. A family
-// supplies a `body` loader instead of a `render` function; the board normalises it into
+// supplies a `body` loader instead of a `render` function; the board normalizes it into
 // the same resolved descriptor every mount site already reads. That is what keeps
 // `PaneHarnessScreen`'s claim true — the thing it measures is what the PANE LAYOUT would
 // mount — and what lets a family that has not landed yet take this form verbatim.
@@ -26,7 +26,7 @@
 //
 // A registration's loader IS its preload: there is one function, called from the mount,
 // from the palette's highlighted entry, from an address about to open, and from the idle
-// warm, and its promise is memoised here so those callers cannot each start a fetch.
+// warm, and its promise is memoized here so those callers cannot each start a fetch.
 
 import { createElement, lazy, type LazyExoticComponent } from "react";
 
@@ -155,11 +155,11 @@ export class LoaderBackedBody<TContext extends object> {
   /**
    * Resolve the module, at most once per load that succeeds.
    *
-   * Memoised on the PROMISE rather than on the settled value, so a caller arriving while
+   * Memoized on the PROMISE rather than on the settled value, so a caller arriving while
    * the first load is in flight joins it instead of starting a second: the palette
    * highlighting an entry and the idle warm walking the board are exactly that race.
    *
-   * A FULFILLED LOAD IS MEMOISED FOREVER. A REJECTED ONE IS NOT, and keeping it was a
+   * A FULFILLED LOAD IS MEMOIZED FOREVER. A REJECTED ONE IS NOT, and keeping it was a
    * defect rather than a policy. The memo outlives every mount — the registration is the
    * board's and the board is the window's — so a retained rejection poisoned the
    * registration for the life of the window: `ErrorBoundary`'s "Try again"

@@ -79,7 +79,7 @@ describe("ReadinessLineScanner", () => {
 
   it("keeps two streams' partial lines apart", () => {
     // The reason each stream gets its own instance: a shared one would splice
-    // stdout's tail onto stderr's head and synthesise a line neither emitted.
+    // stdout's tail onto stderr's head and synthesize a line neither emitted.
     const stdoutScanner = new ReadinessLineScanner();
     const stderrScanner = new ReadinessLineScanner();
     expect(stdoutScanner.push(`${READINESS_BREADCRUMB_TAG} dom-`)).toEqual([]);
@@ -98,7 +98,7 @@ describe("ReadinessLineScanner", () => {
 // exactly a derivation that read plausibly and did not hold — the diagnostic
 // collection was MEASURED from one instant and BOUNDED from a later one, so a
 // collection whose probes each ran to their cap exceeded the budget it was
-// asserted to honour, and the control meant to produce the dump failed instead.
+// asserted to honor, and the control meant to produce the dump failed instead.
 // A comment cannot catch that returning; these can.
 describe("derived timing budgets", () => {
   it("leaves the close-event reserve intact above the largest legal collection", () => {

@@ -1,4 +1,4 @@
-// One settled markdown block, memoised.
+// One settled markdown block, memoized.
 //
 // Its own module for the one-component rule, and the boundary it draws is the reason
 // the streaming body stays cheap: a settled block's nodes and context are

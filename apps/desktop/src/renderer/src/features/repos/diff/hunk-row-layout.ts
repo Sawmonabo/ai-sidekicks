@@ -8,7 +8,7 @@
 // rebuilding it.
 //
 // WHY THE UNIFIED ARM HOLDS A COUNT AND NOT AN ARRAY. In unified mode the flattening
-// is the identity — one row per line, in order — so materialising it costs one object
+// is the identity — one row per line, in order — so materializing it costs one object
 // per line to say `{lineIndex: n}` for every n. A five-thousand-line hunk is five
 // thousand objects describing an arithmetic sequence, held for as long as the diff is
 // open, and every scroll that touched that hunk used to rebuild them. The identity arm
@@ -125,7 +125,7 @@ export function hunkBodyRowAt(layout: HunkBodyLayout, offset: number): HunkBodyR
  *
  * THE SAME RULE THE SPLIT FLATTENING APPLIES, ASKED THE OTHER WAY ROUND. That walk
  * knows every pairing because it walks the whole body; this one is asked about a single
- * line, by a renderer that has materialised one row and wants that row's intraline
+ * line, by a renderer that has materialized one row and wants that row's intraline
  * segmentation. So it finds the run the line sits in and counts from its start, which
  * is the same positional pairing and costs the run rather than the hunk.
  *

@@ -119,7 +119,7 @@ describe("a string control, consumed through its terminator", () => {
   );
 
   it("ends a control at an escape that is not the terminator, and reads on from it", () => {
-    // The payload of an unterminated control is not licence to swallow the rest of the
+    // The payload of an unterminated control is not license to swallow the rest of the
     // body: the escape inside it is handed back to the walk, read as the sequence it
     // introduces, and the text after THAT survives.
     expect(withoutResidualEscapes(`a${ESCAPE}Ppayload${ESCAPE}[31mb`)).toBe("ab");
@@ -128,7 +128,7 @@ describe("a string control, consumed through its terminator", () => {
   it("negative control: an unterminated control does not eat the whole remainder", () => {
     // Without this the case above would pass over a scan that consumed to the end of the
     // body on every unterminated control, which loses the output a shell went on to
-    // print. The escape inside re-synchronises the walk; the text after it stays.
+    // print. The escape inside re-synchronizes the walk; the text after it stays.
     expect(withoutResidualEscapes(`a${ESCAPE}Ppayload${ESCAPE}(Bkept`)).toBe("akept");
   });
 

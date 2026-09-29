@@ -53,7 +53,7 @@ export interface ComposerCommands {
 /**
  * Read the console's commands as this composer's route sees them.
  *
- * Built per call rather than memoised at module scope: the registry is mutated by
+ * Built per call rather than memoized at module scope: the registry is mutated by
  * the frame's own registration effect, which runs AFTER a child mounts, so a list
  * captured once at mount would be the empty registry forever. Every caller reads it
  * at the moment a person asks — which is when the answer has to be current anyway.

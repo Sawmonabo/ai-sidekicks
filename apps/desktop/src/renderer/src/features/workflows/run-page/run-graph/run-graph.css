@@ -183,7 +183,7 @@
 
   /* The built-in node box. This surface renders its own node, so these reach only
      a node kind it does not draw — set so an unknown kind falls back into Meridian
-     rather than into the library's grey. */
+     rather than into the library's gray. */
   --xy-node-border: var(--meridian-run-graph-hairline) solid var(--meridian-edge);
   --xy-node-border-default: var(--meridian-run-graph-hairline) solid var(--meridian-edge);
   --xy-node-border-selected: var(--meridian-run-graph-hairline) solid var(--meridian-accent);

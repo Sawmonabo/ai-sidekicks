@@ -512,25 +512,25 @@ describe("deriveWindowTelemetry", () => {
   it("the counts-absent arm carries the wire's own limit signal instead of asserting false", () => {
     // The half-pair arm cannot derive `exceeded` — that is the whole reason the
     // counts do not travel. Hardcoding `false` there would have reported a
-    // provider that HAD signalled its limit as comfortably under it, which is
+    // provider that HAD signaled its limit as comfortably under it, which is
     // the one reading this telemetry exists to prevent.
-    const signalled = deriveWindowTelemetry({
+    const signaled = deriveWindowTelemetry({
       windowSource: "provider_reported",
       rawUsedTokens: null,
       windowMaxTokens: null,
       sessionBaselineTokens: 0,
       exceededWhenCountsAbsent: true,
     });
-    expect(signalled).toEqual({ windowSource: "provider_reported", exceeded: true });
+    expect(signaled).toEqual({ windowSource: "provider_reported", exceeded: true });
 
-    const unsignalled = deriveWindowTelemetry({
+    const unsignaled = deriveWindowTelemetry({
       windowSource: "provider_reported",
       rawUsedTokens: null,
       windowMaxTokens: null,
       sessionBaselineTokens: 0,
       exceededWhenCountsAbsent: false,
     });
-    expect(unsignalled).toEqual({ windowSource: "provider_reported", exceeded: false });
+    expect(unsignaled).toEqual({ windowSource: "provider_reported", exceeded: false });
   });
 
   it("the counts-PRESENT arm ignores the wire signal and derives from the counts", () => {

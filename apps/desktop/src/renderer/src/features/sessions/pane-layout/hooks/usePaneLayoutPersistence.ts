@@ -178,7 +178,7 @@ export function usePaneLayoutPersistence(
       // way — and they part company at the write below.
       const record = readOutcome.outcome === "present" ? readOutcome.record : undefined;
 
-      // BOTH ARE HONOURED, AND WHICH ONE LEADS TURNS ON WHETHER THE PERSON ACTED. An
+      // BOTH ARE HONORED, AND WHICH ONE LEADS TURNS ON WHETHER THE PERSON ACTED. An
       // untouched pane layout takes the record wholesale, which is the restore's own rule and
       // the case that runs on nearly every mount. A pane layout the person has been arranging
       // is the NEWER arrangement, so it wins for every address it holds — order and

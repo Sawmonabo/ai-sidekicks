@@ -27,7 +27,7 @@
 // (and the `.windows.test.ts` sibling) which exercise the translator against
 // an in-memory recording host. By driving through `RustSidecarPtyHost` and
 // parsing the actual Content-Length-framed JSON written to the sidecar's
-// stdin, we prove the wire-side payload honours — the property the sidecar
+// stdin, we prove the wire-side payload honors — the property the sidecar
 // (and the OS spawn syscall it ultimately makes) actually observes.
 //
 // Why this file lives next to `rust-sidecar-pty-host.test.ts`

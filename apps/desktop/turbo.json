@@ -2,7 +2,7 @@
   "$schema": "../../node_modules/turbo/schema.json",
   "extends": ["//"],
   "tasks": {
-    // --- The three build flavours ------------------------------------------
+    // --- The three build flavors ------------------------------------------
     //
     // All three write `out/**` and differ in exactly the `define` that decides
     // what the renderer talks to and whether the main process carries its test
@@ -10,12 +10,12 @@
     // requirement rather than a preference: a Turborepo cache HIT restores the
     // files it saved and does not empty the directory first, while a real run of
     // `electron-vite build` does (Vite's `emptyOutDir`). So a cached restore
-    // layered over a sibling flavour's output leaves that sibling's
+    // layered over a sibling flavor's output leaves that sibling's
     // content-hashed chunks in place beside the restored ones — measured
     // 2026-09-02, where the bundle tier replayed a cached `build` over a
     // fixtures tree and `release-absence.test.ts` correctly found the fixture
     // tripwire handle in the orphaned chunk. Running the build is what makes the
-    // flavour switch total.
+    // flavor switch total.
     "build": {
       "inputs": [
         "src/**",
@@ -382,7 +382,7 @@
     },
     "test": {
       // Every tier a desktop PR is gated on, in the order the three build
-      // flavours allow, and the same order `.github/workflows/ci.yml` runs them
+      // flavors allow, and the same order `.github/workflows/ci.yml` runs them
       // in — a developer's `pnpm test` and the required check answer the same
       // question. Nothing checks that the two sets agree; a PR that adds or
       // removes a tier edits both lists in the same diff, and a reviewer says so.

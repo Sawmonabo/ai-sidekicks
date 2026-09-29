@@ -2,7 +2,7 @@
 //
 // The migration is simulated the way the block layer performs one: the row's inner
 // HTML is replaced with markup holding the SAME characters, which is exactly what a
-// settled block becoming a memoised static subtree does to the nodes a selection was
+// settled block becoming a memoized static subtree does to the nodes a selection was
 // anchored in.
 
 import { afterEach, describe, expect, it } from "vitest";

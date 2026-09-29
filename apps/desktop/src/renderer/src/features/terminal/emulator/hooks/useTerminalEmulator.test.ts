@@ -162,7 +162,7 @@ describe("the emulator reading, when the chunk refuses", () => {
       // unconditionally, which is a pane that never shows a terminal.
       //
       // The real loader, and the chunk is fetched BEFORE the assertion window rather
-      // than inside it. `load()` memoises, so the hook's own call gets the settled
+      // than inside it. `load()` memoizes, so the hook's own call gets the settled
       // promise and the wait below is a microtask and a commit — where waiting on the
       // fetch itself let a loaded machine decide the verdict, which is a control that
       // reports the runner's contention as a defect in the hook.

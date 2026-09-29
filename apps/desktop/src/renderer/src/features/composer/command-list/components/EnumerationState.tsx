@@ -22,7 +22,7 @@ import { useProviderCommandEnumeration } from "../hooks/useProviderCommandEnumer
  * list: nobody was asked (this composer addresses the session, not an agent), the read
  * is in flight, the daemon refused, the provider answered in full for this run's
  * binding, it answered for bindings none of which is this run's — an absence about
- * ROUTING rather than about the provider's catalogue, and stated as one — or it
+ * ROUTING rather than about the provider's catalog, and stated as one — or it
  * answered for this run's binding and the reply says the answer was CUT.
  *
  * The group itself is the input rather than a boolean beside it: the two questions

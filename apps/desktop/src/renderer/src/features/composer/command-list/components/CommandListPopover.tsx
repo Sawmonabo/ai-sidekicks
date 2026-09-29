@@ -84,7 +84,7 @@ const PROVIDER_GROUP_LABEL = "Discovery, not runnable";
  * A separate component for two reasons. The active-entry cursor is born with the
  * surface and dies with it, so a cursor held above the open state cannot survive a
  * dismissal and point at a row from a list nobody is looking at. And the catalog is
- * READ HERE, on every render this component makes, rather than memoised above it:
+ * READ HERE, on every render this component makes, rather than memoized above it:
  * the console's command registry is filled by the frame's own registration effect
  * after a child mounts, so a list captured once would be the empty registry for the
  * life of the window.
@@ -97,7 +97,7 @@ export function CommandListPopover(props: CommandListPopoverProps): React.JSX.El
   const listRef = useRef<HTMLUListElement | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
   const [actionOutcome, setActionOutcome] = useState<CommandOutcome | undefined>(undefined);
-  // Set only by a press that could not be honoured, and cleared by the next move or
+  // Set only by a press that could not be honored, and cleared by the next move or
   // the next act, so the region never keeps answering a gesture the person has left.
   const [activationNotice, setActivationNotice] = useState<string | undefined>(undefined);
 

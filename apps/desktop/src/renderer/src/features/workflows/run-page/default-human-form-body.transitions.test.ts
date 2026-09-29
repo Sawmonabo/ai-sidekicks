@@ -38,7 +38,7 @@ describe("a run that parks two waits at once", () => {
       phaseRunId: SECOND_WAIT_PHASE_RUN_ID,
       phaseId: SECOND_WAIT_PHASE_ID,
     };
-    // One schema object across both waits: the compiled validator is memoised on it, so a
+    // One schema object across both waits: the compiled validator is memoized on it, so a
     // second object would clear the form for a reason that is not the phase.
     expect(second.inputSchema).toBe(first.inputSchema);
     const mountPoint = await renderSwitchableMountPoint({ phase: first });

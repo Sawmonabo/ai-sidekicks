@@ -45,7 +45,7 @@ describe("pane controls — the seam", () => {
       <PaneControlsContext.Provider value={controls}>{probe}</PaneControlsContext.Provider>
     ));
     // Identity, not equality: a seam that rebuilt the object would give every reader a
-    // fresh one and turn a memoised body into one that re-renders on every pane layout tick.
+    // fresh one and turn a memoized body into one that re-renders on every pane layout tick.
     expect(seam.value).toBe(controls);
   });
 

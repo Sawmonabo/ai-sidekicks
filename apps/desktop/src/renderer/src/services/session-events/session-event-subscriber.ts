@@ -1,6 +1,6 @@
 // The one thing in the console that subscribes to the bridge.
 //
-// `store/session/session-hooks.ts` states the rule this module realises: "No component subscribes
+// `store/session/session-hooks.ts` states the rule this module realizes: "No component subscribes
 // to the bridge. Components subscribe to a STORE, and exactly one thing subscribes
 // to the bridge — the apply chokepoint." Until this class there was no such thing.
 // `SessionStoreRegistry.enqueue` had no caller anywhere in the tree and nothing

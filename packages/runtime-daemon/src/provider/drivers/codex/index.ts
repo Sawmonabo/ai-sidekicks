@@ -45,7 +45,7 @@
 // imported from `capabilities.ts`. Two reasons, and the second is the real one:
 // the sibling module is authored in a parallel task and importing it would couple
 // two chunks at the file level, AND the snapshot must be read LIVE at each
-// dispatch so a refreshed capability record is honoured — a value captured at
+// dispatch so a refreshed capability record is honored — a value captured at
 // construction would freeze the gate that depends on.
 //
 // The process substrate (`PtyHost`), the per-session subscription, the timeout

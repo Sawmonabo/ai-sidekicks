@@ -187,16 +187,16 @@ describe("a record's ADDRESS passes the same chokepoint as its value", () => {
 });
 
 describe("one byte measurement, over the whole record rather than only its value", () => {
-  it("counts the address and the class, not just the serialised value", () => {
+  it("counts the address and the class, not just the serialized value", () => {
     // A cap that measured only the value would let a caller spend the ceiling on
     // the value and then an unbounded further amount on the key.
     const value = ["run-01"];
-    const serialisedValueLength = JSON.stringify(value).length;
+    const serializedValueLength = JSON.stringify(value).length;
 
     const short = measureRecordByteLength("s", "k", "expansion", value);
     const longer = measureRecordByteLength("session-01H8", "expansion", "expansion", value);
 
-    expect(short).toBe(1 + 1 + "expansion".length + serialisedValueLength);
+    expect(short).toBe(1 + 1 + "expansion".length + serializedValueLength);
     expect(longer).toBeGreaterThan(short);
   });
 

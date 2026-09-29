@@ -149,7 +149,7 @@ describe("callDaemon — a request the contract does not admit is never sent", (
   it("what reaches the daemon is the parser's output, not the caller's object", async () => {
     // The parsed request travels. A forwarded reference would let a caller keep
     // mutating an object the console had already declared sendable, and would leave
-    // any member the schema normalises un-normalised on the wire.
+    // any member the schema normalizes un-normalized on the wire.
     const { bridge, calls } = bridgeAnswering(async () => servedPresenceReply(SEEN_AT));
     const request = { sessionId: SESSION_ID };
 

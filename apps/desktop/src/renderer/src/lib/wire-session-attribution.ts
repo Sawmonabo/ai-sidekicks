@@ -52,7 +52,7 @@
  * A TYPE PREDICATE rather than a bare boolean, because a payload that names this
  * session is by construction a payload that exists — and every caller's next line
  * indexes it. Written as a `boolean` the guard would leave each fold re-establishing
- * presence one line later, which is the judgement being hoisted made twice.
+ * presence one line later, which is the judgment being hoisted made twice.
  */
 export function payloadNamesSession(
   payload: Readonly<Record<string, unknown>> | undefined,

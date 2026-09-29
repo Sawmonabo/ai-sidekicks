@@ -61,7 +61,7 @@ export interface RevealLaneState {
    * Never shorter than it was last frame, with one declared exception: an
    * out-of-band rebase, where the producer withdrew text it had already published
    * and the lane fell back to the prefix both sources agree on. That retraction is
-   * real rather than a bookkeeping artefact, so it is announced — the
+   * real rather than a bookkeeping artifact, so it is announced — the
    * `out-of-band-source-change` diagnostic carries how many characters went — and
    * never papered over by holding a cursor whose text no longer matches.
    */

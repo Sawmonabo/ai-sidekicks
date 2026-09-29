@@ -144,7 +144,7 @@ export class IndexedDbPersistenceAdapter implements PersistenceAdapter {
     });
   }
 
-  public async summarisePartitions(): Promise<readonly PartitionSummary[]> {
+  public async summarizePartitions(): Promise<readonly PartitionSummary[]> {
     return await this.#guard(async () => {
       const summariesByPartition = new Map<
         string,
@@ -170,7 +170,7 @@ export class IndexedDbPersistenceAdapter implements PersistenceAdapter {
   }
 
   public async trimPartitions(keepSessionPartitions: number): Promise<number> {
-    const summaries = await this.summarisePartitions();
+    const summaries = await this.summarizePartitions();
     const doomed = summaries
       .filter((summary) => summary.partition !== PERSISTENCE_GLOBAL_PARTITION)
       .sort((left, right) => right.newestUpdatedAt - left.newestUpdatedAt)

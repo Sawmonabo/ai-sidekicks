@@ -577,7 +577,7 @@ describe("hydrating machine-authored prose", () => {
 
   it("refuses a local ciphertext planted under a peer's carried digest", async () => {
     // THE ONE FAIL-OPEN THE DISPATCH EXISTS TO CLOSE. A received row's digest is
-    // the ORIGIN daemon's claim about bytes that never travelled, so it is
+    // the ORIGIN daemon's claim about bytes that never traveled, so it is
     // exactly the claim an attacker with local write access would seal a body to
     // match. Comparing on a received row would report that row BOUND and hand
     // the planted prose back as authentic transcript.

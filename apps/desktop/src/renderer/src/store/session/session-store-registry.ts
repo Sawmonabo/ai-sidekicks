@@ -72,7 +72,7 @@ export class SessionStoreRegistry {
   readonly #resumeSettlements = new Emitter<string>("session resume settlement");
   // The open set as an array, rebuilt only when the set itself changes.
   //
-  // Load-bearing rather than a micro-optimisation: `useSyncExternalStore` compares
+  // Load-bearing rather than a micro-optimization: `useSyncExternalStore` compares
   // consecutive reads with `Object.is` and re-renders while they differ, so a getter
   // that spread the map on every call would hand React a fresh array every pass and
   // spin forever. Every mutation below is paired with `#forgetOpenSessionIds`, so the

@@ -78,7 +78,7 @@ describe("the transcript window — leases and cursors", () => {
 
   it("negative control: the same rows under a parent the window holds count once", () => {
     // Without this the case above would pass over a window that had simply stopped
-    // honouring parents at all. Give the run a row of its own and the fifty entries
+    // honoring parents at all. Give the run a row of its own and the fifty entries
     // collapse into one countable head — the property the cap has always had.
     const window = new TranscriptWindow({ topLevelCap: 10 });
     window.ingest([

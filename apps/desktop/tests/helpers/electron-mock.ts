@@ -9,7 +9,7 @@
 // two copies of one behavior drift, and the suite that is missing the arm goes
 // green on the regression the other one would have caught.
 //
-// One factory, parameterised. `recordOrder` turns on the ordered operation log
+// One factory, parameterized. `recordOrder` turns on the ordered operation log
 // (a suite asserting sequence needs it; one asserting shape does not want the
 // noise), and `packaged` sets the initial `app.isPackaged`. Everything else —
 // which windows were constructed, which URLs were loaded, which externals were
@@ -79,7 +79,7 @@ export interface MenuTemplateItem {
  */
 const MOCK_APP_PATH_ROOT = "/sidekicks-electron-mock";
 
-/** How to parameterise the mock. */
+/** How to parameterize the mock. */
 export interface ElectronMockOptions {
   /**
    * Record an ordered log of every mocked operation into `operations`.

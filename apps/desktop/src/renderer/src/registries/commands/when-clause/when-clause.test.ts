@@ -46,7 +46,7 @@ describe("evaluateWhenClause — an unknown key stays unknown through every oper
     expect(evaluate("!sessionActve || onSettings", SUPPLIED)).toBe(false);
   });
 
-  it("survives double negation and parenthesised negation", () => {
+  it("survives double negation and parenthesized negation", () => {
     expect(evaluate("!!sessionActve", SUPPLIED)).toBe(false);
     expect(evaluate("!(sessionActve && sessionActive)", SUPPLIED)).toBe(false);
     expect(evaluate("!(sessionActve || onSettings)", SUPPLIED)).toBe(false);

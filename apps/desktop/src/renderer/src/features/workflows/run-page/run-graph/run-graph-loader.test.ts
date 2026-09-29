@@ -30,7 +30,7 @@ describe("the graph loader", () => {
     expect(loader.isLoadStarted).toBe(true);
   });
 
-  it("memoises: two graphs mounting together share one fetch", () => {
+  it("memoizes: two graphs mounting together share one fetch", () => {
     const loader = new RunGraphLoader();
     // Promise identity is the observable. Two distinct promises would mean two
     // entries into the module, which is the race the memo exists to prevent.

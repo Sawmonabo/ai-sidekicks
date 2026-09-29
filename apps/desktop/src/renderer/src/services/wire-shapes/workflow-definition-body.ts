@@ -169,7 +169,7 @@ export interface WorkflowEntry {
  *
  * A tuple for the same reason the four above are tuples, and for one more that is
  * specific to this vocabulary: an imported file stating an entry the engine cannot
- * honour is REFUSED rather than dropped, and a reader deciding that has to check a
+ * honor is REFUSED rather than dropped, and a reader deciding that has to check a
  * declared set. Spelling `manual` beside the check would make a second start mode an
  * edit in two places, one of which nothing reports.
  */

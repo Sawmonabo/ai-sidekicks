@@ -1099,7 +1099,7 @@ describe("PII-indirection admission ratchet over the live SessionEventSchema uni
 });
 
 // --------------------------------------------------------------------------
-// The pair round-trips through the live union — the BEHAVIOURAL leg.
+// The pair round-trips through the live union — the BEHAVIORAL leg.
 // --------------------------------------------------------------------------
 //
 // The structural ratchet above reads shapes; this parses rows. It is the leg

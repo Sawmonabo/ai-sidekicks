@@ -53,7 +53,7 @@ describe("RefreshScheduler — one read per burst, and one under a stream", () =
     expect(reasonsSeen[0]?.[0]).toBe("subscribe");
     expect(reasonsSeen[0]).toHaveLength(10);
     // …and is therefore held for the NEXT read rather than dropped. A request
-    // that arrived one instruction too late must still be honoured.
+    // that arrived one instruction too late must still be honored.
     expect(scheduler.pendingReasons).toStrictEqual(["terminal-event"]);
     expect(scheduler.isArmed).toBe(true);
   });

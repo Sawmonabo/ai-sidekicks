@@ -4,7 +4,7 @@
 // start `deploy-production` for somebody who typed `deploy`, which is the one mistake
 // an accelerator must not make: a run is not a search result, and the act is not
 // undoable by typing more. Case is folded because a definition name is a person's
-// label rather than a wire identifier, and refusing on capitalisation would be
+// label rather than a wire identifier, and refusing on capitalization would be
 // refusing a name they read correctly.
 //
 // CANDIDATES ARE A DIFFERENT QUESTION AND SO A DIFFERENT FUNCTION. What a person is

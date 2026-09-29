@@ -31,7 +31,7 @@ describe("model HTML", () => {
 
   it("negative control: a script tag reaches the screen as characters", () => {
     // This is the assertion the whole no-sanitizer posture rests on. Nothing here is
-    // ever parsed as markup, so there is nothing to sanitise — and if that ever stopped
+    // ever parsed as markup, so there is nothing to sanitize — and if that ever stopped
     // being true, this case is what would say so.
     const container = renderMarkdown("<script>alert(1)</script>\n");
     expect(container.querySelector("script")).toBeNull();

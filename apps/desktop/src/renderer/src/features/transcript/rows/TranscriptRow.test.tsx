@@ -173,7 +173,7 @@ describe("standing in for the list's density decision", () => {
     expect(disclosureState(container)).toBe("true");
   });
 
-  it("negative control: an untouched row honours a list that opened it", () => {
+  it("negative control: an untouched row honors a list that opened it", () => {
     // Without this, a shell that kept any state of its own would pass the case above
     // while ignoring the list entirely.
     const { container } = render(

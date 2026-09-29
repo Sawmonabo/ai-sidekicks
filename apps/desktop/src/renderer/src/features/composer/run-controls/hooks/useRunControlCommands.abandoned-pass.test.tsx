@@ -1,6 +1,6 @@
 // A registered run-control row dispatches through the render that is ON SCREEN.
 //
-// The rows are memoised on what they SAY, so the run list, the comparand source
+// The rows are memoized on what they SAY, so the run list, the comparand source
 // and the pane's own dispatcher are all read through a ref when a person presses
 // Enter. That makes WHERE the ref is written the safety property: a pass React
 // discards has already run this hook, and a pass discarded while the pane was being

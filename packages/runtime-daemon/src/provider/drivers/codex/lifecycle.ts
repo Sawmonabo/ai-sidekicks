@@ -1413,7 +1413,7 @@ const CODEX_THREAD_INJECT_ITEMS_METHOD = "thread/inject_items" as const;
  *
  * "DECLARED" IS THE LOAD-BEARING WORD. This is not a guess at how long a
  * compaction takes and it is not derived from anything the provider says: it is
- * a bound this driver publishes and then honours, so that a caller is always
+ * a bound this driver publishes and then honors, so that a caller is always
  * told something within a stated time rather than held until a wedged provider
  * happens to answer. Bounding the OPERATION never bounds the BOUNDARY'S RECORD
  * — a compaction frame that arrives after this elapses still travels its
@@ -1424,7 +1424,7 @@ const CODEX_THREAD_INJECT_ITEMS_METHOD = "thread/inject_items" as const;
  * The Codex mechanism is a native request that the provider ACCEPTS before
  * doing the work; the sibling leg is a command frame that is never answered at
  * all. A single shared constant would have to be the maximum of two unrelated
- * provider behaviours, which is the number that serves neither.
+ * provider behaviors, which is the number that serves neither.
  *
  * DELIBERATELY NOT `DEFAULT_REQUEST_TIMEOUT_MS`. Two minutes rather than one is
  * a real difference — compaction of a long thread is model work and not a
@@ -1726,7 +1726,7 @@ function readCodexProviderCommandEntry(
     // `driverName` is the module's own identity rather than a parameter: the
     // half of the routing pair that says WHICH PROVIDER produced an entry is a
     // fact of the code that produced it, and a caller-supplied one would let a
-    // Codex enumeration be labelled as some other provider's.
+    // Codex enumeration be labeled as some other provider's.
     binding: { driverName: CODEX_DRIVER_NAME, providerAccountId },
   };
   const parsed = ProviderCommandEntrySchema.safeParse(candidate);
@@ -3063,7 +3063,7 @@ export function parseCodexSessionConfig(config: unknown): CodexSessionConfig {
  * not a claim this rule can weigh at all.
  *
  * THIS HELPER ANSWERS WHICH CLAIM WINS, AND ONLY THAT. Whether the winning claim
- * is one the available credential environment can actually honour is a separate
+ * is one the available credential environment can actually honor is a separate
  * question with a separate answer, and the resume composer's environment-binding
  * gate is where it is asked — on BOTH its arms, since a typed member may name an
  * account the node-wide default's environment was not built for just as easily as
@@ -3082,7 +3082,7 @@ export function parseCodexSessionConfig(config: unknown): CodexSessionConfig {
  * `parseCodexSessionConfig`: it is reached only through the two spawn composers,
  * and exporting it would put a rule the driver applies internally onto the
  * driver's public surface, where a caller could apply a different one first.
- * Its behaviour is asserted through `createSession` / `resumeSession`, which is
+ * Its behavior is asserted through `createSession` / `resumeSession`, which is
  * where the fail-open it closes actually lived.
  */
 function resolveBoundProviderAccountId(claims: {
@@ -3459,7 +3459,7 @@ function readFailureText(cause: unknown): string {
     // row. Reading `message` and `name` off an `Error` is a different act: those
     // are two named strings on a known shape, not a walk of an unknown object.
     // The Claude leg refuses the same serialization for the same reason; this is
-    // one posture across both drivers, not two local judgements.
+    // one posture across both drivers, not two local judgments.
     return "";
   } catch {
     // An unreadable cause is indistinguishable from an absent one for the
@@ -3804,7 +3804,7 @@ export class CodexAppServerConnection {
    * failure into one rejection, and a caller cannot reconstruct the difference
    * afterwards without reading an error message, which is a guess. Here the
    * phases are separated in the only place that observes them — encode, write,
-   * await — so each failure is labelled where it actually happens.
+   * await — so each failure is labeled where it actually happens.
    *
    * `indeterminate` is the default for everything past the write, including a
    * transport error the connection raised on its own exit: the exit may have
@@ -4135,7 +4135,7 @@ export class CodexAppServerConnection {
     });
     this.#rejectAllPending(error);
     this.#onReadyFailed?.(error);
-    // Signalled explicitly, then released. `PtyHost.close` is specified as
+    // Signaled explicitly, then released. `PtyHost.close` is specified as
     // "tear down the session and release all per-session resources" and does
     // NOT promise to signal the child -- `shutdown()` documents the graceful
     // per-session kill as a separate dispatch -- so `close()` alone could leave
@@ -5038,7 +5038,7 @@ type CodexSessionTransitionKind = Exclude<CodexSessionSlotState, "live">;
  * evidence, and where a rejection carries none the refusal lands on the
  * non-escalating declined arm. Against a pin that never populates
  * `error.data.codexErrorInfo` on this path the permanent arm is therefore
- * DECLARED AND DORMANT — unchanged behaviour, re-arming the moment a rejection
+ * DECLARED AND DORMANT — unchanged behavior, re-arming the moment a rejection
  * does carry the member — rather than an escalation inferred from an absence.
  *
  * `badRequest` is the single member mapped to the structural class, and the
@@ -5119,7 +5119,7 @@ function observeCodexTurnStartFailure(cause: unknown): ProviderRequestFailureObs
  * there is nothing for a resolver to resolve.
  *
  * Answering `undefined` for a posture that carries a reference is a WIRING
- * FAULT, not a licence to strip nothing: the spawn refuses rather than
+ * FAULT, not a license to strip nothing: the spawn refuses rather than
  * launching the child unfiltered.
  */
 export type CodexCredentialEnvPolicyResolver = (
@@ -5172,7 +5172,7 @@ export interface CodexLifecycleOptions extends CodexConnectionOptions {
    * sources it from untyped input — configuration file, IPC payload, restored
    * record — must pass it through {@link parseCodexSessionConfig} first;
    * assigning an unvalidated bag here would put the deny strip's fail-closed
-   * behaviour back at risk on the probe path, which is the one spawn path whose
+   * behavior back at risk on the probe path, which is the one spawn path whose
    * policy still comes from here and which has no other parse.
    */
   readonly resumeSpawnConfig: CodexSessionConfig;
@@ -5815,7 +5815,7 @@ export class CodexLifecycleManager {
     // behind the holder is what makes that release reachable. A resume that read
     // the slot as empty mid-establishment would find `existing === undefined`,
     // install over the winner, and orphan its process. The same chaining carries
-    // it behind a `closing` holder, where the correct behaviour is likewise to
+    // it behind a `closing` holder, where the correct behavior is likewise to
     // wait rather than refuse: once that teardown settles there is simply nothing
     // to supersede, and the resume establishes cleanly.
     return await this.#claimSessionSlot(
@@ -5927,7 +5927,7 @@ export class CodexLifecycleManager {
     // THIS session's live process is actually running under, so a typed member
     // that contradicts it is two resolvers disagreeing and refuses. What this
     // call CANNOT answer is whether the winning claim is one the available
-    // credential environment can honour — that is the gate below.
+    // credential environment can honor — that is the gate below.
     const requestedAccountId = resolveBoundProviderAccountId({
       requested: params.providerAccountId,
       requestedField: "ResumeSessionParams.providerAccountId",
@@ -6017,8 +6017,8 @@ export class CodexLifecycleManager {
    *   * `trusted`. The arm types `credentialPolicyRef?: never`, so the posture is
    *     a positive statement that nothing is denied, and a policy sitting beside
    *     it in the context is a wiring inconsistency rather than a stricter grant
-   *     the posture made. Dropped rather than honoured, on BOTH paths, for the
-   *     symmetry this helper exists to hold: honouring it on create while the
+   *     the posture made. Dropped rather than honored, on BOTH paths, for the
+   *     symmetry this helper exists to hold: honoring it on create while the
    *     resume drops it would rebuild the very asymmetry being closed, mirror
    *     imaged — one session stripping on create and not on relaunch. The
    *     posture a request states is the authority; neither the session's history
@@ -6087,7 +6087,7 @@ export class CodexLifecycleManager {
       const thread = readThread(response, "thread/resume");
       this.#assertPostureRealized(params.executionPosture, response);
       // The identity gate, and it runs BEFORE the position check because it is
-      // the stronger one. Codex may answer a resume it cannot honour by handing
+      // the stronger one. Codex may answer a resume it cannot honor by handing
       // back a DIFFERENT thread; for a zero-turn session that thread has `turns:
       // []`, which is a perfectly well-formed history, so the position check
       // below cannot tell it from a genuine resume. Only the id can. Adopting it
@@ -6339,7 +6339,7 @@ export class CodexLifecycleManager {
         await this.#settleAmbiguousTurnStart(record);
       }
       // `fail-consumed-and-declined` reaches here having disposed nothing, which
-      // is the shipped behaviour for a provider that answered "no": the answer is
+      // is the shipped behavior for a provider that answered "no": the answer is
       // proof it processed the request and started nothing, so the session stays
       // usable and a refusal costs no re-establish. The union's fourth arm,
       // `retry-definitely-unsent`, is unreachable on this leg BY CONSTRUCTION —
@@ -6620,7 +6620,7 @@ export class CodexLifecycleManager {
    * so a probe that refreshed on a cadence would not observe a credential — it
    * would END the login it was checking. Both members are sent explicitly because
    * `GetAuthStatusParams` types them required-but-nullable; omitting them would
-   * leave the refresh behaviour to the provider's default.
+   * leave the refresh behavior to the provider's default.
    *
    * WHY IT IS TOTAL. Every unresolvable outcome — a spawn failure, a handshake
    * failure, a deadline, a refusal, an unreadable answer — becomes
@@ -6744,7 +6744,7 @@ export class CodexLifecycleManager {
    *
    * `params.bindingId` names the leg the DAEMON resolved and is not re-derived
    * here: this manager holds one live leg per session id, so the session id is
-   * the key it can actually honour, and re-keying on a surrogate this class does
+   * the key it can actually honor, and re-keying on a surrogate this class does
    * not mint would be a second identity axis with no second source.
    *
    * DEGRADES rather than throwing on the two conditions the provider's own
@@ -6831,7 +6831,7 @@ export class CodexLifecycleManager {
     // SCOPED TO THE REQUEST AND NOTHING ELSE. The guard wraps the dispatch alone
     // so that only the provider's own reply is classified: `readThread` below
     // throws a transport error for a malformed RESULT, which is a different
-    // failure entirely and must not be re-labelled a missing capability. Nothing
+    // failure entirely and must not be re-labeled a missing capability. Nothing
     // is caught here that is not rethrown — see `classifyRewindForkFailure`.
     let response: unknown;
     try {
@@ -7956,7 +7956,7 @@ export class CodexLifecycleManager {
    * `turn.status`, and it is routable because the frame carries a top-level
    * `threadId`.
    *
-   * The pinned union's two neighbouring candidates were both examined and
+   * The pinned union's two neighboring candidates were both examined and
    * neither can serve. `thread/status/changed` DOES exist, but its `ThreadStatus`
    * has no terminal arm — `notLoaded | idle | systemError | active` — and `idle`
    * is the BETWEEN-TURNS state, so a completion keyed on it would end a child
@@ -8005,7 +8005,7 @@ export class CodexLifecycleManager {
     } catch (cause) {
       // A MODULE-BOUNDARY guard, kept deliberately even though the transport
       // contains this same fault one frame further out. The reason is ownership
-      // rather than behaviour: this class should not depend on another module's
+      // rather than behavior: this class should not depend on another module's
       // error handling to keep its own contract, and that transport is slated to
       // become swappable (leg 6), at which point the outer catch stops being
       // guaranteed.
@@ -8324,7 +8324,7 @@ export class CodexLifecycleManager {
    *     different process and answering from them would answer for the wrong
    *     leg.
    *
-   * That second arm is defence in depth and is deliberately labelled as such:
+   * That second arm is defense in depth and is deliberately labeled as such:
    * every path that replaces or drops a record releases the predecessor's frames
    * in the SAME act, so the frame is already gone by the time this could be
    * asked and both answers lead to the same no-op. No test can tell the arms
@@ -8345,10 +8345,10 @@ export class CodexLifecycleManager {
    * fail those closed and trip a session over a directive the provider took
    * exactly where it said it did.
    *
-   * Nor would it be defence in depth: a terminal retires its turn's route in the
+   * Nor would it be defense in depth: a terminal retires its turn's route in the
    * same synchronous step that records the settlement, and turn ids are never
    * reused, so a routed turn is never a settled one and the two arms would agree
-   * on every input. It would be an arm with no behaviour, which is noise.
+   * on every input. It would be an arm with no behavior, which is noise.
    *
    * So the memory is asked, and absence is the answer — which is sound only
    * because `rememberSettledTurn` never drops an entry while a steer is in
