@@ -15,7 +15,8 @@ import { describe, expect, it } from "vitest";
 // Deeply, as every consumer of a `.test-support` module does: a helper that exists for
 // suites belongs to the module beside it and not on the family's production door.
 import { ManualIdleWarmScheduler } from "@test/helpers/idle-warm.js";
-import { SettingsPageRegistry, type SettingsPageContext } from "../settings-pages.js";
+import { SettingsPageRegistry } from "../settings-pages.js";
+import type { SettingsPageContext } from "../types.js";
 import { useSettingsPageIdleWarm } from "./useSettingsPageIdleWarm.js";
 
 /** A board holding one deferred page that records its load, and one with nothing to load. */

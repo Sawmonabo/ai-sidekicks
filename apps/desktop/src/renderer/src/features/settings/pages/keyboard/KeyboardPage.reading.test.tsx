@@ -10,8 +10,8 @@ import { useEffect, useState } from "react";
 import { describe, expect, it } from "vitest";
 import { consoleCommands } from "@renderer/console/palette/index.js";
 import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
-import { KeyboardPage, registerKeyboardPage } from "./KeyboardPage.js";
-import { SettingsPageRegistry } from "../../settings-pages.js";
+import { KeyboardPage } from "./KeyboardPage.js";
+import { composeSettingsPages } from "../../settings-pages.js";
 import { TEST_COMMAND_IDS, renderPage, rowOf } from "./keyboard-page.test-support.js";
 
 describe("keyboard page — what it reads", () => {
@@ -62,8 +62,7 @@ describe("keyboard page — what it reads", () => {
   });
 
   it("claims the keyboard section with a search vocabulary", () => {
-    const registry = new SettingsPageRegistry();
-    registerKeyboardPage(registry);
+    const registry = composeSettingsPages();
     const descriptor = registry.descriptorFor("keyboard");
     expect(descriptor?.label).toBe("Keyboard");
     expect(descriptor?.keywords).toContain("shortcut");

@@ -36,6 +36,8 @@
 // contrast gate the token registry applies at generation time, which is the work
 // that buys less than the surfaces this release owes.
 
+import "./appearance.css";
+
 import { useCallback, useState, useSyncExternalStore } from "react";
 import type { ReactNode } from "react";
 
@@ -51,10 +53,6 @@ import {
   isSchemePreference,
   type SchemePreference,
 } from "@renderer/styles/tokens.js";
-import type { SettingsPageRegistry } from "../../settings-pages.js";
-
-/** The owner this page registers under. */
-const OWNER = "settings-appearance";
 
 /** The subsystem name every refusal this module raises carries. */
 const APPEARANCE_REFUSAL_ORIGIN = "appearance";
@@ -187,17 +185,6 @@ export function AppearancePage(): ReactNode {
       </section>
     </div>
   );
-}
-
-/** Claim the appearance section. */
-export function registerAppearancePage(registry: SettingsPageRegistry): void {
-  registry.register({
-    section: "appearance",
-    owner: OWNER,
-    label: "Appearance",
-    keywords: ["theme", "dark", "light", "color", "scheme", "contrast", "display"],
-    render: () => <AppearancePage />,
-  });
 }
 
 /**

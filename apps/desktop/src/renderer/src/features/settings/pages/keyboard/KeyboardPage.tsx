@@ -21,6 +21,8 @@
 // all, since the frame's table listens on the window in the capture phase and would
 // otherwise navigate to Sessions instead of letting the chord be bound.
 
+import "./keyboard.css";
+
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 
@@ -48,10 +50,6 @@ import {
   type AppliedChordRecording,
   type KeybindingRow,
 } from "./keybinding-map.js";
-import type { SettingsPageRegistry } from "../../settings-pages.js";
-
-/** The owner this page registers under. */
-const OWNER = "settings-keyboard";
 
 /** The filter field's id, so its label points at it rather than wrapping it. */
 const FILTER_FIELD_ID = "meridian-keyboard-filter";
@@ -290,26 +288,6 @@ export function KeyboardPage(): ReactNode {
       </section>
     </div>
   );
-}
-
-/** Claim the keyboard section. */
-export function registerKeyboardPage(registry: SettingsPageRegistry): void {
-  registry.register({
-    section: "keyboard",
-    owner: OWNER,
-    label: "Keyboard",
-    keywords: [
-      "shortcut",
-      "chord",
-      "hotkey",
-      "binding",
-      "keys",
-      "palette",
-      "accelerator",
-      "rebind",
-    ],
-    render: () => <KeyboardPage />,
-  });
 }
 
 /** What the last rebinding said, if it said anything. One act, one answer. */

@@ -7,10 +7,10 @@ import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { act, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { AppearancePage, registerAppearancePage } from "./AppearancePage.js";
+import { AppearancePage } from "./AppearancePage.js";
 import { consoleCommands } from "@renderer/console/palette/index.js";
 import { SCHEME_ATTRIBUTE } from "@renderer/styles/generate-css.js";
-import { SettingsPageRegistry } from "../../settings-pages.js";
+import { composeSettingsPages } from "../../settings-pages.js";
 
 /** Mount the page and let its first effects land before anything is asserted. */
 async function renderAppearancePage(): Promise<HTMLElement> {
@@ -133,8 +133,7 @@ describe("appearance page", () => {
   });
 
   it("claims the appearance section with a search vocabulary", () => {
-    const registry = new SettingsPageRegistry();
-    registerAppearancePage(registry);
+    const registry = composeSettingsPages();
     const descriptor = registry.descriptorFor("appearance");
     expect(descriptor?.label).toBe("Appearance");
     expect(descriptor?.keywords).toContain("theme");

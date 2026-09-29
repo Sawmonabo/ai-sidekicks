@@ -7,7 +7,8 @@ import { describe, expect, it, afterEach, beforeEach, vi } from "vitest";
 // suites belongs to the module beside it and not on the family's production door.
 import { ManualIdleWarmScheduler } from "@test/helpers/idle-warm.js";
 import { renderSurface, windowAt } from "./SettingsScreen.test-support.js";
-import { SettingsPageRegistry, type SettingsPageContext } from "./settings-pages.js";
+import { SettingsPageRegistry } from "./settings-pages.js";
+import type { SettingsPageContext } from "./types.js";
 
 /** Which sections a board asked for. */
 interface DeferredPageProbe {

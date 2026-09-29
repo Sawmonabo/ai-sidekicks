@@ -1,3 +1,5 @@
+import "./mounted-folders.css";
+
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { useConsoleClock } from "@renderer/console/bridge/BridgeProvider.js";
@@ -7,7 +9,7 @@ import {
   useSettlementAnnouncement,
 } from "@renderer/console/primitives/index.js";
 import { usePushDrivenRead } from "@renderer/console/seats/index.js";
-import type { SettingsPageContext } from "../../../settings-pages.js";
+import type { SettingsPageContext } from "../../../types.js";
 import { MountRow } from "./MountedFolderRow.js";
 import { type PushDrivenReadState } from "@renderer/console/seats/index.js";
 import {

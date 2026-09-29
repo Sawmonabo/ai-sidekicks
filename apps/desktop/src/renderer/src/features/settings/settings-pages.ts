@@ -1,132 +1,33 @@
-// The settings entry index: which page holds which section, and how a term finds it.
+// The settings page table: which page holds which section, and how a term finds it.
 //
-// The surface is a left rail of sections and a right pane holding the selected one.
-// Every registry entry declares an id, a section, a label, keyword aliases, and its
-// renderer, so a match names where it landed, scrolls into the pane, and settles with
-// one brief highlight.
+// The screen is a page list and a pane holding the selected page. Every entry declares a
+// section, a label, keyword aliases and its renderer, so a search hit names where it
+// landed. `SETTINGS_PAGES` is the table; `SettingsPageRegistry` is what one mount of the
+// screen composes from it, so no window inherits another's pages.
 //
-// WHY A REGISTRY RATHER THAN A SWITCH
-//
-// Some sections are bodies this repository does not author at all. A `switch` over
-// section ids would be one file every page edits — the conflict the console's seat boards
-// exist to avoid, one level down. A page claims its section through {@link registerSettingsPage}
-// and the surface resolves the current section against the table.
-//
-// WHY THE MATCHER IS BORROWED AND NOT WRITTEN
-//
-// "One matcher, `matchSettingsEntries`, is shared with the palette so a term ranks
-// identically in both places." `scoreSubsequence` from `@ai-sidekicks/search-ranking` IS
-// that matcher, and settings search imports it from the package. What lives here is the ENTRY INDEX — what
-// text a settings entry offers the scorer — and nothing about scoring itself.
+// The matcher is `scoreSubsequence` from `@ai-sidekicks/search-ranking`, the one the
+// palette ranks with, so a term ranks identically in both places. What lives here is only
+// what text a settings entry offers the scorer.
 
-import { createElement, type ReactNode } from "react";
+import { createElement } from "react";
 
 import { KeyedRegistry } from "@renderer/lib/keyed-registry.js";
-import { type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
 import { scoreSubsequence } from "@ai-sidekicks/search-ranking";
-import type { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
-import type { SessionStore } from "@renderer/store/session/session-store.js";
-import type { ShellState } from "@renderer/store/window/main-process-state.js";
 import { LoadedLazyBody, type LazyBodyLoader } from "@renderer/console/seats/index.js";
 import { PendingSettingsPageBody } from "./components/PendingSettingsPage.js";
+import { AppearancePage } from "./pages/appearance/AppearancePage.js";
+import { ApplicationPage } from "./pages/general/GeneralPage.js";
+import { KeyboardPage } from "./pages/keyboard/KeyboardPage.js";
+import { McpServersPage } from "./pages/mcp-servers/McpServersPage.js";
+import { NotificationsPage } from "./pages/notifications/NotificationsPage.js";
+import { ProvidersPage } from "./pages/providers/ProvidersPage.js";
+import { DaemonPage } from "./pages/runtime/RuntimePage.js";
+import type { SettingsPageBody, SettingsPageContext } from "./types.js";
 import {
   SETTINGS_SECTION_IDS,
   SETTINGS_SECTION_LABELS,
   type SettingsSectionId,
 } from "@renderer/console/settings/settings-sections.js";
-
-/**
- * Everything a settings page is handed.
- *
- * Deliberately narrower than `ConsoleSurfaceContext`: a page reads its own wire and
- * navigates the rail, and handing it the session stores would invite a page to hold
- * session state the settings surface has no session for.
- */
-export interface SettingsPageContext {
-  readonly bridge: ConsoleBridge;
-  /** Renderer-local rail navigation — the deep-link grammar's other half. */
-  readonly openSection: (section: SettingsSectionId) => void;
-  /**
-   * What the address asked this page to be opened FOR, where it asked for anything.
-   *
-   * `#/settings/<page>/<selection>`'s second segment, carried through untouched. It is
-   * how a surface elsewhere in the console hands a page its subject — the onboarding
-   * walkthrough's provider row deep-links here naming the provider whose remedy the
-   * person pressed — so a page opened from a row and the same page opened from the
-   * rail are the same page with and without a subject, rather than two entry points.
-   *
-   * A BARE STRING AND NEVER A NARROWED ONE. `routing/` sits below this family and owns
-   * only the grammar; what the segment MEANS is the page's, and the page that reads it
-   * narrows it against its own vocabulary fail-closed. A selection this build does not
-   * recognize is therefore a page opened for nothing, which is what the rail hands it
-   * anyway — never a page that refuses to open.
-   *
-   * It authorizes nothing and selects nothing on its own: a page reads it to say what
-   * it was opened for, and every read it performs is the read it would have performed
-   * from the rail.
-   */
-  readonly selection: string | undefined;
-  /**
-   * The session this window most recently opened, or `undefined` where it has
-   * opened none.
-   *
-   * The frame store's RETAINED id and deliberately not its route projection. Every
-   * settings address is `kind: "settings"` and names no session, so the projection
-   * is `undefined` on every one of them — a session-scoped page handed it would
-   * render its no-session arm forever, which is a constant wearing an absence's
-   * clothes rather than a reading. The retained id is the fact that answers the
-   * question these pages are actually asking: which session this window is working
-   * in, whether or not the address it is parked on says so.
-   *
-   * `undefined` stays a real answer: a window that has opened no session hands the
-   * pages nothing, and a page that ASKED and was told nothing renders an honest
-   * absence. It is deliberately NOT the session STORE: a settings page that could
-   * reach the projection could hold session state, and the settings surface has no
-   * session to hold it for.
-   */
-  readonly retainedSessionId: string | undefined;
-  /**
-   * That session's store, where this window has it open.
-   *
-   * A page that reads a session-scoped wire needs a push signal or it goes stale
-   * with nothing on screen saying so, and the session's own event stream is the
-   * one the console already subscribes to — exactly once, in the frame's binder.
-   * Handing the STORE here is what lets a page bind to that stream rather than
-   * open a second `daemon.subscribe`, which would be a second copy of one feed.
-   *
-   * It is the retained session's store and never a store a page may open: the
-   * registry resolves it, `undefined` means this window has that session closed,
-   * and a page reads that as one refresh signal fewer rather than as a failure.
-   */
-  readonly retainedSessionStore: SessionStore | undefined;
-  /**
-   * What this window has been told about the shell it is running against.
-   *
-   * READ FROM THE WINDOW'S OWN STORE, never re-read here. The frame opens exactly one
-   * subscription for it and every consumer — the frame's chip, the palette's
-   * read-only line, and the local-runtime page — renders the same value, so the three
-   * surfaces cannot report different supervisor states in one window.
-   */
-  readonly shellState: ShellState;
-  /**
-   * This window's durable store, for the one page that reports on the store itself.
-   *
-   * Required rather than optional, because the surface that builds this context is
-   * handed one and every window has exactly one. An optional member would be a type
-   * saying a page might have to do without a store the composition always supplies,
-   * and the page reporting the store's own state would then carry an absence arm
-   * that is unreachable — an absence nothing can produce reads as a state a person
-   * might one day see.
-   *
-   * A page reaching for it to hold its OWN durable state is not what this admits:
-   * the chokepoint's value classes are closed, and a page storing something outside
-   * them is refused by the store rather than by this comment.
-   */
-  readonly uiStateStore: UiStateStore;
-}
-
-/** What a page renders. A function rather than a component type, as the seats are. */
-export type SettingsPageBody = (context: SettingsPageContext) => ReactNode;
 
 export interface SettingsPageDescriptor {
   readonly section: SettingsSectionId;
@@ -145,7 +46,7 @@ export interface SettingsPageDescriptor {
 }
 
 /**
- * What a page hands {@link SettingsPageRegistrar.register}, in one of exactly two forms.
+ * One entry of the page table, in one of exactly two forms.
  *
  * THE DECK'S AND THE FRAME'S OWN UNION, applied to a rail section, decided by the same
  * product fact and normalized by the same `LoadedLazyBody`. `seats/pane/pane-registry.ts`
@@ -176,17 +77,6 @@ export type SettingsPageRegistration =
       readonly render?: never;
     });
 
-/**
- * The one operation a registration site outside this family performs.
- *
- * Published through the family's door so a root composition file registers a page
- * without holding the registry class, the section vocabulary, or the descriptor
- * shape, which are this family's intra-family contract and stay deep.
- */
-export interface SettingsPageRegistrar {
-  register(registration: SettingsPageRegistration): void;
-}
-
 /** One ranked search hit: the entry, the text that matched, and its score. */
 export interface SettingsEntryMatch {
   readonly descriptor: SettingsPageDescriptor;
@@ -195,7 +85,7 @@ export interface SettingsEntryMatch {
   readonly score: number;
 }
 
-export class SettingsPageRegistry implements SettingsPageRegistrar {
+export class SettingsPageRegistry {
   // `"owner-scoped"`, for `seats/surface/surface-registry.ts`'s reason: a hot reload re-runs
   // the owner's module and must replace, while two owners on one section is a
   // conflict rather than a swap decided by module import order.
@@ -364,6 +254,128 @@ export function matchSettingsEntries(
   }
   return matches.sort((left, right) => right.score - left.score);
 }
+
+/**
+ * A registry holding every page of the table, composed for one mount of the screen.
+ *
+ * A fresh registry per call, so a second window composes its own set and a suite renders
+ * against a registry it owns.
+ */
+export function composeSettingsPages(): SettingsPageRegistry {
+  const registry = new SettingsPageRegistry();
+  for (const page of SETTINGS_PAGES) {
+    registry.register(page);
+  }
+  return registry;
+}
+
+/** The settings pages, in page-list order. */
+export const SETTINGS_PAGES: readonly SettingsPageRegistration[] = [
+  {
+    section: "application",
+    owner: "settings-application",
+    label: "General",
+    keywords: [
+      "updates",
+      "version",
+      "restart",
+      "release",
+      "crash reports",
+      "crash reporting",
+      "about",
+      "build",
+    ],
+    render: (context) => createElement(ApplicationPage, { context }),
+  },
+  {
+    section: "accounts",
+    owner: "settings-accounts",
+    label: "Providers",
+    keywords: [
+      "provider",
+      "credentials",
+      "sign in",
+      "login",
+      "billing",
+      "quota",
+      "rate limit",
+      "default account",
+      "readiness",
+    ],
+    render: () => createElement(ProvidersPage),
+  },
+  {
+    section: "mcp-servers",
+    owner: "settings-mcp",
+    label: "MCP servers",
+    keywords: [
+      "tools",
+      "servers",
+      "model context protocol",
+      "governance",
+      "trust",
+      "overrides",
+      "reconnect",
+      "authorize",
+    ],
+    render: () => createElement(McpServersPage),
+  },
+  {
+    // A loader, so the page and its sheet stay off the initial import graph: the label
+    // and keywords stay here because the page list and search read them before any
+    // page's chunk has loaded.
+    section: "browser",
+    owner: "settings-browser",
+    label: "Browser",
+    keywords: ["web", "site data", "cookies", "storage", "file boundary", "page tools", "clear"],
+    body: () => import("./pages/browser/browser-settings-page-body.js"),
+  },
+  {
+    section: "keyboard",
+    owner: "settings-keyboard",
+    label: "Keyboard",
+    keywords: [
+      "shortcut",
+      "chord",
+      "hotkey",
+      "binding",
+      "keys",
+      "palette",
+      "accelerator",
+      "rebind",
+    ],
+    render: () => createElement(KeyboardPage),
+  },
+  {
+    section: "appearance",
+    owner: "settings-appearance",
+    label: "Appearance",
+    keywords: ["theme", "dark", "light", "color", "scheme", "contrast", "display"],
+    render: () => createElement(AppearancePage),
+  },
+  {
+    section: "notifications",
+    owner: "settings-notifications",
+    label: "Notifications",
+    keywords: [
+      "alerts",
+      "toasts",
+      "mute",
+      "attention",
+      "interruptions",
+      "badges",
+      "do not disturb",
+    ],
+    render: () => createElement(NotificationsPage),
+  },
+  {
+    section: "daemon",
+    owner: "settings-daemon",
+    label: "Runtime",
+    keywords: ["daemon", "supervisor", "runtime", "restart", "stop", "heartbeat", "connection"],
+    render: (context) => createElement(DaemonPage, { context }),
+  },
+];
 
 /** What every registration carries, whichever form it takes. */
 interface SettingsPageRegistrationBase {

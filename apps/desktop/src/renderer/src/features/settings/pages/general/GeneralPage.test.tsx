@@ -5,8 +5,9 @@ import { describe, expect, it } from "vitest";
 
 import { unscriptedScenario } from "@renderer/console/bridge/fixture/call-plane/bridge.test-support.js";
 import { createFixtureBridge } from "@renderer/console/bridge/fixture/call-plane/bridge.js";
-import { ApplicationPage, registerApplicationPage } from "./GeneralPage.js";
-import { SettingsPageRegistry, type SettingsPageContext } from "../../settings-pages.js";
+import { ApplicationPage } from "./GeneralPage.js";
+import { composeSettingsPages } from "../../settings-pages.js";
+import type { SettingsPageContext } from "../../types.js";
 import { consoleTestUiStateStore } from "@test/helpers/settings-page-mount.js";
 import { UNREPORTED_SHELL_STATE } from "@renderer/store/window/main-process-state.js";
 
@@ -56,10 +57,9 @@ describe("application page", () => {
   });
 
   it("claims the application section with a search vocabulary", () => {
-    const registry = new SettingsPageRegistry();
-    registerApplicationPage(registry);
+    const registry = composeSettingsPages();
     const descriptor = registry.descriptorFor("application");
-    expect(descriptor?.label).toBe("Application");
+    expect(descriptor?.label).toBe("General");
     expect(descriptor?.keywords).toContain("updates");
   });
 });

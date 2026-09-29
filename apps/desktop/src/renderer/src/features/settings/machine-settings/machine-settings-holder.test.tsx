@@ -19,7 +19,8 @@ import { unscriptedScenario } from "@renderer/console/bridge/fixture/call-plane/
 import { createFixtureBridge } from "@renderer/console/bridge/fixture/call-plane/bridge.js";
 import { type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
 import { NEVER_SETTLES } from "@test/helpers/abandoned-pass.js";
-import { consoleShellPreferences, useShellPreferences } from "./machine-settings-holder.js";
+import { consoleShellPreferences } from "./machine-settings-holder.js";
+import { useShellPreferences } from "./hooks/useMachineSettings.js";
 import { SHELL_PREFERENCE_DEFAULTS, effectivePreference } from "./machine-settings-snapshot.js";
 import type { ShellPreferenceCarrier } from "./machine-settings-store.js";
 

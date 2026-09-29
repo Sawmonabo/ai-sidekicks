@@ -24,10 +24,9 @@ import {
 } from "@renderer/store/window/main-process-state.js";
 import {
   SettingsPageRegistry,
-  type SettingsPageBody,
-  type SettingsPageContext,
   type SettingsPageRegistrar,
 } from "@renderer/features/settings/settings-pages.js";
+import type { SettingsPageBody, SettingsPageContext } from "@renderer/features/settings/types.js";
 import { type SettingsSectionId } from "@renderer/console/settings/settings-sections.js";
 
 /**

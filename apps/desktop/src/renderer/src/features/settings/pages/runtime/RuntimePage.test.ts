@@ -17,7 +17,8 @@ import { createFixtureBridge } from "@renderer/console/bridge/fixture/call-plane
 import { unscriptedScenario } from "@renderer/console/bridge/fixture/call-plane/bridge.test-support.js";
 import { settle } from "@test/helpers/settle.js";
 import { UNREPORTED_SHELL_STATE } from "@renderer/store/window/main-process-state.js";
-import { useDaemonControl, type DaemonOperations } from "./hooks/useDaemonStatus.js";
+import type { DaemonOperations } from "./hooks/useDaemonStatus.js";
+import { useDaemonControl } from "./hooks/useDaemonControl.js";
 import { getButton, renderPage } from "./runtime-page.test-support.js";
 
 describe("DaemonPage — the supervisor's numbers", () => {
@@ -81,8 +82,8 @@ describe("DaemonPage — the reported status", () => {
       expect(container.textContent).toContain("2026-04-30-read-1");
     });
 
-    fireEvent.click(getButton(container, "Stop the local runtime"));
-    fireEvent.click(getButton(container, "Stop the local runtime"));
+    fireEvent.click(getButton(container, "Stop"));
+    fireEvent.click(getButton(container, "Stop"));
 
     await waitFor(() => {
       expect(container.textContent).toContain("2026-04-30-read-2");
@@ -134,15 +135,15 @@ describe("DaemonPage — the reported status", () => {
 describe("DaemonPage — the two controls", () => {
   it("does not call anything until the consequence has been read", () => {
     const { container, ledger } = renderPage({});
-    fireEvent.click(getButton(container, "Stop the local runtime"));
+    fireEvent.click(getButton(container, "Stop"));
     expect(ledger.calls).toStrictEqual([]);
-    expect(container.textContent).toContain("Every run on this machine ends");
+    expect(container.textContent).toContain("Work in flight on this machine stops");
   });
 
   it("calls only after the confirm", async () => {
     const { container, ledger } = renderPage({});
-    fireEvent.click(getButton(container, "Stop the local runtime"));
-    fireEvent.click(getButton(container, "Stop the local runtime"));
+    fireEvent.click(getButton(container, "Stop"));
+    fireEvent.click(getButton(container, "Stop"));
     await waitFor(() => {
       expect(ledger.calls).toStrictEqual(["stop"]);
     });
@@ -152,15 +153,15 @@ describe("DaemonPage — the two controls", () => {
     // The single-flight latch must clear when the call ends. A latch that stayed held
     // would leave the runtime's controls dead for the rest of the visit.
     const { container, ledger } = renderPage({});
-    fireEvent.click(getButton(container, "Stop the local runtime"));
-    fireEvent.click(getButton(container, "Stop the local runtime"));
+    fireEvent.click(getButton(container, "Stop"));
+    fireEvent.click(getButton(container, "Stop"));
     await waitFor(() => {
       expect(ledger.calls).toStrictEqual(["stop"]);
     });
     await settle();
 
-    fireEvent.click(getButton(container, "Stop the local runtime"));
-    fireEvent.click(getButton(container, "Stop the local runtime"));
+    fireEvent.click(getButton(container, "Stop"));
+    fireEvent.click(getButton(container, "Stop"));
     await waitFor(() => {
       expect(ledger.calls).toStrictEqual(["stop", "stop"]);
     });
@@ -195,8 +196,8 @@ describe("DaemonPage — the two controls", () => {
 
   it("dispatches once when the confirmation is answered twice in one frame", async () => {
     const { container, ledger } = renderPage({ holdsControls: true });
-    fireEvent.click(getButton(container, "Stop the local runtime"));
-    const confirmAction = getButton(container, "Stop the local runtime");
+    fireEvent.click(getButton(container, "Stop"));
+    const confirmAction = getButton(container, "Stop");
 
     // Both presses in ONE frame, which is the case a rendered flag cannot catch: the
     // second handler is the one the first render produced, so it reads the surface as
@@ -215,10 +216,10 @@ describe("DaemonPage — the two controls", () => {
 
   it("refuses both confirmation actions until the dispatch settles, and says why", () => {
     const { container } = renderPage({ holdsControls: true });
-    fireEvent.click(getButton(container, "Restart the local runtime"));
-    fireEvent.click(getButton(container, "Restart the local runtime"));
+    fireEvent.click(getButton(container, "Restart"));
+    fireEvent.click(getButton(container, "Restart"));
 
-    expect(getButton(container, "Restart the local runtime").disabled).toBe(true);
+    expect(getButton(container, "Restart").disabled).toBe(true);
     // Cancel goes with it: nothing behind the bridge is cancellable, so a live Cancel
     // here would read as retracting a call that has already gone out.
     expect(getButton(container, "Cancel").disabled).toBe(true);
@@ -227,24 +228,24 @@ describe("DaemonPage — the two controls", () => {
 
   it("offers both confirmation actions before it has been answered — the control", () => {
     const { container } = renderPage({ holdsControls: true });
-    fireEvent.click(getButton(container, "Restart the local runtime"));
+    fireEvent.click(getButton(container, "Restart"));
 
-    expect(getButton(container, "Restart the local runtime").disabled).toBe(false);
+    expect(getButton(container, "Restart").disabled).toBe(false);
     expect(getButton(container, "Cancel").disabled).toBe(false);
   });
 
   it("backs out on cancel without calling — the control", () => {
     const { container, ledger } = renderPage({});
-    fireEvent.click(getButton(container, "Restart the local runtime"));
+    fireEvent.click(getButton(container, "Restart"));
     fireEvent.click(getButton(container, "Cancel"));
     expect(ledger.calls).toStrictEqual([]);
-    expect(container.textContent).not.toContain("Every run on this machine is interrupted");
+    expect(container.textContent).not.toContain("Work in flight on this machine stops");
   });
 
   it("says a control was sent rather than that it succeeded", async () => {
     const { container } = renderPage({});
-    fireEvent.click(getButton(container, "Stop the local runtime"));
-    fireEvent.click(getButton(container, "Stop the local runtime"));
+    fireEvent.click(getButton(container, "Stop"));
+    fireEvent.click(getButton(container, "Stop"));
     await waitFor(() => {
       expect(container.textContent).toContain("sent");
     });
@@ -256,6 +257,6 @@ describe("DaemonPage — the two controls", () => {
       shellState: { ...UNREPORTED_SHELL_STATE, connection: { kind: "stopped" } },
     });
     const labels = [...container.querySelectorAll("button")].map((button) => button.textContent);
-    expect(labels).not.toContain("Start the local runtime");
+    expect(labels).not.toContain("Start");
   });
 });

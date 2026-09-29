@@ -26,6 +26,8 @@
 // no second guard — a superseded read has already been disposed, and a disposed read
 // refreshes nothing.
 
+import "./mcp-fixture-body.css";
+
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import type { McpServerBindingRef } from "@ai-sidekicks/contracts";

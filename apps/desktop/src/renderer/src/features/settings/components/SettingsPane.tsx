@@ -7,7 +7,8 @@
 // screen.
 import { Nothing } from "@renderer/console/primitives/index.js";
 import { SettingsSectionPage } from "./SettingsPageContent.js";
-import type { SettingsPageContext, SettingsPageRegistry } from "../settings-pages.js";
+import type { SettingsPageRegistry } from "../settings-pages.js";
+import type { SettingsPageContext } from "../types.js";
 import type { SettingsSectionId } from "@renderer/console/settings/settings-sections.js";
 
 export interface SettingsPaneProps {

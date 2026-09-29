@@ -11,9 +11,7 @@ import { describe, expect, it } from "vitest";
 import { LIVE_ANNOUNCEMENT_HOLD_MS } from "@renderer/components/LiveAnnouncer/live-announcement-caps.js";
 import { MOUNT_INVENTORY_READ_CAP } from "./mount-inventory-caps.js";
 import { formatClockTime, formatDateTime } from "@renderer/console/primitives/index.js";
-import { SettingsPageRegistry } from "../../../settings-pages.js";
 import { MOUNT_A, MOUNT_B, mountIdAt } from "./mounted-folders.test-support.js";
-import { registerWorkspaceMountsPage } from "./MountedFoldersBlock.js";
 import { contextReading, renderSettledPage } from "./mounted-folders-block.test-support.js";
 
 describe("workspace mounts page", () => {
@@ -91,14 +89,6 @@ describe("workspace mounts page", () => {
       </div>,
     );
     expect(container.querySelectorAll("button, input, select, textarea")).toHaveLength(1);
-  });
-
-  it("claims the mounts section with a search vocabulary", () => {
-    const registry = new SettingsPageRegistry();
-    registerWorkspaceMountsPage(registry);
-    const descriptor = registry.descriptorFor("mounts");
-    expect(descriptor?.label).toBe("Workspace mounts");
-    expect(descriptor?.keywords).toContain("repository");
   });
 });
 

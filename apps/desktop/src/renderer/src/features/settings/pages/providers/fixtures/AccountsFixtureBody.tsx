@@ -8,6 +8,8 @@
 // running. `signin-plane.ts` owns that rule. The registry's completion report is what
 // releases a flow the node ended on its own, correlated by attempt id.
 
+import "./accounts-fixture-body.css";
+
 import type { ProviderAccount } from "@ai-sidekicks/contracts";
 import { useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
 

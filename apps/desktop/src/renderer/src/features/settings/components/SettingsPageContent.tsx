@@ -18,7 +18,8 @@
 
 import { useEffect, useRef, useState } from "react";
 
-import type { SettingsPageContext, SettingsPageRegistry } from "../settings-pages.js";
+import type { SettingsPageRegistry } from "../settings-pages.js";
+import type { SettingsPageContext } from "../types.js";
 import {
   SETTINGS_SECTION_LABELS,
   type SettingsSectionId,

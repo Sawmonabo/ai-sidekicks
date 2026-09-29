@@ -25,11 +25,8 @@ import { useFrameStore, useShellState } from "@renderer/console/store/shell/fram
 import { useOpenSessionStore } from "@renderer/store/session/hooks/useOpenSessionStore.js";
 import { settingsSelection } from "@renderer/routing/route-readers.js";
 import type { ConsoleSurfaceContext } from "@renderer/console/seats/index.js";
-import {
-  matchSettingsEntries,
-  type SettingsPageContext,
-  type SettingsPageRegistry,
-} from "./settings-pages.js";
+import { matchSettingsEntries, type SettingsPageRegistry } from "./settings-pages.js";
+import type { SettingsPageContext } from "./types.js";
 import {
   SETTINGS_SECTION_IDS,
   type SettingsSectionId,

@@ -13,10 +13,10 @@ import {
 import {
   SettingsPageRegistry,
   matchSettingsEntries,
-  type SettingsPageContext,
   type SettingsPageDescriptor,
   type SettingsPageRegistration,
 } from "./settings-pages.js";
+import type { SettingsPageContext } from "./types.js";
 import type { ReactNode } from "react";
 
 function pageFor(

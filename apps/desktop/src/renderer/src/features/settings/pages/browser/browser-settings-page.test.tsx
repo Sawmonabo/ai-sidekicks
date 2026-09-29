@@ -5,7 +5,7 @@
 // reserved arm — a surface a person cannot reach by any address.
 //
 // AND THE REGISTRATION IS LOADER-BACKED, which splits those cases in two. The page is a
-// chunk of its own — `browser/settings/browser-settings-page-body.ts`, which is what
+// chunk of its own — `pages/browser/browser-settings-page-body.ts`, which is what
 // keeps a page nobody has opened off every launch's initial import graph — so the
 // shipped surface parked on this address renders the page REGION and its reservation,
 // and the body itself lands a turn later. The claims are made against the shipped
@@ -21,12 +21,11 @@ import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
 import { FrameStore } from "@renderer/store/window/window-store.js";
 import { SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
 import { registerSettingsSurface } from "../../contributions/screens.js";
-import { registerBrowserSettingsPage } from "@renderer/console/browser-settings-page.js";
 import {
   mountReservedSettingsPage,
   settingsPageContextWith,
 } from "@test/helpers/settings-page-mount.js";
-import { SettingsPageRegistry } from "../../settings-pages.js";
+import { SETTINGS_PAGES, SettingsPageRegistry } from "../../settings-pages.js";
 import {
   ConsoleSurfaceRegistry,
   type ConsoleSurfaceContext,
@@ -73,6 +72,15 @@ async function renderShippedSettingsAtBrowser(): Promise<HTMLElement> {
   return container;
 }
 
+/** The page table's Browser entry, registered on a board the case owns. */
+function registerBrowserPage(registry: SettingsPageRegistry): void {
+  const entry = SETTINGS_PAGES.find((page) => page.section === "browser");
+  if (entry === undefined) {
+    throw new Error("the page table holds no Browser entry");
+  }
+  registry.register(entry);
+}
+
 /**
  * The context this page is handed, built by the family's own builder.
  *
@@ -107,20 +115,20 @@ describe("the browser settings section", () => {
     // un-awaited half rather than an option on its first.
     const container = mountReservedSettingsPage(
       "browser",
-      registerBrowserSettingsPage,
+      registerBrowserPage,
       browserPageContext(),
     );
     expect(container.querySelector("#meridian-browser-settings-title")).toBeNull();
     expect(pendingPaneBodiesIn(container).length).toBe(1);
   });
 
-  it("negative control: the registrar is what puts the page on a board", () => {
+  it("negative control: the table's entry is what puts the page on a board", () => {
     // Without this, the cases above would pass over a board that had grown the section
-    // some other way — and this one fails if the registrar stops claiming it.
+    // some other way — and this one fails if the table stops holding it.
     const withoutRegistration = new SettingsPageRegistry();
     expect(withoutRegistration.descriptorFor("browser")).toBeUndefined();
     const withRegistration = new SettingsPageRegistry();
-    registerBrowserSettingsPage(withRegistration);
+    registerBrowserPage(withRegistration);
     expect(withRegistration.descriptorFor("browser")?.label).toBe("Browser");
   });
 });

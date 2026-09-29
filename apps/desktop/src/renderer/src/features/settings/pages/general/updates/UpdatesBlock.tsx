@@ -13,36 +13,14 @@
 //
 // A call that throws or rejects is not caught here; it propagates to the caller.
 
-import { useCallback, useEffect, useMemo, useSyncExternalStore, type ReactNode } from "react";
+import type { ReactNode } from "react";
 
 import type { UpdateState } from "@ai-sidekicks/contracts";
 
 import { useSettlementAnnouncement } from "@renderer/console/primitives/index.js";
-import { UpdaterReadingHolder, type UpdaterCalls, type UpdateReading } from "./updater-reading.js";
+import type { UpdaterCalls, UpdateReading } from "./updater-reading.js";
+import { useUpdateReading } from "../hooks/useUpdateReading.js";
 import { UpdateReadOut } from "./UpdateReadOut.js";
-
-/**
- * Bind this window's reading of the updater.
- *
- * The holder is constructed in a `useMemo` keyed on the updater and opened in an
- * effect, never in a render body. The sequencing between the subscription and the
- * opening read is the holder's, not this hook's.
- */
-function useUpdateReading(updater: UpdaterCalls): UpdateReading {
-  const holder = useMemo(() => new UpdaterReadingHolder(updater), [updater]);
-  useEffect(() => {
-    holder.open();
-    return () => {
-      holder.close();
-    };
-  }, [holder]);
-  const subscribe = useCallback(
-    (onStoreChange: () => void) => holder.subscribe(onStoreChange),
-    [holder],
-  );
-  const read = useCallback(() => holder.snapshot(), [holder]);
-  return useSyncExternalStore(subscribe, read, read).reading;
-}
 
 /**
  * What each settled arm of the updater's read SAYS, for the person who cannot see it.

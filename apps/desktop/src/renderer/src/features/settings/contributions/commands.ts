@@ -1,33 +1,16 @@
-// The acts that ARE the bridge.
+// The Settings feature's palette commands: the acts on this install that have no screen of
+// their own (copy build details, check for updates) and the color-scheme rows.
 //
-// `useConsoleBridge` is the console's single door to the bridge — "console code
-// reaches the bridge only through the bridge provider" — and until this module no
-// surface walked through it. The frame takes the RESOLUTION rather than the bridge,
-// because it is the one place that has to render the "preload did not run" failure;
-// every other family reaches the daemon through the store's apply chokepoint. What
-// was left over is the small set of acts that have no surface of their own, and a
-// command palette is exactly where an act with no home lives. So they are the
-// palette's rather than the frame's, and they take the bridge itself.
-//
-// EVERY ACT SETTLES. `CommandRegistry.invoke` hands the caller the command's own
-// promise and the overlay drops it, deliberately — the dialog must not stay open
-// waiting on a command that opens another surface. A `run` that REJECTED would
-// therefore surface as an unhandled rejection and the person who pressed Enter
-// would see nothing at all. Each act below catches its own failure and hands it to
-// the caller's sink as a `ConsoleRefusal`, the one refusal value the three refusal
-// renderings consume, so a refused act is rendered rather than lost.
-//
-// The refusal detail is a CONSTANT sentence and never the caught error's message.
-// The bridge's failures come from the main process across an IPC boundary; their
-// text is not console copy, may be a stack, and — under the live bridge — describes
-// a subsystem the person cannot act on. The code names which act failed, which is
-// what a person pastes into an issue.
+// Every bridge act settles. The palette drops the promise a command returns, so a `run`
+// that rejected would show the person nothing; each act catches its own failure and hands
+// it to the caller's sink as a `ConsoleRefusal`. The refusal detail is a constant sentence,
+// never the caught error's message: that text comes from the main process across IPC, may
+// be a stack, and names a subsystem the person cannot act on.
 
-import { useMemo } from "react";
-import { useConsoleBridge } from "@renderer/console/bridge/BridgeProvider.js";
 import { type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
 import { refuse, type ConsoleRefusal } from "@renderer/lib/refusal.js";
 import type { ConsoleCommand } from "@renderer/registries/commands/command-types.js";
+import type { SchemePreference } from "@renderer/styles/tokens.js";
 
 /** Why a bridge-backed command could not complete. */
 export const BRIDGE_COMMAND_REFUSAL_CODES = [
@@ -47,9 +30,8 @@ export type BridgeCommandRefusalSink = (refusal: ConsoleRefusal) => void;
 /**
  * The bridge-backed commands, for a bridge the caller already holds.
  *
- * Separate from the hook below so the commands can be built and driven without a
- * React tree — the hook is the wiring, this is the behaviour, and a test that had
- * to render to reach the behaviour would be proving both at once.
+ * Separate from `useBridgeCommands` so the commands can be built and driven without a
+ * React tree: the hook is the wiring, this is the behavior.
  */
 export function buildBridgeCommands(
   bridge: ConsoleBridge,
@@ -92,21 +74,40 @@ export function buildBridgeCommands(
 }
 
 /**
- * The bridge-backed commands for the bridge this window resolved.
+ * The color-scheme commands, for the scheme chooser this window holds.
  *
- * `useConsoleBridge` throws when the bridge is unavailable, and that is correct
- * here rather than something to guard: the frame renders the unavailable arm above
- * every surface, so any component that reaches this hook is already below a
- * resolved bridge, and a `undefined` return would let a palette render "no commands
- * apply here" over a window whose preload never ran.
- *
- * `onRefusal` belongs in the dependency list, so a caller passing an inline lambda
- * rebuilds the command list every render. Callers hold it in a `useCallback` — the
- * command list is registered once and the registry refuses a duplicate id.
+ * Built per window rather than registered at module scope, because each one closes over
+ * the window's own chooser.
  */
-export function useBridgeCommands(onRefusal: BridgeCommandRefusalSink): readonly ConsoleCommand[] {
-  const bridge = useConsoleBridge();
-  return useMemo(() => buildBridgeCommands(bridge, onRefusal), [bridge, onRefusal]);
+export function buildColorSchemeCommands(
+  chooseScheme: (preference: SchemePreference) => void,
+): readonly ConsoleCommand[] {
+  return [
+    {
+      id: "frame.useLightScheme",
+      title: "Use the light color scheme",
+      group: "Appearance",
+      run: () => {
+        chooseScheme("light");
+      },
+    },
+    {
+      id: "frame.useDarkScheme",
+      title: "Use the dark color scheme",
+      group: "Appearance",
+      run: () => {
+        chooseScheme("dark");
+      },
+    },
+    {
+      id: "frame.useSystemScheme",
+      title: "Follow the system color scheme",
+      group: "Appearance",
+      run: () => {
+        chooseScheme("system");
+      },
+    },
+  ];
 }
 
 const CLIPBOARD_REFUSAL_DETAIL =

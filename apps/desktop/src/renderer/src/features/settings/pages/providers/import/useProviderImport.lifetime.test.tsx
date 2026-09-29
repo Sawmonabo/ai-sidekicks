@@ -22,7 +22,7 @@ import type {
   ImportProgressFrame,
   ImportProgressStream,
   ImportProgressSubscribeCall,
-} from "./useImportProgress.js";
+} from "./import-progress.js";
 import { settle } from "@test/helpers/settle.js";
 
 /** The one import every case here starts, named so a remount can be shown to find it. */

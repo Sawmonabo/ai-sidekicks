@@ -32,10 +32,10 @@
 import { SessionAct, useSessionAct } from "./useSingleFlightAct.js";
 import {
   isImportUnderway,
-  useImportProgress,
   type ImportProgressReading,
   type ImportProgressSubscribeCall,
-} from "./useImportProgress.js";
+} from "./import-progress.js";
+import { useImportProgress } from "./useImportProgress.js";
 import type { ConsoleRefusal } from "@renderer/lib/refusal.js";
 import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
 

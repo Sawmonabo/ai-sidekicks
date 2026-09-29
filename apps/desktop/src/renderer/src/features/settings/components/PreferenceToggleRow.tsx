@@ -10,6 +10,8 @@
 // The row never decides whether a setting may change: `checked` and `isPending` arrive as
 // props from the page, which reads them off the carrier.
 
+import "./preference-toggle-row.css";
+
 import { useId } from "react";
 
 import { Switch } from "@base-ui/react/switch";

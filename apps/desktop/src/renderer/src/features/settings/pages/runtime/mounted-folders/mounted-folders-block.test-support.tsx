@@ -20,7 +20,7 @@ import { politeText } from "@test/helpers/live-region.js";
 import type { SessionStore } from "@renderer/store/session/session-store.js";
 import { frozenClockOf } from "@test/helpers/scheduled-read.js";
 import { settingsPageContextWith } from "@test/helpers/settings-page-mount.js";
-import type { SettingsPageContext } from "../../../settings-pages.js";
+import type { SettingsPageContext } from "../../../types.js";
 import { SESSION_ID, mountReadFor, workspaceListWith } from "./mounted-folders.test-support.js";
 import { MountInventoryList } from "./MountedFolderList.js";
 import type { MountInventoryCalls } from "./mount-inventory.js";

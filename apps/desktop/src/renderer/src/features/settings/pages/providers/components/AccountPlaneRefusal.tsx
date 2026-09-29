@@ -14,6 +14,8 @@
 // nothing here runs ahead of a call, so a run that would have been admitted is never
 // interrupted by an offer to sign in.
 
+import "./account-plane-handoff.css";
+
 import type { ReactNode } from "react";
 
 import { type ConsoleRefusal } from "@renderer/lib/refusal.js";
