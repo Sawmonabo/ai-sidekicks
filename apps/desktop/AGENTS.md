@@ -42,7 +42,7 @@ Rules 10 and 11 sort NOTHING within a section — the claim is the order of the 
 
 What lint does not carry: one component per `.tsx` (see [Desktop Structure](../../docs/architecture/desktop-structure.md#naming)) is a review rule. No ESLint rule states it — `react-refresh/only-export-components` checks a different property, that a module exporting a component exports only components, which is a Fast Refresh constraint and not a count.
 
-The dead-code gate's one exemption is per SYMBOL: an export tagged `@consumedBy <reason>` is excluded, and a symbol nothing will import is deleted rather than tagged. Tag the specifier knip reports, and delete the tag in the PR that imports the symbol.
+The dead-code gate has two exemptions. Per SYMBOL: an export tagged `@consumedBy <reason>` is excluded, and a symbol nothing will import is deleted rather than tagged. Tag the specifier knip reports, and delete the tag in the PR that imports the symbol. Per FILE: a whole file kept for a consumer that is not built yet takes one `ignoreFiles` entry in this package's workspace of the root `knip.json`, the exact path with a comment naming the design, plan or build unit that owns it, never a directory or a glob. An entry clears only the file it names, so a chain of unwired files takes one entry per file. The entry leaves in the change that builds its consumer. Nothing is wired to quiet the gate, and nothing the design requires is deleted to quiet it.
 
 ## Structure
 

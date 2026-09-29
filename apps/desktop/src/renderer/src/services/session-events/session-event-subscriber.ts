@@ -55,10 +55,10 @@
 //
 // So the observation sits on the one call every daemon subscription in the window
 // goes through (`services/transport/observed-subscription.ts`, reported into by
-// `services/daemon/daemon-streams.ts` and `services/daemon/subscribe-daemon-event.ts` as well as by the open
-// below). This class reports nothing and subscribes once, for its whole life, to a
-// signal other openers move: the node's provider-account tail coming back is a
-// returning edge, and it is one a window with no bindable session can still observe.
+// `services/daemon/daemon-streams.ts` as well as by the open below). This class reports
+// nothing and subscribes once, for its whole life, to a signal other openers move: the
+// node's provider-account tail coming back is a returning edge, and it is one a window
+// with no bindable session can still observe.
 //
 // WHAT THE WIRE ACTUALLY OFFERS, AND WHAT THIS DOES ABOUT IT
 //

@@ -15,12 +15,18 @@
   //
   // The root workspace is declared with empty globs on purpose: knip then reads its manifest
   // for dependency resolution while contributing no findings of its own.
-  // The per-symbol dead-code lever, and the only one this repo uses. knip reads
-  // JSDoc/TSDoc tags off an export and `-consumedBy` excludes every export carrying
-  // `@consumedBy` from the report — the documented `tags` option, which is what
-  // `apps/desktop/AGENTS.md` binds to a plain-word reason. It is per SYMBOL, unlike `ignore`
-  // (file globs) and `ignoreIssues` (issue types per file pattern), neither of which
-  // is used here: exempting a file would exempt every export it ever grows.
+  // The per-symbol dead-code lever. knip reads JSDoc/TSDoc tags off an export and
+  // `-consumedBy` excludes every export carrying `@consumedBy` from the report — the
+  // documented `tags` option, which is what `apps/desktop/AGENTS.md` binds to a plain-word
+  // reason. It is per SYMBOL, unlike `ignore` (file globs) and `ignoreIssues` (issue types
+  // per file pattern), neither of which is used here: exempting a file would exempt every
+  // export it ever grows.
+  //
+  // The one per-FILE lever is `ignoreFiles`, for a whole file kept for a consumer that is
+  // not built yet: one exact path per entry, never a directory or a glob, each with a
+  // comment naming the design, plan or build unit that owns it. The entry leaves in the
+  // change that builds its consumer. It clears only the file it names, so a chain of
+  // unwired files takes one entry per file.
   //
   // MEASURED, NOT ASSUMED — the tag sits on every place knip reports. For a barrelled
   // symbol that is the barrel's own re-export specifier: knip reads per-specifier tags on
@@ -116,7 +122,59 @@
       // `xdpyinfo` is an X11 host utility the Xvfb smoke helper probes with `spawnSync` on
       // Linux runners (`tests/helpers/display-readiness.ts`); it is installed by the CI job's apt
       // step and is never a package dependency, so knip is told not to expect it in a manifest.
-      "ignoreBinaries": ["xdpyinfo"]
+      "ignoreBinaries": ["xdpyinfo"],
+
+      // Whole files kept for a consumer that is not built yet, each with its owner.
+      "ignoreFiles": [
+        // Scripted diff patches kept as the fixtures' test data (register WT-14); the diff read
+        // that plays them is built with the Review pane (build units DM-16 and B9).
+        "fixtures/data/repos-diff-patches.ts",
+        // The anchored popover that registers its airspace over the Preview page: the
+        // worktree popover and the context ring's compaction popover (session design S-125,
+        // S-312, S-890).
+        "src/renderer/src/components/OverlayPopups/OverlayPopoverPopup.tsx",
+        // The one render path of a refusal's remedy: the refusal with its remedy draws its
+        // next move through this component (the user's sweep decision of Sept 22, 20 Q3).
+        "src/renderer/src/components/Refusal/RefusalRemedyContent.tsx",
+        // The row that offers wire identifiers to choose between: the Workflows scope picker
+        // and the sessions list (the user's detachable-panes decision, Sept 24).
+        "src/renderer/src/components/WireChoiceList/WireChoiceList.tsx",
+        // The agent library's chunk, mounted by the Sidekicks screen's registration (build
+        // unit K4).
+        "src/renderer/src/features/agents/library/agent-library-body.ts",
+        // An approval card takes focus when it arrives (session design S-727; build unit B7).
+        "src/renderer/src/features/composer/approval/hooks/useApprovalArrivalAnnouncement.ts",
+        // The artifact refusal codes, which move to the contracts package (registers CMP-2 and
+        // ART-2); the entry leaves with the move.
+        "src/renderer/src/features/composer/attachments/artifact-refusal-copy.ts",
+        // An agent's question card and the settlement it reads (session design D-66; build
+        // unit B8).
+        "src/renderer/src/features/composer/question-card/BoundQuestionCard.tsx",
+        "src/renderer/src/store/session-events/hooks/useQuestionSettlement.ts",
+        // Interrupt and Interrupt everything on the run controls (session design S-105 to
+        // S-108; build units A14 and B13).
+        "src/renderer/src/features/composer/run-controls/hooks/useRunDriverBindings.ts",
+        // The cost receipt's partition rule, which becomes a daemon test on the receipt fold
+        // (register AGT-7; the inspector's Cost section, session design S-324); the entry
+        // leaves with the rest of the file.
+        "src/renderer/src/features/inspector/cost/cost-receipt-model.ts",
+        // The inspector's Rules section with Revoke (session design S-971; build units B10
+        // and DM-18).
+        "src/renderer/src/features/inspector/rules/components/RulesSection.tsx",
+        // The session header's title read and its fixture answer (session design S-046,
+        // S-305; build units A9 and DM-19).
+        "src/renderer/src/features/sessions/session-header/hooks/useSessionHeaderRead.ts",
+        "src/renderer/src/features/sessions/session-header/hooks/useSessionIdentity.ts",
+        "src/renderer/src/services/daemon/session-identity.fixture.ts",
+        // The operating-system notification permission fold, which moves to main beside the
+        // notification poster (registers SH-09 and ATT-1; build unit B14).
+        "src/renderer/src/features/settings/pages/notifications/os-notification-delivery.ts",
+        // A footnote's definition at the foot of its reply (session design S-657; build unit
+        // A20).
+        "src/renderer/src/features/transcript/rows/markdown/footnotes/DefinitionBody.tsx",
+        // A run's page refreshing live (build unit WF-15).
+        "src/renderer/src/features/workflows/run-page/hooks/useWorkflowRunLiveRefresh.ts"
+      ]
     },
 
     // The packages declare no source `entry`: knip reads each one's entries from its own
@@ -137,7 +195,10 @@
       // `wrangler deploy` by hand, so no package script names it. `pg` and its types are the
       // Postgres client the control plane's stores are built on, not imported until those
       // stores land.
-      "ignoreDependencies": ["wrangler", "pg", "@types/pg"]
+      "ignoreDependencies": ["wrangler", "pg", "@types/pg"],
+      // The roster's reading of the terminal write lease holder, which the persisted-holder
+      // join extends (ADR-025 D7; Plan-022 CP-022-4).
+      "ignoreFiles": ["src/runtime-nodes/attach-service.ts"]
     },
     "packages/runtime-daemon": {
       // Loaded by `import()` of a specifier held in a variable (`pty/node-pty-host.ts`), which
