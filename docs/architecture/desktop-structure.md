@@ -153,6 +153,7 @@ The CSS is plain CSS on global design tokens. A component's `.css` sits beside i
 - **No file imports another folder's sheet**, except a chunk root and `main.tsx`.
 
 - **One CSS class has one owning stylesheet.** Two sheets that declare the same class at equal specificity are resolved by load order, so which rules win depends on which surface loaded first.
+- **A treatment several features share is one class in a `styles/` sheet.** The action button and the disclosure trigger are two treatments, each one class in `styles/action-buttons.css` that every such control applies beside its own class. The component's own class keeps only its layout, state and variation, and a class left with no rules is removed, not kept as an alias.
 - **A shared component owns every rule for its own classes.** A feature that needs a variation uses the component's supported modifier, `data-*` attribute or custom property; it never restyles the shared class from another sheet.
 - **A feature-private class carries the feature's name as its prefix** when it is new or is already being renamed with the concept it names. An otherwise-correct existing class is not renamed only to add a prefix.
 - **A custom property that a component reads and a caller may set has a fallback**, for example `var(--figure-wire-color, inherit)`. Without one, the declaration drops silently when no caller sets it.
@@ -169,6 +170,7 @@ The CSS is plain CSS on global design tokens. A component's `.css` sits beside i
 - **When to use which.** An import that crosses from one top-level folder to another uses the alias. An import inside a feature or module stays `./`. No deep relative import (`../../../`).
 - **The import direction:** `shared → lib/styles/assets → routing → components/hooks → store → services → registries → features → layout → app`. Each folder imports only folders before it. `services/` may import the store's types, since the store sits below it; `layout/` imports nothing from `app/`.
 - **Features never import features,** including another feature's `index.ts`.
+- **Wire values are parsed in `services/`.** A surface reaches the daemon through `callDaemon`, which parses each reply against the method's schema. Outside `services/`, renderer code imports neither `zod` nor a contracts schema (an export ending in `Schema`); a test may parse through a contracts schema to build or check contract-shaped data. A module that validates data it owns rather than a wire value, such as the schema form's answer validator, may use `zod`, named in `eslint.config.mjs`, and still imports no contracts schema.
 - **No Electron or Node in the renderer.** Renderer code never imports Electron or Node APIs; Electron access goes through the typed preload API, which only the platform bridge's desktop implementation reads.
 - **`index.ts` is a feature's public entry,** with named exports only and no barrel chains.
 
@@ -178,6 +180,7 @@ The CSS is plain CSS on global design tokens. A component's `.css` sits beside i
 - `.dependency-cruiser.mjs` also keeps the main process and the preload from importing renderer code; a value both sides need lives in `src/shared/`.
 - ESLint (`lint`, `eslint.config.mjs`) refuses a stylesheet import that reaches another folder, outside a chunk root and `main.tsx`.
 - ESLint's restricted imports (`lint`, configured in `eslint.config.mjs`) keep the renderer from reaching `main/` or `preload/`, relatively or through `@main` and `@preload`, and from importing Electron, Node builtins or the daemon and control-plane packages.
+- ESLint's restricted imports also keep `zod` and contracts schemas inside `services/`, with the test and named-module allowances under Imports.
 - knip (`structure:dead-code`, configured in the root `knip.json`) reports unused files and exports.
 
 ## Related Docs

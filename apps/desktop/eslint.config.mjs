@@ -169,41 +169,43 @@ const RENDERER_RESTRICTED_PATTERNS = [
   },
 ];
 
+/** The `zod` library, which a surface never needs to parse a wire value. */
+const ZOD_IMPORT = {
+  // Bare specifier and every subpath (`zod/v4`, `zod/mini`) in one
+  // group: `no-restricted-imports` treats them as distinct, and a ban
+  // on the bare form alone would be one import away from useless.
+  group: ["zod", "zod/**"],
+  message:
+    "A surface never parses a wire value itself. Reach the daemon through `callDaemon` from `services/daemon/daemon-reply.ts`, which parses the reply against the method's registered schema and answers `served` or `refused`; a value that needs a shape needs a registry row, not a local validator.",
+};
+
+/** A contracts schema, which is a parser; types and non-schema values stay importable. */
+const CONTRACTS_SCHEMA_IMPORT = {
+  // The same claim as the `zod` group above, on the schemas the corpus
+  // has already built. It is a `patterns` entry rather than a `paths`
+  // one because that is where the rule's schema puts `importNamePattern`
+  // — measured against the installed engine, whose `paths` items admit
+  // only `importNames` — and an exhaustive `importNames` list would go
+  // stale the day the contracts package exports its next schema.
+  group: ["@ai-sidekicks/contracts"],
+  // Every schema the reply registry composes ends this way, and so does
+  // every other schema the package exports: the suffix is how this
+  // corpus spells a parser, not a guess about one.
+  importNamePattern: "Schema$",
+  message:
+    "A surface never parses a wire value itself, and a contracts schema is a parser. Reach the daemon through `callDaemon` from `services/daemon/daemon-reply.ts`, which parses the reply against the method's registered schema and answers `served` or `refused`; a value that needs a shape needs a registry row, not a second reading of one. Types and non-schema values from this package are untouched.",
+};
+
 /**
  * The groups a renderer module outside `services/` may not import: the renderer's, plus
- * the two that keep wire parsing out of a surface.
- *
- * Hoisted because flat config replaces a rule's options at the LAST matching config
- * object, so any narrower block below that names a renderer file would have to restate
- * this whole union — and a union spread from one const cannot drift from the block it
- * was copied out of. One block spends it today; the hoist stays because the hazard is
- * the rule's, not that block's, and a second narrower block is one edit away.
+ * the two that keep wire parsing out of a surface. Flat config replaces a rule's options
+ * at the last matching block, so each narrower block below spreads these instead of
+ * copying them.
  */
 const RENDERER_WIRE_RESTRICTED_PATTERNS = [
   ...RENDERER_RESTRICTED_PATTERNS,
-  {
-    // Bare specifier and every subpath (`zod/v4`, `zod/mini`) in one
-    // group: `no-restricted-imports` treats them as distinct, and a ban
-    // on the bare form alone would be one import away from useless.
-    group: ["zod", "zod/**"],
-    message:
-      "A surface never parses a wire value itself. Reach the daemon through `callDaemon` from `services/daemon/daemon-reply.ts`, which parses the reply against the method's registered schema and answers `served` or `refused`; a value that needs a shape needs a registry row, not a local validator.",
-  },
-  {
-    // The same claim as the `zod` group above, on the schemas the corpus
-    // has already built. It is a `patterns` entry rather than a `paths`
-    // one because that is where the rule's schema puts `importNamePattern`
-    // — measured against the installed engine, whose `paths` items admit
-    // only `importNames` — and an exhaustive `importNames` list would go
-    // stale the day the contracts package exports its next schema.
-    group: ["@ai-sidekicks/contracts"],
-    // Every schema the reply registry composes ends this way, and so does
-    // every other schema the package exports: the suffix is how this
-    // corpus spells a parser, not a guess about one.
-    importNamePattern: "Schema$",
-    message:
-      "A surface never parses a wire value itself, and a contracts schema is a parser. Reach the daemon through `callDaemon` from `services/daemon/daemon-reply.ts`, which parses the reply against the method's registered schema and answers `served` or `refused`; a value that needs a shape needs a registry row, not a second reading of one. Types and non-schema values from this package are untouched.",
-  },
+  ZOD_IMPORT,
+  CONTRACTS_SCHEMA_IMPORT,
 ];
 
 /**
@@ -454,17 +456,8 @@ const STYLESHEET_OWNER_FILES = ["**/*-body.{ts,tsx}"];
 
 /**
  * Held open while the restructure places them, and removed one by one as each is placed:
- * modules that validate with `zod` or a contracts schema outside `services/`, and the
- * barrels that still import sheets from other folders. The list only shrinks.
+ * the barrels that still import sheets from other folders. The list only shrinks.
  */
-const WIRE_PARSE_HELD_FILES = [
-  "src/renderer/src/store/session-events/approval-flow-projection.ts",
-  "src/renderer/src/features/workflows/schema-form/json-schema-validator.ts",
-  "src/renderer/src/features/transcript/queue/queue-feed.test-support.tsx",
-  "src/renderer/src/features/transcript/queue/queue-order.test.ts",
-  "src/renderer/src/store/provider-accounts/provider-account-fold.test.ts",
-  "src/renderer/src/store/provider-accounts/provider-account-notification-hold.test.ts",
-];
 const STYLESHEET_HELD_FILES = [
   "src/renderer/src/console/ledger/cards/markdown/index.ts",
   "src/renderer/src/console/ledger/cards/tool-families/index.ts",
@@ -667,17 +660,47 @@ export default [
   // hoisted arrays rather than copying them, so the two cannot drift.
   {
     files: ["src/renderer/src/**/*.{ts,tsx}"],
-    ignores: [
-      "src/renderer/src/services/**",
-      "src/renderer/src/console/bridge/**",
-      ...WIRE_PARSE_HELD_FILES,
-    ],
+    ignores: ["src/renderer/src/services/**", "src/renderer/src/console/bridge/**"],
     rules: {
       "no-restricted-imports": [
         "error",
         {
           paths: RENDERER_RESTRICTED_PATHS,
           patterns: RENDERER_WIRE_RESTRICTED_PATTERNS,
+        },
+      ],
+    },
+  },
+  // A test may parse through a contracts schema to build or check contract-shaped data;
+  // it still takes no `zod` of its own.
+  {
+    files: rendererFiles("**", RENDERER_TEST_FILES),
+    ignores: ["src/renderer/src/services/**", "src/renderer/src/console/bridge/**"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: RENDERER_RESTRICTED_PATHS,
+          patterns: [...RENDERER_RESTRICTED_PATTERNS, ZOD_IMPORT],
+        },
+      ],
+    },
+  },
+  // `zod` where a module owns the data it validates, never a contracts schema. The schema
+  // form validates a person's answers against a workflow's input schema, which is not a
+  // wire read. The approval projection still parses event payloads in the store until
+  // the event contracts land; then the parse moves to `services/` and it leaves this list.
+  {
+    files: [
+      "src/renderer/src/features/workflows/schema-form/json-schema-validator.ts",
+      "src/renderer/src/store/session-events/approval-flow-projection.ts",
+    ],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: RENDERER_RESTRICTED_PATHS,
+          patterns: [...RENDERER_RESTRICTED_PATTERNS, CONTRACTS_SCHEMA_IMPORT],
         },
       ],
     },
