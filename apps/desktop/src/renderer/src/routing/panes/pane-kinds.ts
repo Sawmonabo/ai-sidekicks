@@ -2,8 +2,8 @@
 //
 // The set is closed and its members are fixed: `transcript`, `inspector`, `diff`,
 // `workflow-run`, `workflow-builder`, `browser`, `terminal`, `agents`. The order below is
-// the order `registeredPaneKinds()` answers in, and `pane-kinds.test.ts` compares the
-// two by string equality rather than by eye.
+// the order `registeredPaneKinds()` answers in, and `pane-kinds.test.ts` compares this
+// tuple with its own copy of the list by string equality rather than by eye.
 //
 // WHY THE SET IS DECLARED HERE AND NOT IN THE FAMILY THAT RENDERS EACH PANE
 //

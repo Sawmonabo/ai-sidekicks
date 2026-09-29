@@ -9,7 +9,7 @@
 // The mechanism here is the union, so the cases below suppress real compile errors with
 // `@ts-expect-error` — a directive that becomes an error itself the moment the error it
 // suppresses stops occurring, which is what keeps them honest. What the UNTYPED boundary
-// does with the same rows is `pane-address-parse.test.ts`', including the cross-product
+// does with the same rows is `parse-pane-address.test.ts`', including the cross-product
 // sweep that makes the pre-fold behavior — admit everything — fail on every pair rather
 // than on one hand-picked one.
 //

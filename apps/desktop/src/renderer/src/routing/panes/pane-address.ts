@@ -11,14 +11,14 @@
 // ONE DECLARATION, TWO HALVES DERIVED FROM IT
 //
 // `PaneEntityScopeByKind` below is the declaration — the kind-indexed map
-// `seats/slots/inline-card-seats.ts` uses for its own three card kinds, at the eight pane
-// kinds. Both halves come off it: the static `PaneAddress` union that
+// `registries/inline-cards/inline-card-registry.ts` uses for its own three card kinds, at
+// the eight pane kinds. Both halves come off it: the static `PaneAddress` union that
 // makes a mismatch a compile error at a typed call site, and the runtime table
-// `pane-address-parse.ts` applies at the boundaries where an address arrives
+// `parse-pane-address.ts` applies at the boundaries where an address arrives
 // untyped — a persisted layout snapshot read back off disk, and a route a person
 // can type into the address bar. A union written beside a hand-kept table is two
 // closed sets that agree until someone widens one, which is the failure
-// `pane-kinds.ts` and `store/entities/entities.ts` each state about their own sets.
+// `pane-kinds.ts` and `lib/entity-kinds.ts` each state about their own sets.
 //
 // THE SECOND HALF IS A SIBLING MODULE and not a second declaration. This file is
 // the rows and everything the compiler derives from them; the parse beside it is
@@ -57,17 +57,8 @@
 // two read identically at a call site, and only the first makes "this pane takes
 // no entity" a fact the compiler holds.
 
-import { ENTITY_KINDS, type EntityRef } from "@renderer/lib/entity-kinds.js";
+import { ENTITY_KINDS, type EntityKind, type EntityRef } from "@renderer/lib/entity-kinds.js";
 import { type PaneKind } from "./pane-kinds.js";
-
-/**
- * One console entity kind, read off the reference the store family exports.
- *
- * Derived rather than imported because `store/index.ts` publishes the REFERENCE
- * and not the kind vocabulary, and derived rather than restated because a second
- * union beside `ENTITY_KINDS` is the drift `store/entities/entities.ts` names.
- */
-type EntityKind = EntityRef["kind"];
 
 /** A `EntityRef` narrowed to the kinds one pane kind admits. */
 type ScopedEntityRef<TEntityKind extends EntityKind> = EntityRef & {
@@ -291,7 +282,7 @@ export function paneEntityScopeFor(kind: PaneKind): PaneEntityScopeDeclaration {
  * Whether this kind's address may be written with no entity.
  *
  * A narrowing predicate rather than a bare boolean read, because it is what lets
- * `pane-address-parse.ts` RETURN the bare address without a cast: the table's `entityRequired` column is
+ * `parse-pane-address.ts` RETURN the bare address without a cast: the table's `entityRequired` column is
  * annotated `EntityRequired<K>`, so the runtime value and the type it narrows to are
  * the same fact, checked by the compiler at the table rather than asserted here.
  */

@@ -2,20 +2,17 @@
 // `transcript`, `inspector`, `diff`, `workflow-run`, `workflow-builder`, `browser`,
 // `terminal` and `agents`.
 //
-// The transcription below is compared to `PANE_KINDS` by `toStrictEqual`, which
-// is an ORDERED comparison — a reorder fails here, and a reorder is not cosmetic:
-// `registeredPaneKinds()` answers in declaration order and the gallery renders in
-// it. Reading the spec file itself would be the stronger check and is not
-// available: `node:fs` is banned in renderer programs, and the design documents sit
-// outside this package's Vite root, so the honest arrangement is a transcription that
-// a reviewer can diff against the design.
+// The list below is compared to `PANE_KINDS` by `toStrictEqual`, which is an ORDERED
+// comparison — a reorder fails here, and a reorder is not cosmetic:
+// `registeredPaneKinds()` answers in declaration order and the gallery renders in it.
+// Adding or dropping a kind is a change to both lists, made on purpose.
 
 import { describe, expect, it } from "vitest";
 
 import { PANE_KINDS, isPaneKind, type PaneKind } from "./pane-kinds.js";
 
 /** The eight kinds, in their declared order. */
-const SPEC_PANE_KINDS: readonly string[] = [
+const DECLARED_PANE_KINDS: readonly string[] = [
   "transcript",
   "inspector",
   "diff",
@@ -26,14 +23,14 @@ const SPEC_PANE_KINDS: readonly string[] = [
   "agents",
 ];
 
-describe("pane kinds — the closed set the design fixes", () => {
-  it("carries the spec's members in the spec's order", () => {
-    expect([...PANE_KINDS]).toStrictEqual([...SPEC_PANE_KINDS]);
+describe("pane kinds — the closed set", () => {
+  it("carries the declared members in the declared order", () => {
+    expect([...PANE_KINDS]).toStrictEqual([...DECLARED_PANE_KINDS]);
   });
 
   it("declares each kind exactly once", () => {
     // `toStrictEqual` above would pass over a set that repeated a member if the
-    // transcription repeated it too, and a repeat is what a merge of two
+    // list repeated it too, and a repeat is what a merge of two
     // concurrent additions produces.
     expect(new Set(PANE_KINDS).size).toBe(PANE_KINDS.length);
   });
