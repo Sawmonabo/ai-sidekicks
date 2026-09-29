@@ -188,17 +188,10 @@ interface HandleScan {
  * points of scanning, once, and never a full traversal.
  *
  * The well-formedness half is computed HERE rather than by the standard
- * `String.prototype.isWellFormed()`, and that is a toolchain constraint rather
- * than a preference. The method exists on every Node this package supports
- * (the method shipped in Node 20), but this repo
- * pins `"lib": ["es2023"]` in `tsconfig.node.json` and the method is ES2024 —
- * calling it fails to compile with `TS2550: Property 'isWellFormed' does not
- * exist ... Try changing the 'lib' compiler option to 'es2024' or later`.
- * Widening the repo-wide lib to reach one method would admit every other ES2024
- * surface unreviewed alongside it. Folding the check into a walk that was
- * already happening costs nothing and is strictly better than the standard
- * method would have been here anyway: it is one pass over untrusted input
- * instead of two.
+ * `String.prototype.isWellFormed()` because the walk is already happening:
+ * folding the check into it is one pass over untrusted input instead of two,
+ * and it stops at the length bound where the standard method would read the
+ * whole string.
  */
 function scanHandle(value: string): HandleScan {
   let scannedCodePoints = 0;

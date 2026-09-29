@@ -680,19 +680,12 @@ function assertNoToJsonOverride(value: unknown): void {
  * surrogate exists at. Under `/u` the same source text is matched by code point
  * and the alternation stops meaning what it reads as.
  *
- * WHY A REGEX AND NOT `String.prototype.isWellFormed()`. The platform primitive is
- * the ES2024 spelling of exactly this predicate and would be the obvious choice,
- * but it does not typecheck here: the repo compiles at `lib: ["es2023"]`
- * (`tsconfig.node.json`, inherited by both the src and the test project), and
- * referencing it fails with TS2550 — verified by compiling it, not assumed. Moving
- * the repo-wide lib floor to `es2024` for one guard is a toolchain change with a
- * far wider blast radius than the four lines below, and a `@ts-expect-error` cast
- * on the hot path of the integrity boundary is worse than either. No third-party
- * dependency is warranted for a two-alternative regex when the pinned dependency
- * surface here is deliberately minimal. Equivalence to the primitive is not assumed
- * either: a differential run over the boundary code units and 200,000 randomized
- * surrogate-dense strings found zero disagreements with `isWellFormed()`, and the
- * boundary cases are pinned in the suite.
+ * WHY A REGEX AND NOT `String.prototype.isWellFormed()`. The platform primitive
+ * answers only whether a lone surrogate exists; the refusal below names WHERE it
+ * sat, and the regex's match gives that position in the same search. Equivalence
+ * to the primitive is not assumed: a differential run over the boundary code units
+ * and 200,000 randomized surrogate-dense strings found zero disagreements with
+ * `isWellFormed()`, and the boundary cases are pinned in the suite.
  */
 const LONE_SURROGATE_PATTERN =
   /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;

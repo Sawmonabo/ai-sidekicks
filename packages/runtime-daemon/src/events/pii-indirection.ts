@@ -514,13 +514,9 @@ function utf8ByteWidth(codePoint: number): number {
  * string is well-formed — the predicate behind refusal 8's third arm.
  *
  * WHAT IT STANDS IN FOR, AND WHY IT IS NOT THAT. ECMAScript's own answer is
- * `String.prototype.isWellFormed()`, which is ES2024; this workspace pins
- * `lib: ["es2023"]` in `tsconfig.node.json`, so the method exists at runtime
- * under Node 22 and is absent from the type surface. The alternatives were
- * widening every package's ambient lib for one call site or casting past the
- * type system on the exact value the guard exists to distrust. A twelve-line
- * total scan is neither, and it buys the refusal message an INDEX, which the
- * standard predicate does not report.
+ * `String.prototype.isWellFormed()`, which answers only yes or no. The refusal
+ * message names an INDEX, which the standard predicate does not report, so the
+ * guard scans for itself.
  *
  * The scan is deliberately the same shape as {@link applyPlaintextBound}'s: one
  * pass over UTF-16 units, no allocation, and a high surrogate consumes its
