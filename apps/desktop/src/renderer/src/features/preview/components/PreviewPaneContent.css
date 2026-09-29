@@ -55,11 +55,6 @@
   font-size: var(--meridian-text-sm);
 }
 
-.meridian-preview-chrome__address:focus-visible {
-  outline: 2px solid var(--meridian-focus-ring);
-  outline-offset: 1px;
-}
-
 /*
  * The viewport clips, and that is load-bearing rather than tidy: the rectangle
  * this box reports is what a native view is eventually positioned to, and an

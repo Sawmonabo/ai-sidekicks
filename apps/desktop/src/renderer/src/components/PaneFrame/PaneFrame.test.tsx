@@ -1,10 +1,10 @@
-// The frame the chrome draws: its two total tables, its name, its focus ring, its key claim.
+// The frame the chrome draws: its two total tables, its name, its focused edge, its key claim.
 //
 // The claims worth a unit are the ones a screenshot cannot make: that the glyph and the
 // title tables answer for EVERY member of the closed pane-kind set (a lookup that fell
 // through would render a nameless frame in whichever pane layout first opened that kind), that a
 // pane is named by its whole trail so two panes of one kind are told apart, that an
-// unattributed pane takes the neutral ring instead of borrowing a hue, and that a
+// unattributed pane takes the neutral edge instead of borrowing a hue, and that a
 // pane-level key claim is heard on the HEAD as well as on the body.
 //
 // The kind set is driven rather than listed: a new kind added to `PANE_KINDS` has to
@@ -150,9 +150,9 @@ describe("PaneFrame — the focus treatments are attributed or neutral, never gu
   });
 
   it("sets no hue at all when the pane layout has nobody to attribute the pane to", () => {
-    // Fail-closed: the stylesheet's own fallbacks are the neutral ring and the neutral
-    // boundary, and an unattributed pane must reach them by carrying NO custom property
-    // rather than by carrying someone else's.
+    // Fail-closed: the stylesheet's own fallback is the neutral boundary, and an
+    // unattributed pane must reach it by carrying NO custom property rather than by
+    // carrying someone else's.
     const pane = renderPaneFrame(
       <PaneFrame kind="inspector" sessionId="session-1" focusHue={undefined}>
         <p>body</p>

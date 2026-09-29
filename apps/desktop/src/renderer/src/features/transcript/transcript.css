@@ -90,8 +90,3 @@
   font-size: var(--meridian-text-xs);
   cursor: pointer;
 }
-
-.meridian-transcript-retry:focus-visible {
-  outline: 2px solid var(--meridian-focus-ring);
-  outline-offset: 2px;
-}

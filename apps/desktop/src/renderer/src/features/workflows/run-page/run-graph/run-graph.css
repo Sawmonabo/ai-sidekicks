@@ -216,17 +216,6 @@
   color: var(--meridian-text-muted);
 }
 
-.meridian-run-graph .react-flow__attribution a:focus-visible {
-  outline: 2px solid var(--meridian-focus-ring);
-  outline-offset: 2px;
-}
-
-/* The focus ring a keyboard reader gets on every phase, in the console's one form. */
-.meridian-run-graph .react-flow__node:focus-visible {
-  outline: 2px solid var(--meridian-focus-ring);
-  outline-offset: 2px;
-}
-
 /* ------------------------------------------------------------------- phase node */
 
 .meridian-phase-node {

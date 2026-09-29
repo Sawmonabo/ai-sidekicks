@@ -33,11 +33,6 @@
   font-size: var(--meridian-text-sm);
 }
 
-.meridian-keymap__filter-input:focus-visible {
-  outline: 2px solid var(--meridian-focus-ring);
-  outline-offset: 2px;
-}
-
 .meridian-keymap__filter-input::placeholder {
   color: var(--meridian-text-faint);
 }

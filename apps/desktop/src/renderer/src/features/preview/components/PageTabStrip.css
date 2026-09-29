@@ -75,11 +75,6 @@
   cursor: pointer;
 }
 
-.meridian-preview-tab__face:focus-visible {
-  outline: 2px solid var(--meridian-focus-ring);
-  outline-offset: 1px;
-}
-
 .meridian-preview-tab__label {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -103,9 +98,4 @@
 
 .meridian-preview-tab__close:hover {
   color: var(--meridian-text);
-}
-
-.meridian-preview-tab__close:focus-visible {
-  outline: 2px solid var(--meridian-focus-ring);
-  outline-offset: 1px;
 }

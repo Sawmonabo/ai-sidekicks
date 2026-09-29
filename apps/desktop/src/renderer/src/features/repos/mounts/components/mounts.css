@@ -93,11 +93,6 @@
   border-color: var(--meridian-edge);
 }
 
-.meridian-mount-card__copy:focus-visible {
-  outline: 2px solid var(--meridian-focus-ring);
-  outline-offset: 1px;
-}
-
 .meridian-mount-card__axes {
   display: flex;
   align-items: center;
@@ -128,11 +123,6 @@
   font-size: var(--meridian-text-xs);
   color: var(--meridian-text-muted);
   cursor: pointer;
-}
-
-.meridian-mount-card__provenance-summary:focus-visible {
-  outline: 2px solid var(--meridian-focus-ring);
-  outline-offset: 1px;
 }
 
 .meridian-mount-card__provenance-list {

@@ -86,11 +86,6 @@
   border: none;
 }
 
-.meridian-composer-attachment__act:focus-visible {
-  outline: 2px solid var(--meridian-focus-ring);
-  outline-offset: 1px;
-}
-
 /* What to do next about a refused upload, and what the cancel control actually does.
    Full text color: the remedy is the one line on a refused row that names an act, and
    muting it beside the code and the cause loses it. It is a line of its own rather than a tooltip, because a tooltip is unreachable

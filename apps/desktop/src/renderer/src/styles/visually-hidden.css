@@ -3,20 +3,8 @@
  *
  * A global sheet, imported by `main.tsx`.
  *
- * Hand-authored, unlike `meridian.css` — that file is generated from
- * `styles/palette.ts` and carries only VALUES; this carries only COMPOSITION
- * and reads every value back out as a custom property.
- *
- * THE FOCUS RING USED TO BE HERE, in one selector list naming eight classes seven other
- * sheets declare. It moved to the sheet that OWNS each class: one class has one owning
- * sheet, and a ring written next to a box the same file declares is the only
- * arrangement in which adding a state to that box cannot silently lose to load order.
- * Nothing was copied by the move — the ring is two declarations reading one token,
- * which is the console's idiom rather than an implementation, and sixty-odd sheets
- * already write it. The design language's focus-ring rule still governs its shape
- * wherever it is written: an outline rather than a box-shadow so it survives an `overflow: hidden`
- * ancestor, and `outline-offset` so it is never drawn over the control's own boundary
- * and always has an adjacent color to be measured against.
+ * Hand-authored composition: the token values are generated at mount from
+ * `styles/palette.ts`, and this sheet reads every one back out as a custom property.
  */
 
 .meridian-visually-hidden {

@@ -47,11 +47,6 @@
   font: inherit;
 }
 
-.meridian-find__input:focus-visible {
-  outline: 2px solid var(--meridian-focus-ring);
-  outline-offset: -1px;
-}
-
 .meridian-find__step,
 .meridian-find__close {
   display: inline-flex;
@@ -69,10 +64,4 @@
 .meridian-find__step:disabled {
   color: var(--meridian-text-faint);
   cursor: default;
-}
-
-.meridian-find__step:focus-visible,
-.meridian-find__close:focus-visible {
-  outline: 2px solid var(--meridian-focus-ring);
-  outline-offset: -2px;
 }

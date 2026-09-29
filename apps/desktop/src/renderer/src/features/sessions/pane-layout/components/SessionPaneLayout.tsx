@@ -1,7 +1,7 @@
 // The pane layout: the panes a person is looking at, side by side.
 //
 // The pane layout holds independent panes, each headed by an entity breadcrumb and a kind
-// glyph, with the actor's hue as the focus ring; one entity opens one pane,
+// glyph, with the actor's hue on the focused edge; one entity opens one pane,
 // structurally — a single pane registry and a tripwire that fails on a second owner.
 //
 // WHAT THIS COMPONENT IS AND IS NOT. It is the frame: order, widths, focus, the

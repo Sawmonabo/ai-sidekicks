@@ -6,12 +6,7 @@
  * resolve from. All of them render the identical row, so the row is styled once.
  *
  * Imported by `WireChoiceList.tsx`, so a caller cannot render the list without its
- * CSS. Its focus ring is at the foot of this file, with
- * the box it rings: one class has one owning sheet, so a state added to the choice
- * later cannot land in a second file and be decided by load order.
- *
- * Design-language rules that govern this sheet: the focus ring meets the 3:1 contrast
- * floor for non-text, and every value here reads back out of `styles/`.
+ * CSS. Every value here reads back out of `styles/`.
  */
 
 .meridian-choice-list {
@@ -41,9 +36,4 @@
 
 .meridian-choice-list__choice:hover {
   border-color: var(--meridian-edge-strong);
-}
-
-.meridian-choice-list__choice:focus-visible {
-  outline: 2px solid var(--meridian-focus-ring);
-  outline-offset: 2px;
 }

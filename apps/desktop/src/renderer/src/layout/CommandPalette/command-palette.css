@@ -41,6 +41,10 @@
   flex-direction: column;
   width: min(40rem, calc(100vw - var(--meridian-space-8)));
   max-height: min(30rem, 70vh);
+  /* Room for the browser's focus mark on the input and the list, which the clip would
+     otherwise cut, counted inside the popup's width and height ceilings. */
+  box-sizing: border-box;
+  padding: var(--meridian-space-1);
   overflow: hidden;
   background: var(--meridian-surface-raised);
   color: var(--meridian-text);
@@ -58,11 +62,6 @@
 .command-palette__popup[data-ending-style] {
   opacity: 0;
   translate: 0 2px;
-}
-
-.command-palette__popup:focus-visible {
-  outline: 2px solid var(--meridian-focus-ring);
-  outline-offset: -2px;
 }
 
 /* The scoped-context row: what the commands below act on. */
@@ -109,9 +108,6 @@
 }
 
 .command-palette__input:focus {
-  /* The popup already carries the boundary; a second ring inside it would read
-     as two focused things. The list's highlight is where focus is legible. */
-  outline: none;
   border-bottom-color: var(--meridian-edge-strong);
 }
 

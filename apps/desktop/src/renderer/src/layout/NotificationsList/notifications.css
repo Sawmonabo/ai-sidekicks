@@ -83,11 +83,6 @@
   background: var(--meridian-surface-raised);
 }
 
-.meridian-attention__row--open:focus-visible {
-  outline: 2px solid var(--meridian-focus-ring);
-  outline-offset: 1px;
-}
-
 .meridian-attention__row-head {
   display: flex;
   align-items: center;
@@ -109,11 +104,6 @@
   cursor: pointer;
   color: var(--meridian-text-muted);
   font-size: var(--meridian-text-xs);
-}
-
-.meridian-attention__fold-summary:focus-visible {
-  outline: 2px solid var(--meridian-focus-ring);
-  outline-offset: 2px;
 }
 
 .meridian-attention__fold[open] > .meridian-attention__fold-summary {

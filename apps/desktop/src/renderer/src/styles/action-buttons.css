@@ -1,6 +1,6 @@
 /*
  * Two button treatments several features share, each declared once as a class a
- * control wears beside its own, and the one focus ring every control shows.
+ * control wears beside its own.
  *
  * `meridian-action-button` is a button that does something: approve and reject, a
  * scope choice, revoke and cancel, a queue item's cancel, a steer's send and cancel, a
@@ -29,10 +29,6 @@
  * A control's own class, state and variant then win over them whichever sheet loads
  * first, so a control's `font-size` is never reset by the base's `font` shorthand and
  * a destructive variant's red edge is never repainted by a face.
- *
- * The focus ring keeps its specificity, above a control's own class, which declares
- * no focus rule. It is the product's one focus ring: every control that wears either
- * treatment shows exactly this ring, and no sheet declares another for them.
  *
  * A global sheet, imported by `main.tsx`. Every value is a Meridian token.
  */
@@ -91,12 +87,4 @@
 
 .meridian-disclosure-trigger:hover {
   color: var(--meridian-text);
-}
-
-/* --- the focus ring ---------------------------------------------------------- */
-
-.meridian-action-button:focus-visible,
-.meridian-disclosure-trigger:focus-visible {
-  outline: 2px solid var(--meridian-focus-ring);
-  outline-offset: 1px;
 }

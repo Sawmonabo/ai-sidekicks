@@ -48,8 +48,3 @@
   color: var(--meridian-text-faint);
   font-size: var(--meridian-text-xs);
 }
-
-.meridian-chord :focus-visible {
-  outline: 2px solid var(--meridian-focus-ring);
-  outline-offset: 2px;
-}

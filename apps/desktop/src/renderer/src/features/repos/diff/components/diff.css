@@ -73,16 +73,6 @@
   color: var(--meridian-accent-text);
 }
 
-.meridian-diff-pane__toggle:focus-visible,
-.meridian-diff-files__entry:focus-visible,
-.meridian-diff-files__filter-input:focus-visible,
-.meridian-diff-card__control:focus-visible,
-.meridian-diff:focus-visible,
-.meridian-diff__gap-button:focus-visible {
-  outline: 2px solid var(--meridian-focus-ring);
-  outline-offset: 1px;
-}
-
 /* The two bands inside the chrome's body box: the toolbar, and the list-and-rows pair
    that takes the rest of the height. The chrome's `__body` carries no padding and no
    direction of its own, so both are stated here. */
@@ -514,10 +504,9 @@
   cursor: pointer;
 }
 
-/* The focus target jump-to-end moves to. It occupies no space and takes no
-   outline of its own — the caret landing here is the whole effect. */
+/* The focus target jump-to-end moves to. It occupies no space: the caret landing here
+   is the whole effect. */
 .meridian-diff-card__end {
   display: block;
   block-size: 0;
-  outline: none;
 }

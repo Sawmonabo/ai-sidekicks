@@ -41,11 +41,6 @@
   min-height: 0;
 }
 
-.meridian-transcript-viewport__scroll-container:focus-visible {
-  outline: 2px solid var(--meridian-focus-ring);
-  outline-offset: -2px;
-}
-
 /* Carries the whole log's height so the scrollbar is honest about how much there
    is, while only the rows near the fold exist in the document. The height is written
    by the virtualizer directly, so it is deliberately absent from this rule. */
@@ -157,11 +152,6 @@
 
 .meridian-transcript-viewport__pill:hover {
   background: var(--meridian-surface);
-}
-
-.meridian-transcript-viewport__pill:focus-visible {
-  outline: 2px solid var(--meridian-focus-ring);
-  outline-offset: 2px;
 }
 
 /* Ranked error entries: the highest is a card, the rest sit under it as one quiet row. */

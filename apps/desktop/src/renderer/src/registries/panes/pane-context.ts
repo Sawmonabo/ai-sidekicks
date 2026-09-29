@@ -62,8 +62,8 @@ interface PaneBinding {
    */
   readonly linkedSourcePaneId: string | undefined;
   /**
-   * The focus ring's color, as a `var()` reference produced by
-   * `tokens/tokenReference`. The hue answers "who" everywhere, pane focus rings
+   * The focused pane edge's color, as a `var()` reference produced by
+   * `styles/tokens.ts`'s `tokenReference`. The hue answers "who" everywhere, a focused pane's edge
    * included. `undefined` where the pane layout has no actor to attribute the pane to, which
    * is the fail-closed answer: an unattributed pane takes the neutral boundary rather
    * than someone else's hue.

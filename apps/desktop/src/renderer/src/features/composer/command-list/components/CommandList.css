@@ -32,11 +32,6 @@
   list-style: none;
 }
 
-.meridian-command-discovery__list:focus-visible {
-  outline: 2px solid var(--meridian-focus-ring);
-  outline-offset: 2px;
-}
-
 .meridian-command-discovery__row {
   display: flex;
   align-items: baseline;

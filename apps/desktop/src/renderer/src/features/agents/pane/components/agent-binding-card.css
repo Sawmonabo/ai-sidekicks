@@ -4,7 +4,7 @@
  * The axis field, the agent library and the pane's column each carry their own sheet
  * (`axis-field.css`, `agent-library.css`, `agents-pane.css`). What stays here is the
  * agent card, and the grouped rules that give the card and the allowlist note
- * (`.meridian-agents__allowlist-note`) one button, one label, and one focus ring.
+ * (`.meridian-agents__allowlist-note`) one button and one label.
  *
  * Hand-authored composition over generated values, like every other console sheet —
  * no literal color below, and the only literal length is the hairline that separates
@@ -92,11 +92,6 @@
   cursor: pointer;
   font-size: var(--meridian-text-sm);
   color: var(--meridian-text-muted);
-}
-
-.meridian-agent-card__disclosure-summary:focus-visible {
-  outline: 2px solid var(--meridian-focus-ring);
-  outline-offset: 2px;
 }
 
 .meridian-agent-card__resolved {

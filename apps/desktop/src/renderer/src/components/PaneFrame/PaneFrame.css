@@ -28,26 +28,10 @@
 }
 
 /*
- * TWO FOCUS TREATMENTS, AND THEY ANSWER DIFFERENT QUESTIONS.
- *
- * `:focus-visible` fires when the SECTION itself holds focus, which happens when the
- * pane layout routes focus to a pane — the `tabIndex={-1}` reach — and stops the moment focus
- * moves into a control inside it. That is the ring: a landing mark.
- *
- * `:focus-within` fires while the keyboard is anywhere inside, which is the state a
- * person acts on: "the pane I am typing in". Without it a pane is marked for one
- * keystroke and then reads as unfocused for the whole time it is being used. It is
- * drawn as a border and an inset shadow rather than an outline, because an outline on a
- * rounded container paints outside the radius and clips against the neighbor's edge.
- *
- * Their fallbacks differ for the same reason their treatments do: a ring falls back to
- * the ring token, a boundary to the neutral control boundary.
+ * While the keyboard is anywhere inside, the pane's edge takes its actor's hue, or the
+ * strong neutral edge for an unattributed pane: this marks the pane a person is typing
+ * in, beside the browser's own mark on the control that holds focus.
  */
-.meridian-pane:focus-visible {
-  outline: 2px solid var(--meridian-pane-hue, var(--meridian-focus-ring));
-  outline-offset: -2px;
-}
-
 .meridian-pane:focus-within {
   border-color: var(--meridian-pane-hue, var(--meridian-edge-strong));
   box-shadow: inset 0 0 0 1px var(--meridian-pane-hue, var(--meridian-edge-strong));
@@ -167,22 +151,19 @@
   color: var(--meridian-text);
 }
 
-.meridian-pane__control:focus-visible {
-  outline: 2px solid var(--meridian-focus-ring);
-  outline-offset: -2px;
-}
-
 /*
- * The body carries no padding of its own: a feed pane wants none and a form pane wants
- * some, and that is the body's feature to decide in its own sheet. It scrolls so a body
- * that provides no scroll container of its own is reachable rather than clipped by the
- * frame's `overflow: hidden`; a body that provides one holds all its content there and
- * this box never overflows.
+ * The body's only padding is room for the browser's focus mark on what it holds, which
+ * its scroll clip would otherwise cut; any further padding is the body's feature to
+ * decide in its own sheet, since a feed pane wants none and a form pane wants some. It
+ * scrolls so a body that provides no scroll container of its own is reachable rather
+ * than clipped by the frame's `overflow: hidden`; a body that provides one holds all
+ * its content there and this box never overflows.
  */
 .meridian-pane__body {
   display: flex;
   flex: 1 1 auto;
   flex-direction: column;
   min-height: 0;
+  padding: var(--meridian-space-1);
   overflow: auto;
 }

@@ -153,7 +153,7 @@ export function SessionScreen(props: SessionScreenProps): React.JSX.Element {
         // The pane this one was opened beside, passed as an identifier and never as a
         // handle, so a linked pane stays independently movable and closable.
         linkedSourcePaneId: pane.sourcePaneId,
-        // Fail-closed, per `PaneContext`'s own rule: the ring takes an actor's hue only
+        // Fail-closed, per `PaneContext`'s own rule: the edge takes an actor's hue only
         // where the pane's entity is a run or an agent, and an unattributed pane takes
         // the neutral boundary rather than somebody else's color. Resolving that hue
         // belongs to the lane that renders run and agent panes; nothing here guesses.

@@ -2,10 +2,10 @@
 //
 // One entity lives in one pane behind a single mount point, and three of the head's
 // contents are fixed — panes are each headed by an entity breadcrumb and a kind glyph,
-// with the actor's hue as the focus ring. What no committed document says is that each
-// of the six features should draw its own frame, and six frames drawn independently is
-// six spacings, six breadcrumb separators, six control strips, and six answers to where
-// the focus ring goes. So the frame is drawn once, here, and a pane body is what a feature writes.
+// with the actor's hue on the pane's edge while it holds focus. What no committed document
+// says is that each of the six features should draw its own frame, and six frames drawn
+// independently is six spacings, six breadcrumb separators, six control strips, and six
+// answers to where that edge goes. So the frame is drawn once, here, and a pane body is what a feature writes.
 //
 // THE CONTROL STRIP IS THIS MODULE'S, because no committed document enumerates it: the
 // kind's own actions and close. The close arrives either explicitly, from a caller that
@@ -114,7 +114,7 @@ export interface PaneFrameProps {
   readonly entity?: EntityRef | undefined;
   /**
    * The focus treatments' color as a `var()` reference, or `undefined` where the pane layout
-   * has no actor to attribute the pane to. Undefined takes the neutral ring, which is
+   * has no actor to attribute the pane to. Undefined takes the neutral edge, which is
    * the fail-closed answer: an unattributed pane never borrows someone's hue.
    */
   readonly focusHue: string | undefined;
@@ -165,7 +165,7 @@ export function PaneFrame(props: PaneFrameProps): React.JSX.Element {
   const onClose = props.onClose ?? hostControls?.onClose;
   const registerDragHandle = hostControls?.registerDragHandle;
   const title = TITLE_BY_PANE_KIND[props.kind];
-  const focusRingStyle: PaneFocusRingStyle | undefined =
+  const focusHueStyle: PaneFocusHueStyle | undefined =
     props.focusHue === undefined ? undefined : { "--meridian-pane-hue": props.focusHue };
 
   return (
@@ -173,7 +173,7 @@ export function PaneFrame(props: PaneFrameProps): React.JSX.Element {
       className={`meridian-pane meridian-pane--${props.kind}`}
       aria-labelledby={headingId}
       tabIndex={-1}
-      style={focusRingStyle}
+      style={focusHueStyle}
       onKeyDownCapture={props.onKeyDownCapture}
     >
       <header className="meridian-pane__head" ref={registerDragHandle}>
@@ -206,7 +206,7 @@ export function PaneFrame(props: PaneFrameProps): React.JSX.Element {
   );
 }
 
-/** Carries the pane's attributed hue into the focus treatments, as `TranscriptRowLayout` does. */
-interface PaneFocusRingStyle extends React.CSSProperties {
+/** Carries the pane's attributed hue into its focused edge, as `TranscriptRowLayout` does. */
+interface PaneFocusHueStyle extends React.CSSProperties {
   readonly "--meridian-pane-hue": string;
 }

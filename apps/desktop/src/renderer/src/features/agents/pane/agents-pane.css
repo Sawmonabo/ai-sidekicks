@@ -1,9 +1,8 @@
 /* The Agents pane's own styles: the body's columns.
  *
  * `meridian-agents` is the BODY, mounted inside the pane frame's `meridian-pane`,
- * drawn by `components/PaneFrame`. Nothing here draws a pane head, a pane border,
- * or a focus ring: the chrome's sheet owns all three for every pane kind in the
- * console, and a second set of rules here would be this feature answering a question
+ * drawn by `components/PaneFrame`. Nothing here draws a pane head or a pane border:
+ * the chrome's sheet owns both for every pane kind in the console, and a second set of rules here would be this feature answering a question
  * the chrome settles.
  *
  * Two equal columns at body width and one column when the body is narrow: the pane may

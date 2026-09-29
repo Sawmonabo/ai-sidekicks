@@ -53,9 +53,14 @@
   resize: none;
 }
 
-.meridian-composer__line:focus-visible {
-  outline: 2px solid var(--meridian-focus-ring);
-  outline-offset: 1px;
+/* Focus on the draft marks the whole card: its border strengthens, and the message box
+   draws no focus mark of its own, so the card is the one thing that reads as focused. */
+.meridian-composer__send:focus-within {
+  border-color: var(--meridian-edge-strong);
+}
+
+.meridian-composer__line:focus {
+  outline: none;
 }
 
 .meridian-composer__line[readonly] {

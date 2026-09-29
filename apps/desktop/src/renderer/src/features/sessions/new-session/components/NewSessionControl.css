@@ -17,14 +17,6 @@
   cursor: default;
 }
 
-.meridian-new-session__open:focus-visible,
-.meridian-new-session__discard:focus-visible,
-.meridian-new-session__recheck:focus-visible,
-.meridian-new-session__send:focus-visible {
-  outline: 2px solid var(--meridian-focus-ring);
-  outline-offset: 2px;
-}
-
 /* Disabled because the draft is empty, which is a state and not a failure — or
    because a create answered unreadably, which is a state a second press cannot
    improve. Dimmed so it reads as not-yet rather than refused, and left in place so
@@ -62,11 +54,6 @@
   color: var(--meridian-text);
   font: inherit;
   resize: vertical;
-}
-
-.meridian-new-session__first-turn-input:focus-visible {
-  outline: 2px solid var(--meridian-focus-ring);
-  outline-offset: 2px;
 }
 
 /* What already exists after a partial send. Muted rather than colored: it is a

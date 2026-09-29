@@ -75,11 +75,6 @@
   color: var(--meridian-accent-text);
 }
 
-.meridian-run-row__open:focus-visible {
-  outline: 2px solid var(--meridian-focus-ring);
-  outline-offset: 2px;
-}
-
 .meridian-run-row__meta {
   display: flex;
   flex-wrap: wrap;

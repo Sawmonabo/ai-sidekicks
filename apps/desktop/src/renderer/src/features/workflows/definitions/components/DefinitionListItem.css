@@ -38,11 +38,6 @@
   color: var(--meridian-accent-text);
 }
 
-.meridian-definition-row__open:focus-visible {
-  outline: 2px solid var(--meridian-focus-ring);
-  outline-offset: 2px;
-}
-
 .meridian-definition-row__version {
   font-size: var(--meridian-text-xs);
   color: var(--meridian-text-faint);

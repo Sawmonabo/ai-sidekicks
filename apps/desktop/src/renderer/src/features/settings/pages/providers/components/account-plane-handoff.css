@@ -34,9 +34,3 @@
   text-underline-offset: 0.2em;
   cursor: pointer;
 }
-
-.meridian-account-handoff__action:focus-visible {
-  outline: 2px solid var(--meridian-focus-ring);
-  outline-offset: var(--meridian-space-1);
-  border-radius: var(--meridian-radius-sm);
-}

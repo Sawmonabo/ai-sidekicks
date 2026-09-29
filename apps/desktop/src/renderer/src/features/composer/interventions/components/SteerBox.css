@@ -37,11 +37,6 @@
   resize: vertical;
 }
 
-.meridian-run-composer__body:focus-visible {
-  outline: 2px solid var(--meridian-focus-ring);
-  outline-offset: 1px;
-}
-
 .meridian-run-composer__actions {
   display: flex;
   gap: var(--meridian-space-2);

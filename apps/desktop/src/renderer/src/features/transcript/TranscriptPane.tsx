@@ -2,7 +2,7 @@
 //
 // THE CHROME IS NOT THIS FEATURE'S AND IT IS NOT PASSED IN EITHER. The shared pane chrome
 // draws every pane's frame, so every pane kind shares one spacing and one answer to where
-// the focus ring goes. What this pane supplies is what genuinely differs — its kind, the
+// the focused edge goes. What this pane supplies is what genuinely differs — its kind, the
 // address its trail reads, and the hue it is attributed to.
 //
 // THE ROWS ARRIVE THROUGH THE ROW RENDERER. Whatever `registerTranscriptRowRenderer` registered

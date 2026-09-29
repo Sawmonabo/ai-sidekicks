@@ -184,12 +184,6 @@
   border-radius: var(--meridian-radius-sm);
 }
 
-.meridian-schema-activation:focus-visible,
-.meridian-schema-list__action:focus-visible {
-  outline: 2px solid var(--meridian-focus-ring);
-  outline-offset: 2px;
-}
-
 /* ------------------------------------------------------------- the raw editor */
 
 .meridian-schema-raw {

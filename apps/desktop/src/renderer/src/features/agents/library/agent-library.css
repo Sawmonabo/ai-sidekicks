@@ -243,17 +243,6 @@
   padding: var(--meridian-space-1) var(--meridian-space-3);
 }
 
-/* Focus is visible on every control on this page, with one rule rather than one per
- * class, so a control added later cannot arrive without it. A control that wears a
- * shared treatment from `styles/action-buttons.css` takes the ring from there, so this
- * rule leaves it alone; the exclusion sits inside `:where()` so the rule keeps its
- * specificity for every other control. */
-.meridian-agent-library
-  :focus-visible:not(:where(.meridian-action-button, .meridian-disclosure-trigger)) {
-  outline: 2px solid var(--meridian-focus-ring);
-  outline-offset: 2px;
-}
-
 /* The row the detail column is holding. A left edge in the accent rather than a
  * fill, so the tie between the two columns is visible at a glance without the row
  * becoming the loudest thing on the page. */

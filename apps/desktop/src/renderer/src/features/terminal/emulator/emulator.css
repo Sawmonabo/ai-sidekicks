@@ -17,12 +17,15 @@
  * mount point keeps its size and its boundary while the chunk is still in flight.
  */
 
+/* The padding is room for the browser's focus mark on the emulator, which the clip
+   below would otherwise cut. */
 .meridian-terminal-mount-point {
   flex: 1 1 auto;
   min-block-size: 0;
   border: 1px solid var(--meridian-edge);
   border-radius: var(--meridian-radius-sm);
   background: var(--meridian-surface-sunken);
+  padding: var(--meridian-space-1);
   overflow: hidden;
 }
 
@@ -39,9 +42,4 @@
   block-size: 100%;
   inline-size: 100%;
   font-family: var(--meridian-font-mono);
-}
-
-.meridian-terminal-mount-point__mount-element:focus-visible {
-  outline: 2px solid var(--meridian-focus-ring);
-  outline-offset: 2px;
 }

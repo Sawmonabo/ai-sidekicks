@@ -2,7 +2,7 @@
 //
 // A LOADER-BACKED BODY for `features/preview/preview-pane-body.ts`'s reason, and this pane
 // is the one that makes the case hardest to argue with: the emulator chunk was already
-// lazy, and everything around it — the lease line, the pane, the focus ring — was not,
+// lazy, and everything around it — the lease line, the pane, its frame — was not,
 // so the initial graph carried the whole terminal pane for every session that never
 // opens one.
 //

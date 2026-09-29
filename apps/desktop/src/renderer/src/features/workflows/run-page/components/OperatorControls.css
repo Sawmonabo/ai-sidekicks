@@ -67,11 +67,6 @@
   border-radius: var(--meridian-radius-sm);
 }
 
-.meridian-workflow-run-controls__action:focus-visible {
-  outline: 2px solid var(--meridian-focus-ring);
-  outline-offset: 2px;
-}
-
 .meridian-workflow-run-controls__note {
   font-size: var(--meridian-text-xs);
   color: var(--meridian-text-faint);
@@ -83,11 +78,6 @@
   font-size: var(--meridian-text-sm);
   color: var(--meridian-text-muted);
   cursor: pointer;
-}
-
-.meridian-workflow-run-controls__summary:focus-visible {
-  outline: 2px solid var(--meridian-focus-ring);
-  outline-offset: 2px;
 }
 
 .meridian-workflow-run-controls__disclosure {
@@ -114,11 +104,6 @@
   background: var(--meridian-surface-raised);
   border: 1px solid var(--meridian-edge);
   border-radius: var(--meridian-radius-sm);
-}
-
-.meridian-workflow-run-controls__reason:focus-visible {
-  outline: 2px solid var(--meridian-focus-ring);
-  outline-offset: 2px;
 }
 
 /*
@@ -149,9 +134,4 @@
   background: var(--meridian-surface-raised);
   border: 1px solid var(--meridian-edge);
   border-radius: var(--meridian-radius-sm);
-}
-
-.meridian-workflow-run-controls__select:focus-visible {
-  outline: 2px solid var(--meridian-focus-ring);
-  outline-offset: 2px;
 }

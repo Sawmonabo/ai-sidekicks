@@ -206,7 +206,7 @@ export const TEXT_FLOOR_TOKEN_NAMES: readonly string[] = [
 
 /**
  * Foreground tokens that carry the 3:1 non-text floor — controls, their
- * boundaries, marks, and focus rings. `edge` is deliberately absent: it is a
+ * boundaries, and marks. `edge` is deliberately absent: it is a
  * decorative hairline, not a control boundary (see `palette.ts`).
  */
 export const NON_TEXT_FLOOR_TOKEN_NAMES: readonly string[] = [
@@ -215,7 +215,6 @@ export const NON_TEXT_FLOOR_TOKEN_NAMES: readonly string[] = [
   "red-mark",
   "accent",
   "accent-pressed",
-  "focus-ring",
 ];
 
 /**
@@ -281,7 +280,7 @@ export const SUNKEN_WELL_TEXT_TOKEN_NAMES: readonly string[] = [
 /** The WCAG 2.2 AA floor for body and UI text. */
 export const TEXT_CONTRAST_FLOOR = 4.5;
 
-/** The WCAG 2.2 AA floor for non-text controls, boundaries, marks, and focus rings. */
+/** The WCAG 2.2 AA floor for non-text controls, boundaries, and marks. */
 export const NON_TEXT_CONTRAST_FLOOR = 3;
 
 /** Resolve a scheme-varying color token for one scheme. Throws on an unknown name. */
