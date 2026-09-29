@@ -76,7 +76,14 @@ describe("browser — the terminal pane's padding is inside its height", () => {
 
     expect(layoutCell.getBoundingClientRect().height).toBe(LAYOUT_CELL_HEIGHT_PX);
     expect(frame.getBoundingClientRect().height).toBe(LAYOUT_CELL_HEIGHT_PX);
-    expect(body.getBoundingClientRect().height).toBe(bodyRegion.getBoundingClientRect().height);
+    // The region's own padding is room for the browser's focus mark, so the pane's box
+    // fills the region's content box rather than its outer edge.
+    const regionStyle = getComputedStyle(bodyRegion);
+    const regionContentHeight =
+      bodyRegion.getBoundingClientRect().height -
+      Number.parseFloat(regionStyle.paddingBlockStart) -
+      Number.parseFloat(regionStyle.paddingBlockEnd);
+    expect(body.getBoundingClientRect().height).toBe(regionContentHeight);
   });
 
   it("still spends the padding, so the fit is not bought by dropping it", async () => {

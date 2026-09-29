@@ -61,6 +61,20 @@ interface MountedPane {
   readonly pane: HTMLElement;
 }
 
+/**
+ * An element's height inside its block padding. The pane layout's group and cell pad
+ * themselves to leave room for the browser's focus mark, so what each hands the box
+ * inside it is this, not its outer height.
+ */
+function contentBlockSize(element: HTMLElement): number {
+  const style = getComputedStyle(element);
+  return (
+    element.getBoundingClientRect().height -
+    Number.parseFloat(style.paddingBlockStart) -
+    Number.parseFloat(style.paddingBlockEnd)
+  );
+}
+
 async function mountPaneInPaneLayout(): Promise<MountedPane> {
   installMeridianTokens(document);
   const { bridge } = createFixtureBridge({ scenario: TERMINAL_LEASE_SCENARIO });
@@ -101,12 +115,17 @@ async function mountPaneInGridCell(): Promise<MountedPane> {
 describe("browser — a pane fills the cell the pane layout gives it", () => {
   it("takes the whole cell height in the pane layout's column-flex arrangement", async () => {
     const { layoutCell, pane } = await mountPaneInPaneLayout();
+    const group = layoutCell.parentElement;
+    if (group === null) {
+      throw new Error("the pane layout cell has no group");
+    }
 
-    expect(layoutCell.getBoundingClientRect().height).toBe(PANE_LAYOUT_HEIGHT_PX);
+    expect(group.getBoundingClientRect().height).toBe(PANE_LAYOUT_HEIGHT_PX);
+    expect(layoutCell.getBoundingClientRect().height).toBe(contentBlockSize(group));
     expect(
       pane.getBoundingClientRect().height,
       "the pane is sized by its content rather than by its cell, so every box below it — the transcript's scroll container included — is measuring against a height the pane layout never gave it",
-    ).toBe(PANE_LAYOUT_HEIGHT_PX);
+    ).toBe(contentBlockSize(layoutCell));
   });
 
   it("still fills a grid cell, which is the arrangement that already worked", async () => {
