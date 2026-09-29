@@ -166,7 +166,7 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
     // and a refusal card would report a failure where the only thing that happened
     // is that they were early.
     const latchKey = addressedOperationKey(draftKey, visit, "send");
-    const claim = operationLatch.claim(bridge, latchKey);
+    const claim = operationLatch.takeShell(bridge, latchKey);
     if (claim === undefined) {
       return;
     }

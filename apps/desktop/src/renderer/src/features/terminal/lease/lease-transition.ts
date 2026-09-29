@@ -15,7 +15,7 @@
 // than restating any part of it.
 //
 // Both halves obey one hard rule — **the holder is a wire field and is never derived
-// from the last observed claim** — and this is where it is enforced, because this is
+// from the last observed take** — and this is where it is enforced, because this is
 // where a payload becomes a reading at all.
 //
 // THREE AUTOMATIC REASONS, KEPT DISTINCT. Every transition renders as a ledger line
@@ -58,7 +58,7 @@ export type TerminalLeaseTransitionReason = (typeof TERMINAL_LEASE_TRANSITION_RE
  * tolerantly beside it: any non-empty string became a holder and everything else
  * became the free lease. So a `taken` whose payload named nobody was presented as a
  * FREE lease — a shell the daemon has just handed to someone, offered here as one
- * anybody may claim — and a `released` that carried this device's own id was presented
+ * anybody may take — and a `released` that carried this device's own id was presented
  * as `held-by-this-device`, which opens stdin until the daemon rejects the writes. Neither
  * payload is a transition this build understands, and the honest reading of a
  * transition it cannot understand is the unread one.

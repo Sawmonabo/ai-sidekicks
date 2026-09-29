@@ -17,24 +17,24 @@ import type { PlatformBridge } from "@renderer/services/platform/platform-bridge
 /** Takes the session's one shared shell. */
 export type TerminalLeaseCall = (request: { readonly sessionId: string }) => Promise<unknown>;
 
-/** The lease call the claim drives. */
+/** The lease call the take drives. */
 export interface TerminalLeaseCalls {
   readonly acquire: TerminalLeaseCall;
 }
 
-/** What the claim control knows: whether a call is out, and how to make one. */
+/** What the take control knows: whether a call is out, and how to make one. */
 export interface UseTakeShellResult {
   readonly isInFlight: boolean;
   readonly take: () => void;
 }
 
 /** What a subject that has dispatched nothing renders as. */
-const IDLE_TERMINAL_LEASE_CLAIM = { isInFlight: false };
+const IDLE_TERMINAL_LEASE_TAKE = { isInFlight: false };
 
 /**
  * Drive the take call and report whether one is out.
  *
- * A served reply sets no holder: the daemon accepting a claim is not this device now
+ * A served reply sets no holder: the daemon accepting a take is not this device now
  * holding the shell, and the fold owns the holder. A rejected call is not caught; it
  * surfaces as an unhandled rejection.
  */
@@ -46,16 +46,16 @@ export function useTakeShell(
   const { value: reading, publish } = useSubjectScopedState(
     bridge,
     sessionId,
-    () => IDLE_TERMINAL_LEASE_CLAIM,
+    () => IDLE_TERMINAL_LEASE_TAKE,
   );
-  // The latch refuses a second claim while one is live, which is the rule the control's
+  // The latch refuses a second take while one is live, which is the rule the control's
   // disabled state renders. Its claim is also the serial a settlement compares against,
   // so an earlier press's `finally` cannot clear the flag a later press set.
   const dispatches = useGenerationLatch();
 
   const takeShell = useCallback(async (): Promise<void> => {
     // `publish` is the visit key: the holder re-mints it on each re-seed.
-    const dispatch = dispatches.claim(publish, sessionId);
+    const dispatch = dispatches.takeShell(publish, sessionId);
     if (dispatch === undefined) {
       return;
     }

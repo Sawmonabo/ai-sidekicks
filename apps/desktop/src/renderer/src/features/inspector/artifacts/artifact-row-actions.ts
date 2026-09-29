@@ -64,7 +64,7 @@ export class ArtifactRowActions {
    * propagates.
    */
   public async readManifest(artifactId: string): Promise<ArtifactRowActOutcome> {
-    const manifestRound = this.#manifestReads.claim(this, artifactId);
+    const manifestRound = this.#manifestReads.takeShell(this, artifactId);
     if (manifestRound === undefined) {
       throw new Error(`The manifest of ${artifactId} is already being read.`);
     }

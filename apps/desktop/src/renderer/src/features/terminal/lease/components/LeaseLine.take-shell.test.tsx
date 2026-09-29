@@ -1,6 +1,6 @@
-// The claim control, from the surface's side: one press is one acquire, the control is
+// The take control, from the surface's side: one press is one acquire, the control is
 // disabled while a call is out, and a served call moves no holder. The hook that makes
-// a rebound pane get its own control is `lease-claim.test.tsx`.
+// a rebound pane get its own control is `useTakeShell.test.tsx`.
 
 import { fireEvent } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
@@ -8,7 +8,7 @@ import { describe, expect, it, vi } from "vitest";
 import { takeShellButton, leaseState, renderLease } from "./LeaseLine.test-support.js";
 import { OTHER_DEVICE_ID } from "../lease-model.test-support.js";
 
-describe("the claim control", () => {
+describe("the take control", () => {
   it("makes one acquire per press", () => {
     const take = vi.fn();
     const { container } = renderLease(leaseState({ holding: "unheld" }), {
@@ -35,7 +35,7 @@ describe("the claim control", () => {
     expect(container.textContent).toContain("Free");
   });
 
-  it("negative control: a hold this window does not have calls acquire", () => {
+  it("negative control: a hold this device does not have calls acquire", () => {
     const take = vi.fn();
     const { container } = renderLease(
       leaseState({ holding: "held-by-another-device", holderUserId: OTHER_DEVICE_ID }),

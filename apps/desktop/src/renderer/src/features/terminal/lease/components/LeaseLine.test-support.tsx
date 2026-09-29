@@ -16,7 +16,7 @@ import type {
   TerminalLeaseCalls,
   UseTakeShellResult,
 } from "../hooks/useTakeShell.js";
-import { LeaseClaimControl } from "./LeaseClaimControl.js";
+import { LeaseTakeControl } from "./LeaseTakeControl";
 import { LeaseLine } from "./LeaseLine.js";
 import type { TerminalDeviceIdentity } from "../hooks/useTerminalDeviceIdentity.js";
 import { UNREAD_TERMINAL_LEASE, type TerminalLeaseState } from "../lease-model.js";
@@ -34,7 +34,7 @@ export const SESSION_ID: string = TERMINAL_LEASE_SCENARIO.sessionId;
  * The other session this pane can be rebound to, read off another scenario.
  *
  * A second wire-declared id rather than a readable placeholder, for the reason the
- * first one is read off a scenario: the claim's whole subject is the session it was
+ * first one is read off a scenario: the take's whole subject is the session it was
  * made under, so the id it is compared against has to be one a daemon could emit.
  */
 export const OTHER_SESSION_ID: string = CONCURRENT_STREAMING_SCENARIO.sessionId;
@@ -96,7 +96,7 @@ export function leaseState(overrides: Partial<TerminalLeaseState>): TerminalLeas
 /**
  * The identity every case below renders under unless it is about the other arms.
  *
- * Read, and read as this device: the claim control is gated on the identity having
+ * Read, and read as this device: the take control is gated on the identity having
  * landed, so a default of anything else would make every case in this file about the
  * withheld state instead of about the state it names.
  */
@@ -105,23 +105,27 @@ export const DEVICE_IDENTITY_READ: TerminalDeviceIdentity = {
   userId: THIS_DEVICE_ID,
 };
 
-/** A claim that has dispatched nothing. */
-export const IDLE_CLAIM: UseTakeShellResult = {
+/** A take that has dispatched nothing. */
+export const IDLE_TAKE: UseTakeShellResult = {
   isInFlight: false,
   take: () => undefined,
 };
 
-/** Render the lease line with its claim control under the given claim and identity. */
+/** Render the lease line with its take control under the given take and identity. */
 export function renderLease(
   state: TerminalLeaseState,
-  claim: UseTakeShellResult = IDLE_CLAIM,
-  viewerIdentity: TerminalDeviceIdentity = DEVICE_IDENTITY_READ,
+  takeShell: UseTakeShellResult = IDLE_TAKE,
+  deviceIdentity: TerminalDeviceIdentity = DEVICE_IDENTITY_READ,
 ): RenderResult {
   return render(
     <LeaseLine
       state={state}
       controls={
-        <LeaseClaimControl claim={claim} holding={state.holding} viewerIdentity={viewerIdentity} />
+        <LeaseTakeControl
+          takeShell={takeShell}
+          holding={state.holding}
+          deviceIdentity={deviceIdentity}
+        />
       }
     />,
   );
@@ -129,9 +133,9 @@ export function renderLease(
 
 /** The single affordance the line puts in its header, as something a test can press. */
 export function takeShellButton(container: HTMLElement): HTMLButtonElement {
-  const control = container.querySelector(".meridian-lease-line__claim");
+  const control = container.querySelector(".meridian-lease-line__take");
   if (!(control instanceof HTMLButtonElement)) {
-    throw new Error("the lease line rendered no claim control");
+    throw new Error("the lease line rendered no take control");
   }
   return control;
 }

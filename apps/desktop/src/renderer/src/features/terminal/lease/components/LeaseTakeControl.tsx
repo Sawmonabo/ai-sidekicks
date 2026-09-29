@@ -2,14 +2,14 @@
 //
 // Its prohibitions are each a line of code here rather than a note:
 //
-//   • **Never derives the holder from the last observed claim.** Pressing the
+//   • **Never derives the holder from the last observed take.** Pressing the
 //     control calls the wire and then does nothing to the holder. The line moves
 //     when a `pty.control_changed` transition reaches the fold, and not before.
-//   • **Never offers a claim by the current holder.** A device that holds the shell
-//     sees no control, so the idempotent self-claim — which succeeds and broadcasts
+//   • **Never offers a take by the current holder.** A device that holds the shell
+//     sees no control, so the idempotent self-take — which succeeds and broadcasts
 //     nothing — is not reachable from this surface at all.
-//   • **Never queues a claim.** No retry, no timer, no wait list.
-//   • **Never offers a claim it cannot attribute.** The control acts on this device's
+//   • **Never queues a take.** No retry, no timer, no wait list.
+//   • **Never offers a take it cannot attribute.** The control acts on this device's
 //     behalf and the fold names the holder by user id, so until this device's
 //     identity has been READ there is no control here at all, and no sentence about
 //     one. `lease-acquisition.ts` owns that fold.
@@ -19,10 +19,10 @@ import type { UseTakeShellResult } from "../hooks/useTakeShell.js";
 import type { TerminalLeaseHolder } from "../lease-model.js";
 import type { TerminalDeviceIdentity } from "../hooks/useTerminalDeviceIdentity.js";
 
-/** What the claim control needs: its call state, the holding, and which device this is. */
-export interface LeaseClaimControlProps {
-  /** The claim control's call state. */
-  readonly claim: UseTakeShellResult;
+/** What the take control needs: its call state, the holding, and which device this is. */
+export interface LeaseTakeControlProps {
+  /** The take control's call state. */
+  readonly takeShell: UseTakeShellResult;
   readonly holding: TerminalLeaseHolder;
   /**
    * Which device this is, which is what the control is gated on.
@@ -32,21 +32,21 @@ export interface LeaseClaimControlProps {
    * cannot report the outcome of: a take would come back as a hold it could not
    * recognize.
    */
-  readonly viewerIdentity: TerminalDeviceIdentity;
+  readonly deviceIdentity: TerminalDeviceIdentity;
 }
 
 /** The button that takes the shell, drawn only where this device may take it. */
-export function LeaseClaimControl(props: LeaseClaimControlProps): React.JSX.Element | null {
-  const { claim, holding, viewerIdentity } = props;
-  if (resolveTakeShellAvailability({ holding, viewerIdentity }).control === "none") {
+export function LeaseTakeControl(props: LeaseTakeControlProps): React.JSX.Element | null {
+  const { takeShell, holding, deviceIdentity } = props;
+  if (resolveTakeShellAvailability({ holding, deviceIdentity }).control === "none") {
     return null;
   }
   return (
     <button
       type="button"
-      className="meridian-lease-line__claim"
-      onClick={claim.take}
-      disabled={claim.isInFlight}
+      className="meridian-lease-line__take"
+      onClick={takeShell.take}
+      disabled={takeShell.isInFlight}
     >
       Take the shell
     </button>

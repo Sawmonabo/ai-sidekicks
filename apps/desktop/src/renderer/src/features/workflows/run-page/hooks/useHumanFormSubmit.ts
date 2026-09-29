@@ -173,7 +173,7 @@ export function useHumanFormSubmit(
         publishOutcome({ kind: "refused", refusal: answerNotComposedRefusal() });
         return;
       }
-      const claim = latch.claim(submitForm, phase.phaseRunId);
+      const claim = latch.takeShell(submitForm, phase.phaseRunId);
       if (claim === undefined) {
         publishOutcome({ kind: "refused", refusal: submitAlreadyInFlightRefusal() });
         return;

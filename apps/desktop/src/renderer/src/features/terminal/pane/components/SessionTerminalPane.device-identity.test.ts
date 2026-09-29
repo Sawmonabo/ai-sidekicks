@@ -1,4 +1,4 @@
-// The viewer-identity hook, driven with a plain read function.
+// The device-identity hook, driven with a plain read function.
 //
 // The identity belongs to the inputs that produced it: a pane handed a different session
 // reverts to `not-loaded` on the first frame that sees it, and a read that lands after
@@ -13,21 +13,21 @@ import { createFixtureBridge } from "@renderer/services/platform/platform-bridge
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import {
   useTerminalDeviceIdentity,
-  type ReadTerminalViewerUser,
+  type ReadTerminalDeviceUser,
 } from "../../lease/hooks/useTerminalDeviceIdentity.js";
 
 function freshBridge(): PlatformBridge {
-  return createFixtureBridge({ scenario: unscriptedScenario("terminal-viewer-identity") });
+  return createFixtureBridge({ scenario: unscriptedScenario("terminal-device-identity") });
 }
 
 /** A read the case answers by hand, keyed by the order the reads were made in. */
 function heldRead(): {
-  readonly readViewerUser: ReadTerminalViewerUser;
+  readonly readDeviceUser: ReadTerminalDeviceUser;
   readonly answer: (callIndex: number, userId: string) => Promise<void>;
 } {
   const answers: ((user: { readonly userId: string }) => void)[] = [];
   return {
-    readViewerUser: () =>
+    readDeviceUser: () =>
       new Promise((resolve) => {
         answers.push(resolve);
       }),
@@ -48,12 +48,12 @@ interface IdentityProps {
   readonly sessionId: string;
 }
 
-describe("the terminal viewer identity", () => {
+describe("the terminal device identity", () => {
   it("is not loaded until the read lands, then names the user it returned", async () => {
     const held = heldRead();
     const bridge = freshBridge();
     const { result } = renderHook(() =>
-      useTerminalDeviceIdentity(bridge, "session-one", held.readViewerUser),
+      useTerminalDeviceIdentity(bridge, "session-one", held.readDeviceUser),
     );
     expect(result.current).toStrictEqual({ status: "not-loaded" });
 
@@ -67,7 +67,7 @@ describe("the terminal viewer identity", () => {
     const bridge = freshBridge();
     const { result, rerender } = renderHook(
       (props: IdentityProps) =>
-        useTerminalDeviceIdentity(bridge, props.sessionId, held.readViewerUser),
+        useTerminalDeviceIdentity(bridge, props.sessionId, held.readDeviceUser),
       { initialProps: { sessionId: "session-one" } },
     );
     await held.answer(0, "user-one");
@@ -85,7 +85,7 @@ describe("the terminal viewer identity", () => {
     const bridge = freshBridge();
     const { result, rerender } = renderHook(
       (props: IdentityProps) =>
-        useTerminalDeviceIdentity(bridge, props.sessionId, held.readViewerUser),
+        useTerminalDeviceIdentity(bridge, props.sessionId, held.readDeviceUser),
       { initialProps: { sessionId: "session-one" } },
     );
     rerender({ sessionId: "session-another" });

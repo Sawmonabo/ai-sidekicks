@@ -155,7 +155,7 @@ export class SignInFlowTracker {
     if (this.#isDisposed) {
       return;
     }
-    const claim = this.#flows.claim(this, SIGN_IN_FLOW_KEY);
+    const claim = this.#flows.takeShell(this, SIGN_IN_FLOW_KEY);
     if (claim === undefined) {
       this.#publish({
         refusalByAccountId: this.#refusalsWith(

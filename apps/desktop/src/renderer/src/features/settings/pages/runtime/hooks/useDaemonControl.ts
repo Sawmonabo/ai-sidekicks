@@ -59,7 +59,7 @@ export function useDaemonControl(
   const [settledCount, setSettledCount] = useState(0);
   const put = useCallback(
     async (control: DaemonControl) => {
-      const dispatch = dispatchLatch.claim(bridge, DAEMON_CONTROL_KEY);
+      const dispatch = dispatchLatch.takeShell(bridge, DAEMON_CONTROL_KEY);
       if (dispatch === undefined) {
         return;
       }

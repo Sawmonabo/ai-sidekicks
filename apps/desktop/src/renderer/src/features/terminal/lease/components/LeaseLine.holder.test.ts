@@ -6,8 +6,8 @@
 // what each state RENDERS. Its bridges and its render call come from
 // `LeaseLine.test-support.tsx`, which every suite in this split shares.
 //
-// The claim CALL is `LeaseLine.claim.test.tsx`, and the one gate on the control — this
-// device's identity — is `LeaseLine.viewer-identity.test.tsx`.
+// The take CALL is `LeaseLine.take-shell.test.tsx`, and the one gate on the control — this
+// device's identity — is `LeaseLine.device-identity.test.ts`.
 
 import { describe, expect, it } from "vitest";
 
@@ -53,9 +53,9 @@ describe("the holding line — every state the fold settles into", () => {
     );
     expect(container.textContent).toContain("You hold it");
     expect(container.textContent).toContain("You may type into the shared shell.");
-    // The idempotent self-claim is not reachable from this surface, so there is no
+    // The idempotent self-take is not reachable from this surface, so there is no
     // transition for it to animate; and there is no release control to hand back with.
-    expect(container.querySelector(".meridian-lease-line__claim")).toBeNull();
+    expect(container.querySelector(".meridian-lease-line__take")).toBeNull();
   });
 
   it("says the lease is unreadable when a transition arrived this build cannot read", () => {

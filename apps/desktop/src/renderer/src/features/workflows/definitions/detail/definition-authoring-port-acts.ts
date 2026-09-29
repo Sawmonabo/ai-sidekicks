@@ -100,7 +100,7 @@ async function submitDefinition(
   runtime: AuthoringRuntime,
   request: WorkflowDefinitionCreateBody,
 ): Promise<void> {
-  const claim = runtime.latch.claim(
+  const claim = runtime.latch.takeShell(
     runtime.createDefinition,
     actKey("import", runtime.workflowDefinitionId),
   );

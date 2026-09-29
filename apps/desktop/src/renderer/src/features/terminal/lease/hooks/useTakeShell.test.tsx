@@ -1,8 +1,8 @@
-// The claim hook's renderer-local fact, and the subject it belongs to.
+// The take hook's renderer-local fact, and the subject it belongs to.
 //
-// Its own file rather than a block in `LeaseLine.claim.test.tsx` because the subject
-// is different: that file asserts what the SURFACE renders for a claim, and this one
-// asserts which subject a claim's state belongs to — a question about the hook's own
+// Its own file rather than a block in `LeaseLine.take-shell.test.tsx` because the subject
+// is different: that file asserts what the SURFACE renders for a take, and this one
+// asserts which subject a take's state belongs to — a question about the hook's own
 // arithmetic over `(bridge, sessionId)`.
 //
 // WHY THE CASES READ A LOG OF FRAMES RATHER THAN THE SETTLED TREE. The reset used to
@@ -36,11 +36,11 @@ import { useTakeShell, type UseTakeShellResult } from "./useTakeShell.js";
  * is encapsulated: what a case wants is "the frame after the switch", and an index
  * into a bare array is a number a reader has to reconstruct.
  */
-class ClaimFrameLog {
+class TakeFrameLog {
   readonly #frames: UseTakeShellResult[] = [];
 
-  public record(claim: UseTakeShellResult): void {
-    this.#frames.push(claim);
+  public record(takeShell: UseTakeShellResult): void {
+    this.#frames.push(takeShell);
   }
 
   public get frameCount(): number {
@@ -61,33 +61,33 @@ class ClaimFrameLog {
 }
 
 /** The hook, driven with nothing else in the way, recording what it returns. */
-function ClaimProbe(props: {
+function TakeProbe(props: {
   readonly heldCalls: HeldLeaseCalls;
   readonly sessionId: string;
-  readonly log: ClaimFrameLog;
+  readonly log: TakeFrameLog;
 }): React.JSX.Element {
   props.log.record(useTakeShell(props.heldCalls.bridge, props.sessionId, props.heldCalls.calls));
   return <span />;
 }
 
-function renderClaim(
+function renderTake(
   heldCalls: HeldLeaseCalls,
-  log: ClaimFrameLog,
+  log: TakeFrameLog,
 ): ReturnType<typeof render> & { readonly showSession: (sessionId: string) => void } {
-  const view = render(<ClaimProbe heldCalls={heldCalls} sessionId={SESSION_ID} log={log} />);
+  const view = render(<TakeProbe heldCalls={heldCalls} sessionId={SESSION_ID} log={log} />);
   return {
     ...view,
     showSession: (sessionId: string): void => {
-      view.rerender(<ClaimProbe heldCalls={heldCalls} sessionId={sessionId} log={log} />);
+      view.rerender(<TakeProbe heldCalls={heldCalls} sessionId={sessionId} log={log} />);
     },
   };
 }
 
-describe("the terminal lease claim, stamped to its subject", () => {
+describe("the terminal lease take, stamped to its subject", () => {
   it("hands the new session an idle control on its FIRST committed frame", async () => {
     const heldCalls = new HeldLeaseCalls();
-    const log = new ClaimFrameLog();
-    const view = renderClaim(heldCalls, log);
+    const log = new TakeFrameLog();
+    const view = renderTake(heldCalls, log);
     act(() => {
       log.newestFrame.take();
     });
@@ -111,8 +111,8 @@ describe("the terminal lease claim, stamped to its subject", () => {
 
   it("issues the new session's own request from that same frame", async () => {
     const heldCalls = new HeldLeaseCalls();
-    const log = new ClaimFrameLog();
-    const view = renderClaim(heldCalls, log);
+    const log = new TakeFrameLog();
+    const view = renderTake(heldCalls, log);
     act(() => {
       log.newestFrame.take();
     });
@@ -149,8 +149,8 @@ describe("the terminal lease claim, stamped to its subject", () => {
     // was refused by a key the control cannot see, no request went out, nothing was
     // said, and the button stayed enabled for as long as the first call stayed out.
     const heldCalls = new HeldLeaseCalls();
-    const log = new ClaimFrameLog();
-    const view = renderClaim(heldCalls, log);
+    const log = new TakeFrameLog();
+    const view = renderTake(heldCalls, log);
     act(() => {
       log.newestFrame.take();
     });
@@ -181,8 +181,8 @@ describe("the terminal lease claim, stamped to its subject", () => {
 
   it("drops a settlement that lands after the pane closed", async () => {
     const heldCalls = new HeldLeaseCalls();
-    const log = new ClaimFrameLog();
-    const view = renderClaim(heldCalls, log);
+    const log = new TakeFrameLog();
+    const view = renderTake(heldCalls, log);
     act(() => {
       log.newestFrame.take();
     });
@@ -199,10 +199,10 @@ describe("the terminal lease claim, stamped to its subject", () => {
 
   it("negative control: the session it is still on keeps its in-flight fact", async () => {
     // Without this, a hook that reported idle for every subject would satisfy every
-    // case above — a claim control that never says a call is out.
+    // case above — a take control that never says a call is out.
     const heldCalls = new HeldLeaseCalls();
-    const log = new ClaimFrameLog();
-    renderClaim(heldCalls, log);
+    const log = new TakeFrameLog();
+    renderTake(heldCalls, log);
 
     act(() => {
       log.newestFrame.take();
@@ -223,8 +223,8 @@ describe("the terminal lease claim, stamped to its subject", () => {
     // earlier settlement clear the in-flight flag the later press had just set,
     // bringing the control back enabled while a take was still out.
     const heldCalls = new HeldLeaseCalls();
-    const log = new ClaimFrameLog();
-    renderClaim(heldCalls, log);
+    const log = new TakeFrameLog();
+    renderTake(heldCalls, log);
     act(() => {
       log.newestFrame.take();
     });
@@ -235,7 +235,7 @@ describe("the terminal lease claim, stamped to its subject", () => {
     expect(heldCalls.sessionIdOfCall(0)).toBe(SESSION_ID);
     expect(log.newestFrame.isInFlight).toBe(true);
 
-    // And the one call that WAS dispatched still settles: refusing the second claim
+    // And the one call that WAS dispatched still settles: refusing the second take
     // must not orphan the first, which is the failure a bare "ignore while busy"
     // guard makes when it forgets to release.
     heldCalls.settleCall(0);

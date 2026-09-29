@@ -175,7 +175,7 @@ export function useRunControlDispatch(
       perform: (held: RunControlDispatcher) => Promise<RunControlOutcome>,
     ): RunControlAdmission => {
       const key = inFlightKeyFor(runId, control);
-      const claim = controlLatch.claim(bridge, key);
+      const claim = controlLatch.takeShell(bridge, key);
       if (claim === undefined) {
         return { admitted: false, reason: "in-flight" };
       }
