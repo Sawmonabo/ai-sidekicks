@@ -10,7 +10,7 @@
 
 import type { ConsoleSurfaceRegistry } from "./seats/index.js";
 import { registerSessionsSurface } from "@renderer/features/sessions/contributions/screens.js";
-import { registerSettingsSurface } from "./settings/index.js";
+import { registerSettingsSurface } from "@renderer/features/settings/contributions/screens.js";
 
 /**
  * Claim every surface slot this family owns.

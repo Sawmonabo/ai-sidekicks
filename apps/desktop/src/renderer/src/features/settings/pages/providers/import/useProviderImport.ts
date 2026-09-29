@@ -35,7 +35,7 @@ import {
   useImportProgress,
   type ImportProgressReading,
   type ImportProgressSubscribeCall,
-} from "@renderer/console/sessions/acts/provider-import.js";
+} from "./useImportProgress.js";
 import type { ConsoleRefusal } from "@renderer/lib/refusal.js";
 import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
 

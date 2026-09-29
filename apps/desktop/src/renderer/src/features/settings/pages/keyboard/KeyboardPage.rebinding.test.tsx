@@ -10,7 +10,7 @@ import { describe, expect, it } from "vitest";
 import { consoleKeybindingOverrides } from "@renderer/console/palette/index.js";
 import { LiveAnnouncerProvider, formatCount } from "@renderer/console/primitives/index.js";
 import { liveRegionText, politeText } from "@test/helpers/live-region.js";
-import { KeyboardPage } from "@renderer/console/settings/pages/keyboard/KeyboardPage.js";
+import { KeyboardPage } from "./KeyboardPage.js";
 import {
   RECORDED_PRESS,
   recordOnto,

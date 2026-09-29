@@ -16,10 +16,7 @@ import { createFixtureBridge } from "@renderer/console/bridge/fixture/call-plane
 import { type ConsoleBridge } from "@renderer/console/bridge/console-bridge.js";
 import type { ConsoleRefusal } from "@renderer/lib/refusal.js";
 import type { ConsoleCommand } from "@renderer/registries/commands/command-types.js";
-import {
-  buildBridgeCommands,
-  useBridgeCommands,
-} from "@renderer/console/palette/commands/bridge-commands.js";
+import { buildBridgeCommands, useBridgeCommands } from "./commands.js";
 import { FIRST_RUN_SCENARIO } from "../../../../../../fixtures/scenarios/first-run.js";
 
 function fixtureBridge(): ConsoleBridge {

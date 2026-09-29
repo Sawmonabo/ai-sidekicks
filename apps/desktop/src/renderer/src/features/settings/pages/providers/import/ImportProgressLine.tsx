@@ -13,7 +13,7 @@
 // own words; a percentage would be this console inventing a denominator nobody sent.
 
 import { WireFigure, formatCount } from "@renderer/console/primitives/index.js";
-import type { ImportProgressReading } from "@renderer/console/sessions/acts/provider-import.js";
+import type { ImportProgressReading } from "./useImportProgress.js";
 
 /** What the progress line draws: one import's reading. */
 export interface ImportProgressLineProps {

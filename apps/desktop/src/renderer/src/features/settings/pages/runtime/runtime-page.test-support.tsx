@@ -15,11 +15,8 @@ import {
   type ShellState,
 } from "@renderer/store/window/main-process-state.js";
 import { settingsPageContextWith } from "@test/helpers/settings-page-mount.js";
-import {
-  DaemonOperationsBlocks,
-  DaemonPage,
-} from "@renderer/console/settings/pages/daemon/DaemonPage.js";
-import type { DaemonOperations } from "@renderer/console/settings/pages/daemon/daemon-controls.js";
+import { DaemonOperationsBlocks, DaemonPage } from "./RuntimePage.js";
+import type { DaemonOperations } from "./hooks/useDaemonStatus.js";
 
 /** The calls a case wants to see, in the order they were made. */
 export interface ControlLedger {

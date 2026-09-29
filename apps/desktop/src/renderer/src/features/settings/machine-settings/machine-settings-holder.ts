@@ -15,16 +15,13 @@ import {
   type ReadTriggerTarget,
 } from "@renderer/console/store/read/read-triggers.js";
 import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
-import {
-  ShellPreferenceStore,
-  type ShellPreferenceCarrier,
-} from "@renderer/features/settings/machine-settings/machine-settings-store.js";
+import { ShellPreferenceStore, type ShellPreferenceCarrier } from "./machine-settings-store.js";
 import {
   NOTHING_CHOSEN,
   effectivePreference,
   type ShellPreferenceKey,
   type ShellPreferenceSnapshot,
-} from "@renderer/features/settings/machine-settings/machine-settings-snapshot.js";
+} from "./machine-settings-snapshot.js";
 
 /** What a page reads and what it presses. One object, so a row takes one prop set. */
 export interface ShellPreferenceBinding {

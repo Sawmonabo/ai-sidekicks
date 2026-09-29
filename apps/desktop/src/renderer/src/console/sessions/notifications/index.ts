@@ -29,7 +29,7 @@ export {
   deliveryFor,
   /** @consumedBy the notifications settings page */
   type OsNotificationDelivery,
-} from "./os-notification-delivery.js";
+} from "@renderer/features/settings/pages/notifications/os-notification-delivery.js";
 
 // Only what crosses OUT of this subtree. The plane's vocabulary and the fold
 // are reached deeply from inside — an intra-subtree import is deep by

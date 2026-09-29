@@ -10,10 +10,7 @@ import { useEffect, useState } from "react";
 import { describe, expect, it } from "vitest";
 import { consoleCommands } from "@renderer/console/palette/index.js";
 import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
-import {
-  KeyboardPage,
-  registerKeyboardPage,
-} from "@renderer/console/settings/pages/keyboard/KeyboardPage.js";
+import { KeyboardPage, registerKeyboardPage } from "./KeyboardPage.js";
 import { SettingsPageRegistry } from "../../settings-pages.js";
 import { TEST_COMMAND_IDS, renderPage, rowOf } from "./keyboard-page.test-support.js";
 

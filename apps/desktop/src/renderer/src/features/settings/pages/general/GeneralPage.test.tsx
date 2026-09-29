@@ -5,10 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import { unscriptedScenario } from "@renderer/console/bridge/fixture/call-plane/bridge.test-support.js";
 import { createFixtureBridge } from "@renderer/console/bridge/fixture/call-plane/bridge.js";
-import {
-  ApplicationPage,
-  registerApplicationPage,
-} from "@renderer/console/settings/pages/application/ApplicationPage.js";
+import { ApplicationPage, registerApplicationPage } from "./GeneralPage.js";
 import { SettingsPageRegistry, type SettingsPageContext } from "../../settings-pages.js";
 import { consoleTestUiStateStore } from "@test/helpers/settings-page-mount.js";
 import { UNREPORTED_SHELL_STATE } from "@renderer/store/window/main-process-state.js";

@@ -2,7 +2,7 @@
 // can be handed, and the page's rail entry.
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { registerNotificationsPage } from "@renderer/console/settings/pages/notifications/NotificationsPage.js";
+import { registerNotificationsPage } from "./NotificationsPage.js";
 import { OsPermissionNotice } from "./components/NotificationPermissionNotice.js";
 import { SettingsPageRegistry } from "../../settings-pages.js";
 

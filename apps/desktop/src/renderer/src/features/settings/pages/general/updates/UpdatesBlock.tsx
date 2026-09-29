@@ -17,13 +17,9 @@ import { useCallback, useEffect, useMemo, useSyncExternalStore, type ReactNode }
 
 import type { UpdateState } from "@ai-sidekicks/contracts";
 
-import { useSettlementAnnouncement } from "../../../../primitives/index.js";
-import {
-  UpdaterReadingHolder,
-  type UpdaterCalls,
-  type UpdateReading,
-} from "@renderer/features/settings/pages/general/updates/updater-reading.js";
-import { UpdateReadOut } from "@renderer/features/settings/pages/general/updates/UpdateReadOut.js";
+import { useSettlementAnnouncement } from "@renderer/console/primitives/index.js";
+import { UpdaterReadingHolder, type UpdaterCalls, type UpdateReading } from "./updater-reading.js";
+import { UpdateReadOut } from "./UpdateReadOut.js";
 
 /**
  * Bind this window's reading of the updater.

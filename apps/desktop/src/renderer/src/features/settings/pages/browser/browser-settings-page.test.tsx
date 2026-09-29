@@ -20,7 +20,7 @@ import { createFixture } from "@renderer/console/bridge/fixture/call-plane/bridg
 import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
 import { FrameStore } from "@renderer/store/window/window-store.js";
 import { SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
-import { registerSettingsSurface } from "@renderer/console/settings/index.js";
+import { registerSettingsSurface } from "../../contributions/screens.js";
 import { registerBrowserSettingsPage } from "@renderer/console/browser-settings-page.js";
 import {
   mountReservedSettingsPage,

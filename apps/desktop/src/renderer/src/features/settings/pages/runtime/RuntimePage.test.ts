@@ -17,10 +17,7 @@ import { createFixtureBridge } from "@renderer/console/bridge/fixture/call-plane
 import { unscriptedScenario } from "@renderer/console/bridge/fixture/call-plane/bridge.test-support.js";
 import { settle } from "@test/helpers/settle.js";
 import { UNREPORTED_SHELL_STATE } from "@renderer/store/window/main-process-state.js";
-import {
-  useDaemonControl,
-  type DaemonOperations,
-} from "@renderer/console/settings/pages/daemon/daemon-controls.js";
+import { useDaemonControl, type DaemonOperations } from "./hooks/useDaemonStatus.js";
 import { getButton, renderPage } from "./runtime-page.test-support.js";
 
 describe("DaemonPage — the supervisor's numbers", () => {

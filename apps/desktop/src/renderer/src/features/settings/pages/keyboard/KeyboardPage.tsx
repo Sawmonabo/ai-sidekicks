@@ -30,7 +30,7 @@ import {
   consoleCommands,
   consoleKeybindingOverrides,
   useKeybindingSurface,
-} from "../../../palette/index.js";
+} from "@renderer/console/palette/index.js";
 import {
   COMMAND_PALETTE_OPEN_CHORD,
   ChordHint,
@@ -39,16 +39,16 @@ import {
   Nothing,
   formatChordForPlatform,
   useAnnounce,
-} from "../../../primitives/index.js";
-import { KeybindingRowBody } from "@renderer/features/settings/pages/keyboard/components/KeybindingRowBody.js";
-import { ResetAllChords } from "@renderer/features/settings/pages/keyboard/components/ResetAllKeybindings.js";
+} from "@renderer/console/primitives/index.js";
+import { KeybindingRowBody } from "./components/KeybindingRowBody.js";
+import { ResetAllChords } from "./components/ResetAllKeybindings.js";
 import {
   composeKeybindingRows,
   matchKeybindingRows,
   type AppliedChordRecording,
   type KeybindingRow,
-} from "@renderer/features/settings/pages/keyboard/keybinding-map.js";
-import type { SettingsPageRegistry } from "@renderer/features/settings/settings-pages.js";
+} from "./keybinding-map.js";
+import type { SettingsPageRegistry } from "../../settings-pages.js";
 
 /** The owner this page registers under. */
 const OWNER = "settings-keyboard";

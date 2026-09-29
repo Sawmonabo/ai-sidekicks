@@ -7,10 +7,7 @@ import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { act, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import {
-  AppearancePage,
-  registerAppearancePage,
-} from "@renderer/console/settings/pages/appearance/AppearancePage.js";
+import { AppearancePage, registerAppearancePage } from "./AppearancePage.js";
 import { consoleCommands } from "@renderer/console/palette/index.js";
 import { SCHEME_ATTRIBUTE } from "@renderer/styles/generate-css.js";
 import { SettingsPageRegistry } from "../../settings-pages.js";

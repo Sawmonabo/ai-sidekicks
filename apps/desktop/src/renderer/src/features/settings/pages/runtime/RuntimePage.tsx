@@ -32,16 +32,13 @@
 
 import { useCallback, useState, type ReactNode } from "react";
 
-import { Chip, Nothing, WireFigure } from "../../../primitives/index.js";
+import { Chip, Nothing, WireFigure } from "@renderer/console/primitives/index.js";
 import {
   UNREPORTED_SHELL_NOTICE,
   describeShellConnection,
   type ShellState,
 } from "@renderer/store/window/main-process-state.js";
-import type {
-  SettingsPageContext,
-  SettingsPageRegistry,
-} from "@renderer/features/settings/settings-pages.js";
+import type { SettingsPageContext, SettingsPageRegistry } from "../../settings-pages.js";
 import {
   useDaemonControl,
   useDaemonStatus,
@@ -49,7 +46,7 @@ import {
   type DaemonControlSettlement,
   type DaemonOperations,
   type DaemonStatusReading,
-} from "./daemon-controls.js";
+} from "./hooks/useDaemonStatus.js";
 
 /** The owner this page registers under. */
 const OWNER = "settings-daemon";

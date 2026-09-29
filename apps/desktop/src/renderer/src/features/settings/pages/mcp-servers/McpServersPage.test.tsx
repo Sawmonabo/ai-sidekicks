@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { registerMcpServersPage } from "@renderer/console/settings/pages/mcp-servers/McpServersPage.js";
+import { registerMcpServersPage } from "./McpServersPage.js";
 import { SettingsPageRegistry } from "../../settings-pages.js";
 
 describe("the servers page — its rail entry", () => {

@@ -16,16 +16,13 @@
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { ProviderImportPanel } from "@renderer/features/settings/pages/providers/import/ProviderImportPanel.js";
-import {
-  useProviderImport,
-  type ProviderImportBeginCall,
-} from "@renderer/features/settings/pages/providers/import/useProviderImport.js";
+import { ProviderImportPanel } from "./ProviderImportPanel.js";
+import { useProviderImport, type ProviderImportBeginCall } from "./useProviderImport.js";
 import type {
   ImportProgressFrame,
   ImportProgressStream,
   ImportProgressSubscribeCall,
-} from "./provider-import.js";
+} from "./useImportProgress.js";
 import { settle } from "@test/helpers/settle.js";
 
 /** The one import every case here starts, named so a remount can be shown to find it. */

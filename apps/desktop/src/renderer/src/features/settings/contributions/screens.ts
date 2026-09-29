@@ -32,12 +32,12 @@
 // module to compose it, so a type line pointing the other way closes a module cycle and
 // `no-circular` fails. The page holds `register` and nothing else.
 
-import type { ConsoleSurfaceRegistry } from "../seats/index.js";
+import type { ConsoleSurfaceRegistry } from "@renderer/console/seats/index.js";
 
 export {
   /** @consumedBy the General settings page's crash-reporting block */
   CrashReportingBlock,
-} from "@renderer/features/settings/pages/general/components/CrashReportingBlock.js";
+} from "../pages/general/components/CrashReportingBlock.js";
 export {
   /** @consumedBy the inspector's cost section */
   BILLING_MODE_CLAUSES,
@@ -66,6 +66,6 @@ export function registerSettingsSurface(registry: ConsoleSurfaceRegistry): void 
   registry.register({
     slot: "settings",
     owner: "settings",
-    body: () => import("@renderer/features/settings/settings-screen-body.js"),
+    body: () => import("../settings-screen-body.js"),
   });
 }

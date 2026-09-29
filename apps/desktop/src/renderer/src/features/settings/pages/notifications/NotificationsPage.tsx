@@ -2,7 +2,7 @@
 
 import { type ReactNode } from "react";
 
-import type { SettingsPageRegistry } from "@renderer/features/settings/settings-pages.js";
+import type { SettingsPageRegistry } from "../../settings-pages.js";
 
 /** The owner this page registers under. */
 const OWNER = "settings-notifications";

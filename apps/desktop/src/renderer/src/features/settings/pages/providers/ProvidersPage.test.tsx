@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { registerProviderAccountsPage } from "@renderer/console/settings/pages/provider-accounts/ProviderAccountsPage.js";
+import { registerProviderAccountsPage } from "./ProvidersPage.js";
 import { SettingsPageRegistry } from "../../settings-pages.js";
 
 describe("the accounts page — its rail entry", () => {

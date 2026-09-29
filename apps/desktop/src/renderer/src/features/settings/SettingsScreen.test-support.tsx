@@ -15,7 +15,7 @@ import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
 import { FrameStore } from "@renderer/store/window/window-store.js";
 import { SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
 import { SettingsSurface } from "./SettingsScreen.js";
-import { registerSettingsSurface } from "@renderer/console/settings/index.js";
+import { registerSettingsSurface } from "./contributions/screens.js";
 import { type SettingsPageRegistry } from "./settings-pages.js";
 import {
   ConsoleSurfaceRegistry,
