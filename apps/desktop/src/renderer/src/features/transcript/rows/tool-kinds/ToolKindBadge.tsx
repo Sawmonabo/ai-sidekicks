@@ -16,6 +16,8 @@
 import { Chip, WireFigure } from "@renderer/console/primitives/index.js";
 import { type ToolSubFamilyReading, type ToolSubFamilyRenderer } from "./tool-kinds.js";
 
+import "./tool-kinds.css";
+
 /** What a tool card hands the sub-family badge. */
 export interface ToolSubFamilyBadgeProps {
   /** A renderer that replaces the badge, or `undefined` while the badge draws itself. */

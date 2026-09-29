@@ -40,12 +40,9 @@ import {
 import { LedgerRowGroup } from "@renderer/console/ledger/frame/index.js";
 import { cardFamilyDescriptor, toolResultState, type ToolResultState } from "./row-kind.js";
 import type { LedgerCardProps } from "./hydrated-row-props.js";
-import { MachineBody } from "@renderer/console/ledger/cards/bodies/index.js";
-import {
-  ToolSubFamilyBadge,
-  declaredToolSubFamily,
-  type ToolSubFamilyRenderer,
-} from "@renderer/console/ledger/cards/tool-families/index.js";
+import { ToolOutput } from "./bodies/ToolOutput.js";
+import { ToolSubFamilyBadge } from "./tool-kinds/ToolKindBadge.js";
+import { declaredToolSubFamily, type ToolSubFamilyRenderer } from "./tool-kinds/tool-kinds.js";
 import { projectedPayload, readWireCount } from "@renderer/store/session-events/wire-payload.js";
 
 /** What a mount hands a tool card, beyond the row itself. */
@@ -74,7 +71,7 @@ const RESULT_STATE_CHIPS: Readonly<Record<ToolResultState, { label: string; tone
   // The two-hue rule is why only one of these five is colored. Red means a failure;
   // amber means a person is needed. A truncated body and an unreadable one are neither —
   // nobody is being asked for anything and nothing failed — so they say what they are in
-  // words and take the neutral chip. `MachineBody` renders the one genuinely red case,
+  // words and take the neutral chip. `ToolOutput` renders the one genuinely red case,
   // a stored body that does not match its signature, where the body itself is.
   running: { label: "Running", tone: "neutral" },
   ok: { label: "Ok", tone: "neutral" },
@@ -140,7 +137,7 @@ export function ToolCard(props: ToolCardProps): React.JSX.Element {
           )}
         </div>
         {isOpen ? (
-          <MachineBody
+          <ToolOutput
             content={props.content}
             {...(props.liveText === undefined ? {} : { liveText: props.liveText })}
             // NO SHAPE IS PASSED, BECAUSE THIS CARD HAS NONE TO GIVE. The tool
@@ -150,7 +147,7 @@ export function ToolCard(props: ToolCardProps): React.JSX.Element {
             // result was reading terminal output into an MCP reply, a web-search
             // answer, and every other ordinary textual result; one that answered
             // "prose" for every result put a shell's escape sequences on the page as
-            // text. `MachineBody` reads the bytes, which is the one thing the wire
+            // text. `ToolOutput` reads the bytes, which is the one thing the wire
             // does supply, and deriving a shape from the tool's NAME stays the
             // invention `card-family.ts` refuses.
             sourceId={props.row.id}

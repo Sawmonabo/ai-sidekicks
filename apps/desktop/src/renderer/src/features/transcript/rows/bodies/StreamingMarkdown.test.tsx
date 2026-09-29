@@ -10,7 +10,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { duplicateKeyReports, reportsWhileReactRan } from "@test/helpers/react-reports.js";
 import { StreamingMarkdown } from "./StreamingMarkdown.js";
-import { FootnoteRegistry } from "@renderer/console/ledger/cards/markdown/index.js";
+import { FootnoteRegistry } from "../markdown/footnotes/footnote-registry.js";
 
 /**
  * A body whose first two blocks are the same words, with two more behind them so the

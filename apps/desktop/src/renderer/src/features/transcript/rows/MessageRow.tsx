@@ -9,8 +9,8 @@
 // obvious:
 //
 //   • An ASSISTANT body is machine-authored, so it arrives through the hydrated
-//     `content` projection and renders through `MachineBody` — including its truncation
-//     and unavailability dispositions, which are `MachineBody`'s and not this card's.
+//     `content` projection and renders through `MessageContent`, including its truncation
+//     and unavailability dispositions, which are `MessageContent`'s and not this card's.
 //   • A LIVE assistant body arrives as `liveText`, published by the reveal engine and
 //     handed down by the viewport. It takes precedence, because a turn still streaming
 //     has no stored body yet.
@@ -25,7 +25,7 @@
 // AND A REASONING BODY IS NOT A MACHINE BODY. The reasoning family renders the
 // four-arm availability surface rather than the hydrated content projection: those
 // are two different reads answering two different questions, and rendering reasoning
-// through `MachineBody` made a turn whose reasoning was WITHHELD by policy
+// through `MessageContent` made a turn whose reasoning was WITHHELD by policy
 // indistinguishable from one whose stored body could not be opened. The element is
 // composed by the mount and handed down, for the reason the edit affordance is —
 // this card decides layout, and what a row is allowed to show is decided by the
@@ -42,9 +42,9 @@ import { LedgerRowGroup } from "@renderer/console/ledger/frame/index.js";
 import { classifyCardFamily } from "./row-kind.js";
 import type { LedgerCardProps } from "./hydrated-row-props.js";
 import { InlineCards } from "./InlineCards.js";
-import { MachineBody } from "@renderer/console/ledger/cards/bodies/index.js";
+import { MessageContent } from "./bodies/MessageContent.js";
 import { MessageReceipt } from "./RecordedBodyLine.js";
-import { UserBody } from "@renderer/console/ledger/cards/bodies/index.js";
+import { UserBody } from "./bodies/UserBody.js";
 import { projectedPayload, readWireCount } from "@renderer/store/session-events/wire-payload.js";
 
 /** What a mount hands a message card, beyond the row itself. */
@@ -105,7 +105,7 @@ export function MessageCard(props: MessageCardProps): React.JSX.Element {
           ) : family.family === "assistant-reasoning" ? (
             props.reasoningSurface
           ) : (
-            <MachineBody
+            <MessageContent
               content={props.content}
               {...(props.liveText === undefined ? {} : { liveText: props.liveText })}
               // THE SHAPE THIS CARD DOES HAVE TO GIVE, unlike the tool card beside it.

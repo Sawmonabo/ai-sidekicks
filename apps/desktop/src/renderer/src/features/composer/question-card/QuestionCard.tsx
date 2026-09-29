@@ -52,6 +52,8 @@ import type {
   DriverAskReading,
 } from "@renderer/console/ledger/cards/bodies/input-ask.js";
 
+import "./question-card.css";
+
 /** What the row hands a supplied body. */
 export interface InputAskBodyProps {
   readonly ask: DriverAskReading;

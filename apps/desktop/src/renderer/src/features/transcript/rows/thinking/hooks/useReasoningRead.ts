@@ -33,7 +33,7 @@ import { callDaemon } from "@renderer/services/daemon/daemon-reply.js";
 import { useConsoleBridge } from "@renderer/console/bridge/BridgeProvider.js";
 import { useReadScope } from "@renderer/console/store/read/read-cancellation.js";
 import type { RunId } from "@ai-sidekicks/contracts";
-import { type ReasoningSurfaceReading } from "@renderer/console/ledger/cards/bodies/index.js";
+import { type ReasoningSurfaceReading } from "../reasoning-reading.js";
 
 /** The reading a row holds, and the call that advances it. */
 export interface ReasoningSurfaceRead {

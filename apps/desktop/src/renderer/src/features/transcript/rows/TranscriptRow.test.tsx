@@ -18,11 +18,8 @@ import {
 } from "@renderer/console/seats/index.js";
 // Deeply: the teardown is reached by tests alone, so it is not a door line.
 import { unregisterTimelineRowRenderer } from "../transcript-row-renderer.js";
-import {
-  FIXTURE_SHELL_OWNER,
-  FixtureShellRow,
-  registerFixtureShellRows,
-} from "@renderer/console/ledger/cards/shell/FixtureShellRows.js";
+import { TRANSCRIPT_ROW_OWNER, registerFixtureShellRows } from "../contributions/timeline-rows.js";
+import { TranscriptRow } from "./TranscriptRow.js";
 import { sampleRunRow } from "@test/helpers/timeline-row-samples.js";
 
 afterEach(() => {
@@ -74,7 +71,7 @@ function MountedInAList(props: {
           },
         }}
       >
-        <FixtureShellRow {...slotProps(props.row)} density={leased?.density ?? props.listDensity} />
+        <TranscriptRow {...slotProps(props.row)} density={leased?.density ?? props.listDensity} />
       </LedgerRowLeaseProvider>
     </InBridge>
   );
@@ -183,7 +180,7 @@ describe("standing in for the list's density decision", () => {
     // A no-op default channel would look exactly like a row that will not open,
     // which is the defect this whole change closes. It fails loudly instead.
     expect(() =>
-      render(<FixtureShellRow {...slotProps(sampleRunRow({ type: "tool.invoked" }))} />),
+      render(<TranscriptRow {...slotProps(sampleRunRow({ type: "tool.invoked" }))} />),
     ).toThrow(/lease provider/);
   });
 });
@@ -192,7 +189,7 @@ describe("claiming the seat", () => {
   it("fills it under the shell's own owner", () => {
     expect(timelineRowRenderer()).toBeUndefined();
     registerFixtureShellRows();
-    expect(timelineRowRenderer()).toBe(FixtureShellRow);
+    expect(timelineRowRenderer()).toBe(TranscriptRow);
   });
 
   it("refuses a second owner rather than replacing the shell", () => {
@@ -210,7 +207,7 @@ describe("claiming the seat", () => {
     // the shell undevelopable.
     registerFixtureShellRows();
     expect(() => {
-      registerTimelineRowRenderer(FIXTURE_SHELL_OWNER, FixtureShellRow);
+      registerTimelineRowRenderer(TRANSCRIPT_ROW_OWNER, TranscriptRow);
     }).not.toThrow();
   });
 });

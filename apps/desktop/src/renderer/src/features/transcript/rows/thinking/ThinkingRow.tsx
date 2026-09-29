@@ -38,6 +38,8 @@ import {
   type ReasoningSurfaceReading,
 } from "./reasoning-reading.js";
 
+import "./thinking.css";
+
 /** What the row hands a supplied body. */
 export interface ReasoningSurfaceBodyProps {
   readonly runId: RunId;

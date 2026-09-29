@@ -11,7 +11,7 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { StreamingMarkdown } from "./StreamingMarkdown.js";
-import { FootnoteRegistry } from "@renderer/console/ledger/cards/markdown/index.js";
+import { FootnoteRegistry } from "../markdown/footnotes/footnote-registry.js";
 
 /**
  * A citation far enough ahead of its definition that the citing block settles first.

@@ -4,7 +4,7 @@ import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { TOOL_SUMMARY_MAX_CHARACTERS } from "../cards/card-caps.js";
-import { FootnoteRegistry } from "@renderer/console/ledger/cards/markdown/index.js";
+import { FootnoteRegistry } from "./markdown/footnotes/footnote-registry.js";
 import { sampleRunRow } from "@test/helpers/timeline-row-samples.js";
 import { ToolCard, clampSummary } from "./ToolRow.js";
 

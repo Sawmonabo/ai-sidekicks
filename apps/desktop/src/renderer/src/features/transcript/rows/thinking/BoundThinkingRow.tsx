@@ -12,7 +12,7 @@
 // decides layout and the surface that performed the read decides what a row is allowed
 // to show, which is why the reasoning body arrives as a node rather than as a flag.
 
-import { ReasoningSurface } from "@renderer/console/ledger/cards/bodies/index.js";
+import { ReasoningSurface } from "./ThinkingRow.js";
 import { useReasoningSurfaceRead } from "./hooks/useReasoningRead.js";
 import type { RunId } from "@ai-sidekicks/contracts";
 

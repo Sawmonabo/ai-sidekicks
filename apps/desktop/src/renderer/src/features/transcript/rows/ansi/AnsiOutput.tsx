@@ -25,6 +25,8 @@ import { ANSI_SPAN_RENDER_CAP } from "../../cards/card-caps.js";
 import { Nothing, formatCount } from "@renderer/console/primitives/index.js";
 import { ansiSpanClassNames, parseAnsiSpans } from "./ansi-spans.js";
 
+import "./ansi.css";
+
 export interface AnsiOutputProps {
   /** The tool's output, wire-verbatim, escape sequences and all. */
   readonly source: string;

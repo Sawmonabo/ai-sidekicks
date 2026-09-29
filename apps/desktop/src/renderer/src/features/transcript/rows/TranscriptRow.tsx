@@ -1,5 +1,5 @@
-// The transcript row renderer registered for the timeline row seat: the ledger's cards
-// rendered against fixture scenarios.
+// The transcript row renderer registered for the timeline row seat: one row, through the
+// row component its kind names.
 //
 // NOTHING HERE RENDERS A TIMELINE ENTRY TYPE. The renderer is generic over
 // `TimelineRowSlotProps` — it reads `kind`, `type`, `summary`, `timestamp`, and the
@@ -7,7 +7,7 @@
 // entry vocabulary here would author a second body beside the real one.
 //
 // IT HOLDS NO STATE OF ITS OWN. A disclosure press writes the row's density to the list's
-// lease table through `ledger/frame/`'s lease channel, and the density it renders is
+// retained row state through `useLedgerRowLease`, and the density it renders is
 // whatever it was handed. That is the only way the choice survives: the virtualizer mounts
 // the visible range and nothing else, so anything a row remembers privately is discarded
 // the moment a reader scrolls past it.
@@ -15,11 +15,11 @@
 // WHAT IT CANNOT SUPPLY, stated rather than papered over. A machine-authored body lives
 // in the daemon's own encrypted column and reaches a reader through a hydrated read
 // projection; a `TimelineRow` carries neither the body nor a reference to one. So every
-// machine row here renders the named absence `MachineBody` gives an unread body.
+// machine row here renders the named absence `MessageContent` and `ToolOutput` give an unread body.
 //
 // LIVE TEXT IS A DIFFERENT CASE. It is published by the reveal engine, which the feed
 // owns, and it reaches a row through the frame's own per-row channel rather than through
-// the seat — `ledger/frame/reveal/RowRevealProvider.tsx` states why the seat is the wrong
+// the seat — `reveal/components/RowRevealProvider.tsx` states why the seat is the wrong
 // home for it. The row asks for its own lane and gets `undefined` while nothing is
 // streaming into it, which is every row of a settled log.
 //
@@ -28,21 +28,17 @@
 
 import { useCallback, useState } from "react";
 
-import { useLedgerRowLease, useLedgerRowReveal } from "../../frame/index.js";
+import { useLedgerRowLease, useLedgerRowReveal } from "@renderer/console/ledger/frame/index.js";
 import {
-  registerTimelineRowRenderer,
   type TimelineRowDensity,
   type TimelineRowSlotProps,
-} from "../../../seats/index.js";
-import { reasoningRunIdOf } from "../bodies/index.js";
-import { classifyCardFamily } from "@renderer/features/transcript/rows/row-kind.js";
-import { FixtureShellReasoningSurface } from "@renderer/features/transcript/rows/thinking/BoundThinkingRow.js";
-import { FootnoteRegistry } from "../markdown/index.js";
-import { MessageCard } from "@renderer/features/transcript/rows/MessageRow.js";
-import { ToolCard } from "@renderer/features/transcript/rows/ToolRow.js";
-
-/** The owner this renderer claims the seat under. */
-export const FIXTURE_SHELL_OWNER = "ledger fixture shell";
+} from "@renderer/console/seats/index.js";
+import { FootnoteRegistry } from "./markdown/footnotes/footnote-registry.js";
+import { MessageCard } from "./MessageRow.js";
+import { classifyCardFamily } from "./row-kind.js";
+import { FixtureShellReasoningSurface } from "./thinking/BoundThinkingRow.js";
+import { reasoningRunIdOf } from "./thinking/reasoning-reading.js";
+import { ToolCard } from "./ToolRow.js";
 
 /**
  * One row, through the card its family names.
@@ -51,7 +47,7 @@ export const FIXTURE_SHELL_OWNER = "ledger fixture shell";
  * cards themselves read, so the glyph, the label, and the layout a row gets here are the
  * ones it gets anywhere.
  */
-export function FixtureShellRow(props: TimelineRowSlotProps): React.JSX.Element | null {
+export function TranscriptRow(props: TimelineRowSlotProps): React.JSX.Element | null {
   const [footnotes] = useState(() => new FootnoteRegistry());
   const rowLease = useLedgerRowLease();
   const rowId = props.row.id;
@@ -79,7 +75,7 @@ export function FixtureShellRow(props: TimelineRowSlotProps): React.JSX.Element 
   //
   // WHAT STAYS HERE IS THE PURE READ the branch turns on: which run the row attributes.
   const attributedRunId = reasoningRunIdOf(props.row);
-  // THE LANE IS THE ROW, which is what `MachineBody` already claims of the member it
+  // THE LANE IS THE ROW, which is what `MessageContent` already claims of the member it
   // fills: "text the reveal engine is publishing for THIS ROW right now". Keying on the
   // run instead would give two machine rows of one turn one body between them.
   const liveText = useLedgerRowReveal(rowId);
@@ -120,16 +116,4 @@ export function FixtureShellRow(props: TimelineRowSlotProps): React.JSX.Element 
     case "receipt":
       return null;
   }
-}
-
-/**
- * Claim the timeline row seat for the fixture renderer.
- *
- * A function rather than a module-scope call: a module whose import registers a seat
- * cannot be composed twice by a test, and the seat's own owner scoping would then refuse
- * the second composition rather than replace it. The window that mounts the ledger calls
- * this.
- */
-export function registerFixtureShellRows(): void {
-  registerTimelineRowRenderer(FIXTURE_SHELL_OWNER, FixtureShellRow);
 }

@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 
 import { inlineCardSeatRegistry, type InlineCardSeatProps } from "@renderer/console/seats/index.js";
 import { MessageCard } from "./MessageRow.js";
-import { FootnoteRegistry } from "@renderer/console/ledger/cards/markdown/index.js";
+import { FootnoteRegistry } from "./markdown/footnotes/footnote-registry.js";
 import { sampleRunRow } from "@test/helpers/timeline-row-samples.js";
 
 function renderMessageCard(

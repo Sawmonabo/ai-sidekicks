@@ -60,8 +60,12 @@
 import { createElement } from "react";
 
 import { paneBodyForKind, type ConsolePaneContext } from "@renderer/console/seats/index.js";
-import { registerFixtureShellRows } from "@renderer/console/ledger/cards/shell/FixtureShellRows.js";
+import { registerFixtureShellRows } from "./timeline-rows.js";
 import { TimelinePane } from "../TranscriptPane.js";
+
+import "../rows/rows.css";
+import "../rows/bodies/bodies.css";
+import "../rows/markdown/markdown.css";
 
 registerFixtureShellRows();
 
