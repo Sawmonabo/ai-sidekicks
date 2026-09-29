@@ -9,7 +9,6 @@
  *     which imports this sheet).
  *   • `.meridian-ledger` and `.meridian-ledger__body`, the feed's grid
  *     (`feed/components/TranscriptFeed.tsx`).
- *   • `.meridian-pane__feed`, the scroll container inside the box the pane chrome sizes.
  *   • `.meridian-ledger-retry`, worn by the viewport's failed-row control and by the
  *     ANSI output's.
  *
@@ -80,22 +79,6 @@
   grid-template-columns: minmax(0, 1fr);
   min-width: 0;
   min-height: 0;
-}
-
-/* --- The pane's feed ---------------------------------------------------- */
-
-/*
- * The feed is the scroll container, and it is the ONLY one in the pane: a pane that
- * scrolled as a whole would carry its own head out of view, and the reading anchor
- * the ledger holds is an offset inside this box.
- */
-.meridian-pane__feed {
-  display: flex;
-  flex-direction: column;
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow-y: auto;
-  overscroll-behavior: contain;
 }
 
 .meridian-ledger-retry {

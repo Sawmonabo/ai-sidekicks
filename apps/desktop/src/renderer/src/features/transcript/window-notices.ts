@@ -13,11 +13,6 @@
 import { formatCount } from "@renderer/lib/wire-figures.js";
 import { type NothingKind } from "@renderer/components/Nothing/Nothing.js";
 
-/** Closed; the union follows from the tuple. */
-export const WINDOW_ABSENCE_KINDS = ["dropped", "never-received", "duplicate-key"] as const;
-
-export type WindowAbsenceKind = (typeof WINDOW_ABSENCE_KINDS)[number];
-
 /** One way this window is less than the session it is a window onto. */
 export type WindowAbsence =
   /** Rows the window's cap pushed out as the session grew. */

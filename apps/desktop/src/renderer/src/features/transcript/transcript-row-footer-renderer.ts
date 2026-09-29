@@ -20,16 +20,9 @@
 // run's state. A member saying "this caller may edit" would be exactly the second
 // answer the design forbids, and it would be computed here, in the renderer.
 //
-// AND IT IS NOT THE CARD'S OWN `editControl` HOLE, WHICH IS WHY BOTH EXIST.
-// `ledger/cards/MessageRow.tsx` carries an owner slot on its footer, and that slot
-// lives INSIDE the fixture shell's row body — the body the timeline subtree replaces
-// and deletes. A seat that dies with the shell is not a seat the affordance's owner
-// can be handed, so the durable one is mounted by the FEED, outside the body, and
-// survives that replacement. The card's hole stays a hole the shell hands nothing.
-//
-// WHICH ROWS GET ONE IS THE MOUNT'S DECISION AND IS WIRE-VERBATIM. The footer is
-// offered on user message rows, read off the row's own `type`. That is a
-// fact the wire states, not a rule this console invents.
+// WHERE IT IS DRAWN IS THE ROW'S DECISION. The transcript row hands the owner's element to
+// `MessageRow` as its edit control on a user's own message, where it sits beside Copy in
+// the row's hover footer.
 
 import type { TimelineRow } from "@ai-sidekicks/contracts";
 
@@ -56,15 +49,14 @@ export type TimelineRowFooterRenderer = (
 
 const timelineRowFooterSeat = new SingleSlotSeat<TimelineRowFooterRenderer>(
   "timeline row footer",
-  "the fixture shell is REPLACED by the affordance's owner, not registered beside it — delete the shell in the PR that registers the real footer",
+  "a user message carries one edit control; a second owner would make which one renders depend on import order",
 );
 
 /**
- * The call a footer owner makes to fill the seat.
+ * The call the footer's owner makes to fill the seat.
  *
- * Both owners call this: the fixture shell first, then the affordance's owner in the
- * PR that deletes the shell. Owner-scoped, so forgetting the deletion is a refusal
- * naming both rather than a race decided by import order.
+ * Owner-scoped, so a second owner is a refusal naming both rather than a race decided
+ * by import order.
  */
 export function registerTranscriptRowFooterRenderer(
   owner: string,
@@ -77,7 +69,7 @@ export function registerTranscriptRowFooterRenderer(
  * Release the seat.
  *
  * Test scaffolding: the seat is module-scope, so a case that fills it would leak
- * into the next one. The shell is retired by DELETING its registration.
+ * into the next one.
  */
 export function unregisterTranscriptRowFooterRenderer(): void {
   timelineRowFooterSeat.unregister();
@@ -86,18 +78,4 @@ export function unregisterTranscriptRowFooterRenderer(): void {
 /** The footer body, or `undefined` while the seat is empty. */
 export function findTranscriptRowFooterRenderer(): TimelineRowFooterRenderer | undefined {
   return timelineRowFooterSeat.renderer();
-}
-
-/**
- * The row types that get a footer.
- *
- * A closed tuple with one member today rather than a bare comparison, so the
- * membership question has one home: the affordance corrects what a user
- * SENT, and no other row is a thing a user sent.
- */
-export const ROW_TYPES_WITH_FOOTER = ["user.message"] as const;
-
-/** Whether this row is one the footer is offered on. Wire-verbatim, never inferred. */
-export function rowTakesFooter(row: TimelineRow): boolean {
-  return (ROW_TYPES_WITH_FOOTER as readonly string[]).includes(row.type);
 }

@@ -178,7 +178,7 @@ export function deckPaletteCommands(acts: DeckActs): readonly ConsoleCommand[] {
  * Contribute the deck's commands to a window.
  *
  * Takes the surface rather than reaching for the module-scope door, for
- * `registerLedgerCommands`' reason: a test contributes into a surface it owns.
+ * `registerTranscriptCommands`' reason: a test contributes into a surface it owns.
  */
 export function registerDeckCommands(
   surface: ConsoleCommandSurface,

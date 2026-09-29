@@ -15,6 +15,10 @@ import {
 } from "@renderer/console/seats/index.js";
 // Deeply: the teardown is reached by tests alone, so it is not a door line.
 import { unregisterTimelineRowRenderer } from "../transcript-row-renderer.js";
+import {
+  registerTranscriptRowFooterRenderer,
+  unregisterTranscriptRowFooterRenderer,
+} from "../transcript-row-footer-renderer.js";
 import { TRANSCRIPT_ROW_OWNER, registerFixtureShellRows } from "../contributions/timeline-rows.js";
 import { TranscriptRow } from "./TranscriptRow.js";
 import { sampleRunRow } from "@test/helpers/timeline-row-samples.js";
@@ -111,6 +115,35 @@ describe("routing a row to its card", () => {
     // through the hydrated-content body and reported a policy redaction as a body
     // that could not be opened.
     expect(container.querySelector(".meridian-machine-body")).toBeNull();
+  });
+});
+
+describe("the edit control's seat", () => {
+  afterEach(() => {
+    unregisterTranscriptRowFooterRenderer();
+  });
+
+  function buttonLabels(container: HTMLElement): readonly (string | null)[] {
+    return Array.from(container.querySelectorAll("button"), (button) => button.textContent);
+  }
+
+  it("draws the seat owner's control beside Copy on a user's own message", () => {
+    registerTranscriptRowFooterRenderer("a test", () => <button type="button">Edit</button>);
+    const { container } = render(
+      <MountedInAList
+        row={sampleRunRow({ type: "user.message", summary: "please run the tests" })}
+        listDensity="collapsed"
+      />,
+    );
+    expect(buttonLabels(container)).toStrictEqual(["Copy", "Edit"]);
+  });
+
+  it("negative control: a reply never carries it", () => {
+    registerTranscriptRowFooterRenderer("a test", () => <button type="button">Edit</button>);
+    const { container } = render(
+      <MountedInAList row={sampleRunRow({ type: "assistant.message" })} listDensity="collapsed" />,
+    );
+    expect(buttonLabels(container)).not.toContain("Edit");
   });
 });
 

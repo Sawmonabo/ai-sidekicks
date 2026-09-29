@@ -9,7 +9,6 @@ import { type RetainedRowState } from "../../viewport/retained-row-state-table.j
 import { type TranscriptRowRenderer } from "../../viewport/components/VirtualRow.js";
 import { type ViewportRow } from "../../viewport/viewport-snapshot.js";
 import { type TranscriptWindowModel } from "../../window/transcript-window.js";
-import { findTranscriptRowFooterRenderer } from "../../transcript-row-footer-renderer.js";
 import { type TimelineRowRenderer } from "../../transcript-row-renderer.js";
 import { TranscriptFeedRow } from "../components/TranscriptFeedRow.js";
 import { densityFor } from "../run-group-fold.js";
@@ -37,12 +36,6 @@ export function useTranscriptRowRenderer(
 ): TranscriptRowRenderer {
   const { ledgerWindow, openedTerminalRunIds, hueForActor, toggleChapter, rowLease } = options;
   const renderTimelineRow = options.renderTimelineRow;
-  // The FOOTER seat, read here rather than threaded from the pane: unlike the row
-  // body it is filled by a plan this window does not compose, so there is no props
-  // chain to carry it down. A plain read of a module-scope registration filled
-  // before first paint, and identity-stable for the life of that registration —
-  // which is what the memo below compares.
-  const renderTimelineRowFooter = findTranscriptRowFooterRenderer();
   return useCallback(
     (row: ViewportRow) => {
       // A CHAPTER HEADER IS A ROW OF THE LIST, keyed by the run it heads, so it is
@@ -101,18 +94,9 @@ export function useTranscriptRowRenderer(
             densityFor(projected.id, ledgerWindow.collapsedRowIds)
           }
           renderTimelineRow={renderTimelineRow}
-          renderTimelineRowFooter={renderTimelineRowFooter}
         />
       );
     },
-    [
-      hueForActor,
-      ledgerWindow,
-      openedTerminalRunIds,
-      renderTimelineRow,
-      rowLease,
-      renderTimelineRowFooter,
-      toggleChapter,
-    ],
+    [hueForActor, ledgerWindow, openedTerminalRunIds, renderTimelineRow, rowLease, toggleChapter],
   );
 }

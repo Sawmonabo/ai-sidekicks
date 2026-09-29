@@ -34,6 +34,7 @@ import {
   type TimelineRowDensity,
   type TimelineRowSlotProps,
 } from "@renderer/console/seats/index.js";
+import { findTranscriptRowFooterRenderer } from "../transcript-row-footer-renderer.js";
 import { FootnoteRegistry } from "./markdown/footnotes/footnote-registry.js";
 import { MessageRow } from "./MessageRow.js";
 import { classifyTranscriptRow } from "./row-kind.js";
@@ -110,7 +111,7 @@ export function TranscriptRow(props: TimelineRowSlotProps): React.JSX.Element | 
           density={density}
           footnotes={footnotes}
           {...(liveText === undefined ? {} : { liveText })}
-          editControl={undefined}
+          editControl={editControlOf(props)}
           thinkingRow={
             family.kind === "thinking" ? (
               <BoundThinkingRow runId={attributedRunId} liveText={liveText} />
@@ -119,4 +120,9 @@ export function TranscriptRow(props: TimelineRowSlotProps): React.JSX.Element | 
         />
       );
   }
+}
+
+/** The edit control the seat's owner draws, or nothing; the message row shows it on a user's own. */
+function editControlOf(props: TimelineRowSlotProps): React.ReactNode {
+  return findTranscriptRowFooterRenderer()?.({ row: props.row, isSuperseded: props.isSuperseded });
 }

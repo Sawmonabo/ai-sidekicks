@@ -224,13 +224,9 @@ export type {
   /** @consumedBy a view family that has not landed yet */
   WindowAbsence,
   /** @consumedBy a view family that has not landed yet */
-  WindowAbsenceKind,
-  /** @consumedBy a view family that has not landed yet */
   WindowAbsenceNotice,
 } from "@renderer/features/transcript/window-notices.js";
 export {
-  /** @consumedBy a view family that has not landed yet */
-  WINDOW_ABSENCE_KINDS,
   /** @consumedBy a view family that has not landed yet */
   windowAbsenceNotice,
   /** @consumedBy a view family that has not landed yet */

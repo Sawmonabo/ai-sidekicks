@@ -4,45 +4,6 @@
 import type { TimelineRow } from "@ai-sidekicks/contracts";
 
 /**
- * Narrow one loaded window on a row predicate, boundary rule included: a narrowing still
- * admits the `rollback_boundary` rows of every run whose rows it admits, because a
- * boundary is what marks the rows around it superseded.
- *
- * Two passes, and the second is that rule: the first admits rows on their own
- * merits and records which runs were admitted, and the second re-admits every
- * `rollback_boundary` belonging to one of those runs. A single pass could not do
- * it — a boundary earlier in the window than any admitted row of its run would
- * have to be judged before the run was known.
- *
- * Order is preserved throughout: this narrows, it never sorts.
- */
-export function narrowRows(
-  rows: readonly TimelineRow[],
-  admits: (row: TimelineRow) => boolean,
-): readonly TimelineRow[] {
-  const admittedRowIds = new Set<string>();
-  const admittedRunIds = new Set<string>();
-
-  for (const row of rows) {
-    if (!admits(row)) {
-      continue;
-    }
-    admittedRowIds.add(row.id);
-    if (row.kind !== "general") {
-      admittedRunIds.add(row.runId);
-    }
-  }
-
-  for (const row of rows) {
-    if (row.kind === "rollback_boundary" && admittedRunIds.has(row.runId)) {
-      admittedRowIds.add(row.id);
-    }
-  }
-
-  return rows.filter((row) => admittedRowIds.has(row.id));
-}
-
-/**
  * The narrowings a row passes through between the loaded log and the viewport, in
  * the order the feed applies them.
  *

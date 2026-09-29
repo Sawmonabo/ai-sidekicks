@@ -238,16 +238,6 @@ export {
   type TimelineRowSlotProps,
 } from "@renderer/features/transcript/transcript-row-renderer.js";
 
-// The footer seat publishes only what a PRODUCTION reader takes: the shell's
-// registration, the ledger's mount, and the two types both name. Its slot contract,
-// its row-type tuple, and its release call are read by its own suite alone, which
-// reaches the declaring module directly — a door line without a production reader is
-// what the module-shape rule in `apps/desktop/AGENTS.md` rejects.
-export {
-  rowTakesFooter,
-  type TimelineRowFooterRenderer,
-} from "@renderer/features/transcript/transcript-row-footer-renderer.js";
-
 // `InlineCardBodyDescriptor` is deliberately absent: a registrar hands `register` an
 // object literal and `inlineCardBody` answers already narrowed, so the reservation that
 // held the line named a task that landed and imported it nowhere.

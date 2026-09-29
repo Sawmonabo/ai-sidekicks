@@ -32,19 +32,15 @@
 
 import { memo } from "react";
 
-import { type TimelineRowFooterRenderer } from "../../transcript-row-footer-renderer.js";
 import {
   type TimelineRowRenderer,
   type TimelineRowSlotProps,
 } from "../../transcript-row-renderer.js";
-import { TranscriptRowFooter } from "./TranscriptRowFooter.js";
 
-/** What one row hands the seat's renderer and the footer seat. */
+/** What one row hands the seat's renderer. */
 export interface TranscriptFeedRowProps extends TimelineRowSlotProps {
   /** The seat's renderer. STABLE across renders, or this memo moves with it. */
   readonly renderTimelineRow: TimelineRowRenderer;
-  /** The footer seat's renderer, or `undefined` while nobody has filled it. */
-  readonly renderTimelineRowFooter: TimelineRowFooterRenderer | undefined;
 }
 
 /**
@@ -52,10 +48,7 @@ export interface TranscriptFeedRowProps extends TimelineRowSlotProps {
  *
  * Adds no BOX of its own: the row box, the error boundary and the ARIA position are
  * the viewport's, and a wrapper element here would put a second box between the feed
- * and the article the row role is declared on. The footer is a SIBLING of the body
- * inside that article rather than a wrapper around it, which is why it does not
- * break that rule — and it is drawn under the body because that is where the design
- * puts a row-level control.
+ * and the article the row role is declared on.
  *
  * An ARROW WITH A DECLARED RETURN TYPE rather than a named function expression, so
  * this module resolves as the one component it declares: the one-component rule is
@@ -64,20 +57,12 @@ export interface TranscriptFeedRowProps extends TimelineRowSlotProps {
  * would declare none — clean against a rule that was never applied to it.
  */
 export const TranscriptFeedRow: React.NamedExoticComponent<TranscriptFeedRowProps> = memo(
-  (props: TranscriptFeedRowProps): React.ReactNode => (
-    <>
-      {props.renderTimelineRow({
-        row: props.row,
-        actorHue: props.actorHue,
-        isSuperseded: props.isSuperseded,
-        density: props.density,
-      })}
-      <TranscriptRowFooter
-        row={props.row}
-        isSuperseded={props.isSuperseded}
-        renderFooter={props.renderTimelineRowFooter}
-      />
-    </>
-  ),
+  (props: TranscriptFeedRowProps): React.ReactNode =>
+    props.renderTimelineRow({
+      row: props.row,
+      actorHue: props.actorHue,
+      isSuperseded: props.isSuperseded,
+      density: props.density,
+    }),
 );
 TranscriptFeedRow.displayName = "TranscriptFeedRow";
