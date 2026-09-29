@@ -12,7 +12,7 @@
 // destinations exist rather than about when they are shown. The surface set names
 // sessions, workflows, and settings; the rail shipped sessions, workspace, and
 // settings, so the destination that opens the workflow builder was unreachable and the
-// session workspace — a route reached from the sessions list — was carrying a rail icon
+// session screen — a route reached from the sessions list — was carrying a rail icon
 // that had to be hidden half the time to make sense. The last case here is what holds
 // the pair straight now: a click on an entry lands on a route the rail reports as that
 // same entry, for every one of them.

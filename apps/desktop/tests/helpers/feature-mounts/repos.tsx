@@ -102,5 +102,5 @@ export async function mountDiffPane(): Promise<MountedView> {
   // Anchored at the kind rather than spelled whole: the chrome names the pane by its
   // trail, so the full name carries the session id and the workspace this diff is a view
   // of — both stated by the fixture, and neither this module's to restate.
-  return { element: requireLabeledRegion(container, /Diff$/u), bridge };
+  return { element: requireLabeledRegion(container, /Review$/u), bridge };
 }

@@ -28,6 +28,7 @@
 
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
 import { type Announce, type AnnouncementPoliteness } from "@renderer/console/primitives/index.js";
+import { TITLE_BY_PANE_KIND } from "@renderer/components/PaneFrame/PaneFrame.js";
 import { type PaneKind } from "@renderer/console/seats/index.js";
 import type { PaneLayoutStore } from "./pane-layout-store.js";
 
@@ -180,10 +181,13 @@ export function paneDropAnnouncement(
   paneCount: number,
 ): PaneDropAnnouncement {
   if (fromPosition === toPosition) {
-    return { message: `The ${paneKind} pane was not moved.`, politeness: "assertive" };
+    return {
+      message: `The ${TITLE_BY_PANE_KIND[paneKind]} pane was not moved.`,
+      politeness: "assertive",
+    };
   }
   return {
-    message: `Moved the ${paneKind} pane to position ${String(toPosition + 1)} of ${String(paneCount)}.`,
+    message: `Moved the ${TITLE_BY_PANE_KIND[paneKind]} pane to position ${String(toPosition + 1)} of ${String(paneCount)}.`,
     politeness: "polite",
   };
 }

@@ -11,7 +11,7 @@ import { TranscriptSurface } from "../TranscriptSurface.js";
 /**
  * What the composition root supplies this feature, because this file may not import it.
  *
- * The session workspace's body belongs to another feature, and no feature imports
+ * The session screen's body belongs to another feature, and no feature imports
  * another, so the component arrives as a parameter named by the composition root, which
  * sits above every feature and is the one place allowed to name more than one.
  *
@@ -64,7 +64,7 @@ export const TRANSCRIPT_OWNER = "transcript";
 type SessionScreenMountProps = Omit<ScreenContext, "sessionStoreRegistry" | "chooseScheme">;
 
 /**
- * Mount the session workspace: the session header, the deck, and the composer's seat.
+ * Mount the session screen: the session header, the deck, and the composer's seat.
  *
  * The wrapper keeps the surface's full-height grid, which is what lets the deck
  * inside it be the thing that scrolls rather than the window.

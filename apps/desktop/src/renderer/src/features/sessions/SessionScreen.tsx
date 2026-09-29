@@ -1,4 +1,4 @@
-// The session workspace: the session header, the deck, and the composer's seat.
+// The session screen: the session header, the deck, and the composer's seat.
 //
 // This is what a person is looking at when they are looking at a session. It
 // composes three things it does not own — `SessionHeader` (this family's), the deck's
@@ -87,7 +87,7 @@ export interface SessionScreenProps {
   readonly paneRegistry: PaneRegistry;
 }
 
-/** The session workspace: header, deck of panes, composer seat, and the banner column. */
+/** The session screen: header, deck of panes, composer seat, and the banner column. */
 export function SessionScreen(props: SessionScreenProps): React.JSX.Element {
   const sessionId = routeSessionId(props.route);
   const registry = props.paneRegistry;

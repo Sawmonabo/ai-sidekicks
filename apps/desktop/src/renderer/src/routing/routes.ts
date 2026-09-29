@@ -6,7 +6,7 @@
 // handler for a path that is not a file; a hash route asks for the same document every
 // time and carries its state after the `#`.
 //
-// The routes are one per icon-rail destination plus the session workspace. The
+// The routes are one per icon-rail destination plus the session screen. The
 // workspace is a route and NOT a rail destination: a session is reached from the
 // sessions destination, which is why `railDestinationFor` answers `sessions` for it.
 //

@@ -78,17 +78,17 @@ export const GLYPH_BY_PANE_KIND: Readonly<Record<PaneKind, GlyphName>> = {
  * (`Workflow run`).
  */
 export const TITLE_BY_PANE_KIND: Readonly<Record<PaneKind, string>> = {
-  transcript: "Timeline",
+  transcript: "Transcript",
   inspector: "Inspector",
   runs: "Runs",
   approvals: "Approvals",
-  diff: "Diff",
+  diff: "Review",
   artifact: "Artifact",
   "workflow-run": "Workflow run",
   "workflow-builder": "Workflow builder",
-  browser: "Browser",
+  browser: "Preview",
   terminal: "Terminal",
-  agents: "Agent console",
+  agents: "Sidekicks",
 };
 
 /**

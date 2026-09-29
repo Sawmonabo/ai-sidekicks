@@ -63,7 +63,7 @@ describe("AppProviders — the rail's three destinations, and where the window i
     expect(labels).toStrictEqual(["Sessions", "Workflows", "Settings"]);
   });
 
-  it("puts a session workspace under the sessions destination", async () => {
+  it("puts a session screen under the sessions destination", async () => {
     // A window opened straight into a session is INSIDE the sessions destination,
     // which is where a person got there from. Highlighting nothing — the answer a
     // rail gives when the route names a destination it does not draw — reads as

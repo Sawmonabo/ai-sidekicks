@@ -1,6 +1,6 @@
 // The seats family's door — and the one place view families reach each other.
 //
-// The family holds the session workspace's shared vocabulary: the seats through
+// The family holds the session screen's shared vocabulary: the seats through
 // which the view families hand each other panes, a composer, sidebar sections,
 // timeline rows, and inline cards, and the surface registry through which a family
 // hands the frame a whole route's body. It sits directly above `bridge/` and below

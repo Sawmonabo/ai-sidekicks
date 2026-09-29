@@ -55,7 +55,7 @@ export type TranscriptActOutcome =
 export const TRANSCRIPT_NOT_MOUNTED_REFUSAL: Refusal = refuse(
   "transcript",
   "transcript.no_mounted_transcript",
-  "No ledger is open in this window. Open a session and try again.",
+  "No transcript is open in this window. Open a session and try again.",
 );
 
 /** The mounted feeds, in mount order. */

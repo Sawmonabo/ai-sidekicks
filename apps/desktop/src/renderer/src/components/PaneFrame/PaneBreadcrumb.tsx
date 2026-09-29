@@ -62,7 +62,7 @@ export interface PaneScopeCrumb {
  * The identifiers are wire-verbatim — they are strings, so they are rendered as
  * received. An entity contributes its `id` and not its `kind`: the kind is already
  * said by the pane's own glyph and title, and repeating it in the trail would make
- * `agent agent-01` the crumb for a pane that says "Agent console" two elements away.
+ * `agent agent-01` the crumb for a pane that says "Sidekicks" two elements away.
  *
  * EACH CRUMB CARRIES ITS SCOPE because the identifier alone cannot key it. Two scopes
  * of one address may hold the same string — a run whose id is its session's is the

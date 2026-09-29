@@ -86,10 +86,10 @@ describe("routes — malformed main-window hashes resolve to not-found", () => {
     expect(parseRoute("#/settings/providers/%zz").kind).toBe("not-found");
   });
 
-  it("names no address of its own for the session workspace's rail destination", () => {
+  it("names no address of its own for the session screen's rail destination", () => {
     // `workspace` is a ROUTE kind reached from the sessions destination, not a
     // rail destination with an address. `#/workspace` therefore names nothing —
-    // the session workspace is `#/session/<id>` — and a grammar that answered it
+    // the session screen is `#/session/<id>` — and a grammar that answered it
     // would be a second address for a surface that already has one.
     expect(parseRoute("#/workspace")).toStrictEqual({
       kind: "not-found",

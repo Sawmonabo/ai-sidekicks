@@ -40,7 +40,7 @@ describe("focusing the next and previous pane", () => {
     acts.focusNextPane();
 
     expect(layout.snapshot().focusedPaneId).toBe(second?.paneId);
-    expect(announce.said).toStrictEqual([["Focused the runs pane, position 2 of 3.", "polite"]]);
+    expect(announce.said).toStrictEqual([["Focused the Runs pane, position 2 of 3.", "polite"]]);
   });
 
   it("wraps backwards from the first pane to the last", () => {
@@ -53,7 +53,7 @@ describe("focusing the next and previous pane", () => {
     acts.focusPreviousPane();
 
     expect(layout.snapshot().focusedPaneId).toBe(panes[2]?.paneId);
-    expect(announce.said[0]?.[0]).toBe("Focused the approvals pane, position 3 of 3.");
+    expect(announce.said[0]?.[0]).toBe("Focused the Approvals pane, position 3 of 3.");
   });
 
   it("says a one-pane deck has nowhere to cycle rather than moving in silence", () => {
@@ -64,7 +64,7 @@ describe("focusing the next and previous pane", () => {
     paneLayoutActsOn(layout, announce).focusNextPane();
 
     expect(announce.said).toStrictEqual([
-      ["The transcript pane is the only pane open.", "assertive"],
+      ["The Transcript pane is the only pane open.", "assertive"],
     ]);
   });
 
@@ -121,7 +121,7 @@ describe("moving the focused pane", () => {
       "approvals",
     ]);
     expect(announce.said).toStrictEqual([
-      ["Moved the transcript pane to position 2 of 3.", "polite"],
+      ["Moved the Transcript pane to position 2 of 3.", "polite"],
     ]);
   });
 
@@ -138,7 +138,7 @@ describe("moving the focused pane", () => {
       "runs",
       "approvals",
     ]);
-    expect(announce.said).toStrictEqual([["The transcript pane was not moved.", "assertive"]]);
+    expect(announce.said).toStrictEqual([["The Transcript pane was not moved.", "assertive"]]);
   });
 
   it("says there is no focused pane rather than moving nothing quietly", () => {

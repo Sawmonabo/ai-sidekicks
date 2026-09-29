@@ -27,7 +27,7 @@ export async function mountPreviewPane(): Promise<MountedView> {
     />,
   );
   return {
-    element: requireLabeledRegion(container, paneTrailName(undefined, "Browser")),
+    element: requireLabeledRegion(container, paneTrailName(undefined, "Preview")),
     bridge,
   };
 }

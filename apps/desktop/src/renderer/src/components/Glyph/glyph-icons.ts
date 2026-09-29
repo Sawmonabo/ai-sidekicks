@@ -29,7 +29,7 @@ import type { ComponentType, SVGProps } from "react";
 
 import type { GlyphName } from "@renderer/styles/glyphs.js";
 
-// --- The top-level destinations and the session workspace.
+// --- The top-level destinations and the session screen.
 // Rail destination; Tabler stacks the same plate and two chevrons out of the same lines.
 import SessionsFace from "~icons/tabler/stack-2";
 // A folder whose corners are the family's, not Tabler's two-unit radius (rule 2).

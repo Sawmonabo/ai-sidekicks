@@ -174,7 +174,7 @@ export class WindowStore {
   }
 
   /**
-   * The session Workspace goes back to: the last one this window opened, whether or
+   * The session the session screen returns to: the last one this window opened, whether or
    * not the current route still names it. `undefined` until one has been opened.
    */
   public get lastOpenedSessionId(): string | undefined {

@@ -8,7 +8,7 @@
 // sessions, workflows, settings — and every one of them is reachable from every
 // main-window route, so the entries are a constant rather than a function of window
 // state. They used to be neither: a fourth entry, Workspace, was shown or hidden on
-// whether this window had a session in hand. The session workspace is reached from the
+// whether this window had a session in hand. The session screen is reached from the
 // sessions destination instead, which is why `railDestinationFor` maps a workspace
 // route onto `sessions` and why the palette's "Go to Workspace" — an act, not a
 // destination — lives beside these rather than among them.

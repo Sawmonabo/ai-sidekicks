@@ -57,7 +57,7 @@ describe("repos — the pane kinds", () => {
     );
     // The name is a pattern and not the whole name, because `seats/PaneFrame`
     // names a pane by its address trail and the kind is the crumb the trail ends on.
-    const region = within(container).getByRole("region", { name: /Diff$/u });
+    const region = within(container).getByRole("region", { name: /Review$/u });
     // And the trail really is a trail: the subject the descriptor was handed is in the
     // name, so a body that stopped passing its address to the chrome fails here rather
     // than passing on the kind noun alone.

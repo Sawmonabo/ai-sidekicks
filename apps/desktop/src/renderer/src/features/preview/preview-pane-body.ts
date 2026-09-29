@@ -41,7 +41,7 @@ import { PreviewPane } from "./PreviewPane.js";
  * The registry holds one `render` per kind over the whole address union, and this body
  * is a view of the `browser` arm alone: the two untyped boundaries — a restored layout
  * row and a typed route — are where an address of another kind arrives without the
- * compiler, and mounting a browser body at one would draw a pane headed "Browser" over
+ * compiler, and mounting a browser body at one would draw a pane headed "Preview" over
  * something else entirely. The adapter narrows once and renders the kind-mismatch
  * refusal for the arm it cannot serve, which is the console's answer everywhere else:
  * one bad row loses that row rather than the deck.

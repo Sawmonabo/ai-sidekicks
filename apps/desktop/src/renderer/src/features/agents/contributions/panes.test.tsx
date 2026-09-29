@@ -139,7 +139,7 @@ describe("the deck's mount — the body inside the console's one chrome", () => 
     // the one element the pane names itself by. The agent is a CRUMB of that name.
     expect(accessibleName(pane)).toContain(PLAYED_SESSION_ID);
     expect(accessibleName(pane)).toContain(ADDRESSED_AGENT_ID);
-    expect(accessibleName(pane)).toContain("Agent console");
+    expect(accessibleName(pane)).toContain("Sidekicks");
     expect(pane.querySelectorAll("h1, h2")).toHaveLength(0);
   });
 });

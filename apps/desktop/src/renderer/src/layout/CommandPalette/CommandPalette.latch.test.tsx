@@ -33,7 +33,7 @@ import { type CommandDefinition } from "@renderer/registries/commands/command-ty
 import { CommandPalette } from "./CommandPalette.js";
 import type { WhenClauseContext } from "@renderer/registries/commands/when-clause/when-clause.js";
 
-/** The reading a person opens the palette on: they are looking at a session workspace. */
+/** The reading a person opens the palette on: they are looking at a session screen. */
 const ON_SESSION: WhenClauseContext = {
   sessionActive: true,
   onSessions: false,

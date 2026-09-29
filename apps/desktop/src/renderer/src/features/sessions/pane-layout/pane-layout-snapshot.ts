@@ -180,7 +180,7 @@ export function decodePaneLayoutSnapshot(
     return emptyDecode(
       refusePaneLayoutRestore(
         "snapshot-version-unknown",
-        "The saved layout was written by a different version of the console, so none of it was restored. The session opens with no panes and saves again as you arrange them.",
+        "The saved layout was written by a different version of the app, so none of it was restored. The session opens with no panes and saves again as you arrange them.",
       ),
     );
   }
@@ -309,7 +309,7 @@ function decodePane(
       address.code === "pane-kind-unknown"
         ? refusePaneLayoutRestore(
             "pane-kind-unknown",
-            "One saved pane is a kind this version of the console does not have, so it was left closed.",
+            "One saved pane is a kind this version of the app does not have, so it was left closed.",
           )
         : refusePaneLayoutRestore(
             "pane-entity-invalid",

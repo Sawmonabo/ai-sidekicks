@@ -56,7 +56,7 @@ describe("Agents pane — the body draws no head of its own", () => {
 
     expect(body?.tagName).toBe("DIV");
     expect(container.querySelectorAll("h1, h2")).toHaveLength(0);
-    expect(container.querySelector("[aria-label='Agent console']")).toBeNull();
+    expect(container.querySelector("[aria-label='Sidekicks']")).toBeNull();
   });
 
   it("negative control: it does still draw the heading that names its column", async () => {

@@ -26,10 +26,10 @@
 //
 // Each locator names a STRUCTURE only its own route mounts, and both routes have
 // shipped their surface now. The settings destination is the settings frame, so its
-// locator is that frame's own section rail; the session workspace is the ledger, so
+// locator is that frame's own section rail; the session screen is the transcript, so
 // its locator is the scroll container the whole surface is built around. Neither was
 // always so: each was an absence class while its surface was a reserved slot, and the
-// pair stopped being route-exclusive the moment either family shipped — the ledger
+// pair stopped being route-exclusive the moment either family shipped — the transcript
 // renders its own `empty` when a session has no rows yet, and the settings pages
 // render `not-checked` absences of their own.
 //
@@ -88,7 +88,7 @@ export const CONCURRENT_STREAMING_SESSION_ROUTE: string = `#/session/${encodeURI
 export const SETTINGS_ROUTE: string = "#/settings";
 
 /**
- * What the settings route renders and the session workspace does not.
+ * What the settings route renders and the session screen does not.
  *
  * Anchored under the frame's surface slot, so an element of the same class mounted
  * in the rail, a banner, or an overlay cannot satisfy the wait for a surface that
@@ -97,19 +97,19 @@ export const SETTINGS_ROUTE: string = "#/settings";
  * The section rail rather than one of the surface's absences: the pages inside the
  * settings frame render absences of their own — several of them `not-checked`,
  * because the reads behind them are unregistered — so an absence-kind selector here
- * would no longer be route-exclusive against the workspace's. The rail is the one
+ * would no longer be route-exclusive against the session screen's. The rail is the one
  * piece of markup that exists if and only if this surface mounted.
  */
 export const SETTINGS_SCREEN_SELECTOR: string = ".meridian-frame__surface .meridian-settings__rail";
 
 /**
- * What the session workspace renders and the settings route does not.
+ * What the session screen renders and the settings route does not.
  *
- * The transcript PANE, which the workspace mounts on every session route whether or not
+ * The transcript PANE, which the session screen mounts on every session route whether or not
  * that session has rows yet — so the wait observes the MOUNT rather than the arrival of
  * content, which is what a churn cycle needs it to observe.
  *
- * NOT the ledger's body, which was this selector until the provenance rail was removed:
+ * NOT the transcript's body, which was this selector until the provenance rail was removed:
  * that box is a container whose children are all conditional, so before the session's
  * first read settles it holds a virtualized list with nothing in it and has no box at
  * all. It satisfied a visibility wait only because the rail beside the window drew an
@@ -121,9 +121,9 @@ export const SESSION_SCREEN_SELECTOR: string =
   ".meridian-frame__surface .meridian-pane--transcript";
 
 /**
- * One ledger row, anchored under the frame's surface.
+ * One transcript row, anchored under the frame's surface.
  *
- * The PANE says the workspace mounted; a ROW says the projection, the window
+ * The PANE says the session screen mounted; a ROW says the projection, the window
  * fold and the viewport's reconcile have all run and something is on screen. The
  * two budget readings in this tier need the second claim and the churn loop needs
  * the first, so both selectors live here and neither tier spells one itself.
@@ -243,9 +243,9 @@ export async function readBoundSessionIds(
 /**
  * What one churn cycle saw, in the two registers a caller can be fooled in.
  *
- * THE ROW COUNT IS HERE BECAUSE THE ROUTE WAIT STOPPED CARRYING IT. The workspace
- * wait names the transcript PANE, which mounts its chrome whether or not the ledger
- * inside it ever draws a row — so a run whose ledger never mounted churns the whole
+ * THE ROW COUNT IS HERE BECAUSE THE ROUTE WAIT STOPPED CARRYING IT. The session screen
+ * wait names the transcript PANE, which mounts its chrome whether or not the transcript
+ * inside it ever draws a row — so a run whose transcript never mounted churns the whole
  * loop, waits successfully every time, and reports clean heap growth over a surface
  * that is not there. The pane says the route arrived; this says the surface under it
  * came up.
@@ -272,7 +272,7 @@ export interface ChurnCycleReading {
  * back to back would be a cycle that measured neither.
  *
  * Returns what the cycle saw, so a caller can assert the workload progressed and
- * that it progressed over a ledger, without paying for a second round trip.
+ * that it progressed over a transcript, without paying for a second round trip.
  */
 export async function churnOnce(
   consoleApplication: AppUnderTest,
@@ -296,7 +296,7 @@ export async function churnOnce(
   await openConcurrentStreamingSessionRoute(consoleApplication);
 
   const deliveredBeatCount = await advanceScenario(consoleApplication, advanceMilliseconds);
-  // Counted AFTER the advance, so the cycle reports the ledger the beats it just
+  // Counted AFTER the advance, so the cycle reports the transcript the beats it just
   // delivered landed in. A count and not a wait: the early cycles legitimately have
   // no row — the concurrent-streaming script is walked over the whole run — so a wait here would
   // spend the body's allowance on a state the run is expecting. What the caller does

@@ -101,7 +101,7 @@ describe("PaneFrame — how the pane names itself", () => {
       </PaneFrame>,
     );
     expect(pane.getAttribute("aria-labelledby")).not.toBe("");
-    expect(accessibleName(pane)).toContain("Diff");
+    expect(accessibleName(pane)).toContain("Review");
   });
 
   it("takes the caller's id where the caller owns one", () => {

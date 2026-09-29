@@ -1,7 +1,7 @@
 // The chrome itself: the rail, the banner stack, and one slot for whatever the
 // route names.
 //
-// The frame owns chrome and nothing else. It does not know what a session workspace
+// The frame owns chrome and nothing else. It does not know what a session screen
 // is, and the six 1C surface families do not know the frame exists — they register a
 // renderer for a route and the frame mounts it. That separation is what lets the
 // families ship in parallel, and it is why `surfaces` is a prop rather than an
@@ -115,7 +115,7 @@ function surfaceNameFor(route: AppRoute): string {
     case "sessions":
       return "The sessions list";
     case "session":
-      return "The session workspace";
+      return "The session screen";
     case "workflows":
       return "Workflows";
     case "settings":

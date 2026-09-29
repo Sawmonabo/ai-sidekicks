@@ -28,7 +28,7 @@ describe("railDestinationFor — which rail icon is current", () => {
     expect(railDestinationFor({ kind: "settings", page: undefined })).toBe("settings");
   });
 
-  it("keeps a session workspace under the sessions destination", () => {
+  it("keeps a session screen under the sessions destination", () => {
     // The workspace is reached FROM the sessions destination, so the rail
     // highlights that one while a person is inside a session. The alternative —
     // a `workspace` destination of its own — names an icon the rail does not

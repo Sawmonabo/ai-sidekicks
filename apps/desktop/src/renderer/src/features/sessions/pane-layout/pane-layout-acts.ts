@@ -19,6 +19,7 @@
 // deck focusing nothing — and those two are said by the seat and by this file
 // respectively, because only one of them is a fact about the deck.
 
+import { TITLE_BY_PANE_KIND } from "@renderer/components/PaneFrame/PaneFrame.js";
 import type { Announce } from "@renderer/console/primitives/index.js";
 import type { PaneLayoutStore } from "./pane-layout-store.js";
 import { paneDropAnnouncement } from "./pane-drag.js";
@@ -66,11 +67,11 @@ export function paneLayoutActsOn(layout: PaneLayoutStore, announce: Announce): P
       // A one-pane deck, where cycling lands where it started. Said in the assertive
       // lane for `paneDropAnnouncement`'s reason: "the thing you tried did not
       // happen" is exactly what a cycle with nowhere to go is.
-      announce(`The ${focused.kind} pane is the only pane open.`, "assertive");
+      announce(`The ${TITLE_BY_PANE_KIND[focused.kind]} pane is the only pane open.`, "assertive");
       return;
     }
     announce(
-      `Focused the ${focused.kind} pane, position ${String(position + 1)} of ${String(panes.length)}.`,
+      `Focused the ${TITLE_BY_PANE_KIND[focused.kind]} pane, position ${String(position + 1)} of ${String(panes.length)}.`,
       "polite",
     );
   };

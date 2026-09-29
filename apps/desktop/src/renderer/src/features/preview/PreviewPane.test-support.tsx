@@ -174,12 +174,12 @@ export async function mountPreviewPaneForSubject(
  * What the pane's region is CALLED once `seats/PaneFrame` names it.
  *
  * The chrome names a pane by its whole address trail rather than by its kind — "the
- * session, then Browser" — and every mount in this family's suites is unbound, so the
+ * session, then Preview" — and every mount in this family's suites is unbound, so the
  * trail opens on the chrome's own no-address crumb. Spelled once here because it is a
  * property of the frame rather than of any one suite: a suite that hard-coded it would
  * be asserting the chrome's naming rule by accident, in as many places as it queried.
  */
-const UNBOUND_BROWSER_PANE_NAME = "No session Browser";
+const UNBOUND_PREVIEW_PANE_NAME = "No session Preview";
 
 /**
  * The mounted pane's region, read by role and name.
@@ -189,7 +189,7 @@ const UNBOUND_BROWSER_PANE_NAME = "No session Browser";
  * class selector and every suite here would go on passing.
  */
 export function previewPaneRegion(): HTMLElement {
-  return screen.getByRole("region", { name: UNBOUND_BROWSER_PANE_NAME });
+  return screen.getByRole("region", { name: UNBOUND_PREVIEW_PANE_NAME });
 }
 
 /**

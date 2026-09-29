@@ -208,20 +208,20 @@ describe("PaneBreadcrumb — the trail", () => {
   });
 
   it("says the address names nothing rather than rendering an empty strip", () => {
-    const crumbs = renderTrail(NO_ADDRESS, "Timeline");
+    const crumbs = renderTrail(NO_ADDRESS, "Transcript");
     expect(crumbs.querySelector(".meridian-pane__crumb-absent")?.textContent).toBe("No session");
-    expect(crumbTexts(crumbs)).toStrictEqual(["No session", "Timeline"]);
+    expect(crumbTexts(crumbs)).toStrictEqual(["No session", "Transcript"]);
   });
 
   it("negative control: an address that names something draws no absent crumb", () => {
-    const crumbs = renderTrail({ ...NO_ADDRESS, sessionId: "session-1" }, "Timeline");
+    const crumbs = renderTrail({ ...NO_ADDRESS, sessionId: "session-1" }, "Transcript");
     expect(crumbs.querySelector(".meridian-pane__crumb-absent")).toBeNull();
   });
 
   it("wears the provenance signature on every wire crumb and on no prose one", () => {
     // Rule 4: an id came off the wire and renders mono; the pane's own name is prose
     // this console wrote and must not borrow the signature that says otherwise.
-    const crumbs = renderTrail({ ...NO_ADDRESS, sessionId: "session-1" }, "Timeline");
+    const crumbs = renderTrail({ ...NO_ADDRESS, sessionId: "session-1" }, "Transcript");
     const figures = [...crumbs.querySelectorAll(".meridian-figure--wire")].map(
       (figure) => figure.textContent,
     );

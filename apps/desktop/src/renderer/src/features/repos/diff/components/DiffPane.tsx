@@ -5,7 +5,7 @@
 // kind in the console; what this file returns is the BODY that goes inside it. The
 // section, its tab stop, its accessible name, and the actor's hue all arrive from
 // there, which is why none of them is set here and why the pane is named by its whole
-// address trail rather than by the word "Diff".
+// address trail rather than by the word "Review".
 //
 // WHAT THIS FILE DECIDES IS WHICH OF TWO BODIES THE PANE DRAWS: the change set it was
 // handed, or the absence copy for the subject the address names.
