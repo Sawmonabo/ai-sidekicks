@@ -37,8 +37,8 @@ import { compareInstants, parseInstant } from "@renderer/lib/instant.js";
  * The two states that are audit stubs rather than sessions a person can work in.
  *
  * Typed as a subset of the wire union rather than as loose strings, so a rename in
- * `packages/contracts` fails here at compile time. Chapter 13 owns the retention
- * read-out; what this list owes them is to render them and offer nothing.
+ * `packages/contracts` fails here at compile time. Saying how long they are kept is
+ * not this list's job; what this list owes them is to render them and offer nothing.
  */
 export const AUDIT_STUB_SESSION_STATES: readonly SessionState[] = ["purge_requested", "purged"];
 

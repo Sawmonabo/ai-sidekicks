@@ -68,7 +68,8 @@ export type EntityMutation = EntityUpsert | EntityRemoval;
  *
  * This is a RENDERER-LOCAL projection contract, not a wire type: the bridge's event
  * payloads are `unknown` until the contracts package lands its discriminated unions, and
- * a console that invented wire members would be the lane-4 change Phase 1C forbids. The
+ * a console that invented wire members would be defining the wire, which only
+ * `packages/contracts` does. The
  * bridge adapter narrows a payload into this shape at the boundary, so exactly one module
  * knows the wire and everything above it reads this.
  */

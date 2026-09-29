@@ -2,10 +2,10 @@
 // route names.
 //
 // The frame owns chrome and nothing else. It does not know what a session screen
-// is, and the six 1C screen families do not know the frame exists — they register a
-// renderer for a route and the frame mounts it. That separation is what lets the
-// families ship in parallel, and it is why `surfaces` is a prop rather than an
-// import: an import would make the frame depend on all six.
+// is, and the features do not know the frame exists — they register a renderer for a
+// route and the router mounts it. That separation is what lets the features ship in
+// parallel, and it is why the screen arrives as `children` rather than an import: an
+// import would make the frame depend on every feature.
 //
 // THE BACKGROUND WRAPPER IS THE SHELL'S `inert` GUARD, and it is why the rail and the
 // column are wrapped rather than left as direct children. The adopted dialog family
